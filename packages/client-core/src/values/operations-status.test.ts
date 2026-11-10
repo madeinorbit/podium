@@ -4,7 +4,7 @@ import {
   type MachineWire,
   type QuotaWindowHistoryWire,
 } from '@podium/model'
-import type { HostMemoryBreakdown, MobileClientSession } from '@podium/protocol'
+import type { DeviceSignInView, HostMemoryBreakdown } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
   connectedDeviceViews,
@@ -298,13 +298,10 @@ describe('useGrantedHostMetrics', () => {
 describe('connectedDeviceViews', () => {
   const session = (
     sessionId: string,
-    partial: Partial<MobileClientSession> = {},
-  ): MobileClientSession => ({
-    sessionId,
-    userId: 'user:one',
-    label: 'mobile',
-    kind: 'mobile',
-    deviceId: `device-${sessionId}`,
+    partial: Partial<DeviceSignInView> = {},
+  ): DeviceSignInView => ({
+    id: sessionId,
+    kind: 'phone',
     deviceName: sessionId,
     platform: 'ios',
     createdAt: '2026-08-29T00:00:00.000Z',

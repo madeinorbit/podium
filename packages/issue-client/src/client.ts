@@ -3,7 +3,11 @@ import {
   type IssueContractName,
   type LockCommandName,
 } from '@podium/commands'
-import { SESSION_COOKIE, type SyncSubmitTransport, writesThroughSubmit } from '@podium/protocol'
+import {
+  deviceSignInCookieName,
+  type SyncSubmitTransport,
+  writesThroughSubmit,
+} from '@podium/protocol'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 
 /** One issue procedure endpoint. Query and mutate are the same call over both
@@ -135,7 +139,7 @@ function describeNonEnvelope(status: number, text: string, carriedCredential: bo
 }
 
 export interface IssueClientOptions {
-  /** A `podium_session` token (the same credential the browser login issues) sent as a
+  /** A signed device sign-in token (the same value a browser receives) sent as a
    *  cookie on every call. Absent = no cookie, which is correct on an instance with no
    *  password configured: `clientAuthGuard` passes those through. */
   sessionToken?: string
@@ -158,6 +162,9 @@ export interface IssueClientOptions {
  *  against it (see IssueTrpc) — procedure names route by path exactly as before. */
 export function makeIssueClient(baseUrl: string, opts: IssueClientOptions = {}): IssueTrpc {
   const doFetch = opts.fetchImpl ?? fetch
+  const origin = new URL(baseUrl)
+  const sendCookie =
+    origin.protocol === 'https:' || ['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname)
   // The CALL SIGNATURE, not `typeof fetch`: under Bun's lib types the global also
   // carries a `preconnect` method, and a wrapper is not obliged to reimplement it —
   // `httpBatchLink` only ever calls this.
@@ -166,8 +173,11 @@ export function makeIssueClient(baseUrl: string, opts: IssueClientOptions = {}):
     init?: Parameters<typeof fetch>[1],
   ): Promise<Response> => {
     const headers = new Headers(init?.headers)
-    if (opts.sessionToken)
-      headers.set('cookie', `${SESSION_COOKIE}=${encodeURIComponent(opts.sessionToken)}`)
+    if (opts.sessionToken && sendCookie)
+      headers.set(
+        'cookie',
+        `${deviceSignInCookieName(origin.protocol)}=${encodeURIComponent(opts.sessionToken)}`,
+      )
     if (opts.workspaceId) headers.set('Podium-Workspace-Id', opts.workspaceId)
     const res = await doFetch(input as never, { ...init, headers })
     if (res.ok) return res

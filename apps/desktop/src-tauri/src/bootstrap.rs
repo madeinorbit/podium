@@ -500,7 +500,7 @@ pub fn move_target_url(origin: &Url, claim_token: Option<&str>) -> Url {
     match claim_token.filter(|token| !token.is_empty()) {
         Some(token) => {
             target.set_path("/auth/server-transfer-claim");
-            let fragment = format!("token={}&next=%2F", form_component(token));
+            let fragment = format!("token={}&next=%2F&deviceKind=desktop", form_component(token));
             target.set_fragment(Some(&fragment));
         }
         None => target.set_path("/"),
@@ -672,6 +672,15 @@ pub fn validate_desktop_navigation(url: &Url) -> Result<(), String> {
     validate_server_transport(url.as_str()).map(|_| ())
 }
 
+/// The shared identity cookie for the server connection's scheme.
+pub fn device_sign_in_cookie_name(scheme: &str) -> &'static str {
+    if scheme == "https" {
+        "__Secure-podium.session_token"
+    } else {
+        "podium.session_token"
+    }
+}
+
 /// Build the one session cookie copied across a committed desktop origin transition. The value
 /// stays in memory; omitting expiry/max-age keeps it a session cookie, while the validated target
 /// host, root path, and transport flags prevent it from escaping to an unrelated origin.
@@ -682,7 +691,7 @@ pub fn session_cookie_for_target(value: &str, server_url: &str) -> Result<Cookie
         .filter(|host| !host.is_empty())
         .ok_or_else(|| "remote server URL has no host".to_string())?;
     Ok(
-        Cookie::build(("podium_session".to_string(), value.to_string()))
+        Cookie::build((device_sign_in_cookie_name(target.scheme()), value.to_string()))
             .domain(host.to_string())
             .path("/")
             .secure(target.scheme() == "https")
@@ -2809,7 +2818,7 @@ mod tests {
     fn transferred_session_cookie_is_scoped_and_keeps_security_flags() {
         let cookie = session_cookie_for_target("secret-test-value", "wss://new.example:55555")
             .expect("cookie target should be valid");
-        assert_eq!(cookie.name(), "podium_session");
+        assert_eq!(cookie.name(), "__Secure-podium.session_token");
         assert_eq!(cookie.value(), "secret-test-value");
         assert_eq!(cookie.domain(), Some("new.example"));
         assert_eq!(cookie.path(), Some("/"));
@@ -2821,6 +2830,7 @@ mod tests {
 
         let local = session_cookie_for_target("secret-test-value", "ws://127.0.0.1:9123")
             .expect("http target should be valid");
+        assert_eq!(local.name(), "podium.session_token");
         assert_eq!(local.domain(), Some("127.0.0.1"));
         assert_eq!(local.secure(), Some(false));
     }
@@ -4017,7 +4027,7 @@ mod tests {
         let claim = move_target_url(&origin, Some("abc_DEF-123"));
         assert_eq!(claim.path(), "/auth/server-transfer-claim");
         assert_eq!(claim.query(), None);
-        assert_eq!(claim.fragment(), Some("token=abc_DEF-123&next=%2F"));
+        assert_eq!(claim.fragment(), Some("token=abc_DEF-123&next=%2F&deviceKind=desktop"));
     }
 
     #[test]

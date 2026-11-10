@@ -1,9 +1,9 @@
-import { offlineProfileStatus, type AuthBootstrap } from '@podium/client-core/accounts'
+import { type AuthBootstrap, offlineProfileStatus } from '@podium/client-core/accounts'
 import { type ReactNode, useEffect, useState } from 'react'
 import { BootTroubleScreen } from '../components/BootTroubleScreen'
 import { MembershipDeniedView } from '../components/MembershipDeniedView'
 import { LoginScreen } from '../screens/LoginScreen'
-import { type AuthStatus, probeAuth, logout } from './auth'
+import { type AuthStatus, logout, probeAuth } from './auth'
 import { AuthStatusContext } from './auth-context'
 import { demoEnabled } from './demoData'
 import { LaunchReadyView } from './launch-ready'
@@ -87,10 +87,12 @@ export function AuthGate({ children }: { children: ReactNode }) {
     )
   }
   if (state === 'login') {
+    // Older pairings were unsigned 32-byte tokens. Shared sign-ins are signed.
     return (
       <LaunchReadyView>
         <LoginScreen
           httpOrigin={config.httpOrigin}
+          repairNeeded={bearer !== null && /^[A-Za-z0-9_-]{43}$/.test(bearer)}
           cloudSignInUrl={authStatus?.mode === 'cloud' ? authStatus.signInUrl : undefined}
           onAuthed={async (token) => {
             await updateCredential(token)

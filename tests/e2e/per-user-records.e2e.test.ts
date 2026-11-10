@@ -24,7 +24,6 @@
  * for part; the outbox's online probe is the one switch the test holds.
  */
 
-import { randomBytes } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -60,9 +59,9 @@ import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { IDBFactory } from 'fake-indexeddb'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
-import { hashToken } from '../../apps/server/src/auth-route'
 import type { AppRouter } from '../../apps/server/src/router'
 import { startServer } from '../../apps/server/src/server'
+import { cookieOf } from '../../apps/server/src/test-support/test-identity'
 // The kernel queue alone: the engine's index also loads the decorated client
 // models, which this node lane does not transform.
 import { openKernelEngineOutbox } from '../../packages/client-core/src/runtime-root/outbox/kernel-outbox'
@@ -72,7 +71,7 @@ const PER_USER_KINDS = new Set(['pin', 'tabOrder', 'userPreferences', 'userReadP
 const priorStateDir = process.env.PODIUM_STATE_DIR
 const priorMode = process.env.PODIUM_MODE
 
-const MEMBER = asUserId('usr_member_6673_e2e')
+let MEMBER: UserId
 
 describe('POD-6673 · my per-user records on my other device (live server)', () => {
   let stateDir: string
@@ -88,14 +87,16 @@ describe('POD-6673 · my per-user records on my other device (live server)', () 
     process.env.PODIUM_MODE = 'server'
     server = await startServer({ port: 0 })
     ME = await firstAdminMemberId(server.registry.sessionStore)
-    await server.registry.sessionStore.users.createUnclaimed({
-      id: MEMBER,
-      displayName: 'Member',
-      email: null,
+    const { invitation } = await server.identity.memberships.invite({
+      actor: { memberId: ME },
       role: 'member',
-      createdAt: new Date().toISOString(),
-      disabledAt: null,
+      email: 'bob@example.test',
     })
+    const accepted = await server.identity.memberships.accept({
+      token: invitation.token,
+      account: { kind: 'new', name: 'Bob', email: 'bob@example.test' },
+    })
+    MEMBER = asUserId(accepted.memberId)
   })
 
   afterAll(async () => {
@@ -118,10 +119,16 @@ describe('POD-6673 · my per-user records on my other device (live server)', () 
 
   /** A signed-in device: its own session cookie for `user`, as a login sets. */
   async function signIn(user: UserId): Promise<string> {
-    const token = randomBytes(32).toString('base64url')
-    const expires = new Date(Date.now() + 3_600_000).toISOString()
-    await server.registry.sessionStore.auth.createClientSession(hashToken(token), user, expires)
-    return token
+    const row = await server.registry.sessionStore.users.get(user)
+    if (!row?.accountId) throw new Error('The test member has no account')
+    return cookieOf(
+      await server.identity.core.deviceSignIns.create(
+        row.accountId,
+        { kind: 'browser' },
+        'cookie',
+        { scheme: 'http', sameMachine: true, clientAddress: '127.0.0.1' },
+      ),
+    )
   }
 
   const trpcFor = (token: string) =>
@@ -129,7 +136,7 @@ describe('POD-6673 · my per-user records on my other device (live server)', () 
       links: [
         httpBatchLink({
           url: `http://127.0.0.1:${server.port}/trpc`,
-          headers: { cookie: `podium_session=${token}` },
+          headers: { cookie: token },
         }),
       ],
     })
@@ -181,7 +188,7 @@ describe('POD-6673 · my per-user records on my other device (live server)', () 
     })
     const sourceDeps = {
       origin: `http://127.0.0.1:${server.port}`,
-      streamingFetch: { fetch, headers: () => ({ cookie: `podium_session=${token}` }) },
+      streamingFetch: { fetch, headers: () => ({ cookie: token }) },
     }
     const bootstraps = new HttpBootstrapSource(sourceDeps)
     const deltas = new HttpDeltaSource(sourceDeps)
@@ -217,7 +224,7 @@ describe('POD-6673 · my per-user records on my other device (live server)', () 
     // HTTP-sync capability a feed client advertises before and after upgrade.
     const url = `ws://127.0.0.1:${server.port}/client?v=${CLIENT_WIRE_VERSION}&vmin=${MIN_CLIENT_WIRE_VERSION}&cap=${CAP_SYNC_HTTP_V1}`
     const ws = new WebSocket(url, {
-      headers: { cookie: `podium_session=${token}` },
+      headers: { cookie: token },
     })
     sockets.push(ws)
     ws.on('message', (data) => {

@@ -1,6 +1,6 @@
 import { relativeTime } from '@podium/client-core/focus'
 import { devicePlatformLabel, visibleFleetOperations } from '@podium/client-core/values'
-import type { MobileClientSession } from '@podium/protocol'
+import type { DeviceSignInView } from '@podium/protocol'
 import { useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { useMemo, useState } from 'react'
@@ -280,7 +280,7 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
           ) : devices.length === 0 ? (
             <Row label="Devices" value="none" />
           ) : (
-            devices.map((device) => <ConnectedDeviceRow key={device.sessionId} device={device} />)
+            devices.map((device) => <ConnectedDeviceRow key={device.id} device={device} />)
           )}
           {deviceFeed.failed && devices.length > 0 ? (
             <Row label="Refresh" value="failed · showing prior list" />
@@ -410,7 +410,7 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
 const ConnectedDeviceRow = observer(function ConnectedDeviceRow({
   device,
 }: {
-  device: MobileClientSession
+  device: DeviceSignInView
 }) {
   const now = useAgeNow(
     device.lastSeenAt ?? device.createdAt,

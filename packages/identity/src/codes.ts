@@ -18,7 +18,9 @@ import {
   consumeByCode,
   consumeResetCode,
   decideCode,
+  deleteRedeemedCode,
   deleteSignInsOfAccount,
+  discardTransferClaim,
   insertCode,
   insertPasswordMethod,
   liveResetCode,
@@ -131,13 +133,14 @@ export function oneTimeCodeOperations(
       if (row.approval === 'denied') return { state: 'denied' }
       if (row.expiresAt.getTime() <= runtime.now().getTime()) return { state: 'expired' }
       const stored = storedDevice(row)
-      if (!row.claimId || !stored.device || !stored.phrase) {
+      if (!row.claimId || !stored.device || !stored.delivery || !stored.phrase) {
         return { state: 'pending', expiresAt: row.expiresAt }
       }
       return {
         state: row.approval === 'approved' ? 'approved' : 'claimed',
         expiresAt: row.expiresAt,
         device: stored.device,
+        delivery: stored.delivery,
         phrase: stored.phrase,
       }
     },
@@ -150,6 +153,10 @@ export function oneTimeCodeOperations(
         now: runtime.now(),
       })
       return decided.length > 0
+    },
+
+    async discardTransferClaim(id) {
+      await discardTransferClaim(runtime.db()).run({ id })
     },
 
     async begin(input) {
@@ -202,8 +209,15 @@ export function oneTimeCodeOperations(
     },
 
     async redeem(input, device, delivery, facts) {
-      if (!runtime.configurationFor(facts)) throw new IdentityRefused('https_required')
+      if (!runtime.configurationFor(facts) || (delivery === 'bearer' && facts.scheme !== 'https')) {
+        throw new IdentityRefused('https_required')
+      }
       const now = runtime.now()
+      function requireVerifier(row: CodeRow) {
+        if (!row.receiverChallenge) return
+        if (!input.verifier) throw new Refused()
+        if (!sameHash(sha256Hex(input.verifier), row.receiverChallenge)) throw new Refused(row.id)
+      }
       try {
         return await runtime.transaction(async () => {
           // Step 1: the one statement that consumes. No row: nothing happened.
@@ -213,19 +227,37 @@ export function oneTimeCodeOperations(
               : await consumeByCode(runtime.db()).run({ codeHash: sha256Hex(input.code), now })
           if (!row) {
             if ('claimId' in input) {
-              const waiting = await pendingClaim(runtime.db()).run({ claimId: input.claimId, now })
-              if (waiting.length > 0) return 'pending' as const
+              const [waiting] = await pendingClaim(runtime.db()).run({
+                claimId: input.claimId,
+                now,
+              })
+              if (
+                waiting &&
+                (storedDevice(waiting).delivery === 'cookie' || delivery === 'bearer')
+              ) {
+                requireVerifier(waiting)
+                return 'pending' as const
+              }
             }
             return undefined
           }
-          // Step 2: a receiver-bound code needs the receiver's own verifier.
-          if (row.receiverChallenge) {
-            if (!input.verifier) throw new Refused()
-            if (!sameHash(sha256Hex(input.verifier), row.receiverChallenge)) {
-              throw new Refused(row.id)
-            }
-          }
           const stored = storedDevice(row)
+          // A route can redeem only its own purpose. A pairing claim keeps
+          // the delivery channel chosen at claim time; it cannot turn a
+          // native bearer into a browser response or vice versa.
+          if ('code' in input) {
+            if (row.purpose === 'pair-device' || (input.purpose && input.purpose !== row.purpose)) {
+              throw new Refused()
+            }
+          } else if (
+            row.purpose !== 'pair-device' ||
+            !stored.delivery ||
+            (stored.delivery === 'bearer' && delivery !== 'bearer')
+          ) {
+            throw new Refused()
+          }
+          // Step 2: a receiver-bound code needs the receiver's own verifier.
+          requireVerifier(row)
           let life: { expiresAt: Date; fixed: boolean } | undefined
           if (row.purpose === 'hand-over') {
             // Step 3: the authorising sign-in must still exist; the new one ends with it.
@@ -244,6 +276,9 @@ export function oneTimeCodeOperations(
           const accountId = row.accountId as string
           const [account] = await accountById(runtime.db()).run({ id: accountId })
           if (!account) throw new Refused()
+          if ('code' in input && input.accountAllowed && !(await input.accountAllowed(accountId))) {
+            throw new Refused()
+          }
           if (runtime.signInGate && !(await runtime.signInGate(accountId))) throw new Refused()
           // Step 5: the device sign-in.
           const claimed = row.purpose === 'pair-device'
@@ -252,13 +287,19 @@ export function oneTimeCodeOperations(
             : row.purpose === 'host-sign-in'
               ? { ...device, kind: 'host' }
               : device
-          return await deviceSignIns.create(
+          const issued = await deviceSignIns.create(
             accountId,
             described,
             claimed ? (stored.delivery ?? delivery) : delivery,
             facts,
             life,
           )
+          // Pairing keeps a short-lived completion marker so the approving
+          // device can update its screen. These direct exchanges need none.
+          if (row.purpose === 'host-sign-in' || row.purpose === 'transfer-claim') {
+            await deleteRedeemedCode(runtime.db()).run({ id: row.id })
+          }
+          return issued
         })
       } catch (error) {
         if (!(error instanceof Refused)) throw error
@@ -266,6 +307,7 @@ export function oneTimeCodeOperations(
         // counted in a transaction of its own; the fifth denies the attempt.
         if (error.wrongVerifierOf) {
           await recordWrongVerifier(runtime.db()).run({ id: error.wrongVerifierOf })
+          if ('claimId' in input) input.onWrongVerifier?.()
         }
         return undefined
       }

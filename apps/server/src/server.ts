@@ -107,6 +107,7 @@ import {
   type NativeServer,
   serveNative,
 } from './gateway/ws-server'
+import { hostSignIns } from './host-sign-ins'
 import { podiumCors } from './http-cors'
 import { PairingManager } from './hub/pairing'
 import { MemberHasNoAccount, memberCredentials } from './identity/member-credentials'
@@ -118,8 +119,7 @@ import { registerLocateProofRoute } from './locate-proof-route'
 import { registerMcpRoute } from './mcp-route'
 import { memberLinks } from './member-invites'
 import { registerMemberRoutes } from './member-routes'
-import { MobilePairingManager } from './mobile-pairing'
-import { clientAddressForRequest, registerMobilePairingRoutes } from './mobile-pairing-route'
+import { registerMobilePairingRoutes } from './mobile-pairing-route'
 import { connectClient } from './modules/connect/client'
 import { ConnectPublisher } from './modules/connect/publisher'
 import { connectScanThroughEffect } from './modules/fleet/discovery-effects'
@@ -178,6 +178,7 @@ import {
 import { registerReadinessRoute } from './readiness-route'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
+import { clientAddressForRequest } from './request-scheme'
 import { compressHttpResponse } from './response-compression'
 import { resolveServerRole, type ServerRoleConfig } from './roles'
 import { appRouter } from './router'
@@ -185,6 +186,7 @@ import { createServerReadiness } from './server-readiness'
 import { adoptLegacyHostMachine, completePreauthorizedSetup } from './setup-enrollment'
 import { registerSetupRoute } from './setup-route'
 import { closeServerFast } from './shutdown'
+import { registerSignInRoutes } from './sign-in-routes'
 import { registerDesktopWebStatic, registerMobileRouting, registerWebStatic } from './static-web'
 import { defaultDbPath, SessionStore } from './store'
 import { syncFeedPrincipal } from './sync/route-support'
@@ -755,7 +757,6 @@ export async function startServer(
         : null
     return { loginRequired, loginRequiredReason }
   }
-  const mobilePairing = new MobilePairingManager()
   // Readiness gate [spec:SP-c29e]: a bloated change log is fully pruned in
   // bounded, yielding units before SessionRegistry constructs its Ledger and
   // folds/reconciles the retained rows. The server does not listen meanwhile.
@@ -824,6 +825,7 @@ export async function startServer(
     serverPlacement,
     instanceId,
     memberCredentials: credentials,
+    clientRelocationCodes: identity.workspace.core.codes,
     devChannelFeed: () => devChannelFeed?.(),
     recoveryOnly,
     rehearseBoot: rehearsal,
@@ -1680,7 +1682,7 @@ export async function startServer(
   // same-origin in the supported network topologies; the password store gates it.
   app.use('/auth/*', cors())
   app.use('/auth/*', authReadinessBoundary(readiness))
-  let revokeConnectedMobileSession: (credentialId: string) => void = () => {}
+  let revokeConnectedDeviceSignIn: (credentialId: string) => void = () => {}
   registerAuthRoute(app, {
     syncBoundaryId: () => opts.workspaceId ?? installation.installationId,
     identity: identity.workspace,
@@ -1691,18 +1693,15 @@ export async function startServer(
     memberOfAccount: (accountId) => store.users.findMemberByAccount(accountId),
     allowedOrigins,
     isLocalRequest: isHostLocalRequest,
-    // The server-transfer claim still rotates an old client session (POD-6748).
-    store: store.auth,
-    trustedProxyHops,
     readiness,
     // Signing a device out closes that device's open sockets at once.
-    onDeviceSignInEnded: (deviceSignInId) => revokeConnectedMobileSession(deviceSignInId),
+    onDeviceSignInEnded: (deviceSignInId) => revokeConnectedDeviceSignIn(deviceSignInId),
     onLogin: (event) => registry.modules.bus.emit('auth.login', event),
   })
   const memberInvites = memberLinks({
     users: store.users,
     identity: identity.workspace,
-    onDeviceSignInEnded: (id) => revokeConnectedMobileSession(id),
+    onDeviceSignInEnded: (id) => revokeConnectedDeviceSignIn(id),
   })
   registerMemberRoutes(app, {
     onMembershipChanged: (memberId) => {
@@ -1714,7 +1713,7 @@ export async function startServer(
     },
     users: store.users,
     identity: identity.workspace,
-    onDeviceSignInEnded: (id) => revokeConnectedMobileSession(id),
+    onDeviceSignInEnded: (id) => revokeConnectedDeviceSignIn(id),
     resolveUserId: memberIdOfRequest,
     appUrl: () =>
       resolveAppUrl(loadConfig(), process.env) || resolvePublicUrl(loadConfig(), process.env),
@@ -1733,33 +1732,25 @@ export async function startServer(
     loginRequired: credentialsRequired,
     allowedOrigins,
   })
+  registerSignInRoutes(app, {
+    identity: identity.workspace,
+    memberOfRequest,
+    audit: store.settingsAudit,
+    allowedOrigins,
+    onDeviceSignInEnded: (id) => revokeConnectedDeviceSignIn(id),
+  })
   registerMobilePairingRoutes(app, {
-    store: store.auth,
-    pairing: mobilePairing,
+    identity: identity.workspace,
+    memberOfRequest,
+    memberOfAccount: (accountId) => store.users.findMemberByAccount(accountId),
+    allowedOrigins,
     serverIdentity: () => ({
       publicUrl: resolvePublicUrl(loadConfig(), process.env),
-      appUrl: resolveAppUrl(loadConfig(), process.env),
       instanceId,
       workspaceId: opts.workspaceId,
       installationId: installation.installationId,
       installationPublicKey,
     }),
-    loginRequired: credentialsRequired,
-    // Pairing and device management require a real device sign-in. A caller
-    // admitted by the same-machine rule holds none and must never mint one.
-    resolveUserId: async (_headers, request) => {
-      const resolution = await memberOfRequest(request)
-      return resolution.kind === 'member' && resolution.deviceSignIn !== null
-        ? resolution.memberId
-        : undefined
-    },
-    trustedProxyHops,
-    localControlRequest: isHostLocalRequest,
-    // `app.fetch` receives the observed Request carrying the native peer header,
-    // not the original Request used as the WeakMap key above.
-    requestPeerAddress: (request) =>
-      request.headers.get('x-podium-peer-address') ?? requestPeerAddresses.get(request),
-    onCredentialRevoked: (tokenHash) => revokeConnectedMobileSession(tokenHash),
   })
   // An <img src> or a download link from another origin needs no CORS, but a
   // fetch() of /files/asset does — and HtmlFilePanel and OpenInBrowserButton
@@ -2066,7 +2057,7 @@ export async function startServer(
       // trust, read by both boundaries, so they cannot drift apart.
       { allowedOrigins, onOriginRefused: reportOriginRefusal },
     )
-    revokeConnectedMobileSession = (sessionId) => ws.revokeClientCredential(sessionId)
+    revokeConnectedDeviceSignIn = (sessionId) => ws.revokeClientCredential(sessionId)
 
     let acceptingRequests = true
     let server: Pick<NativeServer<never>, 'port' | 'stop'>
@@ -2542,6 +2533,11 @@ export async function startServer(
           : await listenUserSocket(
               serverControlSocketPath({ instanceId }),
               controlSocketHandler({
+                ...(identity.workspace.core.capabilities().adminEndDeviceSignIn
+                  ? {
+                      hostSignIns: hostSignIns(identity.workspace, revokeConnectedDeviceSignIn),
+                    }
+                  : {}),
                 tunnelHealth: (report) => tunnelHealth.report(report),
                 diagnostics: () => ({
                   connect: connectPublisher.diagnostics(),

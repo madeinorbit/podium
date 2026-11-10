@@ -3,12 +3,12 @@ import { NativeClientLoginResponse } from '@podium/protocol'
 import { parseReplicaNamespaceKey } from '../replica/principal-storage'
 import {
   classifyAuthStatus,
-  ReplicaGateError,
   type ReplicaFailure,
+  ReplicaGateError,
 } from '../replica-assembly/failure'
-import { workspaceRequestInit, type WorkspaceSelector } from '../transport'
-import type { AccountCredentials } from './storage'
+import { type WorkspaceSelector, workspaceRequestInit } from '../transport'
 import type { ServerProfile } from './server-profiles'
+import type { AccountCredentials } from './storage'
 
 export interface AuthStatus {
   needsAuth: boolean
@@ -310,6 +310,7 @@ export function createAuthClient(options: {
     device?: { id: string; name: string },
     email = '',
     workspaceId?: string,
+    deviceKind?: 'desktop',
   ): Promise<LoginResult> {
     if (!browser && !origin.startsWith('https://'))
       return { ok: false, error: 'Native sign-in requires trusted HTTPS. No password was sent.' }
@@ -320,7 +321,7 @@ export function createAuthClient(options: {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          email: email.trim() || 'user:sole',
+          ...(email.trim() ? { email: email.trim() } : {}),
           password,
           ...(!browser
             ? {
@@ -329,7 +330,9 @@ export function createAuthClient(options: {
                 deviceName: device?.name ?? `${platform} phone`,
                 platform: platform === 'ios' || platform === 'android' ? platform : 'unknown',
               }
-            : {}),
+            : deviceKind
+              ? { deviceKind }
+              : {}),
         }),
       }),
     )

@@ -1,5 +1,6 @@
 import { RequestAnswer } from '@podium/client-graph/request-answer'
-import { Laptop, Link2, Shield, Smartphone } from 'lucide-react'
+import type { DeviceSignInView } from '@podium/protocol'
+import { Laptop, Shield, Smartphone } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
 import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { serverConfig } from '@/app/trpc'
@@ -12,7 +13,7 @@ import { SettingsPageSection } from '../settings-anchors'
 import { useSettingsTrpc } from '../stable-access'
 import { InstanceLoginSection } from './instance-login'
 import { AdvancedNetworkRows, NetworkSection } from './network'
-import { EntityRow, Row, Section } from './shared'
+import { EntityRow, Section } from './shared'
 
 /** `/auth/admin/access`: a bounded request answer, never a second member profile. */
 export interface AccessAnswer {
@@ -24,30 +25,18 @@ export interface AccessAnswer {
     activeMembers: number
     disabledMembers: number
   }
-  signInsTotal?: number
-  signIns: {
-    id?: string | null
-    memberId: string
-    memberName: string
-    kind: string
-    deviceName: string | null
-    platform: string | null
-    createdAt: string
-    lastSeenAt: string | null
-    expiresAt: string
-  }[]
 }
 
-type SignIn = AccessAnswer['signIns'][number]
-const KIND_LABEL: Record<string, string> = {
-  login: 'Browser or desktop',
-  mobile: 'Phone',
-  upstream: 'Upstream link',
-  'break-glass': 'Host recovery',
+/** `/auth/admin/sign-ins`: the workspace's device sign-ins, each with its member. */
+interface AccessSignIns {
+  signIns: SignIn[]
+  signInsTotal: number
 }
+
+type SignIn = DeviceSignInView & { memberId: string; memberName: string }
 const day = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : 'Not seen yet')
-export const isAdvancedSignIn = (signIn: Pick<SignIn, 'kind'>) =>
-  signIn.kind === 'upstream' || signIn.kind === 'break-glass'
+/** Host recovery sign-ins are made on the server machine itself, not by a person's device. */
+export const isAdvancedSignIn = (signIn: Pick<SignIn, 'kind'>) => signIn.kind === 'host'
 export function filterSignIns(
   signIns: SignIn[],
   filter: 'everyone' | 'phones' | 'advanced',
@@ -55,7 +44,7 @@ export function filterSignIns(
   return signIns.filter((signIn) =>
     filter === 'advanced'
       ? isAdvancedSignIn(signIn)
-      : !isAdvancedSignIn(signIn) && (filter === 'everyone' || signIn.kind === 'mobile'),
+      : !isAdvancedSignIn(signIn) && (filter === 'everyone' || signIn.kind === 'phone'),
   )
 }
 
@@ -111,10 +100,25 @@ const AccessPage = observer(function AccessPage() {
 
 const HostAccess = observer(function HostAccess({ network }: { network: NetworkSettingsView }) {
   const trpc = useSettingsTrpc()
-  const answer = useMemo(() => new RequestAnswer<AccessAnswer>(), [])
+  const answer = useMemo(
+    () => new RequestAnswer<AccessAnswer & AccessSignIns & { canRevoke: boolean }>(),
+    [],
+  )
   const origin = serverConfig(window.location).httpOrigin
   const reload = useCallback(
-    () => answer.load(() => authRequest<AccessAnswer>(origin, 'admin/access')),
+    () =>
+      answer.load(async () => {
+        const [access, signIns, status] = await Promise.all([
+          authRequest<AccessAnswer>(origin, 'admin/access'),
+          authRequest<AccessSignIns>(origin, 'admin/sign-ins'),
+          authRequest<{ capabilities?: { adminEndDeviceSignIn: boolean } }>(origin, 'status'),
+        ])
+        return {
+          ...access,
+          ...signIns,
+          canRevoke: status.capabilities?.adminEndDeviceSignIn === true,
+        }
+      }),
     [answer, origin],
   )
   useEffect(() => {
@@ -144,13 +148,14 @@ const HostAccess = observer(function HostAccess({ network }: { network: NetworkS
     }
   }
   const data = answer.answer
-  const total = data?.signInsTotal ?? data?.signIns.length ?? 0
+  const total = data?.signInsTotal ?? 0
   const visible = filterSignIns(data?.signIns ?? [], filter)
   const advanced = filterSignIns(data?.signIns ?? [], 'advanced')
   const signInRow = (signIn: SignIn) => (
     <SignInRow
-      key={signIn.id ?? `${signIn.memberId}-${signIn.kind}-${signIn.createdAt}-${signIn.expiresAt}`}
+      key={signIn.id}
       signIn={signIn}
+      canRevoke={data?.canRevoke === true}
       revoking={revoking}
       error={revokeError && revokeError.id === signIn.id ? revokeError.message : undefined}
       onRevoke={revoke}
@@ -168,7 +173,11 @@ const HostAccess = observer(function HostAccess({ network }: { network: NetworkS
         <Section
           list
           title="Signed in now"
-          hint="Every sign-in that has not expired. Ending one signs that device out at once."
+          hint={
+            data?.canRevoke
+              ? 'Every sign-in that has not expired. Ending one signs that device out at once.'
+              : 'Every sign-in that has not expired.'
+          }
           action={
             <fieldset aria-label="Filter sign-ins" className="settings-segmented">
               {(['everyone', 'phones'] as const).map((value) => (
@@ -219,8 +228,8 @@ const HostAccess = observer(function HostAccess({ network }: { network: NetworkS
               <p className="settings-list-note settings-prose">
                 Showing {data.signIns.length} of {total} sign-ins
                 {total > data.signIns.length ? ', latest expiry first' : ''}.
-                {filter === 'phones' && ` ${visible.length} phones in this list.`} Upstream links
-                and host recovery sign-ins are listed under Advanced.
+                {filter === 'phones' && ` ${visible.length} phones in this list.`} Host recovery
+                sign-ins are listed under Advanced.
               </p>
             </>
           )}
@@ -229,15 +238,6 @@ const HostAccess = observer(function HostAccess({ network }: { network: NetworkS
       <SettingsPageSection id="access-advanced">
         <Section title="Advanced" hint="Set by this deployment’s configuration.">
           <AdvancedNetworkRows view={network} />
-          <Row
-            label="Server-to-server links"
-            readOnly
-            readOnlyValue={
-              data
-                ? `${advanced.filter((signIn) => signIn.kind === 'upstream').length} upstream links`
-                : 'Loading…'
-            }
-          />
           {advanced.map(signInRow)}
         </Section>
       </SettingsPageSection>
@@ -245,26 +245,28 @@ const HostAccess = observer(function HostAccess({ network }: { network: NetworkS
   )
 })
 
+const KIND_LABEL: Record<SignIn['kind'], string> = {
+  browser: 'Browser',
+  desktop: 'Desktop',
+  phone: 'Phone',
+  host: 'Host recovery',
+}
+
 function SignInRow({
   signIn,
+  canRevoke,
   revoking,
   error,
   onRevoke,
 }: {
   signIn: SignIn
+  canRevoke: boolean
   revoking: string | null
   error?: string
   onRevoke: (id: string) => Promise<void>
 }) {
-  const Icon =
-    signIn.kind === 'mobile'
-      ? Smartphone
-      : signIn.kind === 'upstream'
-        ? Link2
-        : signIn.kind === 'break-glass'
-          ? Shield
-          : Laptop
-  const device = signIn.deviceName ?? KIND_LABEL[signIn.kind] ?? signIn.kind
+  const Icon = signIn.kind === 'phone' ? Smartphone : signIn.kind === 'host' ? Shield : Laptop
+  const device = signIn.deviceName || KIND_LABEL[signIn.kind]
   return (
     <EntityRow
       leading={<Icon size={18} aria-hidden="true" />}
@@ -287,7 +289,7 @@ function SignInRow({
         </>
       }
       trailing={
-        signIn.id ? (
+        canRevoke ? (
           <Button
             type="button"
             size="sm"
@@ -296,20 +298,11 @@ function SignInRow({
             disabled={revoking !== null}
             pending={revoking === signIn.id}
             pendingLabel="Signing out…"
-            onClick={() => {
-              if (signIn.id) void onRevoke(signIn.id)
-            }}
+            onClick={() => void onRevoke(signIn.id)}
           >
             Sign out
           </Button>
-        ) : (
-          <span
-            className="settings-micro text-muted-foreground"
-            title="This older sign-in has no public ID. Use Sign out everywhere in Members."
-          >
-            Use Members
-          </span>
-        )
+        ) : undefined
       }
     />
   )

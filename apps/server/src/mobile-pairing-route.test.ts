@@ -1,20 +1,17 @@
 import { createHash } from 'node:crypto'
+import { claimMobilePairing, pollMobilePairing } from '@podium/client-core/accounts/pairing'
 import { firstAdminMemberId } from '@podium/model'
-import { decodePairingEnvelope } from '@podium/protocol'
+import { decodePairingEnvelope, mobilePairingPhraseFromDigest } from '@podium/protocol'
 import { Hono } from 'hono'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { hashToken, resolveClientCredential } from './old-client-sessions'
-import { MobilePairingManager } from './mobile-pairing'
-import {
-  clientAddressForRequest,
-  PairingFailureThrottle,
-  registerMobilePairingRoutes,
-} from './mobile-pairing-route'
-import { AuthRepository } from './store/auth'
-import { createBunStoreExecutor } from './store/executor'
-import { openMigratedTestDatabase } from './test-support/migrated-database'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createMemberOfRequest } from './identity/member-of-request'
+import { PairingFailureThrottle, registerMobilePairingRoutes } from './mobile-pairing-route'
+import { clientAddressForRequest } from './request-scheme'
+import { registerSignInRoutes } from './sign-in-routes'
+import type { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
+import { cookieOf, openTestIdentity, type TestIdentity } from './test-support/test-identity'
 
-const AUTH_TOKEN = 'browser-session-token-abcdefghijklmnopqrstuvwxyz'
 const INSTALLATION_ID = `pdm_${'a'.repeat(43)}`
 const INSTALLATION_KEY = `ed25519:${'B'.repeat(43)}`
 const SECRET = Buffer.alloc(32, 11)
@@ -25,49 +22,73 @@ const HTTPS = {
   'x-forwarded-proto': 'https',
 }
 
-let store: AuthRepository
-let pairing: MobilePairingManager
+const PASSWORD = 'pairing test password'
+let store: SessionStore
+let identity: TestIdentity
+let accountId: string
+let browserCookie: string
 let app: Hono
 let peerAddress: string
 
 function authHeaders() {
-  return { ...HTTPS, cookie: `podium_session=${AUTH_TOKEN}` }
+  return { ...HTTPS, cookie: browserCookie }
 }
 
 async function post(path: string, body: unknown, headers: Record<string, string> = HTTPS) {
   return app.request(path, {
     method: 'POST',
-    headers,
+    headers: { 'x-podium-peer-address': peerAddress, ...headers },
     body: JSON.stringify(body),
   })
 }
 
-beforeEach(async () => {
-  const stage = createBunStoreExecutor({ database: openMigratedTestDatabase() }).queries
-  if (!stage) throw new Error('the test database is not bun-backed')
-  store = new AuthRepository(stage)
-  await store.createClientSession(
-    hashToken(AUTH_TOKEN),
-    firstAdminMemberId(),
-    '2999-01-01T00:00:00.000Z',
-  )
-  pairing = new MobilePairingManager()
-  peerAddress = '198.51.100.10'
+function mount(
+  opts: {
+    publicUrl?: string
+    instanceId?: string
+    trustedProxyHops?: number
+    maxFailures?: number
+  } = {},
+) {
   app = new Hono()
+  const memberOfRequest = createMemberOfRequest({
+    identity: identity.workspace,
+    users: store.users,
+    trustedProxyHops: opts.trustedProxyHops ?? 1,
+  })
   registerMobilePairingRoutes(app, {
-    store,
-    pairing,
+    identity: identity.workspace,
+    memberOfRequest,
+    memberOfAccount: (id) => store.users.findMemberByAccount(id),
+    allowedOrigins: new Set(['https://podium.example']),
     serverIdentity: () => ({
-      publicUrl: 'https://podium.example',
-      instanceId: 'instance-one',
+      publicUrl: opts.publicUrl ?? 'https://podium.example',
+      instanceId: opts.instanceId ?? 'instance-one',
       installationId: INSTALLATION_ID,
       installationPublicKey: INSTALLATION_KEY,
     }),
-    loginRequired: () => true,
-    resolveUserId: async (headers) => (await resolveClientCredential(store, headers))?.session.userId,
-    trustedProxyHops: 1,
-    requestPeerAddress: () => peerAddress,
+    throttle: { maxFailures: opts.maxFailures },
   })
+  registerSignInRoutes(app, {
+    identity: identity.workspace,
+    memberOfRequest,
+    audit: store.settingsAudit,
+  })
+}
+
+beforeEach(async () => {
+  store = await openTestStore(':memory:')
+  identity = await openTestIdentity(store)
+  accountId = (await identity.workspace.memberships.list())[0]!.account!.id
+  await identity.credentials.setPassword(firstAdminMemberId(), PASSWORD)
+  browserCookie = cookieOf(await identity.signIn({ password: PASSWORD }))
+  peerAddress = '198.51.100.10'
+  mount()
+})
+
+afterEach(async () => {
+  vi.unstubAllGlobals()
+  await store.close()
 })
 
 describe('mobile pairing routes', () => {
@@ -106,7 +127,13 @@ describe('mobile pairing routes', () => {
       claimId: string
       phrase: string[]
     }
-    expect(claimed.phrase).toHaveLength(3)
+    expect(claimed.phrase).toEqual(
+      mobilePairingPhraseFromDigest(
+        createHash('sha256')
+          .update(`podium-mobile-phrase\0${claimed.claimId}\0${CLAIM_HASH}`)
+          .digest(),
+      ),
+    )
 
     const status = await post(
       '/auth/mobile-pair/status',
@@ -139,30 +166,31 @@ describe('mobile pairing routes', () => {
       delivery: string
     }
     expect(completed).toMatchObject({ delivery: 'native' })
-    expect(completed.token).toBeTruthy()
-    expect(await store.getClientSession(hashToken(completed.token))).toMatchObject({
-      userId: firstAdminMemberId(),
-      label: 'mobile',
-      sessionId: expect.any(String),
-      deviceId: 'device-1',
-      deviceName: "Sam's iPhone",
-      platform: 'ios',
+    expect(completed.token).toMatch(/^[^.]+\.[A-Za-z0-9+/]+=*$/)
+    const caller = await identity.memberOfRequest(
+      new Request('https://podium.example/auth/status', {
+        headers: { authorization: `Bearer ${completed.token}` },
+      }),
+    )
+    expect(caller).toMatchObject({
+      kind: 'member',
+      memberId: firstAdminMemberId(),
+      deviceSignIn: { kind: 'phone' },
     })
+    expect(await identity.workspace.core.deviceSignIns.listForAccount(accountId)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'phone', deviceName: "Sam's iPhone", platform: 'ios' }),
+      ]),
+    )
   })
 
   it('returns URL-only open mode without creating a grant or session', async () => {
-    app = new Hono()
-    registerMobilePairingRoutes(app, {
-      store,
-      pairing,
-      serverIdentity: () => ({
-        publicUrl: 'http://podium.lan:18787',
-        instanceId: 'open-one',
-      }),
-      loginRequired: () => false,
-      resolveUserId: () => undefined,
-      requestPeerAddress: () => peerAddress,
-    })
+    const openIdentity = {
+      ...identity.workspace,
+      signInRequired: async () => false,
+    }
+    identity = { ...identity, workspace: openIdentity }
+    mount({ publicUrl: 'http://podium.lan:18787', instanceId: 'open-one', trustedProxyHops: 0 })
     const response = await post(
       '/auth/mobile-pair/start',
       {},
@@ -175,7 +203,9 @@ describe('mobile pairing routes', () => {
       mobileUrl: 'http://podium.lan:18787/mobile',
       transport: { grade: 'insecure' },
     })
-    expect(await store.listMobileClientSessions(firstAdminMemberId())).toHaveLength(0)
+    expect(
+      (await identity.workspace.core.deviceSignIns.listForAccount(accountId)).map((s) => s.kind),
+    ).toEqual(['browser'])
   })
 
   it('delivers browser completion only as the existing HttpOnly session cookie', async () => {
@@ -207,7 +237,9 @@ describe('mobile pairing routes', () => {
     const body = (await response.json()) as Record<string, unknown>
     expect(body).toMatchObject({ status: 'complete', delivery: 'browser' })
     expect(body).not.toHaveProperty('token')
-    expect(response.headers.get('set-cookie')).toMatch(/podium_session=.*HttpOnly.*Secure/i)
+    expect(response.headers.get('set-cookie')).toMatch(
+      /__Secure-podium\.session_token=.*HttpOnly.*Secure/i,
+    )
   })
 
   it('requires HTTPS and returns one uniform refusal for malformed, unknown, and used grants', async () => {
@@ -233,20 +265,7 @@ describe('mobile pairing routes', () => {
   })
 
   it('throttles pairing failures in its own bucket', async () => {
-    app = new Hono()
-    registerMobilePairingRoutes(app, {
-      store,
-      pairing,
-      serverIdentity: () => ({
-        publicUrl: 'https://podium.example',
-        instanceId: 'one',
-      }),
-      loginRequired: () => true,
-      resolveUserId: () => undefined,
-      trustedProxyHops: 1,
-      requestPeerAddress: () => peerAddress,
-      throttle: { maxFailures: 1, lockoutMs: 60_000 },
-    })
+    mount({ maxFailures: 1 })
     expect((await post('/auth/mobile-pair/claim', {})).status).toBe(400)
     const locked = await post('/auth/mobile-pair/claim', {})
     expect(locked.status).toBe(429)
@@ -254,15 +273,7 @@ describe('mobile pairing routes', () => {
   })
 
   it('uses real TLS by default and ignores a forged forwarded protocol', async () => {
-    app = new Hono()
-    registerMobilePairingRoutes(app, {
-      store,
-      pairing,
-      serverIdentity: () => ({ publicUrl: 'https://podium.example', instanceId: 'one' }),
-      loginRequired: () => true,
-      resolveUserId: () => undefined,
-      requestPeerAddress: () => peerAddress,
-    })
+    mount({ trustedProxyHops: 0 })
     const forged = await post('/auth/mobile-pair/claim', {}, HTTPS)
     expect(await forged.json()).toEqual({ error: 'secure HTTPS is required' })
     const remoteStart = await post('/auth/mobile-pair/start', {}, authHeaders())
@@ -271,28 +282,27 @@ describe('mobile pairing routes', () => {
     })
     const directTls = await app.request('https://podium.example/auth/mobile-pair/claim', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-podium-peer-address': peerAddress },
       body: '{}',
     })
     expect(await directTls.json()).toEqual({ error: 'pairing unavailable' })
   })
 
   it('allows a verified loopback controller while phone traffic remains HTTPS-only', async () => {
-    app = new Hono()
-    registerMobilePairingRoutes(app, {
-      store,
-      pairing,
-      serverIdentity: () => ({ publicUrl: 'https://podium.example.ts.net', instanceId: 'one' }),
-      loginRequired: () => true,
-      resolveUserId: async (headers) => (await resolveClientCredential(store, headers))?.session.userId,
-      trustedProxyHops: 1,
-      localControlRequest: (request) => request.headers.get('x-test-local') === 'yes',
-      requestPeerAddress: () => peerAddress,
-    })
+    mount({ publicUrl: 'https://podium.example.ts.net' })
     const localHeaders = {
       'content-type': 'application/json',
-      cookie: `podium_session=${AUTH_TOKEN}`,
-      'x-test-local': 'yes',
+      cookie: cookieOf(
+        await identity.signIn(
+          { password: PASSWORD },
+          {
+            scheme: 'http',
+            sameMachine: true,
+            clientAddress: '127.0.0.1',
+          },
+        ),
+      ),
+      'x-podium-peer-address': '127.0.0.1',
     }
     const start = await post('/auth/mobile-pair/start', {}, localHeaders)
     expect(start.status).toBe(200)
@@ -309,7 +319,7 @@ describe('mobile pairing routes', () => {
         deviceName: 'Phone',
         platform: 'ios',
       },
-      { 'content-type': 'application/json', 'x-test-local': 'yes' },
+      { 'content-type': 'application/json', 'x-podium-peer-address': '127.0.0.1' },
     )
     expect(insecureClaim.status).toBe(400)
 
@@ -341,16 +351,7 @@ describe('mobile pairing routes', () => {
   })
 
   it('keys failures on the socket peer unless proxy trust is explicitly configured', async () => {
-    app = new Hono()
-    registerMobilePairingRoutes(app, {
-      store,
-      pairing,
-      serverIdentity: () => ({ publicUrl: 'https://podium.example', instanceId: 'one' }),
-      loginRequired: () => true,
-      resolveUserId: () => undefined,
-      requestPeerAddress: () => peerAddress,
-      throttle: { maxFailures: 1, lockoutMs: 60_000 },
-    })
+    mount({ trustedProxyHops: 0, maxFailures: 1 })
     const headers = {
       'content-type': 'application/json',
       'x-forwarded-for': '203.0.113.1',
@@ -361,7 +362,7 @@ describe('mobile pairing routes', () => {
       (
         await app.request('https://podium.example/auth/mobile-pair/claim', {
           method: 'POST',
-          headers,
+          headers: { ...headers, 'x-podium-peer-address': peerAddress },
           body: '{}',
         })
       ).status,
@@ -371,7 +372,11 @@ describe('mobile pairing routes', () => {
       (
         await app.request('https://podium.example/auth/mobile-pair/claim', {
           method: 'POST',
-          headers: { ...headers, 'x-real-ip': '203.0.113.99' },
+          headers: {
+            ...headers,
+            'x-real-ip': '203.0.113.99',
+            'x-podium-peer-address': peerAddress,
+          },
           body: '{}',
         })
       ).status,
@@ -381,7 +386,11 @@ describe('mobile pairing routes', () => {
       (
         await app.request('https://podium.example/auth/mobile-pair/claim', {
           method: 'POST',
-          headers: { ...headers, 'x-forwarded-for': '203.0.113.200' },
+          headers: {
+            ...headers,
+            'x-forwarded-for': '203.0.113.200',
+            'x-podium-peer-address': peerAddress,
+          },
           body: '{}',
         })
       ).status,
@@ -389,17 +398,7 @@ describe('mobile pairing routes', () => {
   })
 
   it('does not charge unavailable completion polls against the peer throttle', async () => {
-    app = new Hono()
-    registerMobilePairingRoutes(app, {
-      store,
-      pairing,
-      serverIdentity: () => ({ publicUrl: 'https://podium.example', instanceId: 'one' }),
-      loginRequired: () => true,
-      resolveUserId: () => undefined,
-      trustedProxyHops: 1,
-      requestPeerAddress: () => peerAddress,
-      throttle: { maxFailures: 1, lockoutMs: 60_000 },
-    })
+    mount({ maxFailures: 1 })
     const body = {
       claimId: 'expired-or-restarted-claim',
       claimSecret: SECRET.toString('base64url'),
@@ -408,43 +407,85 @@ describe('mobile pairing routes', () => {
     expect((await post('/auth/mobile-pair/complete', body)).status).toBe(400)
   })
 
-  it('lists and remotely revokes only the caller-owned mobile row', async () => {
-    await store.createClientSession(
-      'a'.repeat(64),
-      firstAdminMemberId(),
-      '2999-01-01T00:00:00.000Z',
-      'mobile',
+  it('pairs through the phone client transport, survives route remount, and expires or refuses replay', async () => {
+    const started = await (await post('/auth/mobile-pair/start', {}, authHeaders())).json()
+    const envelope = decodePairingEnvelope(started.envelope)
+    if (envelope.v !== 2 || envelope.mode !== 'pair') throw new Error('wrong envelope')
+    vi.stubGlobal('fetch', (url: string, init: RequestInit) =>
+      app.request(url, {
+        ...init,
+        headers: {
+          ...init.headers,
+          'x-podium-peer-address': peerAddress,
+          'x-forwarded-for': peerAddress,
+        },
+      }),
+    )
+    const phone = await claimMobilePairing(envelope, 'test-phone', 'My iPhone', 'ios')
+    await expect(
+      claimMobilePairing(envelope, 'another-phone', 'Another iPhone', 'ios'),
+    ).rejects.toThrow(/unavailable/i)
+    // Claim, approve and complete can be served by different handlers.
+    mount()
+    expect(await pollMobilePairing(envelope.serverUrl, phone)).toEqual({ status: 'pending' })
+    const wrong = { ...phone, claimSecret: Buffer.alloc(32, 2).toString('base64url') }
+    expect(await pollMobilePairing(envelope.serverUrl, wrong)).toMatchObject({ status: 'denied' })
+    expect(
+      (await post('/auth/mobile-pair/approve', { pairingId: started.pairingId }, authHeaders()))
+        .status,
+    ).toBe(200)
+    const fromWeb = await post(
+      '/auth/mobile-pair/complete',
       {
-        sessionId: 'mobile-session-aaaaaaaa',
-        deviceId: 'phone',
-        deviceName: 'Phone',
-        platform: 'ios',
+        claimId: phone.claimId,
+        claimSecret: phone.claimSecret,
       },
+      { ...HTTPS, origin: 'https://podium.example' },
     )
-    await store.createClientSession(
-      'b'.repeat(64),
-      firstAdminMemberId(),
-      '2999-01-01T00:00:00.000Z',
-      'break-glass',
-    )
-    const listed = await app.request('/auth/client-sessions', {
-      headers: authHeaders(),
+    expect(fromWeb.status).toBe(400)
+    const attempts = await Promise.all([
+      pollMobilePairing(envelope.serverUrl, phone),
+      pollMobilePairing(envelope.serverUrl, phone),
+    ])
+    expect(attempts.map((result) => result.status).sort()).toEqual(['complete', 'denied'])
+    const paired = attempts.find((result) => result.status === 'complete')
+    if (!paired?.bearer) throw new Error('phone received no bearer')
+    const listed = await app.request('https://podium.example/auth/client-sessions', {
+      headers: { authorization: `Bearer ${paired.bearer}` },
     })
-    const sessions = ((await listed.json()) as { sessions: { sessionId: string }[] }).sessions
-    expect(sessions).toHaveLength(1)
-    expect(sessions[0]?.sessionId).toBe('mobile-session-aaaaaaaa')
-    expect(sessions[0]?.sessionId).not.toBe('a'.repeat(64))
+    const { signIns } = await listed.json()
+    const ownPhone = signIns.find((row: { current: boolean }) => row.current)
+    expect(ownPhone).toMatchObject({ kind: 'phone', deviceName: 'My iPhone' })
+    expect(signIns).toHaveLength(2)
+    expect(
+      (await post('/auth/client-sessions/revoke', { id: ownPhone.id }, authHeaders())).status,
+    ).toBe(200)
     expect(
       (
-        await post(
-          '/auth/client-sessions/revoke',
-          { sessionId: 'mobile-session-aaaaaaaa' },
-          authHeaders(),
-        )
+        await app.request('https://podium.example/auth/client-sessions', {
+          headers: { authorization: `Bearer ${paired.bearer}` },
+        })
       ).status,
-    ).toBe(200)
-    expect(await store.getClientSession('a'.repeat(64))).toBeUndefined()
-    expect((await store.getClientSession('b'.repeat(64)))?.label).toBe('break-glass')
+    ).toBe(401)
+
+    const stale = await identity.workspace.core.codes.issue({
+      purpose: 'pair-device',
+      accountId,
+      createdBy: 'test',
+      ttlMs: 1,
+    })
+    // Wait just past the issued deadline, independent of the wall-clock tick.
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.max(1, stale.expiresAt.getTime() - Date.now() + 1)),
+    )
+    await expect(
+      claimMobilePairing(
+        { ...envelope, pairCode: stale.code },
+        'expired-phone',
+        'Expired phone',
+        'ios',
+      ),
+    ).rejects.toThrow(/unavailable/i)
   })
 })
 

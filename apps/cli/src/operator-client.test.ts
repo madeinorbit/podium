@@ -50,7 +50,7 @@ it('carries the cached operator credential on a direct call', async () => {
         issues: { stats: { query(i: unknown): Promise<unknown> } }
       }
     ).issues.stats.query({})
-    expect(srv.cookie()).toContain('podium_session=minted-token')
+    expect(srv.cookie()).toContain('podium.session_token=minted-token')
   } finally {
     srv.close()
   }

@@ -3,13 +3,10 @@ import { readConnectedDevices } from './connected-devices-api'
 import type { fetchMobileTransport } from './trpc'
 
 const body = {
-  sessions: [
+  signIns: [
     {
-      sessionId: 'abcdefghijklmnopqrstuvwx',
-      userId: 'user:one',
-      label: 'mobile',
-      kind: 'mobile',
-      deviceId: 'phone-one',
+      id: 'abcdefghijklmnopqrstuvwx',
+      kind: 'phone',
       deviceName: 'Operator iPhone',
       platform: 'ios',
       createdAt: '2026-08-01T00:00:00.000Z',
@@ -29,7 +26,7 @@ describe('readConnectedDevices', () => {
         'profile-bearer',
         fetcher as unknown as typeof fetchMobileTransport,
       ),
-    ).resolves.toEqual(body.sessions)
+    ).resolves.toEqual(body.signIns)
     expect(fetcher).toHaveBeenCalledWith(
       'https://podium.example/auth/client-sessions',
       { cache: 'no-store', headers: { accept: 'application/json' } },
@@ -39,7 +36,7 @@ describe('readConnectedDevices', () => {
 
   it('refuses a malformed device inventory instead of publishing partial metadata', async () => {
     const fetcher = vi.fn(
-      async () => new Response(JSON.stringify({ sessions: [{ current: true }] }), { status: 200 }),
+      async () => new Response(JSON.stringify({ signIns: [{ current: true }] }), { status: 200 }),
     )
     await expect(
       readConnectedDevices(

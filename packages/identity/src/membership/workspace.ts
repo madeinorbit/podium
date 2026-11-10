@@ -18,9 +18,11 @@ import type { BoundWorkspace, MembershipEngine } from './engine'
 import { membershipOperations } from './operations'
 import {
   countSignInsOfWorkspace,
+  deviceSignInOwnerOfWorkspace,
   heldSignInStillValid,
   invitedMembershipByEmail,
   type MembershipRole,
+  revokeDeviceSignInsByKind,
   sameMachineFacts,
   signInsOfWorkspace,
   signInWithMembership,
@@ -157,9 +159,27 @@ export function workspaceIdentity(
       const rows = await signInsOfWorkspace(db()).run({ workspaceId, now, limit: page.limit })
       const [count] = await countSignInsOfWorkspace(db()).run({ workspaceId, now })
       return {
-        signIns: rows.map((row) => toDeviceSignIn(row, undefined)),
+        signIns: rows.map((row) => ({
+          ...toDeviceSignIn(row, undefined),
+          memberId: row.memberId,
+          memberName: row.memberName,
+        })),
         total: Number(count?.total ?? 0),
       }
+    },
+
+    async deviceSignInOwner(id) {
+      const [owner] = await deviceSignInOwnerOfWorkspace(db()).run({
+        id,
+        workspaceId,
+        now: runtime.now(),
+      })
+      return owner
+    },
+
+    async revokeDeviceSignInsByKind(kind) {
+      const ended = await revokeDeviceSignInsByKind(db()).run({ workspaceId, kind })
+      return ended.map((row) => row.id)
     },
 
     catchUp: () => workspace.catchUp(),

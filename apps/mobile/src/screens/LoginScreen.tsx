@@ -2,8 +2,8 @@ import { useRef, useState } from 'react'
 import { Platform, StyleSheet, Text, TextInput, View } from 'react-native'
 import { login, logout } from '../client/auth'
 import { useServerProfile } from '../client/server-profile-context'
-import { HostedSignInButton } from '../components/HostedSignInButton'
 import { AsciiWordmark } from '../components/AsciiWordmark'
+import { HostedSignInButton } from '../components/HostedSignInButton'
 import { KeyboardAvoidingRoot } from '../components/KeyboardAvoidingRoot'
 import { PressableScale } from '../components/PressableScale'
 import { WorkingMark } from '../components/WorkingMark'
@@ -46,10 +46,12 @@ function originHost(httpOrigin: string): string {
 export function LoginScreen({
   httpOrigin,
   cloudSignInUrl,
+  repairNeeded = false,
   onAuthed,
 }: {
   httpOrigin: string
   cloudSignInUrl?: string
+  repairNeeded?: boolean
   onAuthed: (bearer: string | null) => void | Promise<void>
 }) {
   const { profile } = useServerProfile()
@@ -158,6 +160,12 @@ export function LoginScreen({
     >
       <AsciiWordmark color={ok ? C.success : C.text} fontSize={3.9} />
       <Text style={styles.host}>{`Sign in to ${originHost(httpOrigin)}`.toUpperCase()}</Text>
+      {repairNeeded && (
+        <Text accessibilityRole="alert" style={[styles.status, { color: C.textDim }]}>
+          This phone needs to pair again after the server upgrade. On a signed-in computer, open
+          Settings → Account to create a new pairing code.
+        </Text>
+      )}
       <View style={[styles.form, error ? styles.formError : null]}>
         <TextInput
           accessibilityLabel="Email"

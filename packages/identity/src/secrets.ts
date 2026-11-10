@@ -12,7 +12,7 @@ export function storedTokenForm(token: string): string {
 }
 
 /** The stored form of a one-time code, an invitation token or a receiver verifier: SHA-256, hex. */
-export function sha256Hex(value: string): string {
+export function sha256Hex(value: string | Uint8Array): string {
   return createHash('sha256').update(value).digest('hex')
 }
 

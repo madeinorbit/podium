@@ -6,8 +6,7 @@
  * package. Who a request is comes from `memberOfRequest` and from nowhere
  * else: device sign-in, account, active membership, member.
  */
-import { randomBytes } from 'node:crypto'
-import type { WorkspaceIdentity } from '@podium/identity'
+import { IdentityRefused, type WorkspaceIdentity } from '@podium/identity'
 import { asUserId, type ServerReadiness, type UserId } from '@podium/model'
 import {
   fencedMemberOf,
@@ -18,13 +17,7 @@ import {
 import type { Context, Hono, MiddlewareHandler } from 'hono'
 import { isAllowedHttpOrigin } from './http-cors'
 import { type MemberOfRequest, refusalAnswer } from './identity/member-of-request'
-import {
-  type ClientSessionStore,
-  hashToken,
-  SESSION_TTL_MS,
-  setSessionCookie,
-} from './old-client-sessions'
-import { browserSignInDevice, browserSignInMetadata } from './sign-in-device'
+import { browserSignInDevice } from './sign-in-device'
 
 export { isHttps, isSecureRequest } from './request-scheme'
 
@@ -101,18 +94,26 @@ export interface AuthRouteOptions {
    * a 500.
    */
   onLogin?: (event: { userId: UserId; delivery: 'cookie' | 'native'; platform?: string }) => void
-  /** The old client sessions, for the server-transfer claim alone (POD-6748). */
-  store?: ClientSessionStore
-  now?: () => number
-  /** Number of reverse-proxy hops whose right-appended forwarding values are trusted. */
-  trustedProxyHops?: number
+}
+
+/** The fragment may select a page on the moved server only. */
+function transferDestination(next: string, requestUrl: string): string {
+  if (!next.startsWith('/') || next.startsWith('//') || next.includes('\\')) return '/'
+  const base = new URL(requestUrl)
+  try {
+    const target = new URL(next, base)
+    if (target.origin === base.origin && !target.pathname.startsWith('//')) {
+      return target.pathname + target.search + target.hash
+    }
+  } catch {
+    // Malformed paths have the same safe landing page as cross-origin URLs.
+  }
+  return '/'
 }
 
 export function registerAuthRoute(app: Hono, opts: AuthRouteOptions): void {
   const { identity, memberOfRequest } = opts
   const { core } = identity
-  const store = opts.store
-  const now = opts.now ?? (() => Date.now())
 
   /**
    * The package builds its own request to the sign-in library and never shows
@@ -163,56 +164,57 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions): void {
 
   app.get('/auth/server-transfer-claim', (c) =>
     c.html(
-      `<!doctype html><meta charset="utf-8"><title>Moving Podium…</title><p>Connecting to the moved server…</p><script>const p=new URLSearchParams(location.hash.slice(1));history.replaceState(null,'',location.pathname);const token=p.get('token');const next=p.get('next')||'/';if(!token){location.replace('/');}else{const f=document.createElement('form');f.method='post';f.action='/auth/server-transfer-claim';for(const [name,value] of [['token',token],['next',next]]){const i=document.createElement('input');i.type='hidden';i.name=name;i.value=value;f.appendChild(i);}document.body.appendChild(f);f.submit();}</script>`,
+      `<!doctype html><meta charset="utf-8"><title>Moving Podium…</title><p>Connecting to the moved server…</p><script>const p=new URLSearchParams(location.hash.slice(1));history.replaceState(null,'',location.pathname);const token=p.get('token');const next=p.get('next')||'/';const deviceKind=p.get('deviceKind')||'browser';if(!token){location.replace('/');}else{const f=document.createElement('form');f.method='post';f.action='/auth/server-transfer-claim';for(const [name,value] of [['token',token],['next',next],['deviceKind',deviceKind]]){const i=document.createElement('input');i.type='hidden';i.name=name;i.value=value;f.appendChild(i);}document.body.appendChild(f);f.submit();}</script>`,
       200,
       {
         'cache-control': 'no-store',
         'content-security-policy':
           "default-src 'none'; script-src 'unsafe-inline'; style-src 'none'; base-uri 'none'; form-action 'self'",
-        'referrer-policy': 'no-referrer',
+        // no-referrer makes browsers send Origin: null on the form POST.
+        // The claim stays in a fragment, and no referrer leaves this origin.
+        'referrer-policy': 'same-origin',
       },
     ),
   )
 
   app.post('/auth/server-transfer-claim', async (c) => {
-    if (!store) return c.redirect('/?serverTransferClaim=unavailable', 303)
+    if (foreignOrigin(c)) return c.json({ error: 'Origin refused' }, 403)
+    c.header('cache-control', 'no-store')
     let body: Record<string, string | File>
     try {
       body = await c.req.parseBody()
     } catch {
       return c.redirect('/?serverTransferClaim=invalid', 303)
     }
-    const token = typeof body.token === 'string' ? body.token : ''
+    const code = typeof body.token === 'string' ? body.token : ''
+    if (!/^[A-Za-z0-9_-]{43}$/.test(code)) return c.redirect('/?serverTransferClaim=invalid', 303)
     const requestedNext = typeof body.next === 'string' ? body.next : '/'
-    const next =
-      requestedNext.startsWith('/') && !requestedNext.startsWith('//') ? requestedNext : '/'
-    const tokenHash = hashToken(token)
-    const session = await store.getClientSession(tokenHash)
-    if (
-      token.length < 32 ||
-      session?.label !== 'server-transfer-claim' ||
-      !(session.expiresAt > new Date(now()).toISOString())
-    ) {
-      return c.redirect('/?serverTransferClaim=invalid', 303)
-    }
-    // Rotate the claim into an ordinary HttpOnly browser session. The plaintext
-    // claim was carried only in the old authenticated WebSocket and URL fragment;
-    // after this response it no longer authenticates anything.
-    const replacement = randomBytes(32).toString('base64url')
-    await store.deleteClientSession(tokenHash)
-    await store.createClientSession(
-      hashToken(replacement),
-      session.userId,
-      new Date(now() + SESSION_TTL_MS).toISOString(),
-      'login',
-      browserSignInMetadata(
-        c.req.header('user-agent'),
-        c.req.header('origin'),
-        new Date(now()).toISOString(),
-      ),
+    const next = transferDestination(requestedNext, c.req.url)
+    const device = browserSignInDevice(
+      c.req.header('user-agent'),
+      c.req.header('origin'),
+      body.deviceKind === 'desktop',
     )
-    setSessionCookie(c, replacement, opts.trustedProxyHops)
-    return c.redirect(next, 303)
+    try {
+      const issued = await core.codes.redeem(
+        { code, purpose: 'transfer-claim' },
+        device,
+        'cookie',
+        memberOfRequest.factsOf(c.req.raw),
+      )
+      if (!issued || issued === 'pending') return c.redirect('/?serverTransferClaim=invalid', 303)
+      if (!(await opts.memberOfAccount(issued.accountId))) {
+        await core.deviceSignIns.revoke(issued.deviceSignInId)
+        return c.redirect('/?serverTransferClaim=invalid', 303)
+      }
+      appendCookies(c, issued.headers)
+      return c.redirect(next, 303)
+    } catch (error) {
+      if (error instanceof IdentityRefused && error.code === 'https_required') {
+        return c.json({ error: error.code }, 400)
+      }
+      throw error
+    }
   })
 
   app.post('/auth/login', async (c) => {
@@ -222,8 +224,13 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions): void {
       // Sign-in is not required here; there is nothing to sign in to.
       return c.json({ error: 'auth disabled' }, 400)
     }
-    let body: { delivery?: unknown; email?: unknown; password?: unknown; prepareSignIn?: unknown } =
-      {}
+    let body: {
+      delivery?: unknown
+      email?: unknown
+      password?: unknown
+      deviceKind?: unknown
+      prepareSignIn?: unknown
+    } = {}
     try {
       body = ((await c.req.json()) ?? {}) as typeof body
     } catch {
@@ -267,7 +274,11 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions): void {
               deviceId: native.deviceId,
               platform: native.platform,
             }
-          : browserSignInDevice(c.req.header('user-agent'), c.req.header('origin')),
+          : browserSignInDevice(
+              c.req.header('user-agent'),
+              c.req.header('origin'),
+              body.deviceKind === 'desktop',
+            ),
         delivery: native ? 'bearer' : 'cookie',
       },
       memberOfRequest.factsOf(c.req.raw),

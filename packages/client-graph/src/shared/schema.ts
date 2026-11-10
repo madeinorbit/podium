@@ -110,7 +110,7 @@ export type ModelSchemaName =
   | 'SubscriptionWire'
   | 'AccountView'
   | 'MemberView'
-  | 'MobileClientSession'
+  | 'DeviceSignInView'
   | 'RequestRecordKey'
 
 /**
@@ -550,8 +550,8 @@ export { isExcluded as issueExcluded } from './predicates'
 const DECLARED = defineSchema({
   account: syncedIdentity('AccountView', 'request:accounts.list'),
   member: syncedIdentity('MemberView', 'request:members.list'),
-  device: { ...syncedIdentity('MobileClientSession', 'request:auth.mobileSessions'), key: 'sessionId',
-    fields: { sessionId: { type: 'id', source: { schema: 'MobileClientSession', arrivesOn: 'request:auth.mobileSessions' } } } },
+  device: { ...syncedIdentity('DeviceSignInView', 'request:auth.mobileSessions'), key: 'id',
+    fields: { id: { type: 'id', source: { schema: 'DeviceSignInView', arrivesOn: 'request:auth.mobileSessions' } } } },
   repository: syncedIdentity('RequestRecordKey', 'replica:checkouts'),
   /**
    * An issue: its normalized projection joined with personal markers, checkout

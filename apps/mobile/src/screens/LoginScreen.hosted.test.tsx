@@ -66,12 +66,14 @@ it.each([
   fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'secret' } })
   fireEvent.click(screen.getByRole('button'))
   await waitFor(() => expect(onAuthed).toHaveBeenCalledWith('phone-token'))
-  expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toMatchObject({
-    email: email || 'user:sole',
+  const request = JSON.parse(fetchMock.mock.calls[0]![1].body)
+  expect(request).toMatchObject({
     password: 'secret',
     delivery: 'native',
     deviceId: 'phone',
     deviceName: 'Phone',
   })
+  if (email) expect(request.email).toBe(email)
+  else expect(request).not.toHaveProperty('email')
   expect(screen.getByText(/Leave email blank/)).toBeTruthy()
 })

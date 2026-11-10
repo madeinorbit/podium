@@ -40,11 +40,22 @@
  *       400 {"ok":false,"error":"..."}   no email, or not JSON
  *       409 {"ok":false,"error":"..."}   no such enabled member with a password
  *
+ *   POST /v1/host-sign-in   {"ttlMs": 60000?}
+ *       Issue a one-minute recovery code for the sole active admin.
+ *   POST /v1/host-sign-in/redeem   {"code": "..."}
+ *       Exchange that code once for a signed device sign-in of kind host.
+ *   GET  /v1/sign-ins
+ *       List live device sign-ins without tokens.
+ *   POST /v1/sign-ins/revoke   {"kind": "host"?}
+ *       End just this kind of sign-in; defaults to host.
+ *
  * Every other method or path is a 404, and a body over 4 KiB a 413.
  */
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http'
+import { DeviceSignInKind } from '@podium/protocol'
 import type { ApplyPublicUrlResult } from '@podium/runtime/setup'
 import { TunnelHealthReport } from '@podium/runtime/tunnel-health'
+import type { HostSignIns } from './host-sign-ins'
 
 export const CONTROL_BODY_MAX_BYTES = 4_096
 
@@ -59,6 +70,7 @@ export interface ControlSocketDeps {
     isSet(): Promise<boolean>
     set(password: string): Promise<{ ok: true } | { ok: false; error: string }>
   }
+  hostSignIns?: HostSignIns
   /** A recovery link for the member with this email (POD-6298). */
   memberRecovery?: (
     email: string,
@@ -148,6 +160,52 @@ export function controlSocketHandler(deps: ControlSocketDeps): RequestListener {
         const result = await deps.memberRecovery(input.email.trim())
         reply(res, result.ok ? 200 : 409, result)
         return
+      }
+      if (deps.hostSignIns) {
+        if (req.method === 'GET' && req.url === '/v1/sign-ins') {
+          reply(res, 200, await deps.hostSignIns.list())
+          return
+        }
+        if (req.method === 'POST' && req.url === '/v1/host-sign-in') {
+          const input = await readJson(req, res)
+          if (!input) return
+          const { ttlMs } = input
+          if (
+            ttlMs !== undefined &&
+            (typeof ttlMs !== 'number' ||
+              !Number.isSafeInteger(ttlMs) ||
+              ttlMs < 1 ||
+              ttlMs > 8.64e15 - Date.now())
+          ) {
+            reply(res, 400, { ok: false, error: 'Expected ttlMs as a positive duration.' })
+            return
+          }
+          const result = await deps.hostSignIns.issue(ttlMs)
+          reply(res, result.ok ? 200 : 409, result)
+          return
+        }
+        if (req.method === 'POST' && req.url === '/v1/host-sign-in/redeem') {
+          const input = await readJson(req, res)
+          if (!input) return
+          if (typeof input.code !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(input.code)) {
+            reply(res, 400, { ok: false, error: 'Expected a host recovery code.' })
+            return
+          }
+          const result = await deps.hostSignIns.redeem(input.code)
+          reply(res, result.ok ? 200 : 409, result)
+          return
+        }
+        if (req.method === 'POST' && req.url === '/v1/sign-ins/revoke') {
+          const input = await readJson(req, res)
+          if (!input) return
+          const kind = DeviceSignInKind.safeParse(input.kind ?? 'host')
+          if (!kind.success) {
+            reply(res, 400, { ok: false, error: 'Expected kind: browser, desktop, phone or host.' })
+            return
+          }
+          reply(res, 200, await deps.hostSignIns.revoke(kind.data))
+          return
+        }
       }
       if (req.method === 'GET' && req.url === '/v1/diagnostics' && deps.diagnostics) {
         reply(res, 200, deps.diagnostics())

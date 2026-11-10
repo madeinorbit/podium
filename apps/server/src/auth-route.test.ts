@@ -7,7 +7,11 @@
  * per identifier in every corner, who a sign-in without an address means,
  * expiry) is asserted by the shared suite; these tests are about the routes.
  */
-import { asUserId, firstAdminMemberId, type UserId } from '@podium/model'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { serverRelocationDestination } from '@podium/client-core/live-connection'
+import { asMachineId, asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import { MEMBER_FENCE_HEADER, MEMBER_FENCE_REFUSAL } from '@podium/protocol'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
@@ -17,7 +21,8 @@ import {
   isSecureRequest,
   registerAuthRoute,
 } from './auth-route'
-import { hashToken } from './old-client-sessions'
+import { clientRelocations } from './client-relocation'
+import { createPortableSnapshot } from './modules/server-transfer/snapshot'
 import { authReadinessBoundary } from './readiness-boundary'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
@@ -50,7 +55,6 @@ function makeApp(opts: Partial<AuthRouteOptions> = {}) {
     identity: identity.workspace,
     memberOfRequest: identity.memberOfRequest,
     memberOfAccount: (accountId) => store.users.findMemberByAccount(accountId),
-    store: store.auth,
     ...opts,
   })
   return app
@@ -562,31 +566,130 @@ describe('POST /auth/logout', () => {
   })
 })
 
-describe('the server-transfer claim (old client sessions, until POD-6748)', () => {
-  test('is exchanged once and refuses a replay and an open redirect', async () => {
-    const claim = 'transfer-claim-token-abcdefghijklmnopqrstuvwxyz'
-    await store.auth.createClientSession(
-      hashToken(claim),
-      admin,
-      new Date(Date.now() + 60_000).toISOString(),
-      'server-transfer-claim',
-    )
-    const app = makeApp()
-    const exchange = (next: string) =>
-      app.request(`${ORIGIN}/auth/server-transfer-claim`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ token: claim, next }).toString(),
+describe('the server-transfer claim', () => {
+  test('exchanges a shared move code once for a desktop sign-in at the new origin', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'podium-move-sign-in-'))
+    const source = await openTestStore(join(directory, 'podium.db'))
+    let target: SessionStore | undefined
+    try {
+      const sourceIdentity = await openTestIdentity(source)
+      const bob = await sourceIdentity.addMember({
+        name: 'Bob',
+        email: 'bob@example.test',
+        password: PASSWORD,
       })
-    const response = await exchange('/issues?moved=1')
-    expect(response.status).toBe(303)
-    expect(response.headers.get('location')).toBe('/issues?moved=1')
-    expect(await store.auth.getClientSession(hashToken(claim))).toBeUndefined()
-    const replay = await exchange('//attacker.example')
-    expect(replay.headers.get('location')).toBe('/?serverTransferClaim=invalid')
-    expect(replay.headers.get('set-cookie')).toBeNull()
+      const oldDevice = await sourceIdentity.signIn({
+        email: 'bob@example.test',
+        password: PASSWORD,
+      })
+      const sourceMember = await sourceIdentity.workspace.resolve(
+        new Request('https://source.example', {
+          headers: { cookie: oldDevice.headers.getSetCookie()[0]!.split(';', 1)[0]! },
+        }),
+        { scheme: 'https', sameMachine: false, clientAddress: null },
+      )
+      expect(sourceMember).toMatchObject({ kind: 'member', memberId: bob })
+      if (sourceMember.kind !== 'member') throw new Error('source sign-in did not resolve')
+      const relocations = clientRelocations({
+        codes: sourceIdentity.workspace.core.codes,
+        clients: () => [{ id: 'desktop-socket', principal: { user: bob } }],
+        accountFor: async (memberId) => (await source.users.get(memberId))?.accountId,
+      })
+      await relocations.prepare('move-1')
+      const snapshot = join(directory, 'snapshot')
+      await createPortableSnapshot({
+        stateRoot: directory,
+        packageDir: snapshot,
+        operationId: 'move-1',
+        transferId: 'transfer-1',
+        sourceInstanceId: 'source',
+        sourceMachineId: asMachineId('source'),
+        targetMachineId: asMachineId('target'),
+        sourceFeedId: 'feed',
+        sourceFeedEpoch: 'epoch',
+        sourceApplicationVersion: '1.0.0',
+        sourceSchemaVersion: 'test',
+        checkpoint: () => source.checkpointForTransfer(),
+      })
+      target = await openTestStore(join(snapshot, 'podium.db'))
+      const targetIdentity = await openTestIdentity(target)
+      const app = makeApp({
+        identity: targetIdentity.workspace,
+        memberOfRequest: targetIdentity.memberOfRequest,
+        memberOfAccount: (id) =>
+          target?.users.findMemberByAccount(id) ?? Promise.resolve(undefined),
+      })
+      const claim = relocations.take('move-1')('desktop-socket')
+      expect(claim).toMatch(/^[A-Za-z0-9_-]{43}$/)
+      const destination = new URL(serverRelocationDestination(ORIGIN, '/issues?moved=1', claim))
+      const page = await get(app, destination.pathname)
+      expect(page.headers.get('cache-control')).toBe('no-store')
+      // A same-origin form must send its real Origin so the POST can validate it.
+      expect(page.headers.get('referrer-policy')).toBe('same-origin')
+      const fragment = new URLSearchParams(destination.hash.slice(1))
+      const exchange = (next: string) => transferClaim(app, fragment.get('token')!, next, 'desktop')
+      const response = await exchange(fragment.get('next')!)
+      expect(response.status).toBe(303)
+      expect(response.headers.get('location')).toBe('/issues?moved=1')
+      const cookie = cookieOf(response)
+      expect(cookie).toMatch(/^__Secure-podium\.session_token=/)
+      expect(cookie).not.toContain(claim!)
+      const status = await get(app, '/auth/status', { cookie: cookie! })
+      expect(await status.json()).toMatchObject({ authed: true, memberId: bob })
+      expect(
+        await targetIdentity.workspace.core.deviceSignIns.listForAccount(sourceMember.accountId),
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: 'desktop',
+            deviceName: 'Podium desktop on Linux',
+          }),
+        ]),
+      )
+      const replay = await exchange('/')
+      expect(replay.headers.get('location')).toBe('/?serverTransferClaim=invalid')
+      expect(replay.headers.get('set-cookie')).toBeNull()
+    } finally {
+      await target?.close()
+      await source.close()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  test('refuses a host code and foreign origins, and keeps the next page on the server', async () => {
+    const accountId = (await identity.workspace.memberships.list())[0]!.account!.id
+    const codes = identity.workspace.core.codes
+    const host = await codes.issue({ accountId, purpose: 'host-sign-in', createdBy: 'host' })
+    const move = await codes.issue({ accountId, purpose: 'transfer-claim', createdBy: 'host' })
+    const app = makeApp()
+    const wrongPurpose = await transferClaim(app, host.code, '/')
+    expect(wrongPurpose.headers.get('location')).toBe('/?serverTransferClaim=invalid')
+    expect(cookieOf(wrongPurpose)).toBeUndefined()
+    const foreign = await transferClaim(app, move.code, '/', 'browser', 'https://evil.example')
+    expect(foreign.status).toBe(403)
+    const valid = await transferClaim(app, move.code, '/\\evil.example')
+    expect(valid.headers.get('location')).toBe('/')
+    expect(cookieOf(valid)).toBeDefined()
   })
 })
+
+function transferClaim(
+  app: App,
+  token: string,
+  next: string,
+  deviceKind = 'browser',
+  origin = ORIGIN,
+) {
+  return app.request(`${ORIGIN}/auth/server-transfer-claim`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+      'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) Firefox/140.0',
+      origin,
+    },
+    body: new URLSearchParams({ token, next, deviceKind }).toString(),
+  })
+}
 
 test('direct member creation is retired in favor of invite-and-claim', async () => {
   const response = await post(makeApp(), '/auth/users', {

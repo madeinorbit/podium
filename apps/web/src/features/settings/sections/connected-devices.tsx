@@ -2,13 +2,12 @@ import { relativeTime } from '@podium/client-core/focus'
 import type { RecordRequest } from '@podium/client-graph/requested-records'
 import { lazy } from '@podium/mobx-helpers'
 import {
-  MobileClientSession as MobileClientSessionSchema,
+  DeviceSignInsResponse,
   type MobilePairStartResponse as MobilePairStart,
   MobilePairStartResponse,
   type MobilePairStatusResponse as MobilePairStatus,
   MobilePairStatusResponse,
-  type MobileClientSession as MobileSessionView,
-  RevokeMobileClientSessionRequest,
+  type DeviceSignInView as MobileSessionView,
 } from '@podium/protocol'
 import {
   ArrowRight,
@@ -19,6 +18,7 @@ import {
   LogOut,
   Monitor,
   RefreshCw,
+  Server,
   ShieldAlert,
   Smartphone,
   TriangleAlert,
@@ -45,7 +45,7 @@ import { ConfirmInline, EntityRow, Section, ThisDeviceTag } from './shared'
  * Narrow view of the server contract consumed by this screen. Keeping it here
  * makes the security boundary visible: the web UI receives an ephemeral
  * envelope, a safe pairing handle, and public session metadata — never a
- * durable credential. The opaque per-row sessionId is used only for revocation.
+ * durable credential. The opaque per-row id is used only for revocation.
  */
 export interface MobilePairingApi {
   auth: {
@@ -65,7 +65,7 @@ export interface MobilePairingApi {
       query(): Promise<MobileSessionView[]>
     }
     revokeMobileSession: {
-      mutate(input: { sessionId: string }): Promise<unknown>
+      mutate(input: { id: string }): Promise<unknown>
     }
   }
 }
@@ -219,19 +219,13 @@ export function createMobilePairingApi(httpOrigin: string): MobilePairingApi {
       mobileSessions: {
         query: async () => {
           // Every sign-in of the caller, not only phones (POD-6701).
-          const response = await requestJson(`${httpOrigin}/auth/client-sessions?include=all`, {
+          const response = await requestJson(`${httpOrigin}/auth/client-sessions`, {
             cache: 'no-store',
             credentials: 'include',
             referrerPolicy: 'no-referrer',
             headers: { accept: 'application/json' },
           })
-          return MobileClientSessionSchema.array()
-            .parse((response as { sessions?: unknown }).sessions)
-            .filter(
-              (session) =>
-                RevokeMobileClientSessionRequest.safeParse({ sessionId: session.sessionId })
-                  .success,
-            )
+          return DeviceSignInsResponse.parse(response).signIns
         },
       },
       revokeMobileSession: {
@@ -257,13 +251,17 @@ function displayPlatform(session: Pick<MobileSessionView, 'kind' | 'platform'>):
               : normalized === 'web'
                 ? 'Web'
                 : undefined
-  const kind =
-    session.kind === 'desktop' ? 'Desktop app' : session.kind === 'browser' ? 'Browser' : 'Phone'
+  const kind = {
+    desktop: 'Desktop app',
+    browser: 'Browser',
+    phone: 'Phone',
+    host: 'Host recovery',
+  }[session.kind]
   return os ? `${kind} · ${os}` : kind
 }
 
 function DeviceIcon({ kind }: { kind: MobileSessionView['kind'] }): JSX.Element {
-  const Icon = kind === 'desktop' ? Monitor : kind === 'browser' ? Globe : Smartphone
+  const Icon = { desktop: Monitor, browser: Globe, phone: Smartphone, host: Server }[kind]
   return <Icon className="mt-0.5 size-4 flex-none text-muted-foreground" aria-hidden="true" />
 }
 
@@ -453,7 +451,7 @@ function ClaimRequest({
           <div className="min-w-0 flex-1">
             <h4 className="settings-h2">{stage.deviceName} wants to connect</h4>
             <p className="settings-micro mt-1">
-              {displayPlatform({ kind: 'mobile', platform: stage.platform })}
+              {displayPlatform({ kind: 'phone', platform: stage.platform })}
             </p>
             <p className="settings-prose mt-3">Confirm that the phone shows these exact words:</p>
             <fieldset
@@ -584,23 +582,23 @@ export const SignedInDevicesSection = observer(function SignedInDevicesSection({
   const signOut = async (session: MobileSessionView) => {
     if (revokingRef.current || (session.current && checkingChanges)) return
     revokingRef.current = true
-    setRevoking(session.sessionId)
+    setRevoking(session.id)
     setError(null)
     try {
       if (session.current && account) await account.signOut()
       else {
-        await api.auth.revokeMobileSession.mutate({ sessionId: session.sessionId })
+        await api.auth.revokeMobileSession.mutate({ id: session.id })
         request?.cancel()
         pool?.apply({
           type: 'update',
-          rows: [{ kind: 'device', id: session.sessionId, value: undefined }],
+          rows: [{ kind: 'device', id: session.id, value: undefined }],
         })
       }
       setConfirming(null)
       sessionsRegionRef.current?.focus()
       if (!session.current) toast.success(`${session.deviceName} signed out.`)
     } catch (cause) {
-      setConfirming(session.sessionId)
+      setConfirming(session.id)
       setError(cause instanceof Error ? cause.message : SAFE_REVOKE_ERROR)
     } finally {
       revokingRef.current = false
@@ -680,7 +678,7 @@ export const SignedInDevicesSection = observer(function SignedInDevicesSection({
             <p className="settings-prose p-4">No devices are signed in to your account.</p>
           )}
           {sessions?.map((session) => (
-            <div key={session.sessionId}>
+            <div key={session.id}>
               <EntityRow
                 leading={<DeviceIcon kind={session.kind} />}
                 title={session.deviceName}
@@ -698,10 +696,10 @@ export const SignedInDevicesSection = observer(function SignedInDevicesSection({
                     variant="ghost"
                     id={session.current ? signOutRowId : undefined}
                     disabled={revoking !== null || (session.current && checkingChanges)}
-                    pending={revoking === session.sessionId}
+                    pending={revoking === session.id}
                     pendingLabel="Signing out…"
                     onClick={() => {
-                      if (session.current && warnUnsynced) changeConfirmation(session.sessionId)
+                      if (session.current && warnUnsynced) changeConfirmation(session.id)
                       else void signOut(session)
                     }}
                   >
@@ -709,7 +707,7 @@ export const SignedInDevicesSection = observer(function SignedInDevicesSection({
                   </Button>
                 }
               />
-              {confirming === session.sessionId && (
+              {confirming === session.id && (
                 <div className="px-4">
                   <ConfirmInline
                     sentence={

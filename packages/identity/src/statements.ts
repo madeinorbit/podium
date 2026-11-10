@@ -565,6 +565,27 @@ export const consumeByClaim = prepared<{ claimId: string; now: Date }, CodeRow>(
     .returning(codeColumns(t)),
 )
 
+/** Direct redemption routes have no status pollers. Remove their spent rows. */
+export const deleteRedeemedCode = prepared<{ id: string }>((db, t) =>
+  db
+    .delete(t.oneTimeCode)
+    .where(
+      and(eq(t.oneTimeCode.id, p(t.oneTimeCode.id, 'id')), isNotNull(t.oneTimeCode.consumedAt)),
+    ),
+)
+
+export const discardTransferClaim = prepared<{ id: string }>((db, t) =>
+  db
+    .delete(t.oneTimeCode)
+    .where(
+      and(
+        eq(t.oneTimeCode.id, p(t.oneTimeCode.id, 'id')),
+        eq(t.oneTimeCode.purpose, 'transfer-claim'),
+        isNull(t.oneTimeCode.consumedAt),
+      ),
+    ),
+)
+
 export const consumeResetCode = prepared<{ codeHash: string; now: Date }, CodeRow>((db, t) =>
   db
     .update(t.oneTimeCode)
@@ -580,9 +601,9 @@ export const consumeResetCode = prepared<{ codeHash: string; now: Date }, CodeRo
 )
 
 /** A live claim that still waits for its decision. */
-export const pendingClaim = prepared<{ claimId: string; now: Date }, { id: string }>((db, t) =>
+export const pendingClaim = prepared<{ claimId: string; now: Date }, CodeRow>((db, t) =>
   db
-    .select({ id: t.oneTimeCode.id })
+    .select(codeColumns(t))
     .from(t.oneTimeCode)
     .where(
       and(

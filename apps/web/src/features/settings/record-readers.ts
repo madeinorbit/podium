@@ -31,4 +31,4 @@ export function useSettingsRecords<E extends RequestedEntity>(
 
 export const accountKey = (row: PoolRows['account']) => row.id
 export const memberKey = (row: PoolRows['member']) => row.id
-export const deviceKey = (row: PoolRows['device']) => row.sessionId
+export const deviceKey = (row: PoolRows['device']) => row.id

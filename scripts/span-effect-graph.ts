@@ -439,7 +439,12 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
   {
     file: 'packages/identity/src/types.ts',
     line: 144,
-    why: "the identity core's `transaction` (PDM-495): the same runtime transaction, offered to the edition so a rule of its own commits together with a membership. It joins or forwards to the edition's port above; no server code calls it.",
+    why: "the identity core's `transaction` (PDM-495): forwards to the edition's port above. The server's self-hosted issue and revoke ceremonies run identity and audit statements on that same store connection, then close sockets after commit.",
+  },
+  {
+    file: 'packages/identity/src/types.ts',
+    line: 420,
+    why: "the hosted applied-cursor transaction port (PDM-509). The server binds it to SessionStore.transact, already classified above; the port itself does not open another span.",
   },
 ]
 

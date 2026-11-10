@@ -1,9 +1,10 @@
 import { Buffer } from 'node:buffer'
-import { randomBytes, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { type HumanCeiling, workflowAssignInput } from '@podium/commands'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness/metadata'
+import type { OneTimeCodeOperations } from '@podium/identity'
 import type {
   AgentKind,
   Attribution,
@@ -75,11 +76,10 @@ import {
 } from '@podium/sync'
 import { FEED_RESCOPE_THRESHOLD } from '@podium/sync/bootstrap-worker'
 import { IssueAttachOrchestrator } from './application/issue-attach-orchestrator'
-import type { MemberCredentials } from './identity/member-credentials'
-import { hashToken } from './old-client-sessions'
 import { bootStage } from './boot-timing'
 import { serverBuildVersion } from './build-version'
 import { capabilityPrincipalResolver } from './capability-principal'
+import { clientRelocations } from './client-relocation'
 import { codexAuthorizerFor, createCodexTransport } from './codex-machine'
 import {
   attributionOf,
@@ -101,6 +101,7 @@ import { PresenceRouting } from './gateway/presence-routing'
 import { createDaemonTopicIngress } from './gateway/topic-ingress'
 import { daemonTopicProducer, type TopicProducers, TopicRouting } from './gateway/topic-routing'
 import { driverFamilyForId } from './harness-manifest'
+import type { MemberCredentials } from './identity/member-credentials'
 import { checkIssueAccess, mayReachPrivate } from './issue-authz'
 import { type CodexTransport, llmClient } from './llm'
 import {
@@ -385,6 +386,8 @@ interface SessionRegistryOptions {
    * identity core (most tests): every password write refuses.
    */
   memberCredentials?: MemberCredentials
+  /** Device claims are included in the last portable snapshot of a server move. */
+  clientRelocationCodes?: OneTimeCodeOperations
   /** Reaction contracts to publish on the module seam. Defaults to the registry;
    *  injected only so the runtime refusal of an invalid principal is observable
    *  (POD-1470). Whatever is passed goes through the same totality check the
@@ -940,7 +943,13 @@ export class SessionRegistry {
     const clientRegistry = new ClientRegistry()
     // Plaintext claims live only until this source tells its already-authenticated
     // browser sockets to leave. Their hashes enter the final portable snapshot.
-    const clientRelocationClaims = new Map<string, Map<string, string>>()
+    const relocations = clientRelocations({
+      codes: options.clientRelocationCodes,
+      clients: () => clientRegistry.values(),
+      // The socket was admitted by memberOfRequest; the current row could
+      // have been disabled since then.
+      accountFor: async (memberId) => (await this.store.users.get(memberId))?.accountId,
+    })
     // The operator's log-level valve over that same connection set (POD-1920).
     // Stateless: it selects connections and delivers a frame, so a client that
     // reconnects is back at its own default with nothing to clean up.
@@ -1788,42 +1797,19 @@ export class SessionRegistry {
             ? { ok: true }
             : { ok: false, error: result.error ?? 'endpoint resume was refused' }
         },
-        prepareClientRelocations: async (operationId) => {
-          const claims = clientRelocationClaims.get(operationId) ?? new Map<string, string>()
-          const expiresAt = new Date(this.now() + 10 * 60_000).toISOString()
-          for (const client of clientRegistry.values()) {
-            if (claims.has(client.id)) continue
-            const token = randomBytes(32).toString('base64url')
-            await this.store.auth.createClientSession(
-              hashToken(token),
-              client.principal.user,
-              expiresAt,
-              'server-transfer-claim',
-            )
-            claims.set(client.id, token)
-          }
-          clientRelocationClaims.set(operationId, claims)
-        },
-        cancelClientRelocations: async (operationId) => {
-          const claims = clientRelocationClaims.get(operationId)
-          if (!claims) return
-          // AWAITED: these rows ARE the claim credentials. Dropping the promise
-          // deletes the local map while the sessions stay valid in the database.
-          for (const token of claims.values())
-            await this.store.auth.deleteClientSession(hashToken(token))
-          clientRelocationClaims.delete(operationId)
-        },
+        prepareClientRelocations: relocations.prepare,
+        cancelClientRelocations: relocations.cancel,
         relocateClients: (input) => {
-          const claims = clientRelocationClaims.get(input.operationId)
+          const claimFor = relocations.take(input.operationId)
           for (const client of clientRegistry.values()) {
+            const claimToken = claimFor(client.id)
             clientRegistry.deliverAccountEvent(client, {
               type: 'serverRelocation',
               transferId: input.transferId,
               publicUrl: input.publicUrl,
-              ...(claims?.get(client.id) ? { claimToken: claims.get(client.id) } : {}),
+              ...(claimToken ? { claimToken } : {}),
             })
           }
-          clientRelocationClaims.delete(input.operationId)
         },
       },
       sourceHealthy: () => this.store.checkpointForTransfer(),

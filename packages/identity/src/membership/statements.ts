@@ -566,7 +566,7 @@ const liveSignInsOfWorkspace = (t: Tables) =>
 /** The unexpired sign-ins of the workspace's live members, latest expiry first. */
 export const signInsOfWorkspace = prepared<
   { workspaceId: string; now: Date; limit: number },
-  SignInRow
+  SignInRow & { memberId: string; memberName: string }
 >((db, t) =>
   db
     .select({
@@ -579,12 +579,26 @@ export const signInsOfWorkspace = prepared<
       lastSeenAt: t.session.lastSeenAt,
       expiresAt: t.session.expiresAt,
       fixedExpiry: t.session.fixedExpiry,
+      memberId: t.membership.memberId,
+      memberName: t.user.name,
     })
     .from(t.membership)
     .innerJoin(t.session, eq(t.session.userId, t.membership.accountId))
+    .innerJoin(t.user, eq(t.user.id, t.session.userId))
     .where(liveSignInsOfWorkspace(t))
     .orderBy(desc(t.session.expiresAt))
     .limit(sql.placeholder('limit')),
+)
+
+export const deviceSignInOwnerOfWorkspace = prepared<
+  { id: string; workspaceId: string; now: Date },
+  { memberId: string; accountId: string }
+>((db, t) =>
+  db
+    .select({ memberId: t.membership.memberId, accountId: t.session.userId })
+    .from(t.session)
+    .innerJoin(t.membership, eq(t.membership.accountId, t.session.userId))
+    .where(and(liveSignInsOfWorkspace(t), eq(t.session.id, p(t.session.id, 'id')))),
 )
 
 export const countSignInsOfWorkspace = prepared<
@@ -596,4 +610,26 @@ export const countSignInsOfWorkspace = prepared<
     .from(t.membership)
     .innerJoin(t.session, eq(t.session.userId, t.membership.accountId))
     .where(liveSignInsOfWorkspace(t)),
+)
+
+/** End all sign-ins of a kind, constrained to the workspace in the same statement. */
+export const revokeDeviceSignInsByKind = prepared<
+  { workspaceId: string; kind: string },
+  { id: string }
+>((db, t) =>
+  db
+    .delete(t.session)
+    .where(
+      and(
+        eq(t.session.deviceKind, p(t.session.deviceKind, 'kind')),
+        inArray(
+          t.session.userId,
+          db
+            .select({ accountId: t.membership.accountId })
+            .from(t.membership)
+            .where(and(ofWorkspace(t), inArray(t.membership.status, ['active', 'disabled']))),
+        ),
+      ),
+    )
+    .returning({ id: t.session.id }),
 )

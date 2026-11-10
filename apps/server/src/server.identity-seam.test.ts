@@ -34,7 +34,11 @@ describe('startServer identity seam', () => {
         // Only what the server calls at boot is stood in; nothing else is reached here.
         return {
           workspaceId: 'ws_seam',
-          core: { accounts: {}, sweep: async () => {} },
+          core: {
+            accounts: {},
+            capabilities: () => ({ adminEndDeviceSignIn: false }),
+            sweep: async () => {},
+          },
           catchUp: async () => {
             events.push('catchUp')
             await deps.appliedCursor.write(3)

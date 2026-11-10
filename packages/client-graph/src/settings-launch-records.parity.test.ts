@@ -1,6 +1,6 @@
 import type { AccountView, GitRepositoryWire, MemberView } from '@podium/model'
 import { asMachineId, asRepoId } from '@podium/model/browser'
-import type { MobileClientSession } from '@podium/protocol'
+import type { DeviceSignInView } from '@podium/protocol'
 import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { headerEntities } from './header-entities'
@@ -44,12 +44,9 @@ const member: MemberView = {
   createdAt: '2026-01-01T00:00:00Z',
   disabledAt: null,
 }
-const device: MobileClientSession = {
-  sessionId: 'abcdefghijklmnopqrstuvwx',
-  userId: 'owner',
-  label: 'mobile',
-  kind: 'mobile',
-  deviceId: 'phone',
+const device: DeviceSignInView = {
+  id: 'abcdefghijklmnopqrstuvwx',
+  kind: 'phone',
   deviceName: 'Phone',
   platform: 'ios',
   current: false,
@@ -68,7 +65,7 @@ it('matches every account/member/device fact from the old section responses and 
   const accounts = new RecordRequest(p, 'account', (row) => row.id)
   const other = new RecordRequest(p, 'account', (row) => row.id)
   const directory = new MemberDirectory(p)
-  const devices = new RecordRequest(p, 'device', (row) => row.sessionId)
+  const devices = new RecordRequest(p, 'device', (row) => row.id)
   try {
     await accounts.read(async () => [account])
     await directory.read(async () => ({
@@ -109,7 +106,7 @@ it('matches every account/member/device fact from the old section responses and 
     await devices.read(async () => [])
     expect(devices.answer).toEqual([])
     expect(devices.models).toEqual([])
-    expect(isGone(p.model('device', device.sessionId))).toBe(true)
+    expect(isGone(p.model('device', device.id))).toBe(true)
   } finally {
     accounts.dispose()
     other.dispose()

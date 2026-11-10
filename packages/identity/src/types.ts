@@ -152,7 +152,13 @@ export interface WorkspaceIdentity {
   renew(request: Request, facts: ConnectionFacts): Promise<Headers>
   signInRequired(): Promise<boolean>
   memberships: MembershipOperations
-  listDeviceSignIns(page: { limit: number }): Promise<{ signIns: DeviceSignIn[]; total: number }>
+  listDeviceSignIns(page: {
+    limit: number
+  }): Promise<{ signIns: WorkspaceDeviceSignIn[]; total: number }>
+  /** The member and account that own this unexpired sign-in in this workspace. */
+  deviceSignInOwner(id: string): Promise<{ memberId: string; accountId: string } | undefined>
+  /** Ends a kind of sign-in within this workspace. For a host control socket. */
+  revokeDeviceSignInsByKind(kind: DeviceKind): Promise<string[]>
   /** Hosted only: apply every membership change this workspace has not applied yet (section 11). */
   catchUp(): Promise<{ applied: number }>
 }
@@ -455,6 +461,11 @@ export interface DeviceSignIn {
   current: boolean
 }
 
+export interface WorkspaceDeviceSignIn extends DeviceSignIn {
+  memberId: string
+  memberName: string
+}
+
 // ---------------------------------------------------------------------------
 // One-time codes (section 2.8)
 // ---------------------------------------------------------------------------
@@ -490,6 +501,8 @@ export interface OneTimeCodeOperations {
   }): Promise<{ claimId: string; phrase: [string, string, string]; expiresAt: Date } | undefined>
   status(id: string, accountId: string): Promise<CodeStatus>
   decide(id: string, accountId: string, decision: 'approved' | 'denied'): Promise<boolean>
+  /** Invalidate an unredeemed claim when a move is cancelled. */
+  discardTransferClaim(id: string): Promise<void>
 
   /** hand-over: the receiving device starts the attempt; a signed-in account authorises it. */
   begin(input: {
@@ -504,7 +517,15 @@ export interface OneTimeCodeOperations {
 
   /** Turns a code into a device sign-in. Atomic; a code works once. */
   redeem(
-    input: { code: string; verifier?: string } | { claimId: string; verifier: string },
+    input:
+      | {
+          code: string
+          verifier?: string
+          purpose?: 'hand-over' | 'host-sign-in' | 'transfer-claim'
+          /** Workspace-specific check, inside the redemption transaction. */
+          accountAllowed?: (accountId: string) => Promise<boolean>
+        }
+      | { claimId: string; verifier: string | Uint8Array; onWrongVerifier?: () => void },
     device: DeviceDescription,
     delivery: 'cookie' | 'bearer',
     facts: ConnectionFacts,
@@ -526,12 +547,14 @@ export type CodeStatus =
       state: 'claimed'
       expiresAt: Date
       device: DeviceDescription
+      delivery: 'cookie' | 'bearer'
       phrase: [string, string, string]
     }
   | {
       state: 'approved'
       expiresAt: Date
       device: DeviceDescription
+      delivery: 'cookie' | 'bearer'
       phrase: [string, string, string]
     }
   | { state: 'denied' }

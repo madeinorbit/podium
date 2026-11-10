@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Trpc } from '@/app/trpc'
 import type { AdminViewer } from '../admin-viewer'
 import { resetForcedSettingCache } from '../use-forced-setting'
-import { type AccessAnswer, AccessSection, filterSignIns } from './access'
+import { AccessSection, filterSignIns } from './access'
 
 const fixture = vi.hoisted(() => ({
   trpc: {} as Trpc,
@@ -21,13 +21,14 @@ vi.mock('../stable-access', () => ({
 vi.mock('../admin-viewer', () => ({ useAdminSections: () => fixture.viewer }))
 vi.mock('../settings-frame', () => ({ useSettingsFrame: () => fixture }))
 
-const signIn = (id: string, kind: string): AccessAnswer['signIns'][number] => ({
+const signIn = (id: string, kind: 'browser' | 'desktop' | 'phone' | 'host') => ({
   id,
+  current: false,
   memberId: id,
   memberName: id,
   kind,
   deviceName: `${id} device`,
-  platform: null,
+  platform: 'unknown',
   createdAt: '2026-11-01T00:00:00.000Z',
   lastSeenAt: null,
   expiresAt: '2026-12-01T00:00:00.000Z',
@@ -50,10 +51,10 @@ function serve({
 } = {}) {
   let loginRequired = initiallyRequired
   let signIns = [
-    signIn('Browser', 'login'),
-    signIn('Phone', 'mobile'),
-    signIn('Link', 'upstream'),
-    signIn('Recovery', 'break-glass'),
+    signIn('Browser', 'browser'),
+    signIn('Phone', 'phone'),
+    signIn('Desktop', 'desktop'),
+    signIn('Recovery', 'host'),
   ]
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const path = new URL(url).pathname
@@ -62,9 +63,11 @@ function serve({
       signIns = signIns.filter((row) => row.id !== id)
     }
     const answer =
-      path === '/auth/admin/access'
+      path === '/auth/admin/sign-ins'
         ? { signIns, signInsTotal: capped ? 201 : signIns.length }
-        : { ok: true }
+        : path === '/auth/status'
+          ? { capabilities: { adminEndDeviceSignIn: true } }
+          : { ok: true }
     return new Response(JSON.stringify(answer), {
       status: 200,
       headers: { 'content-type': 'application/json' },
@@ -119,20 +122,19 @@ afterEach(() => {
 })
 
 describe('Access', () => {
-  it('maps phones and advanced sign-ins without losing other sign-in kinds', () => {
+  it('maps phones and host recovery sign-ins without losing other sign-in kinds', () => {
     const rows = [
-      signIn('a', 'login'),
-      signIn('b', 'mobile'),
-      signIn('c', 'upstream'),
-      signIn('d', 'break-glass'),
-      signIn('e', 'future-kind'),
+      signIn('a', 'browser'),
+      signIn('b', 'phone'),
+      signIn('c', 'desktop'),
+      signIn('d', 'host'),
     ]
-    expect(filterSignIns(rows, 'everyone').map((row) => row.id)).toEqual(['a', 'b', 'e'])
+    expect(filterSignIns(rows, 'everyone').map((row) => row.id)).toEqual(['a', 'b', 'c'])
     expect(filterSignIns(rows, 'phones').map((row) => row.id)).toEqual(['b'])
-    expect(filterSignIns(rows, 'advanced').map((row) => row.id)).toEqual(['c', 'd'])
+    expect(filterSignIns(rows, 'advanced').map((row) => row.id)).toEqual(['d'])
   })
 
-  it('shows invitation action and device sign-ins, with links and recovery under Advanced', async () => {
+  it('shows invitation action and device sign-ins, with host recovery under Advanced', async () => {
     serve()
     render(<AccessSection />)
     expect(await screen.findByRole('switch', { name: 'Require sign-in' })).toBeTruthy()
@@ -144,8 +146,8 @@ describe('Access', () => {
     const advanced = screen.getByRole('heading', { name: 'Advanced' }).closest('section')
     if (!regular || !advanced) throw new Error('Access sections are missing')
     expect(await within(regular).findByText('Phone device')).toBeTruthy()
-    expect(within(regular).queryByText('Link device')).toBeNull()
-    expect(within(advanced).getByText('Link device')).toBeTruthy()
+    expect(within(regular).getByText('Desktop device')).toBeTruthy()
+    expect(within(regular).queryByText('Recovery device')).toBeNull()
     expect(within(advanced).getByText('Recovery device')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Invite' }))
     expect(fixture.setSettingsTab).toHaveBeenCalledWith('members')
@@ -162,7 +164,7 @@ describe('Access', () => {
     await waitFor(() => expect(screen.queryByText('Phone device')).toBeNull())
     const revoke = fetchMock.mock.calls.find(([url]) => url.endsWith('/auth/admin/sign-ins/revoke'))
     expect(JSON.parse(String(revoke?.[1]?.body))).toEqual({ id: 'Phone' })
-    expect(screen.getByText('Link device')).toBeTruthy()
+    expect(screen.getByText('Recovery device')).toBeTruthy()
   })
 
   it('turns sign-in off with password and acknowledgement, then back on with the same credential', async () => {

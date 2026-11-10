@@ -171,7 +171,7 @@ describe('LoginView', () => {
     }),
   }
 
-  it('hides the email field and signs in the first admin as user:sole', async () => {
+  it('hides the email field and signs in the first admin with only a password', async () => {
     const login = vi.fn().mockResolvedValue(signedIn)
     vi.stubGlobal('fetch', login)
     const onLoggedIn = vi.fn()
@@ -181,7 +181,7 @@ describe('LoginView', () => {
     typePasswordAndSubmit('hunter2')
     await waitFor(() => expect(onLoggedIn).toHaveBeenCalled())
     const body = JSON.parse((login.mock.calls[0]?.[1] as { body: string }).body)
-    expect(body).toEqual({ email: 'user:sole', password: 'hunter2' })
+    expect(body).toEqual({ password: 'hunter2' })
   })
 
   it('signs in with an email once revealed, and keeps it shown next time', async () => {
@@ -213,7 +213,6 @@ describe('LoginView', () => {
       expect(onLoggedIn).toHaveBeenCalledWith(JSON.stringify(['installation-a', 'alice'])),
     )
     expect(JSON.parse(login.mock.calls[0]![1].body)).toEqual({
-      email: 'user:sole',
       password: 'hunter2',
     })
     view.unmount()
@@ -280,7 +279,7 @@ describe('LoginView', () => {
       expect.objectContaining({ method: 'POST', credentials: 'include' }),
     )
     const body = JSON.parse((login.mock.calls[0]?.[1] as { body: string }).body)
-    expect(body).toEqual({ email: 'user:sole', password: 'hunter2' })
+    expect(body).toEqual({ password: 'hunter2' })
   })
 
   it('shows an error and does not proceed on a wrong password (401)', async () => {

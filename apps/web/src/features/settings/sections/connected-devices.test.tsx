@@ -1,6 +1,6 @@
 import '@/test-support/mock-request-pool.test.fixture'
 import type {
-  MobileClientSession,
+  DeviceSignInView,
   MobilePairStartResponse,
   MobilePairStatusResponse,
 } from '@podium/protocol'
@@ -105,13 +105,10 @@ function claimedStatus(): MobilePairStatusResponse {
   } satisfies MobilePairStatusResponse
 }
 
-function mobileSession(overrides: Partial<MobileClientSession> = {}): MobileClientSession {
+function mobileSession(overrides: Partial<DeviceSignInView> = {}): DeviceSignInView {
   return {
-    sessionId: 'a'.repeat(24),
-    userId: 'user-one',
-    label: 'mobile',
-    kind: 'mobile',
-    deviceId: 'device-one',
+    id: 'a'.repeat(24),
+    kind: 'phone',
     deviceName: 'Travel phone',
     platform: 'android',
     lastSeenAt: new Date(Date.now() - 60_000).toISOString(),
@@ -169,7 +166,7 @@ describe('mobile pairing REST adapter', () => {
   it('parses the current start contract and binds the reviewed REST paths', async () => {
     const start = pairStart()
     const sessions = [mobileSession()]
-    const responses = [start, pendingStatus(), { sessions }, { ok: true }]
+    const responses = [start, pendingStatus(), { signIns: sessions }, { ok: true }]
     const fetchMock = vi
       .fn()
       .mockImplementation(() => Promise.resolve(jsonResponse(responses.shift())))
@@ -179,12 +176,12 @@ describe('mobile pairing REST adapter', () => {
     await api.auth.mobilePairingStart.mutate()
     await api.auth.mobilePairingStatus.query({ pairingId: start.pairingId })
     await api.auth.mobileSessions.query()
-    await api.auth.revokeMobileSession.mutate({ sessionId: sessions[0]!.sessionId })
+    await api.auth.revokeMobileSession.mutate({ id: sessions[0]!.id })
 
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       'https://podium.example/auth/mobile-pair/start',
       'https://podium.example/auth/mobile-pair/status',
-      'https://podium.example/auth/client-sessions?include=all',
+      'https://podium.example/auth/client-sessions',
       'https://podium.example/auth/client-sessions/revoke',
     ])
     for (const [, init] of fetchMock.mock.calls) {
@@ -193,23 +190,19 @@ describe('mobile pairing REST adapter', () => {
     }
   })
 
-  it('omits legacy rows that have no valid public revocation id', async () => {
+  it('refuses a list with an invalid public revocation id', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(
         jsonResponse({
-          sessions: [
-            mobileSession({ sessionId: '' }),
-            mobileSession({ sessionId: 'b'.repeat(24) }),
-          ],
+          signIns: [mobileSession({ id: '' }), mobileSession({ id: 'b'.repeat(24) })],
         }),
       ),
     )
 
-    const sessions =
-      await createMobilePairingApi('https://podium.example').auth.mobileSessions.query()
-
-    expect(sessions.map((session) => session.sessionId)).toEqual(['b'.repeat(24)])
+    await expect(
+      createMobilePairingApi('https://podium.example').auth.mobileSessions.query(),
+    ).rejects.toThrow()
   })
 })
 
@@ -304,8 +297,8 @@ describe('ConnectedDevicesSection', () => {
   ] as const)('maps start HTTP %s to safe actionable copy', async (status, expected) => {
     const openNetwork = vi.fn()
     const fetchMock = vi.fn().mockImplementation((url: string) => {
-      if (url.endsWith('/auth/client-sessions?include=all'))
-        return Promise.resolve(jsonResponse({ sessions: [] }))
+      if (url.endsWith('/auth/client-sessions'))
+        return Promise.resolve(jsonResponse({ signIns: [] }))
       return Promise.resolve(jsonResponse({ error: 'pairCode=do-not-render-this' }, status))
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -333,8 +326,8 @@ describe('ConnectedDevicesSection', () => {
 
   it('distinguishes a network failure without reflecting arbitrary error text', async () => {
     const fetchMock = vi.fn().mockImplementation((url: string) => {
-      if (url.endsWith('/auth/client-sessions?include=all')) {
-        return Promise.resolve(jsonResponse({ sessions: [] }))
+      if (url.endsWith('/auth/client-sessions')) {
+        return Promise.resolve(jsonResponse({ signIns: [] }))
       }
       return Promise.reject(new TypeError('pairCode=do-not-render-this'))
     })
@@ -446,7 +439,7 @@ describe('ConnectedDevicesSection', () => {
     const api = pairingApi()
     const currentId = 'c'.repeat(24)
     vi.mocked(api.auth.mobileSessions.query).mockResolvedValue([
-      mobileSession({ sessionId: currentId, current: true, deviceName: 'This browser' }),
+      mobileSession({ id: currentId, current: true, deviceName: 'This browser' }),
       mobileSession(),
     ])
     sync.unsyncedChangeCount = 2
@@ -472,7 +465,7 @@ describe('ConnectedDevicesSection', () => {
     fireEvent.click(other)
     await waitFor(() =>
       expect(api.auth.revokeMobileSession.mutate).toHaveBeenCalledWith({
-        sessionId: 'a'.repeat(24),
+        id: 'a'.repeat(24),
       }),
     )
     await waitFor(() => expect(screen.queryByText('Travel phone')).toBeNull())
@@ -487,7 +480,7 @@ describe('ConnectedDevicesSection', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sign out anyway' }))
     await waitFor(() =>
       expect(api.auth.revokeMobileSession.mutate).toHaveBeenLastCalledWith({
-        sessionId: currentId,
+        id: currentId,
       }),
     )
     expect(api.auth.revokeMobileSession.mutate).toHaveBeenCalledTimes(2)
@@ -511,7 +504,7 @@ describe('ConnectedDevicesSection', () => {
   })
 
   it('ignores a stale session load after a newer request has settled', async () => {
-    let resolveStale: ((sessions: MobileClientSession[]) => void) | undefined
+    let resolveStale: ((sessions: DeviceSignInView[]) => void) | undefined
     const staleApi = pairingApi()
     vi.mocked(staleApi.auth.mobileSessions.query).mockReturnValue(
       new Promise((resolve) => {
@@ -537,19 +530,15 @@ describe('ConnectedDevicesSection', () => {
     const laptopId = 'c'.repeat(24)
     vi.mocked(api.auth.mobileSessions.query).mockResolvedValue([
       mobileSession({
-        sessionId: laptopId,
-        label: 'login',
+        id: laptopId,
         kind: 'browser',
-        deviceId: 'browser',
         deviceName: 'Firefox on Linux',
         platform: 'linux',
         current: true,
       }),
       mobileSession({
-        sessionId: 'd'.repeat(24),
-        label: 'login',
+        id: 'd'.repeat(24),
         kind: 'desktop',
-        deviceId: 'desktop',
         deviceName: 'Podium desktop on macOS',
         platform: 'macos',
       }),
@@ -565,7 +554,7 @@ describe('ConnectedDevicesSection', () => {
     expect(screen.getAllByRole('button', { name: 'Sign out' })).toHaveLength(3)
     fireEvent.click(screen.getAllByRole('button', { name: 'Sign out' })[0]!)
     await waitFor(() =>
-      expect(api.auth.revokeMobileSession.mutate).toHaveBeenCalledWith({ sessionId: laptopId }),
+      expect(api.auth.revokeMobileSession.mutate).toHaveBeenCalledWith({ id: laptopId }),
     )
   })
 
@@ -574,10 +563,9 @@ describe('ConnectedDevicesSection', () => {
     const travelId = 'a'.repeat(24)
     const workId = 'b'.repeat(24)
     vi.mocked(api.auth.mobileSessions.query).mockResolvedValue([
-      mobileSession({ sessionId: travelId }),
+      mobileSession({ id: travelId }),
       mobileSession({
-        sessionId: workId,
-        deviceId: 'device-two',
+        id: workId,
         deviceName: 'Work phone',
         platform: 'ios',
         current: false,
@@ -590,7 +578,7 @@ describe('ConnectedDevicesSection', () => {
 
     await waitFor(() => expect(screen.queryByText('Travel phone')).toBeNull())
     expect(screen.getByText('Work phone')).toBeTruthy()
-    expect(api.auth.revokeMobileSession.mutate).toHaveBeenCalledWith({ sessionId: travelId })
+    expect(api.auth.revokeMobileSession.mutate).toHaveBeenCalledWith({ id: travelId })
   })
 })
 

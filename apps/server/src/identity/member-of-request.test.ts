@@ -234,6 +234,36 @@ describe('memberOfRequest', () => {
     expect(calls).toBe(2)
   })
 
+  it('refuses a bearer over loopback HTTP even with a valid device cookie', async () => {
+    const accountId = (await store.users.get(asUserId(alice)))?.accountId
+    if (!accountId) throw new Error('Alice has no account')
+    const loopback = await workspace.core.deviceSignIns.create(
+      accountId,
+      { kind: 'browser' },
+      'cookie',
+      { scheme: 'http', sameMachine: true, clientAddress: '127.0.0.1' },
+    )
+    const memberOfRequest = resolver()
+    const cookie = cookieOf(loopback)
+    const url = 'http://127.0.0.1:18787/auth/client-sessions'
+    expect(await memberOfRequest(request(url, { cookie }, '127.0.0.1'))).toMatchObject({
+      kind: 'member',
+      memberId: alice,
+    })
+    expect(
+      await memberOfRequest(
+        request(
+          url,
+          {
+            cookie,
+            authorization: 'Bearer malformed',
+          },
+          '127.0.0.1',
+        ),
+      ),
+    ).toEqual({ kind: 'https_required' })
+  })
+
   it('works out the connection facts at the server boundary', () => {
     const { factsOf } = resolver()
     expect(factsOf(request('http://127.0.0.1:18787/x', {}, '127.0.0.1'))).toEqual({

@@ -7,7 +7,7 @@ import type { MobxPool } from '@podium/client-graph'
 import { settingsView } from '@podium/client-graph/settings-views'
 import type { HostMetricsWire } from '@podium/model'
 import { asUserId } from '@podium/model'
-import type { MobileClientSession } from '@podium/protocol'
+import type { DeviceSignInView } from '@podium/protocol'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { Alert, Platform } from 'react-native'
@@ -28,7 +28,7 @@ const seams = vi.hoisted(() => ({
   switch: vi.fn(async () => {}),
   back: vi.fn(),
   replace: vi.fn(),
-  devices: [] as MobileClientSession[],
+  devices: [] as DeviceSignInView[],
   reloadDevices: () => {},
 }))
 vi.mock('../client/mobile-pool', async (importOriginal) => {
@@ -244,11 +244,8 @@ async function mount(count = 8, scale?: number) {
 it('measures phone settings and its real device feed at 1x and 4x', async () => {
   for (const scale of [1, 4]) {
     seams.devices = Array.from({ length: 8 * scale }, (_, i) => ({
-      sessionId: `device-${i}`,
-      userId: 'operator',
-      label: 'mobile',
-      kind: 'mobile',
-      deviceId: `device-${i}`,
+      id: `device-${i}`,
+      kind: 'phone',
       deviceName: `Phone ${i}`,
       platform: 'ios',
       lastSeenAt: '2026-10-06T10:00:00Z',

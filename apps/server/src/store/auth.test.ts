@@ -1,116 +1,46 @@
 import { asUserId, firstAdminMemberId } from '@podium/model'
-import { beforeEach, expect, it } from 'vitest'
-import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { AuthRepository } from './auth'
-import { createBunStoreExecutor } from './executor'
+import { afterEach, beforeEach, expect, it } from 'vitest'
+import type { SessionStore } from '../store'
+import { seedLegacyClientSession } from '../test-support/legacy-client-session'
+import { openTestStore } from '../test-support/open-test-store'
 
-let repo: AuthRepository
-
-beforeEach(() => {
-  const db = openMigratedTestDatabase()
-  const stage = createBunStoreExecutor({ database: db }).queries
-  if (!stage) throw new Error('the test database is not bun-backed')
-  repo = new AuthRepository(stage)
+let store: SessionStore
+beforeEach(async () => {
+  store = await openTestStore(':memory:')
+})
+afterEach(async () => {
+  await store.close()
 })
 
 const FUTURE = '2999-01-01T00:00:00.000Z'
 
-it('round-trips a login session', async () => {
-  await repo.createClientSession('hash-a', firstAdminMemberId(), FUTURE)
-  expect(await repo.isClientSessionValid('hash-a', '2026-01-01T00:00:00.000Z')).toBe(true)
-})
-
-// POD-1376/POD-801: a break-glass session minted from local filesystem access and a
-// node⇄hub provisioning token are both client_sessions rows. Without a label they are
-// indistinguishable, so revoking one class means revoking the operator's browser logins
-// too. The label is what makes them separately greppable and revocable.
-it('defaults an unlabelled session to the browser-login label', async () => {
-  await repo.createClientSession('hash-a', firstAdminMemberId(), FUTURE)
-  expect((await repo.listClientSessionsOfUser(firstAdminMemberId()))[0]?.label).toBe('login')
-})
-
-it('records the label a session was minted under', async () => {
-  await repo.createClientSession('hash-a', firstAdminMemberId(), FUTURE, 'break-glass')
-  await repo.createClientSession('hash-b', firstAdminMemberId(), FUTURE, 'upstream')
+it('keeps the original rows and their expiries readable for the upgrade', async () => {
+  const member = firstAdminMemberId()
+  const labels = ['login', 'mobile', 'break-glass', 'upstream'] as const
+  for (const label of labels) {
+    await seedLegacyClientSession(store, label, member, FUTURE, label)
+  }
   const byHash = new Map(
-    (await repo.listClientSessionsOfUser(firstAdminMemberId())).map((s) => [s.tokenHash, s.label]),
+    (await store.auth.listClientSessionsOfUser(member)).map((row) => [row.tokenHash, row]),
   )
-  expect(byHash.get('hash-a')).toBe('break-glass')
-  expect(byHash.get('hash-b')).toBe('upstream')
+  for (const label of labels) {
+    expect(byHash.get(label)).toMatchObject({ userId: member, label, expiresAt: FUTURE })
+  }
 })
 
-it('round-trips mobile device metadata, activity, and owner-scoped row revocation', async () => {
-  const other = asUserId('user:other')
-  await repo.createClientSession('mobile-a', firstAdminMemberId(), FUTURE, 'mobile', {
-    sessionId: 'session-aaaaaaaaaaaa',
-    deviceId: 'device-a',
-    deviceName: "Sam's iPhone",
+it('reads a phone’s original metadata by hash without admitting the credential', async () => {
+  const member = firstAdminMemberId()
+  const device = {
+    sessionId: 'old-public-id',
+    deviceId: 'old-device',
+    deviceName: 'iPhone',
     platform: 'ios',
-    lastSeenAt: '2026-01-01T00:00:00.000Z',
+  }
+  await seedLegacyClientSession(store, 'phone-hash', member, FUTURE, 'mobile', device)
+  expect(await store.auth.getClientSession('phone-hash')).toMatchObject({
+    ...device,
+    userId: member,
+    expiresAt: FUTURE,
   })
-  await repo.createClientSession('mobile-b', other, FUTURE, 'mobile', {
-    sessionId: 'session-bbbbbbbbbbbb',
-    deviceId: 'device-b',
-    deviceName: 'Other phone',
-    platform: 'android',
-  })
-  expect(await repo.listMobileClientSessions(firstAdminMemberId())).toMatchObject([
-    {
-      tokenHash: 'mobile-a',
-      sessionId: 'session-aaaaaaaaaaaa',
-      deviceId: 'device-a',
-      deviceName: "Sam's iPhone",
-      platform: 'ios',
-      lastSeenAt: '2026-01-01T00:00:00.000Z',
-    },
-  ])
-  await repo.touchClientSession('mobile-a', '2026-01-02T00:00:00.000Z')
-  expect((await repo.getClientSession('mobile-a'))?.lastSeenAt).toBe('2026-01-02T00:00:00.000Z')
-  expect(await repo.deleteOwnedSignIn('session-bbbbbbbbbbbb', firstAdminMemberId())).toBeUndefined()
-  expect(await repo.deleteOwnedSignIn('session-aaaaaaaaaaaa', firstAdminMemberId())).toBe(
-    'mobile-a',
-  )
-})
-
-it('re-pairing a mobile session replaces its old token', async () => {
-  const sessionId = 'session-aaaaaaaaaaaa'
-  await repo.createClientSession('mobile-old', firstAdminMemberId(), FUTURE, 'mobile', {
-    sessionId,
-    deviceId: 'device-a',
-    deviceName: 'Old pairing',
-    platform: 'ios',
-  })
-  await repo.createClientSession('mobile-new', firstAdminMemberId(), FUTURE, 'mobile', {
-    sessionId,
-    deviceId: 'device-a',
-    deviceName: 'New pairing',
-    platform: 'ios',
-  })
-
-  expect(await repo.getClientSession('mobile-old')).toBeUndefined()
-  expect(await repo.listMobileClientSessions(firstAdminMemberId())).toMatchObject([
-    { tokenHash: 'mobile-new', sessionId, deviceName: 'New pairing' },
-  ])
-})
-
-// REMOVED, not ported: 'labels an upstream provisioning token as upstream'.
-// It called `mintUpstreamTokenInto` (main, 1d11ae43 "feat(auth): give the operator
-// CLI a credential it can mint"), and this branch has no such function to call:
-// POD-309 retired the node⇄hub upstream forwarder outright because federation is
-// deferred ([spec:SP-0371] — see upstream-retirement.ts), so nothing mints an
-// upstream-labelled row any more. The claim it defended — that a label keeps its
-// class separately revocable — is still under test in the two cases either side
-// of this comment, which exercise the 'upstream' label directly.
-
-it('revokes only the sessions carrying the named label', async () => {
-  await repo.createClientSession('login-hash', firstAdminMemberId(), FUTURE)
-  await repo.createClientSession('glass-hash', firstAdminMemberId(), FUTURE, 'break-glass')
-  await repo.createClientSession('upstream-hash', firstAdminMemberId(), FUTURE, 'upstream')
-
-  expect(await repo.deleteClientSessionsByLabel('break-glass')).toBe(1)
-
-  const now = '2026-01-01T00:00:00.000Z'
-  expect(await repo.isClientSessionValid('glass-hash', now)).toBe(false)
-  expect(await repo.isClientSessionValid('login-hash', now)).toBe(true)
-  expect(await repo.isClientSessionValid('upstream-hash', now)).toBe(true)
+  expect(await store.auth.listClientSessionsOfUser(asUserId('mem_other'))).toEqual([])
 })

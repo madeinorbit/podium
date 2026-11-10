@@ -10,7 +10,6 @@
  */
 
 import type { DeviceDescription } from '@podium/identity'
-import type { ClientSessionMetadata } from './old-client-sessions'
 
 type SignInPlatform = 'ios' | 'android' | 'macos' | 'windows' | 'linux' | 'unknown'
 
@@ -51,34 +50,20 @@ function isDesktopOrigin(origin: string | undefined): boolean {
   }
 }
 
-/** The stored description of a password login in a browser or the desktop app. */
-export function browserSignInMetadata(
-  userAgent: string | undefined,
-  origin: string | undefined,
-  lastSeenAt: string,
-): ClientSessionMetadata {
-  const agent = userAgent ?? ''
-  const platform = platformOf(agent)
-  const desktop = isDesktopOrigin(origin)
-  const app = desktop ? 'Podium desktop' : (browserOf(agent) ?? 'Web browser')
-  const deviceName = platform === 'unknown' ? app : `${app} on ${OS_NAMES[platform]}`
-  return { deviceId: desktop ? 'desktop' : 'browser', deviceName, platform, lastSeenAt }
-}
-
-/**
- * The same description for a device sign-in of the identity package (POD-6746).
- * No device id: only a phone has a stable id of its own, and a sign-in with a
- * device id replaces the earlier sign-in of that device. Two browsers of one
- * person must not sign each other out.
- */
+/** Only phones have a stable device id; two browsers keep separate sign-ins. */
 export function browserSignInDevice(
   userAgent: string | undefined,
   origin: string | undefined,
+  desktopHint = false,
 ): DeviceDescription {
-  const described = browserSignInMetadata(userAgent, origin, '')
+  const agent = userAgent ?? ''
+  const platform = platformOf(agent)
+  // The shell can also load a remote site directly, with an ordinary HTTPS origin.
+  const desktop = desktopHint || isDesktopOrigin(origin)
+  const app = desktop ? 'Podium desktop' : (browserOf(agent) ?? 'Web browser')
   return {
-    kind: described.deviceId === 'desktop' ? 'desktop' : 'browser',
-    ...(described.deviceName ? { name: described.deviceName } : {}),
-    ...(described.platform ? { platform: described.platform } : {}),
+    kind: desktop ? 'desktop' : 'browser',
+    name: platform === 'unknown' ? app : `${app} on ${OS_NAMES[platform]}`,
+    platform,
   }
 }

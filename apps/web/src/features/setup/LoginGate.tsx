@@ -196,7 +196,14 @@ export function LoginView({
     setError(null)
     try {
       // An empty email is sent as `user:sole`, the first admin.
-      const result = await webAuth.login(httpOrigin, password, undefined, withEmail ? email : '')
+      const result = await webAuth.login(
+        httpOrigin,
+        password,
+        undefined,
+        withEmail ? email : '',
+        undefined,
+        nativeDesktopBridge() ? 'desktop' : undefined,
+      )
       if (result.ok && result.principal) {
         rememberBrowserSignInWithEmail(withEmail)
         await onLoggedIn(result.principal)

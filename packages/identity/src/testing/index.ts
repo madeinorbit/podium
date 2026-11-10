@@ -772,6 +772,7 @@ export function identitySuite(runner: SuiteRunner, harness: SuiteHarness): Ident
           await core.codes.redeem({ code: first.code }, { kind: 'browser' }, 'cookie', https()),
         )
         expect(await resolved(signIn)).toBe(carol.id)
+        expect((await opened.stored('oneTimeCode', 'id')).length).toBe(0)
         expect((await opened.stored('account', 'id')).length).toBe(2) // Alice's and Bob's passwords only
         // It works once.
         expect(
@@ -792,10 +793,25 @@ export function identitySuite(runner: SuiteRunner, harness: SuiteHarness): Ident
           await core.codes.redeem({ code: stale.code }, { kind: 'browser' }, 'cookie', https()),
         ).toBe(undefined)
         // The sweep deletes what expired.
-        expect((await opened.stored('oneTimeCode', 'id')).length).toBe(2)
+        expect((await opened.stored('oneTimeCode', 'id')).length).toBe(1)
         await core.sweep()
         expect((await opened.stored('oneTimeCode', 'id')).length).toBe(0)
         ahead = 0
+
+        const cancelled = await core.codes.issue({
+          purpose: 'transfer-claim',
+          accountId: carol.id,
+          createdBy: 'host',
+        })
+        await core.codes.discardTransferClaim(cancelled.id)
+        expect(
+          await core.codes.redeem(
+            { code: cancelled.code, purpose: 'transfer-claim' },
+            { kind: 'browser' },
+            'cookie',
+            https(),
+          ),
+        ).toBe(undefined)
 
         // Two redemptions at the same moment yield one sign-in.
         const raced = await core.codes.issue({
@@ -822,6 +838,7 @@ export function identitySuite(runner: SuiteRunner, harness: SuiteHarness): Ident
         )
         const [listed] = await core.deviceSignIns.listForAccount(alice.id)
         expect(listed?.kind).toBe('host')
+        expect((await opened.stored('oneTimeCode', 'id')).length).toBe(0)
         expect(Math.abs(hostSignIn.expiresAt.getTime() - (Date.now() + 60 * 60_000)) < 60_000).toBe(
           true,
         )

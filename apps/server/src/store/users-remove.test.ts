@@ -10,6 +10,7 @@ import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, expect, it } from 'vitest'
 import { MachinesService } from '../modules/machines/service'
 import type { SessionStore } from '../store'
+import { seedLegacyClientSession } from '../test-support/legacy-client-session'
 import { openTestStore } from '../test-support/open-test-store'
 
 const at = '2026-09-17T12:00:00Z'
@@ -29,7 +30,7 @@ async function setup() {
     'hash',
   )
   await store.users.setPasswordHash(member, 'hash', at)
-  await store.auth.createClientSession('member-cookie', member, future)
+  await seedLegacyClientSession(store, 'member-cookie', member, future)
   await store.users.insertInvite({
     id: asInviteId('invite-remove'),
     tokenHash: 'invite-hash',

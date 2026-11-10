@@ -22,9 +22,8 @@
 import type { ConnectionFacts, DeviceKind, WorkspaceIdentity } from '@podium/identity'
 import { asUserId, type UserId, type UserRole } from '@podium/model'
 import { type UserCommandPrincipal, userCommandPrincipal } from '../command-principal'
-import { clientAddressForRequest } from '../mobile-pairing-route'
 import { isHostLocalRequest } from '../readiness-boundary'
-import { isSecureRequest } from '../request-scheme'
+import { clientAddressForRequest, isSecureRequest } from '../request-scheme'
 
 export type MemberResolution =
   | {
@@ -95,7 +94,16 @@ export function createMemberOfRequest(deps: {
   })
 
   const resolve = async (request: Request): Promise<MemberResolution> => {
-    const resolution = await deps.identity.resolve(request, factsOf(request))
+    const facts = factsOf(request)
+    // An explicit bearer requires HTTPS, even on loopback. It must not
+    // disappear from the request and allow a different cookie to take over.
+    if (
+      facts.scheme === 'http' &&
+      /^Bearer(?: |$)/i.test(request.headers.get('authorization') ?? '')
+    ) {
+      return { kind: 'https_required' }
+    }
+    const resolution = await deps.identity.resolve(request, facts)
     if (resolution.kind !== 'member') {
       return resolution.kind === 'not-a-member'
         ? { kind: 'not-a-member', accountId: resolution.accountId }

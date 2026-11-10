@@ -30,3 +30,20 @@ export function isSecureRequest(
 export function isHttps(c: Context, trustedProxyHops: number = 0): boolean {
   return isSecureRequest(c.req.url, c.req.header('x-forwarded-proto'), trustedProxyHops)
 }
+
+export function clientAddressForRequest(
+  request: Request,
+  directPeerAddress: string | undefined,
+  trustedProxyHops: number = 0,
+): string | undefined {
+  if (trustedProxyHops <= 0) {
+    return directPeerAddress && directPeerAddress.length <= 128 ? directPeerAddress : undefined
+  }
+  const chain = (request.headers.get('x-forwarded-for') ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+  const index = chain.length - trustedProxyHops
+  const candidate = index >= 0 ? chain[index] : undefined
+  return candidate && candidate.length <= 128 ? candidate : undefined
+}

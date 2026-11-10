@@ -3,6 +3,7 @@ import { actorAgent, agentIdentityFromSessionId, asUserId, firstAdminMemberId } 
 import { afterEach, expect, it } from 'vitest'
 import { SessionRegistry } from '../relay'
 import type { SessionStore } from '../store'
+import { seedLegacyClientSession } from '../test-support/legacy-client-session'
 import { openTestStore } from '../test-support/open-test-store'
 
 const at = '2026-09-17T12:00:00Z'
@@ -29,9 +30,9 @@ it('atomically revokes all client sessions, preserves custody/shares, and re-ena
   const shares = await store.grants.listForResource('machine', 'shared-machine')
   const machine = await store.machines.getMachine('shared-machine')
   for (const label of ['login', 'mobile', 'break-glass', 'upstream']) {
-    await store.auth.createClientSession(label, member, future, label)
+    await seedLegacyClientSession(store, label, member, future, label)
   }
-  await store.auth.createClientSession('other', other, future)
+  await seedLegacyClientSession(store, 'other', other, future)
   await store.users.disable(member, at)
   await store.users.disable(member, 'later')
   expect(await store.users.get(member)).toBeUndefined()
@@ -40,8 +41,6 @@ it('atomically revokes all client sessions, preserves custody/shares, and re-ena
   expect((await store.auth.listClientSessionsOfUser(other)).map(row => row.tokenHash)).toEqual(['other'])
   expect(await store.machines.getMachine('shared-machine')).toEqual(machine)
   expect(await store.grants.listForResource('machine', 'shared-machine')).toEqual(shares)
-  await expect(store.auth.createClientSession('late-login', member, future)).rejects.toThrow('Member disabled')
-  expect(await store.auth.getClientSession('late-login')).toBeUndefined()
   expect(await store.settingsAudit.list()).toMatchObject([{ command: 'members.disable', detail: { memberId: member, runningAgentPolicy: 'let-finish' }, createdAt: at }])
   expect(await store.settingsAudit.list()).toHaveLength(1)
   await store.users.enable(member, 'enabled')
@@ -56,7 +55,7 @@ it('atomically revokes all client sessions, preserves custody/shares, and re-ena
 it('rolls back member, sessions, audit and live principal publication together', async () => {
   const store = await setup()
   const member = firstAdminMemberId()
-  await store.auth.createClientSession('cookie', member, future)
+  await seedLegacyClientSession(store, 'cookie', member, future)
   await expect(store.transact(async () => {
     await store.users.disable(member, at)
     expect(await store.auth.getClientSession('cookie')).toBeUndefined()
