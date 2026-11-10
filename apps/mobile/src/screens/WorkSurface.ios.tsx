@@ -9,6 +9,7 @@ import {
   ProgressView,
   Section,
   Spacer,
+  SwipeActions,
   Text,
   VStack,
 } from '@expo/ui/swift-ui'
@@ -33,6 +34,7 @@ import {
   listRowInsets,
   listRowSeparator,
   listRowSeparatorTint,
+  listSectionSpacing,
   listStyle,
   monospacedDigit,
   onAppear,
@@ -41,23 +43,35 @@ import {
   scrollContentBackground,
   shapes,
   tag,
+  tint,
 } from '@expo/ui/swift-ui/modifiers'
 import { relativeTime } from '@podium/client-core/focus'
 import { discoveredPlacement, type IssueNavigationModel } from '@podium/client-core/values'
 import { observer, useWorklistModel } from '@podium/client-graph/react'
 import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
-import type { PhoneWorkLane, PhoneWorkSection } from '@podium/client-graph/worklist/phone'
-import { issueStatusMenuEntries, issueStatusValueOf, type SessionId } from '@podium/model'
+import type {
+  PhoneWorkLane,
+  PhoneWorklist,
+  PhoneWorkSection,
+} from '@podium/client-graph/worklist/phone'
+import {
+  issueStatusMenuEntries,
+  issueStatusValue,
+  issueStatusValueOf,
+  type SessionId,
+} from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
+import * as Haptics from 'expo-haptics'
 import { Stack, useFocusEffect } from 'expo-router'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { type ComponentProps, Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { StyleSheet, useWindowDimensions, View } from 'react-native'
 import type { SearchBarCommands } from 'react-native-screens'
 import { NewWorkButton } from '../components/NewWorkButton'
 import { MIN_REFRESH_CONFIRMATION_MS } from '../hooks/useRefreshableTab'
 import { useAgeNow } from '../lib/clock-hooks'
 import { workMenuActionIds } from '../lib/work-menu'
+import { workLaneTitle, workMenuItem } from '../lib/work-row-copy'
 import { mobileRowStamp } from '../lib/work-sections'
 import { color } from '../theme/theme'
 import { NAV_LOADER_DELAY_MS, useDelayedFlag } from './WorkListRow'
@@ -66,12 +80,25 @@ import { workPaper as paper } from './work-paper'
 import { workSectionWindow } from './work-section-window'
 
 const PAGE_SIZE = 120
-const plainRow = [
-  listRowBackground(paper.ground),
+/** Card rows: 12 inset, 14 status column + 8 gap, so titles and separators share x=34. */
+const CARD_INSET = 12
+const MARK_WIDTH = 14
+const MARK_GAP = 8
+const cardRow = [
+  listRowBackground(paper.card),
   listRowSeparatorTint(paper.separator),
-  listRowInsets({ leading: 20, trailing: 20, top: 11, bottom: 11 }),
+  listRowInsets({ leading: CARD_INSET, trailing: CARD_INSET, top: 8, bottom: 8 }),
 ]
-const quietRow = [...plainRow, listRowSeparator('hidden')]
+/** Rows that sit on the ground rather than in a card (lane control, notes, empty state). */
+const quietRow = [
+  listRowBackground(paper.ground),
+  listRowSeparator('hidden'),
+  listRowInsets({ leading: 0, trailing: 0, top: 4, bottom: 4 }),
+]
+const noteRow = [
+  ...quietRow,
+  listRowInsets({ leading: CARD_INSET, trailing: CARD_INSET, top: 8, bottom: 8 }),
+]
 
 /** A real SwiftUI plain list. UIKit owns the stack, search, toolbar and tab bar. */
 export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps) {
@@ -104,6 +131,15 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
     props.refresh.onRefresh()
     await new Promise((resolve) => setTimeout(resolve, MIN_REFRESH_CONFIRMATION_MS))
   }, [props.refresh.onRefresh])
+  const { onAction, onStatus } = props
+  const onSwipe = useCallback(
+    (id: string, action: WorkSwipeAction) => {
+      void Haptics.selectionAsync()
+      if (action === 'close') onStatus(id, issueStatusValue('done'))
+      else onAction(id, action)
+    },
+    [onAction, onStatus],
+  )
   const loadMore = () =>
     setWindow((current) => ({
       scope,
@@ -111,7 +147,7 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
     }))
 
   return (
-    <View style={styles.root}>
+    <View collapsable={false} style={styles.root}>
       <Stack.Screen
         options={{
           title: 'Work',
@@ -122,20 +158,6 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
           headerTintColor: color.accentTint,
         }}
       />
-      <Stack.Toolbar placement="left">
-        <Stack.Toolbar.Menu accessibilityLabel={`Work list: ${WORK_LANE_LABELS[phone.lane]}`}>
-          <Stack.Toolbar.Label>{WORK_LANE_LABELS[phone.lane]}</Stack.Toolbar.Label>
-          {WORK_LANES.map((lane) => (
-            <Stack.Toolbar.MenuAction
-              key={lane}
-              isOn={phone.lane === lane}
-              onPress={() => phone.setLane(lane)}
-            >
-              {WORK_LANE_LABELS[lane]}
-            </Stack.Toolbar.MenuAction>
-          ))}
-        </Stack.Toolbar.Menu>
-      </Stack.Toolbar>
       <NewWorkButton
         renderTrigger={(open) => (
           <Stack.Toolbar placement="right">
@@ -168,50 +190,58 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
         <List
           key={phone.lane}
           modifiers={[
-            listStyle('plain'),
+            listStyle('insetGrouped'),
+            listSectionSpacing(0),
             scrollContentBackground('hidden'),
             background(paper.ground),
             refreshable(onRefresh),
             accessibilityIdentifier('work-list'),
           ]}
         >
-          {props.loading && !sections.length ? <ProgressView modifiers={quietRow} /> : null}
+          <Section>
+            <WorkLanePicker phone={phone} />
+          </Section>
+          {props.loading && !sections.length ? <ProgressView modifiers={noteRow} /> : null}
           {sections.map(({ section, folded, visible }) => (
-            <Section
-              key={section.key}
-              header={
+            <Fragment key={section.key}>
+              {/* The project name is its own quiet row: SwiftUI uppercases grouped headers. */}
+              <Section>
                 <NativeGroupHeader section={section} folded={folded} onToggle={props.onToggle} />
-              }
-            >
-              {visible.map((id) => (
-                <NativeWorkRow
-                  key={id}
-                  id={id}
-                  lane={phone.lane}
-                  pending={props.pendingNav === id}
-                  onOpenIssue={props.onOpenIssue}
-                  onOpenSession={props.onOpenSession}
-                  onAction={props.onAction}
-                  onStatus={props.onStatus}
-                />
-              ))}
-              {!folded && !section.ids.length ? (
-                <Text
-                  modifiers={[
-                    ...quietRow,
-                    font({ textStyle: 'subheadline' }),
-                    foregroundStyle(paper.tertiary),
-                  ]}
-                >
-                  No open tasks
-                </Text>
-              ) : null}
-            </Section>
+              </Section>
+              {folded ? null : (
+                <Section>
+                  {visible.map((id) => (
+                    <NativeWorkRow
+                      key={id}
+                      id={id}
+                      lane={phone.lane}
+                      pending={props.pendingNav === id}
+                      onOpenIssue={props.onOpenIssue}
+                      onOpenSession={props.onOpenSession}
+                      onAction={props.onAction}
+                      onStatus={props.onStatus}
+                      onSwipe={onSwipe}
+                    />
+                  ))}
+                  {section.ids.length ? null : (
+                    <Text
+                      modifiers={[
+                        ...cardRow,
+                        font({ textStyle: 'subheadline' }),
+                        foregroundStyle(paper.tertiary),
+                      ]}
+                    >
+                      No open tasks
+                    </Text>
+                  )}
+                </Section>
+              )}
+            </Fragment>
           ))}
           {more ? (
             <Text
               modifiers={[
-                ...quietRow,
+                ...noteRow,
                 onAppear(loadMore),
                 font({ textStyle: 'footnote' }),
                 foregroundStyle(paper.secondary),
@@ -221,7 +251,7 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
             </Text>
           ) : null}
           {!props.loading && !sections.length ? (
-            <VStack alignment="leading" spacing={8} modifiers={quietRow}>
+            <VStack alignment="leading" spacing={8} modifiers={noteRow}>
               <Text modifiers={[font({ textStyle: 'headline' }), foregroundStyle(paper.ink)]}>
                 {phone.needle
                   ? 'No matching tasks'
@@ -245,7 +275,7 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
           {phone.lane === 'closed' && sections.length ? (
             <Text
               modifiers={[
-                ...quietRow,
+                ...noteRow,
                 font({ textStyle: 'footnote' }),
                 foregroundStyle(paper.secondary),
               ]}
@@ -258,12 +288,30 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
               key={lane}
               label={`${phone.otherLaneHits[lane]} in ${WORK_LANE_LABELS[lane]}`}
               onPress={() => phone.setLane(lane)}
-              modifiers={quietRow}
+              modifiers={noteRow}
             />
           ))}
         </List>
       </Host>
     </View>
+  )
+})
+
+/** Open / Snoozed / Closed as the system segmented control, with counts. */
+const WorkLanePicker = observer(function WorkLanePicker({ phone }: { phone: PhoneWorklist }) {
+  return (
+    <Picker
+      label="Work list"
+      selection={phone.lane}
+      onSelectionChange={(lane: PhoneWorkLane) => phone.setLane(lane)}
+      modifiers={[...quietRow, pickerStyle('segmented'), accessibilityIdentifier('work-lanes')]}
+    >
+      {WORK_LANES.map((lane) => (
+        <Text key={lane} modifiers={[tag(lane)]}>
+          {workLaneTitle(lane, phone.counts[lane])}
+        </Text>
+      ))}
+    </Picker>
   )
 })
 
@@ -280,8 +328,9 @@ const NativeGroupHeader = observer(function NativeGroupHeader({
     <Button
       onPress={() => onToggle(section.key)}
       modifiers={[
+        ...quietRow,
+        listRowInsets({ leading: CARD_INSET, trailing: CARD_INSET, top: 16, bottom: 4 }),
         buttonStyle('plain'),
-        background(paper.ground),
         accessibilityLabel(section.label),
         accessibilityValue(`${folded ? 'Collapsed' : 'Expanded'}, ${section.ids.length} tasks`),
         accessibilityHint('Double tap to fold or unfold this project.'),
@@ -289,46 +338,57 @@ const NativeGroupHeader = observer(function NativeGroupHeader({
       ]}
     >
       <HStack
-        spacing={8}
+        spacing={MARK_GAP}
         modifiers={[
-          frame({ minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
+          frame({ minHeight: 28, maxWidth: Infinity, alignment: 'leading' }),
           contentShape(shapes.rectangle()),
         ]}
       >
-        <Text
-          modifiers={[font({ textStyle: 'body', weight: 'semibold' }), foregroundStyle(paper.ink)]}
-        >
-          {section.label}
-        </Text>
-        <Spacer />
-        {folded ? (
-          <Text
-            modifiers={[
-              font({ textStyle: 'footnote' }),
-              foregroundStyle(paper.secondary),
-              monospacedDigit(),
-            ]}
-          >
-            {String(section.ids.length)}
-          </Text>
-        ) : null}
         <Image
           systemName={folded ? 'chevron.right' : 'chevron.down'}
           modifiers={[
             font({ textStyle: 'caption2', weight: 'semibold' }),
             foregroundStyle(paper.tertiary),
+            frame({ width: MARK_WIDTH }),
             accessibilityHidden(),
           ]}
         />
+        <Text
+          modifiers={[
+            font({ textStyle: 'footnote', weight: 'semibold' }),
+            foregroundStyle(paper.secondary),
+            lineLimit(1),
+          ]}
+        >
+          {section.label}
+        </Text>
+        <Text
+          modifiers={[
+            font({ textStyle: 'caption', design: 'monospaced' }),
+            foregroundStyle(paper.tertiary),
+            monospacedDigit(),
+          ]}
+        >
+          {String(section.ids.length)}
+        </Text>
+        <Spacer />
       </HStack>
     </Button>
   )
 })
 
+/** Swipe actions reuse the menu's handlers; only the gesture is new. */
+export type WorkSwipeAction = 'close' | 'status' | 'undefer' | 'bringBack'
+
 type RowProps = Pick<
   WorkSurfaceProps,
   'onOpenIssue' | 'onOpenSession' | 'onAction' | 'onStatus'
-> & { id: string; lane: PhoneWorkLane; pending: boolean }
+> & {
+  id: string
+  lane: PhoneWorkLane
+  pending: boolean
+  onSwipe: (id: string, action: WorkSwipeAction) => void
+}
 const NativeWorkRow = observer(function NativeWorkRow(props: RowProps) {
   const model = useWorklistModel()
   const row = model?.knownRow(props.id)
@@ -354,6 +414,7 @@ const NativeWorkRow = observer(function NativeWorkRow(props: RowProps) {
         : row.statusTone
   const ref = issueDisplayRef(row.issue)
   const unread = row.emphasizeUnread
+  const notSaved = model?.pool.notSaved('issue', row.id) ?? false
   const open = () => {
     if (!model) return
     const current = mobileWorkView(model.pool).mobileRow(row.id)
@@ -362,164 +423,200 @@ const NativeWorkRow = observer(function NativeWorkRow(props: RowProps) {
       props.onOpenSession(current.navigation.id as SessionId, row.id)
     else props.onOpenIssue(current.issue as unknown as IssueNavigationModel)
   }
-  const mark =
-    props.lane === 'snoozed'
-      ? 'moon'
-      : tone === 'working'
-        ? 'circle.dotted'
-        : tone === 'done'
-          ? 'checkmark.circle'
-          : tone === 'closed'
-            ? 'minus.circle'
-            : tone === 'needs' || tone === 'error'
-              ? 'circle.fill'
-              : tone === 'draft'
-                ? 'circle.dashed'
-                : 'circle'
-  const signal =
-    tone === 'error'
-      ? color.dangerText
-      : tone === 'needs'
-        ? color.needsYouText
-        : tone === 'working' || tone === 'done' || tone === 'active'
-          ? color.workingText
-          : paper.tertiary
-  return (
-    <ContextMenu
+  const mark = props.lane === 'snoozed' ? MOON_MARK : (TONE_MARKS[tone] ?? IDLE_MARK)
+  const wordColor =
+    tone === 'error' ? color.dangerText : tone === 'needs' ? color.needsYouText : paper.secondary
+  const refText = (
+    <Text
       modifiers={[
-        ...plainRow,
-        listRowBackground(props.pending ? paper.fill : paper.ground),
-        alignmentGuide('listRowSeparatorLeading', 34),
+        font({ size: 11, design: 'monospaced' }),
+        foregroundStyle(paper.tertiary),
+        lineLimit(1),
       ]}
     >
-      <ContextMenu.Trigger>
-        <Button
-          onPress={open}
-          modifiers={[
-            buttonStyle('plain'),
-            accessibilityElement('ignore'),
-            accessibilityLabel(
-              `${row.title}. ${word}. ${ref}${unread ? '. Unread' : ''}${model?.pool.notSaved('issue', row.id) ? '. Not saved' : ''}`,
-            ),
-            accessibilityHint('Opens task. Actions available in the context menu.'),
-          ]}
-        >
-          <HStack
-            alignment="top"
-            spacing={14}
+      {ref}
+    </Text>
+  )
+  return (
+    <SwipeActions
+      modifiers={[
+        ...cardRow,
+        listRowBackground(props.pending ? paper.fill : paper.card),
+        alignmentGuide('listRowSeparatorLeading', MARK_WIDTH + MARK_GAP),
+      ]}
+    >
+      <ContextMenu>
+        <ContextMenu.Trigger>
+          <Button
+            onPress={open}
             modifiers={[
-              frame({ minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
-              contentShape(shapes.rectangle()),
+              buttonStyle('plain'),
+              accessibilityElement('ignore'),
+              accessibilityLabel(
+                `${row.title}. ${word}. ${ref}${unread ? '. Unread' : ''}${notSaved ? '. Not saved' : ''}`,
+              ),
+              accessibilityHint('Opens task. Swipe or long press for actions.'),
             ]}
           >
-            <Image
-              systemName={mark}
+            <HStack
+              alignment="top"
+              spacing={MARK_GAP}
               modifiers={[
-                font({ textStyle: 'caption2' }),
-                foregroundStyle(signal),
-                frame({ width: 20, minHeight: 24 }),
-                accessibilityHidden(),
+                frame({ minHeight: 36, maxWidth: Infinity, alignment: 'leading' }),
+                contentShape(shapes.rectangle()),
               ]}
-            />
-            <VStack
-              alignment="leading"
-              spacing={5}
-              modifiers={[frame({ maxWidth: Infinity, alignment: 'leading' })]}
             >
-              <Text
-                modifiers={[
-                  font({ textStyle: 'body', weight: unread ? 'semibold' : 'regular' }),
-                  foregroundStyle(props.lane === 'closed' ? paper.secondary : paper.ink),
-                  ...(expanded ? [] : [lineLimit(2)]),
-                ]}
+              <Image
+                systemName={mark.symbol}
+                size={mark.size}
+                color={mark.signal ? toneColor(tone) : paper.tertiary}
+                modifiers={[frame({ width: MARK_WIDTH, height: 20 }), accessibilityHidden()]}
+              />
+              <VStack
+                alignment="leading"
+                spacing={2}
+                modifiers={[frame({ maxWidth: Infinity, alignment: 'leading' })]}
               >
-                {row.title}
-              </Text>
-              <HStack spacing={6}>
-                <Text
-                  modifiers={[
-                    font({ textStyle: 'subheadline' }),
-                    foregroundStyle(
-                      tone === 'error'
-                        ? color.dangerText
-                        : tone === 'needs'
-                          ? color.needsYouText
-                          : paper.secondary,
-                    ),
-                  ]}
-                >
-                  {word}
-                </Text>
-              </HStack>
-              {model?.pool.notSaved('issue', row.id) ? (
-                <Text
-                  modifiers={[font({ textStyle: 'caption' }), foregroundStyle(color.dangerText)]}
-                >
-                  Not saved
-                </Text>
-              ) : null}
-              {expanded ? (
-                <HStack spacing={10}>
+                <HStack alignment="firstTextBaseline" spacing={MARK_GAP}>
                   <Text
                     modifiers={[
-                      font({ textStyle: 'footnote' }),
-                      foregroundStyle(paper.tertiary),
-                      lineLimit(1),
+                      font({ textStyle: 'body', weight: unread ? 'semibold' : 'regular' }),
+                      foregroundStyle(props.lane === 'closed' ? paper.secondary : paper.ink),
+                      lineLimit(expanded ? 3 : 1),
+                      frame({ maxWidth: Infinity, alignment: 'leading' }),
                     ]}
                   >
-                    {ref}
+                    {row.title}
                   </Text>
-                  <NativeRowStamp row={row} lane={props.lane} />
-                </HStack>
-              ) : null}
-            </VStack>
-            {!expanded ? (
-              <VStack alignment="trailing" spacing={5}>
-                <HStack spacing={5}>
                   {unread ? (
                     <Image
                       systemName="circle.fill"
-                      size={5}
+                      size={6}
                       color={color.workingText}
                       modifiers={[accessibilityHidden()]}
                     />
                   ) : null}
-                  <Image
-                    systemName="chevron.right"
-                    modifiers={[
-                      font({ textStyle: 'caption', weight: 'semibold' }),
-                      foregroundStyle(paper.tertiary),
-                      frame({ minHeight: 44 }),
-                      accessibilityHidden(),
-                    ]}
-                  />
-                  {loading ? <ProgressView /> : <NativeRowStamp row={row} lane={props.lane} />}
+                  {expanded ? null : loading ? (
+                    <ProgressView />
+                  ) : (
+                    <NativeRowStamp row={row} lane={props.lane} />
+                  )}
                 </HStack>
-                <Text
-                  modifiers={[
-                    font({ textStyle: 'caption' }),
-                    foregroundStyle(paper.tertiary),
-                    lineLimit(1),
-                  ]}
-                >
-                  {ref}
-                </Text>
+                <HStack alignment="firstTextBaseline" spacing={MARK_GAP}>
+                  <Text
+                    modifiers={[
+                      font({ textStyle: 'footnote' }),
+                      foregroundStyle(wordColor),
+                      lineLimit(expanded ? 2 : 1),
+                      frame({ maxWidth: Infinity, alignment: 'leading' }),
+                    ]}
+                  >
+                    {word}
+                  </Text>
+                  {expanded ? null : refText}
+                </HStack>
+                {notSaved ? (
+                  <Text
+                    modifiers={[font({ textStyle: 'caption' }), foregroundStyle(color.dangerText)]}
+                  >
+                    Not saved
+                  </Text>
+                ) : null}
+                {expanded ? (
+                  <HStack spacing={MARK_GAP}>
+                    {refText}
+                    <NativeRowStamp row={row} lane={props.lane} />
+                  </HStack>
+                ) : null}
               </VStack>
-            ) : null}
-          </HStack>
-        </Button>
-      </ContextMenu.Trigger>
-      <ContextMenu.Items>
-        <NativeRowActions
-          row={row}
-          lane={props.lane}
-          onAction={props.onAction}
-          onStatus={props.onStatus}
-        />
-      </ContextMenu.Items>
-    </ContextMenu>
+            </HStack>
+          </Button>
+        </ContextMenu.Trigger>
+        <ContextMenu.Items>
+          <NativeRowActions
+            row={row}
+            lane={props.lane}
+            onAction={props.onAction}
+            onStatus={props.onStatus}
+          />
+        </ContextMenu.Items>
+      </ContextMenu>
+      <NativeSwipeActions id={row.id} lane={props.lane} onSwipe={props.onSwipe} />
+    </SwipeActions>
   )
 })
+
+/** Trailing swipe: Close (full swipe) and Status on open rows; the fold's inverse elsewhere. */
+function NativeSwipeActions({
+  id,
+  lane,
+  onSwipe,
+}: {
+  id: string
+  lane: PhoneWorkLane
+  onSwipe: RowProps['onSwipe']
+}) {
+  if (lane === 'snoozed')
+    return (
+      <SwipeActions.Actions edge="trailing">
+        <Button
+          label="Unsnooze"
+          systemImage="sun.max"
+          onPress={() => onSwipe(id, 'undefer')}
+          modifiers={[tint(color.workingText)]}
+        />
+      </SwipeActions.Actions>
+    )
+  if (lane === 'closed')
+    return (
+      <SwipeActions.Actions edge="trailing">
+        <Button
+          label="Bring Back"
+          systemImage="arrow.uturn.backward"
+          onPress={() => onSwipe(id, 'bringBack')}
+          modifiers={[tint(color.workingText)]}
+        />
+      </SwipeActions.Actions>
+    )
+  return (
+    <SwipeActions.Actions edge="trailing">
+      <Button
+        label="Close"
+        systemImage="checkmark.circle"
+        onPress={() => onSwipe(id, 'close')}
+        modifiers={[tint(SWIPE_CLOSE)]}
+      />
+      <Button
+        label="Status"
+        systemImage="circle.dashed"
+        onPress={() => onSwipe(id, 'status')}
+        modifiers={[tint(color.workingText)]}
+      />
+    </SwipeActions.Actions>
+  )
+}
+
+type SFSymbol = NonNullable<ComponentProps<typeof Image>['systemName']>
+const SWIPE_CLOSE = '#8e8e93'
+type Mark = { symbol: SFSymbol; size: number; signal: boolean }
+const IDLE_MARK: Mark = { symbol: 'circle', size: 9, signal: false }
+const MOON_MARK: Mark = { symbol: 'moon', size: 11, signal: false }
+/** The board's glyphs: dot needs you, dotted grid working, ring idle, check landed. */
+const TONE_MARKS: Partial<Record<string, Mark>> = {
+  needs: { symbol: 'circle.fill', size: 8, signal: true },
+  error: { symbol: 'circle.fill', size: 8, signal: true },
+  working: { symbol: 'circle.grid.2x2.fill', size: 10, signal: true },
+  active: { symbol: 'circle', size: 9, signal: true },
+  done: { symbol: 'checkmark.circle', size: 12, signal: true },
+  closed: { symbol: 'minus.circle', size: 12, signal: false },
+  draft: { symbol: 'circle.dashed', size: 9, signal: false },
+}
+function toneColor(tone: string): string {
+  if (tone === 'error') return color.dangerText
+  if (tone === 'needs') return color.needsYouText
+  if (tone === 'working' || tone === 'active' || tone === 'done') return color.workingText
+  return paper.tertiary
+}
 
 const NativeRowStamp = observer(function NativeRowStamp({
   row,
@@ -571,6 +668,7 @@ const NativeRowActions = observer(function NativeRowActions({
             <Picker
               key={action}
               label="Status"
+              systemImage="circle.dashed"
               selection={issueStatusValueOf(issue)}
               onSelectionChange={(value) => onStatus(row.id, value)}
               modifiers={[pickerStyle('menu')]}
@@ -582,26 +680,15 @@ const NativeRowActions = observer(function NativeRowActions({
               ))}
             </Picker>
           )
-        const label =
-          action === 'rename'
-            ? 'Rename'
-            : action === 'read'
-              ? issue.unread
-                ? 'Mark as Read'
-                : 'Mark as Unread'
-              : action === 'undefer'
-                ? 'Unsnooze'
-                : action === 'bringBack'
-                  ? 'Bring Back from Closed'
-                  : action === 'placement'
-                    ? placement?.placement === 'mission'
-                      ? 'Move to Top Level'
-                      : 'Move into Parent Task'
-                    : 'Delete…'
+        const { label, symbol } = workMenuItem(action, {
+          unread: Boolean(issue.unread),
+          inMission: placement?.placement === 'mission',
+        })
         return (
           <Button
             key={action}
             label={label}
+            systemImage={symbol}
             role={action === 'delete' ? 'destructive' : 'default'}
             onPress={() => onAction(row.id, action)}
             modifiers={action === 'bringBack' ? [disabled(!row.canBringBack)] : []}
