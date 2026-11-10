@@ -75,7 +75,10 @@ it('disabling Bob closes his live feed in the commit and refuses what he queued'
   expect(await dispatch(inst, inst.sessions.bob, queuedBy(bob.id), queuedAt)).toEqual({ ok: true })
   await tick()
 
-  await inst.handle.registry.sessionStore.users.disable(bob.id, new Date().toISOString(), alice.id)
+  await inst.handle.identity.memberships.disable({
+    actor: { memberId: alice.id },
+    memberId: bob.id,
+  })
 
   // Gone by the time the disable returns: the commit's own publication closed
   // it, not the next heartbeat (15 s) or credential sweep.
@@ -86,7 +89,10 @@ it('disabling Bob closes his live feed in the commit and refuses what he queued'
   expect(await dispatch(inst, inst.sessions.bob, queuedBy(bob.id), queuedAt)).toMatchObject({
     ok: false,
   })
-  await inst.handle.registry.sessionStore.users.enable(bob.id, new Date().toISOString(), alice.id)
+  await inst.handle.identity.memberships.enable({
+    actor: { memberId: alice.id },
+    memberId: bob.id,
+  })
   expect(await dispatch(inst, inst.sessions.bob, queuedBy(bob.id), queuedAt)).toEqual({
     ok: false,
     reason: 'access changed after this was queued',
@@ -149,7 +155,7 @@ it('demoting Alice rescopes her open connection and refuses what she queued as a
   })
 })
 
-it("signing Bob out closes that device's connection; signing out everywhere closes all of them", async () => {
+it("signing Bob out closes that device's connection; ending all his sign-ins refuses his other device", async () => {
   const inst = await boot()
   const { bob } = inst.members
   const first = await inst.as('bob')
@@ -167,16 +173,17 @@ it("signing Bob out closes that device's connection; signing out everywhere clos
   const queuedAt = Date.now()
   await tick()
 
-  // Signing out everywhere closes the rest in the commit, and what was queued
-  // before it is refused at dispatch.
-  await inst.handle.registry.sessionStore.users.signOutEverywhere(bob.id, bob.id)
-  expect(connectionsOf(inst, bob.id)).toEqual([])
-  await secondFeed.until(() => secondFeed.closed(), 2000)
+  // Ending every device sign-in of Bob's account refuses his other device from
+  // then on. It does not touch what Bob may do: agent work depends on the
+  // membership, not on a device, so what he queued before still dispatches
+  // (people and sign-in specification, section 16 row 14). The route that
+  // also closes the open sockets at once is POD-6747's.
+  const bobAccount = (await inst.handle.registry.sessionStore.users.get(bob.id))?.accountId
+  expect(bobAccount).toBeTruthy()
+  await inst.handle.identity.core.deviceSignIns.revokeAllForAccount(bobAccount as string)
   await expect(inst.feedWith(secondCookie)).rejects.toThrow()
-  expect(await dispatch(inst, inst.sessions.bob, queuedBy(bob.id), queuedAt)).toEqual({
-    ok: false,
-    reason: 'access changed after this was queued',
-  })
+  expect(await dispatch(inst, inst.sessions.bob, queuedBy(bob.id), queuedAt)).toEqual({ ok: true })
+  secondFeed.close()
 })
 
 it("ending a delegation refuses its agent's calls and the work queued under it", async () => {

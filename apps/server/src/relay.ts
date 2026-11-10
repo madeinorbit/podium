@@ -75,7 +75,8 @@ import {
 } from '@podium/sync'
 import { FEED_RESCOPE_THRESHOLD } from '@podium/sync/bootstrap-worker'
 import { IssueAttachOrchestrator } from './application/issue-attach-orchestrator'
-import { hashToken } from './auth-route'
+import type { MemberCredentials } from './identity/member-credentials'
+import { hashToken } from './old-client-sessions'
 import { bootStage } from './boot-timing'
 import { serverBuildVersion } from './build-version'
 import { capabilityPrincipalResolver } from './capability-principal'
@@ -378,6 +379,12 @@ interface SessionRegistryOptions {
    *  disabled: mint throws, `pair` handshakes are rejected, `hello` unaffected. */
   installationId?: string
   pairing?: PairingCodes
+  /**
+   * A member's password and address, through their account of the identity
+   * package (POD-6746). Absent, which is a registry assembled without an
+   * identity core (most tests): every password write refuses.
+   */
+  memberCredentials?: MemberCredentials
   /** Reaction contracts to publish on the module seam. Defaults to the registry;
    *  injected only so the runtime refusal of an invalid principal is observable
    *  (POD-1470). Whatever is passed goes through the same totality check the
@@ -604,6 +611,8 @@ export class SessionRegistry {
   topics!: TopicRouting
 
   readonly recoveryOnly: boolean
+  /** See {@link SessionRegistryOptions.memberCredentials}. */
+  readonly memberCredentials: MemberCredentials | undefined
   /** Typed in-process event bus — modules subscribe here (issue #13 Phase 2). */
   readonly bus = new EventBus()
   /** Typed accessor to the composed services — the one seam callers use. */
@@ -855,6 +864,7 @@ export class SessionRegistry {
     const recoveryOnly = options.recoveryOnly === true
     const backgroundDisabled = recoveryOnly || options.rehearseBoot === true
     this.recoveryOnly = recoveryOnly
+    this.memberCredentials = options.memberCredentials
     this.now = options.now ?? Date.now
     const portableStateFence = options.portableStateFence ?? new PortableStateFence()
     // Resolve feature state once, then keep it atomic with settings changes. This also
@@ -1021,6 +1031,7 @@ export class SessionRegistry {
       bus: this.bus,
       ...(options.pairing ? { pairing: options.pairing } : {}),
       ...(options.installationId ? { installationId: options.installationId } : {}),
+      ...(options.memberCredentials ? { memberCredentials: options.memberCredentials } : {}),
       // Custody transitions require an existing recipient in the member directory.
       userExists: async (userId) => (await this.store.users.get(userId)) !== undefined,
       // A daemon coming back gets nothing queued on behalf of an owner who can

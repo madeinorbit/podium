@@ -13,7 +13,6 @@ export type { ExistingMember, IdentitySeam, IdentitySeamDeps } from './identity/
 export type { InviteClaim, InviteIdentity } from './member-invites'
 export { MemberInvites } from './member-invites'
 export type { MemberInviteMail } from './member-routes'
-export type { PluginAuth, Principal, PrincipalRequest } from './plugin-auth'
 export type { PodiumPlugin, PodiumPluginHooks } from './plugins'
 export * from './relay'
 export type { ServerRoleConfig } from './roles'

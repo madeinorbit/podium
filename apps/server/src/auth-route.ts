@@ -1,336 +1,68 @@
-import { createHash, randomBytes } from 'node:crypto'
-import {
-  asUserId,
-  type CredentialSource,
-  type ServerReadiness,
-  SOLE_USER_ID,
-  type UserId,
-  type UserRole,
-} from '@podium/model'
+/**
+ * THE SIGN-IN ROUTES AND THE GUARD OF THE HUMAN-CLIENT DATA PLANE (POD-6746;
+ * docs/design/people-and-sign-in.md, sections 4.1 and 5).
+ *
+ * Password sign-in, sign-out and status go through the shared identity
+ * package. Who a request is comes from `memberOfRequest` and from nowhere
+ * else: device sign-in, account, active membership, member.
+ */
+import { randomBytes } from 'node:crypto'
+import type { WorkspaceIdentity } from '@podium/identity'
+import { asUserId, type ServerReadiness, type UserId } from '@podium/model'
 import {
   fencedMemberOf,
   MEMBER_FENCE_REFUSAL,
   memberFenceRefuses,
   NativeClientLoginRequest,
-  SESSION_COOKIE,
 } from '@podium/protocol'
-import { verifyPasswordHash } from '@podium/runtime/auth-store'
 import type { Context, Hono, MiddlewareHandler } from 'hono'
-import { deleteCookie, setCookie } from 'hono/cookie'
-import { enabledProviderPrincipal, type ProviderPrincipal } from './plugin-auth'
-import { browserSignInMetadata } from './sign-in-device'
-import { DisabledMemberError } from './store/auth'
+import { isAllowedHttpOrigin } from './http-cors'
+import { type MemberOfRequest, refusalAnswer } from './identity/member-of-request'
+import {
+  type ClientSessionStore,
+  hashToken,
+  SESSION_TTL_MS,
+  setSessionCookie,
+} from './old-client-sessions'
+import { browserSignInDevice, browserSignInMetadata } from './sign-in-device'
 
-/** The subset of the store the auth surface needs (the human-UI login sessions). */
-export interface ClientSessionStore {
-  createClientSession(
-    tokenHash: string,
-    userId: UserId,
-    expiresAt: string,
-    label?: string,
-    metadata?: ClientSessionMetadata,
-  ): Promise<void>
-  getClientSession(tokenHash: string): Promise<ClientSessionRecord | undefined>
-  extendClientSession(tokenHash: string, expiresAt: string): Promise<void>
-  deleteClientSession(tokenHash: string): Promise<void>
-  touchClientSession?(tokenHash: string, lastSeenAt: string): Promise<void>
-  deleteExpiredClientSessions?(nowIso: string): Promise<void>
-}
-
-export interface ClientSessionMetadata {
-  sessionId?: string
-  deviceId?: string
-  deviceName?: string
-  platform?: string
-  lastSeenAt?: string
-}
-
-export interface ClientSessionRecord extends ClientSessionMetadata {
-  userId: UserId
-  expiresAt: string
-  label?: string
-}
-
-export interface ClientCredentialHeaders {
-  cookieHeader?: string
-  authorizationHeader?: string
-}
-
-export interface ResolvedClientCredential {
-  tokenHash: string
-  source: 'cookie' | 'bearer'
-  session: ClientSessionRecord
-  renewed: boolean
-}
-
-// The cookie name lives in @podium/protocol (shared wire-level constant with
-// @podium/sync's node⇄hub client, which must not import apps/server) —
-// re-exported here so existing apps/server/src imports of './auth-route' keep
-// working unchanged.
-export { SESSION_COOKIE }
-
-/** 30 days — a logged-in device stays logged in across server redeploys. */
-export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000
-/** Renew at most once a day: the first authenticated request after a session was last
- *  renewed >24h ago pushes its expiry back to a full TTL. Keeps an active client logged in
- *  forever (the idle window resets on any day it's used) while bounding the write to ~1/day. */
-const SESSION_RENEW_AFTER_MS = 24 * 60 * 60 * 1000
-
-const DEFAULT_MAX_FAILURES = 8
-const DEFAULT_LOCKOUT_MS = 5 * 60 * 1000
-
-export function hashToken(token: string): string {
-  return createHash('sha256').update(token).digest('hex')
-}
-
-/** True when the request carries a valid (unexpired) session cookie. Reused by the
- *  auth middleware and the /client WS upgrade gate so they share one definition of "authed". */
-export async function resolveClientCredential(
-  store: ClientSessionStore,
-  headers: ClientCredentialHeaders,
-  nowMs: number = Date.now(),
-): Promise<ResolvedClientCredential | undefined> {
-  const fromBearer = headers.authorizationHeader !== undefined
-  const token = fromBearer
-    ? parseBearerToken(headers.authorizationHeader)
-    : parseSessionCookie(headers.cookieHeader)
-  if (!token) return undefined
-  const tokenHash = hashToken(token)
-  const maintained = await maintainClientCredentialByHash(store, tokenHash, nowMs)
-  if (!maintained) return undefined
-  if (fromBearer && maintained.session.label !== 'mobile') return undefined
-  return {
-    tokenHash,
-    source: fromBearer ? 'bearer' : 'cookie',
-    session: maintained.session,
-    renewed: maintained.renewed,
-  }
-}
-
-/** Validate and maintain a credential when a transport retains only its token hash (WebSocket). */
-export async function maintainClientCredentialByHash(
-  store: ClientSessionStore,
-  tokenHash: string,
-  nowMs: number = Date.now(),
-): Promise<{ session: ClientSessionRecord; renewed: boolean } | undefined> {
-  // One read: the row and its expiry together (POD-6220). ISO strings compare in time order.
-  const current = await store.getClientSession(tokenHash)
-  if (!current || !(current.expiresAt > new Date(nowMs).toISOString())) return undefined
-  let session = current
-  if (
-    session.label === 'mobile' &&
-    (!session.lastSeenAt || nowMs - Date.parse(session.lastSeenAt) >= 5 * 60_000)
-  ) {
-    await store.touchClientSession?.(tokenHash, new Date(nowMs).toISOString())
-  }
-  const renewed =
-    ((session.label ?? 'login') === 'login' || session.label === 'mobile') &&
-    SESSION_TTL_MS - (Date.parse(session.expiresAt) - nowMs) >= SESSION_RENEW_AFTER_MS
-  if (renewed) {
-    const expiresAt = new Date(nowMs + SESSION_TTL_MS).toISOString()
-    await store.extendClientSession(tokenHash, expiresAt)
-    session = { ...session, expiresAt }
-  }
-  return { session, renewed }
-}
+export { isHttps, isSecureRequest } from './request-scheme'
 
 /**
- * ONE CREDENTIAL RESOLUTION PER REQUEST (POD-6220).
- *
- * The auth guard and everything behind it on the same request (the tRPC
- * context, the sync feed, the status route) ask who the caller is. Each asked
- * the store afresh, so a tRPC call read its session row four times before the
- * procedure ran. This resolves a request's credential once, on first ask, and
- * hands every later ask on the SAME `Request` object the same answer: the same
- * session, and at most one sliding-renewal write. It is a one-request memo, not
- * a cache: the entry lives exactly as long as the request object.
- */
-export function perRequestCredential(
-  store: ClientSessionStore,
-  now: () => number = () => Date.now(),
-): (request: Request) => Promise<ResolvedClientCredential | undefined> {
-  const resolved = new WeakMap<Request, Promise<ResolvedClientCredential | undefined>>()
-  return (request) => {
-    let credential = resolved.get(request)
-    if (!credential) {
-      credential = resolveClientCredential(
-        store,
-        {
-          cookieHeader: request.headers.get('cookie') ?? undefined,
-          authorizationHeader: request.headers.get('authorization') ?? undefined,
-        },
-        now(),
-      )
-      resolved.set(request, credential)
-    }
-    return credential
-  }
-}
-
-export async function requestUserId(
-  store: ClientSessionStore,
-  cookieHeader: string | undefined,
-  nowMs: number = Date.now(),
-  authorizationHeader?: string,
-): Promise<UserId | undefined> {
-  return (await resolveClientCredential(store, { cookieHeader, authorizationHeader }, nowMs))
-    ?.session.userId
-}
-
-export async function isRequestAuthed(
-  store: ClientSessionStore,
-  cookieHeader: string | undefined,
-  nowMs: number = Date.now(),
-): Promise<boolean> {
-  return (await requestUserId(store, cookieHeader, nowMs)) !== undefined
-}
-
-export function parseSessionCookie(cookieHeader: string | undefined): string | undefined {
-  if (!cookieHeader) return undefined
-  for (const part of cookieHeader.split(';')) {
-    const [name, ...rest] = part.trim().split('=')
-    if (name === SESSION_COOKIE) return decodeURIComponent(rest.join('='))
-  }
-  return undefined
-}
-
-function parseBearerToken(authorizationHeader: string | undefined): string | undefined {
-  if (!authorizationHeader) return undefined
-  const match = /^Bearer ([A-Za-z0-9_-]{20,512})$/i.exec(authorizationHeader.trim())
-  return match?.[1]
-}
-
-export function isSecureRequest(
-  url: string,
-  forwardedProto?: string,
-  trustedProxyHops: number = 0,
-): boolean {
-  try {
-    if (new URL(url).protocol === 'https:') return true
-  } catch {
-    return false
-  }
-  if (trustedProxyHops <= 0 || !Number.isSafeInteger(trustedProxyHops)) return false
-  const chain = (forwardedProto ?? '')
-    .split(',')
-    .map((value) => value.trim().toLowerCase())
-    .filter(Boolean)
-  const index = chain.length - trustedProxyHops
-  return index >= 0 && chain[index] === 'https'
-}
-
-export function isHttps(c: Context, trustedProxyHops: number = 0): boolean {
-  return isSecureRequest(c.req.url, c.req.header('x-forwarded-proto'), trustedProxyHops)
-}
-
-/** Issue (or refresh) the session cookie with the full TTL. One definition used by login
- *  and the sliding-renewal path so their cookie attributes can't drift apart. */
-export function setSessionCookie(c: Context, token: string, trustedProxyHops: number = 0): void {
-  setCookie(c, SESSION_COOKIE, token, {
-    httpOnly: true,
-    sameSite: 'Lax',
-    secure: isHttps(c, trustedProxyHops),
-    path: '/',
-    maxAge: Math.floor(SESSION_TTL_MS / 1000),
-  })
-}
-
-/**
- * Hono middleware that gates a client surface (e.g. /trpc, /files) behind the login session.
- * Open (passes through) when no password is configured AND the request is local; otherwise
- * requires a valid session cookie. CORS preflight (OPTIONS) is always allowed so cross-origin
- * clients can negotiate.
+ * Hono middleware that gates a client surface (/trpc, /files, /sync) behind
+ * the one resolution. A member continues; everybody else gets the answer of
+ * specification section 5.2. CORS preflight (OPTIONS) always passes so
+ * cross-origin clients can negotiate.
  */
 export function clientAuthGuard(opts: {
-  /** Composition-root resolver, including enabled workspace membership validation. */
-  principalForRequest?: (request: Request) => Promise<ProviderPrincipal>
-  principalSource?: (
-    request: Request,
-  ) => Promise<import('./plugin-auth').Principal | null | undefined> | undefined
-  store?: ClientSessionStore
-  /** The request's credential as the composition root resolves it once per request
-   *  ({@link perRequestCredential}), so the guard and the principal behind it share one
-   *  read. Absent: the guard resolves it from `store`. */
-  credentialForRequest?: (request: Request) => Promise<ResolvedClientCredential | undefined>
-  users?: AccountCredentialStore
-  /** See {@link AuthRouteOptions.loginRequired} — the ONE predicate, shared. */
-  loginRequired?: () => boolean | Promise<boolean>
-  now?: () => number
-  /** Number of reverse-proxy hops whose right-appended forwarding values are trusted. */
-  trustedProxyHops?: number
-  /**
-   * IS THIS REQUEST LOCAL — the other half of open mode (A2, spec §8).
-   *
-   * The pass-through has to agree with the principal resolver behind it, and the
-   * resolver now acts as the first admin only for a LOCAL caller. Without this
-   * the two disagree in the worst direction: the guard lets a remote caller
-   * through, the resolver declines to name a principal, and the context throws —
-   * so a request that should have been answered "log in" is answered with a 500.
-   *
-   * Optional, and absent means "do not check". A server assembled without it —
-   * an embedded one, a test — keeps the behaviour it had, so this cannot quietly
-   * close a door somebody was relying on. The composition root wires it.
-   */
-  isLocalRequest?: (request: Request) => boolean
+  memberOfRequest: MemberOfRequest
+  /** Extends a sign-in that is due and returns the cookie to set. */
+  renew: WorkspaceIdentity['renew']
 }): MiddlewareHandler {
-  const now = opts.now ?? (() => Date.now())
-  const loginRequired =
-    opts.loginRequired ?? (async () => Boolean(await opts.users?.hasPerUserCredentials()))
   return async (c, next) => {
     if (c.req.method === 'OPTIONS') return await next()
-    if (c.req.header('authorization') && !isHttps(c, opts.trustedProxyHops)) {
-      return c.json({ error: 'secure HTTPS is required for bearer authentication' }, 400)
+    const request = c.req.raw
+    const resolution = await opts.memberOfRequest(request)
+    if (resolution.kind !== 'member') {
+      const { status, body } = refusalAnswer(resolution)
+      return c.json(body, status)
     }
-    const supplied = opts.principalForRequest
-      ? await opts.principalForRequest(c.req.raw)
-      : await enabledProviderPrincipal(await opts.principalSource?.(c.req.raw), opts.users)
-    if (supplied === false) return c.json({ error: 'unauthorized' }, 401)
     // THE MEMBER FENCE (POD-6292, MU-12): a client opened for one member never
     // acts with another member's credential. It can only refuse; identity still
     // comes from the credential alone.
-    const fenced = fencedMemberOf(c.req.raw)
-    if (supplied) {
-      if (memberFenceRefuses(fenced, supplied.memberId)) return memberFenceRefusal(c)
-      return await next()
+    if (memberFenceRefuses(fencedMemberOf(request), resolution.memberId)) {
+      return memberFenceRefusal(c)
     }
-    // The credential first: a caller holding a valid one is admitted whether or not login is
-    // required, so the "is login required" read is only paid by a caller without one (POD-6220).
-    const store = opts.store
-    const credential = opts.credentialForRequest
-      ? await opts.credentialForRequest(c.req.raw)
-      : store
-        ? await resolveClientCredential(
-            store,
-            {
-              cookieHeader: c.req.header('cookie'),
-              authorizationHeader: c.req.header('authorization'),
-            },
-            now(),
-          )
-        : undefined
-    if (!credential) {
-      const openToThisCaller =
-        !(await loginRequired()) && (opts.isLocalRequest?.(c.req.raw) ?? true)
-      if (openToThisCaller) return await next()
-      return c.json({ error: 'unauthorized' }, 401)
-    }
-    if (memberFenceRefuses(fenced, credential.session.userId)) return memberFenceRefusal(c)
-    // Sliding renewal: if this session was last renewed more than a day ago, push the expiry
-    // back out and refresh the cookie so an actively-used client never gets logged out. Same
-    // token. Bounded to ~one renewal write per session per day.
-    //
-    // RENEWING DEVICE CLASSES ONLY (POD-1376). The rule "remaining life is more than a day short of
-    // the full TTL" is true of EVERY short-lived session, so renewing indiscriminately
-    // promoted a `podium auth mint-session --ttl 10m` credential to 30 days on its first
-    // request — silently destroying the TTL the operator chose. A break-glass session's
-    // lifetime is set once, at mint, and is nobody else's to extend. Browser login and mobile
-    // rows are device sessions and renew; break-glass remains fixed. (Upstream node⇄hub
-    // tokens escaped this only by accident: their 10-year expiry fails the condition.)
-    if (credential.renewed && credential.source === 'cookie') {
-      const token = parseSessionCookie(c.req.header('cookie'))
-      if (token) setSessionCookie(c, token, opts.trustedProxyHops)
-    }
-    return await next()
+    // THE DAILY RENEWAL. A sign-in last renewed more than a day ago is pushed
+    // back out to its full life, here, where the response can carry the cookie.
+    // A sign-in whose life was chosen when it was made is never due.
+    const renewed = resolution.renewDue
+      ? await opts.renew(request, opts.memberOfRequest.factsOf(request))
+      : undefined
+    await next()
+    const cookies = renewed?.getSetCookie() ?? []
+    for (const cookie of cookies) c.header('set-cookie', cookie, { append: true })
+    if (cookies.length > 0) c.header('cache-control', 'no-store')
   }
 }
 
@@ -339,161 +71,92 @@ function memberFenceRefusal(c: Context): Response {
   return c.json({ error: 'signed in as a different member', code: MEMBER_FENCE_REFUSAL }, 401)
 }
 
-export interface AccountCredentialStore {
-  get(userId: UserId): Promise<{ role: UserRole } | undefined>
-  /** The member a login with no identifier — or with the retired literal — means.
-   *  See {@link resolveLoginIdentifier}. */
-  earliestAdmin(): Promise<{ id: string; email: string | null } | undefined>
-  byEmail(email: string): Promise<{ id: string } | undefined>
-  create(
-    account: {
-      id: string
-      displayName: string
-      role: UserRole
-      createdAt: string
-      disabledAt: null
-    },
-    passwordHash: string,
-  ): Promise<void>
-  credentialFor(
-    userId: UserId,
-  ): Promise<{ source: CredentialSource; passwordHash: string | null } | undefined>
-  hasPerUserCredentials(): Promise<boolean>
-}
-
-/** Email identifies a member. The retired literal only names an email-less first admin.
- * Missing identifiers remain a bridge for the existing password-only gate until A4.
- */
-export async function resolveLoginIdentifier(
-  requested: string | undefined,
-  users: AccountCredentialStore | undefined,
-): Promise<UserId | undefined> {
-  if (requested !== undefined && requested !== SOLE_USER_ID) {
-    const member = await users?.byEmail(requested)
-    return member ? asUserId(member.id) : undefined
-  }
-  const first = await users?.earliestAdmin()
-  return first && first.email === null ? asUserId(first.id) : undefined
-}
-
 export interface AuthRouteOptions {
   /** Installation id for self-hosted, workspace id for hosted. */
   syncBoundaryId?: () => string
-
-  mode?: () => 'local' | 'cloud'
-  signInUrl?: () => string | undefined
+  identity: WorkspaceIdentity
+  /** The one resolver every human-client transport uses. */
+  memberOfRequest: MemberOfRequest
   /**
-   * WHY A RECOGNISED CALLER IS STILL REFUSED — reporting only, never authorization.
-   *
-   * A hosted workspace can recognise somebody perfectly well and still not admit
-   * them: they signed in to the provider, but they are not a member of THIS
-   * workspace (spec §11). The status endpoint could not say so. It reports
-   * `authed: false`, which is true but useless, and the login gate reads that as
-   * "not signed in" and offers the sign-in button again — so the person clicks
-   * it, succeeds, and lands back where they started with no idea why.
-   *
-   * This answers that question and nothing else. Its result is spread into the
-   * status payload and is consulted by NO authorization path: it cannot admit a
-   * caller, cannot refuse one, and returning `signedIn: true` grants nothing.
-   * Reporting and enforcement stay separate on purpose, so a mistake here is a
-   * wrong message rather than a wrong door.
+   * Whether `GET /auth/status` may report a signed-in caller yet. The control
+   * plane, not the data plane (POD-2766): while activation is pending the
+   * operator can sign in, so a sign-in that exists has to be reported, or the
+   * login screen loops against a server that just accepted the password.
    */
-  admission?: (
-    request: Request,
-  ) => Promise<{ signedIn: boolean; deniedReason?: string } | undefined>
-  store?: ClientSessionStore
-  users?: AccountCredentialStore
-  /**
-   * Resolve the request's transport principal at the server composition root.
-   *
-   * When present this is the SAME resolver used by tRPC and the client socket;
-   * the auth route reports its result and never invents an account of its own.
-   * This keeps the open/dev bootstrap policy in one place instead of growing a
-   * second first-admin fallback at an unauthenticated status endpoint.
-   */
-  resolveUserId?: (
-    headers: ClientCredentialHeaders,
-    /** The request itself, for a resolver whose answer depends on where the call
-     *  came from — open mode acts as the first admin only for a LOCAL caller
-     *  (A2). Passed through rather than re-derived here, so this route keeps
-     *  reporting the composition root's policy instead of holding one. */
-    request: Request,
-  ) => UserId | undefined | Promise<UserId | undefined>
-  /**
-   * IS LOGIN REQUIRED ON THIS INSTANCE — the one predicate every gate reads (POD-1554).
-   *
-   * `!openMode && users.hasPerUserCredentials()`, composed once in `server.ts`. It replaced
-   * `hasPassword()`, whose answer came from a FILE existing: "someone set the instance
-   * password" was made to mean both "there are credentials" and "the operator wants login
-   * on", and open mode could then be entered by deleting a file. Those are two questions
-   * and they now have two pieces of state, joined here so no caller can read one and
-   * believe it answered the other.
-   *
-   * Defaults to the credential half alone when not supplied (tests, embedded servers).
-   */
-  loginRequired?: () => boolean | Promise<boolean>
+  controlPlaneAvailable?: () => boolean
+  /** The member whose row carries this account, for the answer of a sign-in. */
+  memberOfAccount: (accountId: string) => Promise<{ id: string } | undefined>
+  /** Origins beside the request's own host that may change something here. */
+  allowedOrigins?: ReadonlySet<string>
   /** The same request locality rule as the open-mode transport guard. */
   isLocalRequest?: (request: Request) => boolean
   /** Same public lifecycle projection served by GET /readiness. */
   readiness?: () => ServerReadiness
-  throttle?: { maxFailures?: number; lockoutMs?: number; maxTracked?: number }
+  /** A device sign-in ended through this server: its open sockets close now. */
+  onDeviceSignInEnded?: (deviceSignInId: string) => void
+  /**
+   * A successful sign-in, for a composition root that publishes it. Fired
+   * after the device sign-in exists. Best-effort by contract: the call site
+   * swallows a throw, because an observer must never turn a good sign-in into
+   * a 500.
+   */
+  onLogin?: (event: { userId: UserId; delivery: 'cookie' | 'native'; platform?: string }) => void
+  /** The old client sessions, for the server-transfer claim alone (POD-6748). */
+  store?: ClientSessionStore
   now?: () => number
   /** Number of reverse-proxy hops whose right-appended forwarding values are trusted. */
   trustedProxyHops?: number
-  onCredentialRevoked?: (tokenHash: string) => void
-  /**
-   * A successful login, for a composition root that publishes it (podium-cloud's
-   * analytics subscriber). Fired AFTER the session row is written, on both
-   * delivery shapes, so a login that failed to persist is never reported as one.
-   *
-   * Best-effort by contract: the call site swallows a throw, because an observer
-   * must never turn a good login into a 500.
-   */
-  onLogin?: (event: { userId: UserId; delivery: 'cookie' | 'native'; platform?: string }) => void
 }
 
-export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void {
+export function registerAuthRoute(app: Hono, opts: AuthRouteOptions): void {
+  const { identity, memberOfRequest } = opts
+  const { core } = identity
   const store = opts.store
-  const users = opts.users
-  const loginRequired =
-    opts.loginRequired ?? (async () => Boolean(await users?.hasPerUserCredentials()))
   const now = opts.now ?? (() => Date.now())
-  const maxFailures = opts.throttle?.maxFailures ?? DEFAULT_MAX_FAILURES
-  const lockoutMs = opts.throttle?.lockoutMs ?? DEFAULT_LOCKOUT_MS
 
-  const maxTracked = opts.throttle?.maxTracked ?? 10_000
-  if (!Number.isSafeInteger(maxTracked) || maxTracked < 1) {
-    throw new RangeError('throttle.maxTracked must be a positive safe integer')
+  /**
+   * The package builds its own request to the sign-in library and never shows
+   * it the caller's origin, so the server checks it first (section 2.3). No
+   * Origin header at all is a same-origin or native caller.
+   */
+  const foreignOrigin = (c: Context): boolean => {
+    const origin = c.req.header('origin')
+    return (
+      origin !== undefined &&
+      !isAllowedHttpOrigin(origin, new URL(c.req.url).host, opts.allowedOrigins)
+    )
+  }
+  const appendCookies = (c: Context, headers: Headers): void => {
+    const cookies = headers.getSetCookie()
+    for (const cookie of cookies) c.header('set-cookie', cookie, { append: true })
+    if (cookies.length > 0) c.header('cache-control', 'no-store')
   }
 
-  const attempts = new Map<string, { failures: number; lockedUntil: number; expiresAt: number }>()
-
   app.get('/auth/status', async (c) => {
-    if (c.req.header('authorization') && !isHttps(c, opts.trustedProxyHops)) {
-      return c.json({ error: 'secure HTTPS is required for bearer authentication' }, 400)
-    }
-    const needsAuth = await loginRequired()
-    const headers = {
-      cookieHeader: c.req.header('cookie'),
-      authorizationHeader: c.req.header('authorization'),
-    }
-    const userId = opts.resolveUserId
-      ? await opts.resolveUserId(headers, c.req.raw)
-      : store
-        ? await requestUserId(store, headers.cookieHeader, now(), headers.authorizationHeader)
-        : undefined
-    const authed = userId !== undefined
-    // Only asked when nobody was admitted: an admitted caller needs no reason,
-    // and this must never run where it could be mistaken for the decision.
-    const admission = !authed && opts.admission ? await opts.admission(c.req.raw) : undefined
+    const [needsAuth, prompt, resolution] = await Promise.all([
+      identity.signInRequired(),
+      core.signIn.prompt(),
+      (opts.controlPlaneAvailable?.() ?? true)
+        ? memberOfRequest(c.req.raw)
+        : ({ kind: 'unauthenticated' } as const),
+    ])
+    const member = resolution.kind === 'member' ? resolution : undefined
     return c.json({
       needsAuth,
-      authed,
-      ...(admission?.signedIn ? { providerSignedIn: true } : {}),
-      ...(admission?.deniedReason ? { deniedReason: admission.deniedReason } : {}),
-      ...(opts.mode ? { mode: opts.mode() } : {}),
-      ...(opts.signInUrl ? { signInUrl: opts.signInUrl() } : {}),
-      ...(userId ? { userId, memberId: userId, syncBoundaryId: opts.syncBoundaryId?.() } : {}),
+      authed: member !== undefined,
+      // Signed in, and not a member of this workspace: the screen says so and
+      // offers another account instead of the sign-in form again.
+      ...(resolution.kind === 'not-a-member' ? { denied: 'not_workspace_member' as const } : {}),
+      ...(member
+        ? {
+            userId: member.memberId,
+            memberId: member.memberId,
+            syncBoundaryId: opts.syncBoundaryId?.(),
+          }
+        : {}),
+      // What this edition offers. It holds no secret and is the same for every caller.
+      capabilities: core.capabilities(),
+      prompt,
       ...(opts.readiness ? { readiness: opts.readiness() } : {}),
     })
   })
@@ -553,173 +216,100 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
   })
 
   app.post('/auth/login', async (c) => {
-    const required = await loginRequired()
-    if (!required && (!store || !opts.isLocalRequest?.(c.req.raw))) {
+    if (foreignOrigin(c)) return c.json({ error: 'Origin refused' }, 403)
+    const required = await identity.signInRequired()
+    if (!required && !opts.isLocalRequest?.(c.req.raw)) {
+      // Sign-in is not required here; there is nothing to sign in to.
       return c.json({ error: 'auth disabled' }, 400)
     }
-    const at = now()
-    let password = ''
-    let identifier: string | undefined
-    let nativeLogin: NativeClientLoginRequest | undefined
+    let body: { delivery?: unknown; email?: unknown; password?: unknown; prepareSignIn?: unknown } =
+      {}
     try {
-      const body = (await c.req.json()) as {
-        delivery?: unknown
-        userId?: unknown
-        email?: unknown
-        password?: unknown
-        prepareSignIn?: unknown
-      }
-      // Access takes a real cookie before closing the local open-mode gate.
-      // This is an explicit browser-only request and still verifies the password below.
-      if (!required && (body?.prepareSignIn !== true || body?.delivery === 'native')) {
-        return c.json({ error: 'auth disabled' }, 400)
-      }
-      if (body?.delivery === 'native') {
-        // Browsers attach Origin to POST requests and must stay on the HttpOnly
-        // cookie path. Native fetch does not attach it, so a web caller cannot
-        // opt into the response-body bearer intended for SecureStore.
-        if (c.req.header('origin') !== undefined) {
-          return c.json({ error: 'native login delivery is unavailable to browsers' }, 400)
-        }
-        if (!isHttps(c, opts.trustedProxyHops)) {
-          return c.json({ error: 'secure HTTPS is required for native login' }, 400)
-        }
-        const parsed = NativeClientLoginRequest.safeParse(body)
-        if (!parsed.success) return c.json({ error: 'invalid native login request' }, 400)
-        if (!store) return c.json({ error: 'session store unavailable' }, 503)
-        nativeLogin = parsed.data
-      }
-      if (body?.email !== undefined) {
-        if (typeof body.email !== 'string' || !body.email.trim() || body.email.length > 254) {
-          return c.json({ error: 'invalid email' }, 400)
-        }
-        identifier = body.email.trim().toLowerCase()
-      } else if (body?.userId !== undefined) {
-        if (body.userId !== SOLE_USER_ID) return c.json({ error: 'email is required' }, 400)
-        identifier = SOLE_USER_ID
-      }
-      if (typeof body?.password === 'string') password = body.password
+      body = ((await c.req.json()) ?? {}) as typeof body
     } catch {
       if (!required) return c.json({ error: 'auth disabled' }, 400)
-      // fall through — empty password fails verification below
+      // An unreadable body carries no password and is refused like a wrong one.
+    }
+    // Access takes a real cookie before closing the local open-mode gate.
+    // This is an explicit browser-only request and still verifies the password below.
+    if (!required && (body.prepareSignIn !== true || body.delivery === 'native')) {
+      return c.json({ error: 'auth disabled' }, 400)
+    }
+    let native: NativeClientLoginRequest | undefined
+    if (body.delivery === 'native') {
+      // Browsers attach Origin to POST requests and must stay on the HttpOnly
+      // cookie path. Native fetch does not attach it, so a web caller cannot
+      // opt into the response-body bearer intended for SecureStore.
+      if (c.req.header('origin') !== undefined) {
+        return c.json({ error: 'native login delivery is unavailable to browsers' }, 400)
+      }
+      const parsed = NativeClientLoginRequest.safeParse(body)
+      if (!parsed.success) return c.json({ error: 'invalid native login request' }, 400)
+      native = parsed.data
+    }
+    if (
+      body.email !== undefined &&
+      (typeof body.email !== 'string' || !body.email.trim() || body.email.length > 254)
+    ) {
+      return c.json({ error: 'invalid email' }, 400)
     }
 
-    const key = identifier ?? SOLE_USER_ID
-    const previous = attempts.get(key)
-    if (previous && previous.expiresAt <= at) attempts.delete(key)
-    const attempt = attempts.get(key) ?? { failures: 0, lockedUntil: 0, expiresAt: at + lockoutMs }
-    if (at < attempt.lockedUntil) {
-      return c.json({ error: 'too many attempts' }, 429, {
-        'retry-after': String(Math.ceil((attempt.lockedUntil - at) / 1000)),
-      })
-    }
-    // Publish the shared counter before password verification yields, so concurrent
-    // failures for one address accumulate rather than each starting from zero.
-    if (!attempts.has(key) && attempts.size >= maxTracked) {
-      // Only scan at capacity. Prefer the least recently failed unlocked entry;
-      // if every entry is locked, evict the oldest admission to keep memory bounded.
-      let victim = attempts.keys().next().value!
-      let oldest = Number.POSITIVE_INFINITY
-      for (const [email, state] of attempts) {
-        if (state.lockedUntil <= at && state.expiresAt < oldest) {
-          oldest = state.expiresAt
-          victim = email
-        }
+    // The package owns the rest: who a sign-in without an address means, the
+    // budget per identifier, the password check, and the active membership.
+    const outcome = await core.signIn.password(
+      {
+        ...(typeof body.email === 'string' ? { email: body.email } : {}),
+        password: typeof body.password === 'string' ? body.password : '',
+        device: native
+          ? {
+              kind: 'phone',
+              name: native.deviceName,
+              deviceId: native.deviceId,
+              platform: native.platform,
+            }
+          : browserSignInDevice(c.req.header('user-agent'), c.req.header('origin')),
+        delivery: native ? 'bearer' : 'cookie',
+      },
+      memberOfRequest.factsOf(c.req.raw),
+    )
+    if ('refused' in outcome) {
+      if (outcome.refused === 'throttled') {
+        return c.json({ error: 'too many attempts' }, 429, {
+          'retry-after': String(outcome.retryAfterSeconds),
+        })
       }
-      attempts.delete(victim)
-    }
-    attempts.set(key, attempt)
-    const userId = await resolveLoginIdentifier(identifier, users)
-
-    // ONE WAY IN (POD-1554). A login is a per-account credential match or it is nothing.
-    // Two arms used to live here: a `source === 'instance-password'` arm that verified
-    // against the shared hash in auth.json, and a `!users && userId === firstAdminMemberId()`
-    // fallback for a server assembled without a user store. Both authenticated a person by
-    // a secret that belonged to the INSTANCE, which is precisely what cannot survive
-    // accounts — and the fallback did it while unable to name whose account it was. A
-    // server with no user store now serves no login at all, which is the honest answer.
-    const credential = userId === undefined ? undefined : await users?.credentialFor(userId)
-    const ok =
-      password && credential?.passwordHash
-        ? await verifyPasswordHash(password, credential.passwordHash)
-        : false
-    if (!ok || userId === undefined) {
-      attempt.failures += 1
-      attempt.expiresAt = at + lockoutMs
-      if (attempt.failures >= maxFailures) {
-        attempt.lockedUntil = at + lockoutMs
-        attempt.failures = 0
-      }
-      // The shared object is already stored. An in-flight attempt evicted while
-      // verification yielded must not reinsert itself or replace a newer counter.
+      if (outcome.refused === 'https_required') return c.json({ error: 'https_required' }, 400)
       return c.json({ error: 'invalid password' }, 401)
     }
 
-    if (attempts.get(key) === attempt) attempts.delete(key)
-
-    // Best-effort and isolated: an observer must never turn a good login into a 500.
-    const reportLogin = (event: {
-      userId: UserId
-      delivery: 'cookie' | 'native'
-      platform?: string
-    }): void => {
-      try {
-        opts.onLogin?.(event)
-      } catch {}
+    // A sign-in is only issued to an account with an active membership, and
+    // apply-membership wrote that account onto the member's row.
+    const member = await opts.memberOfAccount(outcome.accountId)
+    if (!member) {
+      await core.deviceSignIns.revoke(outcome.deviceSignInId)
+      return c.json({ error: 'invalid password' }, 401)
     }
-
-    const token = randomBytes(32).toString('base64url')
-    const expiresMs = at + SESSION_TTL_MS
-    const expiresAt = new Date(expiresMs).toISOString()
-    await store?.deleteExpiredClientSessions?.(new Date(at).toISOString())
-    // WHICH PERSON this device belongs to. The shared password authenticates a
-    // CONNECTION, not a human (ADR 9 D1.3), so the only true answer available is
-    // the instance's one account — passed EXPLICITLY rather than defaulted in the
-    // store, so per-user login (POD-315) changes this line and nothing silently
-    // keeps writing one id for everybody.
+    const userId = asUserId(member.id)
     try {
-      if (nativeLogin) {
-        await store?.createClientSession(hashToken(token), userId, expiresAt, 'mobile', {
-          sessionId: randomBytes(18).toString('base64url'),
-          deviceId: nativeLogin.deviceId,
-          deviceName: nativeLogin.deviceName,
-          platform: nativeLogin.platform,
-          lastSeenAt: new Date(at).toISOString(),
-        })
-        reportLogin({
-          userId,
-          delivery: 'native',
-          ...(nativeLogin.platform ? { platform: nativeLogin.platform } : {}),
-        })
-        return c.json({
-          ok: true as const,
-          delivery: 'native' as const,
-          syncBoundaryId: opts.syncBoundaryId?.(),
-          memberId: userId,
-          token,
-          userId,
-          expiresAt,
-        })
-      }
-      // Named for its owner's device list and Access (POD-6701).
-      await store?.createClientSession(
-        hashToken(token),
+      opts.onLogin?.({
         userId,
-        expiresAt,
-        'login',
-        browserSignInMetadata(
-          c.req.header('user-agent'),
-          c.req.header('origin'),
-          new Date(at).toISOString(),
-        ),
-      )
-    } catch (error) {
-      if (error instanceof DisabledMemberError) return c.json({ error: 'invalid password' }, 401)
-      throw error
-    }
-    reportLogin({ userId, delivery: 'cookie' })
+        delivery: native ? 'native' : 'cookie',
+        ...(native?.platform ? { platform: native.platform } : {}),
+      })
+    } catch {}
 
-    setSessionCookie(c, token, opts.trustedProxyHops)
+    if (native) {
+      return c.json({
+        ok: true as const,
+        delivery: 'native' as const,
+        syncBoundaryId: opts.syncBoundaryId?.(),
+        memberId: userId,
+        token: outcome.bearer,
+        userId,
+        expiresAt: outcome.expiresAt.toISOString(),
+      })
+    }
+    appendCookies(c, outcome.headers)
     return c.json({ ok: true, userId, memberId: userId, syncBoundaryId: opts.syncBoundaryId?.() })
   })
 
@@ -729,24 +319,12 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
   )
 
   app.post('/auth/logout', async (c) => {
-    if (c.req.header('authorization') && !isHttps(c, opts.trustedProxyHops)) {
-      return c.json({ error: 'secure HTTPS is required for bearer authentication' }, 400)
-    }
-    const credential = store
-      ? await resolveClientCredential(
-          store,
-          {
-            cookieHeader: c.req.header('cookie'),
-            authorizationHeader: c.req.header('authorization'),
-          },
-          now(),
-        )
-      : undefined
-    if (credential && store) {
-      await store.deleteClientSession(credential.tokenHash)
-      opts.onCredentialRevoked?.(credential.tokenHash)
-    }
-    deleteCookie(c, SESSION_COOKIE, { path: '/' })
+    if (foreignOrigin(c)) return c.json({ error: 'Origin refused' }, 403)
+    // Ends the one device sign-in this request carries and clears its cookie.
+    // The member's other devices, and their agents, are not touched.
+    const ended = await core.signIn.signOut(c.req.raw, memberOfRequest.factsOf(c.req.raw))
+    if (ended.deviceSignInId) opts.onDeviceSignInEnded?.(ended.deviceSignInId)
+    appendCookies(c, ended.headers)
     return c.json({ ok: true })
   })
 }

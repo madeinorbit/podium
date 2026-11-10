@@ -24,7 +24,7 @@ import type { UserAccountRow } from '../../store/users'
 
 import type { ServerReadiness, UserId } from '@podium/model'
 import { LoginEmail } from '@podium/model'
-import { hashPassword, verifyPasswordHash } from '@podium/runtime/auth-store'
+import { hashPassword } from '@podium/runtime/auth-store'
 import {
   type FleetUpdateChannel,
   LAYERED_KEYS,
@@ -51,7 +51,9 @@ import {
 import type { TelemetryEmitter } from '@podium/telemetry'
 import { readTelemetryState, shouldAskForConsent } from '@podium/telemetry'
 import { TRPCError } from '@trpc/server'
+import { IdentityRefused } from '@podium/identity'
 import { serverBuildVersion } from '../../build-version'
+import { type MemberCredentials, MemberHasNoAccount } from '../../identity/member-credentials'
 
 /** The one optional dependency that is genuinely per-request rather than
  *  process-wide: the telemetry emitter, present only when the server was
@@ -80,6 +82,12 @@ export interface InstanceDeps {
    */
   readonly users?: InstanceAccountStore | undefined
   readonly callerUserId?: UserId | undefined
+  /**
+   * The caller's password and address, through their account of the identity
+   * package (POD-6746). Absent, which is a server assembled without an identity
+   * core: every credential write refuses and nobody has a password.
+   */
+  readonly credentials?: MemberCredentials | undefined
   /** `credentialsRequired()` from the composition root — see AuthRouteOptions.loginRequired. */
   readonly loginRequired?: (() => boolean | Promise<boolean>) | undefined
   readonly loginPolicy?: (() => Promise<InstanceLoginPolicy>) | undefined
@@ -149,15 +157,7 @@ export interface InstanceDeps {
 /** The slice of `UsersRepository` the auth commands need. */
 export interface InstanceAccountStore {
   get(userId: UserId): UserAccountRow | undefined | Promise<UserAccountRow | undefined>
-  credentialFor(
-    userId: UserId,
-  ):
-    | { passwordHash: string | null }
-    | undefined
-    | Promise<{ passwordHash: string | null } | undefined>
   writeProfile(userId: UserId, name: string, avatar: string | null): void | Promise<void>
-  setEmail(userId: UserId, email: string): void | Promise<void>
-  setPasswordHash(userId: UserId, passwordHash: string, updatedAt: string): void | Promise<void>
 }
 
 /** The native updater must use the deployment's advertised HTTPS edge, not the page origin.
@@ -374,11 +374,7 @@ export class InstanceService {
     // later from Settings → Machines). It is only a mandatory choice on a fresh,
     // password-less instance.
     // "Already set" is now the CALLER having a credential, not a file existing.
-    if (
-      !password &&
-      !input.acknowledgeNoPassword &&
-      !(await this.callerCredential())?.passwordHash
-    ) {
+    if (!password && !input.acknowledgeNoPassword && !(await this.callerHasPassword())) {
       throw new TRPCError({
         code: 'BAD_REQUEST',
         message: 'Confirm running without a login password.',
@@ -400,8 +396,8 @@ export class InstanceService {
       await this.deps.completeHostSetup(this.deps.callerUserId, cfg.mode !== 'server', passwordHash)
     } else {
       if (passwordHash) {
-        const { users, callerUserId } = this.requireAccountStore()
-        await users.setPasswordHash(callerUserId, passwordHash, new Date().toISOString())
+        const { credentials, callerUserId } = this.requireCredentials()
+        await this.credentialWrite(() => credentials.setPasswordHash(callerUserId, passwordHash))
       }
       if (this.deps.grantHostMachine && this.deps.callerUserId) {
         await this.deps.grantHostMachine(this.deps.callerUserId)
@@ -541,9 +537,36 @@ export class InstanceService {
    * no authenticated human. That throw is why nothing below re-checks for one: an
    * unauthenticated caller cannot reach these methods at all.
    */
-  private async callerCredential() {
+  private async callerHasPassword(): Promise<boolean> {
     const userId = this.deps.callerUserId
-    return userId ? await this.deps.users?.credentialFor(userId) : undefined
+    return userId ? ((await this.deps.credentials?.hasPassword(userId)) ?? false) : false
+  }
+
+  /**
+   * "Confirm with your current password": refused when the caller has a
+   * password and `current` is not it. A caller without one passes (bootstrap).
+   */
+  private async confirmCurrentPassword(
+    credentials: MemberCredentials,
+    callerUserId: UserId,
+    current: string | undefined,
+  ): Promise<void> {
+    if (!(await credentials.hasPassword(callerUserId))) return
+    if (!(current && (await credentials.verifyPassword(callerUserId, current)))) {
+      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'current password is incorrect' })
+    }
+  }
+
+  /** A member whose row has no account yet cannot hold a password or an address. */
+  private async credentialWrite(write: () => Promise<void>): Promise<void> {
+    try {
+      await write()
+    } catch (error) {
+      if (error instanceof MemberHasNoAccount) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: error.message })
+      }
+      throw error
+    }
   }
 
   /** Instance policy and whether this caller can change it. Never credential material. */
@@ -558,7 +581,7 @@ export class InstanceService {
       loginPolicySource: (
         this.deps.settings?.resolve('authOpenMode') ?? resolveSetting('authOpenMode')
       ).source,
-      hasOwnCredential: Boolean((await this.callerCredential())?.passwordHash),
+      hasOwnCredential: await this.callerHasPassword(),
       canManageInstance:
         this.deps.callerUserId !== undefined &&
         (await this.deps.users?.get(this.deps.callerUserId))?.role === 'admin',
@@ -587,15 +610,23 @@ export class InstanceService {
   }
 
   async setEmail(input: { email: string; current?: string | undefined }) {
-    const { users, callerUserId } = this.requireAccountStore()
+    const { credentials, callerUserId } = this.requireCredentials()
     const email = LoginEmail.parse(input.email)
-    const existing = (await users.credentialFor(callerUserId))?.passwordHash
-    if (existing && !(input.current && (await verifyPasswordHash(input.current, existing)))) {
-      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'current password is incorrect' })
-    }
+    await this.confirmCurrentPassword(credentials, callerUserId, input.current)
     try {
-      await users.setEmail(callerUserId, email)
+      // The address is the account's identifier; apply-membership copies it to
+      // the member row in the same transaction.
+      await this.credentialWrite(() => credentials.setEmail(callerUserId, email))
     } catch (error) {
+      if (error instanceof IdentityRefused && error.code === 'email-taken') {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'Email is already used in this workspace.',
+        })
+      }
+      if (error instanceof IdentityRefused && error.code === 'email-invalid') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Enter a valid email address.' })
+      }
       // Drizzle may wrap SQLite's constraint error in a query error.
       let cause: unknown = error
       while (cause instanceof Error) {
@@ -616,16 +647,9 @@ export class InstanceService {
    *  credential — defends against a hijacked session. A caller with none yet skips
    *  the check (bootstrap). Shipped behaviour, now scoped to one account. */
   async setPassword(input: { current?: string | undefined; next: string }) {
-    const { users, callerUserId } = this.requireAccountStore()
-    const existing = (await users.credentialFor(callerUserId))?.passwordHash
-    if (existing && !(input.current && (await verifyPasswordHash(input.current, existing)))) {
-      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'current password is incorrect' })
-    }
-    await users.setPasswordHash(
-      callerUserId,
-      await hashPassword(input.next),
-      new Date().toISOString(),
-    )
+    const { credentials, callerUserId } = this.requireCredentials()
+    await this.confirmCurrentPassword(credentials, callerUserId, input.current)
+    await this.credentialWrite(() => credentials.setPassword(callerUserId, input.next))
     return { loginRequired: (await this.deps.loginRequired?.()) ?? true }
   }
 
@@ -653,11 +677,8 @@ export class InstanceService {
         message: 'Confirm running without a login password.',
       })
     }
-    const { users, callerUserId } = this.requireAccountStore()
-    const existing = (await users.credentialFor(callerUserId))?.passwordHash
-    if (existing && !(await verifyPasswordHash(input.current, existing))) {
-      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'current password is incorrect' })
-    }
+    const { credentials, callerUserId } = this.requireCredentials()
+    await this.confirmCurrentPassword(credentials, callerUserId, input.current)
     this.assertNotForced('authOpenMode', 'login policy')
     await this.updateDeployment({ authOpenMode: !input.required })
     return { loginRequired: (await this.deps.loginRequired?.()) ?? input.required }
@@ -685,6 +706,16 @@ export class InstanceService {
       throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'account store unavailable' })
     }
     return { users, callerUserId }
+  }
+
+  /** The same refusal for a server assembled without an identity core. */
+  private requireCredentials() {
+    const credentials = this.deps.credentials
+    const callerUserId = this.deps.callerUserId
+    if (!credentials || !callerUserId) {
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'account store unavailable' })
+    }
+    return { credentials, callerUserId }
   }
 
   // ---- telemetry ----

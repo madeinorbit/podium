@@ -54,6 +54,7 @@ import {
   asMachineId,
   asUserId,
   firstAdminMemberId,
+  newMemberId,
   type IssueId,
   type MachineId,
   type SessionId,
@@ -66,7 +67,6 @@ import {
   type SyncChangesSinceResult,
 } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
-import { hashPassword } from '@podium/runtime/auth-store'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
 import { createTRPCClient, httpLink, type TRPCClient } from '@trpc/client'
 import WebSocket from 'ws'
@@ -96,6 +96,14 @@ const ALICE: Omit<FixtureMember, 'id'> = {
   password: 'alice-fixture-password',
   role: 'admin',
 }
+
+/**
+ * Bob's and Carol's member ids. A member is created through the identity
+ * package, which never takes an id from a caller; the fixture's server is
+ * started with these as the first ids it mints (`newMemberIdForTests`), so a
+ * test can name them before the instance exists.
+ */
+const FIXTURE_MEMBER_IDS = ['mem_fixture_bob', 'mem_fixture_carol'] as const
 
 export const MEMBERS: Readonly<Record<MemberName, FixtureMember>> = {
   alice: {
@@ -172,6 +180,8 @@ export interface TwoMemberInstance {
   as(member: MemberName): Promise<MemberSession>
   /** POST `/auth/login` for the member and return the raw response (Carol's is refused). */
   login(member: MemberName): Promise<Response>
+  /** A further device sign-in of the member; answers its cookie (`name=value`). */
+  signInDevice(member: MemberName): Promise<string>
   /** Open the `/client` feed socket with any session cookie (a second device, say). */
   feedWith(cookie: string): Promise<FeedView>
   /** Drop that machine's fake daemon and attach it again, as a daemon reconnect does. */
@@ -281,14 +291,20 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
     JSON.stringify({ configVersion: 2, mode: 'all-in-one', persistence: 'systemd' }),
   )
   process.env.PODIUM_STATE_DIR = stateDir
-  const handle = await startServer({ port: 0, janitorWorkerForTests: noJanitorWorkerForTests })
+  // Bob and Carol get the ids `MEMBERS` names; anybody a test adds later gets
+  // an id of the ordinary form.
+  const fixtureIds: string[] = [...FIXTURE_MEMBER_IDS]
+  const handle = await startServer({
+    port: 0,
+    janitorWorkerForTests: noJanitorWorkerForTests,
+    newMemberIdForTests: () => fixtureIds.shift() ?? newMemberId(),
+  })
   const origin = `http://127.0.0.1:${handle.port}`
   const registry = handle.registry
   const store = registry.sessionStore
-  const members: typeof MEMBERS = {
-    ...MEMBERS,
-    alice: { ...ALICE, id: await firstAdminMemberId(store) },
-  }
+  const { memberships } = handle.identity
+  const { accounts } = handle.identity.core
+  const aliceId = await firstAdminMemberId(store)
   const relayServers: Array<Awaited<ReturnType<typeof startAgentRelayServer>>> = []
   const sockets: WebSocket[] = []
 
@@ -302,26 +318,38 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
   }
 
   try {
-    // PEOPLE. Alice is the admin every fresh instance already has; Bob and Carol
-    // are added the way an accepted invite adds them (a row plus a credential).
-    const at = new Date().toISOString()
-    const { alice, bob, carol } = members
-    await store.users.setEmail(alice.id, alice.email)
-    await store.users.setPasswordHash(alice.id, await hashPassword(alice.password), at)
-    for (const member of [bob, carol]) {
-      await store.users.create(
-        {
-          id: member.id,
-          displayName: member.displayName,
+    // PEOPLE, all through the identity package (POD-6746). Alice is the admin
+    // every fresh instance already has: the boot gave her row its membership
+    // and an account, and here she gets an address and a password. Bob and
+    // Carol are invited by Alice and accept, which is the only way a member
+    // comes to exist. Carol is then disabled by Alice.
+    const aliceAccount = (await store.users.get(aliceId))?.accountId
+    if (!aliceAccount) throw new Error('the first admin of a fresh instance has no account')
+    await accounts.setEmail(aliceAccount, ALICE.email)
+    await accounts.setPassword(aliceAccount, ALICE.password)
+    for (const name of ['bob', 'carol'] as const) {
+      const member = MEMBERS[name]
+      const { invitation } = await memberships.invite({
+        actor: { memberId: aliceId },
+        role: member.role,
+        email: member.email,
+      })
+      const accepted = await memberships.accept({
+        token: invitation.token,
+        account: {
+          kind: 'new',
+          name: member.displayName,
           email: member.email,
-          role: member.role,
-          createdAt: at,
-          disabledAt: null,
+          password: member.password,
         },
-        await hashPassword(member.password),
-      )
+      })
+      if (accepted.memberId !== member.id) {
+        throw new Error(`${name} was minted as ${accepted.memberId}, not ${member.id}`)
+      }
     }
-    await store.users.disable(carol.id, at, alice.id)
+    const members: typeof MEMBERS = { ...MEMBERS, alice: { ...ALICE, id: aliceId } }
+    const { alice, bob, carol } = members
+    await memberships.disable({ actor: { memberId: alice.id }, memberId: carol.id })
 
     // MACHINES. Each with custody for its member, `/repo` reported, and a fake
     // daemon whose relay hub answers its agents' `podium issue` calls.
@@ -417,16 +445,41 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
         body: JSON.stringify({ email: members[name].email, password: members[name].password }),
       })
 
+    /**
+     * A new device sign-in of the member, as a browser on this machine gets
+     * one, and its cookie. Through the package's password sign-in and not
+     * `POST /auth/login`: the sign-in library allows three sign-ins per ten
+     * seconds from one address, and every request of a test comes from
+     * 127.0.0.1. Each device here has an address of its own instead. The
+     * cookie is the real one and every later request goes through production.
+     */
+    let devices = 0
+    const signInDevice = async (name: MemberName): Promise<string> => {
+      devices += 1
+      const issued = await handle.identity.core.signIn.password(
+        {
+          email: members[name].email,
+          password: members[name].password,
+          device: { kind: 'browser' },
+          delivery: 'cookie',
+        },
+        {
+          scheme: 'http',
+          sameMachine: true,
+          clientAddress: `10.6.${(devices >> 8) & 255}.${devices & 255}`,
+        },
+      )
+      if ('refused' in issued) throw new Error(`${name} could not sign in (${issued.refused})`)
+      const cookie = issued.headers.getSetCookie().find((c) => c.includes('session_token'))
+      if (!cookie) throw new Error(`${name}'s sign-in set no cookie`)
+      return cookie.split(';', 1)[0] as string
+    }
+
     const signedIn = new Map<MemberName, MemberSession>()
     const as = async (name: MemberName): Promise<MemberSession> => {
       const cached = signedIn.get(name)
       if (cached) return cached
-      const response = await login(name)
-      if (!response.ok) {
-        throw new Error(`${name} could not sign in (${response.status}): ${await response.text()}`)
-      }
-      const cookie = response.headers.get('set-cookie')?.split(';', 1)[0]
-      if (!cookie) throw new Error(`${name}'s login returned no session cookie`)
+      const cookie = await signInDevice(name)
       const trpc = createTRPCClient<AppRouter>({
         links: [httpLink({ url: `${origin}/trpc`, headers: () => ({ cookie }) })],
       })
@@ -532,6 +585,7 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
       as,
       login,
       feedWith: async (cookie) => await openFeed(cookie),
+      signInDevice,
       reconnectDaemon: async (machineId, whileAway) => {
         const transport = daemonTransports.get(machineId)
         if (!transport) throw new Error(`no fake daemon for ${machineId}`)

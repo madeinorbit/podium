@@ -24,7 +24,7 @@ import { request } from 'node:http'
 import { asUserId, type UserId } from '@podium/model'
 import { serverControlSocketPath } from '@podium/runtime/user-socket'
 import { afterEach, expect, it } from 'vitest'
-import { hashToken } from './auth-route'
+import { hashToken } from './old-client-sessions'
 import {
   MEMBERS,
   startTwoMemberInstance,

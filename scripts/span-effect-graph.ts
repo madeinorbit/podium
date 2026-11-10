@@ -418,27 +418,27 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
   },
   {
     file: 'packages/identity/src/types.ts',
-    line: 102,
+    line: 108,
     why: "the identity package's database port, SQLite arm (POD-6744): the property that HOLDS the transaction runner an edition hands in. On the server that runner is `createOrJoinTransaction`, which is named as an opener where the server binds it.",
   },
   {
     file: 'packages/identity/src/types.ts',
-    line: 103,
+    line: 109,
     why: "the identity package's database port, Postgres arm: the same property for the cloud's database. No server span exists there.",
   },
   {
     file: 'packages/identity/src/runtime.ts',
-    line: 71,
+    line: 79,
     why: "the identity package's own transaction, declared on its Runtime. It only joins or forwards to the edition's port above, so it is machinery under the span the port opens, not a second mouth.",
   },
   {
     file: 'packages/identity/src/runtime.ts',
-    line: 170,
+    line: 179,
     why: "the same declaration's implementation.",
   },
   {
     file: 'packages/identity/src/types.ts',
-    line: 138,
+    line: 144,
     why: "the identity core's `transaction` (PDM-495): the same runtime transaction, offered to the edition so a rule of its own commits together with a membership. It joins or forwards to the edition's port above; no server code calls it.",
   },
 ]
@@ -603,6 +603,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   'apps/server/src/modules/issues/issue-reader.ts#CommittedIssueReader.rows': {
     kind: 'contained',
     why: 'Reads the existing committed IssueStore map without I/O or publication; rollback leaves nothing observable outside this process.',
+  },
+  'packages/identity/src/types.ts#TransactionPort.fn': {
+    kind: 'opaque',
+    why: "the body the identity package runs in a transaction of the server's store (POD-6746): `SessionStore.identityDatabase()` hands the package `createOrJoinTransaction`, and this is the package's callback inside it. Its statements go through the store's one drizzle handle and join that transaction; what the package does there is its own membership, account and device sign-in writes, and the member row write, which is `UsersRepository.writeMemberRow` and is analysed where it is declared.",
   },
   'apps/server/src/store/committed-rows.ts#CommittedRows.query': {
     kind: 'opaque',

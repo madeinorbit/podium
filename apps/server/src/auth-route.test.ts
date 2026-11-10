@@ -1,65 +1,89 @@
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { asUserId, controlPlaneAvailable, firstAdminMemberId } from '@podium/model'
-import { hashPassword } from '@podium/runtime/auth-store'
-import { BREAK_GLASS_LABEL, mintBreakGlassSession } from '@podium/runtime/session-mint'
+/**
+ * The sign-in routes and the guard, on the shared identity package (POD-6746;
+ * docs/design/people-and-sign-in.md, sections 4.1 and 5).
+ *
+ * The store is the server's real one and the identity is the one a self-hosted
+ * server builds on it at boot. What the package itself guarantees (the budget
+ * per identifier in every corner, who a sign-in without an address means,
+ * expiry) is asserted by the shared suite; these tests are about the routes.
+ */
+import { asUserId, firstAdminMemberId, type UserId } from '@podium/model'
+import { MEMBER_FENCE_HEADER, MEMBER_FENCE_REFUSAL } from '@podium/protocol'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
+  type AuthRouteOptions,
   clientAuthGuard,
-  hashToken,
-  isRequestAuthed,
   isSecureRequest,
   registerAuthRoute,
-  requestUserId,
-  resolveLoginIdentifier,
 } from './auth-route'
+import { hashToken } from './old-client-sessions'
 import { authReadinessBoundary } from './readiness-boundary'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
+import {
+  memberResolution,
+  openTestIdentity,
+  stubMemberOfRequest,
+  type TestIdentity,
+} from './test-support/test-identity'
 
 vi.mock('../../mobile/node_modules/react-native', () => ({ Platform: { OS: 'ios' } }))
 
-import { MemberInvites } from './member-invites'
+const ORIGIN = 'https://podium.example'
+const PASSWORD = 'hunter2-hunter2'
 
-const FAR_FUTURE = '2999-01-01T00:00:00.000Z'
-
-let dir: string
 let store: SessionStore
+let identity: TestIdentity
+let admin: UserId
 
-function makeApp(opts: Parameters<typeof registerAuthRoute>[1] = {}) {
+/** Every request comes from an address of its own: the sign-in library limits sign-ins per address. */
+let peers = 0
+const peer = () => {
+  peers += 1
+  return `198.51.${(peers >> 8) & 255}.${peers & 255}`
+}
+
+function makeApp(opts: Partial<AuthRouteOptions> = {}) {
   const app = new Hono()
-  registerAuthRoute(app, { store: store.auth, users: store.users, ...opts })
+  registerAuthRoute(app, {
+    identity: identity.workspace,
+    memberOfRequest: identity.memberOfRequest,
+    memberOfAccount: (accountId) => store.users.findMemberByAccount(accountId),
+    store: store.auth,
+    ...opts,
+  })
   return app
 }
 
-/**
- * "This instance requires a login" is now a CREDENTIAL ROW on the first admin, not a file.
- * The tests below say `setPassword('hunter2')` for the same reason they always did — what
- * changed is where it lands, and that `POST /auth/login` has one way to check it.
- */
-async function setPassword(password: string, target: SessionStore = store): Promise<void> {
-  await target.users.setPasswordHash(
-    firstAdminMemberId(),
-    await hashPassword(password),
-    new Date().toISOString(),
-  )
-}
+type App = ReturnType<typeof makeApp>
 
-function cookieValue(res: Response): string | undefined {
-  const setCookie = res.headers.get('set-cookie')
-  return setCookie?.match(/podium_session=([^;]+)/)?.[1]
+const post = (app: App, path: string, body: unknown, headers: Record<string, string> = {}) =>
+  app.request(`${ORIGIN}${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-podium-peer-address': peer(), ...headers },
+    body: JSON.stringify(body),
+  })
+
+const get = (app: App, path: string, headers: Record<string, string> = {}) =>
+  app.request(`${ORIGIN}${path}`, { headers: { 'x-podium-peer-address': peer(), ...headers } })
+
+/** The `name=value` pair of the sign-in cookie a response set. */
+function cookieOf(res: Response): string | undefined {
+  return res.headers
+    .getSetCookie()
+    .find((c) => c.includes('session_token'))
+    ?.split(';')[0]
 }
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'podium-authroute-'))
   store = await openTestStore(':memory:')
+  identity = await openTestIdentity(store)
+  admin = firstAdminMemberId()
 })
 afterEach(async () => {
   vi.unstubAllGlobals()
   await store.close()
-  rmSync(dir, { recursive: true, force: true })
 })
 
 describe('request transport security', () => {
@@ -76,95 +100,74 @@ describe('request transport security', () => {
   })
 })
 
-describe('auth-route', () => {
-  test('prepares a verified local browser cookie before sign-in becomes required', async () => {
-    await setPassword('hunter2')
-    let required = false
-    const app = makeApp({
-      loginRequired: () => required,
-      isLocalRequest: (request) => new URL(request.url).hostname === 'localhost',
-    })
-    const login = (origin: string, body: Record<string, unknown>) =>
-      app.request(`${origin}/auth/login`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-    const local = 'http://localhost'
-    const prepared = { password: 'hunter2', prepareSignIn: true }
-    expect((await login('https://remote.example', prepared)).status).toBe(400)
-    expect((await login(local, { password: 'hunter2' })).status).toBe(400)
-    const native = await login(local, { ...prepared, delivery: 'native' })
-    expect(await native.json()).toEqual({ error: 'auth disabled' })
-    expect((await login(local, { ...prepared, password: 'wrong' })).status).toBe(401)
-    const response = await login(local, prepared)
-    expect(response.status).toBe(200)
-    const cookie = cookieValue(response)
-    expect(cookie).toBeTruthy()
-
-    required = true
-    const status = await app.request('/auth/status', {
-      headers: { cookie: `podium_session=${cookie}` },
-    })
-    expect(await status.json()).toMatchObject({ needsAuth: true, authed: true })
-  })
-
-  test('status reports needsAuth=false when no password is set (open)', async () => {
-    const res = await makeApp().request('/auth/status')
-    expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ needsAuth: false, authed: false })
-  })
-
-  test('status says a recognised caller was refused, and why', async () => {
-    const res = await makeApp({
-      admission: async () => ({ signedIn: true, deniedReason: 'not a member of this workspace' }),
-    }).request('/auth/status')
-    expect(res.status).toBe(200)
-    // authed stays false — the person is NOT in. The extra fields only let the
-    // gate say why, instead of offering a sign-in button to somebody who just
-    // signed in successfully and would land straight back here.
-    expect(await res.json()).toEqual({
+describe('GET /auth/status', () => {
+  test('a one-person server without a password needs no sign-in, and reports what it offers', async () => {
+    const body = await (await get(makeApp(), '/auth/status')).json()
+    expect(body).toMatchObject({
       needsAuth: false,
       authed: false,
-      providerSignedIn: true,
-      deniedReason: 'not a member of this workspace',
-    })
-  })
-
-  test('status never asks for a refusal reason when the caller was admitted', async () => {
-    let asked = 0
-    const res = await makeApp({
-      resolveUserId: () => firstAdminMemberId(),
-      admission: async () => {
-        asked += 1
-        return { signedIn: true, deniedReason: 'not a member of this workspace' }
+      // Nobody has a password yet, so there is no one-field prompt to show.
+      prompt: 'email-password',
+      capabilities: {
+        version: 1,
+        passwordSignIn: true,
+        providers: [],
+        selfSignUp: false,
+        invitationDelivery: 'link',
+        passwordReset: 'admin-link',
+        sameMachineSignIn: true,
+        accountUrl: null,
       },
-    }).request('/auth/status')
-    expect(res.status).toBe(200)
-    // The hook reports; it must never look like the decision. An admitted caller
-    // needs no reason, so it is not consulted at all and cannot contradict the
-    // resolver that actually let them in.
-    expect(asked).toBe(0)
-    expect(await res.json()).toEqual({
+    })
+    // The fields of the removed cloud hook are gone.
+    for (const gone of ['mode', 'signInUrl', 'providerSignedIn', 'deniedReason']) {
+      expect(body).not.toHaveProperty(gone)
+    }
+  })
+
+  test('on its own machine the sole member is recognised without a sign-in', async () => {
+    const res = await makeApp({ syncBoundaryId: () => 'installation-1' }).request(
+      'http://127.0.0.1:18787/auth/status',
+      { headers: { 'x-podium-peer-address': '127.0.0.1' } },
+    )
+    expect(await res.json()).toMatchObject({
       needsAuth: false,
       authed: true,
-      userId: firstAdminMemberId(),
-      memberId: firstAdminMemberId(),
+      userId: admin,
+      memberId: admin,
+      syncBoundaryId: 'installation-1',
     })
   })
 
-  test('status reports the composition-root principal without deriving an open-mode user', async () => {
-    const res = await makeApp({ resolveUserId: () => firstAdminMemberId() }).request('/auth/status')
-    expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({
-      needsAuth: false,
+  test('needs a sign-in once a password is set, and recognises the signed-in member', async () => {
+    await identity.credentials.setPassword(admin, PASSWORD)
+    const app = makeApp()
+    expect(await (await get(app, '/auth/status')).json()).toMatchObject({
+      needsAuth: true,
+      authed: false,
+      // Exactly one account has a password: one password field, no address.
+      prompt: 'password',
+    })
+    const login = await post(app, '/auth/login', { password: PASSWORD })
+    const cookie = cookieOf(login)
+    expect(await (await get(app, '/auth/status', { cookie: cookie ?? '' })).json()).toMatchObject({
+      needsAuth: true,
       authed: true,
-      userId: firstAdminMemberId(),
-      memberId: firstAdminMemberId(),
+      userId: admin,
+      memberId: admin,
     })
   })
 
-  test('status carries readiness and no open-mode principal while the data plane is blocked', async () => {
+  test('says that a signed-in caller is not a member of this workspace', async () => {
+    const app = makeApp({
+      memberOfRequest: stubMemberOfRequest(() => ({ kind: 'not-a-member', accountId: 'acct' })),
+    })
+    const body = await (await get(app, '/auth/status')).json()
+    expect(body).toMatchObject({ authed: false, denied: 'not_workspace_member' })
+    expect(body).not.toHaveProperty('userId')
+  })
+
+  test('carries readiness and recognises nobody while the control plane is not available', async () => {
     const readiness = {
       state: 'unconfigured',
       reason: 'setup_required',
@@ -172,19 +175,20 @@ describe('auth-route', () => {
     } as const
     const res = await makeApp({
       readiness: () => readiness,
-      resolveUserId: () => undefined,
-    }).request('/auth/status')
-    expect(await res.json()).toEqual({ needsAuth: false, authed: false, readiness })
+      controlPlaneAvailable: () => false,
+    }).request('http://127.0.0.1:18787/auth/status', {
+      headers: { 'x-podium-peer-address': '127.0.0.1' },
+    })
+    expect(await res.json()).toMatchObject({ needsAuth: false, authed: false, readiness })
   })
+})
 
-  test('an operator can log in and be recognized while activation is pending [POD-2766]', async () => {
-    // THE LOCKOUT, END TO END OVER THE HTTP SURFACE. Two things had to change
-    // together and this proves both: the boundary has to SERVE `/auth/login`
-    // while the data plane is blocked, and the status route has to REPORT the
-    // resulting session — a login that succeeds but reports `authed: false`
-    // leaves the browser's login screen looping against a server that already
-    // accepted the password.
-    await setPassword('operator')
+describe('POST /auth/login', () => {
+  test('an operator can sign in and be recognised while activation is pending [POD-2766]', async () => {
+    // The boundary has to SERVE `/auth/login` while the data plane is blocked,
+    // and the status route has to REPORT the resulting sign-in, or the login
+    // screen loops against a server that already accepted the password.
+    await identity.credentials.setPassword(admin, PASSWORD)
     const readiness = {
       state: 'activation_pending',
       reason: 'restart_required',
@@ -198,44 +202,25 @@ describe('auth-route', () => {
       authReadinessBoundary(() => readiness),
     )
     registerAuthRoute(app, {
-      store: store.auth,
-      users: store.users,
+      identity: identity.workspace,
+      memberOfRequest: identity.memberOfRequest,
+      memberOfAccount: (accountId) => store.users.findMemberByAccount(accountId),
       readiness: () => readiness,
-      // The composition root's rule, verbatim: recognize a session whenever the
-      // instance may be TALKED TO, not only when it may do work.
-      resolveUserId: (headers) =>
-        controlPlaneAvailable(readiness)
-          ? requestUserId(store.auth, headers.cookieHeader, Date.now(), headers.authorizationHeader)
-          : undefined,
+      controlPlaneAvailable: () => true,
     })
-
-    const login = await app.request('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ password: 'operator' }),
-    })
+    const login = await post(app, '/auth/login', { password: PASSWORD })
     expect(login.status).toBe(200)
-    const session = cookieValue(login)
-    expect(session).toBeTruthy()
-
-    const status = await app.request('/auth/status', {
-      headers: { cookie: `podium_session=${session}` },
-    })
+    const status = await get(app, '/auth/status', { cookie: cookieOf(login) ?? '' })
     expect(await status.json()).toMatchObject({
       needsAuth: true,
       authed: true,
-      userId: firstAdminMemberId(),
-      memberId: firstAdminMemberId(),
-      // And the screen behind this login is told WHY it is stale, by name.
+      userId: admin,
       readiness: { state: 'activation_pending', stale: ['persistence'] },
     })
   })
 
   test('an unconfigured instance still refuses login outright', async () => {
-    // The half of the old rule that was right and stays: there is no account to
-    // authenticate before setup, and the host-local bootstrap is that state's
-    // door. Opening login here would be the second bootstrap door the original
-    // comment warned about.
-    await setPassword('operator')
+    await identity.credentials.setPassword(admin, PASSWORD)
     const app = new Hono()
     app.use(
       '/auth/*',
@@ -246,1144 +231,464 @@ describe('auth-route', () => {
         controlPlane: 'blocked',
       })),
     )
-    registerAuthRoute(app, { store: store.auth, users: store.users })
-    const login = await app.request('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ password: 'operator' }),
+    registerAuthRoute(app, {
+      identity: identity.workspace,
+      memberOfRequest: identity.memberOfRequest,
+      memberOfAccount: (accountId) => store.users.findMemberByAccount(accountId),
     })
-    expect(login.status).toBe(503)
+    expect((await post(app, '/auth/login', { password: PASSWORD })).status).toBe(503)
   })
 
-  test('status reports needsAuth=true once a password is set', async () => {
-    await setPassword('hunter2')
-    const res = await makeApp().request('/auth/status')
-    expect(await res.json()).toEqual({ needsAuth: true, authed: false })
+  test('is a 400 when sign-in is not required: there is nothing to sign in to', async () => {
+    const res = await post(makeApp(), '/auth/login', { password: 'anything' })
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'auth disabled' })
   })
 
-  test('login with no password configured is a 400 (nothing to log into)', async () => {
-    const res = await makeApp().request('/auth/login', {
+  test('prepares a verified local browser cookie before sign-in becomes required', async () => {
+    await identity.credentials.setPassword(admin, PASSWORD)
+    let required = false
+    const app = makeApp({
+      identity: { ...identity.workspace, signInRequired: async () => required },
+      isLocalRequest: (request) => new URL(request.url).hostname === 'localhost',
+    })
+    const login = (origin: string, body: Record<string, unknown>) =>
+      app.request(`${origin}/auth/login`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-podium-peer-address': '127.0.0.1' },
+        body: JSON.stringify(body),
+      })
+    const local = 'http://localhost'
+    const prepared = { password: PASSWORD, prepareSignIn: true }
+    expect((await login('https://remote.example', prepared)).status).toBe(400)
+    expect((await login(local, { password: PASSWORD })).status).toBe(400)
+    const native = await login(local, { ...prepared, delivery: 'native' })
+    expect(await native.json()).toEqual({ error: 'auth disabled' })
+    expect((await login(local, { ...prepared, password: 'wrong' })).status).toBe(401)
+    const response = await login(local, prepared)
+    expect(response.status).toBe(200)
+    const cookie = cookieOf(response)
+    expect(cookie).toBeTruthy()
+
+    required = true
+    const status = await app.request(`${local}/auth/status`, {
+      headers: { cookie: cookie!, 'x-podium-peer-address': '127.0.0.1' },
+    })
+    expect(await status.json()).toMatchObject({ needsAuth: true, authed: true, memberId: admin })
+  })
+
+  test('the right password sets a Secure, HttpOnly, SameSite=Lax, host-only cookie over HTTPS', async () => {
+    await identity.credentials.setPassword(admin, PASSWORD)
+    const res = await post(makeApp({ syncBoundaryId: () => 'installation-1' }), '/auth/login', {
+      password: PASSWORD,
+    })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      ok: true,
+      userId: admin,
+      memberId: admin,
+      syncBoundaryId: 'installation-1',
+    })
+    const cookie = res.headers.getSetCookie().find((c) => c.includes('session_token')) ?? ''
+    expect(cookie).toMatch(/^__Secure-podium\.session_token=/)
+    expect(cookie).toMatch(/HttpOnly/i)
+    expect(cookie).toMatch(/Secure/i)
+    expect(cookie).toMatch(/SameSite=Lax/i)
+    expect(cookie).not.toMatch(/Domain=/i)
+    expect(res.headers.get('cache-control')).toBe('no-store')
+    // Only the hash of the token is stored.
+    const token = decodeURIComponent(cookie.split(';')[0]?.split('=')[1] ?? '').split('.')[0]
+    expect(token).toBeTruthy()
+    const signIns = await identity.workspace.listDeviceSignIns({ limit: 10 })
+    expect(signIns.total).toBe(1)
+    expect(JSON.stringify(signIns)).not.toContain(token)
+  })
+
+  test('on the same machine over plain HTTP the cookie is the loopback one, without Secure', async () => {
+    await identity.credentials.setPassword(admin, PASSWORD)
+    const res = await makeApp().request('http://127.0.0.1:18787/auth/login', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ password: 'whatever' }),
+      headers: { 'content-type': 'application/json', 'x-podium-peer-address': '127.0.0.1' },
+      body: JSON.stringify({ password: PASSWORD }),
+    })
+    expect(res.status).toBe(200)
+    const cookie = res.headers.getSetCookie().find((c) => c.includes('session_token')) ?? ''
+    expect(cookie).toMatch(/^podium\.session_token=/)
+    expect(cookie).not.toMatch(/;\s*Secure/i)
+  })
+
+  test('over plain HTTP from another machine nobody signs in', async () => {
+    await identity.credentials.setPassword(admin, PASSWORD)
+    const res = await makeApp().request('http://192.168.1.20:18787/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-podium-peer-address': '192.168.1.44' },
+      body: JSON.stringify({ password: PASSWORD }),
     })
     expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'https_required' })
+    expect(res.headers.getSetCookie()).toEqual([])
   })
 
-  test('reports a successful cookie login', async () => {
-    await setPassword('hunter2')
-    const seen: unknown[] = []
-    const app = makeApp({ onLogin: (event) => seen.push(event) })
-    const res = await app.request('/auth/login', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ password: 'hunter2' }),
+  test('the wrong password is a 401 and sets no cookie', async () => {
+    await identity.credentials.setPassword(admin, PASSWORD)
+    const res = await post(makeApp(), '/auth/login', { password: 'not it' })
+    expect(res.status).toBe(401)
+    expect(await res.json()).toEqual({ error: 'invalid password' })
+    expect(res.headers.getSetCookie()).toEqual([])
+  })
+
+  test('signs each person in as their own member, by their address', async () => {
+    await identity.credentials.setPassword(admin, PASSWORD)
+    await identity.credentials.setEmail(admin, 'alice@example.test')
+    const bob = await identity.addMember({
+      name: 'Bob',
+      email: 'bob@example.test',
+      password: 'bob password 1',
+    })
+    const app = makeApp()
+    const asBob = await post(app, '/auth/login', {
+      email: ' BOB@example.test ',
+      password: 'bob password 1',
+    })
+    expect(await asBob.json()).toMatchObject({ ok: true, userId: bob, memberId: bob })
+    // A body that names another member changes nothing: the field is not read.
+    const naming = await post(app, '/auth/login', {
+      email: 'bob@example.test',
+      password: 'bob password 1',
+      userId: admin,
+      memberId: admin,
+    })
+    expect(await naming.json()).toMatchObject({ userId: bob, memberId: bob })
+    // Bob's password with Alice's address signs nobody in.
+    expect(
+      (await post(app, '/auth/login', { email: 'alice@example.test', password: 'bob password 1' }))
+        .status,
+    ).toBe(401)
+    expect((await post(app, '/auth/login', { email: 42, password: PASSWORD })).status).toBe(400)
+  })
+
+  test('a disabled member cannot sign in, and can again once enabled', async () => {
+    await identity.credentials.setPassword(admin, PASSWORD)
+    const bob = await identity.addMember({
+      name: 'Bob',
+      email: 'bob@example.test',
+      password: 'bob password 1',
+    })
+    const app = makeApp()
+    const login = () =>
+      post(app, '/auth/login', { email: 'bob@example.test', password: 'bob password 1' })
+    const before = await login()
+    expect(before.status).toBe(200)
+    const cookie = cookieOf(before) ?? ''
+    await identity.workspace.memberships.disable({ actor: { memberId: admin }, memberId: bob })
+    expect((await login()).status).toBe(401)
+    expect(await (await get(app, '/auth/status', { cookie })).json()).toMatchObject({
+      authed: false,
+    })
+    await identity.workspace.memberships.enable({ actor: { memberId: admin }, memberId: bob })
+    expect((await login()).status).toBe(200)
+    // Enabling does not bring the old sign-in back.
+    expect(await (await get(app, '/auth/status', { cookie })).json()).toMatchObject({
+      authed: false,
+    })
+  })
+
+  test('eight wrong passwords for one address lock that address, and nobody else', async () => {
+    await identity.credentials.setPassword(admin, PASSWORD)
+    await identity.credentials.setEmail(admin, 'alice@example.test')
+    await identity.addMember({ name: 'Bob', email: 'bob@example.test', password: 'bob password 1' })
+    const app = makeApp()
+    for (let i = 0; i < 8; i++) {
+      const res = await post(app, '/auth/login', { email: 'bob@example.test', password: 'wrong' })
+      expect(res.status).toBe(401)
+    }
+    const locked = await post(app, '/auth/login', {
+      email: 'BOB@example.test',
+      password: 'bob password 1',
+    })
+    expect(locked.status).toBe(429)
+    expect(Number(locked.headers.get('retry-after'))).toBeGreaterThan(0)
+    const alice = await post(app, '/auth/login', {
+      email: 'alice@example.test',
+      password: PASSWORD,
+    })
+    expect(alice.status).toBe(200)
+  })
+
+  test('refuses a foreign Origin before anything is checked', async () => {
+    await identity.credentials.setPassword(admin, PASSWORD)
+    const app = makeApp()
+    const foreign = await post(
+      app,
+      '/auth/login',
+      { password: PASSWORD },
+      { origin: 'https://evil.example' },
+    )
+    expect(foreign.status).toBe(403)
+    expect(foreign.headers.getSetCookie()).toEqual([])
+    const own = await post(app, '/auth/login', { password: PASSWORD }, { origin: ORIGIN })
+    expect(own.status).toBe(200)
+    const listed = await post(
+      makeApp({ allowedOrigins: new Set(['https://app.example']) }),
+      '/auth/login',
+      { password: PASSWORD },
+      { origin: 'https://app.example' },
+    )
+    expect(listed.status).toBe(200)
+  })
+
+  test('native delivery answers one signed bearer over HTTPS and sets no cookie', async () => {
+    await identity.credentials.setPassword(admin, PASSWORD)
+    const app = makeApp()
+    const res = await post(app, '/auth/login', {
+      password: PASSWORD,
+      delivery: 'native',
+      deviceId: 'phone-1',
+      deviceName: 'My phone',
+      platform: 'ios',
     })
     expect(res.status).toBe(200)
-    expect(seen).toEqual([{ userId: firstAdminMemberId(), delivery: 'cookie' }])
+    const body = (await res.json()) as { token: string; userId: string; delivery: string }
+    expect(body).toMatchObject({ ok: true, delivery: 'native', userId: admin, memberId: admin })
+    expect(body.token).toMatch(/\./)
+    expect(res.headers.getSetCookie()).toEqual([])
+    const status = await get(app, '/auth/status', { authorization: `Bearer ${body.token}` })
+    expect(await status.json()).toMatchObject({ authed: true, userId: admin })
+    const [signIn] = (await identity.workspace.listDeviceSignIns({ limit: 10 })).signIns
+    expect(signIn).toMatchObject({ kind: 'phone', deviceName: 'My phone', platform: 'ios' })
   })
 
-  test('does not report a rejected login', async () => {
-    // The signal is "someone got in", not "someone tried". A failed attempt that
-    // counted as a login would make every brute-force burst look like traffic.
-    await setPassword('hunter2')
+  test('a browser cannot opt into the bearer: a request with an Origin stays on the cookie', async () => {
+    await identity.credentials.setPassword(admin, PASSWORD)
+    const res = await post(
+      makeApp(),
+      '/auth/login',
+      { password: PASSWORD, delivery: 'native', deviceId: 'd', deviceName: 'n', platform: 'ios' },
+      { origin: ORIGIN },
+    )
+    expect(res.status).toBe(400)
+    expect(JSON.stringify(await res.json())).not.toContain('token')
+  })
+
+  test('reports a successful sign-in to the observer, never a refused one, and survives a throwing one', async () => {
+    await identity.credentials.setPassword(admin, PASSWORD)
     const seen: unknown[] = []
-    const app = makeApp({ onLogin: (event) => seen.push(event) })
-    const res = await app.request('/auth/login', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ password: 'nope' }),
-    })
-    expect(res.status).toBe(401)
+    const app = makeApp({ onLogin: (event) => void seen.push(event) })
+    await post(app, '/auth/login', { password: 'wrong' })
     expect(seen).toEqual([])
-  })
-
-  test('an observer that throws does not break the login', async () => {
-    await setPassword('hunter2')
-    const app = makeApp({
+    await post(app, '/auth/login', { password: PASSWORD })
+    expect(seen).toEqual([{ userId: admin, delivery: 'cookie' }])
+    const throwing = makeApp({
       onLogin: () => {
-        throw new Error('observer exploded')
+        throw new Error('observer broke')
       },
     })
-    const res = await app.request('/auth/login', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ password: 'hunter2' }),
+    expect((await post(throwing, '/auth/login', { password: PASSWORD })).status).toBe(200)
+  })
+
+  test('the phone app signs in against the real route and its bearer resolves to its member', async () => {
+    await identity.credentials.setPassword(admin, PASSWORD)
+    await identity.credentials.setEmail(admin, 'admin@example.com')
+    const app = makeApp()
+    vi.stubGlobal('fetch', (url: string, init?: RequestInit) =>
+      app.request(url, {
+        ...init,
+        headers: { ...(init?.headers as Record<string, string>), 'x-podium-peer-address': peer() },
+      }),
+    )
+    // The actual client, loaded at runtime so React Native's ambient globals
+    // stay out of the server's compilation.
+    const clientPath = '../../mobile/src/client/auth'
+    const { login } = await import(clientPath)
+    const result = await login(
+      ORIGIN,
+      PASSWORD,
+      { id: 'phone', name: 'My phone' },
+      ' ADMIN@example.com ',
+    )
+    expect(result).toMatchObject({ ok: true })
+    const status = await get(app, '/auth/status', { authorization: `Bearer ${result.bearer}` })
+    expect(await status.json()).toMatchObject({ authed: true, userId: admin })
+    expect(
+      await login(ORIGIN, PASSWORD, { id: 'phone', name: 'My phone' }, 'unknown@example.com'),
+    ).toMatchObject({
+      ok: false,
     })
+  })
+})
+
+describe('POST /auth/logout', () => {
+  test('ends that device and no other, clears its cookie, and reports which sign-in ended', async () => {
+    await identity.credentials.setPassword(admin, PASSWORD)
+    const ended: string[] = []
+    const app = makeApp({ onDeviceSignInEnded: (id) => void ended.push(id) })
+    const laptop = cookieOf(await post(app, '/auth/login', { password: PASSWORD })) ?? ''
+    const desktop = cookieOf(await post(app, '/auth/login', { password: PASSWORD })) ?? ''
+    const before = (await identity.workspace.listDeviceSignIns({ limit: 10 })).signIns
+    expect(before).toHaveLength(2)
+
+    const res = await post(app, '/auth/logout', {}, { cookie: laptop })
     expect(res.status).toBe(200)
-    expect(cookieValue(res)).toBeTruthy()
-  })
+    expect(res.headers.getSetCookie().join('\n')).toMatch(/session_token=;|Max-Age=0/i)
+    const after = (await identity.workspace.listDeviceSignIns({ limit: 10 })).signIns
+    expect(after).toHaveLength(1)
+    expect(ended).toEqual(before.filter((s) => s.id !== after[0]?.id).map((s) => s.id))
 
-  test('login with the wrong password is rejected with 401 and sets no cookie', async () => {
-    await setPassword('hunter2')
-    const res = await makeApp().request('/auth/login', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ password: 'nope' }),
+    expect(await (await get(app, '/auth/status', { cookie: laptop })).json()).toMatchObject({
+      authed: false,
     })
-    expect(res.status).toBe(401)
-    expect(cookieValue(res)).toBeUndefined()
-  })
-
-  test('login with the right password sets an HttpOnly SameSite=Lax session cookie', async () => {
-    await setPassword('hunter2')
-    const res = await makeApp().request('/auth/login', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ password: 'hunter2' }),
+    expect(await (await get(app, '/auth/status', { cookie: desktop })).json()).toMatchObject({
+      authed: true,
+      userId: admin,
     })
-    expect(res.status).toBe(200)
-    const setCookie = res.headers.get('set-cookie') ?? ''
-    expect(setCookie).toMatch(/podium_session=/)
-    expect(setCookie).toMatch(/HttpOnly/i)
-    expect(setCookie).toMatch(/SameSite=Lax/i)
-    // Plain http (loopback) must NOT set Secure or the browser drops the cookie.
-    expect(setCookie).not.toMatch(/Secure/i)
   })
 
-  test('exchanges a short-lived server-transfer claim once for a new origin cookie', async () => {
-    await setPassword('hunter2')
+  test('refuses a foreign Origin and ends nothing', async () => {
+    await identity.credentials.setPassword(admin, PASSWORD)
+    const app = makeApp()
+    const cookie = cookieOf(await post(app, '/auth/login', { password: PASSWORD })) ?? ''
+    const res = await post(app, '/auth/logout', {}, { cookie, origin: 'https://evil.example' })
+    expect(res.status).toBe(403)
+    expect(await (await get(app, '/auth/status', { cookie })).json()).toMatchObject({
+      authed: true,
+    })
+  })
+
+  test('without a sign-in it ends nothing and still answers ok', async () => {
+    const ended: string[] = []
+    const app = makeApp({ onDeviceSignInEnded: (id) => void ended.push(id) })
+    expect((await post(app, '/auth/logout', {})).status).toBe(200)
+    expect(ended).toEqual([])
+  })
+})
+
+describe('the server-transfer claim (old client sessions, until POD-6748)', () => {
+  test('is exchanged once and refuses a replay and an open redirect', async () => {
     const claim = 'transfer-claim-token-abcdefghijklmnopqrstuvwxyz'
-    store.auth.createClientSession(
+    await store.auth.createClientSession(
       hashToken(claim),
-      firstAdminMemberId(),
+      admin,
       new Date(Date.now() + 60_000).toISOString(),
       'server-transfer-claim',
     )
     const app = makeApp()
-    const response = await app.request('/auth/server-transfer-claim', {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ token: claim, next: '/issues?moved=1' }).toString(),
-    })
+    const exchange = (next: string) =>
+      app.request(`${ORIGIN}/auth/server-transfer-claim`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ token: claim, next }).toString(),
+      })
+    const response = await exchange('/issues?moved=1')
     expect(response.status).toBe(303)
     expect(response.headers.get('location')).toBe('/issues?moved=1')
-    expect(response.headers.get('set-cookie')).toMatch(/podium_session=.*HttpOnly.*SameSite=Lax/i)
     expect(await store.auth.getClientSession(hashToken(claim))).toBeUndefined()
-
-    const replacement = cookieValue(response)
-    expect(replacement).toBeTruthy()
-    const status = await app.request('/auth/status', {
-      headers: { cookie: `podium_session=${replacement}` },
-    })
-    expect(await status.json()).toMatchObject({ authed: true, userId: firstAdminMemberId() })
-
-    const replay = await app.request('/auth/server-transfer-claim', {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ token: claim, next: '//attacker.example' }).toString(),
-    })
-    expect(replay.status).toBe(303)
+    const replay = await exchange('//attacker.example')
     expect(replay.headers.get('location')).toBe('/?serverTransferClaim=invalid')
     expect(replay.headers.get('set-cookie')).toBeNull()
-  })
-
-  test('native login returns one HTTPS bearer and records a mobile device session', async () => {
-    await setPassword('hunter2')
-    const response = await makeApp({ trustedProxyHops: 1 }).request('/auth/login', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-forwarded-proto': 'https' },
-      body: JSON.stringify({
-        delivery: 'native',
-        password: 'hunter2',
-        deviceId: 'phone-1',
-        deviceName: "Sam's iPhone",
-        platform: 'ios',
-      }),
-    })
-    expect(response.status).toBe(200)
-    expect(response.headers.get('set-cookie')).toBeNull()
-    const body = (await response.json()) as { token: string; userId: string; expiresAt: string }
-    expect(body.token).toBeTruthy()
-    expect(await store.auth.getClientSession(hashToken(body.token))).toMatchObject({
-      userId: firstAdminMemberId(),
-      label: 'mobile',
-      sessionId: expect.any(String),
-      deviceId: 'phone-1',
-      deviceName: "Sam's iPhone",
-      platform: 'ios',
-    })
-  })
-
-  test('native login refuses to exchange a password over cleartext', async () => {
-    await setPassword('hunter2')
-    const response = await makeApp().request('/auth/login', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-forwarded-proto': 'https' },
-      body: JSON.stringify({
-        delivery: 'native',
-        password: 'hunter2',
-        deviceId: 'phone-1',
-        deviceName: 'Phone',
-        platform: 'ios',
-      }),
-    })
-    expect(response.status).toBe(400)
-    expect(await store.auth.listMobileClientSessions(firstAdminMemberId())).toHaveLength(0)
-  })
-
-  test('browser-origin login cannot opt into response-body bearer delivery', async () => {
-    await setPassword('hunter2')
-    const response = await makeApp({ trustedProxyHops: 1 }).request('/auth/login', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        origin: 'https://podium.example',
-        'x-forwarded-proto': 'https',
-      },
-      body: JSON.stringify({
-        delivery: 'native',
-        password: 'hunter2',
-        deviceId: 'browser-script',
-        deviceName: 'Browser script',
-        platform: 'unknown',
-      }),
-    })
-    expect(response.status).toBe(400)
-    expect(response.headers.get('set-cookie')).toBeNull()
-    expect(await store.auth.listMobileClientSessions(firstAdminMemberId())).toHaveLength(0)
-  })
-
-  test('the session cookie marks the client authed; logout clears it', async () => {
-    await setPassword('hunter2')
-    let revokedHash: string | undefined
-    const app = makeApp({ onCredentialRevoked: (tokenHash) => (revokedHash = tokenHash) })
-    const login = await app.request('/auth/login', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ password: 'hunter2' }),
-    })
-    const token = cookieValue(login)
-    expect(token).toBeTruthy()
-
-    const status = await app.request('/auth/status', {
-      headers: { cookie: `podium_session=${token}` },
-    })
-    expect(await status.json()).toEqual({
-      needsAuth: true,
-      authed: true,
-      userId: firstAdminMemberId(),
-      memberId: firstAdminMemberId(),
-    })
-
-    const logout = await app.request('/auth/logout', {
-      method: 'POST',
-      headers: { cookie: `podium_session=${token}` },
-    })
-    expect(logout.status).toBe(200)
-    expect(revokedHash).toBe(hashToken(token!))
-
-    const after = await app.request('/auth/status', {
-      headers: { cookie: `podium_session=${token}` },
-    })
-    expect(await after.json()).toEqual({ needsAuth: true, authed: false })
-  })
-
-  test('a forged/random cookie does not authenticate', async () => {
-    await setPassword('hunter2')
-    const res = await makeApp().request('/auth/status', {
-      headers: { cookie: 'podium_session=not-a-real-token' },
-    })
-    expect(await res.json()).toEqual({ needsAuth: true, authed: false })
-  })
-
-  test('the cookie sets Secure when the request arrives over https (proxy)', async () => {
-    await setPassword('hunter2')
-    const res = await makeApp({ trustedProxyHops: 1 }).request('/auth/login', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-forwarded-proto': 'https',
-      },
-      body: JSON.stringify({ password: 'hunter2' }),
-    })
-    expect(res.headers.get('set-cookie') ?? '').toMatch(/Secure/i)
-  })
-
-  test('repeated wrong passwords trip the login throttle (429)', async () => {
-    await setPassword('hunter2')
-    const app = makeApp({ throttle: { maxFailures: 3, lockoutMs: 60_000 } })
-    const attempt = () =>
-      app.request('/auth/login', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ password: 'wrong' }),
-      })
-    expect((await attempt()).status).toBe(401)
-    expect((await attempt()).status).toBe(401)
-    expect((await attempt()).status).toBe(401)
-    // 4th attempt within the window is locked out
-    expect((await attempt()).status).toBe(429)
-  })
-
-  test('a successful login resets the failure counter', async () => {
-    await setPassword('hunter2')
-    const app = makeApp({ throttle: { maxFailures: 3, lockoutMs: 60_000 } })
-    const bad = () =>
-      app.request('/auth/login', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ password: 'wrong' }),
-      })
-    await bad()
-    await bad()
-    // success resets
-    await app.request('/auth/login', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ password: 'hunter2' }),
-    })
-    // counter cleared: two more bad attempts should not yet lock out
-    expect((await bad()).status).toBe(401)
-    expect((await bad()).status).toBe(401)
-  })
-})
-
-describe('clientAuthGuard (HTTP surface gate)', () => {
-  function guardedApp() {
-    const app = new Hono()
-    app.use(
-      '/trpc/*',
-      clientAuthGuard({ store: store.auth, users: store.users, trustedProxyHops: 1 }),
-    )
-    app.get('/trpc/ping', (c) => c.text('pong'))
-    app.options('/trpc/ping', (c) => c.body(null, 204))
-    return app
-  }
-
-  async function validCookie(): Promise<string> {
-    const token = 'raw-session-token'
-    await store.auth.createClientSession(
-      hashToken(token),
-      firstAdminMemberId(),
-      new Date(Date.now() + 60_000).toISOString(),
-    )
-    return `podium_session=${token}`
-  }
-
-  test('passes through when no password is set (open mode)', async () => {
-    const res = await guardedApp().request('/trpc/ping')
-    expect(res.status).toBe(200)
-    expect(await res.text()).toBe('pong')
-  })
-
-  test('blocks an unauthenticated request with 401 once a password is set', async () => {
-    await setPassword('hunter2')
-    const res = await guardedApp().request('/trpc/ping')
-    expect(res.status).toBe(401)
-  })
-
-  test('allows a request carrying a valid session cookie', async () => {
-    await setPassword('hunter2')
-    const res = await guardedApp().request('/trpc/ping', {
-      headers: { cookie: await validCookie() },
-    })
-    expect(res.status).toBe(200)
-    expect(await res.text()).toBe('pong')
-  })
-
-  test('allows a valid native bearer and never reflects it into a browser cookie', async () => {
-    await setPassword('hunter2')
-    const token = 'native-mobile-token-abcdefghijklmnopqrstuvwxyz'
-    await store.auth.createClientSession(
-      hashToken(token),
-      firstAdminMemberId(),
-      new Date(Date.now() + 60_000).toISOString(),
-      'mobile',
-      { deviceId: 'phone-1', deviceName: 'Phone', platform: 'ios' },
-    )
-    const res = await guardedApp().request('/trpc/ping', {
-      headers: {
-        authorization: `Bearer ${token}`,
-        'x-forwarded-proto': 'https',
-      },
-    })
-    expect(res.status).toBe(200)
-    expect(res.headers.get('set-cookie')).toBeNull()
-  })
-
-  test('does not fall back to a valid cookie when an explicit bearer is malformed', async () => {
-    await setPassword('hunter2')
-    const res = await guardedApp().request('/trpc/ping', {
-      headers: {
-        cookie: await validCookie(),
-        authorization: 'Bearer bad',
-        'x-forwarded-proto': 'https',
-      },
-    })
-    expect(res.status).toBe(401)
-  })
-
-  test('accepts only mobile-class sessions as bearers', async () => {
-    await setPassword('hunter2')
-    const token = 'break-glass-bearer-abcdefghijklmnopqrstuvwxyz'
-    await store.auth.createClientSession(
-      hashToken(token),
-      firstAdminMemberId(),
-      new Date(Date.now() + 60_000).toISOString(),
-      'break-glass',
-    )
-    const res = await guardedApp().request('/trpc/ping', {
-      headers: {
-        authorization: `Bearer ${token}`,
-        'x-forwarded-proto': 'https',
-      },
-    })
-    expect(res.status).toBe(401)
-    const cookie = await guardedApp().request('/trpc/ping', {
-      headers: { cookie: `podium_session=${token}` },
-    })
-    expect(cookie.status).toBe(200)
-  })
-
-  test('refuses a bearer over cleartext even when its session row is valid', async () => {
-    await setPassword('hunter2')
-    const token = 'native-cleartext-token-abcdefghijklmnopqrstuvwxyz'
-    await store.auth.createClientSession(
-      hashToken(token),
-      firstAdminMemberId(),
-      new Date(Date.now() + 60_000).toISOString(),
-      'mobile',
-    )
-    expect(
-      (
-        await guardedApp().request('/trpc/ping', {
-          headers: { authorization: `Bearer ${token}` },
-        })
-      ).status,
-    ).toBe(400)
-  })
-
-  test('lets CORS preflight (OPTIONS) through even without a cookie', async () => {
-    await setPassword('hunter2')
-    const res = await guardedApp().request('/trpc/ping', { method: 'OPTIONS' })
-    expect(res.status).not.toBe(401)
-  })
-
-  const DAY = 24 * 60 * 60 * 1000
-  function guardedAppAt(nowMs: number) {
-    const app = new Hono()
-    app.use(
-      '/trpc/*',
-      clientAuthGuard({
-        store: store.auth,
-        users: store.users,
-        now: () => nowMs,
-        trustedProxyHops: 1,
-      }),
-    )
-    app.get('/trpc/ping', (c) => c.text('pong'))
-    return app
-  }
-
-  const HOUR = 60 * 60 * 1000
-
-  test('renews a session not renewed in over a day, refreshing the cookie (same token)', async () => {
-    await setPassword('hunter2')
-    const nowMs = Date.UTC(2026, 0, 1)
-    const token = 'rolling-token'
-    // 28 days left of a 30-day TTL ⇒ last renewed ~2 days ago ⇒ due for a daily renewal.
-    await store.auth.createClientSession(
-      hashToken(token),
-      firstAdminMemberId(),
-      new Date(nowMs + 28 * DAY).toISOString(),
-    )
-    const res = await guardedAppAt(nowMs).request('/trpc/ping', {
-      headers: { cookie: `podium_session=${token}` },
-    })
-    expect(res.status).toBe(200)
-    const setCookie = res.headers.get('set-cookie') ?? ''
-    expect(setCookie).toMatch(/podium_session=rolling-token/) // same token, not a new one
-    // Expiry pushed back out toward now + 30 days.
-    const expiry = Date.parse(
-      (await store.auth.getClientSession(hashToken(token)))?.expiresAt ?? '',
-    )
-    expect(expiry).toBeGreaterThan(nowMs + 29 * DAY)
-  })
-
-  test('does not renew a session renewed within the last day (no cookie churn)', async () => {
-    await setPassword('hunter2')
-    const nowMs = Date.UTC(2026, 0, 1)
-    const token = 'fresh-token'
-    // ~1 hour into the 30-day TTL ⇒ renewed within the day ⇒ no re-issue.
-    await store.auth.createClientSession(
-      hashToken(token),
-      firstAdminMemberId(),
-      new Date(nowMs + 30 * DAY - HOUR).toISOString(),
-    )
-    const res = await guardedAppAt(nowMs).request('/trpc/ping', {
-      headers: { cookie: `podium_session=${token}` },
-    })
-    expect(res.status).toBe(200)
-    expect(res.headers.get('set-cookie')).toBeNull()
-  })
-
-  test('renews the mobile class without changing or exposing its bearer', async () => {
-    await setPassword('hunter2')
-    const nowMs = Date.UTC(2026, 0, 1)
-    const token = 'mobile-rolling-token-abcdefghijklmnopqrstuvwxyz'
-    await store.auth.createClientSession(
-      hashToken(token),
-      firstAdminMemberId(),
-      new Date(nowMs + 28 * DAY).toISOString(),
-      'mobile',
-      { deviceId: 'phone-1', deviceName: 'Phone', platform: 'ios' },
-    )
-    const res = await guardedAppAt(nowMs).request('/trpc/ping', {
-      headers: {
-        authorization: `Bearer ${token}`,
-        'x-forwarded-proto': 'https',
-      },
-    })
-    expect(res.status).toBe(200)
-    expect(res.headers.get('set-cookie')).toBeNull()
-    expect(
-      Date.parse((await store.auth.getClientSession(hashToken(token)))?.expiresAt ?? ''),
-    ).toBeGreaterThan(nowMs + 29 * DAY)
-  })
-})
-
-/**
- * Gate-level coverage for requestUserId / isRequestAuthed (POD-1410).
- *
- * The store predicate alone is not enough: requestPrincipal trusts this gate
- * with no second expiry check. A mutant that drops the expiry check on the
- * session read still returns the user for an expired-but-present
- * row — and every earlier test either hit the store directly or only exercised
- * valid / missing-token paths, so the expired cookie case was invisible.
- */
-describe('requestUserId / isRequestAuthed (auth gate)', () => {
-  const nowMs = Date.UTC(2026, 5, 15, 12, 0, 0)
-
-  function cookieFor(token: string): string {
-    return `podium_session=${token}`
-  }
-
-  test('resolves a valid session cookie to its user', async () => {
-    const token = 'gate-valid-token'
-    await store.auth.createClientSession(
-      hashToken(token),
-      firstAdminMemberId(),
-      new Date(nowMs + 60_000).toISOString(),
-    )
-    const cookie = cookieFor(token)
-    expect(await requestUserId(store.auth, cookie, nowMs)).toBe(firstAdminMemberId())
-    expect(await isRequestAuthed(store.auth, cookie, nowMs)).toBe(true)
-  })
-
-  test('rejects an expired session cookie (present row, past expiresAt)', async () => {
-    const token = 'gate-expired-token'
-    // Row still exists — getClientSession would return the userId. The gate must
-    // still refuse: expiry is enforced here, not only in the store helper.
-    await store.auth.createClientSession(
-      hashToken(token),
-      firstAdminMemberId(),
-      new Date(nowMs - 1_000).toISOString(),
-    )
-    const cookie = cookieFor(token)
-    expect((await store.auth.getClientSession(hashToken(token)))?.userId).toBe(firstAdminMemberId())
-    expect(await requestUserId(store.auth, cookie, nowMs)).toBeUndefined()
-    expect(await isRequestAuthed(store.auth, cookie, nowMs)).toBe(false)
-  })
-
-  test('rejects an unknown session cookie', async () => {
-    const cookie = cookieFor('never-issued-token')
-    expect(await requestUserId(store.auth, cookie, nowMs)).toBeUndefined()
-    expect(await isRequestAuthed(store.auth, cookie, nowMs)).toBe(false)
-  })
-
-  test('rejects a missing or empty cookie header', async () => {
-    expect(await requestUserId(store.auth, undefined, nowMs)).toBeUndefined()
-    expect(await requestUserId(store.auth, '', nowMs)).toBeUndefined()
-    expect(await isRequestAuthed(store.auth, undefined, nowMs)).toBe(false)
-  })
-})
-
-// POD-1376. `podium auth mint-session` writes the client_sessions row from OUTSIDE
-// apps/server (the CLI may not import it), so the mint SQL lives in @podium/runtime and
-// the two could drift apart silently — a mint that "succeeds" against a table shape the
-// guard no longer reads would hand the operator a token that is refused on every call.
-// This is the oracle for that: mint the way the CLI does, authenticate the way the server
-// does, against one real on-disk database.
-describe('break-glass session mint (@podium/runtime ⇄ clientAuthGuard)', () => {
-  let mintDir: string
-  let mintStore: SessionStore
-
-  beforeEach(async () => {
-    mintDir = mkdtempSync(join(tmpdir(), 'podium-mint-'))
-    mintStore = await openTestStore(join(mintDir, 'podium.db'))
-  })
-  afterEach(async () => {
-    await mintStore.close()
-    rmSync(mintDir, { recursive: true, force: true })
-  })
-
-  function guarded() {
-    const app = new Hono()
-    app.use('/trpc/*', clientAuthGuard({ store: mintStore.auth, users: mintStore.users }))
-    app.get('/trpc/ping', (c) => c.text('pong'))
-    return app
-  }
-
-  test('a runtime-minted token authenticates against a password-protected surface', async () => {
-    await setPassword('hunter2', mintStore)
-    expect((await guarded().request('/trpc/ping')).status).toBe(401)
-
-    const minted = mintBreakGlassSession({ stateDir: mintDir })
-    const res = await guarded().request('/trpc/ping', {
-      headers: { cookie: `podium_session=${minted.token}` },
-    })
-    expect(res.status).toBe(200)
-    expect(await res.text()).toBe('pong')
-  })
-
-  // The sliding renewal exists so an actively-used BROWSER never gets logged out. Applied
-  // to a break-glass session it silently destroys the point of --ttl: any session whose
-  // remaining life is more than a day short of the 30-day TTL qualifies, which a 10-minute
-  // credential always is, so the first authenticated request promotes it to 30 days.
-  // Caught on the live instance: a `--ttl 5m` mint came back expiring in a month.
-  test('does not extend a short-lived break-glass session on use', async () => {
-    await setPassword('hunter2', mintStore)
-    const minted = mintBreakGlassSession({ stateDir: mintDir, ttlMs: 10 * 60_000 })
-
-    const res = await guarded().request('/trpc/ping', {
-      headers: { cookie: `podium_session=${minted.token}` },
-    })
-    expect(res.status).toBe(200)
-
-    const row = (await mintStore.auth.listClientSessionsOfUser(firstAdminMemberId())).find(
-      (s) => s.label === BREAK_GLASS_LABEL,
-    )
-    expect(row?.expiresAt).toBe(minted.expiresAt)
-    expect(res.headers.get('set-cookie')).toBeNull()
-  })
-
-  test('the minted row carries the break-glass label so it is revocable on its own', async () => {
-    await setPassword('hunter2', mintStore)
-    const minted = mintBreakGlassSession({ stateDir: mintDir })
-    await mintStore.auth.createClientSession(
-      hashToken('a-browser-login'),
-      firstAdminMemberId(),
-      FAR_FUTURE,
-    )
-
-    expect(await mintStore.auth.deleteClientSessionsByLabel(BREAK_GLASS_LABEL)).toBe(1)
-
-    expect(
-      (
-        await guarded().request('/trpc/ping', {
-          headers: { cookie: `podium_session=${minted.token}` },
-        })
-      ).status,
-    ).toBe(401)
-    expect(
-      (
-        await guarded().request('/trpc/ping', {
-          headers: { cookie: 'podium_session=a-browser-login' },
-        })
-      ).status,
-    ).toBe(200)
-  })
-})
-
-// POD-1424. The expiry check had no test CALLER. Both gates — `isRequestAuthed` (the
-// /client WS upgrade gate, server.ts) and `clientAuthGuard` (the /trpc gate) — consult
-// the session row's expiry, but every pre-existing case that exercises a REFUSAL does it
-// with a row that is ABSENT: never issued ('a forged/random cookie'), or revoked (logout,
-// the break-glass label sweep). An absent row is refused by any presence test, so all of
-// those stay green if a gate's consult is weakened from validity to mere presence
-// (`getClientSession(...) !== undefined`). Expiry is the only property that separates the
-// two, which makes the expired-BUT-PRESENT row the single case a store-level test cannot
-// reach — and it is precisely the case `podium auth mint-session` depends on, since an
-// operator TTL is a promise enforced by nothing else. Each refusal below is paired with the
-// same row before its expiry, so a gate that refuses everything cannot pass either.
-describe('session expiry at the gate', () => {
-  const AT = Date.UTC(2026, 5, 1, 12, 0, 0)
-  const TOKEN = 'ttl-bound-token'
-
-  /** A row that is present in the store and expired one second before `AT`. */
-  async function expiredRow(): Promise<string> {
-    await store.auth.createClientSession(
-      hashToken(TOKEN),
-      firstAdminMemberId(),
-      new Date(AT - 1_000).toISOString(),
-    )
-    return `podium_session=${TOKEN}`
-  }
-
-  test('isRequestAuthed refuses a session row that is present but expired', async () => {
-    expect(await isRequestAuthed(store.auth, await expiredRow(), AT)).toBe(false)
-  })
-
-  test('isRequestAuthed accepts that same row one second before it expires', async () => {
-    // Counterfactual for the case above: same store, same cookie, only the clock moves.
-    // Without this, a gate hard-wired to `false` would satisfy the refusal test.
-    expect(await isRequestAuthed(store.auth, await expiredRow(), AT - 2_000)).toBe(true)
-  })
-
-  test('isRequestAuthed refuses a token that was never issued', async () => {
-    expect(await isRequestAuthed(store.auth, 'podium_session=never-minted', AT)).toBe(false)
-  })
-
-  test('clientAuthGuard 401s a session row that is present but expired', async () => {
-    await setPassword('hunter2')
-    const cookie = await expiredRow()
-    const app = new Hono()
-    app.use('/trpc/*', clientAuthGuard({ store: store.auth, users: store.users, now: () => AT }))
-    app.get('/trpc/ping', (c) => c.text('pong'))
-    expect((await app.request('/trpc/ping', { headers: { cookie } })).status).toBe(401)
-  })
-
-  test('clientAuthGuard serves that same row one second before it expires', async () => {
-    await setPassword('hunter2')
-    const cookie = await expiredRow()
-    const app = new Hono()
-    app.use(
-      '/trpc/*',
-      clientAuthGuard({ store: store.auth, users: store.users, now: () => AT - 2_000 }),
-    )
-    app.get('/trpc/ping', (c) => c.text('pong'))
-    expect((await app.request('/trpc/ping', { headers: { cookie } })).status).toBe(200)
-  })
-})
-
-describe('client session store', () => {
-  test('a session validates until it expires, then no longer', async () => {
-    const future = new Date(Date.now() + 60_000).toISOString()
-    const past = new Date(Date.now() - 1_000).toISOString()
-    await store.auth.createClientSession('hash-a', firstAdminMemberId(), future)
-    await store.auth.createClientSession('hash-b', firstAdminMemberId(), past)
-    const now = new Date().toISOString()
-    expect((await store.auth.getClientSession('hash-a'))?.expiresAt).toBe(future)
-    expect(await store.auth.isClientSessionValid('hash-a', now)).toBe(true)
-    expect(await store.auth.isClientSessionValid('hash-b', now)).toBe(false)
-    expect(await store.auth.isClientSessionValid('missing', now)).toBe(false)
-  })
-
-  test('extendClientSession pushes out the expiry of an existing session', async () => {
-    const t1 = new Date(Date.now() + 1_000).toISOString()
-    const t2 = new Date(Date.now() + 999_000).toISOString()
-    await store.auth.createClientSession('ext', firstAdminMemberId(), t1)
-    await store.auth.extendClientSession('ext', t2)
-    expect((await store.auth.getClientSession('ext'))?.expiresAt).toBe(t2)
-  })
-
-  test('deleteClientSession revokes one; deleteAllClientSessions revokes every session', async () => {
-    const future = new Date(Date.now() + 60_000).toISOString()
-    const now = new Date().toISOString()
-    await store.auth.createClientSession('one', firstAdminMemberId(), future)
-    await store.auth.createClientSession('two', firstAdminMemberId(), future)
-    await store.auth.deleteClientSession('one')
-    expect(await store.auth.isClientSessionValid('one', now)).toBe(false)
-    expect(await store.auth.isClientSessionValid('two', now)).toBe(true)
-    await store.auth.deleteAllClientSessions()
-    expect(await store.auth.isClientSessionValid('two', now)).toBe(false)
-  })
-
-  /**
-   * A DEVICE THAT RESOLVES TO A USER (POD-1075, ADR 9 D1.3).
-   *
-   * The column landing in the schema is not the deliverable — a column nothing
-   * writes is a column that is NULL in production and correct in the migration
-   * test. These two assert the round trip: the login path supplies a person,
-   * and reading the session back names them.
-   */
-  test('a session records WHICH PERSON the device belongs to', async () => {
-    const future = new Date(Date.now() + 60_000).toISOString()
-    await store.auth.createClientSession('with-user', firstAdminMemberId(), future)
-    expect((await store.auth.getClientSession('with-user'))?.userId).toBe(firstAdminMemberId())
-  })
-
-  test('device and person are separable — two devices, one person', async () => {
-    // The property the column exists for. Before it, "which device" and "who"
-    // had one answer; a test that only checked `userId` was non-empty could not
-    // tell the two questions apart.
-    const future = new Date(Date.now() + 60_000).toISOString()
-    await store.auth.createClientSession('laptop', firstAdminMemberId(), future)
-    await store.auth.createClientSession('phone', firstAdminMemberId(), future)
-
-    expect((await store.auth.getClientSession('laptop'))?.userId).toBe(
-      (await store.auth.getClientSession('phone'))?.userId,
-    )
-    // …and revoking one device does not revoke the person's other device, which
-    // is what makes them separable rather than two names for one row.
-    const now = new Date().toISOString()
-    await store.auth.deleteClientSession('laptop')
-    expect(await store.auth.isClientSessionValid('laptop', now)).toBe(false)
-    expect(await store.auth.isClientSessionValid('phone', now)).toBe(true)
-  })
-})
-
-/**
- * WHICH MEMBER A LOGIN IS FOR (A2, spec §5.6 "Existing installs").
- *
- * The login screen sends one password field and no name, because there was one
- * account and the server knew which. It still means "this instance's first
- * admin" — the server just resolves that member now instead of compiling its id
- * in. And the id that member USED to have stays accepted, because an upgrade
- * that locks the operator out of their own instance to tidy up a string is not
- * a trade worth making.
- */
-describe('the login identifier', () => {
-  test('with no identifier, means the earliest admin member', async () => {
-    expect(await resolveLoginIdentifier(undefined, store.users)).toBe(
-      (await store.users.earliestAdmin())?.id,
-    )
-  })
-
-  test('accepts the retired literal, and resolves it to the same member', async () => {
-    expect(await resolveLoginIdentifier('user:sole', store.users)).toBe(
-      (await store.users.earliestAdmin())?.id,
-    )
-  })
-
-  test('does not accept member ids as email identifiers', async () => {
-    // Not resolved, not rewritten: a login for a member who does not exist must
-    // fail at the credential lookup, not silently become the first admin's.
-    expect(
-      await resolveLoginIdentifier('mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv', store.users),
-    ).toBeUndefined()
-  })
-
-  test('has no answer when no member may act as the first admin', async () => {
-    // Every admin disabled. The caller answers this as a failed login, which is
-    // what it is from the outside: there is no account with that (absent) name.
-    const none = { earliestAdmin: async () => undefined } as Parameters<
-      typeof resolveLoginIdentifier
-    >[1]
-    expect(await resolveLoginIdentifier(undefined, none)).toBeUndefined()
-  })
-
-  test('a password set on the first admin still logs in with no identifier sent', async () => {
-    // End to end, through the real route: this is the upgrade case — the login
-    // screen has not changed, and the operator's password still works after
-    // their member id was re-keyed underneath them.
-    await setPassword('hunter2')
-    const app = makeApp()
-    const res = await app.request('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ password: 'hunter2' }),
-    })
-    expect(res.status).toBe(200)
-    expect(((await res.json()) as { userId: string }).userId).toBe(firstAdminMemberId())
-  })
-
-  test('and with the retired literal sent as the identifier', async () => {
-    await setPassword('hunter2')
-    const app = makeApp()
-    const res = await app.request('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ userId: 'user:sole', password: 'hunter2' }),
-    })
-    expect(res.status).toBe(200)
-    expect(((await res.json()) as { userId: string }).userId).toBe(firstAdminMemberId())
-  })
-})
-
-describe('email sign-in', () => {
-  const login = (app: Hono, email: string, password = 'hunter2') =>
-    app.request('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
-    })
-
-  test('resolves normalized email, preserves display name, and retires legacy login after setting email', async () => {
-    await setPassword('hunter2')
-    const before = await store.users.get(firstAdminMemberId())
-    const app = makeApp()
-    expect((await login(app, 'user:sole')).status).toBe(200)
-    await store.users.setEmail(firstAdminMemberId(), ' Alice@Example.COM ')
-    expect((await store.users.get(firstAdminMemberId()))?.displayName).toBe(before?.displayName)
-    const response = await login(app, ' ALICE@example.com ')
-    expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({
-      ok: true,
-      userId: firstAdminMemberId(),
-      memberId: firstAdminMemberId(),
-    })
-    expect(cookieValue(response)).toBeTruthy()
-    expect((await login(app, 'user:sole')).status).toBe(401)
-    expect(
-      (
-        await app.request('/auth/login', {
-          method: 'POST',
-          body: JSON.stringify({ password: 'hunter2' }),
-        })
-      ).status,
-    ).toBe(401)
-    expect((await login(app, firstAdminMemberId())).status).toBe(401)
-    expect(
-      (
-        await app.request('/auth/login', {
-          method: 'POST',
-          body: JSON.stringify({ userId: firstAdminMemberId(), password: 'hunter2' }),
-        })
-      ).status,
-    ).toBe(400)
-  })
-
-  test('locks only the failed email, shares case variants, and expires its lockout', async () => {
-    await setPassword('hunter2')
-    await store.users.setEmail(firstAdminMemberId(), 'alice@example.com')
-    await store.users.create(
-      {
-        id: 'user:bob',
-        displayName: 'Bob',
-        email: 'bob@example.com',
-        role: 'member',
-        createdAt: FAR_FUTURE,
-        disabledAt: null,
-      },
-      await hashPassword('bob-password'),
-    )
-    let at = Date.now()
-    const app = makeApp({ now: () => at, throttle: { maxFailures: 2, lockoutMs: 60_000 } })
-    expect((await login(app, 'alice@example.com', 'wrong')).status).toBe(401)
-    expect((await login(app, ' ALICE@example.com ', 'wrong')).status).toBe(401)
-    const locked = await login(app, 'alice@example.com')
-    expect(locked.status).toBe(429)
-    expect(locked.headers.get('retry-after')).toBe('60')
-    const bob = await login(app, 'bob@example.com', 'bob-password')
-    expect(bob.status).toBe(200)
-    expect(await bob.json()).toMatchObject({ userId: 'user:bob' })
-    expect((await login(app, 'alice@example.com')).status).toBe(429)
-    at += 60_000
-    expect((await login(app, 'alice@example.com')).status).toBe(200)
-  })
-
-  test('unknown emails are throttled and malformed identifiers never select the first admin', async () => {
-    await setPassword('hunter2')
-    const app = makeApp({ throttle: { maxFailures: 1 } })
-    expect((await login(app, 'missing@example.com')).status).toBe(401)
-    expect((await login(app, 'missing@example.com')).status).toBe(429)
-    expect((await login(app, '')).status).toBe(400)
-    expect((await login(app, 'user:sole')).status).toBe(200)
-  })
-
-  test('concurrent failures share one email counter', async () => {
-    await setPassword('hunter2')
-    await store.users.setEmail(firstAdminMemberId(), 'alice@example.com')
-    const app = makeApp({ throttle: { maxFailures: 3 } })
-    const results = await Promise.all(
-      Array.from({ length: 3 }, () => login(app, 'alice@example.com', 'wrong')),
-    )
-    expect(results.map((result) => result.status)).toEqual([401, 401, 401])
-    expect((await login(app, 'alice@example.com')).status).toBe(429)
-  })
-
-  test('saturation retains only the configured number of unknown email counters', async () => {
-    const app = makeApp({
-      loginRequired: () => true,
-      now: () => 1000,
-      throttle: { maxFailures: 1, maxTracked: 2 },
-    })
-    for (let i = 0; i < 10; i++) {
-      expect((await login(app, `missing-${i}@example.com`)).status).toBe(401)
-    }
-    // Exactly the two newest admissions remain locked; a third was evicted.
-    expect((await login(app, 'missing-8@example.com')).status).toBe(429)
-    expect((await login(app, ' MISSING-9@example.com ')).status).toBe(429)
-    expect((await login(app, 'missing-7@example.com')).status).toBe(401)
-    expect((await login(app, 'missing-9@example.com')).status).toBe(429)
-    expect((await login(app, 'missing-8@example.com')).status).toBe(401)
-  })
-
-  test('the default capacity is 10,000 identifiers', async () => {
-    const app = makeApp({
-      loginRequired: () => true,
-      now: () => 1000,
-      throttle: { maxFailures: 1 },
-    })
-    for (let i = 0; i < 10_000; i++) {
-      expect((await login(app, `missing-${i}@example.com`)).status).toBe(401)
-    }
-    expect((await login(app, 'missing-0@example.com')).status).toBe(429)
-    expect((await login(app, 'overflow@example.com')).status).toBe(401)
-    expect((await login(app, 'missing-9999@example.com')).status).toBe(429)
-    expect((await login(app, 'missing-0@example.com')).status).toBe(401)
-  })
-
-  test('saturation evicts the oldest unlocked counter before an active lock', async () => {
-    let at = 1000
-    const app = makeApp({
-      loginRequired: () => true,
-      now: () => at,
-      throttle: { maxFailures: 2, lockoutMs: 100, maxTracked: 3 },
-    })
-    await login(app, 'locked@example.com')
-    await login(app, 'locked@example.com')
-    at++
-    await login(app, 'older@example.com')
-    at++
-    await login(app, 'newer@example.com')
-    at++
-    await login(app, 'incoming@example.com')
-    expect((await login(app, 'locked@example.com')).status).toBe(429)
-    expect((await login(app, 'newer@example.com')).status).toBe(401)
-    expect((await login(app, 'newer@example.com')).status).toBe(429)
-    expect((await login(app, 'older@example.com')).status).toBe(401)
-    expect((await login(app, 'older@example.com')).status).toBe(401)
-    expect((await login(app, 'older@example.com')).status).toBe(429)
-    at += 100
-    expect((await login(app, 'locked@example.com')).status).toBe(401)
-  })
-
-  test('concurrent saturation cannot reinsert evicted counters after verification', async () => {
-    const app = makeApp({
-      loginRequired: () => true,
-      now: () => 1000,
-      throttle: { maxFailures: 1, maxTracked: 2 },
-    })
-    const results = await Promise.all(
-      Array.from({ length: 10 }, (_, i) => login(app, `missing-${i}@example.com`)),
-    )
-    expect(results.map((result) => result.status)).toEqual(Array(10).fill(401))
-    expect((await login(app, 'missing-8@example.com')).status).toBe(429)
-    expect((await login(app, 'missing-9@example.com')).status).toBe(429)
-    expect((await login(app, 'missing-0@example.com')).status).toBe(401)
-  })
-
-  test.each([
-    0,
-    -1,
-    1.5,
-    Number.NaN,
-    Number.POSITIVE_INFINITY,
-  ])('rejects an invalid throttle capacity: %s', (maxTracked) => {
-    expect(() => makeApp({ throttle: { maxTracked } })).toThrow(
-      'throttle.maxTracked must be a positive safe integer',
-    )
-  })
-
-  test('native delivery accepts an email and returns that member session', async () => {
-    await setPassword('hunter2')
-    await store.users.setEmail(firstAdminMemberId(), 'alice@example.com')
-    const response = await makeApp().request('https://podium.example/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({
-        email: 'alice@example.com',
-        password: 'hunter2',
-        delivery: 'native',
-        deviceId: 'phone-device',
-        deviceName: 'Phone',
-        platform: 'ios',
-      }),
-    })
-    expect(response.status).toBe(200)
-    expect(await response.json()).toMatchObject({
-      delivery: 'native',
-      userId: firstAdminMemberId(),
-      token: expect.any(String),
-    })
   })
 })
 
 test('direct member creation is retired in favor of invite-and-claim', async () => {
-  const response = await makeApp().request('/auth/users', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      userId: 'chosen-id',
-      displayName: 'Chosen',
-      role: 'admin',
-      password: 'password123',
-    }),
+  const response = await post(makeApp(), '/auth/users', {
+    userId: 'chosen-id',
+    displayName: 'Chosen',
+    role: 'admin',
+    password: 'password123',
   })
   expect(response.status).toBe(410)
   expect(await store.users.get(asUserId('chosen-id'))).toBeUndefined()
 })
 
-describe('phone client against the real auth route', () => {
-  function connectPhone() {
-    const app = makeApp()
-    vi.stubGlobal('fetch', (url: string, init?: RequestInit) => app.request(url, init))
+describe('clientAuthGuard', () => {
+  function guarded(memberOfRequest = identity.memberOfRequest, renew = identity.workspace.renew) {
+    const app = new Hono()
+    app.use('/trpc/*', clientAuthGuard({ memberOfRequest, renew }))
+    app.all('/trpc/ping', (c) => c.json({ pong: true }))
     return app
   }
-  type PhoneLoginResult = { ok: true; bearer: string | null } | { ok: false; error: string }
-  const signIn = async (email = '', password = 'hunter2'): Promise<PhoneLoginResult> => {
-    // Load the actual client at runtime without adding React Native's ambient
-    // browser globals to the server's TypeScript compilation.
-    const clientPath = '../../mobile/src/client/auth'
-    const { login } = await import(clientPath)
-    return login('https://podium.example', password, { id: 'phone', name: 'My phone' }, email)
-  }
+  const ping = (app: Hono, headers: Record<string, string> = {}, method = 'GET') =>
+    app.request(`${ORIGIN}/trpc/ping`, {
+      method,
+      headers: { 'x-podium-peer-address': peer(), ...headers },
+    })
 
-  async function expectMember(result: PhoneLoginResult, memberId: string) {
-    expect(result.ok).toBe(true)
-    if (!result.ok) throw new Error(result.error)
-    expect(result.bearer).toBeTruthy()
-    expect(await requestUserId(store.auth, undefined, Date.now(), `Bearer ${result.bearer}`)).toBe(
-      memberId,
+  test('answers 401 without a sign-in and continues with a valid one', async () => {
+    await identity.credentials.setPassword(admin, PASSWORD)
+    const app = guarded()
+    const refused = await ping(app)
+    expect(refused.status).toBe(401)
+    expect(await refused.json()).toEqual({ error: 'unauthorized' })
+    const cookie = cookieOf(await post(makeApp(), '/auth/login', { password: PASSWORD })) ?? ''
+    const served = await ping(app, { cookie })
+    expect(served.status).toBe(200)
+    // No renewal is due on a fresh sign-in, so no cookie is set again.
+    expect(served.headers.getSetCookie()).toEqual([])
+  })
+
+  test('a forged or unsigned cookie signs nobody in', async () => {
+    await identity.credentials.setPassword(admin, PASSWORD)
+    const cookie = cookieOf(await post(makeApp(), '/auth/login', { password: PASSWORD })) ?? ''
+    const [name, value] = cookie.split('=') as [string, string]
+    const token = decodeURIComponent(value).split('.')[0]
+    const app = guarded()
+    for (const forged of [`${name}=${token}`, `${name}=${token}.AAAA`, `${name}=nonsense`]) {
+      expect((await ping(app, { cookie: forged })).status).toBe(401)
+    }
+    // The cookie of the removed hand-written sign-in is not read at all.
+    expect((await ping(app, { cookie: `podium_session=${token}` })).status).toBe(401)
+  })
+
+  test('answers 403 for a signed-in caller who is not a member, and 400 over plain HTTP', async () => {
+    const notMember = guarded(
+      stubMemberOfRequest(() => ({ kind: 'not-a-member', accountId: 'acct' })),
     )
-    return result.bearer!
-  }
-
-  test('email-bearing admin can sign in again after phone session expiry', async () => {
-    await setPassword('hunter2')
-    await store.users.setEmail(firstAdminMemberId(), 'admin@example.com')
-    const app = connectPhone()
-    const token = await expectMember(await signIn(' ADMIN@example.com '), firstAdminMemberId())
-    await store.auth.extendClientSession(hashToken(token), '2000-01-01T00:00:00.000Z')
-    const expired = await app.request('https://podium.example/auth/status', {
-      headers: { authorization: `Bearer ${token}` },
+    const refused = await ping(notMember)
+    expect(refused.status).toBe(403)
+    expect(await refused.json()).toEqual({ error: 'not_workspace_member' })
+    const plain = await guarded().request('http://192.168.1.20:18787/trpc/ping', {
+      headers: { 'x-podium-peer-address': '192.168.1.44', authorization: 'Bearer secret' },
     })
-    expect(await expired.json()).toMatchObject({ needsAuth: true, authed: false })
-    const replacement = await expectMember(await signIn('admin@example.com'), firstAdminMemberId())
-    expect(replacement).not.toBe(token)
-    expect(await signIn()).toMatchObject({ ok: false })
-    expect(await signIn('unknown@example.com')).toMatchObject({ ok: false })
-    expect(await signIn('admin@example.com', 'wrong')).toMatchObject({ ok: false })
+    expect(plain.status).toBe(400)
+    expect(await plain.json()).toEqual({ error: 'https_required' })
   })
 
-  test('a claimed invitation signs the phone in as that member, not the admin', async () => {
-    await setPassword('hunter2')
-    await store.users.setEmail(firstAdminMemberId(), 'admin@example.com')
-    const invites = new MemberInvites(store.users)
-    const invite = await invites.create(firstAdminMemberId(), { email: 'member@example.com' })
-    const member = await invites.complete({
-      token: invite.token,
-      identity: {
-        kind: 'password',
-        email: 'member@example.com',
-        displayName: 'Member',
-        password: 'member-password',
-      },
+  test('lets a CORS preflight through without a sign-in', async () => {
+    await identity.credentials.setPassword(admin, PASSWORD)
+    expect((await ping(guarded(), {}, 'OPTIONS')).status).toBe(200)
+  })
+
+  test('refuses a client opened for another member, with the fence code', async () => {
+    const app = guarded(stubMemberOfRequest(() => memberResolution('mem_alice', 'admin')))
+    expect((await ping(app, { [MEMBER_FENCE_HEADER]: 'mem_alice' })).status).toBe(200)
+    const refused = await ping(app, { [MEMBER_FENCE_HEADER]: 'mem_bob' })
+    expect(refused.status).toBe(401)
+    expect(await refused.json()).toMatchObject({ code: MEMBER_FENCE_REFUSAL })
+  })
+
+  test('renews a sign-in that is due and adds its cookie to the response; never otherwise', async () => {
+    const renew = vi.fn(async () => {
+      const headers = new Headers()
+      headers.append('set-cookie', '__Secure-podium.session_token=renewed; Path=/; HttpOnly')
+      return headers
     })
-    connectPhone()
-    await expectMember(await signIn('member@example.com', 'member-password'), member.id)
-    expect(await signIn('admin@example.com', 'member-password')).toMatchObject({ ok: false })
-  })
+    const due = guarded(
+      stubMemberOfRequest(() => ({ ...memberResolution('mem_alice', 'admin'), renewDue: true })),
+      renew,
+    )
+    const res = await ping(due)
+    expect(res.status).toBe(200)
+    expect(res.headers.getSetCookie()).toEqual([
+      '__Secure-podium.session_token=renewed; Path=/; HttpOnly',
+    ])
+    expect(res.headers.get('cache-control')).toBe('no-store')
+    expect(renew).toHaveBeenCalledTimes(1)
 
-  test('explicit legacy identifier works only until the first admin sets email', async () => {
-    await setPassword('hunter2')
-    connectPhone()
-    await expectMember(await signIn(), firstAdminMemberId())
-    await expectMember(await signIn('user:sole'), firstAdminMemberId())
-    await store.users.setEmail(firstAdminMemberId(), 'upgraded@example.com')
-    expect(await signIn()).toMatchObject({ ok: false })
-    expect(await signIn('user:sole')).toMatchObject({ ok: false })
-    await expectMember(await signIn('upgraded@example.com'), firstAdminMemberId())
-  })
-})
-
-test.each([
-  'pdm_installation',
-  'ws_hosted',
-])('auth reports the server boundary %s and member separately', async (boundary) => {
-  const app = makeApp({ syncBoundaryId: () => boundary, resolveUserId: () => firstAdminMemberId() })
-  const response = await app.request('/auth/status')
-  expect(await response.json()).toMatchObject({
-    syncBoundaryId: boundary,
-    memberId: firstAdminMemberId(),
-    userId: firstAdminMemberId(),
-  })
-  await setPassword('hunter2')
-  const login = await app.request('/auth/login', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ password: 'hunter2' }),
-  })
-  expect(await login.json()).toMatchObject({
-    syncBoundaryId: boundary,
-    memberId: firstAdminMemberId(),
+    renew.mockClear()
+    const notDue = guarded(
+      stubMemberOfRequest(() => memberResolution('mem_alice', 'admin')),
+      renew,
+    )
+    expect((await ping(notDue)).headers.getSetCookie()).toEqual([])
+    expect(renew).not.toHaveBeenCalled()
   })
 })

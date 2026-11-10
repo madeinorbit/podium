@@ -59,6 +59,7 @@ import { openDatabase } from '@podium/runtime/sqlite'
 import type { AppRouter } from '../apps/server/src/router'
 import { machineFileKey } from '../apps/server/src/modules/logs/fleet-store'
 import { openTestStore } from '../apps/server/src/test-support/open-test-store'
+import { openTestIdentity } from '../apps/server/src/test-support/test-identity'
 import {
   MachineUpdateExecutor,
   readMachineUpdateJournal,
@@ -141,7 +142,8 @@ async function seedNamedState(spec: InstanceSpec): Promise<void> {
   const store = await openTestStore(path, asMachineId(machineId))
   const installation = await store.secrets.installationIdentity()
   readOrCreateUpdateSigningKey(spec.stateDir, { allowCreate: true })
-  await completePreauthorizedSetup(store, installation.installationId, request)
+  const { credentials } = await openTestIdentity(store)
+  await completePreauthorizedSetup(store, credentials, installation.installationId, request)
   await store.close()
   const db = openDatabase(path)
   db.prepare(

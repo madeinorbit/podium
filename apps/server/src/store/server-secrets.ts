@@ -36,7 +36,7 @@ import {
   parseInstallationIdentity,
   type InstallationIdentity,
 } from '@podium/runtime/installation-identity'
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import {
   SERVER_SECRET_KEYS,
   type SecretPresenceWire,
@@ -50,6 +50,9 @@ import { FINGERPRINT_SECRET_KEY } from '../fingerprint-key-import'
 import { meta, serverSecrets } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { param, prepared } from './executor/sync-drizzle'
+
+/** Internal key of the sign-in signing secret; not a settings secret. */
+export const IDENTITY_SIGNING_SECRET_KEY = 'identity.signingSecret'
 
 function nativeLoginTransferKey(principalUserId: UserId, transferId: string): string {
   const principal = createHash('sha256').update(principalUserId).digest('hex')
@@ -202,6 +205,31 @@ export class ServerSecretsRepository {
     const row = await secretValue(this.db).get({ key: FINGERPRINT_SECRET_KEY })
     if (!row) throw new Error('secret fingerprint key is missing from the database')
     return Buffer.from(row.value, 'hex')
+  }
+
+  /**
+   * The secret that signs sign-in cookie and bearer values (people and sign-in
+   * specification, section 1.7): read, or made on the first call. It lives in
+   * the database so that it moves with it on a server move, a backup and a
+   * restore. Like the installation key it is outside the settings-secret
+   * vocabulary and never part of presence().
+   */
+  async identitySigningSecret(opts: { create: false }): Promise<string | undefined>
+  async identitySigningSecret(opts?: { create?: true }): Promise<string>
+  async identitySigningSecret(opts: { create?: boolean } = {}): Promise<string | undefined> {
+    return await this.createOrJoinTransaction(async () => {
+      const row = await secretValue(this.db).get({ key: IDENTITY_SIGNING_SECRET_KEY })
+      if (row) return row.value
+      // A store that cannot be written (transfer recovery) makes none.
+      if (opts.create === false) return undefined
+      const value = randomBytes(32).toString('base64url')
+      await upsertSecret(this.db).run({
+        key: IDENTITY_SIGNING_SECRET_KEY,
+        value,
+        updatedAt: new Date().toISOString(),
+      })
+      return value
+    })
   }
 
   async get(key: ServerSecretKey): Promise<string | undefined> {

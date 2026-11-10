@@ -2,6 +2,7 @@ import { hostname } from 'node:os'
 import { asMachineId, asUserId, type UserId } from '@podium/model'
 import { parseWirePublicKey } from '@podium/runtime/signing'
 import type { SetupEnrollmentRequest } from '@podium/runtime/setup-enrollment'
+import type { MemberCredentials } from './identity/member-credentials'
 import type { SessionStore } from './store'
 
 export interface SetupEnrollmentReceipt extends SetupEnrollmentRequest {
@@ -52,18 +53,16 @@ export async function enrollSetupMachine(
 }
 
 /** Bind once while consuming the explicit setup request, never infer an owner on later boots. */
-export async function completePreauthorizedSetup(store: SessionStore, installationId: string, request: SetupEnrollmentRequest, passwordHash?: string): Promise<SetupEnrollmentReceipt | undefined> {
+export async function completePreauthorizedSetup(store: SessionStore, credentials: MemberCredentials, installationId: string, request: SetupEnrollmentRequest, passwordHash?: string): Promise<SetupEnrollmentReceipt | undefined> {
   return store.transact(async () => {
     const prior = await readSetupEnrollment(store, installationId, request)
     if (prior) return prior
     if (!request.preauthorized) return undefined
     const sole = await store.users.soleActiveMember()
     const actor = sole?.role === 'admin' ? asUserId(sole.id) : null
-    if (actor && passwordHash) {
-      const credential = await store.users.credentialFor(actor)
-      if (!credential?.passwordHash || credential.source !== 'per-user-scrypt') {
-        await store.users.setPasswordHash(actor, passwordHash, new Date().toISOString())
-      }
+    // A password the admin already has wins over the one setup staged.
+    if (actor && passwordHash && !(await credentials.hasPassword(actor))) {
+      await credentials.setPasswordHash(actor, passwordHash)
     }
     return enrollSetupMachine(store, installationId, request, actor)
   })

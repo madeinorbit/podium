@@ -15,13 +15,13 @@ import { deleteCookie } from 'hono/cookie'
 import {
   type ClientCredentialHeaders,
   hashToken,
-  isHttps,
   parseSessionCookie,
   resolveClientCredential,
   SESSION_COOKIE,
   SESSION_TTL_MS,
   setSessionCookie,
-} from './auth-route'
+} from './old-client-sessions'
+import { isHttps } from './request-scheme'
 import type { MobilePairingManager } from './mobile-pairing'
 import type { AuthRepository, ClientSessionRow } from './store/auth'
 

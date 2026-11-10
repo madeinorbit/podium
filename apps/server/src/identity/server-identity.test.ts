@@ -64,6 +64,11 @@ describe('the identity seam', () => {
     ])
   })
 
+  it('says when the workspace database may not be written', () => {
+    expect(identitySeamDeps(store).recoveryOnly).toBe(false)
+    expect(identitySeamDeps(store, { recoveryOnly: true }).recoveryOnly).toBe(true)
+  })
+
   it('keeps the applied membership version in the workspace database', async () => {
     const deps = identitySeamDeps(store)
     expect(await deps.appliedCursor.read()).toBe(0)

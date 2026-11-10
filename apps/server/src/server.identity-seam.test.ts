@@ -34,6 +34,7 @@ describe('startServer identity seam', () => {
         // Only what the server calls at boot is stood in; nothing else is reached here.
         return {
           workspaceId: 'ws_seam',
+          core: { accounts: {}, sweep: async () => {} },
           catchUp: async () => {
             events.push('catchUp')
             await deps.appliedCursor.write(3)
@@ -57,6 +58,8 @@ describe('startServer identity seam', () => {
 
   it('hands it the member rows, the cursor and the member list of the open store', async () => {
     expect(typeof seen?.memberRows.write).toBe('function')
+    // An ordinary start: the database may be written.
+    expect(seen?.recoveryOnly).toBe(false)
     expect(membersAtBoot).toEqual([
       { memberId: expect.any(String), role: 'admin', disabled: false, accountId: null },
     ])

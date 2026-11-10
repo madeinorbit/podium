@@ -113,7 +113,10 @@ describe('open mode acts as the sole active member', () => {
     const res = await fetch(url('/trpc/instance.info?input=%7B%7D'), {
       headers: { 'x-forwarded-for': '203.0.113.9', 'x-forwarded-host': 'podium.example.com' },
     })
-    expect(res.status).toBe(401)
+    // Not this machine, and plain HTTP: nothing is read and nobody may sign in
+    // here (people and sign-in specification, section 2.3).
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'https_required' })
   })
 
   it('does not use open-mode authorization for pairing control or device management', async () => {
@@ -178,20 +181,27 @@ describe('open mode ends once a second active member exists (MU-01)', () => {
       }
     const trpcStatus = async () =>
       (await fetch(`http://127.0.0.1:${server.port}/trpc/instance.info?input=%7B%7D`)).status
-    const addBob = async () =>
-      await server.registry.sessionStore.users.createUnclaimed({
-        id: 'mem_bob_open_mode',
-        displayName: 'Bob',
-        email: 'bob@example.test',
-        role: 'member',
-        createdAt: new Date().toISOString(),
-        disabledAt: null,
-      })
+    // Bob becomes a member the only way a member comes to exist: an invitation
+    // that is accepted. He has no password.
+    const { memberships } = server.identity
+    const admin = { memberId: firstAdminMemberId() }
+    let bob = ''
+    const addBob = async () => {
+      const { invitation } = await memberships.invite({ actor: admin, role: 'member' })
+      bob = (
+        await memberships.accept({
+          token: invitation.token,
+          account: { kind: 'new', name: 'Bob', email: 'bob@example.test' },
+        })
+      ).memberId
+    }
+    const disableBob = async () => await memberships.disable({ actor: admin, memberId: bob })
+    const enableBob = async () => await memberships.enable({ actor: admin, memberId: bob })
     const close = async () => {
       await server.close()
       rmSync(dir, { recursive: true, force: true })
     }
-    return { server, status, trpcStatus, addBob, close }
+    return { server, status, trpcStatus, addBob, disableBob, enableBob, close }
   }
 
   afterAll(() => {
@@ -216,15 +226,9 @@ describe('open mode ends once a second active member exists (MU-01)', () => {
       expect(await f.trpcStatus()).toBe(401)
 
       // A disabled member is not a second person who can act.
-      await f.server.registry.sessionStore.users.disable(
-        'mem_bob_open_mode' as never,
-        new Date().toISOString(),
-      )
+      await f.disableBob()
       expect(await f.status()).toMatchObject({ needsAuth: false, authed: true, userId: alone.userId })
-      await f.server.registry.sessionStore.users.enable(
-        'mem_bob_open_mode' as never,
-        new Date().toISOString(),
-      )
+      await f.enableBob()
       expect(await f.status()).toMatchObject({ needsAuth: true, authed: false })
       expect(await f.trpcStatus()).toBe(401)
     } finally {

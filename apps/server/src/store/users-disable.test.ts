@@ -1,9 +1,6 @@
 import { asDelegationRef } from '@podium/protocol'
 import { actorAgent, agentIdentityFromSessionId, asUserId, firstAdminMemberId } from '@podium/model'
-import { hashPassword } from '@podium/runtime/auth-store'
-import { Hono } from 'hono'
 import { afterEach, expect, it } from 'vitest'
-import { registerAuthRoute, requestUserId } from '../auth-route'
 import { SessionRegistry } from '../relay'
 import type { SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
@@ -68,25 +65,6 @@ it('rolls back member, sessions, audit and live principal publication together',
   expect(await store.users.get(member)).toBeDefined()
   expect(await store.auth.getClientSession('cookie')).toBeDefined()
   expect(await store.settingsAudit.list()).toEqual([])
-})
-
-it('refuses sign-in and old cookies until re-enabled, without resurrecting revoked cookies', async () => {
-  const store = await setup()
-  const member = firstAdminMemberId()
-  await store.users.setPasswordHash(member, await hashPassword('secret'), at)
-  const app = new Hono()
-  registerAuthRoute(app, { store: store.auth, users: store.users })
-  const login = () => app.request('/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: 'secret' }) })
-  const before = await login()
-  expect(before.status).toBe(200)
-  const cookie = before.headers.get('set-cookie')!.split(';')[0]!
-  expect(await requestUserId(store.auth, cookie)).toBe(member)
-  await store.users.disable(member, at)
-  expect((await login()).status).toBe(401)
-  expect(await requestUserId(store.auth, cookie)).toBeUndefined()
-  await store.users.enable(member, at)
-  expect((await login()).status).toBe(200)
-  expect(await requestUserId(store.auth, cookie)).toBeUndefined()
 })
 
 it('lets existing agent processes finish but refuses new agent launches while disabled', async () => {

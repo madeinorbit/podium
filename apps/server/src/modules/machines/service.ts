@@ -64,6 +64,7 @@ import { requestParentEnrollment } from '@podium/runtime/parent-control'
 import { TRPCError } from '@trpc/server'
 import type { DaemonControlPeer } from '../../gateway/daemon-ports'
 import { isPrivateOwner } from '../../private-resources'
+import type { MemberCredentials } from '../../identity/member-credentials'
 import { enrollSetupMachine, readSetupEnrollment } from '../../setup-enrollment'
 import type { MachineRecord, SessionStore } from '../../store'
 import { runAtRoot } from '../../store/executor/context'
@@ -335,6 +336,8 @@ export interface MachinesDeps {
   /** Hub-role inbound daemon pairing (injected from server assembly; see {@link PairingCodes}). */
   installationId?: string
   pairing?: PairingCodes
+  /** A member's password, through their account (POD-6746). Absent: setup with a password refuses. */
+  memberCredentials?: MemberCredentials
   /** Whether a proposed custody recipient exists in the member directory. */
   userExists?(userId: UserId): boolean | Promise<boolean>
   /** Production reaction transport for derived session fields. */
@@ -1305,6 +1308,12 @@ export class MachinesService {
       : accountId
   }
 
+  /** The password setup chose, written to the actor's account inside setup's transaction. */
+  private async setupPassword(actor: UserId, passwordHash: string): Promise<void> {
+    if (!this.deps.memberCredentials) throw new Error('setup cannot set a password: no identity')
+    await this.deps.memberCredentials.setPasswordHash(actor, passwordHash)
+  }
+
   /** The password and host enrollment are one setup transition; parent effects stay outside it. */
   async completeHostSetup(
     actor: UserId,
@@ -1332,8 +1341,7 @@ export class MachinesService {
       if (existing.revokedAt)
         throw new Error('host machine is revoked; explicit replacement enrollment required')
       await this.deps.store.transact(async () => {
-        if (passwordHash)
-          await this.deps.store.users.setPasswordHash(actor, passwordHash, new Date().toISOString())
+        if (passwordHash) await this.setupPassword(actor, passwordHash)
         await this.grantHostMachineIfUnowned(actor)
       })
       return
@@ -1344,8 +1352,7 @@ export class MachinesService {
     if (request.machineId !== this.deps.hostMachineId)
       throw new Error('parent setup machine identity mismatch')
     const receipt = await this.deps.store.transact(async () => {
-      if (passwordHash)
-        await this.deps.store.users.setPasswordHash(actor, passwordHash, new Date().toISOString())
+      if (passwordHash) await this.setupPassword(actor, passwordHash)
       return enrollSetupMachine(this.deps.store, this.deps.installationId!, request, actor)
     })
     await this.publishMachines([this.deps.hostMachineId])

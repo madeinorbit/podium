@@ -1,27 +1,22 @@
 /**
- * One credential read per web request [POD-6220, server-data rule 8].
+ * One sign-in read per web request [POD-6220, server-data rule 8; POD-6746].
  *
- * Every tRPC call passes the auth guard and then builds its context, and both
- * ask who the caller is. Each asked the store on its own, and each ask was two
- * reads of the session row (a validity check, then the row), so a call read
- * `cli_sessions` four times and asked "is login required" once before its
- * procedure ran: about six auth statements per request, 4.5% of all SQL wall
- * time in the POD-6140 bench. The guard and the context now share one
- * resolution per request, and the resolution is one read.
+ * Every tRPC call passes the guard and then builds its context, and both ask
+ * who the caller is. They share one resolution per request, and the resolution
+ * is one statement of the identity package: the device sign-in by its hashed
+ * token, joined to its account and to that account's membership.
  *
  * The request runs against a REAL booted server, because the guard, the
- * principal resolver and the context are assembled inside `startServer`; a
- * hand-built composition would pin its own assembly, not production's (the
- * reasoning `server.context-users.test.ts` records). The data that must not
- * matter is how many members and login sessions the instance holds: 5 and 200.
+ * resolver and the context are assembled inside `startServer`; a hand-built
+ * composition would pin its own assembly, not production's. The data that must
+ * not matter is how many members and device sign-ins the instance holds: 5
+ * and 200.
  */
 
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asUserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { hashToken } from './auth-route'
 import { noJanitorWorkerForTests } from './janitor-host'
 import { startServer } from './server'
 import type { SessionStore } from './store'
@@ -76,27 +71,22 @@ async function boot(size: number): Promise<Fixture> {
   expect(login.status).toBe(200)
   f.cookie = login.headers.get('set-cookie')?.split(';')[0] ?? ''
   expect(f.cookie).not.toBe('')
+  // The data that must not matter: other members, each with an account and a
+  // device sign-in of their own, and more sign-ins of the admin.
+  const { memberships, core } = handle.identity
   const admin = (await store.users.earliestAdmin())!
-
-  // The data that must not matter: other members, and other login sessions.
-  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+  const adminAccount = (await store.users.get(admin.id as never))?.accountId
+  if (!adminAccount) throw new Error('the first admin has no account')
+  const facts = (i: number) =>
+    ({ scheme: 'https', sameMachine: false, clientAddress: `10.7.${i >> 8}.${i & 255}` }) as const
   for (let i = 0; i < size; i++) {
-    await store.users.create(
-      {
-        id: `usr_pin_${i}`,
-        displayName: `Member ${i}`,
-        role: 'member',
-        createdAt: '2026-07-01T00:00:00.000Z',
-        disabledAt: null,
-      },
-      'unused-hash',
-    )
-    await store.auth.createClientSession(hashToken(`other-${i}`), asUserId(admin.id), expiresAt)
-    await store.auth.createClientSession(
-      hashToken(`member-${i}`),
-      asUserId(`usr_pin_${i}`),
-      expiresAt,
-    )
+    const { invitation } = await memberships.invite({ actor: { system: 'host' }, role: 'member' })
+    const { accountId } = await memberships.accept({
+      token: invitation.token,
+      account: { kind: 'new', name: `Member ${i}` },
+    })
+    await core.deviceSignIns.create(accountId, { kind: 'browser' }, 'cookie', facts(i))
+    await core.deviceSignIns.create(adminAccount, { kind: 'browser' }, 'cookie', facts(i))
   }
   // Warm: first-request work (prepared statements, lazy reads) is not the request's own.
   for (let i = 0; i < 2; i++) await request(f)
@@ -116,31 +106,30 @@ async function teardown(f: Fixture): Promise<void> {
   rmSync(f.stateDir, { recursive: true, force: true })
 }
 
-/** Statements whose per-query key contains `from` text. Keys are truncated (the session
- *  read's ends `from "cli…`), so a needle is the part a key keeps. */
+/** Statements whose per-query key contains `from` text. Keys are truncated, so a
+ *  needle is the part a key keeps. */
 const reading = (tally: StatementTally, from: string): number =>
   [...tally.byQuery].reduce((n, [key, count]) => (key.includes(from) ? n + count : n), 0)
 
 describe('an authenticated tRPC request', () => {
-  it('reads its login session once, whatever the instance holds', async () => {
+  it('reads its device sign-in once, whatever the instance holds', async () => {
     const pin: StatementPin<Fixture> = {
-      name: `GET ${PROCEDURE} with a session cookie`,
+      name: `GET ${PROCEDURE} with a sign-in cookie`,
       setup: boot,
       target: (f) => f.store,
       run: (f) => request(f),
       check: (status) => expect(status).toBe(200),
       teardown,
     }
-    // The session row, the caller's account (its role, for the context), and the
-    // procedure's own read of that account. It was 7: the session row four times, "is
-    // login required" once, and the same two account reads.
+    // The resolution (one statement), the member row behind it (its role, for
+    // the principal), and the procedure's own read of that member.
     const counts = await expectConstantStatements(pin, 3)
     for (const tally of [counts.small, counts.large]) {
-      // One session read for the guard AND the context, and no "is login required" read
-      // for a caller who holds a valid credential.
-      expect(reading(tally, 'from "cli')).toBe(1)
+      // One resolution for the guard AND the context, and nothing of the
+      // removed hand-written sign-in.
+      expect(reading(tally, 'identity_session')).toBe(1)
+      expect(reading(tally, 'from "cli')).toBe(0)
       expect(reading(tally, 'from "user_credentials"')).toBe(0)
-      expect(reading(tally, 'from "users" ')).toBe(2)
     }
   }, 120_000)
 })

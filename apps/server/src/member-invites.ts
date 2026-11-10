@@ -10,7 +10,7 @@ import {
 } from '@podium/model'
 import { hashPassword } from '@podium/runtime/auth-store'
 import { z } from 'zod'
-import { hashToken } from './auth-route'
+import { hashToken } from './old-client-sessions'
 import type { UsersRepository } from './store/users'
 
 export const InvitePassword = z.string().min(8).max(1024)

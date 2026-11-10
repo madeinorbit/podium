@@ -27,7 +27,7 @@ import {
   type SuiteHarness,
 } from '@podium/identity/testing'
 import { newMemberId } from '@podium/model'
-import { hashPassword, verifyPasswordHash } from '@podium/runtime/auth-store'
+import { hashPassword, isPasswordHash, verifyPasswordHash } from '@podium/runtime/auth-store'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SessionStore } from '../store'
@@ -56,6 +56,7 @@ const harness: SuiteHarness = {
   passwordHashing: {
     hash: hashPassword,
     verify: ({ password, hash }) => verifyPasswordHash(password, hash),
+    isHash: isPasswordHash,
   },
   // The server's own member ids.
   newMemberId,

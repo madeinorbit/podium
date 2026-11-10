@@ -135,6 +135,8 @@ export interface FamilyState {
    * rather than inventing an account (see `InstanceService.requireAccountStore`).
    */
   readonly users?: UsersRepository | undefined
+  /** A member's password and address, through their account (POD-6746). */
+  readonly credentials?: import('../identity/member-credentials').MemberCredentials | undefined
   /** Is login required on this instance — `credentialsRequired()` from server.ts,
    *  the ONE joined reader of open mode and per-user credentials. */
   readonly loginRequired?: (() => boolean | Promise<boolean>) | undefined
@@ -468,6 +470,7 @@ export const familyState = (ctx: Context): FamilyState => ({
   telemetry: ctx.telemetry,
   store: ctx.registry.sessionStore,
   ...(ctx.users ? { users: ctx.users } : {}),
+  ...(ctx.registry.memberCredentials ? { credentials: ctx.registry.memberCredentials } : {}),
   ...(ctx.loginRequired ? { loginRequired: ctx.loginRequired } : {}),
   ...(ctx.loginPolicy ? { loginPolicy: ctx.loginPolicy } : {}),
   hostLocalRequest: ctx.hostLocalRequest,

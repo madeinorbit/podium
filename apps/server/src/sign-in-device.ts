@@ -9,7 +9,8 @@
  * likes, and the worst a false answer does is mislabel its own row.
  */
 
-import type { ClientSessionMetadata } from './auth-route'
+import type { DeviceDescription } from '@podium/identity'
+import type { ClientSessionMetadata } from './old-client-sessions'
 
 type SignInPlatform = 'ios' | 'android' | 'macos' | 'windows' | 'linux' | 'unknown'
 
@@ -62,4 +63,22 @@ export function browserSignInMetadata(
   const app = desktop ? 'Podium desktop' : (browserOf(agent) ?? 'Web browser')
   const deviceName = platform === 'unknown' ? app : `${app} on ${OS_NAMES[platform]}`
   return { deviceId: desktop ? 'desktop' : 'browser', deviceName, platform, lastSeenAt }
+}
+
+/**
+ * The same description for a device sign-in of the identity package (POD-6746).
+ * No device id: only a phone has a stable id of its own, and a sign-in with a
+ * device id replaces the earlier sign-in of that device. Two browsers of one
+ * person must not sign each other out.
+ */
+export function browserSignInDevice(
+  userAgent: string | undefined,
+  origin: string | undefined,
+): DeviceDescription {
+  const described = browserSignInMetadata(userAgent, origin, '')
+  return {
+    kind: described.deviceId === 'desktop' ? 'desktop' : 'browser',
+    ...(described.deviceName ? { name: described.deviceName } : {}),
+    ...(described.platform ? { platform: described.platform } : {}),
+  }
 }

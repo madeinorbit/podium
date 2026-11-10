@@ -30,8 +30,6 @@ import {
   loadConfig,
   resolveAllowedOrigins,
   resolveAppUrl,
-  resolveAuthMode,
-  resolveAuthSignInUrl,
   resolveConnectBaseUrl,
   resolveConnectProbeKeys,
   resolveDevArtifactOrigin,
@@ -88,15 +86,7 @@ import { listenUserSocket, serverControlSocketPath } from '@podium/runtime/user-
 import { prepareLedgerBoot } from '@podium/sync'
 import { Hono } from 'hono'
 import { registerAdminRoutes } from './admin-routes'
-import {
-  type ClientCredentialHeaders,
-  clientAuthGuard,
-  isSecureRequest,
-  maintainClientCredentialByHash,
-  perRequestCredential,
-  registerAuthRoute,
-  requestUserId,
-} from './auth-route'
+import { clientAuthGuard, registerAuthRoute } from './auth-route'
 import { bootStage } from './boot-timing'
 import { captureServerBuildVersion, serverBuildSourceDigest } from './build-version'
 import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
@@ -105,6 +95,10 @@ import { controlSocketHandler } from './control-socket'
 import { registerArtifactRoute } from './file-artifact-route'
 import { registerAssetRoute } from './file-asset-route'
 import { adoptStagedFirstAdminPassword, applyEnvFirstAdminPassword } from './first-admin-password'
+import { MemberHasNoAccount, memberCredentials } from './identity/member-credentials'
+import { createMemberOfRequest, refusalAnswer } from './identity/member-of-request'
+import type { WorkspaceIdentity } from '@podium/identity'
+import { type IdentitySeam, openServerIdentity } from './identity/server-identity'
 import {
   createDaemonAcceptor,
   prepareDaemonFrame,
@@ -118,16 +112,11 @@ import {
 } from './gateway/ws-server'
 import { podiumCors } from './http-cors'
 import { PairingManager } from './hub/pairing'
-import { type IdentitySeam, identitySeamDeps } from './identity/server-identity'
 import { IssueToolProvider } from './issue-mcp'
 import { registerLocateProofRoute } from './locate-proof-route'
 import { registerMcpRoute } from './mcp-route'
 import { MemberInvites } from './member-invites'
-import {
-  type MemberInviteMail,
-  type MemberRecoveryMail,
-  registerMemberRoutes,
-} from './member-routes'
+import { registerMemberRoutes } from './member-routes'
 import { MobilePairingManager } from './mobile-pairing'
 import { clientAddressForRequest, registerMobilePairingRoutes } from './mobile-pairing-route'
 import { connectClient } from './modules/connect/client'
@@ -177,7 +166,6 @@ import {
 } from './modules/updates/target-refresh'
 import { updateOperationContext, websiteDigestReader } from './modules/updates/trpc'
 import { originRefusalReporter } from './origin-refusal'
-import { createPluginAuth, enabledProviderPrincipal, type ProviderPrincipal } from './plugin-auth'
 import type { PodiumPlugin } from './plugins'
 import { privateResourceAccess } from './private-resources'
 import {
@@ -255,6 +243,11 @@ export interface ServerHandle {
   instanceId: string
   port: number
   registry: SessionRegistry
+  /**
+   * The identity this server signs people in with and resolves requests
+   * through: built on its own database, or handed in by a hosted root.
+   */
+  identity: WorkspaceIdentity
   /** True when this process exposes only durable server-move recovery APIs. */
   recoveryOnly: boolean
   /** Server-owned maintenance channel credential; never accepted for machine authentication. */
@@ -577,6 +570,9 @@ function tlsFromEnv(
   }
 }
 
+/** How often expired invitations and one-time codes are deleted. */
+const IDENTITY_SWEEP_INTERVAL_MS = 60 * 60 * 1000
+
 export async function startServer(
   opts: {
     port?: number
@@ -586,22 +582,19 @@ export async function startServer(
     plugins?: PodiumPlugin[]
     /** Stable hosted workspace identity carried by pairing commands. */
     workspaceId?: string
-    sendMemberInviteMail?: MemberInviteMail
-    /** Mails a member the password-reset link they asked for (POD-6298). Absent:
-     *  recovery is an admin-issued link or the host-local tool. */
-    sendMemberRecoveryMail?: MemberRecoveryMail
     /**
      * THE IDENTITY SEAM (docs/design/people-and-sign-in.md, section 3). Absent,
-     * which is every self-hosted server: nothing changes. Present: a hosted
-     * composition root hands the server the workspace half of an identity core
-     * it built on Postgres. A function, because what it needs from the server
-     * exists only after the store is open.
-     *
-     * INTERIM, until the rest of POD-6746 lands: the server calls the function
-     * and `catchUp()` before it serves, and requests are still resolved by the
-     * old path. `createMemberOfRequest` is the resolver they move to.
+     * which is every self-hosted server: the server builds the identity core on
+     * its own database. Present: a hosted composition root hands the server the
+     * workspace half of a core it built on Postgres. A function, because the
+     * member rows port exists only after the server has opened its store.
      */
     identity?: IdentitySeam
+    /**
+     * Tests only: the ids of the members this server mints when it built its
+     * own identity core, so a fixture's members have ids a test can name.
+     */
+    newMemberIdForTests?: () => string
     /** Keep `/` on the web shell while still serving Expo at `/mobile` (browser harness). */
     redirectPhoneRootToMobile?: boolean
     /**
@@ -632,9 +625,6 @@ export async function startServer(
 ): Promise<ServerHandle> {
   const rehearsal = process.env.PODIUM_REHEARSAL === '1'
   const config = loadConfig()
-  // Fail invalid deployment overrides before allocating server resources.
-  resolveAuthMode(config)
-  resolveAuthSignInUrl(config)
   // A promoted server's durable listen contract outranks the target daemon's
   // process environment; an explicit caller option still wins.
   const host = resolveBindHost({
@@ -720,35 +710,45 @@ export async function startServer(
     (row) => row.kind === 'server-move',
   )?.operation
   reconcileSafeServerTransferBoot(stateDir(), activeServerMove)
-  // Hosted: the memberships live elsewhere, so the member rows are brought up
-  // to date before anything is served (specification, section 11). A store
-  // that cannot be written (transfer recovery) applies nothing.
-  const hostedIdentity = opts.identity ? await opts.identity(identitySeamDeps(store)) : undefined
-  if (hostedIdentity && !recoveryOnly) await hostedIdentity.catchUp()
-  // IS LOGIN REQUIRED — composed ONCE and passed to every gate, so the guard, the login
-  // route, the status route and the exposure warning cannot answer it differently.
-  //
-  // A second active member ends open mode even when the operator turned login off
-  // (`authOpenMode`): that setting is one person's choice about their own machine,
-  // and with two people it would let any local request act as someone (POD-6285).
+  // THE IDENTITY OF THIS SERVER (POD-6746): one workspace-bound core, built on
+  // this store or handed in through the seam. Everything below that signs
+  // someone in or asks who a request is goes through it.
+  const identity = await openServerIdentity(store, {
+    seam: opts.identity,
+    readOnly: recoveryOnly,
+    newMemberId: opts.newMemberIdForTests,
+  })
+  const credentials = memberCredentials(store.users, identity.workspace.core.accounts)
+  // Expired invitations and one-time codes are deleted hourly (section 2.3).
+  // Not on a store that cannot be written, and not in a boot rehearsal.
+  let stopIdentitySweep = (): void => {}
+  if (!recoveryOnly && !rehearsal) {
+    const sweep = setInterval(() => {
+      void identity.workspace.core
+        .sweep()
+        .catch((err) => log.warn('identity sweep failed; the next hour retries', { err }))
+    }, IDENTITY_SWEEP_INTERVAL_MS)
+    sweep.unref?.()
+    stopIdentitySweep = () => clearInterval(sweep)
+  }
+  // IS SIGN-IN REQUIRED: one answer, the package's (section 5.5), read by the
+  // status route, pairing, the tRPC `auth.*` procedures and the exposure
+  // warning. It is not a gate: a request is admitted by `memberOfRequest` alone.
+  const credentialsRequired = (): Promise<boolean> => identity.workspace.signInRequired()
+  // WHY sign-in is mandatory, for Access to explain. Reporting only: the answer
+  // is the package's. A hosted workspace always requires it; a second active
+  // member ends open mode whatever `authOpenMode` says (POD-6285).
   const loginPolicy = async (): Promise<
     import('./modules/instance/service').InstanceLoginPolicy
   > => {
-    const loginRequiredReason =
-      resolveAuthMode() === 'cloud'
-        ? 'hosted'
-        : (await store.users.hasSeveralActiveMembers())
-          ? 'several-members'
-          : null
-    return {
-      loginRequiredReason,
-      loginRequired:
-        loginRequiredReason !== null ||
-        (!store.settings.resolve('authOpenMode').value &&
-          (await store.users.hasPerUserCredentials())),
-    }
+    const loginRequired = await credentialsRequired()
+    const loginRequiredReason = !identity.local
+      ? 'hosted'
+      : loginRequired && (await store.users.hasSeveralActiveMembers())
+        ? 'several-members'
+        : null
+    return { loginRequired, loginRequiredReason }
   }
-  const credentialsRequired = async (): Promise<boolean> => (await loginPolicy()).loginRequired
   const mobilePairing = new MobilePairingManager()
   // Readiness gate [spec:SP-c29e]: a bloated change log is fully pruned in
   // bounded, yielding units before SessionRegistry constructs its Ledger and
@@ -817,6 +817,7 @@ export async function startServer(
   const registry: SessionRegistry = await SessionRegistry.create(store, undefined, {
     serverPlacement,
     instanceId,
+    memberCredentials: credentials,
     devChannelFeed: () => devChannelFeed?.(),
     recoveryOnly,
     rehearseBoot: rehearsal,
@@ -888,6 +889,7 @@ export async function startServer(
       const receipt =
         (await completePreauthorizedSetup(
           store,
+          credentials,
           installation.installationId,
           setupRequest,
           passwordHash,
@@ -896,11 +898,9 @@ export async function startServer(
         (await adoptLegacyHostMachine(store, installation.installationId, setupRequest))
       if (receipt) {
         // Credential activation and enrollment committed together. Files and parent RPC happen afterwards.
-        if (
-          stagedHash &&
-          receipt.actor &&
-          (await store.users.credentialFor(receipt.actor))?.passwordHash === stagedHash
-        )
+        // The actor has a password now: the staged one, or an earlier one that wins.
+        // Either way the staged file has nothing left to give.
+        if (stagedHash && receipt.actor && (await credentials.hasPassword(receipt.actor)))
           deleteLegacyInstancePasswordFile()
         try {
           if (!rehearsal)
@@ -917,10 +917,10 @@ export async function startServer(
       }
     } else if (!setupRequest) {
       // Existing installations may still have a staged login password. This never creates a machine.
-      const adopted = await adoptStagedFirstAdminPassword({ users: store.users })
+      const adopted = await adoptStagedFirstAdminPassword({ users: store.users, credentials })
       if (adopted.outcome === 'adopted' && adopted.userId)
         await registry.modules.machines.grantHostMachineIfUnowned(adopted.userId)
-      const applied = await applyEnvFirstAdminPassword({ users: store.users })
+      const applied = await applyEnvFirstAdminPassword({ users: store.users, credentials })
       if (applied.applied && applied.userId)
         await registry.modules.machines.grantHostMachineIfUnowned(applied.userId)
     }
@@ -1619,107 +1619,34 @@ export async function startServer(
   // /trpc guard below. The /daemon link and /mcp keep their own credentials. Guards are
   // registered BEFORE their handlers so Hono runs them first.
   /**
-   * OPEN MODE IS A POLICY ON A MEMBER, NOT A SPECIAL USER [A2, spec §8].
+   * WHO A REQUEST IS: ONE FUNCTION FOR EVERY TRANSPORT (POD-6746).
    *
-   * It used to synthesise `FIRST_ADMIN_USER_ID` — a principal named by the
-   * build, which no row had to exist for — and later the earliest admin. Now it
-   * RESOLVES the instance's sole active member (POD-6285), so an
-   * unauthenticated request in open mode acts as that ordinary member row. An
-   * instance with no active member, or with two, serves nobody in open mode: a
-   * second member also makes login required (`credentialsRequired`).
+   * HTTP, tRPC, the file routes, sync, the socket upgrade and the auth routes
+   * all call `memberOfRequest`: device sign-in, account, active membership,
+   * member. A request without a sign-in is the sole active member only under
+   * the same-machine rule, which lives in the identity package (section 5.5)
+   * and ends when a second membership is active.
    *
-   * AND THE REQUEST MUST BE LOCAL, which is the one behavioural change. Open
-   * mode exists for loopback — the all-in-one desktop's embedded server, where
-   * there is no second human and a password would be theatre. Off-box it was an
-   * unauthenticated data plane that the boot log could only WARN about ("anyone
-   * who can reach this host can control your agents and shell"). A warning is
-   * what you write when you cannot refuse; the spec makes locality part of the
-   * policy, so now we can. A remote caller on a password-less instance gets the
-   * same answer as any other unauthenticated caller: no principal, and the login
-   * screen — which is the correct prompt, because setting a password is exactly
-   * what that instance has to do.
-   *
-   * `request` is optional because one caller — `/auth/status`, reporting whether
-   * this browser is signed in — is upstream of any transport that must be
-   * authorized. Absent, the open-mode arm does not fire: a resolver that cannot
-   * see where the request came from cannot claim it came from here.
+   * The request must be the one the HTTP app sees (`observedRequest`): its
+   * `x-podium-peer-address` is the peer the native server reported.
    */
-  const auth = createPluginAuth(store.users)
-  // Installed before the core routes; plugins supply the callback before listen.
-  // Never run this for socket heartbeats or platform auth routes (which own cookies).
-  for (const path of ['/trpc/*', '/auth/status']) {
-    app.use(path, async (c, next) => {
-      const headers =
-        c.req.method === 'OPTIONS' ? undefined : await auth.sessionResponseHeaders?.(c.req.raw)
-      await next()
-      for (const cookie of headers?.getSetCookie() ?? [])
-        c.header('set-cookie', cookie, { append: true })
-      if (headers?.has('set-cookie')) c.header('cache-control', 'no-store')
-    })
-  }
-  // The HTTP guard and tRPC context share one provider lookup per request.
-  const sourcePrincipals = new WeakMap<Request, Promise<ProviderPrincipal>>()
-  const sourcePrincipal = (request: Request) => {
-    let resolved = sourcePrincipals.get(request)
-    if (!resolved) {
-      resolved = Promise.resolve().then(async () =>
-        enabledProviderPrincipal(
-          await auth.principalSource?.({
-            cookieHeader: request.headers.get('cookie') ?? undefined,
-            authorizationHeader: request.headers.get('authorization') ?? undefined,
-            url: request.url,
-          }),
-          store.users,
-        ),
-      )
-      sourcePrincipals.set(request, resolved)
-    }
-    return resolved
-  }
-  // ...and one credential resolution per request (POD-6220): the guard resolves it, the
-  // principal behind it reads the same answer instead of the session row again.
-  const requestCredential = perRequestCredential(store.auth)
-  const credentialPrincipal = async (headers: ClientCredentialHeaders, request?: Request) => {
-    const supplied = request ? await sourcePrincipal(request) : undefined
-    if (supplied === false) return undefined
-    if (supplied) return userCommandPrincipal(asUserId(supplied.memberId), supplied.role)
-    const credentialed = request
-      ? (await requestCredential(request))?.session.userId
-      : await requestUserId(
-          store.auth,
-          headers.cookieHeader,
-          Date.now(),
-          headers.authorizationHeader,
-        )
-    if (credentialed === undefined) return undefined
-    const account = await store.users.get(asUserId(credentialed))
-    return account ? userCommandPrincipal(asUserId(credentialed), account.role) : undefined
-  }
-  const requestPrincipal = async (headers: ClientCredentialHeaders, request?: Request) => {
-    const credentialed = await credentialPrincipal(headers, request)
-    if (credentialed) return credentialed
-    // An invalid provider identity cannot fall through to open-mode authorization.
-    if (request && (await sourcePrincipal(request)) === false) return undefined
-    // OPEN MODE: a host-local request while login is not required acts as the
-    // instance's ONLY active member, with that member's own role. Never "the
-    // first admin": with no member, or more than one, there is nobody it could
-    // honestly be, and the request is anonymous (POD-6285, MU-01).
-    const openMode =
-      request !== undefined && isHostLocalRequest(request) && !(await credentialsRequired())
-    const sole = openMode ? await store.users.soleActiveMember() : undefined
-    return sole ? userCommandPrincipal(asUserId(sole.id), sole.role) : undefined
-  }
-  const guard = clientAuthGuard({
-    principalForRequest: sourcePrincipal,
-    store: store.auth,
-    credentialForRequest: requestCredential,
+  const memberOfRequest = createMemberOfRequest({
+    identity: identity.workspace,
     users: store.users,
-    loginRequired: credentialsRequired,
     trustedProxyHops,
-    // The same locality the principal resolver above applies, so the gate and
-    // the principal behind it cannot disagree about who open mode is open to.
-    isLocalRequest: isHostLocalRequest,
   })
+  /** The member a route outside the guard acts for, or nobody. */
+  const memberIdOfRequest = async (request: Request) => {
+    if (!controlPlaneAvailable(readiness())) return undefined
+    const resolution = await memberOfRequest(request)
+    return resolution.kind === 'member' ? resolution.memberId : undefined
+  }
+  /** The principal of a guarded request, or undefined for anybody the guard would refuse. */
+  const principalOfRequest = async (request: Request) => {
+    const resolution = await memberOfRequest(request)
+    return resolution.kind === 'member' ? resolution.principal : undefined
+  }
+  const guard = clientAuthGuard({ memberOfRequest, renew: identity.workspace.renew })
   const boundary = readinessBoundary({ readiness, isHostLocal: isHostLocalRequest })
   /**
    * Event-loop accounting, when the level installs it (it is started further
@@ -1750,56 +1677,30 @@ export async function startServer(
   let revokeConnectedMobileSession: (credentialId: string) => void = () => {}
   registerAuthRoute(app, {
     syncBoundaryId: () => opts.workspaceId ?? installation.installationId,
-    mode: () => resolveAuthMode(),
-    signInUrl: () => resolveAuthSignInUrl(),
-    // Read through the live object, not captured at registration: a plugin sets
-    // this while it registers, which is after this call. Same reason
-    // principalSource is consulted as auth.principalSource?.() at its call site.
-    admission: async (request) => await auth.admission?.(request),
-    store: store.auth,
-    users: store.users,
-    // One principal resolver for every human-client transport. The status route
-    // reports this result; it does not recreate the open/dev bootstrap fallback.
-    //
-    // GATED ON THE CONTROL PLANE, not the data plane (POD-2766). While
-    // `activation_pending` the operator CAN log in — that is the whole point of
-    // the split — so a session that exists has to be reported as authed, or the
-    // login screen loops forever against a server that just accepted the
-    // password. It buys nothing else: every data-plane call is still 503 at the
-    // readiness boundary, whoever is holding the cookie.
-    resolveUserId: async (headers, request) =>
-      controlPlaneAvailable(readiness())
-        ? (await requestPrincipal(headers, request))?.user
-        : undefined,
-    loginRequired: credentialsRequired,
+    identity: identity.workspace,
+    // One resolver for every human-client transport; the status route reports
+    // its result and holds no policy of its own.
+    memberOfRequest,
+    controlPlaneAvailable: () => controlPlaneAvailable(readiness()),
+    memberOfAccount: (accountId) => store.users.findMemberByAccount(accountId),
+    allowedOrigins,
     isLocalRequest: isHostLocalRequest,
+    // The server-transfer claim still rotates an old client session (POD-6748).
+    store: store.auth,
     trustedProxyHops,
     readiness,
-    onCredentialRevoked: (tokenHash) => revokeConnectedMobileSession(tokenHash),
+    // Signing a device out closes that device's open sockets at once.
+    onDeviceSignInEnded: (deviceSignInId) => revokeConnectedMobileSession(deviceSignInId),
     onLogin: (event) => registry.modules.bus.emit('auth.login', event),
   })
   const memberInvites = new MemberInvites(store.users)
-  const memberOfRequest = async (request: Request) =>
-    controlPlaneAvailable(readiness())
-      ? (
-          await requestPrincipal(
-            {
-              cookieHeader: request.headers.get('cookie') ?? undefined,
-              authorizationHeader: request.headers.get('authorization') ?? undefined,
-            },
-            request,
-          )
-        )?.user
-      : undefined
   registerMemberRoutes(app, {
     users: store.users,
     invites: memberInvites,
-    resolveUserId: memberOfRequest,
+    resolveUserId: memberIdOfRequest,
     appUrl: () =>
       resolveAppUrl(loadConfig(), process.env) || resolvePublicUrl(loadConfig(), process.env),
     allowedOrigins,
-    sendMail: opts.sendMemberInviteMail,
-    ...(opts.sendMemberRecoveryMail ? { sendRecoveryMail: opts.sendMemberRecoveryMail } : {}),
   })
   // The admin area's viewer, Access and Audit reads (POD-6299).
   registerAdminRoutes(app, {
@@ -1810,7 +1711,7 @@ export async function startServer(
       new Map(
         [...(await store.machines.getMachines(ids))].map(([id, machine]) => [id, machine.name]),
       ),
-    resolveUserId: memberOfRequest,
+    resolveUserId: memberIdOfRequest,
     loginRequired: credentialsRequired,
     // An admin ending one sign-in closes that device's open sockets at once (POD-6701).
     onCredentialRevoked: (tokenHash) => revokeConnectedMobileSession(tokenHash),
@@ -1828,9 +1729,14 @@ export async function startServer(
       installationPublicKey,
     }),
     loginRequired: credentialsRequired,
-    // Pairing and device management require a real credential. Open-mode's
-    // first-admin policy must never authorize session mutation.
-    resolveUserId: async (headers, request) => (await credentialPrincipal(headers, request))?.user,
+    // Pairing and device management require a real device sign-in. A caller
+    // admitted by the same-machine rule holds none and must never mint one.
+    resolveUserId: async (_headers, request) => {
+      const resolution = await memberOfRequest(request)
+      return resolution.kind === 'member' && resolution.deviceSignIn !== null
+        ? resolution.memberId
+        : undefined
+    },
     trustedProxyHops,
     localControlRequest: isHostLocalRequest,
     // `app.fetch` receives the observed Request carrying the native peer header,
@@ -1855,13 +1761,7 @@ export async function startServer(
             (await store.sessions.getSession(sessionId))?.ownerUserId,
           machines: registry.modules.machines,
         },
-        await requestPrincipal(
-          {
-            cookieHeader: request.headers.get('cookie') ?? undefined,
-            authorizationHeader: request.headers.get('authorization') ?? undefined,
-          },
-          request,
-        ),
+        await principalOfRequest(request),
       )
       return 'sessionId' in target
         ? await access.ownsSession(target.sessionId)
@@ -1905,16 +1805,7 @@ export async function startServer(
   registerSyncRoutes(app, {
     ...registry.syncDelta,
     worker: () => syncWorker,
-    principal: async (request) =>
-      syncFeedPrincipal(
-        await requestPrincipal(
-          {
-            cookieHeader: request.headers.get('cookie') ?? undefined,
-            authorizationHeader: request.headers.get('authorization') ?? undefined,
-          },
-          request,
-        ),
-      ),
+    principal: async (request) => syncFeedPrincipal(await principalOfRequest(request)),
   })
   app.use('/trpc/*', cors())
   app.use('/trpc/*', boundary)
@@ -1955,13 +1846,7 @@ export async function startServer(
           ? await store.users.earliestAdmin()
           : undefined
         const principal =
-          (await requestPrincipal(
-            {
-              cookieHeader: hono.req.header('cookie'),
-              authorizationHeader: hono.req.header('authorization'),
-            },
-            hono.req.raw,
-          )) ??
+          (await principalOfRequest(hono.req.raw)) ??
           (bootstrapAccount
             ? userCommandPrincipal(asUserId(bootstrapAccount.id), bootstrapAccount.role)
             : undefined)
@@ -2044,7 +1929,6 @@ export async function startServer(
       bus: registry.bus,
       config,
       role,
-      auth,
     })
   }
 
@@ -2141,49 +2025,24 @@ export async function startServer(
       registry,
       {
         readinessForClient: readiness,
-        maintainClientCredential: async (credentialId) =>
-          (await maintainClientCredentialByHash(store.auth, credentialId)) !== undefined,
         principalForClient: async (request) => {
-          if (
-            request.headers.has('authorization') &&
-            !isSecureRequest(
-              request.url,
-              request.headers.get('x-forwarded-proto') ?? undefined,
-              trustedProxyHops,
-            )
-          ) {
-            return undefined
-          }
-          const headers = {
-            cookieHeader: request.headers.get('cookie') ?? undefined,
-            authorizationHeader: request.headers.get('authorization') ?? undefined,
-          }
-          const supplied = await sourcePrincipal(request)
-          if (supplied === false) return undefined
-          if (supplied) {
-            const principal = { ...supplied }
-            const principalRequest = { ...headers, url: request.url }
-            return {
-              userId: asUserId(principal.memberId),
-              userRole: principal.role,
-              ...(auth.maintainPrincipal
-                ? {
-                    maintain: async () =>
-                      (await auth.maintainPrincipal?.(principalRequest, principal)) === true,
-                  }
-                : {}),
-            }
-          }
-          const observed = observedRequest(request)
-          const credential = await requestCredential(observed)
-          const principal = await requestPrincipal(headers, observed)
-          if (!principal) return undefined
-          const userRole = await store.users.roleOf(principal.user)
-          if (!userRole) return undefined
+          // The upgrade is judged as the HTTP app would see it: the peer address
+          // is the one the native server reported, never one the client sent.
+          const resolution = await memberOfRequest(observedRequest(request))
+          if (resolution.kind !== 'member') return { refused: refusalAnswer(resolution) }
+          const { memberId, role, deviceSignIn } = resolution
+          // What the socket holds, revalidated on every heartbeat (15 seconds):
+          // the device sign-in still exists and its membership is still active
+          // with this member and role, or, for a socket admitted by the
+          // same-machine rule, the rule still holds. One statement.
+          const held = deviceSignIn
+            ? { deviceSignInId: deviceSignIn.id, memberId, role }
+            : { sameMachine: true as const, memberId, role }
           return {
-            userId: principal.user,
-            userRole,
-            ...(credential ? { credentialId: credential.tokenHash } : {}),
+            userId: memberId,
+            userRole: role,
+            ...(deviceSignIn ? { credentialId: deviceSignIn.id } : {}),
+            maintain: () => identity.workspace.revalidate(held),
           }
         },
       },
@@ -2683,19 +2542,18 @@ export async function startServer(
                 loginPassword: {
                   isSet: async () => {
                     const admin = await store.users.earliestAdmin()
-                    if (!admin) return false
-                    const credential = await store.users.credentialFor(asUserId(admin.id))
-                    return credential?.source === 'per-user-scrypt' && !!credential.passwordHash
+                    return admin ? await credentials.hasPassword(asUserId(admin.id)) : false
                   },
                   set: async (password) => {
                     const admin = await store.users.earliestAdmin()
                     if (!admin) return { ok: false, error: 'this instance has no admin account' }
                     const userId = asUserId(admin.id)
-                    await store.users.setPasswordHash(
-                      userId,
-                      await hashPassword(password),
-                      new Date().toISOString(),
-                    )
+                    try {
+                      await credentials.setPassword(userId, password)
+                    } catch (error) {
+                      if (!(error instanceof MemberHasNoAccount)) throw error
+                      return { ok: false, error: error.message }
+                    }
                     await registry.modules.machines.grantHostMachineIfUnowned(userId)
                     return { ok: true }
                   },
@@ -2731,6 +2589,7 @@ export async function startServer(
         syncWorker: () => syncWorker,
         instanceId,
         registry,
+        identity: identity.workspace,
         recoveryOnly,
         maintenanceToken,
         localDaemonLink,
@@ -2758,6 +2617,8 @@ export async function startServer(
             server,
             persist: [
               ['messaging.stop', () => messaging.stop()],
+              // A sweep that outlives the server would delete against a closed store.
+              ['identity.stopSweep', stopIdentitySweep],
               ['serverMove.stopDeferredPromotionPoll', stopDeferredPromotionPoll],
               ['serverMove.stopDeferredSourceMovePoll', stopDeferredSourceMovePoll],
               // An armed refresh timer that outlives the server would resolve a

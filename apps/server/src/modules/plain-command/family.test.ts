@@ -12,11 +12,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Capability } from '@podium/model'
 import { asAccountId, asIssueId, asSessionId, asUserId } from '@podium/model'
-import { hashPassword } from '@podium/runtime/auth-store'
 import { TRPCError } from '@trpc/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { type CommandPrincipal, resolvePrincipal, systemPrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
+import { openTestStore } from '../../test-support/open-test-store'
+import { openTestIdentity } from '../../test-support/test-identity'
 import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
 import { OPERATOR } from '../../test-support/capabilities'
@@ -73,20 +74,22 @@ const AGENT_CAPABILITY: Capability = {
 }
 
 async function harness(opts: { capability: Capability; principal?: CommandPrincipal }) {
-  const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  const store = await openTestStore(':memory:')
+  // The member is invited and accepts, as every member is; the id is the one
+  // this file's capabilities name.
+  const identity = await openTestIdentity(store, { newMemberId: () => MEMBER })
+  await identity.addMember({
+    name: 'Member',
+    email: 'member@example.test',
+    password: 'member-password',
+  })
+  const registry = await SessionRegistry.create(store, undefined, {
+    instanceId: 'default',
+    memberCredentials: identity.credentials,
+  })
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const users = registry.sessionStore.users
-  await users.create(
-    {
-      id: MEMBER,
-      displayName: 'Member',
-      role: 'member',
-      createdAt: new Date().toISOString(),
-      disabledAt: null,
-    },
-    await hashPassword('member-password'),
-  )
   const caller = appRouter.createCaller({
     registry,
     repos,
@@ -97,7 +100,7 @@ async function harness(opts: { capability: Capability; principal?: CommandPrinci
     principal:
       opts.principal ?? resolvePrincipal(opts.capability, { parentSessionOf: () => undefined }),
   })
-  return { registry, caller, users }
+  return { registry, caller, users, credentials: identity.credentials }
 }
 
 type AnyProc = (input: unknown) => Promise<unknown>
@@ -162,10 +165,10 @@ describe('role floors on the plain path', () => {
   })
 
   it('a member may still change their own password (member floor, write action)', async () => {
-    const { caller, users } = await harness({ capability: MEMBER_CAPABILITY })
-    const before = (await users.credentialFor(MEMBER))?.passwordHash
+    const { caller, credentials } = await harness({ capability: MEMBER_CAPABILITY })
     await caller.auth.setPassword({ current: 'member-password', next: 'member-password-2' })
-    expect((await users.credentialFor(MEMBER))?.passwordHash).not.toBe(before)
+    expect(await credentials.verifyPassword(MEMBER, 'member-password-2')).toBe(true)
+    expect(await credentials.verifyPassword(MEMBER, 'member-password')).toBe(false)
   })
 
   it('a member asking for secret presence is told there is no secret surface', async () => {

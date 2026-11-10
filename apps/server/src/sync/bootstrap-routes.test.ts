@@ -5,6 +5,7 @@ import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
 import { CLIENT_WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { clientAuthGuard } from '../auth-route'
 import { podiumCors as cors } from '../http-cors'
+import { memberResolution, stubMemberOfRequest } from '../test-support/test-identity'
 import { SyncWorkerError, type BootstrapJob, type SyncMetaSummary } from '../sync-worker/worker-client'
 import type { BootstrapCompletion } from '../sync-worker/worker-client'
 import { registerSyncRoutes, type SyncRouteDeps } from './routes'
@@ -62,7 +63,10 @@ function fixture() {
   const app = new Hono()
   app.use('/sync/*', cors())
   app.use('/sync/*', async (c, next) => ready ? next() : c.body(null, 503))
-  app.use('/sync/*', clientAuthGuard({ loginRequired: () => true, principalForRequest: async () => authorized ? { memberId: 'test', role: 'admin' } : undefined }))
+  app.use('/sync/*', clientAuthGuard({
+    memberOfRequest: stubMemberOfRequest(() => authorized ? memberResolution('test', 'admin') : { kind: 'unauthenticated' }),
+    renew: async () => new Headers(),
+  }))
   registerSyncRoutes(app, deps)
   const request = (signal?: AbortSignal, coding = 'identity', client: string | null = 'replica-a') => app.fetch(new Request('https://localhost/sync/bootstrap?principal=attacker&feedId=forged&epoch=forged', {
     signal, headers: { 'accept-encoding': coding, ...(client ? { 'podium-sync-client': client } : {}) },
@@ -85,12 +89,6 @@ describe('bootstrap HTTP boundary', () => {
     const noPrincipal = fixture(); noPrincipal.deps.principal = async () => undefined
     expect((await noPrincipal.request()).status).toBe(403)
     expect(noPrincipal.bootstrap).not.toHaveBeenCalled()
-  })
-  it('keeps bearer credentials HTTPS-only', async () => {
-    const app = new Hono()
-    app.use('/sync/*', clientAuthGuard({ loginRequired: () => true }))
-    app.get('/sync/bootstrap', c => c.text('wrong'))
-    expect((await app.request('http://localhost/sync/bootstrap', { headers: { authorization: 'Bearer secret' } })).status).toBe(400)
   })
   it('waits for acknowledgement and maps queue refusal to clean 503', async () => {
     const f = fixture()

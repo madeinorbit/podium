@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createIdentityCore, type IssuedSignIn, type WorkspaceIdentity } from '@podium/identity'
 import { asUserId, newMemberId } from '@podium/model'
-import { hashPassword, verifyPasswordHash } from '@podium/runtime/auth-store'
+import { hashPassword, isPasswordHash, verifyPasswordHash } from '@podium/runtime/auth-store'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
@@ -68,6 +68,7 @@ describe('memberOfRequest', () => {
       passwordHashing: {
         hash: hashPassword,
         verify: ({ password, hash }) => verifyPasswordHash(password, hash),
+        isHash: isPasswordHash,
       },
       rateLimit: { storage: 'memory' },
       newMemberId,

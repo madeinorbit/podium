@@ -21,10 +21,10 @@
  */
 import type { ConnectionFacts, DeviceKind, WorkspaceIdentity } from '@podium/identity'
 import { asUserId, type UserId, type UserRole } from '@podium/model'
-import { isSecureRequest } from '../auth-route'
 import { type UserCommandPrincipal, userCommandPrincipal } from '../command-principal'
 import { clientAddressForRequest } from '../mobile-pairing-route'
 import { isHostLocalRequest } from '../readiness-boundary'
+import { isSecureRequest } from '../request-scheme'
 
 export type MemberResolution =
   | {

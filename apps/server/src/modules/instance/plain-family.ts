@@ -22,6 +22,7 @@ import { type InstanceAccountStore, InstanceService } from './service'
 const instanceService = (state: {
   telemetry?: { emitter: { buildUsageReport: () => unknown } } | undefined
   users?: InstanceAccountStore | undefined
+  credentials?: import('../../identity/member-credentials').MemberCredentials | undefined
   store?: { settings: import('../../store/settings').SettingsRepository }
   loginRequired?: (() => boolean | Promise<boolean>) | undefined
   loginPolicy?: (() => Promise<import('./service').InstanceLoginPolicy>) | undefined
@@ -53,6 +54,7 @@ const instanceService = (state: {
     onSettingsChanged: (previous, next) =>
       state.modules?.bus.emit('settings.changed', { previous, next }),
     users: state.users,
+    credentials: state.credentials,
     callerUserId: state.caller.userId,
     loginRequired: state.loginRequired,
     loginPolicy: state.loginPolicy,

@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Capability } from '@podium/model'
 import { asUserId, firstAdminMemberId } from '@podium/model'
-import { hashPassword, verifyPasswordHash } from '@podium/runtime/auth-store'
 import { loadConfig } from '@podium/runtime/config'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { resolvePrincipal } from './command-principal'
@@ -14,37 +13,38 @@ import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
 import { attachHostDaemon } from './test-support/host-daemon'
+import { openTestStore } from './test-support/open-test-store'
+import { openTestIdentity } from './test-support/test-identity'
 
 /**
- * ONE registry per test, so `users` is a REAL repository: `auth.*` writes credential rows
- * now, and a fake store would let the per-caller scoping pass without ever proving a row
- * moved. `loginRequired` is composed the way server.ts composes it.
+ * ONE registry per test on a REAL store with the identity a server builds on
+ * it: `auth.*` writes the password and address of the caller's ACCOUNT, and a
+ * fake would let the per-caller scoping pass without proving anything moved.
+ * `loginRequired` is the package's answer, as server.ts composes it.
  */
 async function harness(
   member = false,
   loginPolicy?: import('./modules/instance/service').InstanceLoginPolicy,
   hostLocalRequest = true,
 ) {
-  const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  const store = await openTestStore(':memory:')
+  const identity = await openTestIdentity(store)
+  const registry = await SessionRegistry.create(store, undefined, {
+    instanceId: 'default',
+    memberCredentials: identity.credentials,
+  })
   await attachHostDaemon(registry, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const users = registry.sessionStore.users
-  const loginRequired = async (): Promise<boolean> =>
-    !registry.sessionStore.settings.resolve('authOpenMode').value &&
-    (await users.hasPerUserCredentials())
-  const memberId = asUserId('user:profile-member')
-  if (member)
-    await users.create(
-      {
-        id: memberId,
-        displayName: 'Member',
-        role: 'member',
-        createdAt: new Date().toISOString(),
-        disabledAt: null,
-      },
-      await hashPassword('member-password'),
-    )
+  const loginRequired = (): Promise<boolean> => identity.workspace.signInRequired()
+  const memberId = member
+    ? await identity.addMember({
+        name: 'Member',
+        email: 'first@example.com',
+        password: 'member-password',
+      })
+    : asUserId('nobody')
   const capability: Capability = member
     ? {
         role: 'worker',
@@ -64,22 +64,19 @@ async function harness(
     capability,
     principal: resolvePrincipal(capability, { parentSessionOf: () => undefined }),
   }
+  /** Does this password sign the first admin in. */
+  const adminPassword = (password: string) =>
+    identity.credentials.verifyPassword(firstAdminMemberId(), password)
   return {
     caller: appRouter.createCaller(context),
     localCaller: appRouter.createCaller({ ...context, hostLocalRequest: true }),
     users,
     loginRequired,
+    identity,
+    memberId,
+    adminPassword,
   }
 }
-
-const hashOf = async (users: {
-  credentialFor(
-    id: string,
-  ):
-    | { passwordHash: string | null }
-    | undefined
-    | Promise<{ passwordHash: string | null } | undefined>
-}) => (await users.credentialFor(firstAdminMemberId()))?.passwordHash ?? ''
 
 const priorStateDir = process.env.PODIUM_STATE_DIR!
 
@@ -95,7 +92,7 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
   })
 
   it('status reports instance policy and the CALLER’s own credential', async () => {
-    const { caller, users } = await harness()
+    const { caller, identity } = await harness()
     expect(await caller.auth.status()).toEqual({
       loginRequired: false,
       hasOwnCredential: false,
@@ -104,11 +101,7 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
       loginPolicySource: 'default',
       loginRequiredReason: null,
     })
-    await users.setPasswordHash(
-      firstAdminMemberId(),
-      await hashPassword('hunter2'),
-      new Date().toISOString(),
-    )
+    await identity.credentials.setPassword(firstAdminMemberId(), 'hunter2')
     expect(await caller.auth.status()).toEqual({
       loginRequired: true,
       hasOwnCredential: true,
@@ -153,36 +146,33 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
   })
 
   it('lets a non-admin change their own email without changing the admin', async () => {
-    const { caller, users } = await harness(true)
+    const { caller, users, memberId, identity } = await harness(true)
+    await expect(caller.auth.setEmail({ email: 'member@example.com' })).rejects.toThrow(
+      'current password',
+    )
     await caller.auth.setEmail({ email: 'member@example.com', current: 'member-password' })
     expect(await caller.auth.profile()).toMatchObject({ email: 'member@example.com' })
     expect((await users.get(firstAdminMemberId()))?.email).toBeNull()
-    expect((await users.byEmail('member@example.com'))?.id).toBe('user:profile-member')
+    expect((await users.byEmail('member@example.com'))?.id).toBe(memberId)
+    // The address is the account's identifier: the member signs in with the new one.
+    await identity.signIn({ email: 'member@example.com', password: 'member-password' })
+    await expect(
+      identity.signIn({ email: 'first@example.com', password: 'member-password' }),
+    ).rejects.toThrow('invalid')
   })
 
   it('refuses a duplicate workspace email without changing either member', async () => {
-    const { caller, users } = await harness()
-    await users.create(
-      {
-        id: 'user:other',
-        displayName: 'Other',
-        email: 'other@example.com',
-        role: 'member',
-        createdAt: new Date().toISOString(),
-        disabledAt: null,
-      },
-      await hashPassword('other-password'),
-    )
+    const { caller, users, identity } = await harness()
+    const other = await identity.addMember({ name: 'Other', email: 'other@example.com' })
     await expect(caller.auth.setEmail({ email: 'OTHER@example.com' })).rejects.toMatchObject({
       code: 'CONFLICT',
     })
     expect(await caller.auth.profile()).toMatchObject({ email: null })
-    expect((await users.byEmail('other@example.com'))?.id).toBe('user:other')
+    expect((await users.byEmail('other@example.com'))?.id).toBe(other)
   })
 
   it('lets a member rename only themselves and retains their email, avatar and role', async () => {
-    const { caller, users } = await harness(true)
-    const id = asUserId('user:profile-member')
+    const { caller, users, memberId: id } = await harness(true)
     await users.writeProfile(id, 'Member', 'https://example.com/avatar.png')
     const admin = await users.get(firstAdminMemberId())
     await caller.auth.setDisplayName({ displayName: '  New name  ' })
@@ -194,7 +184,7 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
     expect(await users.get(id)).toMatchObject({
       displayName: 'New name',
       avatar: 'https://example.com/avatar.png',
-      email: null,
+      email: 'first@example.com',
       role: 'member',
     })
     expect(await users.get(firstAdminMemberId())).toEqual(admin)
@@ -207,18 +197,20 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
   })
 
   it('sets the caller’s own credential without requiring a current password', async () => {
-    const { caller, users } = await harness()
+    const { caller, adminPassword } = await harness()
     await caller.auth.setPassword({ next: 'first-pw' })
-    expect(await verifyPasswordHash('first-pw', await hashOf(users))).toBe(true)
+    expect(await adminPassword('first-pw')).toBe(true)
   })
 
   it('changing a password requires the correct current one', async () => {
-    const { caller, users } = await harness()
+    const { caller, adminPassword } = await harness()
     await caller.auth.setPassword({ next: 'old-pw' })
     await expect(caller.auth.setPassword({ current: 'wrong', next: 'new-pw' })).rejects.toThrow()
-    expect(await verifyPasswordHash('old-pw', await hashOf(users))).toBe(true)
+    await expect(caller.auth.setPassword({ next: 'new-pw' })).rejects.toThrow()
+    expect(await adminPassword('old-pw')).toBe(true)
     await caller.auth.setPassword({ current: 'old-pw', next: 'new-pw' })
-    expect(await verifyPasswordHash('new-pw', await hashOf(users))).toBe(true)
+    expect(await adminPassword('new-pw')).toBe(true)
+    expect(await adminPassword('old-pw')).toBe(false)
   })
 
   it('rejects an empty new password', async () => {
@@ -265,9 +257,8 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
   })
 
   it('turns login off for the instance WITHOUT destroying the credential', async () => {
-    const { caller, users, loginRequired } = await harness()
+    const { caller, adminPassword, loginRequired } = await harness()
     await caller.auth.setPassword({ next: 'hunter2' })
-    const hashBefore = await hashOf(users)
 
     await expect(
       caller.auth.setLoginRequired({
@@ -287,12 +278,11 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
     expect(loadConfig().auth?.openMode).toBeUndefined()
     // THE PROPERTY THE CONFIG FLAG BUYS: nobody's password was deleted, so turning login
     // back on does not make everyone re-enrol.
-    expect(await hashOf(users)).toBe(hashBefore)
-    expect(await users.hasPerUserCredentials()).toBe(true)
+    expect(await adminPassword('hunter2')).toBe(true)
   })
 
   it('turns login back on with the same password still working', async () => {
-    const { caller, users, loginRequired } = await harness()
+    const { caller, adminPassword, loginRequired } = await harness()
     await caller.auth.setPassword({ next: 'hunter2' })
     await caller.auth.setLoginRequired({
       required: false,
@@ -301,6 +291,6 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
     })
     await caller.auth.setLoginRequired({ required: true, current: 'hunter2' })
     expect(await loginRequired()).toBe(true)
-    expect(await verifyPasswordHash('hunter2', await hashOf(users))).toBe(true)
+    expect(await adminPassword('hunter2')).toBe(true)
   })
 })
