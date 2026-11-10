@@ -199,6 +199,32 @@ describe('Access', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it('waits for machine mode before reading or showing host controls', () => {
+    const fetchMock = serve()
+    vi.mocked(fixture.trpc.setup.info.query).mockReturnValue(new Promise(() => {}))
+    render(<AccessSection />)
+    expect(screen.getByText('Loading access settings…')).toBeTruthy()
+    expect(screen.queryByRole('switch')).toBeNull()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps the address visible when the sign-in read fails and offers retry', async () => {
+    serve()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: 'Administrator required' }), {
+          status: 403,
+          headers: { 'content-type': 'application/json' },
+        }),
+      ),
+    )
+    render(<AccessSection />)
+    expect((await screen.findByRole('alert')).textContent).toContain('Administrator required')
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy()
+    expect(screen.getByText('https://podium.example')).toBeTruthy()
+  })
+
   it.each([
     'loading',
     'error',
