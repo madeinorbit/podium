@@ -1,189 +1,105 @@
 import '@/test-support/mock-core-store-handle'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { ReferenceState } from '../../../../../../tests/worklist/diagnostics/reference-state'
+import type { Trpc } from '@/app/trpc'
+import { type NetworkInfo, NetworkSettingsView } from '../network-view'
+import { resetForcedSettingCache } from '../use-forced-setting'
+import { AdvancedNetworkRows, NetworkSection } from './network'
 
-type Store = ReferenceState<import('@/app/trpc').Trpc>
-
-const storeState = {
-  trpc: {} as import('@/app/trpc').Trpc,
-}
-
-vi.mock('@/app/store', () => ({
-  readFixture: (selector: (state: typeof storeState) => unknown) => selector(storeState),
+const fixture = vi.hoisted(() => ({
+  trpc: {} as Trpc,
+  openTakeover: vi.fn(),
+  closeTakeover: vi.fn(),
 }))
-
-import { NetworkSection } from './network'
+vi.mock('../stable-access', () => ({ useSettingsTrpc: () => fixture.trpc }))
+vi.mock('../settings-frame', () => ({ useSettingsFrame: () => fixture }))
 
 afterEach(() => {
   cleanup()
+  resetForcedSettingCache()
   vi.clearAllMocks()
 })
 
-describe('NetworkSection', () => {
-  it('does not show host controls while the machine mode is loading', () => {
-    storeState.trpc = {
-      setup: { info: { query: vi.fn(() => new Promise(() => {})) } },
-    } as unknown as import('@/app/trpc').Trpc
-
-    render(<NetworkSection />)
-
-    expect(screen.getByText('Loading network settings…')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Save network settings' })).toBeNull()
-  })
-
-  it('shows a retryable error instead of host controls when mode cannot be loaded', async () => {
-    storeState.trpc = {
-      setup: { info: { query: vi.fn().mockRejectedValue(new Error('offline')) } },
-    } as unknown as import('@/app/trpc').Trpc
-
-    render(<NetworkSection />)
-
-    expect(await screen.findByText('Couldn’t load network settings.')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Save network settings' })).toBeNull()
-  })
-
-  it('shows connection details without host controls on a worker', async () => {
-    storeState.trpc = {
-      setup: {
-        info: {
-          query: vi.fn().mockResolvedValue({
-            mode: 'daemon',
-            publicUrl: null,
-            serverUrl: 'wss://relay.example',
-          }),
-        },
+async function network(overrides: Record<string, unknown> = {}) {
+  const info = {
+    mode: 'server',
+    publicUrl: 'https://podium.example',
+    publicUrlSource: 'file',
+    networkOption: 'tailscale-serve',
+    appUrl: null,
+    allowedOrigins: [],
+    stableLink: null,
+    ...overrides,
+  } as NetworkInfo
+  fixture.trpc = {
+    setup: {
+      info: { query: vi.fn().mockResolvedValue(info) },
+      provenance: {
+        query: vi.fn().mockResolvedValue({
+          publicUrl: { source: info.publicUrlSource, env: 'PODIUM_PUBLIC_URL' },
+        }),
       },
-    } as unknown as import('@/app/trpc').Trpc
+    },
+    connect: {
+      check: {
+        query: vi.fn().mockResolvedValue({ ok: true, url: info.publicUrl, resolvedTo: [] }),
+      },
+    },
+  } as unknown as Trpc
+  const view = new NetworkSettingsView(fixture.trpc)
+  await view.refresh()
+  return view
+}
 
-    render(<NetworkSection />)
-
-    expect(await screen.findByText('wss://relay.example')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Save network settings' })).toBeNull()
+describe('Access address', () => {
+  it('keeps a normal setup-saved address editable and opens a takeover with the rejoin warning', async () => {
+    render(<NetworkSection view={await network()} />)
+    expect(screen.getByText('https://podium.example')).toBeTruthy()
+    expect(screen.getByText(/Tailscale Serve/)).toBeTruthy()
+    expect(screen.queryByRole('radio')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Change' }))
+    const flow = fixture.openTakeover.mock.calls[0]?.[0]
+    expect(flow.title).toBe('Change address')
+    render(flow.description)
+    expect(screen.getByText(/Paired machines and phones must rejoin/)).toBeTruthy()
   })
 
-  it('shows the saved network settings without a separate disclosure step', async () => {
-    storeState.trpc = {
-      setup: {
-        info: {
-          query: vi.fn().mockResolvedValue({
-            mode: 'all-in-one',
-            publicUrl: 'https://box.tail.ts.net',
-            networkOption: 'tailscale-serve',
-            serverUrl: null,
-          }),
-        },
-        options: {
-          query: vi.fn().mockResolvedValue([
-            {
-              id: 'tailscale-serve',
-              label: 'Tailscale Serve (private)',
-              note: 'Reachable only from devices on your tailnet.',
-            },
-          ]),
-        },
-        commandFor: {
-          query: vi.fn().mockResolvedValue({
-            command: 'tailscale serve 18787',
-            hint: 'Then paste the URL it prints.',
-          }),
-        },
-        complete: { mutate: vi.fn().mockResolvedValue({ mode: 'all-in-one' }) },
-      },
-      auth: {
-        status: { query: vi.fn().mockResolvedValue({ hasOwnCredential: true }) },
-      },
-    } as unknown as import('@/app/trpc').Trpc
-
-    render(<NetworkSection />)
-
-    const selected = (await screen.findByRole('radio', {
-      name: /tailscale serve/i,
-    })) as HTMLInputElement
-    expect(selected.checked).toBe(true)
-    expect(screen.getByLabelText('Podium URL')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Save network settings' })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: /change|set up/i })).toBeNull()
+  it('shows the deployment source instead of Change for an environment-owned address', async () => {
+    render(<NetworkSection view={await network({ publicUrlSource: 'env' })} />)
+    expect(await screen.findByText(/PODIUM_PUBLIC_URL is set/)).toBeTruthy()
+    expect(screen.getByText('https://podium.example')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Change' })).toBeNull()
   })
 
-  it('offers the stable Connect link to bookmark, only when the server has one (POD-5921)', async () => {
-    const info = {
-      mode: 'server',
-      publicUrl: 'https://box.tail.ts.net',
-      networkOption: 'tailscale-serve',
-      serverUrl: null,
-      stableLink: `https://connect.podium.do/to/pdm_${'a'.repeat(43)}`,
-    }
-    const trpc = (answer: object) =>
-      ({
-        setup: {
-          info: { query: vi.fn().mockResolvedValue(answer) },
-          options: {
-            query: vi.fn().mockResolvedValue([
-              {
-                id: 'tailscale-serve',
-                label: 'Tailscale Serve (private)',
-                note: 'Reachable only from devices on your tailnet.',
-              },
-            ]),
-          },
-          commandFor: {
-            query: vi.fn().mockResolvedValue({
-              command: 'tailscale serve 18787',
-              hint: 'Then paste the URL it prints.',
-            }),
-          },
-          complete: { mutate: vi.fn() },
-        },
-        auth: { status: { query: vi.fn().mockResolvedValue({ hasOwnCredential: true }) } },
-      }) as unknown as import('@/app/trpc').Trpc
-    storeState.trpc = trpc(info)
-    render(<NetworkSection />)
-    const link = (await screen.findByText(info.stableLink)) as HTMLAnchorElement
-    expect(link.getAttribute('href')).toBe(info.stableLink)
-    expect(screen.getByText('Stable link (bookmark this)')).toBeTruthy()
-    cleanup()
-
-    storeState.trpc = trpc({ ...info, stableLink: null })
-    render(<NetworkSection />)
-    await screen.findByLabelText('Podium URL')
-    expect(screen.queryByText('Stable link (bookmark this)')).toBeNull()
+  it.each(['daemon', 'client'])('shows only the connected server on a %s machine', async (mode) => {
+    render(<NetworkSection view={await network({ mode, serverUrl: 'https://upstream.example' })} />)
+    expect(screen.getByText('https://upstream.example')).toBeTruthy()
+    expect(screen.queryByRole('button')).toBeNull()
+    expect(screen.queryByText('Reachable from outside')).toBeNull()
   })
-  it.each([
-    ['working', 'Working'],
-    ['restarting', 'Restarting'],
-    ['unhealthy', 'Not answering since'],
-  ])('shows the managed tunnel state: %s', async (state, text) => {
-    storeState.trpc = {
-      setup: {
-        info: {
-          query: vi.fn().mockResolvedValue({
-            mode: 'server',
-            networkOption: 'cloudflare-tunnel',
-            publicUrl: 'https://one.trycloudflare.com',
-            tunnelHealth: {
-              state,
-              url: 'https://one.trycloudflare.com',
-              lastOkAt: 1,
-              failedSince: 1,
-              reportedAt: 1,
-              lastError: null,
-            },
-          }),
-        },
-        provenance: {
-          query: vi
-            .fn()
-            .mockResolvedValue({ publicUrl: { source: 'env', envKey: 'PODIUM_PUBLIC_URL' } }),
-        },
-        options: { query: vi.fn().mockResolvedValue([]) },
-        commandFor: { query: vi.fn().mockResolvedValue({ command: '', hint: '' }) },
-      },
-      auth: { status: { query: vi.fn().mockResolvedValue({ hasOwnCredential: true }) } },
-    } as unknown as import('@/app/trpc').Trpc
-    render(<NetworkSection />)
-    expect(await screen.findByText((content) => content.startsWith(text))).toBeTruthy()
-    expect(screen.getByText('Tunnel')).toBeTruthy()
+
+  it('reports the outside verdict and its check time', async () => {
+    render(<NetworkSection view={await network()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Check now' }))
+    expect(await screen.findByText(/Reachable · Checked/)).toBeTruthy()
+    expect(fixture.trpc.connect.check.query).toHaveBeenCalledWith({ url: 'https://podium.example' })
+  })
+
+  it('does not describe an unavailable probe as reachable', async () => {
+    const view = await network()
+    vi.mocked(fixture.trpc.connect.check.query).mockRejectedValue(new Error('offline'))
+    render(<NetworkSection view={view} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Check now' }))
+    expect(await screen.findByText(/Check unavailable · Attempted/)).toBeTruthy()
+  })
+
+  it('shows Advanced defaults and the stable link only when Connect supplies one', async () => {
+    const view = await network({ stableLink: 'https://connect.example/to/instance' })
+    render(<AdvancedNetworkRows view={view} />)
+    expect(screen.getByText('Same as Podium address')).toBeTruthy()
+    expect(screen.getByText('None')).toBeTruthy()
+    expect(screen.getByRole('link').getAttribute('href')).toBe(
+      'https://connect.example/to/instance',
+    )
   })
 })

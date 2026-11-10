@@ -1,12 +1,20 @@
 import { RequestAnswer } from '@podium/client-graph/request-answer'
+import { Laptop, Link2, Shield, Smartphone } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
-import { type JSX, useCallback, useEffect, useMemo, useState } from 'react'
+import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { serverConfig } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { authRequest } from '@/features/setup/member-api'
-import { Row, Section, Subsection } from './shared'
+import { AdminViewerError } from '../AdminViewerError'
+import { useAdminSections } from '../admin-viewer'
+import { NetworkSettingsView } from '../network-view'
+import { SettingsPageSection } from '../settings-anchors'
+import { useSettingsTrpc } from '../stable-access'
+import { InstanceLoginSection } from './instance-login'
+import { AdvancedNetworkRows, NetworkSection } from './network'
+import { Row, Section } from './shared'
 
-/** `/auth/admin/access` as the server answers it (POD-6299). No token or hash. */
+/** `/auth/admin/access`: a bounded request answer, never a second member profile. */
 export interface AccessAnswer {
   admission: {
     mode: 'invitation'
@@ -16,10 +24,8 @@ export interface AccessAnswer {
     activeMembers: number
     disabledMembers: number
   }
-  /** How many unexpired sign-ins exist in all; the list carries at most 200. */
   signInsTotal?: number
   signIns: {
-    /** The public id `POST /auth/admin/sign-ins/revoke` takes; null on a row an older binary wrote. */
     id?: string | null
     memberId: string
     memberName: string
@@ -32,157 +38,279 @@ export interface AccessAnswer {
   }[]
 }
 
+type SignIn = AccessAnswer['signIns'][number]
 const KIND_LABEL: Record<string, string> = {
   login: 'Browser or desktop',
   mobile: 'Phone',
   upstream: 'Upstream link',
   'break-glass': 'Host recovery',
 }
+const day = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : 'Not seen yet')
+export const isAdvancedSignIn = (signIn: Pick<SignIn, 'kind'>) =>
+  signIn.kind === 'upstream' || signIn.kind === 'break-glass'
+export function filterSignIns(
+  signIns: SignIn[],
+  filter: 'everyone' | 'phones' | 'advanced',
+): SignIn[] {
+  return signIns.filter((signIn) =>
+    filter === 'advanced'
+      ? isAdvancedSignIn(signIn)
+      : !isAdvancedSignIn(signIn) && (filter === 'everyone' || signIn.kind === 'mobile'),
+  )
+}
 
-const day = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—')
+/** Admin-only, including direct renders outside the settings rail. */
+export function AccessSection(): JSX.Element | null {
+  const viewer = useAdminSections()
+  if (viewer.status === 'error') return <AdminViewerError viewer={viewer} />
+  if (viewer.status === 'loading')
+    return (
+      <p className="settings-prose" role="status">
+        Checking administrator access…
+      </p>
+    )
+  if (!viewer.sections.includes('access')) return null
+  return <AccessPage />
+}
 
-/**
- * ACCESS (POD-6299; design §2.1, §2.6): how people get in, and who is signed
- * in where. Admission is by invitation only. Each sign-in is a member and a
- * device; People ends a member's sign-ins.
- */
-export const AccessSection = observer(function AccessSection(): JSX.Element {
+const AccessPage = observer(function AccessPage() {
+  const trpc = useSettingsTrpc()
+  const network = useMemo(() => new NetworkSettingsView(trpc), [trpc])
+  useEffect(() => {
+    network.open()
+    return () => network.close()
+  }, [network])
+  if (!network.answer)
+    return (
+      <Section title="Address">
+        {network.error ? (
+          <>
+            <p className="settings-prose text-destructive" role="alert">
+              Couldn’t load the workspace address.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void network.refresh(true)}
+            >
+              Try again
+            </Button>
+          </>
+        ) : (
+          <p role="status" className="settings-prose">
+            Loading access settings…
+          </p>
+        )}
+      </Section>
+    )
+  if (network.answer.mode === 'daemon' || network.answer.mode === 'client')
+    return <NetworkSection view={network} />
+  return <HostAccess network={network} />
+})
+
+const HostAccess = observer(function HostAccess({ network }: { network: NetworkSettingsView }) {
+  const trpc = useSettingsTrpc()
   const answer = useMemo(() => new RequestAnswer<AccessAnswer>(), [])
   const origin = serverConfig(window.location).httpOrigin
   const reload = useCallback(
-    () => void answer.load(async () => await authRequest<AccessAnswer>(origin, 'admin/access')),
+    () => answer.load(() => authRequest<AccessAnswer>(origin, 'admin/access')),
     [answer, origin],
   )
   useEffect(() => {
-    reload()
+    void reload()
     return () => answer.close()
   }, [answer, reload])
+  const [filter, setFilter] = useState<'everyone' | 'phones'>('everyone')
   const [revoking, setRevoking] = useState<string | null>(null)
-  const [revokeError, setRevokeError] = useState<string | null>(null)
-  // Ends that one sign-in (POD-6701): the device is signed out at once.
-  const revoke = useCallback(
-    async (id: string) => {
-      setRevoking(id)
-      setRevokeError(null)
-      try {
-        await authRequest(origin, 'admin/sign-ins/revoke', { id })
-        reload()
-      } catch (error) {
-        setRevokeError(error instanceof Error ? error.message : 'Couldn’t sign out this device.')
-      } finally {
-        setRevoking(null)
-      }
-    },
-    [origin, reload],
-  )
+  const [revokeError, setRevokeError] = useState<{ id: string; message: string } | null>(null)
+  const revokingRef = useRef(false)
+  const revoke = async (id: string) => {
+    if (revokingRef.current) return
+    revokingRef.current = true
+    setRevoking(id)
+    setRevokeError(null)
+    try {
+      await authRequest(origin, 'admin/sign-ins/revoke', { id })
+      await reload()
+    } catch (cause) {
+      setRevokeError({
+        id,
+        message: cause instanceof Error ? cause.message : 'Couldn’t sign out this device.',
+      })
+    } finally {
+      revokingRef.current = false
+      setRevoking(null)
+    }
+  }
   const data = answer.answer
   const total = data?.signInsTotal ?? data?.signIns.length ?? 0
+  const visible = filterSignIns(data?.signIns ?? [], filter)
+  const advanced = filterSignIns(data?.signIns ?? [], 'advanced')
+  const signInRow = (signIn: SignIn) => (
+    <SignInRow
+      key={signIn.id ?? `${signIn.memberId}-${signIn.kind}-${signIn.createdAt}-${signIn.expiresAt}`}
+      signIn={signIn}
+      revoking={revoking}
+      error={revokeError?.id === signIn.id ? revokeError.message : undefined}
+      onRevoke={revoke}
+    />
+  )
   return (
-    <Section title="Access" hint="How people join this instance, and where each one is signed in.">
-      {answer.error && <p role="alert">{answer.error}</p>}
-      {data && (
-        <>
-          <Row
-            label="Admission"
-            description="People join only with an invitation an admin creates under People. Each link works once and expires."
-          >
-            <span>Invitation only</span>
-          </Row>
-          <Row
-            label="Sign-in"
-            description={
-              data.admission.signInRequired
-                ? 'Everyone signs in with their own account.'
-                : 'This host opens without signing in until someone sets a password.'
-            }
-          >
-            <span>{data.admission.signInRequired ? 'Required' : 'Not yet required'}</span>
-          </Row>
-          <Row
-            label="Invitations"
-            description="Open invitations, and expired ones not yet revoked."
-          >
-            <span>
-              {data.admission.openInvites} open · {data.admission.expiredInvites} expired
-            </span>
-          </Row>
-          <Row label="Members" description="Disabled members cannot sign in.">
-            <span>
-              {data.admission.activeMembers} active · {data.admission.disabledMembers} disabled
-            </span>
-          </Row>
-          <Subsection
-            title="Sign-ins"
-            hint="Every sign-in that has not expired. Sign out ends that one device; to end all of a member’s sign-ins, use Sign out everywhere under People."
-          >
-            {revokeError && (
+    <>
+      <SettingsPageSection id="network">
+        <NetworkSection view={network} />
+      </SettingsPageSection>
+      <SettingsPageSection id="instance-login">
+        <InstanceLoginSection trpc={trpc} onChanged={() => void reload()} />
+      </SettingsPageSection>
+      <SettingsPageSection id="access">
+        <Section
+          title="Signed in now"
+          hint="Every sign-in that has not expired. Ending one signs that device out at once."
+        >
+          <div className="mb-3 flex justify-end">
+            <fieldset
+              aria-label="Filter sign-ins"
+              className="inline-flex rounded-lg border border-hairline-soft bg-muted/40 p-0.5"
+            >
+              {(['everyone', 'phones'] as const).map((value) => (
+                <Button
+                  key={value}
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  aria-pressed={filter === value}
+                  className={
+                    filter === value ? 'bg-secondary text-foreground' : 'text-muted-foreground'
+                  }
+                  onClick={() => setFilter(value)}
+                >
+                  {value === 'everyone' ? 'Everyone' : 'Phones'}
+                </Button>
+              ))}
+            </fieldset>
+          </div>
+          {answer.error && (
+            <div className="mb-3">
               <p role="alert" className="settings-prose text-destructive">
-                {revokeError}
+                Couldn’t refresh sign-ins. {answer.error}
               </p>
-            )}
-            {data.signIns.length > 0 && total > data.signIns.length && (
-              <p className="settings-prose">
-                Showing {data.signIns.length} of {total} sign-ins, latest expiry first.
+              <Button type="button" variant="outline" size="sm" onClick={() => void reload()}>
+                Try again
+              </Button>
+            </div>
+          )}
+          {!data ? (
+            !answer.error && (
+              <p role="status" className="settings-prose">
+                Loading sign-ins…
               </p>
-            )}
-            {data.signIns.length === 0 ? (
-              <p className="settings-prose">Nobody is signed in.</p>
-            ) : (
-              <table className="w-full text-[13px]">
-                <thead className="text-left text-muted-foreground">
-                  <tr>
-                    <th className="py-1 font-normal">Member</th>
-                    <th className="py-1 font-normal">Device</th>
-                    <th className="py-1 font-normal">Signed in</th>
-                    <th className="py-1 font-normal">Last seen</th>
-                    <th className="py-1 font-normal">Expires</th>
-                    <th className="py-1 font-normal">
-                      <span className="sr-only">Action</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.signIns.map((signIn) => (
-                    <tr
-                      key={
-                        signIn.id ??
-                        `${signIn.memberId}-${signIn.kind}-${signIn.createdAt}-${signIn.expiresAt}`
-                      }
-                      className="border-hairline-soft/50 border-t"
-                    >
-                      <td className="py-1.5">{signIn.memberName}</td>
-                      <td className="py-1.5">
-                        {signIn.deviceName ?? KIND_LABEL[signIn.kind] ?? signIn.kind}
-                      </td>
-                      <td className="py-1.5">{day(signIn.createdAt)}</td>
-                      <td className="py-1.5">{day(signIn.lastSeenAt)}</td>
-                      <td className="py-1.5">{day(signIn.expiresAt)}</td>
-                      <td className="py-1.5 text-right">
-                        {signIn.id && (
-                          <Button
-                            type="button"
-                            size="xs"
-                            variant="outline"
-                            aria-label={`Sign out ${signIn.memberName}’s ${
-                              signIn.deviceName ?? KIND_LABEL[signIn.kind] ?? signIn.kind
-                            }`}
-                            disabled={revoking !== null}
-                            pending={revoking === signIn.id}
-                            pendingLabel="Signing out…"
-                            onClick={() => void revoke(signIn.id!)}
-                          >
-                            Sign out
-                          </Button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </Subsection>
-        </>
-      )}
-    </Section>
+            )
+          ) : (
+            <>
+              {visible.length ? (
+                visible.map(signInRow)
+              ) : (
+                <p className="settings-prose">
+                  {filter === 'phones'
+                    ? 'No phones are signed in in this list.'
+                    : 'No browsers, desktops or phones are signed in in this list.'}
+                </p>
+              )}
+              <p className="settings-prose mt-3">
+                Showing {data.signIns.length} of {total} sign-ins
+                {total > data.signIns.length ? ', latest expiry first' : ''}.
+                {filter === 'phones' && ` ${visible.length} phones in this list.`} Upstream links
+                and host recovery sign-ins are listed under Advanced.
+              </p>
+            </>
+          )}
+        </Section>
+      </SettingsPageSection>
+      <SettingsPageSection id="access-advanced">
+        <Section title="Advanced" hint="Set by this deployment’s configuration.">
+          <AdvancedNetworkRows view={network} />
+          <Row
+            label="Server-to-server links"
+            readOnly
+            readOnlyValue={
+              data
+                ? `${advanced.filter((signIn) => signIn.kind === 'upstream').length} upstream links`
+                : 'Loading…'
+            }
+          />
+          {advanced.map(signInRow)}
+        </Section>
+      </SettingsPageSection>
+    </>
   )
 })
+
+function SignInRow({
+  signIn,
+  revoking,
+  error,
+  onRevoke,
+}: {
+  signIn: SignIn
+  revoking: string | null
+  error?: string
+  onRevoke: (id: string) => Promise<void>
+}) {
+  const Icon =
+    signIn.kind === 'mobile'
+      ? Smartphone
+      : signIn.kind === 'upstream'
+        ? Link2
+        : signIn.kind === 'break-glass'
+          ? Shield
+          : Laptop
+  const device = signIn.deviceName ?? KIND_LABEL[signIn.kind] ?? signIn.kind
+  return (
+    <div className="flex items-start gap-3 py-3">
+      <Icon size={18} aria-hidden="true" className="mt-1 shrink-0 text-muted-foreground" />
+      <div className="min-w-0 flex-1">
+        <div className="settings-label flex flex-wrap items-baseline gap-x-2">
+          <span>{signIn.memberName}</span>
+          <span className="settings-prose">
+            {device}
+            {signIn.platform ? ` · ${signIn.platform}` : ''}
+          </span>
+        </div>
+        <p className="settings-prose mt-1">
+          Signed in {day(signIn.createdAt)} · Last seen {day(signIn.lastSeenAt)}
+        </p>
+        <p className="settings-micro mt-1 text-muted-foreground">Expires {day(signIn.expiresAt)}</p>
+        {error && (
+          <p className="settings-prose mt-1 text-destructive" role="alert">
+            {error}
+          </p>
+        )}
+      </div>
+      {signIn.id ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          aria-label={`Sign out ${signIn.memberName}’s ${device}`}
+          disabled={revoking !== null}
+          pending={revoking === signIn.id}
+          pendingLabel="Signing out…"
+          onClick={() => {
+            if (signIn.id) void onRevoke(signIn.id)
+          }}
+        >
+          Sign out
+        </Button>
+      ) : (
+        <span
+          className="settings-micro text-muted-foreground"
+          title="This older sign-in has no public ID. Use Sign out everywhere in Members."
+        >
+          Use Members
+        </span>
+      )}
+    </div>
+  )
+}

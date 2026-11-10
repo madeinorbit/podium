@@ -31,10 +31,8 @@ import { settingsChange } from './save-settings'
 import { AgentsSection } from './sections/agents'
 import { AppearanceSection } from './sections/appearance'
 import { HibernationSection } from './sections/hibernation'
-import { InstanceLoginSection } from './sections/instance-login'
 import { LabsSection } from './sections/labs'
 import { MembersSection } from './sections/members'
-import { NetworkSection } from './sections/network'
 import {
   NotificationsSection,
   type TelegramBotPresence,
@@ -203,19 +201,7 @@ const SECTION_VIEWS: Record<SettingsPage, (ctx: SectionContext) => JSX.Element> 
       <MembersSection />
     </SettingsPageSection>
   ),
-  access: ({ trpc }) => (
-    <>
-      <SettingsPageSection id="network">
-        <NetworkSection />
-      </SettingsPageSection>
-      <SettingsPageSection id="instance-login">
-        <InstanceLoginSection trpc={trpc} />
-      </SettingsPageSection>
-      <SettingsPageSection id="access">
-        <AccessSection />
-      </SettingsPageSection>
-    </>
-  ),
+  access: () => <AccessSection />,
   audit: () => (
     <SettingsPageSection id="audit">
       <AuditSection />

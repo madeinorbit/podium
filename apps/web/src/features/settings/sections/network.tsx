@@ -17,7 +17,11 @@ const EXPOSURE: Record<string, string> = {
 }
 
 /** Address and its explicit change flow; Access owns the request's lifetime. */
-export const NetworkSection = observer(function NetworkSection({ view }: { view: NetworkSettingsView }): JSX.Element | null {
+export const NetworkSection = observer(function NetworkSection({
+  view,
+}: {
+  view: NetworkSettingsView
+}): JSX.Element | null {
   const trpc = useSettingsTrpc()
   const frame = useSettingsFrame()
   const forced = useForcedSetting('publicUrl')
@@ -30,8 +34,8 @@ export const NetworkSection = observer(function NetworkSection({ view }: { view:
       <Section title="Address">
         <Row label="Connected to" readOnly readOnlyValue={info.serverUrl ?? 'Unknown'} />
         <p className="settings-prose mt-3">
-          To connect this machine to a different Podium, run <code>podium setup</code> on it
-          and paste a new join code.
+          To connect this machine to a different Podium, run <code>podium setup</code> on it and
+          paste a new join code.
         </p>
       </Section>
     )
@@ -58,74 +62,138 @@ export const NetworkSection = observer(function NetworkSection({ view }: { view:
         ? `Check unavailable · Attempted ${checked}`
         : `Not reachable from outside · Checked ${checked}`
     : 'Not checked yet'
-  const source = forced.forced
-    ? forcedNotice(forced)
-    : info.publicUrlSource === 'env' || info.publicUrlSource === 'file'
-      ? forcedNotice(info.publicUrlSource === 'file' ? { forced: true, source: 'file' } : 'PODIUM_PUBLIC_URL')
-      : null
+  // A file-backed bootstrap URL is the address setup itself saved; only env owns it.
+  const source =
+    forced.source === 'env'
+      ? forcedNotice(forced)
+      : info.publicUrlSource === 'env'
+        ? forcedNotice('PODIUM_PUBLIC_URL')
+        : null
   return (
     <Section title="Address">
-      <div className="rounded-lg border border-hairline-soft px-4">
-        <Row
-          label="Podium address"
-          description={<>{EXPOSURE[info.networkOption ?? ''] ?? 'How phones, browsers and machines reach this workspace.'}{source && <span className="mt-1 block">{source}</span>}</>}
-          readOnly={source !== null}
-          readOnlyValue={<span className="break-all font-mono">{info.publicUrl ?? 'Not set'}</span>}
+      <Row
+        label="Podium address"
+        description={
+          <>
+            {EXPOSURE[info.networkOption ?? ''] ??
+              'How phones, browsers and machines reach this workspace.'}
+            {source && <span className="mt-1 block">{source}</span>}
+          </>
+        }
+        readOnly={source !== null}
+        readOnlyValue={<span className="break-all font-mono">{info.publicUrl ?? 'Not set'}</span>}
+      >
+        <span
+          className="settings-label min-w-0 flex-1 truncate font-mono"
+          title={info.publicUrl ?? undefined}
         >
-          <span className="settings-label min-w-0 flex-1 truncate font-mono" title={info.publicUrl ?? undefined}>
-            {info.publicUrl ?? 'Not set'}
-          </span>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => frame.openTakeover({
+          {info.publicUrl ?? 'Not set'}
+        </span>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() =>
+            frame.openTakeover({
               title: 'Change address',
-              description: <>Choose how this Podium is reached. <strong>Paired machines and phones must rejoin with the new address.</strong></>,
-              content: <NetworkStep
-                embedded
-                addressOnly
-                trpc={trpc}
-                onBack={frame.closeTakeover}
-                onChecked={setLastCheck}
-                onSaved={() => {
-                  void view.refresh()
-                  frame.closeTakeover()
-                  toast.success('Address saved. Paired machines and phones must rejoin.')
-                }}
-              />,
-            })}
-          >Change</Button>
-        </Row>
-        <div className="border-t border-hairline-soft/70">
-          <Row
-            label="Reachable from outside"
-            description={<>
-              {info.networkOption === 'cloudflare-tunnel' && <span className="block">Tunnel: {view.tunnelHealthLabel}</span>}
-              <span>{checking ? 'Checking the address from outside…' : checkLabel}</span>
-              {currentCheck && reachabilityHintFor(currentCheck.verdict) && <span className="mt-1 block">{reachabilityHintFor(currentCheck.verdict)}</span>}
-            </>}
-            pending={checking}
-          >
-            <Button type="button" variant="ghost" size="sm" disabled={!info.publicUrl || checking} onClick={() => void check()}>
-              {checking ? 'Checking…' : 'Check now'}
-            </Button>
-          </Row>
-        </div>
-      </div>
+              description: (
+                <>
+                  Choose how this Podium is reached.{' '}
+                  <strong>Paired machines and phones must rejoin with the new address.</strong>
+                </>
+              ),
+              content: (
+                <NetworkStep
+                  embedded
+                  addressOnly
+                  trpc={trpc}
+                  onBack={frame.closeTakeover}
+                  onChecked={setLastCheck}
+                  onSaved={() => {
+                    void view.refresh()
+                    frame.closeTakeover()
+                    toast.success('Address saved. Paired machines and phones must rejoin.')
+                  }}
+                />
+              ),
+            })
+          }
+        >
+          Change
+        </Button>
+      </Row>
+      <Row
+        label="Reachable from outside"
+        description={
+          <>
+            {info.networkOption === 'cloudflare-tunnel' && (
+              <span className="block">Tunnel: {view.tunnelHealthLabel}</span>
+            )}
+            <span>{checking ? 'Checking the address from outside…' : checkLabel}</span>
+            {currentCheck && reachabilityHintFor(currentCheck.verdict) && (
+              <span className="mt-1 block">{reachabilityHintFor(currentCheck.verdict)}</span>
+            )}
+          </>
+        }
+        pending={checking}
+      >
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={!info.publicUrl || checking}
+          onClick={() => void check()}
+        >
+          {checking ? 'Checking…' : 'Check now'}
+        </Button>
+      </Row>
     </Section>
   )
 })
 
 /** Configuration facts live in Advanced, after the everyday sign-ins. */
-export const AdvancedNetworkRows = observer(function AdvancedNetworkRows({ view }: { view: NetworkSettingsView }) {
+export const AdvancedNetworkRows = observer(function AdvancedNetworkRows({
+  view,
+}: {
+  view: NetworkSettingsView
+}) {
   const app = useForcedSetting('appUrl')
   const origins = useForcedSetting('allowedOrigins')
   const info = view.answer
   if (!info) return null
-  return <>
-    <Row label="Web app address" description={app.forced ? forcedNotice(app) : undefined} readOnly readOnlyValue={<span className="break-all">{info.appUrl ?? 'Same as Podium address'}</span>} />
-    <Row label="Other sites allowed to sign in" description={origins.forced ? forcedNotice(origins) : undefined} readOnly readOnlyValue={<span className="break-all">{info.allowedOrigins?.join(', ') || 'None'}</span>} />
-    {info.stableLink && <Row label="Stable link" description="Always opens this server, even after its address changes." readOnly readOnlyValue={<a href={info.stableLink} target="_blank" rel="noreferrer" className="break-all underline-offset-2 hover:underline">{info.stableLink}</a>} />}
-  </>
+  return (
+    <>
+      <Row
+        label="Web app address"
+        description={app.forced ? forcedNotice(app) : undefined}
+        readOnly
+        readOnlyValue={<span className="break-all">{info.appUrl ?? 'Same as Podium address'}</span>}
+      />
+      <Row
+        label="Other sites allowed to sign in"
+        description={origins.forced ? forcedNotice(origins) : undefined}
+        readOnly
+        readOnlyValue={
+          <span className="break-all">{info.allowedOrigins?.join(', ') || 'None'}</span>
+        }
+      />
+      {info.stableLink && (
+        <Row
+          label="Stable link"
+          description="Always opens this server, even after its address changes."
+          readOnly
+          readOnlyValue={
+            <a
+              href={info.stableLink}
+              target="_blank"
+              rel="noreferrer"
+              className="break-all underline-offset-2 hover:underline"
+            >
+              {info.stableLink}
+            </a>
+          }
+        />
+      )}
+    </>
+  )
 })

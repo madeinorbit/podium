@@ -1,11 +1,11 @@
 import { CHECK_ERROR_SENTENCES, type CheckResult } from '@podium/runtime/connect-check'
-import { workspaceFetch } from '@/lib/workspace-request'
 import { type ReactNode, useCallback, useEffect, useState } from 'react'
 import { serverConfig, type Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { workspaceFetch } from '@/lib/workspace-request'
 
 // Fallback relay port for the first-run reachability commands, used ONLY when the location
 // carries no explicit port (an https reverse-proxied origin on 443, where naming 443 would be
@@ -74,9 +74,18 @@ type NetOption = Parameters<Trpc['setup']['commandFor']['query']>[0]['option']
 type NetOptionInfo = Awaited<ReturnType<Trpc['setup']['options']['query']>>[number]
 const ADDRESS_METHODS: Record<NetOption, { label: string; note: string }> = {
   'tailscale-serve': { label: 'Tailscale Serve', note: 'Private to your tailnet. Recommended.' },
-  'tailscale-funnel': { label: 'Tailscale Funnel', note: 'Public on the internet, with a real certificate.' },
-  manual: { label: 'Your own reverse proxy', note: 'Caddy, nginx or similar, with an https address.' },
-  'cloudflare-tunnel': { label: 'Cloudflare quick tunnel', note: 'Instant, no account — but the address changes on every restart.' },
+  'tailscale-funnel': {
+    label: 'Tailscale Funnel',
+    note: 'Public on the internet, with a real certificate.',
+  },
+  manual: {
+    label: 'Your own reverse proxy',
+    note: 'Caddy, nginx or similar, with an https address.',
+  },
+  'cloudflare-tunnel': {
+    label: 'Cloudflare quick tunnel',
+    note: 'Instant, no account — but the address changes on every restart.',
+  },
 }
 /** The whole-wizard commit payload, derived from the router so it can't drift. */
 export type SetupCompleteInput = Parameters<Trpc['setup']['complete']['mutate']>[0]
@@ -233,9 +242,9 @@ function NetworkStepForm({
   // THE ADVISORY PROBE (POD-4535): null = no opinion yet (or no opinion at all),
   // 'checking' while the cloud is asked, 'failed' holding the hint the operator
   // may overrule. Never an error: a failed probe blocks nothing.
-  const [reach, setReach] = useState<{ status: 'checking' } | { status: 'failed'; message: string } | null>(
-    null,
-  )
+  const [reach, setReach] = useState<
+    { status: 'checking' } | { status: 'failed'; message: string } | null
+  >(null)
   const hasPassword = initial.hasPassword
   const initialAuthMode = initial.hasPassword ? 'keep' : 'password'
   const [baseline, setBaseline] = useState(() => ({
@@ -269,9 +278,15 @@ function NetworkStepForm({
     setCmd(null)
     trpc.setup.commandFor
       .query({ option, port: reachablePort() })
-      .then((answer) => { if (live) setCmd(answer) })
-      .catch(() => { if (live) setErr('Couldn’t load the command for this method. Choose it again to retry.') })
-    return () => { live = false }
+      .then((answer) => {
+        if (live) setCmd(answer)
+      })
+      .catch(() => {
+        if (live) setErr('Couldn’t load the command for this method. Choose it again to retry.')
+      })
+    return () => {
+      live = false
+    }
   }, [trpc, option])
 
   const copy = (): void => {
@@ -299,17 +314,21 @@ function NetworkStepForm({
       }
       const payload: SetupCompleteInput = {
         publicUrl: url.trim(),
-        ...(initial.url && url.trim() !== initial.url ? { confirmUrlChange: true } : {}),
+        ...(addressOnly || (initial.url && url.trim() !== initial.url)
+          ? { confirmUrlChange: true }
+          : {}),
         ...(option ? { networkOption: option } : {}),
         ...(mode ? { mode } : {}),
         // 'keep' sends neither field → the server leaves the existing password untouched.
         ...(addressOnly
-          ? initial.hasPassword ? {} : { acknowledgeNoPassword: true }
+          ? initial.hasPassword
+            ? {}
+            : { acknowledgeNoPassword: true }
           : authMode === 'password'
-          ? { password }
-          : authMode === 'open'
-            ? { acknowledgeNoPassword: true }
-            : {}),
+            ? { password }
+            : authMode === 'open'
+              ? { acknowledgeNoPassword: true }
+              : {}),
       }
       // THE ADVISORY PROBE (POD-4535): what the cloud says about this URL, shown as a
       // hint the operator can overrule — never a gate. A throw, a missing `connect`
@@ -374,7 +393,22 @@ function NetworkStepForm({
         setBusy(false)
       }
     },
-    [ackNoPassword, addressOnly, authMode, httpOrigin, initial.hasPassword, initial.url, mode, onChecked, onCollected, onSaved, option, password, trpc, url],
+    [
+      ackNoPassword,
+      addressOnly,
+      authMode,
+      httpOrigin,
+      initial.hasPassword,
+      initial.url,
+      mode,
+      onChecked,
+      onCollected,
+      onSaved,
+      option,
+      password,
+      trpc,
+      url,
+    ],
   )
 
   const discard = useCallback((): void => {
@@ -427,13 +461,24 @@ function NetworkStepForm({
         </div>
       )}
       <fieldset className="flex flex-col gap-2" disabled={busy}>
-        <legend className={addressOnly ? 'settings-label mb-2' : 'text-[12px] text-muted-foreground'}>How to expose this instance</legend>
+        <legend
+          className={addressOnly ? 'settings-label mb-2' : 'text-[12px] text-muted-foreground'}
+        >
+          How to expose this instance
+        </legend>
         {initial.option === null && (
           <p className="text-[12px] text-muted-foreground">
             Choose how this URL is exposed. Podium will save the selection with the URL.
           </p>
         )}
-        {(addressOnly ? [...options].sort((a, b) => Object.keys(ADDRESS_METHODS).indexOf(a.id) - Object.keys(ADDRESS_METHODS).indexOf(b.id)) : options).map((o) => (
+        {(addressOnly
+          ? [...options].sort(
+              (a, b) =>
+                Object.keys(ADDRESS_METHODS).indexOf(a.id) -
+                Object.keys(ADDRESS_METHODS).indexOf(b.id),
+            )
+          : options
+        ).map((o) => (
           <label
             key={o.id}
             htmlFor={`net-${o.id}`}
@@ -452,8 +497,12 @@ function NetworkStepForm({
               className="mt-1"
             />
             <span className="flex flex-col">
-              <strong className="settings-label">{addressOnly ? ADDRESS_METHODS[o.id].label : o.label}</strong>
-              <span className="settings-prose">{addressOnly ? ADDRESS_METHODS[o.id].note : o.note}</span>
+              <strong className="settings-label">
+                {addressOnly ? ADDRESS_METHODS[o.id].label : o.label}
+              </strong>
+              <span className="settings-prose">
+                {addressOnly ? ADDRESS_METHODS[o.id].note : o.note}
+              </span>
             </span>
           </label>
         ))}
@@ -527,119 +576,122 @@ function NetworkStepForm({
           </div>
         )}
       </div>
-      {!addressOnly && <fieldset className="flex flex-col gap-2" disabled={busy}>
-        <legend className="text-[12px] text-muted-foreground">Login</legend>
-        {hasPassword && (
+      {!addressOnly && (
+        <fieldset className="flex flex-col gap-2" disabled={busy}>
+          <legend className="text-[12px] text-muted-foreground">Login</legend>
+          {hasPassword && (
+            <label
+              htmlFor="setup-auth-keep"
+              className="flex cursor-pointer items-start gap-2 rounded-md border border-border px-3 py-2"
+            >
+              <input
+                id="setup-auth-keep"
+                type="radio"
+                name="setup-auth"
+                value="keep"
+                checked={authMode === 'keep'}
+                onChange={() => {
+                  setAuthMode('keep')
+                  setAckNoPassword(false)
+                  setSaved(false)
+                }}
+                className="mt-1"
+              />
+              <span className="flex flex-col">
+                <strong className="text-[13px] text-foreground">Keep current password</strong>
+                <span className="text-[12px] text-muted-foreground">
+                  A login password is already set — leave it unchanged.
+                </span>
+              </span>
+            </label>
+          )}
           <label
-            htmlFor="setup-auth-keep"
+            htmlFor="setup-auth-password"
             className="flex cursor-pointer items-start gap-2 rounded-md border border-border px-3 py-2"
           >
             <input
-              id="setup-auth-keep"
+              id="setup-auth-password"
               type="radio"
               name="setup-auth"
-              value="keep"
-              checked={authMode === 'keep'}
+              value="password"
+              checked={authMode === 'password'}
               onChange={() => {
-                setAuthMode('keep')
+                setAuthMode('password')
                 setAckNoPassword(false)
                 setSaved(false)
               }}
               className="mt-1"
             />
             <span className="flex flex-col">
-              <strong className="text-[13px] text-foreground">Keep current password</strong>
+              <strong className="text-[13px] text-foreground">
+                {hasPassword ? 'Change the login password' : 'Require a login password'}
+              </strong>
               <span className="text-[12px] text-muted-foreground">
-                A login password is already set — leave it unchanged.
+                Recommended for reachable instances.
               </span>
             </span>
           </label>
-        )}
-        <label
-          htmlFor="setup-auth-password"
-          className="flex cursor-pointer items-start gap-2 rounded-md border border-border px-3 py-2"
-        >
-          <input
-            id="setup-auth-password"
-            type="radio"
-            name="setup-auth"
-            value="password"
-            checked={authMode === 'password'}
-            onChange={() => {
-              setAuthMode('password')
-              setAckNoPassword(false)
-              setSaved(false)
-            }}
-            className="mt-1"
-          />
-          <span className="flex flex-col">
-            <strong className="text-[13px] text-foreground">
-              {hasPassword ? 'Change the login password' : 'Require a login password'}
-            </strong>
-            <span className="text-[12px] text-muted-foreground">
-              Recommended for reachable instances.
-            </span>
-          </span>
-        </label>
-        {authMode === 'password' && (
-          <div className="ml-6 flex flex-col gap-1">
-            <label htmlFor="setup-password" className="text-[12px] text-muted-foreground">
-              Login password
-            </label>
-            <Input
-              id="setup-password"
-              type="password"
-              autoComplete="new-password"
-              placeholder="Password"
-              value={password}
-              onChange={(e) => {
-                setPassword(e.target.value)
+          {authMode === 'password' && (
+            <div className="ml-6 flex flex-col gap-1">
+              <label htmlFor="setup-password" className="text-[12px] text-muted-foreground">
+                Login password
+              </label>
+              <Input
+                id="setup-password"
+                type="password"
+                autoComplete="new-password"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value)
+                  setSaved(false)
+                }}
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Devices will need this password to connect.
+              </p>
+            </div>
+          )}
+          <label
+            htmlFor="setup-auth-open"
+            className="flex cursor-pointer items-start gap-2 rounded-md border border-border px-3 py-2"
+          >
+            <input
+              id="setup-auth-open"
+              type="radio"
+              name="setup-auth"
+              value="open"
+              checked={authMode === 'open'}
+              onChange={() => {
+                setAuthMode('open')
                 setSaved(false)
               }}
+              className="mt-1"
             />
-            <p className="text-[11px] text-muted-foreground">
-              Devices will need this password to connect.
-            </p>
-          </div>
-        )}
-        <label
-          htmlFor="setup-auth-open"
-          className="flex cursor-pointer items-start gap-2 rounded-md border border-border px-3 py-2"
-        >
-          <input
-            id="setup-auth-open"
-            type="radio"
-            name="setup-auth"
-            value="open"
-            checked={authMode === 'open'}
-            onChange={() => {
-              setAuthMode('open')
-              setSaved(false)
-            }}
-            className="mt-1"
-          />
-          <span className="flex flex-col">
-            <strong className="text-[13px] text-foreground">Run without a Podium password</strong>
-            <span className="text-[12px] text-muted-foreground">
-              Use only when access is already restricted, for example by your private network.
+            <span className="flex flex-col">
+              <strong className="text-[13px] text-foreground">Run without a Podium password</strong>
+              <span className="text-[12px] text-muted-foreground">
+                Use only when access is already restricted, for example by your private network.
+              </span>
             </span>
-          </span>
-        </label>
-        {authMode === 'open' && (
-          <Label className="ml-6 cursor-pointer items-start rounded-md border border-border px-3 py-2 text-[12px] text-muted-foreground">
-            <Checkbox
-              checked={ackNoPassword}
-              onCheckedChange={(checked) => {
-                setAckNoPassword(checked === true)
-                setSaved(false)
-              }}
-            />
-            <span>
-              I understand that anyone who can reach this Podium URL can control agents and shells.
-            </span>
-          </Label>
-        )}
-      </fieldset>}
+          </label>
+          {authMode === 'open' && (
+            <Label className="ml-6 cursor-pointer items-start rounded-md border border-border px-3 py-2 text-[12px] text-muted-foreground">
+              <Checkbox
+                checked={ackNoPassword}
+                onCheckedChange={(checked) => {
+                  setAckNoPassword(checked === true)
+                  setSaved(false)
+                }}
+              />
+              <span>
+                I understand that anyone who can reach this Podium URL can control agents and
+                shells.
+              </span>
+            </Label>
+          )}
+        </fieldset>
+      )}
       {err && !onSaveStateChange && (
         <p role="alert" className="text-[12px] text-destructive">
           {err}
@@ -670,11 +722,24 @@ function NetworkStepForm({
               disabled={
                 busy ||
                 !url.trim() ||
-                (!addressOnly && (authMode === 'password' ? !password : authMode === 'open' ? !ackNoPassword : false))
+                (!addressOnly &&
+                  (authMode === 'password'
+                    ? !password
+                    : authMode === 'open'
+                      ? !ackNoPassword
+                      : false))
               }
               onClick={() => void finish()}
             >
-              {reach?.status === 'checking' ? 'Checking…' : busy ? 'Saving…' : addressOnly ? 'Check and save' : embedded ? 'Save network settings' : 'Finish'}
+              {reach?.status === 'checking'
+                ? 'Checking…'
+                : busy
+                  ? 'Saving…'
+                  : addressOnly
+                    ? 'Check and save'
+                    : embedded
+                      ? 'Save network settings'
+                      : 'Finish'}
             </Button>
           </div>
         </div>
