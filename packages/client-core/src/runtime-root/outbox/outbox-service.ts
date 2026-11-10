@@ -171,8 +171,8 @@ export class OutboxService {
     // Hydrate-first, like the entity slices: the queue's constructor has
     // already restored its durable recovery home, so the first paint must show
     // the parked writes without waiting for start() or a queue notification.
-    // The pending count follows at start().
-    options.live.setOutbox({ pending: 0, deadLetters: this.queue.deadLetters() })
+    // Restored unsent writes must also be counted before sign-out is available.
+    options.live.setOutbox({ pending: this.queue.size(), deadLetters: this.queue.deadLetters() })
   }
 
   /** Follow the queue and the connection, and start draining. Idempotent;

@@ -155,6 +155,12 @@ export class LiveStore {
     })
   }
 
+  /** Changes sign-out would lose: unapplied writes and authored work kept for recovery.
+   * Applied writes waiting for the replica are already safe on the server. */
+  @lazy get unsyncedChangeCount(): number {
+    return this.outbox.pending + this.outbox.deadLetters.length
+  }
+
   /** A machine's online reading; unknown until its first. */
   conditionOf(machineId: string): Reading<MachineCondition> | undefined {
     return this.machineConditions.get(machineId)

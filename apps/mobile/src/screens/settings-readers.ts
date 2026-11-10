@@ -69,3 +69,9 @@ export function useSettingsData(): SettingsData {
   )
   return useMobilePoolProjection(read, EMPTY_SETTINGS)
 }
+
+const readUnsyncedChangeCount = (pool: MobxPool) => pool.live?.unsyncedChangeCount ?? null
+/** Sign-out waits until the mounted account's queue count is available. */
+export function useSettingsUnsyncedChangeCount(): number | null {
+  return useMobilePoolProjection(readUnsyncedChangeCount, null)
+}

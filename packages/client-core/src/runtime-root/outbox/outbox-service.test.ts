@@ -88,8 +88,15 @@ class FakeQueue implements EngineOutbox {
   async drain(): Promise<void> {}
 }
 
-function setup(options: { parked?: OutboxDeadLetterEntry[]; networkEnabled?: boolean } = {}) {
+function setup(
+  options: {
+    entries?: OutboxEntry[]
+    parked?: OutboxDeadLetterEntry[]
+    networkEnabled?: boolean
+  } = {},
+) {
   const queue = new FakeQueue()
+  queue.entries = options.entries ?? []
   queue.parked = options.parked ?? []
   let callbacks!: EngineOutboxCallbacks
   const scheduler = new ManualFrames()
@@ -128,6 +135,11 @@ const parkedEntry = (id: string): OutboxDeadLetterEntry =>
   }) as unknown as OutboxDeadLetterEntry
 
 describe('the outbox counts in the LiveStore', () => {
+  it('exposes restored unsent writes before start or a first frame can allow sign-out', () => {
+    const { live } = setup({ entries: [entry('a'), entry('b')] })
+    expect(live.outbox.pending).toBe(2)
+  })
+
   it('shows the parked writes on the first paint, before start', () => {
     const parked = [parkedEntry('p1')]
     const { live } = setup({ parked })

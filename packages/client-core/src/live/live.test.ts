@@ -1,4 +1,4 @@
-import type { HostMetricsWire } from '@podium/model'
+import { asMutationId, type HostMetricsWire } from '@podium/model'
 import { encode, type ServerMessage, type TopicKind } from '@podium/protocol'
 import { autorun } from 'mobx'
 import { describe, expect, it } from 'vitest'
@@ -193,6 +193,34 @@ describe('the hub learns the server (welcome and pong)', () => {
 })
 
 describe('LiveStore', () => {
+  it('counts only this account’s unsynced and recoverable writes, following drain and discard', () => {
+    const alice = new LiveStore()
+    const bob = new LiveStore()
+    const seen: number[] = []
+    const stop = autorun(() => seen.push(alice.unsyncedChangeCount))
+    const parked = {
+      entry: { mutationId: asMutationId('parked'), kind: 'recordEdit', input: {}, queuedAt: 1 },
+      reason: { code: 'invalid' as const },
+      parkedFrom: 'rejected' as const,
+      deadLetteredAt: 2,
+      attempts: 1,
+    }
+    try {
+      bob.setOutbox({ pending: 5, deadLetters: [] })
+      alice.setOutbox({ pending: 2, deadLetters: [parked] })
+      expect(alice.unsyncedChangeCount).toBe(3)
+      expect(bob.unsyncedChangeCount).toBe(5)
+      alice.setOutbox({ pending: 0, deadLetters: [parked] })
+      expect(alice.unsyncedChangeCount).toBe(1)
+      alice.setOutbox({ pending: 0, deadLetters: [] })
+      expect(seen).toEqual([0, 3, 1, 0])
+    } finally {
+      stop()
+      alice.dispose()
+      bob.dispose()
+    }
+  })
+
   it('starts with every reading unknown and nothing remembered', () => {
     const live = new LiveStore({ now: () => 5 })
     expect(live.connection).toEqual({ state: 'connecting', since: 5 })

@@ -1,10 +1,8 @@
-import { SettingsOpening } from './settings-opening'
-import { devicePlatformLabel, visibleFleetOperations } from '@podium/client-core/values'
-import { observer } from 'mobx-react-lite'
-import type { MobileClientSession } from '@podium/protocol'
 import { relativeTime } from '@podium/client-core/focus'
-import { useAgeNow } from '../lib/clock-hooks'
+import { devicePlatformLabel, visibleFleetOperations } from '@podium/client-core/values'
+import type { MobileClientSession } from '@podium/protocol'
 import { useRouter } from 'expo-router'
+import { observer } from 'mobx-react-lite'
 import { useMemo, useState } from 'react'
 import { Alert, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { logout } from '../client/auth'
@@ -21,11 +19,14 @@ import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/ui'
 import { useContentBottomInset } from '../hooks/useContentBottomInset'
 import { useBuildStamp } from '../lib/build-stamp'
+import { useAgeNow } from '../lib/clock-hooks'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
+import { SettingsOpening } from './settings-opening'
 import {
+  type SettingsMachineStatus,
   useSettingsData,
   useSettingsMachineStatus,
-  type SettingsMachineStatus,
+  useSettingsUnsyncedChangeCount,
 } from './settings-readers'
 
 function openDesktop() {
@@ -78,6 +79,8 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
   const [loggedOut, setLoggedOut] = useState(false)
   const [profileName, setProfileName] = useState(profile.name)
   const [accountBusy, setAccountBusy] = useState(false)
+  const unsyncedChangeCount = useSettingsUnsyncedChangeCount()
+  const logoutDisabled = accountBusy || unsyncedChangeCount === null
   const deviceFeed = useConnectedDevices()
   const buildStamp = useBuildStamp()
   const demo = demoEnabled()
@@ -138,6 +141,24 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
     } finally {
       setAccountBusy(false)
     }
+  }
+
+  const requestLogout = () => {
+    if (logoutDisabled) return
+    if (unsyncedChangeCount > 0) {
+      Alert.alert(
+        'Sign out with unsynced changes?',
+        unsyncedChangeCount === 1
+          ? "1 change on this device hasn't synced yet and will be lost."
+          : `${unsyncedChangeCount} changes on this device haven't synced yet and will be lost.`,
+        [
+          { text: 'Wait', style: 'cancel' },
+          { text: 'Sign out anyway', style: 'destructive', onPress: () => void doLogout() },
+        ],
+      )
+      return
+    }
+    void doLogout()
   }
 
   const removeCurrent = () => {
@@ -259,7 +280,7 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
           ) : devices.length === 0 ? (
             <Row label="Devices" value="none" />
           ) : (
-            devices.map(device => <ConnectedDeviceRow key={device.sessionId} device={device} />)
+            devices.map((device) => <ConnectedDeviceRow key={device.sessionId} device={device} />)
           )}
           {deviceFeed.failed && devices.length > 0 ? (
             <Row label="Refresh" value="failed · showing prior list" />
@@ -365,14 +386,14 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
         <SectionHeader label="Account" />
         <PressableScale
           style={({ pressed }) => [styles.logout, pressed && styles.actionPressed]}
-          onPress={() => void doLogout()}
-          disabled={accountBusy}
+          onPress={requestLogout}
+          disabled={logoutDisabled}
           accessibilityRole="button"
           accessibilityLabel="Log out"
           // `aria-busy` beside `accessibilityState`: react-native-web 0.21 reads
           // only the former. The disabled half already reaches the browser via
           // the `disabled` prop above. [POD-1664]
-          accessibilityState={{ disabled: accountBusy, busy: accountBusy }}
+          accessibilityState={{ disabled: logoutDisabled, busy: accountBusy }}
           aria-busy={accountBusy}
         >
           <Text style={styles.logoutText}>{loggedOut ? 'Logged out' : 'Log out'}</Text>
@@ -386,17 +407,34 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
   )
 })
 
-const ConnectedDeviceRow = observer(function ConnectedDeviceRow({ device }: { device: MobileClientSession }) {
-  const now = useAgeNow(device.lastSeenAt ?? device.createdAt, 0, !device.current && !!device.lastSeenAt)
-  const activity = device.current ? 'This device · active now' : device.lastSeenAt
-    ? `Active ${relativeTime(device.lastSeenAt, now)}` : 'No activity reported'
-  return <View style={styles.deviceRow}>
-    <View style={styles.deviceIdentity}>
-      <Text style={styles.deviceName} numberOfLines={1}>{device.deviceName}</Text>
-      <Text style={styles.deviceDetail} numberOfLines={1}>{devicePlatformLabel(device.platform)} · {activity}</Text>
+const ConnectedDeviceRow = observer(function ConnectedDeviceRow({
+  device,
+}: {
+  device: MobileClientSession
+}) {
+  const now = useAgeNow(
+    device.lastSeenAt ?? device.createdAt,
+    0,
+    !device.current && !!device.lastSeenAt,
+  )
+  const activity = device.current
+    ? 'This device · active now'
+    : device.lastSeenAt
+      ? `Active ${relativeTime(device.lastSeenAt, now)}`
+      : 'No activity reported'
+  return (
+    <View style={styles.deviceRow}>
+      <View style={styles.deviceIdentity}>
+        <Text style={styles.deviceName} numberOfLines={1}>
+          {device.deviceName}
+        </Text>
+        <Text style={styles.deviceDetail} numberOfLines={1}>
+          {devicePlatformLabel(device.platform)} · {activity}
+        </Text>
+      </View>
+      {device.current ? <Text style={styles.currentDevice}>CURRENT</Text> : null}
     </View>
-    {device.current ? <Text style={styles.currentDevice}>CURRENT</Text> : null}
-  </View>
+  )
 })
 
 function SettingsMachineRow({ id }: { id: string }) {

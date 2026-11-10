@@ -26,6 +26,12 @@ const EMPTY_SETUP: { usage: ReadonlyMap<string, number>; defaultAgent: string; p
 const loaded = <T extends object>(row: T | symbol | undefined): row is T =>
   typeof row === 'object' && row !== null
 
+const readUnsyncedChangeCount = (pool: MobxPool) => pool.live?.unsyncedChangeCount ?? null
+/** null until this account's pool is attached; sign-out waits for its count. */
+export function useSettingsUnsyncedChangeCount(): number | null {
+  return useWorklistPoolProjection(readUnsyncedChangeCount, null)
+}
+
 function readCatalog(pool: MobxPool): SettingsCatalog {
   const catalog = omitGone(pool.row('settingsCatalog', 'catalog'))
   if (!loaded(catalog)) return EMPTY_CATALOG

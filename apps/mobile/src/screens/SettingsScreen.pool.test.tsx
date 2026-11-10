@@ -356,7 +356,7 @@ it('uses zero legacy selectors and issue models while relevant updates still pai
 })
 
 it('keeps server controls and logout on their existing owners', async () => {
-  vi.spyOn(Alert, 'alert').mockImplementation((_title, _message, buttons) => {
+  const alert = vi.spyOn(Alert, 'alert').mockImplementation((_title, _message, buttons) => {
     buttons?.find((button) => button.style === 'destructive')?.onPress?.()
   })
   {
@@ -377,6 +377,7 @@ it('keeps server controls and logout on their existing owners', async () => {
     expect(seams.erase).toHaveBeenCalled()
     expect(seams.credential).toHaveBeenLastCalledWith(null)
     expect(current.view.getByText('Logged out')).toBeTruthy()
+    expect(alert).not.toHaveBeenCalled()
     await act(async () => fireEvent.click(current.view.getByLabelText('Remove Phone')))
     expect(seams.remove).toHaveBeenLastCalledWith('phone')
     expect(seams.replace).toHaveBeenLastCalledWith('/')
@@ -387,4 +388,41 @@ it('keeps server controls and logout on their existing owners', async () => {
   expect(seams.add).toHaveBeenCalledTimes(1)
   expect(seams.switch).toHaveBeenCalledWith('other')
   expect(seams.rename).toHaveBeenCalledWith('phone', 'Renamed phone')
+})
+
+it('keeps unsynced phone changes until sign-out is explicitly confirmed', async () => {
+  const alert = vi.spyOn(Alert, 'alert').mockImplementation(() => {})
+  const current = await mount()
+  await act(async () => {
+    await current.runtime.services.outbox.queue.enqueue('issueUpdate', {
+      id: 'synthetic-0',
+      patch: { title: 'Offline edit' },
+    })
+  })
+  await waitFor(() => expect(rowValue(current.view.container, 'Queued sends')).toBe('1'))
+  fireEvent.click(current.view.getByLabelText('Log out'))
+  expect(seams.logout).not.toHaveBeenCalled()
+  expect(seams.erase).not.toHaveBeenCalled()
+  expect(seams.credential).not.toHaveBeenCalled()
+  expect(alert).toHaveBeenLastCalledWith(
+    'Sign out with unsynced changes?',
+    "1 change on this device hasn't synced yet and will be lost.",
+    expect.any(Array),
+  )
+  const buttons = alert.mock.calls.at(-1)?.[2] ?? []
+  expect(buttons.find((button) => button.text === 'Wait')?.style).toBe('cancel')
+  await act(async () => buttons.find((button) => button.text === 'Wait')?.onPress?.())
+  expect(seams.erase).not.toHaveBeenCalled()
+  expect(current.runtime.services.outbox.queue.size()).toBe(1)
+  fireEvent.click(current.view.getByLabelText('Log out'))
+  await act(async () =>
+    alert.mock.calls
+      .at(-1)?.[2]
+      ?.find((button) => button.text === 'Sign out anyway')
+      ?.onPress?.(),
+  )
+  await waitFor(() => expect(seams.erase).toHaveBeenCalledOnce())
+  expect(seams.logout).toHaveBeenCalledOnce()
+  expect(seams.credential).toHaveBeenLastCalledWith(null)
+  expect(current.errors).toEqual([])
 })
