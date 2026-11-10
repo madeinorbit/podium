@@ -6,13 +6,7 @@ import { authenticatedImageSource } from '../client/authenticated-assets'
 import { useHttpOrigin } from '../client/hooks'
 // Read the profile without importing the gate's boot graph.
 import { useServerProfile } from '../client/server-profile-context'
-import { issueArtifactHref } from '../lib/issue-artifacts'
-import {
-  OFFER_STRIP_MAX,
-  type OfferArtifactRow,
-  offerArtifactRows,
-  resolveOfferArtifacts,
-} from '../lib/offer-artifacts'
+import { OFFER_STRIP_MAX, type OfferArtifactRow, offerArtifactRows } from '../lib/offer-artifacts'
 import { color, monoLabel, radius, sans, space } from '../theme/theme'
 import { ArtifactViewer, type ArtifactViewerItem } from './ArtifactViewer'
 import { Icon } from './Icon'
@@ -58,7 +52,7 @@ export function OfferArtifactStrip({
         )
       : OFFER_STRIP_MAX
 
-  const { rows, extra } = offerArtifactRows({
+  const { rows, extra, allRows } = offerArtifactRows({
     offer,
     issue,
     httpOrigin,
@@ -69,15 +63,7 @@ export function OfferArtifactStrip({
   if (rows.length === 0 && extra === 0) return null
   // The viewer pages through every offered artifact this phone can reach, in
   // the strip's order, including the ones folded into +N.
-  const viewerItems: ArtifactViewerItem[] = issue
-    ? resolveOfferArtifacts({ offer, issue, ...(lastInputAt ? { lastInputAt } : {}) })
-        .map((artifact) => ({
-          key: `${artifact.path}@${artifact.addedAt}`,
-          artifact,
-          url: issueArtifactHref(issue, artifact, httpOrigin, workspace),
-        }))
-        .filter((item) => item.url !== null)
-    : []
+  const viewerItems: ArtifactViewerItem[] = open ? allRows.filter((item) => item.url !== null) : []
   const openIndex = open ? viewerItems.findIndex((item) => item.key === open) : -1
 
   return (

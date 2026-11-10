@@ -204,3 +204,43 @@ describe('MissionDeck sheet', () => {
     expect(screen.getByText('No tasks or agents on this mission yet.')).toBeTruthy()
   })
 })
+
+it('keeps a sibling outside a nested phase in its own card', async () => {
+  const parent = { ...quiet, needsHuman: true }
+  const phase = issue({
+    id: asIssueId('nested-phase'),
+    parentId: quiet.id,
+    type: 'phase',
+    title: 'Nested phase',
+    seq: 4,
+  })
+  const child = issue({
+    id: asIssueId('nested-child'),
+    parentId: phase.id,
+    title: 'Inside phase',
+    seq: 5,
+  })
+  await mount([root, parent, phase, child, asking])
+  const phaseGroup = screen.getByTestId('deck-group-nested-phase')
+  expect(phaseGroup.textContent).toContain('Inside phase')
+  expect(phaseGroup.textContent).not.toContain('Asking subtask')
+  expect(
+    screen
+      .getAllByTestId('deck-group-loose')
+      .some((group) => group.textContent?.includes('Asking subtask')),
+  ).toBe(true)
+})
+
+it('expands and folds a working leaf seat without opening its task', async () => {
+  const { props } = await mount(
+    [root, quiet],
+    [agent('worker', quiet.id, 'Leaf worker', 'working')],
+  )
+  expect(screen.queryByTestId('deck-agent')).toBeNull()
+  await act(async () => fireEvent.click(screen.getByLabelText('Expand Quiet subtask')))
+  const seat = screen.getByTestId('deck-agent')
+  expect(seat.textContent).toContain('Leaf worker')
+  expect(props.onOpenTask).not.toHaveBeenCalled()
+  await act(async () => fireEvent.click(screen.getByLabelText('Collapse Quiet subtask')))
+  expect(screen.queryByTestId('deck-agent')).toBeNull()
+})

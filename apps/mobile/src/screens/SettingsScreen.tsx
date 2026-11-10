@@ -35,7 +35,6 @@ import { useBuildStamp } from '../lib/build-stamp'
 import { useAgeNow } from '../lib/clock-hooks'
 import { appVersion } from '../lib/logging'
 import { color, font, grid, leading, radius, sans } from '../theme/theme'
-import { SettingsOpening } from './settings-opening'
 import {
   type SettingsMachineStatus,
   useSettingsData,
@@ -57,35 +56,19 @@ function openDesktop() {
  * here adds a read.
  */
 export function SettingsScreen() {
-  return (
-    <SettingsOpening>
-      <SettingsHome />
-    </SettingsOpening>
-  )
+  return <SettingsHome />
 }
 
 export function SettingsDevicesScreen() {
-  return (
-    <SettingsOpening>
-      <SettingsDevices />
-    </SettingsOpening>
-  )
+  return <SettingsDevices />
 }
 
 export function SettingsServersScreen() {
-  return (
-    <SettingsOpening>
-      <SettingsServers />
-    </SettingsOpening>
-  )
+  return <SettingsServers />
 }
 
 export function SettingsVersionScreen() {
-  return (
-    <SettingsOpening>
-      <SettingsVersion />
-    </SettingsOpening>
-  )
+  return <SettingsVersion />
 }
 
 /** Log out keeps the server on this phone and drops its credential; Remove also forgets the server. */

@@ -1,5 +1,7 @@
+import { RequestAnswer } from '@podium/client-graph/request-answer'
 import type { IssuePanelArtifact } from '@podium/model'
-import { type ComponentType, createElement, useEffect, useRef, useState } from 'react'
+import { observer } from 'mobx-react-lite'
+import { type ComponentType, createElement, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Image,
   Modal,
@@ -241,7 +243,7 @@ function ViewerPages({
           >
             {items.map((item, at) => (
               <View key={item.key} style={[styles.slide, { width }]}>
-                {Math.abs(at - page) <= 1 ? (
+                {at === page ? (
                   <ArtifactBody
                     preview={issueArtifactPreview(item.artifact.entry ?? item.artifact.path)}
                     url={item.url}
@@ -351,36 +353,38 @@ function ArtifactBody({
  * that base and load wherever the deployment serves /files/* without login;
  * behind login they 404 into a still-readable page rather than a blank one.
  */
-function HtmlWebView({ url, bearer }: { url: string; bearer: string | null }) {
-  const [doc, setDoc] = useState<string | null>(null)
-  const [clipped, setClipped] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let alive = true
-    setDoc(null)
-    setClipped(false)
-    setError(null)
-    void fetchAuthenticatedAsset(url, bearer)
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`Could not load (${res.status})`)
-        const buf = await res.arrayBuffer()
-        const overCap = buf.byteLength > HTML_CAP
-        const decoded = new TextDecoder().decode(overCap ? buf.slice(0, HTML_CAP) : buf)
-        const html = overCap ? endAtTagBoundary(decoded) : decoded
-        if (!alive) return
-        setClipped(overCap)
-        setDoc(htmlDataUri(htmlWithBase(html, url)))
-      })
-      .catch((e: unknown) => {
-        if (alive) setError(e instanceof Error ? e.message : String(e))
-      })
-    return () => {
-      alive = false
-    }
-  }, [bearer, url])
-
+const HtmlWebView = observer(function HtmlWebView({
+  url,
+  bearer,
+}: {
+  url: string
+  bearer: string | null
+}) {
+  // biome-ignore lint/correctness/useExhaustiveDependencies: selection and credentials own this request lifetime.
+  const request = useMemo(
+    () => new RequestAnswer<{ uri: string; clipped: boolean }>(),
+    [url, bearer],
+  )
+  const [terminated, setTerminated] = useState(false)
   const WebView = resolveDomWebView()
+  useEffect(() => {
+    setTerminated(false)
+    if (!WebView) return
+    void request.load(async () => {
+      const res = await fetchAuthenticatedAsset(url, bearer)
+      if (!res.ok) throw new Error(`Could not load (${res.status})`)
+      const buf = await res.arrayBuffer()
+      const clipped = buf.byteLength > HTML_CAP
+      const decoded = new TextDecoder().decode(clipped ? buf.slice(0, HTML_CAP) : buf)
+      const html = clipped ? endAtTagBoundary(decoded) : decoded
+      return { uri: htmlDataUri(htmlWithBase(html, url)), clipped }
+    })
+    return () => request.close()
+  }, [request, bearer, url, WebView])
+  const error = terminated
+    ? 'The phone stopped this preview — the page is too heavy to render here.'
+    : request.error
+  const doc = request.answer
   // No webview in this binary: the source is still worth reading, but say why
   // it is markup rather than a page — an unexplained wall of HTML is the same
   // report as a blank one ("the artifact does not open").
@@ -395,30 +399,28 @@ function HtmlWebView({ url, bearer }: { url: string; bearer: string | null }) {
     )
   }
   if (error) return <Text style={styles.note}>{error}</Text>
-  if (doc === null) return <Text style={styles.note}>Loading…</Text>
+  if (doc === undefined) return <Text style={styles.note}>Loading…</Text>
   return (
     <View style={styles.webFrame} testID="artifact-html-webview">
-      {clipped ? (
+      {doc.clipped ? (
         <Text style={styles.clip}>
           Preview clipped at {Math.round(HTML_CAP / (1024 * 1024))} MB — open it on a desktop to
           read the rest.
         </Text>
       ) : null}
       <WebView
-        source={{ uri: doc }}
+        source={{ uri: doc.uri }}
         style={styles.webView}
         // A blank frame is the one failure a reader cannot interpret. iOS kills
         // the WebContent process on a heavy page (far sooner on a phone than in
         // the simulator), and the view is left showing nothing at all; say so.
-        onContentProcessDidTerminate={() =>
-          setError('The phone stopped this preview — the page is too heavy to render here.')
-        }
+        onContentProcessDidTerminate={() => setTerminated(true)}
       />
     </View>
   )
-}
+})
 
-function FetchedText({
+const FetchedText = observer(function FetchedText({
   url,
   asMarkdown,
   bearer,
@@ -434,29 +436,20 @@ function FetchedText({
    *  its top and letting go closes the viewer instead. */
   onPullClose?: () => void
 }) {
-  const [text, setText] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
+  // biome-ignore lint/correctness/useExhaustiveDependencies: selection and credentials own this request lifetime.
+  const request = useMemo(() => new RequestAnswer<string>(), [url, bearer])
   useEffect(() => {
-    let alive = true
-    setText(null)
-    setError(null)
-    void fetchAuthenticatedAsset(url, bearer)
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`Could not load (${res.status})`)
-        const decoded = await readAuthenticatedTextPreview(res)
-        if (alive) setText(decoded)
-      })
-      .catch((e: unknown) => {
-        if (alive) setError(e instanceof Error ? e.message : String(e))
-      })
-    return () => {
-      alive = false
-    }
-  }, [bearer, url])
+    void request.load(async () => {
+      const res = await fetchAuthenticatedAsset(url, bearer)
+      if (!res.ok) throw new Error(`Could not load (${res.status})`)
+      return readAuthenticatedTextPreview(res)
+    })
+    return () => request.close()
+  }, [request, bearer, url])
+  const { answer: text, error } = request
 
   if (error) return <Text style={styles.note}>{error}</Text>
-  if (text === null) return <Text style={styles.note}>Loading…</Text>
+  if (text === undefined) return <Text style={styles.note}>Loading…</Text>
   return (
     <ScrollView
       contentContainerStyle={styles.prose}
@@ -474,7 +467,7 @@ function FetchedText({
       )}
     </ScrollView>
   )
-}
+})
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },

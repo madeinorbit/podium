@@ -1,14 +1,15 @@
+import { issueAgentKind, issueAgentLabel, modelLabel } from '@podium/client-core/agent-models'
 import { useHarnessDescriptors } from '@podium/client-core/react'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
 import { sessionValues } from '@podium/client-core/session-values'
-import { isDraftAgentVessel, sessionTitle } from '@podium/client-core/values'
+import { isDraftAgentVessel, readoutModel, sessionTitle } from '@podium/client-core/values'
 import type { SessionId, WorkState } from '@podium/model'
 import { asSessionId, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model'
 import { isShortSessionIdentifier, issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { useCallback, useEffect, useState, type ComponentProps, type ReactNode } from 'react'
 import { observer } from 'mobx-react-lite'
-import type { IssueViewModel } from '@podium/client-core/replica'
-import type { SessionView } from '@podium/client-core/session-values'
+import { type ComponentProps, type ReactNode, useCallback, useEffect, useState } from 'react'
 import { useStoreActions } from '../client/hooks'
 import type { MobileTrpc } from '../client/trpc'
 import {
@@ -30,7 +31,6 @@ import { HeaderButton, Screen } from '../components/Screen'
 import { SessionConversation } from '../components/SessionConversation'
 import { EmptyState } from '../components/ui'
 import { WorkingMark } from '../components/WorkingMark'
-import { issueAgentKind, issueAgentLabel, modelLabel } from '@podium/client-core/agent-models'
 import { hasSessionBackTarget, sessionBackTarget, sessionHref } from '../lib/session-route'
 import { DELETE_TASK_TITLE, deleteTaskSubtitle } from '../lib/task-delete'
 import { useHeaderInset } from '../navigation/header-inset'
@@ -134,7 +134,6 @@ export function SessionScreen() {
   // the sentence must say so before anything is removed.
   const draftAgentCount = useSessionContextIssueAgentCount(issue?.id, confirmDeleteOpen)
 
-
   if (!sessionId || !session) {
     // A SESSION THAT IS NOT HERE IS THREE DIFFERENT FACTS (doc §3.1 ¶2).
     // Deleted, evicted from THIS principal's view (a share revoked, or never
@@ -166,7 +165,6 @@ export function SessionScreen() {
       </Screen>
     )
   }
-
 
   return (
     <SessionChrome
@@ -204,10 +202,16 @@ export function SessionScreen() {
         onInitialPendingSettled={settleOptimisticFirstPrompt}
         deferInitialTranscript={spawnPending}
       />
-      <SessionActionMenu session={session} issue={issue} open={menuOpen}
-        onClose={() => setMenuOpen(false)} nextSession={nextSession}
+      <SessionActionMenu
+        session={session}
+        issue={issue}
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        nextSession={nextSession}
         onFind={() => setFindRequest((request) => request + 1)}
-        onDelete={() => setConfirmDeleteOpen(true)} onWorkState={() => setWorkMenuOpen(true)} />
+        onDelete={() => setConfirmDeleteOpen(true)}
+        onWorkState={() => setWorkMenuOpen(true)}
+      />
       <ActionSheet
         visible={confirmDeleteOpen && draftAgentCount !== undefined}
         title={DELETE_TASK_TITLE}
@@ -249,104 +253,147 @@ function HeaderInsetConversation(props: ComponentProps<typeof SessionConversatio
   return <SessionConversation {...props} topInset={useHeaderInset()} />
 }
 
-const SessionChrome = observer(function SessionChrome({ issue, session, served, children, ...screen }: {
-  issue: IssueViewModel | undefined; session: SessionView;
-  served: ReturnType<typeof useHarnessDescriptors<MobileTrpc>>['served']; children: ReactNode
+const SessionChrome = observer(function SessionChrome({
+  issue,
+  session,
+  served,
+  children,
+  ...screen
+}: {
+  issue: IssueViewModel | undefined
+  session: SessionView
+  served: ReturnType<typeof useHarnessDescriptors<MobileTrpc>>['served']
+  children: ReactNode
 } & Omit<ComponentProps<typeof Screen>, 'title' | 'subtitle' | 'leading' | 'children'>) {
   const kind = issueAgentKind(session.agentKind)
-  const selectedModel = session.observedModel ?? session.model
+  const selectedModel = readoutModel(session)
   // Served descriptors for the session's machine (POD-4475): the harness
   // name and model render from the report, bundled copy offline.
   const provenance = `${issueAgentLabel(session.agentKind, served)}${kind && selectedModel ? ` · ${modelLabel(kind, selectedModel, undefined, served)}` : ''}`
 
-  return <Screen {...screen} title={issue?.title ?? sessionTitle(session)}
-    subtitle={`${issue ? `${issueDisplayRef(issue)}   ` : ''}${provenance}`}
-    leading={<HarnessChip kind={session.agentKind} size={20} descriptors={served} />}>{children}</Screen>
+  return (
+    <Screen
+      {...screen}
+      title={issue?.title ?? sessionTitle(session)}
+      subtitle={`${issue ? `${issueDisplayRef(issue)}   ` : ''}${provenance}`}
+      leading={<HarnessChip kind={session.agentKind} size={20} descriptors={served} />}
+    >
+      {children}
+    </Screen>
+  )
 })
 
-const SessionActionMenu = observer(function SessionActionMenu({ session, issue, open, onClose, nextSession, onFind, onDelete, onWorkState }: {
-  session: SessionView; issue: IssueViewModel | undefined; open: boolean; onClose: () => void;
-  nextSession: () => void; onFind: () => void; onDelete: () => void; onWorkState: () => void
+const SessionActionMenu = observer(function SessionActionMenu({
+  session,
+  issue,
+  open,
+  onClose,
+  nextSession,
+  onFind,
+  onDelete,
+  onWorkState,
+}: {
+  session: SessionView
+  issue: IssueViewModel | undefined
+  open: boolean
+  onClose: () => void
+  nextSession: () => void
+  onFind: () => void
+  onDelete: () => void
+  onWorkState: () => void
 }) {
   const store = useStoreActions()
-  const actions = open ? (() => {
-    if (!session) return []
-    // A DRAFT'S CHAT GETS A DRAFT'S MENU (2026-08-27 device review). A draft
-    // vessel has no worktree and no lifecycle yet — every session-scoped verb
-    // below (archive, work state, snooze, next session) manages work that does
-    // not exist. The one decision a draft supports is discarding it, so the
-    // sheet is exactly Delete plus the standard Cancel.
-    //
-    // DISCARDING IT IS A TASK DELETE, NOT A SESSION DELETE. `deleteIssue`
-    // tombstones the issue AND every member session, so this row must confirm
-    // first with the same cascade sentence the desktop's task menu uses —
-    // never silently from a session's own sheet.
-    if (issue && isDraftAgentVessel(issue, [session])) {
-      return [
-        {
-          label: 'Delete',
-          destructive: true,
-          onPress: onDelete,
-        },
-      ]
-    }
-    const actions: SheetAction[] = [
-      {
-        label: 'Find in transcript',
-        onPress: onFind,
-      },
-      ...(issue
-        ? [
+  const actions = open
+    ? (() => {
+        if (!session) return []
+        // A DRAFT'S CHAT GETS A DRAFT'S MENU (2026-08-27 device review). A draft
+        // vessel has no worktree and no lifecycle yet — every session-scoped verb
+        // below (archive, work state, snooze, next session) manages work that does
+        // not exist. The one decision a draft supports is discarding it, so the
+        // sheet is exactly Delete plus the standard Cancel.
+        //
+        // DISCARDING IT IS A TASK DELETE, NOT A SESSION DELETE. `deleteIssue`
+        // tombstones the issue AND every member session, so this row must confirm
+        // first with the same cascade sentence the desktop's task menu uses —
+        // never silently from a session's own sheet.
+        if (issue && isDraftAgentVessel(issue, [session])) {
+          return [
             {
-              label: issue.pinned ? 'Unpin' : 'Pin',
-              onPress: () => void store.updateIssue(issue.id, { pinned: !issue.pinned }),
+              label: 'Delete',
+              destructive: true,
+              onPress: onDelete,
             },
           ]
-        : []),
-      { label: 'Next session', hint: 'Jump to the next one waiting on you', onPress: nextSession },
-      {
-        label: session.archived ? 'Unarchive' : 'Archive',
-        onPress: () => void store.archiveSession(session.sessionId, !session.archived),
-      },
-      { label: 'Set work state…', onPress: onWorkState },
-      {
-        label: 'Snooze until next message',
-        onPress: () => void store.setSnooze(session.sessionId, null),
-      },
-      {
-        label: 'Snooze for 1 hour',
-        onPress: () => void store.setSnooze(session.sessionId, snoozeUntil1h(Date.now())),
-      },
-      {
-        label: 'Snooze until tomorrow',
-        onPress: () => void store.setSnooze(session.sessionId, snoozeUntilTomorrow5am(Date.now())),
-      },
-    ]
-    if (sessionValues(session).snoozedUntil !== undefined) {
-      actions.push({
-        label: 'Clear snooze',
-        onPress: () => void store.clearSnooze(session.sessionId),
-      })
-    }
-    if (session.agentState?.phase === 'errored') {
-      actions.push({
-        label: 'Continue after error',
-        onPress: () => void store.continueSession(session.sessionId),
-      })
-    }
-    if (
-      session.status === 'live' ||
-      session.status === 'starting' ||
-      session.status === 'reconnecting'
-    ) {
-      actions.push({
-        label: 'Kill session',
-        destructive: true,
-        onPress: () => void store.killSession(session.sessionId),
-      })
-    }
-    return actions
-
-  })() : []
-  return <ActionSheet visible={open} title={open ? sessionTitle(session) : ''} actions={actions} onClose={onClose} />
+        }
+        const actions: SheetAction[] = [
+          {
+            label: 'Find in transcript',
+            onPress: onFind,
+          },
+          ...(issue
+            ? [
+                {
+                  label: issue.pinned ? 'Unpin' : 'Pin',
+                  onPress: () => void store.updateIssue(issue.id, { pinned: !issue.pinned }),
+                },
+              ]
+            : []),
+          {
+            label: 'Next session',
+            hint: 'Jump to the next one waiting on you',
+            onPress: nextSession,
+          },
+          {
+            label: session.archived ? 'Unarchive' : 'Archive',
+            onPress: () => void store.archiveSession(session.sessionId, !session.archived),
+          },
+          { label: 'Set work state…', onPress: onWorkState },
+          {
+            label: 'Snooze until next message',
+            onPress: () => void store.setSnooze(session.sessionId, null),
+          },
+          {
+            label: 'Snooze for 1 hour',
+            onPress: () => void store.setSnooze(session.sessionId, snoozeUntil1h(Date.now())),
+          },
+          {
+            label: 'Snooze until tomorrow',
+            onPress: () =>
+              void store.setSnooze(session.sessionId, snoozeUntilTomorrow5am(Date.now())),
+          },
+        ]
+        if (sessionValues(session).snoozedUntil !== undefined) {
+          actions.push({
+            label: 'Clear snooze',
+            onPress: () => void store.clearSnooze(session.sessionId),
+          })
+        }
+        if (session.agentState?.phase === 'errored') {
+          actions.push({
+            label: 'Continue after error',
+            onPress: () => void store.continueSession(session.sessionId),
+          })
+        }
+        if (
+          session.status === 'live' ||
+          session.status === 'starting' ||
+          session.status === 'reconnecting'
+        ) {
+          actions.push({
+            label: 'Kill session',
+            destructive: true,
+            onPress: () => void store.killSession(session.sessionId),
+          })
+        }
+        return actions
+      })()
+    : []
+  return (
+    <ActionSheet
+      visible={open}
+      title={open ? sessionTitle(session) : ''}
+      actions={actions}
+      onClose={onClose}
+    />
+  )
 })

@@ -31,6 +31,7 @@ const seams = vi.hoisted(() => ({
   replace: vi.fn(),
   devices: [] as MobileClientSession[],
   reloadDevices: () => {},
+  readDevices: vi.fn(),
 }))
 vi.mock('../client/mobile-pool', async (importOriginal) => {
   const real = await importOriginal<typeof import('../client/mobile-pool')>()
@@ -84,7 +85,10 @@ vi.mock('../client/ServerProfileGate', () => ({
   }),
 }))
 vi.mock('../client/connected-devices-api', () => ({
-  readConnectedDevices: async () => seams.devices,
+  readConnectedDevices: async () => {
+    seams.readDevices()
+    return seams.devices
+  },
 }))
 vi.mock('../client/connected-devices', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../client/connected-devices')>()),
@@ -115,6 +119,7 @@ vi.mock('../components/Screen', () => ({
 vi.mock('../components/Icon', () => ({ Icon: () => null }))
 const { SettingsScreen, SettingsDevicesScreen, SettingsServersScreen, SettingsVersionScreen } =
   await import('./SettingsScreen')
+const { SettingsOpening } = await import('./settings-opening')
 const { createMobilePool, useMobilePool } = await import('../client/mobile-pool')
 
 beforeEach(() => {
@@ -187,7 +192,11 @@ async function mount(count = 8, scale?: number) {
     const [shown, setShown] = useState(true)
     show = setShown
     seen.push(useMobilePool())
-    return shown ? <MeasuredSettings /> : null
+    return shown ? (
+      <SettingsOpening>
+        <MeasuredSettings />
+      </SettingsOpening>
+    ) : null
   }
   function MeasuredSettings() {
     // The home screen and its three pushed screens, mounted together so one
@@ -408,4 +417,11 @@ it('keeps server controls and logout on their existing owners', async () => {
   ])
   expect(seams.switch).toHaveBeenCalledWith('other')
   expect(seams.rename).toHaveBeenCalledWith('phone', 'Renamed phone')
+})
+
+it('shares the device inventory between summary and detail and refreshes on demand', async () => {
+  await mount()
+  expect(seams.readDevices).toHaveBeenCalledTimes(1)
+  await act(async () => seams.reloadDevices())
+  expect(seams.readDevices).toHaveBeenCalledTimes(2)
 })

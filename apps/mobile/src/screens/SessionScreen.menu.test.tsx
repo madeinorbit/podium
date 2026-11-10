@@ -1,7 +1,7 @@
-import { omitGone } from '@podium/client-graph/lookup'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { chatContextReadStats } from '@podium/client-graph/chat-context'
+import { omitGone } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph/pool'
 /**
  * THE CHAT 3-DOTS, DRAFT VS ACTIVE (2026-08-27 device review).
@@ -503,4 +503,24 @@ describe('session menu snooze from the acting user home', () => {
     })
     expect(await screen.findByLabelText('Clear snooze')).toBeTruthy()
   })
+})
+
+it.each([
+  { requestedModel: 'claude-opus-4-6', observedModel: undefined, expected: 'claude-opus-4-6' },
+  {
+    requestedModel: 'claude-opus-4-6',
+    observedModel: 'claude-sonnet-4-6',
+    expected: 'claude-sonnet-4-6',
+  },
+])('uses shared model precedence in the session header: $expected', async ({
+  requestedModel,
+  observedModel,
+  expected,
+}) => {
+  await renderWithMobileStore(<SessionScreen />, {
+    sessions: [session({ model: 'claude-haiku-4-5', requestedModel, observedModel })],
+    issues: [vessel()],
+  })
+  expect(await screen.findByText(new RegExp(expected, 'i'))).toBeTruthy()
+  expect(screen.queryByText(/claude-haiku-4-5/i)).toBeNull()
 })

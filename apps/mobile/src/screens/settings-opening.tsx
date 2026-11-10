@@ -1,17 +1,21 @@
-import { createSettingsViews } from '@podium/client-graph/settings-views'
 import type { MobxPool } from '@podium/client-graph'
 import { useOpeningView } from '@podium/client-graph/react'
-import { createContext, useContext, type ReactNode } from 'react'
+import { SettingsDevices } from '@podium/client-graph/settings-devices'
+import { createSettingsViews } from '@podium/client-graph/settings-views'
+import { createContext, type ReactNode, useContext } from 'react'
 import { useMobilePool } from '../client/mobile-pool'
 import { createSettingsMachineReaders } from './settings-machine-readers'
 
 export function createMobileSettingsView(pool: MobxPool) {
   const settings = createSettingsViews(pool),
-    machines = createSettingsMachineReaders(pool)
+    machines = createSettingsMachineReaders(pool),
+    devices = new SettingsDevices(pool)
   return {
     settings,
     machines,
+    devices,
     dispose() {
+      devices.dispose()
       settings.dispose()
       machines.dispose()
     },

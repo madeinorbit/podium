@@ -1,13 +1,13 @@
 import type { ParsedEnvelope } from '@podium/client-core/values'
-import type { MobxPool } from './pool'
+import { MessageLedgerWire } from '@podium/model/browser'
+import { actionBound, observable, observableRef, runInAction } from 'mobx'
 import { here } from './lookup'
 import {
   type CurrentMessageRecord,
   confirmMessageReply,
   ingestLedgerMessages,
 } from './message-models'
-import { MessageLedgerWire } from '@podium/model/browser'
-import { actionBound, observable, observableRef, runInAction } from 'mobx'
+import type { MobxPool } from './pool'
 
 /** The existing endpoint returns an opaque JSON receipt through the mail router. */
 function readReceipt(value: unknown): { id: string; ok: boolean; acked: boolean; reason?: string } {
@@ -41,6 +41,7 @@ export class MailReply {
   @observable accessor sending = false
   @observable accessor error: string | null = null
   private generation = 0
+  private readonly reads = new Map<string, Promise<void>>()
   constructor(
     readonly pool: MobxPool,
     readonly api: MailReplyApi,
@@ -50,7 +51,14 @@ export class MailReply {
   message(id: string) {
     return here(this.pool.model('messageRecord', id))
   }
-  async load(id: string): Promise<void> {
+  load(id: string): Promise<void> {
+    const pending = this.reads.get(id)
+    if (pending) return pending
+    const read = this.readMessage(id).finally(() => this.reads.delete(id))
+    this.reads.set(id, read)
+    return read
+  }
+  private async readMessage(id: string): Promise<void> {
     const message = MessageLedgerWire.parse(await this.api.show(id))
     if (message.id !== id) throw new Error('The server returned a different note.')
     ingestLedgerMessages(this.pool, [message], this.current)

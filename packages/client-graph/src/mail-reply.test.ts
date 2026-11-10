@@ -1,10 +1,10 @@
 import type { ParsedEnvelope } from '@podium/client-core/values'
-import { MobxPool } from './pool'
-import { here } from './lookup'
-import { ingestLedgerMessages } from './message-models'
 import { asThreadId, type MessageLedgerWire } from '@podium/model/browser'
 import { expect, it, vi } from 'vitest'
+import { here } from './lookup'
 import { MailReply } from './mail-reply'
+import { ingestLedgerMessages } from './message-models'
+import { MobxPool } from './pool'
 
 const envelope = (id = 'ask'): ParsedEnvelope => ({
   id,
@@ -116,4 +116,46 @@ it('does not post blank, oversized, denied or mismatched notes', async () => {
   expect(await reply.send('answer')).toBe(false)
   expect(api.reply).not.toHaveBeenCalled()
   expect(reply.draft).toBe('Keep inbox reads separate.')
+})
+
+it('joins an expansion read while sending and still refreshes after it settles', async () => {
+  const { reply, api, pool } = fixture()
+  let finish!: (value: unknown) => void
+  api.show.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+  )
+  const expanded = reply.load('ask')
+  const sent = reply.send('Use this answer')
+  expect(api.show).toHaveBeenCalledTimes(1)
+  expect(api.reply).not.toHaveBeenCalled()
+  finish(mailWire())
+  await expanded
+  expect(await sent).toBe(true)
+  expect(api.reply).toHaveBeenCalledExactlyOnceWith('ask', 'Use this answer')
+  expect(here(pool.model('messageRecord', 'ask'))?.answered).toBe(true)
+  await reply.load('ask')
+  expect(api.show).toHaveBeenCalledTimes(2)
+})
+
+it('joins only the same note and permits retry after a failed expansion', async () => {
+  const { reply, api } = fixture()
+  let fail!: (error: Error) => void
+  api.show.mockImplementationOnce(
+    () =>
+      new Promise((_resolve, reject) => {
+        fail = reject
+      }),
+  )
+  const first = reply.load('ask')
+  expect(reply.load('ask')).toBe(first)
+  await reply.load('another')
+  expect(api.show.mock.calls.map(([id]) => id)).toEqual(['ask', 'another'])
+  const failure = expect(first).rejects.toThrow('offline')
+  fail(new Error('offline'))
+  await failure
+  await reply.load('ask')
+  expect(api.show).toHaveBeenCalledTimes(3)
 })

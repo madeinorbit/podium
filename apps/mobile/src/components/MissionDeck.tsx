@@ -281,17 +281,19 @@ const DeckRows = observer(function DeckRows({
     if (settled(() => task.kind) === 'phase') blocks.push({ phase: task, tasks: [] })
     else {
       const last = blocks[blocks.length - 1]
-      if (last) last.tasks.push(task)
-      else blocks.push({ phase: null, tasks: [task] })
+      const phaseId = settled(() => task.phaseId)
+      const phase = typeof phaseId === 'string' ? full.task(phaseId) : null
+      if (last && last.phase?.id === phase?.id) last.tasks.push(task)
+      else blocks.push({ phase, tasks: [task] })
     }
   }
   return (
     <>
-      {blocks.map(({ phase, tasks }, index) => (
-        <Fragment key={phase?.id ?? `loose-${index}`}>
+      {blocks.map(({ phase, tasks }) => (
+        <Fragment key={`${phase?.id ?? 'loose'}-${tasks[0]?.id ?? 'heading'}`}>
           {phase ? <PhaseHeading phase={phase} /> : null}
           {tasks.length > 0 ? (
-            <View style={styles.group}>
+            <View style={styles.group} testID={`deck-group-${phase?.id ?? 'loose'}`}>
               {tasks.map((task, row) => {
                 const shape = settled(() => ({
                   depth: task.depth,
@@ -386,6 +388,8 @@ const TaskLine = observer(function TaskLine({
     word: task.word,
     title: task.row.title,
     ref: task.row.displayRef,
+    foldable: task.foldable,
+    open: task.open,
   }))
   if (facts === LOADING) {
     return (
@@ -397,32 +401,48 @@ const TaskLine = observer(function TaskLine({
       </View>
     )
   }
-  const { word, title, ref } = facts
+  const { word, title, ref, foldable, open } = facts
   const blockers = word === 'blocked' ? settled(() => task.unmetBlockedByIds.length) : 0
   const label = taskWordText(word, blockers === LOADING ? 0 : blockers)
   return (
-    <PressableScale
-      accessibilityRole="button"
-      accessibilityLabel={`${ref} ${title}, ${label}`}
-      haptic={false}
-      scaleTo={1}
-      onPress={onPress}
-      onLongPress={onLongPress}
-      style={({ pressed }) => [styles.line, pressed && styles.pressed]}
-      testID="deck-task"
-    >
+    <View style={styles.line}>
       <View style={[styles.gutter, { marginLeft: indent * space.md }]}>
-        <WordGlyph word={word} />
+        {foldable ? (
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel={`${open ? 'Collapse' : 'Expand'} ${title}`}
+            accessibilityState={{ expanded: open }}
+            hitSlop={8}
+            onPress={() => task.deck.toggleFold(task.id)}
+          >
+            <Icon as={open ? ChevronDown : ChevronRight} size={16} color={color.textDim} />
+          </PressableScale>
+        ) : (
+          <WordGlyph word={word} />
+        )}
       </View>
-      <View style={[styles.lineBody, !first && styles.separated]}>
+      <PressableScale
+        accessibilityRole="button"
+        accessibilityLabel={`${ref} ${title}, ${label}`}
+        haptic={false}
+        scaleTo={1}
+        onPress={onPress}
+        onLongPress={onLongPress}
+        style={({ pressed }) => [
+          styles.lineBody,
+          !first && styles.separated,
+          pressed && styles.pressed,
+        ]}
+        testID="deck-task"
+      >
         <Text style={[styles.lineTitle, word === 'done' && styles.doneTitle]} numberOfLines={1}>
           {title}
         </Text>
         <Text style={[styles.word, wordTone(word)]} numberOfLines={1}>
           {label}
         </Text>
-      </View>
-    </PressableScale>
+      </PressableScale>
+    </View>
   )
 })
 
