@@ -1,6 +1,6 @@
 # People and sign-in: specification
 
-Status: written for review on 2026-11-10 (POD-6743). Nothing in it is built.
+Status: reviewed and accepted by the coordinator of PDM-107 on 2026-11-10, with one change that is made in this text (section 16, row 19). Nothing in it is built.
 It is the detailed reference for every task under "Shared sign-in core" (PDM-513). Where a task brief and this document disagree, the difference is listed in section 16 for the coordinator.
 
 | Written against | Commit |
@@ -617,7 +617,11 @@ Audit rows keep their command names and never hold a token or an address. They a
 ```ts
 export interface DeviceSignInOperations {
   listForAccount(accountId: string, current?: string): Promise<DeviceSignIn[]>
-  /** Ends one sign-in. byAccount: only when it belongs to that account. */
+  /**
+   * Ends one sign-in. byAccount: only when it belongs to that account.
+   * Without the guard it is an admin's act; a route may call it so only when
+   * the capability adminEndDeviceSignIn is true.
+   */
   revoke(id: string, guard?: { byAccount: string }): Promise<{ revoked: boolean; accountId: string | null }>
   revokeAllForAccount(accountId: string, except?: string): Promise<string[]>   // the ids ended
   /** Used by code redemption and by tests. Never reachable from a request without a code or a password. */
@@ -713,6 +717,8 @@ export interface Capabilities {
   sameMachineSignIn: boolean
   /** An admin may end every device sign-in of another member. */
   adminSignOutEverywhere: boolean
+  /** An admin may end one device sign-in of another member. */
+  adminEndDeviceSignIn: boolean
   /** Where a person signs in and manages their account when that is not this server. */
   accountUrl: string | null
 }
@@ -729,9 +735,10 @@ export interface Capabilities {
 | `organisations` | false | true | the organisation extension is present |
 | `sameMachineSignIn` | true | false | `sameMachine` |
 | `adminSignOutEverywhere` | true | false | `accounts` |
+| `adminEndDeviceSignIn` | true | false | `accounts` |
 | `accountUrl` | null | the account pages | `hosts` |
 
-The list is fixed for the life of a process. The server returns it in `GET /auth/status` as `capabilities`, to every caller, signed in or not; it holds no secret. `mode` and `signInUrl` leave that response. `adminSignOutEverywhere` is not in plan section 3; it is needed because plan section 5 forbids a hosted admin what a self-hosted admin does today (section 16).
+The list is fixed for the life of a process. The server returns it in `GET /auth/status` as `capabilities`, to every caller, signed in or not; it holds no secret. `mode` and `signInUrl` leave that response. `adminSignOutEverywhere` and `adminEndDeviceSignIn` are not in plan section 3. They are needed because a device sign-in in the cloud belongs to the person's account and serves their other workspaces too: a hosted admin's tools are disable and remove, and only the person ends their own sign-ins (plan section 5; coordinator's decision of 2026-11-10). A self-hosted admin keeps both, as today (section 16).
 
 ## 3. The seam between the hosted composition root and the server
 
@@ -804,10 +811,10 @@ The "confirm with your current password" check on role and credential changes st
 |---|---|---|
 | `GET /viewer` | Stays unchanged | POD-6747 |
 | `GET /access` | Stays for the admission facts: counts of invited, active and disabled memberships and of open and expired invitations, from the package. The `signIns` and `signInsTotal` fields move to the new route below | POD-6747 |
-| `POST /sign-ins/revoke` | Moves to `sign-in-routes.ts`, same path. `deviceSignIns.revoke(id)` for a sign-in of an account that is a member here; closes its sockets; audit `members.revokeSignIn` | POD-6748 |
+| `POST /sign-ins/revoke` | Moves to `sign-in-routes.ts`, same path. Refused with 403 unless `adminEndDeviceSignIn`, so it works on a self-hosted server and never in a hosted workspace. `deviceSignIns.revoke(id)` for a sign-in of an account that is a member here; closes its sockets; audit `members.revokeSignIn` | POD-6748 |
 | `GET /audit` | Stays unchanged | POD-6747 |
 | `/auth/admin` (mount) | Stays | POD-6747 |
-| new `GET /auth/admin/sign-ins` | In the new file `sign-in-routes.ts`: `workspace.listDeviceSignIns`, at most 200, with the total | POD-6748 |
+| new `GET /auth/admin/sign-ins` | In the new file `sign-in-routes.ts`: `workspace.listDeviceSignIns`, at most 200, with the total. Read-only, in both editions | POD-6748 |
 
 The split keeps the two tasks that run side by side out of each other's files: POD-6747 owns `admin-routes.ts`, POD-6748 owns the new `sign-in-routes.ts` and removes the sign-in block from `/access` in one small agreed edit (section 16).
 
@@ -1288,7 +1295,7 @@ In the cloud the per-identifier counter is per process, so an attacker who reach
 | 9 | POD-6752 Hand-written sign-in removal | what section 9 lists for it |
 | 3 (cloud side); the cloud configuration of 2.1; the Postgres leg from then on; memberships from existing cloud rows | PDM-495 Cloud memberships | podium-cloud `packages/platform`, `apps/hosted-server` |
 | 11 | PDM-509 Membership apply and revocation | podium-cloud, and the timer and cursor in `apps/server` behind the seam |
-| 12; the cloud capability list in use | PDM-510 Hosted people screens | podium-cloud `packages/platform` routes, `apps/app` |
+| 12; the cloud capability list in use. A person ends their own device sign-ins on their account page; a hosted admin ends none | PDM-510 Hosted people screens | podium-cloud `packages/platform` routes, `apps/app` |
 
 **Covered by no task brief.** Each is assigned above so that nothing is left over, and listed in section 16 so the coordinator can move it:
 
@@ -1338,7 +1345,7 @@ For the coordinator. None of these changes a goal; each changes who does somethi
 | 7 | POD-6747: "a host command that recovers the last admin"; POD-6748: "host recovery" becomes a one-time code | Two different things: the recovery link and `podium setup` password (POD-6747), and the host session of `podium auth mint-session` (POD-6748). Both edit `control-socket.ts`, in different routes | The briefs use one phrase for both |
 | 8 | POD-6747: "an admin-issued reset link … signs the member out of their other devices" | It ends every device sign-in of the account, including the one that may be using the link | That is today's behaviour of a recovery link, and the person redeeming it is not signed in |
 | 9 | POD-6748: "phone pairing becomes a one-time code" | The pairing ceremony (claim, three-word phrase, approval) is kept and stored in the code row | Dropping the approval would weaken pairing |
-| 10 | POD-6749: capability list "(password, Google and GitHub, self sign-up, invitation by link or mail, reset by admin link or mail, organisations, same-machine sign-in)" | Three more fields: `emailVerification` (plan section 3), `adminSignOutEverywhere`, `accountUrl` | Plan section 5 gives hosted and self-hosted admins different rights; the screens must not branch on a mode to show it |
+| 10 | POD-6749: capability list "(password, Google and GitHub, self sign-up, invitation by link or mail, reset by admin link or mail, organisations, same-machine sign-in)" | Four more fields: `emailVerification` (plan section 3), `adminSignOutEverywhere`, `adminEndDeviceSignIn`, `accountUrl` | Plan section 5 gives hosted and self-hosted admins different rights; the screens must not branch on a mode to show it |
 | 11 | POD-6750: "the migration from today's tables" | A boot step in the server, not SQL in a migration file (section 8.1) | Hosted databases run the same migrations and must not get local accounts |
 | 12 | POD-6750: "pending invitations reissued" | Carried with their token hashes; links already sent keep working | Same token format and hash on both sides |
 | 13 | Plan section 4: sign-in state "the same-machine rule … ends when a second member exists" | Also: sockets admitted by the rule are revalidated on the heartbeat and close within 15 seconds when a second member becomes active | Today such a socket is never checked again |
@@ -1347,15 +1354,16 @@ For the coordinator. None of these changes a goal; each changes who does somethi
 | 16 | PDM-495: "One device sign-in read and one membership read per request" | One statement for both | `resolve` is the package's own statement |
 | 17 | PDM-509: a podium-cloud task | The timer and the cursor are open-source code behind the seam | The server calls `catchUp`; podium-cloud cannot reach into it |
 | 18 | PDM-510 | Also removes `handoff.ts` and its table (section 12) | The hand-over becomes the shared code |
+| 19 | PDM-510: "Alice ends one of Bob's device sign-ins; that device is signed out, his other one is not", and "the device list and single sign-out reach the cloud device sign-ins" for an admin | Overridden. In a hosted workspace an admin ends no device sign-in of another person (`adminEndDeviceSignIn` is false); the Access screen lists them read-only. A person ends their own on their account page. POD-6748's line "An admin can end a single sign-in of Bob's" holds for a self-hosted server only | Coordinator's decision on review, 2026-11-10: those sign-ins belong to the person's cloud account and serve their other workspaces |
 
 ## 17. Product questions this document could not settle
 
-Each has a recommendation. Nothing an implementing task depends on waits for them: the document is written to the recommendation, and the place to change is named.
+Each had a recommendation. Their state after the coordinator's review of 2026-11-10 is given with each. Nothing an implementing task depends on waits for the two that are still open: the document is written to the recommendation, and the place to change is named.
 
-1. **Plain HTTP over a network.** The plan says self-hosting requires HTTPS. After the upgrade a server that people reach as `http://192.168.…` can no longer be used or signed in to; before, it could. The same happens to a server bound to a network address behind an HTTPS proxy on another machine when `PODIUM_TRUSTED_PROXY_HOPS` is not set, because the server then cannot know the connection was HTTPS. A proxy on the server's own machine is not affected (section 2.3). Recommendation: keep the decision, say it in the release notes, and have `podium setup` and the boot log say what to do (it already offers Tailscale Serve and a reverse proxy). If the user wants a grace period instead, it is one more row in the table of section 2.3.
-2. **Plain HTTP on the same machine.** The user allowed HTTP only for the all-in-one app's loopback connection. The server cannot tell the app from a browser or the `podium` command on the same machine, and the command's host session depends on it. Recommendation: accept plain HTTP on any same-machine connection, on every server, as section 2.3 states. The alternative, only on an all-in-one install, breaks `podium` commands against a standalone server on its own machine.
-3. **A first admin without an address in a team.** They sign in by leaving the email field empty (section 7.2), which the screen does not explain. Recommendation: when a second member is invited, the People screen asks such an admin to add an address first (the route exists: `auth.setEmail`). It is a screen change for POD-6749 and needs no server change.
-4. **Postgres unreachable for a long time in a hosted workspace.** Nobody can enter, and work already running continues with the rights its member had (section 11.3). Recommendation: keep it so; stopping every member's agents because the account database is down turns one outage into two. If the user wants a hard limit, it is a number in the catch-up timer: after N minutes without a successful run, the server refuses effects.
-5. **A disabled member's sign-ins.** Self-hosted, disabling ends the member's device sign-ins, as today; enabling them again does not bring those back. Hosted, the account's sign-ins are the person's own and survive, so enabling restores access at once. Recommendation: keep the difference; it follows from who owns the account (`accounts`), and the admin's stronger tool is `adminSignOutEverywhere` on a self-hosted server and removal in the cloud.
-6. **An admin ending one device sign-in in a hosted workspace.** The brief of PDM-510 allows it; that sign-in belongs to the person's cloud account and also serves their other workspaces. Recommendation: allow it as the brief says, and show on the Access screen that it signs the device out of Podium Cloud, not only of this workspace.
-7. **The host session on a server with several members.** `podium auth mint-session` is refused once a second member exists, today and here. The agents and scripts on such a host that used it need another way in. Recommendation: keep the refusal in this work; a host session bound to one named member is a separate decision.
+1. **Plain HTTP over a network. Awaiting the user.** The plan says self-hosting requires HTTPS. After the upgrade a server that people reach as `http://192.168.…` can no longer be used or signed in to; before, it could. The same happens to a server bound to a network address behind an HTTPS proxy on another machine when `PODIUM_TRUSTED_PROXY_HOPS` is not set, because the server then cannot know the connection was HTTPS. A proxy on the server's own machine is not affected (section 2.3). Recommendation: keep the decision, say it in the release notes, and have `podium setup` and the boot log say what to do (it already offers Tailscale Serve and a reverse proxy). If the user wants a grace period instead, it is one more row in the table of section 2.3.
+2. **Plain HTTP on the same machine. Awaiting the user.** The user allowed HTTP only for the all-in-one app's loopback connection. The server cannot tell the app from a browser or the `podium` command on the same machine, and the command's host session depends on it. Recommendation: accept plain HTTP on any same-machine connection, on every server, as section 2.3 states. The alternative, only on an all-in-one install, breaks `podium` commands against a standalone server on its own machine.
+3. **A first admin without an address in a team. Decided as recommended.** They sign in by leaving the email field empty (section 7.2), which the screen does not explain. When a second member is invited, the People screen asks such an admin to add an address first (the route exists: `auth.setEmail`). It is a screen change for POD-6749 and needs no server change.
+4. **Postgres unreachable for a long time in a hosted workspace. Decided as recommended.** Nobody can enter, and work already running continues with the rights its member had (section 11.3). There is no hard stop: stopping every member's agents because the account database is down would turn one outage into two.
+5. **A disabled member's sign-ins. Decided as recommended.** Self-hosted, disabling ends the member's device sign-ins, as today; enabling them again does not bring those back. Hosted, the account's sign-ins are the person's own and survive, so enabling restores access at once. The difference stays; it follows from who owns the account (`accounts`).
+6. **An admin ending one device sign-in in a hosted workspace. Decided against the recommendation.** The recommendation was to allow it as the brief of PDM-510 says. The decision: a hosted admin ends no device sign-in of another person; the sign-ins belong to the person's cloud account and serve their other workspaces, and the admin's tools are disable and remove. It is the capability `adminEndDeviceSignIn` (section 2.9) and row 19 of section 16.
+7. **The host session on a server with several members. Decided as recommended.** `podium auth mint-session` stays refused once a second member exists. A host session bound to one named member is a separate decision.
