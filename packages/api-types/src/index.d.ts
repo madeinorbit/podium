@@ -1,6 +1,6 @@
 // Generated from apps/server/src/router.ts. Run bun run api:types. Do not edit.
 import * as _podium_model from '@podium/model';
-import { MachineId, IssueId, UserId, IssueJoinVia, ArtifactId, SessionId, UsageBucketWire, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentKind, AccountId, AgentPhase } from '@podium/model';
+import { MachineId, IssueId, UserId, IssueJoinVia, ArtifactId, SessionId, UserRole, UsageBucketWire, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentKind, AccountId, AgentPhase } from '@podium/model';
 import { z } from 'zod';
 import * as Protocol from '@podium/protocol';
 import { ModelChoiceWire, ConvergenceState, MobileWebIdentity } from '@podium/protocol';
@@ -879,6 +879,18 @@ type LogsSetDaemonLevelInput = z.infer<typeof logsSetDaemonLevelInput>;
  *   - `spawning`    a wake spawned a fresh agent to receive it;
  *   - `dead_letter` the target was gone; NOT delivered. */
 type SendDisposition = 'delivered' | 'queued' | 'held' | 'spawning' | 'dead_letter';
+
+interface UserAccountRow {
+    id: string;
+    displayName: string;
+    email: string | null;
+    accountId?: string | null;
+    avatar?: string | null;
+    role: UserRole;
+    createdAt: string;
+    /** ADR 9's disable-before-remove. A disabled account is not an actor. */
+    disabledAt: string | null;
+}
 
 /**
  * ONE ACCOUNT'S TOKEN USAGE: the hour×model buckets for the last 7 days,
@@ -2770,16 +2782,6 @@ type Output_agentProfiles_show = {
     updatedAt: string;
 } & {
     machineName: null | string;
-};
-type Output_auth_profile = {
-    accountId?: null | string | undefined;
-    avatar?: null | string | undefined;
-    createdAt: string;
-    disabledAt: null | string;
-    displayName: string;
-    email: null | string;
-    id: string;
-    role: "admin" | "member";
 };
 type Output_auth_status = {
     canManageInstance: boolean;
@@ -6492,7 +6494,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             input: (undefined) | ({
                 [k: string]: unknown;
             } & {});
-            output: Output_auth_profile;
+            output: UserAccountRow;
             meta: unknown;
         }>;
         "setDisplayName": TRPC.TRPCMutationProcedure<{
@@ -8264,6 +8266,16 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         "setSecret": TRPC.TRPCMutationProcedure<{
             input: Input_settings_setSecret;
             output: _podium_model.SecretPresenceWire;
+            meta: unknown;
+        }>;
+        "telegramBotPresence": TRPC.TRPCQueryProcedure<{
+            input: {};
+            output: (false) | (true);
+            meta: unknown;
+        }>;
+        "telegramDisconnect": TRPC.TRPCMutationProcedure<{
+            input: {};
+            output: void;
             meta: unknown;
         }>;
         "telegramSetupPoll": TRPC.TRPCMutationProcedure<{
