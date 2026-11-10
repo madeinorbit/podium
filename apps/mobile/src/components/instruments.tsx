@@ -1,223 +1,270 @@
-import { StyleSheet, Text, View } from 'react-native'
-import { color, font, mono, monoLabel, space } from '../theme/theme'
+import type { ReactNode } from 'react'
+import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { color, font, sans, space } from '../theme/theme'
+import { Icon } from './Icon'
+import { ChevronDown, ChevronRight } from './icons'
 
 /**
- * READOUTS AND RAILS — the machine-voice primitives [POD-662].
+ * Pulse's instrument pieces, drawn to the iOS redesign boards [POD-2379].
  *
- * Deliberately NOT cards. A same-size bordered tile carrying a big number over
- * a small label is the SaaS-dashboard cliché PRODUCT.md names as an
- * anti-reference, and the desktop instrument well already settled the
- * alternative: a mono micro-label, a tabular figure, a thin rail, divided by a
- * hairline rather than boxed. These are that grammar, sized for a thumb.
+ * One 4pt grid: screen margin 16, card inset 12, card radius 8, inner radius
+ * 1–4. Data marks are the label colour (ink), not a hue: colour is spent only
+ * on what wants attention — the signal for a window that is out, red for a
+ * machine that is full.
  */
 
-export type MeterTone = 'ok' | 'warn' | 'crit'
+/** The board's card corner. Our own surface, so the redesign's 8, not a system shape. */
+export const CARD_RADIUS = 8
+/** Card content inset. */
+export const CARD_INSET = space.md
+
+export type MeterTone = 'ink' | 'signal' | 'crit'
 
 const METER_FILL: Record<MeterTone, string> = {
-  // Blue is calm liveness, and a meter with room left is not asking anything.
-  ok: color.success,
-  // The accent is The Signal Rule's "this wants a decision from you" — which is
-  // exactly what a window about to run out is saying.
-  warn: color.accent,
+  ink: color.text,
+  signal: color.accent,
   crit: color.danger,
 }
 
 /**
- * A filled rail, optionally marked with the point where something intervenes.
- *
- * The marker is the whole reason the rail is readable: filled against a
- * notional 100% it only says "some", while against the auto-park threshold or
- * the elapsed share of the window it predicts what is about to happen.
- *
- * It stands PROUD of the rail at both ends, as the desktop's tick does, because
- * the reading that matters most is fill past the mark — and a tick flush with
- * the rail disappears into the fill exactly when it is telling you something.
+ * A 4pt rail filled to `pct`, optionally ticked where something intervenes —
+ * the elapsed share of a quota window, so fill PAST the tick means the window
+ * is being spent faster than it runs out. The tick stands proud of the rail so
+ * it stays visible exactly when the fill has reached it.
  */
 export function Meter({
   pct,
-  tone = 'ok',
+  tone = 'ink',
   marker,
-  markerLabel,
+  muted = false,
 }: {
   pct: number
   tone?: MeterTone
-  /** 0–100 position of the intervention tick, if the reading has one. */
+  /** 0–100 position of the pace tick. */
   marker?: number | null
-  markerLabel?: string
+  /** A share bar (models, projects) rather than a gauge: quieter fill. */
+  muted?: boolean
 }) {
   const width = Math.min(100, Math.max(0, pct))
   return (
-    // The tick sits OUTSIDE the clipped rail so its overhang survives.
-    <View style={styles.railWrap}>
-      <View style={styles.rail}>
+    <View style={styles.meterWrap}>
+      <View style={[styles.meter, muted && styles.meterMuted]}>
         <View
-          style={[styles.railFill, { width: `${width}%`, backgroundColor: METER_FILL[tone] }]}
+          style={[
+            styles.meterFill,
+            muted
+              ? styles.meterFillMuted
+              : { backgroundColor: METER_FILL[tone], opacity: tone === 'ink' ? 0.8 : 1 },
+            { width: `${width}%` },
+          ]}
         />
       </View>
       {marker != null ? (
         <View
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
-          accessibilityLabel={markerLabel}
-          style={[styles.railMark, { left: `${Math.min(99, Math.max(1, marker))}%` }]}
+          style={[styles.tick, { left: `${Math.min(99.5, Math.max(0, marker))}%` }]}
         />
-      ) : null}
-    </View>
-  )
-}
-
-/** Mono label left, tabular figure right — one line of the instrument well. */
-export function Readout({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.readout}>
-      <Text style={styles.readoutLabel} numberOfLines={1}>
-        {label}
-      </Text>
-      <Text style={styles.readoutValue} numberOfLines={1}>
-        {value}
-      </Text>
-    </View>
-  )
-}
-
-/** The dim mono line under a rail: what it is, and when it turns over. */
-export function SubReadout({ left, right }: { left: string; right?: string }) {
-  return (
-    <View style={styles.sub}>
-      <Text style={styles.subText} numberOfLines={1}>
-        {left}
-      </Text>
-      {right ? (
-        <Text style={[styles.subText, styles.subRight]} numberOfLines={1}>
-          {right}
-        </Text>
       ) : null}
     </View>
   )
 }
 
 /**
- * A run of bars over a baseline, with recessive gridlines.
- *
- * NO NUMBER ON EVERY BAR — that is the habit that turns a chart back into a
- * table, and at this width most bars have nowhere to put one. Proportion is
- * what a bar chart says; the peak is called out in the heading instead.
- *
- * Bars are DATA and read calm blue: bisque is reserved for what is asking
- * something of you, and a spend history asks nothing.
+ * An hourly cost trace: one bar per hour slot, scaled against its own peak.
+ * Future slots (the rest of today) are not bars; they are one shaded run at
+ * the right edge, so "not yet" never reads as "nothing". Day boundaries get a
+ * recessive gridline when `dayEvery` is set.
  */
-export function BarTrace({
-  values,
-  height,
-  gridlines = 0,
+export function HourTrace({
+  slots,
+  height = 56,
+  dayEvery,
   label,
 }: {
-  /** Raw magnitudes, oldest first. Scaled here against their own peak. */
-  values: readonly number[]
-  height: number
-  /** Interior lines, evenly spaced. Three is already denser than a phone needs. */
-  gridlines?: number
+  slots: readonly { costUsd: number; future: boolean }[]
+  height?: number
+  /** Slots per day, for the day gridlines; omit for a short trace. */
+  dayEvery?: number
   label: string
 }) {
-  const peak = Math.max(0, ...values)
+  const peak = Math.max(0, ...slots.map((s) => (s.future ? 0 : s.costUsd)))
+  const firstFuture = slots.findIndex((s) => s.future)
+  const pastCount = firstFuture === -1 ? slots.length : firstFuture
+  const past = slots.slice(0, pastCount)
+  const futureShare = slots.length > 0 ? (slots.length - pastCount) / slots.length : 0
+  const gaps = slots.length > 24 ? 0.5 : 2
   return (
     <View style={[styles.trace, { height }]} accessibilityRole="image" accessibilityLabel={label}>
-      {Array.from({ length: gridlines }, (_, i) => ((i + 1) / (gridlines + 1)) * 100).map(
-        (bottom) => (
-          <View key={bottom} style={[styles.gridline, { bottom: `${bottom}%` }]} />
-        ),
-      )}
-      {values.map((v, i) => (
-        <View
-          // The series is a fixed-length window of slots, so the index IS the
-          // identity: slot 3 is the same slot on every render.
-          // biome-ignore lint/suspicious/noArrayIndexKey: positional series
-          key={i}
-          style={[
-            styles.bar,
-            // A zero slot keeps a hairline of presence rather than vanishing:
-            // an absent bar and a quiet one are different facts.
-            { height: `${peak > 0 ? Math.max(1.5, (v / peak) * 100) : 1.5}%` },
-          ]}
-        />
-      ))}
+      {dayEvery && slots.length > dayEvery
+        ? Array.from({ length: Math.floor((slots.length - 1) / dayEvery) }, (_, i) => (
+            <View
+              key={`grid-${i + 1}`}
+              style={[styles.gridline, { left: `${(((i + 1) * dayEvery) / slots.length) * 100}%` }]}
+            />
+          ))
+        : null}
+      <View style={[styles.bars, { gap: gaps, flex: 1 - futureShare }]}>
+        {past.map((slot, i) => (
+          <View
+            // A fixed run of hour slots: the index is the slot's identity.
+            // biome-ignore lint/suspicious/noArrayIndexKey: positional series
+            key={i}
+            style={styles.barSlot}
+          >
+            {slot.costUsd > 0 && peak > 0 ? (
+              <View
+                style={[
+                  styles.bar,
+                  { height: `${Math.max(3, (slot.costUsd / peak) * 100)}%` },
+                  slots.length <= 24 && styles.barWide,
+                ]}
+              />
+            ) : null}
+          </View>
+        ))}
+      </View>
+      {futureShare > 0 ? <View style={[styles.future, { flex: futureShare }]} /> : null}
     </View>
   )
 }
 
+/**
+ * The grouped card every Pulse section sits in.
+ */
+export function Card({ children }: { children: ReactNode }) {
+  return <View style={styles.card}>{children}</View>
+}
+
+/**
+ * A section name on the card's own axis, with a disclosure chevron. The whole
+ * row toggles, as in Mail's mailbox groups; `trailing` carries a quiet note.
+ */
+export function SectionHeader({
+  title,
+  open,
+  onToggle,
+  trailing,
+}: {
+  title: string
+  open: boolean
+  onToggle: () => void
+  trailing?: string
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ expanded: open }}
+      aria-expanded={open}
+      accessibilityLabel={`${title}, ${open ? 'expanded' : 'collapsed'}`}
+      onPress={onToggle}
+      style={styles.section}
+    >
+      <Icon as={open ? ChevronDown : ChevronRight} size={12} color={color.textFaint} />
+      <Text style={styles.sectionTitle} numberOfLines={1}>
+        {title}
+      </Text>
+      {trailing ? (
+        <Text style={styles.sectionTrailing} numberOfLines={1}>
+          {trailing}
+        </Text>
+      ) : null}
+    </Pressable>
+  )
+}
+
+/** Hairline between rows inside a card, starting at the card inset. */
+export const rowDivider = {
+  borderTopWidth: StyleSheet.hairlineWidth,
+  borderTopColor: color.hairline,
+} as const
+
 const styles = StyleSheet.create({
-  railWrap: {
+  meterWrap: {
     position: 'relative',
-    marginTop: 9,
+    justifyContent: 'center',
   },
-  rail: {
+  meter: {
     height: 4,
-    borderRadius: 3,
-    backgroundColor: color.surfaceHigh,
+    borderRadius: 1,
+    backgroundColor: color.fill,
     overflow: 'hidden',
   },
-  railFill: {
+  meterMuted: {
+    backgroundColor: color.tertiaryFill,
+  },
+  meterFill: {
     height: '100%',
-    borderRadius: 3,
   },
-  railMark: {
+  meterFillMuted: {
+    backgroundColor: color.textDim,
+  },
+  tick: {
     position: 'absolute',
-    top: -2.5,
-    bottom: -2.5,
+    top: -2,
+    bottom: -2,
     width: 1,
-    backgroundColor: color.textFaint,
-  },
-  readout: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    gap: space.md,
-  },
-  readoutLabel: {
-    ...monoLabel(),
-    color: color.label,
-    flexShrink: 1,
-  },
-  readoutValue: {
-    ...mono(600),
-    color: color.body,
-    fontSize: font.micro,
-  },
-  sub: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: space.sm,
-    marginTop: 7,
-  },
-  subText: {
-    ...mono(400),
-    color: color.textFaint,
-    fontSize: font.micro,
-    flexShrink: 1,
-  },
-  subRight: {
-    textAlign: 'right',
+    backgroundColor: color.textDim,
   },
   trace: {
     position: 'relative',
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 2,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: color.border,
+    alignItems: 'stretch',
   },
   gridline: {
     position: 'absolute',
-    left: 0,
-    right: 0,
-    height: StyleSheet.hairlineWidth,
+    top: 0,
+    bottom: 0,
+    width: StyleSheet.hairlineWidth,
     backgroundColor: color.hairline,
   },
-  bar: {
+  bars: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  barSlot: {
     flex: 1,
-    minHeight: 2,
-    backgroundColor: color.working,
-    borderTopLeftRadius: 1,
-    borderTopRightRadius: 1,
+    justifyContent: 'flex-end',
+  },
+  bar: {
+    width: '100%',
+    backgroundColor: color.text,
+    opacity: 0.78,
+    borderTopLeftRadius: 0.5,
+    borderTopRightRadius: 0.5,
+  },
+  barWide: {
+    borderTopLeftRadius: 2,
+    borderTopRightRadius: 2,
+  },
+  future: {
+    backgroundColor: color.tertiaryFill,
+  },
+  card: {
+    backgroundColor: color.card,
+    borderRadius: CARD_RADIUS,
+    overflow: 'hidden',
+  },
+  section: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    minHeight: 28,
+    marginTop: space.lg,
+    marginBottom: space.xs,
+    paddingHorizontal: CARD_INSET,
+  },
+  sectionTitle: {
+    ...sans(600),
+    flex: 1,
+    color: color.textDim,
+    fontSize: font.tiny,
+    lineHeight: 16,
+  },
+  sectionTrailing: {
+    ...sans(400),
+    color: color.textFaint,
+    fontSize: 12,
+    lineHeight: 16,
   },
 })

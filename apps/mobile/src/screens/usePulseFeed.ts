@@ -5,6 +5,7 @@ import type {
   MachineQuotaWire,
   MachineWire,
   QuotaWindowHistoryWire,
+  TaskCostRowWire,
   UsageBucketWire,
 } from '@podium/model'
 import type { HostMemoryBreakdown } from '@podium/protocol'
@@ -65,6 +66,7 @@ interface PulseCache {
   quota: MachineQuotaWire[]
   buckets: UsageBucketWire[]
   history: QuotaWindowHistoryWire[]
+  taskCosts: TaskCostRowWire[] | null
   capacityReadings: MachineCapacityReadings
   loadPerCore: number | null
   fetchedAt: number
@@ -82,6 +84,9 @@ export interface PulseFeed {
   quota: MachineQuotaWire[] | null
   buckets: UsageBucketWire[] | null
   history: QuotaWindowHistoryWire[] | null
+  /** The desktop's `cost.tasks` rows (useTaskCosts.ts), unpriced. Null until
+   *  the first answer; a failed read keeps the last rows. */
+  taskCosts: TaskCostRowWire[] | null
   /** Streamed, so never cold in the way the polled pair is. */
   hosts: readonly HostMetricsWire[]
   /** The same per-principal projection the desktop machine surface receives. */
@@ -114,6 +119,7 @@ export function usePulseFeed(): PulseFeed {
     quota: MachineQuotaWire[] | null
     buckets: UsageBucketWire[] | null
     history: QuotaWindowHistoryWire[] | null
+    taskCosts: TaskCostRowWire[] | null
     capacityReadings: MachineCapacityReadings
     loadPerCore: number | null
     fetchedAt: number | null
@@ -124,6 +130,7 @@ export function usePulseFeed(): PulseFeed {
     quota: cached?.quota ?? null,
     buckets: cached?.buckets ?? null,
     history: cached?.history ?? null,
+    taskCosts: cached?.taskCosts ?? null,
     capacityReadings: cached?.capacityReadings ?? {},
     loadPerCore: cached?.loadPerCore ?? null,
     fetchedAt: cached?.fetchedAt ?? null,
@@ -155,6 +162,7 @@ export function usePulseFeed(): PulseFeed {
           quota: prior?.quota ?? [],
           buckets: prior?.buckets ?? [],
           history: prior?.history ?? [],
+          taskCosts: prior?.taskCosts ?? null,
           capacityReadings: prior?.capacityReadings ?? {},
           loadPerCore: prior?.loadPerCore ?? null,
           fetchedAt: prior?.fetchedAt ?? Date.now(),
@@ -220,6 +228,22 @@ export function usePulseFeed(): PulseFeed {
         )
       }
 
+      // TOP TASKS [POD-2379]. The same existing `cost.tasks` read the desktop's
+      // by-task section polls (useTaskCosts.ts); its rows are written by the
+      // usage harvest, so it rides the usage poll here rather than a cadence of
+      // its own. Best-effort: a failure keeps the last rows on screen.
+      const loadTaskCosts = (): void => {
+        void trpc.cost.tasks.query().then(
+          (taskCosts) => {
+            updateCache({ taskCosts })
+            if (!cancelled) {
+              setAnswer((current) => ({ ...current, profileKey, taskCosts }))
+            }
+          },
+          () => {},
+        )
+      }
+
       const runBreakdowns = (force: boolean): Promise<void> => {
         if (cancelled) return Promise.resolve()
         const views = machineViewsFromWire(machines)
@@ -259,6 +283,7 @@ export function usePulseFeed(): PulseFeed {
                   quota: null,
                   buckets: null,
                   history: null,
+                  taskCosts: null,
                   capacityReadings: {},
                 }),
             capacityReadings: started,
@@ -309,12 +334,16 @@ export function usePulseFeed(): PulseFeed {
 
       const load = (forceCapacity = false): void => {
         loadReadings()
+        loadTaskCosts()
         loadHistory()
         loadBreakdowns(forceCapacity)
       }
       loadRef.current = () => load(true)
       load()
-      const poll = setInterval(loadReadings, REFRESH_MS)
+      const poll = setInterval(() => {
+        loadReadings()
+        loadTaskCosts()
+      }, REFRESH_MS)
       return () => {
         cancelled = true
         loadRef.current = () => {}
@@ -328,6 +357,7 @@ export function usePulseFeed(): PulseFeed {
       quota: DEMO_QUOTA,
       buckets: DEMO_USAGE_BUCKETS,
       history: DEMO_QUOTA_HISTORY,
+      taskCosts: [],
       hosts: DEMO_HOST_METRICS,
       machines: DEMO_MACHINES,
       capacityReadings: Object.fromEntries(
@@ -350,6 +380,7 @@ export function usePulseFeed(): PulseFeed {
       quota: null,
       buckets: null,
       history: null,
+      taskCosts: null,
       hosts: hostMetrics,
       machines,
       capacityReadings: {},
