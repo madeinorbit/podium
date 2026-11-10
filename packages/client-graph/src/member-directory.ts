@@ -5,6 +5,7 @@ import { here } from './lookup'
 import type { MobxPool, PoolRows } from './pool'
 import { RequestAnswer } from './request-answer'
 import { ingestRequested } from './requested-records'
+import type { MemberRosterAnswer } from './member-roster'
 
 export interface MemberDirectoryAnswer {
   members: MemberView[]
@@ -28,7 +29,7 @@ export class MemberDirectory extends RequestAnswer<Directory> {
   constructor(private readonly pool: MobxPool) {
     super()
   }
-  @action read(read: () => Promise<MemberDirectoryAnswer>): Promise<void> {
+  @action read(read: () => Promise<MemberDirectoryAnswer | MemberRosterAnswer>): Promise<void> {
     return this.load(read, false, ({ members, ...answer }) => {
       const memberIds = ingestRequested(
         this.pool,
@@ -43,7 +44,14 @@ export class MemberDirectory extends RequestAnswer<Directory> {
           type: 'update',
           rows: removed.map((id) => ({ kind: 'member', id, value: undefined })),
         })
-      return { ...answer, memberIds }
+      return {
+        memberIds,
+        currentMemberId: answer.currentMemberId,
+        invites: 'invites' in answer ? answer.invites : [],
+        mailAvailable: 'mailAvailable' in answer && answer.mailAvailable,
+        hasOwnCredential: 'hasOwnCredential' in answer ? answer.hasOwnCredential : false,
+        actions: 'actions' in answer ? answer.actions : undefined,
+      }
     })
   }
 
