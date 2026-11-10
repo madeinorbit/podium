@@ -7,8 +7,8 @@
  * more, but one `instancePreferences` record on the feed, which every member of
  * the instance receives (`deployment-substrate`) and an app keeps offline.
  *
- *  - THE FEED CAPTURE. Every write of the settings blob hands the new blob to
- *    {@link makeInstancePreferencesFeedCapture} inside its own transaction
+ *  - THE FEED CAPTURE. Every write of the settings blob runs inside
+ *    {@link makeInstancePreferencesFeedCapture}, in its own transaction
  *    (`SettingsRepository.setSettings`), so the record follows the row whoever
  *    moved it: an admin's edit, a deployment write (the update channel, the
  *    telemetry consent, the login policy, even from a plain command: the record
@@ -39,8 +39,7 @@ import {
   type UserId,
   type UserRole,
 } from '@podium/model'
-import type { PodiumSettings } from '@podium/runtime'
-import type { EntityChangeSpec, LedgerWriter } from '@podium/sync'
+import type { LedgerWriter } from '@podium/sync'
 import { z } from 'zod'
 import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import { asSystemWrite } from '../../plain-command-scope'
@@ -52,19 +51,9 @@ import { NO_TARGET, type SyncWriteRegistry } from '../sync-write/registry'
 import { INSTANCE_PREFERENCES_EDIT, redactErrorMessage } from './audit'
 import { SettingsPatchRefused, type SettingsService } from './service'
 
-/** The record's change entry: the instance's leaves, whole (the log stores whole rows). */
-export function instancePreferencesChangeOf(settings: PodiumSettings): EntityChangeSpec {
-  return {
-    entity: 'instancePreferences',
-    id: INSTANCE_PREFERENCES_ROW_ID,
-    op: 'upsert',
-    value: instancePreferencesRecordOf(settings),
-  }
-}
-
-/** The capture installed on the repository: the record of each blob it writes. */
+/** The capture installed on the repository: each blob write runs inside it. */
 export function makeInstancePreferencesFeedCapture(
-  ledger: Pick<LedgerWriter, 'capture'>,
+  ledger: Pick<LedgerWriter, 'commit'>,
 ): InstancePreferencesFeedCapture {
   // A SYSTEM WRITE (ADR 12 D2), as the machine display projection is: the
   // record is the server's own derivation of the stored blob, republished
@@ -72,8 +61,18 @@ export function makeInstancePreferencesFeedCapture(
   // writes the blob (`setup.setChannel`, `telemetry.set`, the login policy's
   // open mode). Inside a sync command the change keeps that command's
   // provenance, which is a separate context.
-  return async (settings) => {
-    await asSystemWrite(async () => await ledger.capture([instancePreferencesChangeOf(settings)]))
+  //
+  // COMPARE AT SAVE (POD-6769): the commit names the one record and runs the
+  // blob write; the Authority builds the record from the stored blob before
+  // and after it, and appends it when it differs.
+  return async (write) => {
+    await asSystemWrite(
+      async () =>
+        await ledger.commit({
+          affects: [{ entity: 'instancePreferences', id: INSTANCE_PREFERENCES_ROW_ID }],
+          write: async () => await write(),
+        }),
+    )
   }
 }
 

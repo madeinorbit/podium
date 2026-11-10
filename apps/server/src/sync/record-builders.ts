@@ -327,15 +327,23 @@ const issueUserState: Builder = {
   async build({ store }, ids) {
     const pairs = parsed(ids, parseIssueUserStateRowId)
     const out: BuiltRecord[] = []
-    // Keyed by issue; one person per issue in each batch, so ask per person.
     const byUser = new Map<UserId, string[]>()
     for (const pair of pairs) {
       const list = byUser.get(pair.userId) ?? []
       list.push(pair.entityId)
       byUser.set(pair.userId, list)
     }
-    for (const [userId, issueIds] of byUser) {
-      for (const [issueId, state] of await store.issues.loadIssueUserStates(userId, issueIds)) {
+    // Asked together, so the people's rows are one batched read (the
+    // repository's loader joins loads asked in the same tick): an issue write
+    // names every member's record of the issue (POD-6769).
+    const loaded = await Promise.all(
+      [...byUser].map(
+        async ([userId, issueIds]) =>
+          [userId, await store.issues.loadIssueUserStates(userId, issueIds)] as const,
+      ),
+    )
+    for (const [userId, states] of loaded) {
+      for (const [issueId, state] of states) {
         if (state === undefined) continue
         const value = issueUserStateToWire({ userId, entityId: issueId as never, ...state })
         out.push({ id: issueUserStateRowId(userId, issueId as never), value })

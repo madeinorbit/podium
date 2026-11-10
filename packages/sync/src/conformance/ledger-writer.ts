@@ -83,7 +83,21 @@ export function authorityCommitWriter(
   return {
     commit: async <T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>> => {
       const declare = op.changes
+      const creates = op.creates
+      const wrote = op.wrote
       const outcome = await authority.commit<T>({
+        ...(wrote === undefined
+          ? {}
+          : {
+              wrote: async (result: T) =>
+                (await wrote(result)).map(({ id, ...rest }) => ({ ...rest, entityId: id })),
+            }),
+        ...(creates === undefined
+          ? {}
+          : {
+              creates: async (result: T) =>
+                (await creates(result)).map(({ id, ...rest }) => ({ ...rest, entityId: id })),
+            }),
         ...(op.affects === undefined ? {} : { affects: toKernelAffects(op.affects) }),
         write: async () => await op.write(fixtureWriteScope()),
         ...(declare === undefined

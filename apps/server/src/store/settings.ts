@@ -95,10 +95,11 @@ const upsertMeta = prepared((db: StoreDrizzle) =>
 )
 
 /**
- * Hands the blob a write is storing to the feed inside that write's transaction
- * (POD-6677): the `instancePreferences` feed capture.
+ * Runs the blob write for the feed, inside that write's transaction (POD-6677):
+ * the `instancePreferences` feed capture. It is handed the write itself, so the
+ * record can be built before it and again after it (compare at save, POD-6769).
  */
-export type InstancePreferencesFeedCapture = (settings: PodiumSettings) => Promise<void>
+export type InstancePreferencesFeedCapture = (write: () => Promise<void>) => Promise<void>
 
 export class SettingsRepository {
   private committed = normalizeSettings(undefined)
@@ -278,18 +279,21 @@ export class SettingsRepository {
 
   /**
    * THE ONE BLOB WRITE (POD-6677). `meta['settings']` is the home of the synced
-   * `instancePreferences` record: the write hands the blob to the feed capture
-   * in the same transaction, so the record reaches every member's devices from
+   * `instancePreferences` record: the write runs through the feed capture in
+   * the same transaction, so the record reaches every member's devices from
    * the write path, whoever wrote it, and the row and the change log commit or
    * roll back together.
    */
   async setSettings(settings: PodiumSettings): Promise<void> {
     const next = normalizeSettings(settings)
     await this.createOrJoinTransaction(async () => {
-      await this.writeMeta('settings', JSON.stringify(next))
-      this.settingsWritten()
+      const write = async (): Promise<void> => {
+        await this.writeMeta('settings', JSON.stringify(next))
+        this.settingsWritten()
+      }
       const capture = this.instanceFeedCapture
-      if (capture !== undefined) await capture(next)
+      if (capture === undefined) await write()
+      else await capture(write)
       applyAfterCommit(() => {
         this.committed = next
       }, 'settings-snapshot')

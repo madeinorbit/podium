@@ -21,7 +21,9 @@ import type { ChangeLogReadRow } from './change-lifecycle'
 import type { RecordSourcePort } from './ports'
 
 /** The kinds this file treats as moved. `session` stays on the old compare. */
-const MOVED: readonly MetadataEntityKind[] = ['userLayout', 'pin']
+const MOVED: readonly MetadataEntityKind[] = ['userLayout', 'pin', 'workflowRun']
+/** The closed list of kinds whose writer may name records after the write. */
+const NAMED_AFTER: readonly MetadataEntityKind[] = ['workflowRun']
 
 function world(provenance?: () => ChangeProvenanceFields | undefined) {
   let log: ChangeLogReadRow[] = []
@@ -74,6 +76,7 @@ function world(provenance?: () => ChangeProvenanceFields | undefined) {
   }
   const records: RecordSourcePort = {
     comparesAtSave: (kind) => MOVED.includes(kind),
+    namedAfterWrite: (kind) => NAMED_AFTER.includes(kind),
     build: async (kind, ids) => {
       builds.push({ kind, ids })
       const rows = tables.get(kind)
@@ -230,6 +233,35 @@ describe('compare at save', () => {
     expect(changes).toEqual([{ seq: 1, entity: 'pin', entityId: 'p1', op: 'remove' }])
   })
 
+  it('a record the write created is named after it and appended when it is there', async () => {
+    const w = world()
+    w.set('pin', 'old', { v: 1 })
+    const changes = await committed(
+      w.authority.commit({
+        affects: [{ entity: 'pin', entityId: 'old' }],
+        write: async () => {
+          w.set('pin', 'new', { v: 2 })
+          return 'new'
+        },
+        // The whole set after the write: `old` was named before and is
+        // compared; `new` is the one that was created; `gone` is not there.
+        creates: (id) => [
+          { entity: 'pin', entityId: 'old' },
+          { entity: 'pin', entityId: id },
+          { entity: 'pin', entityId: 'gone' },
+        ],
+      }),
+    )
+    expect(changes).toEqual([
+      { seq: 1, entity: 'pin', entityId: 'new', op: 'upsert', value: { v: 2 } },
+    ])
+    // One build before (the named record), one after (named and created).
+    expect(w.builds).toEqual([
+      { kind: 'pin', ids: ['old'] },
+      { kind: 'pin', ids: ['old', 'new', 'gone'] },
+    ])
+  })
+
   it('rolls the write and the append back together when the write throws', async () => {
     const w = world()
     w.set('userLayout', 'a', { v: 1 })
@@ -274,6 +306,66 @@ describe('compare at save', () => {
       }),
     )
     expect(changes.map((c) => (c as { entity: string }).entity)).toEqual(['userLayout', 'session'])
+  })
+})
+
+describe('records named after the write', () => {
+  const run = (id: string) => ({ entity: 'workflowRun' as const, entityId: id })
+
+  it('appends each as it is now, with no build before the write', async () => {
+    const w = world()
+    w.set('workflowRun', 'r1', { status: 'active' })
+    const changes = await committed(
+      w.authority.commit({
+        write: async () => {
+          w.set('workflowRun', 'r2', { status: 'active' })
+        },
+        // r1 was not changed: it is appended all the same. `gone` is not there.
+        wrote: () => [run('r1'), run('r2'), run('gone')],
+      }),
+    )
+    expect(changes.map((c) => (c as { entityId: string }).entityId)).toEqual(['r1', 'r2'])
+    expect(w.builds).toEqual([{ kind: 'workflowRun', ids: ['r1', 'r2', 'gone'] }])
+  })
+
+  it('a record also named before the write is compared, not repeated', async () => {
+    const w = world()
+    w.set('workflowRun', 'r1', { status: 'active' })
+    const changes = await committed(
+      w.authority.commit({
+        affects: [run('r1')],
+        write: async () => undefined,
+        wrote: () => [run('r1')],
+      }),
+    )
+    expect(changes).toEqual([])
+  })
+
+  it('a kind outside the closed list cannot be named after the write: the write rolls back', async () => {
+    const w = world()
+    w.set('pin', 'p1', { v: 1 })
+    await expect(
+      w.authority.commit({
+        write: async () => w.set('pin', 'p1', { v: 2 }),
+        wrote: () => [{ entity: 'pin', entityId: 'p1' }],
+      }),
+    ).rejects.toMatchObject({ name: 'ChangeDetectionPathMismatch', entity: 'pin', used: 'wrote' })
+    expect(w.log).toEqual([])
+    // The write is gone with it: nothing differs on the next commit.
+    const again = await committed(
+      w.authority.commit({
+        affects: [{ entity: 'pin', entityId: 'p1' }],
+        write: async () => undefined,
+      }),
+    )
+    expect(again).toEqual([])
+    // And not a kind that has not moved at all.
+    await expect(
+      w.authority.commit({
+        write: async () => undefined,
+        wrote: () => [{ entity: 'session', entityId: 's1' }],
+      }),
+    ).rejects.toBeInstanceOf(ChangeDetectionPathMismatch)
   })
 })
 

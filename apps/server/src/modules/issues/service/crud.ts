@@ -19,7 +19,6 @@ import {
   isIssueStage,
   isSortKey,
   isSystemOwnedIssueStage,
-  issueUserStateRowId,
   type MachineId,
   machinePathBasename,
   machinePathRelativeToRoot,
@@ -34,7 +33,7 @@ import {
   type UserId,
 } from '@podium/model'
 import { resolveSpawnDefaults } from '@podium/runtime'
-import type { EntityChangeSpec, WriteScope } from '@podium/sync'
+import type { AffectedRecordSpec, EntityChangeSpec, WriteScope } from '@podium/sync'
 import type { IssueRow } from '../../../store'
 import { afterCommit, followUpAfterCommit } from '../../../store/executor/executor'
 import { type StoredIssue, toStorage } from '../../../store/issue-storage'
@@ -180,6 +179,10 @@ export interface IssueLifecyclePlan {
    *  authority-assigned field has it. */
   wire(): IssueProjection
   write(scope: WriteScope): Promise<void>
+  /** The issue's own record and its members' personal records: what the write
+   *  may affect, named before it runs (compare at save, POD-6769). */
+  affects(): Promise<AffectedRecordSpec[]>
+  /** The companions the write still declares (the git observation). */
   changes(): EntityChangeSpec[]
   /** External effects after the commit. Durable work belongs in {@link write},
    *  where it rolls back with the row; since POD-6158 there is no in-memory
@@ -2288,6 +2291,7 @@ export class IssueCrudModule {
         committed = await this.store.projection(row)
         companions = await this.store.companionChanges(row)
       },
+      affects: async () => await this.store.issueRecords(row.id),
       changes: () => companions,
       publish: async () => {},
     }
@@ -2300,20 +2304,22 @@ export class IssueCrudModule {
     const id = await this.store.resolveRef(ref)
     const purged = await this.store.rowOrThrow(id)
     await this.store.deps.ledger.commit({
-      // Every member's pin of it goes with it (below): those `pin` records are
-      // named here, read before the write removes them (compare at save,
-      // POD-6769).
-      affects: async () =>
-        (await this.store.deps.store.sessions.pinnersOf('issue', id)).map((userId) =>
+      // What the purge removes, read and named before it runs (compare at save,
+      // POD-6769): the Authority finds each record gone after the write and
+      // appends its remove.
+      affects: async () => [
+        // The draft's own record and every member's personal record of it.
+        ...(await this.store.issueRecords(id)),
+        ...(await this.store.deps.store.sessions.pinnersOf('issue', id)).map((userId) =>
           pinRecord(userId, 'issue', id),
         ),
+      ],
       write: async (scope) => {
         // Every member's personal row for the draft goes with it (POD-6290: a
         // start writes its starter's record, so a draft always has one). The
         // table has no foreign key, so the rows are dropped by hand, and each
         // one's remove reaches its member's feed in the same commit.
         const panelChanges = await this.store.panelChanges([id], true)
-        const personal = await this.store.deps.store.issues.listIssueUserStateRows(id)
         await this.store.deps.store.issues.purgeIssueUserState(id)
         // And every member's pin of it (POD-6692: an issue pin is a `pins` row).
         await this.store.deps.store.sessions.removePinsOf('issue', id)
@@ -2326,18 +2332,11 @@ export class IssueCrudModule {
         await this.store.deps.store.sessions.detachTombstonesFromIssue(scope, id)
         await this.store.deps.store.issues.deleteIssue(id)
         this.store.announceWorktreeMove(purged.id, worktreeOf(purged), null)
-        return { owners: personal.map((state) => state.userId), panelChanges }
+        return { panelChanges }
       },
-      changes: ({ owners, panelChanges }) => [
-        ...panelChanges,
-        { entity: 'issueProjection', id, op: 'remove' },
-        { entity: 'issueBodies', id, op: 'remove' },
-        ...owners.map((userId) => ({
-          entity: 'issueUserState' as const,
-          id: issueUserStateRowId(userId, id),
-          op: 'remove' as const,
-        })),
-      ],
+      // The issue's panel items declare their removes: their kind is not on
+      // compare at save.
+      changes: ({ panelChanges }) => panelChanges,
     })
     // The full-list tail reconciles BOTH kinds (POD-796), so the purge reaches
     // the normalized feed as the remove reconcile derives from full truth. It
@@ -2396,6 +2395,7 @@ export class IssueCrudModule {
         committed = await this.store.projection(row)
         companions = await this.store.companionChanges(row)
       },
+      affects: async () => await this.store.issueRecords(row.id),
       changes: () => companions,
       publish: async () => {},
     }

@@ -335,6 +335,7 @@ export class IssueSessionLifecycle {
         await sessionPlan.write(scope)
         await issuePlan.write(scope)
       },
+      affects: async () => await issuePlan.affects(),
       changes: () => [...sessionPlan.changes(), ...issuePlan.changes()],
       // THE RUNTIME HALF WAITS FOR THE OUTERMOST COMMIT [POD-3366]. It used to
       // run on the statement after this call, and when a caller already has a
@@ -387,6 +388,7 @@ export class IssueSessionLifecycle {
         await sessionPlan.write(scope)
         await issuePlan.write(scope)
       },
+      affects: async () => await issuePlan.affects(),
       changes: () => [...sessionPlan.changes(), ...issuePlan.changes()],
       // The same argument as the delete above, in the other direction: the
       // restore's apply INSTALLS runtime sessions and reloads the session state,

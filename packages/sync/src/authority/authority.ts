@@ -188,19 +188,23 @@ export interface AuthorityDeps {
 
 /**
  * A writer used the wrong path for a kind: it named a record of a kind that
- * has not moved to compare at save, or it declared a spec (through `changes`
- * or `capture`) of a kind that has. A programming error, thrown before
- * anything is written.
+ * has not moved to compare at save, it declared a spec (through `changes` or
+ * `capture`) of a kind that has, or it named a record after the write for a
+ * kind outside the closed list that allows it. A programming error: a list of
+ * names is refused before anything is written, anything found later rolls the
+ * write back.
  */
 export class ChangeDetectionPathMismatch extends Error {
   constructor(
     readonly entity: MetadataEntityKind,
-    readonly used: 'affects' | 'declared',
+    readonly used: 'affects' | 'declared' | 'wrote',
   ) {
     super(
       used === 'affects'
         ? `kind ${entity} has not moved to compare at save: declare its changes, do not name its records`
-        : `kind ${entity} has moved to compare at save: name its records in the commit's affects, do not declare its changes`,
+        : used === 'declared'
+          ? `kind ${entity} has moved to compare at save: name its records in the commit's affects, do not declare its changes`
+          : `kind ${entity} is not one whose records may be named after the write: name them before it, in the commit's affects`,
     )
     this.name = 'ChangeDetectionPathMismatch'
   }
@@ -365,7 +369,30 @@ export class Authority implements AuthorityPort {
         listed ?? this.namedRecords(typeof op.affects === 'function' ? await op.affects() : [])
       const before = await this.buildRecords(named)
       const result = await op.write()
-      const compared = await this.compareAtSave(named, before, ambient)
+      // Records the write created: named now, and absent from `before` by the
+      // writer's word, so each is appended when the second build finds it.
+      const namedKeys = new Set(named.map((r) => entityOverlayKey(r.entity, r.entityId)))
+      const created =
+        op.creates === undefined
+          ? []
+          : this.namedRecords(await op.creates(result)).filter(
+              (r) => !namedKeys.has(entityOverlayKey(r.entity, r.entityId)),
+            )
+      // Records of the closed list of kinds whose writer names them after the
+      // write: no before-build, so each is appended as it is now.
+      for (const r of created) namedKeys.add(entityOverlayKey(r.entity, r.entityId))
+      const wrote =
+        op.wrote === undefined
+          ? []
+          : this.namedRecords(await op.wrote(result), 'wrote').filter(
+              (r) => !namedKeys.has(entityOverlayKey(r.entity, r.entityId)),
+            )
+      const compared = await this.compareAtSave(
+        [...named, ...created, ...wrote],
+        before,
+        ambient,
+        new Set(wrote.map((r) => entityOverlayKey(r.entity, r.entityId))),
+      )
       const declared = op.changes === undefined ? [] : await op.changes(result)
       this.refuseMovedKinds(declared)
       const rows = [...compared, ...(await this.stage(stampProvenance(declared, ambient)))]
@@ -622,13 +649,20 @@ export class Authority implements AuthorityPort {
   // -------------------------------------------------------------------------
 
   /** The named records, once each in the order first named. Refuses a kind
-   *  that has not moved. */
-  private namedRecords(affects: readonly AffectedRecord[] | undefined): AffectedRecord[] {
+   *  that has not moved, and a record named after the write (`wrote`) of a
+   *  kind outside the closed list. */
+  private namedRecords(
+    affects: readonly AffectedRecord[] | undefined,
+    how: 'affects' | 'wrote' = 'affects',
+  ): AffectedRecord[] {
     if (affects === undefined || affects.length === 0) return []
     const named = new Map<string, AffectedRecord>()
     for (const record of affects) {
       if (this.deps.records?.comparesAtSave(record.entity) !== true) {
         throw new ChangeDetectionPathMismatch(record.entity, 'affects')
+      }
+      if (how === 'wrote' && this.deps.records.namedAfterWrite(record.entity) !== true) {
+        throw new ChangeDetectionPathMismatch(record.entity, 'wrote')
       }
       const key = entityOverlayKey(record.entity, record.entityId)
       if (!named.has(key)) named.set(key, record)
@@ -683,6 +717,8 @@ export class Authority implements AuthorityPort {
     named: readonly AffectedRecord[],
     before: ReadonlyMap<string, BuiltState>,
     ambient: ChangeProvenanceFields | undefined,
+    /** Keys named after the write: appended as built now, with no compare. */
+    uncompared: ReadonlySet<string> = new Set(),
   ): Promise<StagedRow[]> {
     if (named.length === 0) return []
     const after = await this.buildRecords(named)
@@ -692,12 +728,13 @@ export class Authority implements AuthorityPort {
       const was = before.get(key)
       const now = after.get(key)
       if (now === undefined) {
-        if (was === undefined) continue
+        if (was === undefined || uncompared.has(key)) continue
         const [spec] = stampProvenance([{ ...record, op: 'remove' }], ambient)
         rows.push({ spec: spec as StagedChangeSpec, payload: null })
         continue
       }
       if (
+        !uncompared.has(key) &&
         was !== undefined &&
         detectionKey(record.entity, was.value, was.json) ===
           detectionKey(record.entity, now.value, now.json)

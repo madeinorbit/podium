@@ -13,8 +13,9 @@
  *    of one operation.
  *  - ONE COMMIT PER OPERATION. {@link committedWorkflowWrite} runs the operation
  *    inside the writer's `commit`: the rows and their change entries commit
- *    together (ADR 2 D10), and the entries are read back from the rows the
- *    operation touched, so a record on the feed is always the stored one. An
+ *    together (ADR 2 D10). The operation names the records it touched after it
+ *    ran, and the Authority builds each from the stored rows, so a record on
+ *    the feed is always the stored one (POD-6769). An
  *    operation started inside another (an adoption starting its new run) joins
  *    the outer commit.
  *  - STRICT IN PRODUCTION. A service wired with a writer refuses a workflow write
@@ -31,13 +32,12 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks'
 import {
-  parseWorkflowBindingRowId,
   type WorkflowBindingTarget,
   type WorkflowRunRecord,
   type WorkflowRunStepWire,
   workflowBindingRowId,
 } from '@podium/model'
-import type { EntityChangeSpec, LedgerCommitOp } from '@podium/sync'
+import type { AffectedRecordSpec, LedgerCommitOp } from '@podium/sync'
 import type { WorkflowRunRow, WorkflowsRepository } from '../../store/workflows'
 
 /** The records one workflow operation changed. */
@@ -130,7 +130,7 @@ export async function committedWorkflowWrite<T>(
   const touched = new WorkflowTouched()
   const { result } = await writer.commit({
     write: async () => await touchedScope.run(touched, operation),
-    changes: async () => await workflowRecordChanges(store, touched),
+    wrote: async () => await workflowRecordsWritten(store, touched),
   })
   return result
 }
@@ -157,52 +157,34 @@ export function workflowRunRecordOf(
 }
 
 /**
- * The change entries of the records one operation touched, read back as they
- * are stored now. A few reads per touched record; an operation touches a few.
- * Workflows, revisions and bindings are never deleted (a workflow archives), so
- * every entry is an upsert.
+ * The records one operation wrote, named after it ran (POD-6769): the
+ * operation learns them while it runs, so they cannot be named before it. The
+ * workflow kinds are the closed list the Authority allows this for
+ * (`NAMED_AFTER_WRITE_KINDS`): it builds each from the stored rows and appends
+ * it as it is now, with no compare. Workflows, revisions and bindings are
+ * never deleted (a workflow archives), so every entry is an upsert.
+ *
+ * A touched revision names its workflow too, as before: one read per touched
+ * revision, and an operation touches a few.
  */
-export async function workflowRecordChanges(
-  store: WorkflowsRepository,
+export async function workflowRecordsWritten(
+  store: Pick<WorkflowsRepository, 'getRevision'>,
   touched: WorkflowTouched,
-): Promise<EntityChangeSpec[]> {
-  const out: EntityChangeSpec[] = []
-  const workflowOfRevision = new Map<string, string>()
-  const revisionWorkflow = async (revisionId: string): Promise<string | undefined> => {
-    const known = workflowOfRevision.get(revisionId)
-    if (known !== undefined) return known
-    const revision = await store.getRevision(revisionId)
-    if (revision === null) return undefined
-    workflowOfRevision.set(revisionId, revision.workflowId)
-    return revision.workflowId
-  }
+): Promise<AffectedRecordSpec[]> {
   const workflowIds = new Set(touched.workflows)
+  const revisions: AffectedRecordSpec[] = []
   for (const id of touched.revisions) {
     const revision = await store.getRevision(id)
     if (revision === null) continue
-    workflowOfRevision.set(id, revision.workflowId)
     workflowIds.add(revision.workflowId)
-    out.push({ entity: 'workflowRevision', id, op: 'upsert', value: revision })
+    revisions.push({ entity: 'workflowRevision', id })
   }
-  for (const id of workflowIds) {
-    const workflow = await store.getWorkflow(id)
-    if (workflow !== null) out.push({ entity: 'workflow', id, op: 'upsert', value: workflow })
-  }
-  for (const id of touched.bindings) {
-    const key = parseWorkflowBindingRowId(id)
-    if (key === undefined) continue
-    const binding = await store.getBinding(key.targetKind, key.targetId)
-    if (binding !== null) out.push({ entity: 'workflowBinding', id, op: 'upsert', value: binding })
-  }
-  for (const id of touched.runs) {
-    const run = await store.getRun(id)
-    if (run === null) continue
-    const workflowId = await revisionWorkflow(run.revisionId)
-    if (workflowId === undefined) continue
-    const value = workflowRunRecordOf(run, workflowId, await store.getRunSteps(id))
-    out.push({ entity: 'workflowRun', id, op: 'upsert', value })
-  }
-  return out
+  return [
+    ...revisions,
+    ...[...workflowIds].map((id) => ({ entity: 'workflow' as const, id })),
+    ...[...touched.bindings].map((id) => ({ entity: 'workflowBinding' as const, id })),
+    ...[...touched.runs].map((id) => ({ entity: 'workflowRun' as const, id })),
+  ]
 }
 
 /** What the boot reconcile appends through: the boot's `server` writer. */

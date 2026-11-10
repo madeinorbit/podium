@@ -28,7 +28,7 @@ import {
   type UserId,
 } from '@podium/model'
 import { parseIssueRef } from '@podium/protocol'
-import type { EntityChangeSpec, WriteScope } from '@podium/sync'
+import type { AffectedRecordSpec, EntityChangeSpec, WriteScope } from '@podium/sync'
 import { slugifyBranch } from '../../../issue-util'
 import type { IssueRow, StoredIssueUserState } from '../../../store'
 import { afterCommit } from '../../../store/executor/executor'
@@ -227,22 +227,10 @@ export class IssueStore {
   ): Promise<void> {
     const owner = user
     await this.arbitrated(writer).commit({
+      affects: [issueUserStateRecord(owner, issueId)],
       write: async (scope) => {
         await this.deps.store.issues.setIssueUserState(scope, owner, issueId, patch)
-        return await this.deps.store.issues.getIssueUserState(owner, issueId)
       },
-      changes: (state) => [
-        {
-          entity: 'issueUserState',
-          id: issueUserStateRowId(owner, issueId),
-          ...(state
-            ? {
-                op: 'upsert' as const,
-                value: issueUserStateToWire({ userId: owner, entityId: issueId, ...state }),
-              }
-            : { op: 'remove' as const }),
-        },
-      ],
     })
   }
 
@@ -252,32 +240,21 @@ export class IssueStore {
    * person's — so another member's fold cannot survive into the next close.
    */
   async clearIssueMarkerForAll(writer: IssueWriter, issueId: IssueId, marker: 'tuckedAt'): Promise<void> {
+    const holdersOf = async () =>
+      (await this.deps.store.issues.listIssueUserStateRows(issueId)).filter(
+        (state) => state[marker] != null,
+      )
     await this.arbitrated(writer).commit({
+      // The holders are read to name their records, before the write clears them.
+      affects: async () =>
+        (await holdersOf()).map((state) => issueUserStateRecord(state.userId, issueId)),
       write: async (scope) => {
-        const holders = (await this.deps.store.issues.listIssueUserStateRows(issueId)).filter(
-          (state) => state[marker] != null,
-        )
-        for (const state of holders) {
-          await this.deps.store.issues.setIssueUserState(scope, state.userId, issueId, { [marker]: null })
+        for (const state of await holdersOf()) {
+          await this.deps.store.issues.setIssueUserState(scope, state.userId, issueId, {
+            [marker]: null,
+          })
         }
-        return await Promise.all(
-          holders.map(async (state) => ({
-            userId: state.userId,
-            state: await this.deps.store.issues.getIssueUserState(state.userId, issueId),
-          })),
-        )
       },
-      changes: (written) =>
-        written.map(({ userId, state }) => ({
-          entity: 'issueUserState' as const,
-          id: issueUserStateRowId(userId, issueId),
-          ...(state
-            ? {
-                op: 'upsert' as const,
-                value: issueUserStateToWire({ userId, entityId: issueId, ...state }),
-              }
-            : { op: 'remove' as const }),
-        })),
     })
   }
 
@@ -297,6 +274,7 @@ export class IssueStore {
     ) => Partial<StoredIssueUserState> | undefined,
   ): Promise<boolean> {
     const { result } = await this.arbitrated(writer).commit({
+      affects: [issueUserStateRecord(user, issueId)],
       write: async (scope) => {
         const current = await this.deps.store.issues.getIssueUserState(user, issueId)
         const patch = decide(current)
@@ -310,25 +288,6 @@ export class IssueStore {
         )
         return { wrote: true as const, state }
       },
-      changes: (written) =>
-        written.wrote
-          ? [
-              {
-                entity: 'issueUserState' as const,
-                id: issueUserStateRowId(user, issueId),
-                ...(written.state
-                  ? {
-                      op: 'upsert' as const,
-                      value: issueUserStateToWire({
-                        userId: user,
-                        entityId: issueId,
-                        ...written.state,
-                      }),
-                    }
-                  : { op: 'remove' as const }),
-              },
-            ]
-          : [],
     })
     return result.wrote
   }
@@ -883,34 +842,37 @@ export class IssueStore {
 
   // ---- The normalized issue projection [POD-796, ADR 4 D7.1] ----
   //
-  /** An issue's own row and independently keyed companions in the same commit. */
+  /**
+   * The records an issue write may affect: the issue's own record and every
+   * member's personal record of it. Named before the write, and again after
+   * it for the personal records the write created (a start writes its
+   * starter's): the Authority builds each from the database both times and
+   * appends what differs (compare at save, POD-6769).
+   */
+  async issueRecords(issueId: string): Promise<AffectedRecordSpec[]> {
+    const states = await this.deps.store.issues.listIssueUserStateRows(issueId as IssueId)
+    return [
+      { entity: 'issueProjection', id: issueId },
+      // Its body headers are a record of their own (POD-6767).
+      { entity: 'issueBodies', id: issueId },
+      ...states.map((state) => issueUserStateRecord(state.userId, state.entityId)),
+    ]
+  }
+
+  /** {@link issueRecords} of several issues. */
+  async issueRecordsOf(rows: readonly IssueRow[]): Promise<AffectedRecordSpec[]> {
+    return (await Promise.all(rows.map(async (row) => await this.issueRecords(row.id)))).flat()
+  }
+
+  /** The companions an issue write still declares: its git observation, which
+   *  moves onto compare at save with POD-6770. */
   async companionChanges(
     row: IssueRow,
-    projection?: IssueProjection,
     gitStates?: ReadonlyMap<string, IssueGitState>,
   ): Promise<EntityChangeSpec[]> {
-    const states = await this.deps.store.issues.listIssueUserStateRows(row.id)
-    const full = projection ?? (await this.projection(row))
-    // The record leaves its body fields to the `issueBodies` headers (POD-6767).
-    const bodies = issueBodiesOf(full)
     return [
-      {
-        entity: 'issueProjection',
-        id: row.id,
-        op: 'upsert',
-        value: slimIssueProjection(full),
-      },
-      bodies
-        ? { entity: 'issueBodies', id: row.id, op: 'upsert', value: bodies }
-        : { entity: 'issueBodies', id: row.id, op: 'remove' },
       ...(row.deletedAt ? await this.panelChanges([row.id], true) : []),
       await this.gitStateChange(row, gitStates),
-      ...states.map((state) => ({
-        entity: 'issueUserState' as const,
-        id: issueUserStateRowId(state.userId, state.entityId),
-        op: 'upsert' as const,
-        value: issueUserStateToWire(state),
-      })),
     ]
   }
 
@@ -1213,6 +1175,8 @@ export class IssueStore {
     let committedExtraChanges: readonly EntityChangeSpec[] = []
     const wire = (
       await this.arbitrated(writer).commit({
+        affects: async () => await this.issueRecords(row.id),
+        creates: async () => await this.issueRecords(row.id),
         write: async (scope) => {
           await extraWrite?.(scope)
           const worktreeWas = await this.worktreeBefore(row)
@@ -1227,7 +1191,7 @@ export class IssueStore {
           this.announceWorktreeMove(row.id, worktreeWas, worktreeOf(row))
           // The projection depends only on the committed draft and its labels.
           const committedWire = await this.projection(row)
-          committedProjectionChanges = await this.companionChanges(row, committedWire)
+          committedProjectionChanges = await this.companionChanges(row)
           committedExtraChanges =
             typeof opts?.extraChanges === 'function'
               ? await opts.extraChanges()
@@ -1290,6 +1254,8 @@ export class IssueStore {
     // carry this write, so a throw has nothing to undo.
     const committed = (
       await this.arbitrated(writer).commit({
+        affects: async () => await this.issueRecordsOf(rows),
+        creates: async () => await this.issueRecordsOf(rows),
         write: async (scope) => {
           result = await write(scope)
           for (const row of rows) {
@@ -1305,7 +1271,7 @@ export class IssueStore {
           wires = await Promise.all(rows.map((row) => this.projection(row)))
           const gitStates = await this.deps.store.issues.gitStates.getMany(rows.map(({ id }) => id))
           committedProjectionChanges = await Promise.all(
-            rows.map(async (row, index) => await this.companionChanges(row, wires[index], gitStates)),
+            rows.map(async (row) => await this.companionChanges(row, gitStates)),
           )
           committedExtraChanges = await extraChanges(result)
           const committedEvents = await events(result)
@@ -1393,6 +1359,11 @@ export class IssueStore {
  * (UTF-8 byte order), then id: the order the full-truth reconcile appends in,
  * kept from when it read the in-memory issue map (POD-6158).
  */
+/** One member's personal record of one issue: what a marker write may affect. */
+function issueUserStateRecord(userId: UserId, issueId: string): AffectedRecordSpec {
+  return { entity: 'issueUserState', id: issueUserStateRowId(userId, issueId as IssueId) }
+}
+
 function inRepositoryOrder<T>(entries: readonly T[], rowOf: (entry: T) => IssueRow): T[] {
   const keyed = entries.map((entry) => ({ entry, row: rowOf(entry) }))
   keyed.sort(

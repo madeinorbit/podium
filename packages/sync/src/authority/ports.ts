@@ -159,6 +159,13 @@ export type AffectedRecord = Pick<StagedChangeSpec, 'entity' | 'entityId'> & Cha
 export interface RecordSourcePort {
   /** Is this kind's change detection compare at save? */
   comparesAtSave(kind: MetadataEntityKind): boolean
+  /**
+   * May a writer of this kind name its records AFTER the write
+   * ({@link AuthorityCommit.wrote})? A closed list the composition root keeps,
+   * for kinds whose operations learn what they wrote while they run. Only a
+   * kind that also {@link comparesAtSave}.
+   */
+  namedAfterWrite(kind: MetadataEntityKind): boolean
   build(kind: MetadataEntityKind, ids: readonly string[]): Promise<readonly BuiltRecord[]>
 }
 
@@ -382,6 +389,28 @@ export interface AuthorityCommit<T> {
   affects?: readonly AffectedRecord[] | (() => Promise<readonly AffectedRecord[]>)
   /** The entity write, awaited inside the same transaction as the change append. */
   write: () => Promise<T>
+  /**
+   * COMPARE AT SAVE, for records the write CREATED and could not name before
+   * it ran (a row whose id the write decided): each had no record before the
+   * write, so it is built once, after it, and appended when it is there. A
+   * record also named in {@link affects} is compared as named there. Naming an
+   * existing record here costs one redundant row and never loses a change, so
+   * a writer that listed every record of a set before the write may name the
+   * whole set again here: the ones that are new are exactly the ones not
+   * named before.
+   */
+  creates?: (result: T) => readonly AffectedRecord[] | Promise<readonly AffectedRecord[]>
+  /**
+   * NAMED AFTER THE WRITE, for the closed list of kinds the
+   * {@link RecordSourcePort} allows it for: the records the write says it
+   * wrote. There is no build before the write, so nothing is compared: each is
+   * built once, after it, and appended as it is now. A write that changed
+   * nothing therefore costs one redundant row, which is why the list is closed
+   * and short. A record that is not there appends nothing (these kinds are not
+   * deleted). A record also named in {@link affects} or {@link creates} is
+   * handled as named there. Any other kind here is refused.
+   */
+  wrote?: (result: T) => readonly AffectedRecord[] | Promise<readonly AffectedRecord[]>
   /**
    * What the write touched, declared by the writer, for kinds that have not
    * moved to compare at save. Never diffed from a list. A spec of a moved kind

@@ -234,6 +234,12 @@ export interface LedgerCommitOp<T> {
    * after `write` and appends what differs: see `AuthorityCommit.affects`.
    */
   affects?: AffectedRecordsOf
+  /** Records the write created and could not name before it ran: see
+   *  `AuthorityCommit.creates`. */
+  creates?: (result: T) => readonly AffectedRecordSpec[] | Promise<readonly AffectedRecordSpec[]>
+  /** Records named after the write, for the closed list of kinds that allows
+   *  it: see `AuthorityCommit.wrote`. */
+  wrote?: (result: T) => readonly AffectedRecordSpec[] | Promise<readonly AffectedRecordSpec[]>
   /** The declared changes of kinds that have not moved to compare at save. */
   changes?: (result: T) => EntityChangeSpec[] | Promise<EntityChangeSpec[]>
   /** Post-commit work, run on the OUTERMOST commit. See {@link Ledger.commit}. */
@@ -390,7 +396,21 @@ export class Ledger {
   async commit<T>(scope: WriteScope, op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>> {
     this.scopes.check(scope)
     const declare = op.changes
+    const creates = op.creates
+    const wrote = op.wrote
     const outcome = await this.authority.commit({
+      ...(wrote === undefined
+        ? {}
+        : {
+            wrote: async (result: T) =>
+              (await wrote(result)).map(({ id, ...rest }) => ({ ...rest, entityId: id })),
+          }),
+      ...(creates === undefined
+        ? {}
+        : {
+            creates: async (result: T) =>
+              (await creates(result)).map(({ id, ...rest }) => ({ ...rest, entityId: id })),
+          }),
       ...(op.arbitrate === undefined ? {} : { arbitrate: op.arbitrate }),
       ...(op.affects === undefined ? {} : { affects: toKernelAffects(op.affects) }),
       write: async () => await op.write(scope),
