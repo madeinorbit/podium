@@ -367,18 +367,15 @@ async function seedGrantedIssues(reg: SessionRegistry, count: number): Promise<n
       onBehalfOf: OTHER_OWNER,
     })
   }
-  // Straight onto the log: an issue record is otherwise built from its row
-  // (compare at save, POD-6769), and this probe wants log entries with no row.
+  // As the kind's full truth: an issue write's record is built from its row
+  // (compare at save, POD-6769), and this probe wants entries with no row.
   return (
-    await store.sync.appendChanges(
-      ids.map((id) => ({
-        entity: 'issueProjection',
-        entityId: id,
-        op: 'upsert' as const,
-        payload: JSON.stringify({ id }),
-      })),
-      Date.parse('2026-01-01T00:00:00.000Z'),
-    )
+    await internals(reg)
+      .writes.system('boot.reconcile')
+      .reconcile(
+        'issueProjection',
+        ids.map((id) => ({ id, value: { id } })),
+      )
   ).length
 }
 

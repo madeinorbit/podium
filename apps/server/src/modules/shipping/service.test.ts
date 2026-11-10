@@ -2571,7 +2571,7 @@ describe('ShippingService enqueue transaction', () => {
       heartbeatedAt: '2026-08-13T10:00:00.000Z',
       finishedAt: '2026-08-13T10:00:00.000Z',
     })
-    const { store, issues, service } = await harness(heldDaemon)
+    const { store, ledger, issues, service } = await harness(heldDaemon)
     const issueA = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'train a',
@@ -2613,6 +2613,12 @@ describe('ShippingService enqueue transaction', () => {
       startedAt: '2026-08-13T10:00:00.000Z',
       members: admitted.map(({ receipt }) => ({ orderId: receipt.order.id })),
     })
+    // The train was claimed behind the ledger: publish it, as the boot
+    // reconcile would. A later commit logs what it changes, not what an
+    // earlier write left unpublished (compare at save, POD-6769).
+    const seeded = await service['fullProjection']()
+    await testLedgerWriter(ledger).reconcile('shipOrder', seeded.orders)
+    await testLedgerWriter(ledger).reconcile('shipLane', seeded.lanes)
     await expect(
       service.enqueue(laneWriter(service), { issueId: sibling.issue.id, ...approval }),
     ).resolves.toMatchObject({
