@@ -256,6 +256,13 @@ export const UpdatesSection = observer(function UpdatesSection(): JSX.Element {
     setRepairing(true)
     setRepairNote(null)
     try {
+      if (!admin && desktop?.repairPayload) {
+        await desktop.repairPayload()
+        setRepairNote(
+          'The signed recovery payload was restored. Fleet updates will catch it up after restart.',
+        )
+        return
+      }
       const result = await trpc.updates.repairPayload.mutate(
         desktopMachineId ? { id: desktopMachineId } : undefined,
       )
@@ -286,7 +293,7 @@ export const UpdatesSection = observer(function UpdatesSection(): JSX.Element {
     } finally {
       setRepairing(false)
     }
-  }, [desktop, desktopMachineId, status, trpc])
+  }, [admin, desktop, desktopMachineId, status, trpc])
 
   const options: { value: FleetChannel; label: string }[] = [
     { value: 'stable', label: CHANNEL_LABELS.stable },
@@ -602,8 +609,8 @@ export const UpdatesSection = observer(function UpdatesSection(): JSX.Element {
       </Section>
       <Section title="Troubleshooting">
         <DiagnosticLoggingSubsection />
-        {admin &&
-          desktop &&
+        {desktop &&
+          (admin || desktop.repairPayload !== undefined) &&
           (desktop.launchMode !== 'client' || desktop.repairPayload !== undefined) && (
             <Row
               label="Repair this installation"

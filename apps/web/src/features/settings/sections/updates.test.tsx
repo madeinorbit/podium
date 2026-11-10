@@ -1041,3 +1041,23 @@ describe('forced update channel', () => {
     expect(screen.getByText(/config.json overrides/)).toBeTruthy()
   })
 })
+
+describe('member desktop recovery', () => {
+  it('repairs the local installation through the native bridge without an admin command', async () => {
+    admin = false
+    const repair = vi.fn().mockResolvedValue(undefined)
+    ;(globalThis as { __PODIUM_DESKTOP__?: NativeDesktopBridge }).__PODIUM_DESKTOP__ = {
+      currentVersion: '0.4.1',
+      launchMode: 'client',
+      repairPayload: repair,
+    }
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'stable', envForced: false })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
+    trpc.updates.fleet.query.mockResolvedValue(emptyFleet)
+    quietHistory()
+    render(<UpdatesSection />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Repair' }))
+    await waitFor(() => expect(repair).toHaveBeenCalledOnce())
+    expect(trpc.updates.repairPayload.mutate).not.toHaveBeenCalled()
+  })
+})
