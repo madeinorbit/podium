@@ -11,6 +11,7 @@ import {
   type TelegramClaimCode,
   telegramClaimCodeIsLive,
   type UserId,
+  userPreferencesRowId,
 } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import type { LedgerWriter } from '@podium/sync'
@@ -22,7 +23,6 @@ import type { SessionStore } from '../../store'
 import { afterCommit, spanOpen } from '../../store/executor/executor'
 import type { SettingsAuditOutcome } from '../../store/settings-audit'
 import type { EventBus } from '../bus'
-import { userPreferencesChange } from '../user-records/changes'
 import { recordSettingsCommand, type SettingsAuditPort } from './audit'
 import { secretPresence } from './secret-fingerprint'
 
@@ -591,16 +591,15 @@ export class SettingsService {
       (personal || tiers.has('instance-preference')) && writer !== undefined
         ? (
             await writer.commit({
-              write: async () => {
-                const resolved = await this.store.applyPreferencePatch(actor, patch, at)
-                return {
-                  resolved,
-                  record: personal ? await this.store.preferenceRecordFor(actor) : undefined,
-                }
-              },
-              changes: ({ record }) => (record ? [userPreferencesChange(record)] : []),
+              // The person's preferences record, when the patch has a personal
+              // leaf: built before and after the write (compare at save,
+              // POD-6769).
+              affects: personal
+                ? [{ entity: 'userPreferences', id: userPreferencesRowId(actor) }]
+                : [],
+              write: async () => await this.store.applyPreferencePatch(actor, patch, at),
             })
-          ).result.resolved
+          ).result
         : await this.store.applyPreferencePatch(actor, patch, at)
     await this.emitSettingsChanged(previous, next, actor)
     return next

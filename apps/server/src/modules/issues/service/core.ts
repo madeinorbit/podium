@@ -981,23 +981,11 @@ export class IssueStore {
   // `blocked` / `ready` / `dependents` / `displayRef` are joined replica-side
   // (D7.3). The normalized kinds are emitted unconditionally.
 
-  /** The `issueDep` change ONE edge write declares. O(1) per edge —
-   *  this is what makes a dep add cost nothing per issue. Returned as an array so
-   *  a call site can spread it and stay a single expression when the flag is off. */
-  depChanges(
-    deps: readonly { fromId: string; toId: string; type: string }[],
-    op: EntityChangeSpec['op'],
-  ): EntityChangeSpec[] {
-    return deps.map((dep) => {
-      const value = issueDepToProjection(dep)
-      // A remove carries no value (the ledger drops it; the row is gone). An
-      // upsert carries the whole edge — there is no partial edge.
-      // Shape is {@link EntityChangeSpec} — the ledger's composed change spec —
-      // not a hand-restated issueDep field list (POD-1251).
-      return op === 'upsert'
-        ? { entity: 'issueDep' as const, id: value.id, op, value }
-        : { entity: 'issueDep' as const, id: value.id, op }
-    })
+  /** The `issueDep` records an edge write may affect, one per edge: named in
+   *  the same commit as the edge's row, so the row and its change entry commit
+   *  or roll back together (compare at save, POD-6769). O(1) per edge. */
+  depRecords(deps: readonly { fromId: string; toId: string; type: string }[]): AffectedRecordSpec[] {
+    return deps.map((dep) => ({ entity: 'issueDep' as const, id: issueDepToProjection(dep).id }))
   }
 
   /** Full LOCAL dep-edge truth for a reconcile. Flag OFF returns
@@ -1007,7 +995,7 @@ export class IssueStore {
    *
    *  O(edges), and it runs only on the full-truth paths (boot, write-less
    *  rebroadcast) that are already O(issues) — never per dep change, which
-   *  declares its one row through {@link depChanges} instead. This is also what
+   *  names its one row through {@link depRecords} instead. This is also what
    *  catches the removes no write declares: `issue_deps` has `ON DELETE CASCADE`
    *  from `issues`, so deleting an issue silently vaporises its edges, and only a
    *  full-truth diff can notice rows that left without anyone saying so. */
@@ -1146,6 +1134,13 @@ export class IssueStore {
        * can claim an edge the store rejected — a permanently `blocked` issue on
        * every replica, healed by nothing.
        */
+      /**
+       * Records of other kinds this write may affect, named with the issue's
+       * own: the `issueDep` edges an edge write adds or removes
+       * ({@link depRecords}). They are built in the same span as the row
+       * upsert and the `extraWrite` that changes them.
+       */
+      extraAffects?: readonly AffectedRecordSpec[]
       /** Extra entity changes this write declares — {@link EntityChangeSpec}, composed. */
       extraChanges?:
         | readonly EntityChangeSpec[]
@@ -1187,7 +1182,10 @@ export class IssueStore {
     let committedExtraChanges: readonly EntityChangeSpec[] = []
     const wire = (
       await this.arbitrated(writer).commit({
-        affects: async () => await this.issueRecords(row.id),
+        affects: async () => [
+          ...(await this.issueRecords(row.id)),
+          ...(opts?.extraAffects ?? []),
+        ],
         creates: async () => await this.issueRecords(row.id),
         write: async (scope) => {
           await extraWrite?.(scope)

@@ -80,7 +80,7 @@ export class IssueHierarchyModule {
       writer,
       row,
       async () => await this.store.deps.store.issues.addIssueDep(fromId, toId, type),
-      { extraChanges: this.store.depChanges([{ fromId, toId, type }], 'upsert') },
+      { extraAffects: this.store.depRecords([{ fromId, toId, type }]) },
     )
 
     return wire
@@ -104,7 +104,7 @@ export class IssueHierarchyModule {
       writer,
       row,
       async () => await this.store.deps.store.issues.removeIssueDep(fromId, toId, type),
-      { extraChanges: this.store.depChanges(removed, 'remove') },
+      { extraAffects: this.store.depRecords(removed) },
     )
 
     return wire

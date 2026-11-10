@@ -59,6 +59,7 @@ import {
   parseSubscriptionRowId,
   parseSuperagentThreadRowId,
   parseTabOrderRowId,
+  parseUserPreferencesRowId,
   parseWorkflowBindingRowId,
   pinRowId,
   readPositionRowId,
@@ -69,6 +70,7 @@ import {
   superagentThreadRowId,
   tabOrderRowId,
   type UserId,
+  userPreferencesRowId,
   workflowBindingRowId,
 } from '@podium/model'
 import {
@@ -549,6 +551,33 @@ const tabOrder: Builder = {
     ),
 }
 
+/**
+ * One person's preferences, folded: their own leaves over nothing else (the
+ * instance's defaults are the `instancePreferences` record). Built with the
+ * read the publisher uses, `preferenceRecordFor`, which answers a record for
+ * any person, so a write that clears a person's last leaf publishes the empty
+ * record as it does today. `streamAll` lists the people who hold a leaf.
+ */
+const userPreferences: Builder = {
+  kind: 'userPreferences',
+  shape: 'row-and-reads',
+  async build({ store }, ids) {
+    const users = unique(parsed(ids, (id) => parseUserPreferencesRowId(id).userId))
+    return await Promise.all(
+      users.map(async (userId) => ({
+        id: userPreferencesRowId(userId),
+        value: await store.settings.preferenceRecordFor(userId),
+      })),
+    )
+  },
+  streamAll: ({ store }) =>
+    pagesOf(
+      store.settings
+        .allPreferenceRecordsForBootReconcile()
+        .then((rows) => rows.map((value) => ({ id: userPreferencesRowId(value.userId), value }))),
+    ),
+}
+
 /** The people whose markers the feed carries: not disabled. */
 async function activeUsers({ store }: RecordReads): Promise<Set<UserId>> {
   return new Set(
@@ -892,6 +921,7 @@ export const DATABASE_ONLY_BUILDERS: readonly Builder[] = [
   userReadPosition,
   pin,
   tabOrder,
+  userPreferences,
   sessionUserState,
   superagentThread,
   agentProfile,
