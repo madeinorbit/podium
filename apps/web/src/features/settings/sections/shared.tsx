@@ -4,6 +4,7 @@
 import { SETTINGS_PATH_TIERS, settingsTierForPath } from '@podium/model/browser'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import type { ApiProvider, HarnessAgent, PodiumSettings } from '@podium/runtime'
+import { ChevronRight } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
 import {
   type ChangeEvent,
@@ -70,6 +71,72 @@ export function Section({
         </div>
       )}
     </section>
+  )
+}
+
+/** The same entity layout for machines, people, projects, devices and keys.
+ * A stretched native button opens the row; trailing actions stay separate
+ * controls, so a clickable row never nests buttons. */
+export function EntityRow({
+  leading,
+  title,
+  pills,
+  subtitle,
+  monoSubtitle,
+  trailing,
+  onClick,
+  disabled,
+}: {
+  leading: ReactNode
+  title: ReactNode
+  pills?: ReactNode
+  subtitle?: ReactNode
+  monoSubtitle?: boolean
+  trailing?: ReactNode
+  onClick?: () => void
+  disabled?: boolean
+}): JSX.Element {
+  const id = useId()
+  return (
+    <div className="settings-list-row settings-entity-row">
+      {onClick && (
+        <Button
+          type="button"
+          variant="ghost"
+          className="settings-entity-open"
+          aria-labelledby={`${id}-title`}
+          aria-describedby={subtitle ? `${id}-subtitle` : undefined}
+          onClick={onClick}
+          disabled={disabled}
+        />
+      )}
+      <span className="settings-entity-avatar" aria-hidden="true">
+        {leading}
+      </span>
+      <div className="settings-entity-body">
+        <div className="settings-label settings-entity-title">
+          <span id={`${id}-title`} className="settings-entity-name">
+            {title}
+          </span>
+          {pills}
+        </div>
+        {subtitle && (
+          <div
+            id={`${id}-subtitle`}
+            className="settings-entity-subtitle"
+            data-mono={monoSubtitle || undefined}
+          >
+            {subtitle}
+          </div>
+        )}
+      </div>
+      <div className="settings-entity-trailing">
+        {trailing}
+        {onClick && (
+          <ChevronRight size={14} className="settings-entity-chevron" aria-hidden="true" />
+        )}
+      </div>
+    </div>
   )
 }
 

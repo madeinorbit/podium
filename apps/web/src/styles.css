@@ -8409,6 +8409,108 @@ a.ref-link--session::before {
   min-height: 56px;
   padding: 13px 16px;
 }
+.settings-entity-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 58px;
+  padding: 11px 12px 11px 14px;
+}
+.settings-entity-row:first-child {
+  border-top-left-radius: 9px;
+  border-top-right-radius: 9px;
+}
+.settings-entity-row:last-child {
+  border-bottom-left-radius: 9px;
+  border-bottom-right-radius: 9px;
+}
+.settings-entity-open {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  padding: 0;
+  transition: background-color 150ms;
+}
+.settings-entity-open:hover {
+  background: color-mix(in oklab, var(--accent) 45%, transparent);
+}
+.settings-entity-open:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.settings-entity-row:has(.settings-entity-open:disabled) {
+  opacity: 0.5;
+}
+.settings-entity-avatar,
+.settings-entity-body {
+  position: relative;
+  min-width: 0;
+}
+.settings-entity-row:has(> .settings-entity-open)
+  > :is(.settings-entity-avatar, .settings-entity-body) {
+  pointer-events: none;
+}
+.settings-entity-avatar {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: var(--accent);
+  color: var(--muted-foreground);
+  font: 600 11px / 1 var(--font-sans);
+}
+.settings-entity-avatar > svg {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+}
+.settings-entity-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.settings-entity-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-entity-subtitle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.settings-entity-subtitle[data-mono] {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.settings-entity-trailing {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.settings-entity-trailing :is(button, a, input, select, textarea, [role="button"]) {
+  pointer-events: auto;
+}
+.settings-entity-chevron {
+  color: var(--text-faint);
+  pointer-events: none;
+}
 
 /* Row-family controls keep their shared columns inside the group. */
 .settings-row {

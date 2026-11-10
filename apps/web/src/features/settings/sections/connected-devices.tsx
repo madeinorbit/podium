@@ -39,7 +39,7 @@ import { workspaceFetch } from '@/lib/workspace-request'
 import { useSettingsUnsyncedChangeCount } from '../readers'
 import { deviceKey, useSettingsRecords } from '../record-readers'
 import { useSettingsRowId } from '../settings-anchors'
-import { ConfirmInline, ThisDeviceTag } from './shared'
+import { ConfirmInline, EntityRow, ThisDeviceTag } from './shared'
 
 /**
  * Narrow view of the server contract consumed by this screen. Keeping it here
@@ -679,57 +679,57 @@ export const SignedInDevicesSection = observer(function SignedInDevicesSection({
           <p className="settings-prose p-4">No devices are signed in to your account.</p>
         )}
         {sessions?.map((session) => (
-          <div key={session.sessionId} className="settings-list-row">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex min-w-0 items-start gap-3">
-                <DeviceIcon kind={session.kind} />
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="settings-label break-words">{session.deviceName}</span>
-                    {session.current && <ThisDeviceTag />}
-                  </div>
-                  <p className="settings-micro mt-1">
-                    {displayPlatform(session)} · Last active{' '}
-                    <MobileDeviceActivity session={session} />
-                  </p>
-                </div>
-              </div>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                id={session.current ? signOutRowId : undefined}
-                disabled={revoking !== null || (session.current && checkingChanges)}
-                pending={revoking === session.sessionId}
-                pendingLabel="Signing out…"
-                onClick={() => {
-                  if (session.current && warnUnsynced) changeConfirmation(session.sessionId)
-                  else void signOut(session)
-                }}
-              >
-                Sign out
-              </Button>
-            </div>
+          <div key={session.sessionId}>
+            <EntityRow
+              leading={<DeviceIcon kind={session.kind} />}
+              title={session.deviceName}
+              pills={session.current && <ThisDeviceTag />}
+              subtitle={
+                <>
+                  {displayPlatform(session)} · Last active{' '}
+                  <MobileDeviceActivity session={session} />
+                </>
+              }
+              trailing={
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  id={session.current ? signOutRowId : undefined}
+                  disabled={revoking !== null || (session.current && checkingChanges)}
+                  pending={revoking === session.sessionId}
+                  pendingLabel="Signing out…"
+                  onClick={() => {
+                    if (session.current && warnUnsynced) changeConfirmation(session.sessionId)
+                    else void signOut(session)
+                  }}
+                >
+                  Sign out
+                </Button>
+              }
+            />
             {confirming === session.sessionId && (
-              <ConfirmInline
-                sentence={
-                  session.current && warnUnsynced ? (
-                    unsyncedWarning
-                  ) : (
-                    <>
-                      Sign out <strong>{session.deviceName}</strong>?
-                    </>
-                  )
-                }
-                actionLabel={
-                  session.current && warnUnsynced ? 'Sign out anyway' : 'Sign out device'
-                }
-                destructive
-                pending={revoking !== null || (session.current && checkingChanges)}
-                error={error}
-                onCancel={() => changeConfirmation(null)}
-                onConfirm={() => signOut(session)}
-              />
+              <div className="px-4">
+                <ConfirmInline
+                  sentence={
+                    session.current && warnUnsynced ? (
+                      unsyncedWarning
+                    ) : (
+                      <>
+                        Sign out <strong>{session.deviceName}</strong>?
+                      </>
+                    )
+                  }
+                  actionLabel={
+                    session.current && warnUnsynced ? 'Sign out anyway' : 'Sign out device'
+                  }
+                  destructive
+                  pending={revoking !== null || (session.current && checkingChanges)}
+                  error={error}
+                  onCancel={() => changeConfirmation(null)}
+                  onConfirm={() => signOut(session)}
+                />
+              </div>
             )}
           </div>
         ))}
