@@ -283,7 +283,7 @@ describe('the instance record reaches every member', () => {
 
 describe('no secret is ever on the instance record', () => {
   it('the schema has no secret leaf, and every leaf is the instance tier', () => {
-    const fields = Object.keys(InstancePreferencesWire.shape)
+    const fields = Object.keys(InstancePreferencesWire.innerType().shape)
     expect(fields.length).toBeGreaterThan(10)
     const secrets = new Set(
       SETTINGS_CLASSIFICATION.filter((c) => c.tier === 'server-secret').map((c) => c.path),
