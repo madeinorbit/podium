@@ -185,7 +185,7 @@ describe('machine list and detail routing', () => {
     state.machines = [machine({ versionState: 'behind' })]
     render()
     open()
-    fireEvent.click(detail().getByRole('button', { name: 'Updates' }))
+    fireEvent.click(detail().getByRole('button', { name: 'Update' }))
     expect(state.setSettingsTab).toHaveBeenCalledWith('updates')
   })
 })
@@ -509,7 +509,7 @@ describe('machine version offers in detail', () => {
     versionClient('0.5.0')
     const waiting = render()
     open()
-    const pending = await versionControl().findByRole('button', { name: 'Updates' })
+    const pending = await versionControl().findByRole('button', { name: 'Update' })
     expect(pending.className).not.toContain('warning')
     expect(detail().getByText(/waiting to be accepted/)).toBeTruthy()
     waiting.unmount()
@@ -548,7 +548,7 @@ describe('machine version offers in detail', () => {
     render()
     open()
     expect(versionControl().getByText('0.4.1')).toBeTruthy()
-    expect(await versionControl().findByRole('button', { name: 'Updates' })).toBeTruthy()
+    expect(await versionControl().findByRole('button', { name: 'Update' })).toBeTruthy()
   })
   it('does not offer Updates for a legacy machine on the server version', async () => {
     state.machines = [
@@ -559,7 +559,7 @@ describe('machine version offers in detail', () => {
     open()
     await act(async () => {})
     expect(versionControl().getByText('0.5.0')).toBeTruthy()
-    expect(versionControl().queryByRole('button', { name: 'Updates' })).toBeNull()
+    expect(versionControl().queryByRole('button', { name: 'Update' })).toBeNull()
   })
   it('does not offer Updates for a current selected channel when the server build differs', async () => {
     state.machines = [
@@ -576,7 +576,7 @@ describe('machine version offers in detail', () => {
     open()
     await act(async () => {})
     expect(versionControl().getByText('0.1.3-edge.1')).toBeTruthy()
-    expect(versionControl().queryByRole('button', { name: 'Updates' })).toBeNull()
+    expect(versionControl().queryByRole('button', { name: 'Update' })).toBeNull()
   })
   it('offers Updates for a machine behind its selected channel when the server build differs', async () => {
     state.machines = [
@@ -591,7 +591,7 @@ describe('machine version offers in detail', () => {
     versionClient('dev+7de565e')
     render()
     open()
-    expect(await versionControl().findByRole('button', { name: 'Updates' })).toBeTruthy()
+    expect(await versionControl().findByRole('button', { name: 'Update' })).toBeTruthy()
   })
   it('does not invent legacy update offers for dev or unreported versions', async () => {
     state.machines = [
@@ -614,12 +614,12 @@ describe('machine version offers in detail', () => {
     open('Dev box')
     await act(async () => {})
     expect(versionControl('Dev box').getByText('dev')).toBeTruthy()
-    expect(versionControl('Dev box').queryByRole('button', { name: 'Updates' })).toBeNull()
+    expect(versionControl('Dev box').queryByRole('button', { name: 'Update' })).toBeNull()
     fireEvent.click(detail('Dev box').getByRole('button', { name: 'Machines' }))
     open('Unreported box')
     await act(async () => {})
     expect(versionControl('Unreported box').getByText('Not reported')).toBeTruthy()
-    expect(versionControl('Unreported box').queryByRole('button', { name: 'Updates' })).toBeNull()
+    expect(versionControl('Unreported box').queryByRole('button', { name: 'Update' })).toBeNull()
   })
 })
 

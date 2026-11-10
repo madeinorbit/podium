@@ -289,7 +289,9 @@ describe('UpdatesSection', () => {
 
     render(<UpdatesSection />)
 
-    await waitFor(() => expect(screen.getByTestId('running-version').textContent).toBe('0.4.1'))
+    await waitFor(() =>
+      expect(screen.getByTestId('running-version').textContent).toBe('dev+a5f041c'),
+    )
     expect(screen.queryByTestId('component-version-breakdown')).toBeNull()
   })
 

@@ -186,17 +186,19 @@ const MachineDetailRecord = observer(function MachineDetailRecord({
           <span className="settings-value break-all">
             {machine.appVersion ? formatDisplayedVersion(machine.appVersion) : 'Not reported'}
           </span>
-          <Button
-            type="button"
-            variant="link"
-            size="sm"
-            onClick={() => {
-              closeTakeover()
-              setSettingsTab('updates')
-            }}
-          >
-            Update
-          </Button>
+          {skew.label === 'Update available' && (
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              onClick={() => {
+                closeTakeover()
+                setSettingsTab('updates')
+              }}
+            >
+              Update
+            </Button>
+          )}
         </Row>
         <Row
           label="Agents installed"
