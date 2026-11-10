@@ -5863,9 +5863,7 @@ type Output_setup_complete = {
     allowedOrigins?: string[] | undefined;
     appUrl?: string | undefined;
     auth?: undefined | {
-        mode?: "cloud" | "local" | undefined;
         openMode?: boolean | undefined;
-        signInUrl?: string | undefined;
     };
     bindHost?: "0.0.0.0" | "127.0.0.1" | undefined;
     configVersion?: number | undefined;
@@ -5938,15 +5936,7 @@ type Output_setup_provenance = {
         env?: string;
         source: SettingSource;
     };
-    authMode: {
-        env?: string;
-        source: SettingSource;
-    };
     authOpenMode: {
-        env?: string;
-        source: SettingSource;
-    };
-    authSignInUrl: {
         env?: string;
         source: SettingSource;
     };
