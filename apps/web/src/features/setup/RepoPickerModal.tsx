@@ -166,6 +166,9 @@ export function RepoPickerModal({
   const setPickerRef = useCallback((element: HTMLElement | null) => {
     dialogRef.current = element
   }, [])
+  useEffect(() => {
+    if (embedded) dialogRef.current?.focus({ preventScroll: true })
+  }, [embedded])
   const [history, setHistory] = useState<string[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
   const historyRef = useRef<string[]>([])
@@ -986,6 +989,7 @@ function RepositoryPickerFrame({
       <section
         aria-label="Repository picker"
         ref={rootRef}
+        tabIndex={-1}
         className="relative flex min-w-0 flex-col overflow-hidden rounded-lg border border-border"
         onKeyDown={(event) => {
           if (event.key !== 'Escape' || event.defaultPrevented) return

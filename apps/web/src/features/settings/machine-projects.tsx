@@ -7,7 +7,7 @@ import {
 import { companion, lazy } from '@podium/mobx-helpers'
 import { FolderGit2, Search } from 'lucide-react'
 import { compareShallow } from 'mobx'
-import { useCallback } from 'react'
+import { type Ref, useCallback } from 'react'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import { Button } from '@/components/ui/button'
 import { EntityRow, Section } from './sections/shared'
@@ -44,9 +44,11 @@ class ProjectOnMachine {
 export const MachineProjects = observer(function MachineProjects({
   machine,
   onFind,
+  findRef,
 }: {
   machine: MachineModel
   onFind?: () => void
+  findRef?: Ref<HTMLButtonElement>
 }) {
   const create = useCallback((pool: MobxPool) => new MachineProjectsView(pool, machine), [machine])
   const view = useOpeningView(useWorklistPool(), create)
@@ -56,7 +58,7 @@ export const MachineProjects = observer(function MachineProjects({
       list
       action={
         onFind && (
-          <Button type="button" variant="ghost" size="sm" onClick={onFind}>
+          <Button ref={findRef} type="button" variant="ghost" size="sm" onClick={onFind}>
             <Search size={14} aria-hidden="true" />
             Find repositories
           </Button>

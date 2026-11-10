@@ -2,7 +2,7 @@ import { useCommands } from '@podium/client-core/react'
 import type { MachineModel } from '@podium/client-graph'
 import { observer } from '@podium/client-graph/react'
 import { machineWrites } from '@podium/commands/fleet-synced'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFleetConvergence } from '@/app/MachinesPanel'
 import { Button } from '@/components/ui/button'
 import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
@@ -53,6 +53,17 @@ const MachineDetailRecord = observer(function MachineDetailRecord({
     update?.reason ? 'rejected' : (update?.state ?? null),
   )
   const [findingRepos, setFindingRepos] = useState(false)
+  const findButton = useRef<HTMLButtonElement | null>(null)
+  const restoreFindFocus = useRef(false)
+  useEffect(() => {
+    if (findingRepos || !restoreFindFocus.current) return
+    restoreFindFocus.current = false
+    findButton.current?.focus({ preventScroll: true })
+  }, [findingRepos])
+  const closeRepositories = () => {
+    restoreFindFocus.current = true
+    setFindingRepos(false)
+  }
   const [adopting, setAdopting] = useState(false)
   const [adoptError, setAdoptError] = useState<string | null>(null)
 
@@ -61,8 +72,8 @@ const MachineDetailRecord = observer(function MachineDetailRecord({
       <RepoScanFlow
         embedded
         initialMachineId={machine.id}
-        onClose={() => setFindingRepos(false)}
-        onDone={() => setFindingRepos(false)}
+        onClose={closeRepositories}
+        onDone={closeRepositories}
       />
     )
 
@@ -235,6 +246,7 @@ const MachineDetailRecord = observer(function MachineDetailRecord({
       )}
       <MachineProjects
         machine={machine}
+        findRef={findButton}
         onFind={view.canFindRepositories ? () => setFindingRepos(true) : undefined}
       />
       <MachineRemove view={view} />
