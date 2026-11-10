@@ -66,21 +66,15 @@
  * PERSISTED format makes yesterday's data unreadable (unlike a too-strict test,
  * which only fails a build). So `stage` and `type` are CAST rather than parsed —
  * exactly as `toWire` cast them before this file existed, and the DDL's CHECK
- * constraints are what actually constrain them. `panel` keeps its existing
- * tolerant parse. Quarantining a genuinely corrupt row is `IssueStore.listIssueRows`' job (it already skips,
+ * constraints are what actually constrain them. Panel children are read separately. Quarantining a genuinely corrupt row is `IssueStore.listIssueRows`' job (it already skips,
  * logs and counts), not this mapper's.
  *
- * THE ONE KEY THAT DOES NOT ROUND-TRIP BY BYTES IS `panel`. It decodes through
- * `IssuePanel.parse` (tolerantly, to an empty panel) and encodes through
- * `JSON.stringify`, so an unparseable stored panel would come back as an empty
- * one. That is why `toStorage` is deliberately NOT wired into any
- * read-modify-write path: `create()` builds a fresh issue and encodes it once.
- * `IssueService` still patches rows as rows.
+ * Panel items and the state paragraph live in their own tables. Requested
+ * reports compose those records; this pair maps the issue row alone.
  */
 
 import {
   IssueAggregate,
-  IssuePanel,
   type IssueStage,
   type IssueType,
   NeedsHuman,
@@ -253,9 +247,6 @@ export function fromStorage(row: IssueRow): StoredIssue {
     needsHuman: row.needsHuman,
     ...asked,
 
-    // --- IssuePanelGroup (raw JSON column -> object) ----------------------
-    ...(row.panel ? { panel: decodePanel(row.panel) } : {}),
-
     // --- IssueIntent (RENAMES: origin -> intentOrigin, draft -> isDraftVessel)
     // Read as an enum with 'human' as the closed default, which is what `toWire`
     // did inline: an unrecognised stored value is 'human', never passed through.
@@ -383,9 +374,6 @@ export function toStorage(
     humanQuestionAskedAt: asked?.at ?? null,
     humanQuestionAttribution: asked?.attribution ?? null,
 
-    // --- IssuePanelGroup (object -> raw JSON column) -----------------------
-    panel: issue.panel ? JSON.stringify(issue.panel) : null,
-
     // --- IssueIntent (RENAMES back) ----------------------------------------
     origin: issue.intentOrigin,
     audience: issue.audience,
@@ -445,18 +433,4 @@ function decodeAsked(row: IssueRow): { asked?: StoredAsked } | { askedLegacy?: L
   // decoding is not the place to decide a partially-written question is junk,
   // and dropping one here would delete it from the wire on the next write.
   return Object.keys(legacy).length ? { askedLegacy: legacy } : {}
-}
-
-/** Parse the stored panel JSON, tolerating legacy/garbage values (empty panel).
- *  Moved here from `IssueService.parsePanel`: the raw-JSON-column split is an
- *  R1 ↔ R3 encoding and ADR 4 §4.1 puts it in this pair, not in a projection.
- *  Exported because three `crud.ts` sites decode the panel of a row they are
- *  about to patch as a row — one definition, two entry points. */
-export function decodePanel(raw: string | null | undefined): IssuePanel {
-  if (!raw) return { todos: [], artifacts: [], deferred: [] }
-  try {
-    return IssuePanel.parse(JSON.parse(raw))
-  } catch {
-    return { todos: [], artifacts: [], deferred: [] }
-  }
 }

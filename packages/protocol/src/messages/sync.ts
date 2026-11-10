@@ -13,6 +13,11 @@ import {
   IssueEventWire,
   IssueGitStateProjection,
   IssueBodiesWire,
+  IssuePanelTodoWire,
+  IssuePanelArtifactWire,
+  IssuePanelDeferredWire,
+  IssuePanelStateWire,
+
   IssueProjection,
   SlimIssueProjection,
   IssueUserStateWire,
@@ -314,6 +319,11 @@ export const MetadataChange = z.discriminatedUnion('entity', [
    *  the issue id: a digest and a size per field with content. The body is
    *  fetched by id (`issues.bodies`). Readable by the issue's readers. */
   metadataChangeArm(z.literal('issueBodies'), IssueBodiesWire),
+  metadataChangeArm(z.literal('issuePanelTodo'), IssuePanelTodoWire),
+  metadataChangeArm(z.literal('issuePanelArtifact'), IssuePanelArtifactWire),
+  metadataChangeArm(z.literal('issuePanelDeferred'), IssuePanelDeferredWire),
+  metadataChangeArm(z.literal('issuePanelState'), IssuePanelStateWire),
+
 ])
 export type MetadataChange = z.infer<typeof MetadataChange>
 export const MetadataEntityKind = z.enum([
@@ -350,6 +360,11 @@ export const MetadataEntityKind = z.enum([
   'machineAccess',
   'checkout',
   'issueBodies',
+  'issuePanelTodo',
+  'issuePanelArtifact',
+  'issuePanelDeferred',
+  'issuePanelState',
+
 ])
 export type MetadataEntityKind = z.infer<typeof MetadataEntityKind>
 
@@ -455,6 +470,11 @@ const changesSinceSnapshotArm = () =>
     issues: z.array(z.never()),
     issueProjections: z.array(SlimIssueProjection).optional(),
     issueBodies: z.array(IssueBodiesWire).optional(),
+    issuePanelTodos: z.array(IssuePanelTodoWire).optional(),
+    issuePanelArtifacts: z.array(IssuePanelArtifactWire).optional(),
+    issuePanelDeferreds: z.array(IssuePanelDeferredWire).optional(),
+    issuePanelStates: z.array(IssuePanelStateWire).optional(),
+
     issueUserStates: z.array(IssueUserStateWire).optional(),
     issueGitStates: z.array(IssueGitStateProjection).optional(),
     issueDeps: z.array(IssueDepProjection).optional(),

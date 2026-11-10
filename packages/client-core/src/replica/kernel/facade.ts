@@ -103,6 +103,11 @@ const ALL_KINDS: readonly ReplicaKind[] = [
   'issueUserStates',
   'issueGitStates',
   'issueBodies',
+  'issuePanelTodos',
+  'issuePanelArtifacts',
+  'issuePanelDeferreds',
+  'issuePanelStates',
+
   'issueDeps',
   'repos',
   'issueEvents',
@@ -500,6 +505,11 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
         issueUserStates: project('issueUserStates'),
         issueGitStates: project('issueGitStates'),
         issueBodies: project('issueBodies'),
+        issuePanelTodos: project('issuePanelTodos'),
+        issuePanelArtifacts: project('issuePanelArtifacts'),
+        issuePanelDeferreds: project('issuePanelDeferreds'),
+        issuePanelStates: project('issuePanelStates'),
+
         issueDeps: project('issueDeps'),
         repos: project('repos'),
         issueEvents: project('issueEvents'),

@@ -2289,6 +2289,10 @@ export class SocketHub {
         case 'automationRun':
         case 'issueGitState':
         // POD-6767: an issue's body headers.
+        case 'issuePanelTodo':
+        case 'issuePanelArtifact':
+        case 'issuePanelDeferred':
+        case 'issuePanelState':
         case 'issueBodies':
         case 'sessionUserState':
         case 'machine':

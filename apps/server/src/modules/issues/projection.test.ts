@@ -123,15 +123,8 @@ describe('issueRowToProjection [POD-796]', () => {
     expect(p).not.toHaveProperty('pinned')
   })
 
-  it('decodes the panel JSON column into the structured value', () => {
-    // The R3→R1 half of the JSON-column split (ADR 4 §4.1's worked example):
-    // the row holds TEXT, the projection holds the parsed value. Nothing outside
-    // the model's fromStorage may JSON.parse this column.
-    expect(issueRowToProjection(row(), NO_LABELS).panel).toEqual({
-      todos: [{ text: 't', done: false }],
-      artifacts: [],
-      deferred: [],
-    })
+  it('leaves panel records out of the issue projection', () => {
+    expect(issueRowToProjection(row(), NO_LABELS)).not.toHaveProperty('panel')
   })
 
   it('carries NO sessions, NO memberSessionIds and NO derived rollups', () => {

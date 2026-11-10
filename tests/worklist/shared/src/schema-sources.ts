@@ -56,6 +56,11 @@ import {
   IssueDerived,
   IssueGitState,
   IssueBodiesWire,
+  IssuePanelTodoWire,
+  IssuePanelArtifactWire,
+  IssuePanelDeferredWire,
+  IssuePanelStateWire,
+
   IssueGitStateProjection,
   IssueProjection,
   SlimIssueProjection,
@@ -113,6 +118,11 @@ export const MODEL_SCHEMAS: Readonly<Record<ModelSchemaName, ShapeCarrier>> = {
   IssueProjection,
   SlimIssueProjection,
   IssueBodiesWire,
+  IssuePanelTodoWire,
+  IssuePanelArtifactWire,
+  IssuePanelDeferredWire,
+  IssuePanelStateWire,
+
   IssueDepWire,
   IssueDepProjection,
   SessionMeta,

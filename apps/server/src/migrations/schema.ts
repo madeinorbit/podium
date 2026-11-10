@@ -88,6 +88,7 @@
  */
 
 import type {
+  IssuePanelItemId,
   AccountId,
   AutomationId,
   AutomationRunId,
@@ -1777,8 +1778,6 @@ export const issues = sqliteTable(
     linearId: text('linear_id'),
     linearIdentifier: text('linear_identifier'),
     linearUrl: text('linear_url'),
-    activityNotes: text('activity_notes'),
-    notesUpdatedAt: text('notes_updated_at'),
     suggestedStage: text('suggested_stage'),
     suggestedReason: text('suggested_reason'),
     blockedBy: text('blocked_by').default('[]').notNull(),
@@ -1835,7 +1834,6 @@ export const issues = sqliteTable(
     humanQuestionAskedBy: text('human_question_asked_by').$type<SessionId>(),
     humanQuestionAskedAt: text('human_question_asked_at'),
     humanQuestionAttribution: text('human_question_attribution'),
-    panel: text(),
     createdAt: text('created_at').notNull(),
     actor: text('actor'),
     onBehalfOf: text('on_behalf_of'),
@@ -3482,3 +3480,27 @@ export const userDockShell = sqliteTable(
     index('idx_user_dock_shell_worktree').on(table.worktreeKey),
   ],
 )
+
+// Each panel item is a record; list positions are labels, never identities.
+export const issuePanelTodos = sqliteTable('issue_panel_todos', {
+  /** Caller-minted stable panel item UUID. */
+  id: text().$type<IssuePanelItemId>().primaryKey(),
+  issueId: brandedRef(text('issue_id').$type<IssueId>().notNull(), () => issues.id, { onDelete: 'cascade' }),
+  position: integer().notNull(), text: text().notNull(), done: integer({ mode: 'boolean' }).notNull(),
+}, t => [index('idx_issue_panel_todos_order').on(t.issueId, t.position, t.id)])
+export const issuePanelArtifacts = sqliteTable('issue_panel_artifacts', {
+  /** Caller-minted stable item UUID, distinct from snapshot id. */
+  id: text().$type<IssuePanelItemId>().primaryKey(),
+  issueId: brandedRef(text('issue_id').$type<IssueId>().notNull(), () => issues.id, { onDelete: 'cascade' }),
+  position: integer().notNull(), path: text().notNull(), value: text().notNull(),
+}, t => [index('idx_issue_panel_artifacts_order').on(t.issueId, t.position, t.id), uniqueIndex('idx_issue_panel_artifacts_path').on(t.issueId, t.path)])
+export const issuePanelDeferred = sqliteTable('issue_panel_deferred', {
+  /** Caller-minted stable panel item UUID. */
+  id: text().$type<IssuePanelItemId>().primaryKey(),
+  issueId: brandedRef(text('issue_id').$type<IssueId>().notNull(), () => issues.id, { onDelete: 'cascade' }),
+  position: integer().notNull(), text: text().notNull(), addedAt: text('added_at').notNull(),
+}, t => [index('idx_issue_panel_deferred_order').on(t.issueId, t.position, t.id)])
+export const issuePanelStates = sqliteTable('issue_panel_states', {
+  id: brandedRef(text().$type<IssueId>().primaryKey(), () => issues.id, { onDelete: 'cascade' }),
+  text: text().notNull(), updatedAt: text('updated_at').notNull(),
+})

@@ -85,6 +85,10 @@ import type {
   AutomationWire,
   EffectRecordWire,
   InstancePreferences,
+  IssuePanelTodoWire,
+  IssuePanelArtifactWire,
+  IssuePanelDeferredWire,
+  IssuePanelStateWire,
   MachineAccessWire,
   MachineProjection,
   PersonalPreferences,
@@ -278,6 +282,10 @@ export type AbsentRead = 'load' | 'mark' | 'peek' | 'summary' | 'summary-fields'
 export type Residence = 'resident' | 'loading' | 'absent'
 
 export interface PoolRows {
+  issuePanelTodo: Readonly<IssuePanelTodoWire> & Readonly<Record<string, unknown>>
+  issuePanelArtifact: Readonly<IssuePanelArtifactWire> & Readonly<Record<string, unknown>>
+  issuePanelDeferred: Readonly<IssuePanelDeferredWire> & Readonly<Record<string, unknown>>
+  issuePanelState: Readonly<IssuePanelStateWire> & Readonly<Record<string, unknown>>
   account: AccountView & Readonly<Record<string, unknown>>
   member: MemberView & Readonly<Record<string, unknown>>
   device: MobileClientSession & Readonly<Record<string, unknown>>

@@ -5,8 +5,7 @@ import { LOADING } from './loading'
 /**
  * AN ISSUE'S BODIES, FETCHED WHEN SHOWN (POD-6767, design POD-6253 §2).
  *
- * The synced issue record carries a header per body (`brief`, `panel`,
- * `description`, `activityNotes`): a digest and a size. The body itself is
+ * The synced issue record carries a header per body (`brief` and `description`): a digest and a size. The body itself is
  * read here. A reader asks for one field of one issue at the digest its
  * header names; the answer is the body held for that field with whether it is
  * the asked digest's, or `LOADING` while nothing is held yet.

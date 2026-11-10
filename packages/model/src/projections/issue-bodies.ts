@@ -11,5 +11,6 @@ export const SlimIssueProjection = IssueProjection.omit({
   panel: true,
   description: true,
   activityNotes: true,
+  notesUpdatedAt: true,
 })
 export type SlimIssueProjection = z.infer<typeof SlimIssueProjection>

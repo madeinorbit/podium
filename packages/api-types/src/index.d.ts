@@ -1838,6 +1838,7 @@ type Input_issues_panelApply = {
     extraPaths?: string[] | undefined;
     id: string;
     index?: number | undefined;
+    itemId?: string | undefined;
     op: "artifact-add" | "artifact-remove" | "artifact-upload" | "deferred-add" | "deferred-remove" | "todo-add" | "todo-clear" | "todo-done" | "todo-remove" | "todo-undone";
     path?: string | undefined;
     sourceRoot?: string | undefined;
@@ -3019,7 +3020,10 @@ type Output_issues_action = {
                     path: string;
                     size: number;
                 }[];
+                id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+                issueId?: (string & z.BRAND<"IssueId">) | undefined;
                 path: string;
+                position?: number | undefined;
                 sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
                 sourcePaths?: string[] | undefined;
                 title?: string | undefined;
@@ -3028,10 +3032,16 @@ type Output_issues_action = {
             }[];
             deferred: {
                 addedAt: string;
+                id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+                issueId?: (string & z.BRAND<"IssueId">) | undefined;
+                position?: number | undefined;
                 text: string;
             }[];
             todos: {
                 done: boolean;
+                id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+                issueId?: (string & z.BRAND<"IssueId">) | undefined;
+                position?: number | undefined;
                 text: string;
             }[];
         };
@@ -3160,7 +3170,10 @@ type Output_issues_action = {
                     path: string;
                     size: number;
                 }[];
+                id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+                issueId?: (string & z.BRAND<"IssueId">) | undefined;
                 path: string;
+                position?: number | undefined;
                 sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
                 sourcePaths?: string[] | undefined;
                 title?: string | undefined;
@@ -3169,10 +3182,16 @@ type Output_issues_action = {
             }[];
             deferred: {
                 addedAt: string;
+                id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+                issueId?: (string & z.BRAND<"IssueId">) | undefined;
+                position?: number | undefined;
                 text: string;
             }[];
             todos: {
                 done: boolean;
+                id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+                issueId?: (string & z.BRAND<"IssueId">) | undefined;
+                position?: number | undefined;
                 text: string;
             }[];
         };
@@ -3328,7 +3347,10 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
                 path: string;
                 size: number;
             }[];
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
             path: string;
+            position?: number | undefined;
             sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
@@ -3337,10 +3359,16 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
         }[];
         deferred: {
             addedAt: string;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
         todos: {
             done: boolean;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
     };
@@ -3469,7 +3497,10 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
                 path: string;
                 size: number;
             }[];
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
             path: string;
+            position?: number | undefined;
             sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
@@ -3478,10 +3509,16 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
         }[];
         deferred: {
             addedAt: string;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
         todos: {
             done: boolean;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
     };
@@ -3636,7 +3673,10 @@ type Output_issues_answerQuestion = {
                     path: string;
                     size: number;
                 }[];
+                id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+                issueId?: (string & z.BRAND<"IssueId">) | undefined;
                 path: string;
+                position?: number | undefined;
                 sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
                 sourcePaths?: string[] | undefined;
                 title?: string | undefined;
@@ -3645,10 +3685,16 @@ type Output_issues_answerQuestion = {
             }[];
             deferred: {
                 addedAt: string;
+                id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+                issueId?: (string & z.BRAND<"IssueId">) | undefined;
+                position?: number | undefined;
                 text: string;
             }[];
             todos: {
                 done: boolean;
+                id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+                issueId?: (string & z.BRAND<"IssueId">) | undefined;
+                position?: number | undefined;
                 text: string;
             }[];
         };
@@ -3777,7 +3823,10 @@ type Output_issues_answerQuestion = {
                     path: string;
                     size: number;
                 }[];
+                id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+                issueId?: (string & z.BRAND<"IssueId">) | undefined;
                 path: string;
+                position?: number | undefined;
                 sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
                 sourcePaths?: string[] | undefined;
                 title?: string | undefined;
@@ -3786,10 +3835,16 @@ type Output_issues_answerQuestion = {
             }[];
             deferred: {
                 addedAt: string;
+                id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+                issueId?: (string & z.BRAND<"IssueId">) | undefined;
+                position?: number | undefined;
                 text: string;
             }[];
             todos: {
                 done: boolean;
+                id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+                issueId?: (string & z.BRAND<"IssueId">) | undefined;
+                position?: number | undefined;
                 text: string;
             }[];
         };
@@ -4014,7 +4069,10 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
                 path: string;
                 size: number;
             }[];
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
             path: string;
+            position?: number | undefined;
             sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
@@ -4023,10 +4081,16 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
         }[];
         deferred: {
             addedAt: string;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
         todos: {
             done: boolean;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
     };
@@ -4156,7 +4220,10 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
                 path: string;
                 size: number;
             }[];
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
             path: string;
+            position?: number | undefined;
             sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
@@ -4165,10 +4232,16 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
         }[];
         deferred: {
             addedAt: string;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
         todos: {
             done: boolean;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
     };
@@ -4321,7 +4394,10 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
                 path: string;
                 size: number;
             }[];
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
             path: string;
+            position?: number | undefined;
             sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
@@ -4330,10 +4406,16 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
         }[];
         deferred: {
             addedAt: string;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
         todos: {
             done: boolean;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
     };
@@ -4462,7 +4544,10 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
                 path: string;
                 size: number;
             }[];
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
             path: string;
+            position?: number | undefined;
             sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
@@ -4471,10 +4556,16 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
         }[];
         deferred: {
             addedAt: string;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
         todos: {
             done: boolean;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
     };
@@ -4583,7 +4674,10 @@ type Output_issues_get = (null) | ({
                 path: string;
                 size: number;
             }[];
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
             path: string;
+            position?: number | undefined;
             sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
@@ -4592,10 +4686,16 @@ type Output_issues_get = (null) | ({
         }[];
         deferred: {
             addedAt: string;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
         todos: {
             done: boolean;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
     };
@@ -5080,7 +5180,10 @@ type Output_issues_searchNormalized = Array<{
                 path: string;
                 size: number;
             }[];
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
             path: string;
+            position?: number | undefined;
             sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
@@ -5089,10 +5192,16 @@ type Output_issues_searchNormalized = Array<{
         }[];
         deferred: {
             addedAt: string;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
         todos: {
             done: boolean;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
     };
@@ -5341,7 +5450,10 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
                 path: string;
                 size: number;
             }[];
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
             path: string;
+            position?: number | undefined;
             sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
@@ -5350,10 +5462,16 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
         }[];
         deferred: {
             addedAt: string;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
         todos: {
             done: boolean;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
     };
@@ -5482,7 +5600,10 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
                 path: string;
                 size: number;
             }[];
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
             path: string;
+            position?: number | undefined;
             sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
@@ -5491,10 +5612,16 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
         }[];
         deferred: {
             addedAt: string;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
         todos: {
             done: boolean;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
     };
@@ -6886,7 +7013,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         }>;
         "bodies": TRPC.TRPCQueryProcedure<{
             input: {
-                fields?: ("activityNotes" | "brief" | "description" | "panel")[] | undefined;
+                fields?: ("brief" | "description")[] | undefined;
                 ids: string[];
             };
             output: Array<_podium_model.IssueBodyWire>;

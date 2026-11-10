@@ -53,6 +53,12 @@ export type IssueId = z.infer<typeof IssueId>
 export const IssueIdField = idField<'IssueId'>()
 export const asIssueId = (s: string): IssueId => s as IssueId
 
+/** One stable todo, artifact entry or deferred item; never a list ordinal. */
+export const IssuePanelItemId = z.string().uuid().brand<'IssuePanelItemId'>()
+export type IssuePanelItemId = z.infer<typeof IssuePanelItemId>
+export const IssuePanelItemIdField = idField<'IssuePanelItemId'>()
+export const asIssuePanelItemId = (s: string): IssuePanelItemId => s as IssuePanelItemId
+
 export const RepoId = z.string().min(1).brand<'RepoId'>()
 export type RepoId = z.infer<typeof RepoId>
 export const RepoIdField = idField<'RepoId'>()

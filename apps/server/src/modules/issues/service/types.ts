@@ -56,6 +56,7 @@ export interface IssueLedger {
     entity:
       | 'issueProjection'
       | 'issueBodies'
+      | 'issuePanelTodo' | 'issuePanelArtifact' | 'issuePanelDeferred' | 'issuePanelState'
       | 'issueUserState'
       | 'issueGitState'
       | 'issueDep'
@@ -78,11 +79,12 @@ export { UNSNOOZE_BACKDATE_MS } from '@podium/model'
 
 /** One mutation on the agent-published human panel — see IssueService.panelApply. */
 export type IssuePanelOp =
-  | { op: 'todo-add'; text: string }
-  | { op: 'todo-done' | 'todo-undone' | 'todo-remove'; index: number }
+  | { op: 'todo-add'; text: string; itemId?: string }
+  | { op: 'todo-done' | 'todo-undone' | 'todo-remove'; index?: number; itemId?: string }
   | { op: 'todo-clear' }
   | {
       op: 'artifact-add'
+      itemId?: string
       path: string
       title?: string
       /** Permanent-store snapshot fields ([spec:SP-0fc9]) — set by panelArtifactAdd
@@ -97,12 +99,12 @@ export type IssuePanelOp =
       chatUploadId?: string
       chatUploadOwner?: UserId
     }
-  | { op: 'artifact-remove'; index: number }
+  | { op: 'artifact-remove'; index?: number; itemId?: string }
   /** An artifact effect's removal (POD-6420): the entry under this path (and
    *  snapshot, when given); already gone is no change. */
   | { op: 'artifact-remove'; path: string; artifactId?: ArtifactId }
-  | { op: 'deferred-add'; text: string }
-  | { op: 'deferred-remove'; index: number }
+  | { op: 'deferred-add'; text: string; itemId?: string }
+  | { op: 'deferred-remove'; index?: number; itemId?: string }
 
 /** One edge endpoint in a dep report: enough to render "#12 title (open, blocks)". */
 export interface DepReportRef {

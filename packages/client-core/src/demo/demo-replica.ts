@@ -72,6 +72,7 @@ export function buildDemoEntityRecords(userId: UserId = DEMO_PRINCIPAL): EntityR
   for (const session of DEMO_SESSIONS) {
     put(records, 'session', session.sessionId, { ...session })
   }
+  let panelId = 0
   const repos = new Map<string, { id: string; repoPath: string; prefix?: string; name: string }>()
   for (const issue of DEMO_ISSUES) {
     const source = issue as unknown as Record<string, unknown>
@@ -88,6 +89,12 @@ export function buildDemoEntityRecords(userId: UserId = DEMO_PRINCIPAL): EntityR
     // The bodies' headers (POD-6767); `demoIssueBodies` answers the bodies.
     const headers = demoBodyHeaders(issue.id)
     if (headers) put(records, 'issueBodies', issue.id, headers)
+    for (const [collection, kind] of [['todos', 'issuePanelTodo'], ['artifacts', 'issuePanelArtifact'], ['deferred', 'issuePanelDeferred']] as const)
+      for (const [position, item] of (issue.panel?.[collection] ?? []).entries()) {
+        const id = `00000000-0000-4000-8000-${String(++panelId).padStart(12, '0')}`
+        put(records, kind, id, { ...item, id, issueId: issue.id, position })
+      }
+    if (issue.activityNotes) put(records, 'issuePanelState', issue.id, { id: issue.id, text: issue.activityNotes, updatedAt: issue.notesUpdatedAt ?? issue.updatedAt })
     put(records, 'issueUserState', issueUserStateRowId(userId, issue.id as never), {
       userId,
       entityId: issue.id,
@@ -148,8 +155,6 @@ function demoBodyValues(issueId: string): Partial<Record<IssueBodyField, unknown
   const source = issue as unknown as Record<string, unknown>
   return {
     brief: source.brief,
-    panel: source.panel,
-    activityNotes: source.activityNotes,
     description: { value: issue.description ?? '' },
   }
 }
@@ -222,6 +227,11 @@ const DEMO_SLICE_KINDS = [
   'issueUserStates',
   'issueGitStates',
   'issueBodies',
+  'issuePanelTodos',
+  'issuePanelArtifacts',
+  'issuePanelDeferreds',
+  'issuePanelStates',
+
   'issueDeps',
   'repos',
   'issueEvents',

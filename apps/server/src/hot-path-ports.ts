@@ -22,7 +22,7 @@ export interface DaemonObservationStore {
 export interface FeedVisibilityStore {
   readonly issues: Pick<
     SessionStore['issues'],
-    'getIssue' | 'getIssues' | 'liveWorktreeIssuesOnMachines'
+    'getIssue' | 'getIssues' | 'liveWorktreeIssuesOnMachines' | 'panel'
   >
   readonly sessions: Pick<
     SessionStore['sessions'],

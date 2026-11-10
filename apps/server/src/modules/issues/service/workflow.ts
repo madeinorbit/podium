@@ -989,7 +989,14 @@ export class IssueGitWorkflowModule {
 
   /** The issue as committed now, for a git effect's adapter answer (POD-6394). */
   async projectionNow(id: string): Promise<IssueProjection> {
-    return await this.store.projection(await this.store.rowOrThrow(id))
+    const row = await this.store.rowOrThrow(id)
+    const detail = (await this.store.deps.store.issues.panel.readMany([row.id])).get(row.id)
+    return {
+      ...(await this.store.projection(row)),
+      panel: detail?.panel,
+      activityNotes: detail?.state?.text,
+      notesUpdatedAt: detail?.state?.updatedAt,
+    }
   }
 
   /**

@@ -72,11 +72,6 @@ function row(seq: number, patch: Partial<IssueRow> = {}): IssueRow {
     humanQuestion: null,
     machineId: asMachineId('machine-1'),
     coordinatorSessionId: asSessionId(`ses_${seq}`),
-    panel: JSON.stringify({
-      todos: [],
-      artifacts: [{ path: `${WORKTREE}/shot-${seq}.png`, addedAt: '2026-11-10T00:00:00.000Z' }],
-      deferred: [],
-    }),
     createdAt: '2026-11-10T00:00:00.000Z',
     updatedAt: '2026-11-10T00:00:00.000Z',
     archived: false,
@@ -140,12 +135,6 @@ describe('issues.bodies', () => {
           ),
         )
       }
-      expect(
-        answer.find((body) => body.issueId === 'iss_1' && body.field === 'activityNotes'),
-      ).toBeUndefined()
-      expect(
-        answer.find((body) => body.issueId === 'iss_2' && body.field === 'activityNotes')?.value,
-      ).toBe('Halfway there')
       expect(answer.find((body) => body.field === 'description')?.value).toEqual({
         value: 'The summary of issue 1',
       })
@@ -164,23 +153,6 @@ describe('issues.bodies', () => {
       }
       // A field with no content has no header.
       expect(issueBodiesOfRow(stored)).not.toHaveProperty('activityNotes')
-    } finally {
-      await f.store.close()
-    }
-  })
-
-  it('reduces the panel for a reader who may not see the worktree', async () => {
-    const f = await fixture(2, (seq) => (seq === 2 ? { ownerUserId: reader } : {}))
-    try {
-      const answer = await bodies(f, { ids: f.ids, fields: ['panel'] })
-      const pathOf = (id: string) =>
-        (answer.find((body) => body.issueId === id)?.value as { artifacts: { path: string }[] })
-          .artifacts[0]!.path
-      // Someone else's task: the absolute path into their worktree is gone.
-      expect(pathOf('iss_1').startsWith('/')).toBe(false)
-      // The reader's own task: the path is theirs to see.
-      expect(pathOf('iss_2')).toBe(`${WORKTREE}/shot-2.png`)
-      expect(answer.every((body) => body.field === 'panel')).toBe(true)
     } finally {
       await f.store.close()
     }
@@ -206,10 +178,10 @@ describe('issues.bodies', () => {
         setup: (size) => fixture(size),
         target: (f) => f.store,
         run: (f) => bodies(f, { ids: f.ids }),
-        check: (answer, _f, size) => expect((answer as unknown[]).length).toBe(size * 3),
+        check: (answer, _f, size) => expect((answer as unknown[]).length).toBe(size * 2),
         teardown: async (f) => await f.store.close(),
       },
-      3,
+      1,
     )
   })
 })

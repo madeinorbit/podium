@@ -94,6 +94,7 @@ import {
   sortScopeOf,
 } from './issue-listings'
 import { IssueGitStatesRepository } from './issue-git-states'
+import { IssuePanelRepository } from './issue-panel'
 import { StaleIssueRevisionError } from './issue-revision'
 import { prefixUpperBound } from './prefix-range'
 import type {
@@ -1125,8 +1126,6 @@ const UPSERT_ISSUE_SET_COLUMNS = [
   'linearId',
   'linearIdentifier',
   'linearUrl',
-  'activityNotes',
-  'notesUpdatedAt',
   'suggestedStage',
   'suggestedReason',
   'blockedBy',
@@ -1154,7 +1153,6 @@ const UPSERT_ISSUE_SET_COLUMNS = [
   'humanQuestionAskedBy',
   'humanQuestionAskedAt',
   'humanQuestionAttribution',
-  'panel',
   'updatedAt',
   'archived',
   'origin',
@@ -1281,6 +1279,7 @@ function byRepoPathThenSeq<T extends { repoPath: string; seq: number }>(rows: It
 export type LabelRow = typeof labels.$inferSelect
 
 export class IssuesRepository {
+  readonly panel: IssuePanelRepository
   readonly gitStates: IssueGitStatesRepository
   readonly committed: CommittedRows<typeof issues.$inferSelect>
   private sessionRefPublisher: ((ids: readonly IssueId[]) => Promise<void>) | undefined
@@ -1404,6 +1403,7 @@ export class IssuesRepository {
       machineId?: MachineId | null,
     ) => string | Promise<string>,
   ) {
+    this.panel = new IssuePanelRepository(queries)
     this.gitStates = new IssueGitStatesRepository(queries)
     this.committed = new CommittedRows(queries.createOrJoinTransaction, 'issues')
     // The per-operation loaders are invalidated after each write (rowsWritten)
@@ -1591,8 +1591,6 @@ export class IssuesRepository {
       linearId: row.linearId,
       linearIdentifier: row.linearIdentifier,
       linearUrl: row.linearUrl,
-      activityNotes: row.activityNotes,
-      notesUpdatedAt: row.notesUpdatedAt,
       suggestedStage: row.suggestedStage,
       suggestedReason: row.suggestedReason,
       blockedBy: JSON.stringify(blockedBy),
@@ -1624,7 +1622,6 @@ export class IssuesRepository {
       humanQuestionAttribution: row.humanQuestionAttribution
         ? JSON.stringify(row.humanQuestionAttribution)
         : null,
-      panel: row.panel ?? null,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       archived: row.archived,
@@ -3025,8 +3022,8 @@ export function issueFromRow(r: typeof issues.$inferSelect): IssueRow {
     linearId: r.linearId,
     linearIdentifier: r.linearIdentifier,
     linearUrl: r.linearUrl,
-    activityNotes: r.activityNotes,
-    notesUpdatedAt: r.notesUpdatedAt,
+    activityNotes: null,
+    notesUpdatedAt: null,
     suggestedStage: r.suggestedStage,
     suggestedReason: r.suggestedReason,
     blockedBy: parseStringArray(r.blockedBy, `issue ${String(r.id)} blocked_by`),
@@ -3064,7 +3061,6 @@ export function issueFromRow(r: typeof issues.$inferSelect): IssueRow {
     humanQuestionAskedBy: r.humanQuestionAskedBy ?? null,
     humanQuestionAskedAt: r.humanQuestionAskedAt,
     humanQuestionAttribution: questionAttribution(r.humanQuestionAttribution),
-    panel: r.panel,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
     archived: r.archived,

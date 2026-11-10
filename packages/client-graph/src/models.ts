@@ -1,3 +1,4 @@
+import type { IssuePanelTodoWire, IssuePanelArtifactWire, IssuePanelDeferredWire, IssuePanelStateWire } from '@podium/model'
 import type { LayoutWire } from '@podium/model'
 import { type IssueNavigationModel, issuePendingDecision, missionTaskBucket, type MissionTaskBucket } from '@podium/client-core/values'
 import { type LiveStore, lastValue } from '@podium/client-core/live'
@@ -363,6 +364,7 @@ export class IssueModel extends EntityModel {
     'brief',
     'panel',
     'activityNotes',
+    'notesUpdatedAt',
   ])
   constructor(id: string, host: ModelHost) {
     super('issue', id, host)
@@ -446,16 +448,22 @@ export class IssueModel extends EntityModel {
     const value = this.body('brief')
     return value === LOADING ? undefined : (value as string | undefined)
   }
-  /** The agent-published panel, shaped for this reader by the server. */
-  @lazy get panel(): IssuePanel | undefined {
-    const value = this.body('panel')
-    return value === LOADING ? undefined : (value as IssuePanel | undefined)
+  @lazy({ equals: compareShallow }) get panelTodos(): IssuePanelTodoModel[] {
+    return this.panelTodoRecords.ready.slice().sort(panelOrder)
   }
-  /** The agent's current state paragraph. */
-  @lazy get activityNotes(): string | undefined {
-    const value = this.body('activityNotes')
-    return value === LOADING ? undefined : (value as string | undefined)
+  @lazy({ equals: compareShallow }) get panelArtifacts(): IssuePanelArtifactModel[] {
+    return this.panelArtifactRecords.ready.slice().sort(panelOrder)
   }
+  @lazy({ equals: compareShallow }) get panelDeferred(): IssuePanelDeferredModel[] {
+    return this.panelDeferredRecords.ready.slice().sort(panelOrder)
+  }
+  /** Lists contain shared models, never copied item facts. Membership and order
+   * are the only inputs: toggling one todo does not replace any list. */
+  @lazy get panel(): IssuePanel {
+    return { todos: this.panelTodos, artifacts: this.panelArtifacts, deferred: this.panelDeferred }
+  }
+  @lazy get activityNotes(): string | undefined { return this.panelStateRecords.ready[0]?.text }
+  @lazy get notesUpdatedAt(): string | undefined { return this.panelStateRecords.ready[0]?.updatedAt }
 
   // Chat uploads (POD-2148): the stored copy of each file attached in one of
   // this issue's chats, by the attachment id it was staged under. The chat
@@ -1563,7 +1571,34 @@ export class InstancePreferencesModel extends EntityModel {
 }
 export interface InstancePreferencesModel extends Readonly<InstancePreferences> {}
 
+const panelOrder = (a: { position: number; id: string }, b: { position: number; id: string }) => a.position - b.position || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+export class IssuePanelTodoModel extends EntityModel {
+  declare readonly id: import('@podium/model').IssuePanelItemId
+  constructor(id: string, host: ModelHost) { super('issuePanelTodo', id, host) }
+}
+export interface IssuePanelTodoModel extends Readonly<Omit<IssuePanelTodoWire, 'id'>>, RelationGetters<'issuePanelTodo'> {}
+export class IssuePanelArtifactModel extends EntityModel {
+  declare readonly id: import('@podium/model').IssuePanelItemId
+  constructor(id: string, host: ModelHost) { super('issuePanelArtifact', id, host) }
+}
+export interface IssuePanelArtifactModel extends Readonly<Omit<IssuePanelArtifactWire, 'id'>>, RelationGetters<'issuePanelArtifact'> {}
+export class IssuePanelDeferredModel extends EntityModel {
+  declare readonly id: import('@podium/model').IssuePanelItemId
+  constructor(id: string, host: ModelHost) { super('issuePanelDeferred', id, host) }
+}
+export interface IssuePanelDeferredModel extends Readonly<Omit<IssuePanelDeferredWire, 'id'>>, RelationGetters<'issuePanelDeferred'> {}
+export class IssuePanelStateModel extends EntityModel {
+  declare readonly id: import('@podium/model').IssueId
+  constructor(id: string, host: ModelHost) { super('issuePanelState', id, host) }
+}
+export interface IssuePanelStateModel extends Readonly<Omit<IssuePanelStateWire, 'id'>>, RelationGetters<'issuePanelState'> {}
+
 export type ModelOf = {
+  issuePanelTodo: IssuePanelTodoModel
+  issuePanelArtifact: IssuePanelArtifactModel
+  issuePanelDeferred: IssuePanelDeferredModel
+  issuePanelState: IssuePanelStateModel
+
   account: AccountModel
   member: MemberModel
   device: DeviceModel
@@ -1604,6 +1639,10 @@ export type ModelClass = (new (id: string, host: ModelHost) => EntityModel) & Pi
 export const MODEL_CLASSES: Readonly<Partial<Record<EntityName, ModelClass>>> = {
   issue: IssueModel, session: SessionModel, worktree: WorktreeModel, repo: RepoModel,
   effect: EffectModel,
+  issuePanelTodo: IssuePanelTodoModel,
+  issuePanelArtifact: IssuePanelArtifactModel,
+  issuePanelDeferred: IssuePanelDeferredModel,
+  issuePanelState: IssuePanelStateModel,
   pin: PinModel,
   userLayout: UserLayoutModel, tabOrder: TabOrderModel, userPreferences: UserPreferencesModel,
   userReadPosition: UserReadPositionModel,

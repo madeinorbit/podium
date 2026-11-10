@@ -6589,7 +6589,7 @@ describe('IssueService panelApply (agent-published human panel)', () => {
       op: 'todo-add',
       text: 'second',
     })
-    expect(after.panel?.todos).toEqual([
+    expect(after.panel?.todos).toMatchObject([
       { text: 'first', done: false },
       { text: 'second', done: false },
     ])

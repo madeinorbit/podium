@@ -74,16 +74,16 @@ describe('IssueBodyStore', () => {
 
   it('keeps showing the held body while a moved header loads, marked not current', async () => {
     const store = new IssueBodyStore()
-    const held = new Map([['a', [body('a', 'activityNotes', 'd1', 'First')]]])
+    const held = new Map([['a', [body('a', 'brief', 'd1', 'First')]]])
     const { calls, fetch } = server(held)
     store.bind(fetch)
-    store.read('a', 'activityNotes', 'd1')
+    store.read('a', 'brief', 'd1')
     await settle()
-    held.set('a', [body('a', 'activityNotes', 'd2', 'Second')])
-    expect(store.read('a', 'activityNotes', 'd2')).toEqual({ value: 'First', current: false })
+    held.set('a', [body('a', 'brief', 'd2', 'Second')])
+    expect(store.read('a', 'brief', 'd2')).toEqual({ value: 'First', current: false })
     await settle()
     expect(calls).toHaveLength(2)
-    expect(store.read('a', 'activityNotes', 'd2')).toEqual({ value: 'Second', current: true })
+    expect(store.read('a', 'brief', 'd2')).toEqual({ value: 'Second', current: true })
   })
 
   it('shows the text a settled edit painted until its body arrives', async () => {
@@ -181,7 +181,6 @@ describe('IssueModel bodies', () => {
     const issue = pool.issueObject('a')
     // No header: the field has nothing, and nothing is fetched for it.
     expect(issue.activityNotes).toBeUndefined()
-    expect(issue.bodyLoading('activityNotes')).toBe(false)
     // A header: loading until the body arrives.
     expect(issue.brief).toBeUndefined()
     expect(issue.description).toBe('')

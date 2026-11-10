@@ -38,6 +38,7 @@
 
 import {
   asMachineId,
+  ISSUE_PANEL_KINDS,
   checkoutRowId,
   INSTANCE_PREFERENCES_ROW_ID,
   instancePreferencesRecordOf,
@@ -865,6 +866,14 @@ export const DATABASE_ONLY_BUILDERS: readonly Builder[] = [
   machineAccess,
   issueProjection,
   issueBodies,
+  ...ISSUE_PANEL_KINDS.map((kind): Builder => ({
+    kind, shape: 'row',
+    build: async ({ store }, ids) => (await store.issues.panel.getMany(kind, ids)).map(value => ({ id: value.id, value })),
+    async *streamAll({ store }) {
+      for await (const page of store.issues.panel.pages(kind, RECORD_PAGE_SIZE))
+        yield page.map(value => ({ id: value.id, value }))
+    },
+  })),
   issueDep,
   issueUserState,
   subscription,

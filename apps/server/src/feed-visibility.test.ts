@@ -1,5 +1,6 @@
 import {
   asIssueId,
+  asIssuePanelItemId,
   asMachineId,
   asSessionId,
   asUserId,
@@ -50,6 +51,7 @@ async function fixture() {
   } as SessionRow
   const rows: FeedVisibilityStore = {
     issues: {
+      panel: store.issues.panel,
       getIssue: async () => issue,
       getIssues: async () => new Map([[issue.id, issue]]),
       liveWorktreeIssuesOnMachines: async () => new Map(),
@@ -124,7 +126,7 @@ async function fixture() {
       actorId: owner,
       onBehalfOf: owner,
     })
-  return { store, policy, grant }
+  return { store, policy, grant, issue }
 }
 const creator = asUserId('creator')
 const firstAdmin = asUserId('first-admin')
@@ -737,4 +739,21 @@ describe('machine access and checkout rows', () => {
       { entity: 'checkout', entityId: checkoutRowId(asMachineId('m1'), '/home/u/podium') },
     ])
   })
+})
+
+it('shapes each artifact record for its reader and keeps its stable identity', async () => {
+  const { store, policy, issue } = await fixture()
+  issue.worktreePath = '/repo/task'
+  // The parent is an existing shared task in the visibility snapshot. The
+  // normalized row reader is stubbed only to avoid unrelated issue setup.
+  const id = asIssuePanelItemId('00000000-0000-4000-8000-000000000001')
+  const artifact = { id, issueId: issue.id, position: 0, path: '/repo/task/result.html', addedAt: 't', sourcePaths: ['/repo/task/source.png'], untrackedPaths: ['/private/other.png'], files: [{ path: 'result.html', size: 5 }] }
+  const original = store.issues.panel.getMany.bind(store.issues.panel)
+  store.issues.panel.getMany = async (kind, ids) => kind === 'issuePanelArtifact' && ids.includes(id) ? [artifact] : await original(kind, ids)
+  const ref: EntityRef = { entity: 'issuePanelArtifact', entityId: id }
+  const state = await policy.state.forBootstrap!([ref])
+  expect(state.classOf(ref.entity)).toBe('personal')
+  expect(state.mayRead(reader, ref)).toBe(true)
+  expect(state.shapeFor!(owner, ref, artifact)).toEqual(artifact)
+  expect(state.shapeFor!(reader, ref, artifact)).toEqual({ ...artifact, path: 'result.html', sourcePaths: ['source.png'], untrackedPaths: ['other.png'] })
 })

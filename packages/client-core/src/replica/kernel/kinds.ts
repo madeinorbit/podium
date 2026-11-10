@@ -51,6 +51,11 @@ const ENTITY_TO_KIND = {
   issueGitState: 'issueGitStates',
   // POD-6767: an issue's body headers, keyed by the issue id.
   issueBodies: 'issueBodies',
+  issuePanelTodo: 'issuePanelTodos',
+  issuePanelArtifact: 'issuePanelArtifacts',
+  issuePanelDeferred: 'issuePanelDeferreds',
+  issuePanelState: 'issuePanelStates',
+
   issueDep: 'issueDeps',
   repo: 'repos',
   /** POD-1772's curated issue events. Same rule as the three kinds above: the

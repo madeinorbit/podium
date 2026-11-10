@@ -34,18 +34,18 @@
       "file": "apps/mobile/src/client/test-replica.ts",
       "holder": "createMobileTestReplica/replica",
       "rule": "reader-summary",
-      "tokens": "88c09e87efc8907deeeb1dca60a74465fb99e3e2e47b7e2279067bad52dc10f2",
+      "tokens": "0129a7ac80f65c0e85e165496202dfa30972e7b0129acf9544b183cb8261c9d6",
       "gate": [],
       "origin": [
         "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
       ],
-      "fingerprint": "ee455b495a2484dbea2313eb132bc2e3bfa5f33674ba4c25eb61a9d9a0da4302",
+      "fingerprint": "59d6d2d429443d500bfcd0b17b1e9c29389e57d7c79f91fcc09af14ce8842c14",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
       "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
       "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
-      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged.",
       "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     },
     {
@@ -92,18 +92,18 @@
       "file": "apps/mobile/src/client/issue-fixtures.ts",
       "holder": "seedIssueFixtures",
       "rule": "loop:for-of",
-      "tokens": "cae561be6e9769bd9fcf0302fe863d6aca30b943e4d70a6d8255215e86d2262b",
+      "tokens": "678dbf51483722e3cf6cf286adda7a0bfaace7f15abba56a3b2e312f0e6ba08d",
       "gate": [],
       "origin": [
         "b260981f94e757d299cf9a1c01ef0b7a3d9869e9a3d944af8518c85a193743e1"
       ],
-      "fingerprint": "15688409cf675435954caf5de9d546db0dee5f9cc578883010cb4c4b802fc8ee",
+      "fingerprint": "9b5af87f7e3b9db42f9fa26da7b8da92c9325f954d096b6fb4311c417643326a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of seedIssueFixtures",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -138,7 +138,7 @@
       "file": "apps/mobile/src/client/test-support.tsx",
       "holder": "renderWithMobileStore",
       "rule": "helper-consumer",
-      "tokens": "ac4505b375c5074fa5c8634c29536e7fc5cdfbf9ed3337ae93b28fadefe33d62",
+      "tokens": "a6dae1b114b1f33e021ae689ef7b364a98ea24f379494bb492f87897a02eba80",
       "gate": [
         "then:340050db2368d08922eee549b81b405b8afd7f6857e8dc18875cb9e8e9cd8f23"
       ],
@@ -146,13 +146,13 @@
         "241a0331a71588c9cfd9dee4a0d372658006f11d0778e6476f836b12089cb86f",
         "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
       ],
-      "fingerprint": "5ccdac94b67db8a51f799cb00512c65556aa5b18f9ed245eecc2115d1f8fb433",
+      "fingerprint": "03e033f4a44fc4fd6d10162b6deb86ec4e927f586215daab86b0b4f82a558f36",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of renderWithMobileStore",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -8659,20 +8659,20 @@
       "file": "apps/web/src/lib/kernelReplica.ts",
       "holder": "openKernelAssembly/assembly",
       "rule": "helper-consumer",
-      "tokens": "0ff78baa02fe7beda5c8d040eb647ad94f80cf6685e141f4b1edc01e74b3e3be",
+      "tokens": "aab4690795adb37495e6e43e701d0a528377899f01a67dad85821652efc6695a",
       "gate": [
         "exit:then:5e2a14e1fded6dcf5bd2bbeb0a38680fd681e01937e3beb0794cbfbe6fbfbbad"
       ],
       "origin": [
         "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
       ],
-      "fingerprint": "67a339b7fad102c1f23f72c11eb77f06d8ea1e56abeaac39c1e8742f740ae77d",
+      "fingerprint": "ef5c6d5137cba7143eb04240fba6ea302f964a5eb112cef6cef29c88be964024",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
       "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
       "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
-      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged.",
       "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     },
     {
@@ -12071,18 +12071,18 @@
       "file": "packages/client-core/src/demo/demo-replica.ts",
       "holder": "createDemoReplica",
       "rule": "reader-summary",
-      "tokens": "31769e6207e898bf8a094c9dfab3520e5f8351c19deb56d71ca229b886e915d3",
+      "tokens": "2e6e4b391bc4c020a000626d9e4ea77c05fda14192406566e656809bb8fc4206",
       "gate": [],
       "origin": [
         "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
       ],
-      "fingerprint": "2dcbab8fe7ab80d1adab18fca73d03e544f5f9df93d525382f837c503101e9ae",
+      "fingerprint": "6c35896e20848913f05c9539fa14b3e72d13959705051ca6e1d00ffce8dce633",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
       "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
       "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
-      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged.",
       "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     },
     {
@@ -31008,18 +31008,18 @@
       "file": "packages/client-graph/src/shell-views.ts",
       "holder": "createShellViews/issues/memo:callback",
       "rule": "loop:for-of",
-      "tokens": "fe1b403e728d3290ca7764ec9f0447428af79fc4da62aae36b3b90ca244dcb5e",
+      "tokens": "fb0a59e957ea66b611c8c68b958dda80039ba9184299eb7a51f4939e372b106f",
       "gate": [],
       "origin": [
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1"
       ],
-      "fingerprint": "32f088be3270cd7136660d2976abb7419f0f6d014d04d7c8ac4723abbff33e4a",
+      "fingerprint": "ae5d9c8c3f0faf0e66cdca17ce53c2a0d0fd1911f022e54027747c027754e18d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of createShellViews/issues/memo:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6400: the displayRef goes through issueRefText (a pending number reads PREFIX-\u2026); the issue enumeration is unchanged. Predecessor: 477fde86d95d1e8a29b15ba82cc2d1ec5a044993a21f97ef83b4631c83db67b9.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6400: the displayRef goes through issueRefText (a pending number reads PREFIX-\u2026); the issue enumeration is unchanged. Predecessor: 477fde86d95d1e8a29b15ba82cc2d1ec5a044993a21f97ef83b4631c83db67b9. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {

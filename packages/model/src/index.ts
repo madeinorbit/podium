@@ -231,3 +231,5 @@ export * from './user-state/preference-state'
 export * from './user-state/read-position-state'
 export * from './user-state/session-state'
 export * from './user-state/synced-records'
+
+export * from './entities/issue-panel-records'

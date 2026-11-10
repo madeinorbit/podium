@@ -2,6 +2,7 @@
 import type { IssueViewModel, Replica } from '@podium/client-core/replica'
 import {
   asRepoId,
+  asIssuePanelItemId,
   type IssueDepProjection,
   type IssueGitStateProjection,
   IssueProjection,
@@ -18,6 +19,11 @@ export function seedIssueFixtures(
   issues: readonly IssueViewModel[],
   userId: UserId,
 ): void {
+  let panelId = 0
+  const todos: import('@podium/model').IssuePanelTodoWire[] = []
+  const artifacts: import('@podium/model').IssuePanelArtifactWire[] = []
+  const deferred: import('@podium/model').IssuePanelDeferredWire[] = []
+  const states: import('@podium/model').IssuePanelStateWire[] = []
   const projections: IssueProjection[] = []
   const markers: IssueUserStateWire[] = []
   const pins: PinWire[] = []
@@ -37,7 +43,15 @@ export function seedIssueFixtures(
     row.description = { value: (issue as { description?: string }).description ?? '' }
     row.intentOrigin = issue.intentOrigin
     row.isDraftVessel = issue.isDraftVessel
+    delete row.panel
+    delete row.activityNotes
+    delete row.notesUpdatedAt
     projections.push(row as unknown as IssueProjection)
+    const identity = (position: number) => ({ id: asIssuePanelItemId(`00000000-0000-4000-8000-${String(++panelId).padStart(12, '0')}`), issueId: issue.id, position })
+    for (const [position, value] of (issue.panel?.todos ?? []).entries()) todos.push({ ...value, ...identity(position) })
+    for (const [position, value] of (issue.panel?.artifacts ?? []).entries()) artifacts.push({ ...value, ...identity(position) })
+    for (const [position, value] of (issue.panel?.deferred ?? []).entries()) deferred.push({ ...value, ...identity(position) })
+    if (issue.activityNotes) states.push({ id: issue.id, text: issue.activityNotes, updatedAt: issue.notesUpdatedAt ?? issue.updatedAt })
     markers.push({
       userId,
       entityId: issue.id,
@@ -64,6 +78,10 @@ export function seedIssueFixtures(
     }
   }
   replica.applySnapshot('issueProjections', projections)
+  replica.applySnapshot('issuePanelTodos', todos)
+  replica.applySnapshot('issuePanelArtifacts', artifacts)
+  replica.applySnapshot('issuePanelDeferreds', deferred)
+  replica.applySnapshot('issuePanelStates', states)
   replica.applySnapshot('issueUserStates', markers)
   replica.applySnapshot('pins', pins)
   replica.applySnapshot('issueGitStates', git)

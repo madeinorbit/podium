@@ -185,6 +185,11 @@ const SLICE_KINDS: ReadonlySet<ReplicaKind> = new Set([
   'issueGitStates',
   // POD-6767: an issue's body headers, joined onto the issue.
   'issueBodies',
+  'issuePanelTodos',
+  'issuePanelArtifacts',
+  'issuePanelDeferreds',
+  'issuePanelStates',
+
   'issueProjections',
   'issueDeps',
   'repos',
@@ -236,6 +241,11 @@ const OVERLAID: readonly OverlayTarget[] = [
  * (`subscriptionRowId`; its stored `sub_…` id is `subscriptionId`).
  */
 const RECORD_COMPANIONS = {
+  issuePanelTodo: 'issuePanelTodos',
+  issuePanelArtifact: 'issuePanelArtifacts',
+  issuePanelDeferred: 'issuePanelDeferreds',
+  issuePanelState: 'issuePanelStates',
+
   agentProfile: 'agentProfiles',
   workflow: 'workflows',
   workflowRevision: 'workflowRevisions',

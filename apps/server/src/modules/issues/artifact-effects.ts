@@ -402,10 +402,10 @@ async function recordOf(
       }
     }
     case 'artifact-remove': {
-      if (call.index == null) throw new IssueRefusal('artifact-remove requires an index')
+      if (call.index == null && !call.itemId) throw new IssueRefusal('artifact-remove requires an index or itemId')
       // The position is read now; the record names the entry, which may move.
       const list = await modules.issues.crud.artifactEntries(issueId)
-      const entry = list[call.index - 1]
+      const entry = call.itemId ? list.find(entry => entry.id === call.itemId) : list[call.index! - 1]
       if (!entry) throw new IssueRefusal(`no item ${call.index} (list has ${list.length})`)
       return {
         kind: ISSUE_ARTIFACT_EFFECT_KIND.remove,

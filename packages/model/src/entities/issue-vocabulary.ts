@@ -27,7 +27,7 @@
  */
 
 import { z } from 'zod'
-import { ArtifactIdField, IssueIdField } from '../ids'
+import { ArtifactIdField, IssueIdField, IssuePanelItemIdField } from '../ids'
 import { LABEL_COLOR_SLOTS } from './label-color'
 
 // ---------------------------------------------------------------------------
@@ -194,9 +194,12 @@ export type IssueComment = z.infer<typeof IssueComment>
 /** Agent-published, human-facing issue panel (right-sidebar "Issue" tab).
  *  Distinct from the agent's internal todo list: agents intentionally update
  *  this so the HUMAN can see what's left, review artifacts, decide deferrals. */
-export const IssuePanelTodo = z.object({ text: z.string(), done: z.boolean() })
+/** Command/report DTOs retain item identity. Synced kinds require it. */
+export const IssuePanelItemIdentity = z.object({ id: IssuePanelItemIdField, issueId: IssueIdField, position: z.number().int().nonnegative() })
+export const IssuePanelTodo = z.object({ text: z.string(), done: z.boolean(), ...IssuePanelItemIdentity.partial().shape })
 export type IssuePanelTodo = z.infer<typeof IssuePanelTodo>
 export const IssuePanelArtifact = z.object({
+  ...IssuePanelItemIdentity.partial().shape,
   /** Stable attachment name. Daemon snapshots retain their source-relative
    * path; direct uploads choose a name independent of the source filesystem. */
   path: z.string(),
@@ -235,7 +238,7 @@ export const IssuePanelArtifact = z.object({
   untrackedPaths: z.array(z.string()).optional(),
 })
 export type IssuePanelArtifact = z.infer<typeof IssuePanelArtifact>
-export const IssuePanelDeferred = z.object({ text: z.string(), addedAt: z.string() })
+export const IssuePanelDeferred = z.object({ text: z.string(), addedAt: z.string(), ...IssuePanelItemIdentity.partial().shape })
 export type IssuePanelDeferred = z.infer<typeof IssuePanelDeferred>
 export const IssuePanel = z.object({
   todos: z.array(IssuePanelTodo).default([]),

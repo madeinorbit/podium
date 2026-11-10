@@ -82,6 +82,7 @@ interface ClosureFacts {
 }
 
 interface IssueReportBatch {
+  panels: Awaited<ReturnType<import('../../../store/issue-panel').IssuePanelRepository['readMany']>>
   gitStates: ReadonlyMap<string, IssueGitState>
   commentCounts: ReadonlyMap<string, number>
   labelsByIssue: ReadonlyMap<string, string[]>
@@ -372,7 +373,12 @@ export class IssueReportsModule {
     own?: IssueProjection,
   ): Promise<IssueReport> {
     const labels = batch.labelsByIssue.get(row.id) ?? []
-    const projection = own ?? issueRowToProjection(row, labels)
+    const detail = batch.panels.get(row.id)
+    const projection = { ...(own ?? issueRowToProjection(row, labels)),
+      panel: detail?.panel,
+      activityNotes: detail?.state?.text,
+      notesUpdatedAt: detail?.state?.updatedAt,
+    }
     const {
       asked,
       intentOrigin,
@@ -434,6 +440,7 @@ export class IssueReportsModule {
   private async reportBatchFor(
     rows: readonly IssueRow[],
     reader: IssueReader = UNRESTRICTED_READER,
+    includePanels = true,
   ): Promise<IssueReportBatch> {
     const ids = rows.map((row) => row.id)
     const issues = this.store.deps.store.issues
@@ -465,6 +472,7 @@ export class IssueReportsModule {
       gitStates: new Map(
         [...(await issues.gitStates.getMany(ids))].map(([id, { id: _id, ...state }]) => [id, state]),
       ),
+      panels: includePanels ? await issues.panel.readMany(ids) : new Map(),
       labelsByIssue,
       depsByFrom,
       dependentsByTo,
@@ -569,7 +577,7 @@ export class IssueReportsModule {
   async graph(repoPath?: string, reader: IssueReader = UNRESTRICTED_READER): Promise<IssueGraph> {
     const rows = await this.listed(repoPath, reader, { live: true, order: 'repo-seq' })
     if (rows.length === 0) return { nodes: [], edges: [] }
-    const batch = await this.reportBatchFor(rows, reader)
+    const batch = await this.reportBatchFor(rows, reader, false)
     const nodes = await Promise.all(
       rows.map(async (r) => {
         const w = await this.report(r, batch)

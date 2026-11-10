@@ -175,14 +175,16 @@ export class IssueAssistantDigestModule {
      */
     row = await this.store.draftOrThrow(id)
     if (!result) return await this.store.projection(row) // leave prior state intact on any LLM/parse failure
-    row.activityNotes = result.activityNotes || row.activityNotes
-    row.notesUpdatedAt = this.store.now()
+    const previousState = await this.store.deps.store.issues.panel.state(row.id)
+    const state = { id: row.id, text: result.activityNotes || previousState?.text || '', updatedAt: this.store.now() }
     row.blockedBy = result.blockedBy
     row.dependencyNote = result.dependencyNote || null
     // Trust the model's stage when valid and different from current; else clear the suggestion.
     const digestStage = result.suggestedStage
     row.suggestedStage = digestStage && digestStage !== row.stage ? digestStage : null
     row.suggestedReason = row.suggestedStage ? result.suggestedReason : null
-    return await this.store.persistRow(this.store.serverWriter, row)
+    return await this.store.persistWith(this.store.serverWriter, row,
+      async scope => { await this.store.deps.store.issues.panel.save(scope, 'issuePanelState', state) },
+      { extraChanges: [{ entity: 'issuePanelState', id: row.id, op: 'upsert', value: state }] })
   }
 }

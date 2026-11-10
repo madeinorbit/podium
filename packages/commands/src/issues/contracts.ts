@@ -273,6 +273,7 @@ export const setStateInput = z.object({ id: IssueIdField, text: z.string() })
 
 export const panelApplyInput = z.object({
   id: IssueIdField,
+  itemId: z.string().uuid().optional(),
   op: z.enum([
     'todo-add',
     'todo-done',

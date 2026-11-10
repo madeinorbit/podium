@@ -279,12 +279,10 @@ function createShellViews(pool: MobxPool) {
       : undefined
     const prefix = repo?.prefix
     // The full issue carries its panel (artifact links resolve against it). It
-    // is a body (POD-6767): the model fetches it, and until it is here the
-    // issue is still on its way, so a link waits instead of missing.
+    // holds ordered shared artifact models, available with the synced records.
     let body: { panel?: unknown } = {}
     if (full) {
       const model = pool.issueObject(id)
-      if (model.bodyLoading('panel')) return LOADING
       body = model.panel ? { panel: model.panel } : {}
     }
     return {

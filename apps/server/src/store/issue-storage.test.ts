@@ -105,7 +105,6 @@ const fullRow = (): IssueRow => ({
   humanQuestionAskedBy: asSessionId('sess_1'),
   humanQuestionAttribution: null,
   humanQuestionAskedAt: '2026-01-03T00:00:00Z',
-  panel: JSON.stringify({ todos: [], artifacts: [], deferred: [] }),
   // The two type-identical enums, deliberately DIFFERENT.
   origin: 'agent',
   audience: 'human',
@@ -167,7 +166,6 @@ const emptyRow = (): IssueRow => ({
   humanQuestionAskedBy: null,
   humanQuestionAttribution: null,
   humanQuestionAskedAt: null,
-  panel: null,
   origin: 'human',
   audience: 'human',
   draft: false,
@@ -329,24 +327,9 @@ describe('fromStorage / toStorage round-trip per key', () => {
     expect(decoded).not.toHaveProperty('draft')
   })
 
-  it('decodes the raw panel JSON column into an object', () => {
-    const row = fullRow()
-    row.panel = JSON.stringify({
-      todos: [{ text: 'a', done: false }],
-      artifacts: [],
-      deferred: [],
-    })
-    const decoded = fromStorage(row)
-    expect(decoded.panel?.todos).toHaveLength(1)
-    expect(toStorage(decoded, storageOnly(row)).panel).toBe(row.panel)
+  it('never encodes a panel record onto an issue row', () => {
+    expect(toStorage(fromStorage(fullRow()), storageOnly(fullRow()))).not.toHaveProperty('panel')
   })
-
-  it('degrades an unparseable panel to empty rather than throwing', () => {
-    const row = fullRow()
-    row.panel = 'not json at all'
-    expect(fromStorage(row).panel).toEqual({ todos: [], artifacts: [], deferred: [] })
-  })
-
 
   it('passes an unrecognised stage through instead of refusing the row', () => {
     // A decoder on a persisted format that refuses what it cannot classify makes

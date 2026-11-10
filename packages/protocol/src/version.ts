@@ -55,7 +55,7 @@ import { z } from 'zod'
 /** Client framing evolves independently of daemon framing. Bump only for breaking
  * changes; additive features negotiate capabilities. Each floor retains the edge
  * adapters needed for cached clients and rolling daemon upgrades. */
-export const CLIENT_WIRE_VERSION = 7
+export const CLIENT_WIRE_VERSION = 9
 
 /**
  * @deprecated Use {@link versionSupport}. This equality check is NOT what the
@@ -83,7 +83,7 @@ export function isProtocolCompatible(a: number, b: number): boolean {
  * fails while an adapter for a version below this floor still exists, so the
  * floor and the adapter set cannot drift apart.
  */
-export const MIN_CLIENT_WIRE_VERSION = 7
+export const MIN_CLIENT_WIRE_VERSION = 9
 
 /**
  * Every version inside the window, ascending.

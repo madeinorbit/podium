@@ -4,7 +4,7 @@ import { IssueIdField } from '../ids'
 /**
  * AN ISSUE'S FAT FIELDS, SPLIT INTO HEADER AND BODY (POD-6767, design POD-6253 §2).
  *
- * `brief`, `panel`, `description` and `activityNotes` were 28 of 37 MB of issue
+ * `brief` and `description` were 28 of 37 MB of issue
  * data, and every small change to an issue resent them (up to 140 KB). They now
  * leave the synced issue record. In their place each issue has ONE small synced
  * row, `issueBodies`, keyed by the issue id, with a header per field that has
@@ -18,7 +18,7 @@ import { IssueIdField } from '../ids'
  * - A body edit still bumps the issue's revision, so the slim issue record
  *   changes on the same write: the change is about 1 KB, never the whole body.
  */
-export const ISSUE_BODY_FIELDS = ['brief', 'panel', 'description', 'activityNotes'] as const
+export const ISSUE_BODY_FIELDS = ['brief', 'description'] as const
 export type IssueBodyField = (typeof ISSUE_BODY_FIELDS)[number]
 export const IssueBodyFieldName = z.enum(ISSUE_BODY_FIELDS)
 
@@ -34,9 +34,7 @@ export type IssueBodyHeader = z.infer<typeof IssueBodyHeader>
 /** The headers of one issue's bodies, one per field with content. */
 export const IssueBodyHeaders = z.object({
   brief: IssueBodyHeader.optional(),
-  panel: IssueBodyHeader.optional(),
   description: IssueBodyHeader.optional(),
-  activityNotes: IssueBodyHeader.optional(),
 })
 export type IssueBodyHeaders = z.infer<typeof IssueBodyHeaders>
 
@@ -62,9 +60,15 @@ export type IssueBodyWire = z.infer<typeof IssueBodyWire>
  *  has none, so an unchanged row keeps its identity. */
 export function withoutIssueBodies<T extends object>(issue: T): T {
   const record = issue as Record<string, unknown>
-  if (!ISSUE_BODY_FIELDS.some((field) => field in record)) return issue
+  if (
+    ![...ISSUE_BODY_FIELDS, 'panel', 'activityNotes', 'notesUpdatedAt'].some(
+      (field) => field in record,
+    )
+  )
+    return issue
   const out = { ...record }
-  for (const field of ISSUE_BODY_FIELDS) delete out[field]
+  for (const field of [...ISSUE_BODY_FIELDS, 'panel', 'activityNotes', 'notesUpdatedAt'])
+    delete out[field]
   return out as T
 }
 
@@ -79,12 +83,6 @@ export function issueBodyText(field: IssueBodyField, value: unknown): string | u
   if (field === 'description') {
     const text = (value as { value?: unknown }).value
     return typeof text === 'string' && text.length > 0 ? text : undefined
-  }
-  if (field === 'panel') {
-    const panel = value as { todos?: unknown[]; artifacts?: unknown[]; deferred?: unknown[] }
-    const entries =
-      (panel.todos?.length ?? 0) + (panel.artifacts?.length ?? 0) + (panel.deferred?.length ?? 0)
-    return entries > 0 ? JSON.stringify(value) : undefined
   }
   return typeof value === 'string' && value.length > 0 ? value : undefined
 }

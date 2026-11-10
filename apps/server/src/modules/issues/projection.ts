@@ -128,9 +128,7 @@ export function issueBodyValuesOfRow(row: IssueRow): Pick<IssueProjection, Issue
   const projection = issueRowToProjection(row, [])
   return {
     brief: projection.brief,
-    panel: projection.panel,
     description: projection.description,
-    activityNotes: projection.activityNotes,
   }
 }
 

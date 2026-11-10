@@ -28,6 +28,8 @@ import { readIssue, readIssues } from './modules/issues/issue-reader'
 
 import {
   asIssueId,
+  isIssuePanelKind,
+  ISSUE_PANEL_KINDS,
   asUserId,
   canonicalShippingDestination,
   type IssueExecutionFacts,
@@ -109,6 +111,7 @@ interface BootstrapReadTrace {
  * built for one serving pass; the root port has none and fails closed.
  */
 type BootstrapVisibilityPrefetch = {
+  readonly panelParents: ReadonlyMap<string, string>
   readonly issueIds: ReadonlySet<string>
   readonly issues: ReadonlyMap<string, IssueRow>
   readonly shipOrderIds: ReadonlySet<string>
@@ -367,6 +370,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           entity === 'issueProjection' ||
           // An issue's body headers (POD-6767): the issue's readers, like its record.
           entity === 'issueBodies' ||
+          isIssuePanelKind(entity) ||
           entity === 'issueGitState' ||
           entity === 'issueDep' ||
           // A curated issue event (POD-1772). `personal` and NOT a class of its
@@ -411,6 +415,12 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         // An unresolved root policy, or a ref outside this pass, denies. The
         // producer must prepare every ref before entering the synchronous loop.
         if (!prefetch) return false
+        if (isIssuePanelKind(ref.entity)) {
+          const parent = ref.entity === 'issuePanelState' ? ref.entityId : prefetch.panelParents.get(`${ref.entity}:${ref.entityId}`)
+          // A missing row has no content to expose. Its remove still reaches
+          // every task reader, including after a physical item deletion.
+          return parent === undefined || mayReadIssueFromSnapshot(userId, parent, prefetch)
+        }
         if (
           ref.entity === 'issueProjection' ||
           ref.entity === 'issueBodies' ||
@@ -623,6 +633,15 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           )
           return payload === event.payload ? value : { ...event, payload }
         }
+        if (ref.entity === 'issuePanelArtifact') {
+          const parent = prefetch.panelParents.get(`${ref.entity}:${ref.entityId}`)
+          const row = parent ? prefetch.issues.get(parent) : undefined
+          if (!row) throw new Error('artifact shaping requires its parent issue')
+          return withoutHiddenExecutionFields(
+            { worktreePath: row.worktreePath ?? undefined, panel: { artifacts: [value] } },
+            issueExecutionAccess(userId, executionPointersOf(row), executionFactsOf(prefetch)),
+          ).panel.artifacts[0]
+        }
         if (ref.entity !== 'issueProjection') return value
         const row = prefetch.issues.get(ref.entityId)
         if (!row) return value
@@ -663,6 +682,16 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
    */
   const prepareOver = async (refs: readonly EntityRef[]): Promise<VisibilityStatePort> => {
     const issueIds = new Set<string>()
+    const panelParents = new Map<string, string>()
+    for (const kind of ISSUE_PANEL_KINDS) {
+      const ids = refs.filter(ref => ref.entity === kind).map(ref => ref.entityId)
+      if (kind === 'issuePanelState') { for (const id of ids) issueIds.add(id); continue }
+      for (const record of await store.issues.panel.getMany(kind, ids)) {
+        if (!('issueId' in record)) continue
+        panelParents.set(`${kind}:${record.id}`, record.issueId)
+        issueIds.add(record.issueId)
+      }
+    }
     const shipOrderIds = new Set<string>()
     const shipLaneIds = new Set<string>()
     const sessionIds = new Set<string>()
@@ -948,6 +977,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       machineManagers.set(machineId, new Set(readers.managers))
     }
     return makeVisibilityState({
+      panelParents,
       issueIds,
       issues,
       shipOrderIds,
@@ -1230,6 +1260,8 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       store.issues.liveWorktreeIssuesOnMachines(machineIds),
       deps.audiencesFor('machine', machineIds),
     ])
+    const homedIds = [...tasks.values()].flatMap(rows => rows.map(row => row.id))
+    const artifacts = await store.issues.panel.forIssues('issuePanelArtifact', homedIds)
     for (const machineId of machineIds) {
       const homed = tasks.get(machineId) ?? []
       if (homed.length === 0) continue
@@ -1238,7 +1270,11 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       ]
       out.set(machineId, {
         audience,
-        subjects: homed.map((task) => ({ entity: 'issueProjection' as const, entityId: task.id })),
+        subjects: [
+          ...homed.map((task) => ({ entity: 'issueProjection' as const, entityId: task.id })),
+          ...artifacts.filter(record => 'issueId' in record && homed.some(task => task.id === record.issueId))
+            .map(record => ({ entity: 'issuePanelArtifact' as const, entityId: record.id })),
+        ],
       })
     }
     return out
@@ -1296,6 +1332,15 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       // Only an issue with an audience can produce an edge; read for those only.
       const anchored = issueIds.filter((id) => (audiences.get(id) ?? []).length > 0)
       const rows = await issueEdgeRows(anchored)
+      const panelSubjects = new Map<string, EntityRef[]>()
+      for (const kind of ISSUE_PANEL_KINDS) {
+        for (const record of await store.issues.panel.forIssues(kind, anchored)) {
+          const issueId = 'issueId' in record ? record.issueId : record.id
+          const list = panelSubjects.get(issueId) ?? []
+          list.push({ entity: kind, entityId: record.id })
+          panelSubjects.set(issueId, list)
+        }
+      }
       return refs.map((ref): VisibilityEdge | null => {
         if (ref.entity === 'shipOrder') return departures.get(ref.entityId) ?? null
         if (ref.entity === 'machine') return custody.get(ref.entityId) ?? null
@@ -1337,6 +1382,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           subjects: [
             { entity: 'issueProjection' as const, entityId: ref.entityId },
             { entity: 'issueBodies' as const, entityId: ref.entityId },
+            ...(panelSubjects.get(ref.entityId) ?? []),
             { entity: 'issueGitState' as const, entityId: ref.entityId },
             ...issueSessions.map((session) => ({
               entity: 'session' as const,

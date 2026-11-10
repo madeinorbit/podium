@@ -114,6 +114,7 @@ export interface ArtifactCall {
   readonly extraPaths?: string[]
   readonly terminalEvidence?: boolean
   readonly sourceRoot?: string
+  readonly itemId?: string
   readonly index?: number
   readonly upload?: { readonly action: string; readonly uploadId: string }
   readonly mutationId?: MutationId

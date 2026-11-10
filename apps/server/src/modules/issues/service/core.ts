@@ -32,7 +32,7 @@ import type { EntityChangeSpec, WriteScope } from '@podium/sync'
 import { slugifyBranch } from '../../../issue-util'
 import type { IssueRow, StoredIssueUserState } from '../../../store'
 import { afterCommit } from '../../../store/executor/executor'
-import { decodePanel } from '../../../store/issue-storage'
+import { ISSUE_PANEL_KINDS } from '@podium/model'
 import type { SessionFacts } from '../../sessions/facts'
 import { normalizeBlankIssueText } from '../blank-text'
 import {
@@ -719,8 +719,22 @@ export class IssueStore {
    *  The decode itself is an R1 ↔ R3 encoding split and lives in the one pair
    *  (ADR 4 §4.1); this stays as the row-shaped entry point `crud.ts` uses when
    *  it is about to patch the same row AS a row. */
-  parsePanel(row: IssueRow): IssuePanel {
-    return decodePanel(row.panel)
+  async parsePanel(row: IssueRow): Promise<IssuePanel> {
+    return await this.deps.store.issues.panel.read(row.id)
+  }
+
+  /** Panel writes name only their own tiny records, never the issue row. */
+  async commitPanel<T>(writer: IssueWriter, write: (scope: WriteScope) => Promise<T>, changes: () => EntityChangeSpec[]): Promise<T> {
+    return (await this.arbitrated(writer).commit({ write, changes })).result
+  }
+
+  async panelChanges(issueIds: readonly string[], remove = false): Promise<EntityChangeSpec[]> {
+    const out: EntityChangeSpec[] = []
+    for (const entity of ISSUE_PANEL_KINDS) {
+      for (const value of await this.deps.store.issues.panel.forIssues(entity, issueIds))
+        out.push(remove ? { entity, id: value.id, op: 'remove' } : { entity, id: value.id, op: 'upsert', value })
+    }
+    return out
   }
 
   /** True when `row` belongs to the repo identified by `repoPath`, compared by the
@@ -889,6 +903,7 @@ export class IssueStore {
       bodies
         ? { entity: 'issueBodies', id: row.id, op: 'upsert', value: bodies }
         : { entity: 'issueBodies', id: row.id, op: 'remove' },
+      ...(row.deletedAt ? await this.panelChanges([row.id], true) : []),
       await this.gitStateChange(row, gitStates),
       ...states.map((state) => ({
         entity: 'issueUserState' as const,
@@ -958,6 +973,13 @@ export class IssueStore {
    *  read and diffed in one span, so no write commits between the read and the
    *  diff it would undo. */
   async reconcileProjections(): Promise<void> {
+    for (const entity of ISSUE_PANEL_KINDS) {
+      const rows: { id: string; value: unknown }[] = []
+      for await (const page of this.deps.store.issues.panel.pages(entity))
+        rows.push(...page.map(value => ({ id: value.id, value })))
+      await this.deps.ledger.reconcile(entity, rows)
+    }
+
     await this.deps.store.transact(async () => {
       const projections = await this.allProjections()
       if (!projections) return

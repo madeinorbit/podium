@@ -71,6 +71,10 @@ export type ModelSchemaName =
   | 'IssueProjection'
   | 'SlimIssueProjection'
   | 'IssueBodiesWire'
+  | 'IssuePanelTodoWire'
+  | 'IssuePanelArtifactWire'
+  | 'IssuePanelDeferredWire'
+  | 'IssuePanelStateWire'
   | 'IssueUserStateWire'
   | 'IssueGitStateProjection'
   | 'IssueDerived'
@@ -128,6 +132,10 @@ export type RowArrival =
   | 'replica:issueUserStates'
   | 'replica:issueGitStates'
   | 'replica:issueBodies'
+  | 'replica:issuePanelTodos'
+  | 'replica:issuePanelArtifacts'
+  | 'replica:issuePanelDeferreds'
+  | 'replica:issuePanelStates'
   | 'replica:issueProjections'
   | 'replica:sessions'
   | 'replica:sessionUserStates'
@@ -213,7 +221,7 @@ export interface FieldSpec {
 // Relations
 // ---------------------------------------------------------------------------
 
-export type EntityName = 'account' | 'member' | 'device' | 'repository' | 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun' | 'messageRecord' | 'pendingInteraction' | 'effect' | 'pin' | 'userLayout' | 'tabOrder' | 'userPreferences' | 'userReadPosition' | 'superagentThread' | 'agentProfile' | 'workflow' | 'workflowRevision' | 'workflowBinding' | 'workflowRun' | 'subscription' | 'instancePreferences'
+export type EntityName = 'issuePanelTodo' | 'issuePanelArtifact' | 'issuePanelDeferred' | 'issuePanelState' | 'account' | 'member' | 'device' | 'repository' | 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun' | 'messageRecord' | 'pendingInteraction' | 'effect' | 'pin' | 'userLayout' | 'tabOrder' | 'userPreferences' | 'userReadPosition' | 'superagentThread' | 'agentProfile' | 'workflow' | 'workflowRevision' | 'workflowBinding' | 'workflowRun' | 'subscription' | 'instancePreferences'
 
 /**
  * Four kinds, and no more.
@@ -634,10 +642,7 @@ const DECLARED = defineSchema({
       priority: { type: 'number', source: projection() },
       assignee: { type: 'id', optional: true, source: projection() },
       description: { type: 'object', optional: true, source: issueBody(), note: 'The materialized document value is rendered by the reference card. A body: `IssueModel.description` reads it from the body store (POD-6767).' },
-      activityNotes: { type: 'string', optional: true, source: issueBody(), note: 'A body (POD-6767), read through `IssueModel.activityNotes`.' },
-      notesUpdatedAt: { type: 'isoDate', optional: true, source: projection() },
       blockedByNotes: { type: 'object', source: projection() },
-      panel: { type: 'object', optional: true, source: issueBody(), note: 'A body (POD-6767), read through `IssueModel.panel`; shaped for the reader by the server.' },
       bodies: {
         type: 'object',
         optional: true,
@@ -652,6 +657,10 @@ const DECLARED = defineSchema({
       ...ISSUE_PAGE_FIELDS,
     },
     relations: {
+      panelTodoRecords: hasMany({ to: 'issuePanelTodo', inverse: 'issue', lazy: false, why: 'Each panel item belongs to its issue.' }),
+      panelArtifactRecords: hasMany({ to: 'issuePanelArtifact', inverse: 'issue', lazy: false, why: 'Each panel item belongs to its issue.' }),
+      panelDeferredRecords: hasMany({ to: 'issuePanelDeferred', inverse: 'issue', lazy: false, why: 'Each panel item belongs to its issue.' }),
+      panelStateRecords: hasMany({ to: 'issuePanelState', inverse: 'issue', lazy: false, why: 'Each panel item belongs to its issue.' }),
       parent: belongsTo({
         to: 'issue',
         foreignKey: 'parentId',
@@ -1256,6 +1265,46 @@ const DECLARED = defineSchema({
   workflowRevision: syncedIdentity('WorkflowRevisionWire', 'replica:workflowRevisions'),
   workflowBinding: syncedIdentity('WorkflowBindingWire', 'replica:workflowBindings'),
   workflowRun: syncedIdentity('WorkflowRunRecord', 'replica:workflowRuns'),
+  issuePanelTodo: { key: 'id', why: 'One durable panel record.', components: {}, cold: { kind: 'never', why: 'Panel records remain available offline.' },
+    fields: {
+      id: { type: 'id', source: { schema: 'IssuePanelTodoWire', arrivesOn: 'replica:issuePanelTodos' } },
+      issueId: { type: 'id', source: { schema: 'IssuePanelTodoWire', arrivesOn: 'replica:issuePanelTodos' } },
+      position: { type: 'number', source: { schema: 'IssuePanelTodoWire', arrivesOn: 'replica:issuePanelTodos' } },
+      text: { type: 'string', source: { schema: 'IssuePanelTodoWire', arrivesOn: 'replica:issuePanelTodos' } },
+      done: { type: 'boolean', source: { schema: 'IssuePanelTodoWire', arrivesOn: 'replica:issuePanelTodos' } },
+    }, relations: { issue: belongsTo({ to: 'issue', foreignKey: 'issueId', targetKey: 'id', inverse: 'panelTodoRecords', lazy: true, why: 'The parent issue.' }) } },
+  issuePanelArtifact: { key: 'id', why: 'One durable panel record.', components: {}, cold: { kind: 'never', why: 'Panel records remain available offline.' },
+    fields: {
+      id: { type: 'id', source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
+      issueId: { type: 'id', source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
+      position: { type: 'number', source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
+      path: { type: 'string', source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
+      title: { type: 'string', optional: true, source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
+      addedAt: { type: 'isoDate', source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
+      artifactId: { type: 'id', optional: true, source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
+      entry: { type: 'string', optional: true, source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
+      files: { type: 'object', optional: true, source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
+      sourcePaths: { type: 'object', optional: true, source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
+      sourceKind: { type: 'enum', optional: true, source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
+      chatUploadId: { type: 'string', optional: true, source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
+      chatUploadOwner: { type: 'id', optional: true, source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
+      tracking: { type: 'enum', optional: true, source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
+      untrackedPaths: { type: 'object', optional: true, source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
+    }, relations: { issue: belongsTo({ to: 'issue', foreignKey: 'issueId', targetKey: 'id', inverse: 'panelArtifactRecords', lazy: true, why: 'The parent issue.' }) } },
+  issuePanelDeferred: { key: 'id', why: 'One durable panel record.', components: {}, cold: { kind: 'never', why: 'Panel records remain available offline.' },
+    fields: {
+      id: { type: 'id', source: { schema: 'IssuePanelDeferredWire', arrivesOn: 'replica:issuePanelDeferreds' } },
+      issueId: { type: 'id', source: { schema: 'IssuePanelDeferredWire', arrivesOn: 'replica:issuePanelDeferreds' } },
+      position: { type: 'number', source: { schema: 'IssuePanelDeferredWire', arrivesOn: 'replica:issuePanelDeferreds' } },
+      text: { type: 'string', source: { schema: 'IssuePanelDeferredWire', arrivesOn: 'replica:issuePanelDeferreds' } },
+      addedAt: { type: 'isoDate', source: { schema: 'IssuePanelDeferredWire', arrivesOn: 'replica:issuePanelDeferreds' } },
+    }, relations: { issue: belongsTo({ to: 'issue', foreignKey: 'issueId', targetKey: 'id', inverse: 'panelDeferredRecords', lazy: true, why: 'The parent issue.' }) } },
+  issuePanelState: { key: 'id', why: 'One durable panel record.', components: {}, cold: { kind: 'never', why: 'Panel records remain available offline.' },
+    fields: {
+      id: { type: 'id', source: { schema: 'IssuePanelStateWire', arrivesOn: 'replica:issuePanelStates' } },
+      text: { type: 'string', source: { schema: 'IssuePanelStateWire', arrivesOn: 'replica:issuePanelStates' } },
+      updatedAt: { type: 'isoDate', source: { schema: 'IssuePanelStateWire', arrivesOn: 'replica:issuePanelStates' } },
+    }, relations: { issue: belongsTo({ to: 'issue', foreignKey: 'id', targetKey: 'id', inverse: 'panelStateRecords', lazy: true, why: 'The parent issue.' }) } },
   subscription: syncedIdentity('SubscriptionWire', 'replica:subscriptions'),
 })
 

@@ -34,13 +34,15 @@ export interface IssueSessionRollups {
 }
 
 
-/** An issue as the pool shows it. Its bodies (`brief`, `panel`, `description`,
- *  `activityNotes`) are not on the row: `IssueModel` reads them through the
- *  `bodies` headers (POD-6767). */
+/** An issue as the pool shows it. Brief and description use body headers;
+ * panel items and the state paragraph join their own shared records. */
 export type IssueViewModel = Omit<SlimIssueProjection, 'worktreePath' | 'branch'> &
   Omit<IssueView, 'id'> &
   Partial<IssueSessionRollups> & {
     bodies?: IssueBodyHeaders
+    panel?: IssuePanel
+    activityNotes?: string
+    notesUpdatedAt?: string
     worktreePath: string | null
     branch: string | null
     readAt: string | null
@@ -79,6 +81,7 @@ export type IssueBodyFields = {
   readonly brief?: string | undefined
   readonly panel?: IssuePanel | undefined
   readonly activityNotes?: string | undefined
+  readonly notesUpdatedAt?: string | undefined
   /** The human summary's text; empty while it first loads or when there is none. */
   readonly description: string
   /** Absent on a painted row, which holds its bodies. */

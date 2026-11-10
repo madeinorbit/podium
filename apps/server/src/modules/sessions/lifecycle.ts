@@ -1129,6 +1129,11 @@ export class SessionLifecycle {
       issues: [],
       issueProjections: values('issueProjection'),
       issueBodies: values('issueBodies'),
+      issuePanelTodos: values('issuePanelTodo'),
+      issuePanelArtifacts: values('issuePanelArtifact'),
+      issuePanelDeferreds: values('issuePanelDeferred'),
+      issuePanelStates: values('issuePanelState'),
+
       issueUserStates: values('issueUserState'),
       issueGitStates: values('issueGitState'),
       issueDeps: values('issueDep'),

@@ -1006,11 +1006,13 @@ const defs = {
         )
       }
       if (input.op === 'artifact-remove') {
-        if (input.index == null) throw new IssueRefusal('artifact-remove requires an index')
+        if (input.itemId) return await ctx.crud.panelArtifactRemove(input.id, { itemId: input.itemId })
+        if (input.index == null) throw new IssueRefusal('artifact-remove requires an index or itemId')
         return await ctx.crud.panelArtifactRemove(input.id, input.index)
       }
       return await ctx.crud.panelApply(input.id, {
         op: input.op,
+        itemId: input.itemId,
         text: input.text,
         index: input.index,
         path: input.path,

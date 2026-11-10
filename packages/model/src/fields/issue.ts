@@ -217,9 +217,8 @@ export const NeedsHuman = z.object({
 })
 export type NeedsHuman = z.infer<typeof NeedsHuman>
 
-/** THE AGENT-PUBLISHED, HUMAN-FACING PANEL. Already composed today — kept as
- *  it is. `artifacts[]` is issue-OWNED detail rather than an independent
- *  entity, so it is not a D7.1 entity-in-entity embed. */
+/** Command/report DTO only. The feed carries independently keyed panel
+ * records; IssueModel derives these ordered lists of shared item models. */
 export const IssuePanelGroup = z.object({
   panel: IssuePanel.optional(),
 })

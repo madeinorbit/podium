@@ -2043,7 +2043,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     async run(c, a) {
       const op =
         a.add != null
-          ? { op: 'todo-add', text: a.add }
+          ? { op: 'todo-add', text: a.add, itemId: crypto.randomUUID() }
           : a.done != null
             ? { op: 'todo-done', index: a.done }
             : a.undone != null
@@ -2170,7 +2170,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     async run(c, a) {
       const op =
         a.add != null
-          ? { op: 'deferred-add', text: a.add }
+          ? { op: 'deferred-add', text: a.add, itemId: crypto.randomUUID() }
           : a.remove != null
             ? { op: 'deferred-remove', index: a.remove }
             : null

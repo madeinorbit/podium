@@ -62,6 +62,11 @@ const KIND_BY_ENTITY: Record<string, ReplicaKind> = {
   // flips, but the map is where they must be listed when they arrive.
   issueProjection: 'issueProjections',
   issueBodies: 'issueBodies',
+  issuePanelTodo: 'issuePanelTodos',
+  issuePanelArtifact: 'issuePanelArtifacts',
+  issuePanelDeferred: 'issuePanelDeferreds',
+  issuePanelState: 'issuePanelStates',
+
   issueUserState: 'issueUserStates',
   issueGitState: 'issueGitStates',
   issueDep: 'issueDeps',
@@ -102,6 +107,11 @@ const SNAPSHOT_KINDS: readonly SnapshotKind[] = [
   'machines',
   'issueProjections',
   'issueBodies',
+  'issuePanelTodos',
+  'issuePanelArtifacts',
+  'issuePanelDeferreds',
+  'issuePanelStates',
+
   'issueUserStates',
   'issueGitStates',
   'issueDeps',

@@ -430,6 +430,7 @@ export interface IssueRow {
   linearId: string | null
   linearIdentifier: string | null
   linearUrl: string | null
+  /** Report input only. Durable state lives in issue_panel_states. */
   activityNotes: string | null
   notesUpdatedAt: string | null
   suggestedStage: string | null
@@ -496,7 +497,7 @@ export interface IssueRow {
   /** ISO time the needs-human flag was raised (issue #53). */
   humanQuestionAskedAt?: string | null
   humanQuestionAttribution?: Attribution | null
-  /** Agent-published human-facing panel, stored as raw JSON (parsed in IssueService).
+  /** Report/import input only; never stored on the issue row.
    *  Optional so pre-existing row literals (tests, ingest) stay valid; absent = none. */
   panel?: string | null
   /** Whose intent this issue captures ('human' | 'agent'). Optional so pre-existing

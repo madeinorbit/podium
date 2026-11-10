@@ -12,6 +12,11 @@ import type {
   IssueEventWire,
   IssueGitStateProjection,
   IssueBodiesWire,
+  IssuePanelTodoWire,
+  IssuePanelArtifactWire,
+  IssuePanelDeferredWire,
+  IssuePanelStateWire,
+
   SlimIssueProjection,
   IssueUserStateWire,
   LayoutWire,
@@ -70,6 +75,10 @@ export interface ReplicaRows {
   /** POD-6767: an issue's body headers (digest and size per field with
    *  content), keyed by the issue id; the bodies are fetched by id. */
   issueBodies: IssueBodiesWire
+  issuePanelTodos: IssuePanelTodoWire
+  issuePanelArtifacts: IssuePanelArtifactWire
+  issuePanelDeferreds: IssuePanelDeferredWire
+  issuePanelStates: IssuePanelStateWire
   /** Issue dependency EDGES [POD-822] — `issue_deps` as first-class rows. The
    *  views join these by `fromId` to derive `blocked`/`ready`/`dependents`; the
    *  projection cannot carry them (an edge belongs to two issues). */
@@ -164,6 +173,10 @@ export interface ReplicaHydrateResult {
   issueUserStates: IssueUserStateWire[]
   issueGitStates: IssueGitStateProjection[]
   issueBodies: IssueBodiesWire[]
+  issuePanelTodos: IssuePanelTodoWire[]
+  issuePanelArtifacts: IssuePanelArtifactWire[]
+  issuePanelDeferreds: IssuePanelDeferredWire[]
+  issuePanelStates: IssuePanelStateWire[]
   issueDeps: IssueDepProjection[]
   repos: RepoProjection[]
   issueEvents: IssueEventWire[]
