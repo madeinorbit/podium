@@ -36124,6 +36124,44 @@
       "bound": "One RPC answer: at most one row per costed task, priced once and cut to the five shown.",
       "reason": "Ranks the existing cost.tasks rows by own seven-day cost to produce the five rows the card displays; no pool records are read.",
       "guard": "scripts/check-interaction-scans.ts"
+    },
+    {
+      "file": "apps/mobile/src/components/task-detail/TaskOverview.tsx",
+      "holder": "leadSession",
+      "rule": "consume:find",
+      "tokens": "fa46c62ebb4c4aaa474850aeffeafcfbea7ee5e0b9ccfa3967c7c0c34420d885",
+      "gate": [],
+      "origin": [
+        "5ad37f47d1435eaf694803ee0f9ee326491553a2c98cf2b485341c8808d8d037"
+      ],
+      "fingerprint": "06200a5bae6382507537746749fb6abb087dc353922fd9f4d1ef085d212c34d6",
+      "count": 1,
+      "classification": "bounded local work",
+      "trigger": "Task page render: the lead-session pick for the summary card",
+      "bound": "One task's own phone session roster (its agent seats), already resolved by IssueScreen",
+      "reason": "Picks the seat asking (open offer), else the coordinator, over the handful of sessions the page already draws; no pool-wide domain.",
+      "guard": "IssueScreen.pool.test.tsx",
+      "owner": "POD-2378"
+    },
+    {
+      "file": "apps/mobile/src/components/task-detail/TaskOverview.tsx",
+      "holder": "leadSession",
+      "rule": "consume:find",
+      "tokens": "2d7c173ab28335c84a29925293cb156f2d0947556c89dd7c5d6d63b05e5a16ca",
+      "gate": [
+        "??:fa46c62ebb4c4aaa474850aeffeafcfbea7ee5e0b9ccfa3967c7c0c34420d885"
+      ],
+      "origin": [
+        "5ad37f47d1435eaf694803ee0f9ee326491553a2c98cf2b485341c8808d8d037"
+      ],
+      "fingerprint": "2aec63384bd14f205859418a9a79945b3bd45383e5bda934765d16a04d104920",
+      "count": 1,
+      "classification": "bounded local work",
+      "trigger": "Task page render: the lead-session pick for the summary card",
+      "bound": "One task's own phone session roster (its agent seats), already resolved by IssueScreen",
+      "reason": "Picks the seat asking (open offer), else the coordinator, over the handful of sessions the page already draws; no pool-wide domain.",
+      "guard": "IssueScreen.pool.test.tsx",
+      "owner": "POD-2378"
     }
   ]
 }
