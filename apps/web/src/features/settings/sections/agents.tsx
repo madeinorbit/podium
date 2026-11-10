@@ -31,7 +31,7 @@ import {
   providerNames,
 } from './agent-options'
 import { ModelAvailabilityWarning } from './model-availability-warning'
-import { Row, Section, SegmentedRow, SelectRow, SwitchRow } from './shared'
+import { harnessAgentLabel, Row, Section, SegmentedRow, SelectRow, SwitchRow } from './shared'
 
 interface AgentsProps {
   settings: PodiumSettings
@@ -431,7 +431,11 @@ const BackgroundModelSection = observer(function BackgroundModelSection({
             : [
                 {
                   value: resolved.accountId,
-                  label: selected ? labelFor(selected) : (providerNames[provider] ?? provider),
+                  label: selected
+                    ? labelFor(selected)
+                    : native
+                      ? `${harnessAgentLabel(resolved.harness)} login`
+                      : (providerNames[provider] ?? provider),
                   hint: machineLogin ? 'Login on the target machine' : 'Not connected',
                   disabled: true,
                 },

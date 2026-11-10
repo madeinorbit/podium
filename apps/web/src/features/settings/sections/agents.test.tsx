@@ -244,11 +244,32 @@ it('shows the native background Auto model resolved exactly as the one-shot call
     roles: { background: { accountId: 'native:codex', model: 'auto' } },
   })
   render(<AgentsSection settings={settings} accounts={accounts} patch={vi.fn()} />)
-  const section = screen.getByRole('heading', { name: 'Background model' }).parentElement
+  const section = screen.getByRole('heading', { name: 'Background model' }).closest('section')
   if (!section) throw new Error('Missing background section')
   const head = bundledDescriptorFor('codex')?.catalog.models[0]?.label
   expect(within(section).getByRole('button', { name: 'Model' }).textContent).toBe(`Auto · ${head}`)
   expect(screen.queryByText('Status')).toBeNull()
+})
+
+it('labels a saved native background default when the catalog contains individual logins', () => {
+  const settings = normalizeSettings({
+    roles: { background: { accountId: 'native:codex', model: 'auto' } },
+  })
+  render(
+    <AgentsSection
+      settings={settings}
+      accounts={accounts.map((account) =>
+        account.source === 'native' ? { ...account, id: 'native:codex:individual-login' } : account,
+      )}
+      patch={vi.fn()}
+    />,
+  )
+  const section = screen.getByRole('heading', { name: 'Background model' }).closest('section')
+  if (!section) throw new Error('Missing background section')
+  expect(within(section).getByRole('combobox', { name: 'Runs on' }).textContent).toContain(
+    'Codex login',
+  )
+  expect(within(section).getByText('Login on the target machine')).toBeTruthy()
 })
 
 it('shows the server default account for an unset background role and lists concrete API models', () => {

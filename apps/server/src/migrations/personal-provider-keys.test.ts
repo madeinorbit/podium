@@ -1,15 +1,26 @@
+import { copyFileSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { runDrizzleMigrations } from './index'
 
 const cut = DRIZZLE_MIGRATIONS.findIndex((migration) =>
   migration.name.includes('personal-provider-keys'),
 )
+const copies: string[] = []
+afterEach(() => {
+  for (const directory of copies.splice(0)) rmSync(directory, { recursive: true, force: true })
+})
 
 function fixture(personal?: string) {
   expect(cut).toBeGreaterThan(0)
-  const db = openDatabase(':memory:')
+  const directory = mkdtempSync(join(tmpdir(), 'podium-provider-key-upgrade-'))
+  copies.push(directory)
+  const before = join(directory, 'before.sqlite')
+  const upgraded = join(directory, 'upgraded.sqlite')
+  const db = openDatabase(before)
   runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cut))
   // The first active admin is deliberately not the first admin in the table.
   db.exec("UPDATE users SET disabled_at = '2026-01-01' WHERE role = 'admin'")
@@ -23,7 +34,11 @@ function fixture(personal?: string) {
     db.prepare(
       "INSERT INTO accounts (id, provider, kind, credential, identity, scope, created_at, owner_user_id, account_key, ref, shared_with) VALUES ('personal', 'anthropic', 'api-key', ?, 'masked', 'role', 1, 'mem_first', 'managed:anthropic', 'managed:anthropic', NULL)",
     ).run(personal)
-  return db
+  // Rehearse an upgrade of an existing database copy, preserving the original.
+  // Closing first checkpoints SQLite's WAL before the file is copied.
+  db.close()
+  copyFileSync(before, upgraded)
+  return openDatabase(upgraded)
 }
 
 const rows = (db: ReturnType<typeof openDatabase>) =>
