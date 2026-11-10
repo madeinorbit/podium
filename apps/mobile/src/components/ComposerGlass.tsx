@@ -1,46 +1,35 @@
-import { BlurView } from 'expo-blur'
 import type { ReactNode } from 'react'
-import { Platform, type StyleProp, StyleSheet, View, type ViewStyle } from 'react-native'
-import { alpha } from '../theme/mix'
-import { color } from '../theme/theme'
+import { type StyleProp, StyleSheet, View, type ViewStyle } from 'react-native'
+import { Glass } from './Glass'
 
 /**
- * The composer's own glass piece (POD-2380).
+ * The composer's own glass piece (POD-2380), drawn by the shared Glass helper
+ * (POD-2376): real Liquid Glass on iOS 26, the system material blur before it,
+ * a solid fill off iOS.
  *
- * TEMPORARY MATERIAL: the redesign's shared Glass helper (Shell task, POD-2372)
- * draws Liquid Glass through expo-glass-effect with an `isLiquidGlassAvailable()`
- * fallback. That package is not installed yet, so this wraps the system chrome
- * material on iOS and a tinted blur elsewhere; swapping in the helper is a
- * change to this file only.
+ * The glass is a BACKGROUND LAYER under the composer's content rather than its
+ * container, so the composer keeps its own padding, hairline, test id and the
+ * board's 14pt corner (taller than the helper's card tier) without the helper
+ * learning about any of them.
  */
 export function ComposerGlass({
   style,
+  radius,
   testID,
   children,
 }: {
   style?: StyleProp<ViewStyle>
+  /** The composer's corner; the glass layer follows it. */
+  radius: number
   testID?: string
   children: ReactNode
 }) {
-  const ios = Platform.OS === 'ios'
   return (
-    <BlurView
-      intensity={ios ? 80 : 32}
-      tint={ios ? 'systemChromeMaterial' : 'dark'}
-      testID={testID}
-      style={style}
-    >
-      {/* The system material carries its own tint; elsewhere the blur needs one
-          to sit on, or a coloured card passing underneath tints the capsule. */}
-      {ios ? null : <View style={styles.fill} pointerEvents="none" />}
+    <View testID={testID} style={style}>
+      <View style={[StyleSheet.absoluteFill, { borderRadius: radius }]} pointerEvents="none">
+        <Glass shape="card" style={[StyleSheet.absoluteFill, { borderRadius: radius }]} />
+      </View>
       {children}
-    </BlurView>
+    </View>
   )
 }
-
-const styles = StyleSheet.create({
-  fill: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: alpha(color.bg, 0.72),
-  },
-})

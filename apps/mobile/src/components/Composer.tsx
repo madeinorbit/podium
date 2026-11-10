@@ -205,7 +205,6 @@ export function Composer({
     if (controlledValue === undefined) setLocalText(next)
     onDraftChange?.(next)
   }
-  const [focused, setFocused] = useState(false)
   const [measured, setMeasured] = useState<number | null>(null)
   const [line, setLine] = useState(COMPOSER_LINE)
   const inputRef = useRef<TextInput>(null)
@@ -343,7 +342,8 @@ export function Composer({
     >
       <ComposerGlass
         testID="composer-bar"
-        style={[styles.surface, focused && styles.surfaceFocused, disabled && styles.disabled]}
+        radius={COMPOSER_RADIUS}
+        style={[styles.surface, disabled && styles.disabled]}
       >
         {header}
         {caption ? (
@@ -385,8 +385,6 @@ export function Composer({
             style={[styles.input, CONTROLLED_HEIGHT && styles.inputFill, { maxHeight }]}
             value={composedText}
             onChangeText={changeText}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
             placeholder={placeholder}
             placeholderTextColor={color.textDim}
             multiline
@@ -653,10 +651,9 @@ const styles = StyleSheet.create({
    */
   surface: {
     borderRadius: COMPOSER_RADIUS,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.hairline,
-    // The blur is drawn by a child layer, so the radius has to clip it — the
-    // same arrangement as the tab-bar capsule.
+    // No border of its own: the Glass layer draws the edge (Liquid Glass's
+    // own rim, or the fallback's hairline), and a second one doubled it.
+    // The glass is a child layer, so the radius has to clip it.
     overflow: 'hidden',
     boxShadow: '0 6px 24px rgba(0, 0, 0, 0.5)',
     paddingLeft: space.md,
@@ -668,9 +665,6 @@ const styles = StyleSheet.create({
   },
   // Focus lifts the seam one tier. It does not change hue: the caret is in the
   // field and the keyboard is already up — the signal has been sent.
-  surfaceFocused: {
-    borderColor: color.border,
-  },
   // Opacity, never geometry: a pending or blocked composer must not resize.
   disabled: {
     opacity: 0.55,
