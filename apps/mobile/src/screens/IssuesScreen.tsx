@@ -112,20 +112,24 @@ export const IssuesScreen = observer(function IssuesScreen() {
         onFilters={() => setFiltersOpen(true)}
         onNewTask={() => router.push('/new-issue')}
       />
-      <TaskFiltersSheet
-        visible={filtersOpen}
-        filter={board?.filter ?? NO_FILTER}
-        ordering={display.ordering}
-        showDone={board?.showDone ?? false}
-        showAgentTasks={display.showAgentTasks}
-        onFilter={(filter) => board?.setFilter(filter)}
-        onOrdering={(ordering) => setDisplay({ ...display, ordering })}
-        onShowDone={(show) => {
-          if (board && board.showDone !== show) board.toggleShowDone()
-        }}
-        onShowAgentTasks={(showAgentTasks) => setDisplay({ ...display, showAgentTasks })}
-        onClose={() => setFiltersOpen(false)}
-      />
+      {/* Mounted only while open: a sheet failure can never take the tab down
+          with it, and a closed sheet costs nothing. */}
+      {filtersOpen ? (
+        <TaskFiltersSheet
+          visible
+          filter={board?.filter ?? NO_FILTER}
+          ordering={display.ordering}
+          showDone={board?.showDone ?? false}
+          showAgentTasks={display.showAgentTasks}
+          onFilter={(filter) => board?.setFilter(filter)}
+          onOrdering={(ordering) => setDisplay({ ...display, ordering })}
+          onShowDone={(show) => {
+            if (board && board.showDone !== show) board.toggleShowDone()
+          }}
+          onShowAgentTasks={(showAgentTasks) => setDisplay({ ...display, showAgentTasks })}
+          onClose={() => setFiltersOpen(false)}
+        />
+      ) : null}
       {menu ? (
         <WorkIssueMenu
           key={`${menu.target.issue.id}:${menu.initialSheet?.kind ?? 'menu'}`}

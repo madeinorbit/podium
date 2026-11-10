@@ -21,6 +21,7 @@ import {
   presentationDragIndicator,
   tag,
 } from '@expo/ui/swift-ui/modifiers'
+import { useState } from 'react'
 import { StyleSheet } from 'react-native'
 import { color } from '../theme/theme'
 import {
@@ -30,9 +31,9 @@ import {
   MORE_FACETS,
   type TaskFiltersSheetProps,
   useTaskFilterFacets,
-} from './TaskFiltersSheet'
+} from './task-filter-facets'
 
-export type { TaskFiltersSheetProps } from './TaskFiltersSheet'
+export type { TaskFiltersSheetProps } from './task-filter-facets'
 
 /**
  * FILTER AND DISPLAY, the iOS sheet: a real SwiftUI sheet with medium and large
@@ -44,6 +45,10 @@ export type { TaskFiltersSheetProps } from './TaskFiltersSheet'
  */
 export function TaskFiltersSheet(props: TaskFiltersSheetProps) {
   const { visible, filter, showDone, showAgentTasks, onShowDone, onShowAgentTasks, onClose } = props
+  // The screen mounts this only while open. Done lowers the sheet here and the
+  // screen unmounts it after the dismissal animation (onDismiss), so the sheet
+  // still slides away instead of vanishing.
+  const [presented, setPresented] = useState(true)
   const { configs, set, reset, activeCount } = useTaskFilterFacets(props)
   const picker = (facet: Facet) => {
     const config = configs[facet]
@@ -66,7 +71,11 @@ export function TaskFiltersSheet(props: TaskFiltersSheetProps) {
 
   return (
     <Host style={styles.host} seedColor={color.accentTint}>
-      <BottomSheet isPresented={visible} onIsPresentedChange={(open) => (open ? null : onClose())}>
+      <BottomSheet
+        isPresented={visible && presented}
+        onIsPresentedChange={(open) => setPresented(open)}
+        onDismiss={onClose}
+      >
         <Group
           modifiers={[
             presentationDetents(['medium', 'large']),
@@ -110,7 +119,11 @@ export function TaskFiltersSheet(props: TaskFiltersSheetProps) {
                   <Button label="Reset" onPress={reset} modifiers={[disabled(activeCount === 0)]} />
                 </ToolbarItem>
                 <ToolbarItem placement="confirmationAction">
-                  <Button label="Done" systemImage="checkmark" onPress={onClose} />
+                  <Button
+                    label="Done"
+                    systemImage="checkmark"
+                    onPress={() => setPresented(false)}
+                  />
                 </ToolbarItem>
               </Toolbar.Content>
             </Toolbar>
