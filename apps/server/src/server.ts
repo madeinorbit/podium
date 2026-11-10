@@ -118,6 +118,7 @@ import {
 } from './gateway/ws-server'
 import { podiumCors } from './http-cors'
 import { PairingManager } from './hub/pairing'
+import { type IdentitySeam, identitySeamDeps } from './identity/server-identity'
 import { IssueToolProvider } from './issue-mcp'
 import { registerLocateProofRoute } from './locate-proof-route'
 import { registerMcpRoute } from './mcp-route'
@@ -589,6 +590,18 @@ export async function startServer(
     /** Mails a member the password-reset link they asked for (POD-6298). Absent:
      *  recovery is an admin-issued link or the host-local tool. */
     sendMemberRecoveryMail?: MemberRecoveryMail
+    /**
+     * THE IDENTITY SEAM (docs/design/people-and-sign-in.md, section 3). Absent,
+     * which is every self-hosted server: nothing changes. Present: a hosted
+     * composition root hands the server the workspace half of an identity core
+     * it built on Postgres. A function, because what it needs from the server
+     * exists only after the store is open.
+     *
+     * INTERIM, until the rest of POD-6746 lands: the server calls the function
+     * and `catchUp()` before it serves, and requests are still resolved by the
+     * old path. `createMemberOfRequest` is the resolver they move to.
+     */
+    identity?: IdentitySeam
     /** Keep `/` on the web shell while still serving Expo at `/mobile` (browser harness). */
     redirectPhoneRootToMobile?: boolean
     /**
@@ -707,6 +720,11 @@ export async function startServer(
     (row) => row.kind === 'server-move',
   )?.operation
   reconcileSafeServerTransferBoot(stateDir(), activeServerMove)
+  // Hosted: the memberships live elsewhere, so the member rows are brought up
+  // to date before anything is served (specification, section 11). A store
+  // that cannot be written (transfer recovery) applies nothing.
+  const hostedIdentity = opts.identity ? await opts.identity(identitySeamDeps(store)) : undefined
+  if (hostedIdentity && !recoveryOnly) await hostedIdentity.catchUp()
   // IS LOGIN REQUIRED — composed ONCE and passed to every gate, so the guard, the login
   // route, the status route and the exposure warning cannot answer it differently.
   //

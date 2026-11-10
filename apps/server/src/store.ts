@@ -42,6 +42,7 @@ import { bootStage } from './boot-timing'
 import { randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import type { IdentityDatabase, SqliteDb } from '@podium/identity'
 import { createLogger } from '@podium/logger'
 import { asMachineId, type MachineId } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
@@ -680,6 +681,23 @@ export class SessionStore {
    *  rollback or merged into the parent on savepoint release. */
   async transact<T>(fn: () => T | Promise<T>): Promise<T> {
     return await this.executor.transact(async () => fn())
+  }
+
+  /**
+   * The database port of the identity package (people and sign-in
+   * specification, section 2.2): the store's one drizzle instance and its
+   * transaction runner. Library statements, the package's statements and the
+   * server's own repository writes therefore join one transaction and roll
+   * back together.
+   */
+  identityDatabase(): IdentityDatabase {
+    const { rootDb, createOrJoinTransaction } = this.queries
+    const db = rootDb as unknown as SqliteDb
+    return {
+      dialect: 'sqlite',
+      db,
+      transaction: (fn) => createOrJoinTransaction(() => fn(db)),
+    }
   }
 
   /** An external effect after the caller's commit: on the open span, or at once

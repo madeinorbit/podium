@@ -748,14 +748,22 @@ The list is fixed for the life of a process. The server returns it in `GET /auth
 
 ```ts
 // apps/server, startServer options
-identity?: (deps: { memberRows: MemberRows; appliedCursor: AppliedCursor }) =>
-  WorkspaceIdentity | Promise<WorkspaceIdentity>
+identity?: (deps: {
+  memberRows: MemberRows
+  appliedCursor: AppliedCursor
+  /** Every member row, disabled ones included, in creation order, earliest first. */
+  existingMembers(): Promise<Array<{
+    memberId: string; role: 'admin' | 'member'; disabled: boolean; accountId: string | null
+  }>>
+}) => WorkspaceIdentity | Promise<WorkspaceIdentity>
 ```
+
+The types are `IdentitySeam`, `IdentitySeamDeps` and `ExistingMember` in `apps/server/src/identity/server-identity.ts`, exported from `@podium/server`.
 
 - **Absent** (every self-hosted server): the server opens its store, reads or creates the signing secret, builds the core with the self-hosted configuration of section 2.1 on its own database, and takes `core.workspace('local', { rows: memberRows, sameDatabase: true })`.
 - **Present** (the hosted root): podium-cloud builds one core on Postgres for the process and passes `({ memberRows, appliedCursor }) => platform.identity.workspace(workspaceId, { rows: memberRows, sameDatabase: false, cursor: appliedCursor })`. It is a function because the member rows port exists only after the server has opened its store.
 
-`memberRows` is the server's implementation of `MemberRows`. `appliedCursor` reads and writes one number in the server's `meta` table (key `identity.appliedMembershipVersion`).
+`memberRows` is the server's implementation of `MemberRows`. `appliedCursor` reads and writes one number in the server's `meta` table (key `identity.appliedMembershipVersion`). `existingMembers` is read-only and carries no name, address or secret; the hosted root calls it once per boot, before the server serves, to adopt the rows that carry an account id (section 8.2) and to find the earliest enabled admin row without one.
 
 The server uses the `WorkspaceIdentity` it ends up with for everything in sections 4 and 5 and does not know which database is behind it. With the option present the server also calls `catchUp()` before it serves requests and on a timer (section 11). The cloud plugin keeps mounting its own routes through `PodiumPluginHooks.hono`.
 
@@ -1381,6 +1389,7 @@ For the coordinator. None of these changes a goal; each changes who does somethi
 | 37 | Section 2.6: removal is audited as `members.remove` per machine | Also once without a machine when the member held none | A removal is always in the audit log |
 | 38 | Section 2.3: `sweep` deletes expired invitations and one-time codes | As written. The membership of a deleted invitation stays `invited` until an admin invites again or revokes | Stated because row 30 depends on it |
 | 39 | `scripts/span-effect-graph.ts` names the package's transaction declarations by file and line | The lines moved to `types.ts` 92 and 93 and `runtime.ts` 164 | An edit above those lines moves them again; the span lint then reports an unnamed opener |
+| 40 | Section 3: the seam's function receives `memberRows` and `appliedCursor` | Also a read-only `existingMembers()`: every member row of the workspace database, disabled ones included, in creation order, earliest first, as member id, role, disabled and account id | Asked for by PDM-495, approved by the coordinator. A membership's key is the member id and Postgres does not know it; with `plugin-auth.ts` gone (`findMemberByAccount`, `earliestAdminMember`) the hosted root has no other way to read the rows without importing the store |
 
 ## 17. Product questions this document could not settle
 

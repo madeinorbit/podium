@@ -78,6 +78,8 @@ function needsTelemetryIdentity(
 // Every query this repository runs, prepared once per store [POD-6147].
 
 /** One `meta` value by key: every read here, whichever key it names. */
+const APPLIED_MEMBERSHIP_VERSION_KEY = 'identity.appliedMembershipVersion'
+
 const metaValue = prepared((db: StoreDrizzle) =>
   db
     .select({ value: meta.value })
@@ -264,6 +266,21 @@ export class SettingsRepository {
 
   async recordSetupEnrollment(key: string, receipt: string): Promise<void> {
     await this.writeMeta(`setup_enrollment:${key}`, receipt)
+  }
+
+  /**
+   * The cursor of a hosted workspace (people and sign-in specification,
+   * section 11): every membership change up to this version has been applied
+   * to the member rows. A self-hosted server never reads or writes it.
+   */
+  async appliedMembershipVersion(): Promise<number> {
+    const row = await metaValue(this.db).get({ key: APPLIED_MEMBERSHIP_VERSION_KEY })
+    const version = Number(row?.value ?? 0)
+    return Number.isSafeInteger(version) && version > 0 ? version : 0
+  }
+
+  async recordAppliedMembershipVersion(version: number): Promise<void> {
+    await this.writeMeta(APPLIED_MEMBERSHIP_VERSION_KEY, String(version))
   }
 
   async getSettings(): Promise<PodiumSettings> {
