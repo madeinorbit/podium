@@ -2,7 +2,7 @@ import '@/test-support/mock-request-pool.test.fixture'
 import { SHARED_MACHINE_ACCOUNT_WARNING } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
-import { useWorklistPool } from '@/app/store-worklist-pool'
+import { useWorklistPool as fixturePool } from '@/app/store-worklist-pool'
 import { MachineCustody } from './machine-custody'
 
 /**
@@ -32,7 +32,8 @@ function seed(grants?: unknown[]) {
       }),
     })),
   )
-  const pool = useWorklistPool()
+  // This test module supplies a plain pool accessor, without React hooks.
+  const pool = fixturePool()
   if (!pool) throw new Error('Missing test pool')
   act(() =>
     pool.apply({
