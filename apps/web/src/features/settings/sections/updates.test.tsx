@@ -1049,6 +1049,10 @@ describe('member desktop recovery', () => {
     ;(globalThis as { __PODIUM_DESKTOP__?: NativeDesktopBridge }).__PODIUM_DESKTOP__ = {
       currentVersion: '0.4.1',
       launchMode: 'client',
+      platform: 'darwin',
+      minimize: vi.fn(async () => {}),
+      toggleMaximize: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
       repairPayload: repair,
     }
     trpc.setup.channel.query.mockResolvedValue({ channel: 'stable', envForced: false })
