@@ -1,15 +1,13 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 /**
- * THE COMMENT COMPOSER RIDES THE KEYBOARD [2026-08-28 device feedback].
+ * THE TASK PAGE'S EDITORS RIDE THE KEYBOARD [2026-08-28 device feedback].
  *
- * On iOS the task page's pinned composer sat under the software keyboard: the
- * field took focus, the keyboard rose over it, and the comment was typed blind.
- * The chat screens never had the bug because SessionConversation wraps its
- * feed-plus-composer in a KeyboardAvoidingView; the task page now carries the
- * same wrapper. The avoidance itself is native-keyboard behaviour no DOM lane
- * can observe — what CAN be pinned is the wiring: the composer (and the error
- * band that docks with it) must live INSIDE the avoiding view, because a
- * composer rendered beside it is exactly the regression that shipped.
+ * The pinned comment composer is gone (POD-2378: the summary card's chat button
+ * replies), but the page still holds inline editors — title, description,
+ * sub-task — that must stay above the software keyboard. The avoidance itself
+ * is native-keyboard behaviour no DOM lane can observe; what CAN be pinned is
+ * the wiring: the page's scroll content lives INSIDE the avoiding view, and no
+ * composer is docked beside it.
  */
 import { asIssueId } from '@podium/model'
 import { cleanup, screen } from '@testing-library/react'
@@ -109,8 +107,7 @@ vi.mock('../components/LaunchPlaceholders', () => ({
   BootstrapCrossfade: ({ children }: { children: ReactNode }) => <>{children}</>,
   DetailSkeleton: () => null,
 }))
-// The real composer is chat furniture tested elsewhere; here it only has to be
-// findable, so the test can say WHERE the page put it.
+// Findable if anything still docks a composer on this page.
 vi.mock('../components/Composer', async () => {
   const { View } = await import('react-native')
   return { Composer: () => <View testID="composer-stub" /> }
@@ -140,11 +137,11 @@ const issue = (partial: Partial<IssueViewModel> = {}): IssueViewModel =>
   }) as IssueViewModel
 
 describe('task page keyboard avoidance', () => {
-  it('pins the comment composer inside the keyboard-avoiding view', async () => {
+  it('keeps the page inside the keyboard-avoiding view, with no docked composer', async () => {
     await renderWithMobileStore(<IssueScreen />, { issues: [issue()] })
 
     const avoider = await screen.findByTestId('issue-keyboard-avoider')
-    const composer = await screen.findByTestId('composer-stub')
-    expect(avoider.contains(composer)).toBe(true)
+    expect(avoider.contains(await screen.findByText('A task'))).toBe(true)
+    expect(screen.queryByTestId('composer-stub')).toBeNull()
   })
 })

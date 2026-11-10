@@ -57,11 +57,18 @@ import { MachineLabel, SectionHeading } from './chrome'
  * affordance, and adding one would invent a policy that is settled the other way.
  */
 
-export const MailSection = observer(function MailSection({ mail }: { mail: IssueMailMessage[] }) {
+export const MailSection = observer(function MailSection({
+  mail,
+  headless = false,
+}: {
+  mail: IssueMailMessage[]
+  /** Inside a fold whose header already names it. */
+  headless?: boolean
+}) {
   if (mail.length === 0) return null
   return (
-    <View style={styles.section} testID="issue-mail">
-      <SectionHeading label="Mail" count={String(mail.length)} />
+    <View style={headless ? undefined : styles.section} testID="issue-mail">
+      {headless ? null : <SectionHeading label="Mail" count={String(mail.length)} />}
       {mail.map((m) => (
         <View key={m.id} style={styles.mail}>
           <View style={styles.mailHead}>

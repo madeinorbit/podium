@@ -1,23 +1,36 @@
-import { issueObserver as observer } from '../../client/issue-observer'
 import type { IssueViewModel } from '@podium/client-core/replica'
+import { ISSUE_HISTORY_PAGE } from '@podium/client-graph/issue-activity'
+import { type ComponentProps, useState } from 'react'
+import { issueObserver as observer } from '../../client/issue-observer'
 import { useIssueOpening } from '../../client/issue-opening'
 import { useMobilePool } from '../../client/mobile-pool'
 import { resolveEdgeFromPool } from '../../client/use-issue-model'
-import { useIssueActivity } from '../../lib/use-issue-detail'
-import { ISSUE_HISTORY_PAGE } from '@podium/client-graph/issue-activity'
 import type { IssueCommands } from '../../lib/issue-detail'
-import { MailSection, IssueActivitySection } from './IssueActivity'
+import { useIssueActivity } from '../../lib/use-issue-detail'
+import { Disclosure } from './chrome'
+import { IssueActivitySection, MailSection } from './IssueActivity'
 import { IssueNow } from './IssueNow'
 import { IssueProperties } from './IssueProperties'
-import { Disclosure } from './chrome'
-import type { ComponentProps } from 'react'
 
 const emptyFeed: import('@podium/client-core/values').ActivityItem[] = []
 const emptyMail: import('../../lib/issue-detail').IssueMailMessage[] = []
 
 export const PhoneMail = observer(function PhoneMail({ issue }: { issue: IssueViewModel }) {
   const history = useIssueActivity(issue, 0)
-  return <MailSection mail={history?.activity.mail ?? emptyMail} />
+  const [open, setOpen] = useState(false)
+  const mail = history?.activity.mail ?? emptyMail
+  if (mail.length === 0) return null
+  return (
+    <Disclosure
+      label="Mail"
+      count={String(mail.length)}
+      open={open}
+      onToggle={() => setOpen((value) => !value)}
+      testID="issue-mail-fold"
+    >
+      <MailSection mail={mail} headless />
+    </Disclosure>
+  )
 })
 export const PhoneTimeline = observer(function PhoneTimeline({
   issue,

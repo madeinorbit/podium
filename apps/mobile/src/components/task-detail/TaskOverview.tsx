@@ -18,6 +18,7 @@ import { Icon } from '../Icon'
 import { ChevronRight, FileText, MessagesSquare, Play } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { composeOfferPrompt } from '../SessionActionCard'
+import { Disclosure } from './chrome'
 import { PromptSheet } from './PromptSheet'
 
 /**
@@ -42,6 +43,35 @@ export function leadSession(
     sessions.find((s) => s.offer) ??
     sessions.find((s) => s.sessionId === issue.coordinatorSessionId) ??
     sessions[0]
+  )
+}
+
+/**
+ * A reference section below Activity: a chevron header, folded until opened.
+ * The fold is the page visit's own; the task page leads with what moves.
+ */
+export function FoldedSection({
+  label,
+  count,
+  children,
+  testID,
+}: {
+  label: string
+  count?: string
+  children: ReactNode
+  testID?: string
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <Disclosure
+      label={label}
+      count={count}
+      open={open}
+      onToggle={() => setOpen((value) => !value)}
+      {...(testID ? { testID } : {})}
+    >
+      {children}
+    </Disclosure>
   )
 }
 
@@ -75,22 +105,26 @@ export const TaskSummary = observer(function TaskSummary({
   lead,
   onAccept,
   onOpenSession,
+  onComment,
 }: {
   issue: IssueViewModel
   lead: SessionView | undefined
   /** Send the chosen action's prompt to the session that offered it. */
   onAccept: (sessionId: SessionId, prompt: string) => Promise<void>
   onOpenSession: (sessionId: SessionId) => void
+  /** With no session to open, the chat button posts on the task instead (the
+   *  send path the page's old composer used, @mentions included). */
+  onComment: (text: string) => void
 }) {
   // An accept hides the buttons on the press, keyed by the offer it answered,
   // so a replacement offer that arrives meanwhile still shows.
   const [answered, setAnswered] = useState<string | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
   const [asking, setAsking] = useState<SessionOffer['actions'][number] | null>(null)
+  const [commenting, setCommenting] = useState(false)
   const notes = issue.activityNotes?.trim()
   const offer = lead?.offer && lead.offer.createdAt !== answered ? lead.offer : null
   const headline = offer?.message.split('\n')[0]?.trim()
-  if (!notes && !offer && !lead) return null
 
   const send = async (prompt: string) => {
     if (!lead || !offer) return
@@ -111,7 +145,7 @@ export const TaskSummary = observer(function TaskSummary({
           {notes || headline}
         </Text>
       ) : null}
-      {offer || lead ? (
+      {
         <View style={styles.buttons}>
           {offer?.actions.map((action, index) => (
             <PressableScale
@@ -137,11 +171,12 @@ export const TaskSummary = observer(function TaskSummary({
               </Text>
             </PressableScale>
           ))}
-          {lead ? (
+          {
             <PressableScale
               accessibilityRole="button"
-              accessibilityLabel="Open chat"
-              onPress={() => onOpenSession(lead.sessionId)}
+              accessibilityLabel={lead ? 'Open chat' : 'Comment'}
+              accessibilityHint={lead ? undefined : 'Post on this task, or @mention an agent'}
+              onPress={() => (lead ? onOpenSession(lead.sessionId) : setCommenting(true))}
               style={({ pressed }) => [
                 styles.button,
                 offer?.actions.length ? styles.buttonSquare : styles.buttonGrow,
@@ -149,11 +184,13 @@ export const TaskSummary = observer(function TaskSummary({
               ]}
             >
               <Icon as={MessagesSquare} size={16} color={color.text} />
-              {offer?.actions.length ? null : <Text style={styles.buttonText}>Open chat</Text>}
+              {offer?.actions.length ? null : (
+                <Text style={styles.buttonText}>{lead ? 'Open chat' : 'Comment'}</Text>
+              )}
             </PressableScale>
-          ) : null}
+          }
         </View>
-      ) : null}
+      }
       {failed ? (
         <Text style={styles.failed} accessibilityLiveRegion="polite">
           Not sent: {failed}
@@ -169,6 +206,17 @@ export const TaskSummary = observer(function TaskSummary({
           if (asking) void send(composeOfferPrompt(asking.prompt, feedback))
         }}
         onClose={() => setAsking(null)}
+      />
+      <PromptSheet
+        visible={commenting}
+        title="Comment"
+        hint="Posted on this task. @mention an agent to reach it."
+        placeholder="Comment, or @mention an agent…"
+        confirmLabel="Post"
+        onConfirm={(text) => {
+          if (text.trim()) onComment(text)
+        }}
+        onClose={() => setCommenting(false)}
       />
     </View>
   )

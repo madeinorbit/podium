@@ -34,7 +34,6 @@ import {
   useSessionContextIssue as useIssue,
 } from '../client/use-session-context'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
-import { Composer } from '../components/Composer'
 import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
 import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
@@ -68,6 +67,7 @@ import { IssueSubIssues } from '../components/task-detail/IssueSubIssues'
 import { PromptSheet } from '../components/task-detail/PromptSheet'
 import {
   ArtifactStrip,
+  FoldedSection,
   leadSession,
   TaskSessions,
   TaskSummary,
@@ -91,12 +91,12 @@ import { color, space } from '../theme/theme'
  * its branch, its event history — was desk-only, which meant the phone could show
  * you that something needed you and then could not show you what it was.
  *
- * The section order is the desktop's, re-expressed for a 390pt one-handed screen:
+ * The section order is the iOS redesign board's (POD-2378): actions first.
  *
- *   banners → title → status strip → the everyday properties →
- *   NOW (live agents + branch) → description → brief → long-form spec fields →
- *   the agent-published panel → sub-tasks → mail → Details (folded) → activity,
- *   with the comment composer PINNED below the scroll.
+ *   banners → title → header pills → the summary card (state text, the lead
+ *   session's offer buttons, chat) → artifact strip → sessions → activity →
+ *   the reference sections, each folded: description, brief, changes,
+ *   sub-tasks, mail, Details.
  *
  * -------------------------------------------------------------------------
  * THIS FILE IS COMPOSITION AND PAGE-LEVEL STATE. NOTHING ELSE.
@@ -108,9 +108,9 @@ import { color, space } from '../theme/theme'
  * is the state that genuinely spans sections — which sheet is open and the
  * busy / error pair — because pushing either of those down would duplicate them.
  *
- * THE COMPOSER IS PINNED, NOT APPENDED. A task with twenty artifacts and a day of
- * events puts the reply box thousands of pixels down the scroll, so replying
- * would mean first travelling past everything you were replying to.
+ * NO PINNED COMPOSER. The summary card's chat button is the reply: it opens the
+ * lead session's chat, or, on a task with no session, a sheet that posts on the
+ * task through the same comment path.
  */
 export function IssueScreen(props: { dismiss?: boolean }) {
   return (
@@ -340,12 +340,10 @@ const IssueContent = observer(function IssueContent({
         </HeaderButton>
       }
     >
-      {/* The same keyboard contract the chat screens carry: on iOS the pinned
-          composer otherwise sits UNDER the keyboard, so a comment was typed
-          blind — the field disappeared on focus. The lift is the keyboard's own
-          overlap (see useKeyboardHeight), not an avoiding view's frame
-          arithmetic. The sheets stay outside: they are modal layers and place
-          themselves. */}
+      {/* The keyboard contract the chat screens carry: inline editors (title,
+          description, sub-task) stay above the keyboard. The lift is the
+          keyboard's own overlap (see useKeyboardHeight). The sheets stay
+          outside: they are modal layers and place themselves. */}
       <View style={[styles.flex, { paddingBottom: keyboardLift }]} testID="issue-keyboard-avoider">
         <ScrollView
           contentContainerStyle={styles.content}
@@ -393,7 +391,7 @@ const IssueContent = observer(function IssueContent({
           <StatusStrip issue={issue} exceptionsOnly />
 
           {/* The board's order: what it waits on, what it made, who is on it;
-              the reference sections next and the activity feed last. */}
+              then activity, and the folded reference sections below it. */}
           <TaskSummary
             issue={issue}
             lead={lead}
@@ -403,30 +401,47 @@ const IssueContent = observer(function IssueContent({
               await sendChat({ sessionId, text: prompt, wake: true })
             }}
             onOpenSession={openSession}
+            onComment={(text) => commands.postComment(text, appendLocalComment)}
           />
           <ArtifactStrip issue={issue}>
             <IssueAgentPanel issue={issue} only="artifacts" />
           </ArtifactStrip>
           <TaskSessions issue={issue} sessions={agents} lead={lead} onOpenSession={openSession} />
 
+          {/* Activity, then the reference half, each folded under its own
+              chevron header so the activity feed is never buried. */}
+          <PhoneTimeline issue={issue} busy={busy} commands={commands} />
           <View style={styles.reference}>
-            <IssueDescription issue={issue} busy={busy} commands={commands} />
+            <FoldedSection label="Description" testID="issue-description-fold">
+              <IssueDescription issue={issue} busy={busy} commands={commands} />
+              <LongFormFields issue={issue} busy={busy} commands={commands} />
+              <IssueAgentPanel issue={issue} only="deferred" />
+            </FoldedSection>
             <IssueBrief issue={issue} />
-            <LongFormFields issue={issue} busy={busy} commands={commands} />
-            <IssueAgentPanel issue={issue} only="deferred" />
             {issue.worktreePath ? (
-              <GitReviewSection
-                root={issue.worktreePath}
-                {...(issue.machineId === undefined ? {} : { machineId: issue.machineId })}
-              />
+              <FoldedSection label="Changes">
+                <GitReviewSection
+                  root={issue.worktreePath}
+                  headless
+                  {...(issue.machineId === undefined ? {} : { machineId: issue.machineId })}
+                />
+              </FoldedSection>
             ) : null}
-            <IssueSubIssues
-              issue={issue}
-              busy={busy}
-              commands={commands}
-              onOpen={openIssue}
-              onStatus={(child) => setSheet({ kind: 'child-status', child })}
-            />
+            <FoldedSection
+              label="Sub-tasks"
+              {...(issue.childCount > 0
+                ? { count: `${issue.childDoneCount}/${issue.childCount}` }
+                : {})}
+            >
+              <IssueSubIssues
+                issue={issue}
+                busy={busy}
+                commands={commands}
+                headless
+                onOpen={openIssue}
+                onStatus={(child) => setSheet({ kind: 'child-status', child })}
+              />
+            </FoldedSection>
             <PhoneMail issue={issue} />
             <PhoneProperties
               issue={issue}
@@ -439,11 +454,10 @@ const IssueContent = observer(function IssueContent({
               onPickParent={() => setSheet({ kind: 'parent' })}
               onAddRelation={() => setSheet({ kind: 'relation-type' })}
             />
-            <PhoneTimeline issue={issue} busy={busy} commands={commands} />
           </View>
         </ScrollView>
 
-        {/* Pinned with the composer, not placed where the failing control was. A
+        {/* Pinned to the bottom, not placed where the failing control was. A
           rebase fired from the Details fold at the bottom of a long page would
           otherwise report its error a full screen above the thumb that asked
           for it. */}
@@ -452,11 +466,6 @@ const IssueContent = observer(function IssueContent({
             <ErrorNote message={error} />
           </View>
         ) : null}
-
-        <Composer
-          placeholder="Comment, or @mention an agent on this task…"
-          onSend={(text) => commands.postComment(text, appendLocalComment)}
-        />
       </View>
 
       <ActionSheet

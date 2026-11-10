@@ -23,9 +23,12 @@ import { SectionHeading } from './chrome'
 export const GitReviewSection = observer(function GitReviewSection({
   root,
   machineId,
+  headless = false,
 }: {
   root: string
   machineId?: MachineId
+  /** Inside a fold whose header already names it: drop the heading, keep refresh. */
+  headless?: boolean
 }) {
   const { gitStatus, readFileScoped, gitDiffFile } = useStoreHandle().access
   const view = useMemo(
@@ -60,28 +63,34 @@ export const GitReviewSection = observer(function GitReviewSection({
   const visibleEntries = entries.slice(0, visibleFiles)
   const remainingFiles = entries.length - visibleEntries.length
 
+  const refreshControl = (
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel="Refresh changed files"
+      disabled={refreshing}
+      hitSlop={8}
+      onPress={() => void refresh()}
+      style={[styles.refresh, refreshing && styles.muted]}
+    >
+      {refreshing ? (
+        <ActivityIndicator size="small" color={color.textFaint} />
+      ) : (
+        <Icon as={RefreshCw} size={14} color={color.textFaint} />
+      )}
+    </PressableScale>
+  )
+
   return (
-    <View style={styles.section} testID="git-review-section">
-      <SectionHeading
-        label="Changes"
-        count={entries.length > 0 ? String(entries.length) : undefined}
-        right={
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel="Refresh changed files"
-            disabled={refreshing}
-            hitSlop={8}
-            onPress={() => void refresh()}
-            style={[styles.refresh, refreshing && styles.muted]}
-          >
-            {refreshing ? (
-              <ActivityIndicator size="small" color={color.textFaint} />
-            ) : (
-              <Icon as={RefreshCw} size={14} color={color.textFaint} />
-            )}
-          </PressableScale>
-        }
-      />
+    <View style={headless ? undefined : styles.section} testID="git-review-section">
+      {headless ? (
+        <View style={styles.headlessBar}>{refreshControl}</View>
+      ) : (
+        <SectionHeading
+          label="Changes"
+          count={entries.length > 0 ? String(entries.length) : undefined}
+          right={refreshControl}
+        />
+      )}
       {branchDetail ? <Text style={styles.branch}>{branchDetail}</Text> : null}
       {statusError ? (
         <Text accessibilityLiveRegion="polite" style={styles.error}>
@@ -243,6 +252,7 @@ export const DiffLine = observer(function DiffLine({ row }: { row: DiffRow }) {
 
 const styles = StyleSheet.create({
   section: { marginTop: space.xl },
+  headlessBar: { flexDirection: 'row', justifyContent: 'flex-end', minHeight: 28 },
   refresh: {
     width: 44,
     height: 44,

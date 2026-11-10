@@ -47,8 +47,11 @@ export const IssueSubIssues = observer(function IssueSubIssues({
   now,
   onOpen,
   onStatus,
+  headless = false,
 }: {
   issue: IssueViewModel
+  /** Inside a fold whose header already names it. */
+  headless?: boolean
   subIssues?: IssueViewModel[]
   busy: boolean
   commands: IssueCommands
@@ -75,11 +78,13 @@ export const IssueSubIssues = observer(function IssueSubIssues({
   }
 
   return (
-    <View style={styles.section} testID="sub-issues">
-      <SectionHeading
-        label="Sub-tasks"
-        count={issue.childCount > 0 ? `${issue.childDoneCount}/${issue.childCount}` : undefined}
-      />
+    <View style={headless ? undefined : styles.section} testID="sub-issues">
+      {headless ? null : (
+        <SectionHeading
+          label="Sub-tasks"
+          count={issue.childCount > 0 ? `${issue.childDoneCount}/${issue.childCount}` : undefined}
+        />
+      )}
       {subIssues.map((child) => (
         <SubTaskRow
           key={child.id}

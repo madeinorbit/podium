@@ -8,7 +8,7 @@ import {
   type IssueUserStateWire,
   type RepoProjection,
 } from '@podium/model'
-import { act, cleanup, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { issueRowToProjection } from '../../../server/src/modules/issues/projection'
@@ -220,6 +220,7 @@ describe('mobile normalized issue reads with no legacy issue rows', () => {
     }
     if (Surface === IssueScreen) {
       expect(screen.getAllByText(/POD-42/).length).toBeGreaterThan(0)
+      fireEvent.click(screen.getByRole('button', { name: 'Description' }))
       expect(screen.getByText('The normalized description.')).toBeTruthy()
       expect(screen.getByText('Ship normalized mobile?')).toBeTruthy()
     }

@@ -340,6 +340,8 @@ it('keeps accepted task output and closed-picker per-open work flat at 1x and 4x
     state.measuring = true
     try {
       fireEvent.click(screen.getByRole('button', { name: 'Open task' }))
+      // The description sits folded below Activity (POD-2378); open it.
+      fireEvent.click(await screen.findByRole('button', { name: 'Description' }))
       await waitFor(() => expect(screen.getByText('The normalized description.')).toBeTruthy())
       await act(async () => {})
       expect(screen.getAllByText('Normalized mobile mission').length).toBeGreaterThan(0)
@@ -410,7 +412,7 @@ it('keeps parent target order literal and row reads bounded by its visible choic
     })
     await waitFor(() => expect(state.pool).not.toBeNull(), { timeout: 30_000 })
     fireEvent.click(screen.getByRole('button', { name: 'Open task' }))
-    await waitFor(() => expect(screen.getByText('The normalized description.')).toBeTruthy())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Details' })).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: 'Details' }))
     await waitFor(() => expect(screen.getByRole('button', { name: 'Set parent' })).toBeTruthy())
     const row = state.pool!.row.bind(state.pool!)
