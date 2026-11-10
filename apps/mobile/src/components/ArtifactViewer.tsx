@@ -1,23 +1,42 @@
 import type { IssuePanelArtifact } from '@podium/model'
-import { type ComponentType, createElement, useEffect, useState } from 'react'
-import { X } from './icons'
+import { type ComponentType, createElement, useEffect, useRef, useState } from 'react'
 import {
   Image,
   Modal,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   Platform,
   ScrollView,
+  Share,
   type StyleProp,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
   type ViewStyle,
 } from 'react-native'
+import {
+  GestureDetector,
+  GestureHandlerRootView,
+  usePanGesture,
+} from 'react-native-gesture-handler'
+import Animated, {
+  Extrapolation,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { scheduleOnRN } from 'react-native-worklets'
 import {
   authenticatedImageSource,
   fetchAuthenticatedAsset,
   readAuthenticatedTextPreview,
 } from '../client/authenticated-assets'
-import { useServerProfile } from '../client/ServerProfileGate'
+// Read the profile without importing the gate's boot graph.
+import { useServerProfile } from '../client/server-profile-context'
 import {
   endAtTagBoundary,
   htmlDataUri,
@@ -26,13 +45,20 @@ import {
   issueArtifactLabel,
   issueArtifactPreview,
 } from '../lib/issue-artifacts'
-import { color, font, leading, mono, radius, sans, space } from '../theme/theme'
+import { color, font, leading, mono, sans, space, spring } from '../theme/theme'
 import { ArtifactVideo } from './ArtifactVideo'
 import { Icon } from './Icon'
+import { type AppIcon, X } from './icons'
 import { PressableScale } from './PressableScale'
 import { RichMarkdown } from './RichMarkdown'
 
 const HTML_CAP = 2 * 1024 * 1024
+/** How far a released drag must travel, or how fast, to close the viewer. */
+const CLOSE_DISTANCE = 120
+const CLOSE_VELOCITY = 800
+/** Pulling a document this far past its top and letting go closes it too. */
+const PULL_CLOSE = 72
+const ShareIcon: AppIcon = { ios: 'square.and.arrow.up', android: 'share', web: 'share' }
 
 /**
  * The DOM-components WebView the app already ships. `@expo/dom-webview` is a
@@ -59,47 +85,204 @@ function resolveDomWebView(): DomWebViewComponent | null {
   }
   return domWebViewCache
 }
+
+/** One artifact the viewer can page to. */
+export interface ArtifactViewerItem {
+  key: string
+  artifact: IssuePanelArtifact
+  /** Absent when this phone cannot reach the file. */
+  url: string | null
+}
+
 /**
- * In-app issue artifact viewer. Images and video stay in a lightbox; HTML
- * concepts render in a same-origin frame; markdown and text are fetched and
- * shown here. Leaving the PWA via Linking.openURL dropped the session cookie
- * and made artifacts unreadable on the phone.
+ * In-app issue artifact viewer (boards Artifact, ArtifactDrag): full screen on
+ * an opaque ground, the artifact's name over "2 of 3", swipe sideways between
+ * the list it was opened from, drag down (or pull a document past its top) to
+ * close. Images and video fill the page; HTML concepts render in a same-origin
+ * frame; markdown and text are fetched and shown here. Leaving the PWA via
+ * Linking.openURL dropped the session cookie and made artifacts unreadable on
+ * the phone.
+ *
+ * Callers pass `items` and the opened `index` to page through a list, or a
+ * single `artifact` and `url`.
  */
 export function ArtifactViewer({
   artifact,
   url,
+  items,
+  index = 0,
   onClose,
 }: {
-  artifact: IssuePanelArtifact | null
-  url: string | null
+  artifact?: IssuePanelArtifact | null
+  url?: string | null
+  items?: readonly ArtifactViewerItem[]
+  index?: number
   onClose: () => void
 }) {
-  if (!artifact) return null
-  const preview = issueArtifactPreview(artifact.entry ?? artifact.path)
-  const label = issueArtifactLabel(artifact)
+  const list: readonly ArtifactViewerItem[] =
+    items && items.length > 0
+      ? items
+      : artifact
+        ? [{ key: `${artifact.path}@${artifact.addedAt}`, artifact, url: url ?? null }]
+        : []
+  if (list.length === 0) return null
+  return (
+    <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
+      <ViewerPages
+        items={list}
+        start={Math.min(Math.max(0, index), list.length - 1)}
+        onClose={onClose}
+      />
+    </Modal>
+  )
+}
+
+function ViewerPages({
+  items,
+  start,
+  onClose,
+}: {
+  items: readonly ArtifactViewerItem[]
+  start: number
+  onClose: () => void
+}) {
+  const insets = useSafeAreaInsets()
+  const { width, height } = useWindowDimensions()
+  const [page, setPage] = useState(start)
+  const pager = useRef<ScrollView>(null)
+  const drag = useSharedValue(0)
+  const current = items[page] ?? items[0]!
+  const label = issueArtifactLabel(current.artifact)
+  const many = items.length > 1
+
+  // Open on the tapped artifact, not the first page.
+  useEffect(() => {
+    if (start > 0) pager.current?.scrollTo({ x: start * width, animated: false })
+  }, [start, width])
+
+  const close = () => onClose()
+  const pan = usePanGesture({
+    activeOffsetY: 12,
+    failOffsetX: [-16, 16],
+    onUpdate: (event) => {
+      'worklet'
+      drag.set(Math.max(0, event.translationY))
+    },
+    onDeactivate: (event) => {
+      'worklet'
+      if (event.translationY > CLOSE_DISTANCE || event.velocityY > CLOSE_VELOCITY) {
+        drag.set(withTiming(height, { duration: 180 }, () => scheduleOnRN(close)))
+      } else {
+        drag.set(withSpring(0, spring.snappy))
+      }
+    },
+  })
+
+  // The ground fades and the page shrinks toward a card as it is pulled down,
+  // so the screen it came from shows through (board ArtifactDrag). At rest the
+  // ground is opaque.
+  const groundStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(drag.get(), [0, height * 0.6], [1, 0.38], Extrapolation.CLAMP),
+  }))
+  const pageStyle = useAnimatedStyle(() => {
+    const y = drag.get()
+    const scale = interpolate(y, [0, height * 0.6], [1, 0.78], Extrapolation.CLAMP)
+    return {
+      borderRadius: interpolate(y, [0, 40], [0, 12], Extrapolation.CLAMP),
+      transform: [{ translateY: y }, { scale }],
+    }
+  })
+  const chromeStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(drag.get(), [0, 60], [1, 0], Extrapolation.CLAMP),
+  }))
+
+  const onPage = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const next = Math.round(event.nativeEvent.contentOffset.x / Math.max(1, width))
+    if (next !== page && next >= 0 && next < items.length) setPage(next)
+  }
+
+  const share = () => {
+    if (!current.url) return
+    void Share.share({ url: current.url, message: current.url, title: label }).catch(() => {})
+  }
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.shell} testID="artifact-viewer">
-        <View style={styles.bar}>
-          <Text style={styles.title} numberOfLines={1}>
-            {label}
-          </Text>
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel="Close artifact"
-            onPress={onClose}
-            hitSlop={10}
-            style={styles.close}
+    <GestureHandlerRootView style={styles.fill}>
+      <Animated.View style={[StyleSheet.absoluteFill, styles.ground, groundStyle]} />
+      <GestureDetector gesture={pan}>
+        <Animated.View style={[styles.fill, styles.page, pageStyle]} testID="artifact-viewer">
+          <Animated.View style={[styles.bar, { paddingTop: insets.top + space.sm }, chromeStyle]}>
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel="Close artifact"
+              onPress={onClose}
+              style={styles.cap}
+            >
+              <Icon as={X} size={18} color={color.text} />
+            </PressableScale>
+            <View style={styles.heading}>
+              <Text style={styles.title} numberOfLines={1} accessibilityRole="header">
+                {label}
+              </Text>
+              {many ? (
+                <Text style={styles.position} testID="artifact-position">
+                  {`${page + 1} of ${items.length}`}
+                </Text>
+              ) : null}
+            </View>
+            {Platform.OS !== 'web' && current.url ? (
+              <PressableScale
+                accessibilityRole="button"
+                accessibilityLabel="Share artifact"
+                onPress={share}
+                style={styles.cap}
+              >
+                <Icon as={ShareIcon} size={18} color={color.text} />
+              </PressableScale>
+            ) : (
+              <View style={styles.capSpace} />
+            )}
+          </Animated.View>
+          <ScrollView
+            ref={pager}
+            horizontal
+            pagingEnabled
+            scrollEnabled={many}
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={onPage}
+            onScroll={Platform.OS === 'web' ? onPage : undefined}
+            scrollEventThrottle={64}
+            style={styles.fill}
           >
-            <Icon as={X} size={18} color={color.text} />
-          </PressableScale>
-        </View>
-        <View style={styles.body}>
-          <ArtifactBody preview={preview} url={url} label={label} />
-        </View>
-      </View>
-    </Modal>
+            {items.map((item, at) => (
+              <View key={item.key} style={[styles.slide, { width }]}>
+                {Math.abs(at - page) <= 1 ? (
+                  <ArtifactBody
+                    preview={issueArtifactPreview(item.artifact.entry ?? item.artifact.path)}
+                    url={item.url}
+                    label={issueArtifactLabel(item.artifact)}
+                    onPullClose={onClose}
+                  />
+                ) : null}
+              </View>
+            ))}
+          </ScrollView>
+          {many ? (
+            <Animated.View
+              style={[styles.dots, { paddingBottom: insets.bottom + space.sm }, chromeStyle]}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            >
+              {items.map((item, at) => (
+                <View key={item.key} style={[styles.dot, at === page && styles.dotOn]} />
+              ))}
+            </Animated.View>
+          ) : (
+            <View style={{ height: insets.bottom + space.sm }} />
+          )}
+        </Animated.View>
+      </GestureDetector>
+    </GestureHandlerRootView>
   )
 }
 
@@ -107,10 +290,12 @@ function ArtifactBody({
   preview,
   url,
   label,
+  onPullClose,
 }: {
   preview: IssueArtifactPreview
   url: string | null
   label: string
+  onPullClose: () => void
 }) {
   const { bearer } = useServerProfile()
   if (!url) {
@@ -139,15 +324,14 @@ function ArtifactBody({
           height: '100%',
           border: 'none',
           backgroundColor: '#fff',
-          borderRadius: 8,
         },
       })
     }
     return <HtmlWebView url={url} bearer={bearer} />
   }
-  if (preview === 'markdown') return <FetchedText url={url} asMarkdown bearer={bearer} />
-  if (preview === 'text') return <FetchedText url={url} asMarkdown={false} bearer={bearer} />
-  return <FetchedText url={url} asMarkdown={false} bearer={bearer} />
+  if (preview === 'markdown')
+    return <FetchedText url={url} asMarkdown bearer={bearer} onPullClose={onPullClose} />
+  return <FetchedText url={url} asMarkdown={false} bearer={bearer} onPullClose={onPullClose} />
 }
 
 /**
@@ -234,12 +418,16 @@ function FetchedText({
   asMarkdown,
   bearer,
   note,
+  onPullClose,
 }: {
   url: string
   asMarkdown: boolean
   bearer: string | null
   /** Why this is source text rather than the rendered thing, when it is. */
   note?: string
+  /** A document scrolls, so the viewer's drag cannot own it: pulling it past
+   *  its top and letting go closes the viewer instead. */
+  onPullClose?: () => void
 }) {
   const [text, setText] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -265,7 +453,12 @@ function FetchedText({
   if (error) return <Text style={styles.note}>{error}</Text>
   if (text === null) return <Text style={styles.note}>Loading…</Text>
   return (
-    <ScrollView contentContainerStyle={styles.prose}>
+    <ScrollView
+      contentContainerStyle={styles.prose}
+      onScrollEndDrag={(event) => {
+        if (onPullClose && event.nativeEvent.contentOffset.y < -PULL_CLOSE) onPullClose()
+      }}
+    >
       {note ? <Text style={styles.clip}>{note}</Text> : null}
       {asMarkdown ? (
         <RichMarkdown text={text} />
@@ -279,45 +472,56 @@ function FetchedText({
 }
 
 const styles = StyleSheet.create({
-  shell: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.94)',
-  },
+  fill: { flex: 1 },
+  // Opaque: the page under the viewer must never show through a document.
+  ground: { backgroundColor: color.bg },
+  page: { overflow: 'hidden', backgroundColor: color.bg },
   bar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
-    paddingTop: 52,
     paddingHorizontal: space.lg,
-    paddingBottom: space.md,
+    paddingBottom: space.sm,
   },
-  title: {
-    ...sans(600),
-    flex: 1,
-    color: color.text,
-    fontSize: font.small,
-  },
-  close: {
-    width: 36,
-    height: 36,
-    borderRadius: radius.full,
+  cap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: color.surfaceHigh,
+    backgroundColor: color.tertiaryFill,
   },
-  body: {
-    flex: 1,
-    paddingHorizontal: space.md,
-    paddingBottom: space.xl,
+  capSpace: { width: 44, height: 44 },
+  heading: { flex: 1, minWidth: 0, alignItems: 'center' },
+  title: {
+    ...sans(600),
+    color: color.text,
+    fontSize: 16,
+    lineHeight: 20,
   },
+  position: {
+    ...mono(400),
+    color: color.textDim,
+    fontSize: 12,
+    lineHeight: 16,
+    fontVariant: ['tabular-nums'],
+  },
+  slide: { flex: 1 },
+  dots: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 7,
+    paddingTop: space.md,
+  },
+  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: color.textFaint },
+  dotOn: { backgroundColor: color.text },
   media: {
     width: '100%',
     height: '100%',
   },
-  /** Same shape the web iframe draws: white page, rounded, clipped. */
+  /** Same page the web iframe draws: white, full bleed under the bar. */
   webFrame: {
     flex: 1,
-    borderRadius: 8,
     overflow: 'hidden',
     backgroundColor: '#fff',
   },
@@ -326,6 +530,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   prose: {
+    paddingHorizontal: space.lg,
     paddingBottom: space.xxl,
   },
   /** A caveat about the preview itself — app chrome, never markup injected

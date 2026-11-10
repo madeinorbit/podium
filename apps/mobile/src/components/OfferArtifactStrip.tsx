@@ -6,9 +6,15 @@ import { authenticatedImageSource } from '../client/authenticated-assets'
 import { useHttpOrigin } from '../client/hooks'
 // Read the profile without importing the gate's boot graph.
 import { useServerProfile } from '../client/server-profile-context'
-import { OFFER_STRIP_MAX, type OfferArtifactRow, offerArtifactRows } from '../lib/offer-artifacts'
+import { issueArtifactHref } from '../lib/issue-artifacts'
+import {
+  OFFER_STRIP_MAX,
+  type OfferArtifactRow,
+  offerArtifactRows,
+  resolveOfferArtifacts,
+} from '../lib/offer-artifacts'
 import { color, monoLabel, radius, sans, space } from '../theme/theme'
-import { ArtifactViewer } from './ArtifactViewer'
+import { ArtifactViewer, type ArtifactViewerItem } from './ArtifactViewer'
 import { Icon } from './Icon'
 import { FileText, Globe, Image as ImageGlyph, Play } from './icons'
 import { PressableScale } from './PressableScale'
@@ -38,7 +44,7 @@ export function OfferArtifactStrip({
   const httpOrigin = useHttpOrigin()
   const { bearer, config } = useServerProfile()
   const workspace = config?.workspaceId ?? config?.workspaceSlug
-  const [open, setOpen] = useState<OfferArtifactRow | null>(null)
+  const [open, setOpen] = useState<string | null>(null)
   const [broken, setBroken] = useState<readonly string[]>([])
   const [width, setWidth] = useState(0)
   const compact = width <= 520
@@ -61,6 +67,18 @@ export function OfferArtifactStrip({
     ...(lastInputAt ? { lastInputAt } : {}),
   })
   if (rows.length === 0 && extra === 0) return null
+  // The viewer pages through every offered artifact this phone can reach, in
+  // the strip's order, including the ones folded into +N.
+  const viewerItems: ArtifactViewerItem[] = issue
+    ? resolveOfferArtifacts({ offer, issue, ...(lastInputAt ? { lastInputAt } : {}) })
+        .map((artifact) => ({
+          key: `${artifact.path}@${artifact.addedAt}`,
+          artifact,
+          url: issueArtifactHref(issue, artifact, httpOrigin, workspace),
+        }))
+        .filter((item) => item.url !== null)
+    : []
+  const openIndex = open ? viewerItems.findIndex((item) => item.key === open) : -1
 
   return (
     <>
@@ -87,7 +105,7 @@ export function OfferArtifactStrip({
                 url
                   ? (event) => {
                       event.stopPropagation()
-                      setOpen(row)
+                      setOpen(row.key)
                     }
                   : undefined
               }
@@ -147,8 +165,8 @@ export function OfferArtifactStrip({
           </PressableScale>
         ) : null}
       </View>
-      {open ? (
-        <ArtifactViewer artifact={open.artifact} url={open.url} onClose={() => setOpen(null)} />
+      {openIndex >= 0 ? (
+        <ArtifactViewer items={viewerItems} index={openIndex} onClose={() => setOpen(null)} />
       ) : null}
     </>
   )

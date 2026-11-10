@@ -29,12 +29,14 @@ vi.mock('./ArtifactViewer', async () => {
   const { Text } = await import('react-native')
   return {
     ArtifactViewer: ({
-      artifact,
-      url,
+      items,
+      index,
     }: {
-      artifact: IssuePanelArtifact | null
-      url: string | null
-    }) => <Text testID="viewer">{`${artifact?.path ?? 'none'} ${url ?? 'no-url'}`}</Text>,
+      items: { artifact: IssuePanelArtifact; url: string | null }[]
+      index: number
+    }) => (
+      <Text testID="viewer">{`${items[index]?.artifact.path ?? 'none'} ${items[index]?.url ?? 'no-url'} ${index + 1}/${items.length}`}</Text>
+    ),
   }
 })
 
@@ -84,6 +86,8 @@ describe('OfferArtifactStrip', () => {
     fireEvent.click(screen.getByLabelText('Open notes.md'))
     expect(screen.getByTestId('viewer').textContent).toContain('notes.md')
     expect(screen.getByTestId('viewer').textContent).toContain('/files/asset?')
+    // It opens on the tapped artifact, inside the whole offered list.
+    expect(screen.getByTestId('viewer').textContent).toContain('2/2')
     expect(onShowAll).not.toHaveBeenCalled()
   })
 
