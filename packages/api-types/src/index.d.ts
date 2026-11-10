@@ -1432,6 +1432,8 @@ type TunnelHealth = TunnelHealthReport & {
     reportedAt: number;
 };
 
+type NetworkOption = 'tailscale-funnel' | 'tailscale-serve' | 'cloudflare-tunnel' | 'manual';
+
 type CloudRuntimeKind = 'cloud-machine' | 'cloud-agent';
 type CloudRuntimeState = 'provisioning' | 'running' | 'stopped' | 'failed';
 interface CloudProviderCapabilities {
@@ -1643,8 +1645,6 @@ interface ForWorktreeOutput {
     /** True when this call asked for the shell; false when it attached to an existing one. */
     readonly created: boolean;
 }
-
-type NetworkOption = 'tailscale-funnel' | 'tailscale-serve' | 'cloudflare-tunnel' | 'manual';
 
 /** What `mail.send` answers with, narrowed to the keys the chat paths return.
  *  Exported because it is the INFERRED return type of two tRPC procedures — an
@@ -2788,6 +2788,7 @@ type Output_auth_status = {
     hasOwnCredential: boolean;
     loginPolicySource: SettingSource;
     loginRequired: boolean;
+    loginRequiredReason: "hosted" | "several-members" | null;
 };
 type Output_automations_create = {
     agentKind: string;
