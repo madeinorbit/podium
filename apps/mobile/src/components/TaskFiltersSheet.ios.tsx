@@ -78,14 +78,15 @@ export function TaskFiltersSheet(props: TaskFiltersSheetProps) {
       >
         <Group
           modifiers={[
-            presentationDetents(['medium', 'large']),
+            // The board's sheet stands about two thirds of the screen at rest.
+            presentationDetents([{ fraction: 0.65 }, 'large']),
             presentationDragIndicator('visible'),
           ]}
         >
           <NavigationStack>
             <Toolbar
               modifiers={[
-                navigationTitle('Filter and Display'),
+                navigationTitle('Filter and display'),
                 navigationBarTitleDisplayMode('inline'),
               ]}
             >
@@ -93,9 +94,9 @@ export function TaskFiltersSheet(props: TaskFiltersSheetProps) {
                 <Section>{FILTER_FACETS.map(picker)}</Section>
                 <Section>
                   {DISPLAY_FACETS.map(picker)}
-                  <Toggle label="Show Done" isOn={showDone} onIsOnChange={onShowDone} />
+                  <Toggle label="Show done" isOn={showDone} onIsOnChange={onShowDone} />
                   <Toggle
-                    label="Show Agent Tasks"
+                    label="Show agent tasks"
                     isOn={showAgentTasks}
                     onIsOnChange={onShowAgentTasks}
                   />

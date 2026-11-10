@@ -22,17 +22,23 @@ import {
   accessibilityLabel,
   accessibilityValue,
   alignmentGuide,
+  background,
   buttonStyle,
   contentShape,
   font,
   foregroundStyle,
   frame,
   lineLimit,
+  listRowBackground,
   listRowInsets,
+  listRowSeparator,
+  listRowSeparatorTint,
+  listSectionSpacing,
   listStyle,
   monospacedDigit,
   pickerStyle,
   refreshable,
+  scrollContentBackground,
   shapes,
   tag,
   tint,
@@ -46,9 +52,8 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { issueStatusMenuEntries, issueStatusValueOf } from '@podium/model'
 import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
-import { Stack } from 'expo-router'
 import { observer } from 'mobx-react-lite'
-import { useCallback } from 'react'
+import { Fragment, useCallback } from 'react'
 import { StyleSheet, View } from 'react-native'
 import { useMobilePool } from '../client/mobile-pool'
 import { Filter, Plus } from '../components/icons'
@@ -67,10 +72,27 @@ import {
   tasksSubtitle,
 } from './TasksSurface.types'
 import { useStageFolds } from './tasks-folds'
+import { workPaper as paper } from './work-paper'
 
 /** Leading edge of a row's title: 12 inset + 14 mark + 8 gap, the board's axis. */
 const ROW_AXIS = 34
-const rowInsets = listRowInsets({ leading: 12, trailing: 12, top: 0, bottom: 0 })
+const CARD_INSET = 12
+/** Card rows on Work's grouped paper: the same ground, card and separator. */
+const cardRow = [
+  listRowBackground(paper.card),
+  listRowSeparatorTint(paper.separator),
+  listRowInsets({ leading: CARD_INSET, trailing: CARD_INSET, top: 0, bottom: 0 }),
+]
+/** Rows that sit on the ground rather than in a card (headers, notes). */
+const quietRow = [
+  listRowBackground(paper.ground),
+  listRowSeparator('hidden'),
+  listRowInsets({ leading: 0, trailing: 0, top: 4, bottom: 4 }),
+]
+const noteRow = [
+  ...quietRow,
+  listRowInsets({ leading: CARD_INSET, trailing: CARD_INSET, top: 8, bottom: 8 }),
+]
 
 const MARK_SYMBOL: Record<TaskRowMark, string> = {
   needs: 'circle.fill',
@@ -132,13 +154,10 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
         { label: 'New task', icon: Plus, onPress: props.onNewTask },
       ]}
     >
-      <Stack.SearchBar
-        placeholder="Search tasks or ID"
-        hideWhenScrolling
-        autoCapitalize="none"
-        onChangeText={(event) => board?.search(event.nativeEvent.text)}
-        onCancelButtonPress={() => board?.search('')}
-      />
+      {/* No inline search field (the board has none): a SwiftUI List is not a
+          scroll view UIKit's navigation bar can track, so a bar search field
+          would sit open under the title instead of hiding until pulled down.
+          Search runs from the system search tab, as on Work. */}
       {/* React Native notices cannot sit inside a SwiftUI List. */}
       <View>
         <StorageNoticeAlert />
@@ -148,17 +167,20 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
         <List
           modifiers={[
             listStyle('insetGrouped'),
+            listSectionSpacing(0),
+            scrollContentBackground('hidden'),
+            background(paper.ground),
             refreshable(onRefresh),
             accessibilityIdentifier('tasks-list'),
           ]}
         >
           {filtered ? (
-            <Section title="Filters">
+            <Section>
               {props.chips.map((chip) => (
                 <Button
                   key={chip.key}
                   onPress={() => props.onRemoveFilter(chip.key)}
-                  modifiers={[accessibilityHint('Removes this filter.')]}
+                  modifiers={[...cardRow, accessibilityHint('Removes this filter.')]}
                 >
                   <HStack spacing={8}>
                     <Text modifiers={[foregroundStyle({ type: 'hierarchical', style: 'primary' })]}>
@@ -177,14 +199,15 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
               ))}
             </Section>
           ) : null}
-          {pending ? <ProgressView /> : null}
+          {pending ? <ProgressView modifiers={quietRow} /> : null}
           {ordered.map((section) => {
             const [folded, toggle] = folds[section.stage]
             const proposed = section.stage === 'proposed'
             return (
-              <Section
-                key={section.stage}
-                header={
+              <Fragment key={section.stage}>
+                {/* The header is its own quiet row (SwiftUI uppercases grouped
+                    headers and pads them), on the board's 28pt rhythm. */}
+                <Section>
                   <GroupHeader
                     title={section.title}
                     count={section.total}
@@ -192,18 +215,19 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
                     onToggle={toggle}
                     {...(proposed && screenable ? { onScreen: props.onScreenProposals } : {})}
                   />
-                }
-              >
-                {folded || !board
-                  ? null
-                  : section.rows.map((row) => (
+                </Section>
+                {folded || !board || section.rows.length === 0 ? null : (
+                  <Section>
+                    {section.rows.map((row) => (
                       <TaskRow key={row.id} row={row} board={board} props={props} />
                     ))}
-              </Section>
+                  </Section>
+                )}
+              </Fragment>
             )
           })}
           {!pending && ordered.length === 0 ? (
-            <VStack alignment="leading" spacing={4}>
+            <VStack alignment="leading" spacing={4} modifiers={noteRow}>
               <Text modifiers={[font({ textStyle: 'headline' })]}>
                 {board?.query.trim() || filtered ? 'No matching tasks' : 'No tasks'}
               </Text>
@@ -243,11 +267,18 @@ function GroupHeader({
   onScreen?: () => void
 }) {
   return (
-    <HStack spacing={8} modifiers={[frame({ minHeight: 28, maxWidth: Infinity })]}>
+    <HStack
+      spacing={8}
+      modifiers={[
+        ...quietRow,
+        listRowInsets({ leading: CARD_INSET, trailing: CARD_INSET, top: 16, bottom: 4 }),
+        frame({ minHeight: 28, maxWidth: Infinity }),
+      ]}
+    >
       <Button
         onPress={onToggle}
         modifiers={[
-          buttonStyle('plain'),
+          buttonStyle('borderless'),
           accessibilityLabel(title),
           accessibilityValue(`${folded ? 'Collapsed' : 'Expanded'}, ${count} tasks`),
           accessibilityHint(folded ? 'Shows this group.' : 'Folds this group away.'),
@@ -257,7 +288,7 @@ function GroupHeader({
         <HStack
           spacing={8}
           modifiers={[
-            frame({ minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
+            frame({ minHeight: 28, maxWidth: Infinity, alignment: 'leading' }),
             contentShape(shapes.rectangle()),
           ]}
         >
@@ -265,7 +296,7 @@ function GroupHeader({
             systemName={folded ? 'chevron.right' : 'chevron.down'}
             modifiers={[
               font({ textStyle: 'caption2', weight: 'semibold' }),
-              foregroundStyle({ type: 'hierarchical', style: 'tertiary' }),
+              foregroundStyle(paper.tertiary),
               frame({ width: 14 }),
               accessibilityHidden(),
             ]}
@@ -273,15 +304,16 @@ function GroupHeader({
           <Text
             modifiers={[
               font({ textStyle: 'footnote', weight: 'semibold' }),
-              foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
+              foregroundStyle(paper.secondary),
+              lineLimit(1),
             ]}
           >
             {title}
           </Text>
           <Text
             modifiers={[
-              font({ textStyle: 'caption' }),
-              foregroundStyle({ type: 'hierarchical', style: 'tertiary' }),
+              font({ textStyle: 'caption', design: 'monospaced' }),
+              foregroundStyle(paper.tertiary),
               monospacedDigit(),
             ]}
           >
@@ -345,7 +377,7 @@ const TaskRow = observer(function TaskRow({
 
   return (
     <SwipeActions
-      modifiers={[rowInsets, alignmentGuide('listRowSeparatorLeading', ROW_AXIS + row.depth * 16)]}
+      modifiers={[...cardRow, alignmentGuide('listRowSeparatorLeading', ROW_AXIS + row.depth * 16)]}
     >
       <ContextMenu>
         <ContextMenu.Trigger>

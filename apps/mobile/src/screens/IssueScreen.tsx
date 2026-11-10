@@ -1,9 +1,7 @@
-import { withoutShells } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { issueRepoName, resolveIssueEdge } from '@podium/client-core/values'
+import { issueRepoName } from '@podium/client-core/values'
 import { issueActivity } from '@podium/client-graph/issue-activity'
-import type { PageIssue } from '@podium/client-graph/issue-page'
 import {
   type IssueCloseReason,
   type IssueId,
@@ -16,7 +14,7 @@ import {
 import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { ScrollView, StyleSheet, View } from 'react-native'
 import { useConnected, useStoreActions, useTrpc } from '../client/hooks'
 import { issueObserver as observer } from '../client/issue-observer'
@@ -29,14 +27,10 @@ import {
   useIssueModel,
   useIssueTargets,
 } from '../client/use-issue-model'
-import {
-  useSessionContextBooting as useBooting,
-  useSessionContextIssue as useIssue,
-} from '../client/use-session-context'
+import { useSessionContextBooting as useBooting } from '../client/use-session-context'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
 import { Icon } from '../components/Icon'
-import { IdSquare } from '../components/IdSquare'
 import { IssueCloseSheet } from '../components/IssueCloseSheet'
 import { IssueQuestionCard } from '../components/IssueQuestionCard'
 import { IssueTargetSheet } from '../components/IssueTargetSheet'
@@ -46,7 +40,6 @@ import { HeaderButton, Screen } from '../components/Screen'
 import { PriorityGlyph, StageGlyph } from '../components/StageGlyph'
 import { ErrorNote } from '../components/task-detail/chrome'
 import { GitReviewSection } from '../components/task-detail/GitReviewSection'
-import { IssueActivitySection, MailSection } from '../components/task-detail/IssueActivity'
 import { IssueAge } from '../components/task-detail/IssueAge'
 import { IssueAgentPanel } from '../components/task-detail/IssueAgentPanel'
 import { IssueBanners } from '../components/task-detail/IssueBanners'
@@ -78,7 +71,6 @@ import { TASK_DETAILS_FOLD_KEY } from '../lib/fold-keys'
 import { issueCommands, type RunMutation } from '../lib/issue-detail'
 import { sessionHref } from '../lib/session-route'
 import { DELETE_TASK_TITLE, deleteTaskSubtitle } from '../lib/task-delete'
-import { useIssueActivity } from '../lib/use-issue-detail'
 import { color, space } from '../theme/theme'
 
 /**
@@ -199,7 +191,7 @@ type OpenSheet =
  *  deliberately absent: parentage has its own row and supersede/duplicate are
  *  lifecycle acts on the overflow menu, so offering them here would let the same
  *  fact be stated two ways. */
-const EMPTY_ISSUES: IssueViewModel[] = []
+const _EMPTY_ISSUES: IssueViewModel[] = []
 const EMPTY_SESSIONS: SessionView[] = []
 const EMPTY_TARGET_IDS: string[] = []
 
@@ -291,7 +283,16 @@ const IssueContent = observer(function IssueContent({
   // leads the page; a task with none open falls back to its roster.
   const active = detail?.activeSessions ?? EMPTY_SESSIONS
   if (typeof active === 'symbol') throw active
-  const seats = active.length > 0 ? active : agents
+  // Archived seats leave the open lists; the shared member roster keeps them,
+  // so a finished task still shows (and opens) the session that did it.
+  const members = detail?.memberSessions ?? EMPTY_SESSIONS
+  if (typeof members === 'symbol') throw members
+  const seats =
+    active.length > 0
+      ? active
+      : agents.length > 0
+        ? agents
+        : members.filter((session) => session.agentKind !== 'shell')
   const lead = seats[0]
 
   /**
@@ -306,7 +307,7 @@ const IssueContent = observer(function IssueContent({
    */
   const closeIf = (kind: NonNullable<OpenSheet>['kind']) => () =>
     setSheet((cur) => (cur?.kind === kind ? null : cur))
-  const resolveEdge = (id: string | undefined | null) => resolveEdgeFromPool(pool, id)
+  const _resolveEdge = (id: string | undefined | null) => resolveEdgeFromPool(pool, id)
 
   const repoName = issueRepoName(issue)
   const breadcrumb = parent
@@ -324,21 +325,6 @@ const IssueContent = observer(function IssueContent({
       onBack={onBack}
       backAs={dismiss ? 'text' : 'chevron'}
       backLabel={dismiss ? 'Done' : undefined}
-      leading={
-        <IdSquare
-          issue={issue}
-          size={22}
-          state={
-            isFinished(issue)
-              ? 'done'
-              : issue.needsHuman
-                ? 'waiting'
-                : agents.length > 0
-                  ? 'working'
-                  : 'queued'
-          }
-        />
-      }
       right={
         <HeaderButton label="More actions" onPress={() => setSheet({ kind: 'menu' })}>
           <Icon as={MoreHorizontal} size={17} color={color.text} />

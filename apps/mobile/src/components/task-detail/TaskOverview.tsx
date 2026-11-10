@@ -146,6 +146,13 @@ export const TaskSummary = observer(function TaskSummary({
             !(notes || headline) && styles.buttonsAlone,
           ]}
         >
+          {/* Alone in the card (no session, nothing said): a quiet line names
+              the act beside the same compact button, as on the board. */}
+          {notes || headline ? null : (
+            <Text style={styles.aloneText} numberOfLines={1}>
+              No session yet. Comment or @mention an agent.
+            </Text>
+          )}
           {offer?.actions.map((action, index) => (
             <PressableScale
               // Offer actions carry no id, and the list is fixed per offer.
@@ -179,15 +186,11 @@ export const TaskSummary = observer(function TaskSummary({
               hitSlop={6}
               style={({ pressed }) => [
                 styles.button,
-                notes || headline ? styles.buttonSquare : styles.buttonGrow,
+                styles.buttonSquare,
                 pressed && styles.buttonPressed,
               ]}
             >
               <Icon as={MessagesSquare} size={16} color={color.text} />
-              {/* Alone in the card (no session, nothing said): name the act. */}
-              {notes || headline ? null : (
-                <Text style={styles.buttonText}>Comment on this task</Text>
-              )}
             </PressableScale>
           }
         </View>
@@ -318,31 +321,29 @@ const Thumbnail = observer(function Thumbnail({
   const label = issueArtifactLabel(artifact)
   const image = url !== null && !broken && kind === 'image'
   return (
-    <>
-      <PressableScale
-        accessibilityRole={url ? 'button' : undefined}
-        accessibilityLabel={url ? `Open ${label}` : label}
-        disabled={!url}
-        onPress={onOpen}
-        style={({ pressed }) => [styles.thumb, pressed && styles.buttonPressed]}
-      >
-        {image ? (
-          <Image
-            source={authenticatedImageSource(url, bearer)}
-            style={styles.thumbImage}
-            resizeMode="cover"
-            onError={() => setBroken(true)}
-          />
-        ) : (
-          <View style={styles.thumbFile}>
-            <Icon as={kind === 'video' ? Play : FileText} size={16} color={color.textDim} />
-            <Text style={styles.thumbLabel} numberOfLines={3}>
-              {label}
-            </Text>
-          </View>
-        )}
-      </PressableScale>
-    </>
+    <PressableScale
+      accessibilityRole={url ? 'button' : undefined}
+      accessibilityLabel={url ? `Open ${label}` : label}
+      disabled={!url}
+      onPress={onOpen}
+      style={({ pressed }) => [styles.thumb, pressed && styles.buttonPressed]}
+    >
+      {image ? (
+        <Image
+          source={authenticatedImageSource(url, bearer)}
+          style={styles.thumbImage}
+          resizeMode="cover"
+          onError={() => setBroken(true)}
+        />
+      ) : (
+        <View style={styles.thumbFile}>
+          <Icon as={kind === 'video' ? Play : FileText} size={16} color={color.textDim} />
+          <Text style={styles.thumbLabel} numberOfLines={3}>
+            {label}
+          </Text>
+        </View>
+      )}
+    </PressableScale>
   )
 })
 
@@ -477,7 +478,8 @@ const styles = StyleSheet.create({
     backgroundColor: color.surfacePressed,
   },
   buttonsTrailing: { justifyContent: 'flex-end' },
-  buttonsAlone: { paddingTop: space.md },
+  buttonsAlone: { paddingTop: space.sm, paddingBottom: space.sm, alignItems: 'center' },
+  aloneText: { ...sans(400), flex: 1, color: color.textDim, fontSize: font.tiny },
   buttonGrow: { flex: 1 },
   buttonSquare: { width: 44, paddingHorizontal: 0 },
   buttonPrimary: { backgroundColor: color.accentTint },

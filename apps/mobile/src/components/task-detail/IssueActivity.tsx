@@ -105,9 +105,11 @@ export const IssueActivitySection = observer(function IssueActivitySection({
     <View testID="issue-activity">
       <GroupHeading label="Activity" />
       {entries.length === 0 && !history?.hasEarlier && !history?.error ? (
-        <Text style={styles.empty}>
-          Nothing has happened on this task yet. Comments and state changes land here.
-        </Text>
+        <View style={styles.card}>
+          <Text style={styles.emptyInCard}>
+            Nothing has happened on this task yet. Comments and state changes land here.
+          </Text>
+        </View>
       ) : (
         <View style={styles.card} testID="activity-feed">
           {entries.map((entry, index) => (
@@ -315,6 +317,13 @@ function Row({
 
 const styles = StyleSheet.create({
   card: { borderRadius: 8, overflow: 'hidden', backgroundColor: color.surface },
+  emptyInCard: {
+    ...sans(400),
+    paddingHorizontal: space.md,
+    paddingVertical: space.md,
+    color: color.textDim,
+    fontSize: font.tiny,
+  },
   row: {
     minHeight: 44,
     flexDirection: 'row',
