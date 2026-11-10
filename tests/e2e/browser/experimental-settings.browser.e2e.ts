@@ -5,7 +5,7 @@ import { gotoWorkspace, RELAY } from './_harness'
  * Runtime verification of Settings → Labs [spec:SP-f4b9] against the
  * real Live UI on the harness relay. The harness runs from source, so the
  * server is in dev mode (PODIUM_APP_VERSION unset ⇒ 'dev'): the edge-visible
- * `shipping` flag must be listed, toggleable, and persist through Save +
+ * `shipping` flag must be listed, toggleable, and persist immediately through
  * reload via settings.experimental.
  */
 test.skip(({ isMobile }) => isMobile, 'desktop test (settings nav is desktop-oriented)')
@@ -14,7 +14,7 @@ test.skip(({ isMobile }) => isMobile, 'desktop test (settings nav is desktop-ori
 // first app boot then takes well over the 30s default test timeout.
 test.setTimeout(300_000)
 
-async function openExperimental(page: Page): Promise<void> {
+async function openLabs(page: Page): Promise<void> {
   // Load the shell at the root and wait for it to be READY (the <aside> work
   // list, like the other desktop specs — the .app-loading check passes on the
   // blank pre-React document). Then deep-link client-side: the harness's
@@ -24,10 +24,10 @@ async function openExperimental(page: Page): Promise<void> {
   await page.goto(`/?server=${RELAY}&e2e=1`)
   await page.locator('aside').first().waitFor({ state: 'visible', timeout: 120_000 })
   await page.evaluate(() => {
-    history.pushState(null, '', `/settings/experimental${location.search}`)
+    history.pushState(null, '', `/settings/labs${location.search}`)
     dispatchEvent(new PopStateEvent('popstate'))
   })
-  await expect(page.getByRole('heading', { name: 'Experimental' })).toBeVisible({
+  await expect(page.getByRole('heading', { name: 'Labs' })).toBeVisible({
     timeout: 30_000,
   })
 }
@@ -37,22 +37,11 @@ function flagRow(page: Page, name: string): Locator {
   return page.locator('.settings-row').filter({ hasText: name })
 }
 
-async function saveSettings(page: Page): Promise<void> {
-  const updateDialog = page.getByRole('dialog', { name: 'Podium update' })
-  if (await updateDialog.isVisible().catch(() => false)) {
-    await updateDialog.getByRole('button', { name: 'Later' }).click()
-  }
-  const save = page.getByRole('button', { name: /^Save changes$/ })
-  await save.click()
-  await expect(page.getByText('Saved ✓')).toBeVisible({ timeout: 15_000 })
-  await expect(save).toBeHidden({ timeout: 15_000 })
-}
-
 async function setShippingEnabled(page: Page, enabled: boolean): Promise<void> {
   const flagSwitch = flagRow(page, 'Shipping').getByRole('switch').first()
   if ((await flagSwitch.getAttribute('aria-checked')) !== String(enabled)) {
     await flagSwitch.click()
-    await saveSettings(page)
+    await expect(page.getByText('Saved', { exact: true })).toBeVisible()
   }
 }
 
@@ -72,28 +61,28 @@ async function openWorkspace(page: Page): Promise<void> {
   }
 }
 
-test('experimental page persists and opens Shipping', async ({ page }) => {
+test('Labs saves Shipping on change and opens the feature', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
-  await openExperimental(page)
+  await openLabs(page)
 
   const row = flagRow(page, 'Shipping')
   await expect(row.locator('.settings-label')).toContainText('Shipping', {
     timeout: 20_000,
   })
   await expect(row.getByText('Show durable delivery progress in the right sidebar.')).toBeVisible()
-  // The hint names the update channel.
-  await expect(page.getByText(/update channel: (stable|edge)/)).toBeVisible()
 
-  // Toggle → Save → reload → flipped state survived (persisted via settings.experimental).
+  // Toggle → reload → flipped state survived (persisted via settings.experimental).
   const flagSwitch = row.getByRole('switch').first()
   await expect(flagSwitch).toBeEnabled()
   const before = await flagSwitch.getAttribute('aria-checked')
   const expected = before === 'true' ? 'false' : 'true'
   await flagSwitch.click()
   await expect(flagSwitch).toHaveAttribute('aria-checked', expected)
-  await saveSettings(page)
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Save changes$/ })).toHaveCount(0)
 
-  await openExperimental(page)
+  await openLabs(page)
   await expect(flagRow(page, 'Shipping').getByRole('switch').first()).toHaveAttribute(
     'aria-checked',
     expected,
@@ -110,7 +99,7 @@ test('experimental page persists and opens Shipping', async ({ page }) => {
 
   await expect(page.locator('[data-right-dock-panel="shipping"]')).toBeVisible()
 
-  await openExperimental(page)
+  await openLabs(page)
   await setShippingEnabled(page, before === 'true')
   if (before !== 'true') {
     await openWorkspace(page)

@@ -98,7 +98,7 @@ function backgroundWorkSection(page: Page) {
   return page
     .getByRole('dialog', { name: 'Settings' })
     .locator('section')
-    .filter({ has: page.getByRole('heading', { name: 'Background work LLM' }) })
+    .filter({ has: page.getByRole('heading', { name: 'Background model' }) })
     .first()
 }
 
@@ -122,7 +122,7 @@ function accountsSection(page: Page) {
   return page
     .getByRole('dialog', { name: 'Settings' })
     .locator('section')
-    .filter({ has: page.getByRole('heading', { name: 'Accounts & Keys' }) })
+    .filter({ has: page.getByRole('heading', { name: 'Logins on your machines' }) })
     .first()
 }
 
@@ -144,7 +144,7 @@ test('native account profile labels render when available', async ({ page }) => 
     .getByRole('button', { name: 'Settings', exact: true })
     .click({ timeout: 15_000 })
   const settings = page.getByRole('dialog', { name: 'Settings' })
-  await settings.getByRole('button', { name: 'Accounts', exact: true }).click()
+  await settings.getByRole('button', { name: 'AI accounts', exact: true }).click()
 
   const section = accountsSection(page)
   // The address renders twice: the outer pill and the inner identity span.
@@ -184,17 +184,11 @@ test('new sessions allows effort with automatic model selection', async ({ page 
     .click({ timeout: 15_000 })
   const section = newSessionsSection(page)
   await expect(section.getByRole('button', { name: 'Model' }).first()).toContainText('Auto')
-  const effort = section.getByRole('button', { name: 'Effort' })
+  const effort = section.locator('fieldset[aria-label="Effort"]')
   await expect(effort).toBeVisible()
-  await expect(section.getByText('Model for subagents')).toBeVisible()
-  await expect(
-    section.getByText(
-      'Applied when the selected harness supports a native subagent-model override.',
-    ),
-  ).toBeVisible()
-  await effort.click()
-  await page.getByRole('menuitem', { name: 'Extra high' }).click()
-  await page.getByRole('button', { name: 'Save' }).click()
+  await expect(section.getByText('Subagent model', { exact: true })).toBeVisible()
+  await expect(section.getByText('Model for the helpers Codex starts on its own.')).toBeVisible()
+  await effort.getByRole('button', { name: 'Extra high', exact: true }).click()
   await expect(page.getByText(/Saved(?:\s*✓|\.)/)).toBeVisible({ timeout: 10_000 })
 
   await expect
@@ -217,7 +211,7 @@ test('new sessions exposes and persists both Grok implementation models', async 
     .getByRole('button', { name: 'Settings', exact: true })
     .click({ timeout: 15_000 })
   const section = newSessionsSection(page)
-  // Two Model buttons now (the role picker plus "Model for subagents"); the
+  // The role model precedes the optional subagent model.
   // role picker is first, as in the effort test above.
   const model = section.getByRole('button', { name: 'Model' }).first()
   await model.click()
@@ -228,7 +222,6 @@ test('new sessions exposes and persists both Grok implementation models', async 
   })
   await expect(composer).toBeVisible()
   await composer.click()
-  await page.getByRole('button', { name: 'Save' }).click()
   await expect(page.getByText(/Saved(?:\s*✓|\.)/)).toBeVisible({ timeout: 10_000 })
 
   await expect
@@ -239,7 +232,7 @@ test('new sessions exposes and persists both Grok implementation models', async 
     })
 })
 
-test('superagent uses shared Codex model and effort dropdowns', async ({ page }) => {
+test('superagent saves model and segmented effort immediately', async ({ page }) => {
   const trpc = makeTrpc('http://localhost:8799')
   await setMyPreferences(trpc, {
     'roles.coding.accountId': nativeAccountId('grok'),
@@ -256,7 +249,7 @@ test('superagent uses shared Codex model and effort dropdowns', async ({ page })
     .click({ timeout: 15_000 })
   const settings = page.getByRole('dialog', { name: 'Settings' })
   await expect(settings).toBeVisible({ timeout: 10_000 })
-  await settings.getByRole('button', { name: 'Superagent' }).click()
+  await expect(settings.getByRole('heading', { name: 'Superagent', exact: true })).toBeVisible()
 
   const section = superagentSection(page)
   const model = section.getByRole('button', { name: 'Model' })
@@ -264,10 +257,8 @@ test('superagent uses shared Codex model and effort dropdowns', async ({ page })
   await model.click()
   await page.getByRole('menuitem', { name: 'GPT-5.4', exact: true }).click()
 
-  const effort = section.getByRole('button', { name: 'Effort' })
-  await effort.click()
-  await page.getByRole('menuitem', { name: 'Extra high' }).click()
-  await page.getByRole('button', { name: 'Save' }).click()
+  const effort = section.locator('fieldset[aria-label="Effort"]')
+  await effort.getByRole('button', { name: 'Extra high', exact: true }).click()
   await expect(page.getByText(/Saved(?:\s*✓|\.)/)).toBeVisible({ timeout: 10_000 })
 
   // The record holds the leaves I chose; `harness` resolves from the account.
@@ -291,7 +282,9 @@ test('background LLM only offers executable API accounts', async ({ page }) => {
     .click({ timeout: 15_000 })
   const settings = page.getByRole('dialog', { name: 'Settings' })
   await expect(settings).toBeVisible({ timeout: 10_000 })
-  await settings.getByRole('button', { name: 'Background LLM' }).click()
+  await expect(
+    settings.getByRole('heading', { name: 'Background model', exact: true }),
+  ).toBeVisible()
 
   const section = backgroundWorkSection(page)
   const account = section.getByRole('combobox').first()
@@ -303,9 +296,9 @@ test('background LLM only offers executable API accounts', async ({ page }) => {
   // descriptor one (the POD-4730 long-identity fixture does so deterministically),
   // so assert at least one Codex option rather than exactly one.
   await expect(page.getByRole('option', { name: /^Codex/ }).first()).toBeVisible()
-  await expect(page.getByRole('option', { name: /Anthropic API/ })).toBeVisible()
-  await expect(page.getByRole('option', { name: /OpenAI API/ })).toBeVisible()
-  await expect(page.getByRole('option', { name: /OpenRouter API/ })).toBeVisible()
+  await expect(page.getByRole('option', { name: /^Anthropic/ })).toBeVisible()
+  await expect(page.getByRole('option', { name: /^OpenAI/ })).toBeVisible()
+  await expect(page.getByRole('option', { name: /^OpenRouter/ })).toBeVisible()
   await expect(page.getByRole('option', { name: /Claude Code/ })).toHaveCount(0)
   await expect(page.getByRole('option', { name: /^Grok/ })).toHaveCount(0)
 })
@@ -321,17 +314,16 @@ test('idle-session convergence target round-trips and renders', async ({ page })
   await openShell(page)
   await page.getByRole('banner').getByRole('button', { name: 'Settings', exact: true }).click()
   const settings = page.getByRole('dialog', { name: 'Settings' })
-  await settings.getByRole('button', { name: 'Hibernation', exact: true }).click()
-  const input = settings.getByRole('spinbutton', { name: 'Maximum idle sessions' })
+  await settings.getByRole('button', { name: 'Machines', exact: true }).click()
+  const input = settings.getByRole('spinbutton', { name: 'Keep at most' })
   await expect(input).toHaveValue('')
   await expect(
-    settings.getByText(/convergence target for eligible idle live sessions/),
+    settings.getByText(/Idle sessions per machine before the oldest are paused/),
   ).toBeVisible()
   await input.fill('12')
-  await settings.getByRole('button', { name: 'Save' }).click()
+  await input.press('Enter')
   await expect(page.getByText(/Saved(?:\s*✓|\.)/)).toBeVisible()
   await expect
     .poll(async () => (await instancePreferences(trpc))['hibernation.maxIdleSessions'])
     .toBe(12)
-  await settings.screenshot({ path: '/tmp/POD-957-idle-cap-settings.png' })
 })
