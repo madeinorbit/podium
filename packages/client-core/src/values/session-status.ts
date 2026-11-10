@@ -530,6 +530,20 @@ export function formatClock(ms: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
+const HOUR_MS = 3_600_000
+/** Days take over once hours stop reading at a glance; 29h 58m stays in hours. */
+const COMPACT_DAYS_FROM_MS = 48 * HOUR_MS
+
+/** A long-running timer in a narrow column: {@link formatClock} under an hour,
+ *  then `29h 58m`, then `3d 4h` from two days. */
+export function formatCompactDuration(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  if (s * 1000 < HOUR_MS) return formatClock(ms)
+  const hours = Math.floor(s / 3600)
+  if (s * 1000 < COMPACT_DAYS_FROM_MS) return `${hours}h ${Math.floor((s % 3600) / 60)}m`
+  return `${Math.floor(hours / 24)}d ${hours % 24}h`
+}
+
 // ---------------------------------------------------------------------------
 // Per-session labels and lifecycle facts.
 // ---------------------------------------------------------------------------

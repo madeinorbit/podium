@@ -1,4 +1,5 @@
 import { relativeTime } from '@podium/client-core/focus'
+import { formatCompactDuration } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { mapQueryResult } from '@podium/client-graph/query-result'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
@@ -20,29 +21,12 @@ function landedStatus(issue: object): string | null {
   return landing ? ['landed', landing.branch, landing.sha].filter(Boolean).join(' · ') : null
 }
 
-const HOUR_MS = 3_600_000
-/** Days take over once hours stop reading at a glance; 29h 58m stays in hours. */
-const DAYS_FROM_MS = 48 * HOUR_MS
-
-/** A running timer as a phone row reads it: `4:07` under an hour, then
- * `29h 58m`, then `3d 4h`. Display only; the start time is unchanged. */
-export function formatWorkTimer(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000))
-  if (total * 1000 < HOUR_MS) {
-    const seconds = total % 60
-    return `${Math.floor(total / 60)}:${seconds < 10 ? '0' : ''}${seconds}`
-  }
-  const hours = Math.floor(total / 3600)
-  if (total * 1000 < DAYS_FROM_MS) return `${hours}h ${Math.floor((total % 3600) / 60)}m`
-  return `${Math.floor(hours / 24)}d ${hours % 24}h`
-}
-
 export function mobileRowStamp(timing: SidebarTiming, now: number): string | null {
   if (timing.phase === 'done')
-    return timing.totalMs !== undefined ? `∑ ${formatWorkTimer(timing.totalMs)}` : null
+    return timing.totalMs !== undefined ? `∑ ${formatCompactDuration(timing.totalMs)}` : null
   if (!Number.isFinite(timing.sinceMs) || timing.sinceMs <= 0) return null
   if (timing.phase === 'working')
-    return formatWorkTimer(Math.max(0, now - timing.sinceMs) + (timing.baseMs ?? 0))
+    return formatCompactDuration(Math.max(0, now - timing.sinceMs) + (timing.baseMs ?? 0))
   if (timing.phase === 'waiting') return relativeTime(new Date(timing.sinceMs).toISOString(), now)
   return null
 }

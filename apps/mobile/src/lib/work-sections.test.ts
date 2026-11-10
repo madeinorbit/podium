@@ -14,7 +14,6 @@ const source = (section: MobileWorkSection): WorkSection => ({
 })
 
 import {
-  formatWorkTimer,
   MobileNativeSections,
   MobileSearchSections,
   type MobileWorkSection,
@@ -462,28 +461,12 @@ describe('MobileSearchSections', () => {
   })
 })
 
-describe('formatWorkTimer', () => {
-  const m = 60_000
-  const h = 60 * m
-  it('reads m:ss under an hour', () => {
-    expect(formatWorkTimer(0)).toBe('0:00')
-    expect(formatWorkTimer(3 * m + 14_000)).toBe('3:14')
-    expect(formatWorkTimer(h - 1000)).toBe('59:59')
-  })
-  it('reads hours and minutes up to two days', () => {
-    expect(formatWorkTimer(h)).toBe('1h 0m')
-    expect(formatWorkTimer(29 * h + 58 * m + 41_000)).toBe('29h 58m')
-    expect(formatWorkTimer(48 * h - 1000)).toBe('47h 59m')
-  })
-  it('reads days and hours from two days', () => {
-    expect(formatWorkTimer(48 * h)).toBe('2d 0h')
-    expect(formatWorkTimer(1798 * h)).toBe('74d 22h')
-  })
-  it('never goes negative', () => expect(formatWorkTimer(-5000)).toBe('0:00'))
+describe('mobileRowStamp', () => {
   it('formats the working row stamp, not 1798:41', () => {
     const now = 1_800_000_000_000
+    const h = 3_600_000
     expect(
-      mobileRowStamp({ phase: 'working', sinceMs: now - (29 * h + 58 * m) } as never, now),
+      mobileRowStamp({ phase: 'working', sinceMs: now - (29 * h + 58 * 60_000) } as never, now),
     ).toBe('29h 58m')
   })
 })
