@@ -66,6 +66,7 @@ import {
 import type { RegistryModules } from '../../relay'
 import type { EffectRow } from '../../store/effects'
 import type { UsersRepository } from '../../store/users'
+import { publishedInputOf } from '../effects/published-input'
 import type { EffectExecutor, EffectOutcome } from '../effects/registry'
 import { NO_TARGET } from '../sync-write/registry'
 import { refusalAsTrpcError } from '../sync-write/route-adapter'
@@ -357,19 +358,7 @@ export function registerSessionLaunchEffect(deps: SessionLaunchEffectDeps): {
         ),
       }
     },
-    publish: (input) => ({
-      ...(input.agentKind !== undefined ? { agentKind: input.agentKind } : {}),
-      cwd: input.cwd,
-      ...(input.machineId !== undefined ? { machineId: input.machineId } : {}),
-      ...(input.issueId !== undefined ? { issueId: input.issueId } : {}),
-      ...(input.title !== undefined ? { title: input.title } : {}),
-      ...(input.model !== undefined ? { model: input.model } : {}),
-      ...(input.effort !== undefined ? { effort: input.effort } : {}),
-      ...(input.wake !== undefined ? { wake: input.wake } : {}),
-      // Where its draft task goes (POD-6408): a device that reloads while the
-      // launch waits paints the task's placeholder from this. Not a secret.
-      ...(input.draftIssue !== undefined ? { draftIssue: input.draftIssue } : {}),
-    }),
+    publish: publishedInputOf(SESSION_LAUNCH_KIND),
     ready: (_record, input) => reachable(input.machineId),
     run: async (ctx) => await run(ctx.record, ctx.input),
     recover: async (ctx) =>

@@ -55,6 +55,9 @@ export class SyncWorkerClient {
   constructor(
     private readonly options: {
       dbPath: string
+      /** The effect kinds the server serves, read at each spawn: the worker
+       *  builds effect records and holds no executor (POD-6770). */
+      effectKinds?: () => readonly string[]
       monitorMs?: number
       wedgedMs?: number
       onMetrics?: (metrics: BootstrapMetrics) => void
@@ -87,7 +90,7 @@ export class SyncWorkerClient {
         : new URL('./sync-worker.ts', import.meta.url)
       // Bun 1.4 follows Node's Worker contract: file URLs are URL objects.
       const worker = new Worker(typeof target === 'string' && target.startsWith('file://') ? new URL(target) : target,
-        { workerData: { dbPath: this.options.dbPath } })
+        { workerData: { dbPath: this.options.dbPath, effectKinds: [...(this.options.effectKinds?.() ?? [])] } })
       this.worker = worker
       worker.on('message', (message: FromWorker) => {
         if (worker !== this.worker) return

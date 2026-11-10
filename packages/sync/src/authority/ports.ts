@@ -175,6 +175,13 @@ export interface RecordSourcePort {
    */
   namedAfterWrite(kind: MetadataEntityKind): boolean
   build(kind: MetadataEntityKind, ids: readonly string[]): Promise<readonly BuiltRecord[]>
+  /**
+   * The kinds this source answers for, in the order a start-up load streams
+   * them (POD-6770). Each of them {@link comparesAtSave}.
+   */
+  kinds(): readonly MetadataEntityKind[]
+  /** Every record of a kind as the database holds it now, a page at a time. */
+  streamAll(kind: MetadataEntityKind): AsyncIterable<readonly BuiltRecord[]>
 }
 
 /**

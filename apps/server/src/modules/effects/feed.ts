@@ -19,16 +19,30 @@ import type { EffectExecutorRegistry } from './registry'
 const iso = (ms: number | undefined): string | undefined =>
   ms === undefined ? undefined : new Date(ms).toISOString()
 
-/** The input as the kind publishes it; a kind this server does not serve publishes none. */
-function publishedInput(row: EffectRow, registry: EffectExecutorRegistry): unknown {
+/**
+ * The input as the kind publishes it; a kind this server does not serve
+ * publishes none. The rule takes the STORED input, which the create parsed
+ * with the kind's schema before storing it (POD-6770): a process that holds
+ * no schema (the sync worker) publishes the same value. A stored input the
+ * rule cannot read (not an object, a shape from before the rule) publishes
+ * none.
+ */
+function publishedInput(row: EffectRow, registry: Pick<EffectExecutorRegistry, 'get'>): unknown {
   const executor = registry.get(row.kind)
   if (executor === undefined) return null
   if (executor.publish === undefined) return row.input ?? null
-  const parsed = executor.input.safeParse(row.input)
-  return parsed.success ? (executor.publish(parsed.data) ?? null) : null
+  if (row.input === null || typeof row.input !== 'object') return null
+  try {
+    return executor.publish(row.input) ?? null
+  } catch {
+    return null
+  }
 }
 
-export function effectRecordOf(row: EffectRow, registry: EffectExecutorRegistry): EffectRecordWire {
+export function effectRecordOf(
+  row: EffectRow,
+  registry: Pick<EffectExecutorRegistry, 'get'>,
+): EffectRecordWire {
   const deadline = iso(row.deadlineAt)
   const startedAt = iso(row.startedAt)
   const finishedAt = iso(row.finishedAt)

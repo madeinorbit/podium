@@ -294,12 +294,21 @@ export class Authority implements AuthorityPort {
   constructor(private readonly deps: AuthorityDeps) {}
 
   /**
-   * Current durable values of one entity kind, in seq order: the installed rows,
-   * read from the database (inside the caller's span, if one is open). A corrupt
-   * payload (see `storedKeyOf`) is left out, as dedup treats it as absent.
+   * Current values of one entity kind. A kind the record source answers for
+   * is built from the database (POD-6770): every record its builder streams,
+   * inside the caller's span if one is open. Any other kind reads the
+   * installed rows, in seq order, leaving out a corrupt payload (see
+   * `storedKeyOf`), as dedup treats it as absent.
    */
   async snapshot(entity: MetadataEntityKind): Promise<readonly unknown[]> {
     const values: unknown[] = []
+    const records = this.deps.records
+    if (records?.comparesAtSave(entity) === true) {
+      for await (const page of records.streamAll(entity)) {
+        for (const record of page) values.push(record.value)
+      }
+      return values
+    }
     for (const row of await this.deps.store.installedStatesOf(entity)) {
       const value = installedValueOf(entity, row.payload)
       if (value !== ABSENT) values.push(value)
@@ -308,9 +317,10 @@ export class Authority implements AuthorityPort {
   }
 
   /**
-   * The current durable value of each of these entities, by id: one grouped
-   * read of exactly these rows [POD-6156]. An id with no installed row, or a
-   * corrupt one, is absent.
+   * The current value of each of these entities, by id: built from the
+   * database for a kind the record source answers for (POD-6770), else one
+   * grouped read of exactly these installed rows [POD-6156]. An id with no
+   * record is absent.
    */
   async installedValues(
     entity: MetadataEntityKind,
@@ -318,6 +328,11 @@ export class Authority implements AuthorityPort {
   ): Promise<ReadonlyMap<string, unknown>> {
     const out = new Map<string, unknown>()
     if (ids.length === 0) return out
+    const records = this.deps.records
+    if (records?.comparesAtSave(entity) === true) {
+      for (const record of await records.build(entity, ids)) out.set(record.id, record.value)
+      return out
+    }
     for (const row of await this.deps.store.installedStates(
       ids.map((entityId) => ({ entity, entityId })),
     )) {
@@ -546,7 +561,30 @@ export class Authority implements AuthorityPort {
    * a snapshot across those reads.
    */
   async bootstrap(principal: Principal): Promise<ScopedBootstrap> {
+    const head = await this.cursor()
     const state: SequencedChange[] = []
+    const records = this.deps.records
+    // THE WORLD FROM THE MODEL TABLES (POD-6770, design POD-6253 §4): every
+    // record of every kind the record source answers for, stamped with the
+    // head number. A built record has no change number of its own.
+    if (records !== undefined) {
+      for (const entity of records.kinds()) {
+        for await (const page of records.streamAll(entity)) {
+          for (const record of page) {
+            state.push({
+              seq: head,
+              entity,
+              entityId: record.id,
+              op: 'upsert',
+              value: record.value,
+            })
+          }
+        }
+      }
+      return await scopeBootstrap({ policy: this.deps.visibility }, principal, state, head)
+    }
+    // A host with no record source (no model tables: the kernel's own tests, a
+    // device-grade authority) has only the log, and reads its latest states.
     for (const row of await this.deps.store.latestChangeStates()) {
       if (
         row.op !== 'upsert' ||
@@ -569,12 +607,7 @@ export class Authority implements AuthorityPort {
         // into every replica.
       }
     }
-    return await scopeBootstrap(
-      { policy: this.deps.visibility },
-      principal,
-      state,
-      await this.cursor(),
-    )
+    return await scopeBootstrap({ policy: this.deps.visibility }, principal, state, head)
   }
 
   /**

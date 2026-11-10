@@ -2,7 +2,6 @@ import { setImmediate as yieldLoop } from 'node:timers/promises'
 import { createLogger } from '@podium/logger'
 import {
   CLIENT_WIRE_VERSION,
-  MetadataEntityKind,
   SYNC_BATCH_MAX_ROWS,
   SYNC_BATCH_TARGET_BYTES,
   SYNC_LINE_MAX_BYTES,
@@ -10,7 +9,6 @@ import {
   wireSchemaDigest,
 } from '@podium/protocol'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
-import type { EntityRef } from '@podium/sync'
 import {
   ChangeRangeBootstrapRequired,
   DEFAULT_RESCOPE_THRESHOLD,
@@ -21,31 +19,10 @@ import { perfPrincipal } from '../modules/perf/principal'
 import { perf } from '../modules/perf/registry'
 import { pipeSyncBody } from '../sync/pipe-sync-body'
 import { type BootstrapMetrics, type SyncJob, type SyncMetaSummary, SyncWorkerError } from './types'
-import { bootstrapVisibility } from './visibility'
+import { type BootstrapVisibilityOptions, bootstrapVisibility } from './visibility'
 
 const log = createLogger('server:sync-bootstrap')
 const utf8 = new TextEncoder()
-interface RefRow {
-  seq: number
-  entity: EntityRef['entity']
-  entity_id: string
-}
-interface PayloadRow extends RefRow {
-  payload: string
-}
-const key = (ref: EntityRef) => JSON.stringify([ref.entity, ref.entityId])
-function* iterate<T>(db: SqlDatabase, sql: string): Generator<T> {
-  const statement = db.prepare(sql)
-  if (!statement.iterate) throw new Error('SQLite streaming iteration unavailable')
-  try {
-    yield* statement.iterate() as IterableIterator<T>
-  } finally {
-    // Bun 1.3.14 iterator.return() leaves the SQLite cursor active. Even
-    // ROLLBACK + db.close() keep that WAL snapshot until finalize() runs.
-    statement.finalize?.()
-  }
-}
-
 /**
  * One read-only WAL connection per active job in the one worker. Holding the reader
  * for a transfer prevents checkpointing past its snapshot until completion/cancel;
@@ -57,6 +34,7 @@ async function* produceRecords(
   signal: AbortSignal,
   onMeta: (meta: SyncMetaSummary) => void,
   onMetrics?: (metrics: BootstrapMetrics) => void,
+  options: BootstrapVisibilityOptions = {},
 ): AsyncGenerator<Uint8Array> {
   const started = performance.now()
   const attribution = perfPrincipal(job.principal)
@@ -117,7 +95,7 @@ async function* produceRecords(
       const target = job.to ?? seq
       if (job.from > seq || target > seq) throw new SyncWorkerError('future-cursor')
       if (minAvailableSeq > job.from + 1) throw new SyncWorkerError('compacted-or-unknown')
-      bundle = bootstrapVisibility(db)
+      bundle = bootstrapVisibility(db, options)
       const { policy, anchors, sync } = await bundle.context
       const iterator = scopeChangesRange(
         sync,
@@ -191,35 +169,14 @@ async function* produceRecords(
         await iterator.return?.()
       }
     }
-    const pass1 = performance.now()
-    const refs: EntityRef[] = []
-    for (const row of iterate<RefRow>(
-      db,
-      'SELECT seq, entity, entity_id FROM change_latest ORDER BY seq',
-    )) {
-      if (!MetadataEntityKind.safeParse(row.entity).success) continue
-      refs.push({ entity: row.entity, entityId: row.entity_id })
-      if (refs.length % 256 === 0) {
-        await yieldLoop()
-        check()
-      }
-    }
-    bundle = bootstrapVisibility(db)
-    const policy = await (await bundle.policy).forBootstrap(refs)
+    // THE WORLD FROM THE MODEL TABLES (POD-6770, design POD-6253 §4): every
+    // kind's `streamAll()`, a page at a time, inside the snapshot the head
+    // read above fixed. Nothing here reads the stored copy of the last
+    // published values. A built record has no change number of its own, so
+    // every row carries the head number the load is stamped with.
+    bundle = bootstrapVisibility(db, options)
+    const { policy: world, records: source } = await bundle.context
     check()
-    const visible = new Set<string>()
-    for (let i = 0; i < refs.length; i++) {
-      const ref = refs[i]!
-      if (policy.decide(job.principal, ref).visible) visible.add(key(ref))
-      if (i % 256 === 0) {
-        await yieldLoop()
-        check()
-      }
-    }
-    refCount = refs.length
-    heapAfterPrefetch = process.memoryUsage().heapUsed
-    const totalRows = visible.size
-    phase('pass1', pass1)
     const meta: SyncMetaSummary = {
       type: 'syncMeta',
       formatVersion: 1,
@@ -231,14 +188,14 @@ async function* produceRecords(
       epoch: job.epoch,
       seq,
       minAvailableSeq,
-      totalRows,
+      // No `totalRows`: the count is known only once every table is read, and
+      // the load streams in one pass.
     }
     const metaBytes = line(meta)
     // Copy fields from the serialized first line, never a second world read.
     onMeta(JSON.parse(new TextDecoder().decode(metaBytes)) as SyncMetaSummary)
     yield metaBytes
     const range = { feedId: job.feedId, epoch: job.epoch, fromSeq: 0, seq, minAvailableSeq }
-    const pass2 = performance.now()
     let batch: unknown[] = [],
       batchBytes = 0
     const frame = (changes: unknown[], last: boolean) => ({
@@ -246,48 +203,68 @@ async function* produceRecords(
       ...range,
       changes,
       last,
-      totalRows,
+      // The total, once it is known: on the last chunk.
+      ...(last ? { totalRows: rows } : {}),
     })
     const batchOverhead = utf8.encode(JSON.stringify(frame([], false)) + '\n').byteLength
-    for (const row of iterate<PayloadRow>(
-      db,
-      'SELECT seq, entity, entity_id, payload FROM change_latest ORDER BY seq',
-    )) {
-      check()
-      if (!visible.has(key({ entity: row.entity, entityId: row.entity_id }))) continue
-      const change = {
-        seq: row.seq,
-        entity: row.entity,
-        entityId: row.entity_id,
-        op: 'upsert',
-        // The row as this principal may receive it (design §4.2, POD-6288).
-        value: shapedValue(
-          policy,
-          job.principal,
-          { entity: row.entity, entityId: row.entity_id },
-          JSON.parse(row.payload),
-        ),
+    for (const entity of source.kinds()) {
+      const pages = source.streamAll(entity)[Symbol.asyncIterator]()
+      try {
+        for (;;) {
+          const build = performance.now()
+          const next = await pages.next()
+          phase('build', build)
+          if (next.done) break
+          const page = next.value
+          refCount += page.length
+          check()
+          // The sharing rules' facts for exactly this page's records.
+          const prepare = performance.now()
+          const policy = await world.forBootstrap(
+            page.map((record) => ({ entity, entityId: record.id })),
+          )
+          phase('visibility', prepare)
+          check()
+          for (const record of page) {
+            const ref = { entity, entityId: record.id }
+            if (!policy.decide(job.principal, ref).visible) continue
+            const change = {
+              seq,
+              entity,
+              entityId: record.id,
+              op: 'upsert',
+              // The row as this principal may receive it (design §4.2, POD-6288).
+              value: shapedValue(policy, job.principal, ref, record.value),
+            }
+            const size = utf8.encode(JSON.stringify(change)).byteLength
+            if (
+              utf8.encode(JSON.stringify(frame([change], false))).byteLength > SYNC_LINE_MAX_BYTES
+            )
+              throw new SyncWorkerError('row-too-large')
+            if (
+              batch.length &&
+              (batch.length >= SYNC_BATCH_MAX_ROWS ||
+                batchOverhead + batchBytes + size + batch.length > SYNC_BATCH_TARGET_BYTES)
+            ) {
+              yield line(frame(batch, false))
+              batch = []
+              batchBytes = 0
+              await yieldLoop()
+              check()
+            }
+            batch.push(change)
+            batchBytes += size
+            rows++
+          }
+          await yieldLoop()
+          check()
+        }
+      } finally {
+        await pages.return?.()
       }
-      const size = utf8.encode(JSON.stringify(change)).byteLength
-      if (utf8.encode(JSON.stringify(frame([change], false))).byteLength > SYNC_LINE_MAX_BYTES)
-        throw new SyncWorkerError('row-too-large')
-      if (
-        batch.length &&
-        (batch.length >= SYNC_BATCH_MAX_ROWS ||
-          batchOverhead + batchBytes + size + batch.length > SYNC_BATCH_TARGET_BYTES)
-      ) {
-        yield line(frame(batch, false))
-        batch = []
-        batchBytes = 0
-        await yieldLoop()
-        check()
-      }
-      batch.push(change)
-      batchBytes += size
-      rows++
     }
+    heapAfterPrefetch = process.memoryUsage().heapUsed
     yield line(frame(batch, true))
-    phase('pass2', pass2)
     check()
     yield line({
       type: 'syncComplete',
@@ -344,15 +321,23 @@ export async function* produceBootstrap(
   signal: AbortSignal,
   onMeta: (meta: SyncMetaSummary) => void,
   onMetrics?: (metrics: BootstrapMetrics) => void,
+  options: BootstrapVisibilityOptions = {},
 ): AsyncGenerator<Uint8Array> {
   const lifetime = new AbortController()
   const abort = () => lifetime.abort(signal.reason)
   signal.addEventListener('abort', abort, { once: true })
   if (signal.aborted) abort()
   const telemetry: { metrics?: BootstrapMetrics } = {}
-  const records = produceRecords(dbPath, job, lifetime.signal, onMeta, (value) => {
-    telemetry.metrics = value
-  })
+  const records = produceRecords(
+    dbPath,
+    job,
+    lifetime.signal,
+    onMeta,
+    (value) => {
+      telemetry.metrics = value
+    },
+    options,
+  )
   const source = {
     [Symbol.asyncIterator]: () => records,
     abort: (reason: unknown) => lifetime.abort(reason),

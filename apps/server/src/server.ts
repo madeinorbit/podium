@@ -2213,7 +2213,12 @@ export async function startServer(
       // Existing worker test seam suppresses real threads in vitest's fork runtime.
       if (!opts.janitorWorkerForTests && !janitorHostClosing) {
         const { SyncWorkerClient } = await import('./sync-worker/worker-client')
-        syncWorker = new SyncWorkerClient({ dbPath: defaultDbPath() })
+        syncWorker = new SyncWorkerClient({
+          dbPath: defaultDbPath(),
+          // The worker builds effect records from the table and holds no
+          // executor: it is told which kinds this server serves (POD-6770).
+          effectKinds: () => registry.modules.effects?.executors.kinds() ?? [],
+        })
       }
       const { startJanitorHost } = await import('./janitor-host')
       const startedJanitorHost = await startJanitorHost({

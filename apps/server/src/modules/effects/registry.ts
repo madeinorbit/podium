@@ -111,7 +111,12 @@ export interface EffectExecutor<In = unknown> {
   ): Promise<SyncSubmitRefusal | undefined>
   /** How long a record may wait to start. */
   readonly deadlineMs: number
-  /** What the feed carries of the input. Default: the input as given. */
+  /**
+   * What the feed carries of the input. Default: the input as given. Called
+   * with the STORED input, which the create parsed with {@link input}; a rule
+   * a real kind uses lives in `published-input.ts`, so the sync worker, which
+   * holds no executor, applies it too.
+   */
   publish?(input: In): unknown
   /**
    * Whether the record can start NOW, asked before the claim (POD-6398). False

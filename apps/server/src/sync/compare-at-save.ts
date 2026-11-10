@@ -111,5 +111,8 @@ export function compareAtSaveRecords(
     comparesAtSave: (kind) => moved.has(kind),
     namedAfterWrite: (kind) => namedAfter.has(kind),
     build: async (kind, ids) => await registry.build(reads, kind, ids),
+    // In the registry's order, which is the order a start-up load streams.
+    kinds: () => registry.kinds().filter((kind) => moved.has(kind)),
+    streamAll: (kind) => registry.streamAll(reads, kind),
   }
 }

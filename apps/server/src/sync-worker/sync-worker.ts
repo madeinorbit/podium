@@ -14,7 +14,7 @@ interface Work {
 }
 if (parentPort) {
   const port = parentPort
-  const dbPath = (workerData as { dbPath: string }).dbPath
+  const { dbPath, effectKinds = [] } = workerData as { dbPath: string; effectKinds?: readonly string[] }
   const jobs = new Map<string, Work>()
   const queue: Work[] = []
   let active = 0, stopped = false, progressVersion = 0
@@ -52,7 +52,7 @@ if (parentPort) {
     const queueWaitMs = performance.now() - work.queuedAt
     log.info('bootstrap admitted', { transferId: work.job.transferId, queueWaitMs })
     try {
-      for await (const bytes of produceBootstrap(dbPath, work.job, work.abort.signal, meta => send({ type: 'meta', transferId: work.job.transferId, meta }), metrics => send({ type: 'metrics', transferId: work.job.transferId, metrics: { ...metrics, queueWaitMs } }))) {
+      for await (const bytes of produceBootstrap(dbPath, work.job, work.abort.signal, meta => send({ type: 'meta', transferId: work.job.transferId, meta }), metrics => send({ type: 'metrics', transferId: work.job.transferId, metrics: { ...metrics, queueWaitMs } }), { effectKinds })) {
         for (let at = 0; at < bytes.byteLength; at += SYNC_CHUNK_BYTES) {
           await credit(work)
           // Copy just the bounded chunk; transferring a view's backing buffer could

@@ -54,6 +54,7 @@ import {
 import type { RegistryModules } from '../../relay'
 import type { EffectRow } from '../../store/effects'
 import type { UsersRepository } from '../../store/users'
+import { publishedInputOf } from '../effects/published-input'
 import type { EffectExecutor, EffectOutcome } from '../effects/registry'
 import { NO_TARGET } from '../sync-write/registry'
 import { HANDOFF_UNKNOWN_SESSION, type HandoffCaller, type HandoffResult } from './handoff/ports'
@@ -146,7 +147,7 @@ export function registerSessionHandoffEffect(deps: SessionHandoffEffectDeps): vo
         ? NO_TARGET
         : undefined
     },
-    publish: (input) => ({ machineId: input.machineId }),
+    publish: publishedInputOf(SESSION_HANDOFF_KIND),
     run: async (ctx) => {
       const caller = await writerOf(ctx.record)
       if (caller === undefined) {

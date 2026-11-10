@@ -38,14 +38,12 @@ const unsupported = (): never => {
   throw new Error('record builders cannot use writer state')
 }
 
-/** Build the reads; the caller closes the returned executor. */
-export function recordReadsOver(
-  database: SqlDatabase,
+/** The reads over an executor's queries the caller already holds. */
+export function recordReadsOf(
+  q: ReturnType<typeof createBunStoreExecutor>['queries'],
   options: { effectExecutors: Pick<EffectExecutorRegistry, 'get'>; now?: () => number },
-): { reads: RecordReads; close: () => Promise<void> } {
-  const executor = createBunStoreExecutor({ database })
-  const q = executor.queries
-  const reads: RecordReads = {
+): RecordReads {
+  return {
     store: {
       issues: new IssuesRepository(q, unsupported),
       machines: new MachinesRepository(q),
@@ -75,5 +73,16 @@ export function recordReadsOver(
     effectExecutors: options.effectExecutors,
     now: options.now ?? Date.now,
   }
-  return { reads, close: async () => await executor.close() }
+}
+
+/** Build the reads; the caller closes the returned executor. */
+export function recordReadsOver(
+  database: SqlDatabase,
+  options: { effectExecutors: Pick<EffectExecutorRegistry, 'get'>; now?: () => number },
+): { reads: RecordReads; close: () => Promise<void> } {
+  const executor = createBunStoreExecutor({ database })
+  return {
+    reads: recordReadsOf(executor.queries, options),
+    close: async () => await executor.close(),
+  }
 }

@@ -52,6 +52,7 @@ import { checkMachineUse, ownershipSnapshotFromMachines } from '../../machine-ac
 import type { RegistryModules } from '../../relay'
 import type { EffectRow } from '../../store/effects'
 import type { UsersRepository } from '../../store/users'
+import { publishedInputOf } from '../effects/published-input'
 import type { EffectExecutor, EffectOutcome } from '../effects/registry'
 import { NO_LONGER_ALLOWED } from '../sessions/lifecycle-controller'
 import { NO_TARGET } from '../sync-write/registry'
@@ -222,17 +223,7 @@ export function registerIssueStartEffect(deps: IssueStartEffectDeps): void {
       const caller: IssueCaller = { capability: principal.capability, principal }
       return await issueTarget(deps.modules(), defOf('update'), { id: target.id }, caller)
     },
-    publish: (input) => {
-      const {
-        description: _description,
-        brief: _brief,
-        ...rest
-      } = input as IssueStartInput & {
-        description?: string
-        brief?: string
-      }
-      return rest
-    },
+    publish: publishedInputOf(ISSUE_START_KIND),
     ready: (_record, input) => {
       const machines = deps.modules().machines
       return input.machineId !== undefined

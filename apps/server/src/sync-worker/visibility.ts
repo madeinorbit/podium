@@ -1,51 +1,53 @@
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { GrantEdgeVisibilityPolicy, NoDelegationsGranted } from '@podium/sync/bootstrap-worker'
-import { SyncRepository } from '@podium/sync/adapters/sqlite/sync-repository'
 import { makeFeedVisibility } from '../feed-visibility'
-import { syncServerTables } from '../migrations/sync-server-tables'
+import { effectPublication } from '../modules/effects/published-input'
 import { createBunStoreExecutor } from '../store/executor/bun-driver'
-import { CheckoutsRepository } from '../store/checkouts'
-import { IssuesRepository } from '../store/issues'
-import { SessionsRepository } from '../store/sessions'
-import { ShippingRepository } from '../store/shipping'
-import { AutomationsRepository } from '../store/automations'
-import { EffectsRepository } from '../store/effects'
-import { EventsRepository } from '../store/events'
-import { UsersRepository } from '../store/users'
-import { GrantsRepository } from '../store/grants'
-import { WorkflowsRepository } from '../store/workflows'
+import { compareAtSaveRecords } from '../sync/compare-at-save'
+import { recordReadsOf } from './record-reads'
 
-const unsupported = (): never => { throw new Error('snapshot cannot use writer state') }
+export interface BootstrapVisibilityOptions {
+  /** The effect kinds the server serves: an effect record's published input
+   *  depends on them (`modules/effects/published-input.ts`). */
+  readonly effectKinds?: readonly string[]
+}
 
-/** Construct only query repositories: no SessionStore, migrations, authority or publication. */
-export function bootstrapVisibility(database: SqlDatabase) {
+/**
+ * The sharing rules and the record builders over one read-only connection:
+ * query repositories only, with no SessionStore, migrations, authority or
+ * publication. The caller has already opened the read transaction, so every
+ * read below belongs to that snapshot.
+ */
+export function bootstrapVisibility(database: SqlDatabase, options: BootstrapVisibilityOptions = {}) {
   const executor = createBunStoreExecutor({ database })
   const context = (async () => {
-  const q = executor.queries
-  // Caller has already established the read transaction; every grant read
-  // below asks for the resources it needs and belongs to that snapshot.
-  const grants = new GrantsRepository(q)
-  const sync = new SyncRepository(q, syncServerTables)
-  const visibility = makeFeedVisibility({
-    store: {
-      issues: new IssuesRepository(q, unsupported),
-      sessions: new SessionsRepository(q, unsupported),
-      shipping: new ShippingRepository(q),
-      automations: new AutomationsRepository(q),
-      effects: new EffectsRepository(q),
-      events: new EventsRepository(q),
-      workflows: new WorkflowsRepository(q),
-      users: new UsersRepository(q),
-      grants,
+    const reads = recordReadsOf(executor.queries, {
+      effectExecutors: effectPublication(options.effectKinds ?? []),
+    })
+    const { grants, sync } = reads.store
+    // The start-up load streams these, and the sharing rules re-send current
+    // values from them (POD-6770): every kind, built from the model tables.
+    const records = compareAtSaveRecords(reads)
+    const visibility = makeFeedVisibility({
+      store: reads.store,
+      audiencesFor: (kind, ids) => grants.visibilityAudiencesFor(kind, ids),
+      // A job-local cache lives only as long as this immutable read snapshot.
+      authorizationRevision: () => sync.maxChangeSeq(),
+      currentRecords: records.build,
+    })
+    return {
+      policy: new GrantEdgeVisibilityPolicy(visibility.state, new NoDelegationsGranted()),
+      anchors: visibility.anchors,
       sync,
-      checkouts: new CheckoutsRepository(q),
-    },
-    audiencesFor: (kind, ids) => grants.visibilityAudiencesFor(kind, ids),
-    // A job-local cache lives only as long as this immutable read snapshot.
-    authorizationRevision: () => sync.maxChangeSeq(),
-  })
-  return { policy: new GrantEdgeVisibilityPolicy(visibility.state, new NoDelegationsGranted()), anchors: visibility.anchors, sync }
+      records,
+    }
   })()
   // Return ownership before the first async read can fail, so the caller always closes it.
-  return { context, get policy() { return context.then(value => value.policy) }, executor }
+  return {
+    context,
+    get policy() {
+      return context.then((value) => value.policy)
+    },
+    executor,
+  }
 }

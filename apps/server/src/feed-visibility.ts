@@ -36,7 +36,7 @@ import {
   type IssueId,
   issueEventRowId,
   type MachineId,
-  issueDepFromPrefix,
+  issueDepId,
   issueExecutionAccess,
   issueExecutionSessionIds,
   parseInteractionRowId,
@@ -62,7 +62,7 @@ import {
   withoutHiddenEventFields,
   withoutHiddenExecutionFields,
 } from '@podium/model'
-import type { Principal } from '@podium/protocol'
+import type { MetadataEntityKind, Principal } from '@podium/protocol'
 import type {
   EntityRef,
   VisibilityAnchorPort,
@@ -207,6 +207,15 @@ export interface FeedVisibilityDeps {
     ids: readonly string[],
   ) => Promise<ReadonlyMap<string, readonly string[]>>
   readonly authorizationRevision: () => Promise<number>
+  /**
+   * These records as the database holds them now: the record builders'
+   * `build(ids)` (POD-6770). The sharing rules re-send current values from
+   * it; nothing here reads the stored copy of the last published value.
+   */
+  readonly currentRecords: (
+    kind: MetadataEntityKind,
+    ids: readonly string[],
+  ) => Promise<readonly { readonly id: string; readonly value: unknown }[]>
 }
 
 /** What the composition root names: two ports plus the tracing bracket. */
@@ -1004,33 +1013,22 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     })
   }
 
-  /** One JSON value, or `undefined` for a corrupt payload, as the bootstrap reads it. */
-  const parsedPayload = (payload: string): unknown => {
-    try {
-      return JSON.parse(payload)
-    } catch {
-      return undefined
-    }
-  }
-
   /**
    * THE ROWS AN ISSUE'S AUDIENCE CHANGE RE-SCOPES, for every issue in a batch at
    * once [POD-6156].
    *
-   * Read from the database for exactly these issues, where it used to be read
-   * out of an index built over the whole installed world (every row of
-   * `change_latest`) and rebuilt after every append. Each list is in the order
-   * that index gave it: installed rows by seq, sessions in the order the
-   * indexed `issue_id IN (…)` read returns them.
+   * Read from the model tables for exactly these issues (POD-6770; POD-6156
+   * read them from the installed copy by key, and before that from an index
+   * over the whole installed world). Nothing here reads the change log or the
+   * stored copy of the last published values.
    *
    *   sessions        one indexed read of the issues' live sessions;
-   *   dependencies    one primary-key range per issue over the installed
-   *                   `issueDep` ids that start with the issue's escaped id
-   *                   (`issueDepFromPrefix`), kept only where the id parses to it;
+   *   dependencies    the issues' edges from the edge table, in its
+   *                   (from, to, type) order;
    *   ship orders     the issues' orders from `idx_ship_orders_issue` (orders
    *                   are never deleted and never change issue), then their
-   *                   installed rows by key. The issue and the lane come from
-   *                   the installed payload, as they always did.
+   *                   rows by id. A cancelled order has no record; the lane
+   *                   of a queued one comes from its row.
    *   effects         the live records on the issues and on their sessions,
    *                   one read of `idx_effects_target` after the sessions are
    *                   known (POD-6401): an effect is read by whoever reads its
@@ -1059,10 +1057,8 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     const wanted = new Set(issueIds)
     const [sessionRows, depRows, orderIds, eventRows] = await Promise.all([
       store.sessions.findSessionsByIssueIds(issueIds.map((id) => asIssueId(id))),
-      store.sync.installedIdsWithPrefixes(
-        'issueDep',
-        issueIds.map((id) => issueDepFromPrefix(id)),
-      ),
+      // The issues' edges, from the edge table (POD-6770).
+      store.issues.depsFromIssues(issueIds),
       store.shipping.orderIdsForIssues(issueIds),
       store.events.feedWindowOfSubjects(issueIds, FEED_WINDOW),
     ])
@@ -1077,11 +1073,11 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       if (bucket) bucket.push(row)
       else sessionsByIssue.set(row.issueId, [row])
     }
-    for (const row of [...depRows].sort((a, b) => a.seq - b.seq)) {
-      const dep = parseIssueDepId(row.entityId)
-      if (dep === null || !wanted.has(dep.fromId)) continue
+    // In the table's (from, to, type) order.
+    for (const dep of depRows) {
+      if (!wanted.has(dep.fromId)) continue
       const subjects = depsByIssue.get(dep.fromId) ?? []
-      subjects.push({ entity: 'issueDep', entityId: row.entityId })
+      subjects.push({ entity: 'issueDep', entityId: issueDepId(dep.fromId, dep.toId, dep.type) })
       depsByIssue.set(dep.fromId, subjects)
     }
     // Each target's issue, and its place in that issue's list: the issue's own
@@ -1096,9 +1092,8 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     const [orderRows, effectRows] = await Promise.all([
       orderIds.length === 0
         ? []
-        : store.sync.installedStates(
-            orderIds.map((id) => ({ entity: 'shipOrder' as const, entityId: id })),
-          ),
+        : // The orders' own rows (POD-6770); a cancelled order has no record.
+          store.shipping.ordersByIds(orderIds),
       measure(
         'visibility.effect.liveOnTargets',
         async () =>
@@ -1120,39 +1115,25 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       subjects.push({ entity: 'effect', entityId: id })
       effectsByIssue.set(issueId, subjects)
     }
-    for (const row of [...orderRows].sort((a, b) => a.seq - b.seq)) {
-      if (row.payload === null) continue
-      const payload = parsedPayload(row.payload) as
-        | {
-            issueId?: unknown
-            repoId?: unknown
-            destination?: unknown
-            targetBranch?: unknown
-            state?: unknown
-          }
-        | null
-        | undefined
-      // A malformed change cannot supply a visibility anchor.
-      if (payload === null || typeof payload !== 'object') continue
-      if (typeof payload.issueId !== 'string' || !wanted.has(payload.issueId)) continue
-      const subjects = ordersByIssue.get(payload.issueId) ?? []
-      subjects.push({ entity: 'shipOrder', entityId: row.entityId })
-      ordersByIssue.set(payload.issueId, subjects)
-      if (
-        payload.state === 'queued' &&
-        typeof payload.repoId === 'string' &&
-        typeof payload.destination === 'string' &&
-        typeof payload.targetBranch === 'string'
-      ) {
-        const lanes = lanesByIssue.get(payload.issueId) ?? []
+    // In order-id order, which `orderIdsForIssues` answers in.
+    const orderById = new Map(orderRows.map((order) => [order.id as string, order]))
+    for (const orderId of orderIds) {
+      const order = orderById.get(orderId)
+      if (order === undefined || order.state === 'cancelled') continue
+      if (!wanted.has(order.issueId)) continue
+      const subjects = ordersByIssue.get(order.issueId) ?? []
+      subjects.push({ entity: 'shipOrder', entityId: order.id })
+      ordersByIssue.set(order.issueId, subjects)
+      if (order.state === 'queued') {
+        const lanes = lanesByIssue.get(order.issueId) ?? []
         lanes.push({
           entity: 'shipLane',
           entityId: shipLaneId(
-            payload.repoId as RepoId,
-            canonicalShippingDestination(payload.destination, payload.targetBranch),
+            order.repoId,
+            canonicalShippingDestination(order.destination, order.targetBranch),
           ),
         })
-        lanesByIssue.set(payload.issueId, lanes)
+        lanesByIssue.set(order.issueId, lanes)
       }
     }
     return {
@@ -1409,17 +1390,26 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         }
       })
     },
-    /** Every subject's installed value in one grouped read (POD-6156). */
+    /**
+     * Every subject's current record, built from the model tables (POD-6770,
+     * design POD-6253 §4): one `build` per kind the subjects name. A subject
+     * with no record is `undefined`.
+     */
     currentValuesOf: async (refs) => {
       if (refs.length === 0) return []
-      const byKey = new Map<string, string>()
-      for (const row of await store.sync.installedStates(refs)) {
-        if (row.payload !== null) byKey.set(`${row.entity}\u0000${row.entityId}`, row.payload)
+      const idsByKind = new Map<MetadataEntityKind, string[]>()
+      for (const ref of refs) {
+        const ids = idsByKind.get(ref.entity)
+        if (ids === undefined) idsByKind.set(ref.entity, [ref.entityId])
+        else ids.push(ref.entityId)
       }
-      return refs.map((ref) => {
-        const payload = byKey.get(`${ref.entity}\u0000${ref.entityId}`)
-        return payload === undefined ? undefined : parsedPayload(payload)
-      })
+      const byKey = new Map<string, unknown>()
+      for (const [kind, ids] of idsByKind) {
+        for (const record of await deps.currentRecords(kind, ids)) {
+          byKey.set(`${kind}\u0000${record.id}`, record.value)
+        }
+      }
+      return refs.map((ref) => byKey.get(`${ref.entity}\u0000${ref.entityId}`))
     },
   }
 

@@ -1269,19 +1269,24 @@ export class SessionRegistry {
     // AND conversation writes append their change rows ATOMICALLY with the
     // entity write (one transact span on the shared connection). One changes
     // table + one seq sequence — changesSince consumers see one unified feed.
+    // The effect kinds this server serves. Made here because the effect
+    // record's builder reads it; the kinds register on it further down.
+    const effectExecutors = new EffectExecutorRegistry()
+    // EVERY RECORD, BUILT FROM THE MODEL TABLES (design POD-6253 §1). The
+    // Authority compares a write's named records through it (POD-6769), and
+    // the start-up load and the sharing rules read current values from it
+    // (POD-6770). `sync/compare-at-save.ts` lists the kinds: all of them.
+    const records = compareAtSaveRecords({ store: this.store, effectExecutors, now: this.now })
     const feedVisibility = makeFeedVisibility({
       store: this.store,
       audiencesFor: (kind, ids) => this.store.grants.visibilityAudiencesFor(kind, ids),
       authorizationRevision: () => this.store.grants.visibilityRevision(),
+      currentRecords: records.build,
     })
     const visibility = new GrantEdgeVisibilityPolicy(
       feedVisibility.state,
       new NoDelegationsGranted(),
     )
-    // The effect kinds this server serves. Made here because the effect
-    // record's builder reads it (compare at save, below); the kinds register
-    // on it further down.
-    const effectExecutors = new EffectExecutorRegistry()
     const ledger = new Ledger({
       visibility,
       anchors: feedVisibility.anchors,
@@ -1308,11 +1313,10 @@ export class SessionRegistry {
       // plain command (ADR 12 D8, POD-6360) it refuses: a plain handler has no
       // access to the Authority, so it cannot write synced data by accident.
       provenance: syncedWriteProvenance,
-      // COMPARE AT SAVE (POD-6769, design POD-6253 §3): for the kinds that have
-      // moved, a commit names its records and the Authority builds them from
-      // the model tables before and after the write. `sync/compare-at-save.ts`
-      // lists the kinds.
-      records: compareAtSaveRecords({ store: this.store, effectExecutors, now: this.now }),
+      // COMPARE AT SAVE (POD-6769, design POD-6253 §3): a commit names its
+      // records and the Authority builds them from the model tables before
+      // and after the write.
+      records,
       onPruneMetrics: (metrics) => {
         perf.record('phase', 'changeLogPrune.total', metrics.totalDurationMs, DEPLOYMENT)
         perf.record('phase', 'changeLogPrune.maxSlice', metrics.maxUninterruptedSliceMs, DEPLOYMENT)

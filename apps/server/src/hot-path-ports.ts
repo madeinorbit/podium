@@ -22,7 +22,7 @@ export interface DaemonObservationStore {
 export interface FeedVisibilityStore {
   readonly issues: Pick<
     SessionStore['issues'],
-    'getIssue' | 'getIssues' | 'liveWorktreeIssuesOnMachines' | 'panel'
+    'getIssue' | 'getIssues' | 'liveWorktreeIssuesOnMachines' | 'panel' | 'depsFromIssues'
   >
   readonly sessions: Pick<
     SessionStore['sessions'],
@@ -44,7 +44,6 @@ export interface FeedVisibilityStore {
     SessionStore['grants'],
     'loadForResource' | 'loadForResources' | 'loadForResourcesOfKinds' | 'listForResources'
   >
-  readonly sync: Pick<SessionStore['sync'], 'installedStates' | 'installedIdsWithPrefixes'>
   /** A machine's checkouts, re-sent when a member's access on it moves, its
    *  registered roots, which managers may read too, and each member's recorded
    *  reach on it (POD-6644). */

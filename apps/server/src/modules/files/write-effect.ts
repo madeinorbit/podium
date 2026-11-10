@@ -31,6 +31,7 @@ import { privateResourceAccess } from '../../private-resources'
 import type { RegistryModules } from '../../relay'
 import { isAllowedRoot } from '../../root-allowlist'
 import type { EffectRow } from '../../store/effects'
+import { publishedInputOf } from '../effects/published-input'
 import type { EffectOutcome, EffectRunContext } from '../effects/registry'
 import { NO_TARGET } from '../sync-write/registry'
 
@@ -139,12 +140,7 @@ export function registerFileWriteEffect(deps: FileWriteEffectDeps): void {
       return (await rootAllowed(input)) ? undefined : { kind: 'unauthorized' }
     },
     deadlineMs: FILE_WRITE_DEADLINE_MS,
-    publish: (input) => ({
-      path: input.path,
-      size: input.content.length,
-      ...('root' in input ? { root: input.root } : {}),
-      ...(input.baseHash ? { baseHash: input.baseHash } : {}),
-    }),
+    publish: publishedInputOf(FILE_WRITE_EFFECT_KIND),
     run: async (ctx: EffectRunContext<FileWriteInput>) => {
       const input = resolvedInput(ctx.input)
       if (!(await rootAllowed(input))) {

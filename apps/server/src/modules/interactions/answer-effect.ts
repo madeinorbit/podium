@@ -64,6 +64,7 @@ import { type CommandPrincipal, userCommandPrincipal } from '../../command-princ
 import type { RegistryModules } from '../../relay'
 import type { EffectRow } from '../../store/effects'
 import type { UsersRepository } from '../../store/users'
+import { publishedInputOf } from '../effects/published-input'
 import type { EffectExecutor, EffectOutcome, EffectRunContext } from '../effects/registry'
 import { WRITER_NO_LONGER_ALLOWED, writerPrincipalNow, writingAgentOf } from '../effects/writer'
 import type { IssueCaller } from '../issues/command-ctx'
@@ -357,12 +358,7 @@ export function registerSessionAnswerEffect(deps: SessionAnswerEffectDeps): void
       return undefined
     },
     // The feed shows how it was answered, never the answer.
-    publish: (input) => ({
-      via: input.via,
-      ...('interactionId' in input && input.interactionId !== undefined
-        ? { interactionId: input.interactionId }
-        : {}),
-    }),
+    publish: publishedInputOf(SESSION_ANSWER_KIND),
     run,
     recover,
   }
