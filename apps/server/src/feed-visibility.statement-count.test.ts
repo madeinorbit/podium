@@ -256,12 +256,15 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
             // reads (design §2.2; POD-6288), so nobody loses it.
             expect(edges[3]).toBeNull()
             expect(edges[4]).toBeNull()
-            // Installed subjects come back parsed; issueBodies and
-            // issueGitState were never installed.
-            expect(values[0]).toEqual({ id: 'iss_0' })
-            expect(values[1]).toBeUndefined()
+            // The subjects' records as the tables hold them; the issue has no
+            // git observation, so that subject has no record.
+            expect(values[0]).toMatchObject({ id: 'iss_0' })
             expect(values[2]).toBeUndefined()
-            expect(values[3]).toEqual({ id: issueDepId('iss_0', 'shared_0', 'blocked-by') })
+            expect(values[3]).toMatchObject({
+              id: issueDepId('iss_0', 'shared_0', 'blocked-by'),
+              fromId: 'iss_0',
+              toId: 'shared_0',
+            })
           },
         ),
         setup: async (size) => {
@@ -300,57 +303,25 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
               1_000,
             )
           }
-          // The installed world: every issue, a dependency and an order each.
-          const rows = Array.from({ length: f.size }, (_, i) => {
-            const dep = issueDepId(`iss_${i}`, `shared_${i}`, 'blocked-by')
-            return [
-              { entity: 'issueProjection', entityId: `iss_${i}`, payload: { id: `iss_${i}` } },
-              {
-                entity: 'issueProjection',
-                entityId: `shared_${i}`,
-                payload: { id: `shared_${i}` },
-              },
-              { entity: 'issueDep', entityId: dep, payload: { id: dep } },
-              {
-                entity: 'shipOrder',
-                entityId: `order-${i}`,
-                payload: {
-                  issueId: `iss_${i}`,
-                  repoId: `repo-${i}`,
-                  destination: 'local:main',
-                  targetBranch: 'main',
-                  state: 'queued',
-                },
-              },
-              {
-                entity: 'shipOrder',
-                entityId: `shared-order-${i}`,
-                payload: {
-                  issueId: `shared_${i}`,
-                  repoId: 'repo-shared',
-                  destination: 'local:main',
-                  targetBranch: 'main',
-                  state: i === 0 ? 'cancelled' : 'queued',
-                },
-              },
-            ]
-          })
-            .flat()
-            .map((row) => ({
-              entity: row.entity,
-              entityId: row.entityId,
-              op: 'upsert' as const,
-              payload: JSON.stringify(row.payload),
-            }))
-          // The kinds are real wire kinds; the literal union is not worth spelling per row.
-          await f.store.sync.appendChanges(rows as never, 1_000)
+          // A dependency edge on every issue, in the edge table: the anchors
+          // list an issue's edges from it (POD-6770).
+          for (let i = 0; i < f.size; i++) {
+            await f.store.issues.addIssueDep(asIssueId(`iss_${i}`), asIssueId(`shared_${i}`))
+          }
           return f
         },
       },
       // Shared task rows need no grant query; incoming live-effect projection
       // adds one read; the issues' events in the feed's window are two
       // (the window's oldest id, then the issues' events above it; POD-6766).
-      14,
+      // (The base ran 18, not its pinned 14: the four panel kinds' reads of
+      // POD-6778 were never pinned.)
+      // RE-PINNED 18 -> 29 FOR POD-6770: the subjects' current values are built
+      // from the model tables, one `build` per kind the subjects name (the
+      // issue and its labels, its bodies, its git state, its edges, the order
+      // with its holds and receipt, the lane's plan, the effect), where one
+      // grouped read of the stored copy answered them all.
+      29,
     )
   })
 

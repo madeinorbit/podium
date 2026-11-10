@@ -740,14 +740,6 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
     'Whole-table read (POD-6172): the sync bootstrap of change_latest (sync behaviour, out of POD-6148 scope).',
   ],
   [
-    'apps/server/src/sync-worker/producer.ts:SELECT seq, entity, entity_id FROM change_latest ORDER BY seq',
-    "Whole-table read (POD-6227): the sync worker's bootstrap, pass one, streams every change_latest ref in seq order on its read-only snapshot (sync behaviour, like installedWorld); a replica's world is every row it may see.",
-  ],
-  [
-    'apps/server/src/sync-worker/producer.ts:SELECT seq, entity, entity_id, payload FROM change_latest ORDER BY seq',
-    "Whole-table read (POD-6227): the sync worker's bootstrap, pass two, streams the visible rows' payloads in seq order on the same snapshot (sync behaviour, like installedWorld).",
-  ],
-  [
     'apps/server/src/store/automations.ts:allLiveRuns',
     'Whole-table read (POD-6172): every live automation run for the automationRun full-truth reconcile at boot (AutomationsService.reconcileFromStore); nothing else reads it.',
   ],
@@ -812,14 +804,6 @@ const RAW_SQL_PLANNED: ReadonlyMap<string, string> = new Map([
   [
     'apps/server/src/sync-worker/producer.ts:SELECT min(seq) AS seq FROM changes',
     "The sync worker's retention floor, read on the snapshot the first read fixed, before the visibility repositories exist.",
-  ],
-  [
-    'apps/server/src/sync-worker/producer.ts:SELECT seq, entity, entity_id FROM change_latest ORDER BY seq',
-    'Streamed with a statement iterator (`iterate`), which the repository executor does not offer: the worker never holds the world in memory.',
-  ],
-  [
-    'apps/server/src/sync-worker/producer.ts:SELECT seq, entity, entity_id, payload FROM change_latest ORDER BY seq',
-    'Streamed with a statement iterator (`iterate`), which the repository executor does not offer: the worker never holds the world in memory.',
   ],
   [
     'apps/server/src/modules/updates/recovery-store.ts:SELECT value FROM meta WHERE key = ?',

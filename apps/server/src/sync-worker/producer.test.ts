@@ -141,7 +141,8 @@ describe('snapshot bootstrap producer', () => {
         // Built from the issue rows, each stamped with the head number.
         if (user === 'owner') {
           expect(rows.filter((r) => r.entity === 'issueProjection').map((r) => r.entityId)).toEqual(
-            ['shared', 'private'],
+            // In issue id order, the order the table is paged in.
+            ['private', 'shared'],
           )
         }
         expect(rows.every((r) => r.seq === output[0].seq)).toBe(true)

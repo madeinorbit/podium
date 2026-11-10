@@ -36,20 +36,25 @@ async function fixture(options: { monitorMs?: number; wedgedMs?: number } = {}) 
     },
   }
 }
+/**
+ * One real record and one step of the feed's head (POD-6770): the load is
+ * built from the model tables, so a row is an agent profile (every principal
+ * reads every profile) with `text` as its instructions. The appended change
+ * only moves the head; its payload is never read.
+ */
 function append(writer: SqlDatabase, id: string, text = 'x') {
-  const payload = JSON.stringify({ id, text })
   writer.exec('BEGIN IMMEDIATE')
   try {
     writer
       .prepare(
-        "INSERT INTO changes(entity,entity_id,op,payload,event_time) VALUES ('repo',?,'upsert',?,1)",
+        "INSERT INTO agent_profiles(id,name,instructions,created_at,updated_at) VALUES (?,?,?,'t0','t0')",
       )
-      .run(id, payload)
+      .run(id, `profile ${id}`, text)
     writer
       .prepare(
-        "INSERT OR REPLACE INTO change_latest(entity,entity_id,seq,payload) VALUES ('repo',?,last_insert_rowid(),?)",
+        "INSERT INTO changes(entity,entity_id,op,payload,event_time) VALUES ('agentProfile',?,'upsert','{}',1)",
       )
-      .run(id, payload)
+      .run(id)
     writer.exec('COMMIT')
   } catch (error) {
     writer.exec('ROLLBACK')
@@ -86,9 +91,12 @@ describe('real sync worker boundary', () => {
         .split('\n')
         .map((line) => JSON.parse(line))
       expect(lines[0]).toEqual(await transfer.meta)
-      expect(lines.at(-1)).toMatchObject({ type: 'syncComplete', rows: 300 })
+      expect(lines.at(-1)).toMatchObject({ type: 'syncComplete' })
       expect(
-        lines.filter((row) => row.type === 'feedBootstrap').flatMap((row) => row.changes),
+        lines
+          .filter((row) => row.type === 'feedBootstrap')
+          .flatMap((row) => row.changes)
+          .filter((change) => change.entity === 'agentProfile'),
       ).toHaveLength(300)
       expect(encoded.byteLength).toBeLessThan(decoded.length / 10)
       await checkpoint(f.writer)
@@ -130,14 +138,18 @@ describe('real sync worker boundary', () => {
         .map((line) => JSON.parse(line))
       clearInterval(timer)
       timer = undefined
-      const actual = output.filter((r) => r.type === 'feedBootstrap').flatMap((r) => r.changes)
+      const actual = output
+        .filter((r) => r.type === 'feedBootstrap')
+        .flatMap((r) => r.changes)
+        .filter((r) => r.entity === 'agentProfile')
+      // The profiles whose append is at or below the head the load is stamped
+      // with: each append writes its profile and its change in one transaction.
       const expected = f.writer
-        .prepare('SELECT seq,entity_id FROM change_latest WHERE seq <= ? ORDER BY seq')
-        .all(meta.seq) as { seq: number; entity_id: string }[]
-      expect(actual.map((r) => [r.seq, r.entityId])).toEqual(
-        expected.map((r) => [r.seq, r.entity_id]),
-      )
-      expect(actual.every((r) => r.seq <= meta.seq)).toBe(true)
+        .prepare('SELECT entity_id FROM changes WHERE seq <= ? ORDER BY entity_id')
+        .all(meta.seq) as { entity_id: string }[]
+      expect(actual.map((r) => r.entityId).sort()).toEqual(expected.map((r) => r.entity_id))
+      // Every row carries the head number.
+      expect(actual.every((r) => r.seq === meta.seq)).toBe(true)
       expect(output.at(-1).seq).toBe(meta.seq)
       expect(f.client.activeJobCount()).toBe(0)
       await checkpoint(f.writer)
@@ -256,34 +268,80 @@ it.each([
   }
 }, 30_000)
 
-it.each(['identity', 'gzip', 'zstd'] as const)('pins delta rows and floor to its snapshot with %s', async encoding => {
+it.each([
+  'identity',
+  'gzip',
+  'zstd',
+] as const)('pins delta rows and floor to its snapshot with %s', async (encoding) => {
   const f = await fixture()
   try {
     for (let i = 0; i < 100; i++) append(f.writer, `delta-${i}`, 'x'.repeat(4096))
-    const transfer = f.client.delta({ ...job('delta-snapshot', Date.now() + 10_000), mode: 'delta', from: 0, pageRows: 10, encoding })
-    expect(await transfer.meta).toMatchObject({ mode: 'delta', fromSeq: 0, seq: 100, minAvailableSeq: 1 })
+    const transfer = f.client.delta({
+      ...job('delta-snapshot', Date.now() + 10_000),
+      mode: 'delta',
+      from: 0,
+      pageRows: 10,
+      encoding,
+    })
+    expect(await transfer.meta).toMatchObject({
+      mode: 'delta',
+      fromSeq: 0,
+      seq: 100,
+      minAvailableSeq: 1,
+    })
     append(f.writer, 'later')
     f.writer.exec('DELETE FROM changes WHERE seq < 50')
     let bytes = Buffer.from(await new Response(transfer.body).arrayBuffer())
     if (encoding === 'gzip') bytes = gunzipSync(bytes)
     if (encoding === 'zstd') bytes = zstdDecompressSync(bytes)
-    const lines = bytes.toString().trim().split('\n').map(line => JSON.parse(line))
-    const pages = lines.filter(line => line.type === 'feedDelta')
-    expect(pages.flatMap(page => page.changes).length).toBe(100)
-    expect(pages.every(page => page.minAvailableSeq === 1)).toBe(true)
+    const lines = bytes
+      .toString()
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+    const pages = lines.filter((line) => line.type === 'feedDelta')
+    expect(pages.flatMap((page) => page.changes).length).toBe(100)
+    expect(pages.every((page) => page.minAvailableSeq === 1)).toBe(true)
     expect(lines.at(-1)).toMatchObject({ type: 'syncComplete', seq: 100, rows: 100, records: 10 })
     await transfer.completed
     await checkpoint(f.writer)
-    const refused = f.client.delta({ ...job('delta-compacted', Date.now() + 10_000), mode: 'delta', from: 0 })
+    const refused = f.client.delta({
+      ...job('delta-compacted', Date.now() + 10_000),
+      mode: 'delta',
+      from: 0,
+    })
     // Settle through the normal event loop before Bun's matcher inspects the error.
-    expect(await refused.meta.then(() => undefined, error => error)).toMatchObject({ reason: 'compacted-or-unknown' })
+    expect(
+      await refused.meta.then(
+        () => undefined,
+        (error) => error,
+      ),
+    ).toMatchObject({ reason: 'compacted-or-unknown' })
     await refused.completed
-    const future = f.client.delta({ ...job('delta-future', Date.now() + 10_000), mode: 'delta', from: 200 })
-    expect(await future.meta.then(() => undefined, error => error)).toMatchObject({ reason: 'future-cursor' })
+    const future = f.client.delta({
+      ...job('delta-future', Date.now() + 10_000),
+      mode: 'delta',
+      from: 200,
+    })
+    expect(
+      await future.meta.then(
+        () => undefined,
+        (error) => error,
+      ),
+    ).toMatchObject({ reason: 'future-cursor' })
     await future.completed
-    const empty = f.client.delta({ ...job('delta-empty', Date.now() + 10_000), mode: 'delta', from: 101 })
-    const emptyRows = (await text(empty.body)).trim().split('\n').map(line => JSON.parse(line))
+    const empty = f.client.delta({
+      ...job('delta-empty', Date.now() + 10_000),
+      mode: 'delta',
+      from: 101,
+    })
+    const emptyRows = (await text(empty.body))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
     expect(emptyRows[1]).toMatchObject({ type: 'feedDelta', fromSeq: 101, seq: 101, changes: [] })
     await empty.completed
-  } finally { await f.close() }
+  } finally {
+    await f.close()
+  }
 }, 30_000)

@@ -69,18 +69,27 @@ const internals = (reg: SessionRegistry) =>
   reg as unknown as { ledger: Ledger; store: SessionStore; writes: WriteContexts }
 
 /**
- * Append `count` conversation rows to the change log, through the Ledger — the
- * same seam `MemoryService.reconcileConversations` writes them on. Their ids are
- * the `resumeValue`s the policy will be asked to resolve.
+ * Index `count` conversations and commit them through the Ledger, as the
+ * discovery write does: the rows are real, and the commit names their records
+ * (compare at save, POD-6770), so the bootstrap, which is built from the
+ * tables, has them to ask the policy about. Their ids are the `resumeValue`s
+ * the policy will be asked to resolve. Returns how many changes were appended.
  */
 async function seedConversations(reg: SessionRegistry, count: number): Promise<number> {
-  const specs: EntityChangeSpec[] = Array.from({ length: count }, (_, i) => ({
-    entity: 'conversation',
+  const { store, writes } = internals(reg)
+  const rows = Array.from({ length: count }, (_, i) => ({
     id: `conv-${i}`,
-    op: 'upsert',
-    value: { id: `conv-${i}`, machineId: 'm1', nativeId: `conv-${i}` },
+    agentKind: 'claude-code' as const,
+    providerId: 'claude-code-jsonl',
+    machineId: store.hostMachineId,
   }))
-  return (await internals(reg).writes.system('conversations.discovery').capture(specs)).length
+  const committed = await writes.system('conversations.discovery').commit({
+    affects: rows.map(({ id }) => ({ entity: 'conversation' as const, id })),
+    write: async (scope) => {
+      await store.conversations.index.upsert(scope, rows)
+    },
+  })
+  return committed.changes.length
 }
 
 /** How many times a bootstrap loads the WHOLE sessions table. */
@@ -251,11 +260,12 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
     }
     // Before POD-3261 this fixture made 5 latest-state folds (one anchor scan
     // plus current values) and 2 full session loads; until POD-6156 it made one
-    // fold of the whole installed world per append. Now nothing reads the whole
-    // world: the subjects' values are one grouped read by key, and the issues'
-    // sessions one indexed read.
+    // fold of the whole installed world per append, and until POD-6770 one
+    // grouped read of the installed copy by key. Now nothing reads the stored
+    // copy at all: the subjects' current values are built from the model
+    // tables, and the issues' sessions are one indexed read.
     expect(latestStates).toHaveBeenCalledTimes(0)
-    expect(installedReads).toHaveBeenCalledTimes(1)
+    expect(installedReads).toHaveBeenCalledTimes(0)
     expect(sessionLoads).toHaveBeenCalledTimes(1)
     expect(wholeTableLoads).toHaveBeenCalledTimes(0)
     expect(
@@ -296,7 +306,7 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
     // Each delivery reads the database afresh, so current values cannot come
     // from the previous delivery.
     expect(latestStates).toHaveBeenCalledTimes(0)
-    expect(installedReads).toHaveBeenCalledTimes(2)
+    expect(installedReads).toHaveBeenCalledTimes(0)
     expect(sessionLoads).toHaveBeenCalledTimes(2)
     expect(second.changes).toContainEqual(
       expect.objectContaining({
@@ -346,13 +356,13 @@ describe('POD-1732 — a bootstrap resolves visibility in batches, not per row',
  */
 const OTHER_OWNER = asUserId('usr_someone_else')
 
-/** Issue ids in the change log, owned by somebody else and read-granted to
- *  OWNER — so every one of them reaches the grant check rather than stopping at
- *  the owner check. No durable issue row is written on purpose: an absent row is
- *  the same miss a row owned by another user produces, by the same line. */
+/** Issues owned by somebody else and read-granted to OWNER, so every one of
+ *  them reaches the grant read. Real rows: the bootstrap is built from the
+ *  model tables (POD-6770), so an entry with no row is not in the world. */
 async function seedGrantedIssues(reg: SessionRegistry, count: number): Promise<number> {
   const { store } = internals(reg)
   const ids = Array.from({ length: count }, (_, i) => `iss_shared_${i}`)
+  await store.repos.addRepo('/r', store.hostMachineId)
   for (const id of ids) {
     await store.grants.upsert({
       resourceKind: 'issue',
@@ -367,16 +377,23 @@ async function seedGrantedIssues(reg: SessionRegistry, count: number): Promise<n
       onBehalfOf: OTHER_OWNER,
     })
   }
-  // As the kind's full truth: an issue write's record is built from its row
-  // (compare at save, POD-6769), and this probe wants entries with no row.
-  return (
-    await internals(reg)
-      .writes.system('boot.reconcile')
-      .reconcile(
-        'issueProjection',
-        ids.map((id) => ({ id, value: { id } })),
-      )
-  ).length
+  await store.transact(async () => {
+    for (const [index, id] of ids.entries()) {
+      await store.issues.upsertIssue(fixtureWriteScope(), {
+        ...issueRowFixture({ id, repoPath: '/r', seq: index + 1, ownerUserId: OTHER_OWNER }),
+        repoId: undefined,
+        machineId: store.hostMachineId,
+        parentId: null,
+        worktreePath: null,
+      } as never)
+    }
+  })
+  // The feed's head: the load is stamped with it.
+  await store.sync.appendChanges(
+    [{ entity: 'issueProjection', entityId: ids[0] ?? 'none', op: 'upsert', payload: '{}' }],
+    1000,
+  )
+  return (await store.issues.getIssues(ids)).size
 }
 
 /** Wait until the authority has delivered every captured batch. Its broadcast
@@ -454,11 +471,12 @@ describe('POD-6155 — feed passes read grants in one grouped query', () => {
       internals(large).ledger.authority.bootstrap(feedPrincipal),
     )
 
-    // No point read, and at either size one grouped read per resource kind the
-    // pass names: the issue edges once, never once per shared row.
+    // No point read, and the same grouped reads at either size, never one per
+    // shared row. Tasks are shared (POD-6288: every member reads every task),
+    // so a bootstrap reads no issue grant at all.
     expect(a.points).toBe(0)
     expect(b.points).toBe(0)
-    expect(a.byKind.get('issue')).toBe(1)
+    expect(a.byKind.get('issue')).toBeUndefined()
     expect(b.byKind).toEqual(a.byKind)
 
     // AND THE ANSWER IS UNCHANGED — the rows the grant admits are still in the

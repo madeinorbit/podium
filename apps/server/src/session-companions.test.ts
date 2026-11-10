@@ -7,11 +7,11 @@ import {
 } from '@podium/model'
 import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { userCommandPrincipal } from './command-principal'
 import type { FamilyState } from './modules/derived-family'
 import { disposeOracles, makeOracle } from './modules/sessions/oracle-support'
 import { SESSION_QUERIES } from './modules/sessions/queries'
 import { buildSuperagentTools } from './modules/superagent/tools'
-import { userCommandPrincipal } from './command-principal'
 import { privateResourceAccess } from './private-resources'
 
 const NOW = Date.parse('2026-10-02T12:00:00.000Z')
@@ -45,7 +45,11 @@ async function fixture() {
   const sessions = o.reg.modules.sessions
   // Sessions are private (POD-6283): B's session and A's session, each seen by
   // its owner only, so every per-user row below is its owner's.
-  const { sessionId } = await sessions.createSession({ agentKind: 'shell', cwd: '/p', ownerUserId: B })
+  const { sessionId } = await sessions.createSession({
+    agentKind: 'shell',
+    cwd: '/p',
+    ownerUserId: B,
+  })
   // A start names its owner: with three members an ownerless start is refused
   // (POD-6285, design §2.3), never handed to the first admin.
   const { sessionId: aSessionId } = await sessions.createSession({
@@ -144,14 +148,19 @@ describe('S1 session companion records', () => {
     expect((await f.stateRows(B))[0]?.readAt).toBe(new Date(NOW).toISOString())
     await sessions.state.markUnread(sessions.serverWriter, b, sessionId)
     await sessions.state.clearSnooze(sessions.serverWriter, b, sessionId)
-    expect(await f.stateRows(B)).toEqual([{ userId: B, sessionId, readAt: null }])
+    // A cleared row is absent from a start-up load, which is built from the
+    // tables: the client reads absence as cleared (POD-6770).
+    expect(await f.stateRows(B)).toEqual([])
     expect(await f.stateRows(A)).toEqual(rows)
   })
 
   it('activity snooze clear and terminal unread re-arm update the affected session only', async () => {
     const f = await fixture()
     const { sessions, sessionId, aSessionId, A, a, b } = f
-    for (const [principal, id] of [[a, aSessionId], [b, sessionId]] as const) {
+    for (const [principal, id] of [
+      [a, aSessionId],
+      [b, sessionId],
+    ] as const) {
       await sessions.state.markRead(sessions.serverWriter, principal, id)
       await sessions.state.setSnooze(sessions.serverWriter, principal, id, null)
     }
@@ -163,11 +172,8 @@ describe('S1 session companion records', () => {
     })
     expect(await sessions.state.isSnoozed(A, aSessionId)).toBe(true)
     await sessions.state.rearmUnreadForAll(sessions.serverWriter, sessionId)
-    expect((await f.stateRows(B)).find((row) => row.sessionId === sessionId)).toEqual({
-      userId: B,
-      sessionId,
-      readAt: null,
-    })
+    // Unread again: no row, so no record in a start-up load (POD-6770).
+    expect((await f.stateRows(B)).find((row) => row.sessionId === sessionId)).toBeUndefined()
     expect((await f.stateRows(A)).find((row) => row.sessionId === aSessionId)).toEqual({
       userId: A,
       sessionId: aSessionId,
@@ -193,13 +199,14 @@ describe('S1 session companion records', () => {
     expect(await f.reg.changeLedger.cursor()).toBe(cursor)
   })
 
-  it('boot reconciliation recovers source markers and retains an explicit cleared row', async () => {
+  it('boot reconciliation carries the personal rows; a cleared row is absent', async () => {
     const f = await fixture()
     await f.sessions.state.markRead(f.sessions.serverWriter, f.b, f.sessionId)
     await f.sessions.state.markUnread(f.sessions.serverWriter, f.b, f.sessionId)
     await f.sessions.state.setSnooze(f.sessions.serverWriter, f.a, f.aSessionId, null)
     await f.sessions.loadFromStore()
-    expect(await f.stateRows(B)).toEqual([{ userId: B, sessionId: f.sessionId, readAt: null }])
+    // Read, then unread: no row is left, and the boot keeps no marker for it.
+    expect(await f.stateRows(B)).toEqual([])
     expect(await f.stateRows(f.A)).toEqual([
       { userId: f.A, sessionId: f.aSessionId, readAt: null, snoozedUntil: null },
     ])
@@ -255,7 +262,12 @@ describe('S1 session companion records', () => {
     expect(listed.find((row) => row.sessionId === f.sessionId)).not.toHaveProperty('snoozedUntil')
     // Far in the future: the store drops a snooze whose time has passed by the
     // wall clock, and this read is not on the oracle's frozen clock.
-    await f.sessions.state.setSnooze(f.sessions.serverWriter, f.b, f.sessionId, '2099-10-03T00:00:00.000Z')
+    await f.sessions.state.setSnooze(
+      f.sessions.serverWriter,
+      f.b,
+      f.sessionId,
+      '2099-10-03T00:00:00.000Z',
+    )
     expect(
       (JSON.parse(await tool.run({})) as typeof listed).find((row) => row.sessionId === f.sessionId)
         ?.snoozedUntil,

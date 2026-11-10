@@ -99,7 +99,10 @@ async function world(size: number, delta = false): Promise<World> {
   await settle(reg)
   const from = await store.sync.maxChangeSeq()
   if (delta) {
-    for (const id of issues) await reg.issues.crud.update(reg.issues.reports.store.serverWriter, id, { title: `Renamed ${id}` })
+    for (const id of issues)
+      await reg.issues.crud.update(reg.issues.reports.store.serverWriter, id, {
+        title: `Renamed ${id}`,
+      })
     await settle(reg)
   }
   // The feed identity is minted on first use and cached; mint it here.
@@ -120,7 +123,8 @@ const teardown = async (w: World) => {
   rmSync(w.dir, { recursive: true, force: true })
 }
 
-const principalOf = (w: World): Principal => ({ ...DEVICE_GRADE_PRINCIPAL, user: w.owner }) as Principal
+const principalOf = (w: World): Principal =>
+  ({ ...DEVICE_GRADE_PRINCIPAL, user: w.owner }) as Principal
 
 /**
  * Count what a worker job runs on the read-only handle it opens: every
@@ -132,7 +136,9 @@ async function countWorker(run: () => unknown): Promise<{ result: unknown } & St
   const prepared: string[] = []
   const detachers: (() => void)[] = []
   worker.onOpen = (db) => {
-    detachers.push(probeStatements({ db: db as object }, (observation) => driven.push(observation.sql)))
+    detachers.push(
+      probeStatements({ db: db as object }, (observation) => driven.push(observation.sql)),
+    )
     const handle = db as SqlDatabase
     const prepare = handle.prepare.bind(handle)
     handle.prepare = (sql: string) => {
@@ -158,7 +164,10 @@ async function records(w: World, job: SyncJob): Promise<{ type: string; changes?
   for await (const chunk of produceBootstrap(w.path, job, new AbortController().signal, () => {})) {
     text += new TextDecoder().decode(chunk)
   }
-  return text.trim().split('\n').map((line) => JSON.parse(line))
+  return text
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line))
 }
 
 const job = (w: World, extra: Partial<SyncJob> = {}): SyncJob =>
@@ -183,7 +192,9 @@ const rowsOf = (out: { type: string; changes?: unknown[] }[], type: string) =>
  */
 const plantPerIssue = (w: World): (() => void) => {
   const original = SyncRepository.prototype.maxChangeSeq
-  const spy = vi.spyOn(SyncRepository.prototype, 'maxChangeSeq').mockImplementation(async function (this: SyncRepository) {
+  const spy = vi.spyOn(SyncRepository.prototype, 'maxChangeSeq').mockImplementation(async function (
+    this: SyncRepository,
+  ) {
     for (let i = 0; i < w.issues.length; i++) await original.call(this)
     return await original.call(this)
   })
@@ -201,13 +212,15 @@ const plantPerIssue = (w: World): (() => void) => {
  */
 const plantPerSessionRead = (w: World): (() => void) => {
   const original = SessionsRepository.prototype.getSessions
-  const spy = vi.spyOn(SessionsRepository.prototype, 'getSessions').mockImplementation(async function (
-    this: SessionsRepository,
-    ...args: Parameters<SessionsRepository['getSessions']>
-  ) {
-    for (const id of w.issues) await original.call(this, [id])
-    return await original.apply(this, args)
-  })
+  const spy = vi
+    .spyOn(SessionsRepository.prototype, 'getSessions')
+    .mockImplementation(async function (
+      this: SessionsRepository,
+      ...args: Parameters<SessionsRepository['getSessions']>
+    ) {
+      for (const id of w.issues) await original.call(this, [id])
+      return await original.apply(this, args)
+    })
   return () => spy.mockRestore()
 }
 
@@ -218,13 +231,15 @@ const plantPerSessionRead = (w: World): (() => void) => {
  */
 const plantPerAudienceRead = (w: World): (() => void) => {
   const original = GrantsRepository.prototype.visibilityAudiencesFor
-  const spy = vi.spyOn(GrantsRepository.prototype, 'visibilityAudiencesFor').mockImplementation(async function (
-    this: GrantsRepository,
-    ...args: Parameters<GrantsRepository['visibilityAudiencesFor']>
-  ) {
-    for (const id of w.issues) await original.call(this, 'issue', [id])
-    return await original.apply(this, args)
-  })
+  const spy = vi
+    .spyOn(GrantsRepository.prototype, 'visibilityAudiencesFor')
+    .mockImplementation(async function (
+      this: GrantsRepository,
+      ...args: Parameters<GrantsRepository['visibilityAudiencesFor']>
+    ) {
+      for (const id of w.issues) await original.call(this, 'issue', [id])
+      return await original.apply(this, args)
+    })
   return () => spy.mockRestore()
 }
 
@@ -258,19 +273,19 @@ describe('sync worker: pinned statement counts at 5 and 200', () => {
     true,
   )
 
-  // The producer's four raw statements (the snapshot's head and floor, the two
-  // passes over change_latest) and the visibility prefetch's two reads
-  // (issues, sessions). RE-PINNED 8 -> 7 FOR POD-6341: the prefetch's issue
-  // grants read (#06b41178) left with POD-6288 (tasks are shared, design §2.2,
-  // §4.1); the issues read gained columns, not a statement. RE-PINNED 7 -> 6
-  // FOR POD-6766: the issue-event subjects are no longer read from
-  // change_latest up front; an issue's rescope reads the feed's window.
+  // RE-PINNED 6 -> 65 FOR POD-6770: the load is built from the model tables.
+  // The snapshot's head and floor, then for each of the 37 kinds its
+  // `streamAll()` reads (one or a few statements per page) and the sharing
+  // rules' reads for that page. The count is per PAGE of 500 records, by
+  // design: it is the same at 5 and 200 rows, and a kind with more than one
+  // page pays its reads once per page. Before, it was two passes over
+  // `change_latest` and one prefetch for the whole world.
   it('a bootstrap for the owner', async () => {
-    await expectConstantStatements(bootstrap, 6)
+    await expectConstantStatements(bootstrap, 65)
   })
 
   it('a bootstrap pin is armed', async () => {
-    await expectArmed(bootstrap, 6, plantPerSessionRead)
+    await expectArmed(bootstrap, 65, plantPerSessionRead)
   })
 
   const delta = pin(
@@ -279,7 +294,9 @@ describe('sync worker: pinned statement counts at 5 and 200', () => {
     // One page, whatever the size: a page is one read by design (see the header).
     async (w) => await records(w, job(w, { mode: 'delta', from: w.from, pageRows: 10_000 })),
     (result, _w, size) => {
-      const rows = rowsOf(result as { type: string; changes?: unknown[] }[], 'feedDelta') as { entity: string }[]
+      const rows = rowsOf(result as { type: string; changes?: unknown[] }[], 'feedDelta') as {
+        entity: string
+      }[]
       expect(rows.filter((row) => row.entity === 'issueProjection')).toHaveLength(size)
     },
     true,
@@ -312,14 +329,15 @@ describe('in-process syncChangesSince: pinned statement counts at 5 and 200', ()
     },
   )
 
-  // RE-PINNED 7 -> 6 FOR POD-6341: the issue grants read (#06b41178) left with
-  // POD-6288 (tasks are shared, design §2.2, §4.1).
+  // RE-PINNED 6 -> 63 FOR POD-6770: the in-process snapshot builds every
+  // kind from the model tables too (`Authority.bootstrap`), then prepares the
+  // sharing rules once for the whole world.
   it('a snapshot for the owner', async () => {
-    await expectConstantStatements(snapshot, 6)
+    await expectConstantStatements(snapshot, 63)
   })
 
   it('a snapshot pin is armed', async () => {
-    await expectArmed(snapshot, 6, plantPerIssue)
+    await expectArmed(snapshot, 63, plantPerIssue)
   })
 
   const since = pin(
@@ -370,7 +388,10 @@ describe('client hello: pinned statement counts at 5 and 200', () => {
       ...(feedCursor ? { feedCursor } : {}),
     } as never)
 
-  const helloPin = (name: string, cursor: (c: Client) => Promise<unknown>): StatementPin<World> => ({
+  const helloPin = (
+    name: string,
+    cursor: (c: Client) => Promise<unknown>,
+  ): StatementPin<World> => ({
     name,
     setup: connected,
     target: (w) => w.store,

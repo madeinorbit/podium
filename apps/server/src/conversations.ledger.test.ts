@@ -1,14 +1,13 @@
-import { CHANGE_LOG_OBSERVER } from '@podium/sync'
 import {
   asMutationId,
-  type ConversationSummaryWire,
   type ConversationDiscoveryWire,
   type ConversationDiscoveryWireInput,
+  type ConversationSummaryWire,
   firstAdminMemberId,
 } from '@podium/model'
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
-import { Ledger } from '@podium/sync'
+import { CHANGE_LOG_OBSERVER, Ledger } from '@podium/sync'
 import { fixtureWriteScope, testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { MemoryReaderView } from './modules/memory/service'
@@ -212,14 +211,18 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
         ])
         await store.conversations.index.delete(fixtureWriteScope(), store.hostMachineId, ['c-old'])
       },
-      changes: () => [
-        { entity: 'conversation', id: 'c-new', op: 'upsert', value: { id: 'c-new' } },
+      // The conversation kind compares at save (POD-6770): the write names
+      // its records and the Authority builds them around it.
+      affects: [
+        { entity: 'conversation', id: 'c-new' },
+        { entity: 'conversation', id: 'c-old' },
       ],
     })
     const after = (await store.conversations.index.search({})).map((r) => r.id)
     expect(after).toContain('c-new')
     expect(after).not.toContain('c-old')
-    expect(await ledger.cursor()).toBe(cursorBefore + 1)
+    // The new conversation's upsert and the old one's remove.
+    expect(await ledger.cursor()).toBe(cursorBefore + 2)
   })
 
   it('(a2) a discovery push with `removed` commits the remove durably with the row delete', async () => {
