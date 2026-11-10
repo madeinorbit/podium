@@ -122,7 +122,6 @@ export interface RecordReads {
   readonly store: Pick<
     SessionStore,
     | 'issues'
-    | 'repos'
     | 'sessions'
     | 'users'
     | 'shipping'
