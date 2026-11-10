@@ -799,9 +799,9 @@ export class SettingsService {
    * contract's error-consistency cell: distinguishing them would tell a caller
    * whether someone else's ceremony is open.
    */
-  async pollTelegramSetup(setupId: string): Promise<TelegramSetupPollResult> {
+  async pollTelegramSetup(setupId: string, actor: UserId): Promise<TelegramSetupPollResult> {
     const setup = this.telegramSetups.get(setupId)
-    if (!setup) return { status: 'expired' }
+    if (!setup || setup.mint.userId !== actor) return { status: 'expired' }
     const now = this.nowIso()
     if (!telegramClaimCodeIsLive(setup.mint, now)) {
       this.telegramSetups.delete(setupId)
@@ -834,9 +834,9 @@ export class SettingsService {
     // and POD-1213 made it PER-USER, which is what ADR 9 D8 S3 asked for and
     // POD-1080 recorded as still outstanding.
     //
-    // IT IS WRITTEN FOR `setup.mint.userId`, NOT FOR THE POLLING CALLER. The two
-    // are the same principal today, and naming the mint's user is what keeps them
-    // the same principal when they stop being: the whole mechanism of D22.1 is
+    // IT IS WRITTEN FOR `setup.mint.userId`, NOT FOR THE POLLING CALLER. The caller
+    // must own the setup above, and naming the mint's user keeps ownership inside
+    // the ceremony: the whole mechanism of D22.1 is
     // that identity is captured at MINT time on an authenticated transport, and a
     // routing address derived from whoever happened to poll would be a second,
     // weaker answer sitting beside it. Both halves of the ceremony now name one

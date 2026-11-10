@@ -1,4 +1,4 @@
-import { resolvePrincipal } from '../../command-principal'
+import { resolvePrincipal, userCommandPrincipal } from '../../command-principal'
 /**
  * THE SETTINGS GATE AND TRAIL, AGAINST THE REAL DERIVED ROUTER (POD-421).
  *
@@ -69,7 +69,8 @@ async function harness(role: UserRole | undefined) {
   // gate must see the requested role (including unreadable), while unrelated
   // session-state bootstrap remains a production-valid account read.
   const users = store.users as { roleOf: (id: UserId) => Promise<UserRole | undefined> }
-  users.roleOf = async (id: string) => (id === firstAdminMemberId() ? role : undefined)
+  const storedRoleOf = users.roleOf.bind(users)
+  users.roleOf = async (id: UserId) => (id === firstAdminMemberId() ? role : storedRoleOf(id))
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const capability = {
@@ -85,6 +86,16 @@ async function harness(role: UserRole | undefined) {
       capability,
       principal: resolvePrincipal(capability, { parentSessionOf: () => undefined }),
     }),
+    callAsMember: (user: UserId) => {
+      const principal = userCommandPrincipal(user, 'member')
+      return appRouter.createCaller({
+        registry,
+        repos,
+        superagent,
+        capability: principal.capability,
+        principal,
+      })
+    },
     audit: async () => await store.settingsAudit.list(),
   }
 }
@@ -228,6 +239,27 @@ describe('member Telegram disconnect', () => {
     ).toMatchObject({ outcome: 'applied', onBehalfOf: alice })
     await call.settings.telegramDisconnect({})
     expect(await store.telegramBindings.listForUser(alice)).toEqual([])
+  })
+
+  it('will not redeem another member’s setup handle', async () => {
+    const { call, callAsMember, store, bob } = await connected()
+    await store.secrets.set(
+      'notifications.telegramBotToken',
+      '123456:bot-token',
+      '2026-11-10T10:00:00.000Z',
+    )
+    const setup = await call.settings.telegramSetupStart()
+    const other = callAsMember(bob)
+    expect(await other.settings.telegramSetupPoll({ setupId: setup.setupId })).toEqual({
+      status: 'expired',
+    })
+    expect(await call.settings.telegramSetupPoll({ setupId: setup.setupId })).toMatchObject({
+      status: 'connected',
+      chatId: '444',
+    })
+    expect((await store.telegramBindings.listForUser(bob)).map((row) => row.chatId)).toEqual([
+      '333',
+    ])
   })
 
   it('invalidates an outstanding connection code on disconnect', async () => {

@@ -121,8 +121,8 @@ export const SETTINGS_COMMANDS_TRPC = {
   },
   'settings.telegramSetupPoll': {
     contract: SETTINGS_CONTRACTS['settings.telegramSetupPoll'],
-    handler: (async (svc, input) =>
-      await svc.pollTelegramSetup(input.setupId)) satisfies SettingsHandler<
+    handler: (async (svc, input, actor) =>
+      await svc.pollTelegramSetup(input.setupId, actor)) satisfies SettingsHandler<
       z.infer<(typeof SETTINGS_CONTRACTS)['settings.telegramSetupPoll']['input']>,
       unknown
     >,
