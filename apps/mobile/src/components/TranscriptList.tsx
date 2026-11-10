@@ -4,6 +4,7 @@ import {
   activitySingletonDisplay,
   type ChatBlock,
   failLine,
+  formatClock,
   isOperatorQuestion,
   type ParsedEnvelope,
   pointerFallbackBody,
@@ -225,14 +226,11 @@ function envelopeLine(envelope: ParsedEnvelope): string {
   return envelopeText(envelope).replace(/\s+/g, ' ').trim()
 }
 
-/** `m:ss`, or `h:mm:ss` past the hour: the murmur column's clock (board Chat). */
+/** The murmur column's clock (board Chat): the shared `m:ss` motion clock,
+ *  or nothing when there is no duration to show. */
 export function murmurClock(ms: number | undefined): string | undefined {
   if (ms === undefined || !Number.isFinite(ms) || ms < 0) return undefined
-  const total = Math.round(ms / 1000)
-  const h = Math.floor(total / 3600)
-  const m = Math.floor((total % 3600) / 60)
-  const sec = String(total % 60).padStart(2, '0')
-  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`
+  return formatClock(ms)
 }
 
 /**

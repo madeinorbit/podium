@@ -12,8 +12,10 @@ import {
   type ConfigurableVerdict,
   canConfigureModel,
   compactModelId,
+  configureResultNotice,
   menuEffort,
   menuModel,
+  modelReadoutReason,
   readoutEffort,
   readoutModel,
 } from '@/lib/session-model'
@@ -87,18 +89,13 @@ const ConfigurableChip = observer(function ConfigurableChip({
   const configure = useCallback(
     async (patch: { model?: string; effort?: string }) => {
       try {
-        const result = await trpc.sessions.configure.mutate({ sessionId, ...patch })
-        if ('ok' in result) {
-          toast.success(
-            result.effective === 'next-turn'
-              ? 'The change applies from the next turn.'
-              : 'The running session changed.',
-          )
-          return
-        }
-        toast.error(result.detail ?? `Could not change the running session (${result.reason}).`)
+        const notice = configureResultNotice(
+          await trpc.sessions.configure.mutate({ sessionId, ...patch }),
+        )
+        if (notice.ok) toast.success(notice.text)
+        else toast.error(notice.text)
       } catch {
-        toast.error('Could not change the running session.')
+        toast.error(configureResultNotice(undefined).text)
       }
     },
     [sessionId, trpc],
@@ -115,7 +112,9 @@ const ConfigurableChip = observer(function ConfigurableChip({
           if (next !== model) void configure({ model: next })
         }}
       />
-      <span className="shrink-0" aria-hidden="true">·</span>
+      <span className="shrink-0" aria-hidden="true">
+        ·
+      </span>
       <EffortPicker
         variant="inline"
         agentKind={agentKind}
@@ -183,25 +182,5 @@ const ReadoutChip = observer(function ReadoutChip({
   )
 })
 
-/** Why this session's model cannot be changed from here: where the shown value
- *  comes from, then what stops the change. The harness owns model selection;
- *  Podium reports it. */
-export function readoutReason(
-  session: Pick<ModelChipSession, 'observedModel' | 'requestedModel'>,
-  verdict: ConfigurableVerdict,
-): string {
-  const provenance = session.observedModel
-    ? 'The model this agent is running, read from its transcript.'
-    : session.requestedModel
-      ? 'Requested on the running session; it applies from the next message.'
-      : 'Requested at launch; not yet seen in the transcript.'
-  const capability =
-    verdict === 'no'
-      ? 'This harness takes its model and effort at launch, so they cannot change mid-conversation. Start a new session to use another.'
-      : verdict === 'yes'
-        ? 'The session is not running. Wake it to change its model or effort.'
-        : // Unknown is said as unknown: the daemon has not reported this
-          // session's driver, and claiming either answer would be invented.
-          'This session has not reported whether its model can change while it runs.'
-  return `${provenance} ${capability}`
-}
+/** The shared sentence (client-core), kept under the web's name. */
+export const readoutReason = modelReadoutReason

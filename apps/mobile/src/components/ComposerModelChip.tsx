@@ -8,11 +8,12 @@ import {
 import { useHarnessDescriptors, useModelCatalog, useStoreHandle } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
-  type ConfigurableVerdict,
   canConfigureModel,
   compactModelId,
+  configureResultNotice,
   menuEffort,
   menuModel,
+  modelReadoutReason,
   readoutEffort,
   readoutModel,
 } from '@podium/client-core/values'
@@ -70,18 +71,11 @@ export const ComposerModelChip = observer(function ComposerModelChip({
     async (patch: { model?: string; effort?: string }) => {
       if (!sessionId) return
       try {
-        const result = await trpc.sessions.configure.mutate({ sessionId, ...patch })
-        if ('ok' in result) {
-          onNotice?.(
-            result.effective === 'next-turn'
-              ? 'The change applies from the next turn.'
-              : 'The running session changed.',
-          )
-          return
-        }
-        onNotice?.(result.detail ?? `Could not change the running session (${result.reason}).`)
+        onNotice?.(
+          configureResultNotice(await trpc.sessions.configure.mutate({ sessionId, ...patch })).text,
+        )
       } catch {
-        onNotice?.('Could not change the running session.')
+        onNotice?.(configureResultNotice(undefined).text)
       }
     },
     [sessionId, trpc, onNotice],
@@ -164,7 +158,7 @@ export const ComposerModelChip = observer(function ComposerModelChip({
     <Text
       testID="session-model"
       accessibilityLabel={text}
-      accessibilityHint={readoutReason(session, verdict)}
+      accessibilityHint={modelReadoutReason(session, verdict)}
       style={[styles.text, styles.readout]}
       numberOfLines={1}
     >
@@ -175,25 +169,6 @@ export const ComposerModelChip = observer(function ComposerModelChip({
 
 function chipText(model: string | undefined, effort: string | undefined): string {
   return [model, effort].filter(Boolean).join(' · ')
-}
-
-/** Why this session's model cannot change from here: the web chip's sentence. */
-export function readoutReason(
-  session: Pick<ModelChipSession, 'observedModel' | 'requestedModel'>,
-  verdict: ConfigurableVerdict,
-): string {
-  const provenance = session.observedModel
-    ? 'The model this agent is running, read from its transcript.'
-    : session.requestedModel
-      ? 'Requested on the running session; it applies from the next message.'
-      : 'Requested at launch; not yet seen in the transcript.'
-  const capability =
-    verdict === 'no'
-      ? 'This harness takes its model and effort at launch, so they cannot change mid-conversation.'
-      : verdict === 'yes'
-        ? 'The session is not running. Wake it to change its model or effort.'
-        : 'This session has not reported whether its model can change while it runs.'
-  return `${provenance} ${capability}`
 }
 
 const styles = StyleSheet.create({

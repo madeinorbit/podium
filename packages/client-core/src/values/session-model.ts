@@ -106,3 +106,46 @@ export function compactModelId(raw: string): string {
   }
   return words.join(' ')
 }
+
+/** Why this session's model cannot be changed from here: where the shown value
+ *  comes from, then what stops the change. The harness owns model selection;
+ *  Podium reports it. Shared by the web chip and the phone chip. */
+export function modelReadoutReason(
+  session: { observedModel?: string | null; requestedModel?: string | null },
+  verdict: ConfigurableVerdict,
+): string {
+  const provenance = session.observedModel
+    ? 'The model this agent is running, read from its transcript.'
+    : session.requestedModel
+      ? 'Requested on the running session; it applies from the next message.'
+      : 'Requested at launch; not yet seen in the transcript.'
+  const capability =
+    verdict === 'no'
+      ? 'This harness takes its model and effort at launch, so they cannot change mid-conversation. Start a new session to use another.'
+      : verdict === 'yes'
+        ? 'The session is not running. Wake it to change its model or effort.'
+        : // Unknown is said as unknown: the daemon has not reported this
+          // session's driver, and claiming either answer would be invented.
+          'This session has not reported whether its model can change while it runs.'
+  return `${provenance} ${capability}`
+}
+
+/** What a `sessions.configure` answer means to the operator, as one sentence
+ *  and whether it worked. `undefined` is a call that threw. */
+export function configureResultNotice(
+  result: { ok: unknown; effective?: string } | { reason: string; detail?: string } | undefined,
+): { ok: boolean; text: string } {
+  if (!result) return { ok: false, text: 'Could not change the running session.' }
+  if ('ok' in result)
+    return {
+      ok: true,
+      text:
+        result.effective === 'next-turn'
+          ? 'The change applies from the next turn.'
+          : 'The running session changed.',
+    }
+  return {
+    ok: false,
+    text: result.detail ?? `Could not change the running session (${result.reason}).`,
+  }
+}

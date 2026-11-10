@@ -35,10 +35,10 @@ vi.mock('react-native-svg', async () => {
 
 afterEach(cleanup)
 
-it('formats the murmur clock as m:ss, h:mm:ss past the hour', () => {
+it('formats the murmur clock with the shared m:ss motion clock', () => {
   expect(murmurClock(12_000)).toBe('0:12')
   expect(murmurClock(195_000)).toBe('3:15')
-  expect(murmurClock(3_725_000)).toBe('1:02:05')
+  expect(murmurClock(3_725_000)).toBe('62:05')
   expect(murmurClock(undefined)).toBeUndefined()
   expect(murmurClock(-1)).toBeUndefined()
 })

@@ -3,8 +3,10 @@ export {
   type ConfigurableVerdict,
   canConfigureModel,
   compactModelId,
+  configureResultNotice,
   menuEffort,
   menuModel,
+  modelReadoutReason,
   readoutEffort,
   readoutModel,
 } from '@podium/client-core/values'

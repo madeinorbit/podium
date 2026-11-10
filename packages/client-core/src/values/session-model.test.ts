@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   canConfigureModel,
   compactModelId,
+  configureResultNotice,
   menuEffort,
   menuModel,
+  modelReadoutReason,
   readoutEffort,
   readoutModel,
 } from './session-model'
@@ -109,5 +111,33 @@ describe('canConfigureModel', () => {
   it('says UNKNOWN when nothing was reported, and does NOT say no', () => {
     expect(canConfigureModel({})).toBe('unknown')
     expect(canConfigureModel({ configureFields: undefined })).toBe('unknown')
+  })
+})
+
+describe('chip sentences shared by web and phone (POD-2380)', () => {
+  it('says what a configure answer means', () => {
+    expect(configureResultNotice({ ok: true, effective: 'next-turn' })).toEqual({
+      ok: true,
+      text: 'The change applies from the next turn.',
+    })
+    expect(configureResultNotice({ ok: true, effective: 'now' }).text).toBe(
+      'The running session changed.',
+    )
+    expect(configureResultNotice({ reason: 'busy' })).toEqual({
+      ok: false,
+      text: 'Could not change the running session (busy).',
+    })
+    expect(configureResultNotice({ reason: 'busy', detail: 'Try later.' }).text).toBe('Try later.')
+    expect(configureResultNotice(undefined).ok).toBe(false)
+  })
+
+  it('names the source of the shown model, then what stops a change', () => {
+    expect(modelReadoutReason({ observedModel: 'opus' }, 'no')).toMatch(
+      /^The model this agent is running, read from its transcript\. This harness takes its model/,
+    )
+    expect(modelReadoutReason({ requestedModel: 'opus' }, 'yes')).toMatch(
+      /^Requested on the running session.*Wake it/,
+    )
+    expect(modelReadoutReason({}, 'unknown')).toMatch(/^Requested at launch.*has not reported/)
   })
 })
