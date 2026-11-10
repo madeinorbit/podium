@@ -217,7 +217,7 @@ it('keeps every static legacy Row label in the page catalog', () => {
   for (const [file, pageId] of Object.entries(files)) {
     const source = readFileSync(resolve(import.meta.dirname, 'sections', `${file}.tsx`), 'utf8')
     const page = SETTINGS_PAGES.find((entry) => entry.key === pageId)!
-    for (const match of source.matchAll(/<Row\s+label="([^"]+)"/g)) {
+    for (const match of source.matchAll(/<Row\b[^>]*?\blabel="([^"]+)"/gs)) {
       counted += 1
       expect(
         page.rows.some((entry) => entry.rowLabel === match[1]),

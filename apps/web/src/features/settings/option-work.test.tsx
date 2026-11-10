@@ -147,9 +147,22 @@ it('measures the mounted settings sections at 1x and 4x', async () => {
     const rowReads = vi.spyOn(pool, 'row')
     const settings = normalizeSettings({})
     const trpc = {
+      // The devices route now opens the Account page, which also mounts the
+      // profile/password section (POD-6652).
+      auth: {
+        profile: { query: async () => ({ email: null }) },
+        status: { query: async () => null },
+      },
       settings: {
         get: { query: async () => settings },
-        viewer: { query: async () => ({ permitted: {} }) },
+        viewer: {
+          query: async () => ({
+            permitted: {
+              'records.userPreferences.edit': true,
+              'records.instancePreferences.edit': true,
+            },
+          }),
+        },
         secretPresence: { query: async () => [] },
       },
       accounts: { list: { query: async () => [] } },
