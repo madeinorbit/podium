@@ -512,11 +512,13 @@ export function ValueRow({ value, ...props }: RowProps & { value: ReactNode }) {
   return <Row {...props} readOnly readOnlyValue={value} />
 }
 
-/** A secret flow receives only presence and the last four characters. For
- * Remove, its owner must supply an undo command; no secret material is read. */
+/** Secrets expose presence and a server fingerprint or masked identity, never
+ * previous material. Remove offers Undo only when the owner supplies an inverse. */
 export function SecretRow({
   present,
   last4,
+  fingerprint,
+  maskedIdentity,
   onSave,
   onRemove,
   hasPassword = false,
@@ -525,14 +527,31 @@ export function SecretRow({
   present: boolean
   hasPassword?: boolean
   last4?: string | null
+  fingerprint?: string | null
+  maskedIdentity?: string | null
   onSave: (value: string) => Promise<unknown>
-  onRemove?: () => Promise<() => Promise<unknown>>
+  onRemove?: () => Promise<void | (() => Promise<unknown>)>
 }) {
   const { openTakeover, closeTakeover } = useSettingsFrame()
   const [confirming, setConfirming] = useState(false)
   const row = useRowState(props)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
+  const identity = maskedIdentity ?? (last4 ? `•••• ${last4.slice(-4)}` : 'Set')
+  const display = (
+    <span className="settings-micro inline-flex flex-wrap items-center gap-1.5">
+      {identity}
+      {fingerprint && (
+        <span
+          className="rounded bg-chip px-1.5 py-0.5 font-mono"
+          title="Server fingerprint for telling keys apart; it contains no part of the token."
+          data-testid="secret-fingerprint"
+        >
+          {fingerprint}
+        </span>
+      )}
+    </span>
+  )
   const remove = async () => {
     if (!onRemove) return
     setError(null)
@@ -565,13 +584,11 @@ export function SecretRow({
     <>
       <Row
         {...props}
-        error={error}
-        pending={pending}
-        readOnlyValue={present ? `•••• ${last4?.slice(-4) ?? 'Set'}` : 'Not set'}
+        error={error ?? props.error}
+        pending={pending || props.pending}
+        readOnlyValue={present ? display : 'Not set'}
       >
-        {present && (
-          <span className="settings-micro font-mono">•••• {last4?.slice(-4) ?? 'Set'}</span>
-        )}
+        {present && display}
         <Button
           type="button"
           variant="outline"

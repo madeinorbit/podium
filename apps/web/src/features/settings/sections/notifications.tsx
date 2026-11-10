@@ -1,20 +1,20 @@
 import { CUE_SOUNDS, play, SOUNDS_ENABLED_KEY } from '@podium/client-core/sound'
+import type { ServerSecretKey } from '@podium/model/browser'
 import type { PodiumSettings } from '@podium/runtime'
-import { CheckCircle2, ExternalLink, Loader2 } from 'lucide-react'
+import { CheckCircle2, ExternalLink, Info, Send } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
-import type { JSX } from 'react'
-import { useState } from 'react'
+import { createContext, type JSX, useContext, useState } from 'react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Switch } from '@/components/ui/switch'
+import { Input } from '@/components/ui/input'
 import { useCountdown } from '@/lib/clock-hooks'
 import { useSettingsDraft } from '../readers'
-import { CommitInput, Row, Section } from './shared'
+import { useSettingsFrame } from '../settings-frame'
+import type { SecretSurfaceState } from './secrets'
+import { Row, SecretRow, Section, SwitchRow, TextRow } from './shared'
 
-/**
- * The guided Telegram connect flow's state machine. Owned by SettingsView (not
- * this section) so an in-flight poll survives switching to another tab — on
- * `connected` it also updates the parent's settings copy.
- */
+/** The existing SettingsView ceremony owns polling and the synced preference
+ * update. A context above SettingsFrame keeps an open takeover live. */
 export type TelegramSetupState =
   | { status: 'idle' }
   | { status: 'starting' }
@@ -31,272 +31,316 @@ export type TelegramSetupState =
   | { status: 'expired' }
   | { status: 'failed'; message: string }
 
-/** Web + push notification targets, including the guided Telegram setup. */
+export const TelegramSetupContext = createContext<TelegramSetupState>({ status: 'idle' })
+export type TelegramBotPresence = 'loading' | 'unavailable' | boolean
+const TELEGRAM_TOKEN: ServerSecretKey = 'notifications.telegramBotToken'
+
 export const NotificationsSection = observer(function NotificationsSection({
   settings,
   patch,
   telegramSetup,
   onStartTelegramSetup,
-  onResetTelegramSetup,
+  onDisconnectTelegram,
+  telegramBotPresent,
+  onRefreshTelegramBot,
+  secrets,
+  canManageSecrets,
+  secretBusy,
+  secretError,
+  onSetSecret,
+  onClearSecret,
 }: {
   settings: PodiumSettings
-  patch: (p: Partial<PodiumSettings>) => void
+  patch: (p: Partial<PodiumSettings>) => void | Promise<void>
   telegramSetup: TelegramSetupState
   onStartTelegramSetup: () => void
-  onResetTelegramSetup: () => void
+  onDisconnectTelegram: () => Promise<void>
+  telegramBotPresent: TelegramBotPresence
+  onRefreshTelegramBot: () => void
+  secrets: SecretSurfaceState
+  canManageSecrets: boolean
+  secretBusy: boolean
+  secretError: string | null
+  onSetSecret: (key: ServerSecretKey, value: string) => Promise<void>
+  onClearSecret: (key: ServerSecretKey) => Promise<void>
 }): JSX.Element {
+  const frame = useSettingsFrame()
+  const [disconnecting, setDisconnecting] = useState(false)
+  const [disconnectError, setDisconnectError] = useState<string | null>(null)
+  const bot = secrets.status === 'available'
+    ? secrets.rows.find((row) => row.key === TELEGRAM_TOKEN)
+    : undefined
+  const chat = settings.notifications.telegramChatId.trim()
+  const description = chat
+    ? `Connected to ${chat}.`
+    : telegramBotPresent === true
+      ? 'Get a message from the workspace bot.'
+      : telegramBotPresent === false
+        ? 'Needs the workspace’s Telegram bot first.'
+        : telegramBotPresent === 'loading'
+          ? 'Checking the workspace’s Telegram bot…'
+          : 'Could not check the workspace’s Telegram bot.'
+  const startConnect = () => {
+    onStartTelegramSetup()
+    frame.openTakeover({
+      title: 'Connect Telegram',
+      content: <TelegramConnectFlow onStart={onStartTelegramSetup} />,
+    })
+  }
+  const disconnect = async () => {
+    setDisconnecting(true)
+    setDisconnectError(null)
+    try {
+      await onDisconnectTelegram()
+      toast('Telegram disconnected')
+    } catch (error) {
+      setDisconnectError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setDisconnecting(false)
+    }
+  }
   return (
-    <Section
-      title="Notifications"
-      hint="Web notifications fire when this page is open in the background. External push targets use the same smart routing: they stay quiet while a Podium window is visible."
-    >
-      <WebNotificationsRow settings={settings} patch={patch} />
-      <SoundsRow />
-      <Row setting="notifications.ntfyTopic" label="ntfy.sh topic">
-        <CommitInput
-          type="text"
-          placeholder="e.g. podium-a8f3k2 (empty = off)"
-          value={settings.notifications.ntfyTopic}
-          onChange={(e) =>
-            patch({
-              notifications: { ...settings.notifications, ntfyTopic: e.target.value },
-            })
-          }
-        />
-      </Row>
-      {/*
-        THE BOT TOKEN IS GONE FROM THIS TAB (POD-421, ADR 9 D8 S4).
-
-        It is `notifications.telegramBotToken` — a `secret-value` on the
-        `server-owned-secrets` matrix row — and it was rendered here as a
-        password input bound to a blob member, beside `telegramChatId`, which is
-        a per-user ROUTING address on a different row entirely. One nested
-        object, two matrix rows, one form: the exact defect POD-418 split the
-        model to end, still visible on screen.
-
-        It now lives on the Secrets surface as presence + fingerprint, which is
-        also what makes it admin-managed: the floor is enforced there, on the
-        contracted command, rather than being invisible in a shared blob save.
-      */}
-      <Row
-        label="Telegram chat"
-        description={
-          settings.notifications.telegramChatId.trim()
-            ? `Connected — chat ${settings.notifications.telegramChatId}`
-            : 'Not connected. Use Connect Telegram below; Podium binds the chat that presents your setup code.'
-        }
+    <>
+      <Section title="On this computer">
+        <BrowserNotificationsRow settings={settings} patch={patch} />
+        <SoundsRow />
+      </Section>
+      <Section
+        title="On your phone"
+        hint="For when you are away from the computer. Use one, or both."
       >
-        {/*
-          READ-ONLY, AND THAT IS THE POINT (POD-421, ADR 3 Amendment 1 D22 /
-          readiness §3.1.6 S4).
-
-          This was a free-text input. Typing a chat id into it configured a
-          delivery address with no ceremony behind it — which is the operator
-          fallback the brief forbids reintroducing, arriving as a text box
-          rather than as a code path: whoever holds the bot becomes the implied
-          identity, and inbound Telegram is now an AUTHENTICATION surface.
-
-          POD-1080 shipped the real ceremony (a claim code minted for the
-          authenticated caller, presented to the bot, redeemed into a binding
-          whose user comes from the MINT and can come from nowhere else). The
-          only honest control here is the one that STARTS that ceremony, so the
-          address is displayed and not edited.
-        */}
-        <span
-          className="min-w-0 truncate text-right font-mono settings-micro"
-          data-testid="telegram-chat-id"
+        <Row label="Telegram" description={description} pending={disconnecting} error={disconnectError}>
+          {chat ? (
+            <Button type="button" size="sm" variant="ghost" onClick={() => void disconnect()}>
+              Disconnect
+            </Button>
+          ) : telegramBotPresent === true ? (
+            <Button type="button" size="sm" variant="outline" onClick={startConnect}>
+              <Send data-icon="inline-start" />
+              Connect
+            </Button>
+          ) : telegramBotPresent === false ? (
+            canManageSecrets ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => frame.openTakeover({
+                  title: 'Set up the Telegram bot',
+                  description: 'Once, for the whole workspace. Then everyone can connect their own chat.',
+                  content: <TelegramBotFlow onSave={(value) => onSetSecret(TELEGRAM_TOKEN, value)} />,
+                })}
+              >
+                Set up bot
+              </Button>
+            ) : <span className="settings-micro text-muted-foreground">Ask an admin</span>
+          ) : telegramBotPresent === 'unavailable' ? (
+            <Button type="button" size="sm" variant="outline" onClick={onRefreshTelegramBot}>
+              Try again
+            </Button>
+          ) : <span className="settings-micro text-muted-foreground">Checking…</span>}
+        </Row>
+        <TextRow
+          setting="notifications.ntfyTopic"
+          label="ntfy topic"
+          description="Push through the free ntfy app. Pick a long topic name nobody can guess."
+          placeholder="podium-a8f3k2"
+          value={settings.notifications.ntfyTopic}
+          onChange={(ntfyTopic) => patch({ notifications: { ...settings.notifications, ntfyTopic } })}
+        />
+      </Section>
+      {canManageSecrets && bot?.present && (
+        <Section
+          title="Telegram bot"
+          hint="One bot for the whole workspace. Each person connects their own chat to it."
         >
-          {settings.notifications.telegramChatId.trim() || '—'}
-        </span>
-      </Row>
-      <Row label="Telegram setup">
-        <div className="min-w-0 flex-1 space-y-2">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={telegramSetup.status === 'starting' || telegramSetup.status === 'polling'}
-            onClick={onStartTelegramSetup}
-          >
-            {telegramSetup.status === 'starting' ? (
-              <Loader2 className="animate-spin" data-icon="inline-start" />
-            ) : (
-              <ExternalLink data-icon="inline-start" />
-            )}
-            {settings.notifications.telegramChatId.trim()
-              ? 'Reconnect Telegram'
-              : 'Connect Telegram'}
-          </Button>
-          <TelegramSetupStatus setup={telegramSetup} />
-        </div>
-      </Row>
-      {/* The heading this block used to carry said "Telegram setup" — the same
-          words as the row three lines above it. The steps are what is new here,
-          so they say so. */}
-      <div className="settings-prose mt-4 border-border border-l pl-3.5">
-        <div className="settings-h2 mb-1.5">How to connect</div>
-        <ol className="list-decimal space-y-1.5 pl-4">
-          <li>
-            In Telegram, message <code>@BotFather</code> and use <code>/newbot</code> to create a
-            bot. An admin saves its token under{' '}
-            <span className="font-medium text-foreground">Secrets</span>.
-          </li>
-          <li>
-            Click <span className="font-medium text-foreground">Connect Telegram</span>. Podium
-            shows a Telegram link with a setup code and polls for 5 minutes.
-          </li>
-          <li>
-            Send the prefilled start message. When Podium sees your code it binds that chat to you
-            and sends a confirmation. A chat Podium has no binding for is ignored.
-          </li>
-        </ol>
-        <p className="mt-2">
-          The chat is bound by the ceremony and cannot be typed in: an address configured without
-          one would let whoever holds the bot act as you.
-        </p>
-      </div>
-    </Section>
+          <SecretRow
+            label="Bot token"
+            setting={TELEGRAM_TOKEN}
+            description="Everyone"
+            present={bot.present}
+            fingerprint={bot.fingerprint}
+            pending={secretBusy}
+            error={secretError}
+            onSave={(value) => onSetSecret(TELEGRAM_TOKEN, value)}
+            onRemove={() => onClearSecret(TELEGRAM_TOKEN)}
+          />
+        </Section>
+      )}
+      {telegramSetup.status === 'failed' && !chat && (
+        <p className="settings-prose mt-3 text-destructive" role="alert">{telegramSetup.message}</p>
+      )}
+    </>
   )
 })
 
-function TelegramSetupRemaining({ expiresAt }: { expiresAt: string }): JSX.Element {
-  const remaining = useCountdown(Date.parse(expiresAt))
-  const seconds = Math.ceil(remaining / 1000)
-  const minutes = Math.floor(seconds / 60)
-  const rest = seconds % 60
+function TelegramConnectFlow({ onStart }: { onStart: () => void }): JSX.Element {
+  const setup = useContext(TelegramSetupContext)
+  const { closeTakeover } = useSettingsFrame()
   return (
     <>
-      {minutes}:{rest.toString().padStart(2, '0')} left
+      <ol className="space-y-6" aria-label="Connect Telegram steps">
+        <li className="flex gap-3">
+          <StepNumber number={1} />
+          <div className="min-w-0 flex-1">
+            <h4 className="settings-label">Open the bot in Telegram</h4>
+            <p className="settings-prose mt-1">The message is filled in for you. It carries a one-time code.</p>
+            {setup.status === 'polling' && (
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <Button
+                  render={<a href={setup.telegramUrl} target="_blank" rel="noreferrer" />}
+                  size="sm"
+                >
+                  <Send data-icon="inline-start" />
+                  Open @{setup.botUsername}
+                  <ExternalLink data-icon="inline-end" />
+                </Button>
+                <span className="settings-micro font-mono">
+                  code {setup.code} · <TelegramSetupRemaining expiresAt={setup.expiresAt} />
+                </span>
+              </div>
+            )}
+          </div>
+        </li>
+        <li className="flex gap-3">
+          <StepNumber number={2} />
+          <div className="min-w-0 flex-1">
+            <h4 className="settings-label">Press Send</h4>
+            <p className="settings-prose mt-1">Podium connects the chat that sends the code, so nobody can type in someone else’s.</p>
+          </div>
+        </li>
+      </ol>
+      <div className="settings-prose mt-6" role="status" aria-live="polite">
+        {setup.status === 'idle' || setup.status === 'starting' ? 'Preparing your Telegram link…'
+          : setup.status === 'polling' ? 'Waiting for your message in Telegram…'
+            : setup.status === 'expired' ? 'Setup expired. Start again.'
+              : setup.status === 'failed' ? setup.message
+                : <span className="inline-flex items-center gap-1.5 text-foreground"><CheckCircle2 className="size-3.5 text-success" />Connected to {setup.chatLabel ?? setup.chatId}.</span>}
+      </div>
+      {setup.status === 'polling' && setup.error && (
+        <p className="settings-prose mt-2 text-destructive" role="alert">{setup.error}</p>
+      )}
+      <div className="mt-6 flex justify-end gap-2">
+        <Button type="button" variant="ghost" onClick={closeTakeover}>
+          {setup.status === 'connected' ? 'Done' : 'Cancel'}
+        </Button>
+        {(setup.status === 'expired' || setup.status === 'failed') && (
+          <Button type="button" onClick={onStart}>Try again</Button>
+        )}
+      </div>
     </>
   )
 }
 
-function TelegramSetupStatus({ setup }: { setup: TelegramSetupState }): JSX.Element | null {
-  if (setup.status === 'idle' || setup.status === 'starting') return null
-  if (setup.status === 'failed') {
-    return <p className="settings-prose text-destructive">{setup.message}</p>
-  }
-  if (setup.status === 'expired') {
-    return <p className="settings-prose">Setup expired. Start again.</p>
-  }
-  if (setup.status === 'connected') {
-    const target = setup.chatLabel ?? setup.chatId
-    return (
-      <p className="inline-flex items-center gap-1.5 text-[13px] text-foreground">
-        <CheckCircle2 className="size-3.5 flex-none text-success" /> Connected to {target}.
-      </p>
-    )
-  }
-
+function TelegramBotFlow({ onSave }: { onSave: (value: string) => Promise<void> }): JSX.Element {
+  const { closeTakeover } = useSettingsFrame()
+  const [token, setToken] = useState('')
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   return (
-    <div className="max-w-[62ch] space-y-1.5 rounded-md border border-border bg-muted/30 p-2.5 text-[13px]">
-      <div className="flex flex-wrap items-center gap-2 text-foreground">
-        <span>Waiting for Telegram</span>
-        <code className="rounded bg-background px-1.5 py-0.5 font-mono text-[12px]">
-          {setup.code}
-        </code>
-        <span className="text-muted-foreground">
-          <TelegramSetupRemaining expiresAt={setup.expiresAt} />
-        </span>
+    <form onSubmit={(event) => {
+      event.preventDefault()
+      if (!token.trim() || pending) return
+      const value = token.trim()
+      setToken('')
+      setError(null)
+      setPending(true)
+      void onSave(value)
+        .then(() => { toast('Bot saved'); closeTakeover() })
+        .catch((error: unknown) => setError(error instanceof Error ? error.message : String(error)))
+        .finally(() => setPending(false))
+    }}>
+      <ol className="space-y-6" aria-label="Telegram bot setup steps">
+        <li className="flex gap-3">
+          <StepNumber number={1} />
+          <div>
+            <h4 className="settings-label">Create a bot</h4>
+            <p className="settings-prose mt-1">In Telegram, message <a className="text-primary hover:underline" href="https://t.me/BotFather" target="_blank" rel="noreferrer">@BotFather</a>, send <code>/newbot</code>, and follow the two questions.</p>
+          </div>
+        </li>
+        <li className="flex gap-3">
+          <StepNumber number={2} />
+          <div className="min-w-0 flex-1">
+            <label htmlFor="telegram-bot-token" className="settings-label">Paste its token</label>
+            <Input id="telegram-bot-token" className="mt-3 font-mono" type="password" autoComplete="off" placeholder="123456:ABC-DEF…" value={token} disabled={pending} onChange={(event) => setToken(event.target.value)} />
+          </div>
+        </li>
+      </ol>
+      {error && <p className="settings-prose mt-3 text-destructive" role="alert">{error}</p>}
+      <div className="mt-6 flex justify-end gap-2">
+        <Button type="button" variant="ghost" disabled={pending} onClick={closeTakeover}>Cancel</Button>
+        <Button type="submit" disabled={pending || !token.trim()}>{pending ? 'Saving…' : 'Save bot'}</Button>
       </div>
-      <a
-        className="inline-flex items-center gap-1 text-primary hover:underline"
-        href={setup.telegramUrl}
-        target="_blank"
-        rel="noreferrer"
-      >
-        Open Telegram with this code
-        <ExternalLink className="size-3" />
-      </a>
-      {setup.error && <p className="text-destructive">{setup.error}</p>}
-    </div>
+    </form>
   )
 }
 
-/** Sound cues on agent-state transitions [POD-78]. Device-local (UiState, not
- *  the server settings blob): it's about THIS machine's speakers. Flipping it
- *  on plays the "done" cue — a preview that doubles as the user gesture
- *  WKWebView needs to unlock audio. */
+function StepNumber({ number }: { number: number }): JSX.Element {
+  return <span className="settings-micro flex size-7 shrink-0 items-center justify-center rounded-full border border-hairline-soft font-mono" aria-hidden="true">{number}</span>
+}
+function TelegramSetupRemaining({ expiresAt }: { expiresAt: string }): JSX.Element {
+  const remaining = useCountdown(Date.parse(expiresAt))
+  const seconds = Math.ceil(remaining / 1000)
+  return <>{Math.floor(seconds / 60)}:{(seconds % 60).toString().padStart(2, '0')} left</>
+}
+
 const parseSounds = (raw: string | null): boolean => raw !== 'false'
 const serializeSounds = (value: boolean): string => String(value)
 function SoundsRow(): JSX.Element {
   const [enabled, setEnabled] = useSettingsDraft(SOUNDS_ENABLED_KEY, parseSounds, serializeSounds)
-  // The sentence explaining the cues is a DESCRIPTION, and it used to sit in the
-  // control cell — right-aligned, wrapped into 240px, and touching the switch.
   return (
-    <Row
-      label="Notification sounds"
-      description="Cues on agent done, questions, approvals, and errors. This device only."
-    >
-      <Switch
-        checked={enabled}
-        onCheckedChange={(checked) => {
-          setEnabled(checked)
-          if (checked) play(CUE_SOUNDS.done)
-        }}
-      />
-    </Row>
+    <SwitchRow
+      label="Sounds"
+      device
+      description="A short cue when an agent finishes, asks, or hits an error."
+      value={enabled}
+      onChange={(checked) => { setEnabled(checked); if (checked) play(CUE_SOUNDS.done) }}
+    />
   )
 }
 
-/**
- * Browser permission state belongs to the row's EXPLANATION, not beside its
- * switch. It used to render as a bare span in the control cell — right-aligned
- * against the Switch with no gap (they touched), and it knocked that switch off
- * the right edge every other switch on the screen sits on. The only thing in
- * this cell that is a control is the gesture that grants permission.
- */
-function useNotificationPermission(): {
-  note: string | null
-  grant: (() => void) | null
-} {
-  const [perm, setPerm] = useState(() =>
+function useNotificationPermission() {
+  const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>(() =>
     typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
   )
-  if (perm === 'unsupported')
-    return { note: 'This browser cannot show notifications.', grant: null }
-  if (perm === 'granted') return { note: null, grant: null }
-  if (perm === 'denied')
-    return { note: 'Blocked in your browser settings — allow them there first.', grant: null }
-  return {
-    note: 'This browser has not been asked for permission yet.',
-    grant: () => void Notification.requestPermission().then(setPerm),
+  const [error, setError] = useState<string | null>(null)
+  const [pending, setPending] = useState(false)
+  const grant = async () => {
+    setPending(true)
+    setError(null)
+    try { setPermission(await Notification.requestPermission()) }
+    catch (error) { setError(error instanceof Error ? error.message : String(error)) }
+    finally { setPending(false) }
   }
+  return { permission, error, pending, grant }
 }
-
-const WebNotificationsRow = observer(function WebNotificationsRow({
-  settings,
-  patch,
-}: {
+const BrowserNotificationsRow = observer(function BrowserNotificationsRow({ settings, patch }: {
   settings: PodiumSettings
-  patch: (p: Partial<PodiumSettings>) => void
+  patch: (p: Partial<PodiumSettings>) => void | Promise<void>
 }): JSX.Element {
-  const { note, grant } = useNotificationPermission()
+  const { permission, grant, pending, error } = useNotificationPermission()
   return (
-    <Row
-      setting="notifications.web"
-      label="Web notifications"
-      description={
-        <>
-          Desktop notifications from this browser, for agents that need you while Podium is in the
-          background.
-          {note && <span className="mt-1 block text-warning">{note}</span>}
-        </>
-      }
-    >
-      {grant && (
-        <Button type="button" variant="outline" size="sm" onClick={grant}>
-          Grant permission
-        </Button>
-      )}
-      <Switch
-        checked={settings.notifications.web}
-        onCheckedChange={(checked) =>
-          patch({
-            notifications: { ...settings.notifications, web: checked },
-          })
-        }
+    <>
+      <SwitchRow
+        setting="notifications.web"
+        label="Browser notifications"
+        description="A system notification when an agent needs you and Podium is in the background. Applies to your account on every browser."
+        value={settings.notifications.web}
+        onChange={(web) => patch({ notifications: { ...settings.notifications, web } })}
       />
-    </Row>
+      {settings.notifications.web && (
+        <div className="settings-prose mt-1 mb-3 flex items-start gap-2 rounded-md border border-hairline-soft bg-muted/30 p-3">
+          <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          <div>
+            <span>{permission === 'default' ? 'This browser has not been asked yet.'
+              : permission === 'granted' ? 'Notifications are allowed in this browser.'
+                : permission === 'denied' ? 'Blocked in your browser settings — allow them there first.'
+                  : 'This browser cannot show notifications.'}</span>
+            {permission === 'default' && <Button type="button" size="sm" variant="outline" className="ml-2" disabled={pending} onClick={() => void grant()}>Allow notifications</Button>}
+            {error && <p className="mt-1 text-destructive" role="alert">{error}</p>}
+          </div>
+        </div>
+      )}
+    </>
   )
 })

@@ -96,6 +96,13 @@ export const SETTINGS_COMMANDS_TRPC = {
       unknown
     >,
   },
+  'settings.telegramBotPresence': {
+    contract: SETTINGS_CONTRACTS['settings.telegramBotPresence'],
+    handler: (async (svc) => await svc.telegramBotPresence()) satisfies SettingsHandler<
+      z.infer<(typeof SETTINGS_CONTRACTS)['settings.telegramBotPresence']['input']>,
+      boolean
+    >,
+  },
   'settings.telegramSetupStart': {
     contract: SETTINGS_CONTRACTS['settings.telegramSetupStart'],
     handler: (async (svc, _input, actor) =>

@@ -238,7 +238,7 @@ export function SecretsSection({
           {error}
         </p>
       )}
-      {state.rows.map((row) => (
+      {state.rows.filter((row) => row.key !== 'notifications.telegramBotToken').map((row) => (
         <SecretRow
           key={row.key}
           row={row}

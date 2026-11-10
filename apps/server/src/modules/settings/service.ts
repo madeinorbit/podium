@@ -675,6 +675,13 @@ export class SettingsService {
     )
   }
 
+  /** Member-visible availability, without reading material or deriving a fingerprint. */
+  async telegramBotPresence(): Promise<boolean> {
+    return (await this.secrets.presence()).some(
+      (row) => row.key === 'notifications.telegramBotToken' && row.present,
+    )
+  }
+
   /**
    * The provider API key for an LLM backend's provider, or `undefined`.
    *

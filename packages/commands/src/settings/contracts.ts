@@ -495,6 +495,32 @@ export const settingsSecretPresenceContract = {
   conflict: 'n/a',
 } as const satisfies CommandContract<typeof settingsSecretPresenceInput>
 
+/** Members may learn only whether the workspace bot exists. Other secret
+ * presence, fingerprints and rotation times remain on the admin-only read. */
+export const settingsTelegramBotPresenceContract = {
+  ...settingsSecretPresenceContract,
+  name: 'settings.telegramBotPresence',
+  policy: {
+    ...settingsSecretPresenceContract.policy,
+    roleFloor: 'member',
+    rationale:
+      'Members need to know whether they can connect to the workspace Telegram bot. ' +
+      'This read returns one boolean, never a token, fingerprint, timestamp or another secret’s presence. ' +
+      'Secret management and the full presence surface remain admin-only.',
+  },
+  redaction: {
+    reviewed: true,
+    inputPaths: [],
+    outputPaths: [],
+    note: 'Empty input and a boolean output carry no credential material or identifying metadata.',
+  },
+  errorConsistency: {
+    callerSuppliedTargetId: false,
+    note: 'The caller supplies no key or target. Only the workspace Telegram bot’s availability is public to members.',
+  },
+  cli: { summary: 'Show whether the workspace Telegram bot is configured' },
+} as const satisfies CommandContract<typeof settingsSecretPresenceInput>
+
 // ---------------------------------------------------------------------------
 // settings.telegramSetupStart / settings.telegramSetupPoll — THE BINDING CEREMONY
 // ---------------------------------------------------------------------------
@@ -786,6 +812,7 @@ export const SETTINGS_CONTRACTS = {
   'settings.setSecret': settingsSetSecretContract,
   'settings.clearSecret': settingsClearSecretContract,
   'settings.secretPresence': settingsSecretPresenceContract,
+  'settings.telegramBotPresence': settingsTelegramBotPresenceContract,
   'settings.telegramSetupStart': settingsTelegramSetupStartContract,
   'settings.telegramSetupPoll': settingsTelegramSetupPollContract,
 } as const
@@ -827,6 +854,7 @@ export const CONTRACT_TIER: Readonly<Partial<Record<SettingsContractName, Settin
   // so it is checked against the SHIPPED row like the two writes, rather than
   // being exempted for being a read.
   'settings.secretPresence': 'server-secret',
+  'settings.telegramBotPresence': 'server-secret',
   // `telegramSetupStart` / `telegramSetupPoll` are deliberately ABSENT and the
   // type is `Partial` to say so. They are not blob writes and answer to no
   // settings TIER: the mint's row is the shared preimage row and the redeem's is
