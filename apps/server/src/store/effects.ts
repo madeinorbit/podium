@@ -25,7 +25,7 @@ import {
   type UserId,
 } from '@podium/model'
 import type { WriteScope } from '@podium/sync'
-import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm'
 import { effects } from '../migrations/schema'
 import { afterCommit } from './executor/executor'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
@@ -176,6 +176,28 @@ const insertEffect = prepared((db: StoreDrizzle) =>
 
 /** By id, tombstones included: a create must never reuse a removed id. */
 const effectById = prepared((db: StoreDrizzle) => db.select().from(effects).where(idIs()).prepare())
+
+/** Live records (not tombstoned) by id, and every record a page at a time in
+ *  id order: the `effect` kind's records from the table (POD-6763). */
+const liveEffectsOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select()
+    .from(effects)
+    .where(and(inListOf(effects.id, size, 'ids'), isNull(effects.deletedAt)))
+    .prepare(),
+)
+
+// Tombstones included and left out by the caller: a `deleted_at IS NULL`
+// filter here lets the planner take `idx_effects_deleted` and sort.
+const effectsPage = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(effects)
+    .where(gt(effects.id, param(effects.id, 'after')))
+    .orderBy(asc(effects.id))
+    .limit(P('limit'))
+    .prepare(),
+)
 
 const audiencesOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
   db
@@ -640,6 +662,31 @@ export class EffectsRepository {
     )
     if (row === undefined) throw new Error(`effects: insert of ${effect.id} returned no row`)
     return row
+  }
+
+  /** Live records by id, one read per 500; a tombstoned or absent id is left out. */
+  async liveByIds(ids: readonly string[]): Promise<EffectRow[]> {
+    const unique = [...new Set(ids)]
+    const out: EffectRow[] = []
+    for (let at = 0; at < unique.length; at += 500) {
+      const chunk = unique.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      for (const row of await liveEffectsOfIds(this.db, size).all(inListValues(chunk, size, 'ids')))
+        out.push(rowToEffect(row))
+    }
+    return out
+  }
+
+  /** Every live record, a page at a time in id order. */
+  async *livePages(pageSize = 500): AsyncGenerator<EffectRow[]> {
+    let after = ''
+    for (;;) {
+      const rows = await effectsPage(this.db).all({ after, limit: pageSize })
+      const live = rows.filter((row) => row.deletedAt === null).map(rowToEffect)
+      if (live.length > 0) yield live
+      if (rows.length < pageSize) return
+      after = rows[rows.length - 1]!.id
+    }
   }
 
   /** By id, tombstones included. */

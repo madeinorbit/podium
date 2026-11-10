@@ -32,11 +32,11 @@ import {
   type ReadPositionSnapshot,
   type UserId,
 } from '@podium/model'
-import { and, eq, sql } from 'drizzle-orm'
 import type { WriteScope } from '@podium/sync'
+import { and, asc, eq, sql } from 'drizzle-orm'
 import { userReadPosition } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { param, prepared } from './executor/sync-drizzle'
+import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
+import { param, prepared, preparedFamily } from './executor/sync-drizzle'
 
 /** One stored position. `undefined` from a reader means "never read this stream". */
 export interface StoredReadPosition {
@@ -65,10 +65,33 @@ const positionOf = prepared((db: StoreDrizzle) =>
       seenAt: userReadPosition.seenAt,
     })
     .from(userReadPosition)
-    .where(and(
-      eq(userReadPosition.userId, param(userReadPosition.userId, 'userId')),
-      eq(userReadPosition.streamId, param(userReadPosition.streamId, 'streamId')),
-    ))
+    .where(
+      and(
+        eq(userReadPosition.userId, param(userReadPosition.userId, 'userId')),
+        eq(userReadPosition.streamId, param(userReadPosition.streamId, 'streamId')),
+      ),
+    )
+    .prepare(),
+)
+
+/** Every position, a keyset page at a time in primary-key order: the
+ *  `userReadPosition` kind's full truth (POD-6763). */
+const positionRowsPage = preparedFamily((db: StoreDrizzle, from: 'start' | 'after') =>
+  db
+    .select({
+      userId: userReadPosition.userId,
+      streamId: userReadPosition.streamId,
+      lastEventId: userReadPosition.lastEventId,
+      seenAt: userReadPosition.seenAt,
+    })
+    .from(userReadPosition)
+    .where(
+      from === 'start'
+        ? sql`(${userReadPosition.userId}, ${userReadPosition.streamId}) >= (${sql.placeholder('afterUserId')}, ${sql.placeholder('afterStreamId')})`
+        : sql`(${userReadPosition.userId}, ${userReadPosition.streamId}) > (${sql.placeholder('afterUserId')}, ${sql.placeholder('afterStreamId')})`,
+    )
+    .orderBy(asc(userReadPosition.userId), asc(userReadPosition.streamId))
+    .limit(sql.placeholder('limit'))
     .prepare(),
 )
 
@@ -117,6 +140,37 @@ export class UserReadPositionRepository {
       out[row.streamId] = { lastEventId: row.lastEventId, seenAt: row.seenAt }
     }
     return out
+  }
+
+  /** Every person's positions, a page at a time, as the `userReadPosition`
+   *  kind publishes them; a stream outside the vocabulary is left out, as
+   *  {@link getSnapshot} leaves it out. */
+  async *allPositionPages(
+    pageSize = 500,
+  ): AsyncGenerator<Array<{ userId: UserId; streamId: string } & StoredReadPosition>> {
+    let after: { afterUserId: string; afterStreamId: string } = {
+      afterUserId: '',
+      afterStreamId: '',
+    }
+    for (let from: 'start' | 'after' = 'start'; ; from = 'after') {
+      const rows = await positionRowsPage(this.db, from).all({ ...after, limit: pageSize })
+      const page = rows.flatMap((row) =>
+        isReadStreamId(row.streamId)
+          ? [
+              {
+                userId: row.userId as UserId,
+                streamId: row.streamId,
+                lastEventId: row.lastEventId,
+                seenAt: row.seenAt,
+              },
+            ]
+          : [],
+      )
+      if (page.length > 0) yield page
+      if (rows.length < pageSize) return
+      const last = rows[rows.length - 1]!
+      after = { afterUserId: last.userId, afterStreamId: last.streamId }
+    }
   }
 
   /** One stream's position for one person, or `undefined` when never read. */

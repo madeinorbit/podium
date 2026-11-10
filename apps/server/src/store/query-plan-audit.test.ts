@@ -134,6 +134,21 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
       [0, 1].flatMap((actor) => [0, 1].map((refused) => `${kind}|${actor}|${refused}`)),
     ),
   ],
+  // The record builders' by-id reads (POD-6763).
+  ['apps/server/src/store/automations.ts:liveAutomationsOfIds', SIZES],
+  ['apps/server/src/store/automations.ts:liveRunsOfIds', SIZES],
+  ['apps/server/src/store/messages.ts:confirmedChatWindow', ['live', ...SIZES]],
+  ['apps/server/src/store/sessions.ts:pinsOfUsers', SIZES],
+  ['apps/server/src/store/sessions.ts:tabOrdersOfUsers', SIZES],
+  ['apps/server/src/store/superagent.ts:threadsOfIds', SIZES],
+  ['apps/server/src/store/workflows.ts:workflowsOfIds', SIZES],
+  ['apps/server/src/store/workflows.ts:revisionsOfIds', SIZES],
+  ['apps/server/src/store/workflows.ts:runsOfIds', SIZES],
+  ['apps/server/src/store/workflows.ts:stepsOfRuns', SIZES],
+  ['apps/server/src/store/events.ts:subscriptionsOfIds', SIZES],
+  ['apps/server/src/store/checkouts.ts:checkoutsOfMachines', SIZES],
+  ['apps/server/src/store/user-read-position.ts:positionRowsPage', ['start', 'after']],
+  ['apps/server/src/store/effects.ts:liveEffectsOfIds', SIZES],
   ['apps/server/src/store/shipping.ts:queuedOrdersOfLane', SIZES],
   ['apps/server/src/store/shipping.ts:ordersOfIds', SIZES],
   ['apps/server/src/store/shipping.ts:queuedDependentsOfIds', SIZES],
@@ -560,6 +575,10 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
  * shrink.
  */
 const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
+  [
+    'apps/server/src/store/messages.ts:confirmedChatWindow',
+    "The chat feed's confirmed window as a query (POD-6763 record builders; nothing in production reads it yet): each live session's newest confirmed operator messages, ranked by a window function, which sorts each session's confirmed messages; the `live` shape also reads `sessions` to find the live ones. Bounded by live sessions, not by history; the start-up load phase decides whether it stays.",
+  ],
   [
     'apps/server/src/store/checkouts.ts:allCheckouts',
     "Whole-table read (POD-6644): the boot reconcile puts every live checkout on the change log once per server start, the `checkout` kind's full truth; nothing at request time reads it.",

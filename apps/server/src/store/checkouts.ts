@@ -75,6 +75,16 @@ const allCheckouts = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/** The live checkouts of several machines, whole rows, for building `checkout`
+ *  records by id (POD-6763). */
+const checkoutsOfMachines = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select(COLUMNS)
+    .from(checkouts)
+    .where(and(inListOf(checkouts.machineId, size), isNull(checkouts.removedAt)))
+    .prepare(),
+)
+
 /** The live checkout paths of several machines, each marked root or not: the
  *  feed's re-send when a member's reach on a machine moves. */
 const pathsOfMachines = preparedFamily((db: StoreDrizzle, size: number) =>
@@ -273,6 +283,22 @@ export class CheckoutsRepository {
     return (await checkoutsOfMachine(this.db).all({ machineId })) as CheckoutRow[]
   }
 
+  /** {@link ofMachine} for several machines, one statement per 500. */
+  async ofMachines(machineIds: readonly MachineId[]): Promise<CheckoutRow[]> {
+    const unique = [...new Set(machineIds)]
+    const out: CheckoutRow[] = []
+    for (let at = 0; at < unique.length; at += 500) {
+      const chunk = unique.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      out.push(
+        ...((await checkoutsOfMachines(this.db, size).all(
+          inListValues(chunk, size),
+        )) as CheckoutRow[]),
+      )
+    }
+    return out
+  }
+
   /** The live checkout paths of each of these machines, each marked root or
    *  not, one statement per 500. */
   async pathsOfMachines(
@@ -319,7 +345,8 @@ export class CheckoutsRepository {
       const chunk = machineIds.slice(at, at + 500)
       const size = inListSize(chunk.length)
       for (const row of await lostOfMachines(this.db, size).all(inListValues(chunk, size))) {
-        const members = out.get(row.machineId) ?? new Map<string, { path: string; root: boolean }[]>()
+        const members =
+          out.get(row.machineId) ?? new Map<string, { path: string; root: boolean }[]>()
         const paths = members.get(row.userId) ?? []
         paths.push({ path: row.path, root: row.root })
         members.set(row.userId, paths)
@@ -334,7 +361,12 @@ export class CheckoutsRepository {
   async applyReach(
     change: {
       readonly reach: readonly { userId: string; machineId: MachineId; reach: CheckoutReach }[]
-      readonly lost?: readonly { userId: string; machineId: MachineId; path: string; root: boolean }[]
+      readonly lost?: readonly {
+        userId: string
+        machineId: MachineId
+        path: string
+        root: boolean
+      }[]
       readonly found?: readonly { userId: string; machineId: MachineId; path: string }[]
     },
     at: string,

@@ -55,8 +55,8 @@ import type {
 } from '@podium/protocol'
 import { hasTranscriptCard, isResumeTimeRecovery } from '@podium/protocol'
 import type { TurnEvent } from '@podium/protocol/daemon'
-import type { InteractionRow, InteractionsRepository } from '../../store/interactions'
 import { afterCommit } from '../../store/executor/executor'
+import type { InteractionRow, InteractionsRepository } from '../../store/interactions'
 import type { InboxPrincipalReference } from '../sessions/inbox'
 import type { AnswerDeliveryResult } from '../superagent/answer-delivery'
 import { defaultAnswerFor, resolveAnswerText } from './answers'
@@ -471,7 +471,7 @@ export class InteractionService {
       this.announce(row)
       await this.applyDefaultAnswer(row, spec)
     }
-    const settled = await this.deps.store.get(row.id) ?? row
+    const settled = (await this.deps.store.get(row.id)) ?? row
     return { row: toWire(settled), inserted }
   }
 
@@ -566,7 +566,7 @@ export class InteractionService {
       if (
         ask?.spec.kind === 'recovery' &&
         input.next.phase === 'errored' &&
-        await this.causalStreamOwnsFailures(input.sessionId)
+        (await this.causalStreamOwnsFailures(input.sessionId))
       ) {
         return
       }
@@ -576,8 +576,13 @@ export class InteractionService {
         // reported those as expirations would read as a pile of failures.
         //
         // Scoped to what this path synthesized — see {@link STATE_DERIVED_SOURCES}.
-        await this.closeOpen(input.sessionId, 'superseded', 'the session left the asking state', (row) =>
-          STATE_DERIVED_SOURCES.has(row.source) && !(driverOwned && (row.kind === 'question' || row.kind === 'permission')),
+        await this.closeOpen(
+          input.sessionId,
+          'superseded',
+          'the session left the asking state',
+          (row) =>
+            STATE_DERIVED_SOURCES.has(row.source) &&
+            !(driverOwned && (row.kind === 'question' || row.kind === 'permission')),
         )
         return
       }
@@ -586,7 +591,11 @@ export class InteractionService {
       // open asks on one terminal session would both claim the same menu. Same
       // scoping: a driver's own ask is not this path's to supersede.
       for (const open of await this.deps.store.listOpen(input.sessionId)) {
-        if (!STATE_DERIVED_SOURCES.has(open.source) || (driverOwned && (open.kind === 'question' || open.kind === 'permission'))) continue
+        if (
+          !STATE_DERIVED_SOURCES.has(open.source) ||
+          (driverOwned && (open.kind === 'question' || open.kind === 'permission'))
+        )
+          continue
         if (open.fingerprint !== ask.fingerprint) await this.supersede(open.id)
       }
       // ONE INTERNAL CALLER of the public ingress: the bus path has no more
@@ -710,15 +719,22 @@ export class InteractionService {
    * an answer delivered through `deliverStructured` comes straight back as an
    * `answered` event from the driver that applied it.
    */
-  async onInteractionResolved(input: { sessionId: SessionId; ev: InteractionEvent }): Promise<void> {
+  async onInteractionResolved(input: {
+    sessionId: SessionId
+    ev: InteractionEvent
+  }): Promise<void> {
     if (input.ev.ev === 'asked') {
       const interaction = input.ev.interaction
       if (interaction.sessionId !== input.sessionId) throw new Error('interaction session mismatch')
       return await this.chain(input.sessionId, async () => {
         const existing = await this.deps.store.get(interaction.id)
         if (existing) {
-          if (existing.sessionId !== input.sessionId) throw new Error('interaction identity collision')
-          if (existing.status === 'asked' && JSON.stringify(existing.payload) !== JSON.stringify(interaction.payload)) {
+          if (existing.sessionId !== input.sessionId)
+            throw new Error('interaction identity collision')
+          if (
+            existing.status === 'asked' &&
+            JSON.stringify(existing.payload) !== JSON.stringify(interaction.payload)
+          ) {
             await this.deps.store.enrich(existing.id, interaction.payload)
             const row = await this.deps.store.get(existing.id)
             if (row) this.announce(row)
@@ -726,15 +742,21 @@ export class InteractionService {
           return
         }
         if (interaction.answerable === 'keystroke-emulated') {
-          await this.closeOpen(input.sessionId, 'superseded', 'the driver observed a replacement menu',
-            (row) => row.kind === 'question' || row.kind === 'permission')
+          await this.closeOpen(
+            input.sessionId,
+            'superseded',
+            'the driver observed a replacement menu',
+            (row) => row.kind === 'question' || row.kind === 'permission',
+          )
         }
-        await this.ask({ interaction: {
-          ...interaction,
-          // Driver identity is authoritative even when its evidence is classified.
-          // Equal-looking replacement menus must not inherit the old answer authority.
-          fingerprint: `runtime:${interaction.id}`,
-        } })
+        await this.ask({
+          interaction: {
+            ...interaction,
+            // Driver identity is authoritative even when its evidence is classified.
+            // Equal-looking replacement menus must not inherit the old answer authority.
+            fingerprint: `runtime:${interaction.id}`,
+          },
+        })
       })
     }
     // EAGER, DELIBERATELY AHEAD OF THE CHAIN. The driver settled it, so an
@@ -746,18 +768,21 @@ export class InteractionService {
     return await this.chain(input.sessionId, async () => await this.applyInteractionResolved(input))
   }
 
-  private async applyInteractionResolved(input: { sessionId: SessionId; ev: InteractionEvent }): Promise<void> {
+  private async applyInteractionResolved(input: {
+    sessionId: SessionId
+    ev: InteractionEvent
+  }): Promise<void> {
     if (input.ev.ev === 'asked') return
     const row = await this.deps.store.get(input.ev.id)
     // A resolution for a row this server never saw is not an error: the ask may
     // predate the aggregate's knowledge of the session, or belong to a replica.
     if (!row || row.sessionId !== input.sessionId) return
     if (
-      !await this.deps.store.close(
+      !(await this.deps.store.close(
         row.id,
         input.ev.ev === 'expired' ? 'expired' : 'superseded',
         this.deps.now(),
-      )
+      ))
     )
       return
     const settled = await this.deps.store.get(row.id)
@@ -794,7 +819,7 @@ export class InteractionService {
     // deciding for every future caller which columns a filter may name.
     for (const row of await this.deps.store.listOpen(sessionId)) {
       if (!only(row)) continue
-      if (!await this.deps.store.close(row.id, status, this.deps.now())) continue
+      if (!(await this.deps.store.close(row.id, status, this.deps.now()))) continue
       const settled = await this.deps.store.get(row.id)
       if (settled) this.announce(settled)
       log.debug('interaction closed', { id: row.id, status, why })
@@ -802,7 +827,7 @@ export class InteractionService {
   }
 
   private async supersede(id: string): Promise<void> {
-    if (!await this.deps.store.close(id, 'superseded', this.deps.now())) return
+    if (!(await this.deps.store.close(id, 'superseded', this.deps.now()))) return
     const row = await this.deps.store.get(id)
     if (row) this.announce(row)
   }
@@ -913,7 +938,7 @@ export class InteractionService {
     // the partial unique index would refuse a second open one — correctly, since
     // the session is visibly blocked either way.
     if (await this.deps.store.openByFingerprint(row.sessionId, row.fingerprint)) return
-    if (!await this.deps.store.reopen(row.id, 'policy')) return
+    if (!(await this.deps.store.reopen(row.id, 'policy'))) return
     const reopened = await this.deps.store.get(row.id)
     if (reopened) this.announce(reopened)
     log.info('default answer could not be delivered; escalating to a human', {
@@ -939,8 +964,10 @@ export class InteractionService {
    * the same reason.
    */
   async answerChoices(input: {
-    sessionId: SessionId; interactionId?: string
-    choices?: import('../sessions/inbox').AnswerChoice[]; skip?: boolean
+    sessionId: SessionId
+    interactionId?: string
+    choices?: import('../sessions/inbox').AnswerChoice[]
+    skip?: boolean
     principal: InboxPrincipalReference
   }): Promise<InteractionAnswerOutcome> {
     if (!input.interactionId) return { ok: false, reason: 'unknown-interaction' }
@@ -948,13 +975,27 @@ export class InteractionService {
     if (!row || row.sessionId !== input.sessionId || row.kind !== 'question') {
       return { ok: false, reason: 'unknown-interaction' }
     }
-    return await this.answer({ id: row.id,
-      answer: { kind: 'question', ...(input.skip ? { skip: true as const } : {}),
-        selections: (input.choices ?? []).map((choice) => 'freeText' in choice
-          ? { optionIndices: choice.otherIndex === undefined ? [] : [choice.otherIndex], text: choice.freeText }
-          : { optionIndices: choice.optionIndices }) },
+    return await this.answer({
+      id: row.id,
+      answer: {
+        kind: 'question',
+        ...(input.skip ? { skip: true as const } : {}),
+        selections: (input.choices ?? []).map((choice) =>
+          'freeText' in choice
+            ? {
+                optionIndices: choice.otherIndex === undefined ? [] : [choice.otherIndex],
+                text: choice.freeText,
+              }
+            : { optionIndices: choice.optionIndices },
+        ),
+      },
       principal: input.principal,
-      answeredBy: input.principal.kind === 'user' ? 'human' : input.principal.kind === 'agent' ? 'superagent' : 'policy',
+      answeredBy:
+        input.principal.kind === 'user'
+          ? 'human'
+          : input.principal.kind === 'agent'
+            ? 'superagent'
+            : 'policy',
     })
   }
 
@@ -1165,8 +1206,13 @@ export class InteractionService {
      * exist.
      */
     if (await this.answeredByDriver(row, answer)) {
-      if (!this.deps.deliverStructured) return { ok: false, via: 'unverified',
-        refusal: 'not-yet-supported', detail: 'the authoritative answer gateway is unavailable' }
+      if (!this.deps.deliverStructured)
+        return {
+          ok: false,
+          via: 'unverified',
+          refusal: 'not-yet-supported',
+          detail: 'the authoritative answer gateway is unavailable',
+        }
       try {
         const outcome = await this.deps.deliverStructured({
           sessionId: row.sessionId,
@@ -1475,6 +1521,10 @@ function deliverableText(answer: InteractionAnswer): string | null {
  *  the payload column is validated on the way IN (the synthesizer produces a
  *  typed spec) and the kind/payload pairing is what the discriminated union
  *  encodes, which SQLite cannot express. */
+export function interactionWireOf(row: InteractionRow): PendingInteractionWire {
+  return toWire(row)
+}
+
 function toWire(row: InteractionRow): PendingInteractionWire {
   return {
     id: row.id,

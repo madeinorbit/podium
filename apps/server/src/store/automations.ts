@@ -165,6 +165,23 @@ const runOwnersOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
 /** Under SQLite's bound-parameter limit, like the other batched readers. */
 const OWNER_CHUNK = 500
 
+/** Live automations and live runs by id, for building records by id (POD-6763). */
+const liveAutomationsOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select()
+    .from(automations)
+    .where(and(inListOf(automations.id, size), isNull(automations.deletedAt)))
+    .prepare(),
+)
+
+const liveRunsOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select()
+    .from(automationRuns)
+    .where(and(inListOf(automationRuns.id, size), isNull(automationRuns.deletedAt)))
+    .prepare(),
+)
+
 const automationColumns = {
   name: P('name'),
   enabled: P('enabled'),
@@ -437,6 +454,32 @@ export class AutomationsRepository {
       for (const row of await runOwnersOfIds(this.db, size).all(inListValues(chunk, size))) {
         out.set(row.id, row.ownerUserId)
       }
+    }
+    return out
+  }
+
+  /** {@link get} for many ids, one read per 500; an absent id has no live row. */
+  async getMany(ids: readonly string[]): Promise<AutomationRow[]> {
+    const out: AutomationRow[] = []
+    const unique = [...new Set(ids)]
+    for (let at = 0; at < unique.length; at += OWNER_CHUNK) {
+      const chunk = unique.slice(at, at + OWNER_CHUNK)
+      const size = inListSize(chunk.length)
+      for (const row of await liveAutomationsOfIds(this.db, size).all(inListValues(chunk, size)))
+        out.push(rowToAutomation(row))
+    }
+    return out
+  }
+
+  /** {@link getRun} for many ids, one read per 500; same contract as {@link getMany}. */
+  async getRuns(ids: readonly string[]): Promise<AutomationRunRow[]> {
+    const out: AutomationRunRow[] = []
+    const unique = [...new Set(ids)]
+    for (let at = 0; at < unique.length; at += OWNER_CHUNK) {
+      const chunk = unique.slice(at, at + OWNER_CHUNK)
+      const size = inListSize(chunk.length)
+      for (const row of await liveRunsOfIds(this.db, size).all(inListValues(chunk, size)))
+        out.push(rowToRun(row))
     }
     return out
   }

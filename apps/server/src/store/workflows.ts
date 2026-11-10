@@ -38,7 +38,7 @@ import {
   workflowRuns,
   workflows as workflowsTable,
 } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
@@ -235,7 +235,11 @@ const bindingIs = () =>
   )
 
 const bindingOwner = prepared((db: StoreDrizzle) =>
-  db.select({ ownerUserId: workflowBindings.ownerUserId }).from(workflowBindings).where(bindingIs()).prepare(),
+  db
+    .select({ ownerUserId: workflowBindings.ownerUserId })
+    .from(workflowBindings)
+    .where(bindingIs())
+    .prepare(),
 )
 
 const runOwner = prepared((db: StoreDrizzle) =>
@@ -255,17 +259,23 @@ const workflowsWhere = preparedFamily((db: StoreDrizzle, key: string) => {
   if (scopeRef === 'r1') {
     clauses.push(eq(workflowsTable.scopeRef, param(workflowsTable.scopeRef, 'scopeRef')))
   }
-  return db
-    .select(workflowSelection)
-    .from(workflowsTable)
-    .where(clauses.length ? and(...clauses) : undefined)
-    // COLLATE NOCASE: with a binary collation 'Zebra' would sort before 'apple'.
-    .orderBy(sql`${workflowsTable.name} COLLATE NOCASE`, asc(workflowsTable.createdAt))
-    .prepare()
+  return (
+    db
+      .select(workflowSelection)
+      .from(workflowsTable)
+      .where(clauses.length ? and(...clauses) : undefined)
+      // COLLATE NOCASE: with a binary collation 'Zebra' would sort before 'apple'.
+      .orderBy(sql`${workflowsTable.name} COLLATE NOCASE`, asc(workflowsTable.createdAt))
+      .prepare()
+  )
 })
 
 const workflowById = prepared((db: StoreDrizzle) =>
-  db.select(workflowSelection).from(workflowsTable).where(eq(workflowsTable.id, param(workflowsTable.id, 'id'))).prepare(),
+  db
+    .select(workflowSelection)
+    .from(workflowsTable)
+    .where(eq(workflowsTable.id, param(workflowsTable.id, 'id')))
+    .prepare(),
 )
 
 const insertWorkflowRow = prepared((db: StoreDrizzle) =>
@@ -296,7 +306,11 @@ const revisionsOf = prepared((db: StoreDrizzle) =>
 )
 
 const revisionById = prepared((db: StoreDrizzle) =>
-  db.select().from(workflowRevisions).where(eq(workflowRevisions.id, param(workflowRevisions.id, 'id'))).prepare(),
+  db
+    .select()
+    .from(workflowRevisions)
+    .where(eq(workflowRevisions.id, param(workflowRevisions.id, 'id')))
+    .prepare(),
 )
 
 const latestRevisionVersion = prepared((db: StoreDrizzle) =>
@@ -404,7 +418,11 @@ const liveRuns = prepared((db: StoreDrizzle) =>
 )
 
 const runById = prepared((db: StoreDrizzle) =>
-  db.select().from(workflowRuns).where(eq(workflowRuns.id, param(workflowRuns.id, 'id'))).prepare(),
+  db
+    .select()
+    .from(workflowRuns)
+    .where(eq(workflowRuns.id, param(workflowRuns.id, 'id')))
+    .prepare(),
 )
 
 const stepsOfRun = prepared((db: StoreDrizzle) =>
@@ -457,8 +475,14 @@ const liveRunOfSession = prepared((db: StoreDrizzle) =>
       and(
         inArray(workflowRuns.status, ['active', 'blocked']),
         or(
-          eq(workflowRuns.coordinatorSessionId, param(workflowRuns.coordinatorSessionId, 'sessionId')),
-          eq(workflowRunSteps.assignedSessionId, param(workflowRunSteps.assignedSessionId, 'sessionId')),
+          eq(
+            workflowRuns.coordinatorSessionId,
+            param(workflowRuns.coordinatorSessionId, 'sessionId'),
+          ),
+          eq(
+            workflowRunSteps.assignedSessionId,
+            param(workflowRunSteps.assignedSessionId, 'sessionId'),
+          ),
         ),
       ),
     )
@@ -544,7 +568,11 @@ const updateStepRow = prepared((db: StoreDrizzle) =>
 )
 
 const assignStepRow = prepared((db: StoreDrizzle) =>
-  db.update(workflowRunSteps).set({ assignedSessionId: P('sessionId') }).where(stepIs()).prepare(),
+  db
+    .update(workflowRunSteps)
+    .set({ assignedSessionId: P('sessionId') })
+    .where(stepIs())
+    .prepare(),
 )
 
 const resetStepRow = prepared((db: StoreDrizzle) =>
@@ -664,6 +692,40 @@ const everyRunStep = prepared((db: StoreDrizzle) =>
     .select()
     .from(workflowRunSteps)
     .orderBy(asc(workflowRunSteps.runId), asc(workflowRunSteps.stepId))
+    .prepare(),
+)
+
+/** The workflow family by id, for building its records by id (POD-6763). */
+const workflowsOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select(workflowSelection)
+    .from(workflowsTable)
+    .where(inListOf(workflowsTable.id, size, 'ids'))
+    .prepare(),
+)
+
+const revisionsOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select()
+    .from(workflowRevisions)
+    .where(inListOf(workflowRevisions.id, size, 'ids'))
+    .prepare(),
+)
+
+const runsOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({ ...getTableColumns(workflowRuns), workflowId: workflowRevisions.workflowId })
+    .from(workflowRuns)
+    .innerJoin(workflowRevisions, eq(workflowRevisions.id, workflowRuns.revisionId))
+    .where(inListOf(workflowRuns.id, size, 'ids'))
+    .prepare(),
+)
+
+const stepsOfRuns = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select()
+    .from(workflowRunSteps)
+    .where(inListOf(workflowRunSteps.runId, size, 'ids'))
     .prepare(),
 )
 
@@ -835,6 +897,57 @@ export class WorkflowsRepository {
     })
   }
 
+  /** {@link getWorkflow} for many ids; an absent id has no row (POD-6763). */
+  async workflowsByIds(ids: readonly string[]): Promise<WorkflowWire[]> {
+    return (await this.byIds(ids, (size, values) => workflowsOfIds(this.db, size).all(values))).map(
+      toWorkflow,
+    )
+  }
+
+  /** {@link getRevision} for many ids (POD-6763). */
+  async revisionsByIds(ids: readonly string[]): Promise<WorkflowRevisionWire[]> {
+    return (await this.byIds(ids, (size, values) => revisionsOfIds(this.db, size).all(values))).map(
+      toRevision,
+    )
+  }
+
+  /** Runs by id with their steps (position order) and their revision's
+   *  workflow, the {@link allRunsForBootReconcile} shape (POD-6763). */
+  async runsByIds(
+    ids: readonly string[],
+  ): Promise<Array<{ run: WorkflowRunRow; workflowId: string; steps: RunStep[] }>> {
+    const rows = await this.byIds(ids, (size, values) => runsOfIds(this.db, size).all(values))
+    const steps = new Map<string, RunStep[]>()
+    const stepRows = await this.byIds(
+      rows.map((row) => row.id),
+      (size, values) => stepsOfRuns(this.db, size).all(values),
+    )
+    for (const row of stepRows) {
+      const list = steps.get(row.runId) ?? []
+      list.push(toRunStep(row))
+      steps.set(row.runId, list)
+    }
+    for (const list of steps.values()) list.sort((a, b) => a.position - b.position)
+    return rows.map((row) => {
+      const { workflowId, ...run } = row
+      return { run: toRun(run), workflowId, steps: steps.get(row.id) ?? [] }
+    })
+  }
+
+  private async byIds<T>(
+    ids: readonly string[],
+    read: (size: number, values: Record<string, unknown>) => Promise<T[]>,
+  ): Promise<T[]> {
+    const unique = [...new Set(ids)]
+    const out: T[] = []
+    for (let at = 0; at < unique.length; at += 500) {
+      const chunk = unique.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      out.push(...(await read(size, inListValues(chunk, size, 'ids'))))
+    }
+    return out
+  }
+
   async getWorkflow(id: string): Promise<WorkflowWire | null> {
     const row = await workflowById(this.db).get({ id })
     return row ? toWorkflow(row) : null
@@ -899,7 +1012,10 @@ export class WorkflowsRepository {
         now: row.now,
         workflowId: row.workflowId,
       })
-      return required(await this.getRevision(row.id), `workflow revision ${row.id} was not persisted`)
+      return required(
+        await this.getRevision(row.id),
+        `workflow revision ${row.id} was not persisted`,
+      )
     })
   }
 
@@ -907,7 +1023,10 @@ export class WorkflowsRepository {
     await publishRevisionRow(this.db).run({ revisionId, now })
   }
 
-  async getBinding(targetKind: WorkflowBindingTarget, targetId: string): Promise<WorkflowBindingWire | null> {
+  async getBinding(
+    targetKind: WorkflowBindingTarget,
+    targetId: string,
+  ): Promise<WorkflowBindingWire | null> {
     const row = await bindingOf(this.db).get({ targetKind, targetId })
     return row ? toBinding(row) : null
   }
@@ -946,7 +1065,10 @@ export class WorkflowsRepository {
 
   /** One keyset page of every run, live and terminal, newest first (POD-6209).
    *  The cursor is the last row of the previous page. */
-  async listRunsPage(opts: { before?: WorkflowRunCursor; limit: number }): Promise<WorkflowRunRow[]> {
+  async listRunsPage(opts: {
+    before?: WorkflowRunCursor
+    limit: number
+  }): Promise<WorkflowRunRow[]> {
     const before = opts.before ?? RUN_HISTORY_START
     const rows = await runsPage(this.db).all({
       beforeStartedAt: before.startedAt,
@@ -980,19 +1102,21 @@ export class WorkflowsRepository {
    * column as having no store reader by design).
    */
   async listRunEvents(runId: string): Promise<WorkflowRunEventWire[]> {
-    return (await eventsOfRun(this.db).all({ runId }))
-      .map((row) => ({
-        kind: row.kind,
-        actorKind: row.actorKind,
-        // NEVER substituted. A null actor id is a row whose actor predates the
-        // column; inventing one would be a lie in an audit trail.
-        actorId: row.actorId,
-        onBehalfOf: row.onBehalfOf,
-        createdAt: row.createdAt,
-      }))
+    return (await eventsOfRun(this.db).all({ runId })).map((row) => ({
+      kind: row.kind,
+      actorKind: row.actorKind,
+      // NEVER substituted. A null actor id is a row whose actor predates the
+      // column; inventing one would be a lie in an audit trail.
+      actorId: row.actorId,
+      onBehalfOf: row.onBehalfOf,
+      createdAt: row.createdAt,
+    }))
   }
 
-  async findLiveRun(subjectKind: 'issue' | 'session', subjectId: string): Promise<WorkflowRunRow | null> {
+  async findLiveRun(
+    subjectKind: 'issue' | 'session',
+    subjectId: string,
+  ): Promise<WorkflowRunRow | null> {
     const row = await liveRunOfSubject(this.db).get({ subjectKind, subjectId })
     return row ? toRun(row) : null
   }
@@ -1029,13 +1153,19 @@ export class WorkflowsRepository {
         stepValues[`instructions${position}`] = step.instructions
         stepValues[`completionGuidance${position}`] = step.completionGuidance
         stepValues[`agentProfileId${position}`] = step.profileId
-        stepValues[`agentProfileJson${position}`] = step.profile ? JSON.stringify(step.profile) : null
+        stepValues[`agentProfileJson${position}`] = step.profile
+          ? JSON.stringify(step.profile)
+          : null
       })
       await insertRunSteps(this.db, input.steps.length).run(stepValues)
     })
   }
 
-  async updateRunStatus(id: string, status: WorkflowRunStatus, completedAt: string | null): Promise<void> {
+  async updateRunStatus(
+    id: string,
+    status: WorkflowRunStatus,
+    completedAt: string | null,
+  ): Promise<void> {
     await setRunStatus(this.db).run({ id, status, completedAt })
   }
 

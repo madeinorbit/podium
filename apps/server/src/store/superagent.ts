@@ -21,9 +21,17 @@ import {
   superagentThreads,
   users,
 } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { param, placeholdersFor, prepared, preparedFamily, shapeOf } from './executor/sync-drizzle'
-import { UsersRepository } from './users'
+import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
+import {
+  inListOf,
+  inListSize,
+  inListValues,
+  param,
+  placeholdersFor,
+  prepared,
+  preparedFamily,
+  shapeOf,
+} from './executor/sync-drizzle'
 import { parseJsonColumn } from './helpers'
 import type {
   PendingSuperagentTurnRow,
@@ -32,6 +40,7 @@ import type {
   SuperagentThreadRow,
   ToolCallRow,
 } from './types'
+import { UsersRepository } from './users'
 
 /** RETAINED EXTERNAL-INPUT/ID-MINT CASTS: legacy thread methods accept string
  * ids and the global thread is minted from a literal. Selected thread/session
@@ -139,6 +148,15 @@ const threadById = prepared((db: StoreDrizzle) =>
   db.select().from(superagentThreads).where(threadIdIs()).prepare(),
 )
 
+/** Threads by id, for building `superagentThread` records by id (POD-6763). */
+const threadsOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select()
+    .from(superagentThreads)
+    .where(inListOf(superagentThreads.id, size, 'ids'))
+    .prepare(),
+)
+
 const ownedThreadById = prepared((db: StoreDrizzle) =>
   db
     .select()
@@ -198,12 +216,7 @@ const setThreadBinding = preparedFamily((db: StoreDrizzle, shape: string) =>
 )
 
 const archiveThread = prepared((db: StoreDrizzle) =>
-  db
-    .update(superagentThreads)
-    .set({ archived: true })
-    .where(threadIdIs())
-    .returning()
-    .prepare(),
+  db.update(superagentThreads).set({ archived: true }).where(threadIdIs()).returning().prepare(),
 )
 
 /** Every thread, archived ones included: the `superagentThread` boot reconcile. */
@@ -522,6 +535,19 @@ export class SuperagentRepository {
     return rows.map((r) => this.mapSuperagentThread(r))
   }
 
+  /** {@link getSuperagentThread} for many ids, one read per 500; absent ids have no row. */
+  async superagentThreadsByIds(ids: readonly string[]): Promise<SuperagentThreadRow[]> {
+    const unique = [...new Set(ids)]
+    const out: SuperagentThreadRow[] = []
+    for (let at = 0; at < unique.length; at += 500) {
+      const chunk = unique.slice(at, at + 500).map(asThreadId)
+      const size = inListSize(chunk.length)
+      for (const row of await threadsOfIds(this.db, size).all(inListValues(chunk, size, 'ids')))
+        out.push(this.mapSuperagentThread(row))
+    }
+    return out
+  }
+
   async getSuperagentThread(
     id: string,
     ownerUserId?: UserId,
@@ -544,12 +570,12 @@ export class SuperagentRepository {
     await this.writeThreads(
       async () =>
         await upsertThread(this.db).all({
-      // EXTERNAL INPUT BRAND DECODE: this legacy writer accepts the
-      // service-facing string id and brands it at the persistence boundary.
-      id: asThreadId(t.id),
-      ownerUserId: t.ownerUserId,
-      kind: t.kind,
-      originSessionId: t.originSessionId ?? null,
+          // EXTERNAL INPUT BRAND DECODE: this legacy writer accepts the
+          // service-facing string id and brands it at the persistence boundary.
+          id: asThreadId(t.id),
+          ownerUserId: t.ownerUserId,
+          kind: t.kind,
+          originSessionId: t.originSessionId ?? null,
           repoPath: t.repoPath ?? null,
           title: t.title ?? null,
           now,

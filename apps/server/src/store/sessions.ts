@@ -85,7 +85,9 @@ const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo', 'issue'])
 function parseTabIds(raw: string): string[] | undefined {
   try {
     const parsed: unknown = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : undefined
+    return Array.isArray(parsed)
+      ? parsed.filter((x): x is string => typeof x === 'string')
+      : undefined
   } catch {
     return undefined
   }
@@ -758,9 +760,7 @@ const stopRunningForTombstone = prepared((db: StoreDrizzle) =>
   db
     .update(sessionsTable)
     .set({ status: 'exited', stoppedAt: sql.placeholder('deletedAt'), stopReason: 'forced' })
-    .where(
-      and(untombstonedById(), inArray(sessionsTable.status, ['starting', 'live'])),
-    )
+    .where(and(untombstonedById(), inArray(sessionsTable.status, ['starting', 'live'])))
     .prepare(),
 )
 
@@ -898,9 +898,7 @@ const onePin = () =>
     eq(pinsTable.id, param(pinsTable.id, 'id')),
   )
 
-const deletePin = prepared((db: StoreDrizzle) =>
-  db.delete(pinsTable).where(onePin()).prepare(),
-)
+const deletePin = prepared((db: StoreDrizzle) => db.delete(pinsTable).where(onePin()).prepare())
 
 // Every person's pin of one thing, removed with it (POD-6692: a purged issue).
 const deletePinsOfTarget = prepared((db: StoreDrizzle) =>
@@ -1183,6 +1181,29 @@ const upsertTabOrder = prepared((db: StoreDrizzle) =>
 // builds its object from `user_id`, `worktree` and `ids` — right rows, right
 // values, and an extra column over the wire on a remote driver, which is
 // this epic's whole criterion. No test could have seen it.
+/** Many people's pins and tab orders, for building those records by id
+ *  (POD-6763): a person's own rows, through the primary key's `user_id` prefix. */
+const pinsOfUsers = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({
+      userId: pinsTable.userId,
+      kind: pinsTable.kind,
+      id: pinsTable.id,
+      pinnedAt: pinsTable.pinnedAt,
+    })
+    .from(pinsTable)
+    .where(inListOf(pinsTable.userId, size, 'users'))
+    .prepare(),
+)
+
+const tabOrdersOfUsers = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({ userId: tabOrder.userId, worktree: tabOrder.worktree, ids: tabOrder.ids })
+    .from(tabOrder)
+    .where(inListOf(tabOrder.userId, size, 'users'))
+    .prepare(),
+)
+
 const allTabOrders = prepared((db: StoreDrizzle) =>
   db
     .select({ userId: tabOrder.userId, worktree: tabOrder.worktree, ids: tabOrder.ids })
@@ -1859,9 +1880,50 @@ export class SessionsRepository {
     const rows = await allPins(this.db).all()
     return rows.flatMap((row) =>
       PIN_KINDS.has(row.kind as PinKind)
-        ? [{ userId: row.userId, kind: row.kind as PinKind, entityId: row.id, pinnedAt: row.pinnedAt }]
+        ? [
+            {
+              userId: row.userId,
+              kind: row.kind as PinKind,
+              entityId: row.id,
+              pinnedAt: row.pinnedAt,
+            },
+          ]
         : [],
     )
+  }
+
+  /** {@link allPinsForBootReconcile} for some people only (POD-6763). */
+  async pinsOfUsers(userIds: readonly UserId[]): Promise<PinWire[]> {
+    const out: PinWire[] = []
+    for (const chunk of chunked([...new Set(userIds)])) {
+      const size = inListSize(chunk.length)
+      for (const row of await pinsOfUsers(this.db, size).all(inListValues(chunk, size, 'users'))) {
+        if (PIN_KINDS.has(row.kind as PinKind))
+          out.push({
+            userId: row.userId,
+            kind: row.kind as PinKind,
+            entityId: row.id,
+            pinnedAt: row.pinnedAt,
+          })
+      }
+    }
+    return out
+  }
+
+  /** {@link allTabOrdersForBootReconcile} for some people only (POD-6763). */
+  async tabOrdersOfUsers(userIds: readonly UserId[]): Promise<TabOrderWire[]> {
+    const out: TabOrderWire[] = []
+    for (const chunk of chunked([...new Set(userIds)])) {
+      const size = inListSize(chunk.length)
+      for (const row of await tabOrdersOfUsers(this.db, size).all(
+        inListValues(chunk, size, 'users'),
+      )) {
+        const sessionIds = parseTabIds(row.ids)
+        if (sessionIds !== undefined && sessionIds.length > 0)
+          out.push({ userId: row.userId, entityId: row.worktree, sessionIds })
+      }
+    }
+    return out
   }
 
   // ---- per-user session read state (POD-1076) ----

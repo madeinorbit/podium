@@ -55,6 +55,11 @@
       "@podium/source": "./src/bootstrap-worker.ts",
       "types": "./src/bootstrap-worker.ts",
       "import": "./src/bootstrap-worker.ts"
+    },
+    "./record-builders": {
+      "@podium/source": "./src/record-builders.ts",
+      "types": "./src/record-builders.ts",
+      "import": "./src/record-builders.ts"
     }
   },
   "scripts": {

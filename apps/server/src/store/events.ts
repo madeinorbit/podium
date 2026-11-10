@@ -8,7 +8,22 @@
 import { AgentRuntimeState, type SessionId } from '@podium/model'
 import { ISSUE_EVENTS_DEFAULT_LIMIT, ProviderCursor } from '@podium/protocol'
 import { RuntimeEvent } from '@podium/protocol/daemon'
-import { and, asc, desc, eq, gt, inArray, isNull, lt, lte, max, not, or, type SQL, sql } from 'drizzle-orm'
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  max,
+  not,
+  or,
+  type SQL,
+  sql,
+} from 'drizzle-orm'
 import {
   issues as issuesTable,
   podiumEvents,
@@ -19,7 +34,10 @@ import {
   subscriptionDeliveries,
   subscriptions,
 } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { runAtRoot } from './executor/context'
+import { afterCommit, spanOpen } from './executor/executor'
+import { withOwnOperation } from './executor/operation-scope'
+import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
@@ -29,9 +47,6 @@ import {
   prepared,
   preparedFamily,
 } from './executor/sync-drizzle'
-import { runAtRoot } from './executor/context'
-import { afterCommit, spanOpen } from './executor/executor'
-import { withOwnOperation } from './executor/operation-scope'
 import type { Subscription } from './types'
 
 /**
@@ -144,14 +159,19 @@ const checkpointOf = prepared((db: StoreDrizzle) =>
       turnStateJson: runtimeEventCheckpoints.turnStateJson,
     })
     .from(runtimeEventCheckpoints)
-    .where(eq(runtimeEventCheckpoints.sessionId, param(runtimeEventCheckpoints.sessionId, 'sessionId')))
+    .where(
+      eq(runtimeEventCheckpoints.sessionId, param(runtimeEventCheckpoints.sessionId, 'sessionId')),
+    )
     .prepare(),
 )
 
 /** The recorded turn states of a set of sessions (POD-6160 D2h). */
 const turnStatesOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
   db
-    .select({ sessionId: runtimeEventCheckpoints.sessionId, turnStateJson: runtimeEventCheckpoints.turnStateJson })
+    .select({
+      sessionId: runtimeEventCheckpoints.sessionId,
+      turnStateJson: runtimeEventCheckpoints.turnStateJson,
+    })
     .from(runtimeEventCheckpoints)
     .where(inListOf(runtimeEventCheckpoints.sessionId, size))
     .prepare(),
@@ -233,11 +253,7 @@ const runtimeTranscriptPayloads = prepared((db: StoreDrizzle) => {
     .orderBy(desc(podiumEvents.id))
     .limit(sql.placeholder('limit'))
     .as('recent')
-  return db
-    .select({ payload: recent.payload })
-    .from(recent)
-    .orderBy(asc(recent.id))
-    .prepare()
+  return db.select({ payload: recent.payload }).from(recent).orderBy(asc(recent.id)).prepare()
 })
 
 /**
@@ -373,7 +389,8 @@ const eventsSince = preparedFamily((db: StoreDrizzle, shape: string) => {
   if (before === 'b1') where.push(lt(podiumEvents.id, param(podiumEvents.id, 'before')))
   if (kindsSize > 0) where.push(inListOf(podiumEvents.kind, kindsSize, 'kind'))
   if (excludeSize > 0) where.push(notInListOf(podiumEvents.kind, excludeSize, 'xkind'))
-  if (repoPath === 'r1') where.push(eq(podiumEvents.repoPath, param(podiumEvents.repoPath, 'repoPath')))
+  if (repoPath === 'r1')
+    where.push(eq(podiumEvents.repoPath, param(podiumEvents.repoPath, 'repoPath')))
   if (subject === 's1') where.push(eq(podiumEvents.subject, param(podiumEvents.subject, 'subject')))
   return db
     .select()
@@ -575,6 +592,15 @@ const setSubscriptionEnabledById = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/** Subscriptions by id, for building `subscription` records by id (POD-6763). */
+const subscriptionsOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select()
+    .from(subscriptions)
+    .where(inListOf(subscriptions.id, size, 'ids'))
+    .prepare(),
+)
+
 const subscriptionById = prepared((db: StoreDrizzle) =>
   db
     .select()
@@ -679,7 +705,10 @@ const matchingSubscriptions = preparedFamily((db: StoreDrizzle, shape: string) =
 const insertDeliveryIfNew = prepared((db: StoreDrizzle) =>
   db
     .insert(subscriptionDeliveries)
-    .values({ subscriptionId: sql.placeholder('subscriptionId'), eventId: sql.placeholder('eventId') })
+    .values({
+      subscriptionId: sql.placeholder('subscriptionId'),
+      eventId: sql.placeholder('eventId'),
+    })
     .onConflictDoNothing()
     .prepare(),
 )
@@ -789,7 +818,9 @@ export class EventsRepository {
 
   /** The recorded turn state of each of these sessions that has one
    *  (POD-6160 D2h), one statement per 500 ids. */
-  async runtimeTurnStatesOf(sessionIds: readonly SessionId[]): Promise<Map<SessionId, AgentRuntimeState>> {
+  async runtimeTurnStatesOf(
+    sessionIds: readonly SessionId[],
+  ): Promise<Map<SessionId, AgentRuntimeState>> {
     const out = new Map<SessionId, AgentRuntimeState>()
     for (let at = 0; at < sessionIds.length; at += 500) {
       const chunk = sessionIds.slice(at, at + 500)
@@ -826,7 +857,9 @@ export class EventsRepository {
     for (let at = 0; at < sessionIds.length; at += 500) {
       const chunk = sessionIds.slice(at, at + 500)
       const size = inListSize(chunk.length)
-      for (const row of await runtimeTranscriptSubjectsOfIds(this.db, size).all(inListValues(chunk, size))) {
+      for (const row of await runtimeTranscriptSubjectsOfIds(this.db, size).all(
+        inListValues(chunk, size),
+      )) {
         if (row.subject) out.add(row.subject as SessionId)
       }
     }
@@ -889,7 +922,11 @@ export class EventsRepository {
     return row ? row.lastEventId : 0
   }
 
-  async saveRuntimeEventProjectionCursor(projector: string, eventId: number, updatedAt: string): Promise<void> {
+  async saveRuntimeEventProjectionCursor(
+    projector: string,
+    eventId: number,
+    updatedAt: string,
+  ): Promise<void> {
     // MONOTONIC: the statement's `setWhere` never rewinds the head (see
     // advanceProjectionCursor).
     await advanceProjectionCursor(this.db).run({ projector, lastEventId: eventId, updatedAt })
@@ -991,12 +1028,13 @@ export class EventsRepository {
           // Its own operation at the root: the drain serves every caller in the
           // group, and the first one's scope is not the others'.
           const ids = await runAtRoot(() =>
-            withOwnOperation(async () =>
-              await this.createOrJoinTransaction(async () => {
-                const out: number[] = []
-                for (const pending of group) out.push(await this.appendEvent(pending.event))
-                return out
-              }),
+            withOwnOperation(
+              async () =>
+                await this.createOrJoinTransaction(async () => {
+                  const out: number[] = []
+                  for (const pending of group) out.push(await this.appendEvent(pending.event))
+                  return out
+                }),
             ),
           )
           group.forEach((pending, i) => pending.resolve(ids[i]!))
@@ -1020,7 +1058,7 @@ export class EventsRepository {
   }): Promise<number | undefined> {
     return await this.createOrJoinTransaction(async () => {
       const key = `event-once:${JSON.stringify([e.kind, e.subject])}`
-      if (await this.getStewardState(key) !== undefined) return undefined
+      if ((await this.getStewardState(key)) !== undefined) return undefined
       const id = await this.appendEvent(e)
       await this.setStewardState(key, String(id))
       return id
@@ -1118,7 +1156,11 @@ export class EventsRepository {
    * sorted every row the kind had ever kept — seconds of frozen server on a
    * real-size log.
    */
-  async listKindSubjectSinceWithPrior(kind: string, subject: string, since: string): Promise<PodiumEventRecord[]> {
+  async listKindSubjectSinceWithPrior(
+    kind: string,
+    subject: string,
+    since: string,
+  ): Promise<PodiumEventRecord[]> {
     const prior = await kindSubjectPrior(this.db).get({ kind, subject, since })
     const rows = await kindSubjectSince(this.db).all({ kind, subject, since })
     return [...(prior ? [rowToEvent(prior)] : []), ...rows.map(rowToEvent)]
@@ -1300,6 +1342,21 @@ export class EventsRepository {
   async setSubscriptionEnabled(id: string, enabled: boolean): Promise<boolean> {
     const r = await setSubscriptionEnabledById(this.db).run({ id, enabled })
     return r.changes > 0
+  }
+
+  /** {@link getSubscription} for many ids, one read per 500 (POD-6763). */
+  async subscriptionsByIds(ids: readonly string[]): Promise<Subscription[]> {
+    const unique = [...new Set(ids)]
+    const out: Subscription[] = []
+    for (let at = 0; at < unique.length; at += 500) {
+      const chunk = unique.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      for (const row of await subscriptionsOfIds(this.db, size).all(
+        inListValues(chunk, size, 'ids'),
+      ))
+        out.push(rowToSubscription(row))
+    }
+    return out
   }
 
   async getSubscription(id: string): Promise<Subscription | undefined> {

@@ -1153,6 +1153,40 @@ const openChat = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/**
+ * THE CONFIRMED HALF OF THE CHAT FEED'S WINDOW, AS A QUERY (POD-6763, design
+ * POD-6253 §1): each live session's newest `perSession` confirmed operator
+ * messages. A live session is not exited, not archived and not deleted
+ * (`isLiveConversation` in `modules/message-feed`). Keyed by `'live'` (every
+ * live session) or by the size of an id list (those sessions only). One
+ * statement; the rank is a window function, which Postgres has too.
+ */
+const confirmedChatWindow = preparedFamily((db: StoreDrizzle, key: 'live' | number) => {
+  // Every live session: the live ones are found first (a read of `sessions`),
+  // then each one's messages through the recipient index. Named sessions: the
+  // messages of those sessions, each session's liveness by its primary key.
+  const sessionsOf =
+    key === 'live'
+      ? sql`m.to_id IN (SELECT s.id FROM ${sessionsTable} s
+            WHERE s.status <> 'exited' AND s.archived = 0 AND s.deleted_at IS NULL)`
+      : sql`m.to_id IN (${sql.join(
+          Array.from({ length: key }, (_, i) => sql.placeholder(`ids${i}`)),
+          sql`, `,
+        )}) AND EXISTS (SELECT 1 FROM ${sessionsTable} s WHERE s.id = m.to_id
+            AND s.status <> 'exited' AND s.archived = 0 AND s.deleted_at IS NULL)`
+  return db
+    .select(MESSAGE_COLUMNS)
+    .from(
+      sql`(SELECT m.*, row_number() OVER (PARTITION BY m.to_id ORDER BY m.created_at DESC, m.id DESC) AS window_rank
+        FROM ${messagesTable} m
+        WHERE m.from_kind = 'operator' AND m.to_kind = 'session' AND m.delivery_status = 'confirmed'
+          AND ${sessionsOf}) ranked`,
+    )
+    .where(sql`window_rank <= ${sql.placeholder('perSession')}`)
+    .orderBy(asc(sql`created_at`), asc(sql`id`))
+    .prepare()
+})
+
 /** Keyed by whether a cursor is given. */
 const queuedPage = preparedFamily((db: StoreDrizzle, from: 'start' | 'after') => {
   const where: SQL[] = [pending()]
@@ -2171,6 +2205,29 @@ export class MessagesRepository {
     return (await openChat(this.db).all({ limit: boundedLimit(limit, 2000, 10_000) })).map(
       mapMessage,
     )
+  }
+
+  /** The confirmed half of the chat feed's window ({@link confirmedChatWindow}):
+   *  every live session's, or only the named sessions'. Oldest first. */
+  async confirmedChatWindow(
+    perSession: number,
+    sessionIds?: readonly string[],
+  ): Promise<MessageRow[]> {
+    if (sessionIds === undefined) {
+      return (await confirmedChatWindow(this.db, 'live').all({ perSession })).map(mapMessage)
+    }
+    const unique = [...new Set(sessionIds)]
+    const out: MessageRow[] = []
+    for (let at = 0; at < unique.length; at += 500) {
+      const chunk = unique.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      const rows = await confirmedChatWindow(this.db, size).all({
+        perSession,
+        ...inListValues(chunk, size, 'ids'),
+      })
+      out.push(...rows.map(mapMessage))
+    }
+    return out
   }
 
   /** Every pending row, oldest first — the slow sweep's retry set. */
