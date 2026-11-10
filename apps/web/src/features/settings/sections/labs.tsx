@@ -48,7 +48,7 @@ export const LabsSection = observer(function LabsSection({
         return (
           <Row
             key={flag.id}
-            setting={`experimental.${flag.id}`}
+            setting="experimental"
             label={flag.name}
             readOnlyValue={checked ? 'On' : 'Off'}
             description={

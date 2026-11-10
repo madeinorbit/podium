@@ -52,25 +52,25 @@ export function AppearanceSection(): JSX.Element {
           ))}
         </div>
       </Row>
-        <Row
-          label="Density"
-          description="Balanced prioritizes readable shell typography and a calm scan. Compact fits more work on screen. This device only."
-        >
-          <div className="flex gap-1">
-            {densities.map((option) => (
-              <Button
-                key={option.value}
-                type="button"
-                size="sm"
-                variant={density === option.value ? 'default' : 'outline'}
-                aria-pressed={density === option.value}
-                onClick={() => setDensity(option.value)}
-              >
-                {option.label}
-              </Button>
-            ))}
-          </div>
-        </Row>
+      <Row
+        label="Density"
+        description="Balanced prioritizes readable shell typography and a calm scan. Compact fits more work on screen. This device only."
+      >
+        <div className="flex gap-1">
+          {densities.map((option) => (
+            <Button
+              key={option.value}
+              type="button"
+              size="sm"
+              variant={density === option.value ? 'default' : 'outline'}
+              aria-pressed={density === option.value}
+              onClick={() => setDensity(option.value)}
+            >
+              {option.label}
+            </Button>
+          ))}
+        </div>
+      </Row>
       <Row
         label="Sticky prompts"
         description="Keep the current operator prompt visible while its response scrolls. This device only."

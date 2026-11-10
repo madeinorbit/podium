@@ -134,7 +134,7 @@ const client = {
 }
 export const useSettingsClient = () => client as never
 export const useSettingsTrpc = () => trpc
-export const useFeature = (id: string) => ['shell-density', 'notifications'].includes(id)
+export const useFeature = () => false
 export const useFeaturesState = () => ({
   channel: 'edge',
   devMode: false,

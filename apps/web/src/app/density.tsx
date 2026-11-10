@@ -32,9 +32,7 @@ export function DensityProvider({ children }: { children: ReactNode }): JSX.Elem
   )
   useLayoutEffect(() => applyDensity(density, document.documentElement), [density])
   return (
-    <DensityContext.Provider value={{ density, setDensity }}>
-      {children}
-    </DensityContext.Provider>
+    <DensityContext.Provider value={{ density, setDensity }}>{children}</DensityContext.Provider>
   )
 }
 

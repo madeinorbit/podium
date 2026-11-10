@@ -19,7 +19,6 @@ const demand = vi.hoisted(() => ({
   metrics: vi.fn(() => []),
   idleCap: vi.fn(() => 3),
 }))
-let notificationsEnabled = false
 
 vi.mock('@/app/store', () => ({
   useHostMetrics: demand.metrics,
@@ -34,7 +33,7 @@ vi.mock('./readers', async (importOriginal) => ({
   useSettingsTab: () => storeState.settingsTab,
 }))
 vi.mock('@/lib/use-feature', () => ({
-  useFeature: (name: string) => name === 'notifications' && notificationsEnabled,
+  useFeature: () => false,
 }))
 vi.mock('@/lib/use-model-catalog', () => ({
   useModelCatalog: () => ({}),
@@ -53,7 +52,6 @@ vi.mock('sonner', () => ({ toast: Object.assign(toastMock, { error: vi.fn() }) }
 const onClose = vi.fn()
 
 beforeEach(() => {
-  notificationsEnabled = false
   toastMock.mockClear()
   storeState.setInstancePreferences = vi.fn(async () => {})
   demand.metrics.mockClear()
@@ -133,7 +131,6 @@ afterEach(() => {
 
 describe('Settings save on change', () => {
   it('counts Telegram seconds in its label and expires the setup at its exact deadline', async () => {
-    notificationsEnabled = true
     storeState.settingsTab = 'notifications'
     vi.useFakeTimers()
     vi.setSystemTime(100_000)

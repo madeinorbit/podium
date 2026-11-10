@@ -73,8 +73,8 @@ describe('LabsSection', () => {
     expect(screen.getByText('Run some agents without a terminal.')).toBeTruthy()
 
     const row = screen.getByText('Headless agents').closest<HTMLDivElement>('.settings-row')
-    expect(row).not.toBeNull()
-    const toggle = within(row!).getByRole('switch')
+    if (!row) throw new Error('Missing Headless agents row')
+    const toggle = within(row).getByRole('switch')
     expect(toggle.getAttribute('aria-checked')).toBe('false')
     fireEvent.click(toggle)
 
@@ -111,10 +111,35 @@ describe('LabsSection', () => {
     )
 
     const row = screen.getByText('Headless agents').closest<HTMLDivElement>('.settings-row')
-    expect(row?.dataset.readonly).toBe('true')
-    expect(within(row!).getByText('On')).toBeTruthy()
+    if (!row) throw new Error('Missing Headless agents row')
+    expect(row.dataset.readonly).toBe('true')
+    expect(within(row).getByText('On')).toBeTruthy()
     expect(screen.queryByRole('switch')).toBeNull()
     expect(patch).not.toHaveBeenCalled()
+  })
+
+  it('binds pending writes and refusals to the atomic experimental preference', () => {
+    const { rerender } = render(
+      <SettingsControlsContext.Provider value={{ feedback: { experimental: { pending: true } } }}>
+        <LabsSection settings={DEFAULT_SETTINGS} patch={vi.fn()} />
+      </SettingsControlsContext.Provider>,
+    )
+
+    const toggle = screen.getByRole('switch', { name: 'Headless agents' })
+    expect(toggle.closest('fieldset')?.disabled).toBe(true)
+    expect(toggle.closest('.settings-row')?.getAttribute('aria-busy')).toBe('true')
+
+    rerender(
+      <SettingsControlsContext.Provider
+        value={{ feedback: { experimental: { error: 'Workspace change refused.' } } }}
+      >
+        <LabsSection settings={DEFAULT_SETTINGS} patch={vi.fn()} />
+      </SettingsControlsContext.Provider>,
+    )
+    expect(screen.getByRole('alert').textContent).toBe('Workspace change refused.')
+    expect(
+      screen.getByRole('switch', { name: 'Headless agents' }).getAttribute('aria-checked'),
+    ).toBe('false')
   })
 
   it('omits hidden Shipwright even in dev mode and keeps the dev-only badge', () => {
@@ -124,6 +149,7 @@ describe('LabsSection', () => {
     expect(state.features.flags.find((flag) => flag.id === 'shipwright')?.listed).toBe(true)
     expect(screen.queryByText('Shipwright')).toBeNull()
     const workflows = screen.getByText('Workflows').closest<HTMLDivElement>('.settings-row')
-    expect(within(workflows!).getByText('Dev')).toBeTruthy()
+    if (!workflows) throw new Error('Missing Workflows row')
+    expect(within(workflows).getByText('Dev')).toBeTruthy()
   })
 })

@@ -24,5 +24,4 @@ describe('shell density', () => {
     applyDensity('compact', root)
     expect(root.dataset.density).toBe('compact')
   })
-
 })
