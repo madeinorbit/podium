@@ -58,7 +58,7 @@ async function harness(
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     resolveMachine: vi.fn(async () => store.hostMachineId),
     broadcast,
-    ...issueTestPlumbing((msg) => broadcast(msg)),
+    ...issueTestPlumbing((msg) => broadcast(msg), { store }),
     now: () => '2026-07-06T00:00:00.000Z',
     readSessionIssueId: async (sessionId) => issueBySession.get(sessionId) ?? null,
     setSessionIssueId: (_writer, sessionId, issueId) => {

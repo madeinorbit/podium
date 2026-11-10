@@ -31,6 +31,7 @@ import { attachTestClient } from './test-support/client-transport'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
 import { seedMailboxRow } from './test-support/seed-issue-mail'
+import { testStoreRecords } from './test-support/record-writer'
 
 /**
  * Characterization net for the architecture redesign (store.ts / relay.ts dissolution).
@@ -497,6 +498,7 @@ describe('characterization: change-log delta client heals to identical state (co
     const store = await openTestStore(':memory:')
     const ledger = new Ledger({
       repo: store.sync,
+      records: testStoreRecords(store),
       now: Date.now,
       transact: async (fn) => await store.transact(fn),
     })

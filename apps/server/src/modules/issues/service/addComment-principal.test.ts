@@ -49,7 +49,7 @@ async function harness() {
       }),
     spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
-    ...issueTestPlumbing((msg) => broadcast(msg)),
+    ...issueTestPlumbing((msg) => broadcast(msg), { store }),
     now: () => '2026-06-30T00:00:00.000Z',
   }
   const svc = await IssueService.create(deps)

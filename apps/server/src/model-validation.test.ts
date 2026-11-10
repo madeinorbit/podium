@@ -460,7 +460,7 @@ describe('launch selection travels in the spawn call — no machine round trip',
       // Worktree I/O is unrelated to selection; no daemon transport is needed.
       repoOp: async () => ({ ok: true, output: '' }),
       resolveMachine: async () => store.hostMachineId,
-      ...issueTestPlumbing(() => {}),
+      ...issueTestPlumbing(() => {}, { store }),
     }
     const issues = await IssueService.create(deps)
     const issue = await issues.crud.create(issues.reports.store.serverWriter, { repoPath: '/r', title: 'Live defaults', startNow: false })

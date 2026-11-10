@@ -109,6 +109,21 @@ export type EntityChangeSpec = Omit<KernelChangeSpec, 'entityId'> & { id: string
  *  `AffectedRecord` (POD-6769). */
 export type AffectedRecordSpec = Omit<EntityChangeSpec, 'op' | 'value'>
 
+/** A commit's named records: a list, or a read run inside the transaction
+ *  before the first build, when the writer must read to know them. */
+export type AffectedRecordsOf =
+  | readonly AffectedRecordSpec[]
+  | (() => Promise<readonly AffectedRecordSpec[]>)
+
+/** This facade's `id` spelling of named records → the kernel's `entityId`. */
+export function toKernelAffects(
+  affects: AffectedRecordsOf,
+): NonNullable<AuthorityCommit<unknown>['affects']> {
+  const rename = (records: readonly AffectedRecordSpec[]) =>
+    records.map(({ id, ...rest }) => ({ ...rest, entityId: id }))
+  return typeof affects === 'function' ? async () => rename(await affects()) : rename(affects)
+}
+
 /**
  * The composite overlay key. RE-EXPORTED from the Authority rather than declared
  * twice: two implementations of one key function is one edit away from two
@@ -218,7 +233,7 @@ export interface LedgerCommitOp<T> {
    * front, for kinds that have moved. The Authority builds each before and
    * after `write` and appends what differs: see `AuthorityCommit.affects`.
    */
-  affects?: readonly AffectedRecordSpec[]
+  affects?: AffectedRecordsOf
   /** The declared changes of kinds that have not moved to compare at save. */
   changes?: (result: T) => EntityChangeSpec[] | Promise<EntityChangeSpec[]>
   /** Post-commit work, run on the OUTERMOST commit. See {@link Ledger.commit}. */
@@ -377,9 +392,7 @@ export class Ledger {
     const declare = op.changes
     const outcome = await this.authority.commit({
       ...(op.arbitrate === undefined ? {} : { arbitrate: op.arbitrate }),
-      ...(op.affects === undefined
-        ? {}
-        : { affects: op.affects.map(({ id, ...rest }) => ({ ...rest, entityId: id })) }),
+      ...(op.affects === undefined ? {} : { affects: toKernelAffects(op.affects) }),
       write: async () => await op.write(scope),
       ...(declare === undefined
         ? {}

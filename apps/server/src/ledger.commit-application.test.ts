@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import type { SessionStore } from './store'
 import { applyAfterCommit, spanOpen } from './store/executor/executor'
 import { openTestStore } from './test-support/open-test-store'
+import { testStoreRecords } from './test-support/record-writer'
 
 /**
  * `Ledger.commit`'s `apply` ARM — one slot that owns "after it is durable"
@@ -33,6 +34,7 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
   function makeLedger(store: SessionStore): Ledger {
     return new Ledger({
       repo: store.sync,
+      records: testStoreRecords(store),
       now: () => 1_000,
       transact: async (fn) => await store.transact(fn),
       applyCommit: { spanOpen, onCommit: applyAfterCommit },

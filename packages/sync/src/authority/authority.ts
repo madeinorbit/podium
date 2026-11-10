@@ -327,9 +327,10 @@ export class Authority implements AuthorityPort {
     // The causing command, read ONCE and before the first await, so the answer
     // is the caller's even if the write awaits into another context.
     const ambient = this.ambientProvenance()
-    // A wrong-path record name is a programming error: refused before anything
-    // runs, the authorization included.
-    const named = this.namedRecords(op.affects)
+    // A wrong-path record name is a programming error: a list is refused
+    // before anything runs, the authorization included. Records the writer
+    // must read to name are named inside the span, below.
+    const listed = typeof op.affects === 'function' ? undefined : this.namedRecords(op.affects)
 
     // 1. AUTHORIZE. Before anything reads state, and a throw ends the call.
     await op.authorize?.()
@@ -360,6 +361,8 @@ export class Authority implements AuthorityPort {
       // COMPARE AT SAVE (POD-6769): the named records as the database holds
       // them now, then the write, then the same records again. Both builds run
       // in this span, so nothing else can write between them and the append.
+      const named =
+        listed ?? this.namedRecords(typeof op.affects === 'function' ? await op.affects() : [])
       const before = await this.buildRecords(named)
       const result = await op.write()
       const compared = await this.compareAtSave(named, before, ambient)

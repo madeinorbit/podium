@@ -35,7 +35,7 @@ describe('issue tracker capability composition', () => {
         machine: 'machine-under-test',
       }),
       repoOp: async () => ({ ok: true, output: '' }),
-      ...issueTestPlumbing(),
+      ...issueTestPlumbing(undefined, { store }),
     }
     const tracker = await IssueService.create(deps)
     expect(types.isProxy(tracker)).toBe(false)

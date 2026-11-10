@@ -1,6 +1,8 @@
 import type { MetadataChange } from '@podium/protocol'
 import { Ledger, type LedgerDeps, type StoredChangeRow } from '@podium/sync'
 import { installedWorldOver, testLedgerWriter } from '@podium/sync/testing'
+import type { SessionStore } from '../../../store'
+import { testStoreRecords } from '../../../test-support/record-writer'
 import type { IssueDeps } from './types'
 
 /**
@@ -35,7 +37,16 @@ export function issueTestPlumbing(
    * the registry from inside the span is the same window an awaited commit will
    * open, and it is the only way to open one today.
    */
-  opts: { transact?: LedgerDeps['transact'] } = {},
+  opts: {
+    transact?: LedgerDeps['transact']
+    /**
+     * The test's store, for the kinds that compare at save (POD-6769): the
+     * service names the records a write may affect, and the Ledger builds them
+     * from this store before and after it. A test whose writes name records
+     * must pass it; without it such a write is refused.
+     */
+    store?: SessionStore
+  } = {},
 ): Pick<IssueDeps, 'funnel' | 'ledger'> & {
   /** The real Ledger behind `ledger`, for a test that reads the log back. */
   readonly changeLog: Ledger
@@ -44,6 +55,7 @@ export function issueTestPlumbing(
     repo: memoryChangeLogStore(),
     now: Date.now,
     transact: opts.transact ?? (async (fn) => await fn()),
+    ...(opts.store === undefined ? {} : { records: testStoreRecords(opts.store) }),
   })
   ledger.onAppended((changes) => {
     for (const change of changes) onPublished(change)

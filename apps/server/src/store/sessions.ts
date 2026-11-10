@@ -924,6 +924,20 @@ const deletePinsOfTarget = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/** Who pins one thing, through `idx_pins_target`. */
+const pinnersOfTarget = prepared((db: StoreDrizzle) =>
+  db
+    .select({ userId: pinsTable.userId })
+    .from(pinsTable)
+    .where(
+      and(
+        eq(pinsTable.kind, param(pinsTable.kind, 'kind')),
+        eq(pinsTable.id, param(pinsTable.id, 'id')),
+      ),
+    )
+    .prepare(),
+)
+
 const pinOf = prepared((db: StoreDrizzle) =>
   db.select({ pinnedAt: pinsTable.pinnedAt }).from(pinsTable).where(onePin()).prepare(),
 )
@@ -1877,6 +1891,12 @@ export class SessionsRepository {
   async removePinsOf(kind: PinKind, id: string): Promise<UserId[]> {
     const rows = await deletePinsOfTarget(this.db).all({ kind, id })
     return rows.map((row) => row.userId)
+  }
+
+  /** Whose pins {@link removePinsOf} would remove: the `pin` records a purge
+   *  of the thing may affect, named before it runs (POD-6769). */
+  async pinnersOf(kind: PinKind, id: string): Promise<UserId[]> {
+    return (await pinnersOfTarget(this.db).all({ kind, id })).map((row) => row.userId)
   }
 
   /** Unpin it. Answers whether there was a pin to remove. */

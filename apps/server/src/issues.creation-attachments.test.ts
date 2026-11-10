@@ -27,7 +27,7 @@ describe('creation attachments at review', () => {
     const deps: IssueDeps = {
       store,
       ...sessionReadPorts(() => []),
-      ...issueTestPlumbing(),
+      ...issueTestPlumbing(undefined, { store }),
       getSettings: async () => normalizeSettings({}),
       spawnSession: async () => ({ sessionId: asSessionId('unused'), machine: 'unused' }),
       repoOp: async () => ({ ok: true, output: '' }),

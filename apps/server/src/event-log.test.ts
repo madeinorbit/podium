@@ -35,7 +35,7 @@ async function harness(sessions: SessionMeta[] = [], extra: Partial<IssueDeps> =
     spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     broadcast,
-    ...issueTestPlumbing((msg) => broadcast(msg)),
+    ...issueTestPlumbing((msg) => broadcast(msg), { store }),
     now: () => '2026-07-02T00:00:00.000Z',
   }
   return { store, deps, svc: await IssueService.create({ ...deps, ...extra }) }

@@ -48,7 +48,7 @@ async function harness() {
     spawnSession,
     repoOp,
     resolveMachine: vi.fn(async () => store.hostMachineId),
-    ...issueTestPlumbing((msg) => broadcast(msg)),
+    ...issueTestPlumbing((msg) => broadcast(msg), { store }),
     setSessionArchived: vi.fn(),
     clearSessionOffer: vi.fn(),
     onWorktreesChanged: vi.fn(),

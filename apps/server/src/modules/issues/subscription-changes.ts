@@ -1,20 +1,16 @@
 /**
- * A SUBSCRIPTION'S CHANGE ENTRIES (POD-6676): under its feed id,
+ * A SUBSCRIPTION'S RECORD ON THE FEED (POD-6676): under its feed id,
  * `subscriptionRowId(subscriberKind, subscriberId, id)`, so the feed scopes a
- * removal like the row it removes. Committed with every subscription write.
+ * removal like the row it removes. Every subscription write names it, and the
+ * Authority builds it before and after the write (compare at save, POD-6769).
  */
 
 import { type SubscriptionWire, subscriptionRowIdOf } from '@podium/model'
-import type { EntityChangeSpec } from '@podium/sync'
+import type { AffectedRecordSpec } from '@podium/sync'
 
-/** A subscription's change entry: the row as stored. */
-export function subscriptionUpsert(sub: SubscriptionWire): EntityChangeSpec {
-  return { entity: 'subscription', id: subscriptionRowIdOf(sub), op: 'upsert', value: sub }
-}
-
-/** A removed subscription's change entry, under the id it was published by. */
-export function subscriptionRemoval(
+/** The record a write of this subscription may affect. */
+export function subscriptionRecord(
   sub: Pick<SubscriptionWire, 'subscriberKind' | 'subscriberId' | 'id'>,
-): EntityChangeSpec {
-  return { entity: 'subscription', id: subscriptionRowIdOf(sub), op: 'remove' }
+): AffectedRecordSpec {
+  return { entity: 'subscription', id: subscriptionRowIdOf(sub) }
 }

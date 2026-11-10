@@ -30,6 +30,7 @@ import { afterCommit, applyAfterCommit, spanOpen } from '../store/executor/execu
 import { openTestStore } from '../test-support/open-test-store'
 import { type ClientPrincipal, userClientPrincipal } from './client-principal'
 import { FeedServing } from './feed-serving'
+import { testStoreRecords } from '../test-support/record-writer'
 
 export interface FeedTestPlumbing {
   readonly serving: FeedServing
@@ -78,6 +79,7 @@ export async function feedTestPlumbing(
     ...(opts.visibility ? { visibility: opts.visibility } : {}),
     ...(opts.anchors ? { anchors: opts.anchors } : {}),
     repo: store.sync,
+    records: testStoreRecords(store),
     now: () => 1_000,
     transact: async (fn) => await store.transact(fn),
     // Match relay.ts: this is a real transactional store, so queued delivery

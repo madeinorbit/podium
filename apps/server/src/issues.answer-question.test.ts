@@ -43,7 +43,7 @@ async function harness(
       machine: 'machine-under-test',
     })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
-    ...issueTestPlumbing(),
+    ...issueTestPlumbing(undefined, { store }),
     now: () => '2026-07-14T00:00:00.000Z',
   }
   const svc = await IssueService.create(deps)

@@ -93,7 +93,7 @@ async function setup(size: number): Promise<Fixture> {
       machine: 'machine-under-test',
     })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
-    ...issueTestPlumbing(),
+    ...issueTestPlumbing(undefined, { store }),
     now,
   }
   const issues = await IssueService.create(issueDeps)

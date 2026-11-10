@@ -16,6 +16,7 @@ import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { attachTestClient } from './test-support/client-transport'
 import { openTestStore } from './test-support/open-test-store'
+import { testStoreRecords } from './test-support/record-writer'
 import type { WriteContexts } from './write-contexts'
 
 /**
@@ -161,6 +162,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     const store = await openTestStore(':memory:')
     const ledger = new Ledger({
       repo: store.sync,
+      records: testStoreRecords(store),
       now: () => 1_000,
       transact: async (fn) => await store.transact(fn),
     })

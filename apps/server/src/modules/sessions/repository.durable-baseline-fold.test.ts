@@ -31,6 +31,7 @@ import { openTestStore } from '../../test-support/open-test-store'
 import { repositoryWriter } from '../../test-support/session-repository-writer'
 import { SessionRepository } from './repository'
 import { Session } from './session'
+import { testStoreRecords } from '../../test-support/record-writer'
 
 const MACHINE = asMachineId('fold-machine')
 
@@ -52,6 +53,7 @@ async function fixture() {
   const sessions = new Map([[session.sessionId, session]])
   const ledger = new Ledger({
     repo: store.sync,
+    records: testStoreRecords(store),
     now: () => 1_000,
     transact: async (fn) => await store.transact(fn),
     applyCommit: { spanOpen, onCommit: applyAfterCommit },

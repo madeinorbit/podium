@@ -28,7 +28,7 @@ import {
   type UserId,
 } from '@podium/model'
 import { automationOccurrenceRunId } from '@podium/protocol'
-import type { LedgerWriter } from '@podium/sync'
+import type { AffectedRecordSpec, LedgerWriter } from '@podium/sync'
 import { attributionOf, type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import type {
   AutomationRow,
@@ -136,6 +136,12 @@ export class AutomationRefusal extends Error {
     this.name = 'AutomationRefusal'
   }
 }
+
+// The records an automation write may affect. The Authority builds each before
+// and after the write (compare at save, POD-6769): a tombstoned automation or
+// run is no record, so its removal is found the same way as an edit.
+const automationRecord = (id: string): AffectedRecordSpec => ({ entity: 'automation', id })
+const automationRunRecord = (id: string): AffectedRecordSpec => ({ entity: 'automationRun', id })
 
 const invalid = (message: string): AutomationRefusal => new AutomationRefusal('invalid', message)
 const unknownAutomation = (id: string): AutomationRefusal =>
@@ -336,13 +342,11 @@ export class AutomationsService {
     await this.assertOwnTarget(ownerUserId, row.targetSessionId)
     const created = (
       await writer.commit({
+        affects: [automationRecord(row.id)],
         write: async (scope) => {
           await this.deps.store.insert(scope, row)
           return row
         },
-        changes: (automation) => [
-          { entity: 'automation', id: automation.id, op: 'upsert', value: automation },
-        ],
       })
     ).result
     return created
@@ -410,13 +414,11 @@ export class AutomationsService {
     }
     const updated = (
       await writer.commit({
+        affects: [automationRecord(next.id)],
         write: async (scope) => {
           await this.deps.store.update(scope, next)
           return next
         },
-        changes: (automation) => [
-          { entity: 'automation', id: automation.id, op: 'upsert', value: automation },
-        ],
       })
     ).result
     return updated
@@ -447,18 +449,9 @@ export class AutomationsService {
     const deletedAt = this.now().toISOString()
     const removed = (
       await writer.commit({
+        // The automation's live runs go with it, before it.
+        affects: [...runIds.map(automationRunRecord), automationRecord(id)],
         write: async (scope) => await this.deps.store.remove(scope, id, deletedAt),
-        changes: (didRemove) =>
-          didRemove
-            ? [
-                ...runIds.map((runId) => ({
-                  entity: 'automationRun' as const,
-                  id: runId,
-                  op: 'remove' as const,
-                })),
-                { entity: 'automation' as const, id, op: 'remove' as const },
-              ]
-            : [],
       })
     ).result
     return { removed }
@@ -520,6 +513,7 @@ export class AutomationsService {
     if (decision.kind !== 'spawn') {
       const outcome: AutomationRunOutcome = decision.kind
       await this.deps.ledger.commit({
+        affects: [automationRunRecord(runId), automationRecord(automation.id)],
         write: async (scope) => {
           if (!existing) {
             await this.deps.store.addRun(scope, {
@@ -542,20 +536,6 @@ export class AutomationsService {
           await this.deps.store.update(scope, rearmed)
           return { runId, automation: rearmed }
         },
-        changes: async (result) => [
-          {
-            entity: 'automationRun',
-            id: result.runId,
-            op: 'upsert',
-            value: await (await this.deps.store.getRun(result.runId))!,
-          },
-          {
-            entity: 'automation',
-            id: result.automation.id,
-            op: 'upsert',
-            value: result.automation,
-          },
-        ],
       })
       return
     }
@@ -563,6 +543,7 @@ export class AutomationsService {
     // Reserve occurrence ONLY — do not re-arm nextRunAt until side effects finish.
     if (!existing) {
       await this.deps.ledger.commit({
+        affects: [automationRunRecord(runId)],
         write: async (scope) => {
           await this.deps.store.addRun(scope, {
             id: runId,
@@ -576,7 +557,6 @@ export class AutomationsService {
           })
           return (await this.deps.store.getRun(runId))!
         },
-        changes: (run) => [{ entity: 'automationRun', id: run.id, op: 'upsert', value: run }],
       })
     }
 
@@ -596,20 +576,12 @@ export class AutomationsService {
 
     // Finalize run + re-arm only after the side-effect attempt (success or terminal error).
     await this.deps.ledger.commit({
+      affects: [automationRunRecord(runId), automationRecord(automation.id)],
       write: async (scope) => {
         await this.deps.store.updateRun(scope, runId, { sessionId, outcome, detail })
         await this.deps.store.update(scope, rearmed)
         return { run: (await this.deps.store.getRun(runId))!, automation: rearmed }
       },
-      changes: (result) => [
-        { entity: 'automationRun', id: result.run.id, op: 'upsert', value: result.run },
-        {
-          entity: 'automation',
-          id: result.automation.id,
-          op: 'upsert',
-          value: result.automation,
-        },
-      ],
     })
   }
 

@@ -117,7 +117,9 @@ describe('statement counts of the per-user record writes', () => {
   })
 
   it('a read position edit does not grow with the positions the table holds', async () => {
-    await expectConstantStatements(readPositionEdit, 9)
+    // Compare at save (POD-6769): the person's positions are read before the
+    // write and again after it, in place of one read of the stored copy.
+    await expectConstantStatements(readPositionEdit, 10)
   })
 
   it('is armed: a read per stored pin on the pin path fails it', async () => {

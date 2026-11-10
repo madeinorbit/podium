@@ -9,6 +9,7 @@ import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { applyAfterCommit, spanOpen } from './store/executor/executor'
 import { openTestStore } from './test-support/open-test-store'
 import { sessionReadPorts } from './test-support/session-facts'
+import { testStoreRecords } from './test-support/record-writer'
 
 /**
  * Issue writes on the write-seam Ledger ([spec:SP-3fe2] #255): the REAL Ledger
@@ -28,6 +29,7 @@ async function harness() {
   const applyCommit = { spanOpen, onCommit: applyAfterCommit }
   const ledger = new Ledger({
     repo: store.sync,
+    records: testStoreRecords(store),
     now: () => 1_000,
     transact: async (fn) => await store.transact(fn),
     applyCommit,
@@ -38,7 +40,7 @@ async function harness() {
   // disagree with the rows below, and that is what a dual read path IS.
   const appended: MetadataChange[][] = []
   ledger.onAppended((changes) => appended.push(changes))
-  const plumbing = issueTestPlumbing()
+  const plumbing = issueTestPlumbing(undefined, { store })
   const deps: IssueDeps = {
     store,
     ...sessionReadPorts(() => []),
@@ -574,10 +576,11 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     await store.issues.upsertIssue(fixtureWriteScope(), { ...row, title: 'changed offline' })
     const ledger2 = new Ledger({
       repo: store.sync,
+      records: testStoreRecords(store),
       now: () => 2_000,
       transact: async (fn) => await store.transact(fn),
     })
-    const plumbing2 = issueTestPlumbing()
+    const plumbing2 = issueTestPlumbing(undefined, { store })
     const svc2 = await IssueService.create({
       store,
       ...sessionReadPorts(() => []),

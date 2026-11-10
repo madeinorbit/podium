@@ -8,6 +8,7 @@ import { afterCommit, applyAfterCommit, spanOpen } from '../store/executor/execu
 import { openTestStore } from '../test-support/open-test-store'
 import { EventBus } from './bus'
 import { WriteFunnel } from './funnel'
+import { testStoreRecords } from '../test-support/record-writer'
 
 /** A serving edge that records what it was handed. The funnel's whole output. */
 function recordingServing() {
@@ -34,6 +35,7 @@ async function makeFunnel() {
   const onPublished = vi.fn()
   const ledger = new Ledger({
     repo: store.sync,
+    records: testStoreRecords(store),
     now: () => 1_000,
     transact: async (fn) => await store.transact(fn),
     postCommit: afterCommit,

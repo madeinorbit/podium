@@ -36,7 +36,7 @@ async function harness() {
       }),
     spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
-    ...issueTestPlumbing(),
+    ...issueTestPlumbing(undefined, { store }),
     setSessionArchived: vi.fn(),
     now: () => '2026-07-17T00:00:00.000Z',
   }

@@ -24,6 +24,12 @@ import { type RecordReads, serverRecordBuilders } from './record-builders'
 export const COMPARE_AT_SAVE_KINDS: readonly MetadataEntityKind[] = [
   'userLayout',
   'userReadPosition',
+  'pin',
+  'tabOrder',
+  'agentProfile',
+  'automation',
+  'automationRun',
+  'subscription',
 ]
 
 /**

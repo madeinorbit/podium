@@ -92,7 +92,7 @@ describe('IssueService.onIssueClosed under the async store (POD-3820)', () => {
           await store.issues.getIssue(issueId)
         })
       },
-      ...issueTestPlumbing(),
+      ...issueTestPlumbing(undefined, { store }),
     }
     const issues = await IssueService.create(deps)
     try {

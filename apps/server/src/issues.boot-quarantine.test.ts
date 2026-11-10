@@ -36,7 +36,7 @@ function deps(store: SessionStore): IssueDeps {
       }),
     spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
-    ...issueTestPlumbing(),
+    ...issueTestPlumbing(undefined, { store }),
   }
 }
 

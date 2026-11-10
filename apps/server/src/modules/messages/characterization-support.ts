@@ -295,7 +295,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       }),
     spawnSession: async () => ({ sessionId: asSessionId('unused'), machine: 'machine-under-test' }),
     repoOp: async () => ({ ok: true, output: '' }),
-    ...issueTestPlumbing(),
+    ...issueTestPlumbing(undefined, { store }),
     now,
   }
   const issues = await IssueService.create(issueDeps)

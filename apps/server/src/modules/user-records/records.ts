@@ -46,12 +46,12 @@ import { USER_PREFERENCES_EDIT } from '../settings/audit'
 import { SettingsPatchRefused, type SettingsService } from '../settings/service'
 import { SyncWriteRefused } from '../sync-write/entry'
 import type { SyncWriteContext, SyncWriteRegistry, SyncWriteTarget } from '../sync-write/registry'
-import { pinRemove, pinUpsert, tabOrderChange } from './changes'
+import { pinRecord, tabOrderRecord } from './changes'
 
 export interface UserRecordDeps {
   readonly sessions: () => Pick<
     SessionsRepository,
-    'pinnedAt' | 'addPin' | 'removePin' | 'tabOrder' | 'setTabOrder'
+    'pinnedAt' | 'addPin' | 'removePin' | 'setTabOrder'
   >
   readonly settings: () => Pick<SettingsService, 'updatePreferences' | 'recordCommand'>
   readonly readPositions: () => Pick<ReadPositionService, 'advance'>
@@ -137,9 +137,9 @@ export function registerUserRecords(registry: SyncWriteRegistry, deps: UserRecor
       }
       const at = now()
       const { result } = await ctx.ledger.commit({
+        affects: [pinRecord(key.userId, key.kind, key.entityId)],
         write: async () =>
           await deps.sessions().addPin(key.userId, key.kind as PinKind, key.entityId, at),
-        changes: ({ pin }) => [pinUpsert(pin)],
       })
       if (key.kind === 'issue' && result.created) {
         await deps.issuePinChanged(key.userId, key.entityId, true)
@@ -148,12 +148,13 @@ export function registerUserRecords(registry: SyncWriteRegistry, deps: UserRecor
     },
     remove: async (ctx, id) => {
       const key = pinOrGone(id, ctx.principal)
+      // Unpinning what is not pinned changes nothing, and appends nothing.
       const { result: removed } = await ctx.ledger.commit({
+        affects: [pinRecord(key.userId, key.kind, key.entityId)],
         write: async () => await deps.sessions().removePin(key.userId, key.kind, key.entityId),
-        // Unpinning what is not pinned changes nothing.
-        changes: (removed) => (removed ? [pinRemove(key.userId, key.kind, key.entityId)] : []),
       })
-      if (key.kind === 'issue' && removed) await deps.issuePinChanged(key.userId, key.entityId, false)
+      if (key.kind === 'issue' && removed)
+        await deps.issuePinChanged(key.userId, key.entityId, false)
       return { ok: true }
     },
   })
@@ -170,17 +171,11 @@ export function registerUserRecords(registry: SyncWriteRegistry, deps: UserRecor
     worktree: string,
     sessionIds: readonly string[],
   ) => {
+    // An empty order is no record: clearing one that was never set changes
+    // nothing, and appends nothing.
     await ctx.ledger.commit({
-      write: async () => {
-        const before = await deps.sessions().tabOrder(userId, worktree)
-        await deps.sessions().setTabOrder(userId, worktree, [...sessionIds])
-        return before
-      },
-      // Removing an order that was never set changes nothing.
-      changes: (before) =>
-        sessionIds.length === 0 && before === undefined
-          ? []
-          : [tabOrderChange(userId, worktree, sessionIds)],
+      affects: [tabOrderRecord(userId, worktree)],
+      write: async () => await deps.sessions().setTabOrder(userId, worktree, [...sessionIds]),
     })
     return { ok: true }
   }

@@ -34,6 +34,7 @@ import {
   shippingResourceHolderId,
 } from './service'
 import { ShippingEvidenceRegistry } from './shipwright'
+import { testStoreRecords } from '../../test-support/record-writer'
 
 const stores: SessionStore[] = []
 afterEach(async () => {
@@ -80,6 +81,7 @@ async function harness(
   stores.push(store)
   const ledger = new Ledger({
     repo: store.sync,
+    records: testStoreRecords(store),
     now: Date.now,
     transact: async (fn) => await store.transact(fn),
   })

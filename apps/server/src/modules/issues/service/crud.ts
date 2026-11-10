@@ -25,7 +25,6 @@ import {
   machinePathRelativeToRoot,
   machinePathSegments,
   normalizeClosedPatch,
-  pinRowId,
   type RepoId,
   type SessionId,
   SORT_KEY_COMPACT_LEN,
@@ -40,6 +39,7 @@ import type { IssueRow } from '../../../store'
 import { afterCommit, followUpAfterCommit } from '../../../store/executor/executor'
 import { type StoredIssue, toStorage } from '../../../store/issue-storage'
 import type { IssueTextField, IssueTextRevisionRow } from '../../../store/types'
+import { pinRecord } from '../../user-records/changes'
 import { readIssue } from '../issue-reader'
 import { type IssueStore, worktreeOf } from './core'
 import { IssueNotFound } from './not-found'
@@ -1150,7 +1150,11 @@ export class IssueCrudModule {
    *  work, unread results, and running agents are skipped (and surfaced via a
    *  single issue.cascade_skipped event on the parent) instead of vanishing
    *  from the live views out from under the operator. */
-  private async archiveClosedSubtree(writer: IssueWriter, parentId: string, caller?: UserId): Promise<void> {
+  private async archiveClosedSubtree(
+    writer: IssueWriter,
+    parentId: string,
+    caller?: UserId,
+  ): Promise<void> {
     const skipped: Array<{ seq: number; why: string }> = []
     const children = await this.store.childRows(parentId, { live: true, unarchived: true })
     // Each child's own ASSIGNEE's markers (POD-6291): the person accountable for
@@ -1198,7 +1202,11 @@ export class IssueCrudModule {
    *  independently visible is how they resurface as "new" work. Recurses
    *  through each child's own `update({ archived: true })` so session teardown
    *  and events stay on the same path as a direct archive. */
-  private async archiveLivingDescendants(writer: IssueWriter, parentId: string, caller?: UserId): Promise<void> {
+  private async archiveLivingDescendants(
+    writer: IssueWriter,
+    parentId: string,
+    caller?: UserId,
+  ): Promise<void> {
     for (const child of await this.store.childRows(parentId, { live: true, unarchived: true })) {
       await this.update(writer, child.id, { archived: true }, caller ? { caller } : undefined)
     }
@@ -2000,7 +2008,8 @@ export class IssueCrudModule {
       await this.attention().onIssueArchived(writer, row, opts?.caller)
       // Explicit archive dismisses the whole subtree so children do not
       // promote into the live list as orphans of a hidden parent.
-      if (opts?.cascadeArchive !== false) await this.archiveLivingDescendants(writer, row.id, opts?.caller)
+      if (opts?.cascadeArchive !== false)
+        await this.archiveLivingDescendants(writer, row.id, opts?.caller)
     }
     if (row.deferUntil !== prevDeferUntil) {
       if (row.deferUntil != null) {
@@ -2123,7 +2132,12 @@ export class IssueCrudModule {
     )
   }
 
-  async markIssueRead(writer: IssueWriter, id: string, observedAt?: string, member?: UserId): Promise<IssueProjection> {
+  async markIssueRead(
+    writer: IssueWriter,
+    id: string,
+    observedAt?: string,
+    member?: UserId,
+  ): Promise<IssueProjection> {
     const row = await this.store.rowOrThrow(id)
     const viewer = markerMemberOf(row, member)
     // Automatic receipts name what was actually seen, including across an
@@ -2170,7 +2184,11 @@ export class IssueCrudModule {
    *  flips back to true, persist + broadcast, and log issue.unread. Mirrors
    *  markIssueRead exactly, on the actor's own `(userId, issueId)` row (POD-1076);
    *  marking MY copy unread never touches yours. */
-  async markIssueUnread(writer: IssueWriter, id: string, member?: UserId): Promise<IssueProjection> {
+  async markIssueUnread(
+    writer: IssueWriter,
+    id: string,
+    member?: UserId,
+  ): Promise<IssueProjection> {
     const row = await this.store.rowOrThrow(id)
     const viewer = markerMemberOf(row, member)
     await this.store.writeIssueUserState(writer, row.id, { readAt: null }, viewer)
@@ -2189,7 +2207,12 @@ export class IssueCrudModule {
    *  completion decay and re-mark the issue unread). Tucking an OPEN issue is
    *  rejected rather than stored: the fold is for finished work, and a stamp
    *  parked on an open row would fire the moment it later closed. */
-  async setIssueTucked(writer: IssueWriter, id: string, tucked: boolean, member?: UserId): Promise<IssueProjection> {
+  async setIssueTucked(
+    writer: IssueWriter,
+    id: string,
+    tucked: boolean,
+    member?: UserId,
+  ): Promise<IssueProjection> {
     const row = await this.store.draft(await this.store.resolveRef(id))
     if (!row) throw new IssueNotFound(id)
     const viewer = markerMemberOf(row, member)
@@ -2277,6 +2300,13 @@ export class IssueCrudModule {
     const id = await this.store.resolveRef(ref)
     const purged = await this.store.rowOrThrow(id)
     await this.store.deps.ledger.commit({
+      // Every member's pin of it goes with it (below): those `pin` records are
+      // named here, read before the write removes them (compare at save,
+      // POD-6769).
+      affects: async () =>
+        (await this.store.deps.store.sessions.pinnersOf('issue', id)).map((userId) =>
+          pinRecord(userId, 'issue', id),
+        ),
       write: async (scope) => {
         // Every member's personal row for the draft goes with it (POD-6290: a
         // start writes its starter's record, so a draft always has one). The
@@ -2286,7 +2316,7 @@ export class IssueCrudModule {
         const personal = await this.store.deps.store.issues.listIssueUserStateRows(id)
         await this.store.deps.store.issues.purgeIssueUserState(id)
         // And every member's pin of it (POD-6692: an issue pin is a `pins` row).
-        const pinners = await this.store.deps.store.sessions.removePinsOf('issue', id)
+        await this.store.deps.store.sessions.removePinsOf('issue', id)
         // Explicit draft rehome detaches every session it can SEE before calling
         // this, but it sees them through `loadSessions()`
         // — `deleted_at IS NULL` — so a TOMBSTONED session keeps pointing at the
@@ -2296,20 +2326,15 @@ export class IssueCrudModule {
         await this.store.deps.store.sessions.detachTombstonesFromIssue(scope, id)
         await this.store.deps.store.issues.deleteIssue(id)
         this.store.announceWorktreeMove(purged.id, worktreeOf(purged), null)
-        return { owners: personal.map((state) => state.userId), pinners, panelChanges }
+        return { owners: personal.map((state) => state.userId), panelChanges }
       },
-      changes: ({ owners, pinners, panelChanges }) => [
+      changes: ({ owners, panelChanges }) => [
         ...panelChanges,
         { entity: 'issueProjection', id, op: 'remove' },
         { entity: 'issueBodies', id, op: 'remove' },
         ...owners.map((userId) => ({
           entity: 'issueUserState' as const,
           id: issueUserStateRowId(userId, id),
-          op: 'remove' as const,
-        })),
-        ...pinners.map((userId) => ({
-          entity: 'pin' as const,
-          id: pinRowId(userId, 'issue', id),
           op: 'remove' as const,
         })),
       ],

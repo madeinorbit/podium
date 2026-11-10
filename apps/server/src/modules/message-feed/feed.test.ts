@@ -35,6 +35,7 @@ import { afterCommit, applyAfterCommit, spanOpen } from '../../store/executor/ex
 import type { MessageRow, SessionRow } from '../../store/types'
 import { openTestStore } from '../../test-support/open-test-store'
 import { isLiveConversation, MessageFeedPublisher } from './feed'
+import { testStoreRecords } from '../../test-support/record-writer'
 
 const S1 = asSessionId('ses_one')
 const S2 = asSessionId('ses_two')
@@ -52,6 +53,7 @@ async function harness(
   stores.push(store)
   const ledger = new Ledger({
     repo: store.sync,
+    records: testStoreRecords(store),
     now: Date.now,
     transact: async (fn) => await store.transact(fn),
     // As relay.ts wires it: subscribers hear a change once it has committed.

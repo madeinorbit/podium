@@ -16,6 +16,7 @@ import { sessionReadPorts } from '../../test-support/session-facts'
 import { countStatements } from '../../test-support/statement-count'
 import { type IssueDeps, IssueService } from './service'
 import { issueTestPlumbing } from './service/test-plumbing'
+import { testStoreRecords } from '../../test-support/record-writer'
 
 const execFile = promisify(execFileCallback)
 
@@ -52,6 +53,7 @@ it('polls a real worktree without journaling checks, then journals each git chan
     let now = '2026-07-20T12:00:00.000Z'
     const ledger = new Ledger({
       repo: db.sync,
+      records: testStoreRecords(db),
       now: () => Date.parse(now),
       transact: async (fn) => await db.transact(fn),
       applyCommit: { spanOpen, onCommit: applyAfterCommit },
@@ -76,7 +78,7 @@ it('polls a real worktree without journaling checks, then journals each git chan
         sessionId: asSessionId('unused'),
         machine: 'machine-under-test',
       }),
-      ...issueTestPlumbing(),
+      ...issueTestPlumbing(undefined, { store: db }),
       ledger: testLedgerWriter(ledger),
       repoOp,
       now: () => now,

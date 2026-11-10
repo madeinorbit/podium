@@ -61,7 +61,7 @@ async function fixture(size: number): Promise<Fixture> {
       }),
     spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
-    ...issueTestPlumbing(() => {}),
+    ...issueTestPlumbing(() => {}, { store }),
     setSessionArchived: vi.fn(),
   }
   return { store, svc: await IssueService.create(deps) }

@@ -207,6 +207,29 @@ describe('compare at save', () => {
     expect(w.builds).toHaveLength(2)
   })
 
+  it('records the writer must read to name are named inside the span, before the build', async () => {
+    const w = world()
+    w.set('pin', 'p1', { v: 1 })
+    const order: string[] = []
+    const changes = await committed(
+      w.authority.commit({
+        authorize: async () => {
+          order.push('authorize')
+        },
+        affects: async () => {
+          order.push(`affects:${w.builds.length}`)
+          return [{ entity: 'pin', entityId: 'p1' }]
+        },
+        write: async () => {
+          order.push(`write:${w.builds.length}`)
+          w.drop('pin', 'p1')
+        },
+      }),
+    )
+    expect(order).toEqual(['authorize', 'affects:0', 'write:1'])
+    expect(changes).toEqual([{ seq: 1, entity: 'pin', entityId: 'p1', op: 'remove' }])
+  })
+
   it('rolls the write and the append back together when the write throws', async () => {
     const w = world()
     w.set('userLayout', 'a', { v: 1 })

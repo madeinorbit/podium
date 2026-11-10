@@ -6,11 +6,11 @@
  */
 import { asSessionId, asUserId, type MachineId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
-import { fixtureWriteScope } from '@podium/sync/testing'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { AgentProfilesRepository } from '../../store/agent-profiles'
 import { createBunStoreExecutor } from '../../store/executor'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
+import { recordTestWriter } from '../../test-support/record-writer'
 import { type AgentProfileCaller, AgentProfileService, type AgentProfileWriter } from './service'
 
 const ADMIN = asUserId('user:admin')
@@ -22,6 +22,7 @@ let db: SqlDatabase
 let runnable: Set<string>
 let probes: string[]
 let service: AgentProfileService
+let profiles: AgentProfilesRepository
 
 beforeEach(() => {
   db = openMigratedTestDatabase()
@@ -29,8 +30,9 @@ beforeEach(() => {
   if (!queries) throw new Error('no synchronous query capability')
   runnable = new Set(['claude-code', 'codex'])
   probes = []
+  profiles = new AgentProfilesRepository(queries)
   service = new AgentProfileService({
-    store: new AgentProfilesRepository(queries),
+    store: profiles,
     now: () => '2026-10-14T12:00:00.000Z',
     listMachines: async () => [
       { id: 'm-flat', name: 'flatblock', hostname: 'flatblock', online: true } as never,
@@ -60,16 +62,16 @@ describe('agent profiles', () => {
     expect(review.instructions).toContain('review task')
   })
 
-  // The record writes (POD-6676) commit on the command's writer; here it runs
-  // the write and keeps the change entries it was handed.
-  const changes: unknown[] = []
-  const writer: AgentProfileWriter = {
-    commit: async (op) => {
-      const result = await op.write(fixtureWriteScope())
-      changes.push(...((await op.changes?.(result)) ?? []))
-      return { result }
-    },
-  }
+  // The record writes (POD-6676) commit on the command's writer; here an
+  // Authority builds the profile before and after each write (compare at
+  // save) and `changes` holds what it appended.
+  let writer: AgentProfileWriter
+  let changes: unknown[]
+  beforeEach(() => {
+    const records = recordTestWriter({ agentProfiles: profiles }, { kinds: ['agentProfile'] })
+    writer = records.writer
+    changes = records.appended
+  })
 
   it('creates, renames and updates by id, resolving a machine name, with a change entry each', async () => {
     const created = await service.createRecord(person, writer, 'agp_docs', {

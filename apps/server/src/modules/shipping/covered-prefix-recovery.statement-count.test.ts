@@ -19,6 +19,7 @@ import { expectConstantStatements } from '../../test-support/statement-count'
 import { IssueService } from '../issues/service'
 import { CompatibilityShippingPolicyResolver } from './policy'
 import { ShippingService } from './service'
+import { testStoreRecords } from '../../test-support/record-writer'
 
 const PROFILE = {
   id: 'default',
@@ -39,6 +40,7 @@ async function world(shipped: number): Promise<{ store: SessionStore; service: S
   const store = await openTestStore(':memory:')
   const ledger = new Ledger({
     repo: store.sync,
+    records: testStoreRecords(store),
     now: Date.now,
     transact: async (fn) => await store.transact(fn),
   })

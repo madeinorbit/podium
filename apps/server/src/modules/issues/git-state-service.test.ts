@@ -33,7 +33,7 @@ async function harness(
     const output = repoOpScript[key]
     return output !== undefined ? { ok: true, output } : { ok: false, output: '' }
   })
-  const plumbing = issueTestPlumbing((msg) => broadcast(msg))
+  const plumbing = issueTestPlumbing((msg) => broadcast(msg), { store })
   const deps: IssueDeps = {
     store,
     ...sessionReadPorts(() => sessions),

@@ -374,8 +374,12 @@ export interface AuthorityCommit<T> {
    * named record the write left alone appends nothing, so a writer names
    * generously. Only kinds the {@link RecordSourcePort} answers for; any other
    * kind here is refused.
+   *
+   * A list when the writer knows the records from its input. A function when
+   * it must read to know them (whose pins of this issue go with it): it runs
+   * inside the transaction, immediately before the first build.
    */
-  affects?: readonly AffectedRecord[]
+  affects?: readonly AffectedRecord[] | (() => Promise<readonly AffectedRecord[]>)
   /** The entity write, awaited inside the same transaction as the change append. */
   write: () => Promise<T>
   /**

@@ -33,7 +33,7 @@ it.each([16, 64])('publishes only the changed normalized issue among %i rows', a
       }),
     spawnSession: async () => ({ sessionId: asSessionId('unused'), machine: 'machine-under-test' }),
     repoOp: async () => ({ ok: true, output: '' }),
-    ...issueTestPlumbing((change) => published.push(change)),
+    ...issueTestPlumbing((change) => published.push(change), { store }),
     now: () => '2026-10-02T00:00:00.000Z',
   })
   const ids: string[] = []
@@ -112,7 +112,7 @@ it('publishes read-only receipts without issue writes or collection discovery', 
     getSettings: async () => normalizeSettings({}),
     spawnSession: async () => ({ sessionId: asSessionId('unused'), machine: 'machine-under-test' }),
     repoOp: async () => ({ ok: true, output: '' }),
-    ...issueTestPlumbing((change) => published.push(change)),
+    ...issueTestPlumbing((change) => published.push(change), { store }),
     now: () => '2026-10-29T12:05:00.000Z',
   })
   const root = await svc.crud.create(svc.reports.store.serverWriter, {
@@ -167,7 +167,7 @@ it('keeps explicit mark-read covering the current issue and descendants', async 
     getSettings: async () => normalizeSettings({}),
     spawnSession: async () => ({ sessionId: asSessionId('unused'), machine: 'machine-under-test' }),
     repoOp: async () => ({ ok: true, output: '' }),
-    ...issueTestPlumbing(() => {}),
+    ...issueTestPlumbing(() => {}, { store }),
     now: () => now,
   })
   const root = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/repo', title: 'Covering root', startNow: false })

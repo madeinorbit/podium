@@ -33,7 +33,7 @@ async function fixture() {
     getSettings: async () => normalizeSettings({ sessionDefaults: { agent: 'codex' } }),
     spawnSession: async () => ({ sessionId: asSessionId('unused'), machine: 'fixture' }),
     repoOp: async () => ({ ok: true, output: '' }),
-    ...issueTestPlumbing(),
+    ...issueTestPlumbing(undefined, { store }),
   })
   const create = async (
     title: string,

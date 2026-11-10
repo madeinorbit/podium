@@ -28,7 +28,7 @@ import {
   type SessionId,
   type UserId,
 } from '@podium/model'
-import type { EntityChangeSpec, LedgerCommitOp } from '@podium/sync'
+import type { AffectedRecordSpec, LedgerCommitOp } from '@podium/sync'
 import type { AgentProfilesRepository } from '../../store/agent-profiles'
 
 /** A refusal the caller can act on; the entry point answers it with this text. */
@@ -49,9 +49,10 @@ export interface AgentProfileRecordFields {
   instructions?: string
 }
 
-/** One profile's change entry: the row as stored. */
-export function agentProfileUpsert(row: AgentProfileWire): EntityChangeSpec {
-  return { entity: 'agentProfile', id: row.id, op: 'upsert', value: row }
+/** One profile's record: what a create, an edit or a remove may affect. The
+ *  Authority builds it before and after the write (compare at save, POD-6769). */
+function agentProfileRecord(id: string): AffectedRecordSpec {
+  return { entity: 'agentProfile', id }
 }
 
 /** Who is asking: a person, or an agent session acting for one. */
@@ -167,6 +168,7 @@ export class AgentProfileService {
     }
     const machineId = await this.machineIdFor(fields.machineId ?? null)
     const { result } = await writer.commit({
+      affects: [agentProfileRecord(id)],
       write: async () =>
         await this.deps.store.insert({
           id,
@@ -178,7 +180,6 @@ export class AgentProfileService {
           actor: actorOf(caller),
           now: this.deps.now(),
         }),
-      changes: (row) => [agentProfileUpsert(row)],
     })
     return result
   }
@@ -207,6 +208,7 @@ export class AgentProfileService {
         ? (current.machineId as MachineId | null)
         : await this.machineIdFor(patch.machineId)
     const { result } = await writer.commit({
+      affects: [agentProfileRecord(id)],
       write: async () => {
         await this.deps.store.update({
           id,
@@ -221,7 +223,6 @@ export class AgentProfileService {
         })
         return (await this.deps.store.get(id)) as AgentProfileWire
       },
-      changes: (row) => [agentProfileUpsert(row)],
     })
     return result
   }
@@ -237,8 +238,8 @@ export class AgentProfileService {
     if (!current) throw new AgentProfileRefusal(`no agent profile '${id}'`)
     await this.refuseWhileUsed(current)
     await writer.commit({
+      affects: [agentProfileRecord(id)],
       write: async () => await this.deps.store.delete(id),
-      changes: (removed) => (removed ? [{ entity: 'agentProfile', id, op: 'remove' }] : []),
     })
   }
 

@@ -95,7 +95,7 @@ const open = async (): Promise<Harness> => {
       }),
     spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
-    ...issueTestPlumbing(() => {}, { transact }),
+    ...issueTestPlumbing(() => {}, { transact, store }),
     setSessionArchived: vi.fn(),
   }
   return {

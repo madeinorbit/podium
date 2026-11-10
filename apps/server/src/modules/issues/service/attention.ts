@@ -20,7 +20,7 @@ import { isMemberCwd } from '../../../issue-util'
 import type { IssueRow, Subscription } from '../../../store'
 import type { SubscriptionPageCursor } from '../../../store/events'
 import { afterCommit } from '../../../store/executor/executor'
-import { subscriptionRemoval, subscriptionUpsert } from '../subscription-changes'
+import { subscriptionRecord } from '../subscription-changes'
 import type { IssueCollaborator, IssueStore } from './core'
 import type { IssueCrudModule } from './crud'
 import type { IssueReportsModule } from './reads'
@@ -603,10 +603,11 @@ export class IssueAttentionModule {
       enabled: true,
       createdAt: this.store.now(),
     }
-    // The row and its change entry commit together (POD-6676).
+    // The row and its change entry commit together (POD-6676): the Authority
+    // builds the named record before and after the write (POD-6769).
     await writer.commit({
+      affects: [subscriptionRecord(sub)],
       write: async () => await this.store.deps.store.events.addSubscription(sub),
-      changes: () => [subscriptionUpsert(sub)],
     })
     return sub
   }
@@ -616,8 +617,8 @@ export class IssueAttentionModule {
     const existing = await this.store.deps.store.events.getSubscription(id)
     if (existing === undefined) return { removed: false }
     await writer.commit({
+      affects: [subscriptionRecord(existing)],
       write: async () => await this.store.deps.store.events.removeSubscription(id),
-      changes: () => [subscriptionRemoval(existing)],
     })
     return { removed: true }
   }
@@ -654,11 +655,15 @@ export class IssueAttentionModule {
   ): Promise<{ updated: boolean }> {
     const events = this.store.deps.store.events
     const { result } = await writer.commit({
+      // The feed id carries the subscriber, so the row is read to name it.
+      affects: async () => {
+        const sub = await events.getSubscription(id)
+        return sub === undefined ? [] : [subscriptionRecord(sub)]
+      },
       write: async () =>
         (await events.setSubscriptionEnabled(id, enabled))
           ? await events.getSubscription(id)
           : undefined,
-      changes: (sub) => (sub === undefined ? [] : [subscriptionUpsert(sub)]),
     })
     return { updated: result !== undefined }
   }

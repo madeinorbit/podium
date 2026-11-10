@@ -32,7 +32,7 @@ async function serviceOver(store: SessionStore): Promise<IssueService> {
     getSettings: async () => normalizeSettings({}),
     spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'm' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
-    ...issueTestPlumbing(() => {}),
+    ...issueTestPlumbing(() => {}, { store }),
     setSessionArchived: vi.fn(),
   } as IssueDeps)
 }

@@ -24,6 +24,7 @@ import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
 import { PostCommitError } from './errors'
 import { afterCommit, postCommit } from './executor'
+import { testStoreRecords } from '../../test-support/record-writer'
 
 const stores: SessionStore[] = []
 
@@ -37,6 +38,7 @@ async function openWiredStore(): Promise<{ store: SessionStore; ledger: Ledger }
   stores.push(store)
   const ledger = new Ledger({
     repo: store.sync,
+    records: testStoreRecords(store),
     now: () => Date.now(),
     transact: async (fn) => await store.transact(fn),
     postCommit: (step, label) => afterCommit(step, label),

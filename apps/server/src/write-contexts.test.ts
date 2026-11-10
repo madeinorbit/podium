@@ -23,6 +23,7 @@ import {
   WriteContexts,
 } from './write-contexts'
 import { withWriteProvenance } from './write-provenance'
+import { testStoreRecords } from './test-support/record-writer'
 
 const stores: SessionStore[] = []
 afterEach(async () => {
@@ -36,6 +37,7 @@ async function contexts() {
   stores.push(store)
   const ledger = new Ledger({
     repo: store.sync,
+    records: testStoreRecords(store),
     now: Date.now,
     transact: async (fn) => await store.transact(fn),
     provenance: syncedWriteProvenance,
