@@ -1410,6 +1410,8 @@ For the coordinator. None of these changes a goal; each changes who does somethi
 
 | 55 | Section 2.6: the last admin and self-change refusals | The last-admin check precedes the self-disable or self-remove check. A sole admin receives `last-admin`; an admin with another active admin still receives `self` | POD-6747 route acceptance requires the clear last-admin explanation for every such action; the shared suite checks both editions |
 
+| 56 | Section 2.6: `MembershipView.pendingInvitation`; section 4.3 admission counts | The pending invitation remains visible after expiry until sweep deletes it. Consumed and revoked invitations stay hidden; inspection and redemption still reject an expired token | POD-6747 needs the expiry to count expired invitations and let an admin reissue one; the shared suite checks visibility and refusal together |
+
 ## 17. Product questions this document could not settle
 
 Each had a recommendation. Their state after the coordinator's review of 2026-11-10 is given with each. Nothing an implementing task depends on waits for the two that are still open: the document is written to the recommendation, and the place to change is named.

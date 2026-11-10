@@ -404,6 +404,12 @@ export function membershipCases(context: MembershipCasesContext): void {
       // An expired invitation.
       const expiring = await invite({})
       ahead = 7 * DAY + 1000
+      // The People/Access view retains the expired pending invitation for
+      // reissue and expiry counts; inspection and acceptance still refuse it.
+      expect((await viewOf(expiring.membership.memberId)).pendingInvitation).toEqual({
+        id: expiring.invitation.id,
+        expiresAt: expiring.invitation.expiresAt,
+      })
       expect(
         await refusedWith(() => workspace.memberships.inspectInvitation(expiring.invitation.token)),
       ).toBe('invitation-invalid')

@@ -388,7 +388,13 @@ export const pendingInvitationsOfWorkspace = prepared<
       expiresAt: t.invitation.expiresAt,
     })
     .from(t.invitation)
-    .where(and(eq(t.invitation.workspaceId, p(t.invitation.workspaceId, 'workspaceId')), usable(t)))
+    .where(
+      and(
+        eq(t.invitation.workspaceId, p(t.invitation.workspaceId, 'workspaceId')),
+        isNull(t.invitation.consumedAt),
+        isNull(t.invitation.revokedAt),
+      ),
+    )
     .orderBy(desc(t.invitation.createdAt)),
 )
 
