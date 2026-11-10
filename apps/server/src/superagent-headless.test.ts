@@ -525,6 +525,95 @@ describe('managed credential on headless turns (two members)', () => {
       env: { ANTHROPIC_API_KEY: ALICE_KEY },
     })
   })
+
+  it('a member’s account switch reaches their existing thread; another member’s stays put; a read error keeps the row (POD-6738)', async () => {
+    const h = await harness()
+    const send = async (owner: typeof ALICE, text: string) => {
+      const before = h.turnReqs.length
+      await h.sa.sendTurn(h.registry.modules.superagentBridgeWriter, {
+        ownerUserId: owner,
+        threadId: asThreadId('global'),
+        text,
+      })
+      await h.settle()
+      const request = h.turnReqs.slice(before).at(-1)!
+      h.resolveTurn(request, { harnessSessionId: `harness-${owner}`, output: 'ok' })
+      await h.settle()
+      return request
+    }
+    // Both members run the superagent on Claude Code's native login.
+    const useAccount = async (owner: typeof ALICE, accountId: string) => {
+      const current = await h.registry.sessionStore.settings.getSettingsFor(owner)
+      await h.registry.sessionStore.settings.setSettingsFor(
+        owner,
+        {
+          ...current,
+          roles: {
+            ...current.roles,
+            superagent: {
+              ...current.roles.superagent,
+              harness: 'claude-code',
+              accountId: asAccountId(accountId),
+            },
+          },
+        },
+        new Date().toISOString(),
+      )
+    }
+    await useAccount(ALICE, 'native:claude-code')
+    await useAccount(BOB, 'native:claude-code')
+    const aliceFirst = await send(ALICE, 'hi')
+    const bobFirst = await send(BOB, 'hi')
+    expect(aliceFirst.accountId).toMatch(/^native:claude-code/)
+    expect(bobFirst.accountId).toMatch(/^native:claude-code/)
+    expect(aliceFirst.sessionId).not.toBe(bobFirst.sessionId)
+
+    // Alice switches the superagent to her managed key.
+    await connect(h, ALICE, 'managed:anthropic', ALICE_KEY)
+    await useAccount(ALICE, 'managed:anthropic')
+
+    // Her next turn on the SAME thread runs on a new row with the new account,
+    // and resumes the conversation it already had.
+    const aliceSwitched = await send(ALICE, 'again')
+    expect(aliceSwitched.sessionId).not.toBe(aliceFirst.sessionId)
+    expect(aliceSwitched).toMatchObject({
+      accountId: 'managed:anthropic',
+      env: { ANTHROPIC_API_KEY: ALICE_KEY },
+      resumeValue: `harness-${ALICE}`,
+    })
+    // A further turn keeps the reminted row: no churn once it matches.
+    const aliceSteady = await send(ALICE, 'steady')
+    expect(aliceSteady.sessionId).toBe(aliceSwitched.sessionId)
+
+    // Bob changed nothing: his thread keeps its row and its native account.
+    const bobAgain = await send(BOB, 'again')
+    expect(bobAgain.sessionId).toBe(bobFirst.sessionId)
+    expect(bobAgain.accountId).toBe(bobFirst.accountId)
+    expect(bobAgain.env).toBeUndefined()
+
+    // Alice switches back, but her preference cannot be read right now: the
+    // bound row stays (a transient error is not a switch).
+    await useAccount(ALICE, 'native:claude-code')
+    const read = vi
+      .spyOn(h.registry.sessionStore.settings, 'getSettingsFor')
+      .mockRejectedValue(new Error('settings read failed'))
+    const kept = await h.sa.ensureSession(h.registry.modules.superagentBridgeWriter, {
+      ownerUserId: ALICE,
+      threadId: asThreadId('global'),
+    })
+    expect(read).toHaveBeenCalled()
+    read.mockRestore()
+    expect(kept.podiumSessionId).toBe(aliceSwitched.sessionId)
+    // Once it reads again, the switch back lands.
+    const back = await h.sa.ensureSession(h.registry.modules.superagentBridgeWriter, {
+      ownerUserId: ALICE,
+      threadId: asThreadId('global'),
+    })
+    expect(back.podiumSessionId).not.toBe(aliceSwitched.sessionId)
+    expect(
+      (await h.registry.modules.sessions.sessionById(back.podiumSessionId))?.accountId,
+    ).toMatch(/^native:claude-code/)
+  })
 })
 
 describe('bounded headless session identity', () => {
