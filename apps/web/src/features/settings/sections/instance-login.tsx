@@ -46,6 +46,7 @@ export const InstanceLoginSection = observer(function InstanceLoginSection({
         await authRequest(serverConfig(window.location).httpOrigin, 'login', {
           email: profile.email ?? 'user:sole',
           password: current,
+          prepareSignIn: true,
         })
       }
       const next = await trpc.auth.setLoginRequired.mutate({

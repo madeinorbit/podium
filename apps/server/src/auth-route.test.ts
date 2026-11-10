@@ -76,6 +76,36 @@ describe('request transport security', () => {
 })
 
 describe('auth-route', () => {
+  test('prepares a verified local browser cookie before sign-in becomes required', async () => {
+    await setPassword('hunter2')
+    let required = false
+    const app = makeApp({
+      loginRequired: () => required,
+      isLocalRequest: (request) => new URL(request.url).hostname === 'localhost',
+    })
+    const login = (origin: string, body: Record<string, unknown>) =>
+      app.request(`${origin}/auth/login`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+    const local = 'http://localhost'
+    const prepared = { password: 'hunter2', prepareSignIn: true }
+    expect((await login('https://remote.example', prepared)).status).toBe(400)
+    expect((await login(local, { password: 'hunter2' })).status).toBe(400)
+    const native = await login(local, { ...prepared, delivery: 'native' })
+    expect(await native.json()).toEqual({ error: 'auth disabled' })
+    expect((await login(local, { ...prepared, password: 'wrong' })).status).toBe(401)
+    const response = await login(local, prepared)
+    expect(response.status).toBe(200)
+    const cookie = cookieValue(response)
+    expect(cookie).toBeTruthy()
+
+    required = true
+    const status = await app.request('/auth/status', { headers: { cookie: `podium_session=${cookie}` } })
+    expect(await status.json()).toMatchObject({ needsAuth: true, authed: true })
+  })
+
   test('status reports needsAuth=false when no password is set (open)', async () => {
     const res = await makeApp().request('/auth/status')
     expect(res.status).toBe(200)

@@ -183,7 +183,8 @@ describe('Access', () => {
       required: true,
       current: 'the password',
     })
-    expect(fetchMock.mock.calls.some(([url]) => url.endsWith('/auth/login'))).toBe(true)
+    const login = fetchMock.mock.calls.find(([url]) => url.endsWith('/auth/login'))
+    expect(JSON.parse(String(login?.[1]?.body))).toMatchObject({ prepareSignIn: true })
   })
 
   it('asks only for the acknowledgement when the admin has no personal password', async () => {

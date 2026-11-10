@@ -1754,6 +1754,7 @@ export async function startServer(
         ? (await requestPrincipal(headers, request))?.user
         : undefined,
     loginRequired: credentialsRequired,
+    isLocalRequest: isHostLocalRequest,
     trustedProxyHops,
     readiness,
     onCredentialRevoked: (tokenHash) => revokeConnectedMobileSession(tokenHash),

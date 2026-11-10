@@ -432,6 +432,8 @@ export interface AuthRouteOptions {
    * Defaults to the credential half alone when not supplied (tests, embedded servers).
    */
   loginRequired?: () => boolean | Promise<boolean>
+  /** The same request locality rule as the open-mode transport guard. */
+  isLocalRequest?: (request: Request) => boolean
   /** Same public lifecycle projection served by GET /readiness. */
   readiness?: () => ServerReadiness
   throttle?: { maxFailures?: number; lockoutMs?: number; maxTracked?: number }
@@ -551,8 +553,8 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
   })
 
   app.post('/auth/login', async (c) => {
-    if (!(await loginRequired())) {
-      // No password configured → auth is disabled; there's nothing to log into.
+    const required = await loginRequired()
+    if (!required && (!store || !opts.isLocalRequest?.(c.req.raw))) {
       return c.json({ error: 'auth disabled' }, 400)
     }
     const at = now()
@@ -565,6 +567,12 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
         userId?: unknown
         email?: unknown
         password?: unknown
+        prepareSignIn?: unknown
+      }
+      // Access takes a real cookie before closing the local open-mode gate.
+      // This is an explicit browser-only request and still verifies the password below.
+      if (!required && (body?.prepareSignIn !== true || body?.delivery === 'native')) {
+        return c.json({ error: 'auth disabled' }, 400)
       }
       if (body?.delivery === 'native') {
         // Browsers attach Origin to POST requests and must stay on the HttpOnly
@@ -592,6 +600,7 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
       }
       if (typeof body?.password === 'string') password = body.password
     } catch {
+      if (!required) return c.json({ error: 'auth disabled' }, 400)
       // fall through — empty password fails verification below
     }
 
