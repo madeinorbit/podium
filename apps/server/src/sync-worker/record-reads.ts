@@ -51,9 +51,6 @@ export function recordReadsOver(
       machines: new MachinesRepository(q),
       grants: new GrantsRepository(q),
       conversations: new ConversationsRepository(q),
-      // Read only: nothing here writes `repos`, so the registry memo has no
-      // write to forget.
-      repos: new ReposRepository(q, unsupported, new TableWrites()),
       sessions: new SessionsRepository(q),
       users: new UsersRepository(q),
       shipping: new ShippingRepository(q),
