@@ -497,6 +497,18 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     features: ['telemetry-schema', 'telemetry-consent', 'telemetry-queue'],
     deps: ['packages/protocol', 'packages/runtime', 'packages/model'],
   },
+  // The shared identity package (POD-6744, docs/design/people-and-sign-in.md):
+  // accounts, password sign-in, device sign-ins, one-time codes and the
+  // capability list, one implementation for the self-hosted server (SQLite)
+  // and the cloud (Postgres). NODE-ONLY: it hashes and signs with node:crypto
+  // and holds a database handle. It reaches the model leaf and nothing else,
+  // and never an app, so podium-cloud can depend on it.
+  'packages/identity': {
+    layer: 2,
+    platform: 'node-only',
+    features: ['identity'],
+    deps: ['packages/model'],
+  },
   // The PTY kernel split out of agent-bridge (POD-396, ADR 8 D4): backends,
   // the durable host (the vendored Rust podium-host; the abduco attach client for
   // sessions older releases started), byte framing, OSC scan,

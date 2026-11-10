@@ -87,6 +87,20 @@
  *    through the quarantining helper it already uses.
  */
 
+/**
+ * THE IDENTITY TABLES (POD-6744, docs/design/people-and-sign-in.md section 1.1).
+ * They are defined by the shared identity package, because the cloud defines
+ * the same tables on Postgres from the same package, and re-exported here so
+ * this server's migration chain creates them. The package holds no migrations.
+ */
+export {
+  identityAccount,
+  identityOneTimeCode,
+  identitySession,
+  identityUser,
+  identityVerification,
+} from '@podium/identity/schema/sqlite'
+
 import type {
   AccountId,
   AutomationId,
