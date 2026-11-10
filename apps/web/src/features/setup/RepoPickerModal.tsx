@@ -436,529 +436,556 @@ export function RepoPickerModal({
     (repoChoices.options.length > 1 || repoChoices.exclusionNote !== undefined)
 
   const Title = embedded ? 'h4' : DialogTitle
-  const content = (
-    <>
-      {resultPanel ? (
-        resultPanel
-      ) : (
-        <>
-          <DialogHeader
-            className={
-              embedded ? 'gap-2 px-4 pt-4 pb-4' : 'gap-[7px] px-6 pt-[22px] pr-16 pb-[18px]'
-            }
-          >
-            <Title
+  return (
+    <RepositoryPickerFrame
+      embedded={embedded}
+      isMobile={isMobile}
+      onClose={onClose}
+      rootRef={setPickerRef}
+      busy={saving || scanning}
+    >
+      <>
+        {resultPanel ? (
+          resultPanel
+        ) : (
+          <>
+            <DialogHeader
               className={
-                embedded
-                  ? 'settings-h2'
-                  : 'text-[21px] leading-[1.15] font-semibold tracking-[-0.015em] text-foreground'
+                embedded ? 'gap-2 px-4 pt-4 pb-4' : 'gap-[7px] px-6 pt-[22px] pr-16 pb-[18px]'
               }
             >
-              {onScan ? 'Find a repository' : 'Add a repository'}
-            </Title>
-            <p className="text-[13.5px] leading-[1.5] text-muted-foreground">
-              Choose a repository already on this machine, or bring one in from GitHub.
-            </p>
-          </DialogHeader>
-
-          {onCloneGithub && (
-            <fieldset className="grid gap-3.5 border-t border-border px-6 pb-4 sm:grid-cols-2">
-              <legend className="col-span-full w-full pt-3.5 pb-[11px] font-mono text-[10px] leading-none font-semibold tracking-[0.2em] text-muted-foreground uppercase">
-                Where from?
-              </legend>
-              <button
-                type="button"
-                data-pressable
-                aria-pressed={source === 'local'}
-                className={cn(
-                  'flex min-h-[70px] items-center gap-3.5 rounded-[11px] px-4 py-[15px] text-left transition-colors',
-                  source === 'local'
-                    ? 'bg-primary/10 text-ring inset-ring-[1.5px] inset-ring-ring'
-                    : 'bg-background text-muted-foreground inset-ring inset-ring-border hover:bg-muted',
-                )}
-                onClick={() => {
-                  setSource('local')
-                  onProgress?.({ source: 'local' })
-                }}
+              <Title
+                className={
+                  embedded
+                    ? 'settings-h2'
+                    : 'text-[21px] leading-[1.15] font-semibold tracking-[-0.015em] text-foreground'
+                }
               >
-                <HardDrive size={21} className="flex-none" aria-hidden="true" />
-                <span>
-                  <span className="block text-[14.5px] leading-none font-semibold text-foreground">
-                    On this machine
-                  </span>
-                  <span
-                    className={cn(
-                      'mt-1 block text-[12.5px] leading-[1.4]',
-                      source === 'local' ? 'text-foreground' : 'text-muted-foreground',
-                    )}
-                  >
-                    Browse folders already on its disk
-                  </span>
-                </span>
-              </button>
-              <button
-                type="button"
-                data-pressable
-                aria-pressed={source === 'github'}
-                className={cn(
-                  'flex min-h-[70px] items-center gap-3.5 rounded-[11px] px-4 py-[15px] text-left transition-colors',
-                  source === 'github'
-                    ? 'bg-primary/10 text-ring inset-ring-[1.5px] inset-ring-ring'
-                    : 'bg-background text-muted-foreground inset-ring inset-ring-border hover:bg-muted',
-                )}
-                onClick={() => {
-                  setSource('github')
-                  onProgress?.({ source: 'github' })
-                }}
-              >
-                <GitFork size={21} className="flex-none" aria-hidden="true" />
-                <span>
-                  <span className="block text-[14.5px] leading-none font-semibold text-foreground">
-                    From GitHub
-                  </span>
-                  <span
-                    className={cn(
-                      'mt-1 block text-[12.5px] leading-[1.4]',
-                      source === 'github' ? 'text-foreground' : 'text-muted-foreground',
-                    )}
-                  >
-                    Sign in, choose a repository, then clone it
-                  </span>
-                </span>
-              </button>
-            </fieldset>
-          )}
+                {onScan ? 'Find a repository' : 'Add a repository'}
+              </Title>
+              <p className="text-[13.5px] leading-[1.5] text-muted-foreground">
+                Choose a repository already on this machine, or bring one in from GitHub.
+              </p>
+            </DialogHeader>
 
-          {(source === 'local' || showMachinePicker) && (
-            <div className="flex min-h-16 flex-wrap items-center gap-3 border-t border-border bg-muted/50 px-6 py-3.5">
-              {showMachinePicker ? (
-                <div className="flex min-w-48 flex-col gap-1 max-md:w-full">
-                  <label htmlFor="repo-machine-select" className="text-xs text-muted-foreground">
-                    Machine
-                  </label>
-                  <select
-                    id="repo-machine-select"
-                    aria-label="Machine"
-                    className="h-8 rounded-md border border-input bg-background px-2 text-sm text-foreground outline-none focus:border-primary"
-                    value={selectedMachineId ?? ''}
-                    disabled={busy}
-                    onChange={(e) => {
-                      setError(null)
-                      onMachineChange(
-                        e.currentTarget.value ? asMachineId(e.currentTarget.value) : undefined,
-                      )
-                    }}
-                  >
-                    {/* Offline machines stay LISTED and disabled — they can
-                          host repos, just not this second. Machines that run no
-                          daemon are absent by construction and counted below. */}
-                    {repoChoices.options.map((choice) => (
-                      <option
-                        key={choice.machine.id}
-                        value={choice.machine.id}
-                        disabled={choice.rejection !== undefined}
-                      >
-                        {machineOptionLabel(choice)}
-                      </option>
-                    ))}
-                  </select>
-                  <MachineExclusionNote note={repoChoices.exclusionNote} />
-                </div>
-              ) : null}
-              {source === 'local' && (
-                <>
-                  <div className="flex flex-none items-center gap-0.5">
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      className="size-[30px] border-0 rounded-lg"
-                      disabled={historyIndex <= 0 || busy}
-                      onClick={() => visitHistory(historyIndex - 1)}
-                      aria-label="Back"
-                      title="Back"
-                    >
-                      <ChevronLeft size={18} />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      className="size-[30px] border-0 rounded-lg"
-                      disabled={historyIndex < 0 || historyIndex >= history.length - 1 || busy}
-                      onClick={() => visitHistory(historyIndex + 1)}
-                      aria-label="Forward"
-                      title="Forward"
-                    >
-                      <ChevronRight size={18} />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      className="size-[30px] border-0 rounded-lg"
-                      disabled={!listing || busy}
-                      onClick={() => listing && void load(listing.homePath)}
-                      aria-label="Home"
-                      title="Home"
-                    >
-                      <Home size={17} />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      className="size-[30px] border-0 rounded-lg"
-                      disabled={!listing || busy}
-                      onClick={() => listing && void load(listing.path, undefined, 'preserve')}
-                      aria-label="Refresh"
-                      title="Refresh"
-                    >
-                      <RefreshCw size={17} />
-                    </Button>
-                  </div>
-                  <Input
-                    aria-label="Folder path"
-                    className="h-9 min-w-0 flex-1 rounded-[9px] border-0 bg-background px-[13px] font-mono text-[13px] text-foreground inset-ring inset-ring-border"
-                    value={machineReady ? browserPath : headerPath}
-                    disabled={!machineReady || busy}
-                    onChange={(event) => setBrowserPath(event.currentTarget.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') void load(browserPath)
-                    }}
-                  />
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className={cn(
-                      'h-9 rounded-[9px] border-0 px-[13px] text-[12.5px] font-semibold text-muted-foreground inset-ring inset-ring-border',
-                      showHidden && 'text-foreground inset-ring inset-ring-border-strong',
-                    )}
-                    disabled={!machineReady || busy}
-                    onClick={toggleHidden}
-                    aria-pressed={showHidden}
-                  >
-                    {showHidden ? <Eye size={16} /> : <EyeOff size={16} />}
-                    Hidden
-                  </Button>
-                  {onScan && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-9 rounded-[9px] border-0 px-[15px] text-[12.5px] font-semibold text-foreground inset-ring inset-ring-border-strong"
-                      disabled={!listing || busy}
-                      onClick={() => void scanCurrent()}
-                    >
-                      <Search size={16} />
-                      {scanning ? 'Scanning…' : 'Scan this folder'}
-                    </Button>
-                  )}
-                  {/* The route a machine with nothing on its disk never had
-                        (POD-1295): make the repository here instead of finding one. */}
-                  {onCreateFolder && (
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      className="size-9 rounded-[9px] border-0 text-muted-foreground inset-ring inset-ring-border"
-                      disabled={!listing || busy}
-                      onClick={() => startEdit({ kind: 'folder', name: '' })}
-                      aria-label="New folder"
-                      title="New folder"
-                    >
-                      <FolderPlus size={17} />
-                    </Button>
-                  )}
-                  {onCreateRepo && (
-                    <Button
-                      size="sm"
-                      className="h-9 rounded-[9px] border-0 bg-primary px-[15px] text-[12.5px] font-semibold text-primary-foreground hover:bg-primary/80 disabled:bg-transparent disabled:text-muted-foreground disabled:inset-ring disabled:inset-ring-border"
-                      disabled={!listing || busy}
-                      onClick={() => startEdit({ kind: 'repo', name: '' })}
-                    >
-                      <FolderGit2 size={16} />
-                      New repository
-                    </Button>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-          {source === 'local' && error && (
-            <div className="border-t border-border px-6 py-3">
-              <SetupError>{error}</SetupError>
-            </div>
-          )}
-          {source === 'github' && onCloneGithub && (
-            <GitHubProjectIntake
-              machine={selectedMachine}
-              homePath={listing?.homePath}
-              onClone={async (repository, destination) => {
-                await onCloneGithub(repository, destination)
-                onClose()
-              }}
-            />
-          )}
-          <div hidden={source === 'github'} className="flex min-h-0 flex-1 flex-col">
-            <div
-              className="min-h-[260px] flex-1 overflow-y-auto overscroll-contain"
-              aria-busy={loading}
-            >
-              {/* THE EMPTY STATE, AXIS-AWARE (POD-2700 §4.2). The line this
-                    replaces fired on CONNECTIVITY — "No machines are connected"
-                    — which was the right instinct with the wrong trigger: it
-                    said the same thing whether every repo host was asleep or the
-                    only machine was a coordinator that can never host one. Those
-                    need opposite advice, so they now get different words. */}
-              {!selectedMachine && (
-                <MachineEmptyStateNotice
-                  state={
-                    repoChoices.emptyState ?? {
-                      title: 'No machine selected.',
-                      detail: 'Choose a machine to browse its folders.',
-                    }
-                  }
-                />
-              )}
-              {selectedMachine && !selectedMachine.online && (
-                <div className="p-3 text-xs text-muted-foreground/70">
-                  {selectedMachine.name} is offline — its folders can't be browsed right now.
-                </div>
-              )}
-              {machineReady && loading && (
-                <div className="p-3 text-xs text-muted-foreground/70">Loading directories...</div>
-              )}
-              {machineReady && !loading && listing?.entries.length === 0 && (
-                <div className="p-3 text-xs text-muted-foreground/70">No directories.</div>
-              )}
-              {machineReady && edit?.kind !== 'rename' && edit && (
-                <EditRow
-                  icon={
-                    edit.kind === 'repo' ? (
-                      <FolderGit2 size={19} className="flex-none text-ring" />
-                    ) : (
-                      <Folder size={19} className="flex-none text-muted-foreground" />
-                    )
-                  }
-                  label={edit.kind === 'repo' ? 'New repository name' : 'New folder name'}
-                  placeholder={edit.kind === 'repo' ? 'my-project' : 'projects'}
-                  value={edit.name}
-                  busy={writingKind !== null}
-                  commitLabel={edit.kind === 'repo' ? 'Create repository' : 'Create folder'}
-                  error={editError}
-                  // Standing inside a checkout, a repo created here nests inside
-                  // it — legal, occasionally meant, and never what someone
-                  // expects to have done by accident.
-                  warning={
-                    edit.kind === 'repo' && listing?.isRepo === true
-                      ? `This will sit inside ${listing.path}, which is already a repository.`
-                      : null
-                  }
-                  onChange={(name) => setEdit({ ...edit, name })}
-                  onCommit={() => void commitEdit()}
-                  onCancel={cancelEdit}
-                />
-              )}
-              {machineReady && !loading && listing?.parentPath && (
+            {onCloneGithub && (
+              <fieldset className="grid gap-3.5 border-t border-border px-6 pb-4 sm:grid-cols-2">
+                <legend className="col-span-full w-full pt-3.5 pb-[11px] font-mono text-[10px] leading-none font-semibold tracking-[0.2em] text-muted-foreground uppercase">
+                  Where from?
+                </legend>
                 <button
                   type="button"
                   data-pressable
-                  className="flex min-h-[46px] w-full items-center gap-[13px] border-t border-border px-6 py-[13px] text-left disabled:pointer-events-none disabled:opacity-50"
-                  onClick={() => void load(listing.parentPath ?? undefined)}
-                  disabled={busy}
-                  aria-label={`Open parent folder ${listing.parentPath}`}
+                  aria-pressed={source === 'local'}
+                  className={cn(
+                    'flex min-h-[70px] items-center gap-3.5 rounded-[11px] px-4 py-[15px] text-left transition-colors',
+                    source === 'local'
+                      ? 'bg-primary/10 text-ring inset-ring-[1.5px] inset-ring-ring'
+                      : 'bg-background text-muted-foreground inset-ring inset-ring-border hover:bg-muted',
+                  )}
+                  onClick={() => {
+                    setSource('local')
+                    onProgress?.({ source: 'local' })
+                  }}
                 >
-                  <Folder
-                    size={19}
-                    className="flex-none text-muted-foreground"
-                    aria-hidden="true"
-                  />
-                  <span className="font-mono text-[13px] text-muted-foreground">..</span>
-                  <span className="min-w-0 flex-1 truncate text-[13.5px] text-muted-foreground">
-                    {listing.parentPath}
+                  <HardDrive size={21} className="flex-none" aria-hidden="true" />
+                  <span>
+                    <span className="block text-[14.5px] leading-none font-semibold text-foreground">
+                      On this machine
+                    </span>
+                    <span
+                      className={cn(
+                        'mt-1 block text-[12.5px] leading-[1.4]',
+                        source === 'local' ? 'text-foreground' : 'text-muted-foreground',
+                      )}
+                    >
+                      Browse folders already on its disk
+                    </span>
                   </span>
                 </button>
-              )}
-              {machineReady &&
-                !loading &&
-                listing?.entries.map((entry) =>
-                  edit?.kind === 'rename' && edit.from === entry.name ? (
-                    <EditRow
-                      key={entry.path}
-                      icon={
-                        entry.isRepo ? (
-                          <FolderGit2 size={19} className="flex-none text-ring" />
-                        ) : (
-                          <Folder size={19} className="flex-none text-muted-foreground" />
-                        )
-                      }
-                      label={`Rename folder ${entry.name}`}
-                      placeholder={entry.name}
-                      value={edit.name}
-                      busy={writingKind !== null}
-                      commitLabel="Rename"
-                      error={editError}
-                      warning={null}
-                      onChange={(name) => setEdit({ ...edit, name })}
-                      onCommit={() => void commitEdit()}
-                      onCancel={cancelEdit}
-                    />
-                  ) : (
-                    <div
-                      className="group flex min-h-[46px] items-center gap-[13px] border-t border-border px-6 hover:bg-muted"
-                      key={entry.path}
+                <button
+                  type="button"
+                  data-pressable
+                  aria-pressed={source === 'github'}
+                  className={cn(
+                    'flex min-h-[70px] items-center gap-3.5 rounded-[11px] px-4 py-[15px] text-left transition-colors',
+                    source === 'github'
+                      ? 'bg-primary/10 text-ring inset-ring-[1.5px] inset-ring-ring'
+                      : 'bg-background text-muted-foreground inset-ring inset-ring-border hover:bg-muted',
+                  )}
+                  onClick={() => {
+                    setSource('github')
+                    onProgress?.({ source: 'github' })
+                  }}
+                >
+                  <GitFork size={21} className="flex-none" aria-hidden="true" />
+                  <span>
+                    <span className="block text-[14.5px] leading-none font-semibold text-foreground">
+                      From GitHub
+                    </span>
+                    <span
+                      className={cn(
+                        'mt-1 block text-[12.5px] leading-[1.4]',
+                        source === 'github' ? 'text-foreground' : 'text-muted-foreground',
+                      )}
                     >
-                      <button
-                        type="button"
-                        data-pressable
-                        className="flex min-w-0 flex-1 items-center gap-[13px] py-[11px] text-left disabled:pointer-events-none disabled:opacity-50"
-                        onClick={() => void load(entry.path)}
-                        // Right-click the row. On the button rather than the row
-                        // wrapper because the wrapper is a plain div — and this
-                        // is also what the keyboard's menu key targets, since it
-                        // fires `contextmenu` at whatever has focus.
-                        onContextMenu={(event) => {
-                          if (!onRenameFolder || busy) return
-                          openRowMenu(entry, event)
-                        }}
-                        // F2 is the rename key everywhere a file list has one, and
-                        // it is the only rename gesture a keyboard user gets: the
-                        // row's click already means "open", so a double-click would
-                        // have navigated before the second click landed.
-                        onKeyDown={(event) => {
-                          if (event.key !== 'F2' || !onRenameFolder || busy) return
-                          event.preventDefault()
-                          startEdit({ kind: 'rename', from: entry.name, name: entry.name })
-                        }}
-                        disabled={busy}
-                        aria-label={`Open folder ${entry.name}`}
-                      >
-                        {entry.isRepo ? (
-                          <FolderGit2
-                            size={19}
-                            className="flex-none text-ring"
-                            aria-hidden="true"
-                          />
-                        ) : (
-                          <Folder
-                            size={19}
-                            className="flex-none text-muted-foreground"
-                            aria-hidden="true"
-                          />
-                        )}
-                        <span
-                          className={cn(
-                            'min-w-0 flex-1 truncate text-[14px]',
-                            entry.isRepo ? 'font-semibold text-foreground' : 'text-foreground',
-                          )}
+                      Sign in, choose a repository, then clone it
+                    </span>
+                  </span>
+                </button>
+              </fieldset>
+            )}
+
+            {(source === 'local' || showMachinePicker) && (
+              <div className="flex min-h-16 flex-wrap items-center gap-3 border-t border-border bg-muted/50 px-6 py-3.5">
+                {showMachinePicker ? (
+                  <div className="flex min-w-48 flex-col gap-1 max-md:w-full">
+                    <label htmlFor="repo-machine-select" className="text-xs text-muted-foreground">
+                      Machine
+                    </label>
+                    <select
+                      id="repo-machine-select"
+                      aria-label="Machine"
+                      className="h-8 rounded-md border border-input bg-background px-2 text-sm text-foreground outline-none focus:border-primary"
+                      value={selectedMachineId ?? ''}
+                      disabled={busy}
+                      onChange={(e) => {
+                        setError(null)
+                        onMachineChange(
+                          e.currentTarget.value ? asMachineId(e.currentTarget.value) : undefined,
+                        )
+                      }}
+                    >
+                      {/* Offline machines stay LISTED and disabled — they can
+                            host repos, just not this second. Machines that run no
+                            daemon are absent by construction and counted below. */}
+                      {repoChoices.options.map((choice) => (
+                        <option
+                          key={choice.machine.id}
+                          value={choice.machine.id}
+                          disabled={choice.rejection !== undefined}
                         >
-                          {entry.name}
-                        </span>
-                        <ChevronRight
-                          size={18}
-                          className="flex-none text-muted-foreground"
-                          aria-hidden="true"
-                        />
-                      </button>
-                      {entry.isRepo && (
+                          {machineOptionLabel(choice)}
+                        </option>
+                      ))}
+                    </select>
+                    <MachineExclusionNote note={repoChoices.exclusionNote} />
+                  </div>
+                ) : null}
+                {source === 'local' && (
+                  <>
+                    <div className="flex flex-none items-center gap-0.5">
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="size-[30px] border-0 rounded-lg"
+                        disabled={historyIndex <= 0 || busy}
+                        onClick={() => visitHistory(historyIndex - 1)}
+                        aria-label="Back"
+                        title="Back"
+                      >
+                        <ChevronLeft size={18} />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="size-[30px] border-0 rounded-lg"
+                        disabled={historyIndex < 0 || historyIndex >= history.length - 1 || busy}
+                        onClick={() => visitHistory(historyIndex + 1)}
+                        aria-label="Forward"
+                        title="Forward"
+                      >
+                        <ChevronRight size={18} />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="size-[30px] border-0 rounded-lg"
+                        disabled={!listing || busy}
+                        onClick={() => listing && void load(listing.homePath)}
+                        aria-label="Home"
+                        title="Home"
+                      >
+                        <Home size={17} />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="size-[30px] border-0 rounded-lg"
+                        disabled={!listing || busy}
+                        onClick={() => listing && void load(listing.path, undefined, 'preserve')}
+                        aria-label="Refresh"
+                        title="Refresh"
+                      >
+                        <RefreshCw size={17} />
+                      </Button>
+                    </div>
+                    <Input
+                      aria-label="Folder path"
+                      className="h-9 min-w-0 flex-1 rounded-[9px] border-0 bg-background px-[13px] font-mono text-[13px] text-foreground inset-ring inset-ring-border"
+                      value={machineReady ? browserPath : headerPath}
+                      disabled={!machineReady || busy}
+                      onChange={(event) => setBrowserPath(event.currentTarget.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') void load(browserPath)
+                      }}
+                    />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={cn(
+                        'h-9 rounded-[9px] border-0 px-[13px] text-[12.5px] font-semibold text-muted-foreground inset-ring inset-ring-border',
+                        showHidden && 'text-foreground inset-ring inset-ring-border-strong',
+                      )}
+                      disabled={!machineReady || busy}
+                      onClick={toggleHidden}
+                      aria-pressed={showHidden}
+                    >
+                      {showHidden ? <Eye size={16} /> : <EyeOff size={16} />}
+                      Hidden
+                    </Button>
+                    {onScan && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-9 rounded-[9px] border-0 px-[15px] text-[12.5px] font-semibold text-foreground inset-ring inset-ring-border-strong"
+                        disabled={!listing || busy}
+                        onClick={() => void scanCurrent()}
+                      >
+                        <Search size={16} />
+                        {scanning ? 'Scanning…' : 'Scan this folder'}
+                      </Button>
+                    )}
+                    {/* The route a machine with nothing on its disk never had
+                          (POD-1295): make the repository here instead of finding one. */}
+                    {onCreateFolder && (
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="size-9 rounded-[9px] border-0 text-muted-foreground inset-ring inset-ring-border"
+                        disabled={!listing || busy}
+                        onClick={() => startEdit({ kind: 'folder', name: '' })}
+                        aria-label="New folder"
+                        title="New folder"
+                      >
+                        <FolderPlus size={17} />
+                      </Button>
+                    )}
+                    {onCreateRepo && (
+                      <Button
+                        size="sm"
+                        className="h-9 rounded-[9px] border-0 bg-primary px-[15px] text-[12.5px] font-semibold text-primary-foreground hover:bg-primary/80 disabled:bg-transparent disabled:text-muted-foreground disabled:inset-ring disabled:inset-ring-border"
+                        disabled={!listing || busy}
+                        onClick={() => startEdit({ kind: 'repo', name: '' })}
+                      >
+                        <FolderGit2 size={16} />
+                        New repository
+                      </Button>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+            {source === 'local' && error && (
+              <div className="border-t border-border px-6 py-3">
+                <SetupError>{error}</SetupError>
+              </div>
+            )}
+            {source === 'github' && onCloneGithub && (
+              <GitHubProjectIntake
+                machine={selectedMachine}
+                homePath={listing?.homePath}
+                onClone={async (repository, destination) => {
+                  await onCloneGithub(repository, destination)
+                  onClose()
+                }}
+              />
+            )}
+            <div hidden={source === 'github'} className="flex min-h-0 flex-1 flex-col">
+              <div
+                className="min-h-[260px] flex-1 overflow-y-auto overscroll-contain"
+                aria-busy={loading}
+              >
+                {/* THE EMPTY STATE, AXIS-AWARE (POD-2700 §4.2). The line this
+                      replaces fired on CONNECTIVITY — "No machines are connected"
+                      — which was the right instinct with the wrong trigger: it
+                      said the same thing whether every repo host was asleep or the
+                      only machine was a coordinator that can never host one. Those
+                      need opposite advice, so they now get different words. */}
+                {!selectedMachine && (
+                  <MachineEmptyStateNotice
+                    state={
+                      repoChoices.emptyState ?? {
+                        title: 'No machine selected.',
+                        detail: 'Choose a machine to browse its folders.',
+                      }
+                    }
+                  />
+                )}
+                {selectedMachine && !selectedMachine.online && (
+                  <div className="p-3 text-xs text-muted-foreground/70">
+                    {selectedMachine.name} is offline — its folders can't be browsed right now.
+                  </div>
+                )}
+                {machineReady && loading && (
+                  <div className="p-3 text-xs text-muted-foreground/70">Loading directories...</div>
+                )}
+                {machineReady && !loading && listing?.entries.length === 0 && (
+                  <div className="p-3 text-xs text-muted-foreground/70">No directories.</div>
+                )}
+                {machineReady && edit?.kind !== 'rename' && edit && (
+                  <EditRow
+                    icon={
+                      edit.kind === 'repo' ? (
+                        <FolderGit2 size={19} className="flex-none text-ring" />
+                      ) : (
+                        <Folder size={19} className="flex-none text-muted-foreground" />
+                      )
+                    }
+                    label={edit.kind === 'repo' ? 'New repository name' : 'New folder name'}
+                    placeholder={edit.kind === 'repo' ? 'my-project' : 'projects'}
+                    value={edit.name}
+                    busy={writingKind !== null}
+                    commitLabel={edit.kind === 'repo' ? 'Create repository' : 'Create folder'}
+                    error={editError}
+                    // Standing inside a checkout, a repo created here nests inside
+                    // it — legal, occasionally meant, and never what someone
+                    // expects to have done by accident.
+                    warning={
+                      edit.kind === 'repo' && listing?.isRepo === true
+                        ? `This will sit inside ${listing.path}, which is already a repository.`
+                        : null
+                    }
+                    onChange={(name) => setEdit({ ...edit, name })}
+                    onCommit={() => void commitEdit()}
+                    onCancel={cancelEdit}
+                  />
+                )}
+                {machineReady && !loading && listing?.parentPath && (
+                  <button
+                    type="button"
+                    data-pressable
+                    className="flex min-h-[46px] w-full items-center gap-[13px] border-t border-border px-6 py-[13px] text-left disabled:pointer-events-none disabled:opacity-50"
+                    onClick={() => void load(listing.parentPath ?? undefined)}
+                    disabled={busy}
+                    aria-label={`Open parent folder ${listing.parentPath}`}
+                  >
+                    <Folder
+                      size={19}
+                      className="flex-none text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                    <span className="font-mono text-[13px] text-muted-foreground">..</span>
+                    <span className="min-w-0 flex-1 truncate text-[13.5px] text-muted-foreground">
+                      {listing.parentPath}
+                    </span>
+                  </button>
+                )}
+                {machineReady &&
+                  !loading &&
+                  listing?.entries.map((entry) =>
+                    edit?.kind === 'rename' && edit.from === entry.name ? (
+                      <EditRow
+                        key={entry.path}
+                        icon={
+                          entry.isRepo ? (
+                            <FolderGit2 size={19} className="flex-none text-ring" />
+                          ) : (
+                            <Folder size={19} className="flex-none text-muted-foreground" />
+                          )
+                        }
+                        label={`Rename folder ${entry.name}`}
+                        placeholder={entry.name}
+                        value={edit.name}
+                        busy={writingKind !== null}
+                        commitLabel="Rename"
+                        error={editError}
+                        warning={null}
+                        onChange={(name) => setEdit({ ...edit, name })}
+                        onCommit={() => void commitEdit()}
+                        onCancel={cancelEdit}
+                      />
+                    ) : (
+                      <div
+                        className="group flex min-h-[46px] items-center gap-[13px] border-t border-border px-6 hover:bg-muted"
+                        key={entry.path}
+                      >
                         <button
                           type="button"
                           data-pressable
-                          className="h-8 w-[132px] flex-none rounded-[9px] text-[12.5px] leading-none font-semibold text-foreground inset-ring inset-ring-border-strong group-hover:bg-primary group-hover:text-primary-foreground group-hover:inset-ring-0"
+                          className="flex min-w-0 flex-1 items-center gap-[13px] py-[11px] text-left disabled:pointer-events-none disabled:opacity-50"
+                          onClick={() => void load(entry.path)}
+                          // Right-click the row. On the button rather than the row
+                          // wrapper because the wrapper is a plain div — and this
+                          // is also what the keyboard's menu key targets, since it
+                          // fires `contextmenu` at whatever has focus.
+                          onContextMenu={(event) => {
+                            if (!onRenameFolder || busy) return
+                            openRowMenu(entry, event)
+                          }}
+                          // F2 is the rename key everywhere a file list has one, and
+                          // it is the only rename gesture a keyboard user gets: the
+                          // row's click already means "open", so a double-click would
+                          // have navigated before the second click landed.
+                          onKeyDown={(event) => {
+                            if (event.key !== 'F2' || !onRenameFolder || busy) return
+                            event.preventDefault()
+                            startEdit({ kind: 'rename', from: entry.name, name: entry.name })
+                          }}
                           disabled={busy}
-                          onClick={() => void pickPath(entry.path)}
-                          aria-label={`Use repository ${entry.name}`}
+                          aria-label={`Open folder ${entry.name}`}
                         >
-                          Use repository
+                          {entry.isRepo ? (
+                            <FolderGit2
+                              size={19}
+                              className="flex-none text-ring"
+                              aria-hidden="true"
+                            />
+                          ) : (
+                            <Folder
+                              size={19}
+                              className="flex-none text-muted-foreground"
+                              aria-hidden="true"
+                            />
+                          )}
+                          <span
+                            className={cn(
+                              'min-w-0 flex-1 truncate text-[14px]',
+                              entry.isRepo ? 'font-semibold text-foreground' : 'text-foreground',
+                            )}
+                          >
+                            {entry.name}
+                          </span>
+                          <ChevronRight
+                            size={18}
+                            className="flex-none text-muted-foreground"
+                            aria-hidden="true"
+                          />
                         </button>
-                      )}
-                    </div>
-                  ),
-                )}
-            </div>
-            <div className="border-t border-border bg-muted/50 px-6 pt-[18px] pb-[22px]">
-              <p className="text-[12.5px] leading-none font-semibold text-muted-foreground">
-                {browsedRepoPath ? 'Use this folder, or another path' : 'Or use a repository path'}
-              </p>
-              <div className="mt-[11px] flex gap-3 max-sm:flex-col">
-                <Input
-                  id="repo-machine-path"
-                  aria-label={machinePathLabel}
-                  className={cn(
-                    'h-[38px] rounded-[9px] border-0 bg-background px-[13px] font-mono text-[13px] text-foreground inset-ring inset-ring-border placeholder:text-muted-foreground',
-                    // The offered path is what the button will act on, so it reads as
-                    // content rather than as the usual dim hint.
-                    browsedRepoPath && 'placeholder:text-foreground',
+                        {entry.isRepo && (
+                          <button
+                            type="button"
+                            data-pressable
+                            className="h-8 w-[132px] flex-none rounded-[9px] text-[12.5px] leading-none font-semibold text-foreground inset-ring inset-ring-border-strong group-hover:bg-primary group-hover:text-primary-foreground group-hover:inset-ring-0"
+                            disabled={busy}
+                            onClick={() => void pickPath(entry.path)}
+                            aria-label={`Use repository ${entry.name}`}
+                          >
+                            Use repository
+                          </button>
+                        )}
+                      </div>
+                    ),
                   )}
-                  value={manualPath}
-                  placeholder={browsedRepoPath ?? 'Absolute project path'}
-                  disabled={writing || !machineReady}
-                  onChange={(e) => setManualPath(e.currentTarget.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') void pickManual()
-                  }}
-                />
-                <Button
-                  className="h-[38px] rounded-[9px] border-0 bg-primary px-[15px] text-[12.5px] font-semibold text-primary-foreground disabled:bg-transparent disabled:text-muted-foreground disabled:inset-ring disabled:inset-ring-border max-sm:w-full"
-                  disabled={writing || !machineReady || manualTarget === ''}
-                  onClick={() => void pickManual()}
-                >
-                  <Check size={16} />
-                  Use repository
-                </Button>
+              </div>
+              <div className="border-t border-border bg-muted/50 px-6 pt-[18px] pb-[22px]">
+                <p className="text-[12.5px] leading-none font-semibold text-muted-foreground">
+                  {browsedRepoPath
+                    ? 'Use this folder, or another path'
+                    : 'Or use a repository path'}
+                </p>
+                <div className="mt-[11px] flex gap-3 max-sm:flex-col">
+                  <Input
+                    id="repo-machine-path"
+                    aria-label={machinePathLabel}
+                    className={cn(
+                      'h-[38px] rounded-[9px] border-0 bg-background px-[13px] font-mono text-[13px] text-foreground inset-ring inset-ring-border placeholder:text-muted-foreground',
+                      // The offered path is what the button will act on, so it reads as
+                      // content rather than as the usual dim hint.
+                      browsedRepoPath && 'placeholder:text-foreground',
+                    )}
+                    value={manualPath}
+                    placeholder={browsedRepoPath ?? 'Absolute project path'}
+                    disabled={writing || !machineReady}
+                    onChange={(e) => setManualPath(e.currentTarget.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') void pickManual()
+                    }}
+                  />
+                  <Button
+                    className="h-[38px] rounded-[9px] border-0 bg-primary px-[15px] text-[12.5px] font-semibold text-primary-foreground disabled:bg-transparent disabled:text-muted-foreground disabled:inset-ring disabled:inset-ring-border max-sm:w-full"
+                    disabled={writing || !machineReady || manualTarget === ''}
+                    onClick={() => void pickManual()}
+                  >
+                    <Check size={16} />
+                    Use repository
+                  </Button>
+                </div>
               </div>
             </div>
-          </div>
-          {rowMenu && (
-            <RowMenu
-              entry={rowMenu.entry}
-              x={rowMenu.x}
-              y={rowMenu.y}
-              bounds={dialogRef.current}
-              onClose={() => setRowMenu(null)}
-              onOpen={() => {
-                setRowMenu(null)
-                void load(rowMenu.entry.path)
-              }}
-              onUse={
-                rowMenu.entry.isRepo
-                  ? () => {
-                      setRowMenu(null)
-                      void pickPath(rowMenu.entry.path)
-                    }
-                  : undefined
-              }
-              onRename={() =>
-                startEdit({ kind: 'rename', from: rowMenu.entry.name, name: rowMenu.entry.name })
-              }
-            />
-          )}
-          {/* Only the long writes take the overlay. Creating a plain folder or
-                renaming one is a single syscall and finishes before a curtain
-                would finish fading in. */}
-          {(saving || scanning || writingKind === 'repo') && (
-            <SetupBusyOverlay
-              title={
-                scanning
-                  ? 'Looking for repositories…'
-                  : writingKind === 'repo'
-                    ? 'Creating the repository…'
-                    : 'Using this repository…'
-              }
-              detail={
-                scanning
-                  ? 'Podium is scanning this folder and will update this dialog when it finishes.'
-                  : writingKind === 'repo'
-                    ? `Podium is creating the folder, running git init, and registering it in ${listing?.path ?? ''}.`
-                    : `Podium is registering ${listing?.path ?? manualPath.trim()} and preparing the project list.`
-              }
-            />
-          )}
-        </>
-      )}
-    </>
+            {rowMenu && (
+              <RowMenu
+                entry={rowMenu.entry}
+                x={rowMenu.x}
+                y={rowMenu.y}
+                bounds={dialogRef.current}
+                onClose={() => setRowMenu(null)}
+                onOpen={() => {
+                  setRowMenu(null)
+                  void load(rowMenu.entry.path)
+                }}
+                onUse={
+                  rowMenu.entry.isRepo
+                    ? () => {
+                        setRowMenu(null)
+                        void pickPath(rowMenu.entry.path)
+                      }
+                    : undefined
+                }
+                onRename={() =>
+                  startEdit({ kind: 'rename', from: rowMenu.entry.name, name: rowMenu.entry.name })
+                }
+              />
+            )}
+            {/* Only the long writes take the overlay. Creating a plain folder or
+                  renaming one is a single syscall and finishes before a curtain
+                  would finish fading in. */}
+            {(saving || scanning || writingKind === 'repo') && (
+              <SetupBusyOverlay
+                title={
+                  scanning
+                    ? 'Looking for repositories…'
+                    : writingKind === 'repo'
+                      ? 'Creating the repository…'
+                      : 'Using this repository…'
+                }
+                detail={
+                  scanning
+                    ? 'Podium is scanning this folder and will update this dialog when it finishes.'
+                    : writingKind === 'repo'
+                      ? `Podium is creating the folder, running git init, and registering it in ${listing?.path ?? ''}.`
+                      : `Podium is registering ${listing?.path ?? manualPath.trim()} and preparing the project list.`
+                }
+              />
+            )}
+          </>
+        )}
+      </>
+    </RepositoryPickerFrame>
   )
+}
 
+/** The picker body is shared; settings reuses it without a second modal layer. */
+function RepositoryPickerFrame({
+  embedded,
+  isMobile,
+  onClose,
+  rootRef,
+  busy,
+  children,
+}: {
+  embedded: boolean
+  isMobile: boolean
+  onClose: () => void
+  rootRef: (element: HTMLElement | null) => void
+  busy: boolean
+  children: ReactNode
+}) {
   if (embedded)
     return (
       <section
         aria-label="Repository picker"
-        ref={setPickerRef}
+        ref={rootRef}
         className="relative flex min-w-0 flex-col overflow-hidden rounded-lg border border-border"
         onKeyDown={(event) => {
           if (event.key !== 'Escape' || event.defaultPrevented) return
@@ -968,21 +995,14 @@ export function RepoPickerModal({
         }}
       >
         <div className="border-b border-border px-4 py-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={saving || scanning}
-            onClick={onClose}
-          >
+          <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onClose}>
             <ChevronLeft size={14} aria-hidden="true" />
             Back
           </Button>
         </div>
-        {content}
+        {children}
       </section>
     )
-
   return (
     <Dialog
       open
@@ -992,10 +1012,10 @@ export function RepoPickerModal({
       }}
     >
       <DialogContent
-        ref={setPickerRef}
+        ref={rootRef}
         className="flex max-h-[calc(100dvh-48px)] w-full max-w-[calc(100%-24px)] flex-col gap-0 overflow-hidden rounded-[14px] border-0 bg-popover p-0 text-foreground shadow-popover sm:max-w-[1100px] [&>button]:right-6 [&>button]:top-[22px] [&>button]:size-7 [&>button]:rounded-lg [&>button]:text-muted-foreground"
       >
-        {content}
+        {children}
       </DialogContent>
     </Dialog>
   )
