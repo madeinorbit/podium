@@ -62,6 +62,7 @@ const answers: Record<string, () => [number, unknown]> = {
             ],
             mailAvailable: false,
             currentMemberId: 'alice',
+            hasOwnCredential: true,
             actions: {
               alice: ['signOutEverywhere'],
               bob: ['setRole', 'disable', 'remove', 'recovery', 'signOutEverywhere'],

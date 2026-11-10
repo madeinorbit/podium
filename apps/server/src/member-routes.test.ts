@@ -69,6 +69,33 @@ test('management requires admin and refuses cross-origin mutations', async () =>
     403,
   )
 })
+test('member list reports whether the acting admin has a password', async () => {
+  const { hono } = app({ admin: true })
+  const read = async () => {
+    const response = await hono.request('https://workspace.example/auth/members/list')
+    expect(response.status).toBe(200)
+    return response.json()
+  }
+  expect(await read()).toMatchObject({ hasOwnCredential: false })
+  // Another member's credential must not make a passwordless admin confirm.
+  await store.users.create(
+    {
+      id: asUserId('anna'),
+      displayName: 'Anna',
+      role: 'member',
+      createdAt: '2026-01-01T00:00:00Z',
+      disabledAt: null,
+    },
+    'anna-password-hash',
+  )
+  expect(await read()).toMatchObject({ hasOwnCredential: false })
+  await store.users.setPasswordHash(
+    firstAdminMemberId(),
+    'admin-password-hash',
+    '2026-01-01T00:00:00Z',
+  )
+  expect(await read()).toMatchObject({ hasOwnCredential: true })
+})
 test('public completion refuses forged account ids and tokenless trusted claims', async () => {
   const invite = await new MemberInvites(store.users).create(firstAdminMemberId(), {})
   for (const body of [

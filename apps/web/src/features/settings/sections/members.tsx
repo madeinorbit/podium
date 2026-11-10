@@ -3,7 +3,7 @@ import { useOpeningView } from '@podium/client-graph/react'
 import type { MemberModel } from '@podium/client-graph/requested-models'
 import { followVisibleRequest } from '@podium/client-graph/visible-request'
 import { observer } from 'mobx-react-lite'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useId, useState } from 'react'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import { serverConfig } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
@@ -126,7 +126,34 @@ function requestFor(
   }
 }
 
+function LinkResult({ label, url, notice }: { label: string; url: string; notice: string }) {
+  const inputId = useId()
+  const [copyNotice, setCopyNotice] = useState('')
+  return (
+    <div className="space-y-2">
+      <p role="status">{copyNotice || notice}</p>
+      <label className="block" htmlFor={inputId}>
+        {label}
+        <Input id={inputId} readOnly value={url} onFocus={(e) => e.target.select()} />
+      </label>
+      <Button
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(url)
+            setCopyNotice('Link copied.')
+          } catch {
+            setCopyNotice('Select the link above and copy it.')
+          }
+        }}
+      >
+        Copy link
+      </Button>
+    </div>
+  )
+}
+
 export const MembersSection = observer(function MembersSection() {
+  const inputId = useId()
   const origin = serverConfig(window.location).httpOrigin
   const data = useOpeningView(useWorklistPool(), createDirectory)
   const [email, setEmail] = useState('')
@@ -135,12 +162,18 @@ export const MembersSection = observer(function MembersSection() {
   const [sendEmail, setSendEmail] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [link, setLink] = useState('')
-  const [notice, setNotice] = useState('')
+  const [inviteLink, setInviteLink] = useState<{ url: string; notice: string }>()
+  const [recoveryLink, setRecoveryLink] = useState<{ memberId: string; url: string }>()
   // The member action waiting for the admin's confirmation (POD-6299).
   const [pending, setPending] = useState<{ action: MemberAction; member: MemberModel }>()
+  const [confirmationError, setConfirmationError] = useState('')
   // Role, disable, enable, removal and recovery need the admin's current password (POD-6298).
   const [current, setCurrent] = useState('')
+  const [inviteCurrent, setInviteCurrent] = useState('')
+  const needsPassword = Boolean(
+    pending && CONFIRM[pending.action].password && data?.hasOwnCredential,
+  )
+  const inviteNeedsPassword = role === 'admin' && !memberId && data?.hasOwnCredential
   const reload = useCallback(
     () => data?.read(() => memberRequest<MemberDirectoryAnswer>(origin, 'list')),
     [data, origin],
@@ -161,29 +194,38 @@ export const MembersSection = observer(function MembersSection() {
       ),
     [data, reload],
   )
-  async function mutate(action: string, body: unknown) {
+  async function mutate(action: string, body: unknown, member?: MemberModel) {
+    if (busy) return
     setBusy(true)
-    setError('')
-    setNotice('')
+    if (member) setConfirmationError('')
+    else setError('')
     try {
       const result = await memberRequest<{ url?: string; mailSent?: boolean }>(origin, action, body)
       if (result.url) {
-        setLink(result.url)
-        setNotice(
-          action === 'recovery'
-            ? 'Recovery link ready. It sets a new password once, within 24 hours.'
-            : sendEmail
+        if (action === 'recovery' && member) {
+          setRecoveryLink({ memberId: member.id, url: result.url })
+        } else {
+          setInviteLink({
+            url: result.url,
+            notice: sendEmail
               ? result.mailSent
                 ? 'Invitation emailed.'
                 : 'Email wasn’t sent. Copy the link below.'
               : 'Invitation ready to share.',
-        )
+          })
+        }
       }
-      setPending(undefined)
-      setCurrent('')
+      if (member) {
+        setPending(undefined)
+        setCurrent('')
+      } else if (action === 'invite') {
+        setInviteCurrent('')
+      }
       await reload()
     } catch (error) {
-      setError(error instanceof Error ? error.message : 'Unable to save')
+      const message = error instanceof Error ? error.message : 'Unable to save'
+      if (member) setConfirmationError(message)
+      else setError(message)
     } finally {
       setBusy(false)
     }
@@ -198,87 +240,106 @@ export const MembersSection = observer(function MembersSection() {
         <div className="space-y-6">
           <ul className="space-y-3">
             {data.members.map((member) => (
-              <li key={member.id} className="flex items-center justify-between gap-3">
-                <div>
-                  <strong>{member.displayName}</strong>
-                  <p className="settings-prose">
-                    {member.email || 'No email'} · {member.role}
-                    {member.disabledAt ? ' · disabled' : ''}
-                  </p>
+              <li key={member.id} className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <strong>{member.displayName}</strong>
+                    <p className="settings-prose">
+                      {member.email || 'No email'} · {member.role}
+                      {member.disabledAt ? ' · disabled' : ''}
+                    </p>
+                  </div>
+                  {/* Only the actions the server says it would accept (POD-6299). */}
+                  <div className="flex flex-wrap justify-end gap-1">
+                    {data
+                      .actionsFor(member.id)
+                      .filter(isMemberAction)
+                      .map((action) => (
+                        <Button
+                          key={action}
+                          variant="ghost"
+                          disabled={busy}
+                          onClick={() => {
+                            setCurrent('')
+                            setConfirmationError('')
+                            setPending({ action, member })
+                          }}
+                        >
+                          {actionLabel(action, member, member.id === data.currentMemberId)}
+                        </Button>
+                      ))}
+                  </div>
                 </div>
-                {/* Only the actions the server says it would accept (POD-6299). */}
-                <div className="flex flex-wrap justify-end gap-1">
-                  {data
-                    .actionsFor(member.id)
-                    .filter(isMemberAction)
-                    .map((action) => (
-                      <Button
-                        key={action}
-                        variant="ghost"
-                        disabled={busy}
-                        onClick={() => {
-                          setError('')
-                          setPending({ action, member })
-                        }}
+                {pending?.member.id === member.id && (
+                  <div
+                    role="alertdialog"
+                    aria-label={CONFIRM[pending.action].title}
+                    className="space-y-2 rounded-lg border border-border p-3"
+                  >
+                    <p>
+                      {CONFIRM[pending.action].prompt(member, member.id === data.currentMemberId)}
+                    </p>
+                    {needsPassword && (
+                      <label
+                        className="block max-w-sm"
+                        htmlFor={`${inputId}-confirmation-password`}
                       >
-                        {actionLabel(action, member, member.id === data.currentMemberId)}
-                      </Button>
-                    ))}
-                </div>
+                        Your password
+                        <Input
+                          id={`${inputId}-confirmation-password`}
+                          type="password"
+                          autoComplete="current-password"
+                          value={current}
+                          onChange={(e) => setCurrent(e.target.value)}
+                        />
+                      </label>
+                    )}
+                    {confirmationError && <p role="alert">{confirmationError}</p>}
+                    <Button
+                      variant={CONFIRM[pending.action].destructive ? 'destructive' : 'default'}
+                      disabled={busy || (needsPassword && !current)}
+                      onClick={() => {
+                        if (needsPassword && !current) return
+                        void mutate(...requestFor(pending.action, member, current), member)
+                      }}
+                    >
+                      {CONFIRM[pending.action].confirm}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() => {
+                        setPending(undefined)
+                        setCurrent('')
+                        setConfirmationError('')
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                )}
+                {recoveryLink?.memberId === member.id && (
+                  <LinkResult
+                    key={recoveryLink.url}
+                    label="Recovery link"
+                    url={recoveryLink.url}
+                    notice="Recovery link ready. It sets a new password once, within 24 hours."
+                  />
+                )}
               </li>
             ))}
           </ul>
-          {pending && (
-            <div
-              role="alertdialog"
-              aria-label={CONFIRM[pending.action].title}
-              className="space-y-2"
-            >
-              <p>
-                {CONFIRM[pending.action].prompt(
-                  pending.member,
-                  pending.member.id === data.currentMemberId,
-                )}
-              </p>
-              {CONFIRM[pending.action].password && (
-                <label className="block max-w-sm">
-                  Your password
-                  <Input
-                    type="password"
-                    autoComplete="current-password"
-                    value={current}
-                    onChange={(e) => setCurrent(e.target.value)}
-                  />
-                </label>
-              )}
-              <Button
-                variant={CONFIRM[pending.action].destructive ? 'destructive' : 'default'}
-                disabled={busy}
-                onClick={() => void mutate(...requestFor(pending.action, pending.member, current))}
-              >
-                {CONFIRM[pending.action].confirm}
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setPending(undefined)
-                  setCurrent('')
-                }}
-              >
-                Cancel
-              </Button>
-            </div>
-          )}
           <form
             className="max-w-sm space-y-3"
             onSubmit={(e) => {
               e.preventDefault()
+              if (inviteNeedsPassword && !inviteCurrent) return
               void mutate('invite', {
                 ...(memberId ? { memberId } : {}),
                 ...(email.trim() ? { email } : {}),
                 role,
                 sendEmail,
-                ...(role === 'admin' && !memberId ? { current } : {}),
+                ...(role === 'admin' && !memberId ? { current: inviteCurrent } : {}),
               })
             }}
           >
@@ -304,9 +365,10 @@ export const MembersSection = observer(function MembersSection() {
                   ))}
               </select>
             </label>
-            <label className="block">
+            <label className="block" htmlFor={`${inputId}-invite-email`}>
               Email (optional)
               <Input
+                id={`${inputId}-invite-email`}
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -326,14 +388,15 @@ export const MembersSection = observer(function MembersSection() {
                 </select>
               </label>
             )}
-            {role === 'admin' && !memberId && (
-              <label className="block">
+            {inviteNeedsPassword && (
+              <label className="block" htmlFor={`${inputId}-invite-password`}>
                 Your password
                 <Input
+                  id={`${inputId}-invite-password`}
                   type="password"
                   autoComplete="current-password"
-                  value={current}
-                  onChange={(e) => setCurrent(e.target.value)}
+                  value={inviteCurrent}
+                  onChange={(e) => setInviteCurrent(e.target.value)}
                 />
               </label>
             )}
@@ -348,33 +411,16 @@ export const MembersSection = observer(function MembersSection() {
               </label>
             )}
             <p className="settings-prose">Invitations expire in 7 days and can be used once.</p>
-            <Button type="submit" disabled={busy || (sendEmail && !email.trim())}>
+            <Button
+              type="submit"
+              disabled={
+                busy || (sendEmail && !email.trim()) || (inviteNeedsPassword && !inviteCurrent)
+              }
+            >
               Create invite
             </Button>
           </form>
-          {link && (
-            <div className="space-y-2">
-              <p role="status">{notice}</p>
-              <Input
-                aria-label="Invite link"
-                readOnly
-                value={link}
-                onFocus={(e) => e.target.select()}
-              />
-              <Button
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(link)
-                    setNotice('Link copied.')
-                  } catch {
-                    setNotice('Select the link above and copy it.')
-                  }
-                }}
-              >
-                Copy link
-              </Button>
-            </div>
-          )}
+          {inviteLink && <LinkResult key={inviteLink.url} label="Invite link" {...inviteLink} />}
           <div className="space-y-3">
             <h3 className="font-medium">Pending invitations</h3>
             {data.invites.length === 0 && <p className="settings-prose">No pending invitations.</p>}

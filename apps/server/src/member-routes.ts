@@ -149,12 +149,14 @@ export function registerMemberRoutes(
     if (!actor) return c.json({ error: 'Administrator required' }, 403)
     // Disabled and removed members too: they are the ones to enable or re-invite.
     const members = await users.listIncludingDisabled()
+    const membersWithPassword = await users.membersWithPassword()
     return c.json({
       members,
       invites: await invites.list(actor),
       mailAvailable: Boolean(options.sendMail),
       currentMemberId: actor,
-      actions: memberActions(members, actor, await users.membersWithPassword()),
+      hasOwnCredential: membersWithPassword.has(actor),
+      actions: memberActions(members, actor, membersWithPassword),
     })
   })
   /**

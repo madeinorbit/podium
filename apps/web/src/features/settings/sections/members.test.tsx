@@ -1,5 +1,5 @@
 import '@/test-support/mock-request-pool.test.fixture'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import { MembersSection } from './members'
 
@@ -9,10 +9,12 @@ afterEach(() => {
 })
 const data = {
   currentMemberId: 'admin',
+  hasOwnCredential: true,
   mailAvailable: false,
   members: [
     { id: 'admin', displayName: 'Owner', email: null, role: 'admin' },
     { id: 'anna', displayName: 'Anna', email: 'anna@example.com', role: 'member' },
+    { id: 'beth', displayName: 'Beth', email: null, role: 'member', disabledAt: '2026-01-01' },
   ],
   invites: [
     {
@@ -26,9 +28,14 @@ const data = {
   actions: {
     admin: ['signOutEverywhere'],
     anna: ['setRole', 'disable', 'remove', 'recovery', 'signOutEverywhere'],
+    beth: ['enable'],
   },
 }
-function mockApi(mailAvailable = false, refuse?: { path: string; status: number; error: string }) {
+function mockApi(
+  mailAvailable = false,
+  refuse?: { path: string; status: number; error: string },
+  hasOwnCredential = true,
+) {
   const fetchMock = vi.fn(async (url: string) => ({
     ok: !(refuse && url.endsWith(refuse.path)),
     status: refuse && url.endsWith(refuse.path) ? refuse.status : 200,
@@ -36,10 +43,12 @@ function mockApi(mailAvailable = false, refuse?: { path: string; status: number;
       refuse && url.endsWith(refuse.path)
         ? { error: refuse.error }
         : url.endsWith('/list')
-          ? { ...data, mailAvailable }
+          ? { ...data, mailAvailable, hasOwnCredential }
           : url.endsWith('/invite')
             ? { url: 'https://workspace/#invite=secret', mailSent: true }
-            : { ok: true },
+            : url.endsWith('/recovery')
+              ? { url: 'https://workspace/#recovery=reset-secret' }
+              : { ok: true },
   }))
   vi.stubGlobal('fetch', fetchMock)
   return fetchMock
@@ -135,7 +144,7 @@ test('offers only the actions the server allows, and changes a role with the adm
     'Remove Anna',
   ])
     expect(screen.getByRole('button', { name })).toBeTruthy()
-  expect(screen.queryByRole('button', { name: 'Enable' })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Enable' })).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Make admin' }))
   expect(screen.getByRole('alertdialog', { name: 'Change role' })).toBeTruthy()
   fireEvent.change(screen.getByLabelText('Your password'), { target: { value: 'admin-password' } })
@@ -178,5 +187,141 @@ test('shows the server’s refusal of a role change', async () => {
     'The last active admin cannot be demoted',
   )
   // The confirmation stays open so the admin can see what was refused.
-  expect(screen.getByRole('alertdialog', { name: 'Change role' })).toBeTruthy()
+  const confirmation = screen.getByRole('alertdialog', { name: 'Change role' })
+  expect(within(confirmation).getByRole('alert')).toBe(screen.getByRole('alert'))
+  expect(confirmation.closest('li')).toBe(
+    screen.getByText('Anna', { selector: 'strong' }).closest('li'),
+  )
+})
+
+test.each([
+  ['Make admin', 'Confirm role change', '/role'],
+  ['Disable', 'Confirm disable', '/disable'],
+  ['Enable', 'Confirm enable', '/enable'],
+  ['Remove Anna', 'Confirm removal', '/remove'],
+  ['Recovery link', 'Create recovery link', '/recovery'],
+])('%s requires a filled current password before confirming', async (action, confirm, path) => {
+  const fetchMock = mockApi()
+  render(<MembersSection />)
+  fireEvent.click(await screen.findByRole('button', { name: action }))
+  const button = screen.getByRole('button', { name: confirm })
+  expect(button).toHaveProperty('disabled', true)
+  fireEvent.click(button)
+  expect(fetchMock.mock.calls.filter(([url]) => url.endsWith(path))).toHaveLength(0)
+  fireEvent.change(screen.getByLabelText('Your password'), { target: { value: 'password' } })
+  expect(button).toHaveProperty('disabled', false)
+  fireEvent.change(screen.getByLabelText('Your password'), { target: { value: '' } })
+  expect(button).toHaveProperty('disabled', true)
+})
+
+test('passwordless admins confirm without a password field', async () => {
+  const fetchMock = mockApi(false, undefined, false)
+  render(<MembersSection />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Remove Anna' }))
+  expect(screen.queryByLabelText('Your password')).toBeNull()
+  expect(screen.getByRole('button', { name: 'Confirm removal' })).toHaveProperty('disabled', false)
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm removal' }))
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/remove$/),
+      expect.objectContaining({ body: JSON.stringify({ id: 'anna', current: '' }) }),
+    ),
+  )
+})
+
+test('switching members moves the confirmation and clears its password and error', async () => {
+  mockApi(false, { path: '/remove', status: 403, error: 'Confirm with your current password' })
+  render(<MembersSection />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Remove Anna' }))
+  fireEvent.change(screen.getByLabelText('Your password'), { target: { value: 'wrong' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm removal' }))
+  await screen.findByRole('alert')
+  fireEvent.click(screen.getByRole('button', { name: 'Enable' }))
+  const confirmation = screen.getByRole('alertdialog', { name: 'Enable member' })
+  expect(confirmation.closest('li')).toBe(
+    screen.getByText('Beth', { selector: 'strong' }).closest('li'),
+  )
+  expect(screen.queryByRole('alertdialog', { name: 'Remove member' })).toBeNull()
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(within(confirmation).getByLabelText('Your password')).toHaveProperty('value', '')
+  expect(within(confirmation).getByRole('button', { name: 'Confirm enable' })).toHaveProperty(
+    'disabled',
+    true,
+  )
+  fireEvent.click(within(confirmation).getByRole('button', { name: 'Cancel' }))
+  expect(screen.queryByRole('alertdialog')).toBeNull()
+})
+
+test('keeps recovery results with the member and separate from the invite link', async () => {
+  mockApi()
+  render(<MembersSection />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Create invite' }))
+  const invitation = await screen.findByLabelText('Invite link')
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Recovery link' })).toHaveProperty('disabled', false),
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Recovery link' }))
+  fireEvent.change(screen.getByLabelText('Your password'), { target: { value: 'password' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Create recovery link' }))
+  const recovery = await screen.findByRole('textbox', { name: 'Recovery link' })
+  expect(recovery).toHaveProperty('value', 'https://workspace/#recovery=reset-secret')
+  expect(recovery.closest('li')).toBe(
+    screen.getByText('Anna', { selector: 'strong' }).closest('li'),
+  )
+  expect(invitation).toHaveProperty('value', 'https://workspace/#invite=secret')
+  const writeText = vi.fn(async () => {})
+  vi.stubGlobal('navigator', { clipboard: { writeText } })
+  const row = recovery.closest('li')
+  if (!row) throw new Error('Recovery result must belong to a member row')
+  fireEvent.click(within(row).getByRole('button', { name: 'Copy link' }))
+  await screen.findByText('Link copied.')
+  expect(writeText).toHaveBeenCalledWith('https://workspace/#recovery=reset-secret')
+  expect(screen.getByText('Invitation ready to share.')).toBeTruthy()
+})
+
+test('admin invite and member confirmation passwords are independent', async () => {
+  const fetchMock = mockApi()
+  render(<MembersSection />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Remove Anna' }))
+  const confirmation = screen.getByRole('alertdialog', { name: 'Remove member' })
+  fireEvent.change(within(confirmation).getByLabelText('Your password'), {
+    target: { value: 'member-action-password' },
+  })
+  fireEvent.change(screen.getByLabelText('Role'), { target: { value: 'admin' } })
+  const inviteForm = screen.getByRole('button', { name: 'Create invite' }).closest('form')
+  if (!inviteForm) throw new Error('Create invite must belong to the invite form')
+  const create = within(inviteForm).getByRole('button', { name: 'Create invite' })
+  expect(within(inviteForm).getByLabelText('Your password')).toHaveProperty('value', '')
+  expect(create).toHaveProperty('disabled', true)
+  fireEvent.change(within(inviteForm).getByLabelText('Your password'), {
+    target: { value: 'invite-password' },
+  })
+  expect(within(confirmation).getByLabelText('Your password')).toHaveProperty(
+    'value',
+    'member-action-password',
+  )
+  fireEvent.click(create)
+  await screen.findByLabelText('Invite link')
+  expect(fetchMock).toHaveBeenCalledWith(
+    expect.stringMatching(/\/invite$/),
+    expect.objectContaining({
+      body: JSON.stringify({ role: 'admin', sendEmail: false, current: 'invite-password' }),
+    }),
+  )
+})
+
+test('admin invites use their own password input and respect passwordless admins', async () => {
+  const fetchMock = mockApi(false, undefined, false)
+  render(<MembersSection />)
+  await screen.findByText('Owner', { selector: 'strong' })
+  fireEvent.change(screen.getByLabelText('Role'), { target: { value: 'admin' } })
+  expect(screen.queryByLabelText('Your password')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Create invite' }))
+  await screen.findByLabelText('Invite link')
+  expect(fetchMock).toHaveBeenCalledWith(
+    expect.stringMatching(/\/invite$/),
+    expect.objectContaining({
+      body: JSON.stringify({ role: 'admin', sendEmail: false, current: '' }),
+    }),
+  )
 })

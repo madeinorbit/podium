@@ -17,6 +17,8 @@ export interface MemberDirectoryAnswer {
   }[]
   mailAvailable: boolean
   currentMemberId: string
+  /** Absent on older servers, where the UI still asks for confirmation. */
+  hasOwnCredential?: boolean
   /** What the admin may do to each member, decided by the server (POD-6299). */
   actions?: Record<string, readonly string[]>
 }
@@ -56,6 +58,9 @@ export class MemberDirectory extends RequestAnswer<Directory> {
   }
   @lazy get currentMemberId() {
     return this.answer?.currentMemberId
+  }
+  @lazy get hasOwnCredential() {
+    return this.answer?.hasOwnCredential ?? true
   }
   /** The server's allowed actions for one member; none until it says so. */
   actionsFor(memberId: string): readonly string[] {
