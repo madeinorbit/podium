@@ -1391,31 +1391,30 @@ export class SessionRepository {
       'session',
       sessions.map((s) => ({ id: s.sessionId, value: s })),
     )
-    // Explicit cleared records must survive a restart: the source tables use
-    // absence for never-read/no-snooze, while replica absence means not loaded.
+    // AN ABSENT PERSONAL ROW MEANS CLEARED (POD-6763's decision, built in
+    // POD-6770). A session a person never read, or read and cleared, has no
+    // row in the source tables, so the start-up load, which streams the
+    // tables, sends none; the client certifies its personal rows complete at
+    // install and reads absence as cleared. The boot truth is therefore the
+    // rows alone: an explicit cleared marker a running server appended (so a
+    // live device hears the clear) is removed here, and nothing reads the
+    // stored copy of the last published markers any more.
     bootStage('sessions baseline reconcile', reconcileStarted)
     const markersStarted = performance.now()
     const activeUsers = new Set(
       (await this.store.users.list()).filter((user) => !user.disabledAt).map((user) => user.id),
     )
     const stateRows = await this.store.sessions.listSessionUserStateRows(undefined, this.now())
-    const priors = ((await this.ports.writers.boot.authority?.snapshot('sessionUserState')) ??
-      []) as SessionUserStateWire[]
     // The sessions that still exist, read from the table (POD-6160: a parked
     // session is not in memory).
     const named = await this.store.sessions.getSessions([
-      ...new Set([...stateRows, ...priors].map((value) => value.sessionId)),
+      ...new Set(stateRows.map((value) => value.sessionId)),
     ])
     const live = new Set([...named.values()].filter((row) => !row.deletedAt).map((row) => row.id))
     const markers = new Map<string, SessionUserStateWire>()
     for (const value of stateRows) {
       if (live.has(value.sessionId) && activeUsers.has(value.userId))
         markers.set(sessionUserStateRowId(value.userId, value.sessionId), value)
-    }
-    for (const prior of priors) {
-      const id = sessionUserStateRowId(prior.userId, prior.sessionId)
-      if (!markers.has(id) && live.has(prior.sessionId) && activeUsers.has(prior.userId))
-        markers.set(id, { userId: prior.userId, sessionId: prior.sessionId, readAt: null })
     }
     await this.ports.writers.boot.reconcile(
       'sessionUserState',

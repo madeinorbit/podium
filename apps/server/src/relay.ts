@@ -2159,7 +2159,7 @@ export class SessionRegistry {
         daemon: writes.system('sessions.daemon'),
         lifecycle: writes.system('sessions.lifecycle'),
         live: writes.system('sessions.live'),
-        boot: { ...writes.system('boot.reconcile'), authority: ledger.authority },
+        boot: writes.system('boot.reconcile'),
       },
       machines,
       rpc,

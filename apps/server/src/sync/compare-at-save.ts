@@ -12,6 +12,18 @@
  *
  * A kind not listed keeps the old compare. Kinds move one at a time.
  *
+ * NOT YET MOVED (POD-6770's finding): `session`, `sessionUserState`,
+ * `machine`, `machineAccess`, `issueEvent`, `pendingInteraction`, `message`.
+ * None of them is written by one write: each is republished after the fact,
+ * from memory or from a hook that runs after the source write committed, and
+ * relies on the compare with the stored copy to drop what did not change. To
+ * move one, every SOURCE write names the dependent record before it runs (a
+ * queue write names its session, a grant write the machine's rows).
+ *
+ * READING IS SEPARATE FROM THIS LIST. The record source builds every kind in
+ * the registry, moved or not: the start-up load, the sharing rules and the
+ * Authority's by-id reads take current values from it (POD-6770).
+ *
  * HOW A KIND MOVES
  *  1. It has a record builder (`record-builders.ts`): `build(ids)` answers the
  *     record exactly as its publisher publishes it. Prove that with the parity
@@ -64,6 +76,14 @@ export const COMPARE_AT_SAVE_KINDS: readonly MetadataEntityKind[] = [
   'workflowRun',
   'effect',
   'superagentThread',
+  // POD-6770: the issue's git observation and its panel items ride the issue
+  // write funnel; a conversation is written by the scan and the metadata edit.
+  'issueGitState',
+  'issuePanelTodo',
+  'issuePanelArtifact',
+  'issuePanelDeferred',
+  'issuePanelState',
+  'conversation',
 ]
 
 /**
@@ -111,8 +131,10 @@ export function compareAtSaveRecords(
     comparesAtSave: (kind) => moved.has(kind),
     namedAfterWrite: (kind) => namedAfter.has(kind),
     build: async (kind, ids) => await registry.build(reads, kind, ids),
-    // In the registry's order, which is the order a start-up load streams.
-    kinds: () => registry.kinds().filter((kind) => moved.has(kind)),
+    // EVERY kind the registry builds, moved or not, in the registry's order,
+    // which is the order a start-up load streams (POD-6770): reading a record
+    // from the database does not wait for its writers to compare at save.
+    kinds: () => registry.kinds(),
     streamAll: (kind) => registry.streamAll(reads, kind),
   }
 }

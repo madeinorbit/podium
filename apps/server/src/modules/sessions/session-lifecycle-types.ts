@@ -63,13 +63,11 @@ export interface SessionWriters {
   readonly lifecycle: SessionWriter
   /** Live fields captured to the feed, and the activity flush (`sessions.live`). */
   readonly live: SessionWriter
-  /** The boot reconcile and restores (`boot.reconcile`), with the installed
-   *  snapshot the repository reads its prior rows from. */
+  /** The boot reconcile and restores (`boot.reconcile`). */
   readonly boot: SessionLedger
 }
 
 export interface SessionLedger {
-  readonly authority?: Pick<import('@podium/sync').Ledger['authority'], 'snapshot'>
   commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>>
   capture(specs: EntityChangeSpec[]): Promise<MetadataChange[]>
   reconcile(

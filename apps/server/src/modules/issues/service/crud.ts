@@ -182,8 +182,9 @@ export interface IssueLifecyclePlan {
   /** The issue's own record and its members' personal records: what the write
    *  may affect, named before it runs (compare at save, POD-6769). */
   affects(): Promise<AffectedRecordSpec[]>
-  /** The companions the write still declares (the git observation). */
-  changes(): EntityChangeSpec[]
+  /** Records the write brings onto the feed that could not be named before
+   *  it (a restored issue's panel items): built once, after the write. */
+  creates(): Promise<AffectedRecordSpec[]>
   /** External effects after the commit. Durable work belongs in {@link write},
    *  where it rolls back with the row; since POD-6158 there is no in-memory
    *  copy of the issue to install. */
@@ -371,7 +372,6 @@ export class IssueCrudModule {
       writer,
       rows,
       write,
-      async () => [],
       async (result) =>
         (
           await Promise.all(
@@ -430,7 +430,7 @@ export class IssueCrudModule {
       await this.store.rowOrThrow(row.id)
       await this.store.deps.store.issues.panel.save(scope, 'issuePanelState', value)
       return await this.store.projection(row)
-    }, () => [{ entity: 'issuePanelState', id: row.id, op: 'upsert', value }])
+    }, [{ entity: 'issuePanelState', id: row.id }])
     await this.store.emitEvent('issue.state', row.id, { seq: row.seq })
     return { ...wire, activityNotes: value.text, notesUpdatedAt: value.updatedAt }
   }
@@ -442,12 +442,15 @@ export class IssueCrudModule {
   async panelApply(writer: IssueWriter, id: string, op: IssuePanelOp): Promise<IssueProjection> {
     const row = await this.store.rowOrThrow(id)
     const repo = this.store.deps.store.issues.panel
-    const changes: EntityChangeSpec[] = []
+    // The kind of item this op writes, and the items it added: the op's
+    // existing items are named before the write, a new one after it
+    // (compare at save, POD-6770).
+    const entity = (op.op.startsWith('todo-') ? 'issuePanelTodo' : op.op.startsWith('artifact-') ? 'issuePanelArtifact' : 'issuePanelDeferred') as Exclude<IssuePanelKind, 'issuePanelState'>
+    const added: AffectedRecordSpec[] = []
     const wire = await this.store.commitPanel(writer, async scope => {
       await this.store.rowOrThrow(row.id)
-      const entity = (op.op.startsWith('todo-') ? 'issuePanelTodo' : op.op.startsWith('artifact-') ? 'issuePanelArtifact' : 'issuePanelDeferred') as Exclude<IssuePanelKind, 'issuePanelState'>
       if (op.op === 'todo-clear') {
-        for (const itemId of await repo.clearTodos(scope, row.id)) changes.push({ entity, id: itemId, op: 'remove' })
+        await repo.clearTodos(scope, row.id)
         return await this.store.projection(row)
       }
       // Positions are resolved inside the command transaction. A UI names its
@@ -461,13 +464,12 @@ export class IssueCrudModule {
         return found
       }
       if (op.op === 'todo-done' || op.op === 'todo-undone') {
-        const value = await repo.toggle(scope, row.id, at().id, op.op === 'todo-done')
-        if (value) changes.push({ entity, id: value.id, op: 'upsert', value })
+        await repo.toggle(scope, row.id, at().id, op.op === 'todo-done')
       } else if (op.op === 'todo-remove' || op.op === 'deferred-remove' || op.op === 'artifact-remove') {
         const record = op.op === 'artifact-remove' && 'path' in op
           ? records.find(r => 'path' in r && r.path === op.path && (op.artifactId === undefined || ('artifactId' in r && r.artifactId === op.artifactId)))
           : at()
-        if (record) { await repo.remove(scope, entity, row.id, record.id); changes.push({ entity, id: record.id, op: 'remove' }) }
+        if (record) await repo.remove(scope, entity, row.id, record.id)
       } else {
         const existing = op.op === 'artifact-add' ? records.find(r => 'path' in r && r.path === op.path) : undefined
         const itemId = existing?.id ?? op.itemId ?? randomUUID()
@@ -477,10 +479,10 @@ export class IssueCrudModule {
           : op.op === 'deferred-add' ? IssuePanelDeferredWire.parse({ ...identity, text: op.text, addedAt: this.store.now() })
           : IssuePanelArtifactWire.parse({ ...op, ...identity, addedAt: this.store.now() })
         await repo.save(scope, entity, value)
-        changes.push({ entity, id: value.id, op: 'upsert', value })
+        added.push({ entity, id: value.id })
       }
       return await this.store.projection(row)
-    }, () => changes)
+    }, async () => await this.store.panelRecords([row.id], [entity]), () => added)
     await this.store.emitEvent('issue.panel', row.id, { seq: row.seq, op: op.op })
     return { ...wire, panel: await this.store.parsePanel(row) }
   }
@@ -1419,7 +1421,6 @@ export class IssueCrudModule {
       changed,
       () => undefined,
       () => [],
-      () => [],
       { touch: false },
     )
   }
@@ -2260,7 +2261,6 @@ export class IssueCrudModule {
     // Projected INSIDE write(), after upsertIssue has stamped row.revision —
     // see IssueLifecyclePlan.wire for why taking it here would be a bug.
     let committed: IssueProjection | null = null
-    let companions: EntityChangeSpec[] = []
     const wire = (): IssueProjection => {
       if (!committed) {
         throw new Error(`prepareSoftDelete(${row.id}): wire() read before write() committed it`)
@@ -2302,10 +2302,14 @@ export class IssueCrudModule {
           payload: { seq: row.seq, deletedAt },
         })
         committed = await this.store.projection(row)
-        companions = await this.store.companionChanges(row)
       },
-      affects: async () => await this.store.issueRecords(row.id),
-      changes: () => companions,
+      // With the issue go its panel items: read while it still stands, found
+      // gone after the write (POD-6770).
+      affects: async () => [
+        ...(await this.store.issueRecords(row.id)),
+        ...(await this.store.panelRecords([row.id])),
+      ],
+      creates: async () => [],
       publish: async () => {},
     }
   }
@@ -2323,6 +2327,8 @@ export class IssueCrudModule {
       affects: async () => [
         // The draft's own record and every member's personal record of it.
         ...(await this.store.issueRecords(id)),
+        // And its panel items.
+        ...(await this.store.panelRecords([id])),
         ...(await this.store.deps.store.sessions.pinnersOf('issue', id)).map((userId) =>
           pinRecord(userId, 'issue', id),
         ),
@@ -2332,7 +2338,6 @@ export class IssueCrudModule {
         // start writes its starter's record, so a draft always has one). The
         // table has no foreign key, so the rows are dropped by hand, and each
         // one's remove reaches its member's feed in the same commit.
-        const panelChanges = await this.store.panelChanges([id], true)
         await this.store.deps.store.issues.purgeIssueUserState(id)
         // And every member's pin of it (POD-6692: an issue pin is a `pins` row).
         await this.store.deps.store.sessions.removePinsOf('issue', id)
@@ -2345,11 +2350,7 @@ export class IssueCrudModule {
         await this.store.deps.store.sessions.detachTombstonesFromIssue(scope, id)
         await this.store.deps.store.issues.deleteIssue(id)
         this.store.announceWorktreeMove(purged.id, worktreeOf(purged), null)
-        return { panelChanges }
       },
-      // The issue's panel items declare their removes: their kind is not on
-      // compare at save.
-      changes: ({ panelChanges }) => panelChanges,
     })
     // The full-list tail reconciles BOTH kinds (POD-796), so the purge reaches
     // the normalized feed as the remove reconcile derives from full truth. It
@@ -2377,7 +2378,6 @@ export class IssueCrudModule {
     const row: IssueRow = { ...current, deletedAt: null, updatedAt: restoredAt }
     // Projected INSIDE write() — see prepareSoftDelete / IssueLifecyclePlan.wire.
     let committed: IssueProjection | null = null
-    let companions: EntityChangeSpec[] = []
     const wire = (): IssueProjection => {
       if (!committed) {
         throw new Error(`prepareRestore(${row.id}): wire() read before write() committed it`)
@@ -2406,10 +2406,11 @@ export class IssueCrudModule {
           payload: { seq: row.seq, restoredAt },
         })
         committed = await this.store.projection(row)
-        companions = await this.store.companionChanges(row)
       },
       affects: async () => await this.store.issueRecords(row.id),
-      changes: () => companions,
+      // Its panel items are records again once it is restored: a deleted
+      // issue has none to name before the write (POD-6770).
+      creates: async () => await this.store.panelRecords([row.id]),
       publish: async () => {},
     }
   }

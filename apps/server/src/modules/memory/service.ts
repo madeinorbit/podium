@@ -200,6 +200,12 @@ export class MemoryService {
     }
 
     await this.deps.ledger.commit({
+      // The scanned conversations and the ones the scan no longer lists:
+      // each record is built around the write (compare at save, POD-6770).
+      affects: [...conversations.map(({ id }) => id), ...removed].map((id) => ({
+        entity: 'conversation' as const,
+        id,
+      })),
       write: async (scope) => {
         await this.deps.store.conversations.index.upsert(
           scope,
@@ -225,31 +231,8 @@ export class MemoryService {
               : {}),
           })),
         )
-        const deleted = await this.deps.store.conversations.index.delete(scope, machineId, removed)
-        return {
-          deleted,
-          records: await this.deps.store.conversations.index.records(
-            conversations.map(({ id }) => id),
-          ),
-        }
+        await this.deps.store.conversations.index.delete(scope, machineId, removed)
       },
-      changes: ({ deleted, records }) => [
-        ...records.map(
-          (conversation): EntityChangeSpec => ({
-            entity: 'conversation',
-            id: conversation.id,
-            op: 'upsert',
-            value: conversation,
-          }),
-        ),
-        ...deleted.map(
-          (id): EntityChangeSpec => ({
-            entity: 'conversation',
-            id,
-            op: 'remove',
-          }),
-        ),
-      ],
     })
     await this.triggerLakeSweep(machineId)
   }
@@ -304,18 +287,10 @@ export class MemoryService {
       throw new ConversationNotFound()
     }
     await writer.commit({
+      affects: [{ entity: 'conversation', id: input.id }],
       write: async (scope) => {
         await this.deps.store.conversations.index.setMeta(scope, input.id, input)
-        return (await this.deps.store.conversations.index.records([input.id]))[0]!
       },
-      changes: (next) => [
-        {
-          entity: 'conversation',
-          id: input.id,
-          op: 'upsert',
-          value: next,
-        },
-      ],
     })
   }
 

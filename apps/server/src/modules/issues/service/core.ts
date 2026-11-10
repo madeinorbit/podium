@@ -379,6 +379,8 @@ export class IssueStore {
     expectedLandedAt?: string | null,
   ): Promise<boolean> {
     const committed = await this.arbitrated(this.serverWriter).commit({
+      // The observation's own record, built around the write (POD-6770).
+      affects: [{ entity: 'issueGitState', id }],
       write: async (scope) => {
         const row = await this.row(id)
         if (
@@ -387,7 +389,6 @@ export class IssueStore {
         ) return undefined
         return await this.deps.store.issues.gitStates.set(scope, id, state)
       },
-      changes: (value) => value ? [{ entity: 'issueGitState', id, op: 'upsert', value }] : [],
     })
     return committed.result !== undefined
   }
@@ -694,16 +695,36 @@ export class IssueStore {
     return await this.deps.store.issues.panel.read(row.id)
   }
 
-  /** Panel writes name only their own tiny records, never the issue row. */
-  async commitPanel<T>(writer: IssueWriter, write: (scope: WriteScope) => Promise<T>, changes: () => EntityChangeSpec[]): Promise<T> {
-    return (await this.arbitrated(writer).commit({ write, changes })).result
+  /**
+   * Panel writes name only their own tiny records, never the issue row
+   * (compare at save, POD-6770): `affects` reads the items the write may
+   * touch inside the transaction, `creates` names the items it added.
+   */
+  async commitPanel<T>(
+    writer: IssueWriter,
+    write: (scope: WriteScope) => Promise<T>,
+    affects: readonly AffectedRecordSpec[] | (() => Promise<readonly AffectedRecordSpec[]>),
+    creates?: () => readonly AffectedRecordSpec[],
+  ): Promise<T> {
+    return (
+      await this.arbitrated(writer).commit({
+        write,
+        affects,
+        ...(creates === undefined ? {} : { creates: async () => creates() }),
+      })
+    ).result
   }
 
-  async panelChanges(issueIds: readonly string[], remove = false): Promise<EntityChangeSpec[]> {
-    const out: EntityChangeSpec[] = []
-    for (const entity of ISSUE_PANEL_KINDS) {
+  /** The panel items of these issues, as records to name: every kind, or one. */
+  async panelRecords(
+    issueIds: readonly string[],
+    kinds: readonly IssuePanelKind[] = ISSUE_PANEL_KINDS,
+  ): Promise<AffectedRecordSpec[]> {
+    if (issueIds.length === 0) return []
+    const out: AffectedRecordSpec[] = []
+    for (const entity of kinds) {
       for (const value of await this.deps.store.issues.panel.forIssues(entity, issueIds))
-        out.push(remove ? { entity, id: value.id, op: 'remove' } : { entity, id: value.id, op: 'upsert', value })
+        out.push({ entity, id: value.id })
     }
     return out
   }
@@ -867,6 +888,9 @@ export class IssueStore {
       { entity: 'issueProjection', id: issueId },
       // Its body headers are a record of their own (POD-6767).
       { entity: 'issueBodies', id: issueId },
+      // Its git observation: a record only while the issue is not deleted, so
+      // a delete removes it and a restore brings it back (POD-6770).
+      { entity: 'issueGitState', id: issueId },
       ...states.map((state) => issueUserStateRecord(state.userId, state.entityId)),
     ]
   }
@@ -876,31 +900,15 @@ export class IssueStore {
     return (await Promise.all(rows.map(async (row) => await this.issueRecords(row.id)))).flat()
   }
 
-  /** The companions an issue write still declares: its git observation, which
-   *  moves onto compare at save with POD-6770. */
-  async companionChanges(
-    row: IssueRow,
-    gitStates?: ReadonlyMap<string, IssueGitState>,
-  ): Promise<EntityChangeSpec[]> {
-    return [
-      ...(row.deletedAt ? await this.panelChanges([row.id], true) : []),
-      await this.gitStateChange(row, gitStates),
-    ]
-  }
-
-  private async gitStateChange(
-    row: IssueRow,
-    states?: ReadonlyMap<string, IssueGitState>,
-  ): Promise<EntityChangeSpec> {
-    const state = row.deletedAt ? undefined : states ? states.get(row.id) : await this.gitState(row.id)
-    return state
-      ? {
-          entity: 'issueGitState',
-          id: row.id,
-          op: 'upsert',
-          value: IssueGitStateProjection.parse({ id: row.id, ...state }),
-        }
-      : { entity: 'issueGitState', id: row.id, op: 'remove' }
+  /**
+   * What a write of these drafts may take off the feed besides
+   * {@link issueRecords}: the panel items of each draft that is deleted. A
+   * deleted issue has no panel records, so they are read and named before the
+   * write and found gone after it. (A restore names them after its write:
+   * `prepareRestore`.)
+   */
+  async deletedPanelRecords(rows: readonly IssueRow[]): Promise<AffectedRecordSpec[]> {
+    return await this.panelRecords(rows.filter((row) => row.deletedAt).map((row) => row.id))
   }
 
   /** Rebuild companions from stored facts, including observations from before restart. */
@@ -1118,18 +1126,6 @@ export class IssueStore {
     opts?: {
       touch?: boolean
       /**
-       * Extra entity changes this write declares, beyond the issue's own two
-       * kinds [POD-822]. Today: the `issueDep` rows an edge write touches, built
-       * by {@link depChanges} (empty when the flag is off).
-       *
-       * They ride the SAME `changes()` callback, so they land in the SAME
-       * transact span as the row upsert and the `extraWrite` that produced them.
-       * That is the whole point rather than a tidiness preference: `addIssueDep`
-       * and the edge's change row must commit or roll back together, or the feed
-       * can claim an edge the store rejected — a permanently `blocked` issue on
-       * every replica, healed by nothing.
-       */
-      /**
        * Records of other kinds this write may affect, named with the issue's
        * own: the `issueDep` edges an edge write adds or removes
        * ({@link depRecords}). They are built in the same span as the row
@@ -1139,10 +1135,6 @@ export class IssueStore {
       /** Records of other kinds this write created and could not name before
        *  it ran (a ship lane that forms with the write): built once, after. */
       extraCreates?: () => Promise<readonly AffectedRecordSpec[]>
-      /** Extra entity changes this write declares — {@link EntityChangeSpec}, composed. */
-      extraChanges?:
-        | readonly EntityChangeSpec[]
-        | (() => readonly EntityChangeSpec[] | Promise<readonly EntityChangeSpec[]>)
       /** This write moves the task's owner, its assignee (POD-6287). Refused
        *  for a row that is not a pinned draft: a reassignment is always
        *  revision-checked. */
@@ -1176,12 +1168,11 @@ export class IssueStore {
     // NO try/catch: there is nothing to undo on a throw, which is the whole
     // point of the draft above. The commit stands unguarded and the caller sees
     // the ledger's own failure.
-    let committedProjectionChanges: readonly EntityChangeSpec[] = []
-    let committedExtraChanges: readonly EntityChangeSpec[] = []
     const wire = (
       await this.arbitrated(writer).commit({
         affects: async () => [
           ...(await this.issueRecords(row.id)),
+          ...(await this.deletedPanelRecords([row])),
           ...(typeof opts?.extraAffects === 'function'
             ? await opts.extraAffects()
             : (opts?.extraAffects ?? [])),
@@ -1203,16 +1194,8 @@ export class IssueStore {
           await opts?.afterWrite?.(row)
           this.announceWorktreeMove(row.id, worktreeWas, worktreeOf(row))
           // The projection depends only on the committed draft and its labels.
-          const committedWire = await this.projection(row)
-          committedProjectionChanges = await this.companionChanges(row)
-          committedExtraChanges =
-            typeof opts?.extraChanges === 'function'
-              ? await opts.extraChanges()
-              : (opts?.extraChanges ?? [])
-          return committedWire
+          return await this.projection(row)
         },
-        // Own facts and companions commit and roll back together.
-        changes: () => [...committedProjectionChanges, ...committedExtraChanges],
       })
     ).result
     // Re-pinned only AFTER the commit succeeded: a throw rolls the write back,
@@ -1230,7 +1213,6 @@ export class IssueStore {
     writer: IssueWriter,
     rows: IssueRow[],
     write: (scope: WriteScope) => T | Promise<T>,
-    extraChanges: (result: T) => readonly EntityChangeSpec[] | Promise<readonly EntityChangeSpec[]>,
     events: (result: T) =>
       | readonly {
           kind: string
@@ -1268,14 +1250,13 @@ export class IssueStore {
     let result!: T
     let wires!: IssueProjection[]
     let eventIds: number[] = []
-    let committedProjectionChanges: readonly EntityChangeSpec[][] = []
-    let committedExtraChanges: readonly EntityChangeSpec[] = []
     // NO try/catch — see persistWith: the drafts are the only objects that
     // carry this write, so a throw has nothing to undo.
     const committed = (
       await this.arbitrated(writer).commit({
         affects: async () => [
           ...(await this.issueRecordsOf(rows)),
+          ...(await this.deletedPanelRecords(rows)),
           ...((await opts?.extraAffects?.()) ?? []),
         ],
         creates: async () => [
@@ -1295,11 +1276,6 @@ export class IssueStore {
             this.announceWorktreeMove(row.id, worktreeWas, worktreeOf(row))
           }
           wires = await Promise.all(rows.map((row) => this.projection(row)))
-          const gitStates = await this.deps.store.issues.gitStates.getMany(rows.map(({ id }) => id))
-          committedProjectionChanges = await Promise.all(
-            rows.map(async (row) => await this.companionChanges(row, gitStates)),
-          )
-          committedExtraChanges = await extraChanges(result)
           const committedEvents = await events(result)
           const undrafted = await this.rowsByIds(
             committedEvents.flatMap((event) => (drafted.has(event.subject) ? [] : [event.subject])),
@@ -1324,7 +1300,6 @@ export class IssueStore {
           )
           return { result, wires }
         },
-        changes: () => [...committedProjectionChanges.flat(), ...committedExtraChanges],
       })
     ).result
     result = committed.result
@@ -1337,11 +1312,6 @@ export class IssueStore {
       for (const eventId of eventIds) await this.deps.store.events.announceEvent(eventId)
     }, 'issue-persist-many-events')
     return { issues: wires, result }
-  }
-
-  /** A git observation changes only its independently keyed companion. */
-  async broadcastIssue(writer: IssueWriter, row: IssueRow): Promise<void> {
-    await this.arbitrated(writer).capture([await this.gitStateChange(row)])
   }
 
   /**

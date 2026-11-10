@@ -336,7 +336,9 @@ export class IssueSessionLifecycle {
         await issuePlan.write(scope)
       },
       affects: async () => await issuePlan.affects(),
-      changes: () => [...sessionPlan.changes(), ...issuePlan.changes()],
+      creates: async () => await issuePlan.creates(),
+      // The session record still declares its change (see `compare-at-save.ts`).
+      changes: () => sessionPlan.changes(),
       // THE RUNTIME HALF WAITS FOR THE OUTERMOST COMMIT [POD-3366]. It used to
       // run on the statement after this call, and when a caller already has a
       // span open that statement is on the success path of a SAVEPOINT release,
@@ -389,7 +391,9 @@ export class IssueSessionLifecycle {
         await issuePlan.write(scope)
       },
       affects: async () => await issuePlan.affects(),
-      changes: () => [...sessionPlan.changes(), ...issuePlan.changes()],
+      creates: async () => await issuePlan.creates(),
+      // The session record still declares its change (see `compare-at-save.ts`).
+      changes: () => sessionPlan.changes(),
       // The same argument as the delete above, in the other direction: the
       // restore's apply INSTALLS runtime sessions and reloads the session state,
       // and installing a live session for a restore the enclosing span can still

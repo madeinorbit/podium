@@ -185,6 +185,6 @@ export class IssueAssistantDigestModule {
     row.suggestedReason = row.suggestedStage ? result.suggestedReason : null
     return await this.store.persistWith(this.store.serverWriter, row,
       async scope => { await this.store.deps.store.issues.panel.save(scope, 'issuePanelState', state) },
-      { extraChanges: [{ entity: 'issuePanelState', id: row.id, op: 'upsert', value: state }] })
+      { extraAffects: [{ entity: 'issuePanelState', id: row.id }] })
   }
 }

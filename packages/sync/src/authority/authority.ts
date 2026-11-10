@@ -294,8 +294,8 @@ export class Authority implements AuthorityPort {
   constructor(private readonly deps: AuthorityDeps) {}
 
   /**
-   * Current values of one entity kind. A kind the record source answers for
-   * is built from the database (POD-6770): every record its builder streams,
+   * Current values of one entity kind. A kind the record source builds is
+   * read from the database (POD-6770): every record its builder streams,
    * inside the caller's span if one is open. Any other kind reads the
    * installed rows, in seq order, leaving out a corrupt payload (see
    * `storedKeyOf`), as dedup treats it as absent.
@@ -303,7 +303,7 @@ export class Authority implements AuthorityPort {
   async snapshot(entity: MetadataEntityKind): Promise<readonly unknown[]> {
     const values: unknown[] = []
     const records = this.deps.records
-    if (records?.comparesAtSave(entity) === true) {
+    if (records?.kinds().includes(entity) === true) {
       for await (const page of records.streamAll(entity)) {
         for (const record of page) values.push(record.value)
       }
@@ -329,7 +329,7 @@ export class Authority implements AuthorityPort {
     const out = new Map<string, unknown>()
     if (ids.length === 0) return out
     const records = this.deps.records
-    if (records?.comparesAtSave(entity) === true) {
+    if (records?.kinds().includes(entity) === true) {
       for (const record of await records.build(entity, ids)) out.set(record.id, record.value)
       return out
     }
