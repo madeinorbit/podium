@@ -47,6 +47,16 @@ export function accountOperations(runtime: Runtime): AccountOperations {
     })
   }
 
+  async function setPasswordHash(accountId: string, hash: string): Promise<void> {
+    if (!runtime.isPasswordHash(hash)) throw new IdentityRefused('password-hash-invalid')
+    await runtime.transaction(async () => {
+      if ((await accountById(runtime.db()).run({ id: accountId })).length === 0) {
+        throw new IdentityRefused('unknown-account')
+      }
+      await writePassword(accountId, hash)
+    })
+  }
+
   return {
     async create(input) {
       const email = input.email === undefined ? generatedIdentifier() : acceptedEmail(input.email)
@@ -97,14 +107,11 @@ export function accountOperations(runtime: Runtime): AccountOperations {
     },
 
     async setPassword(accountId, password) {
-      const hash = await runtime.hashPassword(password)
-      await runtime.transaction(async () => {
-        if ((await accountById(runtime.db()).run({ id: accountId })).length === 0) {
-          throw new IdentityRefused('unknown-account')
-        }
-        await writePassword(accountId, hash)
-      })
+      // Hashed before the transaction opens: a password hash takes long on purpose.
+      await setPasswordHash(accountId, await runtime.hashPassword(password))
     },
+
+    setPasswordHash,
 
     async setEmail(accountId, value) {
       const email = acceptedEmail(value)

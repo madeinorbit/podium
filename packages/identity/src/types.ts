@@ -42,6 +42,12 @@ export interface IdentityConfig {
   passwordHashing?: {
     hash(password: string): Promise<string>
     verify(input: { password: string; hash: string }): Promise<boolean>
+    /**
+     * Is this string a hash `hash` could have made? `accounts.setPasswordHash`
+     * accepts nothing else. Absent: an edition with its own hashing accepts no
+     * ready-made hash at all.
+     */
+    isHash?(value: string): boolean
   }
   rateLimit: { storage: 'memory' | 'database' }
   /** Mounts the library's own HTTP routes at this path. Absent: they are not reachable. */
@@ -183,6 +189,14 @@ export interface AccountOperations {
   verifyPassword(accountId: string, password: string): Promise<boolean>
   /** Replaces or creates the password login method. Does not end device sign-ins. */
   setPassword(accountId: string, password: string): Promise<void>
+  /**
+   * The same, from a hash the edition's own password functions made: a password
+   * staged before the server ran, or one hashed before the caller's transaction.
+   * Refused with `password-hash-invalid` for a string that is not in the
+   * edition's own hash format, so a password in clear can never be stored by
+   * mistake. FOR SERVER CODE ONLY: the hash must never come from a request body.
+   */
+  setPasswordHash(accountId: string, passwordHash: string): Promise<void>
   /** Changes the identifier. Refused when another account holds it. */
   setEmail(accountId: string, email: string): Promise<void>
   updateProfile(accountId: string, profile: { name?: string; image?: string | null }): Promise<void>
@@ -561,6 +575,7 @@ export class IdentityRefused extends Error {
       | 'email-taken'
       | 'email-invalid'
       | 'unknown-account'
+      | 'password-hash-invalid'
       | 'not-built',
     message?: string,
   ) {

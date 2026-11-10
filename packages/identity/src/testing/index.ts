@@ -127,6 +127,7 @@ const standInHashing: NonNullable<IdentityConfig['passwordHashing']> = {
         error ? reject(error) : resolve(`suite$${salt.toString('hex')}$${key.toString('hex')}`),
       )
     }),
+  isHash: (value) => /^suite\$[0-9a-f]{32}\$[0-9a-f]{64}$/.test(value),
   verify: ({ password, hash }) =>
     new Promise((resolve, reject) => {
       const [tag, salt, key] = hash.split('$')
@@ -1138,6 +1139,19 @@ export function identitySuite(runner: SuiteRunner, harness: SuiteHarness): Ident
         await core.accounts.setPassword(alice.id, 'alice changed it')
         expect(await core.accounts.verifyPassword(alice.id, 'alice changed it')).toBe(true)
         expect(await resolved(aliceBrowser)).toBe(alice.id)
+        // setPasswordHash does the same from a hash the edition's functions made.
+        await core.accounts.setPasswordHash(carol.id, await runtime.hashPassword('carol staged it'))
+        expect(await core.accounts.verifyPassword(carol.id, 'carol staged it')).toBe(true)
+        expect(await core.accounts.verifyPassword(carol.id, 'carol first password')).toBe(false)
+        // Anything that is not a hash of this edition is refused and changes
+        // nothing: a password in clear, an empty string, another format.
+        for (const notAHash of ['carol in clear', '', 'bcrypt$2b$10$abcdefghijklmnopqrstuv']) {
+          expect(
+            await refusedWith(() => core.accounts.setPasswordHash(carol.id, notAHash)),
+          ).toBe('password-hash-invalid')
+        }
+        expect(await core.accounts.verifyPassword(carol.id, 'carol staged it')).toBe(true)
+        expect(await core.accounts.verifyPassword(carol.id, 'carol in clear')).toBe(false)
       })
 
       // 11 ----------------------------------------------------------------

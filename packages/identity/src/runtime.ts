@@ -62,6 +62,14 @@ interface DeviceScope {
   created?: { id: string; accountId: string; expiresAt: Date }
 }
 
+/**
+ * What the library's own password hashing writes: a 16-byte salt and a 64-byte
+ * scrypt key, both in hex, joined by a colon. The shared suite hashes a
+ * password with the library and hands the result to `setPasswordHash`, so a
+ * library that changed its format fails there.
+ */
+const LIBRARY_PASSWORD_HASH = /^[0-9a-f]{32}:[0-9a-f]{128}$/
+
 export interface Runtime {
   readonly config: IdentityConfig
   now(): Date
@@ -96,6 +104,8 @@ export interface Runtime {
   sessionCookie(configuration: Configuration, token: string, expiresAt: Date): string
   hashPassword(password: string): Promise<string>
   verifyPassword(password: string, hash: string): Promise<boolean>
+  /** Is this string in the format `hashPassword` writes in this edition? */
+  isPasswordHash(value: string): boolean
   newId(model: string): string
   /** Listeners for a change of an account's name, picture or email (memberships subscribe). */
   readonly accountChanged: Array<(accountId: string) => Promise<void>>
@@ -425,6 +435,10 @@ export async function createRuntime(config: IdentityConfig): Promise<Runtime> {
       config.passwordHashing
         ? config.passwordHashing.verify({ password, hash })
         : library.password.verify({ password, hash }),
+    isPasswordHash: (value) =>
+      config.passwordHashing
+        ? (config.passwordHashing.isHash?.(value) ?? false)
+        : LIBRARY_PASSWORD_HASH.test(value),
     newId(model) {
       const made = config.generateId?.(model)
       if (made) return made

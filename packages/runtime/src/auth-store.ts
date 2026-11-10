@@ -79,6 +79,11 @@ export async function hashPassword(password: string): Promise<string> {
   )}$${dk.toString('base64')}`
 }
 
+/** Is this string in the format {@link hashPassword} writes? It says nothing about which password. */
+export function isPasswordHash(value: string): boolean {
+  return /^scrypt\$\d+\$\d+\$\d+\$[A-Za-z0-9+/]+=*\$[A-Za-z0-9+/]+=*$/.test(value)
+}
+
 export async function verifyPasswordHash(password: string, stored: string): Promise<boolean> {
   const [tag, n, r, p, saltB64, hashB64] = stored.split('$')
   if (tag !== 'scrypt' || !n || !r || !p || !saltB64 || !hashB64) return false
