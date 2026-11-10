@@ -2,7 +2,7 @@ import type {
   ConversationDiagnosticWire,
   ConversationDiscoveryWire,
   ConversationId,
-  ConversationSummaryWire,
+  ConversationRecordWire,
   MachineId,
   SessionId,
 } from '@podium/model'
@@ -107,8 +107,8 @@ export class MemoryService {
     return new MemoryCommandView(this, reader, writer)
   }
 
-  async allConversations(): Promise<ConversationSummaryWire[]> {
-    const rows: ConversationSummaryWire[] = []
+  async allConversations(): Promise<ConversationRecordWire[]> {
+    const rows: ConversationRecordWire[] = []
     for await (const page of this.deps.store.conversations.index.recordPages()) rows.push(...page)
     return rows
   }

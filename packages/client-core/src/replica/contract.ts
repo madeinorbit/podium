@@ -5,7 +5,7 @@ import type {
   AutomationRunWire,
   AutomationWire,
   CheckoutWire,
-  ConversationSummaryWire,
+  ConversationRecordWire,
   EffectRecordWire,
   InstancePreferencesWire,
   IssueDepProjection,
@@ -109,7 +109,7 @@ export interface ReplicaRows {
   shipOrders: ShipOrderProjection
   /** Canonical shipping lanes, carrying server-owned train positions. */
   shipLanes: ShipLaneProjection
-  conversations: ConversationSummaryWire
+  conversations: ConversationRecordWire
   automations: AutomationWire
   automationRuns: AutomationRunWire
   /** One-shot effects (merge, file write, scans, clone, interrupt) and their
@@ -184,7 +184,7 @@ export interface ReplicaHydrateResult {
   messageRecords: MessageRecordWire[]
   shipOrders: ShipOrderProjection[]
   shipLanes: ShipLaneProjection[]
-  conversations: ConversationSummaryWire[]
+  conversations: ConversationRecordWire[]
   automations: AutomationWire[]
   automationRuns: AutomationRunWire[]
   effects: EffectRecordWire[]

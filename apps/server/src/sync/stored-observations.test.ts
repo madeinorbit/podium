@@ -109,7 +109,7 @@ describe('stored observations (POD-6765)', () => {
         summary: 'Kept',
         podiumId: expect.stringMatching(/^conv_/),
       })
-      for (const field of ['statusHint', 'git', 'sizeBytes', 'path'])
+      for (const field of ['statusHint', 'git', 'sizeBytes', 'path', 'updatedAt', 'messageCount'])
         expect(conversation).not.toHaveProperty(field)
       expect(await store.conversations.registry.segmentPath(machine, 'native-1')).toBe(
         '/transcripts/native-1.jsonl',

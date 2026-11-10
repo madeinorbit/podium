@@ -2,6 +2,7 @@ import {
   asMutationId,
   type ConversationDiscoveryWire,
   type ConversationDiscoveryWireInput,
+  type ConversationRecordWire,
   type ConversationSummaryWire,
   firstAdminMemberId,
 } from '@podium/model'
@@ -272,7 +273,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     expect(removes).toEqual(['shared'])
   })
 
-  it('(b) volatile-only churn appends NOTHING; a stable-field change appends the FULL wire payload', async () => {
+  it('(b) activity-only churn appends NOTHING; a record-field change appends the whole record', async () => {
     const registry = await makeRegistry()
     await registry.gateway.attachDaemon('m1', () => {})
     await push(registry, [
@@ -283,8 +284,8 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
       }),
     ])
     const cursor = await cursorOf(registry)
-    // Volatile fields only (updatedAt/messageCount) — the scan-storm
-    // churn the conversation projection exists to drop.
+    // Activity only (updatedAt/messageCount): the index takes it, the record
+    // does not carry it (POD-6768), so nothing is appended.
     await push(registry, [
       conv('c1', {
         title: 't',
@@ -293,8 +294,8 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
       }),
     ])
     expect(await conversationChangesSince(registry, cursor)).toEqual([])
-    // A stable field (title) changes → ONE append carrying the FULL wire value,
-    // volatile fields included at their current values.
+    // A record field (title) changes → ONE append carrying the whole record,
+    // without the activity stamps.
     await push(registry, [
       conv('c1', {
         title: 't2',
@@ -304,10 +305,10 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     ])
     const changes = await conversationChangesSince(registry, cursor)
     expect(changes).toHaveLength(1)
-    const value = (changes[0] as { value?: ConversationSummaryWire }).value
+    const value = (changes[0] as { value?: ConversationRecordWire }).value
     expect(value?.title).toBe('t2')
-    expect(value?.updatedAt).toBe('2026-07-03T00:00:00Z')
-    expect(value?.messageCount).toBe(12)
+    expect(value).not.toHaveProperty('updatedAt')
+    expect(value).not.toHaveProperty('messageCount')
     expect(value).not.toHaveProperty('statusHint')
     expect(value?.podiumId).toMatch(/^conv_/) // the broadcast enrichment IS the committed payload
   })
@@ -331,7 +332,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     // Durable: the curated wire row is in the change log…
     const changes = await conversationChangesSince(registry, cursor)
     expect(changes).toHaveLength(1)
-    const value = (changes[0] as { value?: ConversationSummaryWire }).value
+    const value = (changes[0] as { value?: ConversationRecordWire }).value
     expect(value?.name).toBe('My run')
     expect(value?.summary).toBe('sum')
     // …and live on BOTH planes: the delta client got the metadataDelta…
@@ -340,7 +341,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     await expect
       .poll(() =>
         deltaConversationChanges(delta.inbox.slice(deltaBefore)).some(
-          (c) => (c as { value?: ConversationSummaryWire }).value?.name === 'My run',
+          (c) => (c as { value?: ConversationRecordWire }).value?.name === 'My run',
         ),
       )
       .toBe(true)
@@ -348,7 +349,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     await expect
       .poll(() =>
         deltaConversationChanges(legacy.inbox.slice(legacyBefore)).some(
-          (c) => (c as { value?: ConversationSummaryWire }).value?.name === 'My run',
+          (c) => (c as { value?: ConversationRecordWire }).value?.name === 'My run',
         ),
       )
       .toBe(true)

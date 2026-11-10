@@ -34,6 +34,7 @@ import {
   AutomationWire,
   ConversationDiagnosticWire,
   ConversationGit,
+  ConversationRecordWire,
   ConversationSummaryWire,
   DirectoryEntryWire,
   DirectoryListingWire,
@@ -657,6 +658,12 @@ export const WIRE_FIXTURES: WireFixture[] = [
     name: 'conversationSummary.minimal',
     schema: ConversationSummaryWire,
     value: CONVERSATION_SUMMARY_MINIMAL,
+  },
+  {
+    // The synced record drops the activity stamps (POD-6768).
+    name: 'conversationRecord.full',
+    schema: ConversationRecordWire,
+    value: CONVERSATION_SUMMARY_FULL,
   },
   {
     name: 'conversationDiagnostic',

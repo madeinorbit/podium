@@ -1,6 +1,6 @@
 import {
   asMachineId,
-  ConversationSummaryWire,
+  ConversationRecordWire,
   type MachineId,
   machinePathKey,
   machinePathSeparator,
@@ -43,11 +43,19 @@ const recordPage = preparedFamily((db: StoreDrizzle, phase: 'start' | 'after') =
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
+/** The synced record of one index row. `updatedAt` and `messageCount` stay in
+ *  the index for recency and search, never on the record (POD-6768). */
 function conversationRecordOf(
   row: typeof conversations.$inferSelect & { podiumId: string | null },
-): ConversationSummaryWire {
-  const { resumeKind, resumeValue, ...fields } = row
-  return ConversationSummaryWire.parse({
+): ConversationRecordWire {
+  const {
+    resumeKind,
+    resumeValue,
+    updatedAt: _updatedAt,
+    messageCount: _messageCount,
+    ...fields
+  } = row
+  return ConversationRecordWire.parse({
     ...Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== null)),
     ...(resumeKind !== null && resumeValue !== null
       ? { resume: { kind: resumeKind, value: resumeValue } }
@@ -320,7 +328,7 @@ export class ConversationIndexRepository {
 
   async recordEntries(
     ids: readonly string[],
-  ): Promise<{ machineId: MachineId; value: ConversationSummaryWire }[]> {
+  ): Promise<{ machineId: MachineId; value: ConversationRecordWire }[]> {
     if (ids.length === 0) return []
     const size = inListSize(ids.length)
     return (await recordRows(this.db, size).all(inListValues(ids, size))).map((row) => ({
@@ -329,11 +337,11 @@ export class ConversationIndexRepository {
     }))
   }
 
-  async records(ids: readonly string[]): Promise<ConversationSummaryWire[]> {
+  async records(ids: readonly string[]): Promise<ConversationRecordWire[]> {
     return (await this.recordEntries(ids)).map(({ value }) => value)
   }
 
-  async *recordPages(pageSize = 500): AsyncGenerator<ConversationSummaryWire[]> {
+  async *recordPages(pageSize = 500): AsyncGenerator<ConversationRecordWire[]> {
     let after: string | undefined
     for (;;) {
       const rows = await recordPage(this.db, after === undefined ? 'start' : 'after').all({

@@ -9,8 +9,7 @@
  * emitted changes, change log and world were byte-identical, and the baseline's
  * output was recorded as a fingerprint per sequence. The baseline is gone; the
  * database path is held to those fingerprints. The sequence covers every entity kind, unchanged writes,
- * conversation writes that move only the fields detection ignores, several
- * specs for one key in one batch, removes of absent ids, savepoint rollbacks,
+ * several specs for one key in one batch, removes of absent ids, savepoint rollbacks,
  * nested spans, full-truth reconciles, restarts and corrupt stored rows. The
  * emitted changes, the change log and every snapshot must be byte-identical.
  *
@@ -129,24 +128,20 @@ function random(seed: number) {
 /**
  * The generated sequence. Ids come from a small pool per kind so writes collide;
  * values come from a small pool so many writes are unchanged. A conversation's
- * value moves its stable field (`title`) or only the fields detection ignores.
+ * value is a whole record whose only field is `title`.
  */
 function generate(seed: number, length: number): Op[] {
   const r = random(seed)
   const ids = ['a', 'b', 'c', 'd', 'e', 'f']
   const valueFor = (entity: Kind, id: string): unknown => {
     if (entity === 'conversation') {
-      const value = {
-        id,
-        title: `t${r.int(2)}`,
-        updatedAt: `2026-10-16T00:00:0${r.int(4)}Z`,
-        messageCount: r.int(3),
-      }
-      // The recording also drew a `statusHint` here, a field detection ignored
-      // until POD-6765 retired it. The draw stays, so every later pick is the
-      // recorded one; the field is gone from the value.
+      // The record has no activity stamps since POD-6768; the draws that made
+      // them stay, so every later pick is the recorded one.
+      const title = `t${r.int(2)}`
+      r.int(4)
+      r.int(3)
       r.pick(['idle', 'busy'])
-      return value
+      return { id, title }
     }
     return { id, v: r.int(3), tag: r.pick(['x', 'y']) }
   }
@@ -319,18 +314,24 @@ async function arm() {
 
 /**
  * What the baseline emitted for each sequence, recorded when the two were
- * compared, less the conversation's `statusHint`, which POD-6765 retired. The
- * recorded output was hashed again at dev/mw 504c59982e, where the original
- * fingerprints still passed, with that one field cut from every conversation
- * payload (POD-6770); these are those hashes. Nothing else was re-recorded.
+ * compared, then re-recorded ONCE at POD-6768. That change took the activity
+ * stamps (`updatedAt`, `messageCount`) off the conversation record, so the
+ * conversation kind lost its projected detection key and the generator's
+ * conversation values lost those fields. Before re-recording, the old detection
+ * (POD-6765's parent) was run on the old values and its output, with those
+ * fields cut out, compared line by line with the new detection on the new
+ * values: seeds 3, 4 and 5 were identical, and seeds 1, 2 and 6 differed only
+ * where a stored literal `null` conversation payload is now present, as it
+ * already was for every other kind (a later remove records it, a snapshot lists
+ * it), and in the seqs after such a remove.
  */
 const BASELINE_FINGERPRINTS: Record<number, string> = {
-  1: 'daf7ce53407dc8bd92c40e09f47c8be788f598714e1f41585fb376ba66049751',
-  2: '37670eb9dcf11374fdc09744fa8c58a35c598210940e342324c3eba72384cb97',
-  3: '90200e553c0c8c56d039ba4d263f0e74aeb7e12e82ee301541f2e95c0754eb47',
-  4: 'a673ea5086ffafdca62ab570a0cba90aa0451cfd163898e0cf7a9891cea2e6c1',
-  5: '4605b45087205420353a258b6173cdce0312cd8bfc6b65b063a7c972f706aa6a',
-  6: '47513cc87f825de8a89985d8639e6e59997c4610f429feea96c515157d245bae',
+  1: 'f16e7cde980a70de70e3abe22cd9779df735818de027b09c13624a66dc4d2bef',
+  2: '480ccc154303c3166e856f0a39a8270a194bffc799bfb9c5b5fbac3e55abb7bf',
+  3: '7cbf38974f9c528b191c4d53d0344a43c436ac594afae77283ced2be9ec1f5f9',
+  4: '201ee5a42199c9ba2a74d9cc0e516d2aedfe2cacfb6c4a2a42f45fdb36ab0c82',
+  5: 'd6f3c5a84c59ab318681b5f073333662819a966ed4d84d701c529feec6c9ac23',
+  6: 'd233122479cb68f439406317152204788e618ce455fb18048720e56b13a0ccae',
 }
 
 describe('the recorded kind list', () => {

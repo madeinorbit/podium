@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { detectionKey, differsFromStored } from './change-log'
+import { differsFromStored, storedKeyOf } from './change-log'
 
 /** A normalized issue row, in the shape the server publishes. */
 const projection = {
@@ -24,7 +24,7 @@ const projection = {
   worktreePath: '/r/.worktrees/a',
 }
 const key = (entity: 'issueProjection', value: unknown) =>
-  detectionKey(entity, value, JSON.stringify(value))
+  storedKeyOf(entity, JSON.stringify(value))
 
 describe('change detection for the normalized issue record (POD-4971)', () => {
   it('keys the normalized record on its serialized bytes', () => {
@@ -59,14 +59,15 @@ describe('change detection for the normalized issue record (POD-4971)', () => {
     expect(differsFromStored('issueProjection', json, moved, JSON.stringify(moved))).toBe(true)
   })
 
-  it('compares a conversation on its stable fields, and a corrupt stored row as absent', () => {
-    const conversation = { id: 'c', title: 'one', updatedAt: 't1', messageCount: 1 }
+  it('compares a conversation on its whole record, and a corrupt stored row as absent', () => {
+    // POD-6768: the activity stamps left the record, so no field is skipped.
+    const conversation = { id: 'c', title: 'one' }
     const stored = JSON.stringify(conversation)
-    const churned = { ...conversation, updatedAt: 't2', messageCount: 2 }
-    expect(differsFromStored('conversation', stored, churned, JSON.stringify(churned))).toBe(false)
+    expect(differsFromStored('conversation', stored, { ...conversation }, stored)).toBe(false)
     const renamed = { ...conversation, title: 'two' }
     expect(differsFromStored('conversation', stored, renamed, JSON.stringify(renamed))).toBe(true)
-    for (const corrupt of ['{not json', 'null']) {
+    for (const corrupt of ['{not json']) {
+      expect(storedKeyOf('conversation', corrupt)).toBeUndefined()
       expect(differsFromStored('conversation', corrupt, conversation, stored)).toBe(true)
     }
   })

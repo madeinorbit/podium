@@ -118,43 +118,22 @@ export async function pruneChangeLog(
   return { deleted, metrics }
 }
 
-/** Conversation fields that churn on every discovery scan (activity bumps) —
- *  EXCLUDED from change detection so a scan storm doesn't re-record the full
- *  payload per conversation per scan (the 81MB/day churn fix). The durable
- *  payload stays the full wire value — only change DETECTION is projected.
- *  Staleness tradeoff: delta clients see these fields refresh only when a
- *  stable field also changes, or on their next reconnect snapshot —
- *  acceptable for advisory recency/count hints. */
-export function conversationProjection(value: unknown): string {
-  const {
-    updatedAt: _updatedAt,
-    messageCount: _messageCount,
-    ...stable
-  } = value as Record<string, unknown>
-  return JSON.stringify(stable)
-}
-
-/** The change-DETECTION key for one entity value: the stable-field projection
- *  for entities with churn-prone derived fields, else the full serialized wire
- *  JSON (`json` must be `JSON.stringify(value)`). */
-export function detectionKey(entity: MetadataEntityKind, value: unknown, json: string): string {
-  if (entity === 'conversation') return conversationProjection(value)
-  return json
-}
-
 /**
- * The detection key of a stored payload, or `undefined` for a corrupt one: a
- * payload that does not parse, or one the entity's projection cannot read. A
- * corrupt row counts as "not there" [POD-6156]: its next upsert re-records it
- * and a remove of it is dropped.
+ * The stored payload as a detection key, or `undefined` for a corrupt one that
+ * does not parse. A corrupt row counts as "not there" [POD-6156]: its next
+ * upsert re-records it and a remove of it is dropped. The key is the whole
+ * payload: a field that churns without meaning leaves the record instead of
+ * being skipped by detection (POD-6768 took the conversation's activity stamps
+ * off it, the last kind with a projected key).
  */
 export function storedKeyOf(
-  entity: MetadataEntityKind,
+  _entity: MetadataEntityKind,
   payload: string | undefined,
 ): string | undefined {
   if (payload === undefined) return undefined
   try {
-    return detectionKey(entity, JSON.parse(payload), payload)
+    JSON.parse(payload)
+    return payload
   } catch {
     return undefined
   }
@@ -162,22 +141,15 @@ export function storedKeyOf(
 
 /**
  * Would upserting `value` (serialized as `json`) change the stored row? Byte
- * equality on the detection key, read from the stored payload [POD-6156]. A
- * full-JSON key needs no parse: an equal payload is unchanged and any other
- * payload is changed. Only a projected key (a conversation's stable fields)
- * parses the stored payload.
+ * equality of the whole record against the stored payload [POD-6156].
  */
 export function differsFromStored(
-  entity: MetadataEntityKind,
+  _entity: MetadataEntityKind,
   payload: string | undefined,
-  value: unknown,
+  _value: unknown,
   json: string,
 ): boolean {
-  if (payload === undefined) return true
-  if (payload === json) return false
-  const key = detectionKey(entity, value, json)
-  if (key === json) return true
-  return storedKeyOf(entity, payload) !== key
+  return payload !== json
 }
 
 /**

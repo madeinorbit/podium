@@ -104,12 +104,18 @@ async function seedIssues(store: SessionStore, ids: readonly string[]): Promise<
 }
 
 describe('IssuesRepository: the revision precondition (POD-3373)', () => {
-  it('bumps the revision on every accepted write, starting at 1', async () => {
+  it('bumps the revision on every write that changes the row, starting at 1', async () => {
     const store = await openIssueStore()
     const row = await seed(store, { id: asIssueId('iss_1') })
     // The bump is structural — it happens in the writer, with no cooperation
     // from the caller — and it stamps the caller's row in place.
     expect(row.revision).toBe(1)
+    row.title = 'changed'
+    await store.issues.upsertIssue(fixtureWriteScope(), row)
+    expect(row.revision).toBe(2)
+    expect((await store.issues.getIssue('iss_1'))?.revision).toBe(2)
+    // A write that changes nothing is skipped and keeps the stored revision
+    // (POD-6768), so it can never be a change row of only a new revision.
     await store.issues.upsertIssue(fixtureWriteScope(), row)
     expect(row.revision).toBe(2)
     expect((await store.issues.getIssue('iss_1'))?.revision).toBe(2)

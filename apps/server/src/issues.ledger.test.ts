@@ -815,20 +815,34 @@ describe('per-entity revision (ADR 2 D3)', () => {
     expect(await svc.reports.get(b.id)).toMatchObject({ ready: true, blocked: false, revision })
   })
 
-  it('a repeated write is still an accepted write, and is never deduped away', async () => {
-    // Writing the same title twice is a WRITE (the authority accepted it), so it
-    // takes a revision and appends. This is the deliberate reading of "no-op":
-    // a no-op is the write-less reconcile above, not an accepted command whose
-    // payload happens to match. The alternative — suppressing it — would leave
-    // the client's revision behind the authority's with no change row to catch
-    // it up, which is the divergence D3 exists to prevent.
+  it('a write that changes nothing, not even the activity stamp, burns no revision (POD-6768)', async () => {
+    // An organizational patch does not touch `updatedAt`. Repeating one leaves
+    // every column as stored, so the upsert's guard skips the row: no revision,
+    // no change row. A real change through the same path still revises.
     const { svc, ledger } = await harness()
-    const wire = await svc.crud.create(svc.reports.store.serverWriter, {
-      repoPath: '/r',
-      title: 'A',
-      startNow: false,
-    })
+    const wire = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'A', startNow: false })
+    const sorted = await svc.crud.update(svc.reports.store.serverWriter, wire.id, { sortKey: 'm' })
+    expect(sorted.revision).toBe(2)
     const cursorBefore = await ledger.cursor()
+    const again = await svc.crud.update(svc.reports.store.serverWriter, wire.id, { sortKey: 'm' })
+    expect(again.revision).toBe(2)
+    expect(await revisionOf(svc, wire.id)).toBe(2)
+    expect(await ledger.cursor()).toBe(cursorBefore)
+    const moved = await svc.crud.update(svc.reports.store.serverWriter, wire.id, { sortKey: 'n' })
+    expect(moved.revision).toBe(3)
+  })
+
+  it('a repeated write is still an accepted write, and is never deduped away', async () => {
+    // Writing the same title twice is a WRITE (the authority accepted it) and
+    // touches the activity stamp, so it takes a revision and appends. The only
+    // write that burns no revision is one that changes no column at all, not
+    // even `updatedAt` (above). The alternative here — suppressing an accepted
+    // touch — would leave the client's revision behind the authority's with no
+    // change row to catch it up, which is the divergence D3 exists to prevent.
+    const { svc, ledger, setNow } = await harness()
+    const wire = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'A', startNow: false })
+    const cursorBefore = await ledger.cursor()
+    setNow('2026-07-03T00:00:00.000Z')
     const again = await svc.crud.update(svc.reports.store.serverWriter, wire.id, { title: 'A' })
     expect(again.revision).toBe(2)
     expect(await ledger.cursor()).toBeGreaterThan(cursorBefore)

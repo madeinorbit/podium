@@ -1,5 +1,7 @@
-/** Synced conversation summaries come from the stored index. File observations
- * are daemon-to-server evidence, never part of the synced record. */
+/** Conversation summaries come from the stored index. File observations are
+ * daemon-to-server evidence, never part of the synced record, and neither are
+ * the activity stamps a growing transcript moves (see
+ * {@link ConversationRecordWire}). */
 
 import { z } from 'zod'
 import { ConversationIdField } from '../ids'
@@ -46,6 +48,17 @@ export const ConversationSummaryWire = z.object({
   providerId: z.string(),
 })
 export type ConversationSummaryWire = z.infer<typeof ConversationSummaryWire>
+
+/** The synced `conversation` record: the summary without `updatedAt` and
+ *  `messageCount`. Both move whenever the transcript grows, which made them most
+ *  of the conversation log rows (POD-6768: 4,085 of 13,293 changes in a 7-hour
+ *  window). The index keeps both for recency ordering and search; a client that
+ *  wants a recent list asks `conversations.search`. */
+export const ConversationRecordWire = ConversationSummaryWire.omit({
+  updatedAt: true,
+  messageCount: true,
+})
+export type ConversationRecordWire = z.infer<typeof ConversationRecordWire>
 
 /** Internal discovery evidence used to locate and mirror the transcript file. */
 export const ConversationDiscoveryWire = ConversationSummaryWire.extend({

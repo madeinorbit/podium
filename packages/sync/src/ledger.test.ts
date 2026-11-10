@@ -346,52 +346,6 @@ describe('Ledger', () => {
     ledger.dispose()
   })
 
-  it('conversation commits ignore volatile-only churn but ship full payloads on stable changes', async () => {
-    const conv = (over: Record<string, unknown> = {}): EntityChangeSpec => ({
-      entity: 'conversation',
-      id: 'c1',
-      op: 'upsert',
-      value: {
-        id: 'c1',
-        title: 'hi',
-        updatedAt: 'T1',
-        messageCount: 1,
-        ...over,
-      },
-    })
-    const ledger = makeLedger()
-    expect((await commit(ledger, [conv()])).changes).toHaveLength(1) // first sight
-    // Scan-driven activity bumps (updatedAt / messageCount) changed
-    // no stable field -> nothing recorded (the 81MB/day churn fix).
-    expect(
-      (await commit(ledger, [conv({ updatedAt: 'T2', messageCount: 5 })]))
-        .changes,
-    ).toEqual([])
-    // A stable-field change records — and the durable payload is the FULL current
-    // wire value, volatile fields included.
-    const changed = (
-      await commit(ledger, [
-        conv({ title: 'renamed', updatedAt: 'T3', messageCount: 9 }),
-      ])
-    ).changes
-    expect(changed).toHaveLength(1)
-    expect(changed[0]).toMatchObject({
-      op: 'upsert',
-      value: { title: 'renamed', updatedAt: 'T3', messageCount: 9 },
-    })
-    // Explicit remove still records; reconcile-driven disappearance too.
-    expect(
-      (await commit(ledger, [{ entity: 'conversation', id: 'c1', op: 'remove' }])).changes.map(
-        (c) => c.op,
-      ),
-    ).toEqual(['remove'])
-    // And re-appearance after a remove is a fresh upsert.
-    expect((await commit(ledger, [conv()])).changes.map((c) => c.op)).toEqual(['upsert'])
-    expect((await testLedgerWriter(ledger).reconcile('conversation', [])).map((c) => c.op)).toEqual(
-      ['remove'],
-    )
-  })
-
   it('deduplicates identical issue projections and records each own-field change', async () => {
     const ledger = makeLedger()
     const row: EntityChangeSpec = {
@@ -437,48 +391,6 @@ describe('Ledger', () => {
         ])
       ).changes,
     ).toEqual([]) // unchanged normalized truth across the restart must not re-record
-  })
-
-  it('the conversation projection baseline survives a restart', async () => {
-    const repo = createTestSyncRepository()
-    const before = new Ledger({ repo, now: Date.now, transact: passthrough })
-    await commit(before, [
-      {
-        entity: 'conversation',
-        id: 'c1',
-        op: 'upsert',
-        value: { id: 'c1', title: 'hi', updatedAt: 'T1', messageCount: 1 },
-      },
-    ])
-    const after = new Ledger({ repo, now: Date.now, transact: passthrough })
-    // Volatile-only drift across the restart must not re-record.
-    expect(
-      (
-        await commit(after, [
-          {
-            entity: 'conversation',
-            id: 'c1',
-            op: 'upsert',
-            value: { id: 'c1', title: 'hi', updatedAt: 'T9', messageCount: 42 },
-          },
-        ])
-      ).changes,
-    ).toEqual([])
-    // Sessions/issues are unaffected by the projection: byte-level dedup as before.
-    expect(
-      (
-        await commit(after, [
-          { entity: 'session', id: 's1', op: 'upsert', value: { id: 's1', updatedAt: 'T1' } },
-        ])
-      ).changes,
-    ).toHaveLength(1)
-    expect(
-      (
-        await commit(after, [
-          { entity: 'session', id: 's1', op: 'upsert', value: { id: 's1', updatedAt: 'T2' } },
-        ])
-      ).changes,
-    ).toHaveLength(1)
   })
 
   it('rebuilds its dedup baseline from the log across a restart', async () => {

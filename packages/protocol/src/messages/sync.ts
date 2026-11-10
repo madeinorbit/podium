@@ -5,7 +5,7 @@ import {
   ChangeCursorSeqField,
   CheckoutWire,
   ConversationDiagnosticWire,
-  ConversationSummaryWire,
+  ConversationRecordWire,
   EffectRecordWire,
   GlobalChangeOpField,
   InstancePreferencesWire,
@@ -31,8 +31,8 @@ import {
   type SessionId,
   SessionMeta,
   SessionUserStateWire,
-  SuperagentThreadWire,
   SubscriptionWire,
+  SuperagentThreadWire,
   TabOrderWire,
   UserPreferencesWire,
   WorkflowBindingWire,
@@ -197,7 +197,7 @@ export const MetadataChange = z.discriminatedUnion('entity', [
    *  {@link UnknownMetadataChange}, ignores them and advances its cursor.
    *  `CLIENT_WIRE_VERSION` stays 1 (ADR 2 D4). */
   metadataChangeArm(z.literal('shipLane'), ShipLaneProjection),
-  metadataChangeArm(z.literal('conversation'), ConversationSummaryWire),
+  metadataChangeArm(z.literal('conversation'), ConversationRecordWire),
   metadataChangeArm(z.literal('automation'), AutomationWire),
   metadataChangeArm(z.literal('automationRun'), AutomationRunWire),
   /** Per-user sidebar/tab layout row (POD-1350) — keyed `(userId, key)` on the
@@ -481,7 +481,7 @@ const changesSinceSnapshotArm = () =>
     repos: z.array(RepoProjection).optional(),
     shipOrders: z.array(ShipOrderProjection).optional(),
     shipLanes: z.array(ShipLaneProjection).optional(),
-    conversations: z.array(ConversationSummaryWire),
+    conversations: z.array(ConversationRecordWire),
     diagnostics: z.array(ConversationDiagnosticWire),
     automations: z.array(AutomationWire).optional(),
     automationRuns: z.array(AutomationRunWire).optional(),

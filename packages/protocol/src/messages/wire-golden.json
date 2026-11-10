@@ -43,6 +43,7 @@
   "conversationGit": "{\"branch\":\"main\",\"sha\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"originUrl\":\"git@github.com:x/y.git\"}",
   "conversationSummary.full": "{\"id\":\"native-1\",\"podiumId\":\"pconv-1\",\"agentKind\":\"claude-code\",\"title\":\"harness title\",\"name\":\"curated name\",\"summary\":\"work summary\",\"projectPath\":\"/home/u/repo\",\"parentConversationId\":\"native-0\",\"createdAt\":\"2026-07-30T09:00:00.000Z\",\"updatedAt\":\"2026-07-30T10:00:00.000Z\",\"messageCount\":42,\"resume\":{\"kind\":\"claude-session\",\"value\":\"uuid-1\"},\"providerId\":\"claude-code\"}",
   "conversationSummary.minimal": "{\"id\":\"native-2\",\"agentKind\":\"codex\",\"providerId\":\"codex\"}",
+  "conversationRecord.full": "{\"id\":\"native-1\",\"podiumId\":\"pconv-1\",\"agentKind\":\"claude-code\",\"title\":\"harness title\",\"name\":\"curated name\",\"summary\":\"work summary\",\"projectPath\":\"/home/u/repo\",\"parentConversationId\":\"native-0\",\"createdAt\":\"2026-07-30T09:00:00.000Z\",\"resume\":{\"kind\":\"claude-session\",\"value\":\"uuid-1\"},\"providerId\":\"claude-code\"}",
   "conversationDiagnostic": "{\"severity\":\"warning\",\"providerId\":\"codex\",\"root\":\"/home/u/.codex\",\"path\":\"/home/u/.codex/x.jsonl\",\"message\":\"unreadable\"}",
   "agentInventory": "{\"kind\":\"claude-code\",\"installed\":true,\"version\":\"1.2.3\",\"path\":\"/usr/bin/claude\",\"login\":{\"state\":\"in\",\"account\":\"a@b.c\"}}",
   "toolInventory": "{\"name\":\"gh\",\"installed\":true,\"version\":\"2.0.0\",\"path\":\"/usr/bin/gh\"}",

@@ -76,6 +76,7 @@ import {
   shapeOf,
 } from './executor/sync-drizzle'
 import { parseStringArray, requireUserId } from './helpers'
+import { IssueGitStatesRepository } from './issue-git-states'
 import {
   commentCountsOfIssues,
   deferralsOf,
@@ -93,7 +94,6 @@ import {
   perChunk,
   sortScopeOf,
 } from './issue-listings'
-import { IssueGitStatesRepository } from './issue-git-states'
 import { IssuePanelRepository } from './issue-panel'
 import { StaleIssueRevisionError } from './issue-revision'
 import { prefixUpperBound } from './prefix-range'
@@ -1038,7 +1038,7 @@ const upsertIssueUserState = prepared((db: StoreDrizzle) =>
       set: {
         readAt: sql.placeholder('readAt'),
         tuckedAt: sql.placeholder('tuckedAt'),
-          joinedAt: sql.placeholder('joinedAt'),
+        joinedAt: sql.placeholder('joinedAt'),
         joinedVia: sql.placeholder('joinedVia'),
         assignedAt: sql.placeholder('assignedAt'),
         assignedBy: sql.placeholder('assignedBy'),
@@ -1527,10 +1527,9 @@ export class IssuesRepository {
     const blockedBy = Array.isArray(row.blockedBy)
       ? row.blockedBy.filter((x): x is string => typeof x === 'string')
       : []
-    // THE revision assignment (ADR 2 D3). This is the issues table's only SQL
-    // writer, so putting the bump here makes it STRUCTURAL: every accepted write
-    // gets a fresh revision with no call-site cooperation, and a new write path
-    // cannot forget to bump one.
+    // The upsert owns its revision assignment (ADR 2 D3). Each upsert that
+    // changes the row gets a fresh revision. The guard below skips an upsert
+    // that changes no stored column and keeps the existing revision (POD-6768).
     //
     // Read the CURRENT value out of the DB rather than off `row`: the caller's
     // copy may be stale (or a hand-built literal), and the value that matters is
@@ -1544,14 +1543,9 @@ export class IssuesRepository {
     // and it is why a wire projected BEFORE the write is a bug (see
     // IssueLifecyclePlan.wire, which enforces the ordering).
     //
-    // Interaction with the ledger's byte-equality dedup, which this must NOT
-    // break: a bumped revision changes the wire JSON, so a write is never
-    // deduped away. That is correct and costs nothing, because the dedup's real
-    // job for issues is the WRITE-LESS reconcile path (derived ripples: closing
-    // X flips ready/blocked on its dependents without any write touching them).
-    // reconcile never reaches this method, so no revision burns on a no-op and
-    // the ripple republishes under an unchanged revision — leaving in-flight
-    // expectedRevision preconditions valid, which is the whole point of D3.
+    // The compare-at-save builder includes the stored revision in its record.
+    // A skipped upsert therefore leaves both builds equal. A changed column
+    // advances the revision so replicas receive the new precondition token.
     const current = await issueRevision(this.db).get({ id: row.id })
     if (opts) {
       const found = current?.revision ?? null
@@ -1646,17 +1640,27 @@ export class IssuesRepository {
         const placeholder = placeholders[column]
         if (placeholder !== undefined) set[column] = placeholder
       }
+      // Compare the columns this statement sets, including optional ownership
+      // reassignment and updatedAt (activity for recency and unread). Separate
+      // issue panel records are compared by their own builders.
+      const changed = Object.keys(set)
+        .filter((column) => column !== 'revision')
+        .map((column) => {
+          const stored = issues[column as keyof typeof issues.$inferInsert]
+          return sql`${stored} IS NOT excluded.${sql.identifier(stored.name)}`
+        })
       return db
         .insert(issues)
         .values(placeholders as unknown as typeof issues.$inferInsert)
         .onConflictDoUpdate({
           target: issues.id,
           set: set as unknown as Partial<typeof issues.$inferInsert>,
+          setWhere: sql.join(changed, sql` OR `),
         })
         .returning()
         .prepare()
     }))
-    await this.writeRows(
+    const written = await this.writeRows(
       async () =>
         await upsert(
           this.db,
@@ -1664,6 +1668,9 @@ export class IssuesRepository {
         ).all(values),
       'upsert',
     )
+    // On a skipped upsert, the draft returned to the caller carries the same
+    // revision as the stored row.
+    if (written.changes === 0 && current) row.revision = current.revision ?? undefined
   }
 
   /** Internal Shipping custody seam. Ordinary issue CRUD never calls this.

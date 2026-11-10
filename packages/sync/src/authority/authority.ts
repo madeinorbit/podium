@@ -93,7 +93,6 @@ import { MetadataEntityKind, type Principal, principalRoutingId } from '@podium/
 import {
   type ChangeLogStore,
   ChangeRangeBootstrapRequired,
-  detectionKey,
   differsFromStored,
   storedKeyOf,
 } from '../change-log'
@@ -740,9 +739,8 @@ export class Authority implements AuthorityPort {
   /**
    * Build the named records again and stage one row per record the write
    * changed, in the order named: an upsert of the record as it is now when it
-   * is new or differs, a remove when it is gone. The comparison is the dedup's
-   * own ({@link detectionKey}), between the two builds; the stored copy of the
-   * last published value is not read.
+   * is new or differs, a remove when it is gone. Compare the whole serialized
+   * record from each build without reading the last published copy.
    */
   private async compareAtSave(
     named: readonly AffectedRecord[],
@@ -768,12 +766,7 @@ export class Authority implements AuthorityPort {
         rows.push({ spec: spec as StagedChangeSpec, payload: null })
         continue
       }
-      if (
-        !uncompared.has(key) &&
-        was !== undefined &&
-        detectionKey(record.entity, was.value, was.json) ===
-          detectionKey(record.entity, now.value, now.json)
-      ) {
+      if (!uncompared.has(key) && was?.json === now.json) {
         continue
       }
       const [spec] = stampProvenance([{ ...record, op: 'upsert', value: now.value }], ambient)
@@ -815,7 +808,7 @@ export class Authority implements AuthorityPort {
     const storedOf = (spec: StagedChangeSpec) =>
       stored.get(entityOverlayKey(spec.entity, spec.entityId))
     const rows: StagedRow[] = []
-    type Overlay = { op: 'upsert'; json: string; value: unknown } | { op: 'remove' }
+    type Overlay = { op: 'upsert'; json: string } | { op: 'remove' }
     const overlay = new Map<string, Overlay>()
     for (const spec of specs) {
       const key = entityOverlayKey(spec.entity, spec.entityId)
@@ -823,13 +816,11 @@ export class Authority implements AuthorityPort {
       if (spec.op === 'upsert') {
         const json = JSON.stringify(spec.value)
         const changed = prior
-          ? prior.op === 'remove' ||
-            detectionKey(spec.entity, prior.value, prior.json) !==
-              detectionKey(spec.entity, spec.value, json)
+          ? prior.op === 'remove' || prior.json !== json
           : differsFromStored(spec.entity, storedOf(spec), spec.value, json)
         if (!changed) continue
         rows.push({ spec, payload: json })
-        overlay.set(key, { op: 'upsert', json, value: spec.value })
+        overlay.set(key, { op: 'upsert', json })
       } else {
         const present = prior
           ? prior.op === 'upsert'
