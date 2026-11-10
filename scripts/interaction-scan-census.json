@@ -1052,6 +1052,27 @@
       "guard": "scripts/check-interaction-scans.ts"
     },
     {
+      "file": "apps/mobile/src/screens/PulseScreen.tsx",
+      "holder": "PulseScreen/derived/useMemo:callback/verdict",
+      "rule": "helper-consumer",
+      "tokens": "f7cf485003eab06dae827e38fb7e861efb75dfb8b1f543783fd7ee24258d3024",
+      "gate": [
+        "else:c3e3fd9044162e4c53fb34547b94862f1dc9d21c2003898bd438bff132c2d182"
+      ],
+      "origin": [
+        "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
+        "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
+      ],
+      "fingerprint": "fe8c11e87ca9221b75b37fcea31f133898565b886da1b89f5dd5c6258a04e402",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of PulseScreen/useMemo:callback/verdict through the direct screen factory.",
+      "bound": "The granted per-machine quota and host lists the Pulse feed already holds; no new collection origin.",
+      "reason": "POD-2385 feeds the existing Pulse quota/host collections into the shared capacityView for the Quota header verdict. Same origin and debt as the fleet/grantedHosts entries beside it; this does not repair it.",
+      "guard": "scripts/check-interaction-scans.ts"
+    },
+    {
       "file": "apps/mobile/src/screens/SessionScreen.tsx",
       "holder": "SessionScreen/absence",
       "rule": "reader-summary",
@@ -19547,6 +19568,24 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
+      "file": "packages/client-core/src/values/cost.ts",
+      "holder": "projectCostRows/usd",
+      "rule": "reader-summary",
+      "tokens": "d3402b999a28c0b060c636b0b8c684b153b124aa00e7e533f1546b4d3222cd7e",
+      "gate": [],
+      "origin": [
+        "c398c53566d168764177ae7aa024cb47dbb9738463b587af0129f142a32a5652"
+      ],
+      "fingerprint": "231b5487437255b90fbcf945a4e5b7d133817f23405802b62ff107a112bba562",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Price the cost.tasks rows for the Pulse Top projects card, once per task-cost poll.",
+      "bound": "One pass over the polled cost.tasks rows and each row's window models; no pool enumeration.",
+      "reason": "POD-2385 adds projectCostRows beside taskCostRows over the same cost pricing collection path. Broader cost and usage ownership stays with POD-5530.",
+      "guard": "scripts/check-interaction-scans.ts"
+    },
+    {
       "file": "packages/client-core/src/values/cursor-order.ts",
       "holder": "cursorInsertionIndex",
       "rule": "loop",
@@ -36218,6 +36257,44 @@
       "bound": "One sessions.configure answer per pick, turned into one caption sentence.",
       "reason": "The callback reads the mutation's own answer, not pool state, and shows the shared configureResultNotice sentence in the composer caption for a few seconds.",
       "guard": "session-model.test.ts covers configureResultNotice; the web chip renders the same sentence."
+    },
+    {
+      "file": "packages/client-core/src/values/pulse.ts",
+      "holder": "capacityView/hosts",
+      "rule": "helper-consumer",
+      "tokens": "cf8672e172a6ea4372d27ec831a3267b39cd71489d2c939f5f0214800a8fa1dc",
+      "gate": [],
+      "origin": [
+        "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
+        "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
+      ],
+      "fingerprint": "09215caba3694614ecd3d65b0825c5222f5230c391f825cef5c5a1ba2edc3402",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of capacityView from the Pulse screen.",
+      "bound": "Hosts reporting load in the granted fleet.",
+      "reason": "POD-2385 makes the Pulse screen the first live caller of capacityView, exposing its existing host collection to the screen origin. Same debt as the PulseScreen fleet entries; no new collection.",
+      "guard": "scripts/check-interaction-scans.ts"
+    },
+    {
+      "file": "packages/client-core/src/values/pulse.ts",
+      "holder": "capacityView/pools",
+      "rule": "helper-consumer",
+      "tokens": "db7b4de4a84d0d471ba430ce139e7208222e702e33c471a28c49d0d7178bebda",
+      "gate": [],
+      "origin": [
+        "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
+        "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
+      ],
+      "fingerprint": "d3708542b19fd38cb3841781c623388e615ba7429968a1c83b51e2073940065c",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of capacityView from the Pulse screen.",
+      "bound": "Quota pools grouped from the granted machine quota.",
+      "reason": "POD-2385 makes the Pulse screen the first live caller of capacityView, exposing its existing pool collection to the screen origin. Same debt as the PulseScreen fleet entries; no new collection.",
+      "guard": "scripts/check-interaction-scans.ts"
     }
   ]
 }
