@@ -12,15 +12,16 @@ import { useCallback, useEffect, useState } from 'react'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import { serverConfig } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { KeyRound, Users } from 'lucide-react'
+import { toast } from 'sonner'
 import { memberRequest } from '@/features/setup/member-api'
-import { useAdminSections } from '../admin-viewer'
 import { useSettingsSessionPresent } from '../readers'
 import { accountKey, useSettingsRecords } from '../record-readers'
 import { useSettingsClient, useSettingsTrpc } from '../stable-access'
-import { KeySharing, MembersKeys } from './key-sharing'
-import { type AccountView, harnessAgentLabel, providerLabel, Row, Section } from './shared'
-import { UseOnMyMachinesBox } from './use-on-my-machines'
+import { useSettingsFrame } from '../settings-frame'
+import { KeySharing, sharingSummary } from './key-sharing'
+import { type AccountView, ConfirmInline, EntityRow, harnessAgentLabel, providerLabel, Row, Section, SecretRow, SwitchRow, ValueRow } from './shared'
+import { USE_ON_MY_MACHINES_NOTE, UseOnMyMachinesBox } from './use-on-my-machines'
 
 /** The Claude subscription token from `claude setup-token` — the ONLY OAuth
  *  account the server accepts (accounts.connect rejects kind 'oauth' for any
@@ -30,55 +31,9 @@ const CLAUDE_OAUTH_ID = 'managed:claude-oauth'
 type ManagedProvider = 'anthropic' | 'openai' | 'openrouter'
 
 function managedLabel(a: { id: string; provider: string }): string {
-  if (a.id === CLAUDE_OAUTH_ID) return 'Claude subscription (setup-token)'
+  if (a.id === CLAUDE_OAUTH_ID) return 'Claude subscription token'
   return `${providerLabel(a.provider as ManagedProvider)} API key`
 }
-
-/** Connected: a filled signal dot + the masked identity in machine voice.
- *  Podium's `--success` is calm blue (the "all good" hue — this theme has no
- *  green), so the semantic token keeps the status aligned with the palette. */
-function StatusConnected({ identity }: { identity: string }): JSX.Element {
-  return (
-    <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full bg-success/10 py-0.5 pr-2 pl-1.5 text-[12px] text-success">
-      <span aria-hidden="true" className="size-1.5 flex-none rounded-full bg-success" />
-      <span className="min-w-0 break-words font-mono">{identity}</span>
-    </span>
-  )
-}
-
-/** Not connected: a hollow dot echoes the connected shape at rest, so the two
- *  states read as one on/off column rather than two unrelated treatments. */
-function StatusDisconnected(): JSX.Element {
-  return (
-    <span className="inline-flex flex-none items-center gap-1.5 settings-prose">
-      <span
-        aria-hidden="true"
-        className="size-1.5 flex-none rounded-full ring-1 ring-border-strong ring-inset"
-      />
-      Not connected
-    </span>
-  )
-}
-
-function StatusUnknown(): JSX.Element {
-  return (
-    <span className="inline-flex flex-none items-center gap-1.5 settings-prose text-muted-foreground">
-      <span aria-hidden="true" className="size-1.5 flex-none rounded-full bg-muted-foreground/50" />
-      Status unavailable
-    </span>
-  )
-}
-
-const AccountStatus = observer(function AccountStatus({
-  account,
-}: {
-  account: AccountView
-}): JSX.Element {
-  if (account.status === 'connected') {
-    return <StatusConnected identity={account.identity ?? 'connected'} />
-  }
-  return account.status === 'unknown' ? <StatusUnknown /> : <StatusDisconnected />
-})
 
 const NativeAccountRow = observer(function NativeAccountRow({
   account,
@@ -153,377 +108,148 @@ const NativeAccountRow = observer(function NativeAccountRow({
             ? (attempt.error ?? 'Login failed')
             : error
 
+  const label = harnessAgentLabel((account.harness ?? account.provider) as HarnessAgent)
   return (
-    <div>
-      <Row
-        label={harnessAgentLabel((account.harness ?? account.provider) as HarnessAgent)}
-        description={
-          account.machines?.length ? `on ${account.machines.join(', ')}` : (status ?? undefined)
-        }
-      >
-        <div className="flex items-center gap-2.5">
-          <AccountStatus account={account} />
-          {account.loginRequired && (
-            <>
-              {(account.loginMachines?.length ?? 0) > 1 && (
-                <select
-                  aria-label={`${account.harness} login machine`}
-                  className="h-8 rounded-md border border-border bg-background px-2 text-xs"
-                  value={machineId}
-                  onChange={(event) => setMachineId(event.target.value)}
-                >
-                  {account.loginMachines?.map((machine) => (
-                    <option key={machine.id} value={machine.id}>
-                      {machine.name}
-                    </option>
-                  ))}
-                </select>
-              )}
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={busy || !account.loginMachines?.length}
-                onClick={() => void login()}
-              >
-                {attempt?.status === 'running' ? 'Open login' : busy ? 'Starting…' : 'Log in'}
-              </Button>
-            </>
+    <EntityRow
+      leading={label.slice(0, 1)}
+      title={label}
+      pills={account.identity && <span className="settings-micro font-mono">{account.identity}</span>}
+      subtitle={
+        <>
+          <span>on {account.machines?.length ? account.machines.join(', ') : account.loginMachines?.map((machine) => machine.name).join(', ')}{account.status === 'not-configured' ? ' · not signed in' : ''}</span>
+          {(account.keptOn?.length ?? 0) > 0 && (
+            <p className="text-warning">Not copied to {account.keptOn?.map((machine) => machine.name).join(', ')}: a different login is signed in there, and Podium kept it.</p>
           )}
-        </div>
-      </Row>
-      {status && <p className="max-w-[62ch] pb-2.5 settings-prose">{status}</p>}
-      <UseOnMyMachinesBox account={account} trpc={trpc} onChanged={() => onChanged()} />
-    </div>
+          {status && <p role={error ? 'alert' : 'status'} className={error ? 'text-destructive' : undefined}>{status}</p>}
+        </>
+      }
+      trailing={account.loginRequired ? (
+        <>
+          {(account.loginMachines?.length ?? 0) > 1 && (
+            <select
+              aria-label={`${label} sign-in machine`}
+              className="h-8 max-w-40 rounded-md border border-border bg-background px-2 settings-prose"
+              value={machineId}
+              onChange={(event) => setMachineId(event.target.value)}
+            >
+              {account.loginMachines?.map((machine) => <option key={machine.id} value={machine.id}>{machine.name}</option>)}
+            </select>
+          )}
+          <Button type="button" size="sm" variant="outline" disabled={busy || !account.loginMachines?.length} onClick={() => void login()}>
+            {attempt?.status === 'running' ? 'Open sign-in' : busy ? 'Starting…' : 'Sign in'}
+          </Button>
+        </>
+      ) : account.identityFingerprint ? (
+        <UseOnMyMachinesBox account={account} trpc={trpc} onChanged={() => onChanged()} />
+      ) : (
+        <span className="settings-micro rounded-full bg-chip px-2 py-0.5">{account.status === 'connected' ? 'Ready' : 'Status unavailable'}</span>
+      )}
+    />
   )
 })
 
-/** A carved panel grouping one class of accounts: a machine-voice mono label over
- *  a bordered Panel-Navy surface whose rows self-divide by hairline seams. Groups
- *  the two account classes far more strongly than the old loose text lines, while
- *  staying carved (tone + seam), never floated. */
-function AccountGroup({
-  label,
-  qualifier,
-  children,
-}: {
-  label: string
-  qualifier: string
-  children: React.ReactNode
-}): JSX.Element {
-  return (
-    <div className="settings-account-group">
-      <div className="mb-2 flex items-baseline gap-2 px-0.5">
-        <span className="settings-eyebrow">{label}</span>
-        <span className="settings-micro">{qualifier}</span>
-      </div>
-      <div className="divide-y divide-hairline-soft overflow-hidden rounded-lg border border-border bg-card/50 px-3.5">
-        {children}
-      </div>
-    </div>
-  )
+function usedBy(account: AccountView): string {
+  return account.kind === 'oauth'
+    ? 'Your Claude coding agents'
+    : 'Your coding agents, background and superagent models when selected for this provider'
 }
 
-/**
- * One managed credential (#216): paste a secret to connect it, or drop it again.
- *
- * The secret is write-only from the browser's side — it is typed into a masked
- * field, posted once, and cleared from component state; `accounts.list` only ever
- * hands back the masked `identity`, so there is nothing to round-trip.
- */
-const ManagedAccountRow = observer(function ManagedAccountRow({
-  account,
-  directory,
-  onChanged,
-}: {
-  account: AccountView
-  directory: MemberRoster | null
-  onChanged: () => void
-}): JSX.Element {
+const KeyMachines = observer(function KeyMachines({ account, onChanged }: { account: AccountView; onChanged: () => void }) {
   const trpc = useSettingsTrpc()
-  const [editing, setEditing] = useState(false)
-  const [secret, setSecret] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [sending, setSending] = useState(false)
-
-  const isOauth = account.kind === 'oauth'
-  const connected = account.status === 'connected'
-  // A legacy key lives in settings.apiKeys, not the accounts table: there is no row
-  // for `accounts.disconnect` to delete, so offering a Disconnect here would be a
-  // button that reports success and changes nothing. Offer the honest action —
-  // replace it with a managed credential (which IS disconnectable), or remove it
-  // where it actually lives.
-  const legacy = connected && account.credentialSource === 'legacy'
-  // Another user's key, shared with this viewer (POD-6360). It is not theirs to
-  // disconnect; connecting their own replaces it for their agents.
-  const shared = connected && account.credentialSource === 'shared'
-  // The viewer's own stored key: theirs to share (POD-6390).
-  const own = connected && account.credentialSource === 'stored'
-  const sharedByName = shared ? directory?.nameOf(account.sharedBy) : undefined
-  const label = managedLabel(account)
-
-  // The row's own explanation lives under its label (POD-127 F3), never as a
-  // detached paragraph between rows. Exactly one applies at a time.
-  const note: React.ReactNode =
-    isOauth && !connected ? (
-      <>
-        Run <code>claude setup-token</code> in a terminal and paste the token here. It is a
-        long-lived subscription token (about a year), not your API key.
-      </>
-    ) : legacy && !editing ? (
-      <span className="text-warning">
-        Set under Settings → API keys, not held as a managed account — Podium does not inject it
-        into agent spawns and it cannot be disconnected here. Replace it to store it as a managed
-        account, or clear it under API keys.
-      </span>
-    ) : shared && !editing ? (
-      <>
-        Shared with you by {sharedByName ?? 'another user'}, and injected into your agents' spawns.
-        Connect your own to use it instead.
-      </>
-    ) : !isOauth && connected && !legacy ? (
-      <>
-        Injected into your agents' spawns. Issue digests (the background LLM role) run on the first
-        admin's settings and spend that admin's key, falling back to the instance key under API
-        keys.
-      </>
-    ) : undefined
-
-  const connect = async (): Promise<void> => {
-    const credential = secret.trim()
-    if (!credential || busy) return
-    setBusy(true)
-    setError(null)
-    try {
-      await trpc.accounts.connect.mutate({
-        provider: account.provider as ManagedProvider,
-        kind: isOauth ? 'oauth' : 'api-key',
-        credential,
-      })
-      // Never leave the plaintext credential sitting in the component.
-      setSecret('')
-      setEditing(false)
-      onChanged()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setBusy(false)
-    }
+  const [sending, setSending] = useState<string | null>(null)
+  const [note, setNote] = useState<string | null>(null)
+  const sent = account.sentTo ?? []
+  const machines = [...sent, ...(account.sendableTo ?? []).filter((machine) => !sent.some((other) => other.id === machine.id))]
+  const send = async (machineId: string) => {
+    await trpc.accounts.send.mutate({ id: account.id, machineId, acknowledgeSharedMachine: true })
+    setSending(null)
+    onChanged()
+    toast('Sent')
   }
-
-  // POD-6300: a connection runs on the owner's own machines. To run on someone
-  // else's (one the owner was given use of), the owner sends it there, after
-  // reading the shared-machine warning, which the server also requires.
-  const send = async (machineId: string): Promise<void> => {
-    if (busy) return
-    setBusy(true)
-    setError(null)
-    try {
-      await trpc.accounts.send.mutate({ id: account.id, machineId, acknowledgeSharedMachine: true })
-      setSending(false)
-      onChanged()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-  const sentTo = account.sentTo ?? []
-  const sendableTo = account.sendableTo ?? []
-
-  // POD-6699: take a send back. The next run there no longer gets the key; a
-  // session already running there keeps it until it restarts, which the server
-  // says and the row repeats.
-  const [unsentNote, setUnsentNote] = useState<string | null>(null)
-  const unsend = async (machineId: string): Promise<void> => {
-    if (busy) return
-    setBusy(true)
-    setError(null)
-    try {
-      const result = (await trpc.accounts.unsend.mutate({ id: account.id, machineId })) as {
-        note?: string
-      }
-      setUnsentNote(result.note ?? null)
-      onChanged()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const disconnect = async (): Promise<void> => {
-    if (busy) return
-    setBusy(true)
-    setError(null)
-    try {
-      await trpc.accounts.disconnect.mutate({ id: account.id })
-      onChanged()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-
   return (
-    <div>
-      <Row label={label} description={note}>
-        {connected && !editing ? (
-          <div className="flex items-center gap-2.5">
-            <StatusConnected identity={account.identity ?? 'connected'} />
-            {legacy || shared ? (
-              <Button type="button" size="sm" variant="outline" onClick={() => setEditing(true)}>
-                {shared ? 'Use your own' : 'Replace'}
-              </Button>
-            ) : (
-              <>
-                {sendableTo.length > 0 && !sending ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={busy}
-                    onClick={() => setSending(true)}
-                  >
-                    Send to a shared machine
-                  </Button>
-                ) : null}
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() => void disconnect()}
-                >
-                  Disconnect
-                </Button>
-              </>
-            )}
-          </div>
-        ) : editing ? (
-          <div className="flex w-full items-center gap-1.5">
-            <Input
-              type="password"
-              autoComplete="off"
-              autoFocus
-              className="flex-1"
-              aria-label={`${label} secret`}
-              placeholder={isOauth ? 'paste setup-token' : 'paste API key'}
-              value={secret}
-              disabled={busy}
-              onChange={(e) => setSecret(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void connect()
-                if (e.key === 'Escape') {
-                  setSecret('')
-                  setEditing(false)
-                }
-              }}
-            />
-            <Button
-              type="button"
-              size="sm"
-              disabled={busy || secret.trim().length === 0}
-              onClick={() => void connect()}
-            >
-              Save
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              disabled={busy}
-              onClick={() => {
-                setSecret('')
-                setError(null)
-                setEditing(false)
-              }}
-            >
-              Cancel
-            </Button>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2.5">
-            <StatusDisconnected />
-            <Button type="button" size="sm" variant="outline" onClick={() => setEditing(true)}>
-              Connect
-            </Button>
-          </div>
-        )}
-      </Row>
-      {own && sentTo.length > 0 ? (
-        <div className="max-w-[62ch] pb-2.5 settings-prose">
-          <p>
-            Also runs on {sentTo.map((machine) => machine.name).join(', ')}, someone else's{' '}
-            {sentTo.length === 1 ? 'machine' : 'machines'} you sent it to.
-          </p>
-          <ul className="mt-1 space-y-1">
-            {sentTo.map((machine) => (
-              <li key={machine.id} className="flex items-center gap-2">
-                <span>{machine.name}</span>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  disabled={busy}
-                  aria-label={`Remove ${label} from ${machine.name}`}
-                  onClick={() => void unsend(machine.id)}
-                >
-                  Remove
-                </Button>
-              </li>
-            ))}
-          </ul>
+    <Section title="Someone else’s machines" hint="Your key already runs on machines you look after. On a machine someone else looks after, it runs only if you send it there.">
+      {machines.length === 0 && <p className="settings-list-note settings-prose">You can’t run agents on anyone else’s machine yet.</p>}
+      {machines.map((machine) => (
+        <div key={machine.id}>
+          <SwitchRow label={machine.name} value={sent.some((other) => other.id === machine.id)} onChange={async (enabled) => {
+            setNote(null)
+            if (enabled) { setSending(machine.id); return }
+            const result = await trpc.accounts.unsend.mutate({ id: account.id, machineId: machine.id })
+            setNote(result.note ?? null)
+            onChanged()
+          }} />
+          {sending === machine.id && <ConfirmInline
+            sentence={SHARED_MACHINE_ACCOUNT_WARNING}
+            acknowledgement="I understand we will share this machine’s account. That includes this key."
+            actionLabel={`Send to ${machine.name}`}
+            onConfirm={() => send(machine.id)}
+            onCancel={() => setSending(null)}
+          />}
         </div>
-      ) : null}
-      {own && unsentNote ? (
-        <p className="max-w-[62ch] pb-2.5 settings-prose">{unsentNote}</p>
-      ) : null}
-      {sending ? (
-        <div
-          role="alertdialog"
-          aria-label={`Send ${label} to a shared machine`}
-          className="mb-2.5 max-w-[62ch] space-y-2 rounded-md border border-warning/40 bg-warning/5 p-3"
-        >
-          <p className="settings-prose text-warning">{SHARED_MACHINE_ACCOUNT_WARNING}</p>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {sendableTo.map((machine) => (
-              <Button
-                key={machine.id}
-                type="button"
-                size="sm"
-                disabled={busy}
-                onClick={() => void send(machine.id)}
-              >
-                Send to {machine.name}
-              </Button>
-            ))}
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              disabled={busy}
-              onClick={() => setSending(false)}
-            >
-              Cancel
-            </Button>
-          </div>
-        </div>
-      ) : null}
-      {own && !editing && (
-        <KeySharing
-          accountId={account.id}
-          label={label}
-          sharing={account.sharing}
-          directory={directory}
-          currentMemberId={directory?.currentMemberId}
-          onChanged={onChanged}
-        />
-      )}
-      {error && <p className="max-w-[62ch] pb-2.5 settings-prose text-destructive">{error}</p>}
-    </div>
+      ))}
+      {note && <p className="settings-list-note settings-prose" role="status">{note}</p>}
+    </Section>
+  )
+})
+
+const KeyDetail = observer(function KeyDetail({ account, directory, onChanged }: { account: AccountView; directory: MemberRoster | null; onChanged: () => void }) {
+  const trpc = useSettingsTrpc()
+  const { closeTakeover } = useSettingsFrame()
+  const [removing, setRemoving] = useState(false)
+  return (
+    <>
+      <Section>
+        <SecretRow label="Key" present maskedIdentity={account.identity} description="Stored on the server. Only its masked identity is shown." onSave={async (credential) => {
+          await trpc.accounts.connect.mutate({ provider: account.provider as ManagedProvider, kind: account.kind === 'oauth' ? 'oauth' : 'api-key', credential })
+          onChanged()
+        }} />
+        <ValueRow label="Used by" value={usedBy(account)} />
+      </Section>
+      <Section title="Who can use it" hint="Others use it only when they have no key of their own. Removing someone takes effect at their next agent start.">
+        <KeySharing accountId={account.id} label={managedLabel(account)} sharing={account.sharing} directory={directory} currentMemberId={directory?.currentMemberId} onChanged={onChanged} />
+      </Section>
+      <KeyMachines account={account} onChanged={onChanged} />
+      <Section title="Remove">
+        <Row label="Remove this key" description="Your agents stop using it at their next start. People you shared it with fall back to their own key, or none.">
+          <Button type="button" size="sm" variant="destructive" onClick={() => setRemoving(true)}>Remove</Button>
+        </Row>
+        {removing && <ConfirmInline sentence={`Remove ${managedLabel(account)}?`} actionLabel="Remove key" destructive onCancel={() => setRemoving(false)} onConfirm={async () => {
+          await trpc.accounts.disconnect.mutate({ id: account.id })
+          onChanged()
+          closeTakeover()
+          toast('Key removed')
+        }} />}
+      </Section>
+    </>
+  )
+})
+
+const AddKey = observer(function AddKey({ accounts, initialId, onChanged }: { accounts: readonly AccountView[]; initialId?: string; onChanged: () => void }) {
+  const trpc = useSettingsTrpc()
+  return (
+    <Section title="Your keys" hint="Keys start private. You can choose who else may use them after adding them.">
+      {accounts.filter((account) => account.credentialSource !== 'stored' && (!initialId || account.id === initialId)).map((account) => (
+        <SecretRow key={account.id} label={managedLabel(account)} present={false} description={account.kind === 'oauth' ? 'Used by: your Claude coding agents. Run claude setup-token in a terminal and paste the subscription token here.' : `Used by: ${usedBy(account)}.`} onSave={async (credential) => {
+          await trpc.accounts.connect.mutate({ provider: account.provider as ManagedProvider, kind: account.kind === 'oauth' ? 'oauth' : 'api-key', credential })
+          onChanged()
+        }} />
+      ))}
+    </Section>
+  )
+})
+
+const ManagedAccountRow = observer(function ManagedAccountRow({ account, directory, onChanged, onAdd }: { account: AccountView; directory: MemberRoster | null; onChanged: () => void; onAdd: () => void }) {
+  const { openTakeover } = useSettingsFrame()
+  const shared = account.credentialSource === 'shared'
+  return (
+    <EntityRow
+      leading={shared ? <Users size={16} /> : <KeyRound size={16} />}
+      title={managedLabel(account)}
+      pills={shared ? <span className="settings-micro rounded-full bg-chip px-2 py-0.5">Shared with you</span> : <span className="settings-micro font-mono">{account.identity ?? 'Set'}</span>}
+      subtitle={shared ? `${directory?.nameOf(account.sharedBy) ?? 'Another person'}’s key. Your agents use it because you have no key of your own.` : `${sharingSummary(directory, account.sharing)}${account.sentTo?.length ? ` · also runs on ${account.sentTo.map((machine) => machine.name).join(', ')}` : ''}`}
+      onClick={shared ? undefined : () => openTakeover({ title: managedLabel(account), content: <KeyDetail account={account} directory={directory} onChanged={onChanged} /> })}
+      trailing={shared ? <Button type="button" size="sm" variant="ghost" onClick={onAdd}>Add your own</Button> : undefined}
+    />
   )
 })
 
@@ -542,60 +268,35 @@ function useKeyPeople(open: boolean): MemberRoster | null {
   return directory
 }
 
-/** Accounts & Keys hub (SP-6454 stream B2; managed credentials #216): native CLI
- *  logins on this machine (observed read-only — each CLI's own `login` on the
- *  server owns those) + the managed credentials Podium holds and injects into
- *  agent spawns. Managed rows are connectable here: paste a provider API key, or
- *  a `claude setup-token` subscription token. The credential goes straight to the
- *  server's accounts table; the hub only ever reads back a masked identity. */
+/** Personal native logins and managed keys, read from the shared account models. */
 export const AccountsSection = observer(function AccountsSection(): JSX.Element {
   const trpc = useSettingsTrpc()
-  const adminViewer = useAdminSections()
+  const { openTakeover } = useSettingsFrame()
   const readAccounts = useCallback(() => trpc.accounts.list.query(), [trpc])
   const { request, reload } = useSettingsRecords('account', readAccounts, accountKey, false)
   const accounts = request?.models
-  const refresh = useCallback(
-    (automatic = false) => {
-      if (!automatic || !request?.loading) void reload()
-    },
-    [request, reload],
-  )
-
-  const native = (accounts ?? []).filter((a) => a.source === 'native')
-  const managed = (accounts ?? []).filter((a) => a.source === 'managed')
+  const refresh = useCallback((automatic = false) => {
+    if (!automatic || !request?.loading) void reload()
+  }, [request, reload])
+  const native = (accounts ?? []).filter((account) => account.source === 'native')
+  const installed = native.filter((account) => account.machines?.length || account.loginMachines?.length)
+  const absent = native.filter((account) => !installed.includes(account))
+  const managed = (accounts ?? []).filter((account) => account.source === 'managed')
+  const connected = managed.filter((account) => account.status === 'connected')
   const directory = useKeyPeople(accounts !== undefined)
-
+  const add = (initialId?: string) => openTakeover({ title: 'Add key', content: <AddKey accounts={managed} initialId={initialId} onChanged={refresh} /> })
   return (
-    <Section
-      title="Accounts & Keys"
-      hint="How Podium authenticates your agents to LLMs. Native logins are the CLI logins on the machines you look after. Managed accounts start private; you choose who may use a key. Your connections run on your machines, and on someone else's machine only after you send them there."
-    >
-      <div className="mt-3 space-y-5">
-        <AccountGroup label="Native logins" qualifier="your machines">
-          {native.map((a) => (
-            <NativeAccountRow key={a.id} account={a} onChanged={refresh} />
-          ))}
-        </AccountGroup>
-        <AccountGroup label="Managed accounts" qualifier="Podium-held">
-          {managed.map((a) => (
-            <ManagedAccountRow key={a.id} account={a} directory={directory} onChanged={refresh} />
-          ))}
-        </AccountGroup>
-        {adminViewer.sections.includes('people') && directory && (
-          <MembersKeys
-            directory={directory}
-            labelOf={managedLabel}
-            group={(children) => (
-              <AccountGroup label="Members' keys" qualifier="admin · who may use each">
-                {children}
-              </AccountGroup>
-            )}
-          />
-        )}
-      </div>
-      <p className="settings-prose mt-3">
-        Coming soon — rotating several subscription logins across agents.
-      </p>
-    </Section>
+    <>
+      <Section title="Logins on your machines" hint={`CLI logins found on the machines you look after. ${USE_ON_MY_MACHINES_NOTE}`} list>
+        {accounts === undefined && <p className="settings-list-note settings-prose" role="status">Loading logins…</p>}
+        {request?.error && <p className="settings-list-note settings-prose text-destructive" role="alert">{request.error}</p>}
+        {installed.map((account) => <NativeAccountRow key={account.id} account={account} onChanged={refresh} />)}
+        {absent.length > 0 && <p className="settings-list-note settings-prose">{absent.map((account) => harnessAgentLabel((account.harness ?? account.provider) as HarnessAgent)).join(', ')} are supported too. Install one on a machine you look after and it shows up here.</p>}
+      </Section>
+      <Section title="API keys" hint="For agents and background jobs that bill per token. A key starts private; you decide who else may use it. Others use a shared key only when they have none of their own." list action={managed.some((account) => account.credentialSource !== 'stored') && <Button type="button" variant="outline" size="sm" onClick={() => add()}>Add key</Button>}>
+        {connected.map((account) => <ManagedAccountRow key={account.id} account={account} directory={directory} onChanged={refresh} onAdd={() => add(account.id)} />)}
+        {accounts !== undefined && connected.length === 0 && <p className="settings-list-note settings-prose">No keys yet. Add your own to use it with your agents and background jobs.</p>}
+      </Section>
+    </>
   )
 })
