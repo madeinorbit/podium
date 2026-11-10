@@ -152,15 +152,14 @@ export async function openServerIdentity(
   // Only a server that built its own core: a hosted workspace database must
   // never get local accounts.
   if (!opts.readOnly) {
-    const outcome = await ensureLocalIdentity(store, workspace)
-    if (outcome.kind === 'adopted-first-admin') {
-      log.info('the first admin of this database got its membership and account', {
-        memberId: outcome.memberId,
-      })
-    } else if (outcome.kind === 'left-untouched') {
+    const counts = await ensureLocalIdentity(store, workspace)
+    if (Object.values(counts).some((count) => count > 0)) {
+      log.info('local identity upgrade committed', counts)
+    }
+    if (counts.skippedSoleMemberInvitations > 0) {
       log.warn(
-        'this database has members from before shared sign-in and no memberships; it was left untouched and nobody can sign in until the upgrade step exists',
-        { reason: outcome.reason, members: outcome.members },
+        'Legacy password setup invitation not carried over. The admin sets a password from Settings.',
+        { count: counts.skippedSoleMemberInvitations },
       )
     }
   }

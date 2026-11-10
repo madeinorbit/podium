@@ -1,10 +1,15 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash, randomBytes } from 'node:crypto'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { firstAdminMemberId, MemberId } from '@podium/model'
+import { firstAdminMemberId, MemberId, newInviteId } from '@podium/model'
 import { CAP_SYNC_HTTP_V1, CLIENT_WIRE_VERSION } from '@podium/protocol'
+import { stagePasswordForFirstBoot } from '@podium/runtime/auth-store'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { noJanitorWorkerForTests } from './janitor-host'
+import { runDrizzleMigrations } from './migrations'
+import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
 import { startServer } from './server'
 
 /**
@@ -35,6 +40,73 @@ import { startServer } from './server'
  * it.
  */
 const priorStateDir = process.env.PODIUM_STATE_DIR
+
+it('keeps the all-in-one server’s shared password and a pending legacy invitation on upgrade', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'podium-shared-password-upgrade-'))
+  const password = 'shared-legacy-fixture-password'
+  const token = randomBytes(32).toString('base64url')
+  const email = 'invitee@example.test'
+  let server: Awaited<ReturnType<typeof startServer>> | undefined
+  try {
+    writeFileSync(
+      join(dir, 'config.json'),
+      JSON.stringify({ configVersion: 2, mode: 'all-in-one', persistence: 'systemd' }),
+    )
+    await stagePasswordForFirstBoot(password, dir)
+    const db = openDatabase(join(dir, 'podium.db'))
+    let member: { id: string }
+    try {
+      const cut = DRIZZLE_MIGRATIONS.findIndex(({ name }) => name.endsWith('_identity-core'))
+      runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cut))
+      member = db.prepare('SELECT id FROM users').get() as { id: string }
+      expect(db.prepare('SELECT user_id FROM user_credentials').all()).toEqual([])
+      db.prepare(`INSERT INTO member_invites (id, token_hash, email, role, created_by, created_at, expires_at)
+        VALUES (?, ?, ?, 'member', ?, ?, ?)`).run(
+        newInviteId(),
+        createHash('sha256').update(token).digest('hex'),
+        email,
+        member.id,
+        new Date().toISOString(),
+        new Date(Date.now() + 86_400_000).toISOString(),
+      )
+    } finally {
+      db.close()
+    }
+    process.env.PODIUM_STATE_DIR = dir
+    server = await startServer({
+      janitorWorkerForTests: noJanitorWorkerForTests,
+      host: '127.0.0.1',
+      port: 0,
+    })
+    const origin = `http://127.0.0.1:${server.port}`
+    const login = await fetch(`${origin}/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ password }),
+    })
+    expect(login.status).toBe(200)
+    const cookie = login.headers
+      .getSetCookie()
+      .find((value) => value.includes('session_token'))
+      ?.split(';')[0]
+    if (!cookie) throw new Error('The shared password did not produce a sign-in cookie')
+    const status = await fetch(`${origin}/auth/status`, { headers: { cookie } })
+    expect(await status.json()).toMatchObject({
+      authed: true,
+      userId: member.id,
+      prompt: 'password',
+    })
+    expect(existsSync(join(dir, 'auth.json'))).toBe(false)
+    await expect(server.identity.memberships.inspectInvitation(token)).resolves.toMatchObject({
+      email,
+    })
+  } finally {
+    await server?.close()
+    if (priorStateDir === undefined) delete process.env.PODIUM_STATE_DIR
+    else process.env.PODIUM_STATE_DIR = priorStateDir
+    rmSync(dir, { recursive: true, force: true })
+  }
+}, 30_000)
 
 describe('open mode acts as the sole active member', () => {
   let stateDir: string
@@ -227,7 +299,11 @@ describe('open mode ends once a second active member exists (MU-01)', () => {
 
       // A disabled member is not a second person who can act.
       await f.disableBob()
-      expect(await f.status()).toMatchObject({ needsAuth: false, authed: true, userId: alone.userId })
+      expect(await f.status()).toMatchObject({
+        needsAuth: false,
+        authed: true,
+        userId: alone.userId,
+      })
       await f.enableBob()
       expect(await f.status()).toMatchObject({ needsAuth: true, authed: false })
       expect(await f.trpcStatus()).toBe(401)

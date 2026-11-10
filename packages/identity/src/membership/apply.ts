@@ -17,9 +17,10 @@ export async function applyMembership(
   rows: MemberRows,
   membership: MembershipSnapshot,
 ): Promise<void> {
-  // An invited membership has no member row of its own. When the invitation
-  // named an existing member, that row stays as it is until it is accepted.
-  if (membership.status === 'invited') return
+  // Inviting does not write a member row. During an upgrade the writer stamps
+  // the version on a pre-existing row without changing its member facts.
+  const upgrade = 'system' in membership.actor && membership.actor.system === 'upgrade'
+  if (membership.status === 'invited' && !upgrade) return
   await rows.write({
     memberId: membership.memberId,
     version: membership.version,

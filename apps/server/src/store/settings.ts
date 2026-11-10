@@ -79,6 +79,7 @@ function needsTelemetryIdentity(
 
 /** One `meta` value by key: every read here, whichever key it names. */
 const APPLIED_MEMBERSHIP_VERSION_KEY = 'identity.appliedMembershipVersion'
+const LEGACY_LINKS_IMPORTED_KEY = 'identity.legacyLinksImported'
 
 const metaValue = prepared((db: StoreDrizzle) =>
   db
@@ -281,6 +282,15 @@ export class SettingsRepository {
 
   async recordAppliedMembershipVersion(version: number): Promise<void> {
     await this.writeMeta(APPLIED_MEMBERSHIP_VERSION_KEY, String(version))
+  }
+
+  /** The original links stay in the old table for rollback. Import them only once. */
+  async legacyIdentityLinksImported(): Promise<boolean> {
+    return (await metaValue(this.db).get({ key: LEGACY_LINKS_IMPORTED_KEY }))?.value === '1'
+  }
+
+  async recordLegacyIdentityLinksImported(): Promise<void> {
+    await this.writeMeta(LEGACY_LINKS_IMPORTED_KEY, '1')
   }
 
   async getSettings(): Promise<PodiumSettings> {

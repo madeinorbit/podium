@@ -252,14 +252,29 @@ const anyPerUserCredential = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-/** Who signs in with a password: the members a recovery link can help (POD-6299). */
-const memberIdsWithPassword = prepared((db: StoreDrizzle) =>
+/** Existing credentials for the upgrade, including those of disabled members. */
+const legacyPasswords = prepared((db: StoreDrizzle) =>
   db
-    .select({ userId: userCredentials.userId })
+    .select({ userId: userCredentials.userId, passwordHash: userCredentials.passwordHash })
     .from(userCredentials)
     .where(
       and(eq(userCredentials.source, 'per-user-scrypt'), isNotNull(userCredentials.passwordHash)),
     )
+    .prepare(),
+)
+
+const deleteRetiredClientSessions = prepared((db: StoreDrizzle) =>
+  db
+    .delete(clientSessions)
+    .where(inArray(clientSessions.label, ['upstream', 'server-transfer-claim']))
+    .prepare(),
+)
+
+const stampMemberVersion = prepared((db: StoreDrizzle) =>
+  db
+    .update(users)
+    .set({ membershipVersion: sql.placeholder('version') })
+    .where(eq(users.id, param(users.id, 'id')))
     .prepare(),
 )
 
@@ -909,9 +924,18 @@ export class UsersRepository {
     }
   }
 
-  /** The members who sign in with a password, in one read (POD-6299). */
-  async membersWithPassword(): Promise<ReadonlySet<UserId>> {
-    return new Set((await memberIdsWithPassword(this.db).all()).map((row) => row.userId))
+  /** The upgrade needs the original bytes, including credentials of disabled members. */
+  async legacyPasswordHashes(): Promise<ReadonlyMap<UserId, string>> {
+    const rows = await legacyPasswords(this.db).all()
+    return new Map(
+      rows.flatMap(({ userId, passwordHash }) =>
+        passwordHash ? [[userId, passwordHash] as const] : [],
+      ),
+    )
+  }
+
+  async deleteRetiredClientSessions(): Promise<number> {
+    return Number((await deleteRetiredClientSessions(this.db).run()).changes)
   }
 
   async hasPerUserCredentials(): Promise<boolean> {
@@ -1156,6 +1180,13 @@ export class UsersRepository {
       const memberId = asUserId(change.memberId)
       const existing = await accountById(this.db).get({ id: memberId })
       if (existing && change.version <= existing.membershipVersion) return
+      if (change.state === 'invited') {
+        if (existing) {
+          await stampMemberVersion(this.db).run({ id: memberId, version: change.version })
+          this.accountsWritten()
+        }
+        return
+      }
       const at = new Date().toISOString()
       const actor = 'memberId' in change.actor ? asUserId(change.actor.memberId) : null
       const removed = change.state === 'removed'

@@ -402,7 +402,7 @@ export interface MemberWrite {
   version: number
   /** A newer authority revision fences work even when intervening changes collapsed. */
   authorizationVersion?: number
-  state: 'active' | 'disabled' | 'removed'
+  state: 'invited' | 'active' | 'disabled' | 'removed'
   role: 'admin' | 'member'
   accountId: string | null
   profile: { name: string; image: string | null; email: string | null } | null

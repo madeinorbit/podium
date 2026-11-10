@@ -1035,7 +1035,7 @@ Expired rows are not carried.
 - **One person.** One account, one active membership, the password carried. A server in open mode, one with a per-member password and no address, and one that got the shared instance password each behave as before, including no sign-in on the all-in-one app's own machine.
 - **A team.** An account and a membership per member from their address, password, role and disabled state. A disabled member still cannot sign in.
 - **Pending invitations.** As in section 8.3.
-- **Rollback.** The upgrade adds tables and one column and changes no existing row, apart from deleting the `client_sessions` rows of section 6. Rollback is the procedure POD-6302 proved (`docs/data-and-upgrades.md`): restore the database backup the migration took, together with the matching older binary. What is lost is what happened after the upgrade: new members, changed passwords and new sign-ins. The older binary finds its own tables as it left them, including the sign-ins that were live at the upgrade.
+- **Rollback.** The upgrade adds tables and one column, links existing members to their accounts and membership versions, and deletes the `client_sessions` rows of section 6. Rollback is the procedure POD-6302 proved (`docs/data-and-upgrades.md`): restore the database backup the migration took, together with the matching older binary. What is lost is what happened after the upgrade: new members, changed passwords and new sign-ins. The older binary finds its own tables as it left them, including the sign-ins that were live at the upgrade.
 
 ### 8.5 What the sign-in carry-over needs left in place
 
@@ -1049,7 +1049,7 @@ The carry-over is designed in `docs/design/sign-in-carry-over.md` (POD-6755, app
 | An old-form `cli-session.json`, unread and undeleted when the `podium` command finds one | the host's cached session is carried over once |
 | The old cookie name `podium_session` (`SESSION_COOKIE` in `@podium/protocol`) as a constant | old browsers still send it. New sign-ins never use this name (section 2.3), so the two cannot be confused |
 | Member ids unchanged, and for every member with an old sign-in a membership that names an account | the carry-over turns "old sign-in of member M" into "device sign-in of M's account" |
-| `user_credentials` and `member_invites`, unread | rollback (section 8.4) |
+| `user_credentials` and `member_invites`, unchanged | rollback (section 8.4) |
 
 What changes under the carry-over's feet, and is allowed: the upgrade deletes the `upstream` and `server-transfer-claim` rows; nothing writes `client_sessions` after POD-6748 (new sign-ins, pairing, the host session and the server move all create device sign-ins or codes); `podium auth mint-session` stops inserting rows.
 
@@ -1415,6 +1415,8 @@ For the coordinator. None of these changes a goal; each changes who does somethi
 | 59 | Section 11.2 and row 34: the cursor has no transaction | `AppliedCursor.transaction` is an optional workspace transaction runner. The server supplies it over its existing store executor; catch-up applies one snapshot and advances its cursor in that transaction. A cursor failure rolls back member facts, generation and publications | PDM-509 tightened the crash window without changing bindings that cannot supply a transaction |
 | 60 | PDM-509 account-deletion acceptance; the cloud already had an account-delete hook | The cloud extension enables the shared library’s self-deletion route. The shared library checks the signed-in account, trusted Origin, and password or fresh session. Its existing delete hook ends all memberships before deletion; workspace catch-up applies the changes | The hook was unreachable while library deletion was disabled. Approved by the coordinator, with self-only, foreign-Origin and stale-session tests |
 | 61 | Section 2.4: a profile edit steps each live membership version | On Postgres, the first read finds the workspaces. After taking each workspace revision lock, the profile hook re-reads the live membership and preserves its status, role and authorization revision | PDM-509 reproduced a concurrent disable being overwritten by the earlier active snapshot. The two-connection test holds the disable’s lock while the profile edit reaches it |
+| 62 | Section 8.3 gives the stored token and expiry but names no import operation | `@podium/identity/upgrade` exposes `importLegacyLink` for the server upgrade. It keeps the hash, original expiry and creator and uses the existing invitation and password-reset stores | The usual operations mint a new token. The upgrade has only the hash and the invitee may already have the original link |
+| 63 | Sections 8.2 and 8.3 conflict when a legacy invitation targets the sole enabled member without a password | The member keeps their active membership and open access. The old link is refused and startup logs that the admin sets a password from Settings | The coordinator gave the sole-member rule precedence on 2026-11-10 |
 
 ## 17. Product questions this document could not settle
 
