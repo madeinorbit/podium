@@ -141,8 +141,9 @@ describe('MU-26: each member’s connections are their own', () => {
     })
     await select('bob', 'managed:openai')
     const before = spawnFrames(f.machines.bob).length
+    // Nobody shares one with Bob, so Alice's is out of reach (sharing is explicit).
     await expect(startClaude('bob', f.machines.bob, '/wt/bob-no-openai')).rejects.toThrow(
-      /You have no OpenAI connection, and Podium never uses someone else's/,
+      /No OpenAI API key is available to you: .* you have not connected your own .* and nobody shares one with you/,
     )
     expect(spawnFrames(f.machines.bob)).toHaveLength(before)
     await select('bob', 'managed:anthropic')
@@ -231,8 +232,10 @@ describe('an admin cannot see, use or edit another member’s connection', () =>
 
   it('Alice cannot run with Bob’s connection: with hers gone, her run fails', async () => {
     const before = spawnFrames(f.machines.alice).length
+    // Refused before any spawn: Bob's key is not shared with her, and an admin
+    // role never supplies one (`managedKeyFor`: own key, then explicit shares).
     await expect(startClaude('alice', f.machines.alice, '/wt/alice-no-key')).rejects.toThrow(
-      /You have no Anthropic connection/,
+      /No Anthropic API key is available to you: .* you have not connected your own .* and nobody shares one with you/,
     )
     expect(spawnFrames(f.machines.alice)).toHaveLength(before)
     expect(JSON.stringify(f.daemonFrames(f.machines.alice))).not.toContain(BOB_KEY)

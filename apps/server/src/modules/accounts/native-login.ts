@@ -7,6 +7,7 @@ import type {
   UserId,
 } from '@podium/model'
 import { asMachineId } from '@podium/model'
+import { asSystemWrite } from '../../plain-command-scope'
 import { withReadScope } from '../../store/executor/read-scope'
 import type { EventBus } from '../bus'
 import type { MachinesService } from '../machines/service'
@@ -138,15 +139,24 @@ export class NativeLoginService {
       )
     }
 
-    const spawned = await this.deps.sessions.createSession({
-      agentKind: 'shell',
-      loginHarness: input.harness,
-      cwd: await this.deps.cwdForMachine(machine.id),
-      title: `${input.harness} login`,
-      name: `${input.harness} login`,
-      machineId: asMachineId(machine.id),
-      ownerUserId: input.ownerUserId,
-    })
+    // THE LOGIN TERMINAL IS A SYSTEM WRITE (ADR 12 D8; POD-6736). `accounts.login`
+    // is a plain command, and its only synced write is this terminal's session
+    // row. The server composes all of it (shell, folder, title, the machine it
+    // checked above); the caller chose only the harness. Without the exit the
+    // plain scope refused every sign-in from Settings, setup and the agent panel.
+    const cwd = await this.deps.cwdForMachine(machine.id)
+    const spawned = await asSystemWrite(
+      async () =>
+        await this.deps.sessions.createSession({
+          agentKind: 'shell',
+          loginHarness: input.harness,
+          cwd,
+          title: `${input.harness} login`,
+          name: `${input.harness} login`,
+          machineId: asMachineId(machine.id),
+          ownerUserId: input.ownerUserId,
+        }),
+    )
     const attempt: NativeLoginAttempt = {
       sessionId: spawned.sessionId,
       machineId: machine.id,
