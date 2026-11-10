@@ -10,10 +10,11 @@
  * is allowed to.
  */
 
+import { applySettingsPatch, changedSettingsLeaves } from '@podium/commands/settings-write-plan'
 import { DEFAULT_SETTINGS, normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import type { Trpc } from '@/app/trpc'
-import { refusalMessage, saveSettingsAsCommands } from './save-settings'
+import { refusalMessage, saveSettingsAsCommands, settingsChange } from './save-settings'
 
 function fakeTrpc() {
   // My personal leaves are an edit of my `userPreferences` record (POD-6673),
@@ -68,22 +69,28 @@ describe('resetting absent-default instance settings', () => {
     const previous = normalizeSettings({
       transcripts: { mirror: false },
       deployment: {
-        authOpenMode: true, updateChannel: 'dev', connectEnabled: false,
-        telemetryUsage: 'off', telemetryCrash: 'on',
-        telemetryInstallId: 'saved-install', telemetrySince: 0,
+        authOpenMode: true,
+        updateChannel: 'dev',
+        connectEnabled: false,
+        telemetryUsage: 'off',
+        telemetryCrash: 'on',
+        telemetryInstallId: 'saved-install',
+        telemetrySince: 0,
       },
     })
     const result = await save(trpc, previous, DEFAULT_SETTINGS, { online: true })
-    expect(updateInstance).toHaveBeenCalledExactlyOnceWith({ values: {
-      'transcripts.mirror': undefined,
-      'deployment.authOpenMode': undefined,
-      'deployment.updateChannel': undefined,
-      'deployment.connectEnabled': undefined,
-      'deployment.telemetryUsage': undefined,
-      'deployment.telemetryCrash': undefined,
-      'deployment.telemetryInstallId': undefined,
-      'deployment.telemetrySince': undefined,
-    } })
+    expect(updateInstance).toHaveBeenCalledExactlyOnceWith({
+      values: {
+        'transcripts.mirror': undefined,
+        'deployment.authOpenMode': undefined,
+        'deployment.updateChannel': undefined,
+        'deployment.connectEnabled': undefined,
+        'deployment.telemetryUsage': undefined,
+        'deployment.telemetryCrash': undefined,
+        'deployment.telemetryInstallId': undefined,
+        'deployment.telemetrySince': undefined,
+      },
+    })
     expect(updatePersonal).not.toHaveBeenCalled()
     expect(setSecret).not.toHaveBeenCalled()
     expect(clearSecret).not.toHaveBeenCalled()
@@ -201,5 +208,81 @@ describe('online, the commands are issued — one per tier, one per secret', () 
     }
     // …and the spies were actually called, so the loop above is not empty.
     expect(updatePersonal).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('one control and its inverse', () => {
+  const permitted = {
+    'records.userPreferences.edit': true,
+    'records.instancePreferences.edit': true,
+  }
+  it('plans the same leaves as the former form diff, without staging', async () => {
+    const { trpc, updateInstance } = fakeTrpc()
+    const patch = { hibernation: { ...base.hibernation, enabled: false } }
+    const change = settingsChange(base, patch)
+    expect(change.paths).toEqual(
+      changedSettingsLeaves(base, { ...base, ...patch }).map((leaf) => leaf.path),
+    )
+    await change.save(trpc, () => base, { instance: INSTANCE.get(trpc) }, permitted)
+    expect(updateInstance).toHaveBeenCalledExactlyOnceWith({
+      values: { 'hibernation.enabled': false },
+    })
+  })
+  it('undoes only this control and keeps concurrent changes from another device', async () => {
+    const { trpc } = fakeTrpc()
+    let record = normalizeSettings({})
+    const personal = vi.fn(async (values: Readonly<Record<string, unknown>>) => {
+      record = applySettingsPatch(record, values)
+    })
+    const undo = await settingsChange(record, {
+      notifications: { ...record.notifications, ntfyTopic: 'new-topic' },
+    }).save(trpc, () => record, { personal }, permitted)
+    record = applySettingsPatch(record, { 'notifications.web': false, 'hibernation.memoryPct': 90 })
+    await undo()
+    expect(personal).toHaveBeenLastCalledWith({ 'notifications.ntfyTopic': '' })
+    expect(record.notifications.web).toBe(false)
+    expect(record.hibernation.memoryPct).toBe(90)
+  })
+  it('resets an optional instance leaf when Undo returns it to its absent default', async () => {
+    const { trpc } = fakeTrpc()
+    let record = normalizeSettings({})
+    const instance = vi.fn(async (values: Readonly<Record<string, unknown>>) => {
+      record = applySettingsPatch(record, values)
+    })
+    const undo = await settingsChange(record, { transcripts: { mirror: false } }).save(
+      trpc,
+      () => record,
+      { instance },
+      permitted,
+    )
+    expect(instance).toHaveBeenCalledWith({ 'transcripts.mirror': false })
+    await undo()
+    expect(instance).toHaveBeenLastCalledWith({ 'transcripts.mirror': undefined })
+  })
+  it('never issues a record write the viewer cannot use', async () => {
+    const { trpc, updateInstance } = fakeTrpc()
+    await expect(
+      settingsChange(base, { hibernation: { ...base.hibernation, enabled: false } }).save(
+        trpc,
+        () => base,
+        { instance: INSTANCE.get(trpc) },
+        {},
+      ),
+    ).rejects.toThrow('permission')
+    expect(updateInstance).not.toHaveBeenCalled()
+  })
+  it('propagates a refused write instead of producing an Undo action', async () => {
+    const { trpc } = fakeTrpc()
+    const instance = vi.fn(async () => {
+      throw new Error('locked by the deployment')
+    })
+    await expect(
+      settingsChange(base, { transcripts: { mirror: false } }).save(
+        trpc,
+        () => base,
+        { instance },
+        permitted,
+      ),
+    ).rejects.toThrow('locked by the deployment')
   })
 })

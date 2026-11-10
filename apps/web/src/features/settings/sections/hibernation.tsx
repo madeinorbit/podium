@@ -1,7 +1,6 @@
-import { observer } from 'mobx-react-lite'
 import type { PodiumSettings } from '@podium/runtime'
+import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
-import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
@@ -10,7 +9,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { clampInt, clampNumber, Row, Section, Subsection } from './shared'
+import { CommitInput, clampInt, clampNumber, Row, Section, Subsection } from './shared'
 
 /** Auto-hibernation thresholds for idle sessions under resource pressure, plus
  *  worktree GC (POD-564 / POD-563). */
@@ -28,7 +27,7 @@ export const HibernationSection = observer(function HibernationSection({
       title="Auto-hibernation"
       hint="Idle sessions hibernate to relieve memory or load pressure, or to converge toward the per-machine idle-session target. One click resumes them."
     >
-      <Row label="Enabled">
+      <Row setting="hibernation.enabled" label="Enabled">
         <Switch
           checked={settings.hibernation.enabled}
           onCheckedChange={(checked) =>
@@ -36,8 +35,8 @@ export const HibernationSection = observer(function HibernationSection({
           }
         />
       </Row>
-      <Row label="Memory threshold (%)">
-        <Input
+      <Row setting="hibernation.memoryPct" label="Memory threshold (%)">
+        <CommitInput
           className="w-[90px] flex-none"
           type="number"
           min={50}
@@ -54,11 +53,13 @@ export const HibernationSection = observer(function HibernationSection({
         />
       </Row>
       <Row
+        setting="hibernation.loadPerCore"
         label="Load per core"
         description="load1 ÷ cores. Empty turns load pressure off. Default 1.5 means the run queue is half again the core count. The top-bar LOAD meter fills against this threshold."
       >
-        <Input
-          aria-label="Load per core"
+        <CommitInput
+          aria-setting="hibernation.loadPerCore"
+          label="Load per core"
           className="w-[90px] flex-none"
           type="number"
           min={0.5}
@@ -77,8 +78,8 @@ export const HibernationSection = observer(function HibernationSection({
           }
         />
       </Row>
-      <Row label="Idle after (minutes)">
-        <Input
+      <Row setting="hibernation.idleMinutes" label="Idle after (minutes)">
+        <CommitInput
           className="w-[90px] flex-none"
           type="number"
           min={1}
@@ -98,6 +99,7 @@ export const HibernationSection = observer(function HibernationSection({
           left-aligned prose inside the right-hand CONTROL cell, which is the one
           place on this screen that is not a text column. */}
       <Row
+        setting="hibernation.maxIdleSessions"
         label="Maximum idle sessions"
         description={
           <>
@@ -114,8 +116,9 @@ export const HibernationSection = observer(function HibernationSection({
           </>
         }
       >
-        <Input
-          aria-label="Maximum idle sessions"
+        <CommitInput
+          aria-setting="hibernation.maxIdleSessions"
+          label="Maximum idle sessions"
           className="w-[90px] flex-none"
           type="number"
           min={0}
@@ -133,11 +136,13 @@ export const HibernationSection = observer(function HibernationSection({
         />
       </Row>
       <Row
+        setting="hibernation.idleShellMinutes"
         label="Idle shell minutes"
         description="Park live shells after this many minutes with no input or output. The default is 60 minutes; empty turns shell reaping off."
       >
-        <Input
-          aria-label="Idle shell minutes"
+        <CommitInput
+          aria-setting="hibernation.idleShellMinutes"
+          label="Idle shell minutes"
           className="w-[90px] flex-none"
           type="number"
           min={1}
@@ -156,11 +161,13 @@ export const HibernationSection = observer(function HibernationSection({
         />
       </Row>
       <Row
+        setting="hibernation.backstopMinutes"
         label="Idle backstop minutes"
         description="Last resort: park after total quiet time without terminal proof. A future scheduled wakeup keeps the session live; empty disables this backstop."
       >
-        <Input
-          aria-label="Idle backstop minutes"
+        <CommitInput
+          aria-setting="hibernation.backstopMinutes"
+          label="Idle backstop minutes"
           className="w-[90px] flex-none"
           type="number"
           min={60}
@@ -184,6 +191,7 @@ export const HibernationSection = observer(function HibernationSection({
         hint="Closed issues keep their checkouts until age and policy say otherwise. Propose records what it would free; auto applies. Uncommitted changes always refuse."
       >
         <Row
+          setting="worktreeGc.mode"
           label="Mode"
           description="Propose is the default so a first run of a large backlog is inspectable before anything is deleted from disk."
         >
@@ -209,10 +217,11 @@ export const HibernationSection = observer(function HibernationSection({
           </Select>
         </Row>
         <Row
+          setting="worktreeGc.afterDays"
           label="After (days)"
           description="Measured from the issue's closedAt. Archive already frees on its way past; this sweeps the closed-but-never-archived tail."
         >
-          <Input
+          <CommitInput
             aria-label="Worktree GC after days"
             className="w-[90px] flex-none"
             type="number"

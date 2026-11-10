@@ -1,7 +1,6 @@
-import { observer } from 'mobx-react-lite'
 import type { PodiumSettings } from '@podium/runtime'
+import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
-import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
@@ -10,7 +9,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { Row, Section } from './shared'
+import { CommitInput, Row, Section } from './shared'
 
 /** Git workflow defaults (parent branch, merge style, rebase) + issue assistant. */
 export const WorkflowSection = observer(function WorkflowSection({
@@ -23,10 +22,11 @@ export const WorkflowSection = observer(function WorkflowSection({
   return (
     <Section title="Git workflow" hint="Defaults for task worktrees and the quick-action buttons.">
       <Row
+        setting="gitWorkflow.defaultParentBranch"
         label="Default parent branch"
         description="New tasks branch from this in repositories without their own base branch. Leave empty to use each repository's main branch."
       >
-        <Input
+        <CommitInput
           type="text"
           placeholder="(auto-detect)"
           value={settings.gitWorkflow.defaultParentBranch}
@@ -40,7 +40,7 @@ export const WorkflowSection = observer(function WorkflowSection({
           }
         />
       </Row>
-      <Row label="Merge style">
+      <Row setting="gitWorkflow.mergeStyle" label="Merge style">
         <Select
           value={settings.gitWorkflow.mergeStyle}
           onValueChange={(value) =>
@@ -68,7 +68,7 @@ export const WorkflowSection = observer(function WorkflowSection({
           </SelectContent>
         </Select>
       </Row>
-      <Row label="Rebase before merge">
+      <Row setting="gitWorkflow.autoRebaseBeforeMerge" label="Rebase before merge">
         <Switch
           checked={settings.gitWorkflow.autoRebaseBeforeMerge}
           onCheckedChange={(checked) =>
@@ -81,7 +81,7 @@ export const WorkflowSection = observer(function WorkflowSection({
           }
         />
       </Row>
-      <Row label="Task AI assistant enabled">
+      <Row setting="issues.assistantEnabled" label="Task AI assistant enabled">
         <Switch
           checked={settings.issues.assistantEnabled}
           onCheckedChange={(checked) =>

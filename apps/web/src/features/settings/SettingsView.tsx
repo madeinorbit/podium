@@ -6,7 +6,6 @@ import {
 import { instancePreferences } from '@podium/client-graph/instance-preferences'
 import { here } from '@podium/client-graph/lookup'
 import { myPreferences } from '@podium/client-graph/per-user-records'
-import type { SettingsWriteRefusal } from '@podium/commands/settings-write-plan'
 import {
   INSTANCE_PREFERENCES_ROW_ID,
   SETTINGS_PATH_TIERS,
@@ -16,21 +15,19 @@ import { DEFAULT_SETTINGS, type PodiumSettings } from '@podium/runtime'
 import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { toast } from 'sonner'
 import { usePoolIdleCapUnmetCount } from '@/app/header-data'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
-import { Button } from '@/components/ui/button'
 import { WaitingForServer } from '@/components/WaitingForServer'
-import type { NetworkSaveController } from '@/features/setup/network-step'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { useDeadlineNow } from '@/lib/clock-hooks'
-import { cn } from '@/lib/utils'
 import { AdminViewerContext, useAdminSections } from './admin-viewer'
 import { SETTINGS_GROUPS } from './page-definitions'
 import { useSettingsTab } from './readers'
 import { accountKey, useSettingsRecords } from './record-readers'
 import { SettingsOpening } from './SettingsOpening'
-import { refusalMessage, saveSettingsAsCommands } from './save-settings'
+import { settingsChange } from './save-settings'
 import { AppearanceSection } from './sections/appearance'
 import { ExperimentalSection } from './sections/experimental'
 import { HibernationSection } from './sections/hibernation'
@@ -42,12 +39,15 @@ import { PrivacySection } from './sections/privacy'
 import { type SecretSurfaceState, SecretsSection } from './sections/secrets'
 import { LoginPasswordSection } from './sections/security'
 import { SessionsSection } from './sections/sessions'
-import type { AccountView } from './sections/shared'
+import {
+  type AccountView,
+  SettingsControlsContext,
+  type SettingsControlsState,
+} from './sections/shared'
 import { SuperagentSection } from './sections/superagent'
 import { WorkflowSection } from './sections/workflow'
 import { WorkLlmSection } from './sections/workllm'
 import { SettingsPageSection } from './settings-anchors'
-import { SettingsEditDraft } from './settings-edit-draft'
 import { SettingsFrame } from './settings-frame'
 import { useSettingsClient } from './stable-access'
 import { adminSectionOf, visibleSettingsGroups } from './surfaces'
@@ -102,15 +102,6 @@ const UpdatesSection = lazy(() =>
   })),
 )
 
-/** Pages retaining the existing staged preference controls. */
-const BLOB_TABS: ReadonlySet<SettingsPage> = new Set([
-  'agents',
-  'machines',
-  'notifications',
-  'projects',
-  'labs',
-])
-
 /** Everything a section can pull from the view: the loaded blob, the local
  *  patch, the accounts list, the Telegram flow state, and the store trpc. */
 interface SectionContext {
@@ -122,8 +113,6 @@ interface SectionContext {
   startTelegramSetup: () => void
   resetTelegramSetup: () => void
   openNetworkSettings: () => void
-  /** Replace the local blob with DEFAULT_SETTINGS (still needs Save). */
-  resetToDefaults: () => void
   /** The secret surface: presence + fingerprint, or the single unavailable
    *  state. Never a value — the read has no value key by construction. */
   secrets: SecretSurfaceState
@@ -133,7 +122,6 @@ interface SectionContext {
   secretError: string | null
   setSecret: (key: ServerSecretKey, value: string) => void
   clearSecret: (key: ServerSecretKey) => void
-  setNetworkSaveState: (state: NetworkSaveController | null) => void
 }
 
 /** The tab -> section lookup (P5d, issue #264 — replaces the JSX ladder). Most
@@ -224,10 +212,10 @@ const SECTION_VIEWS: Record<SettingsPage, (ctx: SectionContext) => JSX.Element> 
       <MembersSection />
     </SettingsPageSection>
   ),
-  access: ({ setNetworkSaveState }) => (
+  access: () => (
     <>
       <SettingsPageSection id="network">
-        <NetworkSection onSaveStateChange={setNetworkSaveState} />
+        <NetworkSection />
       </SettingsPageSection>
       <SettingsPageSection id="access">
         <AccessSection />
@@ -249,9 +237,9 @@ const SECTION_VIEWS: Record<SettingsPage, (ctx: SectionContext) => JSX.Element> 
       <UpdatesSection />
     </SettingsPageSection>
   ),
-  labs: ({ settings, patch, resetToDefaults }) => (
+  labs: ({ settings, patch }) => (
     <SettingsPageSection id="experimental">
-      <ExperimentalSection settings={settings} patch={patch} onReset={resetToDefaults} />
+      <ExperimentalSection settings={settings} patch={patch} />
     </SettingsPageSection>
   ),
 }
@@ -268,8 +256,8 @@ function HibernationSettingsSection({
 
 /**
  * Settings — a full main-content surface (not a modal), split into sections via a
- * side nav. Edits the shared settings record through touched-field drafts and
- * submits its changed leaves through the settings command plan.
+ * side nav. Each control writes its changed leaves through the settings
+ * command plan and the synced record writers.
  * Each tab's section lives in ./sections/<tab>
  * and renders through the SECTION_VIEWS lookup. The Telegram connect flow's
  * state (and its poll) stays here so it survives switching tabs.
@@ -301,7 +289,7 @@ const SettingsViewBody = observer(function SettingsViewBody({
   const settingsTabs = offeredGroups.flatMap((g) => g.tabs)
   const pool = useWorklistPool()
   // Both preference tiers are synced records: my `userPreferences` (POD-6673)
-  // and the instance's `instancePreferences` (POD-6677). The draft reads each
+  // and the instance's `instancePreferences` (POD-6677). The screen reads each
   // group from its home, live; an admin's change on another device moves it.
   const instanceReady = pool ? instancePreferences(pool) !== undefined : false
   const myPreferencesId = pool ? myPreferences(pool)?.id : undefined
@@ -315,30 +303,11 @@ const SettingsViewBody = observer(function SettingsViewBody({
         : undefined,
     [instanceReady, pool, myPreferencesId],
   )
-  const edits = useMemo(
-    () =>
-      record
-        ? new SettingsEditDraft(record, async (previous, next) => {
-            return await saveSettingsAsCommands(trpc, previous, next, {
-              personal: setPreferences,
-              instance: setInstancePreferences,
-            })
-          })
-        : null,
-    [record, trpc, setPreferences, setInstancePreferences],
-  )
-  const settings = edits?.settings ?? null
+  const settings = record ?? null
+  const [feedback, setFeedback] = useState<SettingsControlsState['feedback']>({})
   const readAccounts = useCallback(() => trpc.accounts.list.query(), [trpc])
   const { request: accountRequest } = useSettingsRecords('account', readAccounts, accountKey)
   const accounts = accountRequest?.models ?? []
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  /** What the last save could NOT write, and why — POD-420's surfaced refusal.
-   *  Distinct from `error`: a refusal is an outcome the save DECIDED, not a
-   *  request that failed, and the two read differently to a user. */
-  const [refusals, setRefusals] = useState<readonly SettingsWriteRefusal[]>([])
-  const [savedAt, setSavedAt] = useState(0)
-  const [networkSave, setNetworkSave] = useState<NetworkSaveController | null>(null)
   /**
    * THE SECRET SURFACE, AND WHY IT HAS ONLY THREE STATES (POD-421).
    *
@@ -441,7 +410,6 @@ const SettingsViewBody = observer(function SettingsViewBody({
         if (result.status === 'connected') {
           // The chat binding is my `userPreferences` record, published by the
           // server's own write: it reaches the draft on its own.
-          setSavedAt(Date.now())
           setTelegramSetup({
             status: 'connected',
             chatId: result.chatId,
@@ -541,7 +509,6 @@ const SettingsViewBody = observer(function SettingsViewBody({
       return
     }
 
-    setError(null)
     setTelegramSetup({ status: 'starting' })
     try {
       // NO BLOB SAVE FIRST. The token is already persisted — it is a
@@ -556,202 +523,61 @@ const SettingsViewBody = observer(function SettingsViewBody({
     }
   }
 
-  /**
-   * SAVE IS NOW A PLAN, NOT A BLOB (POD-420).
-   *
-   * `saveSettingsAsCommands` asks the contract table which commands this edit
-   * requires — a personal-preference patch, an instance-preference patch, a
-   * secret replace, a secret clear — and issues those. The decision lives in
-   * `@podium/commands`; this component only renders the outcome.
-   *
-   * A partial save is a real outcome: offline, the preferences go through and
-   * the secret is refused, `refusals` names the field, and the refused input
-   * stays exactly as the user typed it rather than being reverted under them.
-   */
-  const save = async () => {
-    if (!edits?.isDirty || saving) return
-    setSaving(true)
-    setError(null)
+  const patch = async (p: Partial<PodiumSettings>): Promise<void> => {
+    if (!record) return
+    const change = settingsChange(record, p)
+    if (!change.paths.length) return
+    const updateFeedback = (error?: string) =>
+      setFeedback((current) => ({
+        ...current,
+        ...Object.fromEntries(
+          change.paths.map((path) => [path, error ? { error } : { pending: true }]),
+        ),
+      }))
+    const clearFeedback = () =>
+      setFeedback((current) => ({
+        ...current,
+        ...Object.fromEntries(change.paths.map((path) => [path, {}])),
+      }))
+    updateFeedback()
     try {
-      const result = await edits.submit()
-      if (!result) return
-      const { refusals } = result
-      setRefusals(refusals)
-      // No "Saved ✓" flash over a refusal: something was not saved, and the bar
-      // must say so rather than showing both messages in sequence.
-      if (refusals.length === 0) setSavedAt(Date.now())
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setSaving(false)
+      const undo = await change.save(
+        trpc,
+        () => record,
+        {
+          personal: setPreferences,
+          instance: setInstancePreferences,
+        },
+        permitted,
+      )
+      clearFeedback()
+      toast('Saved', {
+        action: {
+          label: 'Undo',
+          onClick: () => {
+            updateFeedback()
+            void undo()
+              .then(clearFeedback)
+              .catch((error: unknown) => {
+                const reason = error instanceof Error ? error.message : String(error)
+                updateFeedback(reason)
+                toast.error(reason)
+              })
+          },
+        },
+      })
+    } catch (error) {
+      updateFeedback(error instanceof Error ? error.message : String(error))
     }
   }
-
-  const patch = (p: Partial<PodiumSettings>) => edits?.patch(p)
-  const dirty = edits?.isDirty ?? false
-  // The saved flash keeps the bar visible for a beat after a successful save.
-  const [, forceTick] = useState(0)
-  const savedFlash = savedAt > 0 && Date.now() - savedAt < 1500
-  useEffect(() => {
-    if (!savedFlash) return
-    const id = window.setTimeout(() => forceTick((n) => n + 1), 1600)
-    return () => window.clearTimeout(id)
-  }, [savedFlash])
-  const refusalText = refusalMessage(refusals)
-  const blobSaveActive = BLOB_TABS.has(tab)
-  const networkSaveActive = tab === 'access' ? networkSave : null
-  const activeDirty = blobSaveActive ? dirty : (networkSaveActive?.dirty ?? false)
-  const activeSaving = blobSaveActive ? saving : (networkSaveActive?.saving ?? false)
-  const activeError = blobSaveActive ? error : (networkSaveActive?.error ?? null)
-  const activeSavedFlash = blobSaveActive
-    ? savedFlash
-    : Boolean(networkSaveActive?.savedAt && Date.now() - networkSaveActive.savedAt < 1500)
-  useEffect(() => {
-    if (!networkSaveActive?.savedAt || !activeSavedFlash) return
-    const id = window.setTimeout(() => forceTick((n) => n + 1), 1600)
-    return () => window.clearTimeout(id)
-  }, [activeSavedFlash, networkSaveActive?.savedAt])
-  const activeRefusalText = blobSaveActive ? refusalText : null
-  const showBar =
-    (blobSaveActive || Boolean(networkSaveActive)) &&
-    (activeDirty ||
-      activeSaving ||
-      activeSavedFlash ||
-      Boolean(activeError) ||
-      Boolean(activeRefusalText))
-  /**
-   * CLOSING WITH UNSAVED EDITS. Escape and a backdrop click are both one
-   * keystroke or one stray click away at all times, and both used to drop a
-   * half-finished settings edit on the floor silently. They now REFUSE while the
-   * dirty bar is up.
-   *
-   * A refusal rather than a confirm dialog, deliberately: a sheet may not open a
-   * second modal layer over itself (DESIGN.md §The Sheet Tier), and the bar this
-   * points at already carries the only two answers a confirm would offer —
-   * Discard and Save changes. So the refusal sends the eye to the control that
-   * resolves it rather than stacking a copy of that control on top of it.
-   *
-   * It must not be silent, or Escape reads as broken: the bar takes the message
-   * for a beat, announces it, and nudges once.
-   */
-  const [closeBlockedAt, setCloseBlockedAt] = useState(0)
-  const closeBlocked = closeBlockedAt > 0 && Date.now() - closeBlockedAt < 2600
-  const discard = () => {
-    if (networkSaveActive) networkSaveActive.discard()
-    else {
-      edits?.reset()
-      setError(null)
-      setRefusals([])
-    }
-    setCloseBlockedAt(0)
-  }
-  useEffect(() => {
-    if (!closeBlocked) return
-    const id = window.setTimeout(() => forceTick((n) => n + 1), 2700)
-    return () => window.clearTimeout(id)
-  }, [closeBlocked])
-  // Gated on the same condition as the bar itself: a refusal the user has no
-  // visible reason for is indistinguishable from a broken Escape key.
-  const blocksClose = activeDirty || activeSaving
-  const requestClose = (): void => {
-    if (blocksClose) {
-      setCloseBlockedAt(Date.now())
-      return
-    }
-    onClose()
-  }
-
-  // ⌘S keeps the existing staged save behavior. The frame owns search keys.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
-        e.preventDefault()
-        if (activeDirty && !activeSaving) {
-          if (networkSaveActive) void networkSaveActive.save()
-          else if (blobSaveActive) void save()
-        }
-      }
-      // Escape belongs to the sheet (AppSheet), which owns closing for every
-      // utility overlay — one handler, one behaviour.
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  })
 
   return (
     <SettingsFrame
       page={tab}
       selectedPage={settingsTab !== null}
       onPageChange={setSettingsTab}
-      onClose={requestClose}
+      onClose={onClose}
       viewer={adminViewer}
-      toolbar={
-        error && !settings ? (
-          <span className="text-[12px] text-destructive">{error}</span>
-        ) : undefined
-      }
-      footer={
-        <div
-          className={cn(
-            // The lifted tier read from the token rather than restated: black
-            // at that alpha is depth on navy and dirt on paper (POD-388).
-            // Left edge on the form's own left edge, and no wider than the
-            // form: a bar that spans further than the column it belongs to
-            // reads as the sheet's furniture rather than as this form's.
-            'absolute right-8 bottom-4 left-8 z-10 flex max-w-[var(--settings-form-w)] items-center gap-2 rounded-lg border border-border-strong bg-chip py-2 pr-2 pl-4 shadow-[var(--shadow-popover)] transition-[transform,opacity] duration-200 ease-out motion-reduce:transition-none',
-            showBar ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-16 opacity-0',
-            // One nudge when a close was refused — a single one-shot morph,
-            // then stillness, which is the shell's whole motion grammar. The
-            // ring is what makes the bar findable if it had scrolled out of
-            // the eye's attention.
-            closeBlocked && 'settings-bar-nudge ring-1 ring-attention/60',
-          )}
-          aria-hidden={!showBar}
-        >
-          <span
-            className={cn(
-              'min-w-0 flex-1 truncate text-[13px]',
-              activeError || activeRefusalText ? 'text-destructive' : 'text-foreground',
-            )}
-            // A refusal — of a write, or of the close that would have thrown
-            // the edit away — is the message a user acts on, so it is
-            // announced rather than left to be noticed in a bar they were not
-            // reading.
-            role={activeRefusalText || closeBlocked ? 'alert' : undefined}
-            data-settings-refusal={activeRefusalText ? 'true' : undefined}
-            data-settings-close-blocked={closeBlocked ? 'true' : undefined}
-            title={activeRefusalText ?? undefined}
-          >
-            {activeError
-              ? activeError
-              : (activeRefusalText ??
-                (closeBlocked
-                  ? 'Unsaved changes — save or discard first'
-                  : activeDirty || activeSaving
-                    ? 'Unsaved changes'
-                    : 'Saved ✓'))}
-          </span>
-          {(activeDirty || activeError) && (
-            <Button type="button" variant="ghost" size="sm" onClick={discard}>
-              Discard
-            </Button>
-          )}
-          {(activeDirty || activeSaving || activeError) && (
-            <Button
-              type="button"
-              size="sm"
-              pending={activeSaving}
-              pendingLabel="Saving…"
-              onClick={() => {
-                if (networkSaveActive) void networkSaveActive.save()
-                else void save()
-              }}
-            >
-              Save changes
-            </Button>
-          )}
-        </div>
-      }
     >
       {awaitingAdmin ? (
         <p role="status" className="settings-prose text-muted-foreground">
@@ -764,30 +590,36 @@ const SettingsViewBody = observer(function SettingsViewBody({
         // cannot be fetched leaves it blank — which is what the
         // operator is staring at during a handover (POD-2762). It says
         // so, and only when it is true.
-        <Suspense fallback={<WaitingForServer className="flex min-h-24" />}>
-          {SECTION_VIEWS[tab]({
-            settings,
-            accounts,
-            patch,
-            trpc,
-            telegramSetup,
-            startTelegramSetup: () => void startTelegramSetup(),
-            resetTelegramSetup: () => setTelegramSetup({ status: 'idle' }),
-            openNetworkSettings: () => setSettingsTab('access'),
-            resetToDefaults: () => edits?.patch(DEFAULT_SETTINGS),
-            secrets,
-            canManageSecrets: permitted['settings.setSecret'] === true,
-            secretBusy,
-            secretError,
-            setSecret: (key, value) => {
-              void writeSecret(() => trpc.settings.setSecret.mutate({ key, value }))
-            },
-            clearSecret: (key) => {
-              void writeSecret(() => trpc.settings.clearSecret.mutate({ key }))
-            },
-            setNetworkSaveState: setNetworkSave,
-          })}
-        </Suspense>
+        <SettingsControlsContext.Provider value={{ settings, permitted, feedback }}>
+          <Suspense fallback={<WaitingForServer className="flex min-h-24" />}>
+            {(tab === 'projects' || tab === 'machines') &&
+              permitted['records.instancePreferences.edit'] !== true && (
+                <p className="settings-prose mb-4">
+                  Only admins can change these. You can see what is set.
+                </p>
+              )}
+            {SECTION_VIEWS[tab]({
+              settings,
+              accounts,
+              patch,
+              trpc,
+              telegramSetup,
+              startTelegramSetup: () => void startTelegramSetup(),
+              resetTelegramSetup: () => setTelegramSetup({ status: 'idle' }),
+              openNetworkSettings: () => setSettingsTab('access'),
+              secrets,
+              canManageSecrets: permitted['settings.setSecret'] === true,
+              secretBusy,
+              secretError,
+              setSecret: (key, value) => {
+                void writeSecret(() => trpc.settings.setSecret.mutate({ key, value }))
+              },
+              clearSecret: (key) => {
+                void writeSecret(() => trpc.settings.clearSecret.mutate({ key }))
+              },
+            })}
+          </Suspense>
+        </SettingsControlsContext.Provider>
       ) : (
         // The skeleton is the row grammar at rest: same 14px padding,
         // same control column, so nothing shifts when the blob lands.

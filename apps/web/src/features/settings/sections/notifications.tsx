@@ -5,11 +5,10 @@ import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { useCountdown } from '@/lib/clock-hooks'
 import { useSettingsDraft } from '../readers'
-import { Row, Section } from './shared'
+import { CommitInput, Row, Section } from './shared'
 
 /**
  * The guided Telegram connect flow's state machine. Owned by SettingsView (not
@@ -53,8 +52,8 @@ export const NotificationsSection = observer(function NotificationsSection({
     >
       <WebNotificationsRow settings={settings} patch={patch} />
       <SoundsRow />
-      <Row label="ntfy.sh topic">
-        <Input
+      <Row setting="notifications.ntfyTopic" label="ntfy.sh topic">
+        <CommitInput
           type="text"
           placeholder="e.g. podium-a8f3k2 (empty = off)"
           value={settings.notifications.ntfyTopic}
@@ -275,6 +274,7 @@ const WebNotificationsRow = observer(function WebNotificationsRow({
   const { note, grant } = useNotificationPermission()
   return (
     <Row
+      setting="notifications.web"
       label="Web notifications"
       description={
         <>

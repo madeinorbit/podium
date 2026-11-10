@@ -1,6 +1,7 @@
 import '@/test-support/mock-core-store-handle'
 import '@/test-support/mock-request-pool.test.fixture'
 import { seedInstancePreferences } from '@podium/client-graph/instance-preferences-fixture'
+import { INSTANCE_PREFERENCES_ROW_ID } from '@podium/model/browser'
 import { normalizeSettings } from '@podium/runtime'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -9,20 +10,11 @@ import type { ReferenceState } from '../../../../../tests/worklist/diagnostics/r
 
 type Store = ReferenceState<import('@/app/trpc').Trpc>
 
-/**
- * CLOSING SETTINGS WITH UNSAVED EDITS (POD-365).
- *
- * Escape and a backdrop click are each one stray input away at all times, and
- * both used to throw a half-finished settings edit away without a word. The
- * guard is the only thing standing between an accidental keypress and lost
- * work, and it lives at a seam — AppSheet owns the Escape key, SettingsView owns
- * the dirty state — which is exactly the kind of wiring a refactor quietly
- * severs. Hence a test at the seam rather than on the boolean.
- */
 const storeState = {
   trpc: {} as import('@/app/trpc').Trpc,
   setInstancePreferences: vi.fn(async (_values: Record<string, unknown>) => {}),
   settingsTab: 'sessions',
+  setPreferences: vi.fn(async (_values: Record<string, unknown>) => {}),
   setSettingsTab: vi.fn(),
   hostMetrics: undefined,
 }
@@ -57,10 +49,14 @@ vi.mock('@/lib/use-harness-descriptors', () => ({
 
 import { SettingsView } from './SettingsView'
 
+const toastMock = vi.hoisted(() => vi.fn())
+vi.mock('sonner', () => ({ toast: Object.assign(toastMock, { error: vi.fn() }) }))
 const onClose = vi.fn()
 
 beforeEach(() => {
   notificationsEnabled = false
+  toastMock.mockClear()
+  storeState.setInstancePreferences = vi.fn(async () => {})
   demand.metrics.mockClear()
   demand.idleCap.mockClear()
   onClose.mockClear()
@@ -81,7 +77,15 @@ beforeEach(() => {
   const settings = normalizeSettings({})
   storeState.trpc = {
     settings: {
-      viewer: { query: vi.fn().mockResolvedValue({ permitted: {} }) },
+      viewer: {
+        query: vi.fn().mockResolvedValue({
+          permitted: {
+            'records.userPreferences.edit': true,
+            'records.instancePreferences.edit': true,
+            'settings.setSecret': true,
+          },
+        }),
+      },
       secretPresence: { query: vi.fn().mockRejectedValue(new Error('no surface')) },
       set: { mutate: vi.fn().mockResolvedValue({ settings, refusals: [] }) },
     },
@@ -124,18 +128,7 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-/** Make the blob dirty the way a user does: flip the first toggle on the tab. */
-async function makeDirty(): Promise<void> {
-  const toggle = await waitFor(() => {
-    const el = document.querySelector('[data-slot="switch"]')
-    if (!el) throw new Error('no toggle rendered yet')
-    return el
-  })
-  fireEvent.click(toggle)
-  await screen.findByText('Unsaved changes')
-}
-
-describe('Settings sheet — closing with unsaved edits', () => {
+describe('Settings save on change', () => {
   it('counts Telegram seconds in its label and expires the setup at its exact deadline', async () => {
     notificationsEnabled = true
     storeState.settingsTab = 'notifications'
@@ -175,15 +168,14 @@ describe('Settings sheet — closing with unsaved edits', () => {
     expect(poll).toHaveBeenCalledTimes(1)
   })
 
-  it('shows remote untouched preferences, discards to live and saves only the changed leaf', async () => {
+  it('keeps typing local, commits once on Enter, and restores only that leaf with Undo', async () => {
     storeState.settingsTab = 'hibernation'
-    const remote = { hibernation: { memoryPct: 90, idleMinutes: 123, enabled: false } }
-    // The edit of the instance settings record (POD-6677): the outbox paints it
-    // on the record at once, as this stand-in does.
+    const pool = useWorklistPool()!
     const update = vi.fn(async (values: Record<string, unknown>) => {
-      seedInstancePreferences(useWorklistPool()!, {
+      const current = pool.tables.instancePreferences!.get(INSTANCE_PREFERENCES_ROW_ID)!
+      seedInstancePreferences(pool, {
         hibernation: {
-          ...remote.hibernation,
+          ...(current.hibernation as object),
           memoryPct: values['hibernation.memoryPct'] as number,
         },
       })
@@ -191,110 +183,66 @@ describe('Settings sheet — closing with unsaved edits', () => {
     storeState.setInstancePreferences = update
     render(<SettingsView onClose={onClose} />)
     const memory = (await screen.findByDisplayValue('80')) as HTMLInputElement
+    fireEvent.focus(memory)
+    fireEvent.change(memory, { target: { value: '8' } })
+    expect(memory.value).toBe('8')
+    expect(update).not.toHaveBeenCalled()
     fireEvent.change(memory, { target: { value: '85' } })
-    // An admin's change on another device arrives as the synced record.
-    act(() => seedInstancePreferences(useWorklistPool()!, remote))
-    expect(await screen.findByDisplayValue('123')).toBeTruthy()
+    act(() => seedInstancePreferences(pool, { hibernation: { memoryPct: 90, idleMinutes: 123 } }))
     expect(memory.value).toBe('85')
-    fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
-    expect(memory.value).toBe('90')
-    fireEvent.change(memory, { target: { value: '85' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    fireEvent.keyDown(memory, { key: 'Enter' })
+    fireEvent.blur(memory)
     await waitFor(() =>
       expect(update).toHaveBeenCalledExactlyOnceWith({ 'hibernation.memoryPct': 85 }),
     )
-    expect(await screen.findByText('Saved ✓')).toBeTruthy()
+    await waitFor(() => expect(toastMock).toHaveBeenCalled())
+    expect(await screen.findByDisplayValue('123')).toBeTruthy()
+    const undo = toastMock.mock.calls.at(-1)![1].action.onClick
+    await act(async () => undo())
+    expect(update).toHaveBeenLastCalledWith({ 'hibernation.memoryPct': 90 })
+    expect(screen.getByDisplayValue('123')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Save changes' })).toBeNull()
   })
 
-  it('demands the cap scalar only on Hibernation and never demands fleet metric rows', async () => {
-    const view = render(<SettingsView onClose={onClose} />)
-    await makeDirty()
-    expect(demand.metrics).not.toHaveBeenCalled()
-    expect(demand.idleCap).not.toHaveBeenCalled()
-
+  it('reverts a refused control and puts the reason on its row', async () => {
     storeState.settingsTab = 'hibernation'
-    view.rerender(<SettingsView onClose={onClose} />)
-    expect(await screen.findByText('Cap unmet: 3 protected/ineligible')).toBeTruthy()
-    expect(demand.idleCap).toHaveBeenCalled()
-    fireEvent.change(screen.getByLabelText('Maximum idle sessions'), { target: { value: '4' } })
-    expect(screen.getByText('Cap unmet: 3 protected/ineligible')).toBeTruthy()
-    expect(demand.metrics).not.toHaveBeenCalled()
-
-    demand.idleCap.mockClear()
-    storeState.settingsTab = 'sessions'
-    view.rerender(<SettingsView onClose={onClose} />)
-    expect(screen.queryByText('Cap unmet: 3 protected/ineligible')).toBeNull()
-    expect(demand.idleCap).not.toHaveBeenCalled()
-    expect(demand.metrics).not.toHaveBeenCalled()
+    storeState.setInstancePreferences = vi.fn(async () => {
+      throw new Error('This setting is locked by the deployment.')
+    })
+    render(<SettingsView onClose={onClose} />)
+    const memory = (await screen.findByDisplayValue('80')) as HTMLInputElement
+    fireEvent.change(memory, { target: { value: '85' } })
+    fireEvent.blur(memory)
+    const error = await screen.findByRole('alert')
+    expect(error.textContent).toContain('locked by the deployment')
+    expect(error.closest('.settings-row')?.contains(memory)).toBe(true)
+    expect(memory.value).toBe('80')
+    expect(toastMock).not.toHaveBeenCalled()
   })
 
-  it('closes on Escape when nothing is dirty', async () => {
+  it('saves Mirror transcripts immediately on the Privacy page', async () => {
+    storeState.settingsTab = 'privacy'
     render(<SettingsView onClose={onClose} />)
-    await waitFor(() => expect(document.querySelector('[data-slot="switch"]')).not.toBeNull())
-    fireEvent.keyDown(window, { key: 'Escape' })
-    expect(onClose).toHaveBeenCalledTimes(1)
-  })
-
-  it('REFUSES Escape while dirty, and says why rather than failing silently', async () => {
-    render(<SettingsView onClose={onClose} />)
-    await makeDirty()
-
-    fireEvent.keyDown(window, { key: 'Escape' })
-
-    expect(onClose).not.toHaveBeenCalled()
-    // The refusal points at the bar that resolves it — no second modal layer,
-    // which the sheet tier forbids (DESIGN.md §The Sheet Tier).
-    const blocked = await screen.findByText('Unsaved changes — save or discard first')
-    expect(blocked.getAttribute('role')).toBe('alert')
-    expect(screen.getByRole('button', { name: 'Discard' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Save changes' })).toBeTruthy()
-  })
-
-  it('closes again once the edit is discarded', async () => {
-    render(<SettingsView onClose={onClose} />)
-    await makeDirty()
-    fireEvent.keyDown(window, { key: 'Escape' })
-    expect(onClose).not.toHaveBeenCalled()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
-    await waitFor(() => expect(screen.queryByText('Unsaved changes')).toBeNull())
-
-    fireEvent.keyDown(window, { key: 'Escape' })
-    expect(onClose).toHaveBeenCalledTimes(1)
-  })
-
-  it('refuses the backdrop and the ✕ too — one answer to "close", however asked', async () => {
-    render(<SettingsView onClose={onClose} />)
-    await makeDirty()
-
-    const backdrop = document.querySelector('.app-sheet-backdrop')
-    expect(backdrop).not.toBeNull()
-    fireEvent.click(backdrop as Element)
-    expect(onClose).not.toHaveBeenCalled()
-
-    fireEvent.click(screen.getByRole('button', { name: /close settings/i }))
-    expect(onClose).not.toHaveBeenCalled()
-  })
-
-  it('uses the shared save and discard bar for Network settings', async () => {
-    storeState.settingsTab = 'network'
-    render(<SettingsView onClose={onClose} />)
-
-    const input = (await screen.findByLabelText('Podium URL')) as HTMLInputElement
-    fireEvent.change(input, { target: { value: 'https://new.tail.ts.net' } })
-
-    expect(await screen.findByText('Unsaved changes')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Save network settings' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
-    await waitFor(() => expect(input.value).toBe('https://old.tail.ts.net'))
-
-    fireEvent.change(input, { target: { value: 'https://new.tail.ts.net' } })
-    fireEvent.click(await screen.findByRole('button', { name: 'Save changes' }))
+    const mirror = await screen.findByTestId('transcript-mirror')
+    fireEvent.click(mirror)
     await waitFor(() =>
-      expect(storeState.trpc.setup.complete.mutate).toHaveBeenCalledWith(
-        expect.objectContaining({ publicUrl: 'https://new.tail.ts.net' }),
-      ),
+      expect(storeState.setInstancePreferences).toHaveBeenCalledWith({
+        'transcripts.mirror': false,
+      }),
     )
-    expect(await screen.findByText('Saved ✓')).toBeTruthy()
+  })
+
+  it('closes on Escape, the backdrop and the close button after a setting changes', async () => {
+    render(<SettingsView onClose={onClose} />)
+    const toggle = await waitFor(() => {
+      const toggle = document.querySelector('[data-slot="switch"]')
+      if (!toggle) throw new Error('waiting for settings')
+      return toggle
+    })
+    fireEvent.click(toggle)
+    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.click(document.querySelector('.app-sheet-backdrop')!)
+    fireEvent.click(screen.getByRole('button', { name: /close settings/i }))
+    expect(onClose).toHaveBeenCalledTimes(3)
   })
 })

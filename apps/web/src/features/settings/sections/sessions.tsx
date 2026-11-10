@@ -1,6 +1,6 @@
 import { AUTO } from '@podium/client-core/agent-models'
-import { observer } from 'mobx-react-lite'
 import { type PodiumSettings, resolveRole } from '@podium/runtime'
+import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import {
   Select,
@@ -44,6 +44,7 @@ export const SessionsSection = observer(function SessionsSection({
           }
         />
         <Row
+          setting="roles.coding.subagentModel"
           label="Model for subagents"
           description="Applied when the selected harness supports a native subagent-model override."
         >
@@ -62,7 +63,7 @@ export const SessionsSection = observer(function SessionsSection({
             }
           />
         </Row>
-        <Row label="New session opens on">
+        <Row setting="roles.coding.startScreen" label="New session opens on">
           <Select
             value={settings.roles.coding.startScreen}
             onValueChange={(value) =>
@@ -96,6 +97,7 @@ export const SessionsSection = observer(function SessionsSection({
           </Select>
         </Row>
         <Row
+          setting="roles.coding.seedCliTheme"
           label="Match agent theme to Podium"
           description={
             <>
@@ -123,7 +125,7 @@ export const SessionsSection = observer(function SessionsSection({
         title="Auto-continue on errors"
         hint="When an agent stops on a retryable error (rate limit, server error), keep re-sending “continue” on an increasing delay (up to 5 min) until it recovers. Heads up: this can keep an agent running indefinitely and consuming tokens."
       >
-        <Row label="Enabled">
+        <Row setting="autoContinue.enabled" label="Enabled">
           <Switch
             checked={settings.autoContinue.enabled}
             onCheckedChange={(checked) =>

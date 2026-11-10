@@ -195,7 +195,7 @@ The old navy ramp ran the other way: `--bar` was the darkest thing in the window
 
 ### Shadow Vocabulary
 - **Sheet** (`--shadow-sheet`): The stage, and nothing else. Three layers — a 1px contact ring, a `0 2px 4px` near shadow that gives the edge weight, and `0 20px 44px -20px` of long cast that puts air under it. Built on `--carve-drop` and `--carve-popover-far`, so it blackens on ink and warms on paper.
-- **Popover** (`--shadow-popover`, `0 14px 34px var(--carve-popover-far), 0 2px 8px var(--carve-popover-near)`): Menus, drag ghosts, the Settings save bar — the transient tier.
+- **Popover** (`--shadow-popover`, `0 14px 34px var(--carve-popover-far), 0 2px 8px var(--carve-popover-near)`): Menus, drag ghosts, Undo toasts — the transient tier.
 - **Inset carve** (`--carve-engraved` as `inset 0 3px 7–8px -2px` plus a 1px lit bottom edge): The operator's prompt and the standby panel — a field that has to read as pressed INTO its surface. This is what survives of the engraved idiom: an ink for wells, not a groove around columns.
 - **The wells** (`--well-floor` / `-lip` / `-rim` / `-lit`, and the `--well-cell-*` inversion): The command bar's mode and instrument containers carry their own bevel contract — see §5, The Wells.
 
@@ -271,7 +271,7 @@ Utilities are visited and left, so they open as a **bounded inset sheet over a h
 
 **One layer, ever.** A sub-flow inside a sheet — adding a machine, the Telegram setup, writing a secret, signing an account in — **takes over the sheet's own body and offers a way back**. It never opens a second modal over the first. Dialog-on-dialog is the modal tier's characteristic failure: two backdrops, two Escape owners, and a Save bar the user can no longer reach behind the thing asking them to confirm.
 
-**Closing is refused, not confirmed, while a sheet is dirty.** Esc and the backdrop are each one stray input away, so they must not discard work — but the answer is a refusal that points at the sheet's own Save bar, not a confirm dialog, which the one-layer rule forbids and which would only restate the Discard / Save the bar already offers. The refusal is announced and nudges once; it is never silent, or Escape reads as broken.
+**Settings save on change, with Undo.** Each control commits its own value immediately and shows a “Saved · Undo” toast. Text and number fields keep typing local and commit on Enter or blur; bounds apply on commit. A refused write restores the saved value and explains why on its row. Esc, the backdrop and the ✕ close without a dirty guard. Credentials and multi-step setup flows keep an explicit Save inside their own takeover. Risky actions confirm inline under their row, with a password only when the viewer has one and an acknowledgement only when needed; they never open a second dialog.
 
 ### The Status Strip
 24px, `--bar`, mono at label scale. Closes the frame at the bottom: a page ends by scrolling off into nothing, a window closes. It carries only what is window-scoped and unstated elsewhere — how many agents are computing, which task the window is pointed at, and link health while it is degraded. **Not branch or commit state:** `GitStamp` owns that in four densities and its rule is that one git fact is never restated in two places.

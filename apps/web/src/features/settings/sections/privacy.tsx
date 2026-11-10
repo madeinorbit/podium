@@ -309,6 +309,7 @@ function TranscriptMirrorRow({
   return (
     <>
       <Row
+        setting="transcripts.mirror"
         label="Mirror transcripts to this server"
         description="Keeps a copy of each session's transcript here so it stays searchable after the machine that ran it goes away."
       >
