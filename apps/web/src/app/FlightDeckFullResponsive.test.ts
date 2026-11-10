@@ -3,10 +3,13 @@ import { expect, it } from 'vitest'
 
 const css = readFileSync('src/styles.css', 'utf8')
 const section = css.split('/* Full alone sheds')[1]!
-const full = section.slice(section.indexOf('*/') + 2)
+// Other surfaces have their own viewport queries after the next section divider.
+const full = section
+  .slice(section.indexOf('*/') + 2)
+  .split(/^\/\* -{10,}$/m)[0]!
 const base = full.split('@container flight-full')[0]!
 const queries = [
-  ...css.matchAll(/@container flight-full \(width (<|>=) (\d+)px\) \{([\s\S]*?)\n\}/g),
+  ...full.matchAll(/@container flight-full \(width (<|>=) (\d+)px\) \{([\s\S]*?)\n\}/g),
 ]
 
 // This is a source contract, not a layout engine: evaluate only the named
