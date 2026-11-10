@@ -1,6 +1,4 @@
-import type { Trpc } from '@/app/trpc'
-import { useRequestClient } from '@podium/client-core/react'
-import { useUiValue } from '@podium/client-core/react'
+import { useRequestClient, useUiValue } from '@podium/client-core/react'
 import { formatMemBytes, hostMemoryView, reclaimSpaceLabel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
@@ -14,6 +12,7 @@ import type { JSX, ReactNode } from 'react'
 import { useState } from 'react'
 import { usePoolHeaderMetrics, usePoolPanelMetric } from '@/app/header-data'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
+import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -180,7 +179,7 @@ function MemoryPanel({
         .pct
     : (headline?.pct ?? null)
 
-  const openHibernationSettings = (): void => {
+  const openIdleSessionsSettings = (): void => {
     setSettingsTab('machines')
     setView('settings')
     onClose()
@@ -217,7 +216,7 @@ function MemoryPanel({
               hibernation={hibernation}
               memPct={memPct}
               idleSessionCount={idleSessionCount}
-              onOpenSettings={openHibernationSettings}
+              onOpenSettings={openIdleSessionsSettings}
             />
           }
         />
@@ -249,20 +248,20 @@ function HibernationNote({
           {active ? (
             <>
               Memory is past the {hibernation.memoryPct}% threshold, so agents idle for{' '}
-              {hibernation.idleMinutes} min are being hibernated to free memory
-              {idleSessionCount > 0 ? ` (${idleSessionCount} hibernated). ` : '. '}
+              {hibernation.idleMinutes} min are being paused to free memory
+              {idleSessionCount > 0 ? ` (${idleSessionCount} paused). ` : '. '}
               One click resumes them.
             </>
           ) : (
             <>
-              Auto-hibernation is on: once memory crosses {hibernation.memoryPct}%, agents idle for{' '}
-              {hibernation.idleMinutes} min hibernate to free memory. One click resumes them.
+              Pause idle sessions is on: once memory crosses {hibernation.memoryPct}%, agents idle
+              for {hibernation.idleMinutes} min pause to free memory. One click resumes them.
             </>
           )}
         </p>
       ) : (
         <p className="m-0">
-          Auto-hibernation is off — idle agents keep their memory until you hibernate them by hand.
+          Pause idle sessions is off. Idle agents keep their memory until you pause them yourself.
         </p>
       )}
       <button
@@ -271,7 +270,7 @@ function HibernationNote({
         className="cursor-pointer self-start border-0 bg-transparent p-0 text-left text-primary underline underline-offset-2 hover:no-underline"
         onClick={onOpenSettings}
       >
-        Hibernation settings
+        Idle sessions settings
       </button>
     </div>
   )

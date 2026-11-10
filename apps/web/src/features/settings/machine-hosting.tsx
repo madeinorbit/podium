@@ -68,4 +68,3 @@ export function HostThisDeviceCard({ hosting }: { hosting: EnableHosting }): JSX
     </div>
   )
 }
-

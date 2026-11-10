@@ -77,7 +77,7 @@ export function LoadPanel({
     load.perCore >= hibernation.loadPerCore
   const hibActive = memActive || loadActive
 
-  const openHibernation = (): void => {
+  const openIdleSessions = (): void => {
     setSettingsTab('machines')
     setView('settings')
   }
@@ -301,14 +301,14 @@ export function LoadPanel({
                 {hibernation.enabled
                   ? hibActive
                     ? memActive
-                      ? `Memory is past ${hibernation.memoryPct}%, so agents idle ${hibernation.idleMinutes} min are hibernating. One click resumes them. `
-                      : `Load is past ${hibernation.loadPerCore}× per core, so agents idle ${hibernation.idleMinutes} min are hibernating. One click resumes them. `
+                      ? `Memory is past ${hibernation.memoryPct}%, so agents idle ${hibernation.idleMinutes} min are pausing. One click resumes them. `
+                      : `Load is past ${hibernation.loadPerCore}× per core, so agents idle ${hibernation.idleMinutes} min are pausing. One click resumes them. `
                     : hibernation.loadPerCore != null
-                      ? `Auto-hibernation on: agents idle ${hibernation.idleMinutes} min park past ${hibernation.loadPerCore}× load or ${hibernation.memoryPct}% memory. `
-                      : `Auto-hibernation on: past ${hibernation.memoryPct}% memory, agents idle ${hibernation.idleMinutes} min park themselves. `
-                  : 'Auto-hibernation is off — idle agents keep their memory until you hibernate them by hand. '}
-                <button data-pressable type="button" className="hp-link" onClick={openHibernation}>
-                  Hibernation settings
+                      ? `Pause idle sessions is on: agents idle ${hibernation.idleMinutes} min pause past ${hibernation.loadPerCore}× load or ${hibernation.memoryPct}% memory. `
+                      : `Pause idle sessions is on: past ${hibernation.memoryPct}% memory, agents idle ${hibernation.idleMinutes} min pause to free memory. `
+                  : 'Pause idle sessions is off. Idle agents keep their memory until you pause them yourself. '}
+                <button data-pressable type="button" className="hp-link" onClick={openIdleSessions}>
+                  Idle sessions settings
                 </button>
               </>
             )}
@@ -316,12 +316,20 @@ export function LoadPanel({
               <>
                 {hibernation ? <br /> : null}
                 {worktreeGc.mode === 'off'
-                  ? 'Worktree GC is off. '
+                  ? 'Worktree cleanup is off. '
                   : worktreeGc.mode === 'auto'
-                    ? `Worktree GC: auto-freeing after ${worktreeGc.afterDays} days. `
-                    : `Worktree GC: proposing after ${worktreeGc.afterDays} days. `}
-                <button data-pressable type="button" className="hp-link" onClick={openHibernation}>
-                  GC settings
+                    ? `Worktree cleanup: auto-freeing after ${worktreeGc.afterDays} days. `
+                    : `Worktree cleanup: proposing after ${worktreeGc.afterDays} days. `}
+                <button
+                  data-pressable
+                  type="button"
+                  className="hp-link"
+                  onClick={() => {
+                    setSettingsTab('projects')
+                    setView('settings')
+                  }}
+                >
+                  Worktree cleanup settings
                 </button>
               </>
             )}

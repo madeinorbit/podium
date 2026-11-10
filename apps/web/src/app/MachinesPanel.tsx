@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { sourceUnavailableProse } from '@/features/settings/sections/updates-view'
-import { type FailureReason } from '@/features/updates/MachineFailureReason'
+import type { FailureReason } from '@/features/updates/MachineFailureReason'
 import { formatDisplayedVersion } from '@/lib/machine-version-skew'
 import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { updateStatus } from '@/lib/update-status'

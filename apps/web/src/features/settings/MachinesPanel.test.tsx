@@ -1,1017 +1,292 @@
 import '@/test-support/mock-pool-store-handle'
-import { relativeTime } from '@podium/client-core/focus'
 import type { MachineWire } from '@podium/model'
 import { asMachineId } from '@podium/model'
-import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { renderSettingsPool } from '@/test-support/mock-settings-pool-fixture'
-import type { ReferenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
-
-type Store = ReferenceState<import('@/app/trpc').Trpc>
-
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type { ReactElement } from 'react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { NativeDesktopBridge } from '@/lib/nativeDesktop'
+import { renderSettingsPool } from '@/test-support/mock-settings-pool-fixture'
 
-// [spec:SP-3701] Hosting affordances in the machines panel: standalone card for
-// never-paired devices, "this machine" badge + inline Enable for paired ones.
-
-const storeState: {
-  machines: MachineWire[]
-  trpc: import('@/app/trpc').Trpc
-  setSettingsTab: () => void
-} = {
-  machines: [],
+const state = {
+  machines: [] as MachineWire[],
   trpc: {} as import('@/app/trpc').Trpc,
-  setSettingsTab: () => {},
+  setSettingsTab: vi.fn(),
 }
-
-vi.mock('@/app/store', () => ({
-  readFixture: (selector: (s: typeof storeState) => unknown) => selector(storeState),
-}))
-
-// The update-status reader (POD-6683) builds its own plain-HTTP client; here it
-// is this test's store client (whichever one the test set last), and the page's
-// `/version` reads answer nothing.
-vi.mock('@/app/trpc', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/app/trpc')>()),
+vi.mock('@/app/store', () => ({ readFixture: (read: (s: typeof state) => unknown) => read(state) }))
+vi.mock('@/app/trpc', async (original) => ({
+  ...(await original<typeof import('@/app/trpc')>()),
   makeTrpc: () =>
-    new Proxy(
-      {},
-      { get: (_target, key) => (storeState.trpc as Record<PropertyKey, unknown>)[key] },
-    ),
+    new Proxy({}, { get: (_target, key) => (state.trpc as Record<PropertyKey, unknown>)[key] }),
 }))
-vi.mock('@/lib/workspace-request', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/workspace-request')>()),
+vi.mock('@/lib/workspace-request', async (original) => ({
+  ...(await original<typeof import('@/lib/workspace-request')>()),
   workspaceFetch: async () => ({ ok: false }),
 }))
-
-// NetworkStep/RepoScanFlow drag in the whole setup flow; the card/row tests never render them.
-vi.mock('@/features/setup/network-step', () => ({ NetworkStep: () => null }))
-vi.mock('@/features/setup/RepoScanFlow', () => ({ RepoScanFlow: () => null }))
+vi.mock('@/lib/member-roster', () => ({
+  useMemberRoster: () => ({
+    currentMemberId: 'alice',
+    members: [],
+    nameOf: (id: string) => (id === 'bob' ? 'Bob' : 'Alice'),
+  }),
+}))
+vi.mock('@/features/setup/RepoScanFlow', () => ({ RepoScanFlow: () => <div>Repository scan</div> }))
 
 import { resetUpdateStatus } from '@/lib/update-status'
+import { AdminViewerContext } from './admin-viewer'
 import { MachinesPanel } from './MachinesPanel'
 import { SettingsOpening } from './SettingsOpening'
+import { SettingsFrame } from './settings-frame'
 
-/** The panel reads its machines through the Settings opening (its machine
- * readers over the pool), so every render mounts that root, as Settings does. */
-function render(ui: ReactElement) {
-  const view = renderSettingsPool(<SettingsOpening>{ui}</SettingsOpening>)
-  return {
-    ...view,
-    rerender: (next: ReactElement) => view.rerender(<SettingsOpening>{next}</SettingsOpening>),
-  }
+const admin = {
+  status: 'ready' as const,
+  sections: ['machines', 'access', 'people', 'instance', 'audit'],
+  retry: vi.fn(),
 }
-
-/** Settings → Experimental "Podium development" (POD-1882). */
-let developing = false
-vi.mock('@/lib/use-feature', () => ({ useFeature: () => developing }))
-
-afterEach(() => {
-  cleanup()
-  resetUpdateStatus()
-  vi.restoreAllMocks()
-  vi.useRealTimers()
-  storeState.machines = []
-  developing = false
-  ;(globalThis as { __PODIUM_DESKTOP__?: NativeDesktopBridge }).__PODIUM_DESKTOP__ = undefined
-  ;(window as unknown as { __PODIUM_RESTART__?: () => void }).__PODIUM_RESTART__ = undefined
-})
-
-function stubBridge(overrides: Partial<NativeDesktopBridge> = {}): NativeDesktopBridge {
-  const bridge: NativeDesktopBridge = {
+function frame(ui: ReactElement, isAdmin = true) {
+  const viewer = isAdmin ? admin : { ...admin, sections: [] }
+  return (
+    <SettingsOpening>
+      <AdminViewerContext.Provider value={viewer}>
+        <SettingsFrame
+          page="machines"
+          viewer={viewer}
+          onPageChange={state.setSettingsTab}
+          onClose={vi.fn()}
+        >
+          {ui}
+        </SettingsFrame>
+      </AdminViewerContext.Provider>
+    </SettingsOpening>
+  )
+}
+function render(isAdmin = true) {
+  const view = renderSettingsPool(frame(<MachinesPanel />, isAdmin))
+  return { ...view, refresh: () => view.rerender(frame(<MachinesPanel />, isAdmin)) }
+}
+function machine(over: Partial<MachineWire> = {}): MachineWire {
+  return {
+    id: asMachineId('m-1'),
+    name: 'Build box',
+    hostname: 'build.example',
+    online: true,
+    owned: true,
+    transferable: true,
+    supersedable: true,
+    use: 'granted',
+    custodian: 'alice',
+    grants: [],
+    appVersion: '0.5.0',
+    versionState: 'current',
+    ...over,
+  } as MachineWire
+}
+function client(over: Record<string, unknown> = {}) {
+  state.trpc = {
+    machines: {
+      pairingCode: {
+        mutate: vi
+          .fn()
+          .mockResolvedValue({ code: 'ABCD-EFGH', joinCommand: 'podium join ABCD-EFGH' }),
+      },
+      ...over,
+    },
+    setup: {
+      info: { query: vi.fn().mockResolvedValue({ publicUrl: 'https://podium.example.com' }) },
+    },
+    updates: {
+      fleet: { query: vi.fn().mockResolvedValue({ machines: [], allMachines: [], behind: 0 }) },
+    },
+    operations: { active: { query: vi.fn().mockResolvedValue(null) } },
+  } as unknown as import('@/app/trpc').Trpc
+}
+function open(name = 'Build box') {
+  fireEvent.click(screen.getByRole('button', { name: `Open ${name}` }))
+}
+function detail() {
+  return within(screen.getByRole('region', { name: 'Build box' }))
+}
+function stubBridge(over: Partial<NativeDesktopBridge> = {}) {
+  const bridge = {
     platform: 'macos',
     launchMode: 'client',
     minimize: vi.fn(),
     toggleMaximize: vi.fn(),
     close: vi.fn(),
     enableHosting: vi.fn().mockResolvedValue(undefined),
-    ...overrides,
-  }
+    ...over,
+  } as NativeDesktopBridge
   ;(globalThis as { __PODIUM_DESKTOP__?: NativeDesktopBridge }).__PODIUM_DESKTOP__ = bridge
   return bridge
 }
+afterEach(() => {
+  cleanup()
+  resetUpdateStatus()
+  vi.restoreAllMocks()
+  vi.clearAllMocks()
+  state.machines = []
+  ;(globalThis as { __PODIUM_DESKTOP__?: NativeDesktopBridge }).__PODIUM_DESKTOP__ = undefined
+  ;(window as unknown as { __PODIUM_RESTART__?: () => void }).__PODIUM_RESTART__ = undefined
+})
 
-function machine(overrides: Partial<MachineWire>): MachineWire {
-  return {
-    id: asMachineId('m-1'),
-    name: 'mac',
-    hostname: 'mac.local',
-    online: false,
-    lastSeenAt: Date.now() - 60_000,
-    ...overrides,
-  } as MachineWire
-}
-
-function setTrpc(mutate: () => Promise<{ code: string; joinCommand: string | null }>) {
-  storeState.trpc = {
-    machines: { pairingCode: { mutate } },
-    setup: { info: { query: vi.fn().mockResolvedValue({ publicUrl: null }) } },
-  } as unknown as import('@/app/trpc').Trpc
-}
-
-describe('MachinesPanel supervisor fleet states', () => {
-  it('keeps offline last-seen answers at thirty-second precision', async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(100_000)
-    const lastSeenAt = new Date(30_000).toISOString()
-    storeState.machines = [machine({ lastSeenAt })]
-    setTrpc(vi.fn())
-    const view = render(<MachinesPanel />)
-    await act(async () => {})
-    const label = (at: number) => `Offline · Last seen ${relativeTime(lastSeenAt, at)}`
-    expect(screen.getByText(label(100_000))).toBeTruthy()
-    act(() => vi.advanceTimersByTime(29_999))
-    expect(screen.getByText(label(100_000))).toBeTruthy()
-    act(() => vi.advanceTimersByTime(1))
-    expect(screen.getByText(label(130_000))).toBeTruthy()
-    view.unmount()
-    // The app-wide update-status reader (POD-6683) outlives the panel and keeps
-    // retrying an operation it could not read; only the panel's clocks must go.
-    resetUpdateStatus()
-    expect(vi.getTimerCount()).toBe(0)
+describe('machine list and detail routing', () => {
+  it('opens detail without a second dialog and returns to the list', () => {
+    client()
+    state.machines = [machine()]
+    render()
+    expect(screen.getByRole('button', { name: 'Open Build box' }).textContent).toContain(
+      'Looked after by you',
+    )
+    expect(screen.getByText(/0 sessions.*memory/)).toBeTruthy()
+    expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull()
+    open()
+    expect(screen.getByRole('textbox', { name: 'Name' })).toHaveProperty('value', 'Build box')
+    expect(screen.getByRole('heading', { name: 'Who else can run agents here' })).toBeTruthy()
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
+    fireEvent.click(detail().getByRole('button', { name: 'Machines', exact: true }))
+    expect(screen.getByRole('button', { name: 'Open Build box' })).toBeTruthy()
   })
-
-  it('renders healthy, deliberately disabled, degraded, and offline rows distinctly', async () => {
-    const observedAt = '2026-08-26T12:00:00.000Z'
-    const status = {
-      policy: 'disabled' as const,
-      state: 'stopped' as const,
-      observedAt,
-    }
-    storeState.machines = [
+  it('members see only machines they look after or can use, with other machines read-only', () => {
+    client()
+    state.machines = [
+      machine({ id: asMachineId('own'), name: 'Mine' }),
       machine({
-        id: asMachineId('m-online'),
-        name: 'online',
-        online: true,
-        serviceAssignment: { server: false, agentExecution: true },
-        services: {
-          server: status,
-          agentExecution: { policy: 'enabled', state: 'available', observedAt },
-        },
+        id: asMachineId('shared'),
+        name: 'Shared',
+        owned: false,
+        transferable: false,
+        custodian: 'bob',
       }),
       machine({
-        id: asMachineId('m-off'),
-        name: 'agents-off',
-        online: true,
-        serviceAssignment: { server: false, agentExecution: false },
-        services: { server: status, agentExecution: status },
+        id: asMachineId('see'),
+        name: 'Visibility only',
+        owned: false,
+        transferable: false,
+        use: 'denied',
       }),
-      machine({
-        id: asMachineId('m-agent-degraded'),
-        name: 'agent-degraded',
-        online: true,
-        serviceAssignment: { server: false, agentExecution: true },
-        services: {
-          server: status,
-          agentExecution: {
-            policy: 'enabled',
-            state: 'refused',
-            reason: 'daemon configuration refused',
-            observedAt,
-          },
-        },
-      }),
-      machine({
-        id: asMachineId('m-server-degraded'),
-        name: 'server-degraded',
-        online: true,
-        serviceAssignment: { server: true, agentExecution: false },
-        services: {
-          server: {
-            policy: 'enabled',
-            state: 'stopped',
-            reason: 'server exited',
-            observedAt,
-          },
-          agentExecution: status,
-        },
-      }),
-      machine({ id: asMachineId('m-offline'), name: 'offline', online: false }),
     ]
-    setTrpc(vi.fn())
-    render(<MachinesPanel />)
-
-    expect(await screen.findByText('Online')).toBeTruthy()
-    expect(screen.getByText('Online · Agent hosting off')).toBeTruthy()
-    expect(screen.getByText('Disabled on this machine')).toBeTruthy()
-    expect(screen.getByText('Online · Degraded: agents')).toBeTruthy()
-    expect(
-      screen.getByText('daemon configuration refused · Restart Podium on this machine.'),
-    ).toBeTruthy()
-    expect(screen.getByText('Online · Degraded: server')).toBeTruthy()
-    expect(screen.getByText('server exited · Restart Podium on this machine.')).toBeTruthy()
-    expect(screen.getByText(/Offline · Last seen/)).toBeTruthy()
+    render(false)
+    expect(screen.getByText('The computers you look after or may run agents on.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Open Visibility only' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Add machine' })).toBeNull()
+    open('Shared')
+    expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Find repositories' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /apply update/i })).toBeNull()
+  })
+  it('links a machine behind its target to Updates', () => {
+    client()
+    state.machines = [machine({ versionState: 'behind' })]
+    render()
+    open()
+    fireEvent.click(detail().getByRole('button', { name: 'Updates', exact: true }))
+    expect(state.setSettingsTab).toHaveBeenCalledWith('updates')
   })
 })
 
-const enableCard = () => screen.queryByRole('button', { name: /host sessions on this device/i })
-
-describe('MachinesPanel hosting affordances', () => {
-  it('shows neither card nor badge outside the desktop shell', () => {
-    storeState.machines = [machine({})]
-    setTrpc(vi.fn())
-    render(<MachinesPanel />)
-    expect(enableCard()).toBeNull()
-    expect(screen.queryByText(/this machine/i)).toBeNull()
+describe('add machine choices', () => {
+  it('mints only after the login choice, which stays fixed while the command is shown', async () => {
+    client()
+    render()
+    fireEvent.click(screen.getByRole('button', { name: 'Add machine' }))
+    const mint = state.trpc.machines.pairingCode.mutate
+    expect(mint).not.toHaveBeenCalled()
+    fireEvent.click(
+      screen.getByRole('switch', { name: 'Copy agent logins from your other machines' }),
+    )
+    expect(mint).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Create command' }))
+    await waitFor(() =>
+      expect(mint).toHaveBeenCalledWith({ copyAgentCredentials: true, podiumManaged: false }),
+    )
+    expect(await screen.findByText('podium join ABCD-EFGH')).toBeTruthy()
+    expect(screen.getByRole('switch')).toHaveProperty('disabled', true)
+    fireEvent.click(screen.getByRole('button', { name: 'Change choice' }))
+    expect(screen.queryByText('podium join ABCD-EFGH')).toBeNull()
+    expect(mint).toHaveBeenCalledTimes(1)
   })
-
-  it('shows the standalone card when this device never paired', () => {
-    stubBridge({ machineId: undefined })
-    storeState.machines = [machine({ id: asMachineId('other') })]
-    setTrpc(vi.fn())
-    render(<MachinesPanel />)
-    expect(enableCard()).toBeTruthy()
-    expect(screen.queryByText(/this machine/i)).toBeNull()
+  it('links a missing public address to Access', async () => {
+    client()
+    state.trpc.setup.info.query = vi.fn().mockResolvedValue({ publicUrl: null })
+    state.trpc.machines.pairingCode.mutate = vi
+      .fn()
+      .mockResolvedValue({ code: 'ABCD-EFGH', joinCommand: null })
+    render()
+    fireEvent.click(screen.getByRole('button', { name: 'Add machine' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create command' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Access' }))
+    expect(state.setSettingsTab).toHaveBeenCalledWith('access')
   })
+})
 
-  it('marks the paired row and offers inline Enable when offline, instead of the card', () => {
-    stubBridge({ machineId: asMachineId('m-1') })
-    storeState.machines = [
-      machine({ id: asMachineId('m-1'), online: false }),
-      machine({ id: asMachineId('other') }),
+describe('machine actions', () => {
+  it('adopts an unowned machine only with projected authority', async () => {
+    const mutate = vi.fn().mockResolvedValue([])
+    client({ adopt: { mutate } })
+    state.machines = [
+      machine({ unowned: true, custodian: null, owned: false, use: 'denied', adoptable: true }),
     ]
-    setTrpc(vi.fn())
-    render(<MachinesPanel />)
-    expect(enableCard()).toBeNull()
-    expect(screen.getByText(/this machine/i)).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Enable' })).toBeTruthy()
+    render()
+    expect(screen.getByText('Nobody looks after it')).toBeTruthy()
+    open()
+    fireEvent.click(screen.getByRole('button', { name: 'Adopt it' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledWith({ id: 'm-1' }))
   })
-
-  it('shows the badge but no Enable button when this device is online', () => {
-    stubBridge({ machineId: asMachineId('m-1') })
-    storeState.machines = [machine({ id: asMachineId('m-1'), online: true })]
-    setTrpc(vi.fn())
-    render(<MachinesPanel />)
-    expect(enableCard()).toBeNull()
-    expect(screen.getByText(/this machine/i)).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Enable' })).toBeNull()
+  it('keeps a refused removal inline for retry and returns to the list on success', async () => {
+    const mutate = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Machine is still the server'))
+      .mockResolvedValue([])
+    client({ revoke: { mutate } })
+    state.machines = [machine()]
+    render()
+    open()
+    fireEvent.click(screen.getByRole('button', { name: 'Remove', exact: true }))
+    fireEvent.click(screen.getByRole('button', { name: 'Remove machine', exact: true }))
+    expect(await screen.findByRole('alert')).toHaveProperty(
+      'textContent',
+      'Machine is still the server',
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Remove machine', exact: true }))
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Remove machine', exact: true })).toBeNull(),
+    )
+    expect(mutate).toHaveBeenCalledTimes(2)
   })
-
-  it('inline Enable mints a code, hands it to the shell, and restarts', async () => {
+  it('requires an eligible replacement and preserves refusal for retry', async () => {
+    const mutate = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Replacement retired'))
+      .mockResolvedValue([])
+    client({ supersede: { mutate } })
+    state.machines = [
+      machine(),
+      machine({ id: asMachineId('new'), name: 'New box' }),
+      machine({ id: asMachineId('retired'), name: 'Retired', revokedAt: 'now' }),
+    ]
+    render()
+    open()
+    fireEvent.click(screen.getByRole('button', { name: 'Replace…' }))
+    expect(screen.queryByRole('button', { name: 'Replace machine', exact: true })).toBeNull()
+    fireEvent.click(screen.getByLabelText('Replacement machine'))
+    const options = await screen.findAllByRole('option')
+    expect(options.map((option) => option.textContent).join(' ')).not.toContain('Retired')
+    fireEvent.click(screen.getByRole('option', { name: /New box/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Replace machine', exact: true }))
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Replacement retired')
+    expect(mutate).toHaveBeenCalledWith({ id: 'm-1', replacementId: 'new' })
+  })
+  it('enables the paired offline device from its detail and stays busy while restarting', async () => {
+    client()
     const bridge = stubBridge({ machineId: asMachineId('m-1') })
     const restart = vi.fn(() => new Promise<void>(() => {}))
     ;(window as unknown as { __PODIUM_RESTART__?: () => void }).__PODIUM_RESTART__ = restart
-    const mutate = vi.fn().mockResolvedValue({ code: 'ABCD-EFGH', joinCommand: null })
-    storeState.machines = [machine({ id: asMachineId('m-1'), online: false })]
-    setTrpc(mutate)
-    render(<MachinesPanel />)
-
-    fireEvent.click(screen.getByRole('button', { name: 'Enable' }))
-
+    state.machines = [machine({ online: false })]
+    render()
+    open()
+    fireEvent.click(screen.getByRole('button', { name: 'Enable', exact: true }))
     await waitFor(() => expect(restart).toHaveBeenCalled())
-    expect(mutate).toHaveBeenCalledTimes(1)
     expect(bridge.enableHosting).toHaveBeenCalledWith('ABCD-EFGH')
-    // The app is restarting — the button must stay disabled (no double-enroll window).
-    expect(screen.getByRole('button', { name: /enabling/i })).toHaveProperty('disabled', true)
-  })
-
-  it('falls back to manual-relaunch guidance when restart is refused', async () => {
-    // Remote-loaded windows on older shells lack the process.restart grant; the config is
-    // already flipped by then, so the UI must instruct rather than hang on "Enabling…".
-    stubBridge({ machineId: asMachineId('m-1') })
-    ;(window as unknown as { __PODIUM_RESTART__?: () => unknown }).__PODIUM_RESTART__ = vi
-      .fn()
-      .mockRejectedValue(new Error('process.restart not allowed'))
-    storeState.machines = [machine({ id: asMachineId('m-1'), online: false })]
-    setTrpc(vi.fn().mockResolvedValue({ code: 'ABCD-EFGH', joinCommand: null }))
-    render(<MachinesPanel />)
-
-    fireEvent.click(screen.getByRole('button', { name: 'Enable' }))
-
-    expect(await screen.findByText(/quit and reopen the app/i)).toBeTruthy()
-  })
-
-  it('surfaces errors and re-enables the card button', async () => {
-    stubBridge({ machineId: undefined })
-    setTrpc(vi.fn().mockRejectedValue(new Error('pairing is disabled on this server')))
-    render(<MachinesPanel />)
-
-    const button = enableCard()
-    if (!button) throw new Error('card missing')
-    fireEvent.click(button)
-
-    expect(await screen.findByText(/pairing is disabled on this server/)).toBeTruthy()
-    expect(enableCard()).toHaveProperty('disabled', false)
-  })
-})
-
-// POD-838/POD-1873: each row shows the daemon's reported build version and compares it
-// with that machine's selected channel target. Legacy projections fall back to the server.
-describe('MachinesPanel version skew', () => {
-  function setTrpcWithVersion(appVersion: string, allMachines: unknown[] = []) {
-    storeState.trpc = {
-      setup: { info: { query: vi.fn().mockResolvedValue({ publicUrl: null, appVersion }) } },
-      updates: { fleet: { query: vi.fn().mockResolvedValue({ machines: [], allMachines }) } },
-    } as unknown as import('@/app/trpc').Trpc
-  }
-
-  /**
-   * §2.2b / §8c decision 14: two machines can both be "behind", and only one of
-   * them is anybody's problem. Nothing applies itself, so a pending offer is the
-   * mechanism working; a machine that took the grant and never arrived is not.
-   */
-  it('shows a current online machine refusal while leaving a waiting offer unmarked', async () => {
-    const behind = {
-      inventory: {
-        os: 'linux' as const,
-        arch: 'x64' as const,
-        podiumVersion: '0.4.1',
-        agents: [],
-        tools: [],
-      },
-      appVersion: '0.4.1',
-      targetVersion: '0.5.0',
-      versionState: 'behind' as const,
-    }
-    storeState.machines = [machine(behind)]
-    setTrpcWithVersion('0.5.0')
-    const waiting = render(<MachinesPanel />)
-
-    const pending = await screen.findByText(/update available/i)
-    expect(pending.className).not.toContain('warning')
-    waiting.unmount()
-
-    storeState.machines = [
-      machine({ ...behind, online: true, appVersion: '0.5.0', versionState: 'current' }),
-    ]
-    setTrpcWithVersion('0.5.0', [
-      {
-        id: storeState.machines[0]?.id,
-        version: '0.4.1',
-        state: 'current',
-        reason: {
-          code: 'daemon-refused',
-          message: 'Daemon refused to start: address already in use.',
-          source: 'machine',
-          at: 1000,
-        },
-        online: true,
-        busy: false,
-      },
-    ])
-    render(<MachinesPanel />)
-
-    const stuck = await screen.findByText('Failed')
-    expect(stuck.className).toContain('warning')
-    expect(screen.getByText('Daemon refused to start: address already in use.')).toBeTruthy()
-    expect(screen.getByText('reported by the machine')).toBeTruthy()
-    expect(screen.queryByText(/update available/i)).toBeNull()
-  })
-
-  it('shows the daemon version and badges a machine behind the server', async () => {
-    storeState.machines = [
-      machine({
-        appVersion: '0.4.1',
-        inventory: { os: 'darwin', arch: 'arm64', podiumVersion: '0.4.1', agents: [], tools: [] },
-      }),
-    ]
-    setTrpcWithVersion('0.5.0')
-    render(<MachinesPanel />)
-
-    expect(await screen.findByText('0.4.1')).toBeTruthy()
-    expect(await screen.findByText(/update available/i)).toBeTruthy()
-  })
-
-  it('does not badge a machine on the server version', async () => {
-    storeState.machines = [
-      machine({
-        appVersion: '0.5.0',
-        inventory: { os: 'linux', arch: 'x64', podiumVersion: '0.5.0', agents: [], tools: [] },
-      }),
-    ]
-    setTrpcWithVersion('0.5.0')
-    render(<MachinesPanel />)
-
-    expect(await screen.findByText('0.5.0')).toBeTruthy()
-    expect(screen.queryByText(/update available/i)).toBeNull()
-  })
-
-  it('does not badge a machine current on its selected channel when the server differs', async () => {
-    storeState.machines = [
-      machine({
-        inventory: {
-          os: 'linux',
-          arch: 'x64',
-          podiumVersion: '0.1.3-edge.1',
-          agents: [],
-          tools: [],
-        },
-        appVersion: '0.1.3-edge.1',
-        updateChannel: 'edge',
-        targetVersion: '0.1.3-edge.1',
-        versionState: 'current',
-      }),
-    ]
-    setTrpcWithVersion('dev+7de565e')
-    render(<MachinesPanel />)
-
-    expect(await screen.findByText('0.1.3-edge.1')).toBeTruthy()
-    expect(screen.queryByText(/update available/i)).toBeNull()
-  })
-
-  it('badges a machine behind its selected channel even when the server build differs', async () => {
-    storeState.machines = [
-      machine({
-        inventory: {
-          os: 'linux',
-          arch: 'x64',
-          podiumVersion: '0.4.1',
-          agents: [],
-          tools: [],
-        },
-        appVersion: '0.4.1',
-        updateChannel: 'stable',
-        targetVersion: '0.5.0',
-        versionState: 'behind',
-      }),
-    ]
-    setTrpcWithVersion('dev+7de565e')
-    render(<MachinesPanel />)
-
-    expect(await screen.findByText(/update available/i)).toBeTruthy()
-  })
-
-  it('never badges dev builds or machines with no reported version', async () => {
-    storeState.machines = [
-      machine({
-        id: asMachineId('m-dev'),
-        name: 'devbox',
-        appVersion: 'dev',
-        inventory: { os: 'linux', arch: 'x64', podiumVersion: 'dev', agents: [], tools: [] },
-      }),
-      machine({ id: asMachineId('m-old'), name: 'pre-inventory' }),
-    ]
-    setTrpcWithVersion('0.5.0')
-    render(<MachinesPanel />)
-
-    expect(await screen.findByText('dev')).toBeTruthy()
-    expect(screen.queryByText(/update available/i)).toBeNull()
-  })
-})
-
-/**
- * POD-2103, spec §4/§6.3 — the update row's copy. Desktop supervision now owns
- * only process crashes; payload delivery is the same fleet operation as every
- * other installed machine.
- */
-describe('MachinesPanel update rows', () => {
-  function setUpdateTrpc() {
-    storeState.trpc = {
-      machines: { pairingCode: { mutate: vi.fn() }, applyUpdate: { mutate: vi.fn() } },
-      setup: { info: { query: vi.fn().mockResolvedValue({ publicUrl: null }) } },
-    } as unknown as import('@/app/trpc').Trpc
-  }
-
-  const applyButton = () => screen.getByRole('button', { name: /apply update to/i })
-
-  it('offers the ordinary Apply path to a capable supervisor', async () => {
-    storeState.machines = [
-      machine({
-        name: 'macbook',
-        online: true,
-        presenceSource: 'supervisor',
-        deliveryCaps: ['update.delivery.feed'],
-        targetVersion: '0.5.0',
-      }),
-    ]
-    setUpdateTrpc()
-    render(<MachinesPanel />)
-
-    expect(await screen.findByText('Target 0.5.0')).toBeTruthy()
-    expect(applyButton().hasAttribute('disabled')).toBe(false)
-    expect(screen.queryByText(/Managed by Podium Desktop/)).toBeNull()
-  })
-
-  it('keeps a Desktop-owned supervisor visible but disables server delivery', async () => {
-    const observedAt = '2026-08-26T12:00:00.000Z'
-    storeState.machines = [
-      machine({
-        name: 'macbook',
-        online: true,
-        presenceSource: 'supervisor',
-        deliveryCaps: [],
-        targetVersion: '0.5.0',
-        services: {
-          server: { policy: 'enabled', state: 'available', observedAt },
-          agentExecution: { policy: 'disabled', state: 'stopped', observedAt },
-          crashOwner: 'desktop',
-        },
-      }),
-    ]
-    setUpdateTrpc()
-    render(<MachinesPanel />)
-
-    expect(
-      await screen.findByText('Cannot take delivery: Managed by Desktop updater.'),
-    ).toBeTruthy()
-    expect(applyButton().hasAttribute('disabled')).toBe(true)
-  })
-
-  it('still offers Apply to an ordinary fleet machine', async () => {
-    storeState.machines = [machine({ name: 'vmi', online: true, targetVersion: '0.5.0' })]
-    setUpdateTrpc()
-    render(<MachinesPanel />)
-
-    expect(await screen.findByText('Target 0.5.0')).toBeTruthy()
-    expect(applyButton().hasAttribute('disabled')).toBe(false)
-    expect(screen.queryByText(/Managed by Podium Desktop/)).toBeNull()
-  })
-
-  it('says why there is nothing to apply, in prose', async () => {
-    storeState.machines = [
-      machine({
-        name: 'vmi',
-        online: true,
-        updateChannelOverride: 'stable',
-        targetUnavailableReason: 'No update target is configured.',
-      }),
-    ]
-    setUpdateTrpc()
-    render(<MachinesPanel />)
-
-    expect(await screen.findByText('Nothing published on Stable yet.')).toBeTruthy()
-    // The server's own sentence stays available on hover, and nowhere else.
-    expect(screen.queryByText('No update target is configured.')).toBeNull()
-  })
-})
-
-/**
- * POD-1495 — the transfer affordance. The panel's ONE job at this boundary is to
- * not construct a call POD-1480's gate would refuse, and the refusals it must
- * not contradict are all reachable from `MachineWire.transferable` alone.
- */
-function setTransferTrpc(transferMutate: () => Promise<unknown>) {
-  storeState.trpc = {
-    machines: {
-      pairingCode: { mutate: vi.fn() },
-      transferOwnership: { mutate: transferMutate },
-    },
-    setup: { info: { query: vi.fn().mockResolvedValue({ publicUrl: null }) } },
-  } as unknown as import('@/app/trpc').Trpc
-}
-
-const transferButton = () => screen.queryByRole('button', { name: 'Transfer' })
-
-describe('MachinesPanel ownership transfer', () => {
-  it('keeps the multi-user ownership transfer affordance hidden in production', () => {
-    storeState.machines = [machine({ owned: true, transferable: true })]
-    setTransferTrpc(vi.fn())
-    render(<MachinesPanel />)
-    expect(transferButton()).toBeNull()
-  })
-
-  it('offers Transfer when the server authorizes it', () => {
-    storeState.machines = [machine({ owned: true, transferable: true })]
-    setTransferTrpc(vi.fn())
-    render(<MachinesPanel showOwnershipTransfer />)
-    expect(transferButton()).toBeTruthy()
-  })
-
-  it('says NOTHING about transfer without transfer authorization — no disabled control, no explanation', () => {
-    // A row without affirmative transfer authorization arrives with
-    // `transferable` false. A disabled button or a "you cannot transfer this" line would
-    // contradict the server, which answers absent-shaped for the machines it
-    // will not confirm the existence of.
-    storeState.machines = [machine({ owned: false, transferable: false })]
-    setTransferTrpc(vi.fn())
-    render(<MachinesPanel showOwnershipTransfer />)
-    expect(transferButton()).toBeNull()
-    expect(screen.queryByText(/transfer/i)).toBeNull()
-  })
-
-  it('treats an unevaluated `transferable` as NO, never as yes', () => {
-    // Absent means NOT EVALUATED — the same closed reading `use` carries. The
-    // paired case above proves the row CAN render the button, so this null is
-    // about the missing field.
-    storeState.machines = [machine({})]
-    setTransferTrpc(vi.fn())
-    render(<MachinesPanel showOwnershipTransfer />)
-    expect(transferButton()).toBeNull()
-  })
-
-  it('the confirmation names the loss of access AND the dropped shares', () => {
-    storeState.machines = [machine({ owned: true, transferable: true, name: 'builder' })]
-    setTransferTrpc(vi.fn())
-    render(<MachinesPanel showOwnershipTransfer />)
-    fireEvent.click(screen.getByRole('button', { name: 'Transfer' }))
-
-    // The three facts a transfer dialog that omits any of them ships as a defect:
-    // the recipient gets it, the giver loses it irreversibly, the shares go.
-    const dialog = screen.getByRole('dialog')
-    expect(dialog.textContent).toMatch(/you lose all three/i)
-    expect(dialog.textContent).toMatch(/not be able to undo this or transfer it back/i)
-    expect(dialog.textContent).toMatch(/every share on/i)
-  })
-
-  it('will not fire until a recipient is named and the machine name is typed back', async () => {
-    const transferMutate = vi.fn().mockResolvedValue({})
-    storeState.machines = [machine({ owned: true, transferable: true, name: 'builder' })]
-    setTransferTrpc(transferMutate)
-    render(<MachinesPanel showOwnershipTransfer />)
-    fireEvent.click(screen.getByRole('button', { name: 'Transfer' }))
-
-    const confirm = screen.getByRole('button', { name: 'Transfer ownership' })
-    expect(confirm).toHaveProperty('disabled', true)
-
-    // A recipient alone is not enough — this is the irreversible act.
-    fireEvent.change(screen.getByLabelText(/new owner's account name/i), {
-      target: { value: 'colleague' },
-    })
-    expect(confirm).toHaveProperty('disabled', true)
-
-    // A WRONG machine name is not enough either, so the gate is the name and not
-    // merely "something was typed".
-    const nameField = screen.getByLabelText(/type the machine name to confirm/i)
-    fireEvent.change(nameField, { target: { value: 'not-the-builder' } })
-    expect(confirm).toHaveProperty('disabled', true)
-
-    fireEvent.change(nameField, { target: { value: 'builder' } })
-    expect(confirm).toHaveProperty('disabled', false)
-
-    fireEvent.click(confirm)
-    await waitFor(() =>
-      expect(transferMutate).toHaveBeenCalledWith({ id: 'm-1', newOwnerUserId: 'colleague' }),
-    )
-  })
-
-  it("surfaces the server's own refusal verbatim rather than a friendlier rewrite", async () => {
-    const transferMutate = vi.fn().mockRejectedValue(new Error('unknown recipient'))
-    storeState.machines = [machine({ owned: true, transferable: true, name: 'builder' })]
-    setTransferTrpc(transferMutate)
-    render(<MachinesPanel showOwnershipTransfer />)
-    fireEvent.click(screen.getByRole('button', { name: 'Transfer' }))
-    fireEvent.change(screen.getByLabelText(/new owner's account name/i), {
-      target: { value: 'ghost' },
-    })
-    fireEvent.change(screen.getByLabelText(/type the machine name to confirm/i), {
-      target: { value: 'builder' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Transfer ownership' }))
-
-    expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'unknown recipient')
-    // The dialog stays open on refusal: the owner has typed two fields, and
-    // closing it would discard them along with the reason it failed.
-    expect(screen.getByRole('dialog')).toBeTruthy()
-  })
-})
-
-describe('MachinesPanel update action', () => {
-  const managed = (over: Partial<MachineWire> = {}): MachineWire =>
-    machine({
-      id: asMachineId('ludovico'),
-      name: 'ludovico',
-      online: true,
-      podiumManaged: true,
-      updateChannel: 'dev',
-      appVersion: 'dev+72c2e0e',
-      targetVersion: 'dev+4f36e8e',
-      ...over,
-    })
-
-  function setUpdateTrpc(over: {
-    applyUpdate?: () => Promise<unknown>
-    fleet?: () => Promise<unknown>
-  }) {
-    storeState.trpc = {
-      machines: {
-        pairingCode: { mutate: vi.fn() },
-        applyUpdate: { mutate: over.applyUpdate ?? vi.fn() },
-        setUpdateChannel: { mutate: vi.fn() },
-      },
-      updates: {
-        fleet: {
-          query:
-            over.fleet ?? vi.fn().mockResolvedValue({ machines: [], allMachines: [], behind: 0 }),
-        },
-      },
-      setup: { info: { query: vi.fn().mockResolvedValue({ publicUrl: null }) } },
-    } as unknown as import('@/app/trpc').Trpc
-  }
-
-  const applyButton = () => screen.getByRole('button', { name: /apply update to ludovico/i })
-
-  it('shows source ownership instead of a package Apply control', async () => {
-    storeState.machines = [managed({ installKind: 'source' })]
-    setUpdateTrpc({})
-    render(<MachinesPanel />)
-
-    expect(await screen.findByText('Source checkout')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: /apply update to ludovico/i })).toBeNull()
-  })
-
-  it('says nothing about an update it never watched', async () => {
-    storeState.machines = [managed({ appVersion: 'dev+4f36e8e' })]
-    setUpdateTrpc({
-      fleet: vi.fn().mockResolvedValue({
-        allMachines: [{ id: 'ludovico', state: 'current', version: 'dev+4f36e8e' }],
-      }),
-    })
-    render(<MachinesPanel />)
-
-    await waitFor(() => expect(storeState.trpc.updates.fleet.query).toHaveBeenCalled())
-    // Let the snapshot land and its effects run; the point is that NOTHING is
-    // announced once they have, not that the assertion beat them.
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20))
-    })
-    expect(screen.queryByText(/is up to date/i)).toBeNull()
-    expect(screen.queryByRole('status')).toBeNull()
-  })
-
-  it('shows progress and refuses further clicks while the machine is converging', async () => {
-    storeState.machines = [managed()]
-    setUpdateTrpc({
-      fleet: vi.fn().mockResolvedValue({
-        allMachines: [{ id: 'ludovico', state: 'downloading', version: 'dev+72c2e0e' }],
-      }),
-    })
-    render(<MachinesPanel />)
-
-    // Convergence started elsewhere — this row still reports it after a reload.
-    expect(await screen.findByText(/downloading update/i)).toBeTruthy()
-    expect(applyButton()).toHaveProperty('disabled', true)
-  })
-
-  it('offers Try again for a terminal machine and issues a fresh apply', async () => {
-    const applyUpdate = vi.fn().mockResolvedValue({
-      machines: [managed()],
-      outcome: { result: 'granted', version: 'dev+4f36e8e' },
-    })
-    storeState.machines = [managed()]
-    setUpdateTrpc({
-      applyUpdate,
-      fleet: vi.fn().mockResolvedValue({
-        allMachines: [{ id: 'ludovico', state: 'stuck', version: 'dev+72c2e0e' }],
-      }),
-    })
-    render(<MachinesPanel />)
-
-    const retry = await screen.findByRole('button', { name: /apply update to ludovico/i })
-    expect(retry.textContent).toBe('Try again')
-    fireEvent.click(retry)
-    await waitFor(() => expect(applyUpdate).toHaveBeenCalledWith({ id: 'ludovico' }))
-  })
-
-  it('keeps the action in one place when a message appears under it', async () => {
-    const applyUpdate = vi.fn().mockResolvedValue({
-      machines: [managed()],
-      outcome: { result: 'offline' },
-    })
-    storeState.machines = [managed()]
-    setUpdateTrpc({ applyUpdate })
-    render(<MachinesPanel />)
-
-    const before = applyButton()
-    const siblingsBefore = [...(before.parentElement?.children ?? [])].indexOf(before)
-    fireEvent.click(before)
-
-    // Actionable copy, not the coordinator's internal grant vocabulary.
-    const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toMatch(/ludovico is not connected/i)
-    expect(alert.textContent).not.toMatch(/grant/i)
-
-    const after = applyButton()
-    expect([...(after.parentElement?.children ?? [])].indexOf(after)).toBe(siblingsBefore)
-  })
-})
-
-/**
- * POD-1882. Choosing a source PER MACHINE is a Podium-development affordance; the
- * pin itself is durable and stays disclosed when the control is gone.
- */
-describe('MachinesPanel per-machine update source', () => {
-  function setTrpc() {
-    storeState.trpc = {
-      setup: {
-        info: { query: vi.fn().mockResolvedValue({ publicUrl: null, appVersion: '0.5.0' }) },
-      },
-      machines: { setUpdateChannel: { mutate: vi.fn().mockResolvedValue([]) } },
-    } as unknown as import('@/app/trpc').Trpc
-  }
-
-  it('hides the selector without the flag but still states where the machine is', async () => {
-    storeState.machines = [
-      machine({ updateChannel: 'dev', updateChannelOverride: 'dev', targetVersion: '0.6.0' }),
-    ]
-    setTrpc()
-    render(<MachinesPanel />)
-
-    expect(await screen.findByText(/Development \(pinned for this machine\)/)).toBeTruthy()
-    expect(screen.queryByLabelText('Update channel for mac')).toBeNull()
-  })
-
-  it('reads an unpinned machine as following the fleet default', async () => {
-    storeState.machines = [
-      machine({ updateChannel: 'stable', updateChannelOverride: null, targetVersion: '0.6.0' }),
-    ]
-    setTrpc()
-    render(<MachinesPanel />)
-
-    expect(await screen.findByText('Fleet default')).toBeTruthy()
-  })
-
-  it('shows the selector with the flag on', async () => {
-    developing = true
-    storeState.machines = [
-      machine({ updateChannel: 'edge', updateChannelOverride: 'edge', targetVersion: '0.6.0' }),
-    ]
-    setTrpc()
-    render(<MachinesPanel />)
-
-    const trigger = await screen.findByLabelText('Update channel for mac')
-    expect(trigger.textContent).toContain('Edge')
-  })
-
-  it('offers Fleet default first, so a pin can always be cleared', async () => {
-    developing = true
-    storeState.machines = [
-      machine({ updateChannel: 'dev', updateChannelOverride: 'dev', targetVersion: '0.6.0' }),
-    ]
-    setTrpc()
-    render(<MachinesPanel />)
-
-    fireEvent.click(await screen.findByLabelText('Update channel for mac'))
-    const options = (await screen.findAllByRole('option')).map((o) => o.textContent)
-    // First on purpose: it is the only choice that is not a pin (POD-1882).
-    expect(options).toEqual(['Fleet default', 'Development', 'Edge', 'Stable'])
-  })
-})
-
-it('shows recorded harness versions and a quiet unverified marker', () => {
-  storeState.machines = [
-    machine({
-      harnessVersions: [
-        {
-          harness: 'codex',
-          version: '0.154.0',
-          firstSeen: '2026-09-16T10:00:00.000Z',
-          lastSeen: '2026-09-16T11:00:00.000Z',
-          verifiedThrough: '0.151.0',
-          unverified: true,
-        },
-      ],
-    }),
-  ]
-  setTrpc(vi.fn())
-  render(<MachinesPanel />)
-  expect(screen.getByText('codex 0.154.0')).toBeTruthy()
-  expect(screen.getByText('unverified').getAttribute('title')).toBe('Verified through 0.151.0')
-  expect(screen.queryByRole('alert')).toBeNull()
-})
-
-describe('MachinesPanel adoption', () => {
-  it('shows unowned explicitly and adopts through the server', async () => {
-    const mutate = vi.fn().mockResolvedValue([])
-    storeState.machines = [machine({ unowned: true, adoptable: true, use: 'denied' })]
-    setTrpc(vi.fn())
-    storeState.trpc.machines.adopt = {
-      mutate,
-    } as unknown as import('@/app/trpc').Trpc['machines']['adopt']
-    render(<MachinesPanel />)
-    expect(screen.getByText('Unowned')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Adopt' }))
-    await waitFor(() => expect(mutate).toHaveBeenCalledWith({ id: 'm-1' }))
-  })
-  it('withholds Adopt without affirmative authorization', () => {
-    storeState.machines = [machine({ unowned: true })]
-    setTrpc(vi.fn())
-    render(<MachinesPanel />)
-    expect(screen.getByText('Unowned')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Adopt' })).toBeNull()
-  })
-  it('shows adoption errors and permits retry', async () => {
-    const mutate = vi.fn().mockRejectedValue(new Error('machine already has an owner'))
-    storeState.machines = [machine({ unowned: true, adoptable: true })]
-    setTrpc(vi.fn())
-    storeState.trpc.machines.adopt = {
-      mutate,
-    } as unknown as import('@/app/trpc').Trpc['machines']['adopt']
-    render(<MachinesPanel />)
-    fireEvent.click(screen.getByRole('button', { name: 'Adopt' }))
-    expect(await screen.findByRole('alert')).toHaveProperty(
-      'textContent',
-      'machine already has an owner',
-    )
-    expect(screen.getByRole('button', { name: 'Adopt' })).toHaveProperty('disabled', false)
-  })
-})
-
-describe('daemon recovery status', () => {
-  it.each([
-    'inventory pending',
-    '2 quarantined',
-    'retrying handshake',
-  ])('shows not ready with %s and the count', async (reason) => {
-    setTrpc(vi.fn())
-    storeState.machines = [
-      machine({
-        online: true,
-        daemonReadiness: { state: 'recovering', reason, quarantinedBindings: 2 },
-      }),
-    ]
-    render(<MachinesPanel />)
-    expect(await screen.findByText(`Not ready · ${reason}`)).toBeTruthy()
-    expect(screen.getAllByText('2 quarantined').length).toBeGreaterThan(0)
-    expect(screen.queryByText('Online')).toBeNull()
-    expect(screen.queryByText(/Restart Podium on this machine/)).toBeNull()
-  })
-})
-
-describe('MachinesPanel revoke result', () => {
-  function setRevoke(mutate: () => Promise<unknown>) {
-    setTrpc(vi.fn())
-    storeState.trpc.machines.revoke = {
-      mutate,
-    } as unknown as import('@/app/trpc').Trpc['machines']['revoke']
-    storeState.machines = [machine({ name: 'builder' })]
-  }
-
-  it('keeps a refused revoke open, shows the server reason, and permits retry', async () => {
-    const mutate = vi
-      .fn()
-      .mockRejectedValueOnce(new Error('machines.revoke requires an admin account'))
-      .mockResolvedValue([])
-    setRevoke(mutate)
-    render(<MachinesPanel />)
-    fireEvent.click(screen.getByRole('button', { name: 'Revoke' }))
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Revoke' }))
-    expect(await screen.findByRole('alert')).toHaveProperty(
-      'textContent',
-      'machines.revoke requires an admin account',
-    )
-    const dialog = screen.getByRole('dialog')
-    expect(within(dialog).getByRole('button', { name: 'Revoke' })).toHaveProperty('disabled', false)
-    expect(storeState.machines[0]?.revokedAt).toBeUndefined()
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Revoke' }))
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-    expect(mutate).toHaveBeenCalledTimes(2)
-    expect(mutate).toHaveBeenLastCalledWith({ id: 'm-1' })
-  })
-
-  it('keeps the successful revoke row and displays its authoritative revoked state', async () => {
-    const mutate = vi.fn().mockResolvedValue([])
-    setRevoke(mutate)
-    const view = render(<MachinesPanel />)
-    fireEvent.click(screen.getByRole('button', { name: 'Revoke' }))
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Revoke' }))
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-    storeState.machines = [
-      machine({ name: 'builder', revokedAt: '2026-09-17T12:00:00.000Z', online: false }),
-    ]
-    view.rerender(<MachinesPanel />)
-    expect(screen.getByText('builder')).toBeTruthy()
-    expect(screen.getByText('Revoked')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Revoke' })).toBeNull()
-    expect(screen.queryByText(/Offline · Last seen/)).toBeNull()
-    expect(screen.queryByRole('button', { name: /apply update/i })).toBeNull()
-  })
-})
-
-describe('explicit machine supersession', () => {
-  it('requires a selected replacement ID, explains cancellation, and retains server errors for retry', async () => {
-    const mutate = vi
-      .fn()
-      .mockRejectedValueOnce(new Error('replacement is retired'))
-      .mockResolvedValueOnce([])
-    storeState.machines = [
-      machine({ id: asMachineId('old'), name: 'old laptop', supersedable: true }),
-      machine({ id: asMachineId('new'), name: 'new laptop', supersedable: true, online: true }),
-      machine({
-        id: asMachineId('retired'),
-        name: 'retired',
-        supersedable: true,
-        revokedAt: 'now',
-      }),
-    ]
-    setTrpc(vi.fn())
-    Object.assign(storeState.trpc.machines, { supersede: { mutate } })
-    render(<MachinesPanel />)
-    fireEvent.click(screen.getAllByRole('button', { name: 'Supersede' })[0]!)
-    expect(screen.getByText(/cancels its grants and queued work/)).toBeTruthy()
-    const confirm = screen.getByRole('button', { name: 'Supersede machine' })
-    expect(confirm.hasAttribute('disabled')).toBe(true)
-    expect(screen.queryByRole('option', { name: /retired/ })).toBeNull()
-    fireEvent.change(screen.getByLabelText('Replacement machine'), { target: { value: 'new' } })
-    fireEvent.click(confirm)
-    expect((await screen.findByRole('alert')).textContent).toContain('replacement is retired')
-    expect(mutate).toHaveBeenCalledWith({ id: 'old', replacementId: 'new' })
-    fireEvent.click(screen.getByRole('button', { name: 'Supersede machine' }))
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-  })
-
-  it('keeps the replacement pointer visible on the retained revoked row', () => {
-    storeState.machines = [machine({ revokedAt: 'now', supersededBy: asMachineId('replacement') })]
-    setTrpc(vi.fn())
-    render(<MachinesPanel />)
-    expect(screen.getByText('Superseded by replacement')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Supersede' })).toBeNull()
-  })
-
-  it('does not offer supersession without projected admin authority', () => {
-    storeState.machines = [machine({ transferable: true })]
-    setTrpc(vi.fn())
-    render(<MachinesPanel />)
-    expect(screen.queryByRole('button', { name: 'Supersede' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Enabling…' })).toHaveProperty('disabled', true)
   })
 })

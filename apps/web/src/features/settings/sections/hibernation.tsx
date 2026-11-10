@@ -9,10 +9,10 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { CommitInput, clampInt, clampNumber, Row, Section, Subsection } from './shared'
+import { backstopHours, backstopMinutes } from './hibernation-values'
+import { CommitInput, clampInt, NumberRow, Row, Section, Subsection } from './shared'
 
-/** Auto-hibernation thresholds for idle sessions under resource pressure, plus
- *  worktree GC (POD-564 / POD-563). */
+/** Idle-session limits apply across the workspace. Worktree cleanup moves with Projects. */
 export const HibernationSection = observer(function HibernationSection({
   settings,
   patch,
@@ -22,165 +22,127 @@ export const HibernationSection = observer(function HibernationSection({
   patch: (p: Partial<PodiumSettings>) => void
   idleCapUnmet?: number
 }): JSX.Element {
+  const hibernation = settings.hibernation
   return (
     <Section
-      title="Auto-hibernation"
-      hint="Idle sessions hibernate to relieve memory or load pressure, or to converge toward the per-machine idle-session target. One click resumes them."
+      title="Idle sessions"
+      hint="A paused session frees its memory and resumes in one click, right where it was. Applies to every machine."
     >
-      <Row setting="hibernation.enabled" label="Enabled">
+      <Row
+        setting="hibernation.enabled"
+        label="Pause idle sessions"
+        description="Pause quiet sessions automatically to free memory."
+      >
         <Switch
-          checked={settings.hibernation.enabled}
-          onCheckedChange={(checked) =>
-            patch({ hibernation: { ...settings.hibernation, enabled: checked } })
-          }
+          aria-label="Pause idle sessions"
+          checked={hibernation.enabled}
+          onCheckedChange={(enabled) => patch({ hibernation: { ...hibernation, enabled } })}
         />
       </Row>
-      <Row setting="hibernation.memoryPct" label="Memory threshold (%)">
-        <CommitInput
-          className="w-[90px] flex-none"
-          type="number"
-          min={50}
-          max={95}
-          value={settings.hibernation.memoryPct}
-          onChange={(e) =>
+      <fieldset
+        disabled={!hibernation.enabled}
+        aria-disabled={!hibernation.enabled}
+        aria-label="Idle-session limits"
+        className="m-0 min-w-0 border-0 border-t border-hairline-soft/60 p-0 disabled:opacity-50"
+      >
+        <NumberRow
+          setting="hibernation.idleMinutes"
+          label="A session is idle after"
+          description="How long an agent must be quiet before it may be paused."
+          min={1}
+          max={1440}
+          unit="min"
+          value={hibernation.idleMinutes}
+          onChange={(value) =>
+            patch({ hibernation: { ...hibernation, idleMinutes: Math.round(value ?? 30) } })
+          }
+        />
+        <NumberRow
+          setting="hibernation.maxIdleSessions"
+          label="Keep at most"
+          description={
+            <>
+              Idle sessions per machine before the oldest are paused. Sessions you are watching are
+              never paused.
+              {idleCapUnmet > 0 && (
+                <span className="mt-1 block font-medium text-warning">
+                  Cap unmet: {idleCapUnmet} protected/ineligible
+                </span>
+              )}
+            </>
+          }
+          min={0}
+          max={10000}
+          unit="idle"
+          placeholder="No limit"
+          value={hibernation.maxIdleSessions}
+          onChange={(value) =>
             patch({
               hibernation: {
-                ...settings.hibernation,
-                memoryPct: clampInt(e.target.value, 50, 95, 80),
+                ...hibernation,
+                maxIdleSessions: value == null ? null : Math.round(value),
               },
             })
           }
         />
-      </Row>
-      <Row
-        setting="hibernation.loadPerCore"
-        label="Load per core"
-        description="load1 ÷ cores. Empty turns load pressure off. Default 1.5 means the run queue is half again the core count. The top-bar LOAD meter fills against this threshold."
-      >
-        <CommitInput
-          aria-label="Load per core"
-          className="w-[90px] flex-none"
-          type="number"
+        <NumberRow
+          setting="hibernation.memoryPct"
+          label="Pause sooner when memory is above"
+          description="Pause eligible idle sessions when this much of the machine’s memory is in use."
+          min={50}
+          max={95}
+          unit="%"
+          value={hibernation.memoryPct}
+          onChange={(value) =>
+            patch({ hibernation: { ...hibernation, memoryPct: Math.round(value ?? 80) } })
+          }
+        />
+        <NumberRow
+          setting="hibernation.loadPerCore"
+          label="Pause sooner when load is above"
+          description="Per CPU core. The LOAD meter in the top bar fills against this. Empty turns it off."
           min={0.5}
           max={8}
           step={0.1}
+          unit="per core"
           placeholder="Off"
-          value={settings.hibernation.loadPerCore ?? ''}
-          onChange={(e) =>
-            patch({
-              hibernation: {
-                ...settings.hibernation,
-                loadPerCore:
-                  e.target.value === '' ? null : clampNumber(e.target.value, 0.5, 8, 1.5),
-              },
-            })
+          value={hibernation.loadPerCore}
+          onChange={(value) =>
+            patch({ hibernation: { ...hibernation, loadPerCore: value ?? null } })
           }
         />
-      </Row>
-      <Row setting="hibernation.idleMinutes" label="Idle after (minutes)">
-        <CommitInput
-          className="w-[90px] flex-none"
-          type="number"
-          min={1}
-          max={1440}
-          value={settings.hibernation.idleMinutes}
-          onChange={(e) =>
-            patch({
-              hibernation: {
-                ...settings.hibernation,
-                idleMinutes: clampInt(e.target.value, 1, 1440, 30),
-              },
-            })
-          }
-        />
-      </Row>
-      {/* The explanation belongs under the label like every other row's — it was
-          left-aligned prose inside the right-hand CONTROL cell, which is the one
-          place on this screen that is not a text column. */}
-      <Row
-        setting="hibernation.maxIdleSessions"
-        label="Maximum idle sessions"
-        description={
-          <>
-            Per machine. Empty means unlimited. This is a convergence target for eligible idle live
-            sessions, not a hard cap; protected or ineligible sessions stay live. Count, memory, and
-            load pressure act independently. Quiet unobserved agents (no phase signal) count toward
-            the target after at least 4 hours. The top-bar IDLE meter shows observed idle sessions
-            against this target when set; long-quiet unobserved sessions may also count.
-            {idleCapUnmet > 0 && (
-              <span className="mt-1 block font-medium text-warning">
-                Cap unmet: {idleCapUnmet} protected/ineligible
-              </span>
-            )}
-          </>
-        }
-      >
-        <CommitInput
-          aria-label="Maximum idle sessions"
-          className="w-[90px] flex-none"
-          type="number"
-          min={0}
-          placeholder="Unlimited"
-          value={settings.hibernation.maxIdleSessions ?? ''}
-          onChange={(e) =>
-            patch({
-              hibernation: {
-                ...settings.hibernation,
-                maxIdleSessions:
-                  e.target.value === '' ? null : clampInt(e.target.value, 0, 10000, 8),
-              },
-            })
-          }
-        />
-      </Row>
-      <Row
-        setting="hibernation.idleShellMinutes"
-        label="Idle shell minutes"
-        description="Park live shells after this many minutes with no input or output. The default is 60 minutes; empty turns shell reaping off."
-      >
-        <CommitInput
-          aria-label="Idle shell minutes"
-          className="w-[90px] flex-none"
-          type="number"
+        <NumberRow
+          setting="hibernation.idleShellMinutes"
+          label="Close idle shells after"
+          description="Plain shells with no input or output. Empty keeps them open."
           min={1}
           max={43200}
-          placeholder="60"
-          value={settings.hibernation.idleShellMinutes ?? ''}
-          onChange={(e) =>
+          unit="min"
+          placeholder="Never"
+          value={hibernation.idleShellMinutes}
+          onChange={(value) =>
             patch({
               hibernation: {
-                ...settings.hibernation,
-                idleShellMinutes:
-                  e.target.value === '' ? null : clampInt(e.target.value, 1, 43200, 60),
+                ...hibernation,
+                idleShellMinutes: value == null ? null : Math.round(value),
               },
             })
           }
         />
-      </Row>
-      <Row
-        setting="hibernation.backstopMinutes"
-        label="Idle backstop minutes"
-        description="Last resort: park after total quiet time without terminal proof. A future scheduled wakeup keeps the session live; empty disables this backstop."
-      >
-        <CommitInput
-          aria-label="Idle backstop minutes"
-          className="w-[90px] flex-none"
-          type="number"
-          min={60}
-          max={43200}
-          placeholder="2880"
-          value={settings.hibernation.backstopMinutes ?? ''}
-          onChange={(e) =>
-            patch({
-              hibernation: {
-                ...settings.hibernation,
-                backstopMinutes:
-                  e.target.value === '' ? null : clampInt(e.target.value, 60, 43200, 2880),
-              },
-            })
+        <NumberRow
+          setting="hibernation.backstopMinutes"
+          label="Always pause after"
+          description="A last resort for sessions quiet this long, unless a wake-up is scheduled."
+          min={1}
+          max={720}
+          unit="hours"
+          placeholder="Never"
+          value={backstopHours(hibernation.backstopMinutes)}
+          onChange={(value) =>
+            patch({ hibernation: { ...hibernation, backstopMinutes: backstopMinutes(value) } })
           }
         />
-      </Row>
+      </fieldset>
 
       <Subsection
         title="Worktree GC"

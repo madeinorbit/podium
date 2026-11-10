@@ -5,19 +5,25 @@ import { ChevronRight, Server } from 'lucide-react'
 import { usePoolHostAggregate } from '@/app/header-data'
 import { Badge } from '@/components/ui/badge'
 import { useClock } from '@/lib/clock-hooks'
-import { useMemberRoster } from '@/lib/member-roster'
 import { formatDisplayedVersion } from '@/lib/machine-version-skew'
+import { useMemberRoster } from '@/lib/member-roster'
 import { cn } from '@/lib/utils'
 import type { SettingsMachine } from './machine-view'
 
 export const MachineCustodianName = observer(function MachineCustodianName({
   view,
   capitalized = false,
-}: { view: SettingsMachine; capitalized?: boolean }) {
+}: {
+  view: SettingsMachine
+  capitalized?: boolean
+}) {
   const roster = useMemberRoster()
   const machine = view.machine
   if (machine.unowned === true || machine.custodian === null) return <>Nobody</>
-  if (machine.owned === true || (machine.custodian && machine.custodian === roster?.currentMemberId)) {
+  if (
+    machine.owned === true ||
+    (machine.custodian && machine.custodian === roster?.currentMemberId)
+  ) {
     return <>{capitalized ? 'You' : 'you'}</>
   }
   return <>{roster?.nameOf(machine.custodian) ?? 'another member'}</>
@@ -33,10 +39,19 @@ export const MachineStatus = observer(function MachineStatus({ view }: { view: S
       className="max-w-full gap-1.5 whitespace-normal font-normal"
       title={view.status.detail}
     >
-      <span aria-hidden="true" className={cn('size-1.5 shrink-0 rounded-full',
-        view.status.tone === 'online' ? 'bg-success' : view.status.tone === 'degraded'
-          ? 'bg-warning' : 'bg-muted-foreground/50')} />
-      {view.status.label}{lastSeen ? ` · Last seen ${relativeTime(lastSeen, now)}` : ''}
+      <span
+        aria-hidden="true"
+        className={cn(
+          'size-1.5 shrink-0 rounded-full',
+          view.status.tone === 'online'
+            ? 'bg-success'
+            : view.status.tone === 'degraded'
+              ? 'bg-warning'
+              : 'bg-muted-foreground/50',
+        )}
+      />
+      {view.status.label}
+      {lastSeen ? ` · Last seen ${relativeTime(lastSeen, now)}` : ''}
     </Badge>
   )
 })
@@ -49,8 +64,12 @@ const MachineSummary = observer(function MachineSummary({ view }: { view: Settin
     <span className="settings-micro mt-1 block text-muted-foreground">
       {aggregate.count} {aggregate.count === 1 ? 'session' : 'sessions'}
       {' · '}memory {pct === null ? '—' : `${pct}%`}
-      {' · '}<span className="font-mono">{view.machine.appVersion
-        ? formatDisplayedVersion(view.machine.appVersion) : 'Version not reported'}</span>
+      {' · '}
+      <span className="font-mono">
+        {view.machine.appVersion
+          ? formatDisplayedVersion(view.machine.appVersion)
+          : 'Version not reported'}
+      </span>
     </span>
   )
 })
@@ -59,10 +78,15 @@ export const MachineListRow = observer(function MachineListRow({
   view,
   isThisMachine,
   onOpen,
-}: { view: SettingsMachine; isThisMachine: boolean; onOpen: () => void }) {
+}: {
+  view: SettingsMachine
+  isThisMachine: boolean
+  onOpen: () => void
+}) {
   const machine = view.machine
   const role = [view.runsServer ? 'Server' : null, isThisMachine ? 'this computer' : null]
-    .filter(Boolean).join(' · ')
+    .filter(Boolean)
+    .join(' · ')
   return (
     <button
       type="button"
@@ -75,12 +99,21 @@ export const MachineListRow = observer(function MachineListRow({
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="settings-label break-words">{machine.name}</span>
-          {role && <Badge variant="outline" className="font-normal">{role}</Badge>}
+          {role && (
+            <Badge variant="outline" className="font-normal">
+              {role}
+            </Badge>
+          )}
           {machine.unowned === true && <Badge variant="warning">Nobody looks after it</Badge>}
         </span>
         <span className="settings-prose mt-1 block">
-          {machine.unowned === true ? 'Agents cannot run here until an admin adopts it' :
-            <>Looked after by <MachineCustodianName view={view} /></>}
+          {machine.unowned === true ? (
+            'Agents cannot run here until an admin adopts it'
+          ) : (
+            <>
+              Looked after by <MachineCustodianName view={view} />
+            </>
+          )}
         </span>
         <MachineSummary view={view} />
       </span>

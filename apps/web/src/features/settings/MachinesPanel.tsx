@@ -32,11 +32,18 @@ export const MachinesPanel = observer(function MachinesPanel() {
     <section aria-label="Machines">
       {admin && (
         <SettingsPageActions>
-          <Button type="button" variant="outline" onClick={() => openTakeover({
-            title: 'Add a machine',
-            description: 'Install Podium on another computer and connect it here. It takes about a minute.',
-            content: <AddMachineFlow />,
-          })}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() =>
+              openTakeover({
+                title: 'Add a machine',
+                description:
+                  'Install Podium on another computer and connect it here. It takes about a minute.',
+                content: <AddMachineFlow />,
+              })
+            }
+          >
             <Plus size={14} aria-hidden="true" />
             Add machine
           </Button>
@@ -46,27 +53,29 @@ export const MachinesPanel = observer(function MachinesPanel() {
         <p className="settings-prose mb-4">The computers you look after or may run agents on.</p>
       )}
       {hosting && !alreadyPaired && <HostThisDeviceCard hosting={hosting} />}
-      <ActiveServerMove />
+      <ActiveServerMove canRecover={admin} />
       <div className="divide-y divide-border overflow-hidden rounded-lg border border-border">
         {view.visible.map((machine) => (
           <MachineListRow
             key={machine.id}
             view={view.row(machine)}
             isThisMachine={machine.id === thisMachineId}
-            onOpen={() => openTakeover({
-              title: machine.name,
-              content: <MachineDetail machineId={machine.id} hosting={
-                machine.id === thisMachineId ? hosting : null
-              } />,
-            })}
+            onOpen={() =>
+              openTakeover({
+                title: machine.name,
+                content: <MachineDetail machineId={machine.id} />,
+              })
+            }
           />
         ))}
         {view.visible.length === 0 && (
           <div className="px-4 py-6">
             <p className="settings-label">No machines yet</p>
-            <p className="settings-prose mt-1">{admin
-              ? 'Add a machine to run agents in this workspace.'
-              : 'Ask an admin to let you run agents on one, or to add yours.'}</p>
+            <p className="settings-prose mt-1">
+              {admin
+                ? 'Add a machine to run agents in this workspace.'
+                : 'Ask an admin to let you run agents on one, or to add yours.'}
+            </p>
           </div>
         )}
       </div>
