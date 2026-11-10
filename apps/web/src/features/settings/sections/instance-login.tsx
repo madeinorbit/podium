@@ -56,7 +56,11 @@ export const InstanceLoginSection = observer(function InstanceLoginSection({
       await reload()
       onChanged?.()
       if (next.loginRequired !== required) {
-        setError('Set your password in Account before requiring sign-in.')
+        setError(
+          required
+            ? 'Set your password in Account before requiring sign-in.'
+            : 'This deployment still requires sign-in. Shared and cloud workspaces always require it.',
+        )
         return
       }
       setConfirmRequired(null)
