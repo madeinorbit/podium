@@ -11,7 +11,7 @@ It is the detailed reference for every task under "Shared sign-in core" (PDM-513
 
 Sources: the plan (`people-and-sign-in-plan.md` on PDM-107), the spike report (`sign-in-library-spike-report.md` on POD-6742, candidate `c6eeb191ea`), the code at the two commits above, and one design proof run for this document (section 15).
 
-The integration branch equals `origin/dev/mw` at the commit above. Local `dev/mw` has one further commit (`504c59982e`, session runtime events); it touches no file named in this document.
+The integration branch equals `origin/dev/mw` at the commit above, and that commit is the recorded base (coordinator's decision, 2026-11-10). Local `dev/mw` has one further, unpublished commit (`504c59982e`, session runtime events). It is not part of the base. It changes seven files, all under `apps/server/src/modules/sessions/` or tests of daemon frames and runtime events; none is a file the route map or any other section of this document names (`git diff --name-only e2cdd85789 504c59982e`).
 
 ## 0. Words and rules
 
@@ -1329,7 +1329,7 @@ For the coordinator. None of these changes a goal; each changes who does somethi
 
 | # | Brief | This document | Why |
 |---|---|---|---|
-| 1 | POD-6743: fast-forward the integration branch to the current `dev/mw` first | Not done; the branch stays at `f92564c0d7` | The two branches diverged (4 commits one way, 1 the other). Reported by mail; nothing was moved |
+| 1 | POD-6743: fast-forward the integration branch to the current `dev/mw` first | Not done; the branch stays at `f92564c0d7`, which is the recorded base | The two branches diverged (4 commits one way, 1 the other). Settled by the coordinator: the base is the published `origin/dev/mw`; the unpublished commit is left out |
 | 2 | POD-6744: memberships are the next task; "leave their seam" | `resolve` is split: POD-6744 builds the device sign-in and account half and the statement shape, POD-6745 adds the membership join, `revalidate` and the same-machine statement | `resolve` is one statement over both |
 | 3 | POD-6744, POD-6745: open-source tasks | Each carries one small commit on podium-cloud `integrate/pdm-494-hosted` (section 10.3) | Their acceptance needs the Postgres leg before PDM-495 exists, and the platform owns the Postgres migrations |
 | 4 | POD-6744: one-time codes | Our own table, not the library's one-time-token extension the spike used | The extension keeps a session token in clear and needs a session before a code (section 1.6) |
