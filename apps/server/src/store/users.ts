@@ -1257,14 +1257,16 @@ export class UsersRepository {
       const wasDisabled = existing.disabledAt !== null
       const disabled = change.state !== 'active'
       const roleChanged = existing.role !== change.role
-      // The strongest change names the step; one membership steps once.
+      // The strongest change names the step; one applied snapshot steps once.
+      // A durable authority revision also captures changes between catch-ups
+      // that returned to the same role/state. Gates still read only this generation.
       const reason: MemberAccessChange['reason'] | undefined = removed
         ? 'removed'
         : disabled !== wasDisabled
           ? disabled
             ? 'disabled'
             : 'enabled'
-          : roleChanged
+          : roleChanged || (change.authorizationVersion ?? 0) > existing.membershipVersion
             ? 'role'
             : undefined
 

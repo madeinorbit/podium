@@ -275,7 +275,7 @@ export function membershipOperations(
             (existing.status === 'disabled' && existing.accountId === null)
           ) {
             // The membership keeps its row and its member id.
-            await engine.write({ ...facts, memberId }, 'update', input.actor)
+            await engine.write({ ...facts, memberId }, 'update', input.actor, existing.authorizationVersion !== 0)
           } else {
             return refuse('not-allowed')
           }
@@ -332,7 +332,7 @@ export function membershipOperations(
         const row = await membership(invitation.memberId)
         // A membership that waited for this invitation has no way in any more.
         if (row?.status === 'invited') {
-          await engine.write({ ...row, status: 'removed' }, 'update', input.actor)
+          await engine.write({ ...row, status: 'removed' }, 'update', input.actor, row.authorizationVersion !== 0)
         }
       })
     },
@@ -385,6 +385,8 @@ export function membershipOperations(
           'update',
           // The person who accepted is the member they became.
           { memberId: row.memberId },
+          // First acceptance binds an account; it does not revoke existing member rights.
+          row.authorizationVersion !== 0,
         )
         return { memberId: row.memberId, accountId: taken.id }
       })

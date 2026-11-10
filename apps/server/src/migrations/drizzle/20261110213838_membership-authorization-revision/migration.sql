@@ -1,0 +1,1 @@
+ALTER TABLE `identity_membership` ADD `authorization_version` integer DEFAULT 0 NOT NULL;

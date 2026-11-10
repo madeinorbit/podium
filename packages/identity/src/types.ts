@@ -372,6 +372,7 @@ export interface MembershipView {
 export interface MembershipSnapshot {
   memberId: string
   version: number
+  authorizationVersion?: number
   status: 'invited' | 'active' | 'disabled' | 'removed'
   role: 'admin' | 'member'
   accountId: string | null
@@ -393,6 +394,8 @@ export interface MemberRows {
 export interface MemberWrite {
   memberId: string
   version: number
+  /** A newer authority revision fences work even when intervening changes collapsed. */
+  authorizationVersion?: number
   state: 'active' | 'disabled' | 'removed'
   role: 'admin' | 'member'
   accountId: string | null
@@ -407,6 +410,8 @@ export type MemberRowsBinding =
   | { rows: MemberRows; sameDatabase: false; cursor: AppliedCursor }
 
 export interface AppliedCursor {
+  /** Commit one member apply and its cursor together, when the workspace provides it. */
+  transaction?<T>(run: () => Promise<T>): Promise<T>
   read(): Promise<number>
   write(version: number): Promise<void>
 }

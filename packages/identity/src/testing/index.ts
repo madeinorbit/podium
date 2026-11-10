@@ -86,6 +86,10 @@ export interface OpenedDatabase {
   stored(table: StoredTable, column: string): Promise<unknown[]>
   /** How many statements reached the driver so far. */
   statements(): number
+  /** PostgreSQL legs expose overlap, so concurrent accepts cannot silently serialize. */
+  maximumConcurrentTransactions?(): number
+  /** Hold the next two PostgreSQL transactions open until both begin. */
+  armConcurrentTransactions?(): void
   close(): Promise<void>
 }
 

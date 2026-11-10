@@ -16,6 +16,7 @@ import { applyMembership } from './apply'
 import {
   activeMembershipOfAccount,
   insertMembership,
+  liveMembershipOfAccount,
   liveMembershipsOfAccount,
   lockRevision,
   type MembershipRole,
@@ -44,6 +45,7 @@ export interface MembershipFacts {
   status: string
   invitedEmail: string | null
   createdBy: string | null
+  authorizationVersion?: number
 }
 
 export interface MembershipEngine {
@@ -57,7 +59,12 @@ export interface MembershipEngine {
    */
   change<T>(workspaceId: string, fn: () => Promise<T>): Promise<T>
   /** Steps the revision, writes the membership with it and applies it. Inside `change` only. */
-  write(facts: MembershipFacts, how: 'insert' | 'update', actor: Actor): Promise<MembershipRow>
+  write(
+    facts: MembershipFacts,
+    how: 'insert' | 'update',
+    actor: Actor,
+    authorityChanged?: boolean,
+  ): Promise<MembershipRow>
 }
 
 /** A system actor for changes nobody in the workspace made: a profile change of the account. */
@@ -86,6 +93,7 @@ export function createMembershipEngine(runtime: Runtime): MembershipEngine {
     return {
       memberId: row.memberId,
       version: row.version,
+      authorizationVersion: row.authorizationVersion,
       status: row.status as MembershipStatus,
       role: row.role as MembershipRole,
       accountId: row.accountId,
@@ -120,11 +128,14 @@ export function createMembershipEngine(runtime: Runtime): MembershipEngine {
     facts: MembershipFacts,
     how: 'insert' | 'update',
     actor: Actor,
+    authorityChanged = true,
   ): Promise<MembershipRow> {
     const db = runtime.db()
     const [stepped] = await stepRevision(db).run({ workspaceId: facts.workspaceId })
     if (!stepped) throw new Error('identity: the workspace revision did not step')
     const version = Number(stepped.revision)
+    const authorizationVersion =
+      authorityChanged && how !== 'insert' ? version : (facts.authorizationVersion ?? 0)
     const now = runtime.now()
     if (how === 'insert') {
       await insertMembership(db).run({
@@ -134,6 +145,7 @@ export function createMembershipEngine(runtime: Runtime): MembershipEngine {
         role: facts.role,
         status: facts.status,
         version,
+        authorizationVersion,
         invitedEmail: facts.invitedEmail,
         createdBy: facts.createdBy ?? ('system' in actor ? actor.system : actor.memberId),
         now,
@@ -146,11 +158,12 @@ export function createMembershipEngine(runtime: Runtime): MembershipEngine {
         role: facts.role,
         status: facts.status,
         version,
+        authorizationVersion,
         invitedEmail: facts.invitedEmail,
         now,
       })
     }
-    const row: MembershipRow = { ...facts, version }
+    const row: MembershipRow = { ...facts, version, authorizationVersion }
     const workspace = bound.get(facts.workspaceId)
     if (workspace?.binding.sameDatabase) {
       // The member row changes in the transaction that changed the membership.
@@ -176,12 +189,17 @@ export function createMembershipEngine(runtime: Runtime): MembershipEngine {
       const rows = await membershipsAbove(runtime.db()).run({ workspaceId, version: cursor })
       let applied = 0
       // In version order, stopping at the first failure: the cursor stays
-      // before it, so the next run starts there. Applying a membership twice
-      // changes nothing, so a crash between the row and the cursor is harmless.
+      // before it, so the next run starts there. The server commits each row
+      // and cursor together. Bindings without a transaction retain harmless,
+      // idempotent replay after a crash between the two writes.
       for (const row of rows) {
         const actor = actors.get(row.version) ?? { system: 'organisation' }
-        await applyMembership(binding.rows, snapshotOf(row, profileOfJoined(row), actor))
-        await binding.cursor.write(row.version)
+        const apply = async () => {
+          await applyMembership(binding.rows, snapshotOf(row, profileOfJoined(row), actor))
+          await binding.cursor.write(row.version)
+        }
+        if (binding.cursor.transaction) await binding.cursor.transaction(apply)
+        else await apply()
         applied += 1
       }
       // An actor noted for a version that is now behind the cursor is spent,
@@ -235,8 +253,16 @@ export function createMembershipEngine(runtime: Runtime): MembershipEngine {
       // One order for every caller, so two changes never wait on each other.
       rows.sort((a, b) => (a.workspaceId < b.workspaceId ? -1 : 1))
       for (const row of rows) {
-        if (onPostgres) await lockRevision(runtime.db()).run({ workspaceId: row.workspaceId })
-        await write(row, 'update', ACCOUNT_CHANGE)
+        if (!onPostgres) {
+          await write(row, 'update', ACCOUNT_CHANGE, false)
+          continue
+        }
+        const { workspaceId } = row
+        await lockRevision(runtime.db()).run({ workspaceId })
+        // The first read finds workspaces. The member may have changed while
+        // we waited for this lock; a profile edit must preserve current rights.
+        const [current] = await liveMembershipOfAccount(runtime.db()).run({ workspaceId, accountId })
+        if (current) await write(current, 'update', ACCOUNT_CHANGE, false)
       }
       return rows.map((row) => row.workspaceId)
     })

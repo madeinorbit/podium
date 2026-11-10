@@ -83,6 +83,7 @@ export function identitySeamDeps(
     recoveryOnly: opts.recoveryOnly === true,
     memberRows: store.users.memberRows,
     appliedCursor: {
+      transaction: (run) => store.transact(run),
       read: () => store.settings.appliedMembershipVersion(),
       write: (version) => store.settings.recordAppliedMembershipVersion(version),
     },
@@ -115,7 +116,7 @@ export async function openServerIdentity(
   if (opts.seam) {
     const workspace = await opts.seam(identitySeamDeps(store, { recoveryOnly: opts.readOnly }))
     // Hosted: the memberships live elsewhere, so the member rows are brought
-    // up to date before anything is served (section 11). The timer is PDM-509's.
+    // up to date before anything is served (section 11). startServer owns the timer.
     if (!opts.readOnly) await workspace.catchUp()
     return { workspace, local: false }
   }

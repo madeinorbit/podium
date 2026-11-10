@@ -110,6 +110,7 @@ import {
 import { podiumCors } from './http-cors'
 import { PairingManager } from './hub/pairing'
 import { MemberHasNoAccount, memberCredentials } from './identity/member-credentials'
+import { type MembershipCatchUpScheduler, startMembershipCatchUp } from './identity/membership-catch-up'
 import { createMemberOfRequest, refusalAnswer } from './identity/member-of-request'
 import { type IdentitySeam, openServerIdentity } from './identity/server-identity'
 import { IssueToolProvider } from './issue-mcp'
@@ -590,6 +591,8 @@ export async function startServer(
      * member rows port exists only after the server has opened its store.
      */
     identity?: IdentitySeam
+    /** Fake only the membership timer; database and transport behavior stays real. */
+    membershipCatchUpSchedulerForTests?: MembershipCatchUpScheduler
     /**
      * Tests only: the ids of the members this server mints when it built its
      * own identity core, so a fixture's members have ids a test can name.
@@ -719,6 +722,9 @@ export async function startServer(
     newMemberId: opts.newMemberIdForTests,
   })
   const credentials = memberCredentials(store.users, identity.workspace.core.accounts)
+  const membershipCatchUp = !identity.local && !recoveryOnly && !rehearsal
+    ? startMembershipCatchUp(identity.workspace, opts.membershipCatchUpSchedulerForTests)
+    : undefined
   // Expired invitations and one-time codes are deleted hourly (section 2.3).
   // Not on a store that cannot be written, and not in a boot rehearsal.
   let stopIdentitySweep = (): void => {}
@@ -1662,7 +1668,7 @@ export async function startServer(
   let dropLoopAccounting: (() => void) | undefined
   app.use('/setup/*', cors())
   app.use('/readiness', cors())
-  registerReadinessRoute(app, readiness)
+  registerReadinessRoute(app, readiness, membershipCatchUp?.status)
   registerSetupRoute(app, {
     readiness,
     // A source launcher is not enough on its own: PODIUM_HOST=0.0.0.0 is an explicit
@@ -2622,6 +2628,7 @@ export async function startServer(
               // inside persistence cannot grant it shutdown admission. Stop and
               // join it BEFORE store.close marks the scheduler as draining.
               await superagent.dispose()
+              await membershipCatchUp?.stop()
               await store.close(persist)
             },
             server,

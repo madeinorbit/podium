@@ -39,6 +39,7 @@ export const MEMBERSHIP_SUITE_CASES = [
   'every membership change steps the workspace revision by one; applying a membership twice changes nothing',
   'local accounts end with their membership and sign in only with an active one; shared accounts do neither',
   'the same-machine rule admits the sole active member and nobody else',
+  'disable then enable between two catch-ups still moves the member generation',
 ] as const
 
 const WORKSPACE = 'local'
@@ -365,10 +366,13 @@ export function membershipCases(context: MembershipCasesContext): void {
       const bobAccount = await accountFor('Bob', BOB_PASSWORD)
       const malloryAccount = await accountFor('Mallory', MALLORY_PASSWORD)
       // Two accepts of one invitation at the same moment.
+      opened.armConcurrentTransactions?.()
       const outcomes = await Promise.allSettled([
         workspace.memberships.accept({ token: invitation.token, account: bobAccount }),
         workspace.memberships.accept({ token: invitation.token, account: malloryAccount }),
       ])
+      if (opened.maximumConcurrentTransactions)
+        expect(opened.maximumConcurrentTransactions() >= 2).toBe(true)
       const won = outcomes.filter((outcome) => outcome.status === 'fulfilled')
       const lost = outcomes.filter((outcome) => outcome.status === 'rejected')
       expect(won.length).toBe(1)
@@ -898,6 +902,37 @@ export function membershipCases(context: MembershipCasesContext): void {
 
       await workspace.memberships.remove({ actor: asAlice(), memberId: bob.memberId })
       await stepped(bob.memberId)
+      await aliceUnchanged()
+    })
+
+    test(10, async () => {
+      const bob = await join()
+      const before = (await rowOf(bob.memberId)) as MemberRowState
+      let cursor = await revision()
+      const elsewhere = (await buildIdentity(configOf(opened.database))).core.workspace(WORKSPACE, {
+        rows: opened.memberRows,
+        sameDatabase: false,
+        cursor: { read: async () => 2_147_483_647, write: async () => {} },
+      })
+      const reader = (await buildIdentity(configOf(opened.database))).core.workspace(WORKSPACE, {
+        rows: opened.memberRows,
+        sameDatabase: false,
+        cursor: {
+          read: async () => cursor,
+          write: async (version) => {
+            cursor = version
+          },
+        },
+      })
+      await elsewhere.memberships.disable({ actor: asAlice(), memberId: bob.memberId })
+      await elsewhere.memberships.enable({ actor: asAlice(), memberId: bob.memberId })
+      expect(await rowOf(bob.memberId)).toEqual(before)
+      await reader.catchUp()
+      const after = (await rowOf(bob.memberId)) as MemberRowState
+      expect(after.state).toBe('active')
+      expect(after.generation > before.generation).toBe(true)
+      await reader.catchUp()
+      expect(await rowOf(bob.memberId)).toEqual(after)
       await aliceUnchanged()
     })
 

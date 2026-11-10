@@ -69,6 +69,7 @@ export interface MembershipRow {
   role: string
   status: string
   version: number
+  authorizationVersion: number
   invitedEmail: string | null
   createdBy: string | null
 }
@@ -80,6 +81,7 @@ const membershipColumns = (t: Tables) => ({
   role: t.membership.role,
   status: t.membership.status,
   version: t.membership.version,
+  authorizationVersion: t.membership.authorizationVersion,
   invitedEmail: t.membership.invitedEmail,
   createdBy: t.membership.createdBy,
 })
@@ -172,6 +174,7 @@ export const insertMembership = prepared<{
   role: string
   status: string
   version: number
+  authorizationVersion: number
   invitedEmail: string | null
   createdBy: string
   now: Date
@@ -183,6 +186,7 @@ export const insertMembership = prepared<{
     role: sql.placeholder('role'),
     status: sql.placeholder('status'),
     version: sql.placeholder('version'),
+    authorizationVersion: sql.placeholder('authorizationVersion'),
     invitedEmail: sql.placeholder('invitedEmail'),
     createdBy: sql.placeholder('createdBy'),
     createdAt: sql.placeholder('now'),
@@ -198,6 +202,7 @@ export const updateMembership = prepared<{
   role: string
   status: string
   version: number
+  authorizationVersion: number
   invitedEmail: string | null
   now: Date
 }>((db, t) =>
@@ -208,6 +213,7 @@ export const updateMembership = prepared<{
       role: sql.placeholder('role'),
       status: sql.placeholder('status'),
       version: sql.placeholder('version'),
+      authorizationVersion: sql.placeholder('authorizationVersion'),
       invitedEmail: sql.placeholder('invitedEmail'),
       updatedAt: sql.placeholder('now'),
     })

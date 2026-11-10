@@ -23,6 +23,7 @@ export async function applyMembership(
   await rows.write({
     memberId: membership.memberId,
     version: membership.version,
+    authorizationVersion: membership.authorizationVersion ?? 0,
     state: membership.status,
     role: membership.role,
     accountId: membership.accountId,

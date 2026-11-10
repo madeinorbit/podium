@@ -165,6 +165,8 @@ export const identityMembership = pgTable(
     status: text('status').notNull(),
     /** The workspace revision at this membership's last change. */
     version: integer('version').notNull(),
+    /** Last revision that changed authority; profile changes preserve it. */
+    authorizationVersion: integer('authorization_version').notNull().default(0),
     invitedEmail: text('invited_email'),
     createdBy: text('created_by'),
     createdAt: timestamp('created_at').notNull(),
