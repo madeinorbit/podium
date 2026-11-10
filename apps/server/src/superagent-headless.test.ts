@@ -393,6 +393,7 @@ describe('managed credential on headless turns (two members)', () => {
   const BOB = asUserId('user:bob-6733')
   const ALICE_KEY = 'sk-ant-alice-6733-0000000000'
   const ALICE_TOKEN = 'sk-ant-oat-alice-6733-000000'
+  const BOB_KEY = 'sk-ant-bob-6733-00000000000'
 
   const connect = async (
     h: Awaited<ReturnType<typeof harness>>,
@@ -541,7 +542,9 @@ describe('managed credential on headless turns (two members)', () => {
       await h.settle()
       return request
     }
-    // Both members run the superagent on Claude Code's native login.
+    // Alice runs the superagent on Claude Code's native login on her own
+    // machine; Bob, on her machine, on his own key sent there (her native
+    // login is hers, POD-6740).
     const useAccount = async (owner: typeof ALICE, accountId: string) => {
       const current = await h.registry.sessionStore.settings.getSettingsFor(owner)
       await h.registry.sessionStore.settings.setSettingsFor(
@@ -561,11 +564,18 @@ describe('managed credential on headless turns (two members)', () => {
       )
     }
     await useAccount(ALICE, 'native:claude-code')
-    await useAccount(BOB, 'native:claude-code')
+    await connect(h, BOB, 'managed:anthropic', BOB_KEY)
+    await h.registry.sessionStore.accounts.markSent(
+      BOB,
+      'managed:anthropic',
+      h.registry.sessionStore.hostMachineId,
+      new Date().toISOString(),
+    )
+    await useAccount(BOB, 'managed:anthropic')
     const aliceFirst = await send(ALICE, 'hi')
     const bobFirst = await send(BOB, 'hi')
     expect(aliceFirst.accountId).toMatch(/^native:claude-code/)
-    expect(bobFirst.accountId).toMatch(/^native:claude-code/)
+    expect(bobFirst.accountId).toBe('managed:anthropic')
     expect(aliceFirst.sessionId).not.toBe(bobFirst.sessionId)
 
     // Alice switches the superagent to her managed key.
@@ -585,11 +595,11 @@ describe('managed credential on headless turns (two members)', () => {
     const aliceSteady = await send(ALICE, 'steady')
     expect(aliceSteady.sessionId).toBe(aliceSwitched.sessionId)
 
-    // Bob changed nothing: his thread keeps its row and its native account.
+    // Bob changed nothing: his thread keeps its row and his own key.
     const bobAgain = await send(BOB, 'again')
     expect(bobAgain.sessionId).toBe(bobFirst.sessionId)
     expect(bobAgain.accountId).toBe(bobFirst.accountId)
-    expect(bobAgain.env).toBeUndefined()
+    expect(bobAgain.env).toEqual({ ANTHROPIC_API_KEY: BOB_KEY })
 
     // Alice switches back, but her preference cannot be read right now: the
     // bound row stays (a transient error is not a switch).
