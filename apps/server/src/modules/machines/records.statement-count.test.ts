@@ -147,7 +147,9 @@ describe('statement counts of the machine record writes', () => {
   })
 
   it('a scan that finds one new worktree writes that one, whatever the machine holds', async () => {
-    await expectConstantStatements(oneNewWorktree, 6)
+    // POD-6769: the new checkout is built before the write and after it, in
+    // place of one read of the stored copy (6 -> 7).
+    await expectConstantStatements(oneNewWorktree, 7)
   })
 })
 

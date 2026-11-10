@@ -88,9 +88,10 @@ describe('issue writes that read other issues: pinned statement counts at 5 and 
       // in the number of issues.
       // POD-6769: compare at save. The issue and its members' personal records
       // are listed and built before the write and again after it, in place of
-      // one read of the stored copies: 13 -> 19, constant in the number of
-      // issues.
-      19,
+      // one read of the stored copies: +6, constant in the number of issues.
+      // POD-6765 stored the git observation: one read of it per issue write.
+      // 13 -> 20.
+      20,
     )
   })
 
@@ -98,8 +99,9 @@ describe('issue writes that read other issues: pinned statement counts at 5 and 
     await expectConstantStatements(
       pin('crud.move', async (f) => await f.svc.crud.move(f.svc.reports.store.serverWriter, 'iss_3', { before: 'iss_2' }),
         (wire) => expect(wire).toMatchObject({ id: 'iss_3' })),
-      // POD-6769: compare at save, as for `crud.create`: 8 -> 13.
-      13,
+      // POD-6769: compare at save, as for `crud.create` (+5), and POD-6765's
+      // read of the stored git observation (+1): 8 -> 14.
+      14,
     )
   })
 
