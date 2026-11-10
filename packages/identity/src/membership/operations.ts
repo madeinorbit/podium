@@ -9,7 +9,6 @@
  * A refusal throws inside the transaction, so nothing of a refused operation
  * stays.
  */
-import { newMemberId } from '@podium/model'
 import { toAccount } from '../accounts'
 import {
   inGeneratedDomain,
@@ -212,7 +211,7 @@ export function membershipOperations(
           if ((await anyMembership(db()).run({ workspaceId })).length > 0) {
             return refuse('not-allowed')
           }
-          id ??= newMemberId()
+          id ??= runtime.config.newMemberId()
         }
         // An active member is a person who can enter; an invited one is nobody yet.
         if (input.status === 'active' && account === null) return refuse('not-allowed')
@@ -261,7 +260,7 @@ export function membershipOperations(
         if (input.memberId === undefined) {
           // A new person: the member id is minted now; no member row exists
           // until the invitation is accepted.
-          memberId = newMemberId()
+          memberId = runtime.config.newMemberId()
           await engine.write({ ...facts, memberId }, 'insert', input.actor)
         } else {
           memberId = input.memberId

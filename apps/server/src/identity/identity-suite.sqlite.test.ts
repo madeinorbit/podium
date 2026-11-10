@@ -26,6 +26,7 @@ import {
   type StoredTable,
   type SuiteHarness,
 } from '@podium/identity/testing'
+import { newMemberId } from '@podium/model'
 import { hashPassword, verifyPasswordHash } from '@podium/runtime/auth-store'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -56,6 +57,8 @@ const harness: SuiteHarness = {
     hash: hashPassword,
     verify: ({ password, hash }) => verifyPasswordHash(password, hash),
   },
+  // The server's own member ids.
+  newMemberId,
   async open() {
     const dir = mkdtempSync(join(tmpdir(), 'podium-identity-suite-'))
     const path = join(dir, 'podium.db')
@@ -173,6 +176,7 @@ describe('identity suite on sqlite: the leg', () => {
           hosts: { kind: 'self-hosted' },
           sameMachine: { waived: () => false },
           rateLimit: { storage: 'memory' },
+          newMemberId,
         })
         const workspace = core.workspace('local', { rows: opened.memberRows, sameDatabase: true })
         const facts = { scheme: 'https' as const, sameMachine: false, clientAddress: '10.9.9.9' }

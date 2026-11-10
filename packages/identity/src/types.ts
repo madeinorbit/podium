@@ -49,6 +49,11 @@ export interface IdentityConfig {
   /** Absent: the library's ids. */
   generateId?: (model: string) => string
   /**
+   * Mints the id of a new member, which is the id of its member row (`users.id`).
+   * The member row belongs to the server, so the server says how its ids look.
+   */
+  newMemberId: () => string
+  /**
    * The link an invitee opens, for an edition that mails invitations. Absent:
    * no invitation is mailed and the admin copies the link the route builds.
    */

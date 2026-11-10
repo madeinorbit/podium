@@ -98,6 +98,11 @@ export interface SuiteHarness {
    * server's own; without them the suite uses a stand-in of the same shape.
    */
   passwordHashing?: NonNullable<IdentityConfig['passwordHashing']>
+  /**
+   * How the leg's member rows mint an id. The SQLite leg passes the server's
+   * own; without it the suite uses a stand-in of the same shape.
+   */
+  newMemberId?: () => string
 }
 
 export interface IdentitySuiteRun {
@@ -131,6 +136,9 @@ const standInHashing: NonNullable<IdentityConfig['passwordHashing']> = {
       )
     }),
 }
+
+/** A stand-in for the server's member ids: the prefix and 27 characters. */
+const standInMemberId = () => `mem_${randomBytes(21).toString('base64url').slice(0, 27)}`
 
 type Edition = 'self-hosted' | 'cloud'
 
@@ -190,6 +198,7 @@ function editionConfig(
       sameMachine: { waived: () => false },
       passwordHashing: harness.passwordHashing ?? standInHashing,
       rateLimit: { storage: 'memory' },
+      newMemberId: harness.newMemberId ?? standInMemberId,
       now: clock,
     }
   }
@@ -226,6 +235,7 @@ function editionConfig(
       extensions: [{ id: 'organization' }],
     },
     generateId: (model) => `${model}_${++minted}_${randomBytes(9).toString('base64url')}`,
+    newMemberId: harness.newMemberId ?? standInMemberId,
     now: clock,
   }
 }
