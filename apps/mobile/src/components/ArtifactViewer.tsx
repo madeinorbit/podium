@@ -47,7 +47,7 @@ import {
 } from '../lib/issue-artifacts'
 import { color, font, leading, mono, sans, space, spring } from '../theme/theme'
 import { ArtifactVideo } from './ArtifactVideo'
-import { ComposerGlass } from './ComposerGlass'
+import { Glass } from './Glass'
 import { Icon } from './Icon'
 import { type AppIcon, X } from './icons'
 import { PressableScale } from './PressableScale'
@@ -273,9 +273,8 @@ function ViewerPages({
 
 /**
  * A round bar button over the artifact (board Artifact's toolbar caps): the
- * system bar-button shape on the composer's glass material, since the viewer
- * has no navigation bar to host native ones. Swap ComposerGlass for the shared Glass
- * helper (POD-2376) once it lands.
+ * system bar-button shape on the shared Glass piece, since the viewer has no
+ * navigation bar to host native ones.
  */
 function BarCap({ label, icon, onPress }: { label: string; icon: AppIcon; onPress: () => void }) {
   return (
@@ -285,9 +284,9 @@ function BarCap({ label, icon, onPress }: { label: string; icon: AppIcon; onPres
       onPress={onPress}
       style={styles.cap}
     >
-      <ComposerGlass style={styles.capGlass}>
+      <Glass interactive style={styles.capGlass}>
         <Icon as={icon} size={18} color={color.text} />
-      </ComposerGlass>
+      </Glass>
     </PressableScale>
   )
 }
@@ -496,14 +495,13 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
-    // Glass alone vanishes on the opaque ground; the fill keeps the disc.
-    backgroundColor: color.tertiaryFill,
     // The web Modal focuses its first control on open, and the browser drew
     // its focus ring round the close button: the white ring.
     ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : null),
   },
   capGlass: {
     ...StyleSheet.absoluteFill,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },

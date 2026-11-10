@@ -16,8 +16,8 @@ import { useMobilePool } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
 import { useIssueCloseGuard } from '../client/use-issue-close'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
-import { ComposerGlass } from '../components/ComposerGlass'
 import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
+import { Glass } from '../components/Glass'
 import { Icon } from '../components/Icon'
 import { IssueCloseSheet } from '../components/IssueCloseSheet'
 import { MoreVertical } from '../components/icons'
@@ -257,11 +257,11 @@ function MissionBody({
   }
   return (
     <View style={styles.body}>
-      <ComposerGlass style={styles.deck} testID="mission-deck">
+      <Glass style={styles.deck}>
         <View onLayout={onBarLayout}>
           <MissionBar full={full} onOpen={onOpenDetails} />
         </View>
-      </ComposerGlass>
+      </Glass>
       <View style={styles.stage}>
         {current ? (
           <SessionConversation
@@ -294,6 +294,9 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 1,
+    // A full-width strip, not a chip: square corners, no outline.
+    borderRadius: 0,
+    borderWidth: 0,
   },
   stage: {
     flex: 1,
