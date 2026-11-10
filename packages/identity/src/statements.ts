@@ -41,7 +41,7 @@ import type { sqliteIdentityTables } from './schema/sqlite'
 
 export type IdentityTables = typeof sqliteIdentityTables | typeof pgIdentityTables
 
-interface HandleFacts {
+export interface HandleFacts {
   // biome-ignore lint/suspicious/noExplicitAny: see the file header; the two dialects' table types do not unify
   readonly tables: any
   readonly dialect: 'sqlite' | 'pg'
@@ -99,7 +99,7 @@ export function prepared<Values extends object, Row = never>(
  * becomes the stored time). In `set()` and `values()` drizzle binds a bare
  * `sql.placeholder` to its column itself.
  */
-function p(column: Column, name: string): Param {
+export function p(column: Column, name: string): Param {
   return new Param(sql.placeholder(name), column)
 }
 

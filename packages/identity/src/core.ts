@@ -7,10 +7,13 @@ import { capabilitiesOf } from './capabilities'
 import { oneTimeCodeOperations } from './codes'
 import { credentialOperations } from './credentials'
 import { deviceSignInOperations } from './device-sign-ins'
+import { createMembershipEngine } from './membership/engine'
+import { deleteExpiredInvitations } from './membership/statements'
+import { workspaceIdentity } from './membership/workspace'
 import { CLIENT_ADDRESS_HEADER, createRuntime, type Runtime } from './runtime'
 import { signInOperations } from './sign-in'
 import { deleteExpiredCodes } from './statements'
-import { type IdentityConfig, type IdentityCore, IdentityRefused } from './types'
+import type { IdentityConfig, IdentityCore } from './types'
 
 /** Headers a proxy or a caller may have set; none of them reaches the library. */
 const FORWARDING_HEADERS = [
@@ -40,22 +43,24 @@ export async function buildIdentity(
   const capabilities = capabilitiesOf(config)
   const credentials = credentialOperations(runtime)
   const deviceSignIns = deviceSignInOperations(runtime)
+  const accounts = accountOperations(runtime)
+  // Installs the sign-in gate of local accounts and the account hook.
+  const memberships = createMembershipEngine(runtime)
 
   const core: IdentityCore = {
     capabilities: () => capabilities,
-    accounts: accountOperations(runtime),
+    accounts,
     signIn: signInOperations(runtime, credentials),
     deviceSignIns,
     codes: oneTimeCodeOperations(runtime, deviceSignIns),
     credentials: { resolve: credentials.resolve, renew: credentials.renew },
-    workspace() {
-      // The workspace-bound half joins the membership onto the resolution
-      // statement and applies memberships to member rows. It is built by the
-      // memberships task (POD-6745) in src/membership.
-      throw new IdentityRefused('not-built', 'identity: memberships are not built yet')
+    workspace(id, members) {
+      return workspaceIdentity(memberships, memberships.bind(id, members), core, credentials)
     },
     async sweep() {
-      await deleteExpiredCodes(runtime.db()).run({ now: runtime.now() })
+      const now = runtime.now()
+      await deleteExpiredCodes(runtime.db()).run({ now })
+      await deleteExpiredInvitations(runtime.db()).run({ now })
     },
   }
 

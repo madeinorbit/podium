@@ -18,7 +18,7 @@ import type {
   DeviceKind,
 } from './types'
 
-const LAST_SEEN_EVERY_MS = 5 * 60_000
+export const LAST_SEEN_EVERY_MS = 5 * 60_000
 
 function decoded(value: string): string {
   if (!value.includes('%')) return value
@@ -60,7 +60,7 @@ export function candidateOf(
 }
 
 /** True when the library would renew this sign-in: it was last renewed more than a day ago. */
-function renewDue(row: SignInRow, now: Date): boolean {
+export function renewDue(row: SignInRow, now: Date): boolean {
   if (row.fixedExpiry) return false
   const lastRenewed = row.expiresAt.getTime() - SIGN_IN_LIFE_SECONDS * 1000
   return lastRenewed + RENEW_AFTER_SECONDS * 1000 <= now.getTime()

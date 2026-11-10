@@ -48,6 +48,11 @@ export interface IdentityConfig {
   libraryRoutes?: { basePath: string; extensions?: LibraryExtension[] }
   /** Absent: the library's ids. */
   generateId?: (model: string) => string
+  /**
+   * The link an invitee opens, for an edition that mails invitations. Absent:
+   * no invitation is mailed and the admin copies the link the route builds.
+   */
+  invitationUrl?: (token: string, workspaceId: string) => string
   now?: () => Date
 }
 
@@ -260,7 +265,7 @@ export type HeldSignIn =
   | { sameMachine: true; memberId: string; role: 'admin' | 'member' }
 
 // ---------------------------------------------------------------------------
-// Memberships (section 2.6). Built by the next task; the shapes are the seam.
+// Memberships (section 2.6). Built in src/membership.
 // ---------------------------------------------------------------------------
 
 export interface MembershipOperations {
@@ -339,6 +344,12 @@ export interface MembershipSnapshot {
 /** Implemented by the server over its users repository. Nothing else may call write(). */
 export interface MemberRows {
   write(change: MemberWrite): Promise<void>
+  /**
+   * Whether a member row with this id exists, in any state. An invitation may
+   * name a member that has no membership yet only when its row exists (a
+   * move). Absent: such an invitation is refused.
+   */
+  exists?(memberId: string): Promise<boolean>
 }
 
 export interface MemberWrite {

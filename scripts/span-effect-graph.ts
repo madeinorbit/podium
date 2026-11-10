@@ -418,12 +418,12 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
   },
   {
     file: 'packages/identity/src/types.ts',
-    line: 82,
+    line: 87,
     why: "the identity package's database port, SQLite arm (POD-6744): the property that HOLDS the transaction runner an edition hands in. On the server that runner is `createOrJoinTransaction`, which is named as an opener where the server binds it.",
   },
   {
     file: 'packages/identity/src/types.ts',
-    line: 83,
+    line: 88,
     why: "the identity package's database port, Postgres arm: the same property for the cloud's database. No server span exists there.",
   },
   {
@@ -433,7 +433,7 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
   },
   {
     file: 'packages/identity/src/runtime.ts',
-    line: 161,
+    line: 164,
     why: "the same declaration's implementation.",
   },
 ]

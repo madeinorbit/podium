@@ -69,6 +69,8 @@ export interface Runtime {
   db(): object
   /** Runs fn in one transaction of the database port, joining one that is open. */
   transaction<T>(fn: () => Promise<T>): Promise<T>
+  /** True while a transaction of the database port is open around the caller. */
+  inTransaction(): boolean
   /** The configuration these facts select, or undefined: plain HTTP that is not same-machine. */
   configurationFor(facts: ConnectionFacts): Configuration | undefined
   readonly configurations: readonly Configuration[]
@@ -98,8 +100,9 @@ export interface Runtime {
   /** Listeners for a change of an account's name, picture or email (memberships subscribe). */
   readonly accountChanged: Array<(accountId: string) => Promise<void>>
   /**
-   * With `accounts: 'local'`, may this account sign in? The memberships task
-   * answers from the account's membership; until then nothing restricts it.
+   * With `accounts: 'local'`, may this account sign in? Set by the memberships
+   * module: only an account with an active membership may. Undefined with
+   * `accounts: 'shared'`, where an account outlives its memberships.
    */
   signInGate: ((accountId: string) => Promise<boolean>) | undefined
 }
@@ -374,6 +377,7 @@ export async function createRuntime(config: IdentityConfig): Promise<Runtime> {
     now,
     db: () => scope.getStore()?.db ?? root,
     transaction,
+    inTransaction: () => scope.getStore() !== undefined,
     configurationFor,
     configurations,
     library,

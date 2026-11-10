@@ -5,5 +5,6 @@
  * (Postgres). Reference: docs/design/people-and-sign-in.md.
  */
 export { createIdentityCore } from './core'
+export { applyMembership } from './membership/apply'
 export { generatedIdentifier, isGeneratedIdentifier } from './secrets'
 export * from './types'
