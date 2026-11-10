@@ -150,7 +150,7 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
     <View collapsable={false} style={styles.root}>
       <Stack.Screen
         options={{
-          title: 'Work',
+          title: props.mode === 'search' ? 'Search' : 'Work',
           headerLargeTitleEnabled: true,
           headerLargeTitleShadowVisible: false,
           headerShadowVisible: false,
@@ -158,33 +158,36 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
           headerTintColor: color.accentTint,
         }}
       />
-      <NewWorkButton
-        renderTrigger={(open) => (
-          <Stack.Toolbar placement="right">
-            <Stack.Toolbar.Button
-              icon="square.and.pencil"
-              accessibilityLabel="New work"
-              onPress={open}
-            >
-              New work
-            </Stack.Toolbar.Button>
-          </Stack.Toolbar>
-        )}
-      />
-      <Stack.SearchBar
-        ref={searchRef}
-        placeholder="Search tasks or ID"
-        hideWhenScrolling
-        autoCapitalize="none"
-        onChangeText={(event) => {
-          nativeQuery.current = event.nativeEvent.text
-          phone.setQuery(event.nativeEvent.text)
-        }}
-        onCancelButtonPress={() => {
-          nativeQuery.current = ''
-          phone.setQuery('')
-        }}
-      />
+      {props.mode === 'tab' ? (
+        <NewWorkButton
+          renderTrigger={(open) => (
+            <Stack.Toolbar placement="right">
+              <Stack.Toolbar.Button
+                icon="square.and.pencil"
+                accessibilityLabel="New work"
+                onPress={open}
+              >
+                New work
+              </Stack.Toolbar.Button>
+            </Stack.Toolbar>
+          )}
+        />
+      ) : (
+        <Stack.SearchBar
+          ref={searchRef}
+          placeholder="Search tasks or ID"
+          hideWhenScrolling={false}
+          autoCapitalize="none"
+          onChangeText={(event) => {
+            nativeQuery.current = event.nativeEvent.text
+            phone.setQuery(event.nativeEvent.text)
+          }}
+          onCancelButtonPress={() => {
+            nativeQuery.current = ''
+            phone.setQuery('')
+          }}
+        />
+      )}
       <View>{props.notices}</View>
       <Host style={styles.host} seedColor={color.accentTint}>
         <List

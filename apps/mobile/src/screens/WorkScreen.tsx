@@ -9,6 +9,7 @@ import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { parseIssueStatusValue, type SessionId } from '@podium/model'
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Platform } from 'react-native'
 import { useStoreActions } from '../client/hooks'
 import { useMobilePool, useMobilePoolProjection } from '../client/mobile-pool'
 import { useIssueCloseGuard } from '../client/use-issue-close'
@@ -26,6 +27,7 @@ import { type PoolWorkMenuData, resolvePoolWorkMenu } from '../lib/pool-work-men
 import { sessionHref } from '../lib/session-route'
 import type { WorkMenuActionId } from '../lib/work-menu'
 import { WorkSurface } from './WorkSurface'
+import type { WorkMode } from './WorkSurface.types'
 import { readWorkNavigation, type WorkRouteParams, workFilterParams } from './work-navigation'
 import { saveWorkNavigation } from './work-restoration'
 
@@ -48,16 +50,19 @@ const foldKey = (key: string) =>
   key === 'pinned' ? 'podium:sidebar:pinned-fold' : `podium:sidebar:project-fold:${key}`
 
 /** Both phone presentations borrow desktop membership and the same per-task companions. */
-export function WorkScreen() {
+export function WorkScreen({ mode = 'tab' }: { mode?: WorkMode } = {}) {
   const pool = useMobilePool()
   return (
     <WorklistProvider model={pool ? worklistView(pool) : null}>
-      <PoolWorkScreen />
+      <PoolWorkScreen mode={mode} />
     </WorklistProvider>
   )
 }
 
-const PoolWorkScreen = observer(function PoolWorkScreen() {
+/** On iOS the system search tab owns Work search, so the Work tab itself never filters. */
+const tabOwnsSearch = (mode: WorkMode) => mode === 'search' || Platform.OS !== 'ios'
+
+const PoolWorkScreen = observer(function PoolWorkScreen({ mode }: { mode: WorkMode }) {
   const router = useRouter()
   const params = useLocalSearchParams<WorkRouteParams>()
   const position = readWorkNavigation(params)
@@ -86,6 +91,15 @@ const PoolWorkScreen = observer(function PoolWorkScreen() {
     model?.phone.setFilters(filters)
     return model?.phone
   }, [model, filters])
+  // The Work tab and the search tab share one phone worklist: the focused
+  // screen lends it its filters, and a query lives only while search is focused.
+  useFocusEffect(
+    useCallback(() => {
+      model?.phone.setFilters(filters)
+      if (!tabOwnsSearch(mode)) filters.setQuery('')
+      return mode === 'search' ? () => filters.setQuery('') : undefined
+    }, [model, filters, mode]),
+  )
   const keys = phone?.sections.map((section) => section.key) ?? []
   const { collapsed, toggle } = useCollapsedSet(keys, foldKey)
   const [pendingNav, setPendingNav] = useState<string | null>(null)
@@ -194,6 +208,7 @@ const PoolWorkScreen = observer(function PoolWorkScreen() {
   return (
     <>
       <WorkSurface
+        mode={mode}
         scrollOffset={scrollOffset}
         returnOffset={position.offset}
         returnFocus={position.focus}
