@@ -980,7 +980,31 @@ describe('Updates permissions and batch actions', () => {
     expect(screen.queryByRole('button', { name: 'Stable' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Check now' })).toBeNull()
     expect(screen.queryByRole('button', { name: /Apply update to/ })).toBeNull()
+    expect(screen.queryByTestId(`update-machine-${firstMachine.id}`)).toBeNull()
     expect(screen.getByText('History')).toBeTruthy()
+  })
+
+  it('lists and batches only manageable machines for a member', async () => {
+    ready()
+    admin = false
+    Object.assign(firstMachine, { targetVersion: '0.4.2', online: true, transferable: true })
+    machines.push({
+      ...firstMachine,
+      id: asMachineId('another-owner'),
+      name: 'Another machine',
+      transferable: false,
+    })
+    trpc.machines.applyUpdate.mutate.mockResolvedValue({
+      outcome: { result: 'granted', version: '0.4.2' },
+    })
+    render(<UpdatesSection />)
+    const batch = await screen.findByRole('button', { name: 'Update 1 machine' })
+    expect(screen.getByTestId(`update-machine-${firstMachine.id}`)).toBeTruthy()
+    expect(screen.queryByTestId('update-machine-another-owner')).toBeNull()
+    fireEvent.click(batch)
+    await waitFor(() => expect(trpc.machines.applyUpdate.mutate).toHaveBeenCalledExactlyOnceWith({
+      id: firstMachine.id,
+    }))
   })
 
   it('updates every waiting online manageable machine, with row outcomes for partial failure', async () => {

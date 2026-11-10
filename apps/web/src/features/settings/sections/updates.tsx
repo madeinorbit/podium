@@ -490,7 +490,7 @@ export const UpdatesSection = observer(function UpdatesSection(): JSX.Element {
             actions={actions}
           />
         ))}
-        {machineIds.length === 0 &&
+        {admin && machineIds.length === 0 &&
           fleetMachines.map((machine) => (
             <EntityRow
               key={machine.id}
@@ -752,7 +752,8 @@ const SettingsUpdateMachine = observer(function SettingsUpdateMachine({
   actions: MachineUpdateActions
 }): JSX.Element | null {
   const machine = useSettingsMachine(id)
-  return machine ? (
+  const admin = useSettingsPermitted('records.instancePreferences.edit')
+  return machine && (admin || machine.transferable === true) ? (
     <UpdateMachineRow
       machine={machine}
       wave={fleetMachines.find((row) => row.id === id) ?? null}
