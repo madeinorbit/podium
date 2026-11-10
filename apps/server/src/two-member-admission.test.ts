@@ -24,7 +24,6 @@ import { request } from 'node:http'
 import { asUserId, type UserId } from '@podium/model'
 import { serverControlSocketPath } from '@podium/runtime/user-socket'
 import { afterEach, expect, it } from 'vitest'
-import { hashToken } from './old-client-sessions'
 import {
   MEMBERS,
   startTwoMemberInstance,
@@ -76,14 +75,18 @@ async function signIn(
   inst: TwoMemberInstance,
   email: string,
   password: string,
-): Promise<{ status: number; cookie?: string }> {
+): Promise<{ status: number; cookie?: string; retryAfterSeconds?: number }> {
   const response = await fetch(new URL('/auth/login', inst.origin), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ email, password }),
   })
   const cookie = response.headers.get('set-cookie')?.split(';', 1)[0]
-  return { status: response.status, ...(response.ok && cookie ? { cookie } : {}) }
+  return {
+    status: response.status,
+    retryAfterSeconds: Number(response.headers.get('retry-after')),
+    ...(response.ok && cookie ? { cookie } : {}),
+  }
 }
 
 interface Joined {
@@ -117,7 +120,15 @@ async function join(
     displayName: name,
   })
   expect(completed.status, JSON.stringify(completed.body)).toBe(200)
-  const signedIn = await signIn(inst, email, password)
+  let signedIn = await signIn(inst, email, password)
+  // Concurrent-admission tests boot several instances in one process. The
+  // library correctly shares the loopback address budget: a real client waits
+  // for Retry-After, without resetting or changing that production limit.
+  if (signedIn.status === 429) {
+    expect(signedIn.retryAfterSeconds).toBeGreaterThan(0)
+    await new Promise((resolve) => setTimeout(resolve, (signedIn.retryAfterSeconds! + 0.1) * 1000))
+    signedIn = await signIn(inst, email, password)
+  }
   expect(signedIn.status).toBe(200)
   return {
     id: asUserId(completed.body.userId as string),
@@ -159,8 +170,9 @@ it('an invite is a hashed, single-use link: two concurrent completions admit one
 
   // Stored as a hash: the plaintext token is nowhere in the database, and the
   // admin's list never carries it again.
-  const stored = (await store(inst).users.pendingInvites()).map((row) => row.tokenHash)
-  expect(stored).toEqual([hashToken(invite.token)])
+  const stored = await inst.handle.identity.memberships.list()
+  expect(stored.filter((row) => row.status === 'invited')).toHaveLength(1)
+  expect(JSON.stringify(stored)).not.toContain(invite.token)
   const listed = await get(inst, '/auth/members/list', alice.cookie)
   expect(JSON.stringify(listed.body)).not.toContain(invite.token)
 
@@ -521,8 +533,8 @@ it('disabling Bob keeps the use grant Alice holds on Bob’s machine', async () 
 it('signing out one device keeps the other; signing out everywhere ends both', async () => {
   const inst = await boot()
   const { bob } = inst.members
-  const first = await signIn(inst, bob.email, bob.password)
-  const second = await signIn(inst, bob.email, bob.password)
+  const first = { cookie: await inst.signInDevice('bob') }
+  const second = { cookie: await inst.signInDevice('bob') }
   const directory = async (cookie: string) =>
     (await get(inst, '/auth/members/directory', cookie)).status
   expect(await directory(first.cookie!)).toBe(200)
@@ -532,7 +544,7 @@ it('signing out one device keeps the other; signing out everywhere ends both', a
   expect(await directory(first.cookie!)).toBe(401)
   expect(await directory(second.cookie!)).toBe(200)
 
-  const third = await signIn(inst, bob.email, bob.password)
+  const third = { cookie: await inst.signInDevice('bob') }
   const feed = await inst.feedWith(third.cookie!)
   const everywhere = await post(inst, '/auth/members/sign-out-everywhere', {}, second.cookie)
   expect(everywhere.status).toBe(200)
@@ -588,7 +600,7 @@ it('an admin-issued recovery link sets a new password once and signs the member 
   expect(issued.body.url).toBe(`${inst.origin}/#invite=${token}`)
   expect((await post(inst, '/auth/members/inspect', { token })).body).toMatchObject({
     email: bob.email,
-    recovery: true,
+    kind: 'password-reset',
   })
 
   const completed = await post(inst, '/auth/members/complete', {
@@ -628,7 +640,8 @@ it('an admin-issued recovery link sets a new password once and signs the member 
 
 it('without mail, the email reset is reported unavailable and sends nothing', async () => {
   const inst = await boot()
-  expect((await get(inst, '/auth/members/recovery-options')).body).toEqual({ mailReset: false })
+  expect((await get(inst, '/auth/members/recovery-options')).status).toBe(404)
+  expect(inst.handle.identity.core.capabilities().passwordReset).toBe('admin-link')
   const requested = await post(inst, '/auth/members/reset-request', { email: MEMBERS.bob.email })
   expect(requested.status).toBe(404)
   expect(await store(inst).users.pendingInvites()).toEqual([])

@@ -7,8 +7,8 @@
  *   Instance, Audit) and can read and use each. Bob, a member, is offered none,
  *   and each admin endpoint refuses him.
  * - People carries the server's allowed actions per member.
- * - Access lists how people are admitted and every unexpired sign-in, without
- *   a token or its hash.
+ * - Access reports membership and invitation counts without a token or its hash.
+ *   Device listing and revocation are covered by two-member-sign-ins.test.ts.
  * - Adopting an unowned machine the way the admin area does (`machines.adopt`
  *   with no recipient) writes a takeover event, and the Audit section shows it.
  * - Audit shows member, role, admission and custody events as actor, delegated
@@ -99,7 +99,7 @@ describe('who is offered the admin area', () => {
     await expect(bob.machines.adopt.mutate({ id: ORPHAN })).rejects.toThrow()
     expect(await f.handle.registry.sessionStore.machines.custodian(ORPHAN)).toBeNull()
     await expect(
-      bob.settings.setSecret.mutate({ key: 'apiKeys.openrouter', value: SECRET_VALUE }),
+      bob.settings.setSecret.mutate({ key: 'integrations.linearApiKey', value: SECRET_VALUE }),
     ).rejects.toThrow()
   })
 })
@@ -117,31 +117,42 @@ describe('People: the allowed actions come from the server', () => {
 })
 
 describe('Access: admission and sign-ins', () => {
-  it('shows invitation-only admission and each member’s sign-ins, never a token hash', async () => {
+  it('shows membership admission counts; device fields live on the separate sign-in route', async () => {
     const { status, body } = await get('alice', '/auth/admin/access')
     expect(status).toBe(200)
-    expect(body.admission).toEqual(
-      expect.objectContaining({ mode: 'invitation', signInRequired: true, activeMembers: 2 }),
-    )
-    const signIns = body.signIns as { memberId: string; memberName: string; kind: string }[]
-    expect(signIns).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          memberId: MEMBERS.alice.id,
-          memberName: aliceName,
-          kind: 'login',
-        }),
-        expect.objectContaining({ memberId: MEMBERS.bob.id, memberName: 'Bob', kind: 'login' }),
-      ]),
-    )
-    const text = JSON.stringify(body)
-    const auth = f.handle.registry.sessionStore.auth
-    for (const member of [MEMBERS.alice, MEMBERS.bob]) {
-      for (const row of await auth.listClientSessionsOfUser(member.id)) {
-        expect(text).not.toContain(row.tokenHash)
-      }
-    }
+    expect(body.admission).toEqual({
+      mode: 'invitation',
+      signInRequired: true,
+      activeMembers: 2,
+      disabledMembers: 1,
+      invitedMembers: 0,
+      openInvites: 0,
+      expiredInvites: 0,
+    })
+    expect(body).not.toHaveProperty('signIns')
+    expect(body).not.toHaveProperty('signInsTotal')
+    const invited = await post('alice', '/auth/members/invite', {
+      email: 'access-invite@example.com',
+    })
+    expect(invited.status).toBe(200)
+    const invite = invited.body.invite as { id: string; token: string }
+    expect((await get('alice', '/auth/admin/access')).body.admission).toMatchObject({
+      activeMembers: 2,
+      disabledMembers: 1,
+      invitedMembers: 1,
+      openInvites: 1,
+    })
+    const text = JSON.stringify((await get('alice', '/auth/admin/access')).body)
+    expect(text).not.toContain(invite.token)
     expect(text).not.toContain('tokenHash')
+    expect(text).not.toContain('@example.com')
+    expect((await post('alice', '/auth/members/revoke', { id: invite.id })).status).toBe(200)
+    expect((await get('alice', '/auth/admin/access')).body.admission).toMatchObject({
+      activeMembers: 2,
+      disabledMembers: 1,
+      invitedMembers: 0,
+      openInvites: 0,
+    })
   })
 })
 
@@ -223,7 +234,10 @@ describe('Machines and Audit', () => {
         })
       ).status,
     ).toBe(409)
-    await alice.trpc.settings.setSecret.mutate({ key: 'apiKeys.openrouter', value: SECRET_VALUE })
+    await alice.trpc.settings.setSecret.mutate({
+      key: 'integrations.linearApiKey',
+      value: SECRET_VALUE,
+    })
     // A preference write is audited too, with its value; it is not a security event.
     // The instance settings are a synced record (POD-6677): a generic edit.
     await (
@@ -267,7 +281,7 @@ describe('Machines and Audit', () => {
           command: 'settings.setSecret',
           result: 'applied',
           ...alicePair,
-          target: { kind: 'secret', id: null, name: 'apiKeys.openrouter' },
+          target: { kind: 'secret', id: null, name: 'integrations.linearApiKey' },
         }),
       ]),
     )

@@ -2720,6 +2720,7 @@
         "src/offer.test.ts",
         "src/old-client-sessions.ts",
         "src/origin-refusal.ts",
+        "src/people-memberships.test.ts",
         "src/plain-command-scope.ts",
         "src/plugins.ts",
         "src/private-resources.ts",

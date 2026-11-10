@@ -4,6 +4,7 @@ import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { trpcServer } from '@hono/trpc-server'
+import type { WorkspaceIdentity } from '@podium/identity'
 import { createLogger } from '@podium/logger'
 import { asMachineId, asUserId, controlPlaneAvailable } from '@podium/model'
 import {
@@ -95,10 +96,6 @@ import { controlSocketHandler } from './control-socket'
 import { registerArtifactRoute } from './file-artifact-route'
 import { registerAssetRoute } from './file-asset-route'
 import { adoptStagedFirstAdminPassword, applyEnvFirstAdminPassword } from './first-admin-password'
-import { MemberHasNoAccount, memberCredentials } from './identity/member-credentials'
-import { createMemberOfRequest, refusalAnswer } from './identity/member-of-request'
-import type { WorkspaceIdentity } from '@podium/identity'
-import { type IdentitySeam, openServerIdentity } from './identity/server-identity'
 import {
   createDaemonAcceptor,
   prepareDaemonFrame,
@@ -112,10 +109,13 @@ import {
 } from './gateway/ws-server'
 import { podiumCors } from './http-cors'
 import { PairingManager } from './hub/pairing'
+import { MemberHasNoAccount, memberCredentials } from './identity/member-credentials'
+import { createMemberOfRequest, refusalAnswer } from './identity/member-of-request'
+import { type IdentitySeam, openServerIdentity } from './identity/server-identity'
 import { IssueToolProvider } from './issue-mcp'
 import { registerLocateProofRoute } from './locate-proof-route'
 import { registerMcpRoute } from './mcp-route'
-import { MemberInvites } from './member-invites'
+import { memberLinks } from './member-invites'
 import { registerMemberRoutes } from './member-routes'
 import { MobilePairingManager } from './mobile-pairing'
 import { clientAddressForRequest, registerMobilePairingRoutes } from './mobile-pairing-route'
@@ -1693,10 +1693,22 @@ export async function startServer(
     onDeviceSignInEnded: (deviceSignInId) => revokeConnectedMobileSession(deviceSignInId),
     onLogin: (event) => registry.modules.bus.emit('auth.login', event),
   })
-  const memberInvites = new MemberInvites(store.users)
-  registerMemberRoutes(app, {
+  const memberInvites = memberLinks({
     users: store.users,
-    invites: memberInvites,
+    identity: identity.workspace,
+    onDeviceSignInEnded: (id) => revokeConnectedMobileSession(id),
+  })
+  registerMemberRoutes(app, {
+    onMembershipChanged: (memberId) => {
+      // Role changes rescope the member's authority at commit; the People
+      // ceremony also ends their old socket so the client reconnects with it.
+      for (const conn of registry.clientGateway.registry.values()) {
+        if (conn.principal.user === memberId) conn.terminate?.()
+      }
+    },
+    users: store.users,
+    identity: identity.workspace,
+    onDeviceSignInEnded: (id) => revokeConnectedMobileSession(id),
     resolveUserId: memberIdOfRequest,
     appUrl: () =>
       resolveAppUrl(loadConfig(), process.env) || resolvePublicUrl(loadConfig(), process.env),
@@ -1705,7 +1717,7 @@ export async function startServer(
   // The admin area's viewer, Access and Audit reads (POD-6299).
   registerAdminRoutes(app, {
     users: store.users,
-    auth: store.auth,
+    identity: identity.workspace,
     audit: store.settingsAudit,
     machineNames: async (ids) =>
       new Map(
@@ -1713,8 +1725,6 @@ export async function startServer(
       ),
     resolveUserId: memberIdOfRequest,
     loginRequired: credentialsRequired,
-    // An admin ending one sign-in closes that device's open sockets at once (POD-6701).
-    onCredentialRevoked: (tokenHash) => revokeConnectedMobileSession(tokenHash),
     allowedOrigins,
   })
   registerMobilePairingRoutes(app, {

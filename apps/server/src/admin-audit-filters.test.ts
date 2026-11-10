@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { registerAdminRoutes, type SecurityEvent } from './admin-routes'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
+import { openTestIdentity } from './test-support/test-identity'
 
 const bob = asUserId('mem_audit_bob')
 let alice: string
@@ -67,7 +68,7 @@ beforeAll(async () => {
   app = new Hono()
   registerAdminRoutes(app, {
     users: store.users,
-    auth: store.auth,
+    identity: (await openTestIdentity(store)).workspace,
     audit: store.settingsAudit,
     machineNames: async () => new Map(),
     resolveUserId: async () => asUserId(caller),

@@ -1,36 +1,31 @@
-import { asUserId, firstAdminMemberId } from '@podium/model'
+import { createIdentityCore, type WorkspaceIdentity } from '@podium/identity'
+import { asUserId, firstAdminMemberId, newMemberId } from '@podium/model'
+import { hashPassword, verifyPasswordHash } from '@podium/runtime/auth-store'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { MemberInvites } from './member-invites'
 import { registerMemberRoutes } from './member-routes'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
+import { openTestIdentity, type TestIdentity } from './test-support/test-identity'
 
-type CreatedInvite = {
-  url: string
-  invite: { id: string; token: string; expiresAt: string }
-  mailSent: boolean
-}
 let store: SessionStore
+let identity: TestIdentity
 beforeEach(async () => {
   store = await openTestStore(':memory:')
+  identity = await openTestIdentity(store)
 })
 afterEach(async () => {
   await store.close()
 })
-function app(options: { admin?: boolean; mail?: boolean; mailFails?: boolean } = {}) {
+function app(options: { admin?: boolean; workspace?: WorkspaceIdentity } = {}) {
   const hono = new Hono()
-  const sendMail = vi.fn(async () => {
-    if (options.mailFails) throw new Error('offline')
-  })
   registerMemberRoutes(hono, {
     users: store.users,
-    invites: new MemberInvites(store.users),
+    identity: options.workspace ?? identity.workspace,
     resolveUserId: async () => (options.admin ? firstAdminMemberId() : undefined),
     appUrl: () => 'https://workspace.example/',
-    ...(options.mail ? { sendMail } : {}),
   })
-  return { hono, sendMail }
+  return hono
 }
 function post(hono: Hono, action: string, body: unknown, origin?: string) {
   return hono.request(`https://workspace.example/auth/members/${action}`, {
@@ -39,250 +34,167 @@ function post(hono: Hono, action: string, body: unknown, origin?: string) {
     body: JSON.stringify(body),
   })
 }
+
 test('admin creates a copyable link; unauthenticated invitee completes and cannot reuse it', async () => {
-  const { hono } = app({ admin: true })
+  const hono = app({ admin: true })
   const created = await post(hono, 'invite', { email: 'anna@example.com' })
   expect(created.status).toBe(200)
-  const invite = (await created.json()) as CreatedInvite
-  expect(invite.url).toBe(`https://workspace.example/#invite=${invite.invite.token}`)
-  const publicApp = app().hono
+  const { invite, url } = await created.json()
+  expect(url).toBe(`https://workspace.example/#invite=${invite.token}`)
   const body = {
-    token: invite.invite.token,
+    token: invite.token,
     email: 'anna@example.com',
     displayName: 'Anna',
     password: 'password123',
   }
-  expect((await post(publicApp, 'inspect', { token: body.token })).status).toBe(200)
-  const completed = await post(publicApp, 'complete', body)
+  expect((await post(app(), 'inspect', { token: body.token })).status).toBe(200)
+  const completed = await post(app(), 'complete', body)
   expect(completed.status).toBe(200)
-  const { userId } = (await completed.json()) as { userId: string }
+  const { userId } = await completed.json()
   expect(await store.users.byEmail(body.email)).toMatchObject({ id: userId })
-  expect((await post(publicApp, 'complete', body)).status).toBe(400)
+  expect((await post(app(), 'complete', body)).status).toBe(400)
   expect((await post(hono, 'remove', { id: userId })).status).toBe(200)
   expect(await store.users.get(asUserId(userId))).toBeUndefined()
 })
+
 test('management requires admin and refuses cross-origin mutations', async () => {
-  expect((await app().hono.request('https://workspace.example/auth/members/list')).status).toBe(403)
-  for (const action of ['invite', 'revoke', 'remove'])
-    expect((await post(app().hono, action, {})).status).toBe(403)
-  expect((await post(app({ admin: true }).hono, 'invite', {}, 'https://evil.example')).status).toBe(
-    403,
-  )
+  expect((await app().request('https://workspace.example/auth/members/list')).status).toBe(403)
+  for (const action of ['invite', 'revoke', 'remove', 'role', 'disable', 'enable', 'recovery'])
+    expect((await post(app(), action, {})).status).toBe(403)
+  expect((await post(app({ admin: true }), 'invite', {}, 'https://evil.example')).status).toBe(403)
 })
-test('member list reports whether the acting admin has a password', async () => {
-  const { hono } = app({ admin: true })
-  const read = async () => {
-    const response = await hono.request('https://workspace.example/auth/members/list')
-    expect(response.status).toBe(200)
-    return response.json()
-  }
+
+test('member list reports whether the acting admin account has a password', async () => {
+  const hono = app({ admin: true })
+  const read = async () =>
+    (await hono.request('https://workspace.example/auth/members/list')).json()
   expect(await read()).toMatchObject({ hasOwnCredential: false })
-  // Another member's credential must not make a passwordless admin confirm.
-  await store.users.create(
-    {
-      id: asUserId('anna'),
-      displayName: 'Anna',
-      role: 'member',
-      createdAt: '2026-01-01T00:00:00Z',
-      disabledAt: null,
-    },
-    'anna-password-hash',
-  )
+  await identity.addMember({ name: 'Anna', email: 'anna@example.com', password: 'anna-password' })
   expect(await read()).toMatchObject({ hasOwnCredential: false })
-  await store.users.setPasswordHash(
-    firstAdminMemberId(),
-    'admin-password-hash',
-    '2026-01-01T00:00:00Z',
-  )
+  await identity.credentials.setPassword(firstAdminMemberId(), 'admin-password')
   expect(await read()).toMatchObject({ hasOwnCredential: true })
 })
+
 test('public completion refuses forged account ids and tokenless trusted claims', async () => {
-  const invite = await new MemberInvites(store.users).create(firstAdminMemberId(), {})
+  const invite = await (await post(app({ admin: true }), 'invite', {})).json()
+  const before = await store.users.get(firstAdminMemberId())
   for (const body of [
-    { token: invite.token, accountId: 'acct_attacker' },
+    { token: invite.invite.token, accountId: 'acct_attacker' },
     { preAuthorizedMemberId: firstAdminMemberId(), accountId: 'acct_attacker' },
-  ]) {
-    expect((await post(app().hono, 'complete', body)).status).toBe(400)
-  }
-  expect((await store.users.get(firstAdminMemberId()))?.accountId).toBeNull()
+  ])
+    expect((await post(app(), 'complete', body)).status).toBe(400)
+  expect((await store.users.get(firstAdminMemberId()))?.accountId).toBe(before?.accountId)
 })
-test('revocation and optional mail delivery retain a copyable link on provider failure', async () => {
-  const { hono, sendMail } = app({ admin: true, mail: true, mailFails: true })
-  const result = (await (
-    await post(hono, 'invite', { email: 'anna@example.com', sendEmail: true })
-  ).json()) as CreatedInvite
-  expect(sendMail).toHaveBeenCalledWith({
-    email: 'anna@example.com',
-    url: result.url,
-    expiresAt: result.invite.expiresAt,
+
+test('revocation and configured identity mail retain a copyable link on provider failure', async () => {
+  let fails = true
+  const send = vi.fn(async () => {
+    if (fails) throw new Error('offline')
   })
+  const core = await createIdentityCore({
+    database: store.identityDatabase(),
+    secret: 'test-secret-at-least-thirty-two-characters',
+    accounts: 'shared',
+    loginMethods: { password: true },
+    mail: { send },
+    selfSignUp: false,
+    hosts: { kind: 'self-hosted' },
+    sameMachine: null,
+    rateLimit: { storage: 'memory' },
+    newMemberId,
+    passwordHashing: {
+      hash: hashPassword,
+      verify: ({ password, hash }) => verifyPasswordHash(password, hash),
+    },
+    invitationUrl: (token) => `https://workspace.example/#invite=${token}`,
+  })
+  const workspace = core.workspace('local', { rows: store.users.memberRows, sameDatabase: true })
+  const hono = app({ admin: true, workspace })
+  const result = await (await post(hono, 'invite', { email: 'anna@example.com' })).json()
+  expect(send).toHaveBeenCalledWith(
+    expect.objectContaining({ to: 'anna@example.com', text: expect.stringContaining(result.url) }),
+  )
   expect(result.mailSent).toBe(false)
   expect((await post(hono, 'revoke', { id: result.invite.id })).status).toBe(200)
   expect((await post(hono, 'inspect', { token: result.invite.token })).status).toBe(400)
-  const sent = await post(app({ admin: true, mail: true }).hono, 'invite', {
-    email: 'bob@example.com',
-    sendEmail: true,
-  })
-  expect(((await sent.json()) as CreatedInvite).mailSent).toBe(true)
-  expect(
-    (await post(app({ admin: true }).hono, 'invite', { email: 'bob@example.com', sendEmail: true }))
-      .status,
-  ).toBe(400)
+  fails = false
+  expect((await (await post(hono, 'invite', { email: 'bob@example.com' })).json()).mailSent).toBe(
+    true,
+  )
+  const local = await (
+    await post(app({ admin: true }), 'invite', { email: 'local@example.com' })
+  ).json()
+  expect(local.mailSent).toBe(false)
 })
 
 test('without a configured URL, desktop requests get an HTTP invite link', async () => {
   const hono = new Hono()
   registerMemberRoutes(hono, {
     users: store.users,
-    invites: new MemberInvites(store.users),
+    identity: identity.workspace,
     resolveUserId: async () => firstAdminMemberId(),
     appUrl: () => undefined,
   })
   const response = await post(hono, 'invite', {}, 'tauri://localhost')
   expect(response.status).toBe(200)
-  expect(((await response.json()) as CreatedInvite).url).toMatch(
-    /^https:\/\/workspace.example\/#invite=/,
-  )
+  expect((await response.json()).url).toMatch(/^https:\/\/workspace.example\/#invite=/)
 })
+
 test('members read active names and roles; only the admin list carries emails', async () => {
-  const alice = firstAdminMemberId()
-  const bob = asUserId('mem_bob_directory')
-  const carol = asUserId('mem_carol_directory')
-  const at = new Date().toISOString()
-  await store.users.create(
-    {
-      id: bob,
-      displayName: 'Bob',
-      email: 'bob@example.com',
-      role: 'member',
-      createdAt: at,
-      disabledAt: null,
-    },
-    'hash',
-  )
-  await store.users.create(
-    {
-      id: carol,
-      displayName: 'Carol',
-      email: 'carol@example.com',
-      role: 'member',
-      createdAt: at,
-      disabledAt: null,
-    },
-    'hash',
-  )
-  await store.users.disable(carol, at)
-  const read = async (as: string | undefined, action = 'directory') => {
+  const bob = await identity.addMember({
+    name: 'Bob',
+    email: 'bob@example.com',
+    password: 'bob-password',
+  })
+  const carol = await identity.addMember({ name: 'Carol', email: 'carol@example.com' })
+  await identity.workspace.memberships.disable({
+    actor: { memberId: firstAdminMemberId() },
+    memberId: carol,
+  })
+  const read = async (actor: string | undefined, action = 'directory') => {
     const hono = new Hono()
     registerMemberRoutes(hono, {
       users: store.users,
-      invites: new MemberInvites(store.users),
-      resolveUserId: async () => (as === undefined ? undefined : asUserId(as)),
+      identity: identity.workspace,
+      resolveUserId: async () => (actor ? asUserId(actor) : undefined),
       appUrl: () => undefined,
     })
-    return await hono.request(`https://workspace.example/auth/members/${action}`)
+    return hono.request(`https://workspace.example/auth/members/${action}`)
   }
-  type Directory = {
-    members: { id: string; displayName: string; role: string }[]
-    currentMemberId: string
-  }
-  const asBob = (await (await read(bob)).json()) as Directory
+  const asBob = await (await read(bob)).json()
   expect(asBob.currentMemberId).toBe(bob)
-  const byId = new Map(asBob.members.map((member) => [member.id, member]))
-  expect(byId.get(bob)).toEqual({ id: bob, displayName: 'Bob', role: 'member' })
-  expect(byId.get(alice)).toEqual({
-    id: alice,
-    displayName: (await store.users.get(alice))?.displayName,
-    role: 'admin',
-  })
-  // A disabled member is not one to assign or filter by.
-  expect(byId.has(carol)).toBe(false)
-  const asAlice = (await (await read(alice)).json()) as Directory
-  expect(asAlice.members).toEqual(asBob.members)
+  expect(asBob.members).toContainEqual({ id: bob, displayName: 'Bob', role: 'member' })
+  expect(asBob.members.some((m: { id: string }) => m.id === carol)).toBe(false)
+  expect((await (await read(firstAdminMemberId())).json()).members).toEqual(asBob.members)
   expect(Object.keys(asBob).sort()).toEqual(['currentMemberId', 'members'])
   expect((await read(bob, 'list')).status).toBe(403)
-  const adminList = await read(alice, 'list')
-  expect(adminList.status).toBe(200)
-  expect((await adminList.json()).members).toContainEqual(
+  expect((await (await read(firstAdminMemberId(), 'list')).json()).members).toContainEqual(
     expect.objectContaining({ id: bob, email: 'bob@example.com' }),
   )
-  // No caller, or a disabled one, reads nothing.
   expect((await read(undefined)).status).toBe(401)
   expect((await read(carol)).status).toBe(401)
 })
 
-test('a mailed reset goes only to a member with a password, once per window, and says nothing either way (POD-6298)', async () => {
-  const bob = asUserId('mem_bob_reset')
-  await store.users.create(
-    {
-      id: bob,
-      displayName: 'Bob',
-      email: 'bob@example.com',
-      role: 'member',
-      createdAt: new Date().toISOString(),
-      disabledAt: null,
-    },
-    'hash',
-  )
-  const hono = new Hono()
-  const sendRecoveryMail = vi.fn(async () => {})
-  registerMemberRoutes(hono, {
-    users: store.users,
-    invites: new MemberInvites(store.users),
-    resolveUserId: async () => undefined,
-    appUrl: () => 'https://workspace.example/',
-    sendRecoveryMail,
+test('local mailed reset routes are absent and capabilities offer the admin link', async () => {
+  const hono = app()
+  expect(
+    (await hono.request('https://workspace.example/auth/members/recovery-options')).status,
+  ).toBe(404)
+  expect((await post(hono, 'reset-request', { email: 'bob@example.com' })).status).toBe(404)
+  expect(identity.workspace.core.capabilities()).toMatchObject({
+    selfSignUp: false,
+    passwordReset: 'admin-link',
+    invitationDelivery: 'link',
   })
-  const options = await hono.request('https://workspace.example/auth/members/recovery-options')
-  expect(await options.json()).toEqual({ mailReset: true })
-  // An unknown address and a known one get the same answer.
-  for (const email of ['nobody@example.com', 'bob@example.com', 'bob@example.com']) {
-    const response = await post(hono, 'reset-request', { email })
-    expect(response.status, email).toBe(200)
-    expect(await response.json()).toEqual({ ok: true })
-  }
-  // One mail: none for the unknown address, none for the repeat inside the window.
-  expect(sendRecoveryMail).toHaveBeenCalledTimes(1)
-  const sent = (
-    sendRecoveryMail.mock.calls[0] as unknown as [{ email: string; url: string; expiresAt: string }]
-  )[0]
-  expect(sent.email).toBe('bob@example.com')
-  expect(Date.parse(sent.expiresAt) - Date.now()).toBeLessThanOrEqual(60 * 60 * 1000)
-  const token = sent.url.split('#invite=')[1]!
-  expect((await (await post(hono, 'inspect', { token })).json()) as object).toMatchObject({
-    email: 'bob@example.com',
-    recovery: true,
-  })
-  const completed = await post(hono, 'complete', {
-    token,
-    email: 'bob@example.com',
-    password: 'bob-new-password',
-    displayName: 'Bob',
-  })
-  expect(completed.status).toBe(200)
-  expect(((await completed.json()) as { userId: string }).userId).toBe(bob)
-  expect((await store.users.credentialFor(bob))?.passwordHash).not.toBe('hash')
-  expect((await store.settingsAudit.list()).map((row) => row.command)).toEqual([
-    'members.resetMailed',
-    'members.recover',
-  ])
 })
 
-test('an invite cannot reset a member who has a password; that takes a recovery link', async () => {
-  const bob = asUserId('mem_bob_reinvite')
-  await store.users.create(
-    {
-      id: bob,
-      displayName: 'Bob',
-      email: 'bob@example.com',
-      role: 'member',
-      createdAt: new Date().toISOString(),
-      disabledAt: null,
-    },
-    'hash',
-  )
-  const { hono } = app({ admin: true })
-  expect((await post(hono, 'invite', { memberId: bob })).status).toBe(400)
-  const recovery = await post(hono, 'recovery', { id: bob })
-  expect(recovery.status).toBe(200)
+test('an invite cannot reset an active member with a password; that takes a recovery code', async () => {
+  const bob = await identity.addMember({
+    name: 'Bob',
+    email: 'bob@example.com',
+    password: 'bob-password',
+  })
+  const hono = app({ admin: true })
+  expect((await post(hono, 'invite', { memberId: bob })).status).toBe(403)
+  expect((await post(hono, 'recovery', { id: bob })).status).toBe(200)
 })

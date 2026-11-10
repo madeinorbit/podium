@@ -1,164 +1,167 @@
-import { asUserId, firstAdminMemberId, InviteId } from '@podium/model'
-import { verifyPasswordHash } from '@podium/runtime/auth-store'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import { MemberInvites } from '../member-invites'
+import { identityInvitation } from '@podium/identity/schema/sqlite'
+import { asUserId, firstAdminMemberId } from '@podium/model'
+import { eq } from 'drizzle-orm'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { memberLinks } from '../member-invites'
 import type { SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
+import { openTestIdentity, type TestIdentity } from '../test-support/test-identity'
 
 let store: SessionStore
-let invites: MemberInvites
-let now: number
+let identity: TestIdentity
 beforeEach(async () => {
   store = await openTestStore(':memory:')
-  now = Date.parse('2026-09-11T12:00:00.000Z')
-  invites = new MemberInvites(store.users, () => now)
+  identity = await openTestIdentity(store)
 })
 afterEach(async () => {
+  vi.useRealTimers()
   await store.close()
 })
-const passwordIdentity = {
-  kind: 'password' as const,
-  password: 'a secure password',
-  email: 'anna@example.com',
-  displayName: 'Anna',
-}
-const create = (input: Parameters<MemberInvites['create']>[1] = {}) =>
-  invites.create(firstAdminMemberId(), input)
+const person = { password: 'a secure password', email: 'anna@example.com', displayName: 'Anna' }
+const actor = () => ({ memberId: firstAdminMemberId() })
+const create = (input = {}) =>
+  identity.workspace.memberships.invite({ actor: actor(), role: 'member', ...input })
+const links = () => memberLinks({ identity: identity.workspace, users: store.users })
 
-describe('member invitations', () => {
-  test('creates a hashed, branded invitation and completes it with a password exactly once', async () => {
-    const invite = await create({ email: ' Anna@EXAMPLE.com ' })
-    expect(InviteId.safeParse(invite.id).success).toBe(true)
-    const stored = (await store.users.pendingInvites())[0]!
-    expect(stored.tokenHash).not.toBe(invite.token)
-    expect(stored.tokenHash).toMatch(/^[a-f0-9]{64}$/)
-    expect(JSON.stringify(await invites.list(firstAdminMemberId()))).not.toContain(stored.tokenHash)
-    const member = await invites.complete({ token: invite.token, identity: passwordIdentity })
-    expect(member).toMatchObject({ displayName: 'Anna', email: 'anna@example.com', role: 'member' })
-    expect(member.id).toMatch(/^mem_/)
-    const credential = await store.users.credentialFor(asUserId(member.id))
-    expect(await verifyPasswordHash(passwordIdentity.password, credential!.passwordHash!)).toBe(
-      true,
+describe('member invitations on shared identity', () => {
+  test('creates a hashed invitation and completes it with a password exactly once', async () => {
+    const { invitation, membership } = await create({ email: ' Anna@EXAMPLE.com ' })
+    const database = store.identityDatabase()
+    if (database.dialect !== 'sqlite') throw new Error('expected the SQLite test store')
+    const [stored] = await database.db
+      .select({ token_hash: identityInvitation.tokenHash })
+      .from(identityInvitation)
+      .where(eq(identityInvitation.id, invitation.id))
+    expect(stored?.token_hash).not.toBe(invitation.token)
+    expect(stored?.token_hash).toMatch(/^[a-f0-9]{64}$/)
+    expect(JSON.stringify(await identity.workspace.memberships.list())).not.toContain(
+      stored?.token_hash,
     )
-    await expect(
-      invites.complete({ token: invite.token, identity: passwordIdentity }),
-    ).rejects.toThrow()
-    expect((await store.users.list()).length).toBe(2)
+    const member = await links().complete({ token: invitation.token, ...person })
+    expect(member.userId).toBe(membership.memberId)
+    expect(await store.users.byEmail(person.email)).toMatchObject({
+      id: member.userId,
+      displayName: 'Anna',
+    })
+    expect(
+      await identity.credentials.verifyPassword(asUserId(member.userId), person.password),
+    ).toBe(true)
+    await expect(links().complete({ token: invitation.token, ...person })).rejects.toThrow()
+    expect(await store.users.list()).toHaveLength(2)
   })
-  test('links an account to a new member without minting a password', async () => {
-    const invite = await create({ role: 'admin', email: 'anna@example.com' })
-    const member = await invites.complete({
-      token: invite.token,
-      identity: { kind: 'account', accountId: 'acct_anna', displayName: 'Anna' },
+  test('links an existing account to a new member without minting a password', async () => {
+    const { invitation } = await create({ role: 'admin', email: person.email })
+    const account = await identity.workspace.core.accounts.create({
+      name: 'Anna',
+      email: person.email,
     })
-    expect(member).toMatchObject({
+    const member = await identity.workspace.memberships.accept({
+      token: invitation.token,
+      account: { kind: 'existing', accountId: account.id },
+    })
+    expect(await store.users.byEmail(person.email)).toMatchObject({
+      id: member.memberId,
       role: 'admin',
-      accountId: 'acct_anna',
-      email: 'anna@example.com',
+      accountId: account.id,
     })
-    expect(await store.users.credentialFor(asUserId(member.id))).toBeUndefined()
+    expect(await identity.workspace.core.accounts.hasPassword(account.id)).toBe(false)
     await expect(
-      invites.complete({
-        token: invite.token,
-        identity: { kind: 'account', accountId: 'acct_other' },
+      identity.workspace.memberships.accept({
+        token: invitation.token,
+        account: { kind: 'existing', accountId: account.id },
       }),
     ).rejects.toThrow()
   })
-  test('claims an existing member and preserves its id and role', async () => {
-    const invite = await create({ memberId: firstAdminMemberId(), role: 'member' })
-    const member = await invites.complete({ token: invite.token, identity: passwordIdentity })
-    expect(member.id).toBe(firstAdminMemberId())
-    expect(member.role).toBe('admin')
-    expect(member.email).toBe(passwordIdentity.email)
+  test('reinviting a removed member preserves its id and chosen role', async () => {
+    const bob = await identity.addMember({
+      name: 'Anna',
+      email: person.email,
+      password: person.password,
+    })
+    await identity.workspace.memberships.remove({ actor: actor(), memberId: bob })
+    const { invitation } = await create({ memberId: bob, role: 'admin' })
+    expect((await links().complete({ token: invitation.token, ...person })).userId).toBe(bob)
+    expect(await store.users.get(bob)).toMatchObject({ role: 'admin', email: person.email })
   })
-  test('supports a trusted tokenless account claim, but refuses reassignment', async () => {
-    const claim = {
-      preAuthorizedMemberId: firstAdminMemberId(),
-      identity: { kind: 'account' as const, accountId: 'acct_owner' },
-    }
-    expect((await invites.complete(claim)).id).toBe(firstAdminMemberId())
-    await expect(
-      invites.complete({ ...claim, identity: { kind: 'account', accountId: 'acct_attacker' } }),
-    ).rejects.toThrow()
-    expect((await store.users.get(firstAdminMemberId()))?.accountId).toBe('acct_owner')
+  test('a tokenless account claim is refused and cannot reassign a member', async () => {
+    const before = await store.users.get(firstAdminMemberId())
+    await expect(links().complete({ token: '', ...person })).rejects.toThrow()
+    expect((await store.users.get(firstAdminMemberId()))?.accountId).toBe(before?.accountId)
   })
   test('expired, revoked and unknown invites never create a member', async () => {
-    const expired = await create({ expiresInDays: 1 })
-    now += 86_400_000
-    await expect(
-      invites.complete({ token: expired.token, identity: passwordIdentity }),
-    ).rejects.toThrow()
-    const revoked = await create()
-    await invites.revoke(firstAdminMemberId(), revoked.id)
-    await expect(
-      invites.complete({ token: revoked.token, identity: passwordIdentity }),
-    ).rejects.toThrow()
-    await expect(
-      invites.complete({ token: 'unknown', identity: passwordIdentity }),
-    ).rejects.toThrow()
-    expect((await store.users.list()).length).toBe(1)
+    const { invitation: expired } = await create({ expiresInDays: 1 })
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(Date.now() + 86_400_001)
+    await expect(links().complete({ token: expired.token, ...person })).rejects.toThrow()
+    vi.useRealTimers()
+    const { invitation } = await create()
+    await identity.workspace.memberships.revokeInvitation({
+      actor: actor(),
+      invitationId: invitation.id,
+    })
+    await expect(links().complete({ token: invitation.token, ...person })).rejects.toThrow()
+    await expect(links().complete({ token: 'unknown', ...person })).rejects.toThrow()
+    expect(await store.users.list()).toHaveLength(1)
   })
   test('only admins create and revoke; bound email cannot be changed', async () => {
-    const invite = await create({ email: 'anna@example.com' })
+    const { invitation } = await create({ email: person.email })
     await expect(
-      invites.complete({
-        token: invite.token,
-        identity: { ...passwordIdentity, email: 'other@example.com' },
-      }),
+      links().complete({ token: invitation.token, ...person, email: 'other@example.com' }),
     ).rejects.toThrow()
-    const member = await invites.complete({ token: invite.token, identity: passwordIdentity })
-    await expect(invites.create(asUserId(member.id), {})).rejects.toThrow('Administrator')
+    const bob = await links().complete({ token: invitation.token, ...person })
+    await expect(
+      identity.workspace.memberships.invite({ actor: { memberId: bob.userId }, role: 'member' }),
+    ).rejects.toMatchObject({ code: 'admin-required' })
     const pending = await create()
-    await expect(invites.revoke(asUserId(member.id), pending.id)).rejects.toThrow('Administrator')
-    expect(await invites.inspect(pending.token)).toBeDefined()
+    await expect(
+      identity.workspace.memberships.revokeInvitation({
+        actor: { memberId: bob.userId },
+        invitationId: pending.invitation.id,
+      }),
+    ).rejects.toMatchObject({ code: 'admin-required' })
+    expect(await links().inspect(pending.invitation.token)).toBeDefined()
   })
   test('concurrent completion admits exactly one claimant', async () => {
-    const invite = await create()
+    const { invitation } = await create()
     const results = await Promise.allSettled(
-      [1, 2].map(() => invites.complete({ token: invite.token, identity: passwordIdentity })),
+      [1, 2].map(() => links().complete({ token: invitation.token, ...person })),
     )
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
-    expect((await store.users.list()).length).toBe(2)
+    expect(await store.users.list()).toHaveLength(2)
   })
-  test('duplicate account rolls back new member creation and keeps the invite usable', async () => {
-    await invites.complete({
-      preAuthorizedMemberId: firstAdminMemberId(),
-      identity: { kind: 'account', accountId: 'acct_owner' },
-    })
-    const invite = await create()
+  test('duplicate account rolls back member creation and keeps the invite usable', async () => {
+    const accountId = (await store.users.get(firstAdminMemberId()))!.accountId!
+    const { invitation } = await create()
     await expect(
-      invites.complete({
-        token: invite.token,
-        identity: { kind: 'account', accountId: 'acct_owner' },
+      identity.workspace.memberships.accept({
+        token: invitation.token,
+        account: { kind: 'existing', accountId },
       }),
-    ).rejects.toThrow()
-    expect((await store.users.list()).length).toBe(1)
-    expect(
-      (
-        await invites.complete({
-          token: invite.token,
-          identity: { kind: 'account', accountId: 'acct_new' },
-        })
-      ).accountId,
-    ).toBe('acct_new')
+    ).rejects.toMatchObject({ code: 'already-a-member' })
+    expect(await store.users.list()).toHaveLength(1)
+    expect((await links().complete({ token: invitation.token, ...person })).userId).toBeTruthy()
   })
-  test('remove disables access, deletes credentials sessions and pending invites, and protects self-removal', async () => {
-    const id = asUserId('mem_remove')
-    await store.users.createUnclaimed({ id, displayName: 'Anna', email: null, role: 'member',
-      createdAt: new Date(now).toISOString(), disabledAt: null })
-    // Both invitations predate the password; an admitted member needs recovery.
-    const invite = await create({ memberId: id })
-    const pending = await create({ memberId: id })
-    await invites.complete({ token: invite.token, identity: passwordIdentity })
-    await store.auth.createClientSession('hash', id, '2099-01-01T00:00:00.000Z')
+  test('remove ends credentials, sign-ins and reset codes, and protects the last admin', async () => {
+    const bob = await identity.addMember({
+      name: 'Anna',
+      email: person.email,
+      password: person.password,
+    })
+    const signed = await identity.signIn({ email: person.email, password: person.password })
+    const reset = await links().createRecovery(firstAdminMemberId(), bob)
     await expect(
-      store.users.removeMember(firstAdminMemberId(), firstAdminMemberId()),
-    ).rejects.toThrow()
-    await expect(store.users.removeMember(firstAdminMemberId(), id)).rejects.toThrow()
-    await store.users.removeMember(id, firstAdminMemberId())
-    expect(await store.users.get(id)).toBeUndefined()
-    expect(await store.users.credentialFor(id)).toBeUndefined()
-    expect(await store.auth.getClientSession('hash')).toBeUndefined()
-    await expect(invites.inspect(pending.token)).rejects.toThrow()
+      identity.workspace.memberships.remove({ actor: actor(), memberId: firstAdminMemberId() }),
+    ).rejects.toMatchObject({ code: 'last-admin' })
+    await expect(
+      identity.workspace.memberships.remove({
+        actor: { memberId: bob },
+        memberId: firstAdminMemberId(),
+      }),
+    ).rejects.toMatchObject({ code: 'admin-required' })
+    await identity.workspace.memberships.remove({ actor: actor(), memberId: bob })
+    expect(await store.users.get(bob)).toBeUndefined()
+    expect(await identity.workspace.core.accounts.get(signed.accountId)).toBeUndefined()
+    expect(await identity.workspace.core.deviceSignIns.listForAccount(signed.accountId)).toEqual([])
+    await expect(links().inspect(reset.token)).rejects.toThrow()
   })
 })

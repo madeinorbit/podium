@@ -54,9 +54,9 @@ import {
   asMachineId,
   asUserId,
   firstAdminMemberId,
-  newMemberId,
   type IssueId,
   type MachineId,
+  newMemberId,
   type SessionId,
   type UserId,
 } from '@podium/model'
@@ -283,6 +283,10 @@ const until = async (pred: () => boolean, ms = 5000): Promise<void> => {
   }
 }
 
+// better-auth's in-memory address budget is shared by cores in one process.
+// Each fixture device, including one in a later instance, is a distinct client.
+let fixtureDeviceAddresses = 0
+
 export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
   const priorStateDir = process.env.PODIUM_STATE_DIR
   const stateDir = mkdtempSync(join(tmpdir(), 'podium-two-member-'))
@@ -453,9 +457,8 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
      * 127.0.0.1. Each device here has an address of its own instead. The
      * cookie is the real one and every later request goes through production.
      */
-    let devices = 0
     const signInDevice = async (name: MemberName): Promise<string> => {
-      devices += 1
+      fixtureDeviceAddresses += 1
       const issued = await handle.identity.core.signIn.password(
         {
           email: members[name].email,
@@ -466,7 +469,7 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
         {
           scheme: 'http',
           sameMachine: true,
-          clientAddress: `10.6.${(devices >> 8) & 255}.${devices & 255}`,
+          clientAddress: `10.6.${(fixtureDeviceAddresses >> 8) & 255}.${fixtureDeviceAddresses & 255}`,
         },
       )
       if ('refused' in issued) throw new Error(`${name} could not sign in (${issued.refused})`)
