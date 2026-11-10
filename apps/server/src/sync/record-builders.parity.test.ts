@@ -3,7 +3,7 @@
  *
  * A real in-process server on a file store writes records through its
  * production paths (boot seeds, issue writes, markers, a session, an
- * automation, a layout key, a read mark). Then, for every one of the 33
+ * automation, a layout key, a read mark). Then, for every one of the 37
  * database-only kinds, `build(ids)` of every `change_latest` id must equal its
  * payload, and `streamAll()` must stream exactly the published ids, both
  * in process and on a read-only connection like the sync worker's.
