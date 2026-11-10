@@ -124,6 +124,22 @@ export function parseMachineAccessRowId(id: string): { userId: UserId; machineId
 }
 
 /**
+ * One person's grant on a machine, as its custodian and the admins read it
+ * (POD-6700). The custodian's own edges are not listed: they come and go with
+ * custody, never through sharing.
+ */
+export const MachineGrantEntry = z.object({
+  /** The member the grant is for. */
+  grantee: UserIdField,
+  verb: z.enum(['see', 'use', 'manage']),
+  /** When the grant was written. */
+  grantedAt: z.string(),
+  /** The human who gave it; `null` for an edge written with no human behind it. */
+  grantedBy: UserIdField.nullable(),
+})
+export type MachineGrantEntry = z.infer<typeof MachineGrantEntry>
+
+/**
  * What one member may know and do about one machine, as the server decided it
  * for them (ADR 9 machines as owned compute). Present for every member who may
  * SEE the machine; removed when they no longer may. Every verdict is the
@@ -153,6 +169,12 @@ export const MachineAccessWire = z.object({
    * member. Absent from rows an older server wrote.
    */
   checkoutReach: z.enum(['all', 'roots', 'none']).optional(),
+  /**
+   * Who else holds a grant on the machine (POD-6700). Present only for a member
+   * with custody authority, the custodian or an admin: the people who may also
+   * remove one (`machines.unshare`). Ordered by when each was given.
+   */
+  grants: z.array(MachineGrantEntry).optional(),
   // Identity and lifecycle (SEE)
   hostname: z.string(),
   /** Retained audit identity; a revoked machine runs nothing. */

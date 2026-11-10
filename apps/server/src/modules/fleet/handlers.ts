@@ -213,7 +213,10 @@ export const machineUnshareHandler = async ({
     input.grantee,
     input.verb,
     owner,
-    { manage: fleetUsePredicate(authz, 'manage') },
+    {
+      manage: fleetUsePredicate(authz, 'manage'),
+      attribution: settingsAuditAttribution(authz.principal),
+    },
   )
   return await machinesFor(env)
 }

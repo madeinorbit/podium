@@ -181,6 +181,8 @@ const schema = {
       unowned: { type: 'boolean', optional: true, source: machineAccess() },
       adoptable: { type: 'boolean', optional: true, source: machineAccess() },
       supersedable: { type: 'boolean', optional: true, source: machineAccess() },
+      // Who else holds a grant (POD-6700): only the custodian's and admins' rows carry it.
+      grants: { type: 'object', optional: true, source: machineAccess() },
       // Identity and lifecycle
       hostname: { type: 'string', optional: true, source: machineAccess() },
       revokedAt: { type: 'isoDate', optional: true, nullable: true, source: machineAccess() },

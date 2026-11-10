@@ -24,6 +24,7 @@
 
 import {
   type MachineAccessWire,
+  type MachineGrantEntry,
   type MachineId,
   machineAccessRowId,
   parseMachineAccessRowId,
@@ -60,9 +61,7 @@ export interface MachineRecordsDeps {
   /** The machines' record facts (all when `ids` is omitted). */
   facts(ids?: readonly MachineId[]): Promise<MachineRecordFacts[]>
   /** The machine grant edges of these machines, in one read. */
-  grants(
-    ids: readonly MachineId[],
-  ): Promise<ReadonlyMap<string, readonly { grantee: string; verb: string; custody?: boolean }[]>>
+  grants(ids: readonly MachineId[]): Promise<ReadonlyMap<string, readonly RecordGrantEdge[]>>
   /** Every member who can act (enabled), with their role. */
   members(): Promise<readonly RecordMember[]>
   /**
@@ -95,6 +94,17 @@ export interface MachineRecordsDeps {
   }
 }
 
+/** One stored machine grant edge, as the records read it. */
+export interface RecordGrantEdge {
+  readonly grantee: string
+  readonly verb: string
+  readonly custody?: boolean
+  /** When it was written; absent from fixtures that do not say. */
+  readonly createdAt?: string
+  /** The human who wrote it. */
+  readonly onBehalfOf?: string | null
+}
+
 type Spec = Parameters<MachineRecordWriter['capture']>[0][number]
 
 const MACHINE_VERBS = new Set(['see', 'use', 'manage'])
@@ -102,7 +112,7 @@ const MACHINE_VERBS = new Set(['see', 'use', 'manage'])
 /** The ownership index of the machines one write covers, from rows it read. */
 function ownershipOf(
   facts: readonly MachineRecordFacts[],
-  grants: ReadonlyMap<string, readonly { grantee: string; verb: string; custody?: boolean }[]>,
+  grants: ReadonlyMap<string, readonly RecordGrantEdge[]>,
 ): MachineOwnershipIndex {
   const rows = new Map<string, MachineOwnershipRow>()
   for (const fact of facts) {
@@ -125,12 +135,40 @@ function ownershipOf(
   return { rowFor: (machineId) => rows.get(machineId) }
 }
 
-/** One member's access row for one machine, or `undefined` when they may not see it. */
+/**
+ * The grants a custodian or an admin reads on a machine (POD-6700): every
+ * machine edge except the custodian's own, oldest first. The order is total, so
+ * an unchanged set writes an unchanged row.
+ */
+export function grantEntriesOf(
+  edges: readonly RecordGrantEdge[],
+  custodian: UserId | null,
+): MachineGrantEntry[] {
+  return edges
+    .filter((edge) => MACHINE_VERBS.has(edge.verb) && edge.grantee !== custodian)
+    .map((edge) => ({
+      grantee: edge.grantee as UserId,
+      verb: edge.verb as MachineGrantEntry['verb'],
+      grantedAt: edge.createdAt ?? '',
+      grantedBy: (edge.onBehalfOf ?? null) as UserId | null,
+    }))
+    .sort(
+      (a, b) =>
+        a.grantedAt.localeCompare(b.grantedAt) ||
+        a.grantee.localeCompare(b.grantee) ||
+        a.verb.localeCompare(b.verb),
+    )
+}
+
+/** One member's access row for one machine, or `undefined` when they may not see it.
+ *  `edges` are the machine's stored grant edges; the custodian and admins read
+ *  them as its grants list. */
 export function accessRowFor(
   member: RecordMember,
   fact: MachineRecordFacts,
   ownership: MachineOwnershipIndex,
   readers?: CheckoutReaders,
+  edges?: readonly RecordGrantEdge[],
 ): MachineAccessWire | undefined {
   const principal = userCommandPrincipal(member.id, member.role)
   const id = fact.machine.id
@@ -139,16 +177,20 @@ export function accessRowFor(
   const admin = principal.capability.role === 'admin'
   const use = fact.revokedAt ? 'denied' : machineUseDecision(principal, id, ownership)
   const unowned = ownership.rowFor(id)?.owner === null
+  const transferable = !fact.revokedAt && canManageMachineCustody(principal, id, ownership)
   return {
     userId: member.id,
     machineId: id,
     use,
     owned: isMachineOwner(principal, id, ownership),
-    transferable: !fact.revokedAt && canManageMachineCustody(principal, id, ownership),
+    transferable,
     unowned,
     adoptable: unowned && admin && verbs.has('manage'),
     supersedable: !fact.supersededBy && admin && verbs.has('manage'),
     ...(readers ? { checkoutReach: reachOf(member.id, readers) } : {}),
+    ...(transferable && edges
+      ? { grants: grantEntriesOf(edges, ownership.rowFor(id)?.owner ?? null) }
+      : {}),
     ...fact.see,
     ...(use === 'granted' ? fact.use : {}),
   }
@@ -179,7 +221,7 @@ export async function machineRecordSpecs(
     specs.push({ entity: 'machine', id, op: 'upsert', value: fact.machine })
     const readers = checkoutReaders(grants.get(id) ?? [], admins)
     for (const member of members) {
-      const row = accessRowFor(member, fact, ownership, readers)
+      const row = accessRowFor(member, fact, ownership, readers, grants.get(id) ?? [])
       const accessId = machineAccessRowId(member.id, id)
       specs.push(
         row === undefined

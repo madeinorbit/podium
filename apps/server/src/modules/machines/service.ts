@@ -2305,43 +2305,82 @@ export class MachinesService {
     const actorId = attribution.actor.includes(':')
       ? attribution.actor.slice(attribution.actor.indexOf(':') + 1)
       : attribution.actor
-    await this.deps.store.grants.upsert({
-      resourceKind: 'machine',
-      resourceId: id,
-      grantee,
-      verb,
-      owner: attribution.onBehalfOf,
-      visibility: 'owned-compute',
-      createdAt: new Date().toISOString(),
-      actorKind,
-      actorId,
-      onBehalfOf: attribution.onBehalfOf,
+    const now = new Date().toISOString()
+    // The grant and its audit event commit together (POD-6700). Re-sharing an
+    // edge that exists writes neither: nothing about who may use it changed.
+    await this.deps.store.transact(async () => {
+      const existing = await this.deps.store.grants.loadForResource('machine', id)
+      if (existing.some((edge) => edge.grantee === grantee && edge.verb === verb)) return
+      await this.deps.store.grants.upsert({
+        resourceKind: 'machine',
+        resourceId: id,
+        grantee,
+        verb,
+        owner: attribution.onBehalfOf,
+        visibility: 'owned-compute',
+        createdAt: now,
+        actorKind,
+        actorId,
+        onBehalfOf: attribution.onBehalfOf,
+      })
+      await this.deps.store.settingsAudit.append({
+        command: 'machines.share',
+        outcome: 'applied',
+        actorKind,
+        // The whole actor, as every settings audit row names it.
+        actorId: attribution.actor,
+        onBehalfOf: attribution.onBehalfOf,
+        detail: { machineId: id, grantee, verb },
+        redactedPaths: [],
+        createdAt: now,
+      })
     })
   }
 
+  /**
+   * Remove one person's grant (POD-6700). The grantee can start nothing new
+   * there from the commit on; a session already running is not stopped, and
+   * input queued to it is judged again at dispatch. Removing an absent edge is
+   * a no-op and records nothing.
+   */
   async unshareMachine(
     id: MachineId,
     grantee: string,
     verb: MachineVerb,
     owner: string,
-    context: MachineManagementContext = {},
+    context: MachineManagementContext & {
+      attribution?: Pick<SettingsAuditRow, 'actorKind' | 'actorId' | 'onBehalfOf'>
+    } = {},
   ): Promise<void> {
     const machine = await this.deps.store.machines.getMachine(id)
     if (!machine || machine.revokedAt) throw new Error(`unknown machine '${id}'`)
+    const custodian = await this.deps.store.machines.custodian(id)
     if (
       context.manage?.(id) === false ||
-      ((await this.deps.store.machines.custodian(id)) !== owner &&
-        (await this.deps.store.users.roleOf(asUserId(owner))) !== 'admin')
+      (custodian !== owner && (await this.deps.store.users.roleOf(asUserId(owner))) !== 'admin')
     ) {
       throw new Error('only the machine owner or an admin may change sharing')
     }
-    // Personal custody rights are released through custody transitions, not unshare.
-    if (
-      grantee === (await this.deps.store.machines.custodian(id)) &&
-      (verb === 'use' || verb === 'manage')
-    )
-      return
-    await this.deps.store.grants.remove('machine', id, grantee, verb)
+    // The custodian's own edges come and go with custody (transfer, release),
+    // never through unshare.
+    if (grantee === custodian) {
+      throw new Error('the custodian’s own access cannot be removed; transfer custody instead')
+    }
+    await this.deps.store.transact(async () => {
+      if (!(await this.deps.store.grants.remove('machine', id, grantee, verb))) return
+      await this.deps.store.settingsAudit.append({
+        command: 'machines.unshare',
+        outcome: 'applied',
+        ...(context.attribution ?? {
+          actorKind: 'user' as const,
+          actorId: owner,
+          onBehalfOf: owner,
+        }),
+        detail: { machineId: id, grantee, verb },
+        redactedPaths: [],
+        createdAt: new Date().toISOString(),
+      })
+    })
   }
 
   /**
