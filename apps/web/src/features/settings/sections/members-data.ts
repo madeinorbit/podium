@@ -44,18 +44,29 @@ export class MembersPage extends MemberDirectory {
 
 /** Rules of the Members page for one shared member model. */
 export class SettingsPerson {
-  constructor(readonly member: MemberModel, private readonly page: MembersPage) {}
+  constructor(
+    readonly member: MemberModel,
+    private readonly page: MembersPage,
+  ) {}
 
   @lazy get self(): boolean {
     return this.member.id === this.page.currentMemberId
   }
 
   @lazy get initials(): string {
-    return this.member.displayName.trim().split(/\s+/u).slice(0, 2).map((word) => word[0]).join('').toLocaleUpperCase()
+    return this.member.displayName
+      .trim()
+      .split(/\s+/u)
+      .slice(0, 2)
+      .map((word) => word[0])
+      .join('')
+      .toLocaleUpperCase()
   }
 
   @lazy({ equals: compareShallow }) get devices() {
-    return (this.page.devices.answer?.signIns ?? []).filter((signIn) => signIn.memberId === this.member.id)
+    return (this.page.devices.answer?.signIns ?? []).filter(
+      (signIn) => signIn.memberId === this.member.id,
+    )
   }
 
   @lazy({ equals: compareShallow }) get machines() {
@@ -72,7 +83,14 @@ export const MEMBER_ROLE_OPTIONS = [
   { value: 'admin', label: 'Admin' },
 ] as const
 
-export const memberRoleLabel = (role: string): string => role === 'admin' ? 'Admin' : 'Member'
+export const memberRoleLabel = (role: string): string => (role === 'admin' ? 'Admin' : 'Member')
 
 export const deviceLabel = (device: MemberSignInsAnswer['signIns'][number]): string =>
-  device.deviceName || ({ login: 'Browser or desktop', mobile: 'Phone', upstream: 'Upstream link', 'break-glass': 'Host recovery' }[device.kind] ?? device.kind)
+  device.deviceName ||
+  ({
+    login: 'Browser or desktop',
+    mobile: 'Phone',
+    upstream: 'Upstream link',
+    'break-glass': 'Host recovery',
+  }[device.kind] ??
+    device.kind)
