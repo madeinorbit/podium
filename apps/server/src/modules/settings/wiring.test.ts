@@ -48,6 +48,7 @@ import { REDACTED_MESSAGE } from './audit'
 import { SECRET_SURFACE_ABSENT } from './authz'
 
 const SECRET = 'sk-ant-real-material-do-not-log'
+const SECRET_KEY = 'integrations.linearApiKey'
 
 async function harness(role: UserRole | undefined) {
   const store = await openTestStore(':memory:')
@@ -150,7 +151,7 @@ describe('the derived settings router CALLS the gate', () => {
   it('a member is refused a secret WRITE', async () => {
     const { call } = await harness('member')
     await expect(
-      call.settings.setSecret({ key: 'apiKeys.openai', value: SECRET }),
+      call.settings.setSecret({ key: SECRET_KEY, value: SECRET }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' })
   })
 
@@ -159,8 +160,8 @@ describe('the derived settings router CALLS the gate', () => {
     // be worthless. Read back through the admin surface, which is the only
     // reader that can see it.
     const { call, store } = await harness('member')
-    await call.settings.setSecret({ key: 'apiKeys.openai', value: SECRET }).catch(() => {})
-    expect(await store.secrets.getOrEmpty('apiKeys.openai')).toBe('')
+    await call.settings.setSecret({ key: SECRET_KEY, value: SECRET }).catch(() => {})
+    expect(await store.secrets.getOrEmpty(SECRET_KEY)).toBe('')
   })
 })
 
@@ -180,6 +181,9 @@ describe('member Telegram disconnect', () => {
     expect(
       (await store.telegramBindings.listForUser(firstAdminMemberId())).map((row) => row.chatId),
     ).toEqual(['444'])
+    await expect(
+      call.settings.setSecret({ key: 'notifications.telegramBotToken', value: '123456:other-token' }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
     await expect(
       call.settings.clearSecret({ key: 'notifications.telegramBotToken' }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' })
@@ -323,9 +327,17 @@ describe('member Telegram disconnect', () => {
 })
 
 describe('the derived settings router WRITES the trail', () => {
+  it('refuses workspace provider keys even for an administrator', async () => {
+    const { call, store } = await harness('admin')
+    await expect(
+      call.settings.setSecret({ key: 'apiKeys.openai', value: SECRET }),
+    ).rejects.toThrow('Settings → AI accounts')
+    expect(await store.secrets.getOrEmpty('apiKeys.openai')).toBe('')
+  })
+
   it('records an applied secret write, with the key and without the material', async () => {
     const { call, audit } = await harness('admin')
-    await call.settings.setSecret({ key: 'apiKeys.openai', value: SECRET })
+    await call.settings.setSecret({ key: SECRET_KEY, value: SECRET })
     const rows = (await audit()).filter((r) => r.command === 'settings.setSecret')
     expect(rows).toHaveLength(1)
     expect(rows[0]?.outcome).toBe('applied')
@@ -333,14 +345,14 @@ describe('the derived settings router WRITES the trail', () => {
     // Against the WHOLE serialized row read back out of SQLite through the
     // repository, not against the object that was handed to it.
     expect(JSON.stringify(rows[0])).not.toContain(SECRET)
-    expect((rows[0]?.detail as { input: { key: string } }).input.key).toBe('apiKeys.openai')
+    expect((rows[0]?.detail as { input: { key: string } }).input.key).toBe(SECRET_KEY)
   })
 
   it('records a REFUSED write, and the refusal still carries no material', async () => {
     // The error path through the real transport. A member's refused `setSecret`
     // arrives with the material in its input; the trail must not keep it.
     const { call, audit } = await harness('member')
-    await call.settings.setSecret({ key: 'apiKeys.openai', value: SECRET }).catch(() => {})
+    await call.settings.setSecret({ key: SECRET_KEY, value: SECRET }).catch(() => {})
     const rows = (await audit()).filter((r) => r.command === 'settings.setSecret')
     expect(rows).toHaveLength(1)
     expect(rows[0]?.outcome).toBe('refused')
@@ -359,7 +371,7 @@ describe('the derived settings router WRITES the trail', () => {
     // travels.
     const { call, audit, store } = await harness('admin')
     throwFromSecretWrite(store, new Error('the secrets file is read-only'))
-    await call.settings.setSecret({ key: 'apiKeys.openai', value: SECRET }).catch(() => {})
+    await call.settings.setSecret({ key: SECRET_KEY, value: SECRET }).catch(() => {})
     const row = (await audit()).at(-1)
     expect((row?.detail as { error: string }).error).toBe(
       'secret store write failed ← the secrets file is read-only',
@@ -374,7 +386,7 @@ describe('the derived settings router WRITES the trail', () => {
     const { call, audit, store } = await harness('admin')
     throwFromSecretWrite(store, new Error(`rejected value ${SECRET}`))
     await expect(
-      call.settings.setSecret({ key: 'apiKeys.openai', value: SECRET }),
+      call.settings.setSecret({ key: SECRET_KEY, value: SECRET }),
     ).rejects.toMatchObject({ message: REDACTED_MESSAGE })
     const rows = (await audit()).filter((r) => r.command === 'settings.setSecret')
     expect(rows).toHaveLength(1)
@@ -393,7 +405,7 @@ describe('the derived settings router WRITES the trail', () => {
 
   it('every row carries the attribution pair, and a person is on both halves', async () => {
     const { call, audit } = await harness('admin')
-    await call.settings.clearSecret({ key: 'apiKeys.openai' })
+    await call.settings.clearSecret({ key: SECRET_KEY })
     const row = (await audit()).at(-1)
     expect(row?.actorKind).toBe('user')
     expect(row?.actorId).toBe(firstAdminMemberId())
