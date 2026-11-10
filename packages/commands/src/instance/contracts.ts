@@ -462,22 +462,29 @@ export const authSetEmailContract = {
     'The latest committed email wins; a workspace-wide unique index rejects duplicate addresses.',
 } as const satisfies CommandContract<typeof authSetEmailInput>
 
-export const authSetDisplayNameInput = z.object({
-  displayName: z.string().trim().min(1).max(200),
-}).strict()
+export const authSetDisplayNameInput = z
+  .object({
+    displayName: z.string().trim().min(1).max(200),
+  })
+  .strict()
 
 export const authSetDisplayNameContract = {
   ...authSetEmailContract,
   name: 'auth.setDisplayName',
   input: authSetDisplayNameInput,
   visibility: 'personal',
-  delivery: { ...SUBSTRATE_DELIVERY, outboxReconciliation: 'Never queued: a profile edit is authorized against the live calling account.' },
+  delivery: {
+    ...SUBSTRATE_DELIVERY,
+    outboxReconciliation:
+      'Never queued: a profile edit is authorized against the live calling account.',
+  },
   policy: {
     action: 'write',
     roleFloor: 'member',
     resource: 'global',
     confirmation: 'none',
-    rationale: 'A member edits only the calling account’s display name; the service derives the user ID from the authenticated caller.',
+    rationale:
+      'A member edits only the calling account’s display name; the service derives the user ID from the authenticated caller.',
   },
   redaction: {
     reviewed: true,

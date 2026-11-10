@@ -97,7 +97,9 @@ export interface InstanceDeps {
    */
   readonly onPublicUrlChanged?: (() => void) | undefined
   /** The Connect stable link, when this server has one to offer (POD-5921). */
-  readonly tunnelHealth?: (() => import('@podium/runtime/tunnel-health').TunnelHealth | null) | undefined
+  readonly tunnelHealth?:
+    | (() => import('@podium/runtime/tunnel-health').TunnelHealth | null)
+    | undefined
   readonly stableLink?: (() => string | undefined) | undefined
   /**
    * Live readiness, for `setup.activate` (POD-2766). READ AT APPLY, not captured
@@ -131,7 +133,9 @@ export interface InstanceDeps {
    * the row is still unowned. Optional: an instance assembled without machines
    * (tests, the in-process MCP caller) simply records nothing.
    */
-  readonly completeHostSetup?: ((ownerUserId: UserId, agentExecution: boolean, passwordHash?: string) => Promise<void>) | undefined
+  readonly completeHostSetup?:
+    | ((ownerUserId: UserId, agentExecution: boolean, passwordHash?: string) => Promise<void>)
+    | undefined
   readonly grantHostMachine?: ((ownerUserId: UserId) => Promise<boolean>) | undefined
 }
 
@@ -216,7 +220,9 @@ export class InstanceService {
        * when Connect publishing is off or this box is not a server.
        */
       stableLink: this.deps.stableLink?.() ?? null,
-      ...(c.networkOption === 'cloudflare-tunnel' ? { tunnelHealth: this.deps.tunnelHealth?.() ?? null } : {}),
+      ...(c.networkOption === 'cloudflare-tunnel'
+        ? { tunnelHealth: this.deps.tunnelHealth?.() ?? null }
+        : {}),
       // Must stay the literal `process.env.PODIUM_APP_VERSION` read (build-bun
       // --define); the Machines panel compares each daemon's reported version
       // against this. [POD-838]

@@ -254,7 +254,10 @@ export const MembersSection = observer(function MembersSection() {
                     {data
                       .actionsFor(member.id)
                       .filter(isMemberAction)
-                      .filter((action) => action !== 'signOutEverywhere' || member.id !== data.currentMemberId)
+                      .filter(
+                        (action) =>
+                          action !== 'signOutEverywhere' || member.id !== data.currentMemberId,
+                      )
                       .map((action) => (
                         <Button
                           key={action}

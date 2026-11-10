@@ -8,13 +8,35 @@ const frame = vi.hoisted(() => ({ openTakeover: vi.fn(), closeTakeover: vi.fn() 
 vi.mock('../settings-frame', () => ({ useSettingsFrame: () => frame }))
 
 function fakeTrpc(hasOwnCredential = true) {
-  let profile = { id: 'me', displayName: 'Alice', email: 'alice@example.com', role: 'member' as const }
+  let profile = {
+    id: 'me',
+    displayName: 'Alice',
+    email: 'alice@example.com',
+    role: 'member' as const,
+  }
   return {
     auth: {
       profile: { query: vi.fn(async () => profile) },
-      setDisplayName: { mutate: vi.fn(async ({ displayName }: { displayName: string }) => { profile = { ...profile, displayName }; return { displayName } }) },
-      setEmail: { mutate: vi.fn(async ({ email }: { email: string }) => { profile = { ...profile, email }; return { email } }) },
-      status: { query: vi.fn().mockResolvedValue({ hasOwnCredential, loginRequired: true, canManageInstance: false, loginPolicySource: 'default' }) },
+      setDisplayName: {
+        mutate: vi.fn(async ({ displayName }: { displayName: string }) => {
+          profile = { ...profile, displayName }
+          return { displayName }
+        }),
+      },
+      setEmail: {
+        mutate: vi.fn(async ({ email }: { email: string }) => {
+          profile = { ...profile, email }
+          return { email }
+        }),
+      },
+      status: {
+        query: vi.fn().mockResolvedValue({
+          hasOwnCredential,
+          loginRequired: true,
+          canManageInstance: false,
+          loginPolicySource: 'default',
+        }),
+      },
       setPassword: { mutate: vi.fn().mockResolvedValue({ loginRequired: true }) },
     },
   } as unknown as Trpc
@@ -26,7 +48,13 @@ async function openPassword(trpc: Trpc) {
   expect(flow).toBeTruthy()
   render(flow.content)
 }
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); frame.openTakeover.mockClear(); frame.closeTakeover.mockClear() })
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+  frame.openTakeover.mockClear()
+  frame.closeTakeover.mockClear()
+})
 
 describe('Account Profile', () => {
   it('commits the name on Enter and shows the role read-only', async () => {
@@ -36,7 +64,9 @@ describe('Account Profile', () => {
     fireEvent.change(name, { target: { value: 'New name' } })
     expect(trpc.auth.setDisplayName.mutate).not.toHaveBeenCalled()
     fireEvent.keyDown(name, { key: 'Enter' })
-    await waitFor(() => expect(trpc.auth.setDisplayName.mutate).toHaveBeenCalledWith({ displayName: 'New name' }))
+    await waitFor(() =>
+      expect(trpc.auth.setDisplayName.mutate).toHaveBeenCalledWith({ displayName: 'New name' }),
+    )
     expect(screen.getByText('Member')).toBeTruthy()
     expect(screen.queryByRole('combobox', { name: 'Role' })).toBeNull()
   })
@@ -53,7 +83,12 @@ describe('Account Profile', () => {
     fireEvent.submit(email.closest('form')!)
     fireEvent.change(screen.getByLabelText('Your password'), { target: { value: 'secret' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save email' }))
-    await waitFor(() => expect(trpc.auth.setEmail.mutate).toHaveBeenCalledWith({ email: 'next@example.com', current: 'secret' }))
+    await waitFor(() =>
+      expect(trpc.auth.setEmail.mutate).toHaveBeenCalledWith({
+        email: 'next@example.com',
+        current: 'secret',
+      }),
+    )
   })
   it('saves an email without a password when the caller has none', async () => {
     const trpc = fakeTrpc(false)
@@ -61,11 +96,18 @@ describe('Account Profile', () => {
     const email = await screen.findByRole('textbox', { name: 'Email' })
     fireEvent.change(email, { target: { value: 'next@example.com' } })
     fireEvent.submit(email.closest('form')!)
-    await waitFor(() => expect(trpc.auth.setEmail.mutate).toHaveBeenCalledWith({ email: 'next@example.com', current: undefined }))
+    await waitFor(() =>
+      expect(trpc.auth.setEmail.mutate).toHaveBeenCalledWith({
+        email: 'next@example.com',
+        current: undefined,
+      }),
+    )
   })
   it('keeps a refused email and its error on the email row', async () => {
     const trpc = fakeTrpc(false)
-    vi.mocked(trpc.auth.setEmail.mutate).mockRejectedValue(new Error('Email is already used in this workspace.'))
+    vi.mocked(trpc.auth.setEmail.mutate).mockRejectedValue(
+      new Error('Email is already used in this workspace.'),
+    )
     render(<AccountProfileSection trpc={trpc} />)
     const email = await screen.findByRole('textbox', { name: 'Email' })
     fireEvent.change(email, { target: { value: 'next@example.com' } })
@@ -78,7 +120,10 @@ describe('Account Profile', () => {
     const trpc = fakeTrpc()
     vi.mocked(trpc.auth.status.query).mockRejectedValueOnce(new Error('offline'))
     render(<AccountProfileSection trpc={trpc} />)
-    expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Couldn’t load your profile and sign-in settings.')
+    expect(await screen.findByRole('alert')).toHaveProperty(
+      'textContent',
+      'Couldn’t load your profile and sign-in settings.',
+    )
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
     expect(await screen.findByRole('textbox', { name: 'Name' })).toBeTruthy()
   })
@@ -94,9 +139,17 @@ describe('Account password takeover', () => {
     fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'new' } })
     fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'new' } })
     fireEvent.submit(screen.getByLabelText('New password').closest('form')!)
-    await waitFor(() => expect(trpc.auth.setPassword.mutate).toHaveBeenCalledWith({ current: 'old', next: 'new' }))
+    await waitFor(() =>
+      expect(trpc.auth.setPassword.mutate).toHaveBeenCalledWith({ current: 'old', next: 'new' }),
+    )
     await waitFor(() => expect(frame.closeTakeover).toHaveBeenCalledOnce())
-    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/auth/login'), expect.objectContaining({ credentials: 'include', body: JSON.stringify({ email: 'alice@example.com', password: 'new' }) }))
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/auth/login'),
+      expect.objectContaining({
+        credentials: 'include',
+        body: JSON.stringify({ email: 'alice@example.com', password: 'new' }),
+      }),
+    )
   })
   it('refuses a mismatched confirmation before writing a credential', async () => {
     const trpc = fakeTrpc(false)
@@ -115,7 +168,10 @@ describe('Account password takeover', () => {
     fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'new' } })
     fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'new' } })
     fireEvent.submit(screen.getByLabelText('New password').closest('form')!)
-    expect(await screen.findByRole('alert')).toHaveProperty('textContent', expect.stringContaining('Your password changed'))
+    expect(await screen.findByRole('alert')).toHaveProperty(
+      'textContent',
+      expect.stringContaining('Your password changed'),
+    )
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
     await waitFor(() => expect(frame.closeTakeover).toHaveBeenCalledOnce())
     expect(trpc.auth.setPassword.mutate).toHaveBeenCalledOnce()

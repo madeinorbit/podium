@@ -1,7 +1,6 @@
 import { relativeTime } from '@podium/client-core/focus'
-import { lazy } from '@podium/mobx-helpers'
-import { compareShallow } from 'mobx'
 import type { RecordRequest } from '@podium/client-graph/requested-records'
+import { lazy } from '@podium/mobx-helpers'
 import {
   MobileClientSession as MobileClientSessionSchema,
   type MobilePairStartResponse as MobilePairStart,
@@ -17,27 +16,29 @@ import {
   Copy,
   ExternalLink,
   Globe,
-  Monitor,
   LogOut,
+  Monitor,
   RefreshCw,
   ShieldAlert,
   Smartphone,
   TriangleAlert,
 } from 'lucide-react'
+import { compareShallow } from 'mobx'
 import { observer } from 'mobx-react-lite'
 import { QRCodeSVG } from 'qrcode.react'
-import { toast } from 'sonner'
 import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import { useWorklistPool } from '@/app/store-worklist-pool'
-import { serverConfig, type Trpc } from '@/app/trpc'
+import { serverConfig } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
+import { memberRequest } from '@/features/setup/member-api'
+import { useAccount } from '@/lib/account-context'
 import { useAgeNow, useCountdown, useDeadlineNow } from '@/lib/clock-hooks'
 import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { workspaceFetch } from '@/lib/workspace-request'
-import { useAccount } from '@/lib/account-context'
-import { memberRequest } from '@/features/setup/member-api'
 import { useSettingsUnsyncedChangeCount } from '../readers'
 import { deviceKey, useSettingsRecords } from '../record-readers'
+import { useSettingsRowId } from '../settings-anchors'
 import { ConfirmInline, ThisDeviceTag } from './shared'
 
 /**
@@ -455,23 +456,12 @@ function ClaimRequest({
               {displayPlatform({ kind: 'mobile', platform: stage.platform })}
             </p>
             <p className="settings-prose mt-3">Confirm that the phone shows these exact words:</p>
-            <div
-              role="group"
-              className="mt-2 flex flex-wrap gap-x-2 gap-y-1 font-mono text-[18px] font-semibold tracking-tight text-foreground"
+            <fieldset
+              className="mt-2 border-0 p-0 font-mono text-[18px] font-semibold tracking-tight text-foreground"
               aria-label={`Verification phrase: ${stage.phrase.join(' ')}`}
             >
-              {stage.phrase.map((word, index) => (
-                <span key={`${index}-${word}`}>
-                  {index > 0 && <span aria-hidden="true"> </span>}
-                  {word}
-                  {index < stage.phrase.length - 1 && (
-                    <span className="ml-2 text-muted-foreground" aria-hidden="true">
-                      ·
-                    </span>
-                  )}
-                </span>
-              ))}
-            </div>
+              {stage.phrase.join(' · ')}
+            </fieldset>
             <p className="settings-micro mt-3">
               If the words differ or you do not recognize this phone, deny the request.
             </p>
@@ -574,17 +564,22 @@ export const SignedInDevicesSection = observer(function SignedInDevicesSection({
   const unsyncedChangeCount = useSettingsUnsyncedChangeCount()
   const readDevices = useCallback(() => api.auth.mobileSessions.query(), [api])
   const { request, reload } = useSettingsRecords('device', readDevices, deviceKey)
-  const devices = useMemo(() => request ? new AccountDevices(request) : null, [request])
-  const sessions = request?.answer === undefined ? null : devices?.sessions ?? []
+  const devices = useMemo(() => (request ? new AccountDevices(request) : null), [request])
+  const sessions = request?.answer === undefined ? null : (devices?.sessions ?? [])
   const [confirming, setConfirming] = useState<string | null>(null)
   const [revoking, setRevoking] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const revokingRef = useRef(false)
-  const sessionsRegionRef = useRef<HTMLDivElement>(null)
+  const pairRowId = useSettingsRowId('Pair a phone')
+  const signOutRowId = useSettingsRowId('Sign out')
+  const allRowId = useSettingsRowId('Sign out everywhere')
+  const sessionsRegionRef = useRef<HTMLElement>(null)
   const checkingChanges = unsyncedChangeCount === null
   const warnUnsynced = unsyncedChangeCount !== null && unsyncedChangeCount > 0
 
-  useEffect(() => { if (refreshKey > 0) void reload() }, [reload, refreshKey])
+  useEffect(() => {
+    if (refreshKey > 0) void reload()
+  }, [reload, refreshKey])
 
   const signOut = async (session: MobileSessionView) => {
     if (revokingRef.current || (session.current && checkingChanges)) return
@@ -596,7 +591,10 @@ export const SignedInDevicesSection = observer(function SignedInDevicesSection({
       else {
         await api.auth.revokeMobileSession.mutate({ sessionId: session.sessionId })
         request?.cancel()
-        pool?.apply({ type: 'update', rows: [{ kind: 'device', id: session.sessionId, value: undefined }] })
+        pool?.apply({
+          type: 'update',
+          rows: [{ kind: 'device', id: session.sessionId, value: undefined }],
+        })
       }
       setConfirming(null)
       sessionsRegionRef.current?.focus()
@@ -604,7 +602,10 @@ export const SignedInDevicesSection = observer(function SignedInDevicesSection({
     } catch (cause) {
       setConfirming(session.sessionId)
       setError(cause instanceof Error ? cause.message : SAFE_REVOKE_ERROR)
-    } finally { revokingRef.current = false; setRevoking(null) }
+    } finally {
+      revokingRef.current = false
+      setRevoking(null)
+    }
   }
   const signOutEverywhere = async () => {
     if (revokingRef.current || checkingChanges) return
@@ -617,66 +618,183 @@ export const SignedInDevicesSection = observer(function SignedInDevicesSection({
       setConfirming(null)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Couldn’t sign out everywhere. Try again.')
-    } finally { revokingRef.current = false; setRevoking(null) }
+    } finally {
+      revokingRef.current = false
+      setRevoking(null)
+    }
   }
-  const changeConfirmation = (id: string | null) => { setConfirming(id); setError(null) }
-  const unsyncedWarning = <>
-    <strong>{unsyncedChangeCount === 1 ? "1 change on this device hasn’t synced yet" : `${unsyncedChangeCount} changes on this device haven’t synced yet`}</strong> and will be lost. Podium also clears this account’s offline data here and closes it in your other tabs.
-  </>
+  const changeConfirmation = (id: string | null) => {
+    setConfirming(id)
+    setError(null)
+  }
+  const unsyncedWarning = (
+    <>
+      <strong>
+        {unsyncedChangeCount === 1
+          ? '1 change on this device hasn’t synced yet'
+          : `${unsyncedChangeCount} changes on this device haven’t synced yet`}
+      </strong>{' '}
+      and will be lost. Podium also clears this account’s offline data here and closes it in your
+      other tabs.
+    </>
+  )
   return (
     <section>
       <header className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="settings-h mb-1.5">Where you’re signed in</h3>
-          <p className="settings-prose">Each device has its own sign-in. Signing one out leaves the others alone.</p>
+          <p className="settings-prose">
+            Each device has its own sign-in. Signing one out leaves the others alone.
+          </p>
         </div>
-        {onPair && <Button type="button" size="sm" variant="outline" onClick={onPair}><Smartphone aria-hidden="true" />Pair a phone</Button>}
+        {onPair && (
+          <Button id={pairRowId} type="button" size="sm" variant="outline" onClick={onPair}>
+            <Smartphone aria-hidden="true" />
+            Pair a phone
+          </Button>
+        )}
       </header>
-      <div ref={sessionsRegionRef} role="region" aria-label="Where you’re signed in" className="outline-none rounded-lg border border-hairline-soft" tabIndex={-1}>
-        {sessions === null && !request?.error && <p className="settings-prose p-4" role="status">Loading devices…</p>}
-        {request?.error && <div className="flex flex-wrap items-center gap-2 p-4"><p role="alert" className="settings-prose text-destructive">Couldn’t load your signed-in devices.</p><Button type="button" size="sm" variant="outline" onClick={() => void reload()}>Try again</Button></div>}
-        {sessions?.length === 0 && <p className="settings-prose p-4">No devices are signed in to your account.</p>}
+      <section
+        ref={sessionsRegionRef}
+        aria-label="Where you’re signed in"
+        className="outline-none rounded-lg border border-hairline-soft"
+        tabIndex={-1}
+      >
+        {sessions === null && !request?.error && (
+          <p className="settings-prose p-4" role="status">
+            Loading devices…
+          </p>
+        )}
+        {request?.error && (
+          <div className="flex flex-wrap items-center gap-2 p-4">
+            <p role="alert" className="settings-prose text-destructive">
+              Couldn’t load your signed-in devices.
+            </p>
+            <Button type="button" size="sm" variant="outline" onClick={() => void reload()}>
+              Try again
+            </Button>
+          </div>
+        )}
+        {sessions?.length === 0 && (
+          <p className="settings-prose p-4">No devices are signed in to your account.</p>
+        )}
         {sessions?.map((session) => (
           <div key={session.sessionId} className="border-b border-hairline-soft px-4 py-3.5">
             <div className="flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-start gap-3">
                 <DeviceIcon kind={session.kind} />
-                <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="settings-label break-words">{session.deviceName}</span>{session.current && <ThisDeviceTag />}</div>
-                  <p className="settings-micro mt-1">{displayPlatform(session)} · Last active <MobileDeviceActivity session={session} /></p>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="settings-label break-words">{session.deviceName}</span>
+                    {session.current && <ThisDeviceTag />}
+                  </div>
+                  <p className="settings-micro mt-1">
+                    {displayPlatform(session)} · Last active{' '}
+                    <MobileDeviceActivity session={session} />
+                  </p>
                 </div>
               </div>
-              <Button type="button" size="sm" variant="ghost" disabled={revoking !== null || (session.current && checkingChanges)} pending={revoking === session.sessionId} pendingLabel="Signing out…" onClick={() => {
-                if (session.current && warnUnsynced) changeConfirmation(session.sessionId)
-                else void signOut(session)
-              }}>Sign out</Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                id={session.current ? signOutRowId : undefined}
+                disabled={revoking !== null || (session.current && checkingChanges)}
+                pending={revoking === session.sessionId}
+                pendingLabel="Signing out…"
+                onClick={() => {
+                  if (session.current && warnUnsynced) changeConfirmation(session.sessionId)
+                  else void signOut(session)
+                }}
+              >
+                Sign out
+              </Button>
             </div>
-            {confirming === session.sessionId && <ConfirmInline sentence={session.current && warnUnsynced ? unsyncedWarning : <>Sign out <strong>{session.deviceName}</strong>?</>} actionLabel={session.current && warnUnsynced ? 'Sign out anyway' : 'Sign out device'} destructive pending={revoking !== null || (session.current && checkingChanges)} error={error} onCancel={() => changeConfirmation(null)} onConfirm={() => signOut(session)} />}
+            {confirming === session.sessionId && (
+              <ConfirmInline
+                sentence={
+                  session.current && warnUnsynced ? (
+                    unsyncedWarning
+                  ) : (
+                    <>
+                      Sign out <strong>{session.deviceName}</strong>?
+                    </>
+                  )
+                }
+                actionLabel={
+                  session.current && warnUnsynced ? 'Sign out anyway' : 'Sign out device'
+                }
+                destructive
+                pending={revoking !== null || (session.current && checkingChanges)}
+                error={error}
+                onCancel={() => changeConfirmation(null)}
+                onConfirm={() => signOut(session)}
+              />
+            )}
           </div>
         ))}
         <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3.5">
-          <p className="settings-prose flex items-center gap-2"><LogOut size={15} aria-hidden="true" />Lost a device? Sign out of all of them at once.</p>
-          <Button type="button" size="sm" variant="ghost" disabled={checkingChanges || revoking !== null} onClick={() => changeConfirmation('all')}>Sign out everywhere</Button>
+          <p className="settings-prose flex items-center gap-2">
+            <LogOut size={15} aria-hidden="true" />
+            Lost a device? Sign out of all of them at once.
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            id={allRowId}
+            disabled={checkingChanges || revoking !== null}
+            onClick={() => changeConfirmation('all')}
+          >
+            Sign out everywhere
+          </Button>
         </div>
-        {confirming === 'all' && <div className="px-4"><ConfirmInline sentence={<>{warnUnsynced && <>{unsyncedWarning}<br /></>}Sign out on every device, this one included?</>} actionLabel={warnUnsynced ? 'Sign out everywhere anyway' : 'Confirm sign out everywhere'} destructive pending={checkingChanges || revoking !== null} error={error} onCancel={() => changeConfirmation(null)} onConfirm={signOutEverywhere} /></div>}
-      </div>
+        {confirming === 'all' && (
+          <div className="px-4">
+            <ConfirmInline
+              sentence={
+                <>
+                  {warnUnsynced && (
+                    <>
+                      {unsyncedWarning}
+                      <br />
+                    </>
+                  )}
+                  Sign out on every device, this one included?
+                </>
+              }
+              actionLabel={
+                warnUnsynced ? 'Sign out everywhere anyway' : 'Confirm sign out everywhere'
+              }
+              destructive
+              pending={checkingChanges || revoking !== null}
+              error={error}
+              onCancel={() => changeConfirmation(null)}
+              onConfirm={signOutEverywhere}
+            />
+          </div>
+        )}
+      </section>
     </section>
   )
 })
 
-const MobileDeviceActivity = observer(function MobileDeviceActivity({ session }: { session: MobileSessionView }) {
+const MobileDeviceActivity = observer(function MobileDeviceActivity({
+  session,
+}: {
+  session: MobileSessionView
+}) {
   const now = useAgeNow(session.lastSeenAt ?? session.createdAt, 0, session.lastSeenAt !== null)
   return <>{formatActivity(session.lastSeenAt, now)}</>
 })
 
 /** A phone-pairing takeover; its credential exists only for this mounted flow. */
 export function PhonePairingFlow({
-  trpc,
   api: injectedApi,
   onOpenAccess,
   autoStart = false,
   onSessionsChanged,
 }: {
-  trpc?: Trpc
   api?: MobilePairingApi
   onOpenAccess?: () => void
   autoStart?: boolean
@@ -685,7 +803,7 @@ export function PhonePairingFlow({
   const httpOrigin = serverConfig(window.location).httpOrigin
   const api = useMemo(
     () => injectedApi ?? createMobilePairingApi(httpOrigin),
-    [httpOrigin, injectedApi, trpc],
+    [httpOrigin, injectedApi],
   )
   const [flow, setFlow] = useState<PairingFlow>({ kind: 'idle' })
   const [decisionBusy, setDecisionBusy] = useState<'approve' | 'deny' | 'cancel' | null>(null)
@@ -693,7 +811,7 @@ export function PhonePairingFlow({
   const activePairingRef = useRef<string | null>(null)
   const lifetime = useRef(0)
   const starting = useRef(false)
-  const flowRegionRef = useRef<HTMLDivElement>(null)
+  const flowRegionRef = useRef<HTMLElement>(null)
   const previousFocusState = useRef('idle')
   const pairingDeadline =
     flow.kind === 'pair' && (flow.stage.kind === 'waiting' || flow.stage.kind === 'claimed')
@@ -717,7 +835,8 @@ export function PhonePairingFlow({
       const pairingId = activePairingRef.current
       activePairingRef.current = null
       if (pairingId) void cancelPairingOnExit(api, pairingId)
-      else if (starting.current) toast.loading('Cancelling pairing code…', { id: 'phone-pairing-cancel' })
+      else if (starting.current)
+        toast.loading('Cancelling pairing code…', { id: 'phone-pairing-cancel' })
     }
   }, [api])
 
@@ -740,11 +859,13 @@ export function PhonePairingFlow({
     const expiresAt = flow.start.expiresAt
 
     const poll = async (): Promise<void> => {
-      if (cancelled || inFlight) return
+      if (cancelled || inFlight || document.visibilityState === 'hidden') return
       if (Date.now() >= Date.parse(expiresAt)) {
         activePairingRef.current = null
         setFlow((current) =>
-          current.kind === 'pair' && current.start.pairingId === pairingId
+          current.kind === 'pair' &&
+          current.start.pairingId === pairingId &&
+          (current.stage.kind === 'waiting' || current.stage.kind === 'claimed')
             ? { ...current, url: '', stage: { kind: 'expired' } }
             : current,
         )
@@ -764,7 +885,12 @@ export function PhonePairingFlow({
           activePairingRef.current = null
         }
         setFlow((current) => {
-          if (current.kind !== 'pair' || current.start.pairingId !== pairingId) return current
+          if (
+            current.kind !== 'pair' ||
+            current.start.pairingId !== pairingId ||
+            (current.stage.kind !== 'waiting' && current.stage.kind !== 'claimed')
+          )
+            return current
           if (status.state === 'claimed') {
             if (current.stage.kind === 'claimed') return current
             return {
@@ -790,7 +916,9 @@ export function PhonePairingFlow({
         failures += 1
         if (!cancelled && failures >= 3) {
           setFlow((current) =>
-            current.kind === 'pair' && current.start.pairingId === pairingId
+            current.kind === 'pair' &&
+            current.start.pairingId === pairingId &&
+            (current.stage.kind === 'waiting' || current.stage.kind === 'claimed')
               ? { ...current, url: '', stage: { kind: 'unavailable' } }
               : current,
           )
@@ -802,9 +930,14 @@ export function PhonePairingFlow({
 
     void poll()
     const id = window.setInterval(() => void poll(), 1500)
+    const resume = () => {
+      if (document.visibilityState !== 'hidden') void poll()
+    }
+    document.addEventListener('visibilitychange', resume)
     return () => {
       cancelled = true
       window.clearInterval(id)
+      document.removeEventListener('visibilitychange', resume)
     }
   }, [api, flow])
 
@@ -867,10 +1000,22 @@ export function PhonePairingFlow({
     } catch (error) {
       if (generation === lifetime.current) setFlow({ kind: 'error', reason: startFailure(error) })
       else toast.error(SAFE_CANCEL_ERROR, { id: 'phone-pairing-cancel' })
-    } finally { starting.current = false }
+    } finally {
+      starting.current = false
+    }
   }, [api])
 
-  useEffect(() => { if (autoStart) void start() }, [autoStart, start])
+  useEffect(() => {
+    // An effect replay must not mint a code for an opening React already discarded.
+    let active = true
+    if (autoStart)
+      queueMicrotask(() => {
+        if (active) void start()
+      })
+    return () => {
+      active = false
+    }
+  }, [autoStart, start])
 
   const cancel = async (): Promise<void> => {
     if (flow.kind !== 'pair') return
@@ -933,100 +1078,96 @@ export function PhonePairingFlow({
             : flow.kind === 'pair' && flow.stage.kind === 'cancelled'
               ? 'Pairing code cancelled.'
               : flow.kind === 'pair' && flow.stage.kind === 'denied'
-              ? 'Pairing request denied.'
-              : flow.kind === 'pair' && flow.stage.kind === 'expired'
-                ? 'Pairing code expired. Create a new code.'
-                : flow.kind === 'pair' && flow.stage.kind === 'unavailable'
-                  ? 'Pairing is no longer available. Create a new code.'
-                  : flow.kind === 'open'
-                    ? 'Mobile server link ready.'
-                    : ''
+                ? 'Pairing request denied.'
+                : flow.kind === 'pair' && flow.stage.kind === 'expired'
+                  ? 'Pairing code expired. Create a new code.'
+                  : flow.kind === 'pair' && flow.stage.kind === 'unavailable'
+                    ? 'Pairing is no longer available. Create a new code.'
+                    : flow.kind === 'open'
+                      ? 'Mobile server link ready.'
+                      : ''
 
   return (
-    <>
-      <div>
-        <p className="sr-only" aria-live="assertive" aria-atomic="true">
-          {announcement}
-        </p>
+    <div>
+      <p className="sr-only" aria-live="assertive" aria-atomic="true">
+        {announcement}
+      </p>
 
-
-        <div
-          ref={flowRegionRef}
-          role="region"
-          aria-label="Phone pairing status"
-          className="outline-none"
-          tabIndex={-1}
-        >
-          {flow.kind === 'idle' && (
-            <div className="mt-4">
-              <Button type="button" onClick={() => void start()}>
-                <Smartphone aria-hidden="true" />
-                Pair a phone
-              </Button>
-            </div>
-          )}
-
-          {flow.kind === 'starting' && (
-            <div className="mt-4 flex items-center gap-2" role="status">
-              <WorkingMark size={13} />
-              <p className="settings-prose">Creating a one-time code…</p>
-            </div>
-          )}
-
-          {flow.kind === 'error' &&
-            (flow.reason === 'public-url' || flow.reason === 'transport' ? (
-              <PairingSetupRequired reason={flow.reason} onOpenAccess={onOpenAccess} />
-            ) : (
-              <div className="mt-4">
-                <p role="alert" className="settings-prose text-destructive">
-                  {SAFE_START_ERRORS[flow.reason]}
-                </p>
-              </div>
-            ))}
-
-          {flow.kind === 'pair' && (
-            <div className="mt-5">
-              {flow.stage.kind === 'waiting' && (
-                <PairingCode
-                  url={flow.url}
-                  mode="pair"
-                  expiresAt={flow.start.expiresAt}
-                  cancelling={decisionBusy === 'cancel'}
-                  cancelError={actionError}
-                  onCancel={() => void cancel()}
-                />
-              )}
-              <ClaimRequest
-                flow={flow}
-                busy={decisionBusy === 'cancel' ? null : decisionBusy}
-                error={actionError}
-                onApprove={() => void decide('approve')}
-                onDeny={() => void decide('deny')}
-              />
-            </div>
-          )}
-
-          {flow.kind === 'open' && (
-            <div className="mt-5">
-              <PairingCode url={flow.url} mode="open" />
-            </div>
-          )}
-
-          {canStartAgain && (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="mt-4"
-              onClick={() => void start()}
-            >
-              <RefreshCw aria-hidden="true" />
-              {flow.kind === 'error' ? 'Try again' : 'Create a new code'}
+      <section
+        ref={flowRegionRef}
+        aria-label="Phone pairing status"
+        className="outline-none"
+        tabIndex={-1}
+      >
+        {flow.kind === 'idle' && (
+          <div className="mt-4">
+            <Button type="button" onClick={() => void start()}>
+              <Smartphone aria-hidden="true" />
+              Pair a phone
             </Button>
-          )}
-        </div>
-      </div>
-    </>
+          </div>
+        )}
+
+        {flow.kind === 'starting' && (
+          <div className="mt-4 flex items-center gap-2" role="status">
+            <WorkingMark size={13} />
+            <p className="settings-prose">Creating a one-time code…</p>
+          </div>
+        )}
+
+        {flow.kind === 'error' &&
+          (flow.reason === 'public-url' || flow.reason === 'transport' ? (
+            <PairingSetupRequired reason={flow.reason} onOpenAccess={onOpenAccess} />
+          ) : (
+            <div className="mt-4">
+              <p role="alert" className="settings-prose text-destructive">
+                {SAFE_START_ERRORS[flow.reason]}
+              </p>
+            </div>
+          ))}
+
+        {flow.kind === 'pair' && (
+          <div className="mt-5">
+            {flow.stage.kind === 'waiting' && (
+              <PairingCode
+                url={flow.url}
+                mode="pair"
+                expiresAt={flow.start.expiresAt}
+                cancelling={decisionBusy === 'cancel'}
+                cancelError={actionError}
+                onCancel={() => void cancel()}
+              />
+            )}
+            <ClaimRequest
+              flow={flow}
+              busy={decisionBusy === 'cancel' ? null : decisionBusy}
+              error={actionError}
+              onApprove={() => void decide('approve')}
+              onDeny={() => void decide('deny')}
+            />
+          </div>
+        )}
+
+        {flow.kind === 'open' && (
+          <div className="mt-5">
+            <PairingCode url={flow.url} mode="open" />
+          </div>
+        )}
+
+        {canStartAgain && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="mt-4"
+            onClick={() => void start()}
+          >
+            <RefreshCw aria-hidden="true" />
+            {flow.kind === 'error' ? 'Try again' : 'Create a new code'}
+          </Button>
+        )}
+      </section>
+    </div>
   )
 }
 

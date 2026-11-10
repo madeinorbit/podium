@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asUserId, firstAdminMemberId } from '@podium/model'
 import type { Capability } from '@podium/model'
+import { asUserId, firstAdminMemberId } from '@podium/model'
 import { hashPassword, verifyPasswordHash } from '@podium/runtime/auth-store'
 import { loadConfig } from '@podium/runtime/config'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -27,7 +27,8 @@ async function harness(member = false) {
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const users = registry.sessionStore.users
   const loginRequired = async (): Promise<boolean> =>
-    !registry.sessionStore.settings.resolve('authOpenMode').value && (await users.hasPerUserCredentials())
+    !registry.sessionStore.settings.resolve('authOpenMode').value &&
+    (await users.hasPerUserCredentials())
   const memberId = asUserId('user:profile-member')
   if (member)
     await users.create(
@@ -159,12 +160,23 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
     await users.writeProfile(id, 'Member', 'https://example.com/avatar.png')
     const admin = await users.get(firstAdminMemberId())
     await caller.auth.setDisplayName({ displayName: '  New name  ' })
-    expect(await caller.auth.profile()).toMatchObject({ id, displayName: 'New name', role: 'member' })
-    expect(await users.get(id)).toMatchObject({ displayName: 'New name', avatar: 'https://example.com/avatar.png', email: null, role: 'member' })
+    expect(await caller.auth.profile()).toMatchObject({
+      id,
+      displayName: 'New name',
+      role: 'member',
+    })
+    expect(await users.get(id)).toMatchObject({
+      displayName: 'New name',
+      avatar: 'https://example.com/avatar.png',
+      email: null,
+      role: 'member',
+    })
     expect(await users.get(firstAdminMemberId())).toEqual(admin)
     await expect(caller.auth.setDisplayName({ displayName: ' ' })).rejects.toThrow()
     await expect(caller.auth.setDisplayName({ displayName: 'a'.repeat(201) })).rejects.toThrow()
-    await expect(caller.auth.setDisplayName({ displayName: 'Other', userId: firstAdminMemberId() } as never)).rejects.toThrow()
+    await expect(
+      caller.auth.setDisplayName({ displayName: 'Other', userId: firstAdminMemberId() } as never),
+    ).rejects.toThrow()
     expect((await users.get(id))?.displayName).toBe('New name')
   })
 

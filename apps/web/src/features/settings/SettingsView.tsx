@@ -30,14 +30,13 @@ import { SettingsOpening } from './SettingsOpening'
 import { settingsChange } from './save-settings'
 import { AppearanceSection } from './sections/appearance'
 import { HibernationSection } from './sections/hibernation'
+import { InstanceLoginSection } from './sections/instance-login'
 import { LabsSection } from './sections/labs'
 import { MembersSection } from './sections/members'
 import { NetworkSection } from './sections/network'
 import { NotificationsSection, type TelegramSetupState } from './sections/notifications'
-import { InstanceLoginSection } from './sections/instance-login'
 import { PrivacySection } from './sections/privacy'
 import { type SecretSurfaceState, SecretsSection } from './sections/secrets'
-import { AccountSection } from './sections/account'
 import { SessionsSection } from './sections/sessions'
 import {
   type AccountView,
@@ -74,6 +73,11 @@ const MachinesPanel = lazy(() =>
   })),
 )
 // The admin area's Access and Audit sections are read only by admins (POD-6299).
+const AccountSection = lazy(() =>
+  throughRestarts(() => import('./sections/account')).then((module) => ({
+    default: module.AccountSection,
+  })),
+)
 const AccessSection = lazy(() =>
   throughRestarts(() => import('./sections/access')).then((module) => ({
     default: module.AccessSection,
