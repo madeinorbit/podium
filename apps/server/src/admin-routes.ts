@@ -122,6 +122,15 @@ export function projectSecurityEvent(row: SecurityEventRow, names: Names): Secur
   const machineId = text(detail.machineId)
   const memberId = text(detail.memberId)
   const inviteId = text(detail.inviteId)
+  if (row.command === 'machines.share' || row.command === 'machines.unshare') {
+    const grantee = text(detail.grantee)
+    if (grantee) facts.grantee = names.members.get(grantee) ?? 'Removed member'
+    if (detail.verb === 'see' || detail.verb === 'use' || detail.verb === 'manage')
+      facts.verb = detail.verb
+  }
+  // Removal can record both the person and a machine whose custody was released.
+  if (row.command === 'members.remove' && machineId && memberId)
+    facts.member = names.members.get(memberId) ?? 'Removed member'
   if (row.command === 'settings.setSecret' || row.command === 'settings.clearSecret') {
     // The secret's KEY names which one; its value was never stored here.
     target = { kind: 'secret', id: null, name: text(input.key) ?? 'A secret' }
