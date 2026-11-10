@@ -1,5 +1,4 @@
-import { BlurView } from 'expo-blur'
-import { ArrowUp, ClipboardPaste, Mic, MicOff, Paperclip, Square } from './icons'
+import { ArrowUp, ClipboardPaste, Mic, MicOff, Plus, Square } from './icons'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import type {
   LayoutChangeEvent,
@@ -24,6 +23,7 @@ import { onMediaPaste } from '../lib/composer-media'
 import { alpha } from '../theme/mix'
 import { color, font, leading, radius, sans, space, spring } from '../theme/theme'
 import { AttachmentStrip } from './AttachmentStrip'
+import { ComposerGlass } from './ComposerGlass'
 import {
   COMPOSER_LINE,
   COMPOSER_MIN_HEIGHT,
@@ -53,6 +53,11 @@ const GLYPH = 20
  * same left edge as the control glyphs below it.
  */
 const TEXT_INSET = space.xs
+/** The floating composer's corner on the Chat board: the system's glass
+ *  capsule shape, larger than a card's 8 because it floats over the feed. */
+const COMPOSER_RADIUS = 14
+/** A control's corner on the 4pt grid's 8. */
+const SEND_RADIUS = 8
 
 export function appendDictation(current: string, phrase: string): string {
   const finalized = phrase.trim()
@@ -92,11 +97,12 @@ export function composerVoiceStatus(
  * It is also the arrangement every reference composer on a phone converges on,
  * which is the shape this was asked for.
  *
- * The row reads outside-in from each end: attach at the leading edge because
- * it acts on what you are about to write, dictation and send at the trailing
- * edge because they are how you finish. Nothing travels when the field grows —
- * the row hangs off the bottom of the capsule and the text expands upward
- * away from it.
+ * The row reads outside-in from each end (board Chat, POD-2380): the
+ * leading slot carries what the message will run on (the session's model ·
+ * effort chip, or the Superagent rail), and attach, dictation and send sit
+ * together at the trailing edge because they are how you finish. Nothing
+ * travels when the field grows — the row hangs off the bottom of the capsule
+ * and the text expands upward away from it.
  *
  * Two deliberate quietings. THE FIELD IS SANS, not the old mono: a prompt is
  * prose, it renders as sans the moment it lands in the transcript, and every
@@ -120,6 +126,7 @@ export function Composer({
   attachments,
   // Aliased: `leading` is also the theme's line-height helper, imported above.
   leading: leadingSlot,
+  header,
   bottomInset = 0,
   onRestingHeight,
   onStop,
@@ -167,6 +174,11 @@ export function Composer({
    * is left.
    */
   leading?: ReactNode
+  /**
+   * A row above the field that changes where the words go — "Replying to
+   * POD-1906" with its cancel (POD-2380). Absent takes no space.
+   */
+  header?: ReactNode
   /**
    * Chrome already sitting below the composer that has paid the bottom safe
    * area for it — the floating tab bar. Zero (the default) means the composer
@@ -329,15 +341,11 @@ export function Composer({
       pointerEvents="box-none"
       onLayout={onLayout}
     >
-      <BlurView
-        intensity={32}
-        tint="dark"
+      <ComposerGlass
         testID="composer-bar"
         style={[styles.surface, focused && styles.surfaceFocused, disabled && styles.disabled]}
       >
-        {/* The blur is not a surface on its own — it needs a tint to sit on,
-            the way the tab-bar capsule does. */}
-        <View style={styles.fill} pointerEvents="none" />
+        {header}
         {caption ? (
           <Text
             numberOfLines={1}
@@ -400,6 +408,8 @@ export function Composer({
             so the row keeps its shape when one end is empty — a composer with
             no attach control must not centre its send disc. */}
         <View style={styles.controls}>
+          {leadingSlot ? <View style={styles.leading}>{leadingSlot}</View> : null}
+          <View style={styles.controlGap} pointerEvents="none" />
           {takesAttach ? (
             <AttachButton
               mode={attachments?.pick ? 'pick' : 'paste'}
@@ -407,10 +417,6 @@ export function Composer({
               onPress={attachments?.pick ?? attachments?.paste ?? (() => {})}
             />
           ) : null}
-          {leadingSlot ? (
-            <View style={[styles.leading, !takesAttach && styles.leadingAlone]}>{leadingSlot}</View>
-          ) : null}
-          <View style={styles.controlGap} pointerEvents="none" />
           {onStop ? <StopTurnButton onPress={onStop} /> : null}
           {voice.supported ? (
             <VoiceButton
@@ -424,7 +430,7 @@ export function Composer({
           ) : null}
           <SendButton ready={canSend} onPress={send} reduceMotion={reduceMotion} />
         </View>
-      </BlurView>
+      </ComposerGlass>
     </View>
   )
 }
@@ -557,7 +563,7 @@ function AttachButton({
       scaleTo={0.9}
       style={({ pressed }) => [styles.control, pressed && styles.controlPressed]}
     >
-      <Icon as={mode === 'pick' ? Paperclip : ClipboardPaste} size={GLYPH} color={color.textDim} />
+      <Icon as={mode === 'pick' ? Plus : ClipboardPaste} size={GLYPH} color={color.textDim} />
     </PressableScale>
   )
 }
@@ -606,9 +612,11 @@ function SendButton({
       haptic
       style={styles.control}
     >
+      <View style={[styles.controlDisc, styles.sendKey, styles.sendRest]} />
       <Animated.View
         style={[
           styles.controlDisc,
+          styles.sendKey,
           styles.sendDisc,
           {
             opacity: fill,
@@ -622,10 +630,10 @@ function SendButton({
           { opacity: fill.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) },
         ]}
       >
-        <Icon as={ArrowUp} size={GLYPH} color={color.textDim} />
+        <Icon as={ArrowUp} size={GLYPH} color={color.textFaint} />
       </Animated.View>
       <Animated.View style={[styles.sendGlyph, { opacity: fill }]}>
-        <Icon as={ArrowUp} size={GLYPH} color={color.bg} />
+        <Icon as={ArrowUp} size={GLYPH} color={color.onAccent} />
       </Animated.View>
     </PressableScale>
   )
@@ -644,14 +652,15 @@ const styles = StyleSheet.create({
    * through `controls` and the surface can be square about it.
    */
   surface: {
-    borderRadius: radius.xxl,
+    borderRadius: COMPOSER_RADIUS,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: color.hairline,
     // The blur is drawn by a child layer, so the radius has to clip it — the
     // same arrangement as the tab-bar capsule.
     overflow: 'hidden',
     boxShadow: '0 6px 24px rgba(0, 0, 0, 0.5)',
-    paddingHorizontal: space.md,
+    paddingLeft: space.md,
+    paddingRight: space.xs + 2,
     paddingTop: space.md,
     // The control row's 44pt target already carries ~12 of air under its
     // glyph; paying the full inset again would hang the capsule open.
@@ -665,13 +674,6 @@ const styles = StyleSheet.create({
   // Opacity, never geometry: a pending or blocked composer must not resize.
   disabled: {
     opacity: 0.55,
-  },
-  fill: {
-    ...StyleSheet.absoluteFill,
-    // Opaque enough that a coloured row passing underneath reads as a soft
-    // shape rather than as colour inside the composer — an accented action card
-    // sliding past used to tint the capsule itself.
-    backgroundColor: alpha(color.bg, 0.88),
   },
   caption: {
     ...sans(500),
@@ -756,14 +758,8 @@ const styles = StyleSheet.create({
     // a chip kissing the mic once a long label truncates. This is the air the
     // flexing gap cannot guarantee, because at narrow widths there is none.
     marginRight: space.sm,
-  },
-  /**
-   * With no attach control in front of it, the slot pays back half the
-   * difference the row's negative inset took out, so a chip's border starts on
-   * the same left edge a glyph would have. Alongside the paperclip it needs
-   * nothing: that target already carries those 12 points as trailing air.
-   */
-  leadingAlone: {
+    // The slot leads the row, so it pays back what the row's negative inset
+    // took out and the chip's words start on the field's left edge.
     marginLeft: (CONTROL_TARGET - GLYPH) / 2,
   },
   controlGap: {
@@ -803,8 +799,16 @@ const styles = StyleSheet.create({
     borderRadius: 2.5,
     backgroundColor: color.dangerText,
   },
+  /** The send key is a control, so a control's corner, not a disc (board Chat). */
+  sendKey: {
+    borderRadius: SEND_RADIUS,
+  },
+  sendRest: {
+    backgroundColor: color.fill,
+  },
+  /** Signal only once there is something to send. */
   sendDisc: {
-    backgroundColor: color.text,
+    backgroundColor: color.accent,
   },
   sendGlyph: {
     ...StyleSheet.absoluteFill,

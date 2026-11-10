@@ -4,14 +4,17 @@ import {
   activitySingletonDisplay,
   type ChatBlock,
   failLine,
-  formatChurn,
+  isOperatorQuestion,
   type ParsedEnvelope,
   pointerFallbackBody,
-  resultPreview,
+  principalShortName,
   toolBatchTitles,
+  toolCallPhrase,
+  toolRunElapsedMs,
   toolRunFailures,
   toolVerdict,
 } from '@podium/client-core/values'
+import type { MailReply } from '@podium/client-graph/mail-reply'
 import type { TranscriptItem } from '@podium/model'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
@@ -77,7 +80,18 @@ import {
 import { ActionSheet, type SheetAction } from './ActionSheet'
 import { type AskQuestionAnswer, AskQuestionCard } from './AskQuestionCard'
 import { Icon } from './Icon'
-import { ChevronDown, ChevronRight, ChevronUp, X } from './icons'
+import {
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  FileText,
+  Globe,
+  Mail,
+  Search,
+  SquareTerminal,
+  Users,
+  X,
+} from './icons'
 import { PendingFiles } from './PendingFiles'
 import { PressableScale } from './PressableScale'
 import { pendingFailure, pendingMetaLine } from './pending-delivery'
@@ -207,39 +221,185 @@ function envelopeText(envelope: ParsedEnvelope): string {
   return envelope.pointer ? pointerFallbackBody(envelope) : envelope.body
 }
 
-function EnvelopeRow({
-  envelope,
-  onRefPress,
+/** A note's preview line: the body's first line, or what a pointer stands for. */
+function envelopeLine(envelope: ParsedEnvelope): string {
+  return envelopeText(envelope).replace(/\s+/g, ' ').trim()
+}
+
+/** `m:ss`, or `h:mm:ss` past the hour: the murmur column's clock (board Chat). */
+export function murmurClock(ms: number | undefined): string | undefined {
+  if (ms === undefined || !Number.isFinite(ms) || ms < 0) return undefined
+  const total = Math.round(ms / 1000)
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const sec = String(total % 60).padStart(2, '0')
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`
+}
+
+/**
+ * ONE MURMUR LINE (board Chat, POD-2380): a 14pt glyph, one line of tertiary
+ * text, and a mono clock at the trailing edge. Tool folds, notes from other
+ * agents and the live turn all speak at this volume so the agent's own prose
+ * stays the loudest thing in the feed.
+ */
+function MurmurLine({
+  glyph,
+  label,
+  clock,
+  tone = 'quiet',
+  expanded,
+  accessibilityLabel,
+  onPress,
+  children,
 }: {
-  envelope: ParsedEnvelope
-  onRefPress?: (ref: string) => void
+  glyph: ReactNode
+  label: ReactNode
+  clock?: string | undefined
+  tone?: 'quiet' | 'live' | 'failed'
+  expanded?: boolean
+  accessibilityLabel: string
+  onPress?: () => void
+  children?: ReactNode
 }) {
-  return (
-    <View style={styles.envelope}>
-      <View style={styles.envelopeHeader}>
-        <Text style={styles.envelopeKind}>Internal</Text>
-        <Text style={styles.envelopeRoute} numberOfLines={1}>
-          <EnvelopePrincipalLabel label={envelope.from} onRefPress={onRefPress} />
-          {envelope.to ? (
-            <>
-              {' → '}
-              <EnvelopePrincipalLabel label={envelope.to} onRefPress={onRefPress} />
-            </>
-          ) : null}
-        </Text>
-        {envelope.question ? <Text style={styles.envelopeQuestion}>question</Text> : null}
-        {envelope.expectsReply ? <Text style={styles.envelopeReply}>reply requested</Text> : null}
-      </View>
-      {envelope.pointer === 'legacy' ? null : <Text style={styles.envelopeId}>{envelope.id}</Text>}
-      <View style={styles.envelopeBody}>
-        <RichMarkdown text={envelopeText(envelope)} onRefPress={onRefPress} />
-      </View>
-      {envelope.machineNote ? (
-        <Text style={styles.envelopeMachine}>{envelope.machineNote}</Text>
+  const line = (
+    <>
+      <View style={styles.murmurGlyph}>{glyph}</View>
+      <Text
+        style={[
+          styles.murmurText,
+          tone === 'live' && styles.murmurLive,
+          tone === 'failed' && styles.murmurFailed,
+        ]}
+        numberOfLines={1}
+      >
+        {label}
+      </Text>
+      {clock ? (
+        <Text style={[styles.murmurClock, tone === 'live' && styles.murmurLive]}>{clock}</Text>
       ) : null}
+    </>
+  )
+  return (
+    <View style={styles.murmur}>
+      {onPress ? (
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={accessibilityLabel}
+          accessibilityState={{ expanded: expanded === true }}
+          aria-expanded={expanded === true}
+          onPress={onPress}
+          scaleTo={0.99}
+          style={({ pressed }) => [styles.murmurLine, pressed && styles.murmurPressed]}
+        >
+          {line}
+        </PressableScale>
+      ) : (
+        <View style={styles.murmurLine} accessible accessibilityLabel={accessibilityLabel}>
+          {line}
+        </View>
+      )}
+      {children ? <View style={styles.well}>{children}</View> : null}
     </View>
   )
 }
+
+const disclosureGlyph = (expanded: boolean) => (
+  <Icon as={expanded ? ChevronDown : ChevronRight} size={14} color={color.textMicro} />
+)
+
+/**
+ * A NOTE FROM ANOTHER AGENT, as a murmur (board Chat / ChatReply): who sent it
+ * and its first line, opened into the full note. A question addressed to the
+ * operator says so and opens with Reply and Quote; Reply turns the composer
+ * into a reply to the asker (the web's shared MailReply, POD-2289).
+ */
+const EnvelopeRow = observer(function EnvelopeRow({
+  envelope,
+  ts,
+  onRefPress,
+  mailReply,
+  onQuote,
+}: {
+  envelope: ParsedEnvelope
+  ts?: string | undefined
+  onRefPress?: (ref: string) => void
+  mailReply?: MailReply | undefined
+  onQuote?: ((text: string) => void) | undefined
+}) {
+  const ask = isOperatorQuestion(envelope)
+  const [open, setOpen] = useState(false)
+  const answered = ask && mailReply?.message(envelope.id)?.answered === true
+  const replying = mailReply?.active === true && mailReply.target?.id === envelope.id
+  useEffect(() => {
+    if (ask && open) void mailReply?.load(envelope.id).catch(() => {})
+  }, [ask, open, mailReply, envelope.id])
+  const principal = envelopePrincipal(envelope.from)
+  const who = principal.ref ?? principalShortName(envelope.from)
+  const summary = ask
+    ? answered
+      ? 'asked you a question · answered'
+      : 'asked you a question'
+    : envelopeLine(envelope)
+  return (
+    <MurmurLine
+      glyph={ask ? disclosureGlyph(open) : <Icon as={Mail} size={14} color={color.textMicro} />}
+      label={
+        <>
+          <Text style={styles.murmurStrong}>{who}</Text> {summary}
+        </>
+      }
+      clock={shortTime(ts)}
+      expanded={open}
+      accessibilityLabel={`${open ? 'Close' : 'Open'} note from ${who}: ${summary}`}
+      onPress={() => setOpen((value) => !value)}
+    >
+      {open ? (
+        <>
+          <RichMarkdown
+            text={envelopeText(envelope)}
+            textStyle={styles.wellProse}
+            onRefPress={onRefPress}
+          />
+          {envelope.to ? (
+            <Text style={styles.wellMeta} numberOfLines={1}>
+              <EnvelopePrincipalLabel label={envelope.from} onRefPress={onRefPress} />
+              {' → '}
+              <EnvelopePrincipalLabel label={envelope.to} onRefPress={onRefPress} />
+            </Text>
+          ) : null}
+          {ask && (mailReply || onQuote) ? (
+            <View style={styles.wellActions}>
+              {mailReply && !answered ? (
+                <PressableScale
+                  accessibilityRole="button"
+                  accessibilityLabel={`Reply to ${who}`}
+                  accessibilityState={{ selected: replying }}
+                  onPress={() => mailReply.start(envelope)}
+                  style={({ pressed }) => [styles.wellButton, pressed && styles.murmurPressed]}
+                >
+                  <Text style={styles.wellButtonText}>{replying ? 'Replying' : 'Reply'}</Text>
+                </PressableScale>
+              ) : null}
+              {onQuote ? (
+                <PressableScale
+                  accessibilityRole="button"
+                  accessibilityLabel="Quote in your message"
+                  onPress={() => onQuote(quoteTranscriptText(envelopeText(envelope)))}
+                  style={({ pressed }) => [styles.wellButton, pressed && styles.murmurPressed]}
+                >
+                  <Text style={styles.wellButtonText}>Quote</Text>
+                </PressableScale>
+              ) : null}
+            </View>
+          ) : null}
+          {envelope.machineNote ? (
+            <Text style={styles.wellMeta}>{envelope.machineNote}</Text>
+          ) : null}
+        </>
+      ) : null}
+    </MurmurLine>
+  )
+})
 
 /** A machine-authored context block in headless sessions. Keep the transcript
  * quiet by default, while preserving the complete source behind a disclosure. */
@@ -271,49 +431,70 @@ function MachineContextDisclosure({ item }: { item: TranscriptItem }) {
   )
 }
 
+/** The tool a work row stands for, as a glyph for the opened list. */
+function toolGlyph(item: TranscriptItem) {
+  if (item.toolName === 'Bash') return SquareTerminal
+  if (item.toolName === 'Task') return Users
+  if (item.toolName === 'WebFetch' || item.toolName === 'WebSearch') return Globe
+  if (item.toolName === 'Grep' || item.toolName === 'Glob') return Search
+  return FileText
+}
+
 /**
- * A phone-native work line. It spends one line on the run and a tap unfolds a
- * useful result preview.
+ * A TOOL FOLD (C1, POD-2380 — the web's POD-6258 fold on the phone). The
+ * shared transcript graph groups the calls between two pieces of the agent's
+ * text into one run; the line is named by the harness's own summary of those
+ * calls when it wrote one, else by their subjects ("Ran git status, read
+ * chat.ts"), with the run's clock beside it. A tap opens the calls in a well.
+ *
+ * LIVE, the trailing run of a working turn is the one live turn line: the
+ * moving mark, the call in flight ("Reading transcript-graph.ts") and its
+ * running clock, in the moving colour. It settles in place into the fold.
  */
 const ToolsRun = observer(function ToolsRun({
   blocks = [],
   run,
   forceOpen = false,
+  live = false,
   onRefPress,
 }: {
   blocks?: ChatBlock[]
   run?: TranscriptActivityRun
   forceOpen?: boolean
+  /** The trailing run of a turn that is still working. */
+  live?: boolean
   onRefPress?: (ref: string) => void
 }) {
   const { open: expanded, toggle } = useActivityDisclosure({ forceOpen })
   const failures = run?.failures ?? toolRunFailures(blocks)
-  const durationMs =
-    run?.durationMs ?? blocks.reduce((total, block) => total + (block.item.durationMs ?? 0), 0)
-  const title =
-    (run?.count ?? blocks.length) > 1
-      ? (run?.summary ?? toolBatchTitles(blocks).summary)
+  const lastTool = run?.lastTool ?? blocks.findLast((block) => block.item.role === 'tool')
+  const first = run?.firstBlock ?? blocks[0]
+  const now = useAgeNow(first?.item.ts ?? '', 0, live && first?.item.ts !== undefined)
+  const durationMs = live
+    ? (run?.elapsed(now) ?? (first && lastTool ? toolRunElapsedMs([first, lastTool], now) : undefined))
+    : run?.durationMs ||
+      blocks.reduce((total, block) => total + (block.item.durationMs ?? 0), 0) ||
+      run?.elapsed()
+  const inFlight =
+    live && lastTool && lastTool.result === undefined && lastTool.item.toolResult === undefined
+  const title = inFlight
+    ? toolCallPhrase(lastTool.item)
+    : live
+      ? 'Working'
       : (run?.title ?? toolBatchTitles(blocks).title)
+  const clock = murmurClock(durationMs || undefined)
+  const label = failures > 0 && !live ? `${title} · ${failures} failed` : title
 
   return (
-    <View style={styles.tools}>
-      <PressableScale
-        accessibilityRole="button"
-        accessibilityLabel={`${expanded ? 'Collapse' : 'Expand'} work run: ${title}`}
-        accessibilityState={{ expanded }}
-        aria-expanded={expanded}
-        onPress={toggle}
-        style={({ pressed }) => [styles.workLine, pressed && styles.workLinePressed]}
-      >
-        <Text style={[styles.workDisclosure, failures > 0 && styles.workDisclosureFailed]}>
-          {failures > 0 ? '✕' : '✓'}
-        </Text>
-        <Text style={styles.workTitle} numberOfLines={1}>
-          {title}
-        </Text>
-        <Text style={styles.workCount}>{formatChurn(durationMs)}</Text>
-        <Icon as={expanded ? ChevronDown : ChevronRight} size={14} color={color.textMicro} />
-      </PressableScale>
+    <MurmurLine
+      glyph={live ? <WorkingMark size={14} label={null} /> : disclosureGlyph(expanded)}
+      label={label}
+      clock={clock}
+      tone={live ? 'live' : failures > 0 ? 'failed' : 'quiet'}
+      expanded={expanded}
+      accessibilityLabel={`${expanded ? 'Collapse' : 'Expand'} work run: ${label}`}
+      onPress={toggle}
+    >
       {expanded
         ? (run?.blocks ?? blocks).map((b) => {
             const { item } = b
@@ -322,7 +503,12 @@ const ToolsRun = observer(function ToolsRun({
               return (
                 <View key={item.id}>
                   {display.batch.envelopes.map((envelope) => (
-                    <EnvelopeRow key={envelope.id} envelope={envelope} onRefPress={onRefPress} />
+                    <EnvelopeRow
+                      key={envelope.id}
+                      envelope={envelope}
+                      ts={item.ts}
+                      onRefPress={onRefPress}
+                    />
                   ))}
                 </View>
               )
@@ -332,22 +518,15 @@ const ToolsRun = observer(function ToolsRun({
                 : undefined
             if (mail)
               return (
-                <View key={item.id}>
-                  <Text style={styles.toolPreview}>
+                <View key={item.id} style={styles.wellRow}>
+                  <Icon as={Mail} size={14} color={color.textMicro} />
+                  <Text style={styles.wellRowText} numberOfLines={1}>
                     {mail.op === 'note'
                       ? `Note to ${mail.to}`
                       : mail.notes === undefined
                         ? 'Read notes'
                         : `Read ${mail.notes} notes`}
                   </Text>
-                  <RichMarkdown
-                    text={
-                      mail.op === 'note'
-                        ? (mail.preview ?? 'Sent')
-                        : (b.result ?? item.toolResult ?? '')
-                    }
-                    onRefPress={onRefPress}
-                  />
                 </View>
               )
             const result = b.result ?? item.toolResult
@@ -357,38 +536,37 @@ const ToolsRun = observer(function ToolsRun({
                 ? (item.toolInput ?? item.toolTitle ?? '')
                 : (item.toolTitle ?? item.toolInput ?? '')
             const files = item.toolPaths?.length ?? 0
-            const preview = resultPreview(result)
+            const time = murmurClock(item.durationMs)
             return (
               <View key={item.id}>
-                <View style={styles.trow}>
-                  <Text
-                    style={[
-                      styles.toolGlyph,
-                      verdict === 'ok' && styles.toolGlyphOk,
-                      verdict === 'err' && styles.toolGlyphErr,
-                    ]}
-                  >
-                    {verdict === 'err' ? '✕' : verdict === 'ok' ? '✓' : '·'}
-                  </Text>
-                  <Text style={styles.toolName}>{item.toolName ?? 'result'}</Text>
-                  <ToolDescription toolName={item.toolName} command={desc} />
-                  {files > 1 ? <Text style={styles.toolMag}>{files} files</Text> : null}
+                <View style={styles.wellRow}>
+                  <Icon
+                    as={toolGlyph(item)}
+                    size={14}
+                    color={verdict === 'err' ? color.dangerText : color.textMicro}
+                  />
+                  <View style={styles.wellRowBody}>
+                    {item.toolName === 'Bash' ? (
+                      <Text style={styles.wellRowMono} numberOfLines={1}>
+                        {desc}
+                      </Text>
+                    ) : (
+                      <ToolDescription toolName={item.toolName} command={desc} />
+                    )}
+                  </View>
+                  {files > 1 ? <Text style={styles.murmurClock}>{files} files</Text> : null}
+                  {time ? <Text style={styles.murmurClock}>{time}</Text> : null}
                 </View>
                 {verdict === 'err' ? (
-                  <Text style={styles.toolFail} numberOfLines={1}>
+                  <Text style={styles.wellFail} numberOfLines={2}>
                     {failLine(result)}
-                  </Text>
-                ) : preview ? (
-                  <Text style={styles.toolPreview} numberOfLines={1}>
-                    {preview.line}
-                    {preview.more > 0 ? `  +${preview.more}` : ''}
                   </Text>
                 ) : null}
               </View>
             )
           })
         : null}
-    </View>
+    </MurmurLine>
   )
 })
 
@@ -437,6 +615,22 @@ function TranscriptTail({ state }: { state?: TranscriptTailState }) {
 
   if (!state) return null
   const elapsed = elapsedSince(state.since, now)
+  // Working with no tool run in flight (thinking, writing): the same one live
+  // line a running fold draws, with the turn's own clock.
+  if (state.tone === 'working') {
+    const since = state.since ? Date.parse(state.since) : Number.NaN
+    return (
+      <View style={styles.tailWrap}>
+        <MurmurLine
+          glyph={<WorkingMark size={14} label={null} />}
+          label={state.label}
+          clock={Number.isNaN(since) ? undefined : murmurClock(Math.max(0, now - since))}
+          tone="live"
+          accessibilityLabel={state.label}
+        />
+      </View>
+    )
+  }
   return (
     <View style={styles.tailWrap}>
       <View style={styles.tail} accessibilityRole="text">
@@ -561,6 +755,12 @@ interface TranscriptFeedRowProps {
   reduceMotion: boolean
   liveQuestion: boolean
   streaming: boolean
+  /** This row is the trailing tool run of a turn still working: the live line. */
+  liveRun?: boolean
+  /** The chat's reply-to-the-asker flow, for notes that ask the operator. */
+  mailReply?: MailReply | undefined
+  /** Quote text into the composer. */
+  onQuoteText?: ((markdown: string) => void) | undefined
   assetContext?: TranscriptAssetContext
   answerInteractionId?: string
   onAnswer: (answer: AskQuestionAnswer) => Promise<void>
@@ -657,6 +857,9 @@ const TranscriptFeedRow = memo(
     reduceMotion,
     liveQuestion,
     streaming,
+    liveRun = false,
+    mailReply,
+    onQuoteText,
     assetContext,
     onAnswer,
     answerInteractionId,
@@ -802,6 +1005,7 @@ const TranscriptFeedRow = memo(
             run={row.run}
             blocks={row.run ? undefined : (row.blocks ?? [])}
             forceOpen={highlighted}
+            live={liveRun}
             onRefPress={onRefPress}
           />
         )
@@ -813,7 +1017,13 @@ const TranscriptFeedRow = memo(
         content = row.envelope
           ? message(
               envelopeText(row.envelope),
-              <EnvelopeRow envelope={row.envelope} onRefPress={onRefPress} />,
+              <EnvelopeRow
+                envelope={row.envelope}
+                ts={row.item.ts}
+                onRefPress={onRefPress}
+                mailReply={mailReply}
+                onQuote={onQuoteText}
+              />,
             )
           : null
         break
@@ -902,6 +1112,9 @@ const TranscriptFeedRow = memo(
     previous.reduceMotion === next.reduceMotion &&
     previous.liveQuestion === next.liveQuestion &&
     previous.streaming === next.streaming &&
+    previous.liveRun === next.liveRun &&
+    previous.mailReply === next.mailReply &&
+    previous.onQuoteText === next.onQuoteText &&
     sameAssetContext(previous.assetContext, next.assetContext) &&
     previous.onAnswer === next.onAnswer &&
     previous.answerInteractionId === next.answerInteractionId &&
@@ -1023,6 +1236,7 @@ export const TranscriptList = observer(function TranscriptList({
   onRetractPending,
   onQuote,
   tail,
+  mailReply,
   streaming = false,
   refreshControl,
   refreshAccessibilityProps,
@@ -1106,6 +1320,8 @@ export const TranscriptList = observer(function TranscriptList({
    * to its newest row, exactly as the web chat's send calls `pinToBottom`.
    */
   pinRequest?: number
+  /** Reply to an agent's question from the composer (POD-2380). */
+  mailReply?: MailReply
 }) {
   // Order is the list's subscription. Message versions belong to row observers.
   const order = !presentation && transcript ? JSON.stringify(transcript.ids.slice()) : undefined
@@ -1312,6 +1528,15 @@ export const TranscriptList = observer(function TranscriptList({
   const latestAssistantKey = presentation
     ? presentation.latestAssistantKey
     : model!.latestAssistantKey
+  // THE ONE LIVE TURN LINE (C1). While the turn works and its newest settled
+  // row is a tool run, that run draws the live line itself and the tail steps
+  // aside, so the feed never shows the same work twice.
+  const working = tail?.tone === 'working'
+  const trailing = suffixRows.length === 0 ? rows.at(-1) : undefined
+  const trailingKey = typeof trailing === 'string' ? trailing : trailing?.key
+  const trailingRow =
+    typeof trailing === 'string' ? presentation?.row(trailing) : (trailing as Row | undefined)
+  const liveRunKey = working && trailingRow?.kind === 'tools' ? trailingKey : undefined
   const transcriptId = assetContext?.sessionId ?? 'transcript'
   const followChangeRef = useRef(onFollowChange)
   useLayoutEffect(() => {
@@ -1440,6 +1665,8 @@ export const TranscriptList = observer(function TranscriptList({
                   (live && pendingKey !== null && pendingKey === row.key)
                 }
                 streaming={streaming && row.key === liveRow?.key}
+                mailReply={mailReply}
+                onQuoteText={onQuote}
                 assetContext={assetContext}
                 onAnswer={answerRow}
                 answerInteractionId={answerInteractionId}
@@ -1451,7 +1678,7 @@ export const TranscriptList = observer(function TranscriptList({
                 onHold={setActionText}
               />
             ))}
-            <TranscriptTail state={tail} />
+            <TranscriptTail state={liveRunKey === undefined ? tail : undefined} />
             {footer ? <View style={styles.footer}>{footer}</View> : null}
           </>
         }
@@ -1465,6 +1692,9 @@ export const TranscriptList = observer(function TranscriptList({
             liveQuestion:
               statePendingKey === key || (live && pendingKey !== null && pendingKey === key),
             streaming: streaming && liveRow === undefined && key === latestAssistantKey,
+            liveRun: key === liveRunKey,
+            mailReply,
+            onQuoteText: onQuote,
             assetContext,
             onAnswer: answerRow,
             answerInteractionId,

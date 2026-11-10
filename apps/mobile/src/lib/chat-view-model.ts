@@ -10,6 +10,8 @@ import { applySuperagentModelPick, resolveSuperagentBackend, type SuperagentBack
 import { liveTranscriptItem } from './superagent-transcript'
 import type { MobileConversation } from './mobile-conversation'
 import { MobileTranscriptSearch } from './conversation-presentation'
+import { MailReply, type MailReplyApi } from '@podium/client-graph/mail-reply'
+import type { CurrentMessageRecord } from '@podium/client-graph/message-models'
 
 /** One phone reader. The warm service owns the stream, never the reader's choices. */
 export class MobileChatViewModel {
@@ -20,16 +22,39 @@ export class MobileChatViewModel {
   @lazy({ equals: compareStructural }) get backend() { return resolveSuperagentBackend(superagentState(this.pool).active, this.backendPick) }
   @actionBound setBackendModel(model: string, agentKind?: string): void { this.backendPick = applySuperagentModelPick(this.backendPick, model, agentKind) }
   @actionBound setBackendEffort(effort: string): void { this.backendPick = { ...this.backendPick, effort } }
-  constructor(private readonly service: MobileConversation, private readonly pool: MobxPool) {
+  /** A reply to the agent that asked the operator a question (POD-2380): the
+   *  web's shared flow, so a written reply goes to the asker over the existing
+   *  `messages.reply`, never into the session prompt. */
+  readonly reply: MailReply
+  constructor(
+    private readonly service: MobileConversation,
+    private readonly pool: MobxPool,
+    replyApi: MailReplyApi = UNWIRED_REPLY,
+    current?: CurrentMessageRecord,
+  ) {
     this.find = new MobileTranscriptSearch(service.presentation)
+    this.reply = new MailReply(pool, replyApi, current)
   }
 
   @lazy get session() { return here(this.pool.model('session', this.service.sessionId)) }
-  @lazy get draft(): string { return this.pool.sessionObject(this.service.sessionId).messageDraft }
-  @actionBound setDraft(text: string): void { this.pool.sessionObject(this.service.sessionId).setMessageDraft(text) }
+  /** While replying, the composer writes the reply's own draft and the session's
+   *  prompt draft waits untouched underneath, as on the web. */
+  @lazy get draft(): string {
+    return this.reply.active ? this.reply.draft : this.pool.sessionObject(this.service.sessionId).messageDraft
+  }
+  @actionBound setDraft(text: string): void {
+    if (this.reply.active) this.reply.setDraft(text)
+    else this.pool.sessionObject(this.service.sessionId).setMessageDraft(text)
+  }
   @actionBound setFollowing(value: boolean): void { this.following = value }
   @actionBound setSearching(value: boolean): void { this.searching = value }
-  open(): () => void { return this.service.addReader(() => !this.following || this.searching) }
+  open(): () => void {
+    const release = this.service.addReader(() => !this.following || this.searching)
+    return () => {
+      this.reply.cancel()
+      release()
+    }
+  }
 
   // Transcript port: screens and rows read this view, never the warm log.
   @lazy get ids() { return this.service.transcript.ids }
@@ -72,4 +97,9 @@ export class MobileChatViewModel {
   finishTurn(): void { this.service.finishTurn() }
   clear(): void { this.service.clear() }
   setTurnError(error: string): void { this.service.setTurnError(error) }
+}
+
+const UNWIRED_REPLY: MailReplyApi = {
+  show: () => Promise.reject(new Error('Replies are not available here.')),
+  reply: () => Promise.reject(new Error('Replies are not available here.')),
 }

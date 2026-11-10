@@ -1,7 +1,8 @@
+// The shared MailReply flow is tested in packages/client-graph; this file keeps
+// the web chat view model's draft routing through it.
 import type { ParsedEnvelope } from '@podium/client-core/values'
 import { MobxPool } from '@podium/client-graph'
 import { here } from '@podium/client-graph/lookup'
-import { ingestLedgerMessages } from '@podium/client-graph/message-models'
 import { asSessionId, asThreadId, type MessageLedgerWire } from '@podium/model/browser'
 import { observable } from 'mobx'
 import { expect, it, vi } from 'vitest'
@@ -90,74 +91,3 @@ it('uses the existing messages.reply endpoint and keeps the session draft throug
   expect(here(pool.model('messageRecord', 'ask'))?.answered).toBe(true)
 })
 
-it('preserves the canonical answered fact across a stale ledger read', async () => {
-  const { pool, reply } = fixture()
-  await reply.load('ask')
-  const original = here(pool.model('messageRecord', 'ask'))
-  expect(original?.answered).toBe(false)
-  await reply.send(reply.draft)
-  ingestLedgerMessages(pool, [mailWire()])
-  expect(here(pool.model('messageRecord', 'ask'))).toBe(original)
-  expect(original?.ackedBy).toBe('reply')
-  expect(original?.answered).toBe(true)
-})
-
-it('keeps the chosen target and does not consume a newer form after an older send completes', async () => {
-  const { reply, api, pool } = fixture()
-  let resolve!: (value: unknown) => void
-  api.reply.mockImplementationOnce(
-    () =>
-      new Promise((done) => {
-        resolve = done
-      }),
-  )
-  const first = reply.send(reply.draft)
-  for (let turn = 0; turn < 20 && !resolve; turn++) await Promise.resolve()
-  expect(resolve, reply.error ?? 'reply endpoint was not called').toBeTypeOf('function')
-  expect(await reply.send('duplicate')).toBe(false)
-  reply.cancel()
-  reply.start(envelope('another'))
-  expect(reply.target?.id).toBe('another')
-  resolve(receipt)
-  expect(await first).toBe(false)
-  expect(api.reply).toHaveBeenCalledExactlyOnceWith('ask', 'Keep inbox reads separate.')
-  expect(reply.active).toBe(true)
-  expect(reply.target?.id).toBe('another')
-  expect(reply.error).toBeNull()
-  expect(here(pool.model('messageRecord', 'ask'))?.answered).toBe(true)
-})
-
-it.each([
-  'network',
-  'refused',
-  'unconfirmed',
-])('keeps text and target after a %s send failure', async (failure) => {
-  const { reply, api, pool } = fixture()
-  if (failure === 'network') api.reply.mockRejectedValueOnce(new Error('connection lost'))
-  else
-    api.reply.mockResolvedValueOnce({
-      ...receipt,
-      ...(failure === 'refused'
-        ? { ok: false, reason: 'recipient unavailable' }
-        : { acked: false }),
-    })
-  expect(await reply.send(reply.draft)).toBe(false)
-  expect(reply.active).toBe(true)
-  expect(reply.sending).toBe(false)
-  expect(reply.draft).toBe('Keep inbox reads separate.')
-  expect(reply.target?.id).toBe('ask')
-  expect(reply.error).toBeTruthy()
-  expect(here(pool.model('messageRecord', 'ask'))?.answered).toBe(false)
-})
-
-it('does not post blank, oversized, denied or mismatched notes', async () => {
-  const { reply, api } = fixture()
-  expect(await reply.send('  ')).toBe(false)
-  expect(await reply.send('x'.repeat(32769))).toBe(false)
-  api.show.mockRejectedValueOnce(new Error('not visible'))
-  expect(await reply.send('answer')).toBe(false)
-  api.show.mockResolvedValueOnce(mailWire('wrong'))
-  expect(await reply.send('answer')).toBe(false)
-  expect(api.reply).not.toHaveBeenCalled()
-  expect(reply.draft).toBe('Keep inbox reads separate.')
-})
