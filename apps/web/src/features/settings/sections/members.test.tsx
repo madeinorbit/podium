@@ -133,9 +133,9 @@ test('offers only the actions the server allows, and changes a role with the adm
   const fetchMock = mockApi()
   render(<MembersSection />)
   await screen.findByText('Anna', { selector: 'strong' })
-  // The admin's own row offers only signing out everywhere.
+  // Personal sign-out actions live on Account, including the admin's own row.
   expect(screen.queryByRole('button', { name: 'Make member' })).toBeNull()
-  expect(screen.getByRole('button', { name: 'Sign me out everywhere' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Sign me out everywhere' })).toBeNull()
   for (const name of [
     'Make admin',
     'Disable',

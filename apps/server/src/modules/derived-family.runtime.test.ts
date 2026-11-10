@@ -112,11 +112,12 @@ describe('the derived families, against the RUNNING appRouter', () => {
    * (`records.effect.edit`, POD-6674); `approvals.approve` and `.deny` are gone.
    * (The base this was measured on already served 35, not the 36 pinned here.)
    * 33 -> 32: `accounts.keys` is a query (POD-6705), retaining its admin gate.
+   * 32 -> 33: `auth.setDisplayName` (POD-6658) lets a member edit their own name.
    */
-  it('governs eleven families and thirty-two derived writes', () => {
+  it('governs eleven families and thirty-three derived writes', () => {
     expect(FAMILIES).toHaveLength(11)
     const total = FAMILIES.reduce((n, f) => n + Object.keys(f.table).length, 0)
-    expect(total).toBe(32)
+    expect(total).toBe(33)
   })
 
   it.each(

@@ -462,6 +462,32 @@ export const authSetEmailContract = {
     'The latest committed email wins; a workspace-wide unique index rejects duplicate addresses.',
 } as const satisfies CommandContract<typeof authSetEmailInput>
 
+export const authSetDisplayNameInput = z.object({
+  displayName: z.string().trim().min(1).max(200),
+}).strict()
+
+export const authSetDisplayNameContract = {
+  ...authSetEmailContract,
+  name: 'auth.setDisplayName',
+  input: authSetDisplayNameInput,
+  visibility: 'personal',
+  delivery: { ...SUBSTRATE_DELIVERY, outboxReconciliation: 'Never queued: a profile edit is authorized against the live calling account.' },
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'global',
+    confirmation: 'none',
+    rationale: 'A member edits only the calling account’s display name; the service derives the user ID from the authenticated caller.',
+  },
+  redaction: {
+    reviewed: true,
+    inputPaths: ['displayName'],
+    outputPaths: ['displayName'],
+    note: 'Keep personal names out of command logs.',
+  } satisfies RedactionPolicy,
+  conflictRule: 'The latest committed name for the calling account wins.',
+} as const satisfies CommandContract<typeof authSetDisplayNameInput>
+
 export const authSetLoginRequiredInput = z.object({
   /** `false` enters open mode — this instance serves everything with no login. */
   required: z.boolean(),
@@ -614,6 +640,7 @@ export type SetupContractName = keyof typeof SETUP_CONTRACTS
 export const SETUP_CONTRACT_NAMES = Object.keys(SETUP_CONTRACTS).sort() as SetupContractName[]
 
 export const AUTH_CONTRACTS = {
+  setDisplayName: authSetDisplayNameContract,
   setEmail: authSetEmailContract,
   setPassword: authSetPasswordContract,
   setLoginRequired: authSetLoginRequiredContract,

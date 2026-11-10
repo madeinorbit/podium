@@ -106,9 +106,9 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
   it('reads and changes only the caller email, retaining the display name', async () => {
     const { caller, users } = await harness()
     const before = await users.get(firstAdminMemberId())
-    expect(await caller.auth.profile()).toEqual({ email: null })
+    expect(await caller.auth.profile()).toMatchObject({ email: null })
     await caller.auth.setEmail({ email: ' Alice@Example.COM ' })
-    expect(await caller.auth.profile()).toEqual({ email: 'alice@example.com' })
+    expect(await caller.auth.profile()).toMatchObject({ email: 'alice@example.com' })
     expect((await users.get(firstAdminMemberId()))?.displayName).toBe(before?.displayName)
     await caller.auth.setPassword({ next: 'hunter2' })
     await expect(caller.auth.setEmail({ email: 'next@example.com' })).rejects.toThrow(
@@ -118,7 +118,7 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
       caller.auth.setEmail({ email: 'next@example.com', current: 'wrong' }),
     ).rejects.toThrow('current password')
     await caller.auth.setEmail({ email: 'next@example.com', current: 'hunter2' })
-    expect(await caller.auth.profile()).toEqual({ email: 'next@example.com' })
+    expect(await caller.auth.profile()).toMatchObject({ email: 'next@example.com' })
     await expect(caller.auth.setEmail({ email: '', current: 'hunter2' })).rejects.toThrow()
     await expect(
       caller.auth.setEmail({ email: 'not-an-email', current: 'hunter2' }),
@@ -128,7 +128,7 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
   it('lets a non-admin change their own email without changing the admin', async () => {
     const { caller, users } = await harness(true)
     await caller.auth.setEmail({ email: 'member@example.com', current: 'member-password' })
-    expect(await caller.auth.profile()).toEqual({ email: 'member@example.com' })
+    expect(await caller.auth.profile()).toMatchObject({ email: 'member@example.com' })
     expect((await users.get(firstAdminMemberId()))?.email).toBeNull()
     expect((await users.byEmail('member@example.com'))?.id).toBe('user:profile-member')
   })
@@ -149,8 +149,23 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
     await expect(caller.auth.setEmail({ email: 'OTHER@example.com' })).rejects.toMatchObject({
       code: 'CONFLICT',
     })
-    expect(await caller.auth.profile()).toEqual({ email: null })
+    expect(await caller.auth.profile()).toMatchObject({ email: null })
     expect((await users.byEmail('other@example.com'))?.id).toBe('user:other')
+  })
+
+  it('lets a member rename only themselves and retains their email, avatar and role', async () => {
+    const { caller, users } = await harness(true)
+    const id = asUserId('user:profile-member')
+    await users.writeProfile(id, 'Member', 'https://example.com/avatar.png')
+    const admin = await users.get(firstAdminMemberId())
+    await caller.auth.setDisplayName({ displayName: '  New name  ' })
+    expect(await caller.auth.profile()).toMatchObject({ id, displayName: 'New name', role: 'member' })
+    expect(await users.get(id)).toMatchObject({ displayName: 'New name', avatar: 'https://example.com/avatar.png', email: null, role: 'member' })
+    expect(await users.get(firstAdminMemberId())).toEqual(admin)
+    await expect(caller.auth.setDisplayName({ displayName: ' ' })).rejects.toThrow()
+    await expect(caller.auth.setDisplayName({ displayName: 'a'.repeat(201) })).rejects.toThrow()
+    await expect(caller.auth.setDisplayName({ displayName: 'Other', userId: firstAdminMemberId() } as never)).rejects.toThrow()
+    expect((await users.get(id))?.displayName).toBe('New name')
   })
 
   it('sets the caller’s own credential without requiring a current password', async () => {

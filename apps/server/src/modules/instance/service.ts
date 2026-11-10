@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { SettingsRepository } from '../../store/settings'
+import type { UserAccountRow } from '../../store/users'
 /**
  * THE INSTANCE SERVICE — one L3 seam over the deployment's own configuration.
  *
@@ -136,18 +137,14 @@ export interface InstanceDeps {
 
 /** The slice of `UsersRepository` the auth commands need. */
 export interface InstanceAccountStore {
-  get(
-    userId: UserId,
-  ):
-    | { role: string; email?: string | null }
-    | undefined
-    | Promise<{ role: string; email?: string | null } | undefined>
+  get(userId: UserId): UserAccountRow | undefined | Promise<UserAccountRow | undefined>
   credentialFor(
     userId: UserId,
   ):
     | { passwordHash: string | null }
     | undefined
     | Promise<{ passwordHash: string | null } | undefined>
+  writeProfile(userId: UserId, name: string, avatar: string | null): void | Promise<void>
   setEmail(userId: UserId, email: string): void | Promise<void>
   setPasswordHash(userId: UserId, passwordHash: string, updatedAt: string): void | Promise<void>
 }
@@ -555,7 +552,21 @@ export class InstanceService {
     const { users, callerUserId } = this.requireAccountStore()
     const member = await users.get(callerUserId)
     if (!member) throw new TRPCError({ code: 'UNAUTHORIZED' })
-    return { email: member.email ?? null }
+    // This is the same public member record used by Members; no credentials.
+    return member
+  }
+
+  /** A member edits only their own name; keep their existing avatar. */
+  async setDisplayName(input: { displayName: string }) {
+    const { users, callerUserId } = this.requireAccountStore()
+    const member = await users.get(callerUserId)
+    if (!member) throw new TRPCError({ code: 'UNAUTHORIZED' })
+    const displayName = input.displayName.trim()
+    if (!displayName || displayName.length > 200) {
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'Enter a name of 1–200 characters.' })
+    }
+    await users.writeProfile(callerUserId, displayName, member.avatar ?? null)
+    return { displayName }
   }
 
   async setEmail(input: { email: string; current?: string | undefined }) {

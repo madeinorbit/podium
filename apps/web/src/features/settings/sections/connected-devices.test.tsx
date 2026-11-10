@@ -6,13 +6,19 @@ import type {
 } from '@podium/protocol'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { observable, runInAction } from 'mobx'
+import { toast } from 'sonner'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  ConnectedDevicesSection,
+  PhonePairingFlow,
+  SignedInDevicesSection,
   createMobilePairingApi,
   type MobilePairingApi,
   mobileServerUrl,
 } from './connected-devices'
+
+function ConnectedDevicesSection({ api, onOpenAccess }: { api: MobilePairingApi; onOpenAccess?: () => void }) {
+  return <><PhonePairingFlow api={api} onOpenAccess={onOpenAccess} /><SignedInDevicesSection api={api} /></>
+}
 
 const sync = observable({ unsyncedChangeCount: 0 as number | null })
 vi.mock('../readers', async (importOriginal) => ({
@@ -209,9 +215,6 @@ describe('ConnectedDevicesSection', () => {
     expect(qr.getAttribute('data-value')).toBe(
       'https://canonical.example/mobile#pair=ephemeral-envelope',
     )
-    expect(screen.getByText('https://canonical.example')).toBeTruthy()
-    expect(screen.getByText(HTTPS_TRANSPORT.title)).toBeTruthy()
-    expect(screen.getByText(HTTPS_TRANSPORT.guidance)).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: 'Copy link' }))
     await waitFor(() =>
@@ -222,17 +225,14 @@ describe('ConnectedDevicesSection', () => {
     expect(await screen.findByText(/temporary pairing secret copied/i)).toBeTruthy()
   })
 
-  it('renders the exact current open response as a URL-only QR', async () => {
+  it('links to Access instead of rendering an HTTP pairing QR, including open mode', async () => {
     const api = pairingApi(openStart())
-
-    render(<ConnectedDevicesSection api={api} />)
+    const onOpenAccess = vi.fn()
+    render(<ConnectedDevicesSection api={api} onOpenAccess={onOpenAccess} />)
     fireEvent.click(screen.getByRole('button', { name: 'Pair a phone' }))
-
-    const qr = await screen.findByTestId('pairing-qr')
-    expect(qr.getAttribute('data-value')).toBe('http://open.example/mobile')
-    expect(screen.getByText('Open server on HTTP')).toBeTruthy()
-    expect(screen.getByText(/contains only its mobile URL/i)).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Approve phone' })).toBeNull()
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Access settings' }))
+    expect(onOpenAccess).toHaveBeenCalledOnce()
+    expect(screen.queryByTestId('pairing-qr')).toBeNull()
     expect(api.auth.mobilePairingStatus.query).not.toHaveBeenCalled()
   })
 
@@ -302,7 +302,7 @@ describe('ConnectedDevicesSection', () => {
     render(
       <ConnectedDevicesSection
         api={createMobilePairingApi('https://podium.example')}
-        onOpenNetwork={openNetwork}
+        onOpenAccess={openNetwork}
       />,
     )
     fireEvent.click(screen.getByRole('button', { name: 'Pair a phone' }))
@@ -312,11 +312,11 @@ describe('ConnectedDevicesSection', () => {
     expect(screen.queryByText(/do-not-render-this/i)).toBeNull()
     if (status === 400 || status === 409) {
       expect(screen.queryByRole('button', { name: /new code|try again/i })).toBeNull()
-      fireEvent.click(screen.getByRole('button', { name: 'Open Network settings' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Open Access settings' }))
       expect(openNetwork).toHaveBeenCalledOnce()
     } else {
       expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy()
-      expect(screen.queryByRole('button', { name: 'Open Network settings' })).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Open Access settings' })).toBeNull()
     }
   })
 
@@ -368,25 +368,26 @@ describe('ConnectedDevicesSection', () => {
   it('reports a successful open-tab request without weakening noopener', async () => {
     const open = vi.fn().mockReturnValue(null)
     vi.stubGlobal('open', open)
-    render(<ConnectedDevicesSection api={pairingApi(openStart())} />)
+    render(<ConnectedDevicesSection api={pairingApi(openStart({ mobileUrl: 'https://open.example/mobile', canonicalOrigin: 'https://open.example', transport: HTTPS_TRANSPORT }))} />)
     fireEvent.click(screen.getByRole('button', { name: 'Pair a phone' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Open on this device' }))
 
-    expect(open).toHaveBeenCalledWith('http://open.example/mobile', '_blank', 'noopener,noreferrer')
+    expect(open).toHaveBeenCalledWith('https://open.example/mobile', '_blank', 'noopener,noreferrer')
     expect(screen.getByText('Opened the mobile page in a new tab.')).toBeTruthy()
   })
 
-  it('cancels explicitly and best-effort denies an active grant on exit', async () => {
+  it('cancels explicitly and visibly cancels an active grant on exit', async () => {
     const explicitApi = pairingApi()
     const { unmount } = render(<ConnectedDevicesSection api={explicitApi} />)
     fireEvent.click(screen.getByRole('button', { name: 'Pair a phone' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Cancel code' }))
-    expect(await screen.findByText('Request denied')).toBeTruthy()
+    expect(await screen.findByText('Pairing code cancelled')).toBeTruthy()
     expect(explicitApi.auth.mobilePairingDeny.mutate).toHaveBeenCalledWith({
       pairingId: 'request-safe-id',
     })
     unmount()
 
+    const cancellationNotice = vi.spyOn(toast, 'success')
     const exitApi = pairingApi()
     const mounted = render(<ConnectedDevicesSection api={exitApi} />)
     fireEvent.click(screen.getByRole('button', { name: 'Pair a phone' }))
@@ -395,26 +396,17 @@ describe('ConnectedDevicesSection', () => {
     expect(exitApi.auth.mobilePairingDeny.mutate).toHaveBeenCalledWith({
       pairingId: 'request-safe-id',
     })
+    await waitFor(() => expect(cancellationNotice).toHaveBeenCalledWith('Pairing code cancelled.', expect.anything()))
   })
 
-  it('badges the current session, warns about self-revoke, and moves focus', async () => {
+  it('marks this device and signs it out immediately when there are no unsynced changes', async () => {
     const api = pairingApi()
-    vi.mocked(api.auth.mobileSessions.query).mockResolvedValue([
-      mobileSession({ current: true, deviceName: 'This browser phone' }),
-    ])
-
+    vi.mocked(api.auth.mobileSessions.query).mockResolvedValue([mobileSession({ current: true, deviceName: 'This browser' })])
     render(<ConnectedDevicesSection api={api} />)
-    expect(await screen.findByText('This browser phone')).toBeTruthy()
+    expect(await screen.findByText('This browser')).toBeTruthy()
     expect(screen.getByText('This device')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Revoke' }))
-
-    const confirmation = screen.getByRole('group', {
-      name: 'Confirm revoking This browser phone',
-    })
-    expect(
-      screen.getByText(/you are using now, so it will be signed out immediately/i),
-    ).toBeTruthy()
-    await waitFor(() => expect(document.activeElement).toBe(confirmation))
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    await waitFor(() => expect(api.auth.revokeMobileSession.mutate).toHaveBeenCalledWith({ sessionId: 'a'.repeat(24) }))
   })
 
   it('guards current-device revocation with the sign-out warning without blocking other devices', async () => {
@@ -427,13 +419,12 @@ describe('ConnectedDevicesSection', () => {
     sync.unsyncedChangeCount = 2
     render(<ConnectedDevicesSection api={api} />)
     await screen.findByText('This browser')
-    fireEvent.click(screen.getAllByRole('button', { name: 'Revoke' })[0] as HTMLButtonElement)
-    expect(screen.getByText('Sign out with unsynced changes?')).toBeTruthy()
+    fireEvent.click(screen.getAllByRole('button', { name: 'Sign out' })[0] as HTMLButtonElement)
     expect(
-      screen.getByText("2 changes on this device haven't synced yet and will be lost."),
+      screen.getByText("2 changes on this device haven’t synced yet"),
     ).toBeTruthy()
     expect(api.auth.revokeMobileSession.mutate).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: 'Wait' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(api.auth.revokeMobileSession.mutate).not.toHaveBeenCalled()
 
     act(() =>
@@ -441,16 +432,13 @@ describe('ConnectedDevicesSection', () => {
         sync.unsyncedChangeCount = null
       }),
     )
-    const [current, other] = screen.getAllByRole<HTMLButtonElement>('button', { name: 'Revoke' })
+    const [current, other] = screen.getAllByRole<HTMLButtonElement>('button', { name: 'Sign out' })
     if (!current || !other) throw new Error('Expected both device controls')
     expect(current.disabled).toBe(true)
     expect(other.disabled).toBe(false)
     fireEvent.click(current)
-    expect(screen.queryByRole('group', { name: 'Confirm revoking This browser' })).toBeNull()
+    expect(screen.queryByRole('form', { name: 'Sign out anyway' })).toBeNull()
     fireEvent.click(other)
-    expect(screen.getByText(/your other devices stay signed in/)).toBeTruthy()
-    expect(screen.queryByText('Sign out with unsynced changes?')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Revoke device' }))
     await waitFor(() =>
       expect(api.auth.revokeMobileSession.mutate).toHaveBeenCalledWith({
         sessionId: 'a'.repeat(24),
@@ -463,9 +451,9 @@ describe('ConnectedDevicesSection', () => {
         sync.unsyncedChangeCount = 1
       }),
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Revoke' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
     expect(
-      screen.getByText("1 change on this device hasn't synced yet and will be lost."),
+      screen.getByText("1 change on this device hasn’t synced yet"),
     ).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Sign out anyway' }))
     await waitFor(() =>
@@ -474,6 +462,16 @@ describe('ConnectedDevicesSection', () => {
       }),
     )
     expect(api.auth.revokeMobileSession.mutate).toHaveBeenCalledTimes(2)
+  })
+
+  it('cancels a code minted after the pairing takeover has already closed', async () => {
+    const api = pairingApi()
+    let finish: ((answer: MobilePairStartResponse) => void) | undefined
+    vi.mocked(api.auth.mobilePairingStart.mutate).mockReturnValue(new Promise((resolve) => { finish = resolve }))
+    const view = render(<PhonePairingFlow api={api} autoStart />)
+    view.unmount()
+    await act(async () => { finish?.(pairStart()) })
+    expect(api.auth.mobilePairingDeny.mutate).toHaveBeenCalledWith({ pairingId: 'request-safe-id' })
   })
 
   it('ignores a stale session load after a newer request has settled', async () => {
@@ -498,7 +496,7 @@ describe('ConnectedDevicesSection', () => {
     expect(screen.queryByText('Travel phone')).toBeNull()
   })
 
-  it('lists browser and desktop sign-ins beside phones, each revocable (POD-6701)', async () => {
+  it('lists browser and desktop sign-ins beside phones, this device first (POD-6701)', async () => {
     const api = pairingApi()
     const laptopId = 'c'.repeat(24)
     vi.mocked(api.auth.mobileSessions.query).mockResolvedValue([
@@ -528,9 +526,8 @@ describe('ConnectedDevicesSection', () => {
     expect(screen.getByText('Podium desktop on macOS')).toBeTruthy()
     expect(screen.getByText(/Desktop app · macOS/)).toBeTruthy()
     expect(screen.getByText(/Phone · Android/)).toBeTruthy()
-    expect(screen.getAllByRole('button', { name: 'Revoke' })).toHaveLength(3)
-    fireEvent.click(screen.getAllByRole('button', { name: 'Revoke' })[0]!)
-    fireEvent.click(screen.getByRole('button', { name: 'Revoke device' }))
+    expect(screen.getAllByRole('button', { name: 'Sign out' })).toHaveLength(3)
+    fireEvent.click(screen.getAllByRole('button', { name: 'Sign out' })[0]!)
     await waitFor(() =>
       expect(api.auth.revokeMobileSession.mutate).toHaveBeenCalledWith({ sessionId: laptopId }),
     )
@@ -553,8 +550,7 @@ describe('ConnectedDevicesSection', () => {
 
     render(<ConnectedDevicesSection api={api} />)
     expect(await screen.findByText('Travel phone')).toBeTruthy()
-    fireEvent.click(screen.getAllByRole('button', { name: 'Revoke' })[0]!)
-    fireEvent.click(screen.getByRole('button', { name: 'Revoke device' }))
+    fireEvent.click(screen.getAllByRole('button', { name: 'Sign out' })[0]!)
 
     await waitFor(() => expect(screen.queryByText('Travel phone')).toBeNull())
     expect(screen.getByText('Work phone')).toBeTruthy()

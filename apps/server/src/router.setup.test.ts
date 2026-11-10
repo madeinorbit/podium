@@ -582,10 +582,11 @@ describe('setup.activate — the restart an operator can actually reach [POD-276
     const service = new InstanceService({
       callerUserId: firstAdminMemberId(),
       users: {
-        get: () => ({ role: 'member' }),
+        get: () => ({ id: firstAdminMemberId(), displayName: 'Member', email: null, role: 'member', createdAt: '2026-01-01T00:00:00Z', disabledAt: null }),
         credentialFor: () => undefined,
         setPasswordHash: () => {},
         setEmail: () => {},
+        writeProfile: () => {},
       },
       readiness: () => pendingOn(['persistence']),
       requestCoordinatorRestart: restart,

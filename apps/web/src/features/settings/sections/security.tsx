@@ -1,357 +1,190 @@
-import { workspaceFetch } from '@/lib/workspace-request'
-import type { JSX } from 'react'
-import { useEffect, useState } from 'react'
+import { observer } from 'mobx-react-lite'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import { serverConfig, type Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Section } from './shared'
+import { workspaceFetch } from '@/lib/workspace-request'
+import { memberKey, useSettingsRecords } from '../record-readers'
+import { useSettingsFrame } from '../settings-frame'
+import { CommitInput, ConfirmInline, Row, Section } from './shared'
 
-/**
- * TWO SECTIONS, BECAUSE THERE ARE TWO DECISIONS (POD-1554).
- *
- * *Your password* is yours: every user can set or change their own credential, and
- * `auth.setPassword` writes the CALLING account's row. *Instance login* is the operator's:
- * turning login off leaves the instance open to anyone who can reach it, so it is
- * admin-only (`canManageInstance`) and it is instance-wide. One user cannot turn login off
- * for everybody, and that is why the old single "Login password" section — where
- * `clearPassword` meant both — could not survive accounts.
- *
- * Turning login off does NOT delete anyone's credential; it writes an instance policy flag.
- * Turning it back on restores every account's existing password rather than making everyone
- * re-enrol, which is what the copy below promises.
- *
- * After a successful set/change we immediately POST /auth/login with the new password so
- * THIS device gets (or refreshes) its session cookie instead of being locked out by the
- * guard it just enabled.
- *
- * `trpc` stays an explicit prop (not the store hook): the unit tests inject a
- * fake client directly, and the section renders outside a StoreProvider there.
- */
-export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
-  const httpOrigin = serverConfig(window.location).httpOrigin
-  const [status, setStatus] = useState<{
-    loginRequired: boolean
-    loginPolicySource?: string
-    hasOwnCredential: boolean
-    canManageInstance: boolean
-  } | null>(null)
-  const [email, setEmail] = useState('')
-  const [savedEmail, setSavedEmail] = useState<string | null>(null)
-  const [emailCurrent, setEmailCurrent] = useState('')
-  const [profileLoaded, setProfileLoaded] = useState(false)
+type AuthStatus = Awaited<ReturnType<Trpc['auth']['status']['query']>>
+const message = (error: unknown, fallback: string) => error instanceof Error ? error.message : fallback
+
+/** Personal identity uses the same member model as Members, never a second profile copy. */
+export const AccountProfileSection = observer(function AccountProfileSection({ trpc }: { trpc: Trpc }) {
+  const frame = useSettingsFrame()
+  const readProfile = useCallback(async () => [await trpc.auth.profile.query()], [trpc])
+  const { request, reload } = useSettingsRecords('member', readProfile, memberKey)
+  const profile = request?.models[0]
+  const [status, setStatus] = useState<AuthStatus | null>(null)
+  const [statusError, setStatusError] = useState(false)
+  const [statusAttempt, setStatusAttempt] = useState(0)
+  const [nameError, setNameError] = useState<string | null>(null)
+  const [nameBusy, setNameBusy] = useState(false)
+  const [emailDraft, setEmailDraft] = useState<string | null>(null)
+  const [emailChange, setEmailChange] = useState<string | null>(null)
+  const [emailError, setEmailError] = useState<string | null>(null)
+  const [emailBusy, setEmailBusy] = useState(false)
+  const nameSaving = useRef(false)
+  const emailSaving = useRef(false)
+
+  useEffect(() => {
+    let cancelled = false
+    setStatusError(false)
+    void trpc.auth.status.query().then((answer) => {
+      if (!cancelled) setStatus(answer)
+    }).catch(() => {
+      if (!cancelled) setStatusError(true)
+    })
+    return () => { cancelled = true }
+  }, [trpc, statusAttempt])
+
+  const retry = () => {
+    void reload()
+    setStatusAttempt((value) => value + 1)
+  }
+  if (request?.error || statusError) return (
+    <Section title="Profile">
+      <p role="alert" className="settings-prose text-destructive">Couldn’t load your profile and sign-in settings.</p>
+      <Button type="button" variant="outline" size="sm" className="mt-3" onClick={retry}>Try again</Button>
+    </Section>
+  )
+  if (!profile || !status) return <Section title="Profile"><p className="settings-prose" role="status">Loading your profile…</p></Section>
+
+  const saveName = async (name: string) => {
+    const displayName = name.trim()
+    if (nameSaving.current || displayName === profile.displayName) return
+    if (!displayName) { setNameError('Enter your name.'); return }
+    const previous = profile.displayName
+    nameSaving.current = true
+    setNameBusy(true)
+    setNameError(null)
+    try {
+      await trpc.auth.setDisplayName.mutate({ displayName })
+      await reload()
+      toast.success('Saved', { action: { label: 'Undo', onClick: () => {
+        void trpc.auth.setDisplayName.mutate({ displayName: previous }).then(() => reload()).catch((error: unknown) => setNameError(message(error, 'Couldn’t restore your name.')))
+      } } })
+    } catch (error) { setNameError(message(error, 'Couldn’t save your name.')) }
+    finally { nameSaving.current = false; setNameBusy(false) }
+  }
+  const saveEmail = async (email: string, current?: string) => {
+    if (emailSaving.current) return
+    emailSaving.current = true
+    setEmailBusy(true)
+    setEmailError(null)
+    try {
+      await trpc.auth.setEmail.mutate({ email, current })
+      await reload()
+      setEmailDraft(null)
+      setEmailChange(null)
+      toast.success('Email saved. Use it the next time you sign in.')
+    } catch (error) { setEmailError(message(error, 'Couldn’t save your email.')) }
+    finally { emailSaving.current = false; setEmailBusy(false) }
+  }
+  const submitEmail = () => {
+    const email = (emailDraft ?? profile.email ?? '').trim().toLowerCase()
+    if (email === (profile.email ?? '')) {
+      setEmailDraft(null)
+      setEmailChange(null)
+      setEmailError(null)
+      return
+    }
+    if (!email) { setEmailError('Enter an email address.'); return }
+    setEmailError(null)
+    if (status.hasOwnCredential) setEmailChange(email)
+    else void saveEmail(email)
+  }
+
+  return (
+    <Section title="Profile">
+      <Row label="Name" description="Shown on tasks and sessions you start." pending={nameBusy} error={nameError}>
+        <CommitInput aria-label="Name" autoComplete="name" maxLength={200} value={profile.displayName} onChange={(event) => void saveName(event.target.value)} />
+      </Row>
+      <form onSubmit={(event) => { event.preventDefault(); submitEmail() }}>
+        <Row label="Email" description="You sign in with it. Changing it asks for your password." pending={emailBusy} error={emailError}>
+          <Input aria-label="Email" type="email" autoComplete="username" required maxLength={254} value={emailDraft ?? profile.email ?? ''} onChange={(event) => {
+            setEmailDraft(event.target.value)
+            setEmailChange(null)
+            setEmailError(null)
+          }} onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault()
+              event.stopPropagation()
+              setEmailDraft(null)
+              setEmailChange(null)
+              setEmailError(null)
+            }
+          }} />
+        </Row>
+      </form>
+      {emailChange !== null && <ConfirmInline key={emailChange} sentence={<>Change your email to <strong>{emailChange}</strong>?</>} hasPassword actionLabel="Save email" pending={emailBusy} onCancel={() => { setEmailChange(null); setEmailError(null) }} onConfirm={(password) => saveEmail(emailChange, password)} />}
+      <Row label="Password" description={status.hasOwnCredential ? 'Your password signs you in to this Podium.' : 'You don’t have a password yet.'}>
+        <Button type="button" variant="outline" size="sm" onClick={() => frame.openTakeover({
+          title: status.hasOwnCredential ? 'Change password' : 'Set password',
+          content: <PasswordTakeover trpc={trpc} email={profile.email ?? null} hasOwnCredential={status.hasOwnCredential} onCancel={frame.closeTakeover} onSaved={() => {
+            setStatusAttempt((value) => value + 1)
+            frame.closeTakeover()
+            toast.success('Password saved.')
+          }} />,
+        })}>{status.hasOwnCredential ? 'Change password' : 'Set password'}</Button>
+      </Row>
+      <Row label="Role" description={profile.role === 'admin' ? 'You can change workspace settings and manage members.' : 'An admin manages workspace settings and members.'} readOnly readOnlyValue={profile.role === 'admin' ? 'Admin' : 'Member'} />
+    </Section>
+  )
+})
+
+function PasswordTakeover({ trpc, email, hasOwnCredential, onSaved, onCancel }: {
+  trpc: Trpc
+  email: string | null
+  hasOwnCredential: boolean
+  onSaved: () => void
+  onCancel: () => void
+}) {
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   const [confirm, setConfirm] = useState('')
-  const [disableOpen, setDisableOpen] = useState(false)
-  const [disableCurrent, setDisableCurrent] = useState('')
-  const [disableAck, setDisableAck] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [done, setDone] = useState<string | null>(null)
-
-  useEffect(() => {
-    trpc.auth.profile
-      .query()
-      .then((profile) => {
-        setEmail(profile.email ?? '')
-        setSavedEmail(profile.email)
-        setProfileLoaded(true)
-      })
-      .catch(() => setError('Couldn’t load your profile.'))
-    trpc.auth.status
-      .query()
-      .then(setStatus)
-      .catch(() => setStatus(null))
-  }, [trpc])
-
-  const resetDisable = (): void => {
-    setDisableOpen(false)
-    setDisableCurrent('')
-    setDisableAck(false)
-  }
-
-  const reset = (): void => {
-    setCurrent('')
-    setNext('')
-    setConfirm('')
-    resetDisable()
-  }
-
-  const saveEmail = async (): Promise<void> => {
-    setBusy(true)
+  // If refreshing the cookie fails, retry only that step: the password already changed.
+  const [passwordSaved, setPasswordSaved] = useState(false)
+  const saving = useRef(false)
+  const save = async () => {
+    if (saving.current) return
     setError(null)
-    setDone(null)
-    try {
-      const profile = await trpc.auth.setEmail.mutate({ email, current: emailCurrent || undefined })
-      setSavedEmail(profile.email)
-      setEmail(profile.email)
-      setEmailCurrent('')
-      setDone('Email saved. Use it the next time you sign in.')
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Couldn’t save your email.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const save = async (): Promise<void> => {
-    setError(null)
-    setDone(null)
-    if (!next) {
-      setError('Enter a password.')
-      return
-    }
-    if (next !== confirm) {
-      setError('Passwords don’t match.')
-      return
-    }
+    if (!next) { setError('Enter a password.'); return }
+    if (next !== confirm) { setError('Passwords don’t match.'); return }
+    saving.current = true
     setBusy(true)
     try {
-      await trpc.auth.setPassword.mutate({ current: current || undefined, next })
-      // Obtain/refresh this device's cookie so the guard we just enabled doesn't lock us out.
-      await workspaceFetch(`${httpOrigin}/auth/login`, {
+      if (!passwordSaved) {
+        await trpc.auth.setPassword.mutate({ current: current || undefined, next })
+        setPasswordSaved(true)
+      }
+      const response = await workspaceFetch(`${serverConfig(window.location).httpOrigin}/auth/login`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ email: savedEmail ?? 'user:sole', password: next }),
+        body: JSON.stringify({ email: email ?? 'user:sole', password: next }),
       })
-      setStatus((s) => (s ? { ...s, hasOwnCredential: true, loginRequired: true } : s))
-      reset()
-      setDone('Password saved.')
-    } catch {
-      setError(
-        status?.hasOwnCredential
-          ? 'Couldn’t save — is the current password correct?'
-          : 'Couldn’t save the password.',
-      )
-    } finally {
-      setBusy(false)
-    }
+      if (!response.ok) throw new Error('Your password changed, but this device couldn’t refresh its sign-in. Try again to finish signing in.')
+      setCurrent(''); setNext(''); setConfirm('')
+      onSaved()
+    } catch (error) { setError(message(error, 'Couldn’t change your password.')) }
+    finally { saving.current = false; setBusy(false) }
   }
-
-  const disable = async (): Promise<void> => {
-    setError(null)
-    setDone(null)
-    if (!disableCurrent) {
-      setError('Enter the current password.')
-      return
-    }
-    if (!disableAck) {
-      setError('Confirm running without a login password.')
-      return
-    }
-    setBusy(true)
-    try {
-      await trpc.auth.setLoginRequired.mutate({
-        required: false,
-        current: disableCurrent,
-        acknowledgeNoPassword: true,
-      })
-      setStatus((s) => (s ? { ...s, loginRequired: false } : s))
-      reset()
-      setDone('Login disabled — anyone who can reach this server can use it.')
-    } catch {
-      setError('Couldn’t disable — is the current password correct?')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  if (status === null) {
-    return (
-      <Section title="Login password">
-        <p className="settings-prose">Loading…</p>
-      </Section>
-    )
-  }
-
-  const { hasOwnCredential, loginRequired, canManageInstance } = status
-  const loginForced = status.loginPolicySource === 'file'
-
   return (
-    <>
-      <Section
-        title="Profile"
-        hint="Your email is your login identifier, separate from your display name. It is stored on this server and is not verified."
-      >
-        <form
-          className="flex max-w-sm flex-col gap-2"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void saveEmail()
-          }}
-        >
-          <Label htmlFor="profile-email">Email</Label>
-          <Input
-            id="profile-email"
-            type="email"
-            autoComplete="username"
-            required
-            maxLength={254}
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            disabled={!profileLoaded || busy}
-          />
-          {!savedEmail && (
-            <p className="settings-prose">
-              Until you set an email, you sign in with just your password. After that, choose “Sign
-              in with email” on the login screen.
-            </p>
-          )}
-          {hasOwnCredential && (
-            <>
-              <Label htmlFor="profile-email-password">Password to change email</Label>
-              <Input
-                id="profile-email-password"
-                type="password"
-                autoComplete="current-password"
-                required
-                value={emailCurrent}
-                onChange={(event) => setEmailCurrent(event.target.value)}
-              />
-            </>
-          )}
-          <Button
-            type="submit"
-            disabled={busy || !profileLoaded || !email.trim() || email === savedEmail}
-          >
-            Save email
-          </Button>
-        </form>
-      </Section>
-      <Section
-        title="Your password"
-        hint={
-          hasOwnCredential
-            ? 'Your password signs you in to this Podium from a browser or the desktop app.'
-            : 'You don’t have a password yet. Set one to sign in from a browser or the desktop app.'
-        }
-      >
-        <div className="flex max-w-sm flex-col gap-2">
-          {hasOwnCredential && (
-            <Input
-              type="password"
-              autoComplete="current-password"
-              placeholder="Current password"
-              value={current}
-              onChange={(e) => setCurrent(e.target.value)}
-            />
-          )}
-          <Input
-            type="password"
-            autoComplete="new-password"
-            placeholder={hasOwnCredential ? 'New password' : 'Password'}
-            value={next}
-            onChange={(e) => setNext(e.target.value)}
-          />
-          <Input
-            type="password"
-            autoComplete="new-password"
-            placeholder="Confirm password"
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-          />
-          {error && (
-            <p role="alert" className="settings-prose text-destructive">
-              {error}
-            </p>
-          )}
-          {done && <p className="settings-prose">{done}</p>}
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              disabled={!next || !profileLoaded}
-              pending={busy}
-              pendingLabel="Saving password…"
-              onClick={() => void save()}
-            >
-              {hasOwnCredential ? 'Change password' : 'Set password'}
-            </Button>
-            {canManageInstance && loginRequired && (
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy || loginForced}
-                onClick={() => {
-                  setError(null)
-                  setDone(null)
-                  setDisableOpen(true)
-                }}
-              >
-                Disable login...
-              </Button>
-            )}
-          </div>
-          {canManageInstance && loginForced && (
-            <p className="settings-prose">
-              config.json overrides the instance login policy. Remove the file override to change it
-              here.
-            </p>
-          )}
-          {canManageInstance && loginRequired && disableOpen && (
-            <div className="mt-1 flex flex-col gap-2 rounded-md border border-border bg-muted/25 p-3">
-              <div>
-                <h4 className="settings-h2">Disable login for this instance</h4>
-                <p className="settings-prose">
-                  This removes the login requirement for everyone. Nobody’s password is deleted —
-                  turning login back on restores every account’s existing password.
-                </p>
-              </div>
-              <Input
-                type="password"
-                autoComplete="current-password"
-                placeholder="Current password to disable login"
-                value={disableCurrent}
-                onChange={(e) => setDisableCurrent(e.target.value)}
-              />
-              <Label className="cursor-pointer items-start rounded-md border border-border bg-background px-3 py-2 text-[13px] text-muted-foreground">
-                <Checkbox
-                  checked={disableAck}
-                  onCheckedChange={(checked) => setDisableAck(checked === true)}
-                />
-                <span>
-                  I understand that anyone who can reach this server can use it — as any account —
-                  if login is disabled.
-                </span>
-              </Label>
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="destructive"
-                  disabled={busy || loginForced || !disableCurrent || !disableAck}
-                  onClick={() => void disable()}
-                >
-                  {busy ? 'Disabling...' : 'Disable login'}
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  disabled={busy}
-                  onClick={() => {
-                    resetDisable()
-                    setError(null)
-                  }}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
-      </Section>
-      {canManageInstance && !loginRequired && (
-        <Section
-          title="Instance login"
-          hint="Login is turned off for this instance — anyone who can reach this server can use it. Your personal password does not change this instance policy."
-        >
-          <p className="settings-prose">
-            Existing passwords were kept, so turning login back on signs everyone in with the
-            password they already had.
-          </p>
-        </Section>
-      )}
-    </>
+    <form onSubmit={(event) => { event.preventDefault(); void save() }}>
+      {hasOwnCredential && <Row label="Current password"><Input aria-label="Current password" type="password" autoComplete="current-password" required value={current} disabled={busy || passwordSaved} onChange={(event) => setCurrent(event.target.value)} /></Row>}
+      <Row label="New password"><Input aria-label="New password" type="password" autoComplete="new-password" required value={next} disabled={busy || passwordSaved} onChange={(event) => setNext(event.target.value)} /></Row>
+      <Row label="Confirm new password"><Input aria-label="Confirm new password" type="password" autoComplete="new-password" required value={confirm} disabled={busy || passwordSaved} onChange={(event) => setConfirm(event.target.value)} /></Row>
+      {error && <p role="alert" className="settings-prose mt-3 text-destructive">{error}</p>}
+      <div className="mt-4 flex justify-end gap-2">
+        <Button type="button" variant="ghost" disabled={busy} onClick={onCancel}>Cancel</Button>
+        <Button type="submit" pending={busy} pendingLabel="Saving password…">{passwordSaved ? 'Try again' : hasOwnCredential ? 'Change password' : 'Set password'}</Button>
+      </div>
+    </form>
   )
 }

@@ -34,10 +34,10 @@ import { LabsSection } from './sections/labs'
 import { MembersSection } from './sections/members'
 import { NetworkSection } from './sections/network'
 import { NotificationsSection, type TelegramSetupState } from './sections/notifications'
-import { PodiumAccountSection } from './sections/podium-account'
+import { InstanceLoginSection } from './sections/instance-login'
 import { PrivacySection } from './sections/privacy'
 import { type SecretSurfaceState, SecretsSection } from './sections/secrets'
-import { LoginPasswordSection } from './sections/security'
+import { AccountSection } from './sections/account'
 import { SessionsSection } from './sections/sessions'
 import {
   type AccountView,
@@ -82,11 +82,6 @@ const AccessSection = lazy(() =>
 const AuditSection = lazy(() =>
   throughRestarts(() => import('./sections/audit')).then((module) => ({
     default: module.AuditSection,
-  })),
-)
-const ConnectedDevicesSection = lazy(() =>
-  throughRestarts(() => import('./sections/connected-devices')).then((module) => ({
-    default: module.ConnectedDevicesSection,
   })),
 )
 /**
@@ -174,17 +169,7 @@ const SECTION_VIEWS: Record<SettingsPage, (ctx: SectionContext) => JSX.Element> 
     </SettingsPageSection>
   ),
   account: ({ trpc, openNetworkSettings }) => (
-    <>
-      <SettingsPageSection id="podium-account">
-        <PodiumAccountSection />
-      </SettingsPageSection>
-      <SettingsPageSection id="security">
-        <LoginPasswordSection trpc={trpc} />
-      </SettingsPageSection>
-      <SettingsPageSection id="devices">
-        <ConnectedDevicesSection trpc={trpc} onOpenNetwork={openNetworkSettings} />
-      </SettingsPageSection>
-    </>
+    <AccountSection trpc={trpc} onOpenAccess={openNetworkSettings} />
   ),
   machines: ({ settings, patch }) => (
     <>
@@ -211,10 +196,13 @@ const SECTION_VIEWS: Record<SettingsPage, (ctx: SectionContext) => JSX.Element> 
       <MembersSection />
     </SettingsPageSection>
   ),
-  access: () => (
+  access: ({ trpc }) => (
     <>
       <SettingsPageSection id="network">
         <NetworkSection />
+      </SettingsPageSection>
+      <SettingsPageSection id="instance-login">
+        <InstanceLoginSection trpc={trpc} />
       </SettingsPageSection>
       <SettingsPageSection id="access">
         <AccessSection />

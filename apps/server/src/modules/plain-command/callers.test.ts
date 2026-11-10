@@ -131,6 +131,7 @@ const CALLERS: readonly {
   { command: 'logs.crash', who: 'member', caller: 'web+mobile+desktop crash report', expect: 'ok' },
   { command: 'perf.report', who: 'member', caller: 'web switch traces', expect: 'ok' },
   { command: 'auth.setPassword', who: 'member', caller: 'Settings → Security', expect: 'ok' },
+  { command: 'auth.setDisplayName', who: 'member', caller: 'Settings → Account', expect: 'ok' },
   { command: 'auth.setEmail', who: 'member', caller: 'Settings → Security', expect: 'ok' },
   // Hidden from members in the UI (`canManageInstance`); the service did not refuse.
   {
