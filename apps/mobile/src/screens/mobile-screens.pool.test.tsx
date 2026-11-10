@@ -1,5 +1,4 @@
 import { omitGone } from '@podium/client-graph/lookup'
-import { coldMissionRowFixture } from '@podium/client-graph/mission-row-loading.test.fixture'
 import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 /** Count real pool publications across bootstrap, updates, gestures, idle and
  * provider rebuilds. Settled screen projections must reuse their cached paint
@@ -124,6 +123,7 @@ vi.mock('expo-router', async () => {
     }),
     useLocalSearchParams: () => ({ missionId: state.missionId }),
     usePathname: () => '/work',
+    useNavigation: () => ({ setOptions: () => {} }),
     Stack: { SearchBar: () => null },
     useFocusEffect: (effect: () => void) => useEffect(effect, [effect]),
   }
@@ -143,8 +143,6 @@ vi.mock('../client/mobile-pool', async (importOriginal) => {
     },
   }
 })
-
-
 
 // Native sheet/navigator containers are boundaries, not worklist readers.
 vi.mock('../components/PressableScale', () => ({
@@ -293,7 +291,6 @@ vi.mock('expo-router/build/react-navigation/bottom-tabs', async () => {
 vi.stubEnv('EXPO_OS', 'web')
 const { createMobilePool, useMobilePoolProjection } = await import('../client/mobile-pool')
 const { SessionConversation } = await import('../components/SessionConversation')
-const { SpineRow } = await import('../components/MissionDeck')
 const { IssuesScreen } = await import('./IssuesScreen')
 const { MissionScreen } = await import('./MissionScreen')
 const { MissionDetailsScreen } = await import('./MissionDetailsScreen')
@@ -501,7 +498,7 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
       () => {
         expect(view.container.querySelectorAll('[data-resolved="false"]')).toHaveLength(0)
         expect(screen.getByLabelText(/In Progress, \d+ tasks/)).toBeDefined()
-        expect(screen.getByTestId('details').textContent).toContain('Full')
+        expect(screen.getByTestId('details').textContent).toContain('All')
       },
       { timeout: 30_000 },
     )
@@ -554,7 +551,12 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
         ).toMatchSnapshot(`${phase} ${id}`)
       }
     }
-    phases.push({ phase, publications: counts.count, derivations: work.derivations, rows: work.rows! })
+    phases.push({
+      phase,
+      publications: counts.count,
+      derivations: work.derivations,
+      rows: work.rows!,
+    })
   }
   const { view, feed } = await mount('u-bench')
   expect(screen.getByTestId('details').textContent).toContain(`by ${authorRef}`)
@@ -573,14 +575,14 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
   // its first window; this complex mission need not be in that initial window.
   await act(async () => {
     fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: `#${root.seq}` } })
-    fireEvent.click(screen.getByLabelText('Working'))
+    fireEvent.click(screen.getByLabelText(/^Active, \d+$/))
   })
   await checkpoint('deck mode')
   await act(async () => {
-    fireEvent.click(screen.getByLabelText('Full'))
+    fireEvent.click(screen.getByLabelText(/^All, \d+$/))
   })
   await act(async () => {
-    fireEvent.click(screen.getByLabelText(/Fold every branch|Expand every branch/))
+    fireEvent.click(screen.getByLabelText(/^Show done, \d+$/))
   })
   await checkpoint('deck fold')
   const sessions = corpus.sessions.map((session, index) =>
@@ -602,7 +604,9 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
   await checkpoint('issue feed')
   let action!: Promise<void>
   await act(async () => {
-    action = referenceState(state.runtime!).updateIssue(root.id, { title: 'Phone optimistic title' })
+    action = referenceState(state.runtime!).updateIssue(root.id, {
+      title: 'Phone optimistic title',
+    })
     await Promise.resolve()
   })
   await waitFor(() =>
@@ -620,14 +624,19 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
     await action
   })
   await checkpoint('server echo')
-  const beforeClock = referenceState(state.runtime!).coarseNow
-  expect(ticks.length).toBeGreaterThan(0)
-  now.mockReturnValue(corpus.fixedNow + 60_000)
-  await act(async () => {
-    for (const tick of ticks) tick()
-  })
-  expect(referenceState(state.runtime!).coarseNow).toBeGreaterThan(beforeClock)
-  await checkpoint('idle clock')
+  // The minute clock runs only while something on screen reads an age. The
+  // flight deck sheet (POD-2381) draws no session ages, so these three
+  // screens may hold no minute timer; when one is held, a tick must advance
+  // the shared clock and still cost no derivations.
+  if (ticks.length > 0) {
+    const beforeClock = referenceState(state.runtime!).coarseNow
+    now.mockReturnValue(corpus.fixedNow + 60_000)
+    await act(async () => {
+      for (const tick of ticks) tick()
+    })
+    expect(referenceState(state.runtime!).coarseNow).toBeGreaterThan(beforeClock)
+    await checkpoint('idle clock')
+  }
   await act(async () => {
     fireEvent.click(screen.getByLabelText('Close task search'))
   })
@@ -647,7 +656,9 @@ function ColdConversation({ id }: { id: string }) {
     (pool: MobxPool) => {
       state.pool = pool
       const session = omitGone(pool.row('session', id, 'summary'))
-      return session && typeof session !== 'symbol' ? (session as unknown as SessionView) : undefined
+      return session && typeof session !== 'symbol'
+        ? (session as unknown as SessionView)
+        : undefined
     },
     [id],
   )
@@ -737,24 +748,3 @@ it('a cold conversation renders its declared joined machine name before and afte
   })
   expect(state.errors).toEqual([])
 }, 30_000)
-
-
-it.each([false, true])('a cold phone SpineRow shows loading then its task (folded=%s)', async (folded) => {
-  const f = coldMissionRowFixture()
-  try {
-    expect(f.pool.tables.issue.has(f.row.id)).toBe(false)
-    const ui = render(<SpineRow row={f.row} carries={[]} rails={[]}
-      stops childFollows={false} mode="full" folded={folded}
-      currentSessionId={undefined} onToggleFold={() => {}} onOpenTask={() => {}}
-      onOpenSession={() => {}} />)
-    expect(ui.getByLabelText('Loading task')).toBeDefined()
-    expect(ui.container.textContent).not.toContain('Loaded cold task')
-    await act(async () => { f.pool.hydrate() })
-    await waitFor(() => expect(ui.container.textContent).toContain('Loaded cold task'))
-    expect(ui.queryByLabelText('Loading task')).toBeNull()
-    if (!folded) expect(ui.container.textContent).toContain('Loaded cold agent 0')
-  } finally {
-    cleanup()
-    f.close()
-  }
-})

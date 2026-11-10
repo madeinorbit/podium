@@ -2,10 +2,9 @@ import { MissionScreen } from '@podium/client-graph/mission-screen'
 import { attachMissionTestPreferences } from '@podium/client-graph/mission-screen.test.fixture'
 import { MobxPool } from '@podium/client-graph/pool'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { autorun } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
 import { worklistRowStatus } from '../lib/work-sections'
-import { MissionBar } from './MissionBar'
+import { deckVitals, deckVitalsLabel, MissionBar } from './MissionBar'
 import { RowProgressMeter } from './WorkRowParts'
 
 vi.mock('expo-haptics', () => ({ ImpactFeedbackStyle: { Light: 'light' } }))
@@ -65,15 +64,13 @@ function open(issues: Record<string, unknown>[], sessions: Record<string, unknow
   return opening
 }
 
-function mount(opening: MissionScreen, attention = 0) {
+function mount(opening: MissionScreen) {
   const onOpen = vi.fn()
-  const view = render(
-    <MissionBar full={opening.full} live={0} working={0} attention={attention} onOpen={onOpen} />,
-  )
+  const view = render(<MissionBar full={opening.full} onOpen={onOpen} />)
   return { ...view, onOpen }
 }
 
-it('shares accepted leaf counts with the deck and updates working tasks to waiting', () => {
+it('reads one vitals line from the Full deck and follows working to waiting', () => {
   const opening = open(
     [
       issue('root', 'in_progress'),
@@ -86,59 +83,41 @@ it('shares accepted leaf counts with the deck and updates working tasks to waiti
     ],
     [session('worker', 'busy', 'working'), session('coordinator', 'root', 'working')],
   )
-  const { onOpen } = mount(opening, 1)
-  const button = screen.getByRole('button', { name: /^Mission details/ })
-  expect(button.textContent).toContain('1 done1 working1 waiting1 to do1 asking')
+  const { onOpen } = mount(opening)
+  const button = screen.getByRole('button', { name: /^Open flight deck/ })
   expect(button.getAttribute('aria-label')).toBe(
-    'Mission details, 1 of 4 tasks done, 1 working, 1 waiting, 1 to do, 1 asking',
+    `Open flight deck, ${deckVitalsLabel(deckVitals(opening.full)!)}`,
   )
-  expect(screen.getByTestId('mission-bar-working').style.flexGrow).toBe('1')
-  expect(screen.getByTestId('mission-bar-waiting').style.flexGrow).toBe('1')
-  expect(screen.getByTestId('working-mark')).toBeTruthy()
+  expect(button.textContent).toContain('1/4')
+  expect(button.textContent).toContain('1 working')
+  expect(button.textContent).toContain(`${opening.full.counts['up-next']} up next`)
+  expect(screen.getByTestId('deck-gauge-done').style.width).toBe('25%')
+  expect(screen.getByTestId('deck-gauge-working').style.width).toBe('25%')
   const row = opening.pool.worklistRow('root')
   if (!row) throw new Error('The mission root must have a work row')
   expect(worklistRowStatus(row)).toBe('1/4 subtasks done · 1 working')
-  let progress: unknown
-  const stop = autorun(() => {
-    progress = opening.progress
-  })
-  expect(progress).toEqual({ total: 4, done: 1, working: 1, waiting: 1, todo: 1 })
-  stop()
 
+  // A filter never moves the bar: it counts the whole mission.
   act(() => opening.full.setFilter('needs-you'))
-  expect(button.textContent).toContain('1 done1 working1 waiting1 to do')
+  expect(button.textContent).toContain('1 working')
   act(() =>
     opening.pool.apply({
       type: 'update',
-      rows: [
-        {
-          kind: 'session',
-          id: 'worker',
-          value: session('worker', 'busy', 'idle'),
-        },
-      ],
+      rows: [{ kind: 'session', id: 'worker', value: session('worker', 'busy', 'idle') }],
     }),
   )
-  expect(button.textContent).toContain('1 done2 waiting1 to do')
-  expect(button.getAttribute('aria-label')).toContain('0 working, 2 waiting, 1 to do')
-  expect(screen.queryByTestId('working-mark')).toBeNull()
-  expect(screen.queryByTestId('mission-bar-working')).toBeNull()
-  expect(worklistRowStatus(row)).toBe('1/4 subtasks done · 2 waiting')
+  expect(button.textContent).not.toContain('working')
+  expect(screen.queryByTestId('deck-gauge-working')).toBeNull()
   fireEvent.click(button)
   expect(onOpen).toHaveBeenCalledOnce()
 })
 
-it('shows shipping as working without animating an absent agent', () => {
-  mount(open([issue('root', 'shipping')]))
-  expect(screen.getByRole('button').textContent).toBe('1 working')
-  expect(screen.queryByTestId('working-mark')).toBeNull()
-})
-
-it('keeps zero buckets in the accessible reading for a waiting mission', () => {
-  mount(open([issue('root', 'review')]))
-  expect(screen.getByRole('button').textContent).toBe('1 waiting')
-  expect(screen.getByRole('button').getAttribute('aria-label')).toBe(
-    'Mission details, 0 of 1 tasks done, 0 working, 1 waiting, 0 to do',
+it('labels zero parts away', () => {
+  expect(deckVitalsLabel({ done: 8, total: 14, needsYou: 1, working: 3, upNext: 2 })).toBe(
+    '8/14 · 1 needs you · 3 working · 2 up next',
+  )
+  expect(deckVitalsLabel({ done: 0, total: 2, needsYou: 0, working: 0, upNext: 2 })).toBe(
+    '0/2 · 2 up next',
   )
 })
 
@@ -147,15 +126,14 @@ it('keeps cold task counts pending', () => {
   vi.spyOn(opening.full, 'ready', 'get').mockReturnValue(false)
   mount(opening)
   expect(screen.getByText('Loading tasks…')).toBeTruthy()
-  expect(screen.queryByText('0 tasks')).toBeNull()
 })
 
-it('shows no accepted tasks without a filled meter', () => {
+it('shows no accepted tasks without a filled gauge', () => {
   mount(
     open([issue('root', 'in_progress'), issue('cancelled', 'done', { closedReason: 'cancelled' })]),
   )
-  expect(screen.getByText('0 tasks')).toBeTruthy()
-  expect(screen.queryByTestId('mission-bar-done')).toBeNull()
+  expect(screen.getByRole('button').textContent).toContain('0/')
+  expect(screen.queryByTestId('deck-gauge-done')).toBeNull()
 })
 
 it('uses the same bucket reading for the mobile work-row meter', () => {

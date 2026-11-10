@@ -1,10 +1,10 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { asIssueId, asRepoId, asSessionId } from '@podium/model'
+import { asIssueId, asSessionId } from '@podium/model'
 import { act, cleanup, fireEvent, screen } from '@testing-library/react'
 import type { ComponentProps } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { useMissionOpening, useSessions } from '../client/hooks'
+import { useMissionOpening } from '../client/hooks'
 import { renderWithMobileStore } from '../client/test-support'
 
 afterEach(cleanup)
@@ -19,16 +19,7 @@ vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 20, right: 0, bottom: 34, left: 0 }),
 }))
 vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => true }))
-// The spine draws its rails with react-native-svg, whose RN source never parses
-// in this lane; the geometry is not what this file is about.
-vi.mock('react-native-svg', () => ({
-  default: ({ children }: { children?: unknown }) => children ?? null,
-  Line: () => null,
-  Circle: () => null,
-  Path: () => null,
-  Rect: () => null,
-  G: () => null,
-}))
+vi.mock('./WorkingMark', () => ({ WorkingMark: () => null }))
 
 const { MissionDeck } = await import('./MissionDeck')
 const { observer } = await import('mobx-react-lite')
@@ -74,214 +65,142 @@ const asking = issue({
   parentId: asIssueId('root'),
   seq: 3,
   stage: 'review',
+  needsHuman: true,
   title: 'Asking subtask',
 })
 
-async function mount(onContentHeight: (height: number) => void = () => {}) {
-  return renderWithMobileStore(
-    <Opened
-      rootId={root.id}
-      currentSessionId={undefined}
-      onOpenSession={() => {}}
-      onOpenTask={() => {}}
-      onLaunchAgent={() => {}}
-      onTuckRoot={() => {}}
-      onFileRoot={() => {}}
-      onOpenDeparture={() => {}}
-      onContentHeight={onContentHeight}
-    />,
-    { issues: [root, quiet, asking] },
-  )
-}
-
-describe('MissionDeck view bar', () => {
-  it('shows every task in Full', async () => {
-    await mount()
-    expect(screen.getByText('Quiet subtask')).toBeTruthy()
-    expect(screen.getByText('Asking subtask')).toBeTruthy()
-  })
-
-  it('reports its natural height, and a narrower view reports a shorter one', async () => {
-    const heights: number[] = []
-    await mount((height) => heights.push(height))
-    const full = heights.at(-1)
-    expect(full).toBeGreaterThan(0)
-    // `Needs you` drops the quiet subtask, so the deck's own arithmetic must
-    // come back smaller — this is the wire the panel's dynamic height rides on.
-    await act(async () => fireEvent.click(screen.getByText('Needs you')))
-    expect(heights.at(-1)).toBeLessThan(full as number)
-  })
-
-  it('drops the tasks that are not asking when Needs you is chosen', async () => {
-    await mount()
-    await act(async () => fireEvent.click(screen.getByText('Needs you')))
-    expect(screen.getByText('Asking subtask')).toBeTruthy()
-    expect(screen.queryByText('Quiet subtask')).toBeNull()
-  })
-
-  /**
-   * THE ONE-TASK MISSION — POD-383, and the case the bar actually failed on.
-   *
-   * Most missions here are a single issue with an agent on it and no sub-tasks,
-   * so the spine is empty and the whole deck IS the header's roster. That roster
-   * was read with `matched` forced true, which meant no view could ever remove
-   * it: `Full`, `Working` and `Needs you` drew the identical screen, and the bar
-   * looked broken because on that mission it was.
-   */
-  describe('a mission with no sub-tasks and an idle agent', () => {
-    const solo = issue({ id: asIssueId('solo'), seq: 9, stage: 'planning', title: 'Run now' })
-    const idle = {
-      sessionId: asSessionId('s-idle'),
-      issueId: asIssueId('solo'),
-      agentKind: 'claude-code',
-      title: 'Agent menu entry semantics',
-      name: 'Agent menu entry semantics',
-      cwd: '/src/podium',
-      status: 'live',
-      controllerId: null,
-      geometry: { cols: 80, rows: 24 },
-      epoch: 0,
-      clientCount: 1,
-      createdAt: '2026-08-04T20:15:44.230Z',
-      lastActiveAt: '2026-08-04T20:15:44.230Z',
-      origin: { kind: 'spawn' },
-      archived: false,
-      readAt: null,
-      unread: false,
-      agentState: { phase: 'idle', since: '2026-08-04T20:15:44.230Z' },
-    } as unknown as SessionView
-
-    /** The same agent, mid-turn — the one thing `Working` is about (POD-1452). */
-    const busy = {
-      ...idle,
-      agentState: { phase: 'working', since: '2026-08-04T20:15:44.230Z' },
-    } as unknown as SessionView
-
-    const mountSolo = async (session: SessionView = idle) =>
-      renderWithMobileStore(
-        <Opened
-          rootId={solo.id}
-          currentSessionId={undefined}
-          onOpenSession={() => {}}
-          onOpenTask={() => {}}
-          onLaunchAgent={() => {}}
-          onTuckRoot={() => {}}
-          onFileRoot={() => {}}
-          onOpenDeparture={() => {}}
-          onContentHeight={() => {}}
-        />,
-        { issues: [solo], sessions: [session] },
-      )
-
-    it('shows the agent in Full', async () => {
-      await mountSolo()
-      expect(screen.getByText('Agent menu entry semantics')).toBeTruthy()
-    })
-
-    it('drops the agent in Needs you and says which view emptied the deck', async () => {
-      await mountSolo()
-      await act(async () => fireEvent.click(screen.getByText('Needs you')))
-      expect(screen.queryByText('Agent menu entry semantics')).toBeNull()
-      expect(screen.getByText('No agent in this mission is asking for you.')).toBeTruthy()
-    })
-
-    /**
-     * POD-1452. `Active` — as `Working` was called — kept this agent because the
-     * TASK was open, and it asked nothing about the agent itself, so a
-     * standing-by session and a finished one wearing its ✓ both read as live
-     * work. The view filters agents now: this one is idle, so it goes, and the
-     * line says which view removed it.
-     */
-    it('drops a standing-by agent in Working and says which view emptied the deck', async () => {
-      await mountSolo()
-      await act(async () => fireEvent.click(screen.getByText('Working')))
-      expect(screen.queryByText('Agent menu entry semantics')).toBeNull()
-      expect(screen.getByText('No agent in this mission is working right now.')).toBeTruthy()
-    })
-
-    it('keeps the same agent in Working once it is mid-turn', async () => {
-      await mountSolo(busy)
-      await act(async () => fireEvent.click(screen.getByText('Working')))
-      expect(screen.getByText('Agent menu entry semantics')).toBeTruthy()
-    })
-  })
+const handlers = () => ({
+  onOpenSession: vi.fn(),
+  onOpenTask: vi.fn(),
+  onOpenTaskMenu: vi.fn(),
+  onScreenProposals: vi.fn(),
 })
 
-describe('MissionDeck session homes', () => {
-  const authorId = asSessionId('deck-author')
-  const proposal = issue({
-    id: asIssueId('proposal'),
-    parentId: root.id,
-    stage: 'proposed',
-    title: 'Agent proposal',
-    startedBySession: authorId,
-  })
-  const raw = {
-    sessionId: authorId,
-    issueId: root.id,
+const agent = (id: string, issueId: string, title: string, phase = 'idle') =>
+  ({
+    sessionId: asSessionId(id),
+    issueId: asIssueId(issueId),
     agentKind: 'claude-code',
-    title: 'Author agent',
-    cwd: '/repo',
+    title,
+    name: title,
+    cwd: '/src/podium',
     status: 'live',
+    createdAt: '2026-08-04T20:15:44.230Z',
+    lastActiveAt: '2026-08-04T20:15:44.230Z',
+    origin: { kind: 'spawn' },
     archived: false,
-    lastActiveAt: '2026-10-01T12:00:00.000Z',
-    refRepoId: 'repo-birth',
-    refSeq: 42,
-    refLetter: 'B',
-    displayRef: 'STALE-42-B',
-  } as SessionView
+    readAt: null,
+    unread: false,
+    agentState: { phase, since: '2026-08-04T20:15:44.230Z' },
+  }) as unknown as SessionView
 
-  function LiveDeck() {
-    const sessions = useSessions()
-    return (
-      <Opened
-        rootId={root.id}
-        currentSessionId={undefined}
-        onOpenSession={() => {}}
-        onOpenTask={() => {}}
-        onLaunchAgent={() => {}}
-        onTuckRoot={() => {}}
-        onFileRoot={() => {}}
-        onOpenDeparture={() => {}}
-        onContentHeight={() => {}}
-      />
-    )
-  }
+async function mount(
+  issues: IssueViewModel[] = [root, quiet, asking],
+  sessions: SessionView[] = [],
+  currentSessionId?: string,
+) {
+  const props = handlers()
+  const view = await renderWithMobileStore(
+    <Opened rootId={root.id} currentSessionId={currentSessionId} {...props} />,
+    { issues, sessions },
+  )
+  return { ...view, props }
+}
 
-  it.each([false, true])('joins band and proposal-author refs, stripped=%s', async (stripped) => {
-    const row = { ...raw }
-    if (stripped) Reflect.deleteProperty(row, 'displayRef')
-    const { replica } = await renderWithMobileStore(<LiveDeck />, {
-      sessions: [row],
-      issues: [root, proposal],
-      repoProjections: [{ id: asRepoId('repo-birth'), prefix: 'POD' }],
-    })
-    const stored = replica.rows('sessions')[0]
-    // The session band and proposal author are separate mobile readers.
-    expect(screen.getByText('POD-42-B')).toBeTruthy()
-    expect(screen.getByText('by POD-42-B')).toBeTruthy()
-    expect(screen.queryByText(/STALE-42-B/)).toBeNull()
-    await act(async () => {
-      replica.applyChanges('repos', [{ id: asRepoId('repo-birth'), prefix: 'NEW' }], [])
-    })
-    expect(screen.getByText('NEW-42-B')).toBeTruthy()
-    expect(screen.getByText('by NEW-42-B')).toBeTruthy()
-    expect(replica.rows('sessions')[0]).toBe(stored)
+describe('MissionDeck sheet', () => {
+  it('draws the mission title and every task with its state word', async () => {
+    await mount()
+    expect(screen.getByRole('heading').textContent).toBe('The mission')
+    const tasks = screen.getAllByTestId('deck-task').map((row) => row.getAttribute('aria-label'))
+    expect(tasks.some((label) => label?.includes('Quiet subtask'))).toBe(true)
+    expect(tasks.some((label) => label?.includes('Asking subtask'))).toBe(true)
   })
 
-  it('uses the title before the birth repo arrives, then respects a cleared prefix', async () => {
-    // The old STALE-42-B assertion was already red on b4d0134f17. The accepted
-    // pool uses joined birth facts and does not read the retired raw ref cell.
-    const { replica } = await renderWithMobileStore(<LiveDeck />, {
-      sessions: [raw],
-      issues: [root, proposal],
+  it('narrows to Needs you, and All brings everything back', async () => {
+    await mount()
+    await act(async () => fireEvent.click(screen.getByTestId('deck-filter-needs-you')))
+    expect(screen.getByText('Asking subtask')).toBeTruthy()
+    expect(screen.queryByText('Quiet subtask')).toBeNull()
+    await act(async () => fireEvent.click(screen.getByTestId('deck-filter-all')))
+    expect(screen.getByText('Quiet subtask')).toBeTruthy()
+  })
+
+  it('counts each filter from the Full deck', async () => {
+    await mount()
+    expect(screen.getByTestId('deck-filter-all').getAttribute('aria-label')).toBe('All, 2')
+    expect(screen.getByTestId('deck-filter-needs-you').getAttribute('aria-label')).toBe(
+      'Needs you, 1',
+    )
+  })
+
+  it('opens a task on tap and its menu on long press', async () => {
+    const { props } = await mount()
+    const row = screen
+      .getAllByTestId('deck-task')
+      .find((el) => el.getAttribute('aria-label')?.includes('Quiet subtask'))
+    if (!row) throw new Error('quiet row')
+    fireEvent.click(row)
+    expect(props.onOpenTask).toHaveBeenCalledWith(expect.objectContaining({ id: 'quiet' }))
+  })
+
+  it('heads a phase with its done counter', async () => {
+    const phase = issue({
+      id: asIssueId('phase'),
+      parentId: root.id,
+      seq: 4,
+      title: 'Pricing',
+      type: 'phase',
+    } as Partial<IssueViewModel>)
+    const done = issue({
+      id: asIssueId('p-done'),
+      parentId: asIssueId('phase'),
+      seq: 5,
+      stage: 'done',
+      title: 'Market evidence',
     })
-    expect(screen.getByText('Author agent')).toBeTruthy()
-    expect(screen.queryByText(/STALE-42-B/)).toBeNull()
-    await act(async () => {
-      replica.applyChanges('repos', [{ id: asRepoId('repo-birth'), prefix: '' }], [])
+    const todo = issue({
+      id: asIssueId('p-todo'),
+      parentId: asIssueId('phase'),
+      seq: 6,
+      title: 'Packaging tiers',
     })
-    expect(screen.queryByText(/STALE-42-B/)).toBeNull()
-    expect(screen.getByText('Author agent')).toBeTruthy()
+    await mount([root, phase, done, todo])
+    const heading = screen.getByTestId('deck-phase')
+    expect(heading.textContent).toContain('Pricing')
+    expect(heading.textContent).toContain('1/2')
+  })
+
+  it('names the root lead Coordinator and marks the open seat', async () => {
+    const lead = agent('s-lead', 'root', 'Mission lead', 'working')
+    const withLead = { ...root, coordinatorSessionId: asSessionId('s-lead') } as IssueViewModel
+    const { props } = await mount([withLead, quiet], [lead], 's-lead')
+    const seat = screen.getByTestId('deck-seat')
+    expect(seat.getAttribute('aria-label')).toBe('Coordinator, Working, open')
+    fireEvent.click(seat)
+    expect(props.onOpenSession).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 's-lead' }),
+    )
+  })
+
+  it('lists proposals under a counted, foldable row with a Screen action', async () => {
+    const proposal = issue({
+      id: asIssueId('proposal'),
+      parentId: root.id,
+      seq: 7,
+      stage: 'proposed',
+      title: 'Agent proposal',
+    })
+    const { props } = await mount([root, quiet, proposal])
+    expect(screen.getByText('Agent proposal')).toBeTruthy()
+    await act(async () => fireEvent.click(screen.getByLabelText('Proposals, 1')))
+    expect(screen.queryByText('Agent proposal')).toBeNull()
+    fireEvent.click(screen.getByLabelText('Screen proposals'))
+    expect(props.onScreenProposals).toHaveBeenCalledOnce()
+  })
+
+  it('says so when a mission has nothing on it yet', async () => {
+    const solo = issue({ id: asIssueId('root'), seq: 9, title: 'Run now' })
+    await mount([solo])
+    expect(screen.getByText('No tasks or agents on this mission yet.')).toBeTruthy()
   })
 })

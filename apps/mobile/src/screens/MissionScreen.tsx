@@ -1,9 +1,7 @@
-import { issueAgentKind, issueAgentLabel, modelLabel } from '@podium/client-core/agent-models'
-import { useHarnessDescriptors } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
+import { sessionTitle } from '@podium/client-core/values'
 import type { FullDeck } from '@podium/client-graph/mission-full-deck'
-import type { SessionModel } from '@podium/client-graph/models'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asIssueId, type SessionId } from '@podium/model'
 import { isFinished } from '@podium/model/browser'
@@ -18,11 +16,10 @@ import { useMobilePool } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
 import { useIssueCloseGuard } from '../client/use-issue-close'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
-import { HarnessChip } from '../components/AgentMark'
 import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
 import { Icon } from '../components/Icon'
 import { IssueCloseSheet } from '../components/IssueCloseSheet'
-import { MoreVertical, SquareTerminal } from '../components/icons'
+import { MoreVertical } from '../components/icons'
 import { BootstrapCrossfade, DetailSkeleton } from '../components/LaunchPlaceholders'
 import { MissionBar } from '../components/MissionBar'
 import { HeaderButton, Screen } from '../components/Screen'
@@ -102,10 +99,6 @@ export const MissionScreen = observer(function MissionScreen() {
   const currentIssue = currentValue && currentValue !== LOADING ? currentValue : root
   const headerIssue = currentIssue ?? root
 
-  const attention = missionSessions.filter((s) => (s as SessionModel).attention).length
-  const live = missionSessions.filter((s) => (s as SessionModel).open).length
-  const working = missionSessions.filter((s) => (s as SessionModel).executing).length
-
   const openSession = useCallback((session: SessionView) => {
     setPinnedSessionId(session.sessionId)
     void Haptics.selectionAsync().catch(() => {})
@@ -169,13 +162,13 @@ export const MissionScreen = observer(function MissionScreen() {
     ]
   }, [current, headerIssue, root, router, store])
 
-  const currentKind = current ? issueAgentKind(current.agentKind) : null
-  const currentModel = current?.observedModel ?? current?.model
-  // Served descriptors for the session's machine (POD-4475): the harness
-  // name and model render from the report, bundled copy offline.
-  const { served } = useHarnessDescriptors<MobileTrpc>(current?.machineId)
-  const provenance = current
-    ? `${issueAgentLabel(current.agentKind, served)}${currentKind && currentModel ? ` · ${modelLabel(currentKind, currentModel, undefined, served)}` : ''}`
+  // The nav bar names the task and, beneath it, whose conversation this is:
+  // "Coordinator" for the mission's own lead, else the agent and its task.
+  const coordinatorId = ready && screen.full.ready ? screen.full.coordinatorSessionId : null
+  const seat = current
+    ? current.sessionId === coordinatorId
+      ? 'Coordinator'
+      : `${sessionTitle(current)}${currentIssue && currentIssue.id !== root?.id ? ` · ${issueDisplayRef(currentIssue)}` : ''}`
     : null
 
   return (
@@ -183,36 +176,11 @@ export const MissionScreen = observer(function MissionScreen() {
       title={headerIssue ? headerIssue.title : 'Mission'}
       onBack={() => (router.canGoBack() ? router.back() : router.replace('/work'))}
       bareBack
-      monoSubtitle
-      subtitle={
-        current
-          ? `${headerIssue ? issueDisplayRef(headerIssue) : ''}${headerIssue ? '   ' : ''}${provenance}`
-          : root
-            ? 'No agent on this mission'
-            : undefined
-      }
-      leading={
-        current ? (
-          <HarnessChip kind={current.agentKind} size={20} descriptors={served} />
-        ) : undefined
-      }
+      subtitle={seat ?? (root ? 'No agent on this mission' : undefined)}
       right={
-        <>
-          {current ? (
-            <HeaderButton
-              label="Open native CLI"
-              size={32}
-              onPress={() =>
-                router.push(`/session/${encodeURIComponent(current.sessionId)}/terminal`)
-              }
-            >
-              <Icon as={SquareTerminal} size={17} color={color.textDim} />
-            </HeaderButton>
-          ) : null}
-          <HeaderButton label="Mission actions" onPress={() => setMenuOpen(true)} size={32} bare>
-            <Icon as={MoreVertical} size={17} color={color.textDim} />
-          </HeaderButton>
-        </>
+        <HeaderButton label="Mission actions" onPress={() => setMenuOpen(true)} size={32} bare>
+          <Icon as={MoreVertical} size={17} color={color.textDim} />
+        </HeaderButton>
       }
     >
       <BootstrapCrossfade resolved={resolved} placeholder={<DetailSkeleton />}>
@@ -221,9 +189,6 @@ export const MissionScreen = observer(function MissionScreen() {
             current={current}
             currentIssue={currentIssue}
             full={screen.full}
-            live={live}
-            working={working}
-            attention={attention}
             findRequest={findRequest}
             onOpenDetails={() =>
               router.push(
@@ -273,30 +238,18 @@ function MissionBody({
   current,
   currentIssue,
   full,
-  live,
-  working,
-  attention,
   findRequest,
   onOpenDetails,
 }: {
   current: SessionView | undefined
   currentIssue: IssueViewModel | undefined
   full: FullDeck
-  live: number
-  working: number
-  attention: number
   findRequest: number
   onOpenDetails: () => void
 }) {
   return (
     <View style={styles.body}>
-      <MissionBar
-        full={full}
-        live={live}
-        working={working}
-        attention={attention}
-        onOpen={onOpenDetails}
-      />
+      <MissionBar full={full} onOpen={onOpenDetails} />
 
       <View style={styles.stage}>
         {current ? (
