@@ -61,23 +61,6 @@ export function taskRowFigure(
   return compactAge(age)
 }
 
-/**
- * The row's status mark, the board's three shapes: a filled dot when the task
- * waits on the operator (review, or an open question), a blue ring while it is
- * in progress, a quiet ring for resting work, and a tick once it is finished.
- */
-export type TaskRowMark = 'needs' | 'working' | 'resting' | 'done'
-
-export function taskRowMark(
-  issue: Pick<MobileTaskIssue, 'stage' | 'needsHuman'>,
-  finished: boolean,
-): TaskRowMark {
-  if (finished) return 'done'
-  if (issue.needsHuman || issue.stage === 'review') return 'needs'
-  if (issue.stage === 'in_progress') return 'working'
-  return 'resting'
-}
-
 /** "5 minutes ago" style stamps, cut to the row's width: "now", "6m", "3d". */
 export function compactAge(age: string | null | undefined): string {
   if (!age) return ''

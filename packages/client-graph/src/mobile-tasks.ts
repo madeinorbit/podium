@@ -1,6 +1,7 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import type { BoardFilter, IssuesOrdering } from '@podium/client-core/values'
-import { clearChip, filterChips, orderIssues } from '@podium/client-core/values'
+import type { SessionView } from '@podium/client-core/session-values'
+import type { BoardFilter, IssueNavigationModel, IssuesOrdering } from '@podium/client-core/values'
+import { clearChip, filterChips, issueNeedsHuman, orderIssues } from '@podium/client-core/values'
 import { companion, lazy } from '@podium/mobx-helpers'
 import { asIssueId, ISSUE_STATUS_LABELS, isFinished } from '@podium/model/browser'
 import { action, compareShallow, compareStructural, observable, observableRef } from 'mobx'
@@ -9,6 +10,7 @@ import { omitGone } from './lookup'
 import { MOBILE_TASK_STAGES, type MobileTasksOptions } from './mobile-screens-schema'
 import type { IssueModel, ModelOf } from './models'
 import type { MobxPool } from './pool'
+import { RowWindow } from './row-window'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 export type MobileTaskIssue = ModelOf['issue'] &
@@ -21,7 +23,9 @@ export interface MobileTaskIds {
   readonly rows: readonly BoardListRow[]
 }
 type Stage = MobileTaskIds['stage']
-export const MOBILE_TASK_PAGE_SIZE = 40
+
+export { ROW_WINDOW_SIZE as MOBILE_TASK_WINDOW_SIZE } from './row-window'
+export type TaskRowMark = 'needs' | 'working' | 'resting' | 'done'
 
 const byId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 const requireRow = <T>(row: Loaded<T>): T | undefined => {
@@ -76,6 +80,19 @@ class BoardTask {
       ids.push(next)
     }
     return ids
+  }
+
+  /** The board glyph follows the same attention rule as Work and the deck. */
+  @lazy get mark(): TaskRowMark {
+    if (this.finished) return 'done'
+    const sessions = [...this.board.pool.graph.many('issue', this.id, 'missionSessions')].flatMap(
+      (id) => {
+        const session = requireRow(omitGone(this.board.pool.model('session', id)))
+        return session ? [session as unknown as SessionView] : []
+      },
+    )
+    if (issueNeedsHuman(this.issue as unknown as IssueNavigationModel, sessions)) return 'needs'
+    return this.stage === 'in_progress' ? 'working' : 'resting'
   }
 
   // --- Audience and proposals (board options never reach these)
@@ -206,23 +223,10 @@ class BoardTask {
 
 /** One lane of the board: its own tasks and the rows drawn for them. */
 class BoardLane {
-  /** Native lists virtualize views, but JS observers also need a bounded prefix. */
-  @observable accessor visibleLimit = MOBILE_TASK_PAGE_SIZE
-
-  @action showMore() {
-    this.visibleLimit += MOBILE_TASK_PAGE_SIZE
-  }
-  @action resetWindow() {
-    this.visibleLimit = MOBILE_TASK_PAGE_SIZE
-  }
-
-  @lazy({ equals: compareShallow }) get visibleRows(): readonly BoardListRow[] {
-    return this.rows.slice(0, this.visibleLimit)
-  }
-
-  @lazy get hasMore(): boolean {
-    return this.rows.length > this.visibleLimit
-  }
+  readonly window = new RowWindow(
+    () => this.rows,
+    (row) => row.id,
+  )
 
   constructor(
     readonly stage: Stage,
@@ -304,12 +308,7 @@ export class MobileTasksBoard {
     this.showAgentTasks = options.showAgentTasks
   }
 
-  private resetWindows() {
-    for (const lane of this.lanes) lane.resetWindow()
-  }
-
   @action configure(options: MobileTasksOptions) {
-    this.resetWindows()
     this.showDone = options.showDone
     this.expanded = options.expanded
     this.filter = options.filter
@@ -319,7 +318,6 @@ export class MobileTasksBoard {
   }
 
   @action toggleShowDone() {
-    this.resetWindows()
     this.showDone = !this.showDone
   }
 
@@ -330,22 +328,18 @@ export class MobileTasksBoard {
   }
 
   @action search(text: string) {
-    this.resetWindows()
     this.query = text
   }
 
   @action setFilter(filter: BoardFilter) {
-    this.resetWindows()
     this.filter = filter
   }
 
   @action clearFilter(key: keyof BoardFilter) {
-    this.resetWindows()
     this.filter = clearChip(this.filter, key)
   }
 
   @action showDisplay(display: { ordering: IssuesOrdering; showAgentTasks: boolean }) {
-    this.resetWindows()
     this.ordering = display.ordering
     this.showAgentTasks = display.showAgentTasks
   }

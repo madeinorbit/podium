@@ -346,34 +346,34 @@
     },
     {
       "file": "apps/mobile/src/components/SessionConversation.tsx",
-      "holder": "SessionConversation/model/useConversation:callback/sends/interrupt/callback",
+      "holder": "useSessionConversation/model/useConversation:callback/sends/interrupt/callback",
       "rule": "helper-consumer",
       "tokens": "77256338345da87d5612a44dfb607688a6d8972b6a2a499498dc940dce95713f",
       "gate": [],
       "origin": [
-        "6482e558a43b559d7c277ec01f190161b0d70a5f41aa2343e6831689830953fd"
+        "4efafe7653d6c01c20c704ce4c7009844ec8f48fb71e1b4a663a62677fddb3ff"
       ],
-      "fingerprint": "091e08d3438a8ad39237eb633a0ba1195ebf527e4fcede3d33c94fb1346bf84b",
+      "fingerprint": "faf023c7278a54feed5ebca9887ea65f5484f0b7a16e526d086a238ea8046f10",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of SessionConversation/model/useConversation:callback/sends/interrupt/callback",
+      "trigger": "Invocation of useSessionConversation/model/useConversation:callback/sends/interrupt/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/mobile/src/components/SessionConversation.tsx",
-      "holder": "SessionConversation/model/useConversation:callback/sends/messageRecords/ingest/callback",
+      "holder": "useSessionConversation/model/useConversation:callback/sends/messageRecords/ingest/callback",
       "rule": "helper-consumer",
-      "tokens": "ab6891182f7e4db36eab2156ba049f14cdfda72ab32a8f98c738adadf6bf2f87",
+      "tokens": "69772bb96ee7d2ba541aa4f853fa04d67315380dbc10a299cda80cb88ebdd31a",
       "gate": [
         "then:986f690ce3c4f8741f4341d67936aa814b16cd92511eb5fce83f5e04a025a80b"
       ],
       "origin": [
-        "9a9140ec798ba5ed9accfdce3a66537d4a2e589273a5eb95b0ed545355592641"
+        "8708db80ac808ee15940f679a14bf0c743d982bc25a367be7fd8821c1ec47f97"
       ],
-      "fingerprint": "cc6668bcee355a550b6c18a2760d162c9eec548a638dbfa8fcdd6da5e9d66f0f",
+      "fingerprint": "b0a24274c7bceda93ee307247405f822d7f4cf4e88bbfa284c2ca781874e5e2b",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5869",
@@ -36239,22 +36239,56 @@
       "guard": "packages/client-graph/src/mobile-screens-schema.ts fixes the six stages; mobile-tasks.test.ts bounds native row observers per lane, expands the prefix, and resets it after query changes."
     },
     {
-      "file": "packages/client-graph/src/mobile-tasks.ts",
-      "holder": "MobileTasksBoard/resetWindows",
-      "rule": "loop:for-of",
-      "tokens": "3c95ec05ad2045cecb393a76582052e91bba83dd2a3c8235c937d8e4ad1a5b8f",
+      "file": "apps/mobile/src/components/SessionConversation.tsx",
+      "holder": "SessionConversation/view",
+      "rule": "reader-summary",
+      "tokens": "9839a8381aa6797b5fb52e2995eded3845d09283a5ce4aebd7fb841eb9c6a849",
       "gate": [],
       "origin": [
-        "b643cb95f691ae9d60c6a23a0fa226116df3f621b36399e7c8800f2b8a4ea5df"
+        "01bc046016bbf377e496d465d36912b2c2924960776bceb066e614ab61d89d66",
+        "24f8a8762f0434dbf8b9096961abb70faec82249144dd986ce2ac4d8ee8d49da",
+        "3b19f43357c3b801cf8917e2dbcfc994674c4172259ebf6bce1def2e64963c67",
+        "4efafe7653d6c01c20c704ce4c7009844ec8f48fb71e1b4a663a62677fddb3ff",
+        "586d63fd6c5be733ad05554cb227baeada278d770ab9a4e9f02c7666606aec4a",
+        "bc97bbf318f1c751987b21a5a135fc52848d18d7d714c2645e6e2788ea4c841f",
+        "e810543d0c85865e57274bb9f5100c353f87e2e2168c091aaa01c1a7be79262b",
+        "e95955e38834124e6401feb84ccbbadfae80771f02627e2eb945f67de95929ff",
+        "ed12f77b2bd997a8fc37fd84c7562ba3069714822fb44c10a46789c71fb83816"
       ],
-      "fingerprint": "d15b912e9c1a424a31b5aae226af1b678898b479d3bacaf25aaf453ea2b68308",
+      "fingerprint": "9e2e7c77f18713194d6f7e2f02f90b5c1f28fbb1a88a3c3b0063af77b9ac5916",
       "count": 1,
       "classification": "bounded local work",
-      "owner": "POD-2388",
-      "trigger": "Native Tasks stage rendering and resetting the row prefix after search, filter, or display changes.",
-      "bound": "At most six BoardLane companions constructed from the six literal MOBILE_TASK_STAGES, independent of task or session count.",
-      "reason": "These operations select a lifecycle stage or reset its visible-row limit. Neither traverses issue or session records; visibleRows is the separately bounded lazy ID prefix.",
-      "guard": "packages/client-graph/src/mobile-screens-schema.ts fixes the six stages; mobile-tasks.test.ts bounds native row observers per lane, expands the prefix, and resets it after query changes."
+      "owner": "POD-2392",
+      "trigger": "Opening the addressed session chat or its task offer summary.",
+      "bound": "One owner-cached conversation and one local view per mounted reader, keyed by the explicit session ID; no catalogue enumeration in either wrapper.",
+      "reason": "Both callers borrow the extracted existing conversation factory. The send/interrupt and record-ingestion paths remain individually tracked; this wrapper does not repair their separate debt.",
+      "guard": "SessionConversation draft-isolation and stop tests preserve addressed rendering at 1x/4x; TaskSummary.offer tests cover captured session/offer identity and the real shared Sends dismissal/failure flow."
+    },
+    {
+      "file": "apps/mobile/src/components/task-detail/TaskOfferSummary.tsx",
+      "holder": "SessionSummary/SessionSummary/conversation",
+      "rule": "reader-summary",
+      "tokens": "be0c13109e49cc2df6ac6b55204dcc81a75f83c1dd700c70af802a3583dded11",
+      "gate": [],
+      "origin": [
+        "01bc046016bbf377e496d465d36912b2c2924960776bceb066e614ab61d89d66",
+        "24f8a8762f0434dbf8b9096961abb70faec82249144dd986ce2ac4d8ee8d49da",
+        "3b19f43357c3b801cf8917e2dbcfc994674c4172259ebf6bce1def2e64963c67",
+        "4efafe7653d6c01c20c704ce4c7009844ec8f48fb71e1b4a663a62677fddb3ff",
+        "586d63fd6c5be733ad05554cb227baeada278d770ab9a4e9f02c7666606aec4a",
+        "bc97bbf318f1c751987b21a5a135fc52848d18d7d714c2645e6e2788ea4c841f",
+        "e810543d0c85865e57274bb9f5100c353f87e2e2168c091aaa01c1a7be79262b",
+        "e95955e38834124e6401feb84ccbbadfae80771f02627e2eb945f67de95929ff",
+        "ed12f77b2bd997a8fc37fd84c7562ba3069714822fb44c10a46789c71fb83816"
+      ],
+      "fingerprint": "bb5f70427225f68793873f2213b7d1fdb78362bfffe2ad1ef232a79191d4e416",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2392",
+      "trigger": "Opening the addressed session chat or its task offer summary.",
+      "bound": "One owner-cached conversation and one local view per mounted reader, keyed by the explicit session ID; no catalogue enumeration in either wrapper.",
+      "reason": "Both callers borrow the extracted existing conversation factory. The send/interrupt and record-ingestion paths remain individually tracked; this wrapper does not repair their separate debt.",
+      "guard": "SessionConversation draft-isolation and stop tests preserve addressed rendering at 1x/4x; TaskSummary.offer tests cover captured session/offer identity and the real shared Sends dismissal/failure flow."
     }
   ]
 }

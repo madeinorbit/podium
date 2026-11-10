@@ -8,7 +8,7 @@ import {
 } from '../../../tests/worklist/harness/src/work-meter'
 import { attachMobileScreens } from './mobile-screens'
 import { MOBILE_SCREEN_SUMMARIES, type MobileTasksOptions } from './mobile-screens-schema'
-import { MOBILE_TASK_PAGE_SIZE, MobileTasksBoard } from './mobile-tasks'
+import { MOBILE_TASK_WINDOW_SIZE, MobileTasksBoard } from './mobile-tasks'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
 
@@ -285,27 +285,84 @@ it('draws Proposed as the screening group and counts each lane for the subtitle'
   ])
 })
 
-it('bounds native row observers per lane and resets the window when the query changes', async () => {
+it('uses shared attention for offers, archived seats, review and closed tasks', async () => {
+  const { pool } = await setup([issue('root')], [seat('agent')])
+  const board = new MobileTasksBoard(pool, options)
+  const marks: string[] = []
+  disposals.push(autorun(() => marks.push(board.task('root').mark)))
+  expect(marks.at(-1)).toBe('working')
+  const offer = {
+    createdAt: '2026-10-03T12:00:00Z',
+    message: 'Ready',
+    actions: [{ label: 'Accept', prompt: 'Accept' }],
+  }
+  pool.apply({
+    type: 'update',
+    rows: [{ kind: 'session', id: 'agent', value: seat('agent', { offer }) }],
+  })
+  expect(marks.at(-1)).toBe('needs')
+  pool.apply({
+    type: 'update',
+    rows: [{ kind: 'session', id: 'agent', value: seat('agent', { offer, archived: true }) }],
+  })
+  expect(marks.at(-1)).toBe('working')
+  pool.apply({
+    type: 'update',
+    rows: [{ kind: 'issue', id: 'root', value: issue('root', { stage: 'review' }) }],
+  })
+  expect(marks.at(-1)).toBe('needs')
+  pool.apply({
+    type: 'update',
+    rows: [
+      {
+        kind: 'issue',
+        id: 'root',
+        value: issue('root', { stage: 'done', closedReason: 'done', needsHuman: true }),
+      },
+    ],
+  })
+  expect(marks.at(-1)).toBe('done')
+})
+
+it('releases offscreen row observers while scrolling forward and back through a large lane', async () => {
   const { pool } = await setup(
-    Array.from({ length: 130 }, (_, i) => issue(`task-${i}`, { seq: i + 1 })),
+    Array.from({ length: 400 }, (_, index) => issue(`task-${index}`, { seq: index })),
   )
   const board = new MobileTasksBoard(pool, options)
   const lane = board.lanes.find((lane) => lane.stage === 'in_progress')!
-  const stop = autorun(() => lane.visibleRows.map((row) => board.issue(row.id).title))
-  disposals.push(stop)
-  expect(lane.rows).toHaveLength(130)
-  expect(lane.visibleRows).toHaveLength(MOBILE_TASK_PAGE_SIZE)
-  expect(lane.hasMore).toBe(true)
-  lane.showMore()
-  expect(lane.visibleRows).toHaveLength(2 * MOBILE_TASK_PAGE_SIZE)
-  board.search('task-1')
-  expect(lane.visibleRows.length).toBeLessThanOrEqual(MOBILE_TASK_PAGE_SIZE)
-  expect(lane.visibleLimit).toBe(MOBILE_TASK_PAGE_SIZE)
-  board.search('')
-  expect(lane.visibleRows).toHaveLength(MOBILE_TASK_PAGE_SIZE)
-  lane.showMore()
-  lane.showMore()
-  lane.showMore()
-  expect(lane.visibleRows).toHaveLength(130)
-  expect(lane.hasMore).toBe(false)
+  let reads = 0
+  disposals.push(
+    autorun(() => {
+      lane.window.visibleRows.map((row) => board.issue(row.id).title)
+      reads++
+    }),
+  )
+  expect(lane.rows).toHaveLength(400)
+  expect(lane.window.visibleRows).toHaveLength(0)
+  lane.window.appear(lane.rows[0]!.id)
+  expect(lane.window.visibleRows).toHaveLength(MOBILE_TASK_WINDOW_SIZE)
+  for (let index = 1; index < 390; index++) {
+    lane.window.appear(lane.rows[index]!.id)
+    lane.window.disappear(lane.rows[index - 1]!.id)
+    expect(lane.window.visibleRows.length).toBeLessThanOrEqual(MOBILE_TASK_WINDOW_SIZE)
+  }
+  const before = reads
+  pool.apply({
+    type: 'update',
+    rows: [{ kind: 'issue', id: 'task-0', value: issue('task-0', { seq: 0, title: 'offscreen' }) }],
+  })
+  expect(reads).toBe(before)
+  // Positive control: a title in the current window still wakes its observer.
+  const shown = lane.window.visibleRows[0]!.id
+  pool.apply({
+    type: 'update',
+    rows: [{ kind: 'issue', id: shown, value: issue(shown, { title: 'onscreen' }) }],
+  })
+  expect(reads).toBeGreaterThan(before)
+  lane.window.appear(lane.rows[0]!.id)
+  lane.window.disappear(lane.rows[389]!.id)
+  expect(lane.window.visibleRows[0]!.id).toBe(lane.rows[0]!.id)
+  expect(lane.window.visibleRows).toHaveLength(MOBILE_TASK_WINDOW_SIZE)
+  lane.window.disappear(lane.rows[0]!.id)
+  expect(lane.window.visibleRows).toHaveLength(0)
 })

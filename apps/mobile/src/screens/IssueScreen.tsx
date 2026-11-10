@@ -58,12 +58,8 @@ import {
 import { PropertyBar } from '../components/task-detail/IssueProperties'
 import { IssueSubIssues } from '../components/task-detail/IssueSubIssues'
 import { PromptSheet } from '../components/task-detail/PromptSheet'
-import {
-  ArtifactStrip,
-  FoldedSection,
-  TaskSessions,
-  TaskSummary,
-} from '../components/task-detail/TaskOverview'
+import { TaskOfferSummary } from '../components/task-detail/TaskOfferSummary'
+import { ArtifactStrip, FoldedSection, TaskSessions } from '../components/task-detail/TaskOverview'
 import { EmptyState } from '../components/ui'
 import { useCollapsed } from '../hooks/useCollapsed'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
@@ -389,14 +385,9 @@ const IssueContent = observer(function IssueContent({
 
           {/* The board's order: what it waits on, what it made, who is on it;
               then activity, and the folded reference sections below it. */}
-          <TaskSummary
+          <TaskOfferSummary
             issue={issue}
             lead={lead}
-            onAccept={async (sessionId, prompt) => {
-              // Accepting an offer is a chat send like any other (POD-4762):
-              // the server clears the offer when the message lands.
-              await sendChat({ sessionId, text: prompt, wake: true })
-            }}
             onOpenSession={openSession}
             onComment={(text) => commands.postComment(text, appendLocalComment)}
           />

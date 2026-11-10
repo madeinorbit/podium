@@ -2,7 +2,11 @@ import { relativeTime } from '@podium/client-core/focus'
 import { type RankedTaskIssue, taskStateWord } from '@podium/client-core/values'
 import type { BoardListRow } from '@podium/client-graph/issue-board-schema'
 import { here } from '@podium/client-graph/lookup'
-import type { MobileTaskIssue, MobileTasksBoard } from '@podium/client-graph/mobile-tasks'
+import type {
+  MobileTaskIssue,
+  MobileTasksBoard,
+  TaskRowMark,
+} from '@podium/client-graph/mobile-tasks'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import type { IssueBoardStage } from '@podium/model'
 import { isFinished } from '@podium/model/browser'
@@ -25,13 +29,7 @@ import { EmptyState } from '../components/ui'
 import { useAgeNow } from '../lib/clock-hooks'
 import { taskRowAccessibilityProps } from '../lib/task-row-accessibility'
 import { color, font, mono, radius, sans, space } from '../theme/theme'
-import {
-  type TaskRowMark,
-  type TasksSurfaceProps,
-  taskRowFigure,
-  taskRowMark,
-  tasksSubtitle,
-} from './TasksSurface.types'
+import { type TasksSurfaceProps, taskRowFigure, tasksSubtitle } from './TasksSurface.types'
 import { useStageFolds } from './tasks-folds'
 
 const usesNativeHeader = process.env.EXPO_OS !== 'web'
@@ -47,8 +45,7 @@ interface Section {
 }
 
 /**
- * THE TASKS TAB, React Native — the web build and Android. iOS draws
- * `TasksSurface.ios.tsx`, a SwiftUI list; this one follows the same board:
+ * THE TASKS TAB, shared virtualized rows on iOS, Android and web:
  * stage groups as inset cards of 44pt rows, a chevron + name + count header
  * that folds the group, and Proposed as one folded group with "Screen".
  */
@@ -226,6 +223,7 @@ const StageSections = observer(function StageSections(props: TasksSurfaceProps) 
           board ? (
             <TaskRow
               row={item}
+              board={board}
               issue={board.issue(item.id)}
               first={index === 0}
               last={index === section.data.length - 1}
@@ -304,6 +302,7 @@ function GroupHeader({
  */
 const TaskRow = observer(function TaskRow({
   row,
+  board,
   issue,
   first,
   last,
@@ -312,6 +311,7 @@ const TaskRow = observer(function TaskRow({
   onOpenActions,
 }: {
   row: BoardListRow
+  board: MobileTasksBoard
   issue: MobileTaskIssue
   first: boolean
   last: boolean
@@ -320,24 +320,22 @@ const TaskRow = observer(function TaskRow({
   onOpenActions: (issue: MobileTaskIssue) => void
 }) {
   const loaded = here(issue.row)
-  const now = useAgeNow(loaded ? issue.updatedAt : new Date(0).toISOString())
   const edge = [styles.rowWrap, first && styles.rowFirst, last && styles.rowLast]
   // The shared load window resolves just this drawn row; membership stays live.
   if (!loaded) return <View style={[edge, styles.rowPlaceholder]} />
-  let workingAgents: number, progress: MobileTaskIssue['taskProgress']
+  let workingAgents: number, progress: MobileTaskIssue['taskProgress'], mark: TaskRowMark
   try {
     workingAgents = issue.confirmedWorkingAgents
     progress = issue.taskProgress
+    mark = board.task(issue.id).mark
   } catch (error) {
     if (error === LOADING) return <View style={[edge, styles.rowPlaceholder]} />
     throw error
   }
   const finished = isFinished(issue)
-  const mark = taskRowMark(issue, finished)
   const state = taskStateWord(issue as unknown as RankedTaskIssue, workingAgents, progress)
   const parent = issue.treeParent
   const parentModel = parent === LOADING ? null : parent
-  const figure = taskRowFigure(issue, relativeTime(issue.updatedAt, now))
   const childCount = row.childCount
   const accessibility = taskRowAccessibilityProps({
     seq: issue.seq,
@@ -402,7 +400,7 @@ const TaskRow = observer(function TaskRow({
             scaleTo={0.94}
             style={styles.disclosure}
           >
-            <Text style={styles.figure}>{figure}</Text>
+            <TaskFigure issue={issue} />
             <Icon
               as={row.expanded ? ChevronDown : ChevronRight}
               size={12}
@@ -410,10 +408,25 @@ const TaskRow = observer(function TaskRow({
             />
           </PressableScale>
         ) : (
-          <Text style={styles.figure}>{figure}</Text>
+          <TaskFigure issue={issue} />
         )}
       </PressableScale>
     </View>
+  )
+})
+
+const TaskFigure = observer(function TaskFigure({ issue }: { issue: MobileTaskIssue }) {
+  return issue.childCount > 0 ? (
+    <Text style={styles.figure}>{taskRowFigure(issue, null)}</Text>
+  ) : (
+    <TaskAge issue={issue} />
+  )
+})
+
+const TaskAge = observer(function TaskAge({ issue }: { issue: MobileTaskIssue }) {
+  const now = useAgeNow(issue.updatedAt)
+  return (
+    <Text style={styles.figure}>{taskRowFigure(issue, relativeTime(issue.updatedAt, now))}</Text>
   )
 })
 

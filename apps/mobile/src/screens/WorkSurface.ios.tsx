@@ -38,6 +38,8 @@ import {
   listStyle,
   monospacedDigit,
   onAppear,
+  onDisappear,
+  onGeometryChange,
   pickerStyle,
   refreshable,
   scrollContentBackground,
@@ -83,9 +85,7 @@ import { color } from '../theme/theme'
 import { NAV_LOADER_DELAY_MS, useDelayedFlag } from './WorkListRow'
 import { WORK_LANE_LABELS, WORK_LANES, type WorkSurfaceProps } from './WorkSurface.types'
 import { workPaper as paper } from './work-paper'
-import { workSectionWindow } from './work-section-window'
 
-const PAGE_SIZE = 120
 /** Card rows: 12 inset, 14 status column + 8 gap, so titles and separators share x=34. */
 const CARD_INSET = 12
 /** Header and card sections sit flush; the 44pt header rows carry the rhythm (as on Tasks). */
@@ -126,18 +126,10 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
       return () => cancelAnimationFrame(frame)
     }, [restoreQuery]),
   )
-  // Native List virtualizes the views; bound the number of JS row observers as well.
-  const [window, setWindow] = useState({ scope: '', size: PAGE_SIZE })
-  const scope = `${phone.lane}:${phone.needle}`
   const quiet = phone.quietSections
-  const { sections, more } = workSectionWindow(
-    phone.quietExpanded && quiet.length
-      ? [...phone.activeSections, ...quiet]
-      : phone.activeSections,
-    props.collapsed,
-    Boolean(phone.needle),
-    window.scope === scope ? window.size : PAGE_SIZE,
-  )
+  const sections = (
+    phone.quietExpanded && quiet.length ? [...phone.activeSections, ...quiet] : phone.activeSections
+  ).map((section) => ({ section, folded: !phone.needle && props.collapsed.has(section.key) }))
   const onRefresh = useCallback(async () => {
     props.refresh.onRefresh()
     await new Promise((resolve) => setTimeout(resolve, MIN_REFRESH_CONFIRMATION_MS))
@@ -162,11 +154,6 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
     setProjectRepo(repoPath)
     openProjectWork.current?.()
   }, [])
-  const loadMore = () =>
-    setWindow((current) => ({
-      scope,
-      size: (current.scope === scope ? current.size : PAGE_SIZE) + PAGE_SIZE,
-    }))
 
   return (
     <View collapsable={false} style={styles.root}>
@@ -252,7 +239,7 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
             <WorkLanePicker phone={phone} />
           </Section>
           {props.loading && !sections.length ? <ProgressView modifiers={noteRow} /> : null}
-          {sections.map(({ section, folded, visible }) => (
+          {sections.map(({ section, folded }) => (
             <Fragment key={section.key}>
               {/* The project name is its own quiet row: SwiftUI uppercases grouped headers. */}
               <Section modifiers={COMPACT_SECTION}>
@@ -265,19 +252,27 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
               </Section>
               {folded ? null : (
                 <Section modifiers={COMPACT_SECTION}>
-                  {visible.map((id) => (
-                    <NativeWorkRow
+                  {section.ids.map((id, index) => (
+                    <NativeWorkSlot
                       key={id}
                       id={id}
-                      lane={phone.lane}
-                      pending={props.pendingNav === id}
-                      onOpenIssue={props.onOpenIssue}
-                      onOpenSession={props.onOpenSession}
-                      onAction={props.onAction}
-                      onStatus={props.onStatus}
-                      onSwipe={onSwipe}
-                      phone={phone}
-                    />
+                      section={section}
+                      active={
+                        index >= section.window.windowStart && index < section.window.windowEnd
+                      }
+                    >
+                      <NativeWorkRow
+                        id={id}
+                        lane={phone.lane}
+                        pending={props.pendingNav === id}
+                        onOpenIssue={props.onOpenIssue}
+                        onOpenSession={props.onOpenSession}
+                        onAction={props.onAction}
+                        onStatus={props.onStatus}
+                        onSwipe={onSwipe}
+                        phone={phone}
+                      />
+                    </NativeWorkSlot>
                   ))}
                   {section.ids.length ? null : (
                     <Text
@@ -294,22 +289,10 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
               )}
             </Fragment>
           ))}
-          {quiet.length && !more ? (
+          {quiet.length ? (
             <Section modifiers={COMPACT_SECTION}>
               <NativeQuietRow phone={phone} />
             </Section>
-          ) : null}
-          {more ? (
-            <Text
-              modifiers={[
-                ...noteRow,
-                onAppear(loadMore),
-                font({ textStyle: 'footnote' }),
-                foregroundStyle(paper.secondary),
-              ]}
-            >
-              Loading more tasks…
-            </Text>
           ) : null}
           {!props.loading && !sections.length ? (
             <VStack alignment="leading" spacing={8} modifiers={noteRow}>
@@ -357,6 +340,36 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
     </View>
   )
 })
+
+/** Keep each native row in place while its rich observer leaves the viewport.
+ * Measured height is presentation state, including Dynamic Type and child hits. */
+function NativeWorkSlot({
+  id,
+  section,
+  active,
+  children,
+}: {
+  id: string
+  section: PhoneWorkSection
+  active: boolean
+  children: React.ReactNode
+}) {
+  const [height, setHeight] = useState(36)
+  return (
+    <VStack
+      modifiers={[
+        ...cardRow,
+        onAppear(() => section.window.appear(id)),
+        onDisappear(() => section.window.disappear(id)),
+        onGeometryChange((frame) => {
+          if (active && frame.height > 0) setHeight(frame.height)
+        }),
+      ]}
+    >
+      {active ? children : <Spacer modifiers={[frame({ height })]} />}
+    </VStack>
+  )
+}
 
 /** Open / Snoozed / Closed as the system segmented control, with counts. */
 const WorkLanePicker = observer(function WorkLanePicker({ phone }: { phone: PhoneWorklist }) {
@@ -563,7 +576,6 @@ const NativeWorkRow = observer(function NativeWorkRow(props: RowProps) {
   return (
     <SwipeActions
       modifiers={[
-        ...cardRow,
         listRowBackground(props.pending ? paper.fill : paper.card),
         alignmentGuide('listRowSeparatorLeading', MARK_WIDTH + MARK_GAP),
       ]}

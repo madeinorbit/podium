@@ -36,6 +36,8 @@ import {
   listStyle,
   monospacedDigit,
   onAppear,
+  onDisappear,
+  onGeometryChange,
   pickerStyle,
   refreshable,
   scrollContentBackground,
@@ -47,15 +49,20 @@ import { relativeTime } from '@podium/client-core/focus'
 import { discoveredPlacement, type IssueNavigationModel } from '@podium/client-core/values'
 import type { BoardListRow } from '@podium/client-graph/issue-board-schema'
 import { here } from '@podium/client-graph/lookup'
-import type { MobileTasksBoard } from '@podium/client-graph/mobile-tasks'
+import type {
+  MobileTaskIssue,
+  MobileTasksBoard,
+  TaskRowMark,
+} from '@podium/client-graph/mobile-tasks'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { issueStatusMenuEntries, issueStatusValueOf } from '@podium/model'
 import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { Stack } from 'expo-router'
 import { observer } from 'mobx-react-lite'
-import { Fragment, useCallback } from 'react'
+import { Fragment, type ReactNode, useCallback, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
+import { issueObserver as taskObserver } from '../client/issue-observer'
 import { useMobilePool } from '../client/mobile-pool'
 import { Filter, Plus } from '../components/icons'
 import { NativeGroupHeader } from '../components/NativeGroupHeader.ios'
@@ -66,13 +73,7 @@ import { MIN_REFRESH_CONFIRMATION_MS } from '../hooks/useRefreshableTab'
 import { useAgeNow } from '../lib/clock-hooks'
 import { workMenuActionIds } from '../lib/work-menu'
 import { color } from '../theme/theme'
-import {
-  type TaskRowMark,
-  type TasksSurfaceProps,
-  taskRowFigure,
-  taskRowMark,
-  tasksSubtitle,
-} from './TasksSurface.types'
+import { type TasksSurfaceProps, taskRowFigure, tasksSubtitle } from './TasksSurface.types'
 import { useStageFolds } from './tasks-folds'
 import { workPaper as paper } from './work-paper'
 
@@ -251,28 +252,18 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
                 </Section>
                 {folded || !board || section.rows.length === 0 ? null : (
                   <Section modifiers={[listSectionMargins({ edges: 'vertical', length: 0 })]}>
-                    {lane?.visibleRows.map((row) => (
-                      <TaskRow key={row.id} row={row} board={board} props={props} />
-                    ))}
-                    {lane?.hasMore ? (
-                      <Button
-                        onPress={() => lane.showMore()}
-                        modifiers={[
-                          ...noteRow,
-                          onAppear(() => lane.showMore()),
-                          accessibilityLabel(`Show more ${section.title} tasks`),
-                        ]}
+                    {section.rows.map((row, index) => (
+                      <TaskSlot
+                        key={row.id}
+                        id={row.id}
+                        lane={lane}
+                        active={Boolean(
+                          lane && index >= lane.window.windowStart && index < lane.window.windowEnd,
+                        )}
                       >
-                        <Text
-                          modifiers={[
-                            font({ textStyle: 'footnote' }),
-                            foregroundStyle(paper.secondary),
-                          ]}
-                        >
-                          More tasks…
-                        </Text>
-                      </Button>
-                    ) : null}
+                        <TaskRow row={row} board={board} props={props} />
+                      </TaskSlot>
+                    ))}
                   </Section>
                 )}
               </Fragment>
@@ -301,12 +292,42 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
   )
 })
 
+/** Placeholder height follows the last native measurement, including Dynamic Type. */
+function TaskSlot({
+  id,
+  lane,
+  active,
+  children,
+}: {
+  id: string
+  lane: MobileTasksBoard['lanes'][number] | undefined
+  active: boolean
+  children: ReactNode
+}) {
+  const [height, setHeight] = useState(44)
+  return (
+    <VStack
+      modifiers={[
+        ...cardRow,
+        frame({ minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
+        onAppear(() => lane?.window.appear(id)),
+        onDisappear(() => lane?.window.disappear(id)),
+        onGeometryChange((frame) => {
+          if (active && frame.height > 0) setHeight(frame.height)
+        }),
+      ]}
+    >
+      {active ? children : <Spacer modifiers={[frame({ height })]} />}
+    </VStack>
+  )
+}
+
 /**
  * One 44pt task row: mark, ref, title, then child progress ("21/25") or age.
  * Swipe left for Status and Close; long press for Work's menu (Rename, Mark as
  * unread, Status, Move out of mission, Delete) plus the sub-task disclosure.
  */
-const TaskRow = observer(function TaskRow({
+const TaskRow = taskObserver(function TaskRow({
   row,
   board,
   props,
@@ -317,23 +338,20 @@ const TaskRow = observer(function TaskRow({
 }) {
   const pool = useMobilePool()
   const issue = board.issue(row.id)
-  const stamp = here(issue.row) ? issue.updatedAt : undefined
-  const now = useAgeNow(stamp ?? new Date(0).toISOString())
   if (!here(issue.row)) return null
   const finished = isFinished(issue)
-  const mark = taskRowMark(issue, finished)
+  const mark = board.task(issue.id).mark
   const ref = issueDisplayRef(issue)
-  const figure = taskRowFigure(issue, stamp ? relativeTime(stamp, now) : null)
   const unread = Boolean((issue as unknown as { unread?: boolean }).unread)
   const notSaved = pool?.notSaved('issue', issue.id) ?? false
   const nav = issue as unknown as IssueNavigationModel
   const placement = discoveredPlacement(nav)
   const actions = workMenuActionIds(nav, 'live', { placement: Boolean(placement?.originId) })
-  const progress = issue.childCount > 0 ? `${figure} sub-tasks done` : figure
+  const progress = issue.childCount > 0 ? `${taskRowFigure(issue, null)} sub-tasks done` : ''
 
   return (
     <SwipeActions
-      modifiers={[...cardRow, alignmentGuide('listRowSeparatorLeading', ROW_AXIS + row.depth * 16)]}
+      modifiers={[alignmentGuide('listRowSeparatorLeading', ROW_AXIS + row.depth * 16)]}
     >
       <ContextMenu>
         <ContextMenu.Trigger>
@@ -401,16 +419,7 @@ const TaskRow = observer(function TaskRow({
                   modifiers={[accessibilityHidden()]}
                 />
               ) : null}
-              <Text
-                modifiers={[
-                  font({ size: 12, design: 'monospaced' }),
-                  foregroundStyle({ type: 'hierarchical', style: 'tertiary' }),
-                  monospacedDigit(),
-                  lineLimit(1),
-                ]}
-              >
-                {figure}
-              </Text>
+              <TaskFigure issue={issue} />
             </HStack>
           </Button>
         </ContextMenu.Trigger>
@@ -490,6 +499,30 @@ const TaskRow = observer(function TaskRow({
         />
       </SwipeActions.Actions>
     </SwipeActions>
+  )
+})
+
+const figureModifiers = [
+  font({ size: 12, design: 'monospaced' }),
+  foregroundStyle({ type: 'hierarchical', style: 'tertiary' }),
+  monospacedDigit(),
+  lineLimit(1),
+]
+
+const TaskFigure = observer(function TaskFigure({ issue }: { issue: MobileTaskIssue }) {
+  return issue.childCount > 0 ? (
+    <Text modifiers={figureModifiers}>{taskRowFigure(issue, null)}</Text>
+  ) : (
+    <TaskAge issue={issue} />
+  )
+})
+
+const TaskAge = observer(function TaskAge({ issue }: { issue: MobileTaskIssue }) {
+  const now = useAgeNow(issue.updatedAt)
+  return (
+    <Text modifiers={figureModifiers}>
+      {taskRowFigure(issue, relativeTime(issue.updatedAt, now))}
+    </Text>
   )
 })
 

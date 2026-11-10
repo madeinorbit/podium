@@ -3,6 +3,7 @@ import { companion, lazy } from '@podium/mobx-helpers'
 import { action, compareShallow, compareStructural, observable, observableRef } from 'mobx'
 import { omitGone } from '../lookup'
 import type { IssueModel } from '../models'
+import { RowWindow } from '../row-window'
 import { compareRank } from '../shared/row-view'
 import { type GroupNode, repoLabelOf, worklistGroups } from './groups'
 import type { WorklistIssue } from './issue'
@@ -177,7 +178,11 @@ export class PhoneWorklist {
     if (!this.needle) return true
     const row = this.worklist.knownRow(id)
     if (row?.ready !== 'ready') return false
-    return row.searchText.includes(this.needle) || this.searchHit(row).childId !== null
+    return (
+      Boolean(this.textMatcher?.(row.issue)) ||
+      row.searchText.includes(this.needle) ||
+      this.searchHit(row).childId !== null
+    )
   }
 
   @lazy get counts(): Readonly<Record<PhoneWorkLane, number>> {
@@ -217,6 +222,10 @@ export class PhoneWorklist {
 
 /** One section companion over the existing desktop band, with no second filing/index. */
 export class PhoneWorkSection {
+  readonly window = new RowWindow(
+    () => this.ids,
+    (id) => id,
+  )
   readonly foldedListSection: PhoneListSection
   constructor(
     readonly key: string,

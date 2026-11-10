@@ -1,16 +1,11 @@
-import { MobileConversation } from '../lib/mobile-conversation'
-import { MobileChatViewModel } from '../lib/chat-view-model'
-import { currentMessageRecord, ingestMessageRecords } from '@podium/client-graph/message-models'
-import { here } from '@podium/client-graph/lookup'
 import {
-  PHONE_WARM_CONVERSATIONS,
   type ConversationPendingTurn,
   hubConnection,
+  PHONE_WARM_CONVERSATIONS,
 } from '@podium/client-core/conversation'
 import { randomUUID } from '@podium/client-core/id'
 import { useConversation, useStoreHandle } from '@podium/client-core/react'
-import { REPLICA_TRANSCRIPT_ITEM_CAP, type IssueViewModel } from '@podium/client-core/replica'
-import type { SessionModel } from '@podium/client-graph/models'
+import { type IssueViewModel, REPLICA_TRANSCRIPT_ITEM_CAP } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
   composerState,
@@ -20,32 +15,37 @@ import {
   pendingAskFromState,
   principalShortName,
 } from '@podium/client-core/values'
+import { here } from '@podium/client-graph/lookup'
+import { currentMessageRecord, ingestMessageRecords } from '@podium/client-graph/message-models'
+import type { SessionModel } from '@podium/client-graph/models'
 import {
   asMutationId,
   isMachineOfflineForLiveTerminal,
   type MessageDeliveryStatus,
 } from '@podium/model'
 import * as Haptics from 'expo-haptics'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { action, observable, reaction, when } from 'mobx'
 import { observer } from 'mobx-react-lite'
-import { useMobilePool } from '../client/mobile-pool'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { AppState, StyleSheet, Text, View } from 'react-native'
 import Svg, { Circle } from 'react-native-svg'
+import { useMobilePool } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
 import {
+  mobileConversationPorts,
   useSessionContextIssue,
   useSessionContextMachine,
   useSessionContextMachineHome,
   useSessionContextQuestion,
   useSessionContextReferenceIssue,
   useSessionConversationPorts,
-  mobileConversationPorts,
 } from '../client/use-session-context'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { chatSendTransport } from '../lib/chat-send-transport'
+import { MobileChatViewModel } from '../lib/chat-view-model'
 import { interruptSession } from '../lib/interrupt-session'
+import { MobileConversation } from '../lib/mobile-conversation'
 import { color, font, leading, sans, space } from '../theme/theme'
 import { type AskQuestionAnswer, AskQuestionCard } from './AskQuestionCard'
 import { Composer } from './Composer'
@@ -186,7 +186,6 @@ const SessionComposer = observer(function SessionComposer({
 
 const NOTICE_MS = 4000
 
-
 /**
  * ONE CONVERSATION, TWO HOSTS [POD-724].
  *
@@ -207,14 +206,36 @@ const NOTICE_MS = 4000
 export function SessionConversation(
   props: Omit<Parameters<typeof SessionConversationBody>[0], 'model' | 'pool'>,
 ) {
+  const pool = useMobilePool()
+  const view = useSessionConversation(props)
+  return view ? (
+    <SessionConversationBody
+      {...props}
+      pool={pool}
+      session={view.session ?? props.session}
+      model={view}
+    />
+  ) : (
+    <TranscriptSkeleton />
+  )
+}
+
+/** Both task offers and chat acquire the same owner-cached conversation. */
+export function useSessionConversation(props: {
+  session: SessionView | SessionModel
+  initialPendingText?: string
+  deferInitialTranscript?: boolean
+}) {
   const owner = useStoreHandle<MobileTrpc>()
   const pool = useMobilePool()
   const sessionId = props.session.sessionId
   const readiness = useSessionConversationPorts(sessionId)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: ports stay bound to this pool and session; readiness only gates acquisition.
   const ports = useMemo(
     () => (pool ? mobileConversationPorts(pool, sessionId) : readiness),
     [pool, sessionId],
   )
+  // biome-ignore lint/correctness/useExhaustiveDependencies: one readiness signal per session, updated by the layout effect below.
   const recognized = useMemo(() => observable.box(!props.deferInitialTranscript), [sessionId])
   useLayoutEffect(
     () => action(() => recognized.set(!props.deferInitialTranscript))(),
@@ -222,146 +243,159 @@ export function SessionConversation(
   )
   const model = useConversation(
     sessionId,
-    (drafts) => new MobileConversation({
-      sessionId,
-      drafts: { get: id => pool!.sessionObject(id).messageDraft, set: (id, text) => pool!.sessionObject(id).setMessageDraft(text) },
-      readSession: () => (pool ? here(pool.model('session', sessionId)) : undefined),
-      hub: owner.hub,
-      connection: hubConnection(owner.hub),
-      scheduler: {
-        visible: () =>
-          AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
-        onVisibilityChange: (listener) => {
-          const subscription = AppState.addEventListener('change', listener)
-          return () => subscription.remove()
-        },
-      },
-      transcript: {
-        initialLimit: 80,
-        pageLimit: 80,
-        source: {
-          read: (request) =>
-            when(() => recognized.get()).then(() =>
-              owner.access.trpc.sessions.transcriptRead.query(request),
-            ),
-          subscribe: (id, since, listener) => {
-            let off = () => {}
-            const stop = reaction(
-              () => recognized.get(),
-              (ready) => {
-                off()
-                off = ready ? owner.hub.subscribeTranscript(id, since, listener) : () => {}
+    (drafts) =>
+      new MobileConversation(
+        {
+          sessionId,
+          drafts: {
+            get: (id) => pool!.sessionObject(id).messageDraft,
+            set: (id, text) => pool!.sessionObject(id).setMessageDraft(text),
+          },
+          readSession: () => (pool ? here(pool.model('session', sessionId)) : undefined),
+          hub: owner.hub,
+          connection: hubConnection(owner.hub),
+          scheduler: {
+            visible: () =>
+              AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
+            onVisibilityChange: (listener) => {
+              const subscription = AppState.addEventListener('change', listener)
+              return () => subscription.remove()
+            },
+          },
+          transcript: {
+            initialLimit: 80,
+            pageLimit: 80,
+            source: {
+              read: (request) =>
+                when(() => recognized.get()).then(() =>
+                  owner.access.trpc.sessions.transcriptRead.query(request),
+                ),
+              subscribe: (id, since, listener) => {
+                let off = () => {}
+                const stop = reaction(
+                  () => recognized.get(),
+                  (ready) => {
+                    off()
+                    off = ready ? owner.hub.subscribeTranscript(id, since, listener) : () => {}
+                  },
+                  { fireImmediately: true },
+                )
+                return () => {
+                  stop()
+                  off()
+                }
               },
-              { fireImmediately: true },
-            )
-            return () => {
-              stop()
-              off()
-            }
+            },
+            cache: {
+              maxItems: REPLICA_TRANSCRIPT_ITEM_CAP,
+              read: (id) => owner.replica.transcriptWindow(id),
+              write: (id, items) => owner.replica.putTranscriptWindow(id, [...items]),
+            },
+          },
+          sends: {
+            records: ports.records,
+            messageRecords: {
+              read: (id) => (pool ? here(pool.model('messageRecord', id)) : undefined),
+              ingest: (records) => {
+                if (pool)
+                  ingestMessageRecords(pool, records, (id) =>
+                    currentMessageRecord(pool, owner.replica, id),
+                  )
+              },
+            },
+            outbox: ports.outbox,
+            initialPending: [
+              ...(props.initialPendingText
+                ? [
+                    {
+                      id: 'pending-first-turn',
+                      deliveryId: 'pending-first-turn',
+                      text: props.initialPendingText,
+                      wire: props.initialPendingText,
+                      at: Date.now(),
+                      state: 'sent' as const,
+                      kind: 'message' as const,
+                      reconcile: 'next-user-item' as const,
+                    },
+                  ]
+                : []),
+              ...ports.outbox.held().map(
+                (send, index): ConversationPendingTurn => ({
+                  id: `outbox-${index}-${send.mutationId}`,
+                  deliveryId: send.mutationId,
+                  text: send.text,
+                  wire: send.text,
+                  at: send.queuedAt,
+                  state: send.state,
+                  kind: 'message',
+                  ...(send.failure
+                    ? {
+                        error: send.failure.message,
+                        ...(send.failure.retryable ? {} : { retryable: false }),
+                      }
+                    : {}),
+                }),
+              ),
+            ],
+            initialJustSent: props.initialPendingText !== undefined,
+            createDeliveryId: () => `msg_${randomUUID()}`,
+            lookupRecords: (ids) =>
+              owner.access.trpc.messages.records
+                .query({ ids: [...ids] })
+                .then((answer) => answer.records),
+            deliver: async (turn) => {
+              try {
+                const session = pool ? here(pool.model('session', sessionId)) : undefined
+                const composer = composerState({
+                  session: session ?? props.session,
+                  headless: false,
+                  turnRunning: false,
+                  compact: false,
+                })
+                const held = ports.outbox.held().some((send) => send.mutationId === turn.deliveryId)
+                const transport = held
+                  ? { kind: 'send' as const, wake: false }
+                  : chatSendTransport(composer)
+                if (transport.kind === 'refused') throw new Error(transport.reason)
+                return await owner.access.sendChat(
+                  {
+                    sessionId,
+                    text: turn.wire,
+                    wake: transport.wake,
+                    ...(turn.attachments?.length ? { attachments: turn.attachments } : {}),
+                  },
+                  asMutationId(turn.deliveryId),
+                )
+              } catch (error) {
+                void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(
+                  () => {},
+                )
+                throw error
+              }
+            },
+            retract: (id) =>
+              owner.access.trpc.messages.cancel
+                .mutate({ id })
+                .then(
+                  (message) =>
+                    (message as { deliveryStatus?: MessageDeliveryStatus } | null)?.deliveryStatus,
+                ),
+            discard: (id) => owner.access.discardChat(asMutationId(id)),
+            dismissNotice: (id) =>
+              owner.access.trpc.messages.dismissNotice.mutate({ id }).then(() => {}),
+            dismissOffer: (at) => owner.access.dismissOffer(sessionId, at),
+            optimisticDismissOffer: false,
+            interrupt: (id) => interruptSession(owner.access.trpc.sessions, sessionId, id),
+            optimisticSendCeilingMs: OPTIMISTIC_SEND_CEILING_MS,
           },
         },
-        cache: {
-          maxItems: REPLICA_TRANSCRIPT_ITEM_CAP,
-          read: (id) => owner.replica.transcriptWindow(id),
-          write: (id, items) => owner.replica.putTranscriptWindow(id, [...items]),
-        },
-      },
-      sends: {
-        records: ports.records,
-        messageRecords: {
-          read: id => pool ? here(pool.model('messageRecord', id)) : undefined,
-          ingest: records => { if (pool) ingestMessageRecords(pool, records, id => currentMessageRecord(pool, owner.replica, id)) },
-        },
-        outbox: ports.outbox,
-        initialPending: [
-          ...(props.initialPendingText
-            ? [
-                {
-                  id: 'pending-first-turn',
-                  deliveryId: 'pending-first-turn',
-                  text: props.initialPendingText,
-                  wire: props.initialPendingText,
-                  at: Date.now(),
-                  state: 'sent' as const,
-                  kind: 'message' as const,
-                  reconcile: 'next-user-item' as const,
-                },
-              ]
-            : []),
-          ...ports.outbox
-            .held()
-            .map(
-              (send, index): ConversationPendingTurn => ({
-                id: `outbox-${index}-${send.mutationId}`,
-                deliveryId: send.mutationId,
-                text: send.text,
-                wire: send.text,
-                at: send.queuedAt,
-                state: send.state,
-                kind: 'message',
-                ...(send.failure
-                  ? {
-                      error: send.failure.message,
-                      ...(send.failure.retryable ? {} : { retryable: false }),
-                    }
-                  : {}),
-              }),
-            ),
-        ],
-        initialJustSent: props.initialPendingText !== undefined,
-        createDeliveryId: () => `msg_${randomUUID()}`,
-        lookupRecords: (ids) =>
-          owner.access.trpc.messages.records
-            .query({ ids: [...ids] })
-            .then((answer) => answer.records),
-        deliver: async (turn) => {
-          try {
-            const session = (pool ? here(pool.model('session', sessionId)) : undefined)
-            const composer = composerState({
-              session: session ?? props.session,
-              headless: false,
-              turnRunning: false,
-              compact: false,
-            })
-            const held = ports.outbox.held().some((send) => send.mutationId === turn.deliveryId)
-            const transport = held
-              ? { kind: 'send' as const, wake: false }
-              : chatSendTransport(composer)
-            if (transport.kind === 'refused') throw new Error(transport.reason)
-            return await owner.access.sendChat(
-              {
-                sessionId,
-                text: turn.wire,
-                wake: transport.wake,
-                ...(turn.attachments?.length ? { attachments: turn.attachments } : {}),
-              },
-              asMutationId(turn.deliveryId),
-            )
-          } catch (error) {
-            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
-            throw error
-          }
-        },
-        retract: (id) =>
-          owner.access.trpc.messages.cancel
-            .mutate({ id })
-            .then(
-              (message) =>
-                (message as { deliveryStatus?: MessageDeliveryStatus } | null)?.deliveryStatus,
-            ),
-        discard: (id) => owner.access.discardChat(asMutationId(id)),
-        dismissNotice: (id) =>
-          owner.access.trpc.messages.dismissNotice.mutate({ id }).then(() => {}),
-        dismissOffer: (at) => owner.access.dismissOffer(sessionId, at),
-        optimisticDismissOffer: false,
-        interrupt: (id) => interruptSession(owner.access.trpc.sessions, sessionId, id),
-        optimisticSendCeilingMs: OPTIMISTIC_SEND_CEILING_MS,
-      },
-    }, { hidePendingQuestion: true }),
+        { hidePendingQuestion: true },
+      ),
     { warmLimit: PHONE_WARM_CONVERSATIONS, enabled: pool !== null && readiness.ready },
   )
   // The reply to an agent's question goes to the asker over the existing
   // messages.show/reply calls, exactly as the web composer sends it (POD-2380).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the cached service and its pool retain their original mutation owner.
   const view = useMemo(
     () =>
       model && pool
@@ -378,11 +412,7 @@ export function SessionConversation(
     [model, pool],
   )
   useEffect(() => view?.open(), [view])
-  return view ? (
-    <SessionConversationBody {...props} pool={pool} session={view.session ?? props.session} model={view} />
-  ) : (
-    <TranscriptSkeleton />
-  )
+  return view
 }
 
 const SessionConversationBody = observer(function SessionConversationBody({
@@ -487,6 +517,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
   // growing the field does not relayout the transcript under the operator.
   const [composerHeight, setComposerHeight] = useState(0)
   const [askHeight, setAskHeight] = useState(0)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each rendered item count acknowledges a new transcript batch.
   useEffect(() => {
     transcript.markRendered()
   }, [itemCount, transcript])
@@ -529,7 +560,9 @@ const SessionConversationBody = observer(function SessionConversationBody({
               files: attached.map((file) => ({
                 ...file,
                 path: file.path ?? file.name,
-                ...(!file.path && file.ref ? { attachmentId: file.ref.id, kind: file.ref.kind } : {}),
+                ...(!file.path && file.ref
+                  ? { attachmentId: file.ref.id, kind: file.ref.kind }
+                  : {}),
               })),
             }
           : {}),
@@ -710,7 +743,8 @@ const SessionConversationBody = observer(function SessionConversationBody({
   )
   const tailState = useMemo(
     () => ({
-      label: activity?.label ?? (conversation.session?.agentPhase === 'idle' ? 'Idle' : session.status),
+      label:
+        activity?.label ?? (conversation.session?.agentPhase === 'idle' ? 'Idle' : session.status),
       tone: (activity?.tone === 'attention' ? 'attention' : activity ? 'working' : 'idle') as
         | 'working'
         | 'attention'

@@ -96,39 +96,43 @@ export const TaskSummary = observer(function TaskSummary({
   issue,
   lead,
   onAccept,
+  offer,
   onOpenSession,
   onComment,
 }: {
   issue: IssueViewModel
   lead: SessionView | undefined
   /** Send the chosen action's prompt to the session that offered it. */
-  onAccept: (sessionId: SessionId, prompt: string) => Promise<void>
+  onAccept: (sessionId: SessionId, prompt: string, offerCreatedAt: string) => Promise<void>
+  /** The shared conversation owns offer dismissal and failure restoration. */
+  offer: SessionOffer | null
   onOpenSession: (sessionId: SessionId) => void
   /** With no session to open, the chat button posts on the task instead (the
    *  send path the page's old composer used, @mentions included). */
   onComment: (text: string) => void
 }) {
-  // An accept hides the buttons on the press, keyed by the offer it answered,
-  // so a replacement offer that arrives meanwhile still shows.
-  const [answered, setAnswered] = useState<string | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
-  const [asking, setAsking] = useState<SessionOffer['actions'][number] | null>(null)
+  const [asking, setAsking] = useState<{
+    sessionId: SessionId
+    createdAt: string
+    action: SessionOffer['actions'][number]
+  } | null>(null)
   const [commenting, setCommenting] = useState(false)
   const notes = issue.activityNotes?.trim()
-  const offer = lead?.offer && lead.offer.createdAt !== answered ? lead.offer : null
   const headline = offer?.message.split('\n')[0]?.trim()
   // Nothing to say and nothing asked: the session row below already opens the
   // chat, so the card is left out. With no session it stays as the way to post.
-  if (!notes && !headline && lead) return null
+  if (!notes && !headline && lead && !asking && !failed) return null
 
-  const send = async (prompt: string) => {
-    if (!lead || !offer) return
+  const send = async (sessionId: SessionId, createdAt: string, prompt: string) => {
     setFailed(null)
-    setAnswered(offer.createdAt)
+    if (lead?.sessionId !== sessionId || offer?.createdAt !== createdAt) {
+      setFailed('This offer has changed. Open the current offer to answer it.')
+      return
+    }
     try {
-      await onAccept(lead.sessionId, prompt)
+      await onAccept(sessionId, prompt, createdAt)
     } catch (error) {
-      setAnswered(null)
       setFailed(error instanceof Error ? error.message : String(error))
     }
   }
@@ -163,7 +167,12 @@ export const TaskSummary = observer(function TaskSummary({
               accessibilityRole="button"
               accessibilityLabel={action.label}
               accessibilityHint={action.input ? 'Asks for your feedback first' : undefined}
-              onPress={() => (action.input ? setAsking(action) : void send(action.prompt))}
+              onPress={() => {
+                if (!lead) return
+                if (action.input)
+                  setAsking({ sessionId: lead.sessionId, createdAt: offer.createdAt, action })
+                else void send(lead.sessionId, offer.createdAt, action.prompt)
+              }}
               style={({ pressed }) => [
                 styles.button,
                 styles.buttonGrow,
@@ -204,12 +213,17 @@ export const TaskSummary = observer(function TaskSummary({
       ) : null}
       <PromptSheet
         visible={asking !== null}
-        title={asking?.label ?? ''}
+        title={asking?.action.label ?? ''}
         hint="Your feedback is sent with this answer."
         placeholder="Add your feedback…"
         confirmLabel="Send"
         onConfirm={(feedback) => {
-          if (asking) void send(composeOfferPrompt(asking.prompt, feedback))
+          if (asking)
+            void send(
+              asking.sessionId,
+              asking.createdAt,
+              composeOfferPrompt(asking.action.prompt, feedback),
+            )
         }}
         onClose={() => setAsking(null)}
       />
