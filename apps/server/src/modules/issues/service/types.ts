@@ -53,7 +53,13 @@ export interface IssueLedger {
   commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>>
   /** Reconcile normalized issues, their companions and repository facts. */
   reconcile(
-    entity: 'issueProjection' | 'issueUserState' | 'issueGitState' | 'issueDep' | 'repo',
+    entity:
+      | 'issueProjection'
+      | 'issueBodies'
+      | 'issueUserState'
+      | 'issueGitState'
+      | 'issueDep'
+      | 'repo',
     rows: { id: string; value: unknown }[],
   ): Promise<MetadataChange[]>
   /** Append partial truth without diffing unrelated baseline rows (POD-210). */

@@ -82,7 +82,11 @@ import type { EffectExecutorRegistry } from '../modules/effects/registry'
 import { openInteractionRecords } from '../modules/interactions/feed'
 import { interactionWireOf } from '../modules/interactions/service'
 import { issueEventWindow } from '../modules/issue-events/feed'
-import { issueDepToProjection, issueRowToProjection } from '../modules/issues/projection'
+import {
+  issueBodiesOfRow,
+  issueDepToProjection,
+  slimIssueProjectionOfRow,
+} from '../modules/issues/projection'
 import { storedMachineRecordFacts } from '../modules/machines/record-facts'
 import { machineRecordSpecs } from '../modules/machines/records'
 import {
@@ -241,15 +245,16 @@ const machineAccess: Builder = {
 // Issues
 // ---------------------------------------------------------------------------
 
-/** One issue row and its labels, as `IssueService.projection` publishes it. A
- *  row that cannot be projected (incomplete attribution) is no record. */
+/** One issue row and its labels, as `IssueService` publishes it: the slim
+ *  record, without its bodies (POD-6767). A row that cannot be projected
+ *  (incomplete attribution) is no record. */
 function projectIssues(
   rows: readonly IssueRow[],
   labels: ReadonlyMap<string, string[]>,
 ): BuiltRecord[] {
   return rows.flatMap((row) => {
     try {
-      return [{ id: row.id, value: issueRowToProjection(row, labels.get(row.id) ?? []) }]
+      return [{ id: row.id, value: slimIssueProjectionOfRow(row, labels.get(row.id) ?? []) }]
     } catch {
       return []
     }
@@ -266,6 +271,30 @@ const issueProjection: Builder = {
   async *streamAll({ store }) {
     for await (const page of store.issues.issueRowPages(RECORD_PAGE_SIZE)) {
       yield projectIssues(page, await store.issues.labelsOfIssues(page.map((row) => row.id)))
+    }
+  },
+}
+
+/** The `issueBodies` header row of each issue row (POD-6767); an issue with
+ *  no body content, or one that cannot be projected, has none. */
+function issueBodyRecords(rows: Iterable<IssueRow>): BuiltRecord[] {
+  return [...rows].flatMap((row) => {
+    try {
+      const value = issueBodiesOfRow(row)
+      return value ? [{ id: row.id, value }] : []
+    } catch {
+      return []
+    }
+  })
+}
+
+const issueBodies: Builder = {
+  kind: 'issueBodies',
+  shape: 'row',
+  build: async ({ store }, ids) => issueBodyRecords((await store.issues.getIssues(ids)).values()),
+  async *streamAll({ store }) {
+    for await (const page of store.issues.issueRowPages(RECORD_PAGE_SIZE)) {
+      yield issueBodyRecords(page)
     }
   },
 }
@@ -828,13 +857,14 @@ const session: Builder = {
   },
 }
 
-/** The database-only kinds: the stored-row kinds (POD-6765), the audit's 24 in its order, then `session` (POD-6764). */
+/** The database-only kinds: the stored-row kinds (POD-6765), the audit's 24 in its order, then `session` (POD-6764), and the issue body headers split out of the issue record (POD-6767). */
 export const DATABASE_ONLY_BUILDERS: readonly Builder[] = [
   conversation,
   issueGitState,
   machine,
   machineAccess,
   issueProjection,
+  issueBodies,
   issueDep,
   issueUserState,
   subscription,

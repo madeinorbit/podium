@@ -22,4 +22,12 @@ export * from './legacy-wire-v1-binding'
 export * from './legacy-wire-v1-feed'
 export * from './principal-storage'
 export * from './contract'
-export type { IssueViewModel, IssueView, IssueSessionRollups } from '../values/issue-type'
+export { issueBodyLoading } from '../values/issue-type'
+export type {
+  IssueBodyFields,
+  IssueBodyValues,
+  IssueSessionRollups,
+  IssueView,
+  IssueViewModel,
+  IssueWithBodies,
+} from '../values/issue-type'

@@ -49,6 +49,8 @@ const ENTITY_TO_KIND = {
   issueProjection: 'issueProjections',
   issueUserState: 'issueUserStates',
   issueGitState: 'issueGitStates',
+  // POD-6767: an issue's body headers, keyed by the issue id.
+  issueBodies: 'issueBodies',
   issueDep: 'issueDeps',
   repo: 'repos',
   /** POD-1772's curated issue events. Same rule as the three kinds above: the

@@ -15,6 +15,7 @@ export function issueInput(
   gitState: Input | undefined,
   deps: readonly SliceDepEdge[],
   blocked: boolean,
+  bodies?: Input,
 ): SliceIssue | undefined {
   if (!projection) return undefined
   let memo = composed
@@ -22,6 +23,7 @@ export function issueInput(
     projection,
     userState ?? NONE,
     gitState ?? NONE,
+    bodies ?? NONE,
     deps,
   ]) {
     let next = memo.next.get(key)
@@ -35,6 +37,8 @@ export function issueInput(
   // The git kind's identity is an issue id; its updatedAt is a probe timestamp.
   // Neither is the issue's durable identity or activity timestamp.
   const git = gitState && (({ id: _id, ...observation }) => observation)(gitState)
+  // The headers of the issue's bodies (POD-6767), likewise without the issue id.
+  const headers = bodies && (({ id: _id, ...fields }) => fields)(bodies)
   // Server concurrency bookkeeping has no client reader. Keep it in replica
   // truth for command settlement, outside the observable issue record.
   const { revision: _revision, repoPath: _repoPath, prefix: _prefix, displayRef: _displayRef, ...own } = projection
@@ -48,6 +52,7 @@ export function issueInput(
     assignedAt: userState?.assignedAt ?? null,
     assignedBy: userState?.assignedBy ?? null,
     gitState: git,
+    bodies: headers,
     deps,
     blocked,
   } as unknown as SliceIssue

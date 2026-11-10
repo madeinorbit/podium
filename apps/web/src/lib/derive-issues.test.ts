@@ -31,7 +31,6 @@ function issue(over: Partial<UnbrandIds<IssueViewModel>> = {}): IssueViewModel {
     repoPath: '/home/u/acme',
     seq: 1,
     title: 'Fix login',
-    description: '',
     stage: 'in_progress',
     worktreePath: '/home/u/acme/.worktrees/issue-1',
     branch: 'issue/1',

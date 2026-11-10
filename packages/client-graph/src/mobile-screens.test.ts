@@ -229,7 +229,8 @@ it('an archived root keeps its full header for the current session without loadi
   // falling back to root. Every header field must borrow the full root.
   const header = data.header(data.missionSessions[0]?.issueId)
   expect(header).toBe(data.root)
-  expect(header).toMatchObject({ ...root, description: 'summary description' })
+  // The header carries no body (POD-6767); the description is the model's.
+  expect(header).toMatchObject(root)
   expect(header).toMatchObject({ memberSessionIds: ['current'] })
   expect(load.mock.calls.filter(([kind]) => kind === 'issue')).toEqual([['issue', 'cold']])
   expect(pool.tables.issue.has('hidden-child')).toBe(false)
@@ -269,7 +270,7 @@ it('an archived child keeps its full header when a current mission session belon
   expect(data.root?.id).toBe('root')
   expect(data.missionSessions).toMatchObject([{ sessionId: 'current', issueId: 'header-child' }])
   const header = data.header(data.missionSessions[0]?.issueId)
-  expect(header).toMatchObject({ ...headerIssue, description: 'summary description', memberSessionIds: ['current'] })
+  expect(header).toMatchObject({ ...headerIssue, memberSessionIds: ['current'] })
   expect(load.mock.calls.filter(([kind, id]) => kind === 'issue' && id === 'header-child')).toEqual([['issue', 'header-child']])
   // As in the original fixture, shared visibility can load a hidden member's
   // payload. The phone still prepares no rich header for that hidden member.

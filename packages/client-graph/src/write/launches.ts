@@ -76,7 +76,7 @@ import {
   type SessionMeta,
   type UserId,
 } from '@podium/model'
-import { draftIssueRow, startedIssueRow, starterUserState, startingSessionRow } from './launch-rows'
+import { draftIssueRow, type LaunchIssueRow, startedIssueRow, starterUserState, startingSessionRow } from './launch-rows'
 
 export interface PoolLaunchPorts {
   readonly userId: UserId
@@ -795,7 +795,7 @@ export class PoolLaunches {
       agentKind,
       nowIso: launch.createdAt,
     }
-    const issue: IssueViewModel =
+    const issue: LaunchIssueRow =
       launch.kind === SESSION_LAUNCH_KIND
         ? draftIssueRow(common)
         : startedIssueRow({
@@ -812,7 +812,7 @@ export class PoolLaunches {
             ...(input.priority !== undefined ? { priority: input.priority } : {}),
             ...(input.stage !== undefined ? { stage: input.stage } : {}),
           })
-    const shown: IssueViewModel = proposed ? { ...issue, stage: 'proposed' } : issue
+    const shown: LaunchIssueRow = proposed ? { ...issue, stage: 'proposed' } : issue
     const row: Record<string, unknown> = {}
     const source = shown as unknown as Record<string, unknown>
     for (const key of PROJECTION_KEYS) {

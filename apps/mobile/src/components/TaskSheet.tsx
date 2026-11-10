@@ -1,6 +1,6 @@
 import { relativeTime } from '@podium/client-core/focus'
 import { useCommands } from '@podium/client-core/react'
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueViewModel, IssueWithBodies } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { operationalState, sessionTitle } from '@podium/client-core/values'
 import type { DetailSession } from '@podium/client-graph/issue-page'
@@ -91,11 +91,12 @@ export const TaskSheet = observer(function TaskSheet({
   onOpenIssue,
 }: {
   pool?: MobxPool | null
+  /** Which task; the sheet reads it from the pool as its model. */
   issue: IssueViewModel | null
   onClose: () => void
   onOpenSession: (session: SessionView) => void
   /** Retarget the sheet at another task (a subtask row). Absent = navigate. */
-  onOpenIssue?: (issue: IssueViewModel) => void
+  onOpenIssue?: (issue: IssueWithBodies) => void
 }) {
   const trpc = useTrpc()
   const attachedPool = useMobilePool()
@@ -182,7 +183,7 @@ const SheetHead = observer(function SheetHead({
   onOpenSession,
 }: {
   pool?: MobxPool | null
-  issue: IssueViewModel
+  issue: IssueWithBodies
   onOpenSession: (session: SessionView) => void
 }) {
   const { update: updateIssue, close: closeIssue } = useCommands<MobileTrpc>().issues,
@@ -327,11 +328,11 @@ const SheetBody = observer(function SheetBody({
   onOpenIssue,
 }: {
   pool?: MobxPool | null
-  issue: IssueViewModel
+  issue: IssueWithBodies
   /** Hands the artifact up: the viewer must present ABOVE this sheet's modal. */
   onOpenArtifact: (artifact: IssuePanelArtifact, url: string) => void
   onOpenSession: (s: SessionView) => void
-  onOpenIssue: (issue: IssueViewModel) => void
+  onOpenIssue: (issue: IssueWithBodies) => void
 }) {
   const httpOrigin = useHttpOrigin()
   const profile = useOptionalServerProfile()
@@ -456,7 +457,7 @@ const SheetChildRow = observer(function SheetChildRow({
   onOpenIssue,
 }: {
   child: PageIssue
-  onOpenIssue: (issue: IssueViewModel) => void
+  onOpenIssue: (issue: IssueWithBodies) => void
 }) {
   return (
     <PressableScale

@@ -3,7 +3,7 @@ import type {
   Geometry,
   IssueDepProjection,
   IssueEventWire,
-  IssueProjection,
+  SlimIssueProjection,
   LayoutWire,
   MachineId,
   MessageRecordWire,
@@ -491,7 +491,7 @@ export interface HubEvents {
    *  since POD-797). Carries no session data of any kind —
    *  a consumer resolves members by indexing sessions on `issueId`. Emitted
    *  ALONGSIDE `issues` during the transition, never instead of it. */
-  issueProjections: [issues: IssueProjection[]]
+  issueProjections: [issues: SlimIssueProjection[]]
   /** Full dep-EDGE list after any change [POD-822]. Same gating as
    *  `issueProjections`; the replica joins these to derive blocked/ready/dependents. */
   issueDeps: [deps: IssueDepProjection[]]
@@ -630,7 +630,7 @@ export class SocketHub {
    *  carries them as two entity KINDS ('issue' / 'issueProjection') because the
    *  ledger stores one value per (kind, id). Empty unless the authority's flag
    *  is on. */
-  private issueProjectionList: IssueProjection[] = []
+  private issueProjectionList: SlimIssueProjection[] = []
   /** The dep EDGES and the repos [POD-822] — the two kinds the replica joins the
    *  projections against to get back `blocked`/`ready`/`dependents` (edges) and
    *  `displayRef` (repo prefix). Separate lists for the same reason
@@ -1376,7 +1376,7 @@ export class SocketHub {
    * replica is a cache and never argues with the server (spec invariant 1).
    */
   seedMetadata(seed: {
-    issueProjections?: IssueProjection[]
+    issueProjections?: SlimIssueProjection[]
     issueDeps?: IssueDepProjection[]
     repos?: RepoProjection[]
     shipOrders?: ShipOrderProjection[]
@@ -2288,6 +2288,8 @@ export class SocketHub {
         case 'automation':
         case 'automationRun':
         case 'issueGitState':
+        // POD-6767: an issue's body headers.
+        case 'issueBodies':
         case 'sessionUserState':
         case 'machine':
         // POD-6644: a machine's access rows and its checkouts.

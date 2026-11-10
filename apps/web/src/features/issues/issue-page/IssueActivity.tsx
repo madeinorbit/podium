@@ -60,7 +60,7 @@ import {
 } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
-import type { IssueViewModel } from '@/app/store'
+import type { IssueWithBodies } from '@/app/store'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -484,7 +484,7 @@ export const IssueActivitySection = observer(function IssueActivitySection({
   history,
   onEditComment,
 }: {
-  issue: IssueViewModel
+  issue: IssueWithBodies
   busy: boolean
   commands: IssuePageCommands
   feed: ActivityItem[]

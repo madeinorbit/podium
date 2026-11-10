@@ -1,4 +1,4 @@
-import type { ArtifactId, IssueId, MachineId, SessionId } from '@podium/model'
+import type { ArtifactId, IssueId, IssuePanel, MachineId, SessionId } from '@podium/model'
 import {
   machinePathBasename as basename,
   isMachinePathWithinRoot,
@@ -97,8 +97,12 @@ export function resolveActiveWorktree(args: {
  *  seq — never on broadcast array order (#243). */
 type IssuePanelLike = Pick<
   IssueViewModel,
-  'id' | 'worktreePath' | 'archived' | 'deletedAt' | 'seq' | 'parentId' | 'panel'
->
+  'id' | 'worktreePath' | 'archived' | 'deletedAt' | 'seq' | 'parentId'
+> & {
+  /** The issue's panel, a body (POD-6767): `IssueModel.panel` answers it once
+   *  fetched; a plain row carries none. */
+  readonly panel?: IssuePanel | undefined
+}
 
 export function issueForCwd<T extends IssuePanelLike>(issues: T[], cwd: string): T | null {
   let best: T | null = null

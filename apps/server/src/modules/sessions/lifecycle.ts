@@ -1128,6 +1128,7 @@ export class SessionLifecycle {
       // Required empty compatibility field; supported clients read normalized kinds.
       issues: [],
       issueProjections: values('issueProjection'),
+      issueBodies: values('issueBodies'),
       issueUserStates: values('issueUserState'),
       issueGitStates: values('issueGitState'),
       issueDeps: values('issueDep'),

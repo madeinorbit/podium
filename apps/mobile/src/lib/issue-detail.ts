@@ -1,5 +1,5 @@
 import { issueWrites } from '@podium/commands/issues-synced'
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueWithBodies } from '@podium/client-core/replica'
 import type { ActivityComment, IssueEvent } from '@podium/client-core/values'
 import type { IssueUpdatePatch } from '@podium/commands'
 import {
@@ -127,7 +127,7 @@ export function issueCommands({
   pool,
 }: {
   trpc: MobileTrpc
-  issue: IssueViewModel
+  issue: IssueWithBodies
   /** The pool's effect records, where an action's ending is read. */
   pool?: EffectPool | null
   /** Current maintained facts for this task, read only on a close press. */

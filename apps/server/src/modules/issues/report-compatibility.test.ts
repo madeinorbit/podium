@@ -116,8 +116,12 @@ it('keeps requested issue JSON fields on create, update, get, list and tree', as
   expect(snapshot.kind).toBe('snapshot')
   if (snapshot.kind !== 'snapshot') throw new Error('expected snapshot')
   expect(snapshot.issues).toEqual([])
-  expect(snapshot.issueProjections?.find((row) => row.id === created.id)?.description).toEqual({
-    value: 'Plain text body',
+  // The synced record carries the description's header only (POD-6767).
+  expect(snapshot.issueProjections?.find((row) => row.id === created.id)).not.toHaveProperty(
+    'description',
+  )
+  expect(snapshot.issueBodies?.find((row) => row.id === created.id)?.description).toMatchObject({
+    size: 'Plain text body'.length,
   })
 })
 

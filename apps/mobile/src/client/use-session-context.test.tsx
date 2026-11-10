@@ -141,7 +141,7 @@ vi.mock('../components/TaskSheet', () => ({
     const { issue } = props
     return issue ? (
       <aside>
-        {issue.title}:{issue.description}
+        {issue.title}
       </aside>
     ) : null
   },

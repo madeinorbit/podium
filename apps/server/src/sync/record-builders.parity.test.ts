@@ -128,24 +128,16 @@ async function parityOf(store: SessionStore, reads: RecordReads): Promise<KindPa
       entityId: row.entityId,
       payload: row.payload,
     }))
-    out.push(
-      await kindParity(registry, reads, builder.kind, published, {
-        keepValues: true,
-        // POD-6767 moves these out of the issue record; both sides change with it.
-        ...(builder.kind === 'issueProjection'
-          ? { ignoreFields: ['brief', 'panel', 'description', 'activityNotes'] }
-          : {}),
-      }),
-    )
+    out.push(await kindParity(registry, reads, builder.kind, published, { keepValues: true }))
   }
   return out
 }
 
 describe('record builders (POD-6763)', () => {
-  it('registers the 29 database-only kinds once each', () => {
+  it('registers the 29 database-only kinds and the issue body headers once each', () => {
     const kinds = serverRecordBuilders().kinds()
-    expect(kinds).toHaveLength(29)
-    expect(new Set(kinds).size).toBe(29)
+    expect(kinds).toHaveLength(30)
+    expect(new Set(kinds).size).toBe(30)
     for (const left of [
       'repo',
       'shipLane',

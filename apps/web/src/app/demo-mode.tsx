@@ -14,6 +14,7 @@
 
 import {
   createDemoReplica,
+  demoIssueBodies,
   DEMO_PRINCIPAL,
   DEMO_TRANSCRIPTS,
   demoEnabled,
@@ -109,6 +110,8 @@ export function demoTrpc(): Trpc {
       interrupt: { mutate: async () => ({ ok: true }) },
     },
     issues: {
+      // The fixtures' bodies at their headers' digests (POD-6767).
+      bodies: { query: async ({ ids }: { ids: string[] }) => demoIssueBodies(ids) },
       promote: { mutate: async () => ({}) },
       start: { mutate: async () => ({}) },
       close: { mutate: async () => ({}) },

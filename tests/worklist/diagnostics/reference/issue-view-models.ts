@@ -4,7 +4,7 @@ import {
   type IssueGitState,
   type IssueGitStateProjection,
   type IssueId,
-  type IssueProjection,
+  type SlimIssueProjection,
   type IssueUserStateWire,
   type RepoProjection,
   type SessionId,
@@ -45,12 +45,13 @@ const EMPTY_ROLLUPS: IssueSessionRollups = {
 }
 
 export type IssueViewModel = Omit<
-  IssueProjection,
-  'description' | 'worktreePath' | 'branch'
+  SlimIssueProjection,
+  'worktreePath' | 'branch'
 > &
   Omit<IssueView, 'id'> &
   Partial<IssueSessionRollups> & {
-    description: string
+    /** Painted by a fixture only (POD-6767). */
+    description?: string
     worktreePath: string | null
     branch: string | null
     readAt: string | null
@@ -65,7 +66,7 @@ export type IssueViewModel = Omit<
 export function deriveIssueViewsSnapshot(
   replica: Replica,
   previous?: IssueViewsSnapshot,
-  projections: readonly IssueProjection[] = replica.rows('issueProjections'),
+  projections: readonly SlimIssueProjection[] = replica.rows('issueProjections'),
   issueUserStates: readonly IssueUserStateWire[] = replica.rows('issueUserStates'),
   dependencyStage?: (id: string) => string | undefined,
 ): IssueViewsSnapshot {
@@ -104,9 +105,15 @@ export function deriveIssueViewsSnapshot(
   }
 }
 
+function paintedDescription(projection: SlimIssueProjection): { description?: string } {
+  const painted = (projection as { description?: string | { value?: string } }).description
+  if (painted === undefined) return {}
+  return { description: typeof painted === 'string' ? painted : (painted.value ?? '') }
+}
+
 export function buildIssueViewModel(
   snapshot: IssueViewsSnapshot,
-  projection: IssueProjection,
+  projection: SlimIssueProjection,
   userState: IssueUserStateWire | undefined,
 ): IssueViewModel | undefined {
   const view = snapshot.views.get(projection.id)
@@ -118,7 +125,9 @@ export function buildIssueViewModel(
   const readAt = userState?.readAt ?? null
   return {
     ...projection,
-    description: projection.description.value,
+    // The synced record carries no body (POD-6767); a fixture that paints one
+    // keeps it, as text, for the model to answer before any fetch.
+    ...paintedDescription(projection),
     worktreePath: projection.worktreePath ?? null,
     branch: projection.branch ?? null,
     ...derived,
@@ -142,7 +151,7 @@ export function buildIssueViewModel(
 
 export function buildIssueViewModels(
   snapshot: IssueViewsSnapshot,
-  projectionRows: readonly IssueProjection[],
+  projectionRows: readonly SlimIssueProjection[],
   userStateRows: readonly IssueUserStateWire[] = snapshot.issueUserStates,
 ): Map<string, IssueViewModel> {
   const models = new Map<string, IssueViewModel>()
@@ -156,7 +165,7 @@ export function buildIssueViewModels(
 
 export function issueViewModelsFromReplica(
   replica: Replica,
-  projectionRows: readonly IssueProjection[] = replica.rows('issueProjections'),
+  projectionRows: readonly SlimIssueProjection[] = replica.rows('issueProjections'),
   userStateRows: readonly IssueUserStateWire[] = replica.rows('issueUserStates'),
 ): Map<string, IssueViewModel> {
   return buildIssueViewModels(

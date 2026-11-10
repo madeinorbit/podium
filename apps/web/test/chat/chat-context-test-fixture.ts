@@ -16,7 +16,7 @@ import type { ReferenceState } from '../../../../tests/worklist/diagnostics/refe
 type Store = ReferenceState & { drafts: Record<string, string> }
 
 import { outboxChatSends } from '@podium/client-core/conversation'
-import type { IssueViewModel, ReplicaAddressedBatch } from '@podium/client-core/replica'
+import type { IssueBodyValues, IssueViewModel, ReplicaAddressedBatch } from '@podium/client-core/replica'
 import { MobxPool } from '@podium/client-graph'
 import {
   CHAT_CONTEXT_ENTITIES,
@@ -134,7 +134,7 @@ export async function createChatContextFixture(resumeTwins = false) {
             ],
           }
         : undefined,
-  })) as unknown as IssueViewModel[]
+  })) as unknown as (IssueViewModel & IssueBodyValues)[]  // bodies painted on (POD-6767)
   let messages = data.messages,
     interactions = [...data.interactions].reverse()
   let queued = [

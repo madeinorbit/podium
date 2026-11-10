@@ -4,7 +4,7 @@ import { omitGone } from './lookup'
 import { headerView } from './header-views'
 import { action, compareStructural, observable, observableRef, observe, runInAction, when } from 'mobx'
 import { headerEntities } from './header-entities'
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueViewModel, IssueWithBodies } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueId, IssuePanelArtifact, MachineFacts } from '@podium/model'
 import { dedupeSessionsByResume } from '@podium/model'
@@ -177,19 +177,23 @@ export function chatItemMessage(
 export function chatItemAttachments(pool: MobxPool, sessionId: string, itemId: string) {
   return chatItemMessage(pool, sessionId, itemId)?.attachments
 }
+/** The session's issue as its model, which answers the panel body
+ *  (POD-6767): the row carries only the panel's header. */
 export function chatArtifactIssue(
   pool: MobxPool,
   session: Pick<SessionView, 'issueId' | 'sessionId'>,
-): Loaded<IssueViewModel> {
+): Loaded<IssueWithBodies> {
+  const model = (id: string) => pool.issueObject(id) as unknown as IssueWithBodies
   if (session.issueId) {
     const direct = omitGone(pool.row('issue', session.issueId))
     if (loading(direct)) return direct
-    if (direct && !(direct as IssueViewModel).deletedAt) return direct as IssueViewModel
+    if (direct && !(direct as IssueViewModel).deletedAt) return model(session.issueId)
   }
   // Normalized membership is the declared raw non-shell attachment relation.
   const owner = pool.relations.one('session', session.sessionId, 'pageIssue')
   const issue = owner ? (omitGone(pool.row('issue', owner)) as Loaded<IssueViewModel>) : undefined
-  return issue && !loading(issue) && issue.deletedAt ? undefined : issue
+  if (!issue || loading(issue)) return issue
+  return issue.deletedAt ? undefined : model(issue.id)
 }
 /** The stored copy of a file attached in this session's chat (POD-2148), by
  * the attachment id it was staged under, from the session's issue. Undefined

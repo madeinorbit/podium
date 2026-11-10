@@ -1,5 +1,5 @@
 import { useChatSends, useCommands } from '@podium/client-core/react'
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueViewModel, IssueWithBodies } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { issueRepoName } from '@podium/client-core/values'
 import { issueActivity } from '@podium/client-graph/issue-activity'
@@ -202,7 +202,7 @@ const IssueContent = observer(function IssueContent({
   onBack,
   dismiss,
 }: {
-  issue: IssueViewModel
+  issue: IssueWithBodies
   onBack: () => void
   dismiss: boolean
 }) {

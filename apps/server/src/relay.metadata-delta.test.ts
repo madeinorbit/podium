@@ -1,5 +1,5 @@
 import { CHANGE_LOG_OBSERVER } from '@podium/sync'
-import type { IssueProjection, IssueUserStateWire, SessionMeta } from '@podium/model'
+import type { IssueBodiesWire, IssueProjection, IssueUserStateWire, SessionMeta } from '@podium/model'
 import { firstAdminMemberId } from '@podium/model'
 import { CLIENT_WIRE_VERSION, type MetadataChange, type ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -130,22 +130,27 @@ describe('SessionRegistry metadata deltas', () => {
     await registry.issues.crud.update(registry.issues.reports.store.serverWriter, w.id, { brief: 'self-contained edit' })
     flush(registry)
 
-    await expect.poll(() => deltas(legacy.inbox.slice(legacyBefore)).length).toBe(1)
-    await expect.poll(() => deltas(delta.inbox.slice(deltaBefore)).length).toBe(1)
+    // The record and its body headers (POD-6767): the brief itself is fetched by id.
+    await expect.poll(() => deltas(legacy.inbox.slice(legacyBefore)).length).toBe(2)
+    await expect.poll(() => deltas(delta.inbox.slice(deltaBefore)).length).toBe(2)
 
     // Both wire-v2 peers receive exactly the changed issue rows. There is no
     // full-list translation on the production path and the bystander is untouched.
     const legacyNew = legacy.inbox.slice(legacyBefore)
     expect(legacyNew.map((m) => m.type)).toEqual(['feedDelta'])
     const legacyChanges = deltas(legacyNew)
-    expect(legacyChanges.map((change) => change.entity).sort()).toEqual(['issueProjection'])
+    expect(legacyChanges.map((change) => change.entity).sort()).toEqual(['issueBodies', 'issueProjection'])
     expect(legacyChanges.every((change) => change.id === w.id)).toBe(true)
     // The cap-advertising peer observes the same canonical rows.
     const changes = deltas(delta.inbox.slice(deltaBefore))
-    expect(changes.map((change) => change.entity).sort()).toEqual(['issueProjection'])
+    expect(changes.map((change) => change.entity).sort()).toEqual(['issueBodies', 'issueProjection'])
     expect(changes.every((change) => change.id === w.id && change.op === 'upsert')).toBe(true)
     const residue = changes.find((change) => change.entity === 'issueProjection')
-    expect((residue as { value: IssueProjection }).value.brief).toBe('self-contained edit')
+    expect(residue?.value).not.toHaveProperty('brief')
+    const headers = changes.find((change) => change.entity === 'issueBodies')
+    expect((headers as { value: IssueBodiesWire }).value.brief).toMatchObject({
+      size: 'self-contained edit'.length,
+    })
   })
 
   it('streams session upserts through the same seam', async () => {

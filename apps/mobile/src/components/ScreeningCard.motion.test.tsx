@@ -1,4 +1,4 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueWithBodies } from '@podium/client-core/replica'
 import { asIssueId } from '@podium/model'
 import { act, render } from '@testing-library/react'
 import { observable, runInAction } from 'mobx'
@@ -150,7 +150,7 @@ const issue = {
   createdAt: '2026-08-23T00:00:00.000Z',
   intentOrigin: 'human',
   dependencyNote: null,
-} as unknown as IssueViewModel
+} as unknown as IssueWithBodies
 
 describe('ScreeningCard motion', () => {
   beforeEach(() => {

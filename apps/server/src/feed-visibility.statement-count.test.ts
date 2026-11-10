@@ -242,6 +242,7 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
             expect(edges[0]?.audience).toEqual([reader])
             expect(edges[0]?.subjects).toEqual([
               { entity: 'issueProjection', entityId: 'iss_0' },
+              { entity: 'issueBodies', entityId: 'iss_0' },
               { entity: 'issueGitState', entityId: 'iss_0' },
               { entity: 'issueDep', entityId: issueDepId('iss_0', 'shared_0', 'blocked-by') },
               { entity: 'shipOrder', entityId: 'order-0' },
@@ -253,10 +254,12 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
             // reads (design §2.2; POD-6288), so nobody loses it.
             expect(edges[3]).toBeNull()
             expect(edges[4]).toBeNull()
-            // Installed subjects come back parsed; issueGitState was never installed.
+            // Installed subjects come back parsed; issueBodies and
+            // issueGitState were never installed.
             expect(values[0]).toEqual({ id: 'iss_0' })
             expect(values[1]).toBeUndefined()
-            expect(values[2]).toEqual({ id: issueDepId('iss_0', 'shared_0', 'blocked-by') })
+            expect(values[2]).toBeUndefined()
+            expect(values[3]).toEqual({ id: issueDepId('iss_0', 'shared_0', 'blocked-by') })
           },
         ),
         setup: async (size) => {

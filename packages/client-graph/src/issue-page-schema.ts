@@ -12,7 +12,9 @@ const field = (type: FieldSpec['type'], optional = true): FieldSpec => ({
  * stay on the full row; menus need only the explicitly declared small summary. */
 export const ISSUE_PAGE_FIELDS = {
   type: field('string', false), labels: field('object', false),
-  brief: field('string'), acceptance: field('string'),
+  // A body (POD-6767): `IssueModel.brief` reads it from the body store.
+  brief: { type: 'string', optional: true, source: { schema: 'IssueProjection', arrivesOn: 'request:issues.bodies' } },
+  acceptance: field('string'),
   dependencyNote: field('string'),
   suggestedStage: field('string'), suggestedReason: field('string'),
   estimateMin: field('number'), dueAt: field('isoDate'),

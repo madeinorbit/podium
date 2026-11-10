@@ -367,6 +367,7 @@ function oracleAnchors(store: SessionStore, world: World): VisibilityAnchorPort 
       audience,
       subjects: [
         { entity: 'issueProjection', entityId: ref.entityId },
+        { entity: 'issueBodies', entityId: ref.entityId },
         { entity: 'issueGitState', entityId: ref.entityId },
         ...sessions.map((session): EntityRef => ({ entity: 'session', entityId: session.id })),
         ...sessions.flatMap((session): EntityRef[] =>
@@ -549,6 +550,7 @@ describe('visibility anchors: database reads answer like the old whole-table ind
     // of queued orders only.
     expect(edgeOf('iss_1')?.subjects).toEqual([
       { entity: 'issueProjection', entityId: 'iss_1' },
+      { entity: 'issueBodies', entityId: 'iss_1' },
       { entity: 'issueGitState', entityId: 'iss_1' },
       { entity: 'session', entityId: 'ses-1' },
       { entity: 'session', entityId: 'ses-2' },

@@ -3,7 +3,7 @@ import { issueObserver as observer } from '../../client/issue-observer'
 import { isClosed } from '@podium/model/browser'
 import { relativeTime } from '@podium/client-core/focus'
 import { useAgeNow } from '../../lib/clock-hooks'
-import type { IssueViewModel } from '@podium/client-core/replica'
+import { issueBodyLoading, type IssueWithBodies } from '@podium/client-core/replica'
 import { isPendingSync, isUpstreamStale, isViaHub } from '@podium/model'
 import { useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
@@ -31,7 +31,7 @@ export const IssueTitle = observer(function IssueTitle({
   busy,
   commands,
 }: {
-  issue: IssueViewModel
+  issue: IssueWithBodies
   busy: boolean
   commands: IssueCommands
 }) {
@@ -49,7 +49,7 @@ export const IssueTitle = observer(function IssueTitle({
   )
 })
 
-export const StatusStrip = observer(function StatusStrip({ issue }: { issue: IssueViewModel }) {
+export const StatusStrip = observer(function StatusStrip({ issue }: { issue: IssueWithBodies }) {
   const now = useAgeNow(Math.max(Date.parse(issue.createdAt), Date.parse(issue.updatedAt)))
   const created = relativeTime(issue.createdAt, now)
   const updated = relativeTime(issue.updatedAt, now)
@@ -110,7 +110,7 @@ export const IssueDescription = observer(function IssueDescription({
   busy,
   commands,
 }: {
-  issue: IssueViewModel
+  issue: IssueWithBodies
   busy: boolean
   commands: IssueCommands
 }) {
@@ -118,6 +118,7 @@ export const IssueDescription = observer(function IssueDescription({
     <View style={styles.section}>
       <InlineEditable
         value={issue.description}
+        loading={issueBodyLoading(issue, 'description')}
         placeholder="Add a description…"
         ariaLabel="Task description"
         busy={busy}
@@ -131,7 +132,7 @@ export const IssueDescription = observer(function IssueDescription({
 /** The agent brief, folded by default — it is long, and it is written FOR an
  *  agent. It sits between two things a human reads, so it stays a hairline and a
  *  label until asked for. */
-export const IssueBrief = observer(function IssueBrief({ issue }: { issue: IssueViewModel }) {
+export const IssueBrief = observer(function IssueBrief({ issue }: { issue: IssueWithBodies }) {
   const [open, setOpen] = useState(false)
   if (!issue.brief) return null
   return (
@@ -165,7 +166,7 @@ export const LongFormFields = observer(function LongFormFields({
   busy,
   commands,
 }: {
-  issue: IssueViewModel
+  issue: IssueWithBodies
   busy: boolean
   commands: IssueCommands
 }) {

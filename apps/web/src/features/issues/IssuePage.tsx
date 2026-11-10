@@ -1,7 +1,7 @@
 import type { IssueId } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
-import type { IssueViewModel } from '@/app/store'
+import type { IssueViewModel, IssueWithBodies } from '@/app/store'
 import { useMemberRoster } from '@/lib/member-roster'
 import { IssueCloseDialog, type IssueCloseReason, useIssueCloseGuard } from './issue-lifecycle'
 import { CommentComposer, IssueActivitySection, MailSection } from './issue-page/IssueActivity'
@@ -64,7 +64,8 @@ import type { TextBase, TextConflict } from './issue-text-save'
 import { PoolIssuePage } from './pool-issue-page'
 
 export const IssuePage = observer(function IssuePage(
-  props: Parameters<typeof IssuePageBody>[0],
+  // Only the id is read: the page reads the issue from the pool as its model.
+  props: Omit<Parameters<typeof IssuePageBody>[0], 'issue'> & { issue: IssueViewModel },
 ): JSX.Element {
   return (
     <PoolIssuePage
@@ -82,7 +83,7 @@ export const IssuePageBody = observer(function IssuePageBody({
   onBack,
   onNavigate,
 }: {
-  issue: IssueViewModel
+  issue: IssueWithBodies
   orderedIds: IssueId[]
   onBack: () => void
   onNavigate: (id: IssueId) => void

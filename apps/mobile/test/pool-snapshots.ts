@@ -2,7 +2,7 @@
  * values were captured while the independent pilot parity controls were green. */
 
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueViewModel, IssueWithBodies } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { groupRelations, sessionCardModel } from '@podium/client-core/values'
 import { here } from '@podium/client-graph/lookup'
@@ -37,10 +37,21 @@ const cardFields = [
   'intentOrigin',
   'isDraftVessel',
 ] as const
-const card = (row: IssueViewModel | undefined) =>
-  row ? Object.fromEntries(cardFields.map((key) => [key, row[key]])) : null
-const issueFacts = (row: IssueViewModel | undefined) =>
-  row
+/** A row's fields, its bodies read from the pool's model (POD-6767). */
+const withBodies = (pool: MobxPool, row: IssueViewModel) =>
+  pool.issueObject(row.id) as unknown as IssueWithBodies
+const card = (pool: MobxPool, row: IssueViewModel | undefined) => {
+  if (!row) return null
+  const model = withBodies(pool, row)
+  return Object.fromEntries(
+    cardFields.map((key) => [
+      key,
+      key === 'description' || key === 'brief' ? model[key] : (row as Record<string, unknown>)[key],
+    ]),
+  )
+}
+const issueFacts = (pool: MobxPool, row: IssueViewModel | undefined, model = row && withBodies(pool, row)) =>
+  row && model
     ? {
         id: row.id,
         ref: issueDisplayRef(row),
@@ -50,13 +61,13 @@ const issueFacts = (row: IssueViewModel | undefined) =>
         pinned: row.pinned,
         needsHuman: row.needsHuman,
         isDraftVessel: row.isDraftVessel,
-        description: row.description,
-        activityNotes: row.activityNotes,
+        description: model.description,
+        activityNotes: model.activityNotes,
         notesUpdatedAt: row.notesUpdatedAt,
         branch: row.branch,
         worktreePath: row.worktreePath,
         gitState: row.gitState,
-        panel: row.panel,
+        panel: model.panel,
         relations: groupRelations(row),
       }
     : undefined
@@ -103,7 +114,7 @@ export function mobileSessionSnapshot(pool: MobxPool, ids: readonly string[], no
       return {
         id,
         session: sessionFacts(session === LOADING ? undefined : session),
-        issue: issueFacts(issue === LOADING ? undefined : issue),
+        issue: issueFacts(pool, issue === LOADING ? undefined : issue),
         spawn: reader.spawnPending(id),
         prompt: reader.spawnPrompt(id),
         exit: reader.exit(id),
@@ -149,7 +160,7 @@ export function mobileInboxSnapshot(
           return {
             id: session.sessionId,
             ...sessionCardModel(session, issue, input.now),
-            issue: card(issue),
+            issue: card(pool, issue),
             agentState: session.agentState,
             offer: session.offer,
             agentColor: session.agentColor,
@@ -161,7 +172,7 @@ export function mobileInboxSnapshot(
     screening: screening.queue,
     cards: input.screeningIds.map((id, at) => ({
       id,
-      card: card(typeof rows[at] === 'symbol' ? undefined : rows[at]),
+      card: card(pool, typeof rows[at] === 'symbol' ? undefined : rows[at]),
     })),
     chips: input.tokens.map(({ token, kind, prefix }) => views.chip(token, kind, prefix)),
     routes: input.targets.map((target) => views.route(target)),

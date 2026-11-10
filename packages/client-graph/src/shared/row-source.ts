@@ -183,6 +183,8 @@ const SLICE_KINDS: ReadonlySet<ReplicaKind> = new Set([
   'effects',
   'issueUserStates',
   'issueGitStates',
+  // POD-6767: an issue's body headers, joined onto the issue.
+  'issueBodies',
   'issueProjections',
   'issueDeps',
   'repos',
@@ -669,11 +671,12 @@ export function createRowSource(
       pending?.issueUserStates.get(id) ?? NO_OVERLAYS,
     )
     const gitState = authority('issueGitStates', id)
+    const bodies = authority('issueBodies', id)
     const deps = outgoing.get(id) ?? EMPTY
     const blocked = deps.some(
       (edge) => edge.type === 'blocked-by' && closedInput(edge.id) === false,
     )
-    return issueInput(projection, userState, gitState, deps, blocked)
+    return issueInput(projection, userState, gitState, deps, blocked, bodies)
   }
 
   function laneFor(
@@ -1209,7 +1212,7 @@ export function createRowSource(
         addressed.set(`issue:${owner}`, { kind: 'issue', id: owner })
         continue
       }
-      if (address.kind === 'issueGitStates') {
+      if (address.kind === 'issueGitStates' || address.kind === 'issueBodies') {
         addressed.set(`issue:${address.id}`, { kind: 'issue', id: address.id })
         continue
       }

@@ -25,7 +25,7 @@ import { attachWorklistPool } from './store-worklist-pool'
 import { makeTrpc, type ServerOrigin, type Trpc } from './trpc'
 
 export type { UserFocus } from '@podium/client-core/react'
-export type { IssueViewModel } from '@podium/client-core/replica'
+export type { IssueViewModel, IssueWithBodies } from '@podium/client-core/replica'
 export type { MainView } from '@podium/client-core/router'
 export type { FileTab } from '@podium/client-core/values'
 

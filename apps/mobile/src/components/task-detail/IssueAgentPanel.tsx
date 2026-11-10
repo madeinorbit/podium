@@ -1,6 +1,6 @@
 import { issueObserver as observer } from '../../client/issue-observer'
 import { IssueAge } from './IssueAge'
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueWithBodies } from '@podium/client-core/replica'
 import { artifactKind } from '@podium/client-core/values'
 import type { IssuePanelArtifact } from '@podium/model'
 import { useState } from 'react'
@@ -35,7 +35,7 @@ import { SectionHeading } from './chrome'
 export const IssueAgentPanel = observer(function IssueAgentPanel({
   issue,
 }: {
-  issue: IssueViewModel
+  issue: IssueWithBodies
 }) {
   const httpOrigin = useHttpOrigin()
   const profile = useOptionalServerProfile()

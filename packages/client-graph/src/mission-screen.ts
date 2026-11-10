@@ -240,9 +240,11 @@ export class MissionScreen {
   private get rootIssue(): IssueNavigationModel { return requireLoaded(this.reader.issue(this.rootId))! }
   @lazy get rootDraftVessel(): boolean { return Boolean(this.rootIssue.isDraftVessel) }
   @lazy get rootLeadSessionId(): string | undefined { return this.rootRow?.crewIds[0] }
+  /** The root's bodies (POD-6767) come from its pool model, which fetches them. */
+  private get rootModel() { return this.pool.issueObject(this.rootId) }
   @lazy get rootAuthoredBrief(): string {
-    const root = this.rootIssue
-    return root.description?.trim() || root.activityNotes?.trim() || ''
+    const root = this.rootModel
+    return root.description.trim() || root.activityNotes?.trim() || ''
   }
   @lazy get rootFinished(): boolean { return isFinished(this.rootIssue) }
   @lazy get rootAbandoned(): boolean { return issueAbandoned(this.rootIssue) }
@@ -297,7 +299,7 @@ export class MissionScreen {
     return this.continuation?.kind === 'spinoff' && this.pool.graph.size('issue', this.rootId, 'children') === 0
   }
   /** What this task wrote down before its conversation moved. */
-  @lazy get rootFindings(): string { return this.rootIssue.activityNotes?.trim() ?? '' }
+  @lazy get rootFindings(): string { return this.rootModel.activityNotes?.trim() ?? '' }
   /** Proposals this task filed as their own issues, in the deck's proposal rows. */
   @lazy({ equals: compareShallow }) get spinOffProposalIds(): readonly string[] {
     return [...this.pool.graph.many('issue', this.rootId, 'spinOffs')]

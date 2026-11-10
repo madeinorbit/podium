@@ -61,6 +61,7 @@ const KIND_BY_ENTITY: Record<string, ReplicaKind> = {
   // by the installer — `kind === undefined → continue`). Empty until the cap
   // flips, but the map is where they must be listed when they arrive.
   issueProjection: 'issueProjections',
+  issueBodies: 'issueBodies',
   issueUserState: 'issueUserStates',
   issueGitState: 'issueGitStates',
   issueDep: 'issueDeps',
@@ -100,6 +101,7 @@ const SNAPSHOT_KINDS: readonly SnapshotKind[] = [
   'sessionUserStates',
   'machines',
   'issueProjections',
+  'issueBodies',
   'issueUserStates',
   'issueGitStates',
   'issueDeps',

@@ -18,7 +18,7 @@ import type { IssueActivityPorts } from '@podium/client-graph/issue-activity'
 import type { IssueWorkAction, StartIssueSession } from '@podium/client-core/spawn-agent'
 import type { IssueUpdatePatch } from '@podium/commands'
 import { type IssueId, parseIssueStatusValue, type StoredIssueDepType } from '@podium/model/browser'
-import type { IssueViewModel } from '@/app/store'
+import type { IssueViewModel, IssueWithBodies } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import type { IssueAgentKind } from '@/lib/issue-agents'
 import { saveIssueText, type TextBase, TextConflict, type TextSaveApi } from './issue-text-save'
@@ -31,7 +31,7 @@ export type GitActionKind = 'rebase' | 'pr' | 'merge'
 
 export interface IssuePageDeps {
   trpc: Trpc
-  issue: IssueViewModel
+  issue: IssueWithBodies
   run: RunMutation
   updateIssue: (id: string, patch: IssueUpdatePatch) => Promise<unknown>
   /** My pin of it: a `pin` record (POD-6692). */

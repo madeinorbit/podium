@@ -9,7 +9,6 @@ function issue(over: Partial<UnbrandIds<IssueViewModel>> = {}): IssueViewModel {
     repoPath: '/r/a',
     seq: 1,
     title: 'Issue',
-    description: '',
     stage: 'backlog',
     worktreePath: null,
     branch: null,

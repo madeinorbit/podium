@@ -221,8 +221,9 @@ describe('issue command registry completeness', () => {
     // `collaborators` (unscoped). 40 - 1 + 3 = 42 and 40 + 1 + 1 + 1 + 3 = 46.
     // POD-6676 moved `subscriptionRemove` and `subscriptionSetEnabled`
     // (unscoped) onto the subscription record's generic edits: 46 - 2 = 44.
+    // POD-6767 added `bodies` (an unscoped read of many ids): 45.
     expect(scoped.length).toBe(42)
-    expect(unscoped.length).toBe(44)
+    expect(unscoped.length).toBe(45)
     // The predicate the assertion above applies, run on PLANTED pairs so it is
     // observed saying NO before its silence is read as agreement.
     const agrees = (hasExtractor: boolean, resource: string) =>
@@ -255,8 +256,9 @@ describe('handler↔contract schema identity', () => {
       checked += 1
     }
     // 80 at d8525c7398, + `deck` (6ed95fbe5a), POD-6289's four commands and
-    // POD-6290's three; POD-6676 moved two subscription writes to the record.
-    expect(checked).toBe(86)
+    // POD-6290's three; POD-6676 moved two subscription writes to the record;
+    // POD-6767 added `bodies`.
+    expect(checked).toBe(87)
   })
 
   it('`toBe` here is load-bearing: an equal-but-separate schema would pass toEqual', () => {

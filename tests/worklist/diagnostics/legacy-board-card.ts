@@ -13,8 +13,6 @@ import { isFinished } from '../../../packages/client-graph/src/shared/predicates
 import { LOADING, type Loaded } from '../../../packages/client-graph/src/worklist/rollup'
 
 const byId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
-const text = (value: unknown): string =>
-  typeof value === 'string' ? value : ((value as { value?: string } | undefined)?.value ?? '')
 
 export interface LegacyBoardCard {
   issue: IssueViewModel
@@ -47,7 +45,6 @@ export function readLegacyBoardCard(
     return {
       ...fields,
       id: asIssueId(id),
-      description: text(raw.description),
       parentId: pool.graph.one('issue', id, 'treeParent') ?? raw.parentId,
       labels: raw.labels ?? [],
       deps: raw.deps ?? [],

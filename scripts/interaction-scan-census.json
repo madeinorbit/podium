@@ -34,12 +34,12 @@
       "file": "apps/mobile/src/client/test-replica.ts",
       "holder": "createMobileTestReplica/replica",
       "rule": "reader-summary",
-      "tokens": "cb929be46327b3208d19ffec1d477a93a3dbef1eaf9c2a679a3cf92cfffc57f0",
+      "tokens": "88c09e87efc8907deeeb1dca60a74465fb99e3e2e47b7e2279067bad52dc10f2",
       "gate": [],
       "origin": [
         "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
       ],
-      "fingerprint": "288896aaba3b766a562fb8d774c0ebc81415533420f3087baa632de46b543d3c",
+      "fingerprint": "ee455b495a2484dbea2313eb132bc2e3bfa5f33674ba4c25eb61a9d9a0da4302",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
@@ -92,12 +92,12 @@
       "file": "apps/mobile/src/client/issue-fixtures.ts",
       "holder": "seedIssueFixtures",
       "rule": "loop:for-of",
-      "tokens": "6b90291eb10e8981ce769f366c44ef28d0d2989026fbf2d8588e30cb8e74b2bf",
+      "tokens": "cae561be6e9769bd9fcf0302fe863d6aca30b943e4d70a6d8255215e86d2262b",
       "gate": [],
       "origin": [
         "b260981f94e757d299cf9a1c01ef0b7a3d9869e9a3d944af8518c85a193743e1"
       ],
-      "fingerprint": "61aebede11aee05688e0e3053bccaed7bf59ca7365e9397a26259a4e07afd98b",
+      "fingerprint": "15688409cf675435954caf5de9d546db0dee5f9cc578883010cb4c4b802fc8ee",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -138,7 +138,7 @@
       "file": "apps/mobile/src/client/test-support.tsx",
       "holder": "renderWithMobileStore",
       "rule": "helper-consumer",
-      "tokens": "71bb545bf191e0dd3340dd4490fcbd88b26751b8f06613d418e1346fca87687f",
+      "tokens": "ac4505b375c5074fa5c8634c29536e7fc5cdfbf9ed3337ae93b28fadefe33d62",
       "gate": [
         "then:340050db2368d08922eee549b81b405b8afd7f6857e8dc18875cb9e8e9cd8f23"
       ],
@@ -146,7 +146,7 @@
         "241a0331a71588c9cfd9dee4a0d372658006f11d0778e6476f836b12089cb86f",
         "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
       ],
-      "fingerprint": "51fe752666603349889b4a4868c566cec2a561750c2a1b410c957b69cd937f24",
+      "fingerprint": "5ccdac94b67db8a51f799cb00512c65556aa5b18f9ed245eecc2115d1f8fb433",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -2683,7 +2683,7 @@
       "classification": "bounded local work",
       "owner": "POD-5633",
       "trigger": "Demanded visible session history response",
-      "bound": "One addressed session’s activity samples",
+      "bound": "One addressed session\u2019s activity samples",
       "reason": "Request answers belong to the opening, are fenced against stale responses, and never refresh on minute ticks.",
       "guard": "waterfall-view.parity.test.ts: history demand and closed/superseded response fences"
     },
@@ -2705,7 +2705,7 @@
       "classification": "bounded local work",
       "owner": "POD-5633",
       "trigger": "Demanded visible session history response",
-      "bound": "One addressed session’s activity samples",
+      "bound": "One addressed session\u2019s activity samples",
       "reason": "Request answers belong to the opening, are fenced against stale responses, and never refresh on minute ticks.",
       "guard": "waterfall-view.parity.test.ts: history demand and closed/superseded response fences"
     },
@@ -7217,7 +7217,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6299",
-      "trigger": "Settings opens or the viewer’s admin sections answer.",
+      "trigger": "Settings opens or the viewer\u2019s admin sections answer.",
       "bound": "The fixed Settings tab catalogue (SETTINGS_GROUPS: four surfaces, about twenty tabs) and at most five admin section names from /auth/admin/viewer.",
       "reason": "Filters the fixed tab catalogue to the admin sections the server offers the viewer (POD-6299).",
       "guard": "apps/web/src/features/settings/surfaces.test.ts and SettingsView.admin-area.test.tsx (POD-6299)"
@@ -7254,7 +7254,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6299",
-      "trigger": "Settings opens or the viewer’s admin sections answer.",
+      "trigger": "Settings opens or the viewer\u2019s admin sections answer.",
       "bound": "The fixed Settings tab catalogue (SETTINGS_GROUPS: four surfaces, about twenty tabs) and at most five admin section names from /auth/admin/viewer.",
       "reason": "Filters the fixed tab catalogue to the admin sections the server offers the viewer (POD-6299).",
       "guard": "apps/web/src/features/settings/surfaces.test.ts and SettingsView.admin-area.test.tsx (POD-6299)"
@@ -7310,7 +7310,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6299",
-      "trigger": "Settings opens or the viewer’s admin sections answer.",
+      "trigger": "Settings opens or the viewer\u2019s admin sections answer.",
       "bound": "The fixed Settings tab catalogue (SETTINGS_GROUPS: four surfaces, about twenty tabs) and at most five admin section names from /auth/admin/viewer.",
       "reason": "Filters the fixed tab catalogue to the admin sections the server offers the viewer (POD-6299).",
       "guard": "apps/web/src/features/settings/surfaces.test.ts and SettingsView.admin-area.test.tsx (POD-6299)"
@@ -7566,7 +7566,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6299",
-      "trigger": "Settings opens or the viewer’s admin sections answer.",
+      "trigger": "Settings opens or the viewer\u2019s admin sections answer.",
       "bound": "The fixed Settings tab catalogue (SETTINGS_GROUPS: four surfaces, about twenty tabs) and at most five admin section names from /auth/admin/viewer.",
       "reason": "Filters the fixed tab catalogue to the admin sections the server offers the viewer (POD-6299).",
       "guard": "apps/web/src/features/settings/surfaces.test.ts and SettingsView.admin-area.test.tsx (POD-6299)"
@@ -7584,7 +7584,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6299",
-      "trigger": "Settings opens or the viewer’s admin sections answer.",
+      "trigger": "Settings opens or the viewer\u2019s admin sections answer.",
       "bound": "The fixed Settings tab catalogue (SETTINGS_GROUPS: four surfaces, about twenty tabs) and at most five admin section names from /auth/admin/viewer.",
       "reason": "Filters the fixed tab catalogue to the admin sections the server offers the viewer (POD-6299).",
       "guard": "apps/web/src/features/settings/surfaces.test.ts and SettingsView.admin-area.test.tsx (POD-6299)"
@@ -7602,7 +7602,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6299",
-      "trigger": "Settings opens or the viewer’s admin sections answer.",
+      "trigger": "Settings opens or the viewer\u2019s admin sections answer.",
       "bound": "The fixed Settings tab catalogue (SETTINGS_GROUPS: four surfaces, about twenty tabs) and at most five admin section names from /auth/admin/viewer.",
       "reason": "Filters the fixed tab catalogue to the admin sections the server offers the viewer (POD-6299).",
       "guard": "apps/web/src/features/settings/surfaces.test.ts and SettingsView.admin-area.test.tsx (POD-6299)"
@@ -8659,14 +8659,14 @@
       "file": "apps/web/src/lib/kernelReplica.ts",
       "holder": "openKernelAssembly/assembly",
       "rule": "helper-consumer",
-      "tokens": "b55783151129affda07b0c360b04399443707f45734958af5e2043ced57fe113",
+      "tokens": "0ff78baa02fe7beda5c8d040eb647ad94f80cf6685e141f4b1edc01e74b3e3be",
       "gate": [
         "exit:then:5e2a14e1fded6dcf5bd2bbeb0a38680fd681e01937e3beb0794cbfbe6fbfbbad"
       ],
       "origin": [
         "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
       ],
-      "fingerprint": "26df8ae1edebf942c222516cf0207c59e453ee11b96c232938347f2435560966",
+      "fingerprint": "67a339b7fad102c1f23f72c11eb77f06d8ea1e56abeaac39c1e8742f740ae77d",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
@@ -11967,7 +11967,7 @@
       "classification": "ingest",
       "owner": "POD-2304",
       "trigger": "A newest transcript snapshot would trim a boundary still owned by a mounted reader.",
-      "bound": "One reconciled snapshot, only above 2 × initialLimit and only while following; an addressed boundary ID limits the retained suffix. Incremental frame trimming uses the existing item-position index.",
+      "bound": "One reconciled snapshot, only above 2 \u00d7 initialLimit and only while following; an addressed boundary ID limits the retained suffix. Incremental frame trimming uses the existing item-position index.",
       "reason": "Complete active turn membership must survive the following window. This scan locates the requested boundary in the incoming snapshot before committing its ordered contents; no computed screen scan or global cache is added.",
       "guard": "transcript-log.test.ts proves stream and newest-refresh retention, normal-window release, and explicit reset; conversation-presentation.test.ts and TranscriptFeed.turn-line.test.tsx cross both 300-row and 400-item limits."
     },
@@ -11988,7 +11988,7 @@
       "classification": "ingest",
       "owner": "POD-5621",
       "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
-      "bound": "One reconciled transcript snapshot while following. Keep the requested display-boundary suffix when it exceeds the normal 2 × initialLimit window; older complete turns can still leave. Incremental frames use the addressed item-position index instead.",
+      "bound": "One reconciled transcript snapshot while following. Keep the requested display-boundary suffix when it exceeds the normal 2 \u00d7 initialLimit window; older complete turns can still leave. Incremental frames use the addressed item-position index instead.",
       "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 3e6e7ee56cb28529fd267359c2e8752fc65c764a705256e60cfe5f5e577a5827.",
       "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame. transcript-log.test.ts and conversation-presentation.test.ts cover boundary retention beyond 300/400 records, newest refresh, explicit reset, and release back to the normal window."
     },
@@ -12071,12 +12071,12 @@
       "file": "packages/client-core/src/demo/demo-replica.ts",
       "holder": "createDemoReplica",
       "rule": "reader-summary",
-      "tokens": "9e198fe684e28dadfd93b8d7d34df01ed331a3c5bf4aeff700def94e1eca15ec",
+      "tokens": "31769e6207e898bf8a094c9dfab3520e5f8351c19deb56d71ca229b886e915d3",
       "gate": [],
       "origin": [
         "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
       ],
-      "fingerprint": "18534cc3496e2aaf08173b233abc1328a264a71c9baebbb89caa75430ada248d",
+      "fingerprint": "2dcbab8fe7ab80d1adab18fca73d03e544f5f9df93d525382f837c503101e9ae",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
@@ -18966,7 +18966,7 @@
       "trigger": "A newly fetched issue event page is appended.",
       "bound": "One supplied page (the shared request owner asks for at most 50 rows per RPC); retained history is never enumerated for ID deduplication.",
       "reason": "The history owns its ID index and formats only new rows, with stable event/feed arrays and cursor advancement.",
-      "guard": "packages/client-graph/src/issue-activity.test.ts: append element work is 1→1 for 128/512 retained events; a planted retained-ID map/Set fails."
+      "guard": "packages/client-graph/src/issue-activity.test.ts: append element work is 1\u21921 for 128/512 retained events; a planted retained-ID map/Set fails."
     },
     {
       "file": "packages/client-core/src/values/issue-activity.ts",
@@ -26617,7 +26617,7 @@
       "owner": "POD-5530",
       "trigger": "Invocation of chatMentionIssues",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5872: Reference summaries project declared fields explicitly instead of spreading a row; mention enumeration is unchanged. Predecessor: 4659641bc2c43763e5caeb88042eceb81bc3fe296b1cb6f108d9bb961b95b4fb. POD-6400: the reference text goes through issueRefText (a pending number reads PREFIX-…); mention enumeration is unchanged. Predecessor: 6fa2a0e73440b146834296fa786a5b4ba19e22332978cb16e0acfd22ed34bcd1.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5872: Reference summaries project declared fields explicitly instead of spreading a row; mention enumeration is unchanged. Predecessor: 4659641bc2c43763e5caeb88042eceb81bc3fe296b1cb6f108d9bb961b95b4fb. POD-6400: the reference text goes through issueRefText (a pending number reads PREFIX-\u2026); mention enumeration is unchanged. Predecessor: 6fa2a0e73440b146834296fa786a5b4ba19e22332978cb16e0acfd22ed34bcd1.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -28007,7 +28007,7 @@
       "trigger": "Default LoadPanel metric question",
       "bound": "One stored source-order element, or one iterator.next() when no first ordered ID exists.",
       "reason": "The keys iterator is advanced once; it is never spread, looped or materialized. Named metric demand bypasses the iterator. No whole-table scan occurs.",
-      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132→516 elements."
+      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132\u2192516 elements."
     },
     {
       "file": "packages/client-graph/src/header-repositories.ts",
@@ -29395,8 +29395,8 @@
       "owner": "POD-6673",
       "trigger": "A reader of my pins or my settings (sidebar layout, launch picker, settings screen).",
       "bound": "The pool's pin and userPreferences tables hold only the principal's own records: the things one person pinned, and one settings record.",
-      "reason": "The feed delivers these per-user rows to their owner only (per-user-state), so the walk is over one person’s pins, kept equal by value per pin kind.",
-      "guard": "packages/client-graph/src/per-user-records.ts reads only the pool pin and userPreferences tables, which the per-user-state feed fills with the principal’s own records."
+      "reason": "The feed delivers these per-user rows to their owner only (per-user-state), so the walk is over one person\u2019s pins, kept equal by value per pin kind.",
+      "guard": "packages/client-graph/src/per-user-records.ts reads only the pool pin and userPreferences tables, which the per-user-state feed fills with the principal\u2019s own records."
     },
     {
       "file": "packages/client-graph/src/per-user-records.ts",
@@ -29413,8 +29413,8 @@
       "owner": "POD-6673",
       "trigger": "A reader of my pins or my settings (sidebar layout, launch picker, settings screen).",
       "bound": "The pool's pin and userPreferences tables hold only the principal's own records: the things one person pinned, and one settings record.",
-      "reason": "The feed delivers these per-user rows to their owner only (per-user-state), so the walk is over one person’s pins, kept equal by value per pin kind.",
-      "guard": "packages/client-graph/src/per-user-records.ts reads only the pool pin and userPreferences tables, which the per-user-state feed fills with the principal’s own records."
+      "reason": "The feed delivers these per-user rows to their owner only (per-user-state), so the walk is over one person\u2019s pins, kept equal by value per pin kind.",
+      "guard": "packages/client-graph/src/per-user-records.ts reads only the pool pin and userPreferences tables, which the per-user-state feed fills with the principal\u2019s own records."
     },
     {
       "file": "packages/client-graph/src/per-user-records.ts",
@@ -29431,8 +29431,8 @@
       "owner": "POD-6673",
       "trigger": "A reader of my pins or my settings (sidebar layout, launch picker, settings screen).",
       "bound": "The pool's pin and userPreferences tables hold only the principal's own records: the things one person pinned, and one settings record.",
-      "reason": "The feed delivers these per-user rows to their owner only (per-user-state), so the walk is over one person’s pins, kept equal by value per pin kind.",
-      "guard": "packages/client-graph/src/per-user-records.ts reads only the pool pin and userPreferences tables, which the per-user-state feed fills with the principal’s own records."
+      "reason": "The feed delivers these per-user rows to their owner only (per-user-state), so the walk is over one person\u2019s pins, kept equal by value per pin kind.",
+      "guard": "packages/client-graph/src/per-user-records.ts reads only the pool pin and userPreferences tables, which the per-user-state feed fills with the principal\u2019s own records."
     },
     {
       "file": "packages/client-graph/src/per-user-records.ts",
@@ -29450,8 +29450,8 @@
       "owner": "POD-6673",
       "trigger": "A reader of my pins or my settings (sidebar layout, launch picker, settings screen).",
       "bound": "The pool's pin and userPreferences tables hold only the principal's own records: the things one person pinned, and one settings record.",
-      "reason": "The feed delivers these per-user rows to their owner only (per-user-state), so the walk is over one person’s pins, kept equal by value per pin kind.",
-      "guard": "packages/client-graph/src/per-user-records.ts reads only the pool pin and userPreferences tables, which the per-user-state feed fills with the principal’s own records."
+      "reason": "The feed delivers these per-user rows to their owner only (per-user-state), so the walk is over one person\u2019s pins, kept equal by value per pin kind.",
+      "guard": "packages/client-graph/src/per-user-records.ts reads only the pool pin and userPreferences tables, which the per-user-state feed fills with the principal\u2019s own records."
     },
     {
       "file": "packages/client-graph/src/pool.ts",
@@ -29909,7 +29909,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
       "bound": "One checkout's worktree list (a handful of lanes).",
       "reason": "Offers the branch names a checkout already reports so the picker needs no branch-listing request.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -29928,7 +29928,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds a checkout of one logical repository (repoId-qualified, never by path alone) for the base-branch write; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -29947,7 +29947,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds the checkout a repository base-branch write goes through; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -29965,7 +29965,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds the checkout a repository base-branch write goes through; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -29984,7 +29984,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds the checkout a repository base-branch write goes through; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -30103,7 +30103,7 @@
       "owner": "POD-6267",
       "trigger": "The open Repositories settings section renders each repository with its checkouts and worktrees.",
       "bound": "One checkout's worktree list.",
-      "reason": "Counts worktrees whose folder is gone for the checkout line's '· N missing' note.",
+      "reason": "Counts worktrees whose folder is gone for the checkout line's '\u00b7 N missing' note.",
       "guard": "settings-repositories.test.ts pins the grouping (registered worktrees fold into their checkout, one checkout per machine, loose worktrees stand alone, live worktree arrival); settings-launch-records.parity.test.ts compares the old two-scan fixture."
     },
     {
@@ -31008,18 +31008,18 @@
       "file": "packages/client-graph/src/shell-views.ts",
       "holder": "createShellViews/issues/memo:callback",
       "rule": "loop:for-of",
-      "tokens": "3a457330d9f5c09a12771c56b3319899349c6a1bf237911b4b1bd5e6d3dfe23f",
+      "tokens": "fe1b403e728d3290ca7764ec9f0447428af79fc4da62aae36b3b90ca244dcb5e",
       "gate": [],
       "origin": [
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1"
       ],
-      "fingerprint": "242214cdf6fbc8a29d5dbe85f658366fa14bec6158030c077375c2c879dc139b",
+      "fingerprint": "32f088be3270cd7136660d2976abb7419f0f6d014d04d7c8ac4723abbff33e4a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of createShellViews/issues/memo:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6400: the displayRef goes through issueRefText (a pending number reads PREFIX-…); the issue enumeration is unchanged. Predecessor: 477fde86d95d1e8a29b15ba82cc2d1ec5a044993a21f97ef83b4631c83db67b9.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6400: the displayRef goes through issueRefText (a pending number reads PREFIX-\u2026); the issue enumeration is unchanged. Predecessor: 477fde86d95d1e8a29b15ba82cc2d1ec5a044993a21f97ef83b4631c83db67b9.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -33575,14 +33575,14 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useLayoutEffect:callback",
       "rule": "helper-consumer",
-      "tokens": "04485c5315f2d3b10a4320f9348927cf2f5d5d0a66ecbf0425d9ec92de40e0a2",
+      "tokens": "7506fd9bd37998dbbbd7c212cffdf001fa28c91752da84c3d870701ab1e364b9",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "b3bfb1671c1211604768efd15748098ce44367d439209fa92f3825aeccf081b6",
+      "fingerprint": "585a5a224ae008b6741e332e3d76b8d4d96ddd3f71a703678b55f9dce04e23cb",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5872",
@@ -33595,14 +33595,14 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/records/callback",
       "rule": "helper-consumer",
-      "tokens": "af0a1a827f41b1a7ba6aee7185842277cc732ce164d1f31920d1930fef354762",
+      "tokens": "ac69174be8238658a3817d5ffd6b15f98e3199bf1c2809d286eafdb410a74085",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "b331a34e93f71914463f321da4c54903b0b20ab63303073dd1a0f21e332e4257",
+      "fingerprint": "da819298e0bbe47389c2573adfb4b11e606e2ce0c6c0aec9c6b61d56e0265d13",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5888",
@@ -36373,8 +36373,8 @@
       "owner": "POD-6675",
       "trigger": "A reader of my superagent threads (the superagent pane, the phone screen, the chat context).",
       "bound": "The pool's superagentThread table holds only the principal's own records: one person's threads.",
-      "reason": "The feed delivers superagent thread records to their owner only (per-user-state), so the walk is over one person’s threads.",
-      "guard": "packages/client-graph/src/superagent.ts reads only the pool superagentThread table, which the per-user-state feed fills with the principal’s own records."
+      "reason": "The feed delivers superagent thread records to their owner only (per-user-state), so the walk is over one person\u2019s threads.",
+      "guard": "packages/client-graph/src/superagent.ts reads only the pool superagentThread table, which the per-user-state feed fills with the principal\u2019s own records."
     },
     {
       "file": "packages/client-graph/src/superagent.ts",
@@ -36391,8 +36391,8 @@
       "owner": "POD-6675",
       "trigger": "A reader of my superagent threads (the superagent pane, the phone screen, the chat context).",
       "bound": "The pool's superagentThread table holds only the principal's own records: one person's threads.",
-      "reason": "The feed delivers superagent thread records to their owner only (per-user-state), so the walk is over one person’s threads.",
-      "guard": "packages/client-graph/src/superagent.ts reads only the pool superagentThread table, which the per-user-state feed fills with the principal’s own records."
+      "reason": "The feed delivers superagent thread records to their owner only (per-user-state), so the walk is over one person\u2019s threads.",
+      "guard": "packages/client-graph/src/superagent.ts reads only the pool superagentThread table, which the per-user-state feed fills with the principal\u2019s own records."
     },
     {
       "file": "packages/client-graph/src/workflow-views.ts",
@@ -38182,7 +38182,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5872",
-      "trigger": "Initialize or refresh one open conversation’s existing message-record port.",
+      "trigger": "Initialize or refresh one open conversation\u2019s existing message-record port.",
       "bound": "The addressed noticeSession membership only; no new numeric cap on held notices or records is asserted.",
       "reason": "The existing snapshot and row-version subscription moved from a manual computed to a lazy service field. Collection ownership and work are preserved; transcript refresh and subscription redesign belongs to POD-5800. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 5a80f4115b2dbeb6ff8b12905e2a116be7defbfb9ca7b491a74d8368f6488b55. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 52b1428c198e0a4d9caae68a8dbe399b9648052a248cbadea6bee09fcbcb24ba. Predecessor: 49d2cc3aa158194d0844119f9c3deaf2a12a95b37a5e606f54bacbbd932f992b (POD-6397: the conversation's Stop writes a turn-scoped effect record through the store; collection demand is unchanged). Predecessor: 9a0b429be4417f397150e675cb56fa20e25197252b07b91e643794f402be3dba (POD-6419: the superagent's writes go through sync.submit with the old route as fallback; collection demand is unchanged). POD-6682 moved the command or transport home; its collection strategy is unchanged.",
       "guard": "ChatView.test.tsx and conversation-service.parity.test.ts preserve delivery and record answers; exact fingerprint and multiplicity remain enforced. This entry does not claim a repaired collection bound."
@@ -38202,7 +38202,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5872",
-      "trigger": "Initialize or refresh one open conversation’s existing message-record port.",
+      "trigger": "Initialize or refresh one open conversation\u2019s existing message-record port.",
       "bound": "The addressed noticeSession membership only; no new numeric cap on held notices or records is asserted.",
       "reason": "The existing snapshot and row-version subscription moved from a manual computed to a lazy service field. Collection ownership and work are preserved; transcript refresh and subscription redesign belongs to POD-5800. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 51c998ca196a9a6c243e1bbe5d981eabc11baa7e3cef40d3f3e29834b5c00df1. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: f7ccab7429b608e010b0a2ef8b453da51946e2cd458267fbbefbe008d438ad14. Predecessor: 64f36fb1c70946bf326a85986d85559cc948d79ae6412f624999b59fc8a6e077 (POD-6397: the conversation's Stop writes a turn-scoped effect record through the store; collection demand is unchanged). Predecessor: 30b5b60f9286a3af0abde779479547903c4c5e87995141d67a630334172b3de8 (POD-6419: the superagent's writes go through sync.submit with the old route as fallback; collection demand is unchanged). POD-6682 moved the command or transport home; its collection strategy is unchanged.",
       "guard": "ChatView.test.tsx and conversation-service.parity.test.ts preserve delivery and record answers; exact fingerprint and multiplicity remain enforced. This entry does not claim a repaired collection bound."
@@ -40155,6 +40155,24 @@
       "bound": "No new caller-list or per-issue session-cardinality bound is claimed.",
       "reason": "Replacing Parameters<Store[focusIssueSession]> with an explicit SessionId[] tuple makes the existing exclusion Set and issue-session find visible to the scanner. The body and its collection operations are unchanged. POD-6724 owns proving their bounds or replacing unnecessary enumeration.",
       "guard": "Exact fingerprint and multiplicity only; this is newly exposed debt, not a scan fix. packages/client-core/src/commands/navigation.test.ts covers timeout, excluded sessions and selection changes."
+    },
+    {
+      "file": "packages/client-graph/src/issue-bodies.ts",
+      "holder": "IssueBodyStore/put",
+      "rule": "loop:for-of",
+      "tokens": "143b72c64ec160c91625425283635e936ac1670e99ea0925c6593106e5efa0f4",
+      "gate": [],
+      "origin": [
+        "65c2733cbd611abf878043828919c7406daca92a8f967e1f70c9bd4159497ab8"
+      ],
+      "fingerprint": "3ed90506f2d673d575d8e9c58cdd440f8519bfe4011d4edd824b92d428a5e23d",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6767",
+      "trigger": "An issues.bodies answer arriving for a screen's body reads.",
+      "bound": "One answer holds the bodies of at most 50 issues (the request's batch), at most four fields each: at most 200 entries per call.",
+      "reason": "The loop stores one fetched answer by issue field; it never enumerates the pool or a replica collection.",
+      "guard": "issue-bodies.test.ts splits a window into calls of at most 50 issues."
     }
   ]
 }

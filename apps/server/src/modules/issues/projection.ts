@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { createLogger } from '@podium/logger'
 import {
   actorAgent,
@@ -5,20 +6,28 @@ import {
   actorUser,
   asAgentIdentityId,
   asUserId,
+  ISSUE_BODY_FIELDS,
+  type IssueBodiesWire,
+  type IssueBodyField,
+  type IssueBodyHeader,
   IssueDep,
   type IssueDepId,
   type IssueDepProjection,
   type IssueId,
   type IssueProjection,
+  issueBodySize,
+  issueBodyText,
   issueDepId,
   issueDepToWire,
   machinePathBasename,
   Repo,
   type RepoId,
   type RepoProjection,
+  type SlimIssueProjection,
   repoNameFromOrigin,
   repoToWire,
   toWire,
+  withoutIssueBodies,
 } from '@podium/model'
 import { fromStorage } from '../../store/issue-storage'
 import type { IssueRow } from '../../store/types'
@@ -63,6 +72,66 @@ export function issueRowToProjection(row: IssueRow, labels: string[]): IssueProj
     // Unknown historical askers stay unknown; a stored question is never dropped.
     ...(question ? { asked: question } : {}),
   })
+}
+
+// ---- The fat fields, split into header and body [POD-6767] ----
+//
+// The synced issue record leaves out `brief`, `panel`, `description` and
+// `activityNotes`; the `issueBodies` row carries a header per field with
+// content, and `issues.bodies` serves the body by id. Every one of them is a
+// pure function of the issue's projection, so any process builds the same
+// record, the same headers and a body whose digest matches its header.
+//
+// The builders the sync registry calls (POD-6763) are the two `…OfRow`
+// functions: the slim record and the header row of one stored issue.
+
+/** The digest a body's header names: a sha-256 prefix of its text. */
+export function issueBodyDigest(text: string): string {
+  return createHash('sha256').update(text).digest('base64url').slice(0, 22)
+}
+
+/** One field's header, or `undefined` when the field holds nothing. */
+export function issueBodyHeaderOf(field: IssueBodyField, value: unknown): IssueBodyHeader | undefined {
+  const text = issueBodyText(field, value)
+  return text === undefined ? undefined : { digest: issueBodyDigest(text), size: issueBodySize(text) }
+}
+
+/** The `issueBodies` row of one issue, or `undefined` when no field has content. */
+export function issueBodiesOf(projection: IssueProjection): IssueBodiesWire | undefined {
+  let out: IssueBodiesWire | undefined
+  for (const field of ISSUE_BODY_FIELDS) {
+    const header = issueBodyHeaderOf(field, projection[field])
+    if (header) out = { ...(out ?? { id: projection.id }), [field]: header }
+  }
+  return out
+}
+
+/** The synced issue record: the projection without its body fields. */
+export function slimIssueProjection(projection: IssueProjection): SlimIssueProjection {
+  return withoutIssueBodies(projection) as SlimIssueProjection
+}
+
+/** BUILDER: the synced issue record of one stored issue. */
+export function slimIssueProjectionOfRow(row: IssueRow, labels: string[]): SlimIssueProjection {
+  return slimIssueProjection(issueRowToProjection(row, labels))
+}
+
+/** BUILDER: the `issueBodies` row of one stored issue; `undefined` = no row. */
+export function issueBodiesOfRow(row: IssueRow): IssueBodiesWire | undefined {
+  return issueBodiesOf(issueRowToProjection(row, []))
+}
+
+/** The body fields of one stored issue in their wire shape (the description
+ *  as its `{ value }` document, the panel decoded), read through the same
+ *  projection the headers are built from, so a body's digest is its header's. */
+export function issueBodyValuesOfRow(row: IssueRow): Pick<IssueProjection, IssueBodyField> {
+  const projection = issueRowToProjection(row, [])
+  return {
+    brief: projection.brief,
+    panel: projection.panel,
+    description: projection.description,
+    activityNotes: projection.activityNotes,
+  }
 }
 
 /**

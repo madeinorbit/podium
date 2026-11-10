@@ -1,4 +1,4 @@
-import { asIssueId, type IssueProjection, type IssueUserStateWire } from '@podium/model'
+import { asIssueId, type SlimIssueProjection, type IssueUserStateWire } from '@podium/model'
 import type { SessionView } from '../src/session-values'
 import type { NavigationProvider } from '../src/ui/state'
 import { missionIssueIds, missionRootFor } from '../src/values'
@@ -6,7 +6,7 @@ import { missionIssueIds, missionRootFor } from '../src/values'
 /** Explicit, stateless navigation port for engine-only fixtures. Production
  * clients install the pool's provider; no record arrays live in engine state. */
 export function fixtureNavigation(rows: {
-  issues(): readonly IssueProjection[]
+  issues(): readonly SlimIssueProjection[]
   sessions(): readonly SessionView[]
   markers?(): readonly IssueUserStateWire[]
   follow?(changed: () => void): () => void

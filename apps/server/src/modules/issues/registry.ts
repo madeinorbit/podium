@@ -37,6 +37,7 @@ import { checkIssueAccess } from '../../issue-authz'
 import { withReadScope } from '../../store/executor/read-scope'
 import { ShippingOrderAccessError } from '../shipping/service'
 import { artifactEffectCommitOf } from './artifact-effect-record'
+import { readIssueBodies } from './bodies'
 import type { IssueCaller, IssueCommandAccess, IssueCommandCtx } from './command-ctx'
 import { eventsForMember } from './event-visibility'
 import { isCommentAuthor } from './service/mail'
@@ -875,6 +876,20 @@ const defs = {
             ...(input.path != null ? { path: input.path } : {}),
             ...(input.file != null ? { file: input.file } : {}),
           }),
+      ),
+  }),
+  /** The bodies the synced record carries only headers of (POD-6767): brief,
+   *  panel, description and activity notes, by issue id, with the digests their
+   *  headers name. Every task is readable by a person (design §2.2), so a
+   *  missing id is simply left out of the answer. */
+  bodies: def('bodies', {
+    kind: 'query',
+    handler: async (ctx, input) =>
+      await readIssueBodies(
+        ctx.deps.executionFacts,
+        ctx.issueReader().viewer(),
+        input.ids,
+        input.fields,
       ),
   }),
   /** Lazy comment fetch (#175) — bodies left IssueProjection (commentCount rides it).

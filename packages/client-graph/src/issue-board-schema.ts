@@ -125,7 +125,6 @@ export const ISSUE_BOARD_SUMMARIES = mergePoolSummaries(ISSUE_PAGE_SUMMARIES, {
     'priority',
     'createdAt',
     'type',
-    'description',
     'estimateMin',
     'dueAt',
     'intentOrigin',

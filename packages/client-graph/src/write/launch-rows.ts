@@ -1,4 +1,9 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
+
+/** A launch's optimistic issue: the row plus the texts it was created with,
+ *  which `IssueModel` reads off the painted row until the record and its body
+ *  headers arrive (POD-6767). */
+export type LaunchIssueRow = IssueViewModel & { description: string; brief?: string }
 import type { SessionValues, SessionView } from '@podium/client-core/session-values'
 import {
   type AgentKind,
@@ -96,7 +101,7 @@ export function draftIssueRow(
     repoId?: RepoId
     sortKey: string
   },
-): IssueViewModel {
+): LaunchIssueRow {
   return {
     id: args.issueId,
     owner: args.userId,
@@ -173,7 +178,7 @@ export function startedIssueRow(args: {
   /** Where it is moved once started; absent, In progress. */
   stage?: IssueBoardStage
   nowIso: string
-}): IssueViewModel {
+}): LaunchIssueRow {
   return {
     ...draftIssueRow({
       userId: args.userId,

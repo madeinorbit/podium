@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Image, StyleSheet, Text, View } from 'react-native'
 import { authenticatedImageSource } from '../client/authenticated-assets'
 import { useHttpOrigin } from '../client/hooks'
+import { useIssueModel } from '../client/use-issue-model'
 // Read the profile without importing the gate's boot graph.
 import { useServerProfile } from '../client/server-profile-context'
 import { OFFER_STRIP_MAX, type OfferArtifactRow, offerArtifactRows } from '../lib/offer-artifacts'
@@ -52,9 +53,12 @@ export function OfferArtifactStrip({
         )
       : OFFER_STRIP_MAX
 
+  // The panel the paths resolve against is a body (POD-6767): the pool's
+  // issue model answers it; the session header's summary row carries none.
+  const model = useIssueModel(issue?.id)
   const { rows, extra } = offerArtifactRows({
     offer,
-    issue,
+    issue: model ?? undefined,
     httpOrigin,
     max: slots,
     ...(workspace ? { workspace } : {}),

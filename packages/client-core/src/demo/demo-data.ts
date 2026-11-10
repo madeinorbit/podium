@@ -20,7 +20,13 @@ import {
   type UsageBucketWire,
 } from '@podium/model'
 import type { HostMemoryBreakdown, MobileClientSession } from '@podium/protocol'
+import type { IssueProjection } from '@podium/model'
 import type { IssueViewModel } from '../replica'
+
+/** A demo issue: the pool row plus its bodies, which the demo serves as
+ *  `issueBodies` headers and an `issues.bodies` answer (POD-6767). */
+export type DemoIssue = IssueViewModel &
+  Partial<Pick<IssueProjection, 'brief' | 'panel' | 'activityNotes'>> & { description: string }
 
 /**
  * Demo harness variety without a second hand-written list: the harnesses this
@@ -226,9 +232,8 @@ export const DEMO_SESSIONS: SessionMeta[] = [
 
 /** Shared scaffolding for the demo proposals (POD-277's screening deck). */
 function proposal(
-  partial: Partial<UnbrandIds<IssueViewModel>> &
-    Pick<IssueViewModel, 'id' | 'seq' | 'title' | 'description'>,
-): IssueViewModel {
+  partial: Partial<UnbrandIds<DemoIssue>> & Pick<DemoIssue, 'id' | 'seq' | 'title' | 'description'>,
+): DemoIssue {
   return {
     repoPath: '/home/dev/src/podium',
     displayRef: `POD-${partial.seq}`,
@@ -262,7 +267,7 @@ function proposal(
     isDraftVessel: false,
     readAt: null,
     ...partial,
-  } as IssueViewModel
+  } as DemoIssue
 }
 
 /**
@@ -276,18 +281,17 @@ function proposal(
  * proposal nobody has accepted, and one done.
  */
 function missionTask(
-  partial: Partial<UnbrandIds<IssueViewModel>> &
-    Pick<IssueViewModel, 'id' | 'seq' | 'title' | 'description'>,
-): IssueViewModel {
+  partial: Partial<UnbrandIds<DemoIssue>> & Pick<DemoIssue, 'id' | 'seq' | 'title' | 'description'>,
+): DemoIssue {
   return {
     ...proposal(partial),
     stage: 'backlog',
     intentOrigin: 'agent',
     ...partial,
-  } as IssueViewModel
+  } as DemoIssue
 }
 
-const DEMO_MISSION: IssueViewModel[] = [
+const DEMO_MISSION: DemoIssue[] = [
   missionTask({
     id: asIssueId('demo-mission-root'),
     owner: asUserId('demo-user'),
@@ -418,7 +422,7 @@ const DEMO_MISSION: IssueViewModel[] = [
   }),
 ]
 
-export const DEMO_ISSUES: IssueViewModel[] = [
+export const DEMO_ISSUES: DemoIssue[] = [
   ...DEMO_MISSION,
   proposal({
     id: asIssueId('demo-proposal-retry'),
@@ -525,7 +529,7 @@ export const DEMO_ISSUES: IssueViewModel[] = [
     audience: 'human',
     isDraftVessel: false,
     readAt: null,
-  } as IssueViewModel,
+  } as DemoIssue,
   {
     id: asIssueId('demo-issue-header'),
     displayRef: 'POD-121',
@@ -567,7 +571,7 @@ export const DEMO_ISSUES: IssueViewModel[] = [
     audience: 'human',
     isDraftVessel: false,
     readAt: null,
-  } as IssueViewModel,
+  } as DemoIssue,
   {
     id: asIssueId('demo-issue-ci'),
     displayRef: 'POD-118',
@@ -611,7 +615,7 @@ export const DEMO_ISSUES: IssueViewModel[] = [
     audience: 'human',
     isDraftVessel: false,
     readAt: null,
-  } as IssueViewModel,
+  } as DemoIssue,
 ]
 
 export const DEMO_TRANSCRIPTS: Record<string, TranscriptItem[]> = {

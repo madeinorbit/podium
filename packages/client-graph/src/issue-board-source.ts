@@ -22,8 +22,6 @@ import { defineSource, type PoolSource } from './source-registry'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 const byId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
-const text = (value: unknown): string =>
-  typeof value === 'string' ? value : ((value as { value?: string } | undefined)?.value ?? '')
 
 /** Read-side service over declared pool questions and relations. Layouts
  * publish IDs; rich cards belong to mounted rows or explicit diagnostics.
@@ -70,7 +68,6 @@ export function createIssueBoardSource(
     return {
       ...fields,
       id: asIssueId(id),
-      description: text(raw.description),
       // The declared relation owns resolved parentage. Preserve its opaque
       // projection FK too when the parent is outside this principal's scope.
       parentId: pool.graph.one('issue', id, 'treeParent') ?? raw.parentId,

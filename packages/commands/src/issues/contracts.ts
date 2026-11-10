@@ -58,6 +58,7 @@
 
 import {
   ArtifactUploadPacket,
+  IssueBodyFieldName,
   IssueIdField,
   IssueStage,
   IssueType,
@@ -208,6 +209,14 @@ export const getInput = byIssueId
 export const resolveRefsInput = z.object({ refs: z.array(z.string().min(1).max(100)).max(200) })
 
 export const commentsInput = byIssueId
+
+/** The issues whose bodies (brief, panel, description, activity notes) a screen
+ *  needs (POD-6767): the synced record carries only their headers. `fields`
+ *  narrows the answer; absent means every field with content. */
+export const bodiesInput = z.object({
+  ids: z.array(IssueIdField).min(1).max(50),
+  fields: z.array(IssueBodyFieldName).min(1).optional(),
+})
 
 /**
  * READ ONE SNAPSHOTTED ARTIFACT'S BYTES BACK OUT ([spec:SP-0fc9], POD-1999).
@@ -1099,6 +1108,17 @@ export const issueCommentsContract = {
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
   conflict: 'n/a',
+} as const satisfies CommandContract
+
+/** The body fields of several issues, fetched when a screen shows them
+ *  (POD-6767). Unreadable and missing issues are left out of the answer, so the
+ *  two are indistinguishable; nothing is refused for one id. */
+export const issueBodiesContract = {
+  ...issueCommentsContract,
+  name: 'issues.bodies',
+  input: bodiesInput,
+  exposure: SERVED_ON_WIRE,
+  errorConsistency: UNTARGETED_ERRORS,
 } as const satisfies CommandContract
 
 /** Reads one artifact's stored bytes back — see {@link artifactReadInput}. A read
@@ -2206,6 +2226,7 @@ export const ISSUE_CONTRACTS = {
   clearNeedsHuman: issueClearNeedsHumanContract,
   close: issueCloseContract,
   closeEligibleEpics: issueCloseEligibleEpicsContract,
+  bodies: issueBodiesContract,
   comments: issueCommentsContract,
   count: issueCountContract,
   create: issueCreateContract,
@@ -2350,9 +2371,10 @@ export const ISSUE_CONTRACT_LIST = Object.values(ISSUE_CONTRACTS)
  * mutate and must declare, and exempting one is an edit a reviewer sees.
  */
 const NON_MUTATING_NAMES = [
-  // The 26 reads.
+  // The reads.
   'artifactRead',
   'blocked',
+  'bodies',
   'children',
   'closeEligibleEpics',
   'collaborators',

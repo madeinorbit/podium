@@ -6884,6 +6884,14 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Array<_podium_model.IssueReport>;
             meta: unknown;
         }>;
+        "bodies": TRPC.TRPCQueryProcedure<{
+            input: {
+                fields?: ("activityNotes" | "brief" | "description" | "panel")[] | undefined;
+                ids: string[];
+            };
+            output: Array<_podium_model.IssueBodyWire>;
+            meta: unknown;
+        }>;
         "cancelShip": TRPC.TRPCMutationProcedure<{
             input: {
                 orderId: string;

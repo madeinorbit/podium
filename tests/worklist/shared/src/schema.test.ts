@@ -415,7 +415,7 @@ describe('validateSources', () => {
     expect(fieldsOf('IssueProjection')).toContain('intentOrigin')
     expect(Object.keys(SCHEMA.issue.fields)).toContain('intentOrigin')
     expect(validateSources(schema).join('\n')).toMatch(
-      /issue\.intentOrigin: relation name shadows IssueProjection\.intentOrigin/,
+      /issue\.intentOrigin: relation name shadows SlimIssueProjection\.intentOrigin/,
     )
   })
 

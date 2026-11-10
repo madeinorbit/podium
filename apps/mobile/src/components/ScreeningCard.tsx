@@ -1,6 +1,6 @@
 import { issueAgentLabel, issueDefaultAgentKind } from '@podium/client-core/agent-models'
 import { relativeTime } from '@podium/client-core/focus'
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueWithBodies } from '@podium/client-core/replica'
 import { observer } from '@podium/client-graph/react'
 import * as Haptics from 'expo-haptics'
 import { StyleSheet, Text, useWindowDimensions, View } from 'react-native'
@@ -65,10 +65,10 @@ export const ScreeningCard = observer(function ScreeningCard({
   onDecide,
   onOpen,
 }: {
-  issue: IssueViewModel
+  issue: IssueWithBodies
   repoName: string
   /** Resolved parent issue, when the proposal was filed under one. */
-  parent?: IssueViewModel | undefined
+  parent?: IssueWithBodies | undefined
   onDecide: (gesture: ScreeningGesture) => void
   onOpen: () => void
 }) {

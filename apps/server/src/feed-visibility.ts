@@ -365,6 +365,8 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         if (
           entity === 'session' ||
           entity === 'issueProjection' ||
+          // An issue's body headers (POD-6767): the issue's readers, like its record.
+          entity === 'issueBodies' ||
           entity === 'issueGitState' ||
           entity === 'issueDep' ||
           // A curated issue event (POD-1772). `personal` and NOT a class of its
@@ -409,7 +411,11 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         // An unresolved root policy, or a ref outside this pass, denies. The
         // producer must prepare every ref before entering the synchronous loop.
         if (!prefetch) return false
-        if (ref.entity === 'issueProjection' || ref.entity === 'issueGitState') {
+        if (
+          ref.entity === 'issueProjection' ||
+          ref.entity === 'issueBodies' ||
+          ref.entity === 'issueGitState'
+        ) {
           return mayReadIssueFromSnapshot(userId, ref.entityId, prefetch)
         }
         if (ref.entity === 'issueDep') {
@@ -670,7 +676,11 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     const workflowRunIds = new Set<string>()
     const checkoutMachineIds = new Set<string>()
     for (const ref of refs) {
-      if (ref.entity === 'issueProjection' || ref.entity === 'issueGitState') {
+      if (
+        ref.entity === 'issueProjection' ||
+        ref.entity === 'issueBodies' ||
+        ref.entity === 'issueGitState'
+      ) {
         issueIds.add(ref.entityId)
       } else if (ref.entity === 'issueDep') {
         const dep = parseIssueDepId(ref.entityId)
@@ -1326,6 +1336,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           audience,
           subjects: [
             { entity: 'issueProjection' as const, entityId: ref.entityId },
+            { entity: 'issueBodies' as const, entityId: ref.entityId },
             { entity: 'issueGitState' as const, entityId: ref.entityId },
             ...issueSessions.map((session) => ({
               entity: 'session' as const,

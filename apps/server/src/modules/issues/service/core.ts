@@ -36,11 +36,13 @@ import { decodePanel } from '../../../store/issue-storage'
 import type { SessionFacts } from '../../sessions/facts'
 import { normalizeBlankIssueText } from '../blank-text'
 import {
+  issueBodiesOf,
   issueDepProjectionRows,
   issueDepToProjection,
   issueProjectionRows,
   issueRowToProjection,
   repoProjectionRows,
+  slimIssueProjection,
 } from '../projection'
 import { IssueNotFound } from './not-found'
 import { IssueRefusal } from './refusal'
@@ -874,13 +876,19 @@ export class IssueStore {
     gitStates?: ReadonlyMap<string, IssueGitState>,
   ): Promise<EntityChangeSpec[]> {
     const states = await this.deps.store.issues.listIssueUserStateRows(row.id)
+    const full = projection ?? (await this.projection(row))
+    // The record leaves its body fields to the `issueBodies` headers (POD-6767).
+    const bodies = issueBodiesOf(full)
     return [
       {
         entity: 'issueProjection',
         id: row.id,
         op: 'upsert',
-        value: projection ?? (await this.projection(row)),
+        value: slimIssueProjection(full),
       },
+      bodies
+        ? { entity: 'issueBodies', id: row.id, op: 'upsert', value: bodies }
+        : { entity: 'issueBodies', id: row.id, op: 'remove' },
       await this.gitStateChange(row, gitStates),
       ...states.map((state) => ({
         entity: 'issueUserState' as const,
@@ -952,7 +960,19 @@ export class IssueStore {
   async reconcileProjections(): Promise<void> {
     await this.deps.store.transact(async () => {
       const projections = await this.allProjections()
-      if (projections) await this.deps.ledger.reconcile('issueProjection', projections)
+      if (!projections) return
+      // The slim record and its body headers, as every write commits them (POD-6767).
+      await this.deps.ledger.reconcile(
+        'issueProjection',
+        projections.map(({ id, value }) => ({ id, value: slimIssueProjection(value) })),
+      )
+      await this.deps.ledger.reconcile(
+        'issueBodies',
+        projections.flatMap(({ id, value }) => {
+          const bodies = issueBodiesOf(value)
+          return bodies ? [{ id, value: bodies }] : []
+        }),
+      )
     })
   }
 

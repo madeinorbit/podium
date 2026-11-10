@@ -11,7 +11,8 @@ import type {
   IssueDepProjection,
   IssueEventWire,
   IssueGitStateProjection,
-  IssueProjection,
+  IssueBodiesWire,
+  SlimIssueProjection,
   IssueUserStateWire,
   LayoutWire,
   MachineAccessWire,
@@ -61,11 +62,14 @@ export interface ReplicaRows {
    *  nothing derived. The replica-side issue VIEWS read this, joined against the
    *  two kinds below (see `readViewInputs`). Empty unless the authority's flag is
    *  on and this client offered the cap. */
-  issueProjections: IssueProjection
+  issueProjections: SlimIssueProjection
   /** Personal markers, keyed by the user and issue; never shared with a grantee. */
   issueUserStates: IssueUserStateWire
   /** Server git observations, keyed by issue. Missing means not probed yet. */
   issueGitStates: IssueGitStateProjection
+  /** POD-6767: an issue's body headers (digest and size per field with
+   *  content), keyed by the issue id; the bodies are fetched by id. */
+  issueBodies: IssueBodiesWire
   /** Issue dependency EDGES [POD-822] — `issue_deps` as first-class rows. The
    *  views join these by `fromId` to derive `blocked`/`ready`/`dependents`; the
    *  projection cannot carry them (an edge belongs to two issues). */
@@ -156,9 +160,10 @@ export interface ReplicaHydrateResult {
   /** The three POD-796/POD-822 kinds, persisted like every other collection so a
    *  warm reload paints the views from local data and re-seeds the hub's
    *  in-memory lists (see `seedMetadata`). Empty until the cap flips. */
-  issueProjections: IssueProjection[]
+  issueProjections: SlimIssueProjection[]
   issueUserStates: IssueUserStateWire[]
   issueGitStates: IssueGitStateProjection[]
+  issueBodies: IssueBodiesWire[]
   issueDeps: IssueDepProjection[]
   repos: RepoProjection[]
   issueEvents: IssueEventWire[]

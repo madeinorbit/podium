@@ -31,7 +31,7 @@ import type {
 import { attentionGroup, effectiveRecency } from '@podium/client-core/focus'
 import type { SessionLiveFields, SessionView } from '@podium/client-core/session-values'
 import { groupRelations, type IssueCloseMemberCounts, type IssueCloseScalarSubject, type ReferentExit, motionPhase as sessionMotion, type TaskProgress } from '@podium/client-core/values'
-import { APPROVAL_EFFECT_KIND, isTurnOpen, readEffectStatus, SESSION_INTERRUPT_KIND } from '@podium/model/browser'
+import { APPROVAL_EFFECT_KIND, ISSUE_BODY_FIELDS, type IssueBodyField, type IssueBodyHeaders, isTurnOpen, readEffectStatus, SESSION_INTERRUPT_KIND } from '@podium/model/browser'
 import {
   ISSUE_ADD_SESSION_KIND,
   ISSUE_BEGIN_KIND,
@@ -43,6 +43,7 @@ import {
 } from '@podium/client-core/spawn-agent'
 import { asSessionId, type CoordinatedSeat, coordinatedSeat, isSessionReconnecting, sessionWorkingFact, inPersonalSet, isExcluded, isFinished, NO_INTERACTIONS, type SeatInteractions, type SeatRole, type SeatSessionFacts, type SessionWord, type SessionWordFacts, sessionWord, wordWantsAttention } from '@podium/model/browser'
 import type { ReaderQueries } from './reader-queries'
+import type { HeldIssueBody, IssueBodyReader } from './issue-bodies'
 import type { IssueSessionFactReader } from './shared/issue-session-facts'
 
 /** One shared object per server record. Schema fields and relations are installed
@@ -92,6 +93,8 @@ export interface ModelHost {
   row(entity: EntityName, id: string, absent?: 'mark' | 'summary' | 'summary-fields'): Lookup<object>
   /** Did I pin this thing? My `pin` record of that kind (POD-6692). */
   isPinned(kind: PinKind, entityId: string): boolean
+  /** Issue bodies by digest (POD-6767): `LOADING` while one is fetched. */
+  readonly issueBodies: IssueBodyReader
   /** The pool's shared session object, including an addressed cold session. */
   sessionObject(id: string): SessionModel
   issueObject(id: string): IssueModel
@@ -355,7 +358,12 @@ export type RelationGetters<E extends EntityName> = {
 /** The one shared issue record. Worklist presentation belongs to WorklistIssue. */
 export class IssueModel extends EntityModel {
   readonly readObservation = new ReadObservation()
-  static override readonly answers: ReadonlySet<string> = new Set(['description'])
+  static override readonly answers: ReadonlySet<string> = new Set([
+    'description',
+    'brief',
+    'panel',
+    'activityNotes',
+  ])
   constructor(id: string, host: ModelHost) {
     super('issue', id, host)
   }
@@ -400,18 +408,68 @@ export class IssueModel extends EntityModel {
     })
   }
 
+  // The bodies (POD-6767): the record carries a header per field with content,
+  // and the body is fetched by id the first time something reads it. A body
+  // answers three ways: its value, `undefined` (the field has none: no
+  // header), or `LOADING` (on its way, nothing held yet). A painted row (an
+  // edit the log has not settled, a launch, a fixture) holds its own text,
+  // which wins. When a header moves, the copy held so far keeps showing
+  // until the new body arrives; only `bodyLoading` says it is not current.
+  private heldBody(field: IssueBodyField): HeldIssueBody | typeof LOADING | undefined {
+    const painted = this.storedField(field)
+    if (painted !== undefined) {
+      this.host.issueBodies.remember(this.id, field, painted)
+      return { value: painted, current: true }
+    }
+    const header = (this.storedField('bodies') as IssueBodyHeaders | undefined)?.[field]
+    if (header === undefined) return undefined
+    return this.host.issueBodies.read(this.id, field, header.digest)
+  }
+  /** One body: its value, `undefined` when the field has none, `LOADING` while
+   *  it is fetched and no earlier copy is held. */
+  body(field: IssueBodyField): unknown {
+    const held = this.heldBody(field)
+    return held === undefined || held === LOADING ? held : held.value
+  }
+  /** Whether the body a field has is not here yet, or is an earlier copy: an
+   *  edit form waits for it, so it never starts from a stale text. */
+  bodyLoading(field: IssueBodyField): boolean {
+    const held = this.heldBody(field)
+    return held === LOADING || (held !== undefined && !held.current)
+  }
+  /** Is any of the issue's bodies still on its way? */
+  @lazy get bodiesLoading(): boolean {
+    return ISSUE_BODY_FIELDS.some((field) => this.bodyLoading(field))
+  }
+  /** The agent brief; absent while it first loads (see {@link bodyLoading}). */
+  @lazy get brief(): string | undefined {
+    const value = this.body('brief')
+    return value === LOADING ? undefined : (value as string | undefined)
+  }
+  /** The agent-published panel, shaped for this reader by the server. */
+  @lazy get panel(): IssuePanel | undefined {
+    const value = this.body('panel')
+    return value === LOADING ? undefined : (value as IssuePanel | undefined)
+  }
+  /** The agent's current state paragraph. */
+  @lazy get activityNotes(): string | undefined {
+    const value = this.body('activityNotes')
+    return value === LOADING ? undefined : (value as string | undefined)
+  }
+
   // Chat uploads (POD-2148): the stored copy of each file attached in one of
   // this issue's chats, by the attachment id it was staged under. The chat
   // shows a thumbnail from it once the daemon's upload sweep deleted the file.
   @lazy get chatUploads(): ReadonlyMap<string, IssuePanelArtifact> {
-    const panel = this.storedField('panel') as IssuePanel | undefined
+    const panel = this.panel
     const out = new Map<string, IssuePanelArtifact>()
     for (const artifact of panel?.artifacts ?? [])
       if (artifact.chatUploadId && artifact.artifactId) out.set(artifact.chatUploadId, artifact)
     return out
   }
   @lazy get description(): string {
-    return documentText(this.storedField('description'))
+    const value = this.body('description')
+    return value === LOADING ? '' : documentText(value)
   }
 
   // The issue's own work (POD-6526): start, stop, cleanup, ship and the

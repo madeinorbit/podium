@@ -69,6 +69,8 @@ import { ISSUE_PAGE_FIELDS, ISSUE_PAGE_SESSION_FIELDS } from '../issue-page-sche
 
 export type ModelSchemaName =
   | 'IssueProjection'
+  | 'SlimIssueProjection'
+  | 'IssueBodiesWire'
   | 'IssueUserStateWire'
   | 'IssueGitStateProjection'
   | 'IssueDerived'
@@ -125,6 +127,7 @@ export type ModelSchemaName =
 export type RowArrival =
   | 'replica:issueUserStates'
   | 'replica:issueGitStates'
+  | 'replica:issueBodies'
   | 'replica:issueProjections'
   | 'replica:sessions'
   | 'replica:sessionUserStates'
@@ -152,6 +155,7 @@ export type RowArrival =
   | 'replica:subscriptions'
   | 'replica:instancePreferences'
   | 'request:messages.ledger'
+  | 'request:issues.bodies'
   | 'request:accounts.list'
   | 'request:members.list'
   | 'request:auth.mobileSessions'
@@ -466,6 +470,9 @@ const projection = (property?: string): FieldSource => ({
   arrivesOn: 'replica:issueProjections',
   ...(property === undefined ? {} : { property }),
 })
+/** An issue body (POD-6767): the field's projection shape, fetched by id
+ *  through `issues.bodies` and cached by its header's digest. */
+const issueBody = (): FieldSource => ({ schema: 'IssueProjection', arrivesOn: 'request:issues.bodies' })
 const sessionValue = (property: string): FieldSource => ({ schema: 'SessionUserStateWire', arrivesOn: 'replica:sessionUserStates', property })
 
 const meta = (property?: string): FieldSource => ({
@@ -562,11 +569,11 @@ const DECLARED = defineSchema({
     why: 'The unit of work the worklist draws one row per.',
     components: {
       issueProjection: {
-        schema: 'IssueProjection',
+        schema: 'SlimIssueProjection',
         arrivesOn: 'replica:issueProjections',
         joinKey: 'id',
         precedence: 0,
-        why: 'The normalized durable row owns issue facts and keeps its asked, intentOrigin and isDraftVessel spellings.',
+        why: 'The normalized durable row owns issue facts and keeps its asked, intentOrigin and isDraftVessel spellings. It carries no body fields (POD-6767).',
       },
     },
     fields: {
@@ -626,11 +633,17 @@ const DECLARED = defineSchema({
       // The one open reference card, through the same normalized row reader.
       priority: { type: 'number', source: projection() },
       assignee: { type: 'id', optional: true, source: projection() },
-      description: { type: 'object', source: projection(), note: 'The materialized document value is rendered by the reference card.' },
-      activityNotes: { type: 'string', optional: true, source: projection() },
+      description: { type: 'object', optional: true, source: issueBody(), note: 'The materialized document value is rendered by the reference card. A body: `IssueModel.description` reads it from the body store (POD-6767).' },
+      activityNotes: { type: 'string', optional: true, source: issueBody(), note: 'A body (POD-6767), read through `IssueModel.activityNotes`.' },
       notesUpdatedAt: { type: 'isoDate', optional: true, source: projection() },
       blockedByNotes: { type: 'object', source: projection() },
-      panel: { type: 'object', optional: true, source: projection() },
+      panel: { type: 'object', optional: true, source: issueBody(), note: 'A body (POD-6767), read through `IssueModel.panel`; shaped for the reader by the server.' },
+      bodies: {
+        type: 'object',
+        optional: true,
+        source: { ...derived(), arrivesOn: 'replica:issueBodies' },
+        note: 'The headers of the issue bodies, one per field with content: a digest and a size. Joined from the issueBodies row without its issue id (POD-6767).',
+      },
       defaultAgent: { type: 'string', source: projection() },
       defaultModel: { type: 'string', source: projection() },
       defaultEffort: { type: 'string', source: projection() },

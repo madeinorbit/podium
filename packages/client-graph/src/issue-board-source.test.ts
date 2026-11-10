@@ -170,7 +170,6 @@ it('uses declared cold summaries without promoting cards or hydrating the world'
     })
     expect(source.issue('cold')).toMatchObject({
       id: 'cold',
-      description: 'Searchable body',
       stage: 'done',
       defaultAgent: 'codex',
     })

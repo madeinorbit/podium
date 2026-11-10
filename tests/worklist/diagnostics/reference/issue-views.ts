@@ -3,7 +3,7 @@ import { isFinished } from '@podium/client-graph/shared/predicates'
 import {
   asIssueId,
   type IssueId,
-  type IssueProjection,
+  type SlimIssueProjection,
   type IssueUserStateWire,
   type SessionId,
   type SessionMeta,
@@ -284,7 +284,7 @@ export function buildIssueBoard(
 
 export function readViewInputs(
   replica: Replica,
-  projections: readonly IssueProjection[] = replica.rows('issueProjections'),
+  projections: readonly SlimIssueProjection[] = replica.rows('issueProjections'),
   userStates: readonly IssueUserStateWire[] = replica.rows('issueUserStates'),
 ): {
   issues: IssueViewInput[]
@@ -309,7 +309,7 @@ export function readViewInputs(
 }
 
 function projectionToViewInput(
-  p: IssueProjection,
+  p: SlimIssueProjection,
   readAt: string | null,
   prefixByRepoId: Map<string, string | null>,
   depsByFrom: Map<string, { id: string; type: string }[]>,

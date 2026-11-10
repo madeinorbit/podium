@@ -64,7 +64,10 @@ export function fixtureProjection(
   )
   return {
     ...own,
-    description: projection?.description ?? { value: issue.description },
+    // A fixture paints its bodies on the row (POD-6767).
+    description: projection?.description ?? {
+      value: (issue as { description?: string }).description ?? '',
+    },
     isDraftVessel: projection?.isDraftVessel ?? issue.isDraftVessel,
     intentOrigin: projection?.intentOrigin ?? issue.intentOrigin,
     asked: projection?.asked ?? issue.asked,

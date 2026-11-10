@@ -12,7 +12,9 @@ import {
   IssueDepProjection,
   IssueEventWire,
   IssueGitStateProjection,
+  IssueBodiesWire,
   IssueProjection,
+  SlimIssueProjection,
   IssueUserStateWire,
   LayoutWire,
   MachineAccessWire,
@@ -154,7 +156,10 @@ const FeedIdShape = {
 export const MetadataChange = z.discriminatedUnion('entity', [
   metadataChangeArm(z.literal('session'), SessionMeta),
 
-  metadataChangeArm(z.literal('issueProjection'), IssueProjection),
+  /** The issue record without its body fields (`brief`, `panel`,
+   *  `description`, `activityNotes`): they arrive as the `issueBodies` headers
+   *  below and are fetched by id (POD-6767). */
+  metadataChangeArm(z.literal('issueProjection'), SlimIssueProjection),
   /** An issue dependency EDGE [POD-822, ADR 4 D7.1] — `issue_deps` rows as
    *  first-class entities, keyed by their own primary key (`issueDepId`).
    *
@@ -305,6 +310,10 @@ export const MetadataChange = z.discriminatedUnion('entity', [
    *  these rows as {@link UnknownMetadataChange} and advances. */
   metadataChangeArm(z.literal('machineAccess'), MachineAccessWire),
   metadataChangeArm(z.literal('checkout'), CheckoutWire),
+  /** The headers of an issue's bodies (POD-6767, design POD-6253 §2), keyed by
+   *  the issue id: a digest and a size per field with content. The body is
+   *  fetched by id (`issues.bodies`). Readable by the issue's readers. */
+  metadataChangeArm(z.literal('issueBodies'), IssueBodiesWire),
 ])
 export type MetadataChange = z.infer<typeof MetadataChange>
 export const MetadataEntityKind = z.enum([
@@ -340,6 +349,7 @@ export const MetadataEntityKind = z.enum([
   'instancePreferences',
   'machineAccess',
   'checkout',
+  'issueBodies',
 ])
 export type MetadataEntityKind = z.infer<typeof MetadataEntityKind>
 
@@ -443,7 +453,8 @@ const changesSinceSnapshotArm = () =>
     sessionUserStates: z.array(SessionUserStateWire).optional(),
     machines: z.array(MachineProjection).optional(),
     issues: z.array(z.never()),
-    issueProjections: z.array(IssueProjection).optional(),
+    issueProjections: z.array(SlimIssueProjection).optional(),
+    issueBodies: z.array(IssueBodiesWire).optional(),
     issueUserStates: z.array(IssueUserStateWire).optional(),
     issueGitStates: z.array(IssueGitStateProjection).optional(),
     issueDeps: z.array(IssueDepProjection).optional(),

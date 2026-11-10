@@ -33,7 +33,8 @@ export function seedIssueFixtures(
     }
     const repoId = issue.repoId ?? asRepoId(`fixture:${issue.repoPath}`)
     row.repoId = repoId
-    row.description = { value: issue.description ?? '' }
+    // A fixture paints its bodies on the row (POD-6767).
+    row.description = { value: (issue as { description?: string }).description ?? '' }
     row.intentOrigin = issue.intentOrigin
     row.isDraftVessel = issue.isDraftVessel
     projections.push(row as unknown as IssueProjection)

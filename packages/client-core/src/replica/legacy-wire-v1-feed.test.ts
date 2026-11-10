@@ -11,6 +11,7 @@ import {
   asSessionId,
   asUserId,
   IssueProjection,
+  SlimIssueProjection,
   RepoProjection,
   type ShipLaneProjection,
   shipLaneId,
@@ -51,12 +52,11 @@ const flush = () => new Promise((r) => setTimeout(r, 0))
 // Must satisfy the real IssueProjection zod schema: the hub's lenient parser quarantines
 // invalid change rows and treats a quarantined delta as a cursor gap (a heal),
 // so a sloppy fixture would silently test the WRONG code path.
-const issue = (id: string, title: string): IssueProjection =>
-  IssueProjection.parse({
+const issue = (id: string, title: string): SlimIssueProjection =>
+  SlimIssueProjection.parse({
     id,
     seq: 1,
     title,
-    description: { value: '' },
     stage: 'backlog',
     parentBranch: 'main',
     defaultAgent: 'claude-code',
@@ -77,9 +77,9 @@ const issue = (id: string, title: string): IssueProjection =>
     visibility: 'personal',
     createdBy: { actor: actorUser(asUserId('viewer')), onBehalfOf: asUserId('viewer') },
   })
-const latestProjections = new WeakMap<SocketHub, IssueProjection[]>()
+const latestProjections = new WeakMap<SocketHub, SlimIssueProjection[]>()
 const observedIssues = (hub: SocketHub) => latestProjections.get(hub) ?? []
-const observeIssues = (hub: SocketHub, cb: (rows: IssueProjection[]) => void) => {
+const observeIssues = (hub: SocketHub, cb: (rows: SlimIssueProjection[]) => void) => {
   cb(observedIssues(hub))
   return hub.on('issueProjections', cb)
 }
@@ -118,7 +118,7 @@ const automationRun = (id: string, automationId: string): AutomationRunWire => (
 
 const snapshot = (
   cursor: number,
-  issueProjections: IssueProjection[] = [],
+  issueProjections: SlimIssueProjection[] = [],
 ): Extract<SyncChangesSinceResult, { kind: 'snapshot' }> => ({
   kind: 'snapshot',
   sessions: [],
@@ -743,7 +743,7 @@ describe('SocketHub metadata delta mode', () => {
     // (`owner`/`visibility`/`createdBy`) is REQUIRED on R1, and per-user `readAt`
     // is absent by construction. So the fixture states those four rather than
     // inheriting them, and `parse` — not a cast — is what proves it.
-    const { description: _description, ...legacy } = issue('iss_1', 'projected')
+    const legacy = issue('iss_1', 'projected')
     const projected = IssueProjection.parse({
       ...legacy,
       description: { value: '' },

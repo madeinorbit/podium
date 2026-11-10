@@ -3,7 +3,7 @@ import { omitGone } from '@podium/client-graph/lookup'
 /** Fixture comparison for pool regression tests. The report exports only counts
  * and positions; both sets of words and authored sends remain in memory. */
 
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueBodyValues, IssueViewModel } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph'
 import {
   chatArtifactIssue,
@@ -31,7 +31,7 @@ const loading = (row: unknown): row is symbol => typeof row === 'symbol'
 export function checkChatContext(
   pool: MobxPool,
   state: Store,
-  issues: readonly IssueViewModel[],
+  issues: readonly (IssueViewModel & IssueBodyValues)[],
   ids: readonly string[],
   queries = ['', 'SYN', 'task', '1'],
 ) {
@@ -121,7 +121,7 @@ export function checkChatContext(
       const old =
         issues.find((row) => row.id === session.issueId) ??
         issues.find((row) => row.memberSessionIds?.includes(session.sessionId))
-      const facts = (issue: IssueViewModel | undefined) =>
+      const facts = (issue: (IssueViewModel & IssueBodyValues) | undefined) =>
         issue
           ? {
               id: issue.id,

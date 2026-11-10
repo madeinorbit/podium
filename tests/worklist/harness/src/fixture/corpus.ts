@@ -1,4 +1,8 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueBodyValues, IssueViewModel } from '@podium/client-core/replica'
+
+/** A corpus issue: the render row with its bodies painted on (POD-6767). The
+ *  synced record carries none; the fixtures keep them for the oracle inputs. */
+export type FixtureIssue = IssueViewModel & IssueBodyValues
 import type { SessionView } from '@podium/client-core/session-values'
 import {
   SYNTHETIC_CLAUDE_KIND,
@@ -229,7 +233,7 @@ export interface FixtureCorpus {
   units: UnitSpan[]
   fixedNow: number
   /** Derived render models for oracle inputs; never replicated as a kind. */
-  issues: IssueViewModel[]
+  issues: FixtureIssue[]
   /** Normalized durable rows (replica `issueProjections` kind). */
   issueProjections: IssueProjection[]
   issueUserStates?: import('@podium/model').IssueUserStateWire[]
@@ -2270,7 +2274,7 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
         .slice(0, 2),
     ),
   )
-  const issues: IssueViewModel[] = []
+  const issues: FixtureIssue[] = []
   const issueProjections: IssueProjection[] = []
   mints.forEach((m, i) => {
     enter(m.unit)
@@ -2363,7 +2367,7 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
     if (drafts.has(i)) projection['isDraftVessel'] = true
     if (startedBy.has(i)) projection['startedBySession'] = startedBy.get(i)
     if (coordinator.has(i)) projection['coordinatorSessionId'] = coordinator.get(i)
-    issues.push(wire as unknown as IssueViewModel)
+    issues.push(wire as unknown as FixtureIssue)
     issueProjections.push(projection as unknown as IssueProjection)
   })
   const setWire = (i: number, key: string, value: unknown): void => {

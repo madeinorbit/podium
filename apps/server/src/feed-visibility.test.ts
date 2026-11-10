@@ -589,8 +589,9 @@ describe('the issue anchor edge reads the normalized record', () => {
       entityId: 'shared',
     })
     expect(edge?.audience).toEqual([reader])
-    expect(edge?.subjects.slice(0, 2)).toEqual([
+    expect(edge?.subjects.slice(0, 3)).toEqual([
       { entity: 'issueProjection', entityId: 'shared' },
+      { entity: 'issueBodies', entityId: 'shared' },
       { entity: 'issueGitState', entityId: 'shared' },
     ])
     expect(edge?.subjects.some((ref) => String(ref.entity) === 'issue')).toBe(false)

@@ -1,5 +1,5 @@
 import { issueObserver as observer } from '../../client/issue-observer'
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueViewModel, IssueWithBodies } from '@podium/client-core/replica'
 import { useIssueOpening } from '../../client/issue-opening'
 import { useMobilePool } from '../../client/mobile-pool'
 import { resolveEdgeFromPool } from '../../client/use-issue-model'
@@ -24,7 +24,7 @@ export const PhoneTimeline = observer(function PhoneTimeline({
   busy,
   commands,
 }: {
-  issue: IssueViewModel
+  issue: IssueWithBodies
   busy: boolean
   commands: IssueCommands
 }) {

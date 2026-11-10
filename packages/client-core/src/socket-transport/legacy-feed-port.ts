@@ -1,6 +1,6 @@
 import type {
   IssueDepProjection,
-  IssueProjection,
+  SlimIssueProjection,
   RepoProjection,
   ShipLaneProjection,
   ShipOrderProjection,
@@ -9,7 +9,7 @@ import type { MetadataChangeLenient, MetadataDeltaMessageLenient } from '@podium
 
 /** Entity projection exchanged with the retired wire-v1 Replica adapter. */
 export interface LegacyMetadataProjection {
-  issueProjections: IssueProjection[]
+  issueProjections: SlimIssueProjection[]
   issueDeps: IssueDepProjection[]
   repos: RepoProjection[]
   shipOrders?: ShipOrderProjection[]

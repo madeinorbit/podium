@@ -30,7 +30,6 @@ export const BOARD_CHECK_FIELDS = [
   'title',
   'displayRef',
   'prefix',
-  'description',
   'stage',
   'closedReason',
   'priority',

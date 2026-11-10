@@ -142,6 +142,7 @@ export function InlineEditable({
   onCommit,
   render,
   textStyle,
+  loading = false,
 }: {
   value: string
   placeholder: string
@@ -151,6 +152,9 @@ export function InlineEditable({
   onCommit: (value: string) => void
   render?: (text: string) => ReactNode
   textStyle?: object
+  /** The value is a body still on its way (POD-6767): shown, not edited, so no
+   *  edit starts from a stale or empty text. */
+  loading?: boolean
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
@@ -161,6 +165,8 @@ export function InlineEditable({
       <PressableScale
         accessibilityRole="button"
         accessibilityLabel={filled ? `${ariaLabel} — edit` : ariaLabel}
+        accessibilityState={{ disabled: loading, busy: loading }}
+        disabled={loading}
         onPress={() => {
           setDraft(value)
           setEditing(true)
@@ -172,7 +178,7 @@ export function InlineEditable({
           render(value)
         ) : (
           <Text style={[styles.editText, textStyle, !filled && styles.editPlaceholder]}>
-            {filled ? value : placeholder}
+            {filled ? value : loading ? 'Loading…' : placeholder}
           </Text>
         )}
       </PressableScale>

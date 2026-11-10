@@ -1458,9 +1458,7 @@ export class MissionViewReader {
     this.stats.issueReads++
     const raw = omitGone(this.pool.row('issue', id))
     if (raw === LOADING || !raw) return raw
-    const row = raw as Omit<IssueNavigationModel, 'description'> & {
-      description: string | { value: string }
-    }
+    const row = raw as IssueNavigationModel
     if (!this.settled(id)) return LOADING
     // Replica-derived member IDs exclude shells, but include archived/headless
     // attachments. The drawn roster applies its additional headless filter.
@@ -1495,8 +1493,6 @@ export class MissionViewReader {
     const deferAt = row.deferUntil ? Date.parse(row.deferUntil) : NaN
     const deferred = Number.isFinite(deferAt) && !this.pool.clock.reached(deferAt)
     return issueNavigationOverlay(row, {
-      description:
-        typeof row.description === 'string' ? row.description : (row.description?.value ?? ''),
       worktreePath: row.worktreePath ?? null,
       branch: row.branch ?? null,
       prefix: repo?.prefix,

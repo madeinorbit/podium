@@ -6,7 +6,7 @@ import {
   issueActivity,
 } from '@podium/client-graph/issue-activity'
 import { useEffect, useMemo, useState } from 'react'
-import { type IssueViewModel } from '@/app/store'
+import { type IssueViewModel, type IssueWithBodies } from '@/app/store'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import {
   type IssuePageCommands,
@@ -51,7 +51,7 @@ export const PageTimeline = observer(function PageTimeline({
   busy,
   commands,
 }: {
-  issue: IssueViewModel
+  issue: IssueWithBodies
   busy: boolean
   commands: IssuePageCommands
 }) {

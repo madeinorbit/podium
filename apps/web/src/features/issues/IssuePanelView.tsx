@@ -22,7 +22,7 @@ import type { JSX, ReactNode } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import { DockHeaderActions } from '@/app/DockHeaderSlot'
 import { useOperatorFocus } from '@/app/operator-focus'
-import { type IssueViewModel } from '@/app/store'
+import { type IssueViewModel, type IssueWithBodies } from '@/app/store'
 import { ArtifactLightbox, artifactLightboxKey } from '@/components/ArtifactLightbox'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -499,7 +499,7 @@ const ArtifactsPart = observer(function ArtifactsPart({
   machineId,
   onViewAll,
 }: {
-  issue: IssueViewModel
+  issue: IssueWithBodies
   machineId?: MachineId
   onViewAll?: () => void
 }): JSX.Element | null {

@@ -48,7 +48,7 @@ import type { IssuePanelArtifact } from '@podium/model/browser'
 import { FileText, Play } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
-import { type IssueViewModel } from '@/app/store'
+import { type IssueWithBodies } from '@/app/store'
 import { ArtifactLightbox, artifactLightboxKey } from '@/components/ArtifactLightbox'
 import { Button } from '@/components/ui/button'
 import { currentWorkspaceSlug } from '@/lib/workspace-request'
@@ -58,7 +58,7 @@ import { IssueAge } from './IssueAge'
 export const IssueAgentActivity = observer(function IssueAgentActivity({
   issue,
 }: {
-  issue: IssueViewModel
+  issue: IssueWithBodies
 }): JSX.Element | null {
   const { httpOrigin, openFileInWorktree, openArtifact } = {
     httpOrigin: useHttpOrigin(),

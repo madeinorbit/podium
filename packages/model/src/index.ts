@@ -116,6 +116,8 @@ export * from './fields/attribution-legacy'
 // of one field list. See the file header for why collapsing them is the wrong fix.
 export * from './fields/change'
 export * from './fields/issue'
+// POD-6767: an issue's body fields as synced headers plus bodies fetched by id.
+export * from './fields/issue-body'
 // The two vocabularies the POD-822 entities compose from — the dep edge's
 // `(id, fromId, toId, type)` and the logical repo's `(id, prefix)`.
 export * from './fields/issue-dep'
@@ -171,6 +173,8 @@ export * from './projections/issue-deck'
 // `IssueAggregate` under `shape.ts`'s wire convention, carrying no derived field
 // at all. `protocol/messages/sync.ts` names it on the `issueProjection` arm.
 export * from './projections/issue-projection'
+// POD-6767: the synced issue record, without its body fields.
+export * from './projections/issue-bodies'
 export * from './projections/issue-read'
 export * from './projections/session-read'
 // Replica provenance: how a row reached THIS replica (ADR 4 D3.8). Deliberately

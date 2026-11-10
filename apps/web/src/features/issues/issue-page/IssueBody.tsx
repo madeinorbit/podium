@@ -11,7 +11,8 @@ import { relativeTime } from '@podium/client-core/focus'
 import { ChevronRight, Pin } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
-import type { IssueViewModel } from '@/app/store'
+import { issueBodyLoading } from '@podium/client-core/replica'
+import type { IssueWithBodies } from '@/app/store'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useAgeNow } from '@/lib/clock-hooks'
@@ -29,7 +30,7 @@ export const IssueTitle = observer(function IssueTitle({
   onEditingChange,
   onCommit,
 }: {
-  issue: IssueViewModel
+  issue: IssueWithBodies
   busy: boolean
   editing: boolean
   onEditingChange: (editing: boolean) => void
@@ -84,7 +85,7 @@ export const IssueDescription = observer(function IssueDescription({
   draft,
   children,
 }: {
-  issue: IssueViewModel
+  issue: IssueWithBodies
   busy: boolean
   editing: boolean
   onEditingChange: (editing: boolean) => void
@@ -98,8 +99,13 @@ export const IssueDescription = observer(function IssueDescription({
   /** The history line under the text. */
   children?: ReactNode
 }): JSX.Element {
+  // The description is a body fetched by id (POD-6767): until the current
+  // text is here, it is shown but not edited, so no edit starts from a stale
+  // or empty text.
+  const loading = issueBodyLoading(issue, 'description')
+  const editable = mayEdit && !loading
   return (
-    <section className="group/section mb-9">
+    <section className="group/section mb-9" aria-busy={loading || undefined}>
       {conflict && (
         <div
           role="alert"
@@ -117,7 +123,7 @@ export const IssueDescription = observer(function IssueDescription({
           </span>
         </div>
       )}
-      {editing && mayEdit ? (
+      {editing && editable ? (
         <Textarea
           key={`desc-${issue.id}-${conflict?.currentRevision ?? ''}`}
           defaultValue={draft ?? issue.description}
@@ -136,7 +142,7 @@ export const IssueDescription = observer(function IssueDescription({
           }}
           onBlur={(e) => onCommit(e.currentTarget.value)}
         />
-      ) : mayEdit ? (
+      ) : editable ? (
         <button
           data-pressable
           type="button"
@@ -151,6 +157,10 @@ export const IssueDescription = observer(function IssueDescription({
         >
           {issue.description || 'Add a description…'}
         </button>
+      ) : loading && !issue.description ? (
+        <p className="text-[14.5px] text-muted-foreground/70 leading-[1.6]" data-testid="description-loading">
+          Loading description…
+        </p>
       ) : (
         <p className="whitespace-pre-wrap break-words text-[14.5px] text-foreground/90 leading-[1.6]">
           {issue.description}
@@ -166,7 +176,7 @@ export const IssueBrief = observer(function IssueBrief({
   issue,
   children,
 }: {
-  issue: IssueViewModel
+  issue: IssueWithBodies
   /** The history line under the brief (POD-6295). */
   children?: ReactNode
 }): JSX.Element | null {
@@ -211,7 +221,7 @@ export const IssueBrief = observer(function IssueBrief({
 export const StatusStrip = observer(function StatusStrip({
   issue,
 }: {
-  issue: IssueViewModel
+  issue: IssueWithBodies
 }): JSX.Element {
   const now = useAgeNow(Math.max(Date.parse(issue.createdAt), Date.parse(issue.updatedAt)))
   const created = relativeTime(issue.createdAt, now)
@@ -286,7 +296,7 @@ export const LongFormFields = observer(function LongFormFields({
   busy,
   commands,
 }: {
-  issue: IssueViewModel
+  issue: IssueWithBodies
   busy: boolean
   commands: IssuePageCommands
 }): JSX.Element | null {

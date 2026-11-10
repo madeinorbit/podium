@@ -2327,6 +2327,7 @@ export class IssueCrudModule {
       },
       changes: ({ owners, pinners }) => [
         { entity: 'issueProjection', id, op: 'remove' },
+        { entity: 'issueBodies', id, op: 'remove' },
         ...owners.map((userId) => ({
           entity: 'issueUserState' as const,
           id: issueUserStateRowId(userId, id),

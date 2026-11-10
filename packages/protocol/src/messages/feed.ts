@@ -60,7 +60,7 @@ import {
   EffectRecordWire,
   IssueDepProjection,
   IssueGitStateProjection,
-  IssueProjection,
+  SlimIssueProjection,
   IssueUserStateWire,
   MachineProjection,
   RepoProjection,
@@ -105,7 +105,7 @@ const feedChangeArm = <E extends z.ZodTypeAny, V extends z.ZodTypeAny>(entity: E
 
 export const FeedChange = z.discriminatedUnion('entity', [
   feedChangeArm(z.literal('session'), SessionMeta),
-  feedChangeArm(z.literal('issueProjection'), IssueProjection),
+  feedChangeArm(z.literal('issueProjection'), SlimIssueProjection),
   feedChangeArm(z.literal('issueDep'), IssueDepProjection),
   feedChangeArm(z.literal('repo'), RepoProjection),
   feedChangeArm(z.literal('shipOrder'), ShipOrderProjection),
