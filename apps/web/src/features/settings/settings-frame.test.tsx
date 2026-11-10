@@ -113,6 +113,10 @@ describe('settings frame', () => {
     expect(screen.queryByRole('region', { name: 'Add project' })).toBeNull()
     expect(close).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Add project' }))
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Close settings' }), { key: 'Escape' })
+    expect(screen.queryByRole('region', { name: 'Add project' })).toBeNull()
+    expect(close).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Add project' }))
     fireEvent.click(
       within(screen.getByRole('region', { name: 'Add project' })).getByRole('button', {
         name: 'Projects',
