@@ -8524,6 +8524,12 @@ a.ref-link--session::before {
   }
   .settings-entity-trailing > [data-slot="badge"] {
     flex-shrink: 1;
+    height: auto;
+    min-height: 1.25rem;
+    white-space: normal;
+  }
+  .settings-entity-trailing:has(> [data-slot="badge"]) {
+    flex-wrap: nowrap;
   }
 }
 
