@@ -181,3 +181,34 @@ describe('secret removal', () => {
     expect(undo).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('server-owned secret projections', () => {
+  it('renders Set with the fingerprint, without fabricated token characters', () => {
+    render(<SecretRow label="Bot token" present fingerprint="fp-opaque" onSave={async () => {}} />)
+    expect(screen.getByText('Set')).toBeTruthy()
+    expect(screen.getByTestId('secret-fingerprint').textContent).toBe('fp-opaque')
+    expect(screen.queryByText(/••••/)).toBeNull()
+  })
+  it('offers no Undo when Remove has no inverse', async () => {
+    const remove = vi.fn(async () => {})
+    render(<SecretRow label="Bot token" present onSave={async () => {}} onRemove={remove} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
+    fireEvent.click(
+      within(screen.getByRole('form', { name: 'Remove' })).getByRole('button', { name: 'Remove' }),
+    )
+    await waitFor(() => expect(remove).toHaveBeenCalledOnce())
+    await waitFor(() => expect(notice).toHaveBeenCalledWith('Removed', undefined))
+  })
+  it('shows a server masked identity when supplied', () => {
+    render(
+      <SecretRow
+        label="Account"
+        present
+        maskedIdentity="user@example.test"
+        onSave={async () => {}}
+      />,
+    )
+    expect(screen.getByText('user@example.test')).toBeTruthy()
+    expect(screen.queryByText('Set')).toBeNull()
+  })
+})

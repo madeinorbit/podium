@@ -106,7 +106,7 @@ beforeEach(async () => {
     bus,
   )
   const settings = new SettingsService(store.settings, store.secrets, bus, {
-    telegramBindings: { upsert: async () => {} },
+    telegramBindings: { upsert: async () => {}, removeForUser: async () => {} },
     audit: { repo: { append: async () => {} }, now: () => AT },
     now: () => Date.parse(AT),
     modelProbe: { list: async () => [] } as never,

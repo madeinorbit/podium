@@ -1,5 +1,5 @@
 /**
- * EVERY CURRENT CALLER OF THE 29 NON-SYNC COMMANDS, THROUGH THE FRONT DOOR
+ * EVERY CURRENT CALLER OF THE 31 NON-SYNC COMMANDS, THROUGH THE FRONT DOOR
  * (ADR 12 D8, POD-6360).
  *
  * Moving these commands onto the plain path made their contracts' role floors
@@ -239,16 +239,28 @@ const CALLERS: readonly {
     expect: 'floor',
   },
   {
+    command: 'settings.telegramBotPresence',
+    who: 'member',
+    caller: 'Settings → Notifications',
+    expect: 'ok',
+  },
+  {
+    command: 'settings.telegramDisconnect',
+    who: 'member',
+    caller: 'Settings → Notifications',
+    expect: 'ok',
+  },
+  {
     command: 'settings.telegramSetupStart',
     who: 'member',
     caller: 'Settings → Notifications',
-    expect: 'floor',
+    expect: 'ok',
   },
   {
     command: 'settings.telegramSetupPoll',
     who: 'member',
     caller: 'Settings → Notifications',
-    expect: 'floor',
+    expect: 'ok',
   },
   // ---- first-run setup ----
   ...[
@@ -291,9 +303,9 @@ const CALLERS: readonly {
   },
 ]
 
-describe('every current caller of the 29 non-sync commands', () => {
-  it('covers the 29 commands, and only them', () => {
-    expect(CONTRACTS.size).toBe(29) // includes accounts.unsend; accounts.keys is a query
+describe('every current caller of the 31 non-sync commands', () => {
+  it('covers the 31 commands, and only them', () => {
+    expect(CONTRACTS.size).toBe(31) // includes accounts.unsend; accounts.keys is a query
     // None is queued any more. The two that were moved onto synced record
     // edits on purpose:
     //  - settings.updatePersonal: records.userPreferences.edit (POD-6673);
@@ -301,7 +313,7 @@ describe('every current caller of the 29 non-sync commands', () => {
     const queued = [...CONTRACTS.values()].filter((c) => c.delivery.class === 'offline-eligible')
     expect(queued.map((c) => c.name)).toEqual([])
     const plain = [...CONTRACTS.values()].filter((c) => c.delivery.class !== 'offline-eligible')
-    expect(plain).toHaveLength(29)
+    expect(plain).toHaveLength(31)
     for (const row of CALLERS) expect(CONTRACTS.has(row.command), row.command).toBe(true)
   })
 

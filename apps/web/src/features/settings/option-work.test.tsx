@@ -163,6 +163,7 @@ it('measures the mounted settings sections at 1x and 4x', async () => {
             },
           }),
         },
+        telegramBotPresence: { query: vi.fn().mockResolvedValue(true) },
         secretPresence: { query: async () => [] },
       },
       accounts: { list: { query: async () => [] } },

@@ -355,6 +355,8 @@ describe('the online-only set is derived and non-empty', () => {
       'settings.clearSecret',
       'settings.secretPresence',
       'settings.setSecret',
+      'settings.telegramBotPresence',
+      'settings.telegramDisconnect',
       'settings.telegramSetupPoll',
       'settings.telegramSetupStart',
     ])

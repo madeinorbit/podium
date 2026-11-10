@@ -83,6 +83,7 @@ beforeEach(() => {
           },
         }),
       },
+      telegramBotPresence: { query: vi.fn().mockResolvedValue(true) },
       secretPresence: { query: vi.fn().mockRejectedValue(new Error('no surface')) },
       set: { mutate: vi.fn().mockResolvedValue({ settings, refusals: [] }) },
     },
@@ -136,6 +137,7 @@ describe('Settings save on change', () => {
     vi.setSystemTime(100_000)
     const poll = vi.fn().mockResolvedValue({ status: 'pending' })
     Object.assign(storeState.trpc.settings, {
+      telegramBotPresence: { query: vi.fn().mockResolvedValue(true) },
       secretPresence: {
         query: vi
           .fn()
@@ -156,13 +158,13 @@ describe('Settings save on change', () => {
       render(<SettingsView onClose={onClose} />)
     })
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Connect Telegram' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
     })
-    expect(screen.getByText('0:03 left')).toBeTruthy()
+    expect(screen.getByText(/0:03 left/)).toBeTruthy()
     act(() => vi.advanceTimersByTime(999))
-    expect(screen.getByText('0:03 left')).toBeTruthy()
+    expect(screen.getByText(/0:03 left/)).toBeTruthy()
     act(() => vi.advanceTimersByTime(1))
-    expect(screen.getByText('0:02 left')).toBeTruthy()
+    expect(screen.getByText(/0:02 left/)).toBeTruthy()
     act(() => vi.advanceTimersByTime(1_250))
     expect(screen.getByText('Setup expired. Start again.')).toBeTruthy()
     expect(poll).toHaveBeenCalledTimes(1)

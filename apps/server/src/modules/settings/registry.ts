@@ -103,6 +103,14 @@ export const SETTINGS_COMMANDS_TRPC = {
       boolean
     >,
   },
+  'settings.telegramDisconnect': {
+    contract: SETTINGS_CONTRACTS['settings.telegramDisconnect'],
+    handler: (async (svc, _input, actor) =>
+      await svc.disconnectTelegram(actor)) satisfies SettingsHandler<
+      z.infer<(typeof SETTINGS_CONTRACTS)['settings.telegramDisconnect']['input']>,
+      void
+    >,
+  },
   'settings.telegramSetupStart': {
     contract: SETTINGS_CONTRACTS['settings.telegramSetupStart'],
     handler: (async (svc, _input, actor) =>

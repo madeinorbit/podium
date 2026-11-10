@@ -43,7 +43,7 @@ const NAMES = SETTINGS_COMMAND_NAMES
 const ALL = NAMES.map((name) => SETTINGS_CONTRACTS[name])
 
 describe('the family is complete and classified', () => {
-  it('declares seven contracts: one per tier, the secret CLEAR and READ arms, and the ceremony pair', () => {
+  it('declares the secret arms, bot availability and Telegram connection commands', () => {
     // SEVEN as of POD-421, which added `settings.secretPresence` — the presence
     // READ POD-420 recorded as this issue's ("`settings.get` is deliberately
     // absent … what it returns is POD-419's question and POD-421's"). The number
@@ -55,6 +55,8 @@ describe('the family is complete and classified', () => {
       'settings.clearSecret',
       'settings.secretPresence',
       'settings.setSecret',
+      'settings.telegramBotPresence',
+      'settings.telegramDisconnect',
       'settings.telegramSetupPoll',
       'settings.telegramSetupStart',
     ])
@@ -119,6 +121,7 @@ describe('the secret arms are never queueable, and the matrix says so too', () =
       // answer "is a key configured" from before it was cleared.
       'settings.secretPresence',
       'settings.setSecret',
+      'settings.telegramBotPresence',
     ])
   })
 
@@ -212,9 +215,14 @@ describe('a preference patch is gated on the classified path — and can say YES
   })
 
   it.each([
-    'transcripts.mirror', 'deployment.authOpenMode', 'deployment.updateChannel',
-    'deployment.connectEnabled', 'deployment.telemetryUsage', 'deployment.telemetryCrash',
-    'deployment.telemetryInstallId', 'deployment.telemetrySince',
+    'transcripts.mirror',
+    'deployment.authOpenMode',
+    'deployment.updateChannel',
+    'deployment.connectEnabled',
+    'deployment.telemetryUsage',
+    'deployment.telemetryCrash',
+    'deployment.telemetryInstallId',
+    'deployment.telemetrySince',
   ])('a clear of %s is a reset of the instance record only', (path) => {
     const input = JSON.parse(JSON.stringify({ values: { [path]: null } }))
     const parsed = settingsUpdateInstanceInput.safeParse(input)
@@ -477,7 +485,7 @@ describe('the ceremony pair classifies a MINT and a REDEMPTION differently', () 
   it('both halves of one ceremony carry the SAME floor', () => {
     // The lower floor is the ceremony's real floor; two different ones would
     // make the higher a decoration.
-    expect(start.policy.roleFloor).toBe('admin')
+    expect(start.policy.roleFloor).toBe('member')
     expect(poll.policy.roleFloor).toBe(start.policy.roleFloor)
   })
 

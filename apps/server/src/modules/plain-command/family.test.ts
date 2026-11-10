@@ -43,6 +43,8 @@ const PLAIN_COMMANDS = [
   'settings.clearSecret',
   'settings.secretPresence',
   'settings.setSecret',
+  'settings.telegramBotPresence',
+  'settings.telegramDisconnect',
   'settings.telegramSetupPoll',
   'settings.telegramSetupStart',
   'setup.activate',
@@ -129,8 +131,8 @@ afterEach(() => {
 })
 
 describe('every non-sync command goes through the front door', () => {
-  it('a system principal with garbage input is refused as unauthorized by all 27', async () => {
-    expect(PLAIN_COMMANDS).toHaveLength(27)
+  it('a system principal with garbage input is refused as unauthorized by all 29', async () => {
+    expect(PLAIN_COMMANDS).toHaveLength(29)
     const { caller } = await harness({ capability: OPERATOR, principal: systemPrincipal('test') })
     const codes: Record<string, string> = {}
     for (const name of PLAIN_COMMANDS) {
@@ -141,7 +143,9 @@ describe('every non-sync command goes through the front door', () => {
     const expected = Object.fromEntries(
       PLAIN_COMMANDS.map((name) => [
         name,
-        name === 'settings.secretPresence' ? 'NOT_FOUND' : 'FORBIDDEN',
+        name === 'settings.secretPresence' || name === 'settings.telegramBotPresence'
+          ? 'NOT_FOUND'
+          : 'FORBIDDEN',
       ]),
     )
     expect(codes).toEqual(expected)

@@ -56,7 +56,6 @@ const SECRET_LABEL: Readonly<Record<string, string>> = {
   'apiKeys.anthropic': 'Anthropic API key',
   'apiKeys.openai': 'OpenAI API key',
   'integrations.linearApiKey': 'Linear API key',
-  'notifications.telegramBotToken': 'Telegram bot token',
 }
 
 /**
@@ -238,16 +237,18 @@ export function SecretsSection({
           {error}
         </p>
       )}
-      {state.rows.filter((row) => row.key !== 'notifications.telegramBotToken').map((row) => (
-        <SecretRow
-          key={row.key}
-          row={row}
-          canManage={canManage}
-          onSet={onSet}
-          onClear={onClear}
-          busy={busy}
-        />
-      ))}
+      {state.rows
+        .filter((row) => row.key !== 'notifications.telegramBotToken')
+        .map((row) => (
+          <SecretRow
+            key={row.key}
+            row={row}
+            canManage={canManage}
+            onSet={onSet}
+            onClear={onClear}
+            busy={busy}
+          />
+        ))}
       <p className="settings-prose mt-3">
         Replacing a key takes effect immediately and cannot be undone — the previous value is
         overwritten on the server. These writes are never queued offline.

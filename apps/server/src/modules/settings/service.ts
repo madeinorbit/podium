@@ -13,8 +13,8 @@ import {
   type UserId,
 } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
-import type { LedgerWriter } from '@podium/sync'
 import { configPath, onConfigChanged } from '@podium/runtime/config'
+import type { LedgerWriter } from '@podium/sync'
 import type { CommandPrincipal } from '../../command-principal'
 import { ModelCatalog, type ModelCatalogSnapshot, type ModelProbe } from '../../model-catalog'
 import type { TelegramConfig } from '../../notify'
@@ -62,6 +62,7 @@ interface PendingTelegramSetup {
  *  the store, and so a test can observe the binding directly. */
 export interface TelegramBindingWriter {
   upsert(binding: TelegramChatBinding): Promise<void>
+  removeForUser(userId: UserId): Promise<void>
 }
 
 export interface TelegramSetupStartResult {
@@ -682,6 +683,32 @@ export class SettingsService {
     )
   }
 
+  /** Revoke the caller's chats and routing preference in the same ledger unit.
+   * No supplied user/chat id can target another person's connection. */
+  async disconnectTelegram(actor: UserId): Promise<void> {
+    if (!this.preferenceWriter)
+      throw new Error('Telegram disconnect requires the preference writer')
+    const previous = await this.store.getSettingsFor(actor)
+    const { result: next } = await this.preferenceWriter.commit({
+      write: async () => {
+        await this.telegramBindings.removeForUser(actor)
+        const settings = await this.store.applyPreferencePatch(
+          actor,
+          {
+            'notifications.telegramChatId': '',
+          },
+          new Date(this.now()).toISOString(),
+        )
+        return { settings, record: await this.store.preferenceRecordFor(actor) }
+      },
+      changes: ({ record }) => [userPreferencesChange(record)],
+    })
+    for (const [id, setup] of this.telegramSetups) {
+      if (setup.mint.userId === actor) this.telegramSetups.delete(id)
+    }
+    await this.emitSettingsChanged(previous, next.settings, actor)
+  }
+
   /**
    * The provider API key for an LLM backend's provider, or `undefined`.
    *
@@ -785,6 +812,8 @@ export class SettingsService {
     if (!botToken) throw new Error('Telegram bot token is required before setup')
 
     const updates = await this.telegramSetup.getUpdates(botToken)
+    // Disconnect can cancel a ceremony while the external request is in flight.
+    if (this.telegramSetups.get(setupId) !== setup) return { status: 'expired' }
     const match = updates.find((update) => telegramTextHasCode(update.text, setup.mint.code))
     if (!match) return { status: 'pending', expiresAt: setup.mint.expiresAt }
 

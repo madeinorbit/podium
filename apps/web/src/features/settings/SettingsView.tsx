@@ -35,7 +35,12 @@ import { InstanceLoginSection } from './sections/instance-login'
 import { LabsSection } from './sections/labs'
 import { MembersSection } from './sections/members'
 import { NetworkSection } from './sections/network'
-import { NotificationsSection, type TelegramSetupState } from './sections/notifications'
+import {
+  NotificationsSection,
+  type TelegramBotPresence,
+  TelegramSetupContext,
+  type TelegramSetupState,
+} from './sections/notifications'
 import { PrivacySection } from './sections/privacy'
 import { type SecretSurfaceState, SecretsSection } from './sections/secrets'
 import {
@@ -107,7 +112,9 @@ interface SectionContext {
   trpc: Trpc
   telegramSetup: TelegramSetupState
   startTelegramSetup: () => void
-  resetTelegramSetup: () => void
+  disconnectTelegram: () => Promise<void>
+  telegramBotPresent: TelegramBotPresence
+  refreshTelegramBot: () => void
   openNetworkSettings: () => void
   /** The secret surface: presence + fingerprint, or the single unavailable
    *  state. Never a value — the read has no value key by construction. */
@@ -116,8 +123,8 @@ interface SectionContext {
   canManageSecrets: boolean
   secretBusy: boolean
   secretError: string | null
-  setSecret: (key: ServerSecretKey, value: string) => void
-  clearSecret: (key: ServerSecretKey) => void
+  setSecret: (key: ServerSecretKey, value: string) => Promise<void>
+  clearSecret: (key: ServerSecretKey) => Promise<void>
 }
 
 /** The tab -> section lookup (P5d, issue #264 — replaces the JSX ladder). Most
@@ -141,8 +148,8 @@ const SECTION_VIEWS: Record<SettingsPage, (ctx: SectionContext) => JSX.Element> 
         <SecretsSection
           state={ctx.secrets}
           canManage={ctx.canManageSecrets}
-          onSet={ctx.setSecret}
-          onClear={ctx.clearSecret}
+          onSet={(key, value) => void ctx.setSecret(key, value).catch(() => {})}
+          onClear={(key) => void ctx.clearSecret(key).catch(() => {})}
           busy={ctx.secretBusy}
           error={ctx.secretError}
         />
@@ -156,7 +163,15 @@ const SECTION_VIEWS: Record<SettingsPage, (ctx: SectionContext) => JSX.Element> 
         patch={ctx.patch}
         telegramSetup={ctx.telegramSetup}
         onStartTelegramSetup={ctx.startTelegramSetup}
-        onResetTelegramSetup={ctx.resetTelegramSetup}
+        onDisconnectTelegram={ctx.disconnectTelegram}
+        telegramBotPresent={ctx.telegramBotPresent}
+        onRefreshTelegramBot={ctx.refreshTelegramBot}
+        secrets={ctx.secrets}
+        canManageSecrets={ctx.canManageSecrets}
+        secretBusy={ctx.secretBusy}
+        secretError={ctx.secretError}
+        onSetSecret={ctx.setSecret}
+        onClearSecret={ctx.clearSecret}
       />
     </SettingsPageSection>
   ),
@@ -317,6 +332,7 @@ const SettingsViewBody = observer(function SettingsViewBody({
    */
   const [permitted, setPermitted] = useState<Record<string, boolean>>({})
   const [telegramSetup, setTelegramSetup] = useState<TelegramSetupState>({ status: 'idle' })
+  const [telegramBotPresent, setTelegramBotPresent] = useState<TelegramBotPresence>('loading')
   // The tab is the URL (/settings/:tab, issue #15 Phase 4): deep links (global
   // search, the Machines panel's "Change URL") land directly on their tab, tab
   // clicks push history entries (setSettingsTab), and back/forward moves
@@ -339,6 +355,26 @@ const SettingsViewBody = observer(function SettingsViewBody({
       .then((rows) => setSecrets({ status: 'available', rows }))
       .catch(() => setSecrets({ status: 'unavailable' }))
   }, [trpc])
+
+  const loadTelegramBotPresence = useCallback((): void => {
+    trpc.settings.telegramBotPresence
+      .query({})
+      .then(setTelegramBotPresent)
+      .catch(() => setTelegramBotPresent('unavailable'))
+  }, [trpc])
+
+  useEffect(() => {
+    loadTelegramBotPresence()
+    const refresh = () => {
+      if (document.visibilityState === 'visible') loadTelegramBotPresence()
+    }
+    window.addEventListener('focus', refresh)
+    document.addEventListener('visibilitychange', refresh)
+    return () => {
+      window.removeEventListener('focus', refresh)
+      document.removeEventListener('visibilitychange', refresh)
+    }
+  }, [loadTelegramBotPresence])
 
   useEffect(() => {
     let cancelled = false
@@ -443,47 +479,24 @@ const SettingsViewBody = observer(function SettingsViewBody({
     try {
       await run()
       loadSecretPresence()
+      loadTelegramBotPresence()
     } catch (e) {
       // The server has already redacted this message against the contract's own
       // declaration (`redactErrorMessage`), so a handler that built its text
       // from the material cannot reach this line with it.
       setSecretError(e instanceof Error ? e.message : String(e))
+      throw e
     } finally {
       setSecretBusy(false)
     }
   }
 
-  /**
-   * THE PRECONDITION IS NOW READ FROM PRESENCE, NOT FROM THE BLOB (POD-421).
-   *
-   * This guard used to read `settings.notifications.telegramBotToken` and refuse
-   * with "Paste a Telegram bot token first" when it was blank. POD-419 removed
-   * the material from the blob, so that member is now ALWAYS `''` — the guard
-   * would have refused every ceremony on every instance, including ones with a
-   * token perfectly well configured, and the message would have told the user to
-   * do something the screen no longer lets them do.
-   *
-   * Worth naming as a defect class rather than fixing quietly: a UI predicate
-   * over a field whose value was relocated does not fail loudly, it inverts. It
-   * kept typechecking, it kept rendering, and it started answering "no" to a
-   * question it used to answer correctly.
-   *
-   * Presence is the fact this actually needs, and it is exactly what the surface
-   * publishes. `undefined` — the surface is unavailable to this caller — is
-   * treated as NOT satisfied, which is the fail-closed arm: a member cannot
-   * start the ceremony, and the server's own `startTelegramSetup` refuses
-   * without a token anyway.
-   */
-  const botTokenPresent =
-    secrets.status === 'available' &&
-    secrets.rows.some((r) => r.key === 'notifications.telegramBotToken' && r.present)
-
   const startTelegramSetup = async () => {
     if (!settings) return
-    if (!botTokenPresent) {
+    if (telegramBotPresent !== true) {
       setTelegramSetup({
         status: 'failed',
-        message: 'An admin must save a Telegram bot token under AI accounts first.',
+        message: 'An admin must set up the Telegram bot in Notifications first.',
       })
       return
     }
@@ -491,7 +504,7 @@ const SettingsViewBody = observer(function SettingsViewBody({
     setTelegramSetup({ status: 'starting' })
     try {
       // NO BLOB SAVE FIRST. The token is already persisted — it is a
-      // server-owned secret written by `settings.setSecret` from the Secrets
+      // server-owned secret written by `settings.setSecret` from Notifications’ bot
       // surface, never by this screen's Save. The previous version saved the
       // whole blob here because the token was one of its members; routing a
       // ceremony through a preference save is now neither necessary nor honest.
@@ -551,73 +564,77 @@ const SettingsViewBody = observer(function SettingsViewBody({
   }
 
   return (
-    <SettingsFrame
-      page={tab}
-      selectedPage={settingsTab !== null}
-      onPageChange={setSettingsTab}
-      onClose={onClose}
-      viewer={adminViewer}
-    >
-      {awaitingAdmin ? (
-        <p role="status" className="settings-prose text-muted-foreground">
-          {adminViewer.status === 'loading'
-            ? 'Checking administrator access…'
-            : 'Administrator access is unavailable.'}
-        </p>
-      ) : settings ? (
-        // The tab body is a whole surface, and a lazy section that
-        // cannot be fetched leaves it blank — which is what the
-        // operator is staring at during a handover (POD-2762). It says
-        // so, and only when it is true.
-        <SettingsControlsContext.Provider value={{ settings, permitted, feedback }}>
-          <Suspense fallback={<WaitingForServer className="flex min-h-24" />}>
-            {(tab === 'projects' || tab === 'machines') &&
-              permitted['records.instancePreferences.edit'] !== true && (
-                <p className="settings-prose mb-4">
-                  Only admins can change these. You can see what is set.
-                </p>
-              )}
-            {SECTION_VIEWS[tab]({
-              settings,
-              accounts,
-              patch,
-              trpc,
-              telegramSetup,
-              startTelegramSetup: () => void startTelegramSetup(),
-              resetTelegramSetup: () => setTelegramSetup({ status: 'idle' }),
-              openNetworkSettings: () => setSettingsTab('access'),
-              secrets,
-              canManageSecrets: permitted['settings.setSecret'] === true,
-              secretBusy,
-              secretError,
-              setSecret: (key, value) => {
-                void writeSecret(() => trpc.settings.setSecret.mutate({ key, value }))
-              },
-              clearSecret: (key) => {
-                void writeSecret(() => trpc.settings.clearSecret.mutate({ key }))
-              },
-            })}
-          </Suspense>
-        </SettingsControlsContext.Provider>
-      ) : (
-        // The skeleton is the row grammar at rest: same 14px padding,
-        // same control column, so nothing shifts when the blob lands.
-        <div className="animate-pulse" aria-hidden="true">
-          {[0, 1, 2, 3, 4].map((i) => (
-            <div
-              key={i}
-              className="flex items-center justify-between gap-9 border-hairline-soft/50 border-b py-4 last:border-b-0"
-            >
-              <div className="min-w-0 space-y-2">
-                <div className="h-3.5 w-40 rounded bg-chip" />
-                {i % 2 === 0 && <div className="h-2.5 w-64 max-w-full rounded bg-chip/60" />}
+    <TelegramSetupContext.Provider value={telegramSetup}>
+      <SettingsFrame
+        page={tab}
+        selectedPage={settingsTab !== null}
+        onPageChange={setSettingsTab}
+        onClose={onClose}
+        viewer={adminViewer}
+      >
+        {awaitingAdmin ? (
+          <p role="status" className="settings-prose text-muted-foreground">
+            {adminViewer.status === 'loading'
+              ? 'Checking administrator access…'
+              : 'Administrator access is unavailable.'}
+          </p>
+        ) : settings ? (
+          // The tab body is a whole surface, and a lazy section that
+          // cannot be fetched leaves it blank — which is what the
+          // operator is staring at during a handover (POD-2762). It says
+          // so, and only when it is true.
+          <SettingsControlsContext.Provider value={{ settings, permitted, feedback }}>
+            <Suspense fallback={<WaitingForServer className="flex min-h-24" />}>
+              {(tab === 'projects' || tab === 'machines') &&
+                permitted['records.instancePreferences.edit'] !== true && (
+                  <p className="settings-prose mb-4">
+                    Only admins can change these. You can see what is set.
+                  </p>
+                )}
+              {SECTION_VIEWS[tab]({
+                settings,
+                accounts,
+                patch,
+                trpc,
+                telegramSetup,
+                startTelegramSetup: () => void startTelegramSetup(),
+                disconnectTelegram: async () => {
+                  await trpc.settings.telegramDisconnect.mutate({})
+                  setTelegramSetup({ status: 'idle' })
+                },
+                telegramBotPresent,
+                refreshTelegramBot: loadTelegramBotPresence,
+                openNetworkSettings: () => setSettingsTab('access'),
+                secrets,
+                canManageSecrets: permitted['settings.setSecret'] === true,
+                secretBusy,
+                secretError,
+                setSecret: (key, value) =>
+                  writeSecret(() => trpc.settings.setSecret.mutate({ key, value })),
+                clearSecret: (key) => writeSecret(() => trpc.settings.clearSecret.mutate({ key })),
+              })}
+            </Suspense>
+          </SettingsControlsContext.Provider>
+        ) : (
+          // The skeleton is the row grammar at rest: same 14px padding,
+          // same control column, so nothing shifts when the blob lands.
+          <div className="animate-pulse" aria-hidden="true">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <div
+                key={i}
+                className="flex items-center justify-between gap-9 border-hairline-soft/50 border-b py-4 last:border-b-0"
+              >
+                <div className="min-w-0 space-y-2">
+                  <div className="h-3.5 w-40 rounded bg-chip" />
+                  {i % 2 === 0 && <div className="h-2.5 w-64 max-w-full rounded bg-chip/60" />}
+                </div>
+                <div className="h-8 w-[var(--settings-control-w)] flex-none rounded-md bg-chip/80" />
               </div>
-              <div className="h-8 w-[var(--settings-control-w)] flex-none rounded-md bg-chip/80" />
-            </div>
-          ))}
-        </div>
-      )}
-    </SettingsFrame>
+            ))}
+          </div>
+        )}
+      </SettingsFrame>
+    </TelegramSetupContext.Provider>
   )
 })
 

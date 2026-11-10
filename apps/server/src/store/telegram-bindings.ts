@@ -33,7 +33,7 @@ import type { Attribution, TelegramChatBinding, UserId } from '@podium/model'
 import { asUserId } from '@podium/model'
 import { asc, eq, sql } from 'drizzle-orm'
 import { telegramChatBindings } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import { param, prepared } from './executor/sync-drizzle'
 
 /** The stored row, as drizzle's own execution path maps it back. */
@@ -125,6 +125,13 @@ const deleteBinding = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+const deleteBindingsForUser = prepared((db: StoreDrizzle) =>
+  db
+    .delete(telegramChatBindings)
+    .where(eq(telegramChatBindings.userId, param(telegramChatBindings.userId, 'userId')))
+    .prepare(),
+)
+
 export class TelegramBindingsRepository {
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
@@ -182,6 +189,11 @@ export class TelegramBindingsRepository {
       onBehalfOf: binding.boundBy.onBehalfOf,
     }
     await upsertBinding(this.db).run(values)
+  }
+
+  /** Disconnect only this person's chats, including any older bindings. */
+  async removeForUser(userId: UserId): Promise<void> {
+    await deleteBindingsForUser(this.db).run({ userId })
   }
 
   /** Remove a binding. The chat stops resolving to anyone on the next message —

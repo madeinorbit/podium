@@ -55,6 +55,7 @@ beforeEach(() => {
     settings: {
       get: { query: vi.fn().mockResolvedValue(settings) },
       viewer: { query: vi.fn().mockResolvedValue({ permitted: {} }) },
+      telegramBotPresence: { query: vi.fn().mockResolvedValue(true) },
       secretPresence: { query: vi.fn().mockRejectedValue(new Error('no surface')) },
     },
     accounts: { list: { query: vi.fn().mockResolvedValue([]) } },

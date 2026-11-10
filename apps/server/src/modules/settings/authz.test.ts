@@ -87,12 +87,17 @@ describe('the shipped table actually splits — the claims below are not vacuous
     // enforcement; both would be green.
     expect(ADMIN_FLOOR.length).toBeGreaterThan(0)
     // A member's own preferences are the `userPreferences` record since POD-6673:
-    // its edit carries the member floor, and no settings command does.
+    // its edit carries the member floor, alongside Telegram self-service.
     expect(USER_PREFERENCES_RECORD.ops.edit?.policy.roleFloor).toBe('member')
     expect(INSTANCE_PREFERENCES_RECORD.ops.edit?.policy.roleFloor).toBe('admin')
     expect(ADMIN_FLOOR).toContain('settings.setSecret')
     expect(ADMIN_FLOOR).toContain('settings.secretPresence')
-    expect(MEMBER_FLOOR).toEqual([])
+    expect(MEMBER_FLOOR).toEqual([
+      'settings.telegramBotPresence',
+      'settings.telegramDisconnect',
+      'settings.telegramSetupPoll',
+      'settings.telegramSetupStart',
+    ])
   })
 })
 

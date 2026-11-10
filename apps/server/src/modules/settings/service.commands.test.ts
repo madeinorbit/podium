@@ -101,7 +101,7 @@ beforeEach(() => {
     // user a claim code is minted FOR. Both required rather than defaulted —
     // a no-op writer would let the ceremony report success while binding
     // nothing, and a default user would stamp one id for everybody.
-    telegramBindings: { upsert: async () => {} },
+    telegramBindings: { upsert: async () => {}, removeForUser: async () => {} },
     // REQUIRED (POD-421): an absent trail is indistinguishable from a working
     // one at every call site, so it is a compile error rather than a default.
     audit: { repo: { append: async () => {} }, now: () => '2026-07-31T00:00:00.000Z' },
@@ -428,7 +428,7 @@ describe('the binding names the MINTER, never whoever redeems', () => {
     )
     const bound: TelegramChatBinding[] = []
     const service = new SettingsService(st, secretStore, new EventBus(), {
-      telegramBindings: { upsert: async (b) => void bound.push(b) },
+      telegramBindings: { upsert: async (b) => void bound.push(b), removeForUser: async () => {} },
       // REQUIRED (POD-421): an absent trail is indistinguishable from a working
       // one at every call site, so it is a compile error rather than a default.
       audit: { repo: { append: async () => {} }, now: () => '2026-07-31T00:00:00.000Z' },
