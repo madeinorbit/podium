@@ -984,7 +984,9 @@ export class IssueStore {
   /** The `issueDep` records an edge write may affect, one per edge: named in
    *  the same commit as the edge's row, so the row and its change entry commit
    *  or roll back together (compare at save, POD-6769). O(1) per edge. */
-  depRecords(deps: readonly { fromId: string; toId: string; type: string }[]): AffectedRecordSpec[] {
+  depRecords(
+    deps: readonly { fromId: string; toId: string; type: string }[],
+  ): AffectedRecordSpec[] {
     return deps.map((dep) => ({ entity: 'issueDep' as const, id: issueDepToProjection(dep).id }))
   }
 
@@ -1133,7 +1135,10 @@ export class IssueStore {
        * ({@link depRecords}). They are built in the same span as the row
        * upsert and the `extraWrite` that changes them.
        */
-      extraAffects?: readonly AffectedRecordSpec[]
+      extraAffects?: readonly AffectedRecordSpec[] | (() => Promise<readonly AffectedRecordSpec[]>)
+      /** Records of other kinds this write created and could not name before
+       *  it ran (a ship lane that forms with the write): built once, after. */
+      extraCreates?: () => Promise<readonly AffectedRecordSpec[]>
       /** Extra entity changes this write declares — {@link EntityChangeSpec}, composed. */
       extraChanges?:
         | readonly EntityChangeSpec[]
@@ -1177,9 +1182,14 @@ export class IssueStore {
       await this.arbitrated(writer).commit({
         affects: async () => [
           ...(await this.issueRecords(row.id)),
-          ...(opts?.extraAffects ?? []),
+          ...(typeof opts?.extraAffects === 'function'
+            ? await opts.extraAffects()
+            : (opts?.extraAffects ?? [])),
         ],
-        creates: async () => await this.issueRecords(row.id),
+        creates: async () => [
+          ...(await this.issueRecords(row.id)),
+          ...((await opts?.extraCreates?.()) ?? []),
+        ],
         write: async (scope) => {
           await extraWrite?.(scope)
           const worktreeWas = await this.worktreeBefore(row)
@@ -1234,7 +1244,14 @@ export class IssueStore {
             payload: Record<string, unknown>
           }[]
         > = () => [],
-    opts?: { touch?: boolean },
+    opts?: {
+      touch?: boolean
+      /** Records of other kinds the batch may affect, named with the issues'
+       *  own (the ship orders and lanes a shipping batch moves). */
+      extraAffects?: () => Promise<readonly AffectedRecordSpec[]>
+      /** Records of other kinds the batch created: built once, after it. */
+      extraCreates?: () => Promise<readonly AffectedRecordSpec[]>
+    },
   ): Promise<{ issues: IssueProjection[]; result: T }> {
     // Drafts, as in {@link persistWith} (POD-3259): every row here is pinned to
     // the revision it was cut from, so a throw has nothing to undo.
@@ -1257,8 +1274,14 @@ export class IssueStore {
     // carry this write, so a throw has nothing to undo.
     const committed = (
       await this.arbitrated(writer).commit({
-        affects: async () => await this.issueRecordsOf(rows),
-        creates: async () => await this.issueRecordsOf(rows),
+        affects: async () => [
+          ...(await this.issueRecordsOf(rows)),
+          ...((await opts?.extraAffects?.()) ?? []),
+        ],
+        creates: async () => [
+          ...(await this.issueRecordsOf(rows)),
+          ...((await opts?.extraCreates?.()) ?? []),
+        ],
         write: async (scope) => {
           result = await write(scope)
           for (const row of rows) {

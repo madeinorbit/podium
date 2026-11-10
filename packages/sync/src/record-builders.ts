@@ -16,8 +16,9 @@
  * batch of that member's ids) and the caller still gets exactly the ids it
  * asked for, once each, in the order it asked.
  *
- * Nothing in production reads the registry yet (POD-6763). The start-up load,
- * the compare-at-save step and the sharing rules move onto it in later phases.
+ * The compare-at-save step reads the registry (`AuthorityCommit.affects`,
+ * POD-6769). The start-up load and the sharing rules move onto it in later
+ * phases.
  */
 
 import type { MetadataEntityKind } from '@podium/protocol'

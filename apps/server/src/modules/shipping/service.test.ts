@@ -2207,7 +2207,6 @@ describe('ShippingService enqueue transaction', () => {
         expectedStage: 'shipping',
         nextStage: 'review',
         needsHuman: false,
-        shipOrderChanges: [],
       },
       () => {},
     )
@@ -2369,7 +2368,6 @@ describe('ShippingService enqueue transaction', () => {
         expectedStage: 'shipping',
         nextStage: 'review',
         needsHuman: false,
-        shipOrderChanges: [],
       },
       () => {},
     )
@@ -2383,7 +2381,6 @@ describe('ShippingService enqueue transaction', () => {
         expectedStage: 'review',
         nextStage: 'shipping',
         needsHuman: true,
-        shipOrderChanges: [],
       },
       () => {},
     )
@@ -3336,31 +3333,38 @@ describe('POD-4974 O2 ship lanes', () => {
         vi.spyOn(store.shipping, 'listReceipts'),
         vi.spyOn(store.shipping, 'listNativeStackEdges'),
       ]
-      const projection = vi.spyOn(
-        service as never as { projectionFor: () => unknown },
-        'projectionFor',
+      // What the commit names before it writes: the touched order, its lane
+      // and the orders queued in that lane. Nothing from the other repo.
+      const named = await (
+        service as never as {
+          shipRecords: (touched: () => Promise<string[]>) => {
+            affects: () => Promise<{ entity: string; id: string }[]>
+          }
+        }
       )
-      await service['transition'](first, 'preflight')
-      for (const scan of scans) expect(scan).not.toHaveBeenCalled()
-      expect(projection).toHaveBeenCalledTimes(1)
-      const specs = (await projection.mock.results[0]!.value) as {
-        entity: string
-        id: string
-        op: string
-        value?: { trains: unknown[]; blockedOrderIds: string[] }
-      }[]
-      expect(specs.map((spec) => `${spec.entity}:${spec.id}`).sort()).toEqual(
+        .shipRecords(async () => [first.id])
+        .affects()
+      expect([...new Set(named.map((record) => `${record.entity}:${record.id}`))].sort()).toEqual(
         [
           `shipLane:${shipLaneIdOf(first)}`,
           `shipOrder:${first.id}`,
           `shipOrder:${second.id}`,
         ].sort(),
       )
-      expect(specs.find((spec) => spec.entity === 'shipLane')?.value).toMatchObject({
-        trains: [],
-        blockedOrderIds: [second.id],
-      })
-      expect(specs.some((spec) => spec.id === elsewhere.id)).toBe(false)
+      for (const scan of scans) scan.mockClear()
+      const head = await ledger.cursor()
+      await service['transition'](first, 'preflight')
+      for (const scan of scans) expect(scan).not.toHaveBeenCalled()
+      const appended = (await ledger.changesSince(head)) ?? []
+      // The lane and the order that moved are logged; the queued order whose
+      // record did not change is not, and nothing of the other repo is.
+      expect(appended.map((change) => `${change.entity}:${change.id}`).sort()).toEqual(
+        [`shipLane:${shipLaneIdOf(first)}`, `shipOrder:${first.id}`].sort(),
+      )
+      expect(
+        (appended.find((change) => change.entity === 'shipLane') as { value?: unknown }).value,
+      ).toMatchObject({ trains: [], blockedOrderIds: [second.id] })
+      expect(appended.some((change) => change.id === elsewhere.id)).toBe(false)
     } finally {
       service.dispose()
     }
@@ -3410,7 +3414,7 @@ describe('POD-4974 O2 ship lanes', () => {
     }
   })
 
-  it('O2 a shipping batch computes its order-plane changes once, over every entry', async () => {
+  it('O2 a shipping batch names its order-plane records once, over every entry', async () => {
     const { store, issues, service, deps } = await harness(undefined, { checkOrderPlane: false })
     try {
       const orders = [
@@ -3418,10 +3422,6 @@ describe('POD-4974 O2 ship lanes', () => {
         await seedOrder(issues, store, { title: 'two', minute: 2 }),
         await seedOrder(issues, store, { title: 'three', minute: 3, repoPath: '/other' }),
       ]
-      const projection = vi.spyOn(
-        service as never as { projectionFor: () => unknown },
-        'projectionFor',
-      )
       const many = vi.spyOn(deps.issues, 'shippingCommitMany')
       await service['commitMany'](
         laneWriter(service),
@@ -3431,14 +3431,19 @@ describe('POD-4974 O2 ship lanes', () => {
         })),
         async () => undefined,
       )
-      expect(projection).toHaveBeenCalledTimes(1)
-      expect(projection).toHaveBeenCalledWith(orders.map((order) => order.id))
+      // The first entry names the whole batch's ship records; the others none.
       const entries = many.mock.calls[0]![1]
-      expect(entries.map((entry) => typeof entry.mutation.shipOrderChanges)).toEqual([
-        'function',
-        'object',
-        'object',
+      expect(entries.map((entry) => entry.mutation.shipRecords !== undefined)).toEqual([
+        true,
+        false,
+        false,
       ])
+      const named = (await entries[0]!.mutation.shipRecords!.affects()).filter(
+        (record) => record.entity === 'shipOrder',
+      )
+      expect(new Set(named.map((record) => record.id))).toEqual(
+        new Set(orders.map((order) => order.id)),
+      )
     } finally {
       service.dispose()
     }

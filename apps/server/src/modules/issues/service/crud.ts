@@ -198,9 +198,16 @@ export interface ShippingIssueMutation {
   nextStage?: 'shipping' | 'review' | 'done'
   nextStageForResult?: (result: unknown) => 'shipping' | 'review' | 'done' | undefined
   needsHuman?: boolean
-  shipOrderChanges:
-    | readonly EntityChangeSpec[]
-    | ((result: unknown) => readonly EntityChangeSpec[] | Promise<readonly EntityChangeSpec[]>)
+  /**
+   * The ship order and ship lane records the write may affect (compare at
+   * save, POD-6769): `affects` is read before the write, `creates` after it
+   * for a lane that only exists once the write ran. Absent for an entry of a
+   * batch whose first entry names the whole batch's records.
+   */
+  shipRecords?: {
+    affects: () => Promise<readonly AffectedRecordSpec[]>
+    creates: () => Promise<readonly AffectedRecordSpec[]>
+  }
   event?:
     | { kind: string; payload: Record<string, unknown> }
     | ((
@@ -293,10 +300,12 @@ export class IssueCrudModule {
         }
       },
       {
-        extraChanges: async () =>
-          typeof mutation.shipOrderChanges === 'function'
-            ? await mutation.shipOrderChanges(result as T)
-            : mutation.shipOrderChanges,
+        ...(mutation.shipRecords === undefined
+          ? {}
+          : {
+              extraAffects: mutation.shipRecords.affects,
+              extraCreates: mutation.shipRecords.creates,
+            }),
       },
     )
     const event =
@@ -362,19 +371,7 @@ export class IssueCrudModule {
       writer,
       rows,
       write,
-      async (result) => {
-        const groups = await Promise.all(
-          entries.map(async ({ mutation }) =>
-            typeof mutation.shipOrderChanges === 'function'
-              ? await mutation.shipOrderChanges(result)
-              : mutation.shipOrderChanges,
-          ),
-        )
-        const changes = groups.flat()
-        return [
-          ...new Map(changes.map((change) => [`${change.entity}:${change.id}`, change])).values(),
-        ]
-      },
+      async () => [],
       async (result) =>
         (
           await Promise.all(
@@ -403,6 +400,22 @@ export class IssueCrudModule {
             }),
           )
         ).flat(),
+      {
+        // The batch's ship orders and lanes, named by whichever entries carry
+        // them (the first names the whole batch's).
+        extraAffects: async () =>
+          (
+            await Promise.all(
+              entries.map(async ({ mutation }) => (await mutation.shipRecords?.affects()) ?? []),
+            )
+          ).flat(),
+        extraCreates: async () =>
+          (
+            await Promise.all(
+              entries.map(async ({ mutation }) => (await mutation.shipRecords?.creates()) ?? []),
+            )
+          ).flat(),
+      },
     )
     return committed
   }

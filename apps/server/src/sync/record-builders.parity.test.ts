@@ -3,7 +3,7 @@
  *
  * A real in-process server on a file store writes records through its
  * production paths (boot seeds, issue writes, markers, a session, an
- * automation, a layout key, a read mark). Then, for every one of the 24
+ * automation, a layout key, a read mark). Then, for every one of the 27
  * database-only kinds, `build(ids)` of every `change_latest` id must equal its
  * payload, and `streamAll()` must stream exactly the published ids, both
  * in process and on a read-only connection like the sync worker's.
@@ -134,17 +134,10 @@ async function parityOf(store: SessionStore, reads: RecordReads): Promise<KindPa
 }
 
 describe('record builders (POD-6763)', () => {
-  it('registers database-only kinds, body headers and panel records once each', () => {
+  it('registers every record kind once', () => {
     const kinds = serverRecordBuilders().kinds()
-    expect(kinds).toHaveLength(34)
-    expect(new Set(kinds).size).toBe(34)
-    for (const left of [
-      'repo',
-      'shipLane',
-      'userPreferences',
-    ] as const) {
-      expect(kinds).not.toContain(left)
-    }
+    expect(kinds).toHaveLength(37)
+    expect(new Set(kinds).size).toBe(37)
     expect(
       () => new RecordBuilderRegistry([...DATABASE_ONLY_BUILDERS, DATABASE_ONLY_BUILDERS[0]!]),
     ).toThrow(/already registered/)

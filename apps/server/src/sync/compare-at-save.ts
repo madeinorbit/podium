@@ -56,6 +56,8 @@ export const COMPARE_AT_SAVE_KINDS: readonly MetadataEntityKind[] = [
   'issueBodies',
   'issueUserState',
   'issueDep',
+  'shipOrder',
+  'shipLane',
   'workflow',
   'workflowRevision',
   'workflowBinding',

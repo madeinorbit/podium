@@ -1,16 +1,16 @@
 /**
  * THE SERVER'S RECORD BUILDERS (POD-6763, design POD-6253 §1).
  *
- * One builder per record kind that is already database-only (the 2026-11-10
- * audit's 24 plus POD-6765's four): `build(ids)` and `streamAll()` read the model tables through
- * the repositories and map each row with the SAME function the kind's
- * publisher uses today, so a built record is the published record. A builder
- * never reads `change_latest`, the change log, or server memory.
+ * One builder per record kind that can be built from the database: the 24
+ * the 2026-11-10 audit found database-only, POD-6765's four, and the three
+ * joined or folded kinds (`repo`, `shipLane`, `userPreferences`, POD-6769).
+ * `build(ids)` and `streamAll()` read the model tables through the
+ * repositories and map each row with the SAME function the kind's publisher
+ * uses today, so a built record is the published record. A builder never
+ * reads `change_latest`, the change log, or server memory.
  *
- * The 3 kinds left out need more than the database today: `repo`, `shipLane`
- * and `userPreferences` are joined or folded across tables (their builders
- * come with the slim-records phase). Conversation, machine, access and issue
- * git facts read stored rows (POD-6765).
+ * No kind is left out. Conversation, machine, access and issue git facts read
+ * stored rows (POD-6765).
  *
  * `session` joined with POD-6764: its live plane (controller, size, client
  * count, busy, gated requests, last input, context use) left the record for
@@ -33,7 +33,8 @@
  *    {@link CONFIRMED_PER_SESSION} confirmed ones. Their publishers decide
  *    what the feed carries from the same reads (POD-6766), so the two agree.
  *
- * Nothing in production reads these builders yet.
+ * The compare-at-save step reads them (`compare-at-save.ts`, POD-6769); the
+ * start-up load and the sharing rules do not yet.
  */
 
 import {
@@ -56,6 +57,7 @@ import {
   parsePinRowId,
   parseReadPositionRowId,
   parseSessionUserStateRowId,
+  parseShipLaneId,
   parseSubscriptionRowId,
   parseSuperagentThreadRowId,
   parseTabOrderRowId,
@@ -101,7 +103,12 @@ import {
 } from '../modules/message-feed/feed'
 import { SessionRecords } from '../modules/sessions/records'
 import { sessionProjectionPass, wireRecord } from '../modules/sessions/view'
-import { shipOrderProjectionRows } from '../modules/shipping/projection'
+import {
+  laneDependencyIds,
+  scheduledShippingProjection,
+  shipOrderProjectionRows,
+} from '../modules/shipping/projection'
+import { shipLaneSchedule, withNativeStackEdges } from '../modules/shipping/queue'
 import { superagentThreadWireOf } from '../modules/superagent/thread-records'
 import { workflowRunRecordOf } from '../modules/workflows/records'
 import type { SessionStore } from '../store'
@@ -704,6 +711,42 @@ const shipOrder: Builder = {
   },
 }
 
+/**
+ * A ship lane: the queue of one repo and destination, as its scheduler sees
+ * it. A lane is no row of its own: its record is the per-lane plan
+ * (`shipLaneSchedule`) over the lane's queued orders, their recorded
+ * native-stack edges, and the orders they depend on outside the lane, the same
+ * inputs the tick schedules with. A lane with no queued order has no record.
+ * A few reads per lane; a write names the one or two lanes it moves.
+ */
+const shipLane: Builder = {
+  kind: 'shipLane',
+  shape: 'row-and-reads',
+  async build({ store }, ids) {
+    const out: BuiltRecord[] = []
+    for (const lane of parsed(ids, parseShipLaneId)) {
+      const queued = await store.shipping.queuedLaneOrders(lane.repoId, lane.destination)
+      if (queued.length === 0) continue
+      const edges = await store.shipping.nativeStackEdgesFrom(queued.map((order) => order.id))
+      const merged = withNativeStackEdges(queued, edges)
+      const dependencies = await store.shipping.ordersByIds(laneDependencyIds(merged))
+      const scheduled = shipLaneSchedule({ ...lane, queued: merged, dependencies })
+      out.push({ id: scheduled.lane.id, value: scheduled.lane })
+    }
+    return out
+  },
+  async *streamAll({ store }) {
+    yield* pagesOf(
+      scheduledShippingProjection(
+        await store.shipping.listOrders(),
+        await store.shipping.listHolds(),
+        await store.shipping.listReceipts(),
+        await store.shipping.listNativeStackEdges(),
+      ).lanes,
+    )
+  },
+}
+
 const automation: Builder = {
   kind: 'automation',
   shape: 'row',
@@ -917,7 +960,7 @@ const session: Builder = {
   },
 }
 
-/** The database-only kinds: the stored-row kinds (POD-6765), the audit's 24 in its order, then `session` (POD-6764), and the issue body headers split out of the issue record (POD-6767). */
+/** The kinds built from the database: the stored-row kinds (POD-6765), `repo`, the audit's 24 in its order with the joined `shipLane` and `userPreferences` (POD-6769), then `session` (POD-6764), and the issue body headers split out of the issue record (POD-6767). */
 export const DATABASE_ONLY_BUILDERS: readonly Builder[] = [
   conversation,
   issueGitState,
@@ -938,6 +981,7 @@ export const DATABASE_ONLY_BUILDERS: readonly Builder[] = [
   issueUserState,
   subscription,
   shipOrder,
+  shipLane,
   automation,
   automationRun,
   userLayout,
