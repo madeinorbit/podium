@@ -138,6 +138,7 @@ export interface FamilyState {
   /** Is login required on this instance — `credentialsRequired()` from server.ts,
    *  the ONE joined reader of open mode and per-user credentials. */
   readonly loginRequired?: (() => boolean | Promise<boolean>) | undefined
+  readonly loginPolicy?: Context['loginPolicy'] | undefined
   /**
    * The hosted-runtime provider, absent on deployments with no cloud. On the
    * bundle for `repos`' reason — one family needs it — and left OPTIONAL rather
@@ -467,6 +468,7 @@ export const familyState = (ctx: Context): FamilyState => ({
   store: ctx.registry.sessionStore,
   ...(ctx.users ? { users: ctx.users } : {}),
   ...(ctx.loginRequired ? { loginRequired: ctx.loginRequired } : {}),
+  ...(ctx.loginPolicy ? { loginPolicy: ctx.loginPolicy } : {}),
   cloud: ctx.cloud,
   ...(ctx.readiness ? { readiness: ctx.readiness } : {}),
   ...(ctx.requestCoordinatorRestart

@@ -92,6 +92,12 @@ export const InstanceLoginSection = observer(function InstanceLoginSection({
       </Section>
     )
   if (!data.canManageInstance) return null
+  const mandatory =
+    data.loginRequiredReason === 'hosted'
+      ? 'Always on for hosted workspaces'
+      : data.loginRequiredReason === 'several-members'
+        ? 'Required while more than one person uses this workspace'
+        : null
   const source = forced.forced
     ? forcedNotice(forced)
     : data.loginPolicySource === 'file'
@@ -103,7 +109,9 @@ export const InstanceLoginSection = observer(function InstanceLoginSection({
         label="Require sign-in"
         description={
           <>
-            {data.loginRequired ? (
+            {mandatory ? (
+              mandatory
+            ) : data.loginRequired ? (
               'Everyone signs in with their own account.'
             ) : (
               <>
@@ -114,7 +122,7 @@ export const InstanceLoginSection = observer(function InstanceLoginSection({
             {source && <span className="mt-1 block">{source}</span>}
           </>
         }
-        readOnly={source !== null}
+        readOnly={source !== null || mandatory !== null}
         readOnlyValue={data.loginRequired ? 'On' : 'Off'}
         pending={busy}
         error={error ?? status.error}
@@ -129,7 +137,7 @@ export const InstanceLoginSection = observer(function InstanceLoginSection({
           }}
         />
       </Row>
-      {confirmRequired !== null && source === null && (
+      {confirmRequired !== null && source === null && mandatory === null && (
         <ConfirmInline
           key={String(confirmRequired)}
           sentence={

@@ -713,10 +713,24 @@ export async function startServer(
   // A second active member ends open mode even when the operator turned login off
   // (`authOpenMode`): that setting is one person's choice about their own machine,
   // and with two people it would let any local request act as someone (POD-6285).
-  const credentialsRequired = async (): Promise<boolean> =>
-    resolveAuthMode() === 'cloud' ||
-    (await store.users.hasSeveralActiveMembers()) ||
-    (!store.settings.resolve('authOpenMode').value && (await store.users.hasPerUserCredentials()))
+  const loginPolicy = async (): Promise<
+    import('./modules/instance/service').InstanceLoginPolicy
+  > => {
+    const loginRequiredReason =
+      resolveAuthMode() === 'cloud'
+        ? 'hosted'
+        : (await store.users.hasSeveralActiveMembers())
+          ? 'several-members'
+          : null
+    return {
+      loginRequiredReason,
+      loginRequired:
+        loginRequiredReason !== null ||
+        (!store.settings.resolve('authOpenMode').value &&
+          (await store.users.hasPerUserCredentials())),
+    }
+  }
+  const credentialsRequired = async (): Promise<boolean> => (await loginPolicy()).loginRequired
   const mobilePairing = new MobilePairingManager()
   // Readiness gate [spec:SP-c29e]: a bloated change log is fully pruned in
   // bounded, yielding units before SessionRegistry constructs its Ledger and
@@ -1954,6 +1968,7 @@ export async function startServer(
           // required" differently. Unset, `auth.status` fell back to `?? false` and reported
           // login as OFF over tRPC no matter how many credentials existed.
           loginRequired: credentialsRequired,
+          loginPolicy,
           modules: registry.modules,
           // Absent at profile level `off`, and absent until the level resolves
           // during listen — `perf.snapshot` then omits its `loop` section, which

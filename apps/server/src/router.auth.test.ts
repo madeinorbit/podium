@@ -20,7 +20,10 @@ import { attachHostDaemon } from './test-support/host-daemon'
  * now, and a fake store would let the per-caller scoping pass without ever proving a row
  * moved. `loginRequired` is composed the way server.ts composes it.
  */
-async function harness(member = false) {
+async function harness(
+  member = false,
+  loginPolicy?: import('./modules/instance/service').InstanceLoginPolicy,
+) {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   await attachHostDaemon(registry, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
@@ -55,6 +58,7 @@ async function harness(member = false) {
     superagent,
     users,
     loginRequired,
+    ...(loginPolicy ? { loginPolicy: async () => loginPolicy } : {}),
     capability,
     principal: resolvePrincipal(capability, { parentSessionOf: () => undefined }),
   })
@@ -90,6 +94,7 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
       hasOwnCredential: false,
       canManageInstance: true,
       loginPolicySource: 'default',
+      loginRequiredReason: null,
     })
     await users.setPasswordHash(
       firstAdminMemberId(),
@@ -101,6 +106,18 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
       hasOwnCredential: true,
       canManageInstance: true,
       loginPolicySource: 'default',
+      loginRequiredReason: null,
+    })
+  })
+
+  it.each([
+    'hosted',
+    'several-members',
+  ] as const)('reports the composed %s policy reason through the auth family', async (loginRequiredReason) => {
+    const { caller } = await harness(false, { loginRequired: true, loginRequiredReason })
+    await expect(caller.auth.status()).resolves.toMatchObject({
+      loginRequired: true,
+      loginRequiredReason,
     })
   })
 

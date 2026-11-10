@@ -32,7 +32,17 @@ const signIn = (id: string, kind: string): AccessAnswer['signIns'][number] => ({
   expiresAt: '2026-12-01T00:00:00.000Z',
 })
 
-function serve({ mode = 'server', capped = false, hasOwnCredential = true } = {}) {
+function serve({
+  mode = 'server',
+  capped = false,
+  hasOwnCredential = true,
+  loginRequiredReason = null,
+}: {
+  mode?: string
+  capped?: boolean
+  hasOwnCredential?: boolean
+  loginRequiredReason?: 'hosted' | 'several-members' | null
+} = {}) {
   let loginRequired = true
   let signIns = [
     signIn('Browser', 'login'),
@@ -74,6 +84,7 @@ function serve({ mode = 'server', capped = false, hasOwnCredential = true } = {}
       status: {
         query: vi.fn(async () => ({
           loginRequired,
+          loginRequiredReason,
           hasOwnCredential,
           canManageInstance: true,
           loginPolicySource: 'settings',
@@ -189,6 +200,17 @@ describe('Access', () => {
         acknowledgeNoPassword: true,
       }),
     )
+  })
+
+  it.each([
+    ['hosted', 'Always on for hosted workspaces'],
+    ['several-members', 'Required while more than one person uses this workspace'],
+  ] as const)('keeps mandatory %s sign-in read-only with its reason', async (loginRequiredReason, reason) => {
+    serve({ loginRequiredReason })
+    render(<AccessSection />)
+    expect(await screen.findByText(reason)).toBeTruthy()
+    expect(screen.queryByRole('switch', { name: 'Require sign-in' })).toBeNull()
+    expect(fixture.trpc.auth.setLoginRequired.mutate).not.toHaveBeenCalled()
   })
 
   it('keeps host policy and sign-ins off a worker page', async () => {

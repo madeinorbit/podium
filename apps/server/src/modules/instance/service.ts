@@ -57,6 +57,11 @@ import { serverBuildVersion } from '../../build-version'
  *  process-wide: the telemetry emitter, present only when the server was
  *  assembled with one. `telemetry.preview` renders the REAL pending report from
  *  it so what the user is shown cannot drift from what is sent. */
+export interface InstanceLoginPolicy {
+  loginRequired: boolean
+  loginRequiredReason: 'hosted' | 'several-members' | null
+}
+
 export interface InstanceDeps {
   readonly onSettingsChanged?:
     | ((
@@ -77,6 +82,7 @@ export interface InstanceDeps {
   readonly callerUserId?: UserId | undefined
   /** `credentialsRequired()` from the composition root — see AuthRouteOptions.loginRequired. */
   readonly loginRequired?: (() => boolean | Promise<boolean>) | undefined
+  readonly loginPolicy?: (() => Promise<InstanceLoginPolicy>) | undefined
   /**
    * Called after the fleet default channel is written (POD-1882). Machines with
    * no pin of their own resolve against that value, so their projected channel
@@ -542,8 +548,12 @@ export class InstanceService {
   /** `{ loginRequired }` is instance policy; the other two are about the CALLER.
    *  Still never the password or its hash — there is nothing else to return. */
   async status() {
-    return {
+    const policy = (await this.deps.loginPolicy?.()) ?? {
       loginRequired: (await this.deps.loginRequired?.()) ?? false,
+      loginRequiredReason: null,
+    }
+    return {
+      ...policy,
       loginPolicySource: (
         this.deps.settings?.resolve('authOpenMode') ?? resolveSetting('authOpenMode')
       ).source,
