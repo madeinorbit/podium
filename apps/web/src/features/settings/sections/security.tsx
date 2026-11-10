@@ -149,120 +149,118 @@ export const AccountProfileSection = observer(function AccountProfileSection({
 
   return (
     <Section title="Profile">
-      <>
+      <Row
+        label="Name"
+        description="Shown on tasks and sessions you start."
+        pending={nameBusy}
+        error={nameError}
+      >
+        <CommitInput
+          aria-label="Name"
+          autoComplete="name"
+          maxLength={200}
+          value={profile.displayName}
+          onChange={(event) => void saveName(event.target.value)}
+        />
+      </Row>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault()
+          submitEmail()
+        }}
+      >
         <Row
-          label="Name"
-          description="Shown on tasks and sessions you start."
-          pending={nameBusy}
-          error={nameError}
+          label="Email"
+          description="You sign in with it. Changing it asks for your password."
+          pending={emailBusy}
+          error={emailError}
         >
-          <CommitInput
-            aria-label="Name"
-            autoComplete="name"
-            maxLength={200}
-            value={profile.displayName}
-            onChange={(event) => void saveName(event.target.value)}
-          />
-        </Row>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault()
-            submitEmail()
-          }}
-        >
-          <Row
-            label="Email"
-            description="You sign in with it. Changing it asks for your password."
-            pending={emailBusy}
-            error={emailError}
-          >
-            <Input
-              aria-label="Email"
-              type="email"
-              autoComplete="username"
-              required
-              maxLength={254}
-              value={emailDraft ?? profile.email ?? ''}
-              onChange={(event) => {
-                setEmailDraft(event.target.value)
-                setEmailChange(null)
-                setEmailError(null)
-              }}
-              onKeyDown={(event) => {
-                if (event.key === 'Escape') {
-                  event.preventDefault()
-                  event.stopPropagation()
-                  setEmailDraft(null)
-                  setEmailChange(null)
-                  setEmailError(null)
-                }
-              }}
-            />
-          </Row>
-        </form>
-        {emailChange !== null && (
-          <ConfirmInline
-            key={emailChange}
-            sentence={
-              <>
-                Change your email to <strong>{emailChange}</strong>?
-              </>
-            }
-            hasPassword
-            actionLabel="Save email"
-            pending={emailBusy}
-            onCancel={() => {
+          <Input
+            aria-label="Email"
+            type="email"
+            autoComplete="username"
+            required
+            maxLength={254}
+            value={emailDraft ?? profile.email ?? ''}
+            onChange={(event) => {
+              setEmailDraft(event.target.value)
               setEmailChange(null)
               setEmailError(null)
             }}
-            onConfirm={(password) => saveEmail(emailChange, password)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                event.stopPropagation()
+                setEmailDraft(null)
+                setEmailChange(null)
+                setEmailError(null)
+              }
+            }}
           />
-        )}
-        <Row
-          label="Password"
-          description={
-            status.hasOwnCredential
-              ? 'Your password signs you in to this Podium.'
-              : 'You don’t have a password yet.'
+        </Row>
+      </form>
+      {emailChange !== null && (
+        <ConfirmInline
+          key={emailChange}
+          sentence={
+            <>
+              Change your email to <strong>{emailChange}</strong>?
+            </>
+          }
+          hasPassword
+          actionLabel="Save email"
+          pending={emailBusy}
+          onCancel={() => {
+            setEmailChange(null)
+            setEmailError(null)
+          }}
+          onConfirm={(password) => saveEmail(emailChange, password)}
+        />
+      )}
+      <Row
+        label="Password"
+        description={
+          status.hasOwnCredential
+            ? 'Your password signs you in to this Podium.'
+            : 'You don’t have a password yet.'
+        }
+      >
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() =>
+            frame.openTakeover({
+              title: status.hasOwnCredential ? 'Change password' : 'Set password',
+              content: (
+                <PasswordTakeover
+                  trpc={trpc}
+                  email={profile.email ?? null}
+                  hasOwnCredential={status.hasOwnCredential}
+                  onCancel={frame.closeTakeover}
+                  onSaved={(active) => {
+                    loadStatus()
+                    if (active) frame.closeTakeover()
+                    toast.success('Password saved.')
+                  }}
+                />
+              ),
+            })
           }
         >
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              frame.openTakeover({
-                title: status.hasOwnCredential ? 'Change password' : 'Set password',
-                content: (
-                  <PasswordTakeover
-                    trpc={trpc}
-                    email={profile.email ?? null}
-                    hasOwnCredential={status.hasOwnCredential}
-                    onCancel={frame.closeTakeover}
-                    onSaved={(active) => {
-                      loadStatus()
-                      if (active) frame.closeTakeover()
-                      toast.success('Password saved.')
-                    }}
-                  />
-                ),
-              })
-            }
-          >
-            {status.hasOwnCredential ? 'Change password' : 'Set password'}
-          </Button>
-        </Row>
-        <Row
-          label="Role"
-          description={
-            profile.role === 'admin'
-              ? 'You can change workspace settings and manage members.'
-              : 'An admin manages workspace settings and members.'
-          }
-          readOnly
-          readOnlyValue={profile.role === 'admin' ? 'Admin' : 'Member'}
-        />
-      </>
+          {status.hasOwnCredential ? 'Change password' : 'Set password'}
+        </Button>
+      </Row>
+      <Row
+        label="Role"
+        description={
+          profile.role === 'admin'
+            ? 'You can change workspace settings and manage members.'
+            : 'An admin manages workspace settings and members.'
+        }
+        readOnly
+        readOnlyValue={profile.role === 'admin' ? 'Admin' : 'Member'}
+      />
     </Section>
   )
 })

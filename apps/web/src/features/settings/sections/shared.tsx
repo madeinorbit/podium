@@ -37,13 +37,13 @@ import { useSettingsFrame } from '../settings-frame'
 export function Section({
   title,
   hint,
-  actions,
+  action,
   list,
   children,
 }: {
   title?: ReactNode
   hint?: string
-  actions?: ReactNode
+  action?: ReactNode
   /** Auto-groups rendered rows; true also groups custom entity lists. */
   list?: boolean
   children: React.ReactNode
@@ -53,13 +53,13 @@ export function Section({
   // because the class banner — not this section — is the pane's first child.
   return (
     <section>
-      {(title || hint || actions) && (
+      {(title || hint || action) && (
         <header className="settings-section-header">
           <div className="min-w-0">
             {title && <h3 className="settings-h">{title}</h3>}
             {hint && <p className="settings-prose mt-1.5">{hint}</p>}
           </div>
-          {actions && <div className="shrink-0">{actions}</div>}
+          {action && <div className="shrink-0">{action}</div>}
         </header>
       )}
       {list === false ? (

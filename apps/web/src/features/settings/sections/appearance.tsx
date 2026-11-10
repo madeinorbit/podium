@@ -173,7 +173,7 @@ function TerminalAppearanceRows(): JSX.Element {
     <Section
       title="Terminal"
       hint="Applies to running sessions immediately."
-      actions={
+      action={
         <Button
           type="button"
           size="sm"

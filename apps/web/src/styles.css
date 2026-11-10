@@ -8388,6 +8388,17 @@ a.ref-link--session::before {
 .settings-list:is(:not([data-auto-list]), :has(.settings-row, .settings-list-row)) > * + * {
   border-top: 1px solid var(--hairline-soft);
 }
+/* Preserve native disabled behavior (including whole-group opacity) without a
+   second fieldset frame. Put its leading seam on the first row instead. */
+.settings-list > fieldset:has(> .settings-row) {
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+.settings-list > * + fieldset:has(> .settings-row) > .settings-row:first-child {
+  border-top: 1px solid var(--hairline-soft);
+}
 .settings-list:is(:not([data-auto-list]), :has(.settings-row, .settings-list-row))
   > :is(.settings-prose, .settings-micro, .settings-list-note) {
   max-width: none;
