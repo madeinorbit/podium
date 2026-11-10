@@ -44,16 +44,15 @@ describe('effectivePanelMode', () => {
       }),
     ).toBe('chat'))
 
-  it('personal default wins when no per-session save', () =>
+  it('startScreen is the only default when there is no per-session choice', () =>
     expect(
       effectivePanelMode({
         startScreen: 'native',
         chatCapable: true,
         isMobile: false,
         terminalCapable: true,
-        deviceDefault: 'chat',
       }),
-    ).toBe('chat'))
+    ).toBe('native'))
 
   it('non-chat-capable forced native', () =>
     expect(
@@ -113,14 +112,13 @@ describe('effectivePanelMode', () => {
         }),
       ).toBe('chat'))
 
-    it('opens chat over the per-device default', () =>
+    it('opens chat over the desktop platform fallback', () =>
       expect(
         effectivePanelMode({
           startScreen: 'auto',
           chatCapable: true,
           isMobile: false,
           terminalCapable: false,
-          deviceDefault: 'native',
         }),
       ).toBe('chat'))
 

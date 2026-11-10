@@ -47,7 +47,7 @@ export const AgentsSection = observer(function AgentsSection({
   patch,
 }: AgentsProps) {
   const coding = resolveRole(settings, 'coding')
-  const { served } = useHarnessDescriptors()
+  const { served } = useHarnessDescriptors(undefined)
   const descriptor = issueAgentDescriptors(served).find((d) => d.kind === coding.harness)
   const updateCoding = (backend: Partial<PodiumSettings['roles']['coding']>) =>
     patch({
@@ -143,11 +143,17 @@ export const AgentRoleFields = observer(function AgentRoleFields({
   accounts: readonly AccountView[]
   onChange: (backend: RoleBackend) => void
 }) {
-  const { served } = useHarnessDescriptors()
+  const { served } = useHarnessDescriptors(undefined)
   const { catalog } = useModelCatalogState()
   const options = agentOptions(accounts, roleName === 'superagent', served)
   const value = agentOptionValue(resolved.accountId, resolved.harness)
   const selected = options.find((option) => option.value === value)
+  const machineLogin =
+    resolved.accountId === `native:${resolved.harness}` &&
+    options.some(
+      (option) =>
+        option.group === 'Signed in on your machines' && option.harness === resolved.harness,
+    )
   const label =
     issueAgentDescriptors(served).find((d) => d.kind === resolved.harness)?.label ??
     resolved.harness
@@ -185,10 +191,23 @@ export const AgentRoleFields = observer(function AgentRoleFields({
         label="Agent"
         description={
           selected?.help ??
-          'This agent is not connected. Sign in or add a key under AI accounts. Your saved choice is kept.'
+          (machineLogin
+            ? 'Uses the login already on each target machine. Usage counts against that subscription or account.'
+            : 'This agent is not connected. Sign in or add a key under AI accounts. Your saved choice is kept.')
         }
         value={value}
-        options={selected ? [] : [{ value, label, hint: 'Not connected', disabled: true }]}
+        options={
+          selected
+            ? []
+            : [
+                {
+                  value,
+                  label,
+                  hint: machineLogin ? 'Login on the target machine' : 'Not connected',
+                  disabled: true,
+                },
+              ]
+        }
         groups={groups}
         onChange={(value) => {
           const next = options.find((option) => option.value === value)
@@ -268,14 +287,14 @@ function HarnessModelRow({
   background?: boolean
 }) {
   const { catalog, status } = useModelCatalogState()
-  const { served } = useHarnessDescriptors()
+  const { served } = useHarnessDescriptors(undefined)
   const descriptor = issueAgentDescriptors(served).find((d) => d.kind === harness)
   // Codex's one-shot API uses the bundled catalog head on the server.
   const effective = background
     ? effectiveCatalogModel(bundledDescriptorFor(harness), AUTO)
     : effectiveCatalogModel(descriptor, AUTO, catalog[harness])
   const autoLabel = effective
-    ? `Auto · ${modelLabel(harness, effective, background ? bundledDescriptorFor(harness)?.catalog.models : catalog[harness], served)}`
+    ? `Auto · ${modelLabel(harness, effective, background ? bundledDescriptorFor(harness)?.catalog.models : catalog[harness]?.length ? catalog[harness] : descriptor?.catalog.models, served)}`
     : 'Auto · Agent chooses'
   return (
     <Row
@@ -380,7 +399,17 @@ const BackgroundModelSection = observer(function BackgroundModelSection({
   const models = BACKGROUND_MODELS[provider] ?? []
   const defaultModel = backgroundDefaultModel(provider)
   const modelValue = backend.model || defaultModel
-  const serverAi = native ? selected?.serverAi : undefined
+  const machineLogin =
+    native &&
+    resolved.accountId === `native:${resolved.harness}` &&
+    available.some((account) => account.source === 'native' && account.harness === resolved.harness)
+  const serverAi = native
+    ? (selected?.serverAi ??
+      (machineLogin
+        ? available.find((account) => account.harness === resolved.harness && account.serverAi)
+            ?.serverAi
+        : undefined))
+    : undefined
   const lastError = serverAi?.lastError
   return (
     <Section
@@ -403,7 +432,7 @@ const BackgroundModelSection = observer(function BackgroundModelSection({
                 {
                   value: resolved.accountId,
                   label: selected ? labelFor(selected) : (providerNames[provider] ?? provider),
-                  hint: 'Not connected',
+                  hint: machineLogin ? 'Login on the target machine' : 'Not connected',
                   disabled: true,
                 },
               ]

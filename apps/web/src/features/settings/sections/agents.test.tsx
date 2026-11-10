@@ -1,8 +1,9 @@
+import { bundledDescriptorFor } from '@podium/harness/browser'
 import type { ModelCatalogState } from '@podium/client-core/react'
 import type { MachineModel } from '@podium/client-graph'
 import { type AccountView, asMachineId } from '@podium/model/browser'
 import { normalizeSettings, resolveRole } from '@podium/runtime'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { observable, runInAction } from 'mobx'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AgentRoleFields, AgentsSection } from './agents'
@@ -215,4 +216,45 @@ it('shows the background error with its machine', () => {
   render(<AgentsSection settings={settings} accounts={withError} patch={vi.fn()} />)
   expect(screen.getByText('Last error: Provider refused the request')).toBeTruthy()
   expect(screen.getByText('Uses the login on Workstation.')).toBeTruthy()
+})
+
+it('accepts a typed subagent model when the CLI supports an override', async () => {
+  const settings = normalizeSettings({ roles: { coding: { accountId: 'native:claude-code' } } })
+  const patch = vi.fn()
+  render(<AgentsSection settings={settings} accounts={accounts} patch={patch} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Subagent model' }))
+  fireEvent.change(await screen.findByPlaceholderText('Model name…'), {
+    target: { value: 'custom-helper' },
+  })
+  fireEvent.click(screen.getByRole('menuitem', { name: /Use “custom-helper”/ }))
+  expect(patch).toHaveBeenCalledWith(
+    expect.objectContaining({
+      roles: expect.objectContaining({
+        coding: expect.objectContaining({ subagentModel: 'custom-helper' }),
+      }),
+    }),
+  )
+})
+
+it('shows the native background Auto model resolved exactly as the one-shot call does', () => {
+  const settings = normalizeSettings({
+    roles: { background: { accountId: 'native:codex', model: 'auto' } },
+  })
+  render(<AgentsSection settings={settings} accounts={accounts} patch={vi.fn()} />)
+  const section = screen.getByRole('heading', { name: 'Background model' }).parentElement
+  if (!section) throw new Error('Missing background section')
+  const head = bundledDescriptorFor('codex')?.catalog.models[0]?.label
+  expect(within(section).getByRole('button', { name: 'Model' }).textContent).toBe(`Auto · ${head}`)
+  expect(screen.queryByText('Status')).toBeNull()
+})
+
+it('shows the server default account for an unset background role and lists concrete API models', () => {
+  const settings = normalizeSettings({})
+  render(<AgentsSection settings={settings} accounts={accounts} patch={vi.fn()} />)
+  expect(screen.getByRole('combobox', { name: 'Runs on' }).textContent).toContain('OpenRouter')
+  const model = screen.getByRole('combobox', { name: 'Model' })
+  expect(model.textContent).toContain('Gemini 2.5 Flash')
+  fireEvent.click(model)
+  expect(screen.queryByRole('option', { name: /^Auto/ })).toBeNull()
+  expect(screen.getByRole('option', { name: 'Claude Haiku 4.5' })).toBeTruthy()
 })
