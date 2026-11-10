@@ -1,13 +1,13 @@
-import { omitGone } from './lookup'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import type { IssueModel, ModelOf } from './models'
 import type { BoardFilter, IssuesOrdering } from '@podium/client-core/values'
 import { clearChip, filterChips, orderIssues } from '@podium/client-core/values'
-import { asIssueId, ISSUE_STATUS_LABELS, isFinished } from '@podium/model/browser'
 import { companion, lazy } from '@podium/mobx-helpers'
+import { asIssueId, ISSUE_STATUS_LABELS, isFinished } from '@podium/model/browser'
 import { action, compareShallow, compareStructural, observable, observableRef } from 'mobx'
 import type { BoardListRow, BoardQuery } from './issue-board-schema'
+import { omitGone } from './lookup'
 import { MOBILE_TASK_STAGES, type MobileTasksOptions } from './mobile-screens-schema'
+import type { IssueModel, ModelOf } from './models'
 import type { MobxPool } from './pool'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -27,7 +27,12 @@ const requireRow = <T>(row: Loaded<T>): T | undefined => {
   if (row === LOADING) throw LOADING
   return row
 }
-const CLOSED_STATUSES: ReadonlySet<string> = new Set(['done', 'cancelled', 'duplicate', 'superseded'])
+const CLOSED_STATUSES: ReadonlySet<string> = new Set([
+  'done',
+  'cancelled',
+  'duplicate',
+  'superseded',
+])
 /** A filter that asks for closed work shows done work whatever the toggle says. */
 export const filterShowsDone = (filter: BoardFilter): boolean =>
   filter.status === 'closed' || (filter.stage !== undefined && CLOSED_STATUSES.has(filter.stage))
@@ -426,11 +431,55 @@ export class MobileTasksBoard {
 
   // --- What the screen draws
 
-  readonly lanes: readonly BoardLane[] = MOBILE_TASK_STAGES.map((stage) => new BoardLane(stage, this))
+  readonly lanes: readonly BoardLane[] = MOBILE_TASK_STAGES.map(
+    (stage) => new BoardLane(stage, this),
+  )
 
   @lazy({ equals: compareShallow }) get sections(): readonly MobileTaskIds[] | typeof LOADING {
     try {
       return this.lanes.filter((lane) => lane.rows.length).map((lane) => lane.value)
+    } catch (error) {
+      if (error === LOADING) return LOADING
+      throw error
+    }
+  }
+
+  /**
+   * The groups the phone draws: the non-empty lanes, plus a Proposed group
+   * whenever proposals wait for screening, even if the board's filter hides
+   * every one of them. Its total is the screening queue's count, not the
+   * lane's: the group is the way into the screening deck.
+   */
+  @lazy({ equals: compareShallow }) get groups(): readonly MobileTaskIds[] | typeof LOADING {
+    const sections = this.sections
+    const proposals = this.proposals
+    if (sections === LOADING || proposals === LOADING) return LOADING
+    const lane = sections.find((section) => section.stage === 'proposed')
+    // Nothing to screen: the lane (if any) keeps its own count.
+    if (proposals === 0) return sections
+    const group: MobileTaskIds = {
+      stage: 'proposed',
+      title: ISSUE_STATUS_LABELS.proposed,
+      total: proposals,
+      rows: lane?.rows ?? [],
+    }
+    const rest = sections.filter((section) => section !== lane)
+    const at = rest.findIndex(
+      (section) =>
+        MOBILE_TASK_STAGES.indexOf(section.stage) > MOBILE_TASK_STAGES.indexOf('proposed'),
+    )
+    return at < 0 ? [...rest, group] : [...rest.slice(0, at), group, ...rest.slice(at)]
+  }
+
+  /** How many tasks each lane holds — its roots, the count the group header
+   * shows. The Tasks subtitle reads In Progress and Review from here. */
+  @lazy({ equals: compareStructural }) get stageCounts():
+    | Readonly<Record<Stage, number>>
+    | typeof LOADING {
+    try {
+      const counts = {} as Record<Stage, number>
+      for (const lane of this.lanes) counts[lane.stage] = lane.rootIds.length
+      return counts
     } catch (error) {
       if (error === LOADING) return LOADING
       throw error

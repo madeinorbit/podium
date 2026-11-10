@@ -1,14 +1,11 @@
 import { ISSUES_DISPLAY_KEY } from '@podium/client-core/ui-state'
 import {
   type BoardFilter,
-  discoveredPlacement,
   type filterChips,
-  type IssueNavigationModel,
   readSharedIssuesDisplay as readMobileTaskDisplay,
   writeSharedIssuesDisplay as writeMobileTaskDisplay,
 } from '@podium/client-core/values'
 import { MobileTasksBoard } from '@podium/client-graph/mobile-tasks'
-import { parseIssueStatusValue } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -22,8 +19,8 @@ import { useContentBottomInset } from '../hooks/useContentBottomInset'
 import { useMinimizeTabBarOnScroll } from '../hooks/useMinimizeTabBarOnScroll'
 import { usePersistedUiState } from '../hooks/usePersistedUiState'
 import { useRefreshableTab } from '../hooks/useRefreshableTab'
+import { useIssueRowActions } from '../lib/issue-row-actions'
 import { type PoolWorkMenuData, resolvePoolWorkMenu } from '../lib/pool-work-menu'
-import type { WorkMenuActionId } from '../lib/work-menu'
 import { color, font, radius, sans, space } from '../theme/theme'
 import { TasksSurface } from './TasksSurface'
 
@@ -43,8 +40,8 @@ const NO_FILTER: BoardFilter = {}
  */
 export const IssuesScreen = observer(function IssuesScreen() {
   const router = useRouter()
-  const store = useStoreActions()
-  const hasCloseBlockers = useIssueCloseGuard()
+  const _store = useStoreActions()
+  const _hasCloseBlockers = useIssueCloseGuard()
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [menu, setMenu] = useState<(PoolWorkMenuData & { initialSheet?: WorkMenuSheet }) | null>(
     null,
@@ -92,50 +89,9 @@ export const IssuesScreen = observer(function IssuesScreen() {
     },
     [pool],
   )
-  const runAction = useCallback((action: Promise<unknown>) => {
-    setActionError(null)
-    void action.catch((error) =>
-      setActionError(error instanceof Error ? error.message : String(error)),
-    )
-  }, [])
-  const onAction = useCallback(
-    (id: string, action: WorkMenuActionId) => {
-      if (!pool) return
-      const issue = pool.issueObject(id) as unknown as IssueNavigationModel
-      if (action === 'read')
-        runAction(issue.unread ? store.markIssueRead(id) : store.markIssueUnread(id))
-      else if (action === 'placement') {
-        const placement = discoveredPlacement(issue)
-        if (placement?.originId)
-          runAction(
-            store.setIssuePlacement(
-              id,
-              placement.placement === 'mission' ? 'own' : 'mission',
-              placement.originId,
-            ),
-          )
-      } else if (action === 'rename' || action === 'status') openMenu(id, { kind: action })
-      else if (action === 'delete') openMenu(id, { kind: 'confirm-delete' })
-    },
-    [openMenu, pool, runAction, store],
-  )
-  const onStatus = useCallback(
-    (id: string, value: string) => {
-      const intent = parseIssueStatusValue(value)
-      if (!intent) return
-      if (intent.kind === 'stage') runAction(store.updateIssue(id, { stage: intent.stage }))
-      else if (hasCloseBlockers(id)) openMenu(id, { kind: 'confirm-close', reason: intent.reason })
-      else runAction(store.closeIssue(id, intent.reason))
-    },
-    [hasCloseBlockers, openMenu, runAction, store],
-  )
-  const onClose = useCallback(
-    (id: string) => {
-      if (hasCloseBlockers(id)) openMenu(id, { kind: 'confirm-close', reason: 'done' })
-      else runAction(store.closeIssue(id, 'done'))
-    },
-    [hasCloseBlockers, openMenu, runAction, store],
-  )
+  const onError = useCallback((message: string) => setActionError(message), [])
+  // Work's row acts, through the one dispatch both lists share.
+  const { onAction, onStatus, onClose } = useIssueRowActions({ openMenu, onError })
 
   return (
     <>

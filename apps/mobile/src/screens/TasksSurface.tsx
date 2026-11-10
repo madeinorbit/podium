@@ -22,18 +22,17 @@ import { RefreshOffer } from '../components/RefreshOffer'
 import { HeaderButton, Screen } from '../components/Screen'
 import { StorageNoticeAlert } from '../components/StorageNoticeAlert'
 import { EmptyState } from '../components/ui'
-import { useCollapsed } from '../hooks/useCollapsed'
 import { useAgeNow } from '../lib/clock-hooks'
-import { stageFoldKey } from '../lib/fold-keys'
 import { taskRowAccessibilityProps } from '../lib/task-row-accessibility'
 import { color, font, mono, radius, sans, space } from '../theme/theme'
 import {
-  FOLDED_BY_DEFAULT,
   type TaskRowMark,
   type TasksSurfaceProps,
   taskRowFigure,
   taskRowMark,
+  tasksSubtitle,
 } from './TasksSurface.types'
+import { useStageFolds } from './tasks-folds'
 
 const usesNativeHeader = process.env.EXPO_OS !== 'web'
 
@@ -60,6 +59,7 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
     <Screen
       large
       title="Tasks"
+      subtitle={<TasksSubtitle board={board} onProject={props.onFilters} />}
       right={
         <>
           {usesNativeHeader ? null : (
@@ -122,51 +122,52 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
 })
 
 /**
- * The list. Split out so the per-stage `useCollapsed` hooks live in one place:
- * hooks cannot run in a loop over a variable-length list, so the folds are read
- * for the six known stages up front and looked up by key.
+ * "All projects · 5 in progress · 11 in review". The project scope opens the
+ * filter sheet, whose first row is the project filter.
  */
+const TasksSubtitle = observer(function TasksSubtitle({
+  board,
+  onProject,
+}: {
+  board: MobileTasksBoard | null
+  onProject: () => void
+}) {
+  const counts = board?.stageCounts ?? LOADING
+  const subtitle = tasksSubtitle(board?.filter.projectPaths, counts === LOADING ? null : counts)
+  return (
+    <Text style={styles.subtitle}>
+      <Text
+        accessibilityRole="button"
+        accessibilityHint="Opens the project filter"
+        onPress={onProject}
+        style={styles.subtitleProject}
+      >
+        {subtitle.project}
+      </Text>
+      {subtitle.counts ? ` · ${subtitle.counts}` : ''}
+    </Text>
+  )
+})
+
+/** The list, below the header. */
 const StageSections = observer(function StageSections(props: TasksSurfaceProps) {
   const { board, chips } = props
-  // Keys come from `../lib/fold-keys`: the ui-state classifier THROWS on an
-  // unregistered key. See that module for why folds replicate per user.
-  const folds: Record<IssueBoardStage, ReturnType<typeof useCollapsed>> = {
-    proposed: useCollapsed(stageFoldKey('proposed'), FOLDED_BY_DEFAULT.proposed),
-    backlog: useCollapsed(stageFoldKey('backlog'), FOLDED_BY_DEFAULT.backlog),
-    planning: useCollapsed(stageFoldKey('planning'), FOLDED_BY_DEFAULT.planning),
-    in_progress: useCollapsed(stageFoldKey('in_progress'), FOLDED_BY_DEFAULT.in_progress),
-    review: useCollapsed(stageFoldKey('review'), FOLDED_BY_DEFAULT.review),
-    done: useCollapsed(stageFoldKey('done'), FOLDED_BY_DEFAULT.done),
-  }
+  const folds = useStageFolds()
   const onToggleExpanded = useCallback((id: string) => board?.toggleExpanded(id), [board])
-  const membership = board?.sections ?? LOADING
-  const pending = props.booting || membership === LOADING
+  // The shared board's groups: non-empty lanes plus the Proposed screening group.
+  const groups = board?.groups ?? LOADING
+  const pending = props.booting || groups === LOADING
   const proposals = board?.proposals ?? LOADING
-  const proposalCount = proposals === LOADING ? 0 : proposals
-  const lanes = membership === LOADING ? [] : membership
-  const sections: Section[] = lanes.map((s) => ({
+  const screenable = proposals !== LOADING && proposals > 0
+  const sections: Section[] = (groups === LOADING ? [] : groups).map((s) => ({
     key: s.stage,
     stage: s.stage,
     title: s.title,
-    total: s.stage === 'proposed' ? proposalCount : s.total,
+    total: s.total,
     folded: folds[s.stage][0],
     // A folded group keeps its header (and so its count) and drops its rows.
     data: folds[s.stage][0] ? [] : s.rows,
   }))
-  // The screening queue does not change with the board's filter, so the
-  // Proposed group shows whenever proposals wait.
-  if (!pending && proposalCount > 0 && !lanes.some((s) => s.stage === 'proposed')) {
-    const doneAt = sections.findIndex((s) => s.stage === 'done')
-    const proposed: Section = {
-      key: 'proposed',
-      stage: 'proposed',
-      title: 'Proposed',
-      total: proposalCount,
-      folded: true,
-      data: [],
-    }
-    sections.splice(doneAt < 0 ? sections.length : doneAt, 0, proposed)
-  }
 
   return (
     <BootstrapCrossfade resolved={!pending} placeholder={<TasksSkeleton />}>
@@ -214,22 +215,25 @@ const StageSections = observer(function StageSections(props: TasksSurfaceProps) 
             count={section.total}
             collapsed={section.folded}
             onToggle={folds[section.stage][1]}
-            {...(section.stage === 'proposed' && proposalCount > 0
+            {...(section.stage === 'proposed' && screenable
               ? { onScreen: props.onScreenProposals }
               : {})}
           />
         )}
-        renderItem={({ item, index, section }) => (
-          <TaskRow
-            row={item}
-            issue={board!.issue(item.id)}
-            first={index === 0}
-            last={index === section.data.length - 1}
-            onOpen={props.onOpen}
-            onToggleExpanded={onToggleExpanded}
-            onOpenActions={props.onOpenActions}
-          />
-        )}
+        // Rows exist only once the board does.
+        renderItem={({ item, index, section }) =>
+          board ? (
+            <TaskRow
+              row={item}
+              issue={board.issue(item.id)}
+              first={index === 0}
+              last={index === section.data.length - 1}
+              onOpen={props.onOpen}
+              onToggleExpanded={onToggleExpanded}
+              onOpenActions={props.onOpenActions}
+            />
+          ) : null
+        }
         ListEmptyComponent={
           // `ListEmptyComponent` renders whenever data is empty, with no notion
           // of loading; without the guard it sits under the placeholder.
@@ -433,6 +437,8 @@ const SEPARATOR_INSET = 34
 
 const styles = StyleSheet.create({
   listContent: { flexGrow: 1 },
+  subtitle: { ...sans(400), color: color.textDim, fontSize: font.small },
+  subtitleProject: { ...sans(500), color: color.text },
   searchBand: {
     minHeight: 44,
     flexDirection: 'row',

@@ -33,19 +33,6 @@ import { PromptSheet } from './PromptSheet'
  * and the artifacts are `issue.panel.artifacts`.
  */
 
-/** The session that leads the page: the one asking (an open offer), then the
- *  coordinator, then the first agent session. */
-export function leadSession(
-  issue: Pick<IssueViewModel, 'coordinatorSessionId'>,
-  sessions: readonly SessionView[],
-): SessionView | undefined {
-  return (
-    sessions.find((s) => s.offer) ??
-    sessions.find((s) => s.sessionId === issue.coordinatorSessionId) ??
-    sessions[0]
-  )
-}
-
 /**
  * A reference section below Activity: a chevron header, folded until opened.
  * The fold is the page visit's own; the task page leads with what moves.
@@ -365,36 +352,28 @@ const PHASE_WORD: Record<string, string> = {
   queued: 'idle',
   done: 'done',
 }
-const PHASE_RANK: Record<string, number> = { working: 0, waiting: 1, queued: 2, done: 3 }
 /** Session rows drawn before the Details roster carries the rest. */
 const SHOWN_SESSIONS = 3
 
-/** The session rows: name, then model and state ("Opus 5.5 · idle"), lead first. */
+/** The session rows: name, then model and state ("Opus 5.5 · idle"), in the
+ *  shared page view's order (the lead first). */
 export const TaskSessions = observer(function TaskSessions({
   issue,
   sessions,
-  lead,
   onOpenSession,
 }: {
   issue: IssueViewModel
+  /** Already in the shared page view's order; the first is the lead. */
   sessions: readonly SessionView[]
-  lead: SessionView | undefined
   onOpenSession: (sessionId: SessionId) => void
 }) {
   if (sessions.length === 0) return null
   const finished = isFinished(issue)
-  const ranked = sessions
-    .map((session) => ({
-      session,
-      phase: finished ? 'done' : motionPhase(session, issue),
-    }))
-    .sort(
-      (a, b) =>
-        Number(b.session === lead) - Number(a.session === lead) ||
-        (PHASE_RANK[a.phase] ?? 9) - (PHASE_RANK[b.phase] ?? 9),
-    )
-  const shown = ranked.slice(0, SHOWN_SESSIONS)
-  const rest = ranked.length - shown.length
+  const shown = sessions.slice(0, SHOWN_SESSIONS).map((session) => ({
+    session,
+    phase: finished ? 'done' : motionPhase(session, issue),
+  }))
+  const rest = sessions.length - shown.length
   return (
     <View testID="task-sessions">
       <GroupHeading

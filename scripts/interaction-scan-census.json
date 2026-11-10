@@ -36126,41 +36126,21 @@
       "guard": "scripts/check-interaction-scans.ts"
     },
     {
-      "file": "apps/mobile/src/components/task-detail/TaskOverview.tsx",
-      "holder": "leadSession",
-      "rule": "consume:find",
-      "tokens": "fa46c62ebb4c4aaa474850aeffeafcfbea7ee5e0b9ccfa3967c7c0c34420d885",
+      "file": "packages/client-graph/src/mobile-tasks.ts",
+      "holder": "MobileTasksBoard/stageCounts",
+      "rule": "loop:for-of",
+      "tokens": "4d830a5db9abd9185791bae293f20f979bb2eb8237403f7753ba05d820287acd",
       "gate": [],
       "origin": [
-        "5ad37f47d1435eaf694803ee0f9ee326491553a2c98cf2b485341c8808d8d037"
+        "8d086ede97b90c6e2f2a690b574cfaf365751bed61bd5cdd9890126a2ead7314"
       ],
-      "fingerprint": "06200a5bae6382507537746749fb6abb087dc353922fd9f4d1ef085d212c34d6",
+      "fingerprint": "6dca5655fe13f80e151ee6341e1efb4710c7244635b6b88f4114fa1eebf79d97",
       "count": 1,
       "classification": "bounded local work",
-      "trigger": "Task page render: the lead-session pick for the summary card",
-      "bound": "One task's own phone session roster (its agent seats), already resolved by IssueScreen",
-      "reason": "Picks the seat asking (open offer), else the coordinator, over the handful of sessions the page already draws; no pool-wide domain.",
-      "guard": "IssueScreen.pool.test.tsx",
-      "owner": "POD-2378"
-    },
-    {
-      "file": "apps/mobile/src/components/task-detail/TaskOverview.tsx",
-      "holder": "leadSession",
-      "rule": "consume:find",
-      "tokens": "2d7c173ab28335c84a29925293cb156f2d0947556c89dd7c5d6d63b05e5a16ca",
-      "gate": [
-        "??:fa46c62ebb4c4aaa474850aeffeafcfbea7ee5e0b9ccfa3967c7c0c34420d885"
-      ],
-      "origin": [
-        "5ad37f47d1435eaf694803ee0f9ee326491553a2c98cf2b485341c8808d8d037"
-      ],
-      "fingerprint": "2aec63384bd14f205859418a9a79945b3bd45383e5bda934765d16a04d104920",
-      "count": 1,
-      "classification": "bounded local work",
-      "trigger": "Task page render: the lead-session pick for the summary card",
-      "bound": "One task's own phone session roster (its agent seats), already resolved by IssueScreen",
-      "reason": "Picks the seat asking (open offer), else the coordinator, over the handful of sessions the page already draws; no pool-wide domain.",
-      "guard": "IssueScreen.pool.test.tsx",
+      "trigger": "Phone Tasks lane membership changes",
+      "bound": "The six fixed board lanes (MOBILE_TASK_STAGES), each reading its own memoized rootIds",
+      "reason": "Counts per lane for the Tasks subtitle and headers; no issue-domain walk beyond what the lanes already hold.",
+      "guard": "mobile-tasks.test.ts",
       "owner": "POD-2378"
     },
     {

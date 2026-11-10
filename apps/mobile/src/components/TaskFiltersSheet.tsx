@@ -1,4 +1,9 @@
-import type { BoardFilter, IssuesOrdering } from '@podium/client-core/values'
+import {
+  BOARD_STATE_FILTERS,
+  type BoardFilter,
+  ISSUES_ORDERING_LABELS,
+  type IssuesOrdering,
+} from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph/loading'
 import { isGone } from '@podium/client-graph/lookup'
 import {
@@ -88,11 +93,10 @@ export function useTaskFilterFacets(
       value: filter.status ?? ANY,
       options: [
         { value: ANY, label: 'Any' },
-        { value: 'open', label: 'Open' },
-        { value: 'closed', label: 'Closed' },
-        { value: 'ready', label: 'Ready' },
-        { value: 'blocked', label: 'Blocked' },
-        { value: 'deferred', label: 'Deferred' },
+        ...BOARD_STATE_FILTERS.map((value) => ({
+          value,
+          label: value[0]!.toUpperCase() + value.slice(1),
+        })),
       ],
       apply: (value) =>
         set('status', value === ANY ? undefined : (value as NonNullable<BoardFilter['status']>)),
@@ -109,11 +113,10 @@ export function useTaskFilterFacets(
     ordering: {
       label: 'Order',
       value: ordering,
-      options: [
-        { value: 'priority', label: 'Priority' },
-        { value: 'updated', label: 'Recently updated' },
-        { value: 'created', label: 'Recently created' },
-      ],
+      options: (Object.keys(ISSUES_ORDERING_LABELS) as IssuesOrdering[]).map((value) => ({
+        value,
+        label: ISSUES_ORDERING_LABELS[value],
+      })),
       apply: (value) => onOrdering(value as IssuesOrdering),
     },
   }

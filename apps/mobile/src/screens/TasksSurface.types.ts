@@ -1,6 +1,6 @@
 import type { BoardFilter, filterChips } from '@podium/client-core/values'
 import type { MobileTaskIssue, MobileTasksBoard } from '@podium/client-graph/mobile-tasks'
-import type { IssueBoardStage } from '@podium/model'
+import { type IssueBoardStage, machinePathBasename } from '@podium/model'
 import type { useMinimizeTabBarOnScroll } from '../hooks/useMinimizeTabBarOnScroll'
 import type { useRefreshableTab } from '../hooks/useRefreshableTab'
 import type { WorkMenuActionId } from '../lib/work-menu'
@@ -33,14 +33,23 @@ export interface TasksSurfaceProps {
   onNewTask: () => void
 }
 
-/** Stages that open folded the first time: the board leads with live work. */
-export const FOLDED_BY_DEFAULT: Readonly<Record<IssueBoardStage, boolean>> = {
-  in_progress: false,
-  review: false,
-  planning: false,
-  backlog: true,
-  proposed: true,
-  done: true,
+/**
+ * The Tasks subtitle: the project scope, then the In Progress and Review
+ * counts from the board's own `stageCounts`. Presentation only.
+ */
+export function tasksSubtitle(
+  projectPaths: readonly string[] | undefined,
+  counts: Readonly<Record<IssueBoardStage, number>> | null,
+): { project: string; counts: string } {
+  const project = !projectPaths?.length
+    ? 'All projects'
+    : projectPaths.length === 1
+      ? machinePathBasename(projectPaths[0]!)
+      : `${projectPaths.length} projects`
+  return {
+    project,
+    counts: counts ? `${counts.in_progress} in progress · ${counts.review} in review` : '',
+  }
 }
 
 /** The trailing figure on a task row: child progress for a parent, else its age. */

@@ -29,6 +29,16 @@ export const MOBILE_TASK_STAGES: readonly IssueBoardStage[] = [
   'proposed',
   'done',
 ]
+/** Stages the phone board opens folded until the operator unfolds them: it
+ * leads with live work, and Proposed is a screening queue, not a list. */
+export const MOBILE_TASK_FOLDED_BY_DEFAULT: Readonly<Record<IssueBoardStage, boolean>> = {
+  in_progress: false,
+  review: false,
+  planning: false,
+  backlog: true,
+  proposed: true,
+  done: true,
+}
 export const MOBILE_SCREEN_SUMMARIES = mergePoolSummaries(
   ISSUE_BOARD_SUMMARIES,
   MISSION_SUMMARIES,

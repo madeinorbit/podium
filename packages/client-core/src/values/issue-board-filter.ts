@@ -1,4 +1,9 @@
-import { ISSUE_STATUS_LABELS, type IssueStatus, issueStatusOf, machinePathBasename } from '@podium/model'
+import {
+  ISSUE_STATUS_LABELS,
+  type IssueStatus,
+  issueStatusOf,
+  machinePathBasename,
+} from '@podium/model'
 import { isFinished } from '@podium/model/browser'
 import type { IssueViewModel } from '../values/issue-type'
 
@@ -12,6 +17,15 @@ export interface BoardFilter {
   archived?: boolean
   deleted?: boolean
 }
+
+/** The State facet's choices, in the order every filter menu lists them. */
+export const BOARD_STATE_FILTERS: readonly NonNullable<BoardFilter['status']>[] = [
+  'open',
+  'closed',
+  'ready',
+  'blocked',
+  'deferred',
+]
 
 /** The wire facts the shared filter reads. Descriptions are never read here:
  * local search is title/ref only (POD-5561); description search is deferred
@@ -58,11 +72,7 @@ export function filterBoardIssues<T extends BoardFilterIssue>(
     if (filter.status === 'ready' && !issue.ready) return false
     if (filter.status === 'blocked' && !issue.blocked) return false
     if (filter.status === 'deferred' && !issue.deferred) return false
-    if (
-      text &&
-      !issue.title.toLowerCase().includes(text) &&
-      !matchesRef(issue, refNeedle)
-    )
+    if (text && !issue.title.toLowerCase().includes(text) && !matchesRef(issue, refNeedle))
       return false
     return true
   })

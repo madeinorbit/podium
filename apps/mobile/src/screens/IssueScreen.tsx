@@ -68,7 +68,6 @@ import { PromptSheet } from '../components/task-detail/PromptSheet'
 import {
   ArtifactStrip,
   FoldedSection,
-  leadSession,
   TaskSessions,
   TaskSummary,
 } from '../components/task-detail/TaskOverview'
@@ -287,7 +286,13 @@ const IssueContent = observer(function IssueContent({
   const openSession = (id: SessionId) =>
     router.push(sessionHref(id, `/issue/${encodeURIComponent(issue.id)}`))
   const askingSession = sessions.find((s) => s.sessionId === issue.asked?.by) ?? sessions[0]
-  const lead = leadSession(issue, agents)
+  // The shared page view orders open seats as desktop does: wanting attention
+  // (an open offer), then the coordinator, then most recent. Its first seat
+  // leads the page; a task with none open falls back to its roster.
+  const active = detail?.activeSessions ?? EMPTY_SESSIONS
+  if (typeof active === 'symbol') throw active
+  const seats = active.length > 0 ? active : agents
+  const lead = seats[0]
 
   /**
    * Dismiss THIS sheet, and only if it is still the one showing.
@@ -406,7 +411,7 @@ const IssueContent = observer(function IssueContent({
           <ArtifactStrip issue={issue}>
             <IssueAgentPanel issue={issue} only="artifacts" />
           </ArtifactStrip>
-          <TaskSessions issue={issue} sessions={agents} lead={lead} onOpenSession={openSession} />
+          <TaskSessions issue={issue} sessions={seats} onOpenSession={openSession} />
 
           {/* Activity, then the reference half, each folded under its own
               chevron header so the activity feed is never buried. */}

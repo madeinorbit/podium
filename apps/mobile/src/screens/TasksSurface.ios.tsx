@@ -43,7 +43,7 @@ import type { BoardListRow } from '@podium/client-graph/issue-board-schema'
 import { here } from '@podium/client-graph/lookup'
 import type { MobileTasksBoard } from '@podium/client-graph/mobile-tasks'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { type IssueBoardStage, issueStatusMenuEntries, issueStatusValueOf } from '@podium/model'
+import { issueStatusMenuEntries, issueStatusValueOf } from '@podium/model'
 import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { Stack } from 'expo-router'
@@ -51,21 +51,22 @@ import { observer } from 'mobx-react-lite'
 import { useCallback } from 'react'
 import { StyleSheet, View } from 'react-native'
 import { useMobilePool } from '../client/mobile-pool'
+import { Filter, Plus } from '../components/icons'
 import { RefreshOffer } from '../components/RefreshOffer'
+import { Screen } from '../components/Screen'
 import { StorageNoticeAlert } from '../components/StorageNoticeAlert'
-import { useCollapsed } from '../hooks/useCollapsed'
 import { MIN_REFRESH_CONFIRMATION_MS } from '../hooks/useRefreshableTab'
 import { useAgeNow } from '../lib/clock-hooks'
-import { stageFoldKey } from '../lib/fold-keys'
 import { workMenuActionIds } from '../lib/work-menu'
 import { color } from '../theme/theme'
 import {
-  FOLDED_BY_DEFAULT,
   type TaskRowMark,
   type TasksSurfaceProps,
   taskRowFigure,
   taskRowMark,
+  tasksSubtitle,
 } from './TasksSurface.types'
+import { useStageFolds } from './tasks-folds'
 
 /** Leading edge of a row's title: 12 inset + 14 mark + 8 gap, the board's axis. */
 const ROW_AXIS = 34
@@ -96,19 +97,15 @@ const MARK_COLOR: Record<TaskRowMark, string> = {
  */
 export const TasksSurface = observer(function TasksSurface(props: TasksSurfaceProps) {
   const { board } = props
-  const folds: Record<IssueBoardStage, ReturnType<typeof useCollapsed>> = {
-    proposed: useCollapsed(stageFoldKey('proposed'), FOLDED_BY_DEFAULT.proposed),
-    backlog: useCollapsed(stageFoldKey('backlog'), FOLDED_BY_DEFAULT.backlog),
-    planning: useCollapsed(stageFoldKey('planning'), FOLDED_BY_DEFAULT.planning),
-    in_progress: useCollapsed(stageFoldKey('in_progress'), FOLDED_BY_DEFAULT.in_progress),
-    review: useCollapsed(stageFoldKey('review'), FOLDED_BY_DEFAULT.review),
-    done: useCollapsed(stageFoldKey('done'), FOLDED_BY_DEFAULT.done),
-  }
-  const membership = board?.sections ?? LOADING
-  const pending = props.booting || membership === LOADING
-  const sections = membership === LOADING ? [] : membership
+  const folds = useStageFolds()
+  // The shared board's groups: non-empty lanes plus the Proposed screening group.
+  const groups = board?.groups ?? LOADING
+  const pending = props.booting || groups === LOADING
+  const ordered = groups === LOADING ? [] : groups
   const proposals = board?.proposals ?? LOADING
-  const proposalCount = proposals === LOADING ? 0 : proposals
+  const screenable = proposals !== LOADING && proposals > 0
+  const counts = board?.stageCounts ?? LOADING
+  const subtitle = tasksSubtitle(board?.filter.projectPaths, counts === LOADING ? null : counts)
   const { onRefresh: refresh } = props.refresh
   const onRefresh = useCallback(async () => {
     refresh()
@@ -116,42 +113,25 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
   }, [refresh])
   const filtered = props.chips.length > 0
 
-  // The proposals group is drawn whenever proposals wait, even when the board's
-  // filter hides every one of them: the count is the screening queue's, and the
-  // queue does not change with the filter.
-  const hasProposedLane = sections.some((s) => s.stage === 'proposed')
-  const ordered = hasProposedLane || proposalCount === 0 ? sections : withProposed(sections)
-
   return (
-    <View style={styles.root}>
-      <Stack.Screen
-        options={{
-          title: 'Tasks',
-          headerLargeTitleEnabled: true,
-          headerLargeTitleShadowVisible: false,
-          headerShadowVisible: false,
-          headerTransparent: true,
-          headerTintColor: color.accentTint,
-        }}
-      />
-      <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Button
-          icon={
-            filtered
-              ? 'line.3.horizontal.decrease.circle.fill'
-              : 'line.3.horizontal.decrease.circle'
-          }
-          accessibilityLabel={
-            filtered ? `Filter and display, ${props.chips.length} active` : 'Filter and display'
-          }
-          onPress={props.onFilters}
-        >
-          Filter
-        </Stack.Toolbar.Button>
-        <Stack.Toolbar.Button icon="plus" accessibilityLabel="New task" onPress={props.onNewTask}>
-          New task
-        </Stack.Toolbar.Button>
-      </Stack.Toolbar>
+    // The shell's Screen: large title, the subtitle in the native bar (iOS 26),
+    // trailing actions as system glass bar buttons. The native subtitle is not
+    // tappable; the project scope it names is the filter sheet's first row.
+    <Screen
+      large
+      title="Tasks"
+      subtitle={subtitle.counts ? `${subtitle.project} · ${subtitle.counts}` : subtitle.project}
+      actions={[
+        {
+          label: filtered
+            ? `Filter and display, ${props.chips.length} active`
+            : 'Filter and display',
+          icon: Filter,
+          onPress: props.onFilters,
+        },
+        { label: 'New task', icon: Plus, onPress: props.onNewTask },
+      ]}
+    >
       <Stack.SearchBar
         placeholder="Search tasks or ID"
         hideWhenScrolling
@@ -207,12 +187,10 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
                 header={
                   <GroupHeader
                     title={section.title}
-                    count={proposed ? proposalCount : section.total}
+                    count={section.total}
                     folded={folded}
                     onToggle={toggle}
-                    {...(proposed && proposalCount > 0
-                      ? { onScreen: props.onScreenProposals }
-                      : {})}
+                    {...(proposed && screenable ? { onScreen: props.onScreenProposals } : {})}
                   />
                 }
               >
@@ -243,20 +221,9 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
           ) : null}
         </List>
       </Host>
-    </View>
+    </Screen>
   )
 })
-
-type BoardSection = Exclude<MobileTasksBoard['sections'], typeof LOADING>[number]
-
-/** Put an empty Proposed group where the board's stage order has it. */
-function withProposed(sections: readonly BoardSection[]): BoardSection[] {
-  const proposed: BoardSection = { stage: 'proposed', title: 'Proposed', total: 0, rows: [] }
-  const doneAt = sections.findIndex((s) => s.stage === 'done')
-  return doneAt < 0
-    ? [...sections, proposed]
-    : [...sections.slice(0, doneAt), proposed, ...sections.slice(doneAt)]
-}
 
 /**
  * A stage group's header: chevron, name, count. The whole row folds; the

@@ -1,4 +1,3 @@
-
 import { autorun, runInAction } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
 import {
@@ -233,8 +232,9 @@ function assertPhoneWork(one: WorkCounts, four: WorkCounts) {
       // POD-5561 owns the shared title/ref pass. Per-reader counts keep a row
       // scan visible even when both readers visit the same catalog identities.
       if (kind === 'elementsBy' && reader === 'IssueBoard.textIds') continue
-      expect(four[kind]?.[reader] ?? 0, `${kind} ${reader}`)
-        .toBeLessThanOrEqual(one[kind]?.[reader] ?? 0)
+      expect(four[kind]?.[reader] ?? 0, `${kind} ${reader}`).toBeLessThanOrEqual(
+        one[kind]?.[reader] ?? 0,
+      )
     }
   }
 }
@@ -252,4 +252,35 @@ it('keeps phone board row calls, derivations and collection elements flat at a f
   const planted1 = await workAt(1, true),
     planted4 = await workAt(4, true)
   expect(() => assertPhoneWork(planted1[3]!, planted4[3]!)).toThrow()
+})
+
+it('draws Proposed as the screening group and counts each lane for the subtitle', async () => {
+  const { pool } = await setup([
+    issue('working'),
+    issue('waiting', { stage: 'review' }),
+    issue('second', { stage: 'review' }),
+    issue('idea', { stage: 'proposed' }),
+    issue('finished', { stage: 'done', closedAt: '2026-01-02T00:00:00Z' }),
+  ])
+  const board = new MobileTasksBoard(pool, { ...options, expanded: [] })
+  disposals.push(autorun(() => [board.groups, board.stageCounts]))
+  const groups = board.groups
+  if (groups === LOADING) throw new Error('Tasks still loading')
+  expect(groups.map((group) => [group.stage, group.total])).toEqual([
+    ['in_progress', 1],
+    ['review', 2],
+    ['proposed', 1],
+    ['done', 1],
+  ])
+  expect(board.stageCounts).toMatchObject({ in_progress: 1, review: 2, planning: 0 })
+
+  // A filter that hides the proposal keeps the group: the screening queue
+  // does not change with the board's filter.
+  board.setFilter({ stage: 'review' })
+  const filtered = board.groups
+  if (filtered === LOADING) throw new Error('Tasks still loading')
+  expect(filtered.map((group) => [group.stage, group.total, group.rows.length])).toEqual([
+    ['review', 2, 2],
+    ['proposed', 1, 0],
+  ])
 })
