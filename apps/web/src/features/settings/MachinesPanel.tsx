@@ -54,7 +54,7 @@ export const MachinesPanel = observer(function MachinesPanel() {
       )}
       {hosting && !alreadyPaired && <HostThisDeviceCard hosting={hosting} />}
       <ActiveServerMove canRecover={admin} />
-      <div className="divide-y divide-border overflow-hidden rounded-lg border border-border">
+      <div className="space-y-1">
         {view.visible.map((machine) => (
           <MachineListRow
             key={machine.id}

@@ -142,7 +142,7 @@ describe('machine list and detail routing', () => {
     expect(screen.getByRole('textbox', { name: 'Name' })).toHaveProperty('value', 'Build box')
     expect(screen.getByRole('heading', { name: 'Who else can run agents here' })).toBeTruthy()
     expect(screen.getAllByRole('dialog')).toHaveLength(1)
-    fireEvent.click(detail().getByRole('button', { name: 'Machines', exact: true }))
+    fireEvent.click(detail().getByRole('button', { name: 'Machines' }))
     expect(screen.getByRole('button', { name: 'Open Build box' })).toBeTruthy()
   })
   it('members see only machines they look after or can use, with other machines read-only', () => {
@@ -179,7 +179,7 @@ describe('machine list and detail routing', () => {
     state.machines = [machine({ versionState: 'behind' })]
     render()
     open()
-    fireEvent.click(detail().getByRole('button', { name: 'Updates', exact: true }))
+    fireEvent.click(detail().getByRole('button', { name: 'Updates' }))
     expect(state.setSettingsTab).toHaveBeenCalledWith('updates')
   })
 })
@@ -241,16 +241,14 @@ describe('machine actions', () => {
     state.machines = [machine()]
     render()
     open()
-    fireEvent.click(screen.getByRole('button', { name: 'Remove', exact: true }))
-    fireEvent.click(screen.getByRole('button', { name: 'Remove machine', exact: true }))
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Remove machine' }))
     expect(await screen.findByRole('alert')).toHaveProperty(
       'textContent',
       'Machine is still the server',
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Remove machine', exact: true }))
-    await waitFor(() =>
-      expect(screen.queryByRole('button', { name: 'Remove machine', exact: true })).toBeNull(),
-    )
+    fireEvent.click(screen.getByRole('button', { name: 'Remove machine' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Remove machine' })).toBeNull())
     expect(mutate).toHaveBeenCalledTimes(2)
   })
   it('requires an eligible replacement and preserves refusal for retry', async () => {
@@ -267,12 +265,12 @@ describe('machine actions', () => {
     render()
     open()
     fireEvent.click(screen.getByRole('button', { name: 'Replace…' }))
-    expect(screen.queryByRole('button', { name: 'Replace machine', exact: true })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Replace machine' })).toBeNull()
     fireEvent.click(screen.getByLabelText('Replacement machine'))
     const options = await screen.findAllByRole('option')
     expect(options.map((option) => option.textContent).join(' ')).not.toContain('Retired')
     fireEvent.click(screen.getByRole('option', { name: /New box/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Replace machine', exact: true }))
+    fireEvent.click(screen.getByRole('button', { name: 'Replace machine' }))
     expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Replacement retired')
     expect(mutate).toHaveBeenCalledWith({ id: 'm-1', replacementId: 'new' })
   })
@@ -284,7 +282,7 @@ describe('machine actions', () => {
     state.machines = [machine({ online: false })]
     render()
     open()
-    fireEvent.click(screen.getByRole('button', { name: 'Enable', exact: true }))
+    fireEvent.click(screen.getByRole('button', { name: 'Enable' }))
     await waitFor(() => expect(restart).toHaveBeenCalled())
     expect(bridge.enableHosting).toHaveBeenCalledWith('ABCD-EFGH')
     expect(screen.getByRole('button', { name: 'Enabling…' })).toHaveProperty('disabled', true)

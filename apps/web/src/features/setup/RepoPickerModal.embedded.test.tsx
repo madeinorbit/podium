@@ -12,6 +12,6 @@ test('the embedded picker shares the pane and returns without a dialog', () => {
   render(<RepoPickerModal embedded onClose={onClose} onPick={vi.fn()} />)
   expect(screen.queryByRole('dialog')).toBeNull()
   expect(screen.getByRole('heading', { name: 'Add a repository' })).toBeTruthy()
-  fireEvent.keyDown(screen.getByRole('button', { name: 'Back', exact: true }), { key: 'Escape' })
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Back' }), { key: 'Escape' })
   expect(onClose).toHaveBeenCalledExactlyOnceWith()
 })

@@ -43,7 +43,7 @@ export const HibernationSection = observer(function HibernationSection({
         disabled={!hibernation.enabled}
         aria-disabled={!hibernation.enabled}
         aria-label="Idle-session limits"
-        className="m-0 min-w-0 border-0 border-t border-hairline-soft/60 p-0 disabled:opacity-50"
+        className="m-0 min-w-0 border-0 p-0 disabled:opacity-50"
       >
         <NumberRow
           setting="hibernation.idleMinutes"

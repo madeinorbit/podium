@@ -137,7 +137,7 @@ const MachineGrants = observer(function MachineGrants({
           </Button>
         </div>
       )}
-      <div className="rounded-lg border border-border">
+      <div>
         {machine.grants === undefined ? (
           <p className="settings-prose px-4 py-4">
             {canManage
@@ -147,7 +147,7 @@ const MachineGrants = observer(function MachineGrants({
         ) : view.grants.length === 0 ? (
           <p className="settings-prose px-4 py-4">Only the person who looks after it.</p>
         ) : (
-          <ul aria-label="Who else can run agents here" className="divide-y divide-border">
+          <ul aria-label="Who else can run agents here" className="space-y-1">
             {view.grants.map((grant) => (
               <li key={grant.grantee} className="flex items-center justify-between gap-3 px-4 py-3">
                 <div className="min-w-0">
@@ -174,7 +174,7 @@ const MachineGrants = observer(function MachineGrants({
           </ul>
         )}
         {open && canManage && (
-          <div className="border-t border-border px-4 py-2">
+          <div className="py-2">
             <Row label="Person">
               <Select
                 value={selected?.id ?? null}

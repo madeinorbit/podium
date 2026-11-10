@@ -60,7 +60,7 @@ export const MachineProjects = observer(function MachineProjects({
           </Button>
         </div>
       )}
-      <div className="divide-y divide-border rounded-lg border border-border">
+      <div className="space-y-1">
         {!view?.repositories.loaded ? (
           <p className="settings-prose px-4 py-4" role="status">
             Loading projects…
