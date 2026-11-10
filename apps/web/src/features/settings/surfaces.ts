@@ -17,13 +17,13 @@ export const TAB_PATHS = {
     'roles.shipwright',
     'roles.background',
   ],
-  accounts: [
-    'apiKeys.openrouter',
-    'apiKeys.anthropic',
-    'apiKeys.openai',
+  accounts: ['apiKeys.openrouter', 'apiKeys.anthropic', 'apiKeys.openai'],
+  notifications: [
+    'notifications.web',
+    'notifications.ntfyTopic',
+    'notifications.telegramChatId',
     'notifications.telegramBotToken',
   ],
-  notifications: ['notifications.web', 'notifications.ntfyTopic', 'notifications.telegramChatId'],
   appearance: ['sidebar.repoSort'],
   account: [],
   machines: ['hibernation'],

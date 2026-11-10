@@ -238,7 +238,10 @@ export function SecretsSection({
         </p>
       )}
       {state.rows
-        .filter((row) => row.key !== 'notifications.telegramBotToken' && row.key !== 'integrations.linearApiKey')
+        .filter(
+          (row) =>
+            row.key !== 'notifications.telegramBotToken' && row.key !== 'integrations.linearApiKey',
+        )
         .map((row) => (
           <SecretRow
             key={row.key}

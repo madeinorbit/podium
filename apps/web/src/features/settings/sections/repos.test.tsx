@@ -6,6 +6,7 @@ import { asMachineId, asRepoId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { type ReactNode, useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
+import { ADD_PROJECT_EVENT } from '@/app/desktop-menu'
 import { REF_PREFIXES_CHANGED_EVENT } from '@/lib/ref-activation'
 import { ReposSection } from './repos'
 import { SettingsControlsContext } from './shared'
@@ -16,6 +17,7 @@ const h = vi.hoisted(() => ({
   remove: vi.fn(async (_input: unknown) => undefined),
   openTakeover: vi.fn(),
   closeTakeover: vi.fn(),
+  embedded: vi.fn(),
 }))
 vi.mock('@/app/store-worklist-pool', () => ({ useWorklistPool: () => h.pool }))
 vi.mock('@/features/settings/stable-access', () => ({
@@ -41,11 +43,24 @@ function Harness({ canManage }: { canManage: boolean }) {
     <SettingsControlsContext.Provider
       value={{ permitted: { 'records.instancePreferences.edit': canManage } }}
     >
-      <div hidden={flow !== null}><ReposSection podiumDefault="main" /></div>
+      <div hidden={flow !== null}>
+        <ReposSection podiumDefault="main" />
+      </div>
       {flow}
     </SettingsControlsContext.Provider>
   )
 }
+
+vi.mock('@/features/setup/RepoScanFlow', () => ({
+  RepoScanFlow: ({ embedded, onDone }: { embedded?: boolean; onDone: () => void }) => {
+    h.embedded(embedded)
+    return (
+      <button type="button" onClick={onDone}>
+        Save projects
+      </button>
+    )
+  },
+}))
 
 const ludovico = asMachineId('m-ludovico')
 const flatblock = asMachineId('m-flatblock')
@@ -124,15 +139,16 @@ afterEach(() => {
   h.remove.mockClear()
   h.openTakeover.mockClear()
   h.closeTakeover.mockClear()
+  h.embedded.mockClear()
 })
 
 function openProject() {
-  fireEvent.click(screen.getByTestId('settings-repo-row'))
+  fireEvent.click(screen.getByRole('button', { name: 'podium' }))
 }
 
 it('opens a project detail with machine checkouts and worktrees on request', () => {
   mount(PODIUM)
-  expect(screen.getAllByTestId('settings-repo-row')).toHaveLength(1)
+  expect(screen.getAllByRole('button', { name: 'podium' })).toHaveLength(1)
   expect(screen.getByText('2 checkouts')).toBeTruthy()
   expect(screen.queryByText('github.com/acme/podium')).toBeNull()
   openProject()
@@ -154,7 +170,9 @@ it('saves a new prefix through an online checkout and tells the ref links to ref
     openProject()
     fireEvent.change(screen.getByTestId('repo-prefix-input'), { target: { value: 'pd-m' } })
     expect(screen.getByText('Change to PDM')).toBeTruthy()
-    expect(screen.getByRole('note').textContent).toContain('References already written as POD-13 will stop linking.')
+    expect(screen.getByRole('note').textContent).toContain(
+      'References already written as POD-13 will stop linking.',
+    )
     fireEvent.keyDown(screen.getByTestId('repo-prefix-input'), { key: 'Enter' })
     expect(h.setPrefix).not.toHaveBeenCalled()
     await act(async () => {
@@ -196,21 +214,32 @@ it('shows placeholders until the machines report, then the empty state', () => {
 })
 
 it('removes all registrations only after confirmation, including folded registered worktrees', async () => {
-  mount([...PODIUM, {
-    ...PODIUM[2], repoId: podium, path: '/src/podium-12',
-  } as GitRepositoryWire])
+  mount([
+    ...PODIUM,
+    {
+      ...PODIUM[2],
+      repoId: podium,
+      path: '/src/podium-12',
+    } as GitRepositoryWire,
+  ])
   openProject()
-  expect(screen.getByText('Podium forgets the project. Files on disk and its tasks stay.')).toBeTruthy()
+  expect(
+    screen.getByText('Podium forgets the project. Files on disk and its tasks stay.'),
+  ).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
   expect(h.remove).not.toHaveBeenCalled()
   await act(async () => {
-    fireEvent.click(within(screen.getByRole('form', { name: 'Remove' })).getByRole('button', { name: 'Remove' }))
+    fireEvent.click(
+      within(screen.getByRole('form', { name: 'Remove' })).getByRole('button', { name: 'Remove' }),
+    )
   })
-  expect(h.remove.mock.calls.map(([input]) => input)).toEqual(expect.arrayContaining([
-    { path: '/home/u/podium', machineId: flatblock },
-    { path: '/src/podium', machineId: ludovico },
-    { path: '/src/podium-12', machineId: ludovico },
-  ]))
+  expect(h.remove.mock.calls.map(([input]) => input)).toEqual(
+    expect.arrayContaining([
+      { path: '/home/u/podium', machineId: flatblock },
+      { path: '/src/podium', machineId: ludovico },
+      { path: '/src/podium-12', machineId: ludovico },
+    ]),
+  )
   expect(h.remove).toHaveBeenCalledTimes(3)
   expect(h.closeTakeover).toHaveBeenCalledOnce()
 })
@@ -224,4 +253,20 @@ it('keeps read-only project details visible to members and hides writes', () => 
   expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull()
   expect(screen.getByText('Only admins can remove projects')).toBeTruthy()
   expect(screen.getByText('github.com/acme/podium')).toBeTruthy()
+})
+
+it('opens Add project inside the settings pane and returns after saving', async () => {
+  mount(PODIUM)
+  const globalAdd = vi.fn()
+  window.addEventListener(ADD_PROJECT_EVENT, globalAdd)
+  try {
+    fireEvent.click(screen.getByRole('button', { name: 'Add project' }))
+    expect(globalAdd).not.toHaveBeenCalled()
+    fireEvent.click(await screen.findByRole('button', { name: 'Save projects' }))
+    expect(h.embedded).toHaveBeenCalledWith(true)
+    expect(h.closeTakeover).toHaveBeenCalledOnce()
+    expect(screen.getByRole('button', { name: 'Add project' })).toBeTruthy()
+  } finally {
+    window.removeEventListener(ADD_PROJECT_EVENT, globalAdd)
+  }
 })

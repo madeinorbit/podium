@@ -8,21 +8,27 @@ import {
 } from '@podium/client-graph/settings-repositories'
 import { repoWrites } from '@podium/commands/fleet-synced'
 import { isValidPrefix } from '@podium/protocol'
-import { ChevronDown, ChevronRight, GitBranch, Plus } from 'lucide-react'
+import { ChevronDown, GitBranch, Monitor, Plus } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { toast } from 'sonner'
-import { openAddProject } from '@/app/desktop-menu'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { useSettingsTrpc } from '@/features/settings/stable-access'
 import { RepoBaseBranchMenu, usePodiumDefaultParentBranch } from '@/lib/BaseBranchMenu'
+import { throughRestarts } from '@/lib/chunk-recovery'
 import { REF_PREFIXES_CHANGED_EVENT } from '@/lib/ref-activation'
 import { cn } from '@/lib/utils'
 import { SettingsPageActions, useSettingsFrame } from '../settings-frame'
-import { ConfirmInline, Row, Section, useSettingsPermitted, ValueRow } from './shared'
+import { ConfirmInline, EntityRow, Row, Section, useSettingsPermitted, ValueRow } from './shared'
+
+const RepoScanFlow = lazy(() =>
+  throughRestarts(() => import('@/features/setup/RepoScanFlow')).then((module) => ({
+    default: module.RepoScanFlow,
+  })),
+)
 
 const createRepositories = (pool: MobxPool) => new SettingsRepositories(pool)
 
@@ -33,6 +39,22 @@ export const ReposSection = observer(function ReposSection({
   podiumDefault: string | undefined
 }) {
   const view = useOpeningView(useWorklistPool(), createRepositories)
+  const { openTakeover, closeTakeover } = useSettingsFrame()
+  const openAddProject = () =>
+    openTakeover({
+      title: 'Add project',
+      content: (
+        <Suspense
+          fallback={
+            <p className="settings-prose" role="status">
+              Loading projects…
+            </p>
+          }
+        >
+          <RepoScanFlow embedded onClose={closeTakeover} onDone={closeTakeover} />
+        </Suspense>
+      ),
+    })
   const canManage = useSettingsPermitted('records.instancePreferences.edit')
   const rows = view?.loaded ? view.rows : undefined
   return (
@@ -72,18 +94,12 @@ const ProjectRow = observer(function ProjectRow({
 }) {
   const { openTakeover } = useSettingsFrame()
   return (
-    <button
-      type="button"
-      className="settings-list-row flex w-full items-center gap-3 text-left hover:bg-muted/40"
+    <EntityRow
+      leading={<span className="font-mono text-[9.5px]">{row.prefix ?? '—'}</span>}
+      title={row.name}
       onClick={() => openTakeover({ title: row.name, content: <ProjectDetail row={row} /> })}
-      data-testid="settings-repo-row"
-    >
-      <span className="settings-micro flex size-10 flex-none items-center justify-center rounded-lg bg-muted font-mono font-semibold">
-        {row.prefix ?? '—'}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="settings-label block truncate">{row.name}</span>
-        <span className="settings-micro mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+      subtitle={
+        <>
           <span className="inline-flex min-w-0 items-center gap-1">
             <GitBranch size={12} aria-hidden="true" />
             <span className="truncate font-mono">
@@ -92,13 +108,16 @@ const ProjectRow = observer(function ProjectRow({
             {!row.defaultParentBranch && <span>default</span>}
           </span>
           <span aria-hidden="true">·</span>
-          <span>{row.checkouts.length} {row.checkouts.length === 1 ? 'checkout' : 'checkouts'}</span>
+          <span>
+            {row.checkouts.length} {row.checkouts.length === 1 ? 'checkout' : 'checkouts'}
+          </span>
           <span aria-hidden="true">·</span>
-          <span>{row.worktreeCount} {row.worktreeCount === 1 ? 'worktree' : 'worktrees'}</span>
-        </span>
-      </span>
-      <ChevronRight size={15} aria-hidden="true" className="flex-none text-muted-foreground" />
-    </button>
+          <span>
+            {row.worktreeCount} {row.worktreeCount === 1 ? 'worktree' : 'worktrees'}
+          </span>
+        </>
+      }
+    />
   )
 })
 
@@ -128,29 +147,36 @@ const ProjectDetail = observer(function ProjectDetail({ row }: { row: SettingsRe
         />
       </Section>
       <Section title="Checkouts" hint="Where this repository lives on each machine." list>
-        {row.checkouts.map((checkout) => <CheckoutRow key={checkout.scan.id} checkout={checkout} />)}
+        {row.checkouts.map((checkout) => (
+          <CheckoutRow key={checkout.scan.id} checkout={checkout} />
+        ))}
       </Section>
       <Section
         title="Worktrees"
         hint={`${row.worktreeCount} task ${row.worktreeCount === 1 ? 'worktree' : 'worktrees'}.`}
-        action={row.worktreeCount > 0 && (
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-expanded={showWorktrees}
-            onClick={() => setShowWorktrees((value) => !value)}
-          >
-            {showWorktrees ? 'Show less' : 'Show all'}
-          </Button>
-        )}
+        action={
+          row.worktreeCount > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-expanded={showWorktrees}
+              onClick={() => setShowWorktrees((value) => !value)}
+            >
+              {showWorktrees ? 'Show less' : 'Show all'}
+            </Button>
+          )
+        }
       >
-        {showWorktrees && row.checkouts.flatMap((checkout) => checkout.worktrees.map((worktree) => (
-          <WorktreeRow
-            key={`${checkout.scan.id}:${worktree.path}`}
-            checkout={checkout}
-            worktree={worktree}
-          />
-        )))}
+        {showWorktrees &&
+          row.checkouts.flatMap((checkout) =>
+            checkout.worktrees.map((worktree) => (
+              <WorktreeRow
+                key={`${checkout.scan.id}:${worktree.path}`}
+                checkout={checkout}
+                worktree={worktree}
+              />
+            )),
+          )}
       </Section>
       <Section title="Remove">
         <RemoveProject row={row} canManage={canManage} />
@@ -201,7 +227,12 @@ const PrefixRow = observer(function PrefixRow({
     <>
       <Row
         label="Task prefix"
-        description={<>Tasks read <code>{prefix || 'POD'}-1</code>, <code>{prefix || 'POD'}-2</code>… Two to five letters.</>}
+        description={
+          <>
+            Tasks read <code>{prefix || 'POD'}-1</code>, <code>{prefix || 'POD'}-2</code>… Two to
+            five letters.
+          </>
+        }
         readOnly={!canManage}
         readOnlyValue={row.prefix ?? 'None'}
         error={error}
@@ -232,7 +263,13 @@ const PrefixRow = observer(function PrefixRow({
       {changed && canManage && (
         <div className="settings-list-note" role="note">
           <p className="settings-prose">
-            {row.prefix ? <>References already written as <b>{row.prefix}-13</b> will stop linking.</> : 'This prefix will number the project’s tasks.'}
+            {row.prefix ? (
+              <>
+                References already written as <b>{row.prefix}-13</b> will stop linking.
+              </>
+            ) : (
+              'This prefix will number the project’s tasks.'
+            )}
           </p>
           {!valid && <p className="settings-prose mt-1">A prefix is 2 to 5 letters, A to Z.</p>}
           <div className="mt-2 flex gap-2">
@@ -246,7 +283,9 @@ const PrefixRow = observer(function PrefixRow({
             >
               Change to {prefix || '…'}
             </Button>
-            <Button variant="ghost" size="sm" disabled={saving} onClick={cancel}>Cancel</Button>
+            <Button variant="ghost" size="sm" disabled={saving} onClick={cancel}>
+              Cancel
+            </Button>
           </div>
         </div>
       )}
@@ -254,20 +293,28 @@ const PrefixRow = observer(function PrefixRow({
   )
 })
 
-const BranchLabel = observer(function BranchLabel({ row, podiumDefault }: {
+const BranchLabel = observer(function BranchLabel({
+  row,
+  podiumDefault,
+}: {
   row: SettingsRepository
   podiumDefault: string | undefined
 }) {
   return (
     <span className="flex min-w-0 items-center gap-1.5">
       <GitBranch size={13} aria-hidden="true" className="flex-none" />
-      <span className="settings-value truncate">{row.defaultParentBranch ?? (podiumDefault?.trim() || 'main')}</span>
+      <span className="settings-value truncate">
+        {row.defaultParentBranch ?? (podiumDefault?.trim() || 'main')}
+      </span>
       {!row.defaultParentBranch && <span className="settings-micro">default</span>}
     </span>
   )
 })
 
-const BaseBranchField = observer(function BaseBranchField({ row, podiumDefault }: {
+const BaseBranchField = observer(function BaseBranchField({
+  row,
+  podiumDefault,
+}: {
   row: SettingsRepository
   podiumDefault: string | undefined
 }) {
@@ -275,18 +322,20 @@ const BaseBranchField = observer(function BaseBranchField({ row, podiumDefault }
   const checkout = row.writeCheckout
   return (
     <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger render={
-        <Button
-          variant="outline"
-          className="w-full justify-between font-normal"
-          disabled={!checkout}
-          aria-label={`Base branch for ${row.name}`}
-          data-testid="repo-base-branch"
-        >
-          <BranchLabel row={row} podiumDefault={podiumDefault} />
-          <ChevronDown size={13} aria-hidden="true" />
-        </Button>
-      } />
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="outline"
+            className="w-full justify-between font-normal"
+            disabled={!checkout}
+            aria-label={`Base branch for ${row.name}`}
+            data-testid="repo-base-branch"
+          >
+            <BranchLabel row={row} podiumDefault={podiumDefault} />
+            <ChevronDown size={13} aria-hidden="true" />
+          </Button>
+        }
+      />
       {open && checkout && (
         <RepoBaseBranchMenu
           repoId={row.repoId}
@@ -304,36 +353,54 @@ const CheckoutRow = observer(function CheckoutRow({ checkout }: { checkout: Sett
   const online = checkout.machineOnline
   const state = online === null ? 'Machine unknown' : online ? 'Online' : 'Offline'
   return (
-    <div className="settings-list-row flex items-center justify-between gap-4">
-      <div className="min-w-0">
-        <p className="settings-label">{checkout.machineName ?? 'Unknown machine'}</p>
-        <p className="settings-micro mt-1 break-all font-mono">{checkout.path}</p>
-      </div>
-      <span className="settings-micro flex flex-none items-center gap-1.5">
-        <span aria-hidden="true" className={cn('size-1.5 rounded-full', online ? 'bg-success' : 'bg-muted-foreground/40')} />
-        {state}
-      </span>
-    </div>
+    <EntityRow
+      leading={<Monitor aria-hidden="true" />}
+      title={checkout.machineName ?? 'Unknown machine'}
+      subtitle={checkout.path}
+      monoSubtitle
+      trailing={
+        <span className="settings-micro flex flex-none items-center gap-1.5">
+          <span
+            aria-hidden="true"
+            className={cn(
+              'size-1.5 rounded-full',
+              online ? 'bg-success' : 'bg-muted-foreground/40',
+            )}
+          />
+          {state}
+        </span>
+      }
+    />
   )
 })
 
-const WorktreeRow = observer(function WorktreeRow({ checkout, worktree }: {
+const WorktreeRow = observer(function WorktreeRow({
+  checkout,
+  worktree,
+}: {
   checkout: SettingsCheckout
   worktree: SettingsWorktree
 }) {
   return (
-    <div className="settings-list-row">
-      <p className="settings-label font-mono">{worktree.branch ?? 'Detached HEAD'}</p>
-      <p className="settings-micro mt-1 break-all">
-        {checkout.machineName ?? 'Unknown machine'} · <span className="font-mono">{worktree.path}</span>
-        {worktree.prunable && <span className="text-warning"> · Folder missing</span>}
-        {worktree.locked && <span> · Locked</span>}
-      </p>
-    </div>
+    <EntityRow
+      leading={<GitBranch aria-hidden="true" />}
+      title={<span className="font-mono">{worktree.branch ?? 'Detached HEAD'}</span>}
+      subtitle={
+        <>
+          <span>{checkout.machineName ?? 'Unknown machine'} ·</span>
+          <span className="font-mono">{worktree.path}</span>
+          {worktree.prunable && <span className="text-warning">· Folder missing</span>}
+          {worktree.locked && <span>· Locked</span>}
+        </>
+      }
+    />
   )
 })
 
-const RemoveProject = observer(function RemoveProject({ row, canManage }: {
+const RemoveProject = observer(function RemoveProject({
+  row,
+  canManage,
+}: {
   row: SettingsRepository
   canManage: boolean
 }) {
@@ -372,7 +439,9 @@ const RemoveProject = observer(function RemoveProject({ row, canManage }: {
         error={!confirming ? error : null}
         pending={pending}
       >
-        <Button variant="destructive" size="sm" onClick={() => setConfirming(true)}>Remove</Button>
+        <Button variant="destructive" size="sm" onClick={() => setConfirming(true)}>
+          Remove
+        </Button>
       </Row>
       {confirming && canManage && (
         <ConfirmInline
@@ -382,7 +451,10 @@ const RemoveProject = observer(function RemoveProject({ row, canManage }: {
           pending={pending}
           error={error}
           onConfirm={remove}
-          onCancel={() => { setConfirming(false); setError(null) }}
+          onCancel={() => {
+            setConfirming(false)
+            setError(null)
+          }}
         />
       )}
     </>

@@ -59,9 +59,8 @@ describe('settings page classification', () => {
   })
 
   it('homes secrets beside the features that use them, keeping them server-owned', () => {
-    const home = (path: string) => pages.filter((page) =>
-      TAB_PATHS[page].some((prefix) => pathIsUnder(path, prefix)),
-    )
+    const home = (path: string) =>
+      pages.filter((page) => TAB_PATHS[page].some((prefix) => pathIsUnder(path, prefix)))
     const expectedHomes = {
       'integrations.linearApiKey': 'projects',
       'notifications.telegramBotToken': 'notifications',

@@ -3,8 +3,8 @@ import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import type { SecretSurfaceState } from './secrets'
 import {
-  clampInt,
   CommitInput,
+  clampInt,
   Row,
   SecretRow,
   Section,
@@ -110,7 +110,7 @@ export const WorkflowSection = observer(function WorkflowSection({
 
 function LinearRow({ linear }: { linear: LinearSecret | undefined }) {
   const description = 'Lets you and the superagent find Linear issues to link to tasks.'
-  if (!linear || linear.state.status !== 'available')
+  if (linear?.state.status !== 'available')
     return (
       <Row
         label="Linear"
