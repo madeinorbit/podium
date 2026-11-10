@@ -1,8 +1,7 @@
-import { issueObserver as observer } from '../../client/issue-observer'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { ISSUE_STAGE_LABELS } from '@podium/client-core/values'
-
 import { StyleSheet, Text, View } from 'react-native'
+import { issueObserver as observer } from '../../client/issue-observer'
 import type { IssueCommands } from '../../lib/issue-detail'
 import { alpha } from '../../theme/mix'
 import { color, font, leading, radius, sans, space } from '../../theme/theme'
@@ -128,7 +127,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: color.border,
-    backgroundColor: color.surface,
+    backgroundColor: color.groupedCard,
   },
   danger: {
     borderColor: alpha(color.danger, 0.4),

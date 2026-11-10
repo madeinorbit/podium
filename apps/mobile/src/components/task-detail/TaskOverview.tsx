@@ -1,14 +1,16 @@
 import { modelLabel } from '@podium/client-core/agent-models'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { artifactKind, motionPhase, sessionTitle } from '@podium/client-core/values'
+import { artifactKind, motionPhase, readoutModel, sessionTitle } from '@podium/client-core/values'
+import { here } from '@podium/client-graph/lookup'
 import type { IssuePanelArtifact, SessionId, SessionOffer } from '@podium/model'
-import { isFinished } from '@podium/model/browser'
+import { isFinished, SESSION_WORD_LABEL } from '@podium/model/browser'
 import { type ReactNode, useState } from 'react'
 import { Image, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { authenticatedImageSource } from '../../client/authenticated-assets'
 import { useHttpOrigin } from '../../client/hooks'
 import { issueObserver as observer } from '../../client/issue-observer'
+import { useMobilePool } from '../../client/mobile-pool'
 import { useServerProfile } from '../../client/ServerProfileGate'
 import { useOptionalServerProfile } from '../../client/server-profile-context'
 import { issueArtifactHref, issueArtifactLabel } from '../../lib/issue-artifacts'
@@ -347,12 +349,6 @@ const Thumbnail = observer(function Thumbnail({
   )
 })
 
-const PHASE_WORD: Record<string, string> = {
-  working: 'working',
-  waiting: 'needs you',
-  queued: 'idle',
-  done: 'done',
-}
 /** Session rows drawn before the Details roster carries the rest. */
 const SHOWN_SESSIONS = 3
 
@@ -369,11 +365,7 @@ export const TaskSessions = observer(function TaskSessions({
   onOpenSession: (sessionId: SessionId) => void
 }) {
   if (sessions.length === 0) return null
-  const finished = isFinished(issue)
-  const shown = sessions.slice(0, SHOWN_SESSIONS).map((session) => ({
-    session,
-    phase: finished ? 'done' : motionPhase(session, issue),
-  }))
+  const shown = sessions.slice(0, SHOWN_SESSIONS)
   const rest = sessions.length - shown.length
   return (
     <View testID="task-sessions">
@@ -382,39 +374,15 @@ export const TaskSessions = observer(function TaskSessions({
         count={sessions.length > 1 ? sessions.length : undefined}
       />
       <View style={styles.card}>
-        {shown.map(({ session, phase }, index) => {
-          const name = sessionTitle(session)
-          const meta = `${modelLabel(session.agentKind, session.model)} · ${PHASE_WORD[phase] ?? phase}`
-          return (
-            <PressableScale
-              key={session.sessionId}
-              accessibilityRole="button"
-              accessibilityLabel={`${name}, ${meta}`}
-              accessibilityHint="Opens the session"
-              onPress={() => onOpenSession(session.sessionId)}
-              scaleTo={1}
-              style={({ pressed }) => [styles.sessionRow, pressed && styles.rowPressed]}
-            >
-              {index > 0 ? <View style={styles.separator} /> : null}
-              <View style={styles.gutter}>
-                <View
-                  style={[
-                    styles.phaseDot,
-                    phase === 'working' && { backgroundColor: color.workingText },
-                    phase === 'waiting' && { backgroundColor: color.needsYouText },
-                  ]}
-                />
-              </View>
-              <Text style={styles.sessionName} numberOfLines={1}>
-                {name}
-              </Text>
-              <Text style={styles.sessionMeta} numberOfLines={1}>
-                {meta}
-              </Text>
-              <Icon as={ChevronRight} size={14} color={color.textFaint} />
-            </PressableScale>
-          )
-        })}
+        {shown.map((session, index) => (
+          <TaskSessionRow
+            key={session.sessionId}
+            sessionId={session.sessionId}
+            issue={issue}
+            first={index === 0}
+            onOpenSession={onOpenSession}
+          />
+        ))}
         {rest > 0 ? (
           <View style={styles.sessionRow}>
             <View style={styles.separator} />
@@ -424,6 +392,56 @@ export const TaskSessions = observer(function TaskSessions({
         ) : null}
       </View>
     </View>
+  )
+})
+
+/** Each visible seat reads the shared session model, including its state word. */
+const TaskSessionRow = observer(function TaskSessionRow({
+  sessionId,
+  issue,
+  first,
+  onOpenSession,
+}: {
+  sessionId: SessionId
+  issue: IssueViewModel
+  first: boolean
+  onOpenSession: (id: SessionId) => void
+}) {
+  const pool = useMobilePool()
+  const session = here(pool?.model('session', sessionId))
+  if (!session) return null
+  const view = here(session.row) as unknown as SessionView | undefined
+  if (!view) return null
+  const phase = isFinished(issue) ? 'done' : motionPhase(view, issue)
+  const name = sessionTitle(view)
+  const meta = `${modelLabel(view.agentKind, readoutModel(view))} · ${SESSION_WORD_LABEL[session.word]}`
+  return (
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel={`${name}, ${meta}`}
+      accessibilityHint="Opens the session"
+      onPress={() => onOpenSession(sessionId)}
+      scaleTo={1}
+      style={({ pressed }) => [styles.sessionRow, pressed && styles.rowPressed]}
+    >
+      {!first ? <View style={styles.separator} /> : null}
+      <View style={styles.gutter}>
+        <View
+          style={[
+            styles.phaseDot,
+            phase === 'working' && { backgroundColor: color.workingText },
+            phase === 'waiting' && { backgroundColor: color.needsYouText },
+          ]}
+        />
+      </View>
+      <Text style={styles.sessionName} numberOfLines={1}>
+        {name}
+      </Text>
+      <Text style={styles.sessionMeta} numberOfLines={1}>
+        {meta}
+      </Text>
+      <Icon as={ChevronRight} size={14} color={color.textFaint} />
+    </PressableScale>
   )
 })
 
@@ -449,7 +467,7 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: 8,
     overflow: 'hidden',
-    backgroundColor: color.surface,
+    backgroundColor: color.groupedCard,
   },
   summary: {
     ...sans(400),

@@ -8,7 +8,7 @@ import {
 } from '../../../tests/worklist/harness/src/work-meter'
 import { attachMobileScreens } from './mobile-screens'
 import { MOBILE_SCREEN_SUMMARIES, type MobileTasksOptions } from './mobile-screens-schema'
-import { MobileTasksBoard } from './mobile-tasks'
+import { MOBILE_TASK_PAGE_SIZE, MobileTasksBoard } from './mobile-tasks'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
 
@@ -283,4 +283,29 @@ it('draws Proposed as the screening group and counts each lane for the subtitle'
     ['review', 2, 2],
     ['proposed', 1, 0],
   ])
+})
+
+it('bounds native row observers per lane and resets the window when the query changes', async () => {
+  const { pool } = await setup(
+    Array.from({ length: 130 }, (_, i) => issue(`task-${i}`, { seq: i + 1 })),
+  )
+  const board = new MobileTasksBoard(pool, options)
+  const lane = board.lanes.find((lane) => lane.stage === 'in_progress')!
+  const stop = autorun(() => lane.visibleRows.map((row) => board.issue(row.id).title))
+  disposals.push(stop)
+  expect(lane.rows).toHaveLength(130)
+  expect(lane.visibleRows).toHaveLength(MOBILE_TASK_PAGE_SIZE)
+  expect(lane.hasMore).toBe(true)
+  lane.showMore()
+  expect(lane.visibleRows).toHaveLength(2 * MOBILE_TASK_PAGE_SIZE)
+  board.search('task-1')
+  expect(lane.visibleRows.length).toBeLessThanOrEqual(MOBILE_TASK_PAGE_SIZE)
+  expect(lane.visibleLimit).toBe(MOBILE_TASK_PAGE_SIZE)
+  board.search('')
+  expect(lane.visibleRows).toHaveLength(MOBILE_TASK_PAGE_SIZE)
+  lane.showMore()
+  lane.showMore()
+  lane.showMore()
+  expect(lane.visibleRows).toHaveLength(130)
+  expect(lane.hasMore).toBe(false)
 })

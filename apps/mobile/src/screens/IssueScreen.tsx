@@ -152,6 +152,7 @@ const IssueScreenBody = observer(function IssueScreenBody({
         <IssueContent issue={issue} onBack={goBack} dismiss={dismiss} />
       ) : (
         <Screen
+          grouped
           title="Task"
           onBack={goBack}
           backAs={dismiss ? 'text' : 'chevron'}
@@ -316,6 +317,7 @@ const IssueContent = observer(function IssueContent({
 
   return (
     <Screen
+      grouped
       // Content scrolls under the transparent bar (POD-2387); the ScrollView
       // insets itself below it.
       underHeader

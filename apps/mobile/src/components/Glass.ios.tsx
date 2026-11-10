@@ -12,17 +12,26 @@ const liquidGlass = isLiquidGlassAvailable()
  * Our own glass pieces (composer, chips). iOS 26 draws real Liquid Glass;
  * earlier systems get the system material blur in the same shape.
  */
-export function Glass({ shape = 'control', interactive, style, children }: GlassProps) {
+export function Glass({ shape = 'control', interactive, tintColor, style, children }: GlassProps) {
   const corner = { borderRadius: glassRadius(shape) }
   if (liquidGlass) {
     return (
-      <GlassView glassEffectStyle="regular" isInteractive={interactive} style={[corner, style]}>
+      <GlassView
+        glassEffectStyle="regular"
+        isInteractive={interactive}
+        tintColor={tintColor}
+        style={[corner, style]}
+      >
         {children}
       </GlassView>
     )
   }
   return (
-    <BlurView tint="systemChromeMaterial" intensity={80} style={[styles.blur, corner, style]}>
+    <BlurView
+      tint="systemChromeMaterial"
+      intensity={80}
+      style={[styles.blur, corner, tintColor && { backgroundColor: tintColor }, style]}
+    >
       {children}
     </BlurView>
   )

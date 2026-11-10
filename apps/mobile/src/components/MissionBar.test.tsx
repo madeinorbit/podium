@@ -113,12 +113,12 @@ it('reads one vitals line from the Full deck and follows working to waiting', ()
 })
 
 it('labels zero parts away', () => {
-  expect(deckVitalsLabel({ done: 8, total: 14, needsYou: 1, working: 3, upNext: 2 })).toBe(
-    '8/14 · 1 needs you · 3 working · 2 up next',
-  )
-  expect(deckVitalsLabel({ done: 0, total: 2, needsYou: 0, working: 0, upNext: 2 })).toBe(
-    '0/2 · 2 up next',
-  )
+  expect(
+    deckVitalsLabel({ done: 8, total: 14, needsYou: 1, working: 3, waiting: 1, upNext: 2 }),
+  ).toBe('8/14 · 1 needs you · 3 working · 2 up next')
+  expect(
+    deckVitalsLabel({ done: 0, total: 2, needsYou: 0, working: 0, waiting: 0, upNext: 2 }),
+  ).toBe('0/2 · 2 up next')
 })
 
 it('keeps cold task counts pending', () => {
@@ -143,4 +143,21 @@ it('uses the same bucket reading for the mobile work-row meter', () => {
   expect(screen.getByRole('progressbar').getAttribute('aria-label')).toBe(
     '1 of 4 tasks done, 1 working, 1 waiting, 1 to do',
   )
+})
+
+it('keeps attention counts out of the disjoint execution gauge', () => {
+  const opening = open(
+    [issue('root', 'in_progress'), issue('busy', 'in_progress')],
+    [
+      {
+        ...session('worker', 'busy', 'working'),
+        offer: { message: 'Review this', actions: [{ label: 'Accept', prompt: 'accept' }] },
+      },
+    ],
+  )
+  mount(opening)
+  expect(opening.full.counts['needs-you']).toBe(1)
+  expect(screen.getByRole('button').textContent).toContain('1 needs you')
+  expect(screen.getByTestId('deck-gauge-working').style.width).toBe('100%')
+  expect(screen.queryByTestId('deck-gauge-waiting')).toBeNull()
 })

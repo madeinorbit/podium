@@ -1,0 +1,102 @@
+import { Button, HStack, Image, Spacer, Text } from '@expo/ui/swift-ui'
+import {
+  accessibilityAddTraits,
+  accessibilityHidden,
+  accessibilityHint,
+  accessibilityLabel,
+  accessibilityValue,
+  buttonStyle,
+  contentShape,
+  font,
+  foregroundStyle,
+  frame,
+  lineLimit,
+  listRowBackground,
+  listRowInsets,
+  listRowSeparator,
+  monospacedDigit,
+  shapes,
+} from '@expo/ui/swift-ui/modifiers'
+import type { ReactNode } from 'react'
+import { workPaper as paper } from '../screens/work-paper'
+
+const CARD_INSET = 12
+
+/**
+ * A stage group's header: chevron, name, count. The whole row folds; the
+ * Proposed group adds a trailing "Screen" that opens the screening deck.
+ */
+export function NativeGroupHeader({
+  title,
+  count,
+  folded,
+  onToggle,
+  trailing,
+}: {
+  title: string
+  count: number
+  folded: boolean
+  onToggle: () => void
+  trailing?: ReactNode
+}) {
+  return (
+    <HStack
+      spacing={8}
+      modifiers={[
+        listRowBackground(paper.ground),
+        listRowSeparator('hidden'),
+        listRowInsets({ leading: CARD_INSET, trailing: CARD_INSET, top: 0, bottom: 0 }),
+        frame({ minHeight: 44, maxWidth: Infinity }),
+      ]}
+    >
+      <Button
+        onPress={onToggle}
+        modifiers={[
+          buttonStyle('plain'),
+          accessibilityLabel(title),
+          accessibilityValue(`${folded ? 'Collapsed' : 'Expanded'}, ${count} tasks`),
+          accessibilityHint(folded ? 'Shows this group.' : 'Folds this group away.'),
+          accessibilityAddTraits(['isHeader']),
+        ]}
+      >
+        <HStack
+          spacing={8}
+          modifiers={[
+            frame({ minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
+            contentShape(shapes.rectangle()),
+          ]}
+        >
+          <Image
+            systemName={folded ? 'chevron.right' : 'chevron.down'}
+            modifiers={[
+              font({ textStyle: 'caption2', weight: 'semibold' }),
+              foregroundStyle(paper.tertiary),
+              frame({ width: 14 }),
+              accessibilityHidden(),
+            ]}
+          />
+          <Text
+            modifiers={[
+              font({ textStyle: 'footnote', weight: 'semibold' }),
+              foregroundStyle(paper.secondary),
+              lineLimit(1),
+            ]}
+          >
+            {title}
+          </Text>
+          <Text
+            modifiers={[
+              font({ textStyle: 'caption', design: 'monospaced' }),
+              foregroundStyle(paper.tertiary),
+              monospacedDigit(),
+            ]}
+          >
+            {String(count)}
+          </Text>
+          <Spacer />
+        </HStack>
+      </Button>
+      {trailing}
+    </HStack>
+  )
+}

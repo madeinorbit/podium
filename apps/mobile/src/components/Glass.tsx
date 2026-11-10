@@ -5,8 +5,19 @@ import { type GlassProps, glassRadius } from './glass-shape'
 export type { GlassProps, GlassShape } from './glass-shape'
 
 /** Web and Android: a solid secondary fill in the same shape as the iOS glass. */
-export function Glass({ shape = 'control', style, children }: GlassProps) {
-  return <View style={[styles.fill, { borderRadius: glassRadius(shape) }, style]}>{children}</View>
+export function Glass({ shape = 'control', tintColor, style, children }: GlassProps) {
+  return (
+    <View
+      style={[
+        styles.fill,
+        { borderRadius: glassRadius(shape) },
+        tintColor && { backgroundColor: tintColor },
+        style,
+      ]}
+    >
+      {children}
+    </View>
+  )
 }
 
 const styles = StyleSheet.create({

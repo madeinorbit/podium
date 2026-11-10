@@ -18,6 +18,7 @@ export type { ScreenAction, ScreenMenuItem } from './screen-actions'
  */
 export function Screen({
   title,
+  grouped,
   subtitle,
   onBack,
   backLabel,
@@ -33,6 +34,8 @@ export function Screen({
   monoSubtitle = false,
 }: {
   title?: string
+  /** Use the system grouped-list ground beneath content and navigation. */
+  grouped?: boolean
   subtitle?: ReactNode
   onBack?: () => void
   backLabel?: string
@@ -75,7 +78,7 @@ export function Screen({
           ))
       : null)
   return (
-    <View style={styles.root}>
+    <View style={[styles.root, grouped && styles.grouped]}>
       <View
         style={[
           styles.inner,
@@ -182,6 +185,7 @@ export function HeaderButton({
 }
 
 const styles = StyleSheet.create({
+  grouped: { backgroundColor: color.groupedBg },
   root: {
     flex: 1,
     backgroundColor: color.bg,

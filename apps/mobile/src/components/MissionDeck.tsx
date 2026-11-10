@@ -1,6 +1,7 @@
 import { issueAgentKind, modelLabel } from '@podium/client-core/agent-models'
 import type { SessionView } from '@podium/client-core/session-values'
-import { type IssueNavigationModel, sessionTitle } from '@podium/client-core/values'
+import { type IssueNavigationModel, readoutModel, sessionTitle } from '@podium/client-core/values'
+import { here } from '@podium/client-graph/lookup'
 import {
   FULL_DECK_FILTERS,
   type FullDeck,
@@ -570,9 +571,10 @@ function seatName(task: FullDeckTask, sessionId: string, session: SessionModel):
 }
 
 function sessionModelLabel(session: SessionModel): string | null {
-  const view = session as unknown as SessionView
+  const view = here(session.row) as unknown as SessionView | undefined
+  if (!view) return null
   const kind = issueAgentKind(view.agentKind)
-  const model = view.observedModel ?? view.model
+  const model = readoutModel(view)
   return kind && model ? modelLabel(kind, model) : null
 }
 

@@ -36216,6 +36216,42 @@
       "bound": "Quota pools grouped from the granted machine quota.",
       "reason": "POD-2385 makes the Pulse screen the first live caller of capacityView, exposing its existing pool collection to the screen origin. Same debt as the PulseScreen fleet entries; no new collection.",
       "guard": "scripts/check-interaction-scans.ts"
+    },
+    {
+      "file": "apps/mobile/src/screens/TasksSurface.ios.tsx",
+      "holder": "TasksSurface/TasksSurface/map:callback/lane",
+      "rule": "consume:find",
+      "tokens": "532537e4718f3321b1158e63656f99ddabc60569524bac755e4be9fd46928908",
+      "gate": [],
+      "origin": [
+        "0c136300999eb7018b9fcbb3b3da63a49617b232524e1223e854477d7d946132"
+      ],
+      "fingerprint": "ad520e06c27ca8f51209c2247b7fd05a9fc72b6087f4a97ecba6b06d16cf331e",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2388",
+      "trigger": "Native Tasks stage rendering and resetting the row prefix after search, filter, or display changes.",
+      "bound": "At most six BoardLane companions constructed from the six literal MOBILE_TASK_STAGES, independent of task or session count.",
+      "reason": "These operations select a lifecycle stage or reset its visible-row limit. Neither traverses issue or session records; visibleRows is the separately bounded lazy ID prefix.",
+      "guard": "packages/client-graph/src/mobile-screens-schema.ts fixes the six stages; mobile-tasks.test.ts bounds native row observers per lane, expands the prefix, and resets it after query changes."
+    },
+    {
+      "file": "packages/client-graph/src/mobile-tasks.ts",
+      "holder": "MobileTasksBoard/resetWindows",
+      "rule": "loop:for-of",
+      "tokens": "3c95ec05ad2045cecb393a76582052e91bba83dd2a3c8235c937d8e4ad1a5b8f",
+      "gate": [],
+      "origin": [
+        "b643cb95f691ae9d60c6a23a0fa226116df3f621b36399e7c8800f2b8a4ea5df"
+      ],
+      "fingerprint": "d15b912e9c1a424a31b5aae226af1b678898b479d3bacaf25aaf453ea2b68308",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2388",
+      "trigger": "Native Tasks stage rendering and resetting the row prefix after search, filter, or display changes.",
+      "bound": "At most six BoardLane companions constructed from the six literal MOBILE_TASK_STAGES, independent of task or session count.",
+      "reason": "These operations select a lifecycle stage or reset its visible-row limit. Neither traverses issue or session records; visibleRows is the separately bounded lazy ID prefix.",
+      "guard": "packages/client-graph/src/mobile-screens-schema.ts fixes the six stages; mobile-tasks.test.ts bounds native row observers per lane, expands the prefix, and resets it after query changes."
     }
   ]
 }

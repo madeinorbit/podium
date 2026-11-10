@@ -14,13 +14,11 @@ import {
   VStack,
 } from '@expo/ui/swift-ui'
 import {
-  accessibilityAddTraits,
   accessibilityElement,
   accessibilityHidden,
   accessibilityHint,
   accessibilityIdentifier,
   accessibilityLabel,
-  accessibilityValue,
   alignmentGuide,
   background,
   buttonStyle,
@@ -33,9 +31,11 @@ import {
   listRowInsets,
   listRowSeparator,
   listRowSeparatorTint,
+  listSectionMargins,
   listSectionSpacing,
   listStyle,
   monospacedDigit,
+  onAppear,
   pickerStyle,
   refreshable,
   scrollContentBackground,
@@ -58,6 +58,7 @@ import { Fragment, useCallback } from 'react'
 import { StyleSheet, View } from 'react-native'
 import { useMobilePool } from '../client/mobile-pool'
 import { Filter, Plus } from '../components/icons'
+import { NativeGroupHeader } from '../components/NativeGroupHeader.ios'
 import { RefreshOffer } from '../components/RefreshOffer'
 import { Screen } from '../components/Screen'
 import { StorageNoticeAlert } from '../components/StorageNoticeAlert'
@@ -141,6 +142,7 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
     // trailing actions as system glass bar buttons. The native subtitle is not
     // tappable; the project scope it names is the filter sheet's first row.
     <Screen
+      grouped
       large
       title="Tasks"
       subtitle={subtitle.counts ? `${subtitle.project} · ${subtitle.counts}` : subtitle.project}
@@ -210,25 +212,67 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
           {pending ? <ProgressView modifiers={quietRow} /> : null}
           {ordered.map((section) => {
             const [folded, toggle] = folds[section.stage]
+            const lane = board?.lanes.find((lane) => lane.stage === section.stage)
             const proposed = section.stage === 'proposed'
             return (
               <Fragment key={section.stage}>
                 {/* The header is its own quiet row (SwiftUI uppercases grouped
-                    headers and pads them), on the board's 28pt rhythm. */}
-                <Section>
-                  <GroupHeader
+                    headers and pads them), with Work's compact 44pt hit target. */}
+                <Section modifiers={[listSectionMargins({ edges: 'vertical', length: 0 })]}>
+                  <NativeGroupHeader
                     title={section.title}
                     count={section.total}
                     folded={folded}
                     onToggle={toggle}
-                    {...(proposed && screenable ? { onScreen: props.onScreenProposals } : {})}
+                    trailing={
+                      proposed && screenable ? (
+                        <Button
+                          onPress={props.onScreenProposals}
+                          modifiers={[
+                            buttonStyle('borderless'),
+                            accessibilityLabel('Screen proposals'),
+                            accessibilityHint(
+                              `Decide on ${section.total} proposals one at a time.`,
+                            ),
+                          ]}
+                        >
+                          <Text
+                            modifiers={[
+                              font({ textStyle: 'footnote', weight: 'medium' }),
+                              foregroundStyle(color.accentTint),
+                            ]}
+                          >
+                            Screen
+                          </Text>
+                        </Button>
+                      ) : undefined
+                    }
                   />
                 </Section>
                 {folded || !board || section.rows.length === 0 ? null : (
-                  <Section>
-                    {section.rows.map((row) => (
+                  <Section modifiers={[listSectionMargins({ edges: 'vertical', length: 0 })]}>
+                    {lane?.visibleRows.map((row) => (
                       <TaskRow key={row.id} row={row} board={board} props={props} />
                     ))}
+                    {lane?.hasMore ? (
+                      <Button
+                        onPress={() => lane.showMore()}
+                        modifiers={[
+                          ...noteRow,
+                          onAppear(() => lane.showMore()),
+                          accessibilityLabel(`Show more ${section.title} tasks`),
+                        ]}
+                      >
+                        <Text
+                          modifiers={[
+                            font({ textStyle: 'footnote' }),
+                            foregroundStyle(paper.secondary),
+                          ]}
+                        >
+                          More tasks…
+                        </Text>
+                      </Button>
+                    ) : null}
                   </Section>
                 )}
               </Fragment>
@@ -256,102 +300,6 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
     </Screen>
   )
 })
-
-/**
- * A stage group's header: chevron, name, count. The whole row folds; the
- * Proposed group adds a trailing "Screen" that opens the screening deck.
- */
-function GroupHeader({
-  title,
-  count,
-  folded,
-  onToggle,
-  onScreen,
-}: {
-  title: string
-  count: number
-  folded: boolean
-  onToggle: () => void
-  onScreen?: () => void
-}) {
-  return (
-    <HStack
-      spacing={8}
-      modifiers={[
-        ...quietRow,
-        listRowInsets({ leading: CARD_INSET, trailing: CARD_INSET, top: 16, bottom: 4 }),
-        frame({ minHeight: 28, maxWidth: Infinity }),
-      ]}
-    >
-      <Button
-        onPress={onToggle}
-        modifiers={[
-          buttonStyle('borderless'),
-          accessibilityLabel(title),
-          accessibilityValue(`${folded ? 'Collapsed' : 'Expanded'}, ${count} tasks`),
-          accessibilityHint(folded ? 'Shows this group.' : 'Folds this group away.'),
-          accessibilityAddTraits(['isHeader']),
-        ]}
-      >
-        <HStack
-          spacing={8}
-          modifiers={[
-            frame({ minHeight: 28, maxWidth: Infinity, alignment: 'leading' }),
-            contentShape(shapes.rectangle()),
-          ]}
-        >
-          <Image
-            systemName={folded ? 'chevron.right' : 'chevron.down'}
-            modifiers={[
-              font({ textStyle: 'caption2', weight: 'semibold' }),
-              foregroundStyle(paper.tertiary),
-              frame({ width: 14 }),
-              accessibilityHidden(),
-            ]}
-          />
-          <Text
-            modifiers={[
-              font({ textStyle: 'footnote', weight: 'semibold' }),
-              foregroundStyle(paper.secondary),
-              lineLimit(1),
-            ]}
-          >
-            {title}
-          </Text>
-          <Text
-            modifiers={[
-              font({ textStyle: 'caption', design: 'monospaced' }),
-              foregroundStyle(paper.tertiary),
-              monospacedDigit(),
-            ]}
-          >
-            {String(count)}
-          </Text>
-          <Spacer />
-        </HStack>
-      </Button>
-      {onScreen ? (
-        <Button
-          onPress={onScreen}
-          modifiers={[
-            buttonStyle('borderless'),
-            accessibilityLabel('Screen proposals'),
-            accessibilityHint(`Decide on ${count} proposals one at a time.`),
-          ]}
-        >
-          <Text
-            modifiers={[
-              font({ textStyle: 'footnote', weight: 'medium' }),
-              foregroundStyle(color.accentTint),
-            ]}
-          >
-            Screen
-          </Text>
-        </Button>
-      ) : null}
-    </HStack>
-  )
-}
 
 /**
  * One 44pt task row: mark, ref, title, then child progress ("21/25") or age.

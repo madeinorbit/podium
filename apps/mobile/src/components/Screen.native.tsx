@@ -24,6 +24,7 @@ const sfName = (icon: AppIcon): SFSymbol =>
 
 export function Screen({
   title,
+  grouped,
   subtitle,
   onBack,
   backLabel,
@@ -39,6 +40,8 @@ export function Screen({
   underHeader,
 }: {
   title?: string
+  /** Use the system grouped-list ground beneath content and navigation. */
+  grouped?: boolean
   /** A string rides the native navigation subtitle; other nodes use the context strip. */
   subtitle?: ReactNode
   onBack?: () => void
@@ -68,7 +71,7 @@ export function Screen({
   const insets = useSafeAreaInsets()
   // Root tabs already float a transparent bar (the large title path); pushed
   // screens get the same on iOS so no opaque band sits over the content.
-  const transparentBar = !noHeader && !large && transparentDetailHeader
+  const transparentBar = !noHeader && transparentDetailHeader
   const headerHeight = use(HeaderHeightContext) ?? 0
   const barInset = transparentBar ? headerHeight : 0
 
@@ -78,13 +81,14 @@ export function Screen({
   const hasContext = !noHeader && (leading != null || stripSubtitle != null)
   const [contextHeight, setContextHeight] = useState(hasContext ? 44 : 0)
   // The context strip pins under the bar, so content under it starts below both.
-  const runsUnder = !!underHeader && !hasContext
+  const runsUnder = (!!underHeader || !!large) && !hasContext
   const bodyInset = runsUnder ? 0 : barInset
   return (
     <View
       collapsable={false}
       style={[
         styles.root,
+        grouped && styles.grouped,
         noHeader && { paddingTop: insets.top },
         safeBottom && { paddingBottom: insets.bottom },
       ]}
@@ -92,6 +96,7 @@ export function Screen({
       <Stack.Screen
         options={{
           title: title ?? '',
+          contentStyle: { backgroundColor: grouped ? color.groupedBg : color.bg },
           headerShown: !noHeader,
           headerLargeTitleEnabled: !!large,
           headerLargeTitleShadowVisible: false,
@@ -207,6 +212,7 @@ export function HeaderButton({
 }
 
 const styles = StyleSheet.create({
+  grouped: { backgroundColor: color.groupedBg },
   root: { flex: 1, minHeight: 0, backgroundColor: color.bg },
   body: { flex: 1, minHeight: 0 },
   actions: { flexDirection: 'row', alignItems: 'center' },

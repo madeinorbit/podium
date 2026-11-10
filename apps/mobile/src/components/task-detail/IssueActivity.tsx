@@ -316,7 +316,7 @@ function Row({
 }
 
 const styles = StyleSheet.create({
-  card: { borderRadius: 8, overflow: 'hidden', backgroundColor: color.surface },
+  card: { borderRadius: 8, overflow: 'hidden', backgroundColor: color.groupedCard },
   emptyInCard: {
     ...sans(400),
     paddingHorizontal: space.md,
@@ -358,7 +358,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: color.border,
-    backgroundColor: color.surface,
+    backgroundColor: color.groupedCard,
   },
   mailHead: {
     flexDirection: 'row',

@@ -57,6 +57,7 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
   const [searchOpen, setSearchOpen] = useState(false)
   return (
     <Screen
+      grouped
       large
       title="Tasks"
       subtitle={<TasksSubtitle board={board} onProject={props.onFilters} />}
@@ -468,11 +469,11 @@ const styles = StyleSheet.create({
   },
   filterChipText: { ...sans(500), color: color.textDim, fontSize: font.tiny },
   pressed: { backgroundColor: color.surfacePressed },
-  // 28pt on the board's grid; the controls reach 44pt through hitSlop.
+  // Compact headers retain a full 44pt control target.
   header: {
-    minHeight: 28,
-    marginTop: space.lg,
-    marginBottom: space.xs,
+    minHeight: 44,
+    marginTop: 0,
+    marginBottom: 0,
     marginHorizontal: space.lg,
     paddingHorizontal: space.md,
     flexDirection: 'row',
@@ -480,14 +481,14 @@ const styles = StyleSheet.create({
   },
   headerFold: {
     flex: 1,
-    minHeight: 28,
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
   },
   headerTitle: { ...sans(600), color: color.textDim, fontSize: font.tiny },
   headerCount: { ...mono(400), color: color.textFaint, fontSize: 12 },
-  screen: { minHeight: 28, justifyContent: 'center' },
+  screen: { minHeight: 44, justifyContent: 'center' },
   screenText: { ...sans(500), color: color.accentTint, fontSize: font.tiny },
   rowWrap: {
     marginHorizontal: space.lg,

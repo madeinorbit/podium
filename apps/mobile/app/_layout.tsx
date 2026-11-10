@@ -4,6 +4,7 @@ import { Stack } from 'expo-router/stack'
 import { LogBox } from 'react-native'
 import { enableFreeze } from 'react-native-screens'
 import { RootLayoutShell, type RootNavigationProps } from '../src/client/root-layout-shell'
+import { noticeScreenLayout } from '../src/navigation/notice-screen-layout'
 import { color } from '../src/theme/theme'
 
 /**
@@ -32,6 +33,7 @@ function NativeNavigation({ reduceMotion }: RootNavigationProps) {
   return (
     <Stack
       initialRouteName="(tabs)"
+      screenLayout={noticeScreenLayout}
       screenOptions={{
         headerShown: true,
         headerBackButtonDisplayMode: 'minimal',

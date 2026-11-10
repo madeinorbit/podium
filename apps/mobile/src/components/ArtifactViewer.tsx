@@ -284,7 +284,7 @@ function BarCap({ label, icon, onPress }: { label: string; icon: AppIcon; onPres
       onPress={onPress}
       style={styles.cap}
     >
-      <Glass interactive style={styles.capGlass}>
+      <Glass interactive tintColor={color.fill} style={styles.capGlass}>
         <Icon as={icon} size={18} color={color.text} />
       </Glass>
     </PressableScale>

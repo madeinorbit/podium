@@ -1,7 +1,7 @@
 import type { MessageNotice } from '@podium/client-core/values'
 import { useRouter } from 'expo-router'
-import { useContext, useState } from 'react'
 import { observer } from 'mobx-react-lite'
+import { useContext, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { SafeAreaInsetsContext } from 'react-native-safe-area-context'
 import { useTrpc } from '../client/hooks'
@@ -20,12 +20,20 @@ import { PressableScale } from './PressableScale'
  * "Send again" puts the words back in the composer. Dismiss clears its notice
  * on every device. Read from the synced records, like the chat.
  */
-export function MessageNoticeBanner() {
+export function MessageNoticeBanner({ topInset }: { topInset?: number } = {}) {
   const { notice, count } = usePoolNewestMessageNotice()
-  return <MessageNoticeBannerBody newest={notice} count={count} />
+  return <MessageNoticeBannerBody newest={notice} count={count} topInset={topInset} />
 }
 
-const MessageNoticeBannerBody = observer(function MessageNoticeBannerBody({ newest, count }: { newest: MessageNotice | undefined; count: number }) {
+const MessageNoticeBannerBody = observer(function MessageNoticeBannerBody({
+  newest,
+  count,
+  topInset,
+}: {
+  newest: MessageNotice | undefined
+  count: number
+  topInset?: number
+}) {
   const trpc = useTrpc()
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
@@ -36,7 +44,8 @@ const MessageNoticeBannerBody = observer(function MessageNoticeBannerBody({ newe
   return (
     <View
       pointerEvents="box-none"
-      style={[styles.host, { paddingTop: (insets?.top ?? 0) + space.xs }]}
+      testID="message-notice-host"
+      style={[styles.host, { top: (topInset ?? insets?.top ?? 0) + space.md }]}
     >
       <View accessibilityRole="alert" style={styles.card} testID="message-notice-banner">
         <View style={styles.tint}>

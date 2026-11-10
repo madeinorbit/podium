@@ -21,6 +21,7 @@ export interface MobileTaskIds {
   readonly rows: readonly BoardListRow[]
 }
 type Stage = MobileTaskIds['stage']
+export const MOBILE_TASK_PAGE_SIZE = 40
 
 const byId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 const requireRow = <T>(row: Loaded<T>): T | undefined => {
@@ -205,6 +206,24 @@ class BoardTask {
 
 /** One lane of the board: its own tasks and the rows drawn for them. */
 class BoardLane {
+  /** Native lists virtualize views, but JS observers also need a bounded prefix. */
+  @observable accessor visibleLimit = MOBILE_TASK_PAGE_SIZE
+
+  @action showMore() {
+    this.visibleLimit += MOBILE_TASK_PAGE_SIZE
+  }
+  @action resetWindow() {
+    this.visibleLimit = MOBILE_TASK_PAGE_SIZE
+  }
+
+  @lazy({ equals: compareShallow }) get visibleRows(): readonly BoardListRow[] {
+    return this.rows.slice(0, this.visibleLimit)
+  }
+
+  @lazy get hasMore(): boolean {
+    return this.rows.length > this.visibleLimit
+  }
+
   constructor(
     readonly stage: Stage,
     private readonly board: MobileTasksBoard,
@@ -285,7 +304,12 @@ export class MobileTasksBoard {
     this.showAgentTasks = options.showAgentTasks
   }
 
+  private resetWindows() {
+    for (const lane of this.lanes) lane.resetWindow()
+  }
+
   @action configure(options: MobileTasksOptions) {
+    this.resetWindows()
     this.showDone = options.showDone
     this.expanded = options.expanded
     this.filter = options.filter
@@ -295,6 +319,7 @@ export class MobileTasksBoard {
   }
 
   @action toggleShowDone() {
+    this.resetWindows()
     this.showDone = !this.showDone
   }
 
@@ -305,18 +330,22 @@ export class MobileTasksBoard {
   }
 
   @action search(text: string) {
+    this.resetWindows()
     this.query = text
   }
 
   @action setFilter(filter: BoardFilter) {
+    this.resetWindows()
     this.filter = filter
   }
 
   @action clearFilter(key: keyof BoardFilter) {
+    this.resetWindows()
     this.filter = clearChip(this.filter, key)
   }
 
   @action showDisplay(display: { ordering: IssuesOrdering; showAgentTasks: boolean }) {
+    this.resetWindows()
     this.ordering = display.ordering
     this.showAgentTasks = display.showAgentTasks
   }

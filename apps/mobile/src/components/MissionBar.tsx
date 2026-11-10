@@ -15,6 +15,7 @@ export interface DeckVitals {
   total: number
   needsYou: number
   working: number
+  waiting: number
   upNext: number
 }
 
@@ -29,6 +30,7 @@ export function deckVitals(full: FullDeck): DeckVitals | null {
     total: buckets.total,
     needsYou: counts['needs-you'],
     working: buckets.working,
+    waiting: buckets.waiting,
     upNext: counts['up-next'],
   }
 }
@@ -61,13 +63,13 @@ export function DeckVitalsLine({ vitals }: { vitals: DeckVitals }) {
   )
 }
 
-/** Done, working and needs-you segments over a track; the rest is to do. */
+/** Disjoint done, working and waiting segments over a track; the rest is to do. */
 export function DeckGauge({ vitals, height = 2 }: { vitals: DeckVitals; height?: number }) {
   const total = Math.max(1, vitals.total)
   const parts = [
     ['done', vitals.done, color.textFaint],
     ['working', vitals.working, color.working],
-    ['needs-you', vitals.needsYou, color.needsYou],
+    ['waiting', vitals.waiting, color.needsYou],
   ] as const
   return (
     <View style={[styles.gauge, { height }]} aria-hidden>

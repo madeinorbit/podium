@@ -79,7 +79,7 @@ function ConnectedApp({ children }: { children: ReactNode }) {
         <LaunchReadyView>{children}</LaunchReadyView>
         {/* Over every route, where the router and the store both exist: a
             message that did not arrive is said on whatever screen is up. */}
-        <MessageNoticeBanner />
+        {Platform.OS === 'web' ? <MessageNoticeBanner /> : null}
       </MobileClientProvider>
     </AuthGate>
   )
