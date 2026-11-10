@@ -471,7 +471,8 @@ const ToolsRun = observer(function ToolsRun({
   const first = run?.firstBlock ?? blocks[0]
   const now = useAgeNow(first?.item.ts ?? '', 0, live && first?.item.ts !== undefined)
   const durationMs = live
-    ? (run?.elapsed(now) ?? (first && lastTool ? toolRunElapsedMs([first, lastTool], now) : undefined))
+    ? (run?.elapsed(now) ??
+      (first && lastTool ? toolRunElapsedMs([first, lastTool], now) : undefined))
     : run?.durationMs ||
       blocks.reduce((total, block) => total + (block.item.durationMs ?? 0), 0) ||
       run?.elapsed()
@@ -546,13 +547,7 @@ const ToolsRun = observer(function ToolsRun({
                     color={verdict === 'err' ? color.dangerText : color.textMicro}
                   />
                   <View style={styles.wellRowBody}>
-                    {item.toolName === 'Bash' ? (
-                      <Text style={styles.wellRowMono} numberOfLines={1}>
-                        {desc}
-                      </Text>
-                    ) : (
-                      <ToolDescription toolName={item.toolName} command={desc} />
-                    )}
+                    <ToolDescription toolName={item.toolName} command={desc} />
                   </View>
                   {files > 1 ? <Text style={styles.murmurClock}>{files} files</Text> : null}
                   {time ? <Text style={styles.murmurClock}>{time}</Text> : null}
@@ -634,18 +629,7 @@ function TranscriptTail({ state }: { state?: TranscriptTailState }) {
   return (
     <View style={styles.tailWrap}>
       <View style={styles.tail} accessibilityRole="text">
-        {/* The end of the feed is the one surface a reader watches while
-            nothing else moves, so "working" is the moving mark here rather
-            than the static ⠿ cell it used to be — the same swap the web tail
-            made. The label beside it already says the state, so the mark is
-            decorative. */}
-        {state.tone === 'working' ? (
-          <WorkingMark size={18} label={null} />
-        ) : (
-          <Text style={[styles.tailMark, state.tone === 'attention' && styles.tailAttention]}>
-            ●
-          </Text>
-        )}
+        <Text style={[styles.tailMark, state.tone === 'attention' && styles.tailAttention]}>●</Text>
         <Text style={styles.tailLabel}>{state.label}</Text>
         {elapsed ? <Text style={styles.tailElapsed}>{elapsed}</Text> : null}
         <View style={styles.tailRule} />
@@ -1833,70 +1817,7 @@ const styles = StyleSheet.create({
   searchDim: {
     opacity: 0.28,
   },
-  envelope: {
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: color.border,
-    borderLeftWidth: 3,
-    borderLeftColor: color.info,
-    borderRadius: radius.md,
-    backgroundColor: color.surface,
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm + 2,
-  },
-  envelopeHeader: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: 6,
-  },
-  envelopeKind: { ...monoLabel(font.micro), color: color.info },
-  envelopeRoute: {
-    ...sans(500),
-    flex: 1,
-    minWidth: 130,
-    color: color.textDim,
-    fontSize: font.tiny,
-  },
   envelopeRef: { color: color.accentTint, textDecorationLine: 'underline' },
-  envelopeQuestion: {
-    ...monoLabel(),
-    color: color.accentTint,
-    backgroundColor: color.accentSoft,
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-    borderRadius: radius.xs,
-  },
-  envelopeReply: {
-    ...monoLabel(),
-    color: color.info,
-    backgroundColor: color.workingSoft,
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-    borderRadius: radius.xs,
-  },
-  envelopeId: {
-    ...mono(400),
-    color: color.textMicro,
-    fontSize: font.micro,
-    marginTop: 3,
-  },
-  envelopeBody: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: color.border,
-    marginTop: space.sm,
-    paddingTop: space.xs,
-  },
-  envelopeMachine: {
-    ...mono(400),
-    color: color.textMicro,
-    fontSize: font.micro,
-    lineHeight: leading(font.micro),
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: color.border,
-    marginTop: space.sm,
-    paddingTop: space.xs,
-  },
   contextToggle: {
     minHeight: 28,
     flexDirection: 'row',
@@ -2006,100 +1927,6 @@ const styles = StyleSheet.create({
     color: color.body,
     fontSize: font.body,
     lineHeight: leading(font.body, 'prose'),
-  },
-  // Tool run — a surfaced 34px fold control; details stay quiet beneath it.
-  tools: {
-    gap: 4,
-  },
-  workLine: {
-    minHeight: 34,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    paddingHorizontal: space.md,
-    borderRadius: radius.sm,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
-    backgroundColor: color.surface,
-  },
-  workLinePressed: {
-    backgroundColor: color.elevated,
-  },
-  workDisclosure: {
-    ...mono(500),
-    width: 12,
-    color: color.textMicro,
-    fontSize: font.tiny,
-  },
-  workDisclosureFailed: {
-    color: color.dangerText,
-  },
-  workTitle: {
-    ...mono(500),
-    flex: 1,
-    color: color.textDim,
-    fontSize: font.tiny,
-  },
-  workCount: {
-    ...mono(400),
-    color: color.textMicro,
-    fontSize: font.micro,
-  },
-  trow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: space.sm + 1,
-    minWidth: 0,
-  },
-  toolGlyph: {
-    ...mono(400),
-    width: 12,
-    textAlign: 'center',
-    color: color.textMicro,
-    fontSize: font.tiny,
-  },
-  toolGlyphOk: {
-    color: color.successText,
-  },
-  toolGlyphErr: {
-    color: color.dangerText,
-  },
-  toolName: {
-    ...mono(500),
-    color: color.textDim,
-    fontSize: font.tiny,
-  },
-  toolMag: {
-    ...mono(400),
-    marginLeft: 'auto',
-    color: color.textMicro,
-    fontSize: font.tiny,
-  },
-  toolFail: {
-    ...mono(400),
-    marginLeft: 21,
-    marginTop: 1,
-    paddingLeft: space.sm + 1,
-    borderLeftWidth: 2,
-    borderLeftColor: color.hairline,
-    color: color.textMicro,
-    fontSize: font.tiny,
-  },
-  toolPreview: {
-    ...mono(400),
-    marginLeft: 21,
-    marginTop: 1,
-    paddingLeft: space.sm + 1,
-    borderLeftWidth: 2,
-    borderLeftColor: color.hairline,
-    color: color.textMicro,
-    fontSize: font.micro,
-  },
-  toolsMore: {
-    ...mono(400),
-    paddingLeft: 21,
-    color: color.textMicro,
-    fontSize: font.tiny,
   },
   // System/interrupt/churn — quiet mono line.
   quiet: {
@@ -2269,4 +2096,71 @@ const styles = StyleSheet.create({
     color: color.text,
     fontSize: font.tiny,
   },
+  // MURMUR (board Chat, POD-2380): 13/16 tertiary text, a 14pt glyph in an
+  // 8pt-gapped row of at least 24pt, an 11pt mono clock at the trailing edge.
+  murmur: { gap: space.xs },
+  murmurLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    minHeight: 24,
+  },
+  murmurPressed: { opacity: 0.6 },
+  murmurGlyph: { width: 14, alignItems: 'center', justifyContent: 'center' },
+  murmurText: {
+    flex: 1,
+    minWidth: 0,
+    ...sans(),
+    fontSize: font.tiny,
+    lineHeight: 16,
+    color: color.textMicro,
+  },
+  murmurStrong: { ...sans(600), color: color.textDim },
+  murmurLive: { color: color.workingText },
+  murmurFailed: { color: color.dangerText },
+  murmurClock: {
+    ...mono(),
+    fontSize: font.micro,
+    lineHeight: 16,
+    color: color.textMicro,
+    fontVariant: ['tabular-nums'],
+  },
+  // The opened fold: a quaternary-fill well, card radius 8, 8/12 inset.
+  well: {
+    backgroundColor: color.quaternaryFill,
+    borderRadius: 8,
+    paddingVertical: space.sm,
+    paddingHorizontal: space.md,
+    gap: space.xs,
+  },
+  wellRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 24 },
+  wellRowBody: { flex: 1, minWidth: 0 },
+  wellRowText: {
+    flex: 1,
+    minWidth: 0,
+    ...sans(),
+    fontSize: font.tiny,
+    lineHeight: 16,
+    color: color.textDim,
+  },
+  wellFail: {
+    ...mono(),
+    fontSize: font.micro,
+    lineHeight: 16,
+    color: color.dangerText,
+    paddingLeft: 14 + space.sm,
+  },
+  wellProse: { fontSize: font.small, lineHeight: 20, color: color.text },
+  wellMeta: { ...sans(), fontSize: font.tiny, lineHeight: 16, color: color.textMicro },
+  wellActions: { flexDirection: 'row', gap: space.sm, paddingTop: space.xs },
+  // Control radius 6, 32pt tall: the board's .btn.
+  wellButton: {
+    height: 32,
+    paddingHorizontal: space.md,
+    borderRadius: radius.sm,
+    backgroundColor: color.fill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  wellButtonText: { ...sans(500), fontSize: 14, color: color.text },
 })

@@ -563,9 +563,10 @@ it('renders an inbox pointer as an envelope that says where its body went', () =
       ]}
     />,
   )
-  expect(screen.getByText('Internal')).toBeTruthy()
-  expect(screen.getByText(/Delivered via the inbox/)).toBeTruthy()
-  expect(screen.getByText(/podium mail show msg_big/)).toBeTruthy()
+  // A murmur line; opening it shows where the body went.
+  fireEvent.click(screen.getByLabelText(/^Open note from POD-2128/))
+  expect(screen.getAllByText(/Delivered via the inbox/).length).toBeGreaterThan(0)
+  expect(screen.getAllByText(/podium mail show msg_big/).length).toBeGreaterThan(0)
   expect(screen.queryByText(/podium issue mail inbox/)).toBeNull()
 })
 
@@ -788,7 +789,9 @@ it('discloses note members of a mixed stretch on the phone', () => {
     />,
   )
   expect(screen.queryByText(/needle in the note/)).toBeNull()
-  fireEvent.click(screen.getByLabelText(/Expand work run: Ran a command, read a note/))
+  fireEvent.click(screen.getByLabelText(/Expand work run: Ran git status, read a note/))
   expect(screen.getByText(/needle in the note/)).toBeTruthy()
-  expect(screen.getByText('Internal')).toBeTruthy()
+  expect(
+    screen.getByLabelText(/^Open note from system:steward|^Open note from steward/),
+  ).toBeTruthy()
 })

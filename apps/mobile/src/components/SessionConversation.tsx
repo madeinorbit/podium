@@ -1,16 +1,11 @@
-import { MobileConversation } from '../lib/mobile-conversation'
-import { MobileChatViewModel } from '../lib/chat-view-model'
-import { currentMessageRecord, ingestMessageRecords } from '@podium/client-graph/message-models'
-import { here } from '@podium/client-graph/lookup'
 import {
-  PHONE_WARM_CONVERSATIONS,
   type ConversationPendingTurn,
   hubConnection,
+  PHONE_WARM_CONVERSATIONS,
 } from '@podium/client-core/conversation'
 import { randomUUID } from '@podium/client-core/id'
 import { useConversation, useStoreHandle } from '@podium/client-core/react'
-import { REPLICA_TRANSCRIPT_ITEM_CAP, type IssueViewModel } from '@podium/client-core/replica'
-import type { SessionModel } from '@podium/client-graph/models'
+import { type IssueViewModel, REPLICA_TRANSCRIPT_ITEM_CAP } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
   composerState,
@@ -18,38 +13,48 @@ import {
   matchesQuestionInteraction,
   OPTIMISTIC_SEND_CEILING_MS,
   pendingAskFromState,
+  principalShortName,
 } from '@podium/client-core/values'
+import { here } from '@podium/client-graph/lookup'
+import { currentMessageRecord, ingestMessageRecords } from '@podium/client-graph/message-models'
+import type { SessionModel } from '@podium/client-graph/models'
 import {
   asMutationId,
   isMachineOfflineForLiveTerminal,
   type MessageDeliveryStatus,
 } from '@podium/model'
 import * as Haptics from 'expo-haptics'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { action, observable, reaction, when } from 'mobx'
 import { observer } from 'mobx-react-lite'
-import { useMobilePool } from '../client/mobile-pool'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { AppState, StyleSheet, Text, View } from 'react-native'
 import Svg, { Circle } from 'react-native-svg'
+import { useMobilePool } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
 import {
+  mobileConversationPorts,
   useSessionContextIssue,
   useSessionContextMachine,
   useSessionContextMachineHome,
   useSessionContextQuestion,
   useSessionContextReferenceIssue,
   useSessionConversationPorts,
-  mobileConversationPorts,
 } from '../client/use-session-context'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { chatSendTransport } from '../lib/chat-send-transport'
+import { MobileChatViewModel } from '../lib/chat-view-model'
 import { interruptSession } from '../lib/interrupt-session'
+import { MobileConversation } from '../lib/mobile-conversation'
 import { color, font, leading, sans, space } from '../theme/theme'
 import { type AskQuestionAnswer, AskQuestionCard } from './AskQuestionCard'
 import { Composer } from './Composer'
+import { ComposerModelChip } from './ComposerModelChip'
+import { Icon } from './Icon'
+import { Reply, X } from './icons'
 import { BootstrapCrossfade, TranscriptSkeleton } from './LaunchPlaceholders'
 import { PendingInteractionBand } from './PendingInteractionBand'
+import { PressableScale } from './PressableScale'
 import { PullToRefreshBoundary } from './PullToRefreshBoundary'
 import { type LocalPendingTurn, pendingTurnOf } from './pending-delivery'
 import { SessionActionCard } from './SessionActionCard'
@@ -142,22 +147,67 @@ const SessionComposer = observer(function SessionComposer({
     void conversation.interrupt(conversation.draft)
   }, [conversation])
   const onStop = turnActive && canInterrupt ? handleStop : undefined
+  // REPLY TO THE ASKER (C3, board ChatReply): while a reply is open the words
+  // go to the agent that asked over messages.reply, never into the prompt, and
+  // the attach control steps aside because a note carries text only.
+  const reply = conversation.reply
+  const replying = reply.active
+  const asker = principalShortName(reply.target?.from ?? '')
+  const sendReply = useCallback(
+    (text: string) => {
+      void reply.send(text)
+    },
+    [reply],
+  )
+  // The model chip's result ("applies from the next turn") borrows the caption
+  // line for a few seconds, then the agent's own activity comes back.
+  const [notice, setNotice] = useState<string | null>(null)
+  useEffect(() => {
+    if (!notice) return
+    const timer = setTimeout(() => setNotice(null), NOTICE_MS)
+    return () => clearTimeout(timer)
+  }, [notice])
   return (
     <Composer
-      placeholder={placeholder}
-      onSend={onSend}
+      placeholder={replying ? `Reply to ${asker}` : placeholder}
+      onSend={replying ? sendReply : onSend}
       value={draft}
       onChangeText={setDraft}
-      caption={caption}
-      captionTone={captionTone}
-      sendDisabled={sendDisabled}
+      caption={replying ? reply.error : (notice ?? caption)}
+      captionTone={replying || notice ? 'attention' : captionTone}
+      sendDisabled={replying ? reply.sending : sendDisabled}
       draftInsertion={draftInsertion}
-      attachments={attachments}
+      attachments={replying ? undefined : attachments}
       onRestingHeight={onRestingHeight}
-      onStop={onStop}
+      onStop={replying ? undefined : onStop}
+      header={replying ? <ReplyHeader asker={asker} onCancel={reply.cancel} /> : undefined}
+      leading={<ComposerModelChip session={conversation.session} onNotice={setNotice} />}
     />
   )
 })
+
+const NOTICE_MS = 4000
+
+/** "Replying to POD-1906" with its cancel: the board's signal-coloured line. */
+function ReplyHeader({ asker, onCancel }: { asker: string; onCancel: () => void }) {
+  return (
+    <View style={styles.replyHeader} testID="composer-reply">
+      <Icon as={Reply} size={14} color={color.accentTint} />
+      <Text style={styles.replyText} numberOfLines={1}>
+        Replying to {asker}
+      </Text>
+      <PressableScale
+        accessibilityRole="button"
+        accessibilityLabel="Cancel reply"
+        onPress={onCancel}
+        hitSlop={10}
+        style={styles.replyCancel}
+      >
+        <Icon as={X} size={14} color={color.textDim} />
+      </PressableScale>
+    </View>
+  )
+}
 
 /**
  * ONE CONVERSATION, TWO HOSTS [POD-724].
@@ -194,148 +244,181 @@ export function SessionConversation(
   )
   const model = useConversation(
     sessionId,
-    (drafts) => new MobileConversation({
-      sessionId,
-      drafts: { get: id => pool!.sessionObject(id).messageDraft, set: (id, text) => pool!.sessionObject(id).setMessageDraft(text) },
-      readSession: () => (pool ? here(pool.model('session', sessionId)) : undefined),
-      hub: owner.hub,
-      connection: hubConnection(owner.hub),
-      scheduler: {
-        visible: () =>
-          AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
-        onVisibilityChange: (listener) => {
-          const subscription = AppState.addEventListener('change', listener)
-          return () => subscription.remove()
-        },
-      },
-      transcript: {
-        initialLimit: 80,
-        pageLimit: 80,
-        source: {
-          read: (request) =>
-            when(() => recognized.get()).then(() =>
-              owner.access.trpc.sessions.transcriptRead.query(request),
-            ),
-          subscribe: (id, since, listener) => {
-            let off = () => {}
-            const stop = reaction(
-              () => recognized.get(),
-              (ready) => {
-                off()
-                off = ready ? owner.hub.subscribeTranscript(id, since, listener) : () => {}
+    (drafts) =>
+      new MobileConversation(
+        {
+          sessionId,
+          drafts: {
+            get: (id) => pool!.sessionObject(id).messageDraft,
+            set: (id, text) => pool!.sessionObject(id).setMessageDraft(text),
+          },
+          readSession: () => (pool ? here(pool.model('session', sessionId)) : undefined),
+          hub: owner.hub,
+          connection: hubConnection(owner.hub),
+          scheduler: {
+            visible: () =>
+              AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
+            onVisibilityChange: (listener) => {
+              const subscription = AppState.addEventListener('change', listener)
+              return () => subscription.remove()
+            },
+          },
+          transcript: {
+            initialLimit: 80,
+            pageLimit: 80,
+            source: {
+              read: (request) =>
+                when(() => recognized.get()).then(() =>
+                  owner.access.trpc.sessions.transcriptRead.query(request),
+                ),
+              subscribe: (id, since, listener) => {
+                let off = () => {}
+                const stop = reaction(
+                  () => recognized.get(),
+                  (ready) => {
+                    off()
+                    off = ready ? owner.hub.subscribeTranscript(id, since, listener) : () => {}
+                  },
+                  { fireImmediately: true },
+                )
+                return () => {
+                  stop()
+                  off()
+                }
               },
-              { fireImmediately: true },
-            )
-            return () => {
-              stop()
-              off()
-            }
+            },
+            cache: {
+              maxItems: REPLICA_TRANSCRIPT_ITEM_CAP,
+              read: (id) => owner.replica.transcriptWindow(id),
+              write: (id, items) => owner.replica.putTranscriptWindow(id, [...items]),
+            },
+          },
+          sends: {
+            records: ports.records,
+            messageRecords: {
+              read: (id) => (pool ? here(pool.model('messageRecord', id)) : undefined),
+              ingest: (records) => {
+                if (pool)
+                  ingestMessageRecords(pool, records, (id) =>
+                    currentMessageRecord(pool, owner.replica, id),
+                  )
+              },
+            },
+            outbox: ports.outbox,
+            initialPending: [
+              ...(props.initialPendingText
+                ? [
+                    {
+                      id: 'pending-first-turn',
+                      deliveryId: 'pending-first-turn',
+                      text: props.initialPendingText,
+                      wire: props.initialPendingText,
+                      at: Date.now(),
+                      state: 'sent' as const,
+                      kind: 'message' as const,
+                      reconcile: 'next-user-item' as const,
+                    },
+                  ]
+                : []),
+              ...ports.outbox.held().map(
+                (send, index): ConversationPendingTurn => ({
+                  id: `outbox-${index}-${send.mutationId}`,
+                  deliveryId: send.mutationId,
+                  text: send.text,
+                  wire: send.text,
+                  at: send.queuedAt,
+                  state: send.state,
+                  kind: 'message',
+                  ...(send.failure
+                    ? {
+                        error: send.failure.message,
+                        ...(send.failure.retryable ? {} : { retryable: false }),
+                      }
+                    : {}),
+                }),
+              ),
+            ],
+            initialJustSent: props.initialPendingText !== undefined,
+            createDeliveryId: () => `msg_${randomUUID()}`,
+            lookupRecords: (ids) =>
+              owner.access.trpc.messages.records
+                .query({ ids: [...ids] })
+                .then((answer) => answer.records),
+            deliver: async (turn) => {
+              try {
+                const session = pool ? here(pool.model('session', sessionId)) : undefined
+                const composer = composerState({
+                  session: session ?? props.session,
+                  headless: false,
+                  turnRunning: false,
+                  compact: false,
+                })
+                const held = ports.outbox.held().some((send) => send.mutationId === turn.deliveryId)
+                const transport = held
+                  ? { kind: 'send' as const, wake: false }
+                  : chatSendTransport(composer)
+                if (transport.kind === 'refused') throw new Error(transport.reason)
+                return await owner.access.sendChat(
+                  {
+                    sessionId,
+                    text: turn.wire,
+                    wake: transport.wake,
+                    ...(turn.attachments?.length ? { attachments: turn.attachments } : {}),
+                  },
+                  asMutationId(turn.deliveryId),
+                )
+              } catch (error) {
+                void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(
+                  () => {},
+                )
+                throw error
+              }
+            },
+            retract: (id) =>
+              owner.access.trpc.messages.cancel
+                .mutate({ id })
+                .then(
+                  (message) =>
+                    (message as { deliveryStatus?: MessageDeliveryStatus } | null)?.deliveryStatus,
+                ),
+            discard: (id) => owner.access.discardChat(asMutationId(id)),
+            dismissNotice: (id) =>
+              owner.access.trpc.messages.dismissNotice.mutate({ id }).then(() => {}),
+            dismissOffer: (at) => owner.access.dismissOffer(sessionId, at),
+            optimisticDismissOffer: false,
+            interrupt: (id) => interruptSession(owner.access.trpc.sessions, sessionId, id),
+            optimisticSendCeilingMs: OPTIMISTIC_SEND_CEILING_MS,
           },
         },
-        cache: {
-          maxItems: REPLICA_TRANSCRIPT_ITEM_CAP,
-          read: (id) => owner.replica.transcriptWindow(id),
-          write: (id, items) => owner.replica.putTranscriptWindow(id, [...items]),
-        },
-      },
-      sends: {
-        records: ports.records,
-        messageRecords: {
-          read: id => pool ? here(pool.model('messageRecord', id)) : undefined,
-          ingest: records => { if (pool) ingestMessageRecords(pool, records, id => currentMessageRecord(pool, owner.replica, id)) },
-        },
-        outbox: ports.outbox,
-        initialPending: [
-          ...(props.initialPendingText
-            ? [
-                {
-                  id: 'pending-first-turn',
-                  deliveryId: 'pending-first-turn',
-                  text: props.initialPendingText,
-                  wire: props.initialPendingText,
-                  at: Date.now(),
-                  state: 'sent' as const,
-                  kind: 'message' as const,
-                  reconcile: 'next-user-item' as const,
-                },
-              ]
-            : []),
-          ...ports.outbox
-            .held()
-            .map(
-              (send, index): ConversationPendingTurn => ({
-                id: `outbox-${index}-${send.mutationId}`,
-                deliveryId: send.mutationId,
-                text: send.text,
-                wire: send.text,
-                at: send.queuedAt,
-                state: send.state,
-                kind: 'message',
-                ...(send.failure
-                  ? {
-                      error: send.failure.message,
-                      ...(send.failure.retryable ? {} : { retryable: false }),
-                    }
-                  : {}),
-              }),
-            ),
-        ],
-        initialJustSent: props.initialPendingText !== undefined,
-        createDeliveryId: () => `msg_${randomUUID()}`,
-        lookupRecords: (ids) =>
-          owner.access.trpc.messages.records
-            .query({ ids: [...ids] })
-            .then((answer) => answer.records),
-        deliver: async (turn) => {
-          try {
-            const session = (pool ? here(pool.model('session', sessionId)) : undefined)
-            const composer = composerState({
-              session: session ?? props.session,
-              headless: false,
-              turnRunning: false,
-              compact: false,
-            })
-            const held = ports.outbox.held().some((send) => send.mutationId === turn.deliveryId)
-            const transport = held
-              ? { kind: 'send' as const, wake: false }
-              : chatSendTransport(composer)
-            if (transport.kind === 'refused') throw new Error(transport.reason)
-            return await owner.access.sendChat(
-              {
-                sessionId,
-                text: turn.wire,
-                wake: transport.wake,
-                ...(turn.attachments?.length ? { attachments: turn.attachments } : {}),
-              },
-              asMutationId(turn.deliveryId),
-            )
-          } catch (error) {
-            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
-            throw error
-          }
-        },
-        retract: (id) =>
-          owner.access.trpc.messages.cancel
-            .mutate({ id })
-            .then(
-              (message) =>
-                (message as { deliveryStatus?: MessageDeliveryStatus } | null)?.deliveryStatus,
-            ),
-        discard: (id) => owner.access.discardChat(asMutationId(id)),
-        dismissNotice: (id) =>
-          owner.access.trpc.messages.dismissNotice.mutate({ id }).then(() => {}),
-        dismissOffer: (at) => owner.access.dismissOffer(sessionId, at),
-        optimisticDismissOffer: false,
-        interrupt: (id) => interruptSession(owner.access.trpc.sessions, sessionId, id),
-        optimisticSendCeilingMs: OPTIMISTIC_SEND_CEILING_MS,
-      },
-    }, { hidePendingQuestion: true }),
+        { hidePendingQuestion: true },
+      ),
     { warmLimit: PHONE_WARM_CONVERSATIONS, enabled: pool !== null && readiness.ready },
   )
-  const view = useMemo(() => model && pool ? new MobileChatViewModel(model, pool) : undefined, [model, pool])
+  // The reply to an agent's question goes to the asker over the existing
+  // messages.show/reply calls, exactly as the web composer sends it (POD-2380).
+  const view = useMemo(
+    () =>
+      model && pool
+        ? new MobileChatViewModel(
+            model,
+            pool,
+            {
+              show: (id) => owner.access.trpc.messages.show.query({ id }),
+              reply: (id, body) => owner.access.trpc.messages.reply.mutate({ id, body }),
+            },
+            (id) => currentMessageRecord(pool, owner.replica, id),
+          )
+        : undefined,
+    [model, pool],
+  )
   useEffect(() => view?.open(), [view])
   return view ? (
-    <SessionConversationBody {...props} pool={pool} session={view.session ?? props.session} model={view} />
+    <SessionConversationBody
+      {...props}
+      pool={pool}
+      session={view.session ?? props.session}
+      model={view}
+    />
   ) : (
     <TranscriptSkeleton />
   )
@@ -481,7 +564,9 @@ const SessionConversationBody = observer(function SessionConversationBody({
               files: attached.map((file) => ({
                 ...file,
                 path: file.path ?? file.name,
-                ...(!file.path && file.ref ? { attachmentId: file.ref.id, kind: file.ref.kind } : {}),
+                ...(!file.path && file.ref
+                  ? { attachmentId: file.ref.id, kind: file.ref.kind }
+                  : {}),
               })),
             }
           : {}),
@@ -662,7 +747,8 @@ const SessionConversationBody = observer(function SessionConversationBody({
   )
   const tailState = useMemo(
     () => ({
-      label: activity?.label ?? (conversation.session?.agentPhase === 'idle' ? 'Idle' : session.status),
+      label:
+        activity?.label ?? (conversation.session?.agentPhase === 'idle' ? 'Idle' : session.status),
       tone: (activity?.tone === 'attention' ? 'attention' : activity ? 'working' : 'idle') as
         | 'working'
         | 'attention'
@@ -737,6 +823,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
               onSendAgainPending={sendAgain}
               onRetractPending={retractPending}
               onQuote={quoteIntoDraft}
+              mailReply={model.reply}
               bottomInset={composerHeight + askHeight + keyboardLift}
               streaming={streamingActive}
               tail={tailState}
@@ -808,6 +895,15 @@ const SessionConversationBody = observer(function SessionConversationBody({
 })
 
 const styles = StyleSheet.create({
+  replyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    height: 24,
+    marginBottom: space.xs,
+  },
+  replyText: { ...sans(500), flex: 1, minWidth: 0, fontSize: font.tiny, color: color.accentTint },
+  replyCancel: { width: 28, height: 24, alignItems: 'center', justifyContent: 'center' },
   flex: {
     flex: 1,
   },
