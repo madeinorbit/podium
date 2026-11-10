@@ -2,12 +2,14 @@ import {
   formatCostRounded,
   formatUsd,
   type MachineOperationsView,
+  type ProjectCostRow,
+  type ProjectCostView,
   type TaskCostRowView,
   type UsageSummaryView,
   type visibleFleetOperations,
 } from '@podium/client-core/values'
 import { issueDisplayRef } from '@podium/protocol'
-import { type ReactNode, useState } from 'react'
+import { useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import {
   CARD_INSET,
@@ -21,11 +23,14 @@ import {
 } from '../components/instruments'
 import { color, font, mono, sans, space } from '../theme/theme'
 import {
+  attributedLabel,
   formatPercent,
   type ModelRowView,
   type PulseHero,
   type PulseRange,
+  projectSubtitle,
   type QuotaRowView,
+  type QuotaVerdict,
 } from './pulse-view'
 
 /**
@@ -42,6 +47,10 @@ export interface PulseBodyProps {
   hero: PulseHero
   summary: UsageSummaryView
   quota: QuotaRowView[]
+  /** The capacity headline for the Quota header; null before any reading. */
+  verdict: QuotaVerdict | null
+  /** Top projects; null until the task costs have answered. */
+  projects: ProjectCostView | null
   tasks: TaskCostRowView[]
   tasksCold: boolean
   models: ModelRowView[]
@@ -52,8 +61,6 @@ export interface PulseBodyProps {
   onRetry: () => void
   onOpenTask: (issueId: string) => void
   buildStamp: string
-  /** P5 seam: the Top projects section, once the user approves its rule. */
-  projects?: ReactNode
 }
 
 export function PulseBody(props: PulseBodyProps) {
@@ -67,7 +74,7 @@ export function PulseBody(props: PulseBodyProps) {
       return next
     })
   const open = (key: SectionKey) => !closed.has(key)
-  // Quota, tasks and models have no five-hour reading; say which window they are.
+  // Quota, projects, tasks and models have no five-hour reading; say which window they are.
   const weekNote = range === 'fiveHour' ? 'Last 7 days' : undefined
 
   if (props.failed) {
@@ -113,7 +120,13 @@ export function PulseBody(props: PulseBodyProps) {
         </View>
       </Card>
 
-      <SectionHeader title="Quota" open={open('quota')} onToggle={() => toggle('quota')} />
+      <SectionHeader
+        title="Quota"
+        open={open('quota')}
+        onToggle={() => toggle('quota')}
+        trailing={props.verdict?.text}
+        trailingSignal={props.verdict?.signal}
+      />
       {open('quota') ? (
         <Card>
           {props.quota.length === 0 ? (
@@ -130,7 +143,31 @@ export function PulseBody(props: PulseBodyProps) {
         </Card>
       ) : null}
 
-      {props.projects}
+      <SectionHeader
+        title="Top projects"
+        open={open('projects')}
+        onToggle={() => toggle('projects')}
+        trailing={
+          [weekNote, attributedLabel(props.projects)].filter(Boolean).join(' · ') || undefined
+        }
+      />
+      {open('projects') ? (
+        <Card>
+          {props.projects === null || props.projects.rows.length === 0 ? (
+            <Message
+              text={
+                props.projects === null
+                  ? 'Reading task costs…'
+                  : 'No task with a known project spent anything this week.'
+              }
+            />
+          ) : (
+            props.projects.rows.map((project, i) => (
+              <ProjectRow key={project.project} project={project} first={i === 0} />
+            ))
+          )}
+        </Card>
+      ) : null}
 
       <SectionHeader
         title="Top tasks"
@@ -186,7 +223,9 @@ export function PulseBody(props: PulseBodyProps) {
       {open('machines') ? <Machines fleet={props.fleet} /> : null}
 
       <Text style={styles.foot}>
-        {range === 'fiveHour' ? 'Quota, top tasks and models cover the last 7 days. ' : ''}
+        {range === 'fiveHour'
+          ? 'Quota, projects, top tasks and models cover the last 7 days. '
+          : ''}
         Public list prices per model. Cost a subscription covers is shown as if billed by the API.
         {summary.unpricedModels.length === 1
           ? ` ${summary.unpricedModels[0]} has no price on file and uses the fallback rate.`
@@ -318,6 +357,30 @@ function TaskRow({
       </Text>
       <Text style={styles.taskCost}>{formatCostRounded(task.windowCostUsd)}</Text>
     </Pressable>
+  )
+}
+
+function ProjectRow({ project, first }: { project: ProjectCostRow; first: boolean }) {
+  return (
+    <View
+      style={[styles.share, !first && rowDivider]}
+      accessible
+      accessibilityLabel={`${project.project}, ${formatUsd(project.costUsd)}, ${formatPercent(project.sharePercent)} of the week, ${projectSubtitle(project)}`}
+    >
+      <View style={styles.line}>
+        <Text style={styles.rowTitle} numberOfLines={1}>
+          {project.project}
+        </Text>
+        <Text style={styles.rowFigure}>{formatUsd(project.costUsd)}</Text>
+      </View>
+      <Meter pct={project.barPercent} muted />
+      <View style={styles.line}>
+        <Text style={styles.rowMeta} numberOfLines={1}>
+          {projectSubtitle(project)}
+        </Text>
+        <Text style={[styles.rowMeta, styles.mono]}>{formatPercent(project.sharePercent)}</Text>
+      </View>
+    </View>
   )
 }
 

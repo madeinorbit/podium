@@ -29,8 +29,9 @@
  *
  * Platform-neutral: no DOM, no storage.
  */
-import type { AgentKind, HostMetricsWire, MachineQuotaWire, MachineId } from '@podium/model'
+import type { AgentKind, HostMetricsWire, MachineId, MachineQuotaWire } from '@podium/model'
 import type { HarnessDescriptorWire } from '@podium/protocol'
+import { type HostLoadView, hostLoadView } from './compose/machines/facts'
 import {
   type AccountQuotaGroup,
   agentLabel,
@@ -39,7 +40,6 @@ import {
   type QuotaTone,
   splitQuotaWindows,
 } from './quota'
-import { type HostLoadView, hostLoadView } from './compose/machines/facts'
 
 /** One pool's runway: its own tightest gating window, reported as spend. */
 export interface QuotaRunway {
@@ -67,7 +67,8 @@ export interface TightestLoad extends HostLoadView {
 
 export interface CapacityView {
   tone: QuotaTone
-  /** Three words at most — the answer, before any number. */
+  /** A few words — the answer, before any number. Never "Room to run" while a
+   *  pool is out: see `roomHeadline`. */
   headline: string
   /** Which reading the headline came from. */
   constraint: 'quota' | 'load' | 'unknown'
@@ -256,7 +257,7 @@ export function capacityView(args: {
   if (tone === 'ok' && quota) {
     return {
       tone,
-      headline: HEADLINES[tone],
+      headline: roomHeadline(spentPools),
       constraint: 'quota',
       lead: 'Nothing you can start on is near a limit.',
       detail: quotaDetail(quota, pools.length, args.nowMs),
@@ -302,6 +303,20 @@ export function capacityView(args: {
     pools,
     spentPools,
   }
+}
+
+/**
+ * THE OK HEADLINE NAMES WHAT IS OUT [POD-2385]. "Room to run" above a spent
+ * Codex read as "everything is fine" to someone deciding where to launch, and
+ * the caveat that said otherwise sat in smaller type below it. The answer still
+ * speaks for the roomiest pool — tone stays `ok`, the detail still names it —
+ * but the headline only claims unqualified room when no pool the fleet can
+ * launch on is out.
+ */
+function roomHeadline(spentPools: readonly QuotaRunway[]): string {
+  const [only, ...rest] = spentPools
+  if (!only) return HEADLINES.ok
+  return rest.length === 0 ? `${only.agentName} is out` : `${spentPools.length} providers out`
 }
 
 /**

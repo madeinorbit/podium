@@ -8,6 +8,7 @@
  *
  *   ?range=fiveHour   the short range
  *   ?state=cold       before the first answer
+ *   ?state=out        Codex's weekly window used up (the P4 verdict)
  */
 import {
   DEMO_HOST_METRICS,
@@ -17,8 +18,10 @@ import {
   DEMO_USAGE_BUCKETS,
 } from '@podium/client-core/demo'
 import {
+  capacityView,
   groupQuotaByAccount,
   type MachineCapacityReadings,
+  projectCostRows,
   usageSummary,
   visibleFleetOperations,
 } from '@podium/client-core/values'
@@ -32,6 +35,7 @@ import {
   pulseHero,
   pulseSubtitle,
   quotaRows,
+  quotaVerdict,
   rangeShort,
   topTasks,
 } from '../src/screens/pulse-view'
@@ -40,6 +44,7 @@ import { color, sans, space } from '../src/theme/theme'
 const params = new URLSearchParams(window.location.search)
 const range = (params.get('range') as PulseRange | null) ?? 'week'
 const cold = params.get('state') === 'cold'
+const outState = params.get('state') === 'out'
 const nowMs = Date.now()
 
 const TASKS: [string, string, number][] = [
@@ -63,7 +68,8 @@ const taskRows = TASKS.map(
       windowModels: [
         {
           model: 'claude-opus-5',
-          inputTokens: mtok * 1_000_000,
+          // Scaled to sit inside the demo week's total, as real rows do.
+          inputTokens: mtok * 40_000,
           outputTokens: 0,
           cacheReadTokens: 0,
           cacheCreationTokens: 0,
@@ -80,6 +86,28 @@ const taskRows = TASKS.map(
       uncostedSessionCount: 0,
     }) as unknown as TaskCostRowWire,
 )
+
+/** The project each fixture task's repo prefix stands for, as the pool would say. */
+const REPO_BY_PREFIX: Record<string, string> = {
+  POD: 'podium',
+  PDM: 'pipp',
+  TFT: 'tftw-pend',
+}
+const projectOf = (issueId: string) => {
+  const ref = TASKS[Number(issueId.slice(4))]?.[0] ?? ''
+  return REPO_BY_PREFIX[ref.split('-')[0] ?? ''] // ONA stays unattributed
+}
+
+const quota = outState
+  ? DEMO_QUOTA.map((m) => ({
+      ...m,
+      agents: m.agents.map((a) =>
+        a.agent === 'codex'
+          ? { ...a, windows: a.windows.map((w) => ({ ...w, usedPercent: 100 })) }
+          : a,
+      ),
+    }))
+  : DEMO_QUOTA
 
 const capacityReadings = Object.fromEntries(
   Object.entries(DEMO_MEMORY_BREAKDOWNS).map(([id, value]) => [id, { state: 'ready', value }]),
@@ -100,7 +128,20 @@ function Harness() {
           range={range}
           hero={pulseHero(summary, range)}
           summary={summary}
-          quota={cold ? [] : quotaRows(groupQuotaByAccount(DEMO_QUOTA), nowMs)}
+          quota={cold ? [] : quotaRows(groupQuotaByAccount(quota), nowMs)}
+          verdict={
+            cold
+              ? null
+              : quotaVerdict(
+                  capacityView({
+                    machines: quota,
+                    hosts: DEMO_HOST_METRICS,
+                    loadPerCore: 1.5,
+                    nowMs,
+                  }),
+                )
+          }
+          projects={cold ? null : projectCostRows(taskRows, projectOf, summary.week.estCostUsd)}
           tasks={cold ? [] : topTasks(taskRows)}
           tasksCold={cold}
           models={modelRows(summary)}

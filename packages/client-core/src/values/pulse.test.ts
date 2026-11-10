@@ -216,12 +216,59 @@ describe('capacityView', () => {
       nowMs: NOW,
     })
     expect(view.tone).toBe('ok')
-    expect(view.headline).toBe('Room to run')
+    // Not "Room to run" while a pool is out [POD-2385]: the headline names it.
+    expect(view.headline).toBe('Grok is out')
     expect(view.quota?.agentName).toBe('Codex')
     expect(view.detail).toContain('Codex, with the most room, has used 0%')
     // The spent pool is not silenced — it just does not get to be the answer.
     expect(view.spentPools.map((p) => p.agentName)).toEqual(['Grok'])
     expect(view.caveat).toContain('Grok is out')
+  })
+
+  it('never reads "Room to run" while any launchable pool is out', () => {
+    const one = capacityView({
+      machines: [
+        fleet([
+          ['claude-code', [window({ usedPercent: 40 })]],
+          ['codex', [window({ key: 'wk', label: 'Weekly', usedPercent: 100 })]],
+        ]),
+      ],
+      hosts: [host(1)],
+      loadPerCore: 1.5,
+      nowMs: NOW,
+    })
+    expect(one.tone).toBe('ok')
+    expect(one.headline).toBe('Codex is out')
+    expect(one.quota?.agentName).toBe('Claude Code')
+
+    const two = capacityView({
+      machines: [
+        fleet([
+          ['claude-code', [window({ usedPercent: 10 })]],
+          ['codex', [window({ key: 'wk', label: 'Weekly', usedPercent: 100 })]],
+          ['grok', [window({ key: 'wk', label: 'Weekly', usedPercent: 95 })]],
+        ]),
+      ],
+      hosts: [host(1)],
+      loadPerCore: 1.5,
+      nowMs: NOW,
+    })
+    expect(two.headline).toBe('2 providers out')
+    expect(two.caveat).toContain('are out')
+
+    // A spent MODEL-scoped window costs that model, not the harness (POD-271).
+    const model = capacityView({
+      machines: [
+        machine([
+          window({ usedPercent: 30 }),
+          window({ key: 'opus', label: 'Opus', usedPercent: 100, scopeModel: 'Opus' }),
+        ]),
+      ],
+      hosts: [host(1)],
+      loadPerCore: 1.5,
+      nowMs: NOW,
+    })
+    expect(model.headline).toBe('Room to run')
   })
 
   it('still reports no room when every pool is spent', () => {

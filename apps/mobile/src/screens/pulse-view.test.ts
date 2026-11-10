@@ -1,12 +1,15 @@
-import { type AccountQuotaGroup, usageSummary } from '@podium/client-core/values'
+import { type AccountQuotaGroup, type CapacityView, usageSummary } from '@podium/client-core/values'
 import type { CostModelTotalWire, TaskCostRowWire, UsageBucketWire } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
+  attributedLabel,
   daySpanLabel,
   formatPercent,
   modelRows,
+  projectSubtitle,
   pulseHero,
   quotaRows,
+  quotaVerdict,
   topTasks,
 } from './pulse-view'
 
@@ -165,5 +168,51 @@ describe('formatPercent', () => {
     expect(formatPercent(0)).toBe('0%')
     expect(formatPercent(0.3)).toBe('<1%')
     expect(formatPercent(48.4)).toBe('48%')
+  })
+})
+
+describe('quotaVerdict', () => {
+  const view = (over: Partial<CapacityView>): CapacityView =>
+    ({
+      tone: 'ok',
+      headline: 'Room to run',
+      constraint: 'quota',
+      spentPools: [],
+      ...over,
+    }) as CapacityView
+
+  it('shows the shared headline, quiet while nothing is out', () => {
+    expect(quotaVerdict(view({}))).toEqual({ text: 'Room to run', signal: false })
+  })
+
+  it('tints the line when a provider is out or the fleet runs close', () => {
+    const out = view({
+      headline: 'Codex is out',
+      spentPools: [{} as CapacityView['spentPools'][0]],
+    })
+    expect(quotaVerdict(out)).toEqual({ text: 'Codex is out', signal: true })
+    expect(quotaVerdict(view({ tone: 'warn', headline: 'Running close' }))?.signal).toBe(true)
+  })
+
+  it('shows nothing before there is a reading', () => {
+    expect(quotaVerdict(view({ constraint: 'unknown', headline: 'Nothing to report' }))).toBeNull()
+  })
+})
+
+describe('Top projects copy', () => {
+  const project = { project: 'podium', costUsd: 612, sharePercent: 48, barPercent: 100 }
+  it('names the task count and the top model', () => {
+    expect(projectSubtitle({ ...project, taskCount: 14, topModel: 'claude-opus-5' })).toBe(
+      '14 tasks · claude-opus-5 most',
+    )
+    expect(projectSubtitle({ ...project, taskCount: 1, topModel: null })).toBe('1 task')
+  })
+
+  it('reads the attributed share, and nothing before an answer', () => {
+    expect(attributedLabel({ rows: [], attributedUsd: 10, attributedPercent: 82.4 })).toBe(
+      '82% attributed',
+    )
+    expect(attributedLabel({ rows: [], attributedUsd: 0, attributedPercent: null })).toBeUndefined()
+    expect(attributedLabel(null)).toBeUndefined()
   })
 })

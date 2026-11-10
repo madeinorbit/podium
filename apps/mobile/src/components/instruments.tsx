@@ -152,18 +152,21 @@ export function SectionHeader({
   open,
   onToggle,
   trailing,
+  trailingSignal = false,
 }: {
   title: string
   open: boolean
   onToggle: () => void
   trailing?: string
+  /** The note is a state that needs a look (a provider out), drawn in the signal tint. */
+  trailingSignal?: boolean
 }) {
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ expanded: open }}
       aria-expanded={open}
-      accessibilityLabel={`${title}, ${open ? 'expanded' : 'collapsed'}`}
+      accessibilityLabel={`${title}${trailing ? `, ${trailing}` : ''}, ${open ? 'expanded' : 'collapsed'}`}
       onPress={onToggle}
       style={styles.section}
     >
@@ -172,7 +175,10 @@ export function SectionHeader({
         {title}
       </Text>
       {trailing ? (
-        <Text style={styles.sectionTrailing} numberOfLines={1}>
+        <Text
+          style={[styles.sectionTrailing, trailingSignal && styles.sectionSignal]}
+          numberOfLines={1}
+        >
           {trailing}
         </Text>
       ) : null}
@@ -270,8 +276,12 @@ const styles = StyleSheet.create({
   },
   sectionTrailing: {
     ...sans(400),
+    flexShrink: 1,
     color: color.textFaint,
     fontSize: 12,
     lineHeight: 16,
+  },
+  sectionSignal: {
+    color: color.accentTint,
   },
 })

@@ -29,10 +29,12 @@ import type {
   TaskCostWire,
 } from '@podium/model'
 import { RATE_COHORT_MIN_REPLIES } from '@podium/model'
+
 export { RATE_COHORT_MIN_REPLIES } from '@podium/model'
+
 import type { HarnessDescriptorWire } from '@podium/protocol'
-import { bucketCostUsd, bucketProvider, type UsageProvider } from './usage'
 import { harnessDescriptorFor } from './harness-labels'
+import { bucketCostUsd, bucketProvider, type UsageProvider } from './usage'
 
 /**
  * The API-equivalent cost of one model's token total.
@@ -399,6 +401,112 @@ export function taskCostRows(rows: readonly TaskCostRowWire[]): {
   })
   priced.sort((a, b) => b.estCostUsd - a.estCostUsd)
   return { rows: priced, cohort }
+}
+
+/** One project's share of the window's task spend — see `projectCostRows`. */
+export interface ProjectCostRow {
+  /** The repository's display name, as the resolver returned it. */
+  project: string
+  /** Sum of each task's OWN window cost (`windowModels`), never the rollup. */
+  costUsd: number
+  /** Tasks that spent anything in the window. */
+  taskCount: number
+  /** The model with the most window spend across those tasks, or null. */
+  topModel: string | null
+  /** Share of the whole window's cost, 0–100. */
+  sharePercent: number
+  /** Bar width against the dearest project, 0–100. */
+  barPercent: number
+}
+
+export interface ProjectCostView {
+  /** Dearest first. */
+  rows: ProjectCostRow[]
+  /** Window spend that maps to a task AND that task's project. */
+  attributedUsd: number
+  /** `attributedUsd` as a share of the window total, 0–100; null with no spend. */
+  attributedPercent: number | null
+}
+
+/**
+ * THE WINDOW'S TASK SPEND, GROUPED BY PROJECT [POD-2385].
+ *
+ * OWN COST, NOT THE ROLLUP. Every task row carries its own `windowModels` and a
+ * rollup over its descendants; summing rollups would count a child once for
+ * itself and once per ancestor. Own costs partition the spend, so the groups
+ * add up to exactly what maps to a task.
+ *
+ * WINDOW, NOT ALL-TIME, for the reason `TaskCostRowWire.windowModels` exists:
+ * the share is read against the harvest's 7-day total (`usageSummary().week`),
+ * and an all-time figure over a 7-day total reads as over 100% attributed.
+ *
+ * UNATTRIBUTED SPEND IS LEFT OUT, not lumped into an "Other" row. Spend with no
+ * task, and a task whose project the caller cannot resolve (`projectOf` returns
+ * nothing — not loaded, or not visible), is what the attributed share admits.
+ *
+ * `projectOf` is the caller's lookup into the issue records it holds (the pool's
+ * issue model `repoName` on both clients) — this module never reads a store.
+ */
+export function projectCostRows(
+  rows: readonly TaskCostRowWire[],
+  projectOf: (issueId: string) => string | null | undefined,
+  windowTotalUsd: number,
+): ProjectCostView {
+  const groups = new Map<
+    string,
+    { costUsd: number; taskCount: number; models: Map<string, number> }
+  >()
+  let attributedUsd = 0
+  for (const row of rows) {
+    let taskUsd = 0
+    const perModel: Array<[string, number]> = []
+    for (const m of row.windowModels) {
+      const usd = modelTotalCostUsd(m)
+      if (usd <= 0) continue
+      taskUsd += usd
+      perModel.push([m.model, usd])
+    }
+    if (taskUsd <= 0) continue
+    const project = projectOf(row.issueId)
+    if (!project) continue
+    let group = groups.get(project)
+    if (!group) {
+      group = { costUsd: 0, taskCount: 0, models: new Map() }
+      groups.set(project, group)
+    }
+    group.costUsd += taskUsd
+    group.taskCount += 1
+    for (const [model, usd] of perModel)
+      group.models.set(model, (group.models.get(model) ?? 0) + usd)
+    attributedUsd += taskUsd
+  }
+  const sorted = [...groups.entries()].sort((a, b) => b[1].costUsd - a[1].costUsd)
+  const peak = sorted[0]?.[1].costUsd ?? 0
+  return {
+    rows: sorted.map(([project, g]) => {
+      let topModel: string | null = null
+      let topUsd = 0
+      for (const [model, usd] of g.models) {
+        if (usd > topUsd) {
+          topModel = model
+          topUsd = usd
+        }
+      }
+      return {
+        project,
+        costUsd: g.costUsd,
+        taskCount: g.taskCount,
+        topModel,
+        sharePercent: windowTotalUsd > 0 ? Math.min(100, (g.costUsd / windowTotalUsd) * 100) : 0,
+        barPercent: peak > 0 ? (g.costUsd / peak) * 100 : 0,
+      }
+    }),
+    attributedUsd,
+    // Capped like the desktop's attribution cell: a harvest that priced a task
+    // a moment after the total cannot make the share read over 100%.
+    attributedPercent:
+      windowTotalUsd > 0 ? (Math.min(attributedUsd, windowTotalUsd) / windowTotalUsd) * 100 : null,
+  }
 }
 
 // ---------------------------------------------------------------------------

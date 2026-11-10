@@ -1,9 +1,12 @@
 import {
   type AccountQuotaGroup,
   agentLabel,
+  type CapacityView,
   formatReset,
   formatUsd,
   modelLimitNote,
+  type ProjectCostRow,
+  type ProjectCostView,
   paceLabel,
   splitQuotaWindows,
   statusNote,
@@ -125,7 +128,7 @@ export interface QuotaRowView {
   title: string
   /** Null for a pool we cannot read; the row then shows only its status line. */
   usedPercent: number | null
-  /** The window is used up. P4's verdict reads this flag. */
+  /** The window is used up: the row reads "Out" in the signal tint. */
   out: boolean
   /** 0–100 share of the window elapsed, for the pace tick. */
   elapsedPercent: number | null
@@ -249,4 +252,33 @@ export function formatPercent(value: number): string {
 export function pulseSubtitle(hero: PulseHero, range: PulseRange, cold: boolean): string {
   if (cold) return 'Taking a reading…'
   return `${formatUsd(hero.costUsd)} in the ${rangeLabel(range).toLowerCase()}`
+}
+
+/** The Quota header's one-line verdict: client-core's capacity headline. */
+export interface QuotaVerdict {
+  text: string
+  /** Something is out or close: drawn in the signal tint. */
+  signal: boolean
+}
+
+/**
+ * The verdict is `capacityView`'s headline as-is [POD-2385]: the rule that it
+ * never reads "Room to run" while a pool is out lives there, shared with the
+ * desktop. This only decides whether there is a reading to show at all.
+ */
+export function quotaVerdict(view: CapacityView): QuotaVerdict | null {
+  if (view.constraint === 'unknown') return null
+  return { text: view.headline, signal: view.tone !== 'ok' || view.spentPools.length > 0 }
+}
+
+/** "14 tasks · claude-opus-5 most" — the Top projects row's subtitle. */
+export function projectSubtitle(row: ProjectCostRow): string {
+  const tasks = `${row.taskCount} ${row.taskCount === 1 ? 'task' : 'tasks'}`
+  return row.topModel ? `${tasks} · ${row.topModel} most` : tasks
+}
+
+/** "82% attributed" for the Top projects header; nothing before a reading. */
+export function attributedLabel(view: ProjectCostView | null): string | undefined {
+  if (!view || view.attributedPercent === null) return undefined
+  return `${formatPercent(view.attributedPercent)} attributed`
 }

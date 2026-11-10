@@ -6,6 +6,8 @@ for (const [name, q, scheme] of [
   ['pulse-week-dark', '', 'dark'],
   ['pulse-5h-dark', '?range=fiveHour', 'dark'],
   ['pulse-cold-dark', '?state=cold', 'dark'],
+  ['pulse-out-dark', '?state=out', 'dark'],
+  ['pulse-out-light', '?state=out', 'light'],
 ]) {
   const page = await browser.newPage({
     viewport: { width: 402, height: 874 },

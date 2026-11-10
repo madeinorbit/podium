@@ -15,6 +15,7 @@ import {
   formatCostMark,
   formatCostRounded,
   modelTotalCostUsd,
+  projectCostRows,
   RATE_COHORT_MIN_REPLIES,
   taskCostRows,
   taskCostView,
@@ -403,5 +404,69 @@ describe('foldSessionCosts', () => {
     expect(folded.map((f) => f.sessionId)).toEqual(['s-2', null, 's-1'])
     const named = folded.map((f) => f.sessionId).filter((id) => id !== null)
     expect(new Set(named).size).toBe(named.length)
+  })
+})
+
+describe('projectCostRows', () => {
+  // Opus 5 at $5/MTok input: one million input tokens is $5.
+  const usd = (dollars: number, name = 'claude-opus-5') =>
+    model({ model: name, inputTokens: dollars * 200_000 })
+  const repo: Record<string, string> = { iss_1: 'podium', iss_2: 'podium', iss_3: 'pipp' }
+  const projectOf = (id: string) => repo[id]
+
+  it("sums each task's own window cost, never the rollup", () => {
+    // iss_1 is the parent of iss_2: its rollup already includes iss_2's spend.
+    const view = projectCostRows(
+      [
+        row(1, { windowModels: [usd(10)], rollupModels: [usd(30)] }),
+        row(2, { windowModels: [usd(20)] }),
+        row(3, { windowModels: [usd(5)] }),
+      ],
+      projectOf,
+      100,
+    )
+    expect(view.rows.map((r) => [r.project, r.taskCount])).toEqual([
+      ['podium', 2],
+      ['pipp', 1],
+    ])
+    expect(view.rows[0]?.costUsd).toBeCloseTo(30)
+    expect(view.rows[0]?.sharePercent).toBeCloseTo(30)
+    expect(view.rows[1]?.barPercent).toBeCloseTo((5 / 30) * 100)
+    expect(view.attributedUsd).toBeCloseTo(35)
+    expect(view.attributedPercent).toBeCloseTo(35)
+  })
+
+  it('leaves unattributed and idle tasks out of every figure', () => {
+    const view = projectCostRows(
+      [
+        row(1, { windowModels: [usd(10)] }),
+        row(9, { windowModels: [usd(40)] }), // project unknown: not loaded or not visible
+        row(3, { windowModels: [] }), // nothing in the window
+      ],
+      projectOf,
+      100,
+    )
+    expect(view.rows.map((r) => r.project)).toEqual(['podium'])
+    expect(view.attributedUsd).toBeCloseTo(10)
+    expect(view.attributedPercent).toBeCloseTo(10)
+  })
+
+  it('names the model with the most window spend across the project', () => {
+    const view = projectCostRows(
+      [
+        row(1, { windowModels: [usd(4), usd(3, 'claude-sonnet-5')] }),
+        row(2, { windowModels: [usd(20, 'claude-sonnet-5')] }), // cheaper per token, more tokens
+      ],
+      projectOf,
+      50,
+    )
+    expect(view.rows[0]?.topModel).toBe('claude-sonnet-5')
+  })
+
+  it('caps the share at 100% and reads null with no window spend', () => {
+    const rows = [row(1, { windowModels: [usd(10)] })]
+    expect(projectCostRows(rows, projectOf, 8).attributedPercent).toBe(100)
+    expect(projectCostRows(rows, projectOf, 8).rows[0]?.sharePercent).toBe(100)
+    expect(projectCostRows(rows, projectOf, 0).attributedPercent).toBeNull()
   })
 })

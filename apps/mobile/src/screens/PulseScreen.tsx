@@ -1,14 +1,21 @@
 import {
+  capacityView,
   // Pure filters despite the `use` prefix; aliased so they can run in a memo.
   useGrantedHostMetrics as grantedHostMetrics,
   useGrantedMachineQuota as grantedMachineQuota,
   groupQuotaByAccount,
+  issueRepoName,
+  projectCostRows,
   usageSummary,
   visibleFleetOperations,
 } from '@podium/client-core/values'
+import { readPageIssue } from '@podium/client-graph/issue-page'
+import type { MobxPool } from '@podium/client-graph/pool'
+import type { TaskCostRowWire } from '@podium/model'
 import { router } from 'expo-router'
 import { useCallback, useMemo, useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, Text } from 'react-native'
+import { useMobilePoolProjection } from '../client/mobile-pool'
 import { NativePicker } from '../components/action-sheet-native'
 import { Icon } from '../components/Icon'
 import { ChevronDown } from '../components/icons'
@@ -27,6 +34,7 @@ import {
   pulseHero,
   pulseSubtitle,
   quotaRows,
+  quotaVerdict,
   rangeLabel,
   rangeShort,
   topTasks,
@@ -45,10 +53,10 @@ import { usePulseFeed } from './usePulseFeed'
  * COST IS API-EQUIVALENT. It is what these tokens would cost at list price,
  * not a bill, and the hero says "list price" on the number itself.
  *
- * Two board rows wait on the user's OK and have seams here rather than code:
- * P4 (the verdict reading "out" when a launchable provider window is used up —
- * `QuotaRowView.out` is the input it needs) and P5 (Top projects, which mounts
- * through `PulseBody`'s `projects` slot between Quota and Top tasks).
+ * The Quota header carries client-core's capacity headline, which never reads
+ * "Room to run" while a provider is out; Top projects groups the same priced
+ * `cost.tasks` rows by each issue's repository, read off the pool's issue
+ * model (`projectCostRows`, shared with the desktop) [POD-2385].
  */
 
 export function PulseScreen() {
@@ -67,6 +75,7 @@ export function PulseScreen() {
     useRefreshableTab('pulse', onPull)
 
   const cold = feed.quota === null && feed.buckets === null
+  const taskProjects = useTaskProjects(feed.taskCosts)
   const derived = useMemo(() => {
     const grantedHosts = grantedHostMetrics(feed.machines, feed.hosts)
     const grantedQuota = grantedMachineQuota(feed.machines, feed.quota ?? [])
@@ -74,6 +83,24 @@ export function PulseScreen() {
     return {
       summary,
       quota: quotaRows(groupQuotaByAccount(grantedQuota), feed.nowMs),
+      verdict:
+        feed.quota === null
+          ? null
+          : quotaVerdict(
+              capacityView({
+                machines: grantedQuota,
+                hosts: grantedHosts,
+                loadPerCore: feed.loadPerCore,
+                nowMs: feed.nowMs,
+              }),
+            ),
+      projects: feed.taskCosts
+        ? projectCostRows(
+            feed.taskCosts,
+            (issueId) => taskProjects[issueId],
+            summary.week.estCostUsd,
+          )
+        : null,
       tasks: topTasks(feed.taskCosts),
       models: modelRows(summary),
       fleet: visibleFleetOperations({
@@ -93,6 +120,7 @@ export function PulseScreen() {
     feed.capacityReadings,
     feed.loadPerCore,
     feed.nowMs,
+    taskProjects,
   ])
   const hero = useMemo(() => pulseHero(derived.summary, range), [derived.summary, range])
 
@@ -120,6 +148,8 @@ export function PulseScreen() {
             hero={hero}
             summary={derived.summary}
             quota={derived.quota}
+            verdict={derived.verdict}
+            projects={derived.projects}
             tasks={derived.tasks}
             tasksCold={feed.taskCosts === null}
             models={derived.models}
@@ -134,6 +164,34 @@ export function PulseScreen() {
       </PullToRefreshBoundary>
     </Screen>
   )
+}
+
+const NO_PROJECTS: Readonly<Record<string, string>> = {}
+
+/**
+ * Each priced task's project, read off the pool's shared issue model
+ * (`repoName`, the same field the task screen prints). Only tasks with spend in
+ * the window are looked up: they are the only ones `projectCostRows` groups. An
+ * issue still loading, or one this principal cannot see, has no entry and so
+ * stays unattributed until it does.
+ */
+function useTaskProjects(rows: readonly TaskCostRowWire[] | null) {
+  const read = useCallback(
+    (pool: MobxPool) => {
+      if (!rows) return NO_PROJECTS
+      const names: Record<string, string> = {}
+      for (const row of rows) {
+        if (row.windowModels.length === 0) continue
+        const issue = readPageIssue(pool, row.issueId)
+        if (!issue || typeof issue === 'symbol') continue
+        const name = issueRepoName(issue)
+        if (name) names[row.issueId] = name
+      }
+      return names
+    },
+    [rows],
+  )
+  return useMobilePoolProjection(read, NO_PROJECTS)
 }
 
 // ---------------------------------------------------------------------------
