@@ -216,8 +216,7 @@ describe('mobile normalized issue reads with no legacy issue rows', () => {
       expect(screen.getAllByText('Normalized mobile mission').length).toBeGreaterThan(0),
     )
     if (Surface === IssuesScreen) {
-      expect(screen.getByText('POD')).toBeTruthy()
-      expect(screen.getByText('42')).toBeTruthy()
+      expect(screen.getByText('POD-42')).toBeTruthy()
     }
     if (Surface === IssueScreen) {
       expect(screen.getAllByText(/POD-42/).length).toBeGreaterThan(0)

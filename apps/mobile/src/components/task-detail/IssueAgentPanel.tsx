@@ -1,5 +1,3 @@
-import { issueObserver as observer } from '../../client/issue-observer'
-import { IssueAge } from './IssueAge'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { artifactKind } from '@podium/client-core/values'
 import type { IssuePanelArtifact } from '@podium/model'
@@ -7,6 +5,7 @@ import { useState } from 'react'
 import { Image, StyleSheet, Text, View } from 'react-native'
 import { authenticatedImageSource } from '../../client/authenticated-assets'
 import { useHttpOrigin } from '../../client/hooks'
+import { issueObserver as observer } from '../../client/issue-observer'
 import { useServerProfile } from '../../client/ServerProfileGate'
 import { useOptionalServerProfile } from '../../client/server-profile-context'
 import { issueArtifactHref, issueArtifactLabel } from '../../lib/issue-artifacts'
@@ -16,6 +15,7 @@ import { Icon } from '../Icon'
 import { FileText, Play } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { SectionHeading } from './chrome'
+import { IssueAge } from './IssueAge'
 
 /**
  * THE AGENT-PUBLISHED PANEL (issues.panel) [POD-724] — what an agent produced
@@ -34,8 +34,12 @@ import { SectionHeading } from './chrome'
  */
 export const IssueAgentPanel = observer(function IssueAgentPanel({
   issue,
+  only,
 }: {
   issue: IssueViewModel
+  /** Draw one half: the artifact list (behind the strip's "See all"), or the
+   *  deferred items. Both when absent. */
+  only?: 'artifacts' | 'deferred'
 }) {
   const httpOrigin = useHttpOrigin()
   const profile = useOptionalServerProfile()
@@ -43,15 +47,17 @@ export const IssueAgentPanel = observer(function IssueAgentPanel({
   // profiles scoped when an id is not available yet.
   const workspace = profile?.config.workspaceId ?? profile?.config.workspaceSlug
 
-  const artifacts = issue.panel?.artifacts ?? []
-  const deferred = issue.panel?.deferred ?? []
+  const artifacts = only === 'deferred' ? [] : (issue.panel?.artifacts ?? [])
+  const deferred = only === 'artifacts' ? [] : (issue.panel?.deferred ?? [])
   if (artifacts.length === 0 && deferred.length === 0) return null
 
   return (
     <View testID="issue-panel-sections">
       {artifacts.length > 0 ? (
         <View style={styles.section} testID="issue-artifacts">
-          <SectionHeading label="Artifacts" count={String(artifacts.length)} />
+          {only === 'artifacts' ? null : (
+            <SectionHeading label="Artifacts" count={String(artifacts.length)} />
+          )}
           {artifacts.map((a) => (
             <ArtifactRow
               key={`${a.addedAt}:${a.path}`}
@@ -69,7 +75,9 @@ export const IssueAgentPanel = observer(function IssueAgentPanel({
             <View key={`${d.addedAt}:${d.text}`} style={styles.deferred}>
               <View style={styles.deferredDot} />
               <Text style={styles.deferredText}>{d.text}</Text>
-              <Text style={styles.stamp}><IssueAge stamp={d.addedAt} /></Text>
+              <Text style={styles.stamp}>
+                <IssueAge stamp={d.addedAt} />
+              </Text>
             </View>
           ))}
         </View>
@@ -118,7 +126,9 @@ const ArtifactRow = observer(function ArtifactRow({
             <Text style={styles.captionText} numberOfLines={1}>
               {label}
             </Text>
-            <Text style={styles.stamp}><IssueAge stamp={artifact.addedAt} /></Text>
+            <Text style={styles.stamp}>
+              <IssueAge stamp={artifact.addedAt} />
+            </Text>
           </View>
         </PressableScale>
       ) : (
@@ -133,7 +143,9 @@ const ArtifactRow = observer(function ArtifactRow({
           <Text style={styles.fileName} numberOfLines={1}>
             {label}
           </Text>
-          <Text style={styles.stamp}><IssueAge stamp={artifact.addedAt} /></Text>
+          <Text style={styles.stamp}>
+            <IssueAge stamp={artifact.addedAt} />
+          </Text>
         </PressableScale>
       )}
       {open ? (

@@ -1,64 +1,32 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
 import { ISSUES_DISPLAY_KEY } from '@podium/client-core/ui-state'
 import {
   type BoardFilter,
+  discoveredPlacement,
   type filterChips,
-  issueRepoName,
-  type RankedTaskIssue,
+  type IssueNavigationModel,
   readSharedIssuesDisplay as readMobileTaskDisplay,
-  taskStateWord,
   writeSharedIssuesDisplay as writeMobileTaskDisplay,
 } from '@podium/client-core/values'
-import type { BoardListRow } from '@podium/client-graph/issue-board-schema'
-import { here } from '@podium/client-graph/lookup'
-import { type MobileTaskIssue, MobileTasksBoard } from '@podium/client-graph/mobile-tasks'
-import { LOADING } from '@podium/client-graph/worklist/rollup'
-import {
-  type IssueBoardStage,
-  type IssueCloseReason,
-  issueStatusControlLabel,
-  issueStatusMenuEntries,
-  issueStatusValueOf,
-  parseIssueStatusValue,
-} from '@podium/model'
-import { isFinished } from '@podium/model/browser'
-import { issueDisplayRef } from '@podium/protocol'
-import { Stack, useRouter } from 'expo-router'
+import { MobileTasksBoard } from '@podium/client-graph/mobile-tasks'
+import { parseIssueStatusValue } from '@podium/model'
+import { useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Animated, SectionList, StyleSheet, Text, TextInput, View } from 'react-native'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { StyleSheet, Text, View } from 'react-native'
 import { useBooting, useStoreActions } from '../client/hooks'
 import { useMobilePool } from '../client/mobile-pool'
 import { useIssueCloseGuard } from '../client/use-issue-close'
-import { ActionSheet } from '../components/ActionSheet'
-import { Icon } from '../components/Icon'
-import { IdSquare } from '../components/IdSquare'
-import { IssueCloseSheet } from '../components/IssueCloseSheet'
-import { ChevronDown, ChevronRight, Filter, Layers, Plus, Search, X } from '../components/icons'
-import { BootstrapCrossfade, TasksSkeleton } from '../components/LaunchPlaceholders'
-import { listWindow } from '../components/list-window'
-import { NotSavedMark } from '../components/NotSavedMark'
-import { PressableScale } from '../components/PressableScale'
-import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
-import { RefreshOffer } from '../components/RefreshOffer'
-import { HeaderButton, Screen } from '../components/Screen'
-import { StageGlyph } from '../components/StageGlyph'
-import { StorageNoticeAlert } from '../components/StorageNoticeAlert'
 import { TaskFiltersSheet } from '../components/TaskFiltersSheet'
-import { EmptyState, Pill } from '../components/ui'
-import { useCollapsed } from '../hooks/useCollapsed'
+import { WorkIssueMenu, type WorkMenuSheet } from '../components/WorkIssueMenu'
 import { useContentBottomInset } from '../hooks/useContentBottomInset'
 import { useMinimizeTabBarOnScroll } from '../hooks/useMinimizeTabBarOnScroll'
 import { usePersistedUiState } from '../hooks/usePersistedUiState'
-import { useReduceMotion } from '../hooks/useReduceMotion'
 import { useRefreshableTab } from '../hooks/useRefreshableTab'
-import { stageFoldKey } from '../lib/fold-keys'
-import { taskRowAccessibilityProps } from '../lib/task-row-accessibility'
-import { alpha } from '../theme/mix'
-import { stageColor } from '../theme/stage'
-import { color, font, leading, mono, monoLabel, radius, sans, space, spring } from '../theme/theme'
+import { type PoolWorkMenuData, resolvePoolWorkMenu } from '../lib/pool-work-menu'
+import type { WorkMenuActionId } from '../lib/work-menu'
+import { color, font, radius, sans, space } from '../theme/theme'
+import { TasksSurface } from './TasksSurface'
 
-const usesNativeHeader = process.env.EXPO_OS !== 'web'
 const NO_CHIPS: ReturnType<typeof filterChips> = []
 const NO_FILTER: BoardFilter = {}
 
@@ -66,41 +34,37 @@ const NO_FILTER: BoardFilter = {}
  * THE TASKS TAB — high-level work, plus proposals that need a call [POD-947].
  *
  * The shared pool derives the rows with the board's membership rules and the
- * phone's proposal promotion: a screenable proposal is a root decision even
- * when it has an approved parent. The mobile reader owns section order.
+ * phone's proposal promotion. This file holds the screen's state — the board,
+ * the filter sheet, the row menu — and every write. The list itself is a
+ * surface: SwiftUI on iOS (`TasksSurface.ios.tsx`), React Native elsewhere.
  *
- * This file owns the two things that are genuinely the phone's: what a row looks
- * like at 390pt, and the sticky collapsible section header.
+ * Long press opens Work's own menu (Rename, Mark as unread, Status, Move out of
+ * mission, Delete), so a task answers the same acts on both tabs.
  */
 export const IssuesScreen = observer(function IssuesScreen() {
   const router = useRouter()
   const store = useStoreActions()
   const hasCloseBlockers = useIssueCloseGuard()
-  const [searchOpen, setSearchOpen] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(false)
-  const [rowMenu, setRowMenu] = useState<{
-    issue: MobileTaskIssue
-    kind: 'actions' | 'status'
-  } | null>(null)
-  const [closeIntent, setCloseIntent] = useState<{
-    issue: MobileTaskIssue
-    reason: IssueCloseReason
-  } | null>(null)
+  const [menu, setMenu] = useState<(PoolWorkMenuData & { initialSheet?: WorkMenuSheet }) | null>(
+    null,
+  )
   const [actionError, setActionError] = useState<string | null>(null)
   const [display, setDisplay] = usePersistedUiState(
     ISSUES_DISPLAY_KEY,
     readMobileTaskDisplay,
     writeMobileTaskDisplay,
   )
-  const { listRef, refreshControl, refreshAccessibilityProps, refreshing, onRefresh, connected } =
-    useRefreshableTab('issues')
+  const refresh = useRefreshableTab('issues')
   const bottomInset = useContentBottomInset()
   const minimizeOnScroll = useMinimizeTabBarOnScroll()
 
   const pool = useMobilePool()
   const booting = useBooting() || !pool
   // The board holds the view's options (show done, open parents, filter and
-  // search) and its lists; it is built once per pool.
+  // search) and its lists; it is built once per pool. The display preference
+  // seeds it here and reaches it afterwards through `showDisplay` below.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: built once per pool, by design
   const board = useMemo(
     () =>
       pool
@@ -119,160 +83,98 @@ export const IssuesScreen = observer(function IssuesScreen() {
   useEffect(() => {
     board?.showDisplay(display)
   }, [board, display])
-  const chips = board?.chips ?? NO_CHIPS
-  const showDone = board?.showDone ?? false
 
-  // Proposals are inert until the operator decides [spec:SP-6144] — the deck
-  // flow is the fast way through them, so the board leads with it whenever any
-  // are waiting (POD-277).
+  const openMenu = useCallback(
+    (id: string, initialSheet?: WorkMenuSheet) => {
+      if (!pool) return
+      const target = resolvePoolWorkMenu(pool, id, 'live')
+      if (target) setMenu({ ...target, ...(initialSheet ? { initialSheet } : {}) })
+    },
+    [pool],
+  )
+  const runAction = useCallback((action: Promise<unknown>) => {
+    setActionError(null)
+    void action.catch((error) =>
+      setActionError(error instanceof Error ? error.message : String(error)),
+    )
+  }, [])
+  const onAction = useCallback(
+    (id: string, action: WorkMenuActionId) => {
+      if (!pool) return
+      const issue = pool.issueObject(id) as unknown as IssueNavigationModel
+      if (action === 'read')
+        runAction(issue.unread ? store.markIssueRead(id) : store.markIssueUnread(id))
+      else if (action === 'placement') {
+        const placement = discoveredPlacement(issue)
+        if (placement?.originId)
+          runAction(
+            store.setIssuePlacement(
+              id,
+              placement.placement === 'mission' ? 'own' : 'mission',
+              placement.originId,
+            ),
+          )
+      } else if (action === 'rename' || action === 'status') openMenu(id, { kind: action })
+      else if (action === 'delete') openMenu(id, { kind: 'confirm-delete' })
+    },
+    [openMenu, pool, runAction, store],
+  )
+  const onStatus = useCallback(
+    (id: string, value: string) => {
+      const intent = parseIssueStatusValue(value)
+      if (!intent) return
+      if (intent.kind === 'stage') runAction(store.updateIssue(id, { stage: intent.stage }))
+      else if (hasCloseBlockers(id)) openMenu(id, { kind: 'confirm-close', reason: intent.reason })
+      else runAction(store.closeIssue(id, intent.reason))
+    },
+    [hasCloseBlockers, openMenu, runAction, store],
+  )
+  const onClose = useCallback(
+    (id: string) => {
+      if (hasCloseBlockers(id)) openMenu(id, { kind: 'confirm-close', reason: 'done' })
+      else runAction(store.closeIssue(id, 'done'))
+    },
+    [hasCloseBlockers, openMenu, runAction, store],
+  )
 
   return (
-    <Screen
-      large
-      title="Tasks"
-      right={
-        <>
-          {usesNativeHeader ? null : (
-            <HeaderButton
-              label={searchOpen ? 'Close task search' : 'Search tasks'}
-              onPress={() => {
-                setSearchOpen((open) => !open)
-                if (searchOpen) board?.search('')
-              }}
-            >
-              <Icon as={searchOpen ? X : Search} size={18} color={color.textDim} />
-            </HeaderButton>
-          )}
-          <HeaderButton
-            label={chips.length > 0 ? `Task filters, ${chips.length} active` : 'Task filters'}
-            onPress={() => setFiltersOpen(true)}
-          >
-            <Icon as={Filter} size={19} color={chips.length > 0 ? color.accentTint : color.text} />
-          </HeaderButton>
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel={showDone ? 'Hide done tasks' : 'Show done tasks'}
-            onPress={() => board?.toggleShowDone()}
-            hitSlop={8}
-          >
-            <Text style={styles.toggle}>{showDone ? 'Hide done' : 'Show done'}</Text>
-          </PressableScale>
-          <HeaderButton label="New task" onPress={() => router.push('/new-issue')}>
-            <Icon as={Plus} size={19} color={color.text} />
-          </HeaderButton>
-        </>
-      }
-    >
-      {usesNativeHeader ? (
-        <Stack.SearchBar
-          placeholder="Search tasks or ID"
-          hideWhenScrolling
-          onChangeText={(event) => board?.search(event.nativeEvent.text)}
-          onCancelButtonPress={() => board?.search('')}
-        />
-      ) : null}
-      {!usesNativeHeader && searchOpen ? (
-        <View style={styles.searchBand}>
-          <Icon as={Search} size={15} color={color.textFaint} />
-          <TextInput
-            autoFocus
-            accessibilityLabel="Search tasks"
-            value={board?.query ?? ''}
-            onChangeText={(text) => board?.search(text)}
-            placeholder="Search tasks or ID…"
-            placeholderTextColor={color.textFaint}
-            style={styles.searchInput}
-            returnKeyType="search"
-          />
-        </View>
-      ) : null}
-      <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
-        <StageSections
-          board={board}
-          listRef={listRef}
-          refreshControl={refreshControl}
-          refreshAccessibilityProps={refreshAccessibilityProps}
-          minimizeOnScroll={minimizeOnScroll}
-          bottomInset={bottomInset}
-          booting={booting}
-          chips={chips}
-          onScreenProposals={() => router.push('/screen-proposed')}
-          onOpen={(id) => router.push(`/issue/${encodeURIComponent(id)}`)}
-          onRemoveFilter={(key) => board?.clearFilter(key)}
-          onOpenActions={(issue) => setRowMenu({ issue, kind: 'actions' })}
-        />
-      </PullToRefreshBoundary>
+    <>
+      <TasksSurface
+        board={board}
+        booting={booting}
+        chips={board?.chips ?? NO_CHIPS}
+        refresh={refresh}
+        minimizeOnScroll={minimizeOnScroll}
+        bottomInset={bottomInset}
+        onOpen={(id) => router.push(`/issue/${encodeURIComponent(id)}`)}
+        onScreenProposals={() => router.push('/screen-proposed')}
+        onRemoveFilter={(key) => board?.clearFilter(key)}
+        onOpenActions={(issue) => openMenu(issue.id)}
+        onAction={onAction}
+        onStatus={onStatus}
+        onClose={onClose}
+        onFilters={() => setFiltersOpen(true)}
+        onNewTask={() => router.push('/new-issue')}
+      />
       <TaskFiltersSheet
         visible={filtersOpen}
         filter={board?.filter ?? NO_FILTER}
         ordering={display.ordering}
+        showDone={board?.showDone ?? false}
         showAgentTasks={display.showAgentTasks}
         onFilter={(filter) => board?.setFilter(filter)}
         onOrdering={(ordering) => setDisplay({ ...display, ordering })}
+        onShowDone={(show) => {
+          if (board && board.showDone !== show) board.toggleShowDone()
+        }}
         onShowAgentTasks={(showAgentTasks) => setDisplay({ ...display, showAgentTasks })}
         onClose={() => setFiltersOpen(false)}
       />
-      <ActionSheet
-        visible={rowMenu?.kind === 'actions'}
-        title={rowMenu ? `${issueDisplayRef(rowMenu.issue)} · ${rowMenu.issue.title}` : undefined}
-        actions={
-          rowMenu
-            ? [
-                {
-                  label: 'Open task',
-                  onPress: () => router.push(`/issue/${encodeURIComponent(rowMenu.issue.id)}`),
-                },
-                {
-                  label: 'Status…',
-                  meta: issueStatusControlLabel(rowMenu.issue),
-                  onPress: () => setRowMenu({ issue: rowMenu.issue, kind: 'status' }),
-                },
-                {
-                  label: rowMenu.issue.pinned ? 'Unpin' : 'Pin',
-                  onPress: () =>
-                    runAction(
-                      store.updateIssue(rowMenu.issue.id, { pinned: !rowMenu.issue.pinned }),
-                    ),
-                },
-                {
-                  label: rowMenu.issue.archived ? 'Unarchive task' : 'Archive task',
-                  onPress: () =>
-                    runAction(
-                      store.updateIssue(rowMenu.issue.id, { archived: !rowMenu.issue.archived }),
-                    ),
-                },
-              ]
-            : []
-        }
-        onClose={() => setRowMenu((current) => (current?.kind === 'actions' ? null : current))}
-      />
-      <ActionSheet
-        visible={rowMenu?.kind === 'status'}
-        title="Status"
-        actions={
-          rowMenu
-            ? issueStatusMenuEntries().map((entry) => ({
-                label: entry.label,
-                ...(entry.hint ? { hint: entry.hint } : {}),
-                selected: entry.value === issueStatusValueOf(rowMenu.issue),
-                disabled: entry.value === issueStatusValueOf(rowMenu.issue),
-                icon: <StageGlyph stage={entry.status} size={15} ground={color.surface} />,
-                onPress: () => selectStatus(rowMenu.issue, entry.value),
-              }))
-            : []
-        }
-        onClose={() => setRowMenu((current) => (current?.kind === 'status' ? null : current))}
-      />
-      {closeIntent ? (
-        <IssueCloseSheet
-          issue={closeIntent.issue as unknown as IssueViewModel}
-          reason={closeIntent.reason}
-          busy={false}
-          onConfirm={(reason) => {
-            runAction(store.closeIssue(closeIntent.issue.id, reason))
-            setCloseIntent(null)
-          }}
-          onClose={() => setCloseIntent(null)}
+      {menu ? (
+        <WorkIssueMenu
+          key={`${menu.target.issue.id}:${menu.initialSheet?.kind ?? 'menu'}`}
+          {...menu}
+          onClose={() => setMenu(null)}
         />
       ) : null}
       {actionError ? (
@@ -282,668 +184,20 @@ export const IssuesScreen = observer(function IssuesScreen() {
           </Text>
         </View>
       ) : null}
-    </Screen>
-  )
-
-  function runAction(action: Promise<unknown>): void {
-    setActionError(null)
-    void action.catch((error) =>
-      setActionError(error instanceof Error ? error.message : String(error)),
-    )
-  }
-
-  function selectStatus(issue: MobileTaskIssue, value: string): void {
-    const intent = parseIssueStatusValue(value)
-    if (!intent) return
-    if (intent.kind === 'stage') {
-      runAction(store.updateIssue(issue.id, { stage: intent.stage }))
-    } else if (hasCloseBlockers(issue.id)) {
-      setCloseIntent({ issue, reason: intent.reason })
-    } else {
-      runAction(store.closeIssue(issue.id, intent.reason))
-    }
-    setRowMenu(null)
-  }
-})
-
-/** The tab-wiring hook's own return shape — the list's ref, its pull-to-refresh
- *  control, and the accessibility props that go with it. */
-type RefreshableTab = ReturnType<typeof useRefreshableTab>
-
-interface Section {
-  key: IssueBoardStage
-  stage: IssueBoardStage
-  title: string
-  /** How many TASKS this stage holds — its roots, not its rendered rows. */
-  total: number
-  data: readonly BoardListRow[]
-}
-
-/**
- * The list. Split from the screen only so the per-stage `useCollapsed` hooks can
- * live in one place: hooks cannot be called in a loop over a variable-length
- * list, so the folds are read for the SIX known stages up front and looked up by
- * key. There are exactly six lifecycle stages and there always will be — the
- * lane set is the product's vocabulary, not data.
- */
-const StageSections = observer(function StageSections({
-  board,
-  listRef,
-  refreshControl,
-  refreshAccessibilityProps,
-  minimizeOnScroll,
-  bottomInset,
-  booting,
-  chips,
-  onScreenProposals,
-  onOpen,
-  onRemoveFilter,
-  onOpenActions,
-}: {
-  board: MobileTasksBoard | null
-  listRef: RefreshableTab['listRef']
-  // Typed from the hook rather than restated: a hand-written `ReactElement` here
-  // drops the RefreshControlProps generic the list actually requires.
-  refreshControl: RefreshableTab['refreshControl']
-  refreshAccessibilityProps: RefreshableTab['refreshAccessibilityProps']
-  minimizeOnScroll: ReturnType<typeof useMinimizeTabBarOnScroll>
-  bottomInset: number
-  booting: boolean
-  chips: ReturnType<typeof filterChips>
-  onScreenProposals: () => void
-  onOpen: (id: string) => void
-  onRemoveFilter: (key: keyof BoardFilter) => void
-  onOpenActions: (issue: MobileTaskIssue) => void
-}) {
-  // Keys come from `../lib/fold-keys` — the ui-state classifier is default-closed
-  // and THROWS on an unregistered key, so an invented `tasks.stage.<stage>` took
-  // the whole tab down on first render. See that module for why these folds are
-  // per-user replicated rather than device-local.
-  //
-  // `done` starts folded: a board with two hundred finished tasks would open on
-  // a wall of them, and the Show-done toggle above already means "I want to look
-  // at these", not "put them under my thumb".
-  const folds: Record<IssueBoardStage, ReturnType<typeof useCollapsed>> = {
-    proposed: useCollapsed(stageFoldKey('proposed'), false),
-    backlog: useCollapsed(stageFoldKey('backlog'), false),
-    planning: useCollapsed(stageFoldKey('planning'), false),
-    in_progress: useCollapsed(stageFoldKey('in_progress'), false),
-    review: useCollapsed(stageFoldKey('review'), false),
-    done: useCollapsed(stageFoldKey('done'), true),
-  }
-
-  const onToggleExpanded = useCallback((id: string) => board?.toggleExpanded(id), [board])
-  const membership = board?.sections ?? LOADING
-  const pending = booting || membership === LOADING
-  const sections: Section[] = (membership === LOADING ? [] : membership).map((s) => ({
-    key: s.stage,
-    stage: s.stage,
-    title: s.title,
-    // The lane's own work — roots and promoted proposals. Revealed children are
-    // not counted here: they belong to the parent, and a count that grew when
-    // an epic was opened would read as new work arriving.
-    total: s.total,
-    // A folded section keeps its header (and therefore its count) and drops its
-    // rows — the compression the operator asked for, with nothing hidden that
-    // they did not choose to hide.
-    data: folds[s.stage][0] ? [] : s.rows,
-  }))
-
-  return (
-    <BootstrapCrossfade resolved={!pending} placeholder={<TasksSkeleton />}>
-      <SectionList
-        {...listWindow}
-        ref={listRef as never}
-        sections={sections}
-        keyExtractor={(row) => row.id}
-        stickySectionHeadersEnabled
-        contentInsetAdjustmentBehavior="automatic"
-        keyboardDismissMode="interactive"
-        refreshControl={refreshControl}
-        contentContainerStyle={[styles.listContent, { paddingBottom: bottomInset + space.lg }]}
-        {...refreshAccessibilityProps}
-        {...minimizeOnScroll}
-        scrollEventThrottle={listWindow.scrollEventThrottle}
-        ListHeaderComponent={
-          <>
-            <StorageNoticeAlert />
-            <RefreshOffer />
-            {chips.length > 0 ? (
-              <View style={styles.filterSummary} accessibilityRole="summary">
-                {chips.map((chip) => (
-                  <PressableScale
-                    key={chip.key}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Remove ${chip.label} filter`}
-                    onPress={() => onRemoveFilter(chip.key)}
-                    style={({ pressed }) => [
-                      styles.filterChip,
-                      pressed && styles.filterChipPressed,
-                    ]}
-                  >
-                    <Text style={styles.filterChipText}>{chip.label}</Text>
-                    <Icon as={X} size={11} color={color.textDim} />
-                  </PressableScale>
-                ))}
-              </View>
-            ) : null}
-            {board ? <ProposalsBanner board={board} onScreenProposals={onScreenProposals} /> : null}
-          </>
-        }
-        renderSectionHeader={({ section }) => (
-          <StageHeader
-            stage={section.stage}
-            title={section.title}
-            count={section.total}
-            collapsed={folds[section.stage][0]}
-            onToggle={folds[section.stage][1]}
-          />
-        )}
-        renderItem={({ item }) => (
-          <TaskRow
-            row={item}
-            issue={board!.issue(item.id)}
-            onOpen={onOpen}
-            onToggleExpanded={onToggleExpanded}
-            onOpenActions={onOpenActions}
-          />
-        )}
-        // The inter-stage breath the header's marginTop used to (incorrectly)
-        // provide — footer space scrolls away with its section instead of
-        // travelling with the pinned bar.
-        renderSectionFooter={() => <View style={styles.sectionGap} />}
-        ListEmptyComponent={
-          // Guarded on `booting` even though the crossfade covers this screen:
-          // ListEmptyComponent is rendered whenever the data is empty, with no
-          // notion of whether loading has finished, so without this the empty
-          // state is CONSTRUCTED during bootstrap and sits in the tree — and in
-          // the accessibility tree — underneath an opaque placeholder.
-          pending ? null : (
-            <EmptyState title="No tasks" body="Tasks filed in your repos show up here." />
-          )
-        }
-      />
-    </BootstrapCrossfade>
+    </>
   )
 })
-
-const ProposalsBanner = observer(function ProposalsBanner({
-  board,
-  onScreenProposals,
-}: {
-  board: MobileTasksBoard
-  onScreenProposals: () => void
-}) {
-  const proposals = board.proposals
-  if (proposals === LOADING || proposals === 0) return null
-  return (
-    <PressableScale
-      accessibilityRole="button"
-      accessibilityLabel="Screen proposed"
-      accessibilityHint={`Decide on ${proposals} proposal${proposals === 1 ? '' : 's'} one at a time`}
-      onPress={onScreenProposals}
-      style={({ pressed }) => [styles.screenRow, pressed && styles.screenRowPressed]}
-    >
-      <View style={styles.screenIcon}>
-        <Icon as={Layers} size={16} color={color.accentTint} />
-      </View>
-      <View style={styles.screenText}>
-        <Text style={styles.screenTitle}>Screen proposed</Text>
-        <Text style={styles.screenSub}>
-          {`${proposals} proposal${proposals === 1 ? '' : 's'} waiting on your call`}
-        </Text>
-      </View>
-      <Icon as={ChevronRight} size={16} color={color.textFaint} />
-    </PressableScale>
-  )
-})
-
-/**
- * THE SECTION HEADER — a solid ledge, not a transparent label.
- *
- * The old one was a thin mono label, a count and a hairline on the page's own
- * background. Sticky, that is barely a header at all: rows slide UNDER it and,
- * because it shared their ground, they appeared to slide through it. A sticky
- * header has to read as a surface the content passes behind, so this one takes
- * the darkest canvas tier, a full-width bottom seam, and a stage-tinted left
- * edge — three cheap, opaque things instead of a blur that costs a frame.
- *
- * IDENTITY COMES FROM THE STAGE, not from a new colour: the glyph and the tint
- * are the same values the desktop's `issue-glyphs.tsx` and the terminal's
- * `REF_STAGE_ACCENT` table use, read from `../theme/stage`. Bisque never
- * appears here — it is reserved for "waiting on you", and a stage is never an
- * ask.
- *
- * The whole 44pt bar is the fold control, and the count sits OUTSIDE the fold so
- * a collapsed lane still says how much is in it. Compression, not concealment.
- */
-function StageHeader({
-  stage,
-  title,
-  count,
-  collapsed,
-  onToggle,
-}: {
-  stage: IssueBoardStage
-  title: string
-  count: number
-  collapsed: boolean
-  onToggle: () => void
-}) {
-  const reduceMotion = useReduceMotion()
-  const spin = useRef(new Animated.Value(collapsed ? 0 : 1)).current
-  useEffect(() => {
-    if (reduceMotion) {
-      spin.setValue(collapsed ? 0 : 1)
-      return
-    }
-    Animated.spring(spin, {
-      toValue: collapsed ? 0 : 1,
-      useNativeDriver: true,
-      ...spring.snappy,
-    }).start()
-  }, [collapsed, reduceMotion, spin])
-  const rotate = spin.interpolate({ inputRange: [0, 1], outputRange: ['-90deg', '0deg'] })
-  const tint = stageColor(stage)
-
-  return (
-    <PressableScale
-      accessibilityRole="button"
-      // `aria-expanded` beside `accessibilityState`: react-native-web 0.21 reads
-      // only the former, so the web build announced no state at all. [POD-1664]
-      accessibilityState={{ expanded: !collapsed }}
-      aria-expanded={!collapsed}
-      accessibilityLabel={`${title}, ${count} task${count === 1 ? '' : 's'}`}
-      accessibilityHint={collapsed ? 'Show this stage' : 'Fold this stage away'}
-      onPress={onToggle}
-      scaleTo={1}
-      style={({ pressed }) => [styles.header, pressed && styles.headerPressed]}
-    >
-      <View style={[styles.headerEdge, { backgroundColor: tint }]} />
-      <StageGlyph stage={stage} size={15} ground={color.bar} />
-      <Text style={[styles.headerTitle, { color: tint }]}>{title.toUpperCase()}</Text>
-      <View style={[styles.headerCount, { borderColor: alpha(tint, 0.35) }]}>
-        <Text style={styles.headerCountText}>{count}</Text>
-      </View>
-      <Animated.View style={[styles.headerChevron, { transform: [{ rotate }] }]}>
-        <Icon as={ChevronDown} size={15} color={color.textFaint} />
-      </Animated.View>
-    </PressableScale>
-  )
-}
-
-/**
- * One board row, indented by its depth under an expanded parent.
- *
- * THE SUB-TASK COUNT IS THE DISCLOSURE. It used to be an inert pill, which is
- * how children ended up reachable only from the task page — the desk could open
- * the same epic in place and the two lists then held different work. Tapping the
- * count now reveals them here, as it does on the board; the row itself still
- * opens the task, so the pill takes the press and the card keeps its own.
- *
- * The count is the row's, not `issue.childCount`: the wire number counts every
- * child, including the agent-internal decomposition the board scope drops, so a
- * row would have offered to reveal children that are not on this list.
- *
- * A promoted proposal (a row that still has a parent) keeps a "from POD-…" mark
- * so the epic that spawned it is still in view.
- */
-const TaskRow = observer(function TaskRow({
-  row,
-  issue,
-  onOpen,
-  onToggleExpanded,
-  onOpenActions,
-}: {
-  row: BoardListRow
-  issue: MobileTaskIssue
-  onOpen: (id: string) => void
-  onToggleExpanded: (id: string) => void
-  onOpenActions: (issue: MobileTaskIssue) => void
-}) {
-  // The shared load window resolves just this drawn row; membership stays live.
-  if (!here(issue.row)) return <View style={styles.rowWrap} />
-  let workingAgents: number, progress: MobileTaskIssue['taskProgress']
-  try {
-    workingAgents = issue.confirmedWorkingAgents
-    progress = issue.taskProgress
-  } catch (error) {
-    if (error === LOADING) return <View style={styles.rowWrap} />
-    throw error
-  }
-  const resting = issue.stage === 'backlog' || issue.stage === 'proposed'
-  const repo = issueRepoName(issue)
-  const parent = issue.treeParent
-  const parentModel = parent === LOADING ? null : parent
-  const childCount = row.childCount
-  const state = taskStateWord(issue as unknown as RankedTaskIssue, workingAgents, progress)
-  const stateColor =
-    state?.tone === 'attention'
-      ? color.needsYouText
-      : state?.tone === 'alert'
-        ? color.dangerText
-        : state?.tone === 'live'
-          ? color.workingText
-          : color.textFaint
-  const accessibility = taskRowAccessibilityProps({
-    seq: issue.seq,
-    title: issue.title,
-    ...(state ? { stateText: state.text } : {}),
-    onOpen: () => onOpen(issue.id),
-    onShowActions: () => onOpenActions(issue),
-  })
-  return (
-    <View style={[styles.rowWrap, row.depth > 0 && { marginLeft: row.depth * CHILD_INDENT }]}>
-      <PressableScale
-        accessibilityRole="button"
-        {...accessibility}
-        // THE DISCLOSURE IS AN ACTION ON THE ROW, not a button inside it. The
-        // card is one accessibility element (a nested pressable inside an
-        // `accessible` parent is never reachable on iOS), so the sub-task
-        // chevron would have been a control only a finger could find. As a
-        // rotor action it is available to both.
-        accessibilityState={childCount > 0 ? { expanded: row.expanded } : undefined}
-        aria-expanded={childCount > 0 ? row.expanded : undefined}
-        accessibilityActions={
-          childCount > 0
-            ? [
-                ...(accessibility.accessibilityActions ?? []),
-                { name: 'expand', label: row.expanded ? 'Hide sub-tasks' : 'Show sub-tasks' },
-              ]
-            : accessibility.accessibilityActions
-        }
-        onAccessibilityAction={(event) => {
-          if (event.nativeEvent.actionName === 'expand') {
-            onToggleExpanded(issue.id)
-            return
-          }
-          accessibility.onAccessibilityAction?.(event)
-        }}
-        onPress={() => onOpen(issue.id)}
-        onLongPress={() => onOpenActions(issue)}
-        style={({ pressed }) => [
-          styles.card,
-          pressed && styles.cardPressed,
-        ]}
-      >
-        <View style={styles.topRow}>
-          <IdSquare
-            issue={issue}
-            state={
-              isFinished(issue)
-                ? 'done'
-                : issue.needsHuman
-                  ? 'waiting'
-                  : resting
-                    ? 'queued'
-                    : 'working'
-            }
-            ringColor={color.surface}
-          />
-          <Text style={styles.title} numberOfLines={2}>
-            {issue.title}
-          </Text>
-        </View>
-        <View style={styles.metaRow}>
-          <NotSavedMark kind="issue" id={issue.id} />
-          <Pill label={issue.type} />
-          <Pill label={`P${issue.priority}`} />
-          {state ? (
-            <Text style={[styles.rowState, { color: stateColor }]}>{state.text}</Text>
-          ) : null}
-          {childCount > 0 ? (
-            <PressableScale
-              // The row carries this control's accessibility (see its
-              // `accessibilityActions`); announcing it twice would put a second,
-              // unreachable button in the tree.
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
-              onPress={() => onToggleExpanded(issue.id)}
-              hitSlop={10}
-              scaleTo={0.94}
-              style={styles.subTasks}
-            >
-              <Icon
-                as={row.expanded ? ChevronDown : ChevronRight}
-                size={13}
-                color={color.textDim}
-              />
-              <Pill label={`${childCount} sub-task${childCount === 1 ? '' : 's'}`} />
-            </PressableScale>
-          ) : null}
-          {parentModel ? (
-            <Text style={styles.from}>from {issueDisplayRef(parentModel)}</Text>
-          ) : null}
-          <Text style={styles.repo} numberOfLines={1}>
-            {repo}
-          </Text>
-        </View>
-      </PressableScale>
-    </View>
-  )
-})
-
-/** How far a revealed child sits in from its parent — one step, and only one:
- *  deep decomposition is read on the task page, not at 390pt. */
-const CHILD_INDENT = space.md
 
 const styles = StyleSheet.create({
-  listContent: {
-    flexGrow: 1,
-  },
-  subTasks: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-  },
-  searchBand: {
-    minHeight: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    paddingHorizontal: space.lg,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: color.border,
-    backgroundColor: color.bgSunken,
-  },
-  searchInput: {
-    ...sans(400),
-    flex: 1,
-    minHeight: 44,
-    color: color.text,
-    fontSize: font.body,
-  },
-  filterSummary: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    paddingHorizontal: space.md,
-    paddingTop: space.sm,
-  },
-  filterChip: {
-    minHeight: 36,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: space.sm + 2,
-    borderRadius: radius.full,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
-    backgroundColor: color.surface,
-  },
-  filterChipPressed: { backgroundColor: color.surfacePressed },
-  filterChipText: { ...sans(500), color: color.textDim, fontSize: font.tiny },
-  toggle: {
-    ...sans(600),
-    // A view filter is not the primary action; it stopped competing with the
-    // needs-you bisque and the New Task button [POD-366].
-    color: color.textDim,
-    fontSize: font.small,
-  },
-  screenRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm + 2,
-    marginHorizontal: space.sm + 2,
-    marginTop: space.sm,
-    // Owns the gap below itself now that the sticky header cannot carry a
-    // marginTop of its own.
-    marginBottom: space.sm,
-    paddingHorizontal: 9,
-    paddingVertical: 9,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.accentBorder,
-    backgroundColor: color.accentSoft,
-  },
-  screenRowPressed: {
-    backgroundColor: alpha(color.accent, 0.2),
-  },
-  screenIcon: {
-    width: 26,
-    height: 26,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: color.bgSunken,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.accentBorder,
-  },
-  screenText: {
-    flex: 1,
-    minWidth: 0,
-    gap: 1,
-  },
-  screenTitle: {
-    ...sans(600),
-    color: color.text,
-    fontSize: font.small,
-  },
-  screenSub: {
-    ...mono(400),
-    color: color.textDim,
-    fontSize: font.micro,
-  },
-  header: {
-    minHeight: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    paddingLeft: space.md + 2,
-    paddingRight: space.sm,
-    // NO EXTERNAL MARGIN — sticky geometry. Native pins a sticky header by
-    // translating the view to the viewport top, and a margin is layout the
-    // translation cannot take along: the pinned bar floated 8pt low with rows
-    // scrolling through the see-through strip above it. The breath between
-    // stages is the previous section's footer spacer instead.
-    // OPAQUE, and the darkest tier the theme has — a sticky header shares no
-    // ground with the rows travelling behind it.
-    backgroundColor: color.bar,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: color.hairlineBar,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: color.hairlineBar,
-    overflow: 'hidden',
-    zIndex: 1,
-  },
-  headerPressed: {
-    backgroundColor: color.bgSunken,
-  },
-  headerEdge: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: 3,
-  },
-  headerTitle: {
-    ...monoLabel(font.micro),
-    flex: 1,
-  },
-  headerCount: {
-    minWidth: 22,
-    alignItems: 'center',
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: radius.full,
-    borderWidth: StyleSheet.hairlineWidth,
-    backgroundColor: color.bgSunken,
-  },
-  headerCountText: {
-    ...mono(600),
-    color: color.textDim,
-    fontSize: font.micro,
-  },
-  headerChevron: {
-    width: 24,
-    alignItems: 'center',
-  },
-  sectionGap: {
-    height: space.sm,
-  },
-  rowWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: space.sm + 2,
-    marginBottom: 3,
-  },
-  card: {
-    flex: 1,
-    minWidth: 0,
-    backgroundColor: color.surface,
-    borderRadius: radius.md,
-    paddingHorizontal: 9,
-    paddingVertical: 7,
-    gap: 6,
-  },
-  cardPressed: {
-    backgroundColor: color.surfacePressed,
-  },
-  topRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 9,
-  },
-  title: {
-    ...sans(500),
-    flex: 1,
-    color: color.text,
-    fontSize: font.small,
-    lineHeight: leading(font.body),
-  },
-  metaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    flexWrap: 'wrap',
-  },
-  rowState: {
-    ...mono(600),
-    fontSize: font.micro,
-    fontVariant: ['tabular-nums'],
-  },
-  from: {
-    ...mono(400),
-    color: color.textDim,
-    fontSize: font.micro,
-  },
-  repo: {
-    ...mono(400),
-    color: color.textFaint,
-    fontSize: font.micro,
-    marginLeft: 'auto',
-  },
   errorBand: {
     position: 'absolute',
-    left: space.md,
-    right: space.md,
+    left: space.lg,
+    right: space.lg,
     bottom: space.lg,
     minHeight: 44,
     justifyContent: 'center',
     paddingHorizontal: space.md,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.danger,
+    borderRadius: radius.sm,
     backgroundColor: color.dangerSoft,
   },
   errorText: { ...sans(500), color: color.dangerText, fontSize: font.small },

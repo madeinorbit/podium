@@ -1,12 +1,12 @@
-import { useIssueOpening } from '../../client/issue-opening'
-import { issueObserver as observer } from '../../client/issue-observer'
-import { isClosed } from '@podium/model/browser'
 import { relativeTime } from '@podium/client-core/focus'
-import { useAgeNow } from '../../lib/clock-hooks'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { isPendingSync, isUpstreamStale, isViaHub } from '@podium/model'
+import { isClosed } from '@podium/model/browser'
 import { useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
+import { issueObserver as observer } from '../../client/issue-observer'
+import { useIssueOpening } from '../../client/issue-opening'
+import { useAgeNow } from '../../lib/clock-hooks'
 import type { IssueCommands } from '../../lib/issue-detail'
 import { alpha } from '../../theme/mix'
 import { color, font, leading, mono, radius, sans, space, tracking } from '../../theme/theme'
@@ -49,16 +49,32 @@ export const IssueTitle = observer(function IssueTitle({
   )
 })
 
-export const StatusStrip = observer(function StatusStrip({ issue }: { issue: IssueViewModel }) {
+export const StatusStrip = observer(function StatusStrip({
+  issue,
+  exceptionsOnly = false,
+}: {
+  issue: IssueViewModel
+  /** Drop the created/updated recency when the header pills already say it. */
+  exceptionsOnly?: boolean
+}) {
   const now = useAgeNow(Math.max(Date.parse(issue.createdAt), Date.parse(issue.updatedAt)))
   const created = relativeTime(issue.createdAt, now)
   const updated = relativeTime(issue.updatedAt, now)
   const facts = [
     ...(isClosed(issue) ? [`Closed · ${issue.closedReason}`] : []),
-    ...(created ? [`created ${created}`] : []),
-    ...(updated ? [`updated ${updated}`] : []),
+    ...(created && !exceptionsOnly ? [`created ${created}`] : []),
+    ...(updated && !exceptionsOnly ? [`updated ${updated}`] : []),
   ]
   const hub = isViaHub(issue)
+  const exceptions =
+    facts.length > 0 ||
+    issue.isDraftVessel ||
+    issue.pinned ||
+    issue.archived ||
+    issue.intentOrigin === 'agent' ||
+    issue.audience === 'agent' ||
+    hub
+  if (!exceptions) return null
   return (
     <View style={styles.strip}>
       {facts.length > 0 ? <Text style={styles.stripText}>{facts.join(' · ')}</Text> : null}
@@ -194,7 +210,7 @@ export const LongFormFields = observer(function LongFormFields({
 
 const styles = StyleSheet.create({
   title: {
-    ...sans(600),
+    ...sans(700),
     color: color.text,
     fontSize: font.title,
     lineHeight: leading(font.title),

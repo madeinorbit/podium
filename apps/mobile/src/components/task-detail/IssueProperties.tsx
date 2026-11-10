@@ -1,6 +1,3 @@
-import { issueObserver as observer } from '../../client/issue-observer'
-import { isClosed } from '@podium/model/browser'
-import type { PageIssue } from '@podium/client-graph/issue-page'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
@@ -10,10 +7,13 @@ import {
   type RelationEntry,
   sessionTitle,
 } from '@podium/client-core/values'
+import type { PageIssue } from '@podium/client-graph/issue-page'
 import type { SessionId } from '@podium/model'
+import { isClosed } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { type ReactNode, useState } from 'react'
 import { Linking, StyleSheet, Text, TextInput, View } from 'react-native'
+import { issueObserver as observer } from '../../client/issue-observer'
 import type { IssueCommands } from '../../lib/issue-detail'
 import { alpha } from '../../theme/mix'
 import { color, font, mono, radius, sans, space } from '../../theme/theme'
@@ -255,11 +255,17 @@ export const PropertyBar = observer(function PropertyBar({
   onStage,
   onPriority,
   onType,
+  project,
+  trailing,
 }: {
   issue: IssueViewModel
   onStage: () => void
   onPriority: () => void
   onType: () => void
+  /** The repository name, as a plain pill. */
+  project?: string
+  /** Quiet text after the pills — the task's age. */
+  trailing?: ReactNode
 }) {
   return (
     <View style={styles.bar}>
@@ -275,6 +281,13 @@ export const PropertyBar = observer(function PropertyBar({
         onPress={onPriority}
         glyph={<PriorityGlyph priority={issue.priority} size={13} />}
       />
+      {project ? (
+        <View style={styles.chip}>
+          <Text style={styles.chipText} numberOfLines={1}>
+            {project}
+          </Text>
+        </View>
+      ) : null}
       {issue.type !== 'task' ? (
         <Chip
           label={issue.type}
@@ -296,6 +309,7 @@ export const PropertyBar = observer(function PropertyBar({
           <Text style={[styles.chipText, styles.chipBlockedText]}>blocked</Text>
         </View>
       ) : null}
+      {trailing ? <Text style={styles.barTrailing}>{trailing}</Text> : null}
     </View>
   )
 })
@@ -317,14 +331,13 @@ const Chip = observer(function Chip({
       accessibilityLabel={accessibilityLabel}
       accessibilityHint="Opens a picker"
       onPress={onPress}
-      hitSlop={4}
+      hitSlop={8}
       style={({ pressed }) => [styles.chip, pressed && styles.chipPressed]}
     >
       {glyph}
       <Text style={styles.chipText} numberOfLines={1}>
         {label}
       </Text>
-      <Text style={styles.caret}>▾</Text>
     </PressableScale>
   )
 })
@@ -497,52 +510,49 @@ const styles = StyleSheet.create({
   section: {
     paddingBottom: space.xl,
   },
+  // The board's header pills: 24pt fills on the control radius, no outline.
   bar: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
     gap: 6,
-    paddingBottom: space.lg,
+    paddingBottom: space.md,
+  },
+  barTrailing: {
+    ...sans(400),
+    color: color.textDim,
+    fontSize: font.tiny,
   },
   chip: {
-    minHeight: 38,
+    minHeight: 24,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: 6,
     maxWidth: '100%',
-    paddingHorizontal: space.sm + 2,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
+    paddingHorizontal: space.sm,
+    borderRadius: radius.sm,
     backgroundColor: color.surface,
   },
   chipPressed: {
     backgroundColor: color.surfacePressed,
   },
   chipNeedsYou: {
-    borderColor: color.needsYouBorder,
     backgroundColor: color.needsYouSoft,
   },
   chipText: {
-    ...sans(500),
+    ...sans(400),
     flexShrink: 1,
     color: color.body,
-    fontSize: font.tiny,
+    fontSize: 12,
   },
   chipNeedsYouText: {
     color: color.needsYouText,
   },
   chipBlocked: {
-    borderColor: alpha(color.danger, 0.4),
     backgroundColor: color.dangerSoft,
   },
   chipBlockedText: {
     color: color.dangerText,
-  },
-  caret: {
-    ...mono(400),
-    color: color.textFaint,
-    fontSize: 10,
   },
   row: {
     gap: 5,

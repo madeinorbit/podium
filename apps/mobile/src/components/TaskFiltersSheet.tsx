@@ -1,57 +1,84 @@
 import type { BoardFilter, IssuesOrdering } from '@podium/client-core/values'
-import { ALL_ISSUE_STATUSES, ISSUE_STATUS_LABELS, type IssueStatus } from '@podium/model'
-import { ChevronLeft, ChevronRight } from './icons'
+import { LOADING } from '@podium/client-graph/loading'
+import { isGone } from '@podium/client-graph/lookup'
+import {
+  ALL_ISSUE_STATUSES,
+  ISSUE_STATUS_LABELS,
+  type IssueStatus,
+  machinePathBasename,
+} from '@podium/model'
 import { useState } from 'react'
 import { StyleSheet, Switch, Text, View } from 'react-native'
+import { useLaunchRepositoryPaths } from '../client/use-launch-inputs'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
+import { NativePicker, type NativePickerOption } from './action-sheet-native'
 import { BottomSheet } from './BottomSheet'
 import { Icon } from './Icon'
+import { ChevronLeft, ChevronRight } from './icons'
 import { PressableScale } from './PressableScale'
-import { NativePicker, type NativePickerOption } from './action-sheet-native'
 
-const ANY = '__any__'
+export const ANY = '__any__'
 
-type Facet = 'priority' | 'status' | 'stage' | 'ordering'
+export type Facet = 'project' | 'stage' | 'priority' | 'ordering' | 'status'
 
-interface FacetConfig {
+export interface FacetConfig {
   label: string
   value: string
   options: readonly NativePickerOption[]
   apply: (value: string) => void
 }
 
-export function TaskFiltersSheet({
-  visible,
-  filter,
-  ordering,
-  showAgentTasks,
-  onFilter,
-  onOrdering,
-  onShowAgentTasks,
-  onClose,
-}: {
+export interface TaskFiltersSheetProps {
   visible: boolean
   filter: BoardFilter
   ordering: IssuesOrdering
+  showDone: boolean
   showAgentTasks: boolean
   onFilter: (filter: BoardFilter) => void
   onOrdering: (ordering: IssuesOrdering) => void
+  onShowDone: (show: boolean) => void
   onShowAgentTasks: (show: boolean) => void
   onClose: () => void
-}) {
-  const [step, setStep] = useState<Facet | null>(null)
+}
+
+/** The board's filter groups, in the sheet's order: what to show, then how. */
+export const FILTER_FACETS: readonly Facet[] = ['project', 'stage', 'priority']
+export const DISPLAY_FACETS: readonly Facet[] = ['ordering']
+export const MORE_FACETS: readonly Facet[] = ['status']
+
+/** One filter-and-display sheet, two renderers: the facets are built here. */
+export function useTaskFilterFacets(
+  props: Pick<TaskFiltersSheetProps, 'filter' | 'ordering' | 'onFilter' | 'onOrdering'>,
+) {
+  const { filter, ordering, onFilter, onOrdering } = props
+  const repositoryPaths = useLaunchRepositoryPaths()
+  const repos = repositoryPaths === LOADING || isGone(repositoryPaths) ? [] : repositoryPaths
   const set = <K extends keyof BoardFilter>(key: K, value: BoardFilter[K] | undefined) => {
     const next: BoardFilter = { ...filter }
     if (value === undefined) delete next[key]
     else Object.assign(next, { [key]: value })
     onFilter(next)
   }
+  const project = filter.projectPaths?.length === 1 ? filter.projectPaths[0]! : ANY
   const configs: Record<Facet, FacetConfig> = {
+    project: {
+      label: 'Project',
+      value: project,
+      options: [
+        { value: ANY, label: 'All' },
+        ...(project !== ANY && !repos.includes(project) ? [project] : []).map((value) => ({
+          value,
+          label: machinePathBasename(value),
+        })),
+        ...repos.map((value) => ({ value, label: machinePathBasename(value) })),
+      ],
+      apply: (value) => set('projectPaths', value === ANY ? undefined : [value]),
+    },
     priority: {
       label: 'Priority',
       value: filter.priority == null ? ANY : String(filter.priority),
       options: [
-        { value: ANY, label: 'Any priority' },
+        { value: ANY, label: 'Any' },
         ...[0, 1, 2, 3, 4].map((value) => ({ value: String(value), label: `P${value}` })),
       ],
       apply: (value) => set('priority', value === ANY ? undefined : Number(value)),
@@ -60,7 +87,7 @@ export function TaskFiltersSheet({
       label: 'State',
       value: filter.status ?? ANY,
       options: [
-        { value: ANY, label: 'Any state' },
+        { value: ANY, label: 'Any' },
         { value: 'open', label: 'Open' },
         { value: 'closed', label: 'Closed' },
         { value: 'ready', label: 'Ready' },
@@ -74,7 +101,7 @@ export function TaskFiltersSheet({
       label: 'Status',
       value: filter.stage ?? ANY,
       options: [
-        { value: ANY, label: 'Any status' },
+        { value: ANY, label: 'Any' },
         ...ALL_ISSUE_STATUSES.map((value) => ({ value, label: ISSUE_STATUS_LABELS[value] })),
       ],
       apply: (value) => set('stage', value === ANY ? undefined : (value as IssueStatus)),
@@ -90,9 +117,17 @@ export function TaskFiltersSheet({
       apply: (value) => onOrdering(value as IssuesOrdering),
     },
   }
-  const current = step ? configs[step] : null
+  /** Clear every filter, keeping the search text the field still shows. */
+  const reset = () => onFilter(filter.text ? { text: filter.text } : {})
   const activeCount = Object.keys(filter).filter((key) => key !== 'text').length
+  return { configs, set, reset, activeCount }
+}
 
+export function TaskFiltersSheet(props: TaskFiltersSheetProps) {
+  const { visible, filter, showDone, showAgentTasks, onShowDone, onShowAgentTasks, onClose } = props
+  const [step, setStep] = useState<Facet | null>(null)
+  const { configs, set, reset, activeCount } = useTaskFilterFacets(props)
+  const current = step ? configs[step] : null
   const close = () => {
     setStep(null)
     onClose()
@@ -118,7 +153,7 @@ export function TaskFiltersSheet({
             </PressableScale>
           ) : null}
           <View style={styles.headCopy}>
-            <Text style={styles.title}>{current?.label ?? 'Task filters'}</Text>
+            <Text style={styles.title}>{current?.label ?? 'Filter and display'}</Text>
             {!current && activeCount > 0 ? (
               <Text style={styles.summary}>{activeCount} active</Text>
             ) : null}
@@ -126,11 +161,11 @@ export function TaskFiltersSheet({
           {!current && activeCount > 0 ? (
             <PressableScale
               accessibilityRole="button"
-              accessibilityLabel="Clear all task filters"
-              onPress={() => onFilter(filter.text ? { text: filter.text } : {})}
+              accessibilityLabel="Reset task filters"
+              onPress={reset}
               style={styles.clear}
             >
-              <Text style={styles.clearText}>Clear all</Text>
+              <Text style={styles.clearText}>Reset</Text>
             </PressableScale>
           ) : null}
         </View>
@@ -146,49 +181,58 @@ export function TaskFiltersSheet({
           }}
         />
       ) : (
-        <View style={styles.group}>
-          {(Object.keys(configs) as Facet[]).map((facet, index) => {
-            const config = configs[facet]
-            return (
-              <NativePicker
-                key={facet}
-                label={config.label}
-                options={config.options}
-                selected={config.value}
-                onSelect={config.apply}
-                onOpenFallback={() => setStep(facet)}
-              >
-                {(onPress) => (
-                  <FilterRow
-                    label={config.label}
-                    value={optionLabel(config)}
-                    divider={index > 0}
-                    onPress={onPress}
-                  />
-                )}
-              </NativePicker>
-            )
-          })}
-          <ToggleRow
-            label="Archived"
-            value={filter.archived === true}
-            onChange={(value) => set('archived', value || undefined)}
-          />
-          <ToggleRow
-            label="Deleted"
-            value={filter.deleted === true}
-            onChange={(value) => set('deleted', value || undefined)}
-          />
-          <ToggleRow
-            label="Agent tasks"
-            hint="Show internal work at the top level"
-            value={showAgentTasks}
-            onChange={onShowAgentTasks}
-          />
+        <View style={styles.groups}>
+          <View style={styles.group}>{FILTER_FACETS.map(renderFacet)}</View>
+          <View style={styles.group}>
+            {DISPLAY_FACETS.map(renderFacet)}
+            <ToggleRow label="Show done" value={showDone} onChange={onShowDone} />
+            <ToggleRow
+              label="Show agent tasks"
+              hint="Internal work at the top level"
+              value={showAgentTasks}
+              onChange={onShowAgentTasks}
+            />
+          </View>
+          <View style={styles.group}>
+            {MORE_FACETS.map(renderFacet)}
+            <ToggleRow
+              label="Archived"
+              value={filter.archived === true}
+              onChange={(value) => set('archived', value || undefined)}
+            />
+            <ToggleRow
+              label="Deleted"
+              value={filter.deleted === true}
+              onChange={(value) => set('deleted', value || undefined)}
+            />
+          </View>
         </View>
       )}
     </BottomSheet>
   )
+
+  function renderFacet(facet: Facet, index: number) {
+    const config = configs[facet]
+    return (
+      <NativePicker
+        key={facet}
+        label={config.label}
+        options={config.options}
+        selected={config.value}
+        onSelect={config.apply}
+        onOpenFallback={() => setStep(facet)}
+      >
+        {(onPress) => (
+          <FilterRow
+            label={config.label}
+            value={optionLabel(config)}
+            divider={index > 0}
+            onPress={onPress}
+          />
+        )}
+      </NativePicker>
+    )
+  }
 }
 
 function optionLabel(config: FacetConfig): string {
@@ -304,6 +348,7 @@ const styles = StyleSheet.create({
   summary: { ...mono(400), color: color.textFaint, fontSize: font.micro },
   clear: { minHeight: 44, justifyContent: 'center', paddingHorizontal: space.sm },
   clearText: { ...sans(500), color: color.accentTint, fontSize: font.small },
+  groups: { gap: space.md },
   group: {
     overflow: 'hidden',
     borderRadius: radius.lg,

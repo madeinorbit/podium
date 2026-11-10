@@ -19,7 +19,10 @@ vi.mock('../hooks/usePersistedUiState', () => ({
   usePersistedUiState: () => [{ ordering: 'priority', showAgentTasks: false }, () => {}],
 }))
 vi.mock('../hooks/useCollapsed', () => ({
-  useCollapsed: (_key: string, initial: boolean) => useState(initial),
+  useCollapsed: (_key: string, initial: boolean) => {
+    const [collapsed, setCollapsed] = useState(initial)
+    return [collapsed, () => setCollapsed((value) => !value)]
+  },
 }))
 vi.mock('../hooks/useContentBottomInset', () => ({ useContentBottomInset: () => 0 }))
 vi.mock('../hooks/useMinimizeTabBarOnScroll', () => ({ useMinimizeTabBarOnScroll: () => ({}) }))
@@ -90,7 +93,11 @@ vi.mock('react-native', async (importOriginal) => {
       ListHeaderComponent,
     }: {
       sections: { key: string; data: { id: string }[] }[]
-      renderItem: (input: { item: { id: string } }) => ReactNode
+      renderItem: (input: {
+        item: { id: string }
+        index: number
+        section: { data: { id: string }[] }
+      }) => ReactNode
       renderSectionHeader: (input: { section: unknown }) => ReactNode
       ListHeaderComponent: ReactNode
     }) => {
@@ -101,8 +108,8 @@ vi.mock('react-native', async (importOriginal) => {
           {sections.map((section) => (
             <div key={section.key}>
               {renderSectionHeader({ section })}
-              {section.data.map((item) => (
-                <div key={item.id}>{renderItem({ item })}</div>
+              {section.data.map((item, index) => (
+                <div key={item.id}>{renderItem({ item, index, section })}</div>
               ))}
             </div>
           ))}
@@ -122,8 +129,7 @@ vi.mock('../components/StorageNoticeAlert', () => ({ StorageNoticeAlert: () => n
 vi.mock('../components/RefreshOffer', () => ({ RefreshOffer: () => null }))
 vi.mock('../components/NotSavedMark', () => ({ NotSavedMark: () => null }))
 vi.mock('../components/TaskFiltersSheet', () => ({ TaskFiltersSheet: () => null }))
-vi.mock('../components/ActionSheet', () => ({ ActionSheet: () => null }))
-vi.mock('../components/IssueCloseSheet', () => ({ IssueCloseSheet: () => null }))
+vi.mock('../components/WorkIssueMenu', () => ({ WorkIssueMenu: () => null }))
 vi.stubEnv('EXPO_OS', 'web')
 const { IssuesScreen } = await import('./IssuesScreen')
 const now = Date.parse('2026-10-03T12:00:00Z')
@@ -151,7 +157,7 @@ afterEach(() => {
   state.lists = 0
 })
 
-it('redraws only the changed task row and keeps proposal and expansion behavior', async () => {
+it('redraws only the changed task row and keeps the folded proposals and expansion', async () => {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now })
   state.pool = pool
   pool.apply({
@@ -167,9 +173,13 @@ it('redraws only the changed task row and keeps proposal and expansion behavior'
   render(<IssuesScreen />)
   expect(screen.getByRole('button', { name: /Task 1: root/ })).toBeTruthy()
   expect(screen.getByRole('button', { name: /Task 2: peer/ })).toBeTruthy()
-  expect(screen.getByRole('button', { name: /Task 4: proposal/ })).toBeTruthy()
+  // Proposed starts as one folded group whose "Screen" opens the deck.
+  expect(screen.queryByRole('button', { name: /Task 4: proposal/ })).toBeNull()
   expect(screen.queryByRole('button', { name: /Task 3: child/ })).toBeNull()
-  expect(screen.getByRole('button', { name: 'Screen proposed' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Screen proposed' }))
+  expect(router.push).toHaveBeenCalledWith('/screen-proposed')
+  fireEvent.click(screen.getByRole('button', { name: 'Proposed, 1 task' }))
+  expect(screen.getByRole('button', { name: /Task 4: proposal/ })).toBeTruthy()
   const lists = state.lists
   state.counts.clear()
   await act(async () =>
@@ -183,7 +193,8 @@ it('redraws only the changed task row and keeps proposal and expansion behavior'
   expect(state.counts.get('Task 2') ?? 0).toBe(0)
   expect(state.counts.get('Task 4') ?? 0).toBe(0)
   expect(state.lists).toBe(lists)
-  fireEvent.click(screen.getByText('1 sub-task'))
+  // A parent's trailing figure is its child progress, and the disclosure.
+  fireEvent.click(screen.getByText('0/2'))
   expect(screen.getByRole('button', { name: /Task 3: child/ })).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: /Task 3: child/ }))
   expect(router.push).toHaveBeenCalledWith('/issue/child')
