@@ -5,15 +5,13 @@ import { deviceLabel, MembersPage } from './members-data'
 
 test('person companions match sign-ins and machine custody by member id', async () => {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+  pool.sources.register(['settingsCatalog'], {
+    read: () => ({ machines: ['mine', 'theirs'], repositories: [] }),
+    dispose() {},
+  })
   pool.apply({
     type: 'update',
     rows: [
-      {
-        kind: 'settingsCatalog',
-        id: 'catalog',
-        value: { id: 'catalog', machines: ['mine', 'theirs'], repositories: [] },
-      },
-      { kind: 'machine', id: 'mine', value: { id: 'mine', name: 'My machine', custodian: 'anna' } },
       {
         kind: 'machine',
         id: 'theirs',

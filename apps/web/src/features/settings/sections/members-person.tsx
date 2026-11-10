@@ -337,7 +337,7 @@ const PersonDevices = observer(function PersonDevices({
                   subtitle={
                     <>
                       {`${device.platform ? `${device.platform} · ` : ''}Last seen ${device.lastSeenAt ? new Date(device.lastSeenAt).toLocaleString() : 'unknown'}`}
-                      {error?.id === device.id && (
+                      {error && error.id === device.id && (
                         <p className="settings-prose text-destructive" role="alert">
                           {error.message}
                         </p>

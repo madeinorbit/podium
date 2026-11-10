@@ -173,7 +173,7 @@ test('admin rows open a person page and show device counts and disabled state', 
 test('role selection waits for a filled password and confirms through the existing route', async () => {
   const request = mockApi()
   const { ui } = await openPerson()
-  fireEvent.click(ui.getByRole('button', { name: 'Admin', exact: true }))
+  fireEvent.click(ui.getByRole('button', { name: 'Admin' }))
   const confirm = ui.getByRole('button', { name: 'Change role' })
   expect(confirm).toHaveProperty('disabled', true)
   fireEvent.click(confirm)
@@ -193,7 +193,7 @@ test('role selection waits for a filled password and confirms through the existi
 test('server refusal stays in the role confirmation beside its password', async () => {
   mockApi({ refusal: { path: '/role', error: 'The last active admin cannot be demoted' } })
   const { ui } = await openPerson()
-  fireEvent.click(ui.getByRole('button', { name: 'Admin', exact: true }))
+  fireEvent.click(ui.getByRole('button', { name: 'Admin' }))
   fireEvent.change(ui.getByLabelText('Your password'), { target: { value: 'x' } })
   fireEvent.click(ui.getByRole('button', { name: 'Change role' }))
   const confirmation = ui.getByRole('form', { name: 'Change role' })
@@ -297,7 +297,7 @@ test('individual devices and sign out everywhere use their existing routes witho
 test('self role and access actions remain unavailable; personal devices point to Account', async () => {
   mockApi()
   const { ui } = await openPerson('Owner')
-  expect(ui.queryByRole('button', { name: 'Member', exact: true })).toBeNull()
+  expect(ui.queryByRole('button', { name: 'Member' })).toBeNull()
   expect(ui.queryByText('Access', { exact: true })).toBeNull()
   expect(ui.queryByRole('button', { name: 'Sign out everywhere' })).toBeNull()
   expect(ui.getByText('Manage your own devices and sign out in Account.')).toBeTruthy()
@@ -352,7 +352,7 @@ test.each([
   const request = mockApi({ password: hasPassword })
   const { ui } = await openInvite()
   expect(ui.queryByLabelText('Your password')).toBeNull()
-  fireEvent.click(ui.getByRole('button', { name: 'Admin', exact: true }))
+  fireEvent.click(ui.getByRole('button', { name: 'Admin' }))
   const create = ui.getByRole('button', { name: 'Create invite link' })
   expect(create).toHaveProperty('disabled', hasPassword)
   if (hasPassword)
@@ -375,7 +375,7 @@ test.each([
 test('revoke confirms inline, has no password, and deletes only after confirming', async () => {
   const request = mockApi()
   render(<MembersSection />)
-  fireEvent.click(await screen.findByRole('button', { name: 'Revoke', exact: true }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Revoke' }))
   expect(request.mock.calls.some(([url]) => url.endsWith('/revoke'))).toBe(false)
   expect(screen.queryByLabelText('Your password')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Revoke invite' }))
