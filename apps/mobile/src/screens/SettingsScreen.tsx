@@ -7,8 +7,18 @@ import {
 import type { MobileClientSession } from '@podium/protocol'
 import { useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
-import { useMemo, useState } from 'react'
-import { Alert, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Children, Fragment, isValidElement, type ReactNode, useMemo, useState } from 'react'
+import {
+  Alert,
+  Platform,
+  ScrollView,
+  type StyleProp,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  type ViewStyle,
+} from 'react-native'
 import { logout } from '../client/auth'
 import { useConnectedDevices } from '../client/connected-devices'
 import { DEMO_HOST_METRICS, DEMO_MACHINES, demoEnabled } from '../client/demoData'
@@ -227,7 +237,7 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
 
         <OutboxRecoveryPanel />
 
-        <View style={styles.card}>
+        <Card>
           <View style={styles.server}>
             <Text style={styles.serverName} numberOfLines={1}>
               {host}
@@ -245,10 +255,10 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
               {`${formatCount(sessionCount)} sessions · ${formatCount(issueCount)} tasks`}
             </Text>
           </View>
-        </View>
+        </Card>
 
         <GroupHeader label="Machines" />
-        <View style={styles.card}>
+        <Card>
           <Row label="Visible fleet" value={demoFleet?.fleetLabel ?? fleetLabel} />
           <Row label="Updates" value={demoFleet?.updateLabel ?? updateLabel} />
           {demoFleet
@@ -259,14 +269,14 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
           {machines > 12 ? (
             <Row label="More machines" value={`${machines - 12} · see Pulse`} />
           ) : null}
-        </View>
+        </Card>
         <Text style={styles.footer}>
           This phone shows status only. Fleet, network, host, and update changes stay on authorized
           desktop or server surfaces.
         </Text>
 
         <GroupHeader label="Connected devices" />
-        <View style={styles.card}>
+        <Card>
           {deviceFeed.loading && devices.length === 0 ? (
             <Row label="Devices" value="Loading…" />
           ) : deviceFeed.failed && devices.length === 0 ? (
@@ -279,7 +289,7 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
           {deviceFeed.failed && devices.length > 0 ? (
             <Row label="Refresh" value="Failed · showing prior list" />
           ) : null}
-        </View>
+        </Card>
         <Text style={styles.footer}>
           This list belongs to the signed-in account on {profile.name}. Pairing and revocation stay
           in Connected devices on the desktop.
@@ -288,7 +298,7 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
         {Platform.OS !== 'web' ? (
           <>
             <GroupHeader label="Servers" />
-            <View style={styles.card}>
+            <Card>
               {profiles.map((row) => (
                 <PressableScale
                   key={row.id}
@@ -322,34 +332,34 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
                 </PressableScale>
               ))}
               {!isEphemeralOverride ? (
-                <>
-                  <View style={styles.renameRow}>
-                    <TextInput
-                      style={styles.renameInput}
-                      value={profileName}
-                      onChangeText={setProfileName}
-                      accessibilityLabel="Server name"
-                    />
-                    <PressableScale
-                      style={styles.renameButton}
-                      onPress={() => void renameProfile(profile.id, profileName)}
-                      accessibilityRole="button"
-                      accessibilityLabel="Rename server"
-                    >
-                      <Text style={styles.tintLabel}>Rename</Text>
-                    </PressableScale>
-                  </View>
+                <View style={styles.renameRow}>
+                  <TextInput
+                    style={styles.renameInput}
+                    value={profileName}
+                    onChangeText={setProfileName}
+                    accessibilityLabel="Server name"
+                  />
                   <PressableScale
-                    style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-                    onPress={beginAddServer}
+                    style={styles.renameButton}
+                    onPress={() => void renameProfile(profile.id, profileName)}
                     accessibilityRole="button"
-                    accessibilityLabel="Add server"
+                    accessibilityLabel="Rename server"
                   >
-                    <Text style={styles.tintLabel}>Add server</Text>
+                    <Text style={styles.tintLabel}>Rename</Text>
                   </PressableScale>
-                </>
+                </View>
               ) : null}
-            </View>
+              {!isEphemeralOverride ? (
+                <PressableScale
+                  style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+                  onPress={beginAddServer}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add server"
+                >
+                  <Text style={styles.tintLabel}>Add server</Text>
+                </PressableScale>
+              ) : null}
+            </Card>
             {isEphemeralOverride ? (
               <Text style={styles.footer}>
                 This development server override is ephemeral and cannot be edited or saved.
@@ -359,18 +369,18 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
         ) : null}
 
         <GroupHeader label="About" />
-        <View style={styles.card}>
+        <Card>
           <Row label="Server build" value={buildStamp.text.replace(/\n/g, ' · ')} />
           <Row label="Queued sends" value={String(outboxSize)} />
           <Row label="Needs recovery" value={String(outboxDeadLetterCount)} />
           <Row label="Sync cursor" value={String(cursor ?? 'none')} />
-        </View>
+        </Card>
         <Text style={styles.footer}>
           Notifications: set an ntfy topic or a Telegram bot in the desktop app's settings to get
           pushed when an agent needs you.
         </Text>
 
-        <View style={[styles.card, styles.lastCard]}>
+        <Card style={styles.lastCard}>
           <PressableScale
             style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
             onPress={() => void doLogout()}
@@ -395,7 +405,7 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
               <Text style={styles.destructiveLabel}>Remove this server</Text>
             </PressableScale>
           ) : null}
-        </View>
+        </Card>
         {Platform.OS !== 'web' && !isEphemeralOverride ? (
           <Text style={styles.footer}>
             Removing signs this phone out of {host}. Nothing on the server is deleted.
@@ -412,6 +422,21 @@ function hostOf(origin: string): string {
   } catch {
     return origin
   }
+}
+
+/** A grouped-list card: hairline separators between rows, inset to the text. */
+function Card({ style, children }: { style?: StyleProp<ViewStyle>; children: ReactNode }) {
+  const rows = Children.toArray(children)
+  return (
+    <View style={[styles.card, style]}>
+      {rows.map((row, index) => (
+        <Fragment key={isValidElement(row) && row.key != null ? row.key : index}>
+          {index > 0 ? <View style={styles.separator} /> : null}
+          {row}
+        </Fragment>
+      ))}
+    </View>
+  )
 }
 
 function GroupHeader({ label }: { label: string }) {
@@ -492,11 +517,6 @@ function Row({ label, value }: { label: string; value: string }) {
  * radius 8 and a 12 inset, 44pt rows with hairline separators inset to the
  * text, 13pt section headers sitting on the card's own axis.
  */
-const separator = {
-  borderTopWidth: StyleSheet.hairlineWidth,
-  borderTopColor: color.border,
-} as const
-
 const styles = StyleSheet.create({
   scroll: { flex: 1, backgroundColor: color.groupedBg },
   content: { paddingHorizontal: grid(4), paddingTop: grid(2) },
@@ -516,6 +536,11 @@ const styles = StyleSheet.create({
     borderRadius: radius.card,
     backgroundColor: color.groupedCard,
     overflow: 'hidden',
+  },
+  separator: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: grid(3),
+    backgroundColor: color.border,
   },
   lastCard: { marginTop: grid(7) },
   server: { paddingHorizontal: grid(3), paddingVertical: grid(3), gap: 2 },
@@ -547,7 +572,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: grid(2),
     paddingHorizontal: grid(3),
-    ...separator,
   },
   rowPressed: { backgroundColor: color.surfacePressed },
   tallRow: {
@@ -557,7 +581,6 @@ const styles = StyleSheet.create({
     gap: grid(2),
     paddingHorizontal: grid(3),
     paddingVertical: grid(2),
-    ...separator,
   },
   rowLabel: { ...sans(400), color: color.text, fontSize: font.small },
   rowValue: {
@@ -579,7 +602,6 @@ const styles = StyleSheet.create({
     gap: grid(2),
     paddingHorizontal: grid(3),
     paddingVertical: grid(2),
-    ...separator,
   },
   serverDetails: { flex: 1, minWidth: 0, gap: 2 },
   statusDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: color.idle },
@@ -590,7 +612,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: grid(2),
     paddingLeft: grid(3),
-    ...separator,
   },
   renameInput: {
     flex: 1,
