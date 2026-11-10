@@ -443,4 +443,74 @@ describe('personal AI accounts', () => {
       expect(trpc.accounts.disconnect.mutate).toHaveBeenCalledWith({ id: OWN.id }),
     )
   })
+
+  it('renders an unavailable native probe as unknown instead of claiming a logout', async () => {
+    serveList([{ ...NATIVE, status: 'unknown', loginRequired: false }])
+    render(<Harness />)
+    expect(await screen.findByText('Status unavailable')).toBeTruthy()
+    expect(screen.queryByText(/not signed in|Not connected/)).toBeNull()
+  })
+
+  it('keeps a long connected identity readable without arbitrary character breaks', async () => {
+    const identity = 'Avery Example · avery.example+podium@example.com'
+    serveList([{ ...NATIVE, status: 'connected', identity, loginRequired: false }])
+    render(<Harness />)
+    const value = await screen.findByText(identity)
+    expect(value.className).toContain('break-words')
+    expect(value.className).not.toContain('break-all')
+    expect(value.className).not.toContain('truncate')
+  })
+
+  it('surfaces a connect failure and keeps the secret entry open for correction', async () => {
+    serveList([API_KEY_ROW])
+    trpc.accounts.connect.mutate.mockRejectedValue(new Error('Bad credential'))
+    render(<Harness />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Add key' }))
+    fireEvent.click(flow().getByRole('button', { name: 'Add' }))
+    fireEvent.change(flow().getByLabelText('Anthropic API key'), {
+      target: { value: 'invalid-key' },
+    })
+    fireEvent.click(flow().getByRole('button', { name: 'Save' }))
+    expect(await flow().findByText('Bad credential')).toBeTruthy()
+    expect((flow().getByLabelText('Anthropic API key') as HTMLInputElement).type).toBe('password')
+    expect(flow().getByRole('button', { name: 'Save' })).toBeTruthy()
+    expect(frame.closeTakeover).not.toHaveBeenCalled()
+  })
+
+  it('lets a member remove an already named person when the names directory fails', async () => {
+    trpc.accounts.share.mutate.mockResolvedValue({ ok: true })
+    await openKey({ ...OWN, sharing: { everyone: false, users: ['user:ana'] } }, OWN)
+    await waitFor(() => expect(memberRequest).toHaveBeenCalledWith(expect.any(String), 'directory'))
+    const person = flow().getByRole('switch', { name: 'user:ana' })
+    expect(person.getAttribute('aria-checked')).toBe('true')
+    fireEvent.click(person)
+    await waitFor(() =>
+      expect(trpc.accounts.share.mutate).toHaveBeenCalledWith({
+        id: OWN.id,
+        everyone: false,
+        users: [],
+      }),
+    )
+    await waitFor(() =>
+      expect(flow().getByRole('button', { name: 'Only you' }).getAttribute('aria-pressed')).toBe(
+        'true',
+      ),
+    )
+    expect(trpc.accounts.keys.query).not.toHaveBeenCalled()
+  })
+
+  it('explains an unavailable names directory without requiring an admin', async () => {
+    await openKey()
+    expect(
+      await flow().findByText('People could not be loaded. Existing shares can still be removed.'),
+    ).toBeTruthy()
+    expect(
+      (flow().getByRole('button', { name: 'Specific people' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+    expect((flow().getByRole('button', { name: 'Only you' }) as HTMLButtonElement).disabled).toBe(
+      false,
+    )
+    expect(screen.queryByText(/Only an admin can see the member list/)).toBeNull()
+    expect(trpc.accounts.keys.query).not.toHaveBeenCalled()
+  })
 })

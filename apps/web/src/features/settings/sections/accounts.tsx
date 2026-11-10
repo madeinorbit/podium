@@ -130,7 +130,11 @@ const NativeAccountRow = observer(function NativeAccountRow({
       leading={label.slice(0, 1)}
       title={label}
       pills={
-        account.identity && <span className="settings-micro font-mono">{account.identity}</span>
+        account.identity && (
+          <span className="settings-micro min-w-0 max-w-full break-words font-mono">
+            {account.identity}
+          </span>
+        )
       }
       subtitle={
         <>
