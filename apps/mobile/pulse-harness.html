@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Pulse — mobile harness</title>
+    <style>
+      html, body, #root { margin: 0; background: #000; }
+      /* No SF Pro in a Linux browser; a neutral sans stands in so the harness reads like the app. */
+      div[dir], div[dir] * { font-family: Inter, "Helvetica Neue", Arial, sans-serif; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>window.global = window</script>
+    <script type="module" src="/harness/pulse-entry.tsx"></script>
+  </body>
+</html>
