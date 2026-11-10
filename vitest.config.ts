@@ -52,6 +52,9 @@ export const sharedTestWorkerLimits = {
  * options, spread into every lane config (vitest.unit/integration/agent-smoke). */
 export const sharedVitestConfig = {
   resolve: {
+    // Server auth tests import the phone client, whose credential module only has
+    // platform entries. Keep Vite's normal order, then fall back to the web entry.
+    extensions: ['.mjs', '.js', '.mts', '.ts', '.jsx', '.tsx', '.json', '.web.ts'],
     // Array form (not the object map): it takes anchored RegExp `find`s, which is the
     // only way to alias a package that exposes subpaths. A *string* alias matches by
     // prefix, so '@podium/runtime' would rewrite the '@podium/runtime/sqlite' subpath
