@@ -433,7 +433,7 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
   },
   {
     file: 'packages/identity/src/runtime.ts',
-    line: 179,
+    line: 180,
     why: "the same declaration's implementation.",
   },
   {
@@ -603,6 +603,22 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   'apps/server/src/modules/issues/issue-reader.ts#CommittedIssueReader.rows': {
     kind: 'contained',
     why: 'Reads the existing committed IssueStore map without I/O or publication; rollback leaves nothing observable outside this process.',
+  },
+  'apps/server/src/identity/member-credentials.ts#MemberCredentials.hasPassword': {
+    kind: 'contained',
+    why: "Reads whether the member's account has a password login method (POD-6746): the member row through UsersRepository and one read of the identity package, both on the store's one drizzle handle inside the open transaction. No I/O outside the database and nothing is published.",
+  },
+  'apps/server/src/identity/member-credentials.ts#MemberCredentials.setPasswordHash': {
+    kind: 'contained',
+    why: "Writes the password login method of the member's account from a hash made before the transaction opened (POD-6746). The identity package's transaction is the store's `createOrJoinTransaction`, so the write joins the setup transaction and rolls back with it; a password write steps no membership version, writes no member row and publishes nothing.",
+  },
+  'packages/identity/src/types.ts#MembershipOperations.list': {
+    kind: 'contained',
+    why: "Reads the workspace's memberships with the identity package's own statements on the store's drizzle handle (POD-6746, `ensureLocalIdentity`); it joins the open transaction and has no effect outside the database.",
+  },
+  'packages/identity/src/types.ts#MembershipOperations.adopt': {
+    kind: 'contained',
+    why: "Gives a member row its membership and account at boot (POD-6746, `ensureLocalIdentity`): membership, account and workspace revision rows written by the identity package through the store's `createOrJoinTransaction`, and the member row through `UsersRepository.writeMemberRow`, whose own effects are analysed where it is declared. Everything joins the one boot transaction and rolls back with it; nothing is sent outside the process.",
   },
   'packages/identity/src/types.ts#TransactionPort.fn': {
     kind: 'opaque',
