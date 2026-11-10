@@ -46,7 +46,7 @@ async function openPassword(trpc: Trpc) {
   fireEvent.click(await screen.findByRole('button', { name: /^(change|set) password$/i }))
   const flow = frame.openTakeover.mock.calls.at(-1)?.[0]
   expect(flow).toBeTruthy()
-  render(flow.content)
+  return render(flow.content)
 }
 afterEach(() => {
   cleanup()
@@ -176,5 +176,34 @@ describe('Account password takeover', () => {
     await waitFor(() => expect(frame.closeTakeover).toHaveBeenCalledOnce())
     expect(trpc.auth.setPassword.mutate).toHaveBeenCalledOnce()
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+  it('finishes an open-mode password change without calling the disabled login endpoint', async () => {
+    const trpc = fakeTrpc(false)
+    vi.mocked(trpc.auth.setPassword.mutate).mockResolvedValue({ loginRequired: false })
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    await openPassword(trpc)
+    fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'new' } })
+    fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'new' } })
+    fireEvent.submit(screen.getByLabelText('New password').closest('form')!)
+    await waitFor(() => expect(frame.closeTakeover).toHaveBeenCalledOnce())
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+  it('does not close a newer takeover when a password save finishes after leaving', async () => {
+    const trpc = fakeTrpc(false)
+    let finish: ((answer: { loginRequired: boolean }) => void) | undefined
+    vi.mocked(trpc.auth.setPassword.mutate).mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+    )
+    const flow = await openPassword(trpc)
+    fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'new' } })
+    fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'new' } })
+    fireEvent.submit(screen.getByLabelText('New password').closest('form')!)
+    flow.unmount()
+    finish?.({ loginRequired: false })
+    await waitFor(() => expect(trpc.auth.status.query).toHaveBeenCalledTimes(2))
+    expect(frame.closeTakeover).not.toHaveBeenCalled()
   })
 })

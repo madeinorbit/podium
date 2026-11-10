@@ -240,9 +240,9 @@ export const AccountProfileSection = observer(function AccountProfileSection({
                     email={profile.email ?? null}
                     hasOwnCredential={status.hasOwnCredential}
                     onCancel={frame.closeTakeover}
-                    onSaved={() => {
+                    onSaved={(active) => {
                       loadStatus()
-                      frame.closeTakeover()
+                      if (active) frame.closeTakeover()
                       toast.success('Password saved.')
                     }}
                   />
@@ -278,7 +278,7 @@ function PasswordTakeover({
   trpc: Trpc
   email: string | null
   hasOwnCredential: boolean
-  onSaved: () => void
+  onSaved: (active: boolean) => void
   onCancel: () => void
 }) {
   const [current, setCurrent] = useState('')
@@ -288,6 +288,14 @@ function PasswordTakeover({
   const [error, setError] = useState<string | null>(null)
   // If refreshing the cookie fails, retry only that step: the password already changed.
   const [passwordSaved, setPasswordSaved] = useState(false)
+  const loginRequired = useRef(true)
+  const active = useRef(true)
+  useEffect(() => {
+    active.current = true
+    return () => {
+      active.current = false
+    }
+  }, [])
   const saving = useRef(false)
   const save = async () => {
     if (saving.current) return
@@ -305,27 +313,30 @@ function PasswordTakeover({
     let credentialChanged = passwordSaved
     try {
       if (!passwordSaved) {
-        await trpc.auth.setPassword.mutate({ current: current || undefined, next })
+        const result = await trpc.auth.setPassword.mutate({ current: current || undefined, next })
+        loginRequired.current = result.loginRequired
         setPasswordSaved(true)
         credentialChanged = true
       }
-      const response = await workspaceFetch(
-        `${serverConfig(window.location).httpOrigin}/auth/login`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ email: email ?? 'user:sole', password: next }),
-        },
-      )
-      if (!response.ok)
-        throw new Error(
-          'Your password changed, but this device couldn’t refresh its sign-in. Try again to finish signing in.',
+      if (loginRequired.current) {
+        const response = await workspaceFetch(
+          `${serverConfig(window.location).httpOrigin}/auth/login`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ email: email ?? 'user:sole', password: next }),
+          },
         )
+        if (!response.ok)
+          throw new Error(
+            'Your password changed, but this device couldn’t refresh its sign-in. Try again to finish signing in.',
+          )
+      }
       setCurrent('')
       setNext('')
       setConfirm('')
-      onSaved()
+      onSaved(active.current)
     } catch (error) {
       setError(
         credentialChanged

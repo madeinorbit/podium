@@ -2771,6 +2771,16 @@ type Output_agentProfiles_show = {
 } & {
     machineName: null | string;
 };
+type Output_auth_profile = {
+    accountId?: null | string | undefined;
+    avatar?: null | string | undefined;
+    createdAt: string;
+    disabledAt: null | string;
+    displayName: string;
+    email: null | string;
+    id: string;
+    role: "admin" | "member";
+};
 type Output_auth_status = {
     canManageInstance: boolean;
     hasOwnCredential: boolean;
@@ -6482,8 +6492,15 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             input: (undefined) | ({
                 [k: string]: unknown;
             } & {});
+            output: Output_auth_profile;
+            meta: unknown;
+        }>;
+        "setDisplayName": TRPC.TRPCMutationProcedure<{
+            input: {
+                displayName: string;
+            };
             output: {
-                email: null | string;
+                displayName: string;
             };
             meta: unknown;
         }>;
