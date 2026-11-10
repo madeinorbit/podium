@@ -132,7 +132,7 @@ export const AuditSection = observer(function AuditSection(): JSX.Element {
           </Button>
         </div>
       )}
-      <div role="region" aria-label="Security events" aria-busy={answer.loading}>
+      <section aria-label="Security events" aria-busy={answer.loading}>
         {events === undefined && !answer.error && <AuditSkeleton />}
         {events?.length === 0 && (
           <Section list>
@@ -151,7 +151,7 @@ export const AuditSection = observer(function AuditSection(): JSX.Element {
             <AuditDay key={day.key} at={day.at} events={day.events} />
           ))}
         {answer.loading && events !== undefined && <AuditSkeleton />}
-      </div>
+      </section>
       {nextBefore !== null && (
         <div className="mt-3.5 text-center">
           <Button
