@@ -170,6 +170,14 @@ describe('upgrade rehearsal', () => {
     const before = createHash('sha256').update(readFileSync(sourcePath)).digest('hex')
     const output = await rehearse(source, join(root, 'oldest-copy'))
     expect(createHash('sha256').update(readFileSync(sourcePath)).digest('hex')).toBe(before)
+    const identityRows = (database: ReturnType<typeof openDatabase>) =>
+      Object.fromEntries(
+        ['users', 'identity_user', 'identity_account', 'identity_membership'].map((table) => [
+          table,
+          database.prepare(`SELECT * FROM ${table} ORDER BY 1, 2`).all(),
+        ]),
+      )
+    let beforeRestart: ReturnType<typeof identityRows> | undefined
     const upgraded = openDatabase(join(output, 'state', 'podium.db'), { readOnly: true })
     try {
       const members = upgraded
@@ -198,8 +206,27 @@ describe('upgrade rehearsal', () => {
         n: DRIZZLE_MIGRATIONS.length,
       })
       expect(upgraded.prepare('PRAGMA quick_check').get()).toEqual({ quick_check: 'ok' })
+      beforeRestart = identityRows(upgraded)
     } finally {
       upgraded.close()
+    }
+    const restartedOutput = await rehearse(join(output, 'state'), join(root, 'oldest-restart'))
+    const restarted = openDatabase(join(restartedOutput, 'state', 'podium.db'), { readOnly: true })
+    try {
+      expect(identityRows(restarted)).toEqual(beforeRestart)
+      expect(
+        restarted
+          .prepare(
+            "SELECT name FROM sqlite_schema WHERE name IN ('user_credentials', 'member_invites')",
+          )
+          .all(),
+      ).toEqual([])
+      expect(restarted.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get()).toEqual({
+        n: DRIZZLE_MIGRATIONS.length,
+      })
+      expect(restarted.prepare('PRAGMA quick_check').get()).toEqual({ quick_check: 'ok' })
+    } finally {
+      restarted.close()
     }
   }, 120_000)
 

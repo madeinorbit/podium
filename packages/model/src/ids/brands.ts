@@ -333,7 +333,7 @@ export const asDeliveryReceiptId = (s: string): DeliveryReceiptId => s as Delive
 // `z.string()` and tightening one turns a payload that parses today into a parse
 // failure. That argument is about fields that ALREADY PARSE. `mem_` and `inv_`
 // fields do not exist yet — A2 adds the member column, A4 adds
-// Workspace invitation storage — so there is no such payload, and a permissive field schema
+// invitation records — so there is no such payload, and a permissive field schema
 // here would only be an invitation to bind the unchecked one at the very fields
 // the prefix exists to protect. `MemberIdField` is therefore the same schema as
 // `MemberId`, named so a schema author reaching for the usual spelling cannot
