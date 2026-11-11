@@ -57,6 +57,19 @@ const breakdown: HostMemoryBreakdown = {
 }
 
 describe('visibleFleetOperations', () => {
+  it('labels an unavailable target from the open view answer rather than the machine row', () => {
+    const host = machine('owned', { appVersion: '0.4.8', versionState: 'unknown' })
+    const args = {
+      machines: [host],
+      hosts: [],
+      targetUnavailableReasons: { [host.id]: 'No release for this platform' },
+    }
+    expect(visibleFleetOperations(args).machines[0]?.updateLabel).toBe('0.4.8 · target unavailable')
+    expect(
+      visibleFleetOperations({ ...args, targetUnavailableReasons: {} }).machines[0]?.updateLabel,
+    ).toBe('0.4.8')
+  })
+
   it('keeps visibility, use, liveness, and update state as separate facts', () => {
     const owned = machine('owned', {
       appVersion: '0.4.8',

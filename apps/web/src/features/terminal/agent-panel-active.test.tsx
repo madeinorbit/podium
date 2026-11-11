@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+
+import { liveFixture } from '@podium/client-graph/live-fixture'
 import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -216,6 +218,59 @@ async function flush(): Promise<void> {
 }
 
 describe('AgentPanel active wiring', () => {
+  it('constructs the first terminal at the live session size without geometry on its row', async () => {
+    paneFixture.sync()
+    const pool = paneFixture.hooks.useWorklistPool()!
+    const geometry = { cols: 132, rows: 43 }
+    liveFixture(pool).sessionTerminalState('s1', { controller: null, geometry })
+    expect(pool.row('session', 's1')).not.toHaveProperty('geometry')
+
+    await act(async () => root.render(<AgentPanel sessionId={asSessionId('s1')} active />))
+    await flush()
+
+    expect(mountSessionMock.mock.calls[0]?.[1]).toMatchObject({ initialGeometry: geometry })
+  })
+
+  it('shows new-file evidence in the native offer dock when the live last input arrives', async () => {
+    storeIssues = [
+      makeIssue({
+        id: 'iss-evidence',
+        repoPath: '/w',
+        worktreePath: '/w',
+        panel: {
+          todos: [],
+          deferred: [],
+          artifacts: [{ path: 'first-frame.png', addedAt: '2026-06-03T00:02:00.000Z' }],
+        },
+      }),
+    ]
+    storeSessions = [
+      meta({
+        issueId: storeIssues[0]!.id,
+        offer: { message: 'Terminal ready', actions: [], createdAt: '2026-06-03T00:03:00.000Z' },
+      }),
+    ]
+    await act(async () => renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />))
+    await flush()
+    const pool = paneFixture.hooks.useWorklistPool()!
+    expect(pool.row('session', 's1')).not.toHaveProperty('lastInputAt')
+    const dock = container.querySelector('[data-testid="native-offer-dock"]')
+    expect(dock).not.toBeNull()
+    expect(dock?.querySelector('[data-testid="offer-artifact-thumb"]')).toBeNull()
+
+    await act(async () =>
+      liveFixture(pool).sessionCondition('s1', {
+        busy: false,
+        requestsGated: 0,
+        lastInputAt: '2026-06-03T00:01:00.000Z',
+      }),
+    )
+
+    expect(dock?.querySelector('[data-testid="offer-artifact-thumb"]')?.textContent).toContain(
+      'first-frame.png',
+    )
+  })
+
   it('renders issue git chrome from a normalized-only replica', async () => {
     storeIssues = [
       makeIssue({
