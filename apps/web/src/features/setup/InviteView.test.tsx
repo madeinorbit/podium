@@ -133,6 +133,32 @@ test('an invitation arriving in an already open signed-in app takes priority', a
   expect(screen.queryByText('Workspace')).toBeNull()
 })
 
+test('an account-managed invitation keeps the token in the account page fragment, not its request URL', async () => {
+  window.history.replaceState(null, '', '/workspace-invitation?workspace=ws_team#invite=secret')
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) =>
+      Response.json(
+        url.endsWith('/status')
+          ? {
+              needsAuth: true,
+              authed: false,
+              capabilities: accountCapabilities,
+              prompt: 'email-password',
+            }
+          : { kind: 'invitation', email: 'bob@example.com' },
+      ),
+    ),
+  )
+  render(<InviteView token="secret" httpOrigin="" onDone={vi.fn()} />)
+  const link = await screen.findByRole('link', { name: 'Continue to accept invitation' })
+  const href = new URL(link.getAttribute('href')!)
+  expect(href.search).not.toContain('secret')
+  expect(new URLSearchParams(href.hash.slice(1)).get('returnTo')).toBe(
+    '/workspace-invitation?workspace=ws_team#invite=secret',
+  )
+})
+
 test('an account-managed invitation offers account acceptance without a server-local password form', async () => {
   vi.stubGlobal(
     'fetch',

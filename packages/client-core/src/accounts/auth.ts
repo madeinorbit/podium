@@ -45,6 +45,23 @@ const capabilitiesSchema: z.ZodType<AuthCapabilities> = z.object({
     .nullable(),
 })
 
+/**
+ * An invitation secret is in the requested page's fragment. Encoding that
+ * fragment inside a query parameter would put the token in the account page's
+ * request URL, its logs, the edge and any Referer, so the whole return value
+ * travels in the account page's fragment instead. Other return paths keep the
+ * query form they have always used.
+ */
+function carriesInvitationToken(value: string): boolean {
+  if (/(?:^|[#&])invite=/.test(value)) return true
+  try {
+    const url = new URL(value, 'https://account.invalid')
+    return url.pathname === '/workspace-invitation' && url.hash.length > 1
+  } catch {
+    return false
+  }
+}
+
 /** Account pages are rooted at the server-reported URL, including its path. */
 export function accountPageUrl(
   capabilities: AuthCapabilities,
@@ -54,7 +71,11 @@ export function accountPageUrl(
   if (!capabilities.accountUrl) return undefined
   const base = capabilities.accountUrl.replace(/\/$/, '')
   const url = new URL(page ? `${base}/${page}` : base)
-  if (returnTo) url.searchParams.set('returnTo', returnTo)
+  if (returnTo) {
+    if (carriesInvitationToken(returnTo))
+      url.hash = new URLSearchParams({ returnTo }).toString()
+    else url.searchParams.set('returnTo', returnTo)
+  }
   return url.href
 }
 
