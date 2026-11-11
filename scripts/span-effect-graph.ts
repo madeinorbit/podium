@@ -939,9 +939,17 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: 'a pure repo-id resolver injected at construction',
   },
-  'apps/server/src/store/issues.ts#IssuesRepository.sessionRefPublisher': {
-    kind: 'contained',
-    why: 'The composition hook declares birth-session reference rows through ledger.capture in the repair span; authority publication waits for commit, so a rollback exposes nothing outside the process.',
+  'apps/server/src/store/issues.ts#IssuesRepository.sessionRefWrite': {
+    kind: 'opaque',
+    why: 'The composition hook compares dependent session records around an issue source write; its callback body is supplied and analysed at the call site.',
+  },
+  'packages/sync/src/adapters/sqlite/sync-repository.ts#SyncRepository.sessionRecordWrite': {
+    kind: 'opaque',
+    why: 'The injected queue-write wrapper compares its dependent session records in the source commit; its callback body is supplied and analysed at the call site.',
+  },
+  'packages/sync/src/adapters/sqlite/sync-repository.ts#SyncRepository.write': {
+    kind: 'opaque',
+    why: 'The source queue write passed through writeQueue and sessionRecordWrite; its body is supplied and analysed at the call site.',
   },
   'apps/server/src/store/repos.ts#ReposRepository.repoIdResolver()': {
     kind: 'contained',
@@ -1361,9 +1369,9 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
       kind: 'contained',
       why: "fails every message still waiting for the removed session, and writes each sender's notice, inside the removal's own transaction (POD-4816): database rows only, and a removal that cannot end its messages does not commit.",
     },
-  'apps/server/src/modules/sessions/repository.ts#SessionRepository.additionalChanges': {
+  'apps/server/src/modules/sessions/repository.ts#SessionRepository.additionalAffects': {
     kind: 'opaque',
-    why: 'The satellite-row declaration callback returns change specs inside the session commit, alongside additionalWrite; its body is supplied and analysed at the call site, and this port publishes nothing itself.',
+    why: 'The satellite callback names affected records before the session write; its body is supplied and analysed at the call site, and this port publishes nothing itself.',
   },
   'apps/server/src/modules/sessions/repository.ts#SessionRepository.<anonymous>': {
     kind: 'opaque',
@@ -1377,7 +1385,7 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'opaque',
     why: "the plan callback; its body is supplied by whoever built the plan. The session twin of `IssueLifecyclePlan.write` — `prepareIssueSessionDelete` writes the object literal down, and because `Ledger.commit` is declared with `{ props: ['write', 'changes'] }` that literal is a SPAN ROOT in its own right there.",
   },
-  'apps/server/src/modules/sessions/session-lifecycle-types.ts#SessionDeletePlan.changes': {
+  'apps/server/src/modules/sessions/session-lifecycle-types.ts#SessionDeletePlan.affects': {
     kind: 'opaque',
     why: 'the plan callback; its body is supplied by whoever built the plan. The twin of `SessionDeletePlan.write` above, and a span root at the same site.',
   },
@@ -1385,7 +1393,7 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'opaque',
     why: 'the plan callback; its body is supplied by whoever built the plan. `prepareIssueSessionRestore` writes it down, and it is a span root there.',
   },
-  'apps/server/src/modules/sessions/session-lifecycle-types.ts#SessionRestorePlan.changes': {
+  'apps/server/src/modules/sessions/session-lifecycle-types.ts#SessionRestorePlan.affects': {
     kind: 'opaque',
     why: 'the plan callback; its body is supplied by whoever built the plan. The twin of `SessionRestorePlan.write` above, and a span root at the same site.',
   },
