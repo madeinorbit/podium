@@ -2,6 +2,7 @@ import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 import { asMachineId } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FirstTaskActivation } from './FirstTaskActivation'
 
@@ -218,14 +219,14 @@ describe('FirstTaskActivation', () => {
     render(<FirstTaskActivation route="agent" onRouteChange={vi.fn()} onComplete={vi.fn()} />)
 
     const section = await screen.findByRole('region', { name: 'Detected accounts' })
-    const boxes = await within(section).findAllByRole('checkbox', {
+    const boxes = await within(section).findAllByRole('switch', {
       name: /Use on all my machines/,
     })
     expect(boxes).toHaveLength(2)
     expect(boxes.map((box) => box.getAttribute('aria-checked'))).toEqual(['false', 'false'])
     expect(within(section).getByText('alice@example.com')).toBeTruthy()
 
-    fireEvent.click(boxes[0] as HTMLElement)
+    await userEvent.click(within(section).getAllByText('Use on all my machines')[0]!)
     await waitFor(() =>
       expect(useOnMyMachines).toHaveBeenCalledWith({
         harness: 'codex',

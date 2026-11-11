@@ -1,9 +1,11 @@
 import type { MemberDirectoryAnswer } from '@podium/client-graph/member-directory'
+import { loadSyncedModels } from '@podium/client-graph/models'
 import { MobxPool } from '@podium/client-graph/pool'
 import { expect, test } from 'vitest'
 import { deviceLabel, MembersPage } from './members-data'
 
 test('person companions match sign-ins and machine custody by member id', async () => {
+  await loadSyncedModels()
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
   pool.sources.register(['settingsCatalog'], {
     read: () => ({ machines: ['mine', 'theirs'], repositories: [] }),
