@@ -1061,7 +1061,10 @@ links. Its transaction records `identity.legacyLinksImported` only after all mem
 accounts and live links are imported. The generated retirement migration runs after
 that receipt commits, before serving traffic. A direct upgrade from the oldest
 customer fixture follows this sequence without an intermediate binary. Hosted
-workspace composition imports no local accounts.
+workspace composition imports no local accounts and leaves the source tables
+untouched. Hosted requests use no source credential or invitation repository;
+their table retirement is deferred to POD-6820 by the coordinator's decision
+of 2026-11-11.
 
 Rollback restores the database snapshot captured before the schema and data steps,
 together with the matching older binary. Source credential and invitation tables

@@ -340,7 +340,7 @@ describe('boundaries that do carry, next to the ones that do not', () => {
     })
   }, 120_000)
 
-  it('test 28: a server handed its identity through the hosted seam never reads the old cookie', async () => {
+  it('test 28: hosted requests use no retired credential, invitation or session repository', async () => {
     // Only what the status route and the boot call is stood in: a hosted
     // workspace where nobody is signed in.
     const hosted = {
@@ -361,7 +361,16 @@ describe('boundaries that do carry, next to the ones that do not', () => {
     f = await startUpgradedInstance('two-members', { identity: () => hosted })
     const i = f
     expect(i.handle.signInCarryOver).toBeUndefined()
+    expect(i.handle.registry.sessionStore).not.toHaveProperty('auth')
     const rowsBefore = oldRows(i)
+    const importSources = () => ({
+      credentials: i.rows('SELECT * FROM user_credentials ORDER BY user_id'),
+      invitations: i.rows('SELECT * FROM member_invites ORDER BY id'),
+    })
+    const sourcesBefore = importSources()
+    expect(sourcesBefore.credentials).toHaveLength(2)
+    expect(sourcesBefore.invitations).toEqual([])
+    const sourceOrSession = /user_credentials|member_invites|client_sessions|carried_sign_ins/
     expect(rowsBefore.length).toBeGreaterThan(0)
     expect(i.rows('SELECT 1 FROM meta WHERE key = ?', 'signInCarryOver.endsAt')).toEqual([])
 
@@ -372,7 +381,7 @@ describe('boundaries that do carry, next to the ones that do not', () => {
       )
       expect(answer.body).toMatchObject({ authed: false })
       expect(answer.setCookies).toEqual([])
-      expect(queries.filter((sql) => /client_sessions|carried_sign_ins/.test(sql))).toEqual([])
+      expect(queries.filter((sql) => sourceOrSession.test(sql))).toEqual([])
       if (headers === https) expect(answer.text).toBe(none.text)
     }
     // Sign-out does not look at it either.
@@ -381,7 +390,8 @@ describe('boundaries that do carry, next to the ones that do not', () => {
     )
     expect(out.answer.status).toBe(200)
     expect(out.answer.setCookies).toEqual([])
-    expect(out.queries.filter((sql) => /client_sessions|carried_sign_ins/.test(sql))).toEqual([])
+    expect(out.queries.filter((sql) => sourceOrSession.test(sql))).toEqual([])
     expect(oldRows(i)).toEqual(rowsBefore)
+    expect(importSources()).toEqual(sourcesBefore)
   }, 120_000)
 })
