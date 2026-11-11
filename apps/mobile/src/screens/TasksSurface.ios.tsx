@@ -38,6 +38,7 @@ import {
   onAppear,
   onDisappear,
   onGeometryChange,
+  padding,
   pickerStyle,
   refreshable,
   scrollContentBackground,
@@ -324,7 +325,8 @@ const TaskSlot = observer(function TaskSlot({
         }),
         // Expo applies modifiers in order. Keep cell traits outside the frame
         // and measurement wrappers, on the Section's direct row view.
-        alignmentGuide('listRowSeparatorLeading', ROW_AXIS + depth * 16),
+        // The guide is relative to content that already starts after the card inset.
+        alignmentGuide('listRowSeparatorLeading', ROW_AXIS - CARD_INSET + depth * 16),
         ...cardRow,
       ]}
     >
@@ -334,7 +336,7 @@ const TaskSlot = observer(function TaskSlot({
 })
 
 /**
- * One 44pt task row: mark, title, ref, then child progress ("21/25") or age.
+ * A native task row: mark, title, ref, then child progress ("21/25") or age.
  * Swipe left for Status and Close; long press for Work's menu (Rename, Mark as
  * unread, Status, Move out of mission, Delete) plus the sub-task disclosure.
  */
@@ -379,7 +381,9 @@ const TaskRow = taskObserver(function TaskRow({
             <HStack
               spacing={8}
               modifiers={[
-                // The cell has no vertical insets. Dynamic Type can grow the row.
+                // Keep the native list minimum; this padding lets larger text
+                // grow the content before it reaches the separators.
+                padding({ vertical: 6 }),
                 frame({ minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
                 contentShape(shapes.rectangle()),
               ]}

@@ -115,13 +115,21 @@ vi.mock('@expo/ui/swift-ui/modifiers', () =>
       'onAppear',
       'onDisappear',
       'onGeometryChange',
+      'padding',
       'pickerStyle',
       'refreshable',
       'scrollContentBackground',
       'tag',
       'tint',
     ]
-      .map((name) => [name, (value: unknown) => ({ name, value })])
+      .map((name) => [
+        name,
+        (value: unknown, offset?: number) => ({
+          name,
+          value,
+          ...(offset === undefined ? {} : { offset }),
+        }),
+      ])
       .concat([['shapes', { rectangle: () => ({}) }] as never]),
   ),
 )
@@ -187,7 +195,7 @@ afterEach(() => {
   state.work = null
 })
 
-it('Tasks applies zero-inset cell traits outside slot observers and keeps 44pt content', async () => {
+it('Tasks aligns nested separators, pads scalable content and keeps cell traits outside slot observers', async () => {
   const stamp = '2026-10-03T12:00:00Z'
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
   state.pool = pool
@@ -208,12 +216,27 @@ it('Tasks applies zero-inset cell traits outside slot observers and keeps 44pt c
           updatedAt: stamp,
         },
       },
+      ...['child', 'grandchild'].map((id, index) => ({
+        kind: 'issue' as const,
+        id,
+        value: {
+          id,
+          seq: index + 2,
+          title: id,
+          parentId: index === 0 ? 'task' : 'child',
+          stage: 'in_progress',
+          audience: 'human',
+          repoPath: '/fixture',
+          createdAt: stamp,
+          updatedAt: stamp,
+        },
+      })),
     ],
   })
   await attachMobileScreens(pool)
   const board = new MobileTasksBoard(pool, {
     showDone: true,
-    expanded: [],
+    expanded: ['task', 'child'],
     filter: {},
     ordering: 'priority',
     showAgentTasks: false,
@@ -230,7 +253,10 @@ it('Tasks applies zero-inset cell traits outside slot observers and keeps 44pt c
     onFilters: vi.fn(),
   } as unknown as TasksSurfaceProps
   const view = render(<TasksSurface {...props} />)
-  const slot = screen.getByTestId('slot')
+  const slots = screen.getAllByTestId('slot')
+  const slot = slots[0]
+  if (!slot) throw new Error('Expected a task slot')
+  expect(slots).toHaveLength(3)
   const modifiers = (node: Element | null) => {
     if (!node) throw new Error('Expected a native view')
     return JSON.parse(node.getAttribute('data-modifiers') ?? '[]')
@@ -238,21 +264,28 @@ it('Tasks applies zero-inset cell traits outside slot observers and keeps 44pt c
   const cellTraits = modifiers(slot).slice(-4)
   expect(slot.parentElement?.tagName).toBe('SECTION')
   expect(cellTraits).toEqual([
-    { name: 'alignmentGuide', value: 'listRowSeparatorLeading' },
+    { name: 'alignmentGuide', value: 'listRowSeparatorLeading', offset: 22 },
     { name: 'listRowBackground', value: expect.any(String) },
     { name: 'listRowSeparatorTint', value: expect.any(String) },
     { name: 'listRowInsets', value: { leading: 12, trailing: 12, top: 0, bottom: 0 } },
   ])
+  for (const [depth, nestedSlot] of slots.entries()) {
+    expect(modifiers(nestedSlot)).toContainEqual({
+      name: 'alignmentGuide',
+      value: 'listRowSeparatorLeading',
+      offset: 22 + depth * 16,
+    })
+  }
   expect(modifiers(slot.firstElementChild)).toContainEqual({
     name: 'frame',
     value: { height: 44 },
   })
   act(() => fireEvent.mouseEnter(slot))
   expect(modifiers(slot).slice(-4)).toEqual(cellTraits)
-  expect(modifiers(screen.getByText('Single task').parentElement)).toContainEqual({
-    name: 'frame',
-    value: expect.objectContaining({ minHeight: 44, alignment: 'leading' }),
-  })
+  expect(modifiers(screen.getByText('Single task').parentElement).slice(0, 2)).toEqual([
+    { name: 'padding', value: { vertical: 6 } },
+    { name: 'frame', value: expect.objectContaining({ minHeight: 44, alignment: 'leading' }) },
+  ])
   // Cell traits belong to the outer slot, above swipe and context-menu wrappers.
   for (const child of slot.querySelectorAll('[data-modifiers]')) {
     expect(
@@ -280,7 +313,13 @@ it('Tasks applies zero-inset cell traits outside slot observers and keeps 44pt c
   newTask?.onPress()
   expect(onNewTask).toHaveBeenCalledOnce()
   // A taller measured row keeps its height when it leaves the active window.
-  const measured = state.slot.mock.lastCall?.[0].find(
+  const rootModifiers = state.slot.mock.calls.findLast(([modifiers]) =>
+    modifiers.some(
+      (modifier: { name: string; offset?: number }) =>
+        modifier.name === 'alignmentGuide' && modifier.offset === 22,
+    ),
+  )?.[0]
+  const measured = rootModifiers.find(
     (modifier: { name: string }) => modifier.name === 'onGeometryChange',
   ).value
   act(() => measured({ height: 60 }))
