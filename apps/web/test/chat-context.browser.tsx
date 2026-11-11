@@ -187,16 +187,16 @@ const Surface = observer(function Surface() {
         offer={null}
         onOfferAction={async () => {}}
         onOfferDismiss={async () => {}}
-        session={session}
+        session={session && pool ? pool.sessionObject(id) : undefined}
         turnError={null}
         transcriptFreshness="saved"
         offlineAsOf={null}
         autoFocusKey={id}
         transcriptSettled
       />
-      {!omitArtifactStrip && session && (
+      {!omitArtifactStrip && session && pool && (
         <OfferArtifactStrip
-          session={session}
+          session={pool.sessionObject(id)}
           offer={
             {
               message: 'Synthetic concept ready',

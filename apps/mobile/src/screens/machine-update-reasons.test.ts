@@ -40,7 +40,6 @@ it('refreshes target explanations for both Pulse and Settings without changing t
     name: 'Host',
     online: true,
     appVersion: '0.4.8',
-    versionState: 'unknown' as const,
   }
   pool.apply({ type: 'replace', rows: seedFixtureMachines(pool, [host]) })
   const before = pool.row('machine', host.id)

@@ -58,7 +58,7 @@ const breakdown: HostMemoryBreakdown = {
 
 describe('visibleFleetOperations', () => {
   it('labels an unavailable target from the open view answer rather than the machine row', () => {
-    const host = machine('owned', { appVersion: '0.4.8', versionState: 'unknown' })
+    const host = machine('owned', { appVersion: '0.4.8' })
     const args = {
       machines: [host],
       hosts: [],
