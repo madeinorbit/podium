@@ -28,7 +28,7 @@ import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
 import { backupDatabase } from './backup'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
-import { applySchemaRepairs, repairReason } from './repair'
+import { applySchemaRepairs, repairReason, schemaRepairsAfter } from './repair'
 
 const log = createLogger('server:migrations')
 
@@ -290,6 +290,10 @@ export function runDrizzleMigrations(
         )
       : undefined
   try {
+    // A previously damaged database must heal before pending migrations index
+    // the missing column. A rebuild still pending is repaired in the same
+    // transaction below, immediately after the statement that drops it.
+    if (opts.skipSchemaRepair !== true) reportRepairs(db)
     migrate(
       // `client` is @podium/runtime's deliberately narrow structural view of the
       // bun:sqlite handle (packages/runtime/src/sqlite/bun.ts names only the methods
@@ -304,7 +308,12 @@ export function runDrizzleMigrations(
         // Capture install age BEFORE this batch: historical migrations create
         // a first admin even on an empty database. The backfill must leave
         // that new account eligible while seeding every account on upgrades.
-        sql: mintIdsIn(m.sql).replaceAll('{{existing-install}}', applied.size > 0 ? '1' : '0'),
+        sql: mintIdsIn(
+          [
+            m.sql,
+            ...(opts.skipSchemaRepair === true ? [] : schemaRepairsAfter(m.name, applied)),
+          ].join('\n--> statement-breakpoint\n'),
+        ).replaceAll('{{existing-install}}', applied.size > 0 ? '1' : '0'),
       })),
     )
   } catch (error) {

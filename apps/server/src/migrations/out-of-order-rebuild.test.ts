@@ -33,7 +33,7 @@
  */
 
 import { openDatabase } from '@podium/runtime/sqlite'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { captureLogs } from '../test-support/capture-logs'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { applySchemaRepairs, outOfOrderPending, runDrizzleMigrations } from './index'
@@ -46,6 +46,9 @@ const LABEL = '20260802111446_label-client-sessions'
 type Db = ReturnType<typeof openDatabase>
 
 const ordered = [...DRIZZLE_MIGRATIONS].sort((a, b) => a.name.localeCompare(b.name))
+// Reproduce the schema the incident damaged. Later migrations may index the
+// missing column, so they belong after the repair, never in the damage fixture.
+const historical = ordered.filter((m) => m.name.localeCompare(LABEL) <= 0)
 
 const columns = (db: Db, table: string) =>
   (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name)
@@ -79,7 +82,7 @@ function mainTrackingDb(): Db {
 /** …and then the landing arrives, and the out-of-order rebuild runs. */
 function damagedDb(): Db {
   const db = mainTrackingDb()
-  runDrizzleMigrations(db, ordered, { skipSchemaRepair: true })
+  runDrizzleMigrations(db, historical, { skipSchemaRepair: true })
   return db
 }
 
@@ -99,7 +102,7 @@ describe('the out-of-order rebuild hazard', () => {
     const applied = db.prepare(`SELECT count(*) AS n FROM __drizzle_migrations`).get() as {
       n: number
     }
-    expect(applied.n).toBe(ordered.length)
+    expect(applied.n).toBe(historical.length)
     db.close()
   })
 
@@ -107,7 +110,7 @@ describe('the out-of-order rebuild hazard', () => {
     const db = mainTrackingDb()
     const logs = captureLogs()
     try {
-      runDrizzleMigrations(db, ordered, { skipSchemaRepair: true })
+      runDrizzleMigrations(db, historical, { skipSchemaRepair: true })
       const text = logs.text()
       expect(text).toContain('out-of-order')
       expect(text).toContain(REBUILD)
@@ -143,9 +146,49 @@ describe('the out-of-order rebuild hazard', () => {
     const db = damagedDb()
 
     // Nothing is pending any more — 51/51 applied. The repair must still run.
-    expect(runDrizzleMigrations(db, ordered)).toEqual([])
+    expect(runDrizzleMigrations(db, historical)).toEqual([])
     expect(columns(db, 'client_sessions')).toContain('label')
     db.close()
+  })
+})
+
+describe('historical damage with current migrations', () => {
+  it.each([
+    ['an already damaged database', damagedDb],
+    ['a pending out-of-order rebuild', mainTrackingDb],
+  ] as const)('repairs %s before later migrations index the column', (_name, fixture) => {
+    const db = fixture()
+    try {
+      runDrizzleMigrations(db, ordered)
+      expect(columns(db, 'client_sessions')).toContain('label')
+      expect(
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_client_sessions_label'",
+          )
+          .get(),
+      ).toEqual({ name: 'idx_client_sessions_label' })
+      expect(runDrizzleMigrations(db, ordered)).toEqual([])
+    } finally {
+      db.close()
+    }
+  })
+})
+
+describe('late rebuild rollback', () => {
+  it('rolls the rebuild and its repair back when a later migration fails', () => {
+    const db = mainTrackingDb()
+    try {
+      const before = tableColumns(db)
+      expect(() => runDrizzleMigrations(db, [
+        ...ordered,
+        { name: '20990101000000_refuse-upgrade', sql: 'SELECT missing_column FROM client_sessions;' },
+      ])).toThrow()
+      expect(tableColumns(db)).toEqual(before)
+      expect(db.prepare('SELECT name FROM __drizzle_migrations WHERE name = ?').get(REBUILD)).toBeUndefined()
+    } finally {
+      db.close()
+    }
   })
 })
 
@@ -187,7 +230,7 @@ describe('the blast radius', () => {
   it('is exactly one column: after repair the upgraded schema equals a fresh install', () => {
     const fresh = openDatabase(':memory:')
     fresh.exec('PRAGMA foreign_keys = OFF')
-    runDrizzleMigrations(fresh, ordered)
+    runDrizzleMigrations(fresh, historical)
 
     const upgraded = damagedDb()
     const drift = tableColumns(fresh).filter(
