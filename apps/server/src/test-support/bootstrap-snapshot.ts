@@ -111,6 +111,8 @@ export async function workerSnapshot(
       execArgv: ['--conditions=@podium/source'],
       recordNow: () => (registry as unknown as { now(): number }).now(),
     })
+    const thread = (worker as unknown as { worker?: import('node:worker_threads').Worker }).worker
+    thread?.on('error', (error) => console.error('snapshot fixture worker error', error))
     const app = new Hono()
     registerSyncRoutes(app, {
       ...registry.syncDelta,
@@ -123,7 +125,11 @@ export async function workerSnapshot(
         fetch: async (url, init) => {
           const headers = new Headers(init.headers)
           headers.set('accept-encoding', 'identity')
-          return await app.fetch(new Request(url, { ...init, headers }))
+          const response = await app.fetch(new Request(url, { ...init, headers }))
+          if (!response.ok) {
+            throw new Error(`worker snapshot HTTP ${response.status}: ${await response.text()}`)
+          }
+          return response
         },
       },
     })
