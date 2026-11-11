@@ -19,6 +19,7 @@ import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { snapshotFromBootstrap } from './test-support/bootstrap-snapshot'
 import { attachTestClient } from './test-support/client-transport'
+import { feedDelta } from './test-support/feed-delta'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
 import { testStoreRecords } from './test-support/record-writer'
@@ -251,7 +252,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       sessionId,
       state: { phase: 'working', since: '2026-07-09T00:00:00.000Z', nativeSubagentCount: 0 },
     })
-    const healed = await registry.modules.sessions.syncChangesSince(cursor, CHANGE_LOG_OBSERVER)
+    const healed = await feedDelta(registry, cursor, CHANGE_LOG_OBSERVER)
     expect(healed.kind).toBe('delta')
     if (healed.kind !== 'delta') return
     const change = healed.changes.find(
@@ -283,7 +284,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       sessionId,
       title: 'a real durable title',
     })
-    const healed = await registry.modules.sessions.syncChangesSince(cursor, CHANGE_LOG_OBSERVER)
+    const healed = await feedDelta(registry, cursor, CHANGE_LOG_OBSERVER)
     expect(healed.kind).toBe('delta')
     if (healed.kind !== 'delta') return
     const change = healed.changes.find(
@@ -363,7 +364,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     })
     await registry.modules.sessions.flushBroadcasts()
     // Durable: the remove is in the log…
-    const healed = await registry.modules.sessions.syncChangesSince(cursor, CHANGE_LOG_OBSERVER)
+    const healed = await feedDelta(registry, cursor, CHANGE_LOG_OBSERVER)
     expect(healed.kind).toBe('delta')
     if (healed.kind !== 'delta') return
     expect(
@@ -404,7 +405,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     // Startup streams the tables. An out-of-band writer must invalidate the
     // kind generation; boot itself never repairs the log.
     const second = await makeRegistry(store)
-    const healed = await second.modules.sessions.syncChangesSince(cursor, CHANGE_LOG_OBSERVER)
+    const healed = await feedDelta(second, cursor, CHANGE_LOG_OBSERVER)
     expect(healed.kind).toBe('delta')
     if (healed.kind !== 'delta') return
     expect(healed.changes.filter((change) => change.entity === 'session')).toEqual([])
@@ -474,7 +475,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       if (name === 'adopting-host') await registry.modules.machines.ensureHostMachine(name)
       else await registry.modules.machines.renameMachine(host, name)
       await registry.modules.sessions.flushBroadcasts()
-      const delta = await registry.modules.sessions.syncChangesSince(cursor, CHANGE_LOG_OBSERVER)
+      const delta = await feedDelta(registry, cursor, CHANGE_LOG_OBSERVER)
       expect(delta.kind).toBe('delta')
       if (delta.kind !== 'delta') throw new Error('expected delta')
       expect(delta.changes.filter((row) => row.entity === 'session')).toEqual([])
@@ -513,7 +514,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     // link (ADR 12 D1), so no session change reaches the synced log.
     registry.gateway.detachDaemon(host)
     await registry.modules.sessions.flushBroadcasts()
-    const healed = await registry.modules.sessions.syncChangesSince(cursor, CHANGE_LOG_OBSERVER)
+    const healed = await feedDelta(registry, cursor, CHANGE_LOG_OBSERVER)
     expect(healed.kind).toBe('delta')
     if (healed.kind !== 'delta') return
     const flipped = healed.changes.filter(
@@ -552,7 +553,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     await registry.clientGateway.routeClientFrame(clientId, { type: 'detach', sessionId })
     await registry.modules.sessions.flushBroadcasts()
 
-    const changes = await registry.modules.sessions.syncChangesSince(0, CHANGE_LOG_OBSERVER)
+    const changes = await feedDelta(registry, 0, CHANGE_LOG_OBSERVER)
     expect(changes.kind).toBe('delta')
     if (changes.kind !== 'delta') return
     // The size is a live reading (POD-6764): no session change carries it, and
@@ -696,10 +697,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(generationAfterRestart).toBeGreaterThan(0)
     const cursorAfterRecovery = (await authoritySnapshot(second)).cursor
     expect(cursorAfterRecovery).toBeGreaterThan(cursorBeforeRestart)
-    const recovered = await second.modules.sessions.syncChangesSince(
-      cursorBeforeRestart,
-      CHANGE_LOG_OBSERVER,
-    )
+    const recovered = await feedDelta(second, cursorBeforeRestart, CHANGE_LOG_OBSERVER)
     expect(recovered.kind).toBe('delta')
     if (recovered.kind !== 'delta') return
     expect(
@@ -710,9 +708,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     ).toBe(true)
     second.modules.sessions.broadcastSessions()
     await second.modules.sessions.flushBroadcasts()
-    expect(
-      await second.modules.sessions.syncChangesSince(cursorAfterRecovery, CHANGE_LOG_OBSERVER),
-    ).toMatchObject({
+    expect(await feedDelta(second, cursorAfterRecovery, CHANGE_LOG_OBSERVER)).toMatchObject({
       kind: 'delta',
       cursor: cursorAfterRecovery,
       changes: [],
@@ -758,10 +754,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       expect(projected.length).toBeGreaterThan(0)
       expect((projected.at(-1)?.value as SessionMeta | undefined)?.name).toBe(original)
     })
-    const renames = await registry.modules.sessions.syncChangesSince(
-      cursorBefore,
-      CHANGE_LOG_OBSERVER,
-    )
+    const renames = await feedDelta(registry, cursorBefore, CHANGE_LOG_OBSERVER)
     expect(renames.kind).toBe('delta')
     expect(renames.kind === 'delta' ? renames.changes.length : 0).toBeGreaterThanOrEqual(2)
   })
@@ -994,9 +987,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(
       (await clientSessionViews(registry)).find((s) => s.sessionId === sessionId)?.name,
     ).toBeUndefined()
-    expect(
-      await registry.modules.sessions.syncChangesSince(cursor, CHANGE_LOG_OBSERVER),
-    ).toMatchObject({
+    expect(await feedDelta(registry, cursor, CHANGE_LOG_OBSERVER)).toMatchObject({
       kind: 'delta',
       cursor,
       changes: [],
@@ -1058,9 +1049,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(
       (await clientSessionViews(registry)).find((s) => s.sessionId === sessionId)?.snoozedUntil,
     ).toBeUndefined()
-    expect(
-      await registry.modules.sessions.syncChangesSince(cursor, CHANGE_LOG_OBSERVER),
-    ).toMatchObject({
+    expect(await feedDelta(registry, cursor, CHANGE_LOG_OBSERVER)).toMatchObject({
       kind: 'delta',
       cursor,
       changes: [],
@@ -1073,7 +1062,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       sessionId,
       until: '2999-07-20T12:00:00.000Z',
     })
-    const delta = await registry.modules.sessions.syncChangesSince(cursor, {
+    const delta = await feedDelta(registry, cursor, {
       kind: 'user',
       user: firstAdminMemberId(),
       device: asDeviceId('snooze-reader'),
@@ -1148,7 +1137,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     // A subsequent broadcast is snapshot-only and appends NOTHING for the untouched entity.
     registry.modules.sessions.broadcastSessions()
     await registry.modules.sessions.flushBroadcasts()
-    const healed = await registry.modules.sessions.syncChangesSince(cursor, CHANGE_LOG_OBSERVER)
+    const healed = await feedDelta(registry, cursor, CHANGE_LOG_OBSERVER)
     expect(healed.kind).toBe('delta')
     if (healed.kind !== 'delta') return
     expect(healed.changes.filter((c) => c.entity === 'session')).toEqual([])
@@ -1174,7 +1163,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     await registry.modules.sessions.killSession(registry.modules.sessions.serverWriter, {
       sessionId: b.sessionId,
     })
-    const healed = await registry.modules.sessions.syncChangesSince(0, CHANGE_LOG_OBSERVER)
+    const healed = await feedDelta(registry, 0, CHANGE_LOG_OBSERVER)
     expect(healed.kind).toBe('delta')
     if (healed.kind !== 'delta') return
     const folded = new Map<string, unknown>()
@@ -1215,7 +1204,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     )
     expect(listed).toBeDefined()
 
-    const after = await registry.modules.sessions.syncChangesSince(cursor, CHANGE_LOG_OBSERVER)
+    const after = await feedDelta(registry, cursor, CHANGE_LOG_OBSERVER)
     expect(after.kind).toBe('delta')
     if (after.kind !== 'delta') return
     const broadcast = (
@@ -1302,10 +1291,7 @@ describe('feed identity on the wire (ADR 2 D1/D5)', () => {
     const registry = await makeRegistry()
     const boot = await authoritySnapshot(registry)
     await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
-    const catchUp = await registry.modules.sessions.syncChangesSince(
-      boot.cursor,
-      CHANGE_LOG_OBSERVER,
-    )
+    const catchUp = await feedDelta(registry, boot.cursor, CHANGE_LOG_OBSERVER)
     expect(catchUp.kind).toBe('delta')
     expect(catchUp.feedId).toBe(boot.feedId)
     expect(catchUp.epoch).toBe(boot.epoch)
@@ -1320,9 +1306,7 @@ describe('feed identity on the wire (ADR 2 D1/D5)', () => {
     // Nothing has been pruned, so the whole log is servable and the horizon is
     // the log's first seq — a replica at cursor 0 must NOT be told to re-bootstrap.
     expect(horizon).toBe(1)
-    expect((await registry.modules.sessions.syncChangesSince(0, CHANGE_LOG_OBSERVER)).kind).toBe(
-      'delta',
-    )
+    expect((await feedDelta(registry, 0, CHANGE_LOG_OBSERVER)).kind).toBe('delta')
   })
 
   it('serves identity on every production wire-v2 delta', async () => {

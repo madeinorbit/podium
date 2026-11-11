@@ -9,7 +9,6 @@ import type {
   TranscriptItem,
 } from '@podium/model'
 import { type AgentKind, spawnedByParentSessionId, type UserId } from '@podium/model'
-import { TRPCError } from '@trpc/server'
 
 /**
  * WHO a session wire projection is being built for — the explicit argument
@@ -37,9 +36,7 @@ import type {
   LiveServerMessage,
   MachinePrincipal,
   PendingInteraction,
-  Principal,
   SessionBindingAdoptLaunchInstruction,
-  SyncChangesSinceResult,
 } from '@podium/protocol'
 import type { ControlMessage, TurnEvent, TurnReceipt } from '@podium/protocol/daemon'
 import type { MutationLedgerPort } from '@podium/sync'
@@ -1087,21 +1084,5 @@ export class SessionLifecycle {
   }
   flushBroadcasts(): Promise<void> {
     return this.broadcasts.flush()
-  }
-  /** `principal` is required: a request passes its caller's feed principal, and
-   *  only in-process system work names {@link CHANGE_LOG_OBSERVER} (POD-6285). */
-  async syncChangesSince(
-    cursor: number | null,
-    principal: Principal,
-  ): Promise<SyncChangesSinceResult> {
-    const sourceCursor = await this.funnel.cursor()
-    const { feedId, epoch } = await this.funnel.feedIdentity()
-    const identity = { feedId, epoch, minAvailableSeq: await this.funnel.minAvailableSeq() }
-    const changes = await this.funnel.changesSince(cursor, principal)
-    if (changes) return { kind: 'delta', changes, cursor: sourceCursor, ...identity }
-
-    // Full reloads belong to /sync/bootstrap: the admitted worker builds and
-    // streams records there. Never run the builders on this request's thread.
-    throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'cursor-too-old' })
   }
 }

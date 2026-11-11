@@ -79,7 +79,7 @@ import {
 import { modelFamilyProcedures } from './modules/models/trpc'
 import { operationProcedures } from './modules/operations/trpc'
 import { perfFamilyProcedures } from './modules/perf/trpc'
-import { SESSION_QUERIES, SNOOZE_QUERIES, SYNC_QUERIES } from './modules/sessions/queries'
+import { SESSION_QUERIES, SNOOZE_QUERIES } from './modules/sessions/queries'
 import { settingsAuthzDeps, settingsCommandsPermitted } from './modules/settings/authz'
 import { settingsFamilyProcedures } from './modules/settings/trpc'
 import { shellFamilyProcedures } from './modules/shells/trpc'
@@ -317,7 +317,7 @@ export const appRouter = t.router({
   // THE SYNC WRITE ENTRY POINT (ADR 12 D2, POD-6273): `sync.submit` takes an
   // outbox envelope and replies with the result and a receipt. Every write to
   // synced data moves onto it (POD-6350, POD-6359).
-  sync: t.router({ ...queryProcedures('sync', SYNC_QUERIES), ...syncWriteProcedures() }),
+  sync: t.router(syncWriteProcedures()),
   // PER-USER STATE (POD-380 / POD-1350): each list is the CALLER's, not the instance's.
   // layout: sidebar/tab chrome that follows a person across devices (not device-local
   // route/selection/pane geometry — those stay in client ui-state, POD-403).

@@ -3,7 +3,6 @@ import type {
   Geometry,
   IssueDepProjection,
   IssueEventWire,
-  SlimIssueProjection,
   LayoutWire,
   MachineId,
   MessageRecordWire,
@@ -11,15 +10,12 @@ import type {
   SessionId,
   ShipLaneProjection,
   ShipOrderProjection,
+  SlimIssueProjection,
   TranscriptItem,
 } from '@podium/model'
 import { asMachineId, interactionRowId, layoutRowId, messageRecordRowId } from '@podium/model'
 import {
-  CAP_ISSUES_NORMALIZED,
-  CAP_METADATA_DELTA,
-  CAP_SYNC_FEED_IDENTITY,
   CAP_SYNC_HTTP_V1,
-  type SyncKindTokens,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   CAP_TOPICS_V1,
@@ -31,10 +27,7 @@ import {
   encode,
   encodeBinaryEnvelope,
   type HeadlessActivityEvent,
-  isKnownMetadataChange,
   isTopicKind,
-  type MetadataChange,
-  type MetadataChangeLenient,
   MIN_CLIENT_WIRE_VERSION,
   type PendingInteractionWire,
   type PresenceIdentity,
@@ -52,6 +45,7 @@ import {
   type ServerMessageLenient,
   type SessionOpenUrlMessage,
   type SessionOpenUrlResultMessage,
+  type SyncKindTokens,
   type TopicClientMessage,
   type TopicKind,
   type TopicPayload,
@@ -62,7 +56,6 @@ import { applyServerLogLevel } from '../logging/level-command'
 import { type EchoLatencyStats, EchoLatencyTracker } from './echo-latency'
 import type { FeedHelloFields } from './feed-hello'
 import { createFeedTaskScheduler, type FeedTaskScheduler } from './feed-scheduler'
-import type { LegacyFeedSinkPort, LegacyMetadataProjection } from './legacy-feed-port'
 import {
   type ClientSubscription,
   ClientSubscriptionRegistry,
@@ -229,10 +222,6 @@ export interface SocketHubOptions {
   url: string
   makeSocket?: (url: string) => WebSocketLike
   onError?: (message: string, event?: unknown) => void
-  /** Opaque wire-v1 Replica adapter. Transport only drives lifecycle and forwards envelopes. */
-  legacyFeed?: LegacyFeedSinkPort
-  /** Advertise the normalized issue projection capability on the legacy wire. */
-  issuesNormalized?: boolean
   /**
    * WIRE v2 (POD-376): opt this hub into the FEED, and hand every frame to the
    * kernel Replica.
@@ -416,26 +405,6 @@ const PING_QUEUE_CAP = 8
 // can't replay an unbounded burst of stale typing into the agent on return.
 const INPUT_QUEUE_CAP = 1_000
 
-/** Fold one oplog change into an entity list (upsert replaces by id or appends;
- *  an upsert with no value is a producer bug the protocol says to drop). */
-function applyChange<T>(
-  list: T[],
-  op: 'upsert' | 'remove',
-  value: T | undefined,
-  match: (el: T) => boolean,
-): T[] {
-  if (op === 'remove') return list.filter((el) => !match(el))
-  if (value === undefined) return list
-  let replaced = false
-  const next = list.map((el) => {
-    if (!match(el)) return el
-    replaced = true
-    return value
-  })
-  if (!replaced) next.push(value)
-  return next
-}
-
 export interface AttentionEvent {
   sessionId: SessionId
   title: string
@@ -594,7 +563,6 @@ export class SocketHub {
   /** Mutable because a server move deliberately changes the authority this client dials. */
   private serverUrl: string
   private readonly makeSocket: (url: string) => WebSocketLike
-  private readonly legacyFeed: LegacyFeedSinkPort | undefined
   private readonly scheduleFeedTask: (task: () => void) => void
   /** Only set when this hub built its own scheduler — an injected one belongs to
    *  the caller and is not this class's to tear down. */
@@ -751,16 +719,10 @@ export class SocketHub {
   }
 
   constructor(opts: SocketHubOptions) {
-    if (opts.feed !== undefined && opts.legacyFeed !== undefined) {
-      throw new Error('SocketHub accepts one feed sink per connection')
-    }
     this.opts = opts
     this.serverUrl = opts.url
-    this.subscriptionRegistry = new ClientSubscriptionRegistry(
-      opts.feed !== undefined || opts.legacyFeed !== undefined,
-    )
+    this.subscriptionRegistry = new ClientSubscriptionRegistry(opts.feed !== undefined)
     this.makeSocket = opts.makeSocket ?? ((url) => new WebSocket(url) as unknown as WebSocketLike)
-    this.legacyFeed = opts.legacyFeed
     if (opts.scheduleFeedTask !== undefined) {
       this.ownFeedScheduler = undefined
       this.scheduleFeedTask = opts.scheduleFeedTask
@@ -775,11 +737,6 @@ export class SocketHub {
         this.ownFeedScheduler.schedule(task)
       }
     }
-    this.legacyFeed?.bind({
-      apply: (changes) => this.applyChanges(changes),
-      replace: (projection) => this.replaceMetadataSnapshot(projection),
-      snapshot: () => this.metadataProjection(),
-    })
   }
 
   get connected(): boolean {
@@ -874,22 +831,10 @@ export class SocketHub {
         type: 'hello',
         clientId: this.clientIdValue,
         viewport: { ...HELLO_VIEWPORT, dpr: globalThis.devicePixelRatio ?? 1 },
-        // Legacy feed capability negotiation is keyed only by the presence of the
-        // opaque Replica sink. Transport never reads its position or stamp.
-        // CAP_ISSUES_NORMALIZED is opt-in on top (see `issuesNormalized`): it
-        // what licenses the server to skip the O(issues x sessions) rebuild on
-        // session churn [POD-796].
         // TOPICS (ADR 7 Amendment 2): every hub speaks them, so `caps` is always sent.
         caps: [
           CAP_TOPICS_V1,
           ...(this.opts.feed?.syncHttp ? [CAP_SYNC_HTTP_V1] : []),
-          ...(this.legacyFeed
-            ? [
-                CAP_METADATA_DELTA,
-                CAP_SYNC_FEED_IDENTITY,
-                ...(this.opts.issuesNormalized ? [CAP_ISSUES_NORMALIZED] : []),
-              ]
-            : []),
           ...(acceptsBinaryOutput ? [CAP_TERMINAL_OUTPUT_BINARY_V1] : []),
           ...(acceptsBinaryInput ? [CAP_TERMINAL_INPUT_BINARY_V1] : []),
         ],
@@ -921,7 +866,6 @@ export class SocketHub {
       // promise is what a cold walk waits on instead of cycling the socket.
       this.opts.feed?.connected(!this.opts.feed.syncHttp && helloFields === null)
       // The legacy adapter independently decides whether and how to catch up.
-      this.legacyFeed?.connected()
       for (const sessionId of this.connections.keys()) {
         if (this.terminalAttachDenials.has(sessionId)) continue
         this.sendRaw({ type: 'attach', sessionId })
@@ -1021,7 +965,6 @@ export class SocketHub {
     // stale. Told here rather than by an embedder watching `connected`, so the
     // posture changes at the same instant the frames stop.
     this.opts.feed?.disconnected()
-    this.legacyFeed?.disconnected()
     this.notifyConnections()
     if (!this.intentionalClose) this.evaluateHealth(true)
     // A wake tears a possibly-dead socket down only to dial again at once: that
@@ -1384,16 +1327,6 @@ export class SocketHub {
     shipOrders?: ShipOrderProjection[]
     shipLanes?: ShipLaneProjection[]
   }): void {
-    if (this.legacyFeed !== undefined) {
-      this.legacyFeed.seed({
-        issueProjections: seed.issueProjections ?? [],
-        issueDeps: seed.issueDeps ?? [],
-        repos: seed.repos ?? [],
-        shipOrders: seed.shipOrders ?? [],
-        shipLanes: seed.shipLanes ?? [],
-      })
-      return
-    }
     // The three POD-796/POD-822 kinds [POD-822]: seed the hub's in-memory lists
     // from the persisted replica so a warm-reload DELTA applies onto them rather
     // than onto empty lists. Optional + `?? []` so an embedder that predates them
@@ -1808,8 +1741,8 @@ export class SocketHub {
     this.socket?.close()
     this.socket = undefined
     this.clearFeedIngress()
-    // The MessageChannel this hub owns (POD-2058) closes with the hub, beside
-    // `legacyFeed` below. Not inside `clearFeedIngress`: that helper also runs
+    // The MessageChannel this hub owns (POD-2058) closes with the hub.
+    // Not inside `clearFeedIngress`: that helper also runs
     // on the backlog resync, which clears the queue and keeps draining, and a
     // scheduler disposed there would leave the next frame with nothing to wake
     // it.
@@ -1820,7 +1753,6 @@ export class SocketHub {
     this.inputBinaryAcknowledged = false
     this.inputQueue.length = 0
     this.preOpenQueue.length = 0
-    this.legacyFeed?.dispose()
     this.notifyConnections()
   }
 
@@ -2041,9 +1973,7 @@ export class SocketHub {
       }
       this.connections.get(msg.sessionId)?._outcome(msg.outcome)
     },
-    metadataDelta: (msg, context) => {
-      this.legacyFeed?.frame(msg, context.dropped)
-    },
+    metadataDelta: () => {},
     // ---- wire v2 (POD-308 built it, POD-376 consumes it) ----
     // WHICH WIRE THIS HUB SPEAKS IS PER CONNECTION, not per build. Without a
     // `feed` sink the hub sends no `wireVersion`, the server serves it through
@@ -2173,175 +2103,6 @@ export class SocketHub {
   private forwardBinaryOutput(metadata: PtyOutputBinaryMetadata, payload: Uint8Array): void {
     // A missing/detached session is session-level state, not a framing error.
     this.connections.get(metadata.sessionId)?._ingestBinaryOutput(metadata, payload)
-  }
-
-  private metadataProjection(): LegacyMetadataProjection {
-    return {
-      issueProjections: this.issueProjectionList,
-      issueDeps: this.issueDepList,
-      repos: this.repoList,
-      shipOrders: this.shipOrderList,
-      shipLanes: this.shipLaneList,
-    }
-  }
-
-  private replaceMetadataSnapshot(result: LegacyMetadataProjection): void {
-    this.issueProjectionList = result.issueProjections
-    this.issueDepList = result.issueDeps
-    this.repoList = result.repos
-    this.shipOrderList = result.shipOrders ?? []
-    this.shipLaneList = result.shipLanes ?? []
-    this.emit('issueProjections', this.issueProjectionList)
-    this.emit('issueDeps', this.issueDepList)
-    this.emit('repos', this.repoList)
-    this.emit('shipOrders', this.shipOrderList)
-    this.emit('shipLanes', this.shipLaneList)
-  }
-
-  /** Fold wire changes into the entity lists and notify only touched observers.
-   *  Exhaustive over the KNOWN entity kinds; an unknown kind (a NEWER server,
-   *  [spec:SP-3fe2] #258) is ignored with a debug log — the old else-branch
-   *  folded anything unrecognised into the conversation list, silently
-   *  corrupting it. Position advancement remains solely the Replica adapter's decision. */
-  private applyChanges(changes: MetadataChangeLenient[]): void {
-    const touched = new Set<MetadataChange['entity']>()
-    for (const c of changes) {
-      if (!isKnownMetadataChange(c)) {
-        log.debug('ignoring metadata change with unknown entity kind', { entity: c.entity })
-        continue
-      }
-      touched.add(c.entity)
-      switch (c.entity) {
-        case 'issueProjection':
-          this.issueProjectionList = applyChange(
-            this.issueProjectionList,
-            c.op,
-            c.value,
-            (i) => i.id === c.id,
-          )
-          break
-        case 'issueDep':
-          this.issueDepList = applyChange(this.issueDepList, c.op, c.value, (d) => d.id === c.id)
-          break
-        case 'repo':
-          this.repoList = applyChange(this.repoList, c.op, c.value, (r) => r.id === c.id)
-          break
-        case 'shipOrder':
-          this.shipOrderList = applyChange(
-            this.shipOrderList,
-            c.op,
-            c.value,
-            (order) => order.id === c.id,
-          )
-          break
-        case 'issueEvent':
-          // POD-1772. Matched on the composite id the Authority logs
-          // (`issueEventRowId`), which is also the row's own `id` field — an
-          // eviction arrives as a `delete` carrying only that id.
-          this.issueEventList = applyChange(
-            this.issueEventList,
-            c.op,
-            c.value,
-            (x) => x.id === c.id,
-          )
-          break
-        case 'pendingInteraction':
-          // POD-2020. Matched on the composite id the Authority logs
-          // (`interactionRowId`), not the row's own `id`: a resolved ask arrives
-          // as a `remove` carrying only that composite, and the row's bare id
-          // would not match it.
-          this.pendingInteractionList = applyChange(
-            this.pendingInteractionList,
-            c.op,
-            c.value,
-            (x) => interactionRowId(x.sessionId, x.id) === c.id,
-          )
-          break
-        case 'message':
-          // POD-4764. Matched on the composite id the Authority logs
-          // (`messageRecordRowId`): a message leaving the feed arrives as a
-          // `remove` carrying only that composite.
-          this.messageRecordList = applyChange(
-            this.messageRecordList,
-            c.op,
-            c.value,
-            (x) =>
-              messageRecordRowId({
-                sessionId: x.sessionId,
-                senderUserId: x.senderUserId,
-                messageId: x.id,
-              }) === c.id,
-          )
-          break
-        case 'userLayout':
-          // Feed demux for POD-1350's per-user layout rows. Match on the same
-          // composite id the Authority logs (layoutRowId), not payload equality.
-          this.userLayoutList = applyChange(
-            this.userLayoutList,
-            c.op,
-            c.value,
-            (x) => layoutRowId(x.userId, x.key) === c.id,
-          )
-          break
-        case 'issueUserState':
-        case 'session':
-        case 'conversation':
-        case 'automation':
-        case 'automationRun':
-        case 'issueGitState':
-        // POD-6767: an issue's body headers.
-        case 'issuePanelTodo':
-        case 'issuePanelArtifact':
-        case 'issuePanelDeferred':
-        case 'issuePanelState':
-        case 'issueBodies':
-        case 'sessionUserState':
-        case 'machine':
-        // POD-6644: a machine's access rows and its checkouts.
-        case 'machineAccess':
-        case 'checkout':
-        case 'effect':
-        // POD-6673: my pins, tab orders, settings and read positions.
-        case 'pin':
-        case 'tabOrder':
-        case 'userPreferences':
-        case 'userReadPosition':
-        // POD-6675: my superagent threads.
-        case 'superagentThread':
-        // POD-6676: profiles, workflows and trigger subscriptions.
-        case 'agentProfile':
-        case 'workflow':
-        case 'workflowRevision':
-        case 'workflowBinding':
-        case 'workflowRun':
-        case 'subscription':
-        // POD-6677: the instance settings.
-        case 'instancePreferences':
-          // These rows belong to the Replica. Session, conversation and
-          // automation consumers read synced data without a hub projection.
-          break
-        case 'shipLane':
-          this.shipLaneList = applyChange(
-            this.shipLaneList,
-            c.op,
-            c.value,
-            (lane) => lane.id === c.id,
-          )
-          break
-        default:
-          c satisfies never
-      }
-    }
-    if (touched.has('issueProjection')) this.emit('issueProjections', this.issueProjectionList)
-    if (touched.has('issueDep')) this.emit('issueDeps', this.issueDepList)
-    if (touched.has('repo')) this.emit('repos', this.repoList)
-    if (touched.has('issueEvent')) this.emit('issueEvents', this.issueEventList)
-    if (touched.has('pendingInteraction'))
-      this.emit('pendingInteractions', this.pendingInteractionList)
-    if (touched.has('message')) this.emit('messageRecords', this.messageRecordList)
-    if (touched.has('shipOrder')) this.emit('shipOrders', this.shipOrderList)
-    if (touched.has('shipLane')) this.emit('shipLanes', this.shipLaneList)
-    if (touched.has('userLayout')) this.emit('userLayouts', this.userLayoutList)
   }
 
   /**

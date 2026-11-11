@@ -59,12 +59,7 @@ import {
   type SessionId,
   type UserId,
 } from '@podium/model'
-import {
-  CLIENT_WIRE_VERSION,
-  type FeedDeltaMessage,
-  type ServerMessage,
-  type SyncChangesSinceResult,
-} from '@podium/protocol'
+import { CLIENT_WIRE_VERSION, type FeedDeltaMessage, type ServerMessage } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { hashPassword } from '@podium/runtime/auth-store'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
@@ -193,7 +188,7 @@ export interface TwoMemberInstance {
   close(): Promise<void>
 }
 
-export type FeedSnapshot = Extract<SyncChangesSinceResult, { kind: 'snapshot' }>
+export type FeedSnapshot = Awaited<ReturnType<typeof workerSnapshot>>
 
 export type FeedChange = FeedDeltaMessage['changes'][number]
 

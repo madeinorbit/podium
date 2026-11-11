@@ -263,12 +263,9 @@ it('Carol, disabled, cannot sign in and her open cookie and feed see nothing', a
   await feed.until(() => feed.closed())
 
   expect((await get(inst, '/auth/members/directory', dave.cookie)).status).toBe(401)
-  const trpc = await fetch(
-    new URL('/trpc/sync.changesSince?input=%7B%22cursor%22%3Anull%7D', inst.origin),
-    {
-      headers: { cookie: dave.cookie },
-    },
-  )
+  const trpc = await fetch(new URL('/trpc/sessions.list', inst.origin), {
+    headers: { cookie: dave.cookie },
+  })
   expect(trpc.status).toBe(401)
   expect((await signIn(inst, dave.email, dave.password)).status).toBe(401)
   // Carol and Dave appear to the admin as disabled, so the admin can enable them.

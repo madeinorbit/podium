@@ -1,35 +1,25 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import {
-  CLIENT_WIRE_VERSION,
-  type FeedDeltaMessage,
-  type ServerMessage,
-  type SyncChangesSinceResult,
-} from '@podium/protocol'
-import { createTRPCClient, httpBatchLink } from '@trpc/client'
+import { CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
 import { noJanitorWorkerForTests } from './janitor-host'
-import type { AppRouter } from './router'
 import { startServer } from './server'
 
 // End-to-end over the REAL wiring (docs/spec/oplog-read-path.md §5): a booted
-// server, real WS upgrades through wsServer's hello parse, and sync.changesSince
-// over actual HTTP tRPC — the seams the registry-level tests can't cover.
+// server and real WS upgrades through wsServer's hello parse.
 const priorStateDir = process.env.PODIUM_STATE_DIR!
 
 describe('metadata oplog e2e (live server)', () => {
   let stateDir: string
   let server: Awaited<ReturnType<typeof startServer>>
-  let baseUrl: string
   const sockets: WebSocket[] = []
 
   beforeAll(async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-sync-e2e-'))
     process.env.PODIUM_STATE_DIR = stateDir
     server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
-    baseUrl = `http://127.0.0.1:${server.port}`
   })
   afterAll(async () => {
     for (const s of sockets) s.close()
@@ -70,38 +60,6 @@ describe('metadata oplog e2e (live server)', () => {
       await new Promise((r) => setTimeout(r, 20))
     }
   }
-
-  it('delivers scoped deltas to a current client and heals via tRPC', async () => {
-    const trpc = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url: `${baseUrl}/trpc` })] })
-
-    const capClient = connect(['metadataDelta'])
-    await capClient.ready
-    await until(() => capClient.inbox.some((m) => m.type === 'welcome'))
-
-    // Bootstrap over real HTTP tRPC: null cursor -> snapshot + cursor.
-    const boot = (await trpc.sync.changesSince.query({ cursor: null })) as SyncChangesSinceResult
-    expect(boot.kind).toBe('snapshot')
-    if (boot.kind !== 'snapshot') return
-
-    // A mutation through the real operator path (HTTP tRPC -> IssueService).
-    await trpc.issues.create.mutate({ repoPath: '/repo', title: 'e2e issue', startNow: false })
-
-    await until(() => capClient.inbox.some((m) => m.type === 'feedDelta'))
-    const delta = capClient.inbox.find((m) => m.type === 'feedDelta') as FeedDeltaMessage
-    expect(delta.changes.map((change) => change.entity).sort()).toEqual(['issueProjection'])
-    expect(delta.changes.every((change) => change.op === 'upsert')).toBe(true)
-
-    // Heal from the boot cursor: exactly the one issue upsert, cursor advanced.
-    const heal = (await trpc.sync.changesSince.query({
-      cursor: boot.cursor,
-    })) as SyncChangesSinceResult
-    expect(heal.kind).toBe('delta')
-    if (heal.kind !== 'delta') return
-    expect(heal.changes.map((c) => [c.entity, c.op]).sort()).toEqual([
-      ['issueProjection', 'upsert'],
-    ])
-    expect(heal.cursor).toBe(delta.seq)
-  })
 
   it('admits the live feed once without pushing an entity world', async () => {
     const client = connect()

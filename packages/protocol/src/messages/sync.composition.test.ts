@@ -26,30 +26,14 @@
  * precisely how the five restatements this refactor deleted came to exist.
  */
 
-import {
-  asRepoId,
-  ChangeCursorSeqField,
-  ChangeEntityIdField,
-  ChangeSeqField,
-  GlobalChangeOpField,
-  shipLaneId,
-} from '@podium/model'
+import { ChangeEntityIdField, ChangeSeqField, GlobalChangeOpField } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import {
-  MetadataChange,
-  MetadataChangeOp,
-  SyncChangesSinceResult,
-  SyncChangesSinceResultLenientSchema,
-  UnknownMetadataChange,
-} from './sync'
+import { MetadataChange, MetadataChangeOp, UnknownMetadataChange } from './sync'
 
 /** The strict union's arms, as objects with a `.shape`. */
 const strictArms = MetadataChange.options as unknown as {
   shape: Record<string, unknown>
 }[]
-
-const changesSinceArms = (union: unknown): { shape: Record<string, unknown> }[] =>
-  (union as { options: { shape: Record<string, unknown> }[] }).options
 
 describe('the wire change row composes the model vocabulary', () => {
   it('has all seventeen entity arms, so the loops below are not vacuous', () => {
@@ -108,52 +92,7 @@ describe('the wire change row composes the model vocabulary', () => {
   })
 })
 
-describe('the changesSince result composes the cursor field', () => {
-  it('uses the shared cursor schema INSTANCE on the strict delta arm', () => {
-    const delta = changesSinceArms(SyncChangesSinceResult)[0]
-    expect(delta?.shape.cursor).toBe(ChangeCursorSeqField)
-  })
-
-  it('uses it on the lenient delta arm too — the copy that had already drifted', () => {
-    // These two arms were written out side by side and their key ORDER had
-    // already diverged before anyone noticed. Composing them from one factory is
-    // what makes them differ in the one thing they are supposed to differ in.
-    const delta = changesSinceArms(SyncChangesSinceResultLenientSchema)[0]
-    expect(delta?.shape.cursor).toBe(ChangeCursorSeqField)
-  })
-
-  it('uses it on both snapshot arms', () => {
-    for (const union of [SyncChangesSinceResult, SyncChangesSinceResultLenientSchema]) {
-      const snapshot = changesSinceArms(union)[1]
-      expect(snapshot?.shape.cursor).toBe(ChangeCursorSeqField)
-    }
-  })
-})
-
 describe('the composition did not change what parses', () => {
-  it('preserves optional shipping lane rows in both snapshot parsers and accepts older snapshots', () => {
-    const repoId = asRepoId('repo-a')
-    const lane = {
-      id: shipLaneId(repoId, 'local:main'),
-      repoId,
-      destination: 'local:main',
-      trains: [{ orderIds: ['ship-a'] }],
-      blockedOrderIds: [],
-    }
-    const older = {
-      kind: 'snapshot',
-      cursor: 1,
-      sessions: [],
-      issues: [],
-      conversations: [],
-      diagnostics: [],
-    }
-    for (const schema of [SyncChangesSinceResult, SyncChangesSinceResultLenientSchema]) {
-      expect(schema.parse(older)).toEqual(older)
-      expect(schema.parse({ ...older, shipLanes: [lane] })).toEqual({ ...older, shipLanes: [lane] })
-    }
-  })
-
   // Identity is necessary but not sufficient: a shared instance wired into the
   // wrong position would satisfy every `toBe` above. These are the behaviours the
   // arms are FOR, asserted independently of how they are built.

@@ -14,6 +14,7 @@ import { SESSION_QUERIES } from './modules/sessions/queries'
 import { buildSuperagentTools } from './modules/superagent/tools'
 import { privateResourceAccess } from './private-resources'
 import { workerSnapshot } from './test-support/bootstrap-snapshot'
+import { feedDelta } from './test-support/feed-delta'
 
 const NOW = Date.parse('2026-10-02T12:00:00.000Z')
 const B = asUserId('user:b')
@@ -88,7 +89,7 @@ describe('S1 session companion records', () => {
       await f.sessions.state.setSnooze(f.sessions.serverWriter, f.b, f.sessionId, null)
     if (verb === 'clear')
       await f.sessions.state.clearSnooze(f.sessions.serverWriter, f.b, f.sessionId)
-    const result = await f.sessions.syncChangesSince(cursor, wirePrincipal(B))
+    const result = await feedDelta(f.reg, cursor, wirePrincipal(B))
     if (result.kind !== 'delta') throw new Error('expected delta')
     expect(result.changes.filter((change) => change.entity === 'sessionUserState')).toEqual([
       expect.objectContaining({
@@ -123,7 +124,7 @@ describe('S1 session companion records', () => {
     ])
     expect(await f.stateRows(C)).toEqual([])
     for (const user of [A, B]) {
-      const result = await sessions.syncChangesSince(cursor, wirePrincipal(user))
+      const result = await feedDelta(f.reg, cursor, wirePrincipal(user))
       if (result.kind !== 'delta') throw new Error('expected delta')
       const markers = result.changes.filter((change) => change.entity === 'sessionUserState')
       expect(markers.length).toBeGreaterThan(0)

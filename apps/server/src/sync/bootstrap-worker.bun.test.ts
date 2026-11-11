@@ -11,9 +11,6 @@ import { openDatabase } from '@podium/runtime/sqlite'
 import { InMemoryReplicaStore, Replica } from '@podium/sync/replica'
 import { Hono } from 'hono'
 import WebSocket from 'ws'
-import { EventBus } from '../modules/bus'
-import { WriteFunnel } from '../modules/funnel'
-import { SessionLifecycle } from '../modules/sessions/lifecycle'
 
 const { Authority, DEVICE_GRADE_PRINCIPAL, GrantEdgeVisibilityPolicy, NoDelegationsGranted } =
   await import('@podium/sync')
@@ -165,43 +162,6 @@ async function fixture() {
 }
 
 describe('cursor expiry worker reload', () => {
-  it('refuses unservable in-process cursors without enumerating record builders', async () => {
-    const f = await fixture()
-    try {
-      await f.seedIssue('current')
-      await f.moveHead()
-      await f.moveHead()
-      const plan = await f.store.sync.planChangePrune({ keepRows: 1, maxAgeMs: 60_000, now: 1 })
-      await f.store.sync.pruneChangeBatch(plan, 100)
-      expect(await f.store.sync.minChangeSeq()).toBe(2)
-      const builds = spyOn(f.built, 'streamAllKinds')
-      const funnel = new WriteFunnel({
-        authority: f.authority,
-        bus: new EventBus(),
-        serving: {
-          identity: () => ({ feedId: 'fixture-feed', epoch: 'fixture-epoch' }),
-          retentionFloor: async () => (await f.store.sync.minChangeSeq()) ?? 1,
-          publish() {},
-          flushPending() {},
-        },
-        onPublished() {},
-      })
-      const sessions = { funnel } as unknown as SessionLifecycle
-      for (const cursor of [0, null, 3]) {
-        await expect(
-          SessionLifecycle.prototype.syncChangesSince.call(sessions, cursor, principal),
-        ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', message: 'cursor-too-old' })
-      }
-      expect(builds).not.toHaveBeenCalled()
-      expect(
-        await SessionLifecycle.prototype.syncChangesSince.call(sessions, 2, principal),
-      ).toMatchObject({ kind: 'delta', cursor: 2, changes: [] })
-      builds.mockRestore()
-    } finally {
-      await f.close()
-    }
-  })
-
   it('reloads an expired client through the admitted HTTP worker with kind tokens', async () => {
     const f = await fixture()
     try {

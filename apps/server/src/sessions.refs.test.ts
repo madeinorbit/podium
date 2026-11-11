@@ -7,6 +7,7 @@ import { CHANGE_LOG_OBSERVER } from '@podium/sync'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
+import { feedDelta } from './test-support/feed-delta'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
 import { clientSessionViews } from './test-support/session-views'
@@ -110,7 +111,7 @@ describe('session birth naming (#474)', () => {
         refLetter: null,
       },
     )
-    expect(await reg.modules.sessions.syncChangesSince(cursor, CHANGE_LOG_OBSERVER)).toMatchObject({
+    expect(await feedDelta(reg, cursor, CHANGE_LOG_OBSERVER)).toMatchObject({
       kind: 'delta',
       cursor,
       changes: [],
@@ -140,7 +141,7 @@ describe('session birth naming (#474)', () => {
       reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/r/podium' }),
     ).rejects.toThrow('first draft append failed')
     append.mockRestore()
-    expect(await reg.modules.sessions.syncChangesSince(cursor, CHANGE_LOG_OBSERVER)).toMatchObject({
+    expect(await feedDelta(reg, cursor, CHANGE_LOG_OBSERVER)).toMatchObject({
       kind: 'delta',
       cursor,
       changes: [],

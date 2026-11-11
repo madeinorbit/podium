@@ -878,19 +878,14 @@ const defs = {
           }),
       ),
   }),
-  /** The bodies the synced record carries only headers of (POD-6767): brief,
-   *  panel, description and activity notes, by issue id, with the digests their
+  /** The bodies the synced record carries only headers of (POD-6767): brief
+   *  and description, by issue id, with the digests their
    *  headers name. Every task is readable by a person (design §2.2), so a
    *  missing id is simply left out of the answer. */
   bodies: def('bodies', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await readIssueBodies(
-        ctx.deps.executionFacts,
-        ctx.issueReader().viewer(),
-        input.ids,
-        input.fields,
-      ),
+      await readIssueBodies(ctx.deps.executionFacts, input.ids, input.fields),
   }),
   /** Lazy comment fetch (#175) — bodies left IssueProjection (commentCount rides it).
    *  A read (like get/list). Hub-mirrored issues have no local thread: their
@@ -1006,8 +1001,10 @@ const defs = {
         )
       }
       if (input.op === 'artifact-remove') {
-        if (input.itemId) return await ctx.crud.panelArtifactRemove(input.id, { itemId: input.itemId })
-        if (input.index == null) throw new IssueRefusal('artifact-remove requires an index or itemId')
+        if (input.itemId)
+          return await ctx.crud.panelArtifactRemove(input.id, { itemId: input.itemId })
+        if (input.index == null)
+          throw new IssueRefusal('artifact-remove requires an index or itemId')
         return await ctx.crud.panelArtifactRemove(input.id, input.index)
       }
       return await ctx.crud.panelApply(input.id, {

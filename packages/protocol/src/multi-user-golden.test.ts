@@ -4,12 +4,6 @@ import { GOLDEN } from './__fixtures__/golden/index'
 import { coveredSchemas } from './__fixtures__/registry'
 
 const participation = ['joinedAt', 'joinedVia', 'assignedAt', 'assignedBy']
-const sharedResult = [
-  'machines.0.custodian',
-  'issueProjections.0.legacyAssignee',
-  ...participation.map((field) => `issueUserStates.0.${field}`),
-]
-const resultVariants = Array.from({ length: 7 }, (_, i) => `full/arm${i + 1}`)
 const fields: Array<{ family: string; schema: string; paths: string[]; variants?: string[] }> = [
   {
     family: 'model',
@@ -59,18 +53,6 @@ const fields: Array<{ family: string; schema: string; paths: string[]; variants?
     schema: 'MetadataDeltaMessage',
     paths: ['changes.0.value.legacyAssignee'],
     variants: ['full/arm1'],
-  },
-  {
-    family: 'sync',
-    schema: 'SyncChangesSinceResult',
-    paths: sharedResult,
-    variants: resultVariants,
-  },
-  {
-    family: 'sync',
-    schema: 'SyncChangesSinceResultLenientSchema',
-    paths: sharedResult,
-    variants: resultVariants,
   },
 ]
 

@@ -49,13 +49,13 @@ import type { SessionId, UserId, UserRole } from '@podium/model'
 import {
   CAP_METADATA_DELTA,
   CAP_SYNC_HTTP_V1,
-  type SyncKindTokens,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TOPICS_V1,
   type ClientMessage,
   type FeedCursorField,
   type PresenceRoomClientMessage,
   type ServerFeatureFacts,
+  type SyncKindTokens,
   type TopicClientMessage,
 } from '@podium/protocol'
 import type { MemberAccessChange } from '../store/users'
@@ -271,9 +271,7 @@ export class ClientMux {
         }),
       viewports: new Map(),
       attached: new Set(),
-      // No caps until hello — the feature's bootstrap snapshots go to everyone
-      // (a delta client uses them as its initial paint, then takes a cursor via
-      // sync.changesSince and rides the metadataDelta stream).
+      // Capabilities are negotiated by hello before feed admission.
       caps: new Set(),
       // Wire 1 until `hello` says otherwise — see `renegotiate`.
       wireVersion: 1,
@@ -304,11 +302,9 @@ export class ClientMux {
     // stores machines, approvals and hosts separately from feed entities and
     // dispatches drafts by session id. Their frames may arrive after feed data.
     // Each task owns its rejection; failure must not prevent feed admission.
-    void this.deps.ports.sessions
-      .onClientAttached(conn.principal, conn)
-      .catch((error: unknown) => {
-        log.error('client session bootstrap failed', { clientId: id, error })
-      })
+    void this.deps.ports.sessions.onClientAttached(conn.principal, conn).catch((error: unknown) => {
+      log.error('client session bootstrap failed', { clientId: id, error })
+    })
     void this.deps.bootstrap(conn).catch((error: unknown) => {
       log.error('client non-session bootstrap failed', { clientId: id, error })
     })
@@ -460,7 +456,9 @@ export class ClientMux {
         // Topics: the account whose `account.events` this client may hold (D26).
         ...(conn.caps.has(CAP_TOPICS_V1) ? { accountUser: conn.principal.user } : {}),
         ...(this.deps.serverBuild ? { serverBuild: this.deps.serverBuild() } : {}),
-        ...(this.deps.serverFeatures ? { serverFeatures: wireFacts(this.deps.serverFeatures()) } : {}),
+        ...(this.deps.serverFeatures
+          ? { serverFeatures: wireFacts(this.deps.serverFeatures()) }
+          : {}),
       }
       const delivered = this.deps.syncKindTokens().then((kindTokens) => {
         if (this.deps.registry.get(conn.id) === conn && !conn.entityServingRefused)

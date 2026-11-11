@@ -2,9 +2,8 @@
  * THE SESSION-FAMILY READS (POD-314) — the queries that sat beside POD-382's
  * derived writes in `router.ts`, moved into the module that owns the service.
  *
- * FOUR ROUTERS, because the wire groups them that way: `sessions` (the reads),
- * `sync` (metadata-oplog catch-up), and the three per-user lists `pins`,
- * `snoozes` and `tabs`.
+ * TWO ROUTERS: `sessions` holds the session reads, and `snoozes` holds
+ * the caller's snoozed sessions.
  *
  * NOT CONTRACTS. A `visibility` class describes what a command WRITES and these
  * write nothing — the same line POD-382 drew when it left them hand-written, and
@@ -166,22 +165,6 @@ export const SESSION_QUERIES = {
       await assertMayReadSession(s, input.sessionId)
       return await s.modules.readToolkit.recap(input, s.caller.actorSessionId ?? 'operator')
     },
-  ),
-} as const
-
-export const SYNC_QUERIES = {
-  /** Delta-only catch-up. An unservable cursor is refused with cursor-too-old;
-   *  clients reload through the admitted /sync/bootstrap worker. */
-  changesSince: q(
-    z.object({ cursor: z.number().int().nonnegative().nullable() }),
-    async (s, input) =>
-      await s.modules.sessions.syncChangesSince(
-        input.cursor,
-        s.feedPrincipal ??
-          (() => {
-            throw new Error('authenticated feed principal required')
-          })(),
-      ),
   ),
 } as const
 

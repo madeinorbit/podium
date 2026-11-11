@@ -1,13 +1,15 @@
-import { CHANGE_LOG_OBSERVER } from '@podium/sync'
 import { asIssueId, asMachineId, asSessionId, firstAdminMemberId } from '@podium/model'
 import { CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
+import { CHANGE_LOG_OBSERVER } from '@podium/sync'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
 import { feedPrincipalOf } from './gateway/client-principal'
 import { SessionRegistry } from './relay'
 import type { IssueRow, SessionStore } from './store'
+import { workerSnapshot } from './test-support/bootstrap-snapshot'
 import { attachTestClient } from './test-support/client-transport'
+import { feedDelta } from './test-support/feed-delta'
 import { openTestStore } from './test-support/open-test-store'
 
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
@@ -235,23 +237,23 @@ async function issueWorkForOneFieldSessionChange(
   sessionId: string,
 ): Promise<number> {
   await registry.modules.sessions.flushBroadcasts()
-  const before = await registry.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)
+  const before = await workerSnapshot(registry, CHANGE_LOG_OBSERVER)
   await registry.modules.sessions.setWorkState(registry.modules.sessions.serverWriter, {
     sessionId: asSessionId(sessionId),
     workState: 'testing',
   })
   await registry.modules.sessions.flushBroadcasts()
-  const after = await registry.modules.sessions.syncChangesSince(before.cursor, CHANGE_LOG_OBSERVER)
+  const after = await feedDelta(registry, before.cursor, CHANGE_LOG_OBSERVER)
   if (after.kind !== 'delta') throw new Error('fresh fixture unexpectedly required a snapshot')
   return after.changes.filter((change) => change.entity === 'issueProjection').length
 }
 
 describe('issueProjection is the only issue record', () => {
   const changesOf = async (registry: SessionRegistry, entity: string) => {
-    const boot = await registry.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)
+    const boot = await workerSnapshot(registry, CHANGE_LOG_OBSERVER)
     // A null cursor bootstraps to a snapshot; take a cursor from 0 to read the
     // whole durable change log instead.
-    const all = await registry.modules.sessions.syncChangesSince(0, CHANGE_LOG_OBSERVER)
+    const all = await feedDelta(registry, 0, CHANGE_LOG_OBSERVER)
     return all.kind === 'delta'
       ? all.changes.filter((c) => c.entity === entity)
       : (boot.kind === 'delta' ? boot.changes : []).filter((c) => c.entity === entity)
@@ -293,7 +295,7 @@ describe('issueProjection is the only issue record', () => {
       'iss_1',
     )
 
-    const snapshot = await registry.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)
+    const snapshot = await workerSnapshot(registry, CHANGE_LOG_OBSERVER)
     expect(snapshot.kind).toBe('snapshot')
     if (snapshot.kind !== 'snapshot') throw new Error('expected snapshot')
     expect(snapshot.issueProjections?.map((row) => row.id).sort()).toEqual(['iss_0', 'iss_1'])
@@ -313,7 +315,7 @@ describe('issueProjection is the only issue record', () => {
     expect((await store.sessions.loadSessions()).find((row) => row.id === sessionId)?.issueId).toBe(
       'iss_0',
     )
-    const snapshot = await registry.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)
+    const snapshot = await workerSnapshot(registry, CHANGE_LOG_OBSERVER)
     expect(snapshot.kind).toBe('snapshot')
     if (snapshot.kind !== 'snapshot') throw new Error('expected snapshot')
     const projection = snapshot.issueProjections?.find((row) => row.id === 'iss_0')
@@ -324,7 +326,7 @@ describe('issueProjection is the only issue record', () => {
         .map((session) => session.sessionId),
     ).toEqual([sessionId])
 
-    const all = await registry.modules.sessions.syncChangesSince(0, CHANGE_LOG_OBSERVER)
+    const all = await feedDelta(registry, 0, CHANGE_LOG_OBSERVER)
     expect(all.kind).toBe('delta')
     if (all.kind !== 'delta') throw new Error('expected delta')
     const sessionChanges = all.changes.filter(
@@ -340,7 +342,7 @@ describe('issueProjection is the only issue record', () => {
     const reboot = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reboot)
     reboot.modules.sessions.flushBroadcasts()
-    const after = await reboot.modules.sessions.syncChangesSince(cursor, CHANGE_LOG_OBSERVER)
+    const after = await feedDelta(reboot, cursor, CHANGE_LOG_OBSERVER)
     expect(after.kind).toBe('delta')
     if (after.kind !== 'delta') throw new Error('expected delta')
     expect(
@@ -422,7 +424,7 @@ describe('normalized dep emission [POD-797]', () => {
   }, async () => {
     const { registry } = await world()
     await registry.modules.sessions.flushBroadcasts()
-    const before = await registry.modules.sessions.syncChangesSince(0, CHANGE_LOG_OBSERVER)
+    const before = await feedDelta(registry, 0, CHANGE_LOG_OBSERVER)
     const beforeCount =
       before.kind === 'delta'
         ? before.changes.filter((change) => change.entity === 'issueDep').length
@@ -433,7 +435,7 @@ describe('normalized dep emission [POD-797]', () => {
       'iss_2',
     )
     await registry.modules.sessions.flushBroadcasts()
-    const after = await registry.modules.sessions.syncChangesSince(0, CHANGE_LOG_OBSERVER)
+    const after = await feedDelta(registry, 0, CHANGE_LOG_OBSERVER)
     const edges =
       after.kind === 'delta' ? after.changes.filter((change) => change.entity === 'issueDep') : []
     expect(edges.length - beforeCount).toBe(1)

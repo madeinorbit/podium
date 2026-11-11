@@ -230,7 +230,6 @@ import {
   SESSION_LAUNCH_KIND,
   settledSpawnLaunch,
 } from './modules/sessions/session-launch-effect'
-import type { SnapshotTail } from './modules/sessions/session-lifecycle-types'
 import { makeInstancePreferencesFeedCapture } from './modules/settings/instance-record'
 import {
   bridgeConfigChanged,
@@ -1222,10 +1221,6 @@ export class SessionRegistry {
       // records and the Authority builds them from the model tables before
       // and after the write.
       records,
-      onPruneMetrics: (metrics) => {
-        perf.record('phase', 'changeLogPrune.total', metrics.totalDurationMs, DEPLOYMENT)
-        perf.record('phase', 'changeLogPrune.maxSlice', metrics.maxUninterruptedSliceMs, DEPLOYMENT)
-      },
     })
     this.ledger = ledger
     // WHO MAY WRITE (ADR 12 D9, POD-6592): the Ledger's scope mint, taken once,
@@ -1489,12 +1484,6 @@ export class SessionRegistry {
       serving: feedServing,
       onPublished: (seq) => this.bus.emit('feed.published', { seq }),
     })
-    // What a device-grade snapshot adds, and what auto-archive checks: each read
-    // for itself (POD-6156), where both used to come from one read of every
-    // issue, dependency, order, conversation and automation.
-    const snapshotDiagnostics = async (): Promise<SnapshotTail['diagnostics']> => [
-      ...conversationDiagnostics.current,
-    ]
     const installedIssueProjection = async (issueId: string) =>
       (await ledger.authority.installedValues('issueProjection', [issueId])).get(issueId) as
         | { id: string; parentId?: string | null }
@@ -2086,7 +2075,6 @@ export class SessionRegistry {
         }),
       memory,
       issueAccess,
-      snapshotDiagnostics,
       installedIssueProjection,
       onWorktreesChanged: broadcastWorktreesChanged,
       commitRepoWrite: async (write) => await this.commitServerRepoWrite(write),

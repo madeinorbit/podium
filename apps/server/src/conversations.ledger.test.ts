@@ -15,6 +15,7 @@ import type { MemoryReaderView } from './modules/memory/service'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { attachTestClient } from './test-support/client-transport'
+import { feedDelta } from './test-support/feed-delta'
 import { openTestStore } from './test-support/open-test-store'
 import { testStoreRecords } from './test-support/record-writer'
 import type { WriteContexts } from './write-contexts'
@@ -136,13 +137,13 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
   }
 
   const cursorOf = async (registry: SessionRegistry): Promise<number> =>
-    (await registry.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)).cursor
+    await registry.changeLedger.cursor()
 
   const conversationChangesSince = async (
     registry: SessionRegistry,
     cursor: number,
   ): Promise<MetadataChange[]> => {
-    const healed = await registry.modules.sessions.syncChangesSince(cursor, CHANGE_LOG_OBSERVER)
+    const healed = await feedDelta(registry, cursor, CHANGE_LOG_OBSERVER)
     if (healed.kind !== 'delta') throw new Error('expected a delta read')
     return healed.changes.filter((c) => c.entity === 'conversation')
   }
@@ -386,7 +387,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     await first.gateway.attachDaemon('m1', () => {})
     await push(first, [conv('c1', { title: 't' }), conv('c2')])
     await first.dispose()
-    const cursor = (await first.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)).cursor
+    const cursor = await first.changeLedger.cursor()
     // Restart over the same store. Conversations are daemon-fed: boot must NOT
     // reconcile them (an empty list means "not scanned yet", not "all gone").
     const second = await makeRegistry(store)
@@ -444,7 +445,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
       { id: 'c1', name: 'kept' },
     )
     await push(registry, [conv('c1', { title: 't' }), conv('c3')], { removed: ['c2'] })
-    const healed = await registry.modules.sessions.syncChangesSince(0, CHANGE_LOG_OBSERVER)
+    const healed = await feedDelta(registry, 0, CHANGE_LOG_OBSERVER)
     expect(healed.kind).toBe('delta')
     if (healed.kind !== 'delta') return
     const folded = new Map<string, unknown>()

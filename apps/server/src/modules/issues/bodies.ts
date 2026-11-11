@@ -7,30 +7,22 @@
  *
  */
 
-import {
-  ISSUE_BODY_FIELDS,
-  type IssueBodyField,
-  type IssueBodyWire,
-  type UserId,
-} from '@podium/model'
+import { ISSUE_BODY_FIELDS, type IssueBodyField, type IssueBodyWire } from '@podium/model'
 import type { IssueRow } from '../../store/types'
-import type { ExecutionFactsStore } from './execution-visibility'
 import { issueBodyHeaderOf, issueBodyValuesOfRow } from './projection'
 
 export interface IssueBodiesRead {
   /** The issues by id; a missing id is absent. */
   rows(ids: readonly string[]): Promise<ReadonlyMap<string, IssueRow>>
-  readonly store: ExecutionFactsStore
 }
 
 /**
- * The bodies of `ids` that `viewer` may read, for the fields asked (every field
- * when `fields` is absent). A field with no content has no body and is not in
+ * The bodies of `ids`, readable by every member, for the fields asked (every
+ * field when `fields` is absent). A field with no content has no body and is not in
  * the answer, exactly as it has no header. Missing issues are left out.
  */
 export async function readIssueBodies(
   read: IssueBodiesRead,
-  viewer: UserId | null,
   ids: readonly string[],
   fields: readonly IssueBodyField[] = ISSUE_BODY_FIELDS,
 ): Promise<IssueBodyWire[]> {

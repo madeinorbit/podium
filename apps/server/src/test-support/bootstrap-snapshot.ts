@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { HttpBootstrapSource } from '@podium/client-core/sync-stream'
-import type { MetadataEntityKind, Principal, SyncChangesSinceResult } from '@podium/protocol'
+import type * as Model from '@podium/model'
+import type { MetadataEntityKind, Principal } from '@podium/protocol'
 import { type SqlDatabase, serializeDatabase } from '@podium/runtime/sqlite'
 import type { BootstrapChunk } from '@podium/sync/replica'
 import { Hono } from 'hono'
@@ -11,7 +12,34 @@ import type { SessionRegistry } from '../relay'
 import { registerSyncRoutes } from '../sync/routes'
 import { SyncWorkerClient } from '../sync-worker/worker-client'
 
-type Snapshot = Extract<SyncChangesSinceResult, { kind: 'snapshot' }>
+/** Test-only array view of the worker stream, independent of retired wire results. */
+type Snapshot = {
+  kind: 'snapshot'
+  cursor: number
+  feedId?: string
+  epoch?: string
+  minAvailableSeq?: number
+  sessions: Model.SessionMeta[]
+  sessionUserStates: Model.SessionUserStateWire[]
+  machines: Model.MachineProjection[]
+  issues: never[]
+  issueProjections: Model.SlimIssueProjection[]
+  issueBodies: Model.IssueBodiesWire[]
+  issuePanelTodos: Model.IssuePanelTodoWire[]
+  issuePanelArtifacts: Model.IssuePanelArtifactWire[]
+  issuePanelDeferreds: Model.IssuePanelDeferredWire[]
+  issuePanelStates: Model.IssuePanelStateWire[]
+  issueUserStates: Model.IssueUserStateWire[]
+  issueGitStates: Model.IssueGitStateProjection[]
+  issueDeps: Model.IssueDepProjection[]
+  repos: Model.RepoProjection[]
+  shipOrders: Model.ShipOrderProjection[]
+  shipLanes: Model.ShipLaneProjection[]
+  conversations: Model.ConversationRecordWire[]
+  automations: Model.AutomationWire[]
+  automationRuns: Model.AutomationRunWire[]
+  diagnostics: Model.ConversationDiagnosticWire[]
+}
 
 /** Keep the test fixture's array vocabulary; records are built/scoped in the worker. */
 export async function snapshotFromBootstrap(

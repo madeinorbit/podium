@@ -1,6 +1,5 @@
 import type { MetadataChange } from '@podium/protocol'
 import type { AuthorityPort, ScopedChange, ScopedDelivery } from '@podium/sync'
-import { CHANGE_LOG_OBSERVER } from '@podium/sync'
 import { testLedgerWriter } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
 import { type OnPublicationIdle, scheduleFeedFlush } from '../gateway/feed-serving'
@@ -138,28 +137,6 @@ describe('WriteFunnel.run ordering', () => {
       }),
     ).rejects.toThrow('forbidden')
     expect(write).not.toHaveBeenCalled()
-  })
-})
-
-describe('WriteFunnel.changesSince / cursor (ledger passthrough)', () => {
-  it('serves ledger-appended changes from a cursor (one shared durable log)', async () => {
-    const { funnel, ledger } = await makeFunnel()
-    await testLedgerWriter(ledger).commit(
-      ledger.modelOperation({
-        write: async () => {},
-        rows: () => [{ entity: 'conversation', id: 'c1', op: 'upsert', value: { a: 1 } }],
-      }),
-    )
-    const cursor = await funnel.cursor()
-    await testLedgerWriter(ledger).commit(
-      ledger.modelOperation({
-        write: async () => {},
-        rows: () => [{ entity: 'conversation', id: 'c1', op: 'upsert', value: { a: 2 } }],
-      }),
-    )
-    const changes = await funnel.changesSince(cursor, CHANGE_LOG_OBSERVER)
-    expect(changes?.map((c) => c.id)).toEqual(['c1'])
-    expect(await funnel.cursor()).toBe(2)
   })
 })
 

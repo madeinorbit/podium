@@ -14,7 +14,7 @@ import type {
   TranscriptItemRef,
   UserId,
 } from '@podium/model'
-import type { MetadataChange, SubscriptionRegistry, SyncChangesSinceResult } from '@podium/protocol'
+import type { MetadataChange, SubscriptionRegistry } from '@podium/protocol'
 import type { QueueDrainAbandonedReason, RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import type {
   AffectedRecordSpec,
@@ -59,15 +59,6 @@ export interface SessionWriters {
 export interface SessionLedger {
   commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>>
 }
-
-/** Non-session fields retained by the expiring wire-v1 catch-up snapshot.
- *  Without the old issue record (POD-4971): this tail answers no client, its
- *  only issue reader (session auto-archive) reads `issueProjections`, and a
- *  field nobody reads would keep a full read of the old record on every call. */
-export type SnapshotTail = Omit<
-  Extract<SyncChangesSinceResult, { kind: 'snapshot' }>,
-  'kind' | 'sessions' | 'issues' | 'cursor' | 'feedId' | 'epoch' | 'minAvailableSeq'
->
 
 /** Prepared half of a cross-aggregate issue/session deletion transaction. */
 export interface SessionDeletePlan {
@@ -277,8 +268,6 @@ export interface SessionLifecycleDeps {
   memory: MemoryService
   /** Live repository-backed issue access; re-read on every apply and replay. */
   issueAccess: DurableIssueAccessIndex
-  /** The conversation diagnostics a device-grade snapshot carries. */
-  snapshotDiagnostics(): Promise<SnapshotTail['diagnostics']>
   /** One issue's installed projection, read by key from the durable authority
    *  (POD-6156): what auto-archive checks a parent against. */
   installedIssueProjection(

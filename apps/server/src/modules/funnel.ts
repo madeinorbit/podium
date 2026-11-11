@@ -1,5 +1,5 @@
 import { createLogger } from '@podium/logger'
-import type { MetadataChange, Principal } from '@podium/protocol'
+import type { MetadataChange } from '@podium/protocol'
 import {
   type AuthorityPort,
   CHANGE_LOG_OBSERVER,
@@ -112,16 +112,6 @@ export class WriteFunnel {
     return outcome.result
   }
 
-  /** Cursor catch-up read (sync.changesSince) — null when compacted/future. */
-  async changesSince(
-    cursor: number | null,
-    principal: Principal,
-  ): Promise<MetadataChange[] | null> {
-    const delivery = await this.deps.authority.changesSince(cursor, principal)
-    if (delivery === null || delivery.kind !== 'batch') return null
-    return delivery.changes.flatMap(toBusChange)
-  }
-
   async cursor(): Promise<number> {
     return await this.deps.authority.cursor()
   }
@@ -130,19 +120,6 @@ export class WriteFunnel {
    *  passthrough, so there is one source and no copy. */
   visibilityGrade(): FeedScopingGrade {
     return this.deps.authority.visibilityGrade()
-  }
-
-  /** This feed's `(feedId, epoch)` (ADR 2 D1) — stamped onto every delta frame
-   *  and catch-up reply so a replica can compare the identity of the stream it
-   *  is reading, not just its position in it. Read from the serving edge, which
-   *  is the same source every published frame reads it from. */
-  async feedIdentity(): Promise<{ readonly feedId: string; readonly epoch: string }> {
-    return await this.deps.serving.identity()
-  }
-
-  /** The published retention horizon (ADR 2 D5), from that same source. */
-  async minAvailableSeq(): Promise<number> {
-    return await this.deps.serving.retentionFloor()
   }
 
   // ---- THE ordered, coalesced delivery pipe (#256) ----

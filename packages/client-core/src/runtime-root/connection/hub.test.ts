@@ -14,7 +14,7 @@ describe('isInitialConnectivityError', () => {
   })
 })
 
-it('never constructs a legacy changesSince feed when no HTTP feed was supplied', () => {
+it('leaves metadata reads to the HTTP feed when no feed was supplied', () => {
   const query = vi.fn()
   const createHub = vi.fn((_options: SocketHubOptions) => ({}) as SocketHub)
   createEngineHub({
@@ -24,6 +24,6 @@ it('never constructs a legacy changesSince feed when no HTTP feed was supplied',
     onFatalError: vi.fn(),
     createHub,
   })
-  expect(createHub.mock.calls[0]?.[0].legacyFeed).toBeUndefined()
+  expect(createHub.mock.calls[0]?.[0].feed).toBeUndefined()
   expect(query).not.toHaveBeenCalled()
 })

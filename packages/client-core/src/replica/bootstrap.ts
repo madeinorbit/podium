@@ -43,7 +43,7 @@
  * is a frozen UI rather than a missed watchdog. Same rule, different loop.
  */
 
-import type { MetadataChangeLenient, SyncChangesSinceResultLenient } from '@podium/protocol'
+import type { MetadataChangeLenient } from '@podium/protocol'
 import { isKnownMetadataChange } from '@podium/protocol'
 import type { Replica, ReplicaKind, ReplicaRows } from './contract'
 import type { FeedCursor } from './feed'
@@ -93,15 +93,9 @@ const KIND_BY_ENTITY: Record<string, ReplicaKind> = {
   instancePreferences: 'instancePreferences',
 }
 
-type SnapshotKind = Extract<
-  keyof Extract<SyncChangesSinceResultLenient, { kind: 'snapshot' }>,
-  ReplicaKind
->
-
-/** Only the collections covered by the authoritative snapshot arm. Omitted
- *  optional arrays mean empty, including on older authorities. Other replica
- *  kinds have separate loading paths and cannot be cleared by this snapshot. */
-const SNAPSHOT_KINDS: readonly SnapshotKind[] = [
+/** Collections staged by this installer. Other replica kinds have separate
+ *  loading paths and cannot be cleared by this snapshot. */
+const SNAPSHOT_KINDS = [
   'sessions',
   'sessionUserStates',
   'machines',
@@ -121,7 +115,9 @@ const SNAPSHOT_KINDS: readonly SnapshotKind[] = [
   'conversations',
   'automations',
   'automationRuns',
-]
+] as const satisfies readonly ReplicaKind[]
+
+type SnapshotKind = (typeof SNAPSHOT_KINDS)[number]
 
 /** One chunk of the bootstrap stream: ordered rows in the SAME change shape the
  *  delta path uses (D6 — "one shape, one code path"). A new entity kind is free

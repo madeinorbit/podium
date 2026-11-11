@@ -131,8 +131,6 @@ export interface LedgerDeps {
   applyCommit?: BaselineFoldPort
   /** Monotonic clock seam for deterministic maintenance scheduling tests. */
   monotonicNow?: () => number
-  /** Records each retention job's total duration and max uninterrupted slice. */
-  onPruneMetrics?: Parameters<typeof pruneChangeLog>[1]['onMetrics']
   visibility?: FeedVisibilityPolicy
   anchors?: VisibilityAnchorPort
   listenerPrincipal?: Principal
@@ -416,8 +414,7 @@ export class Ledger {
     }
   }
 
-  /** Catch-up read for `sync.changesSince` — null means "fall back to a
-   *  snapshot" (bootstrap / compacted-past-cursor / future cursor / corrupt row). */
+  /** In-process observer catch-up; null means the cursor cannot be served. */
   async changesSince(cursor: number | null): Promise<MetadataChange[] | null> {
     const delivery = await this.authority.changesSince(cursor, CHANGE_LOG_OBSERVER)
     if (delivery === null) return null

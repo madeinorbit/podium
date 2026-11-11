@@ -1,5 +1,15 @@
+export type {
+  IssueBodyFields,
+  IssueBodyValues,
+  IssueSessionRollups,
+  IssueView,
+  IssueViewModel,
+  IssueWithBodies,
+} from '../values/issue-type'
+export { issueBodyLoading } from '../values/issue-type'
 export * from './async-storage'
 export * from './bootstrap'
+export * from './contract'
 /**
  * TWO MODULES ARE SPELLED `feed` HERE, and the paths below are explicit because
  * of it (POD-1246 catch-up). Main grew `./feed.ts` — the ADR 2 D1 cursor TRIPLE
@@ -17,17 +27,4 @@ export * from './bootstrap'
 export * from './feed'
 export * from './feed/index'
 export * from './kernel'
-export * from './legacy-wire-v1-binding'
-
-export * from './legacy-wire-v1-feed'
 export * from './principal-storage'
-export * from './contract'
-export { issueBodyLoading } from '../values/issue-type'
-export type {
-  IssueBodyFields,
-  IssueBodyValues,
-  IssueSessionRollups,
-  IssueView,
-  IssueViewModel,
-  IssueWithBodies,
-} from '../values/issue-type'

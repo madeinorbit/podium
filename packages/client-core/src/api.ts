@@ -45,7 +45,6 @@ import type {
   LockWire,
   ModelChoiceWire,
   SessionIdentifierResolution,
-  SyncChangesSinceResult,
   SyncSubmitInput,
   SyncSubmitReply,
 } from '@podium/protocol'
@@ -110,7 +109,6 @@ type WithMutationId<T> = T & { mutationId?: MutationId }
  */
 export interface PodiumClientApi {
   sync: {
-    changesSince: ApiQuery<{ cursor: number | null }, SyncChangesSinceResult>
     /**
      * The sync write entry point (ADR 12 D2): every queued command goes here, and
      * the reply's receipt is what confirms it (POD-6277). Optional in this mirror

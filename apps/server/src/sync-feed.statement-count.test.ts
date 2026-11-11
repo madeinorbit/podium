@@ -3,17 +3,15 @@
  * server-data rule 8]: a client's `hello`, a bootstrap and a catch-up delta,
  * at 5 and 200 issues and sessions in the world.
  *
- * Bootstrap and delta are pinned on both paths that serve them:
+ * Bootstrap and delta are pinned on the current worker paths:
  * - the sync worker's (`GET /sync/bootstrap`, `GET /sync/delta`), which every
  *   current client uses. It runs on a read-only connection the producer opens
  *   itself, so these pins count on THAT connection: the repository reads the
  *   driver probe sees, plus the producer's own raw statements, which are
  *   prepared on the handle directly and never reach a driver;
- * - the in-process `syncChangesSince` (tRPC `sync.changesSince`, the wire-v1
- *   client), on the store's connection.
  *
  * Reads that page or chunk grow by one per page (the worker's delta reads 500
- * changes a page, the in-process one 1000) or per 250 keys of one entity kind
+ * changes a page) or per 250 keys of one entity kind
  * (`KEY_CHUNK`, the IN-list bound); both sizes here stay inside one page and
  * one chunk, so what is pinned is the per-page cost. A bootstrap's two passes
  * over `change_latest` stream every row by design (criterion 1 lists them).
@@ -333,53 +331,6 @@ describe('sync worker: pinned statement counts at 5 and 200', () => {
 
   it('a delta pin is armed', async () => {
     await expectArmed(delta, 6, plantPerAudienceRead)
-  })
-})
-
-describe('in-process syncChangesSince: pinned statement counts at 5 and 200', () => {
-  const snapshot = pin(
-    'syncChangesSince(null)',
-    (size) => world(size),
-    async (w) => await w.reg.modules.sessions.syncChangesSince(null, principalOf(w)),
-    (result, _w, size) => {
-      const out = result as { kind: string; sessions: unknown[]; issueProjections: unknown[] }
-      expect(out.kind).toBe('snapshot')
-      expect(out.issueProjections).toHaveLength(size)
-      expect(out.sessions).toHaveLength(size)
-    },
-  )
-
-  // RE-PINNED 6 -> 63 FOR POD-6770: the in-process snapshot builds every
-  // kind from the model tables too (`Authority.bootstrap`), then prepares the
-  // sharing rules once for the whole world.
-  // POD-6791: the issue and its body headers share a page read: 63 -> 62.
-  it('a snapshot for the owner', async () => {
-    await expectConstantStatements(snapshot, 62)
-  })
-
-  it('a snapshot pin is armed', async () => {
-    await expectArmed(snapshot, 62, plantPerIssue)
-  })
-
-  const since = pin(
-    'syncChangesSince(cursor)',
-    (size) => world(size, true),
-    async (w) => await w.reg.modules.sessions.syncChangesSince(w.from, principalOf(w)),
-    (result, _w, size) => {
-      const out = result as { kind: string; changes: { entity: string }[] }
-      expect(out.kind).toBe('delta')
-      expect(out.changes.filter((change) => change.entity === 'issueProjection')).toHaveLength(size)
-    },
-  )
-
-  // RE-PINNED 8 -> 7 FOR POD-6341: the issue grants read (#9119be47) left with
-  // POD-6288 (tasks are shared, design §2.2, §4.1).
-  it('a delta over one rename of every issue', async () => {
-    await expectConstantStatements(since, 7)
-  })
-
-  it('a delta pin is armed', async () => {
-    await expectArmed(since, 7, plantPerIssue)
   })
 })
 
