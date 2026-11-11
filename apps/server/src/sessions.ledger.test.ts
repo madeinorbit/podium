@@ -40,6 +40,7 @@ async function authoritySnapshot(registry: SessionRegistry) {
       yield {
         ...identity,
         snapshotSeq: world.throughSeq,
+        kindTokens: {},
         changes: world.changes.flatMap((change) =>
           change.op === 'upsert' ? [{ ...change, payload: change.value }] : [],
         ),

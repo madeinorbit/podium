@@ -489,8 +489,9 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
           // builds/scopes the snapshot; never infer a member from the test name.
           const userId = await requestUserId(store.auth, cookie)
           const account = userId ? await store.users.get(userId) : undefined
-          if (!account || account.disabledAt) throw new Error('authenticated member required')
-          const principal = syncFeedPrincipal(userCommandPrincipal(account.id, account.role))
+          if (!userId || !account || account.disabledAt)
+            throw new Error('authenticated member required')
+          const principal = syncFeedPrincipal(userCommandPrincipal(userId, account.role))
           if (!principal) throw new Error('authenticated feed principal required')
           return await workerSnapshot(registry, principal)
         },
