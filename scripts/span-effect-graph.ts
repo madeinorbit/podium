@@ -252,6 +252,14 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
     label: 'SessionStore.transact',
   },
   {
+    // The sign-in carry-over's one transaction (POD-6751): consume the old
+    // sign-in, issue the device sign-in, record and audit.
+    file: 'apps/server/src/store/sign-in-carry-over.ts',
+    symbol: 'transaction',
+    body: 'arg0',
+    label: 'SignInCarryOverRepository.transaction',
+  },
+  {
     file: 'apps/server/src/modules/lock/service.ts',
     symbol: 'transact',
     body: 'arg0',
@@ -444,7 +452,7 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
   {
     file: 'packages/identity/src/types.ts',
     line: 420,
-    why: "the hosted applied-cursor transaction port (PDM-509). The server binds it to SessionStore.transact, already classified above; the port itself does not open another span.",
+    why: 'the hosted applied-cursor transaction port (PDM-509). The server binds it to SessionStore.transact, already classified above; the port itself does not open another span.',
   },
 ]
 
@@ -515,6 +523,8 @@ const NODE_MODULE_KIND: Readonly<Record<string, CapabilityKind>> = {
   util: 'contained',
   crypto: 'contained',
   buffer: 'contained',
+  // `Buffer.from`/`concat`/`subarray` are declared in @types/node's `buffer.buffer.d.ts`.
+  'buffer.buffer': 'contained',
   string_decoder: 'contained',
   querystring: 'contained',
   assert: 'contained',
@@ -620,6 +630,27 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   'packages/identity/src/types.ts#MembershipOperations.list': {
     kind: 'contained',
     why: "Reads the workspace's memberships with the identity package's own statements on the store's drizzle handle (POD-6746, `ensureLocalIdentity`); it joins the open transaction and has no effect outside the database.",
+  },
+  // THE SIGN-IN CARRY-OVER'S ONE TRANSACTION (POD-6751; docs/design/sign-in-carry-over.md, section 4.2).
+  'apps/server/src/sign-in-carry-over.ts#SignInCarryOverDeps.now': {
+    kind: 'contained',
+    why: 'Reads the clock, so that the consuming statement, the carry record and the repeat use one instant. No I/O and nothing is published.',
+  },
+  'apps/server/src/sign-in-carry-over.ts#SignInCarryOverDeps.audit': {
+    kind: 'contained',
+    why: "Inserts the one audit row of a carry through UsersRepository.audit on the store's drizzle handle; it joins the carry's transaction and rolls back with it. Nothing leaves the database.",
+  },
+  'packages/identity/src/types.ts#MembershipOperations.accountOfActiveMember': {
+    kind: 'contained',
+    why: "One read of a membership by primary key with the identity package's own statement on the store's drizzle handle; it joins the carry's transaction and has no effect outside the database.",
+  },
+  'packages/identity/src/types.ts#DeviceSignInOperations.create': {
+    kind: 'contained',
+    why: "Creates the device sign-in an old sign-in is exchanged for. The identity package writes the row through the sign-in library's adapter on the store's drizzle handle, so it joins the carry's transaction and rolls back with it (pinned by the injected-fault test of sign-in-carry-over.carry.test.ts). It sends nothing: the cookie it returns is added to the response after the commit, and no socket, agent or daemon learns of a sign-in that did not commit.",
+  },
+  'apps/server/src/identity/member-of-request.ts#MemberOfRequest.<anonymous>': {
+    kind: 'contained',
+    why: "Resolves the cookie of a carry record inside the carry's transaction (the repeat, section 4.3): one read of the identity package on the store's drizzle handle and one read of the member row, plus the package's hourly last-seen touch, which joins the transaction. No effect outside the database.",
   },
   'packages/identity/src/types.ts#MembershipOperations.adopt': {
     kind: 'contained',
