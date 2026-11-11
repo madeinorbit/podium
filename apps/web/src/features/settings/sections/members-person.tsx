@@ -1,3 +1,4 @@
+import { relativeTime } from '@podium/client-core/focus'
 import { memberRoster } from '@podium/client-graph/member-roster'
 import type { MemberModel } from '@podium/client-graph/requested-models'
 import { KeyRound, Monitor, Server } from 'lucide-react'
@@ -7,6 +8,7 @@ import { toast } from 'sonner'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import { Button } from '@/components/ui/button'
 import { authRequest, memberRequest } from '@/features/setup/member-api'
+import { useClock } from '@/lib/clock-hooks'
 import { useSettingsFrame } from '../settings-frame'
 import { useSettingsTrpc } from '../stable-access'
 import { KeySharing, StoredKeys } from './key-sharing'
@@ -280,6 +282,7 @@ const PersonDevices = observer(function PersonDevices({
   onSignOutEverywhere: () => void
   children: React.ReactNode
 }) {
+  const now = useClock(30_000, person.devices.length > 0)
   const [revoking, setRevoking] = useState<string>()
   const [error, setError] = useState<{ id: string; message: string }>()
   const revoke = async (id: string) => {
@@ -336,7 +339,15 @@ const PersonDevices = observer(function PersonDevices({
                   title={deviceLabel(device)}
                   subtitle={
                     <>
-                      {`${device.platform ? `${device.platform} · ` : ''}Last seen ${device.lastSeenAt ? new Date(device.lastSeenAt).toLocaleString() : 'unknown'}`}
+                      <span
+                        title={
+                          device.lastSeenAt
+                            ? new Date(device.lastSeenAt).toLocaleString()
+                            : undefined
+                        }
+                      >
+                        {`${device.platform ? `${device.platform} · ` : ''}Last seen ${device.lastSeenAt ? relativeTime(device.lastSeenAt, now) : 'not yet'}`}
+                      </span>
                       {error && error.id === device.id && (
                         <p className="settings-prose text-destructive" role="alert">
                           {error.message}

@@ -1,4 +1,5 @@
 import { type AuthCapabilities, accountPageUrl } from '@podium/client-core/accounts'
+import { relativeTime } from '@podium/client-core/focus'
 import { RequestAnswer } from '@podium/client-graph/request-answer'
 import type { DeviceSignInView } from '@podium/protocol'
 import { Laptop, Shield, Smartphone } from 'lucide-react'
@@ -7,6 +8,7 @@ import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { serverConfig } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { authRequest } from '@/features/setup/member-api'
+import { useClock } from '@/lib/clock-hooks'
 import { AdminViewerError } from '../AdminViewerError'
 import { useAdminSections } from '../admin-viewer'
 import { NetworkSettingsView } from '../network-view'
@@ -35,7 +37,8 @@ interface AccessSignIns {
 }
 
 type SignIn = DeviceSignInView & { memberId: string; memberName: string }
-const day = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : 'Not seen yet')
+/** Exact times stay one hover away; the row reads in relative time, as the design does. */
+const exact = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : 'never')
 /** Host recovery sign-ins are made on the server machine itself, not by a person's device. */
 export const isAdvancedSignIn = (signIn: Pick<SignIn, 'kind'>) => signIn.kind === 'host'
 export function filterSignIns(
@@ -275,22 +278,29 @@ function SignInRow({
 }) {
   const Icon = signIn.kind === 'phone' ? Smartphone : signIn.kind === 'host' ? Shield : Laptop
   const device = signIn.deviceName || KIND_LABEL[signIn.kind]
+  const now = useClock(30_000)
   return (
     <EntityRow
       leading={<Icon size={18} aria-hidden="true" />}
       title={signIn.memberName}
+      pills={
+        <span className="settings-micro min-w-0 max-w-full break-words">
+          {device}
+          {signIn.platform ? ` · ${signIn.platform}` : ''}
+        </span>
+      }
       subtitle={
         <>
-          <span>
-            {device}
-            {signIn.platform ? ` · ${signIn.platform}` : ''}
+          {/* One line, as the design has it: the subtitle is a flex row, so
+              stacked blocks inside it landed at different heights. */}
+          <span
+            title={`Signed in ${exact(signIn.createdAt)} · Last seen ${exact(signIn.lastSeenAt)} · Expires ${exact(signIn.expiresAt)}`}
+          >
+            Signed in {relativeTime(signIn.createdAt, now)} · last seen{' '}
+            {signIn.lastSeenAt ? relativeTime(signIn.lastSeenAt, now) : 'not yet'}
           </span>
-          <span className="mt-1 block">
-            Signed in {day(signIn.createdAt)} · Last seen {day(signIn.lastSeenAt)}
-          </span>
-          <span className="settings-micro mt-1 block">Expires {day(signIn.expiresAt)}</span>
           {error && (
-            <span className="mt-1 block text-destructive" role="alert">
+            <span className="basis-full text-destructive" role="alert">
               {error}
             </span>
           )}

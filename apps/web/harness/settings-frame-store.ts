@@ -266,6 +266,17 @@ const signIns = populated
         lastSeenAt: '2026-11-11T10:15:00Z',
         expiresAt: '2099-01-01T00:00:00Z',
       },
+      {
+        id: 'session-unnamed',
+        memberId: 'demo',
+        memberName: 'Alex Morgan',
+        kind: 'browser',
+        deviceName: null,
+        platform: null,
+        createdAt: '2026-09-16T17:56:23Z',
+        lastSeenAt: null,
+        expiresAt: '2026-11-30T09:37:12Z',
+      },
     ]
   : []
 if (populated) {
