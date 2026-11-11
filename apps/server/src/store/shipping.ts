@@ -45,7 +45,7 @@ import {
   shippingTrainSubsetFingerprint,
 } from '@podium/protocol/daemon'
 import type { WriteScope } from '@podium/sync'
-import { and, asc, desc, eq, getTableColumns, isNull, notInArray, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, getTableColumns, gt, isNull, notInArray, sql } from 'drizzle-orm'
 import {
   deliveryReceipts,
   issues,
@@ -57,6 +57,7 @@ import {
   shipLaneRevisions,
   shipOrderStackEdges,
   shipOrders,
+  shipRecoveryWork,
   shipRepairCandidates,
   shipSteps,
   shipTrainActiveClaims,
@@ -227,6 +228,26 @@ export interface StoredShippingRepairCandidate {
   resultToken: string
   recordedAt: string
 }
+
+export type ShippingDaemonAcknowledgement = Omit<ShippingJobRequestMessage, 'type' | 'requestId'>
+
+export interface ShippingRepairAcknowledgement {
+  resultToken: string
+  orderId: ShipOrderValue['id']
+  attemptId: ShipAttemptValue['id']
+  generation: number
+  contextDigest: string
+  candidate?: { repairRef: string; candidateHeadSha: string }
+}
+
+export type StoredShippingRecoveryWork = typeof shipRecoveryWork.$inferSelect
+
+export const daemonAcknowledgementKey = (request: ShippingDaemonAcknowledgement): string =>
+  `daemon:${request.jobId}:${request.requestDigest}`
+
+const repairAcknowledgementKey = (resultToken: string): string => `repair:${resultToken}`
+const descendantInvalidationKey = (receipt: DeliveryReceiptValue): string =>
+  `descendants:${receipt.id}`
 
 export interface StoredShippingEvidence {
   ref: string
@@ -581,6 +602,19 @@ const repairCandidatesOfAttempt = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+const repairCandidateOfSequence = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(shipRepairCandidates)
+    .where(
+      and(
+        eq(shipRepairCandidates.attemptId, param(shipRepairCandidates.attemptId, 'attemptId')),
+        eq(shipRepairCandidates.sequence, param(shipRepairCandidates.sequence, 'sequence')),
+      ),
+    )
+    .prepare(),
+)
+
 const insertRepairCandidate = prepared((db: StoreDrizzle) =>
   db
     .insert(shipRepairCandidates)
@@ -725,6 +759,71 @@ const activeOrdersFifo = prepared((db: StoreDrizzle) =>
     .from(sql`${shipOrders} INDEXED BY idx_ship_orders_one_active_issue`)
     .where(sql.raw(ACTIVE_SHIP_ORDER_TERM)) // CONSTANT-IDENTIFIER STATEMENT POD-5612
     .orderBy(asc(shipOrders.requestedAt), asc(shipOrders.id))
+    .prepare(),
+)
+
+const resumableOrdersFifo = prepared((db: StoreDrizzle) =>
+  db
+    .select(indexedOrderColumns)
+    .from(sql`${shipOrders} INDEXED BY idx_ship_orders_recovery`)
+    .where(
+      sql`state IN ('preflight', 'composing', 'validating', 'repairing', 'landing', 'publishing', 'verifying')`,
+    )
+    .orderBy(asc(shipOrders.requestedAt), asc(shipOrders.id))
+    .prepare(),
+)
+
+const recoveryWorkPage = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(shipRecoveryWork)
+    .where(
+      and(
+        eq(shipRecoveryWork.kind, param(shipRecoveryWork.kind, 'kind')),
+        gt(shipRecoveryWork.key, param(shipRecoveryWork.key, 'after')),
+      ),
+    )
+    .orderBy(asc(shipRecoveryWork.key))
+    .limit(100)
+    .prepare(),
+)
+
+const insertRecoveryWork = prepared((db: StoreDrizzle) =>
+  db
+    .insert(shipRecoveryWork)
+    .values({
+      key: sql.placeholder('key'),
+      kind: sql.placeholder('kind'),
+      orderId: sql.placeholder('orderId'),
+      payload: sql.placeholder('payload'),
+    })
+    .onConflictDoNothing()
+    .prepare(),
+)
+
+const deleteRecoveryWork = prepared((db: StoreDrizzle) =>
+  db
+    .delete(shipRecoveryWork)
+    .where(eq(shipRecoveryWork.key, param(shipRecoveryWork.key, 'key')))
+    .prepare(),
+)
+
+// Admission checks historical predecessors here, before it commits a bounded
+// recovery item. Startup never enumerates shipped orders to discover this work.
+const shippedPredecessorsPage = prepared((db: StoreDrizzle) =>
+  db
+    .select({ ...orderColumns, destinationSha: deliveryReceipts.destinationSha })
+    .from(shipOrders)
+    .innerJoin(deliveryReceipts, eq(deliveryReceipts.orderId, shipOrders.id))
+    .where(
+      and(
+        eq(shipOrders.repoId, param(shipOrders.repoId, 'repoId')),
+        eq(shipOrders.state, 'shipped'),
+        gt(shipOrders.id, param(shipOrders.id, 'after')),
+      ),
+    )
+    .orderBy(asc(shipOrders.id))
+    .limit(100)
     .prepare(),
 )
 
@@ -1638,6 +1737,79 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       destination: receipt.destination,
       completedAt: receipt.completedAt,
     })
+    await this.queueDescendantInvalidation(
+      descendantInvalidationKey(receipt),
+      receipt.orderId,
+      receipt.destinationSha,
+    )
+  }
+
+  async recoveryWork(
+    kind: StoredShippingRecoveryWork['kind'],
+    after = '',
+  ): Promise<StoredShippingRecoveryWork[]> {
+    return await recoveryWorkPage(this.db).all({ kind, after })
+  }
+
+  async completeRecoveryWork(_scope: WriteScope, key: string): Promise<void> {
+    await deleteRecoveryWork(this.db).run({ key })
+  }
+
+  private async queueDescendantInvalidation(
+    key: string,
+    orderId: ShipOrderValue['id'],
+    destinationSha: string,
+  ): Promise<void> {
+    await insertRecoveryWork(this.db).run({
+      key,
+      kind: 'descendants',
+      orderId,
+      payload: JSON.stringify({ destinationSha }),
+    })
+  }
+
+  async queueAdmissionInvalidation(
+    _scope: WriteScope,
+    admittedOrderId: ShipOrderValue['id'],
+    landedOrderId: ShipOrderValue['id'],
+    destinationSha: string,
+  ): Promise<void> {
+    await this.queueDescendantInvalidation(
+      `admission:${admittedOrderId}`,
+      landedOrderId,
+      destinationSha,
+    )
+  }
+
+  async shippedPredecessors(
+    repoId: ShipOrderValue['repoId'],
+    after = '',
+  ): Promise<{ order: ShipOrderValue; destinationSha: string }[]> {
+    return (
+      await shippedPredecessorsPage(this.db).all({ repoId, after: asShipOrderId(after) })
+    ).map((row) => ({ order: mapOrder(row), destinationSha: row.destinationSha }))
+  }
+
+  private async queueRepairAcknowledgement(input: ShippingRepairAcknowledgement): Promise<void> {
+    await insertRecoveryWork(this.db).run({
+      key: repairAcknowledgementKey(input.resultToken),
+      kind: 'repair-ack',
+      orderId: input.orderId,
+      payload: JSON.stringify(input),
+    })
+  }
+
+  private async queueDaemonAcknowledgement(request: ShippingDaemonAcknowledgement): Promise<void> {
+    await insertRecoveryWork(this.db).run({
+      key: daemonAcknowledgementKey(request),
+      kind: 'daemon-ack',
+      orderId: request.orderId,
+      payload: JSON.stringify({ request }),
+    })
+  }
+
+  async completeRepairAcknowledgement(_scope: WriteScope, resultToken: string): Promise<void> {
+    await this.completeRecoveryWork(_scope, repairAcknowledgementKey(resultToken))
   }
 
   private async bumpLaneRevision(laneKey: string, updatedAt: string): Promise<void> {
@@ -1693,6 +1865,13 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     return (await repairCandidatesOfAttempt(this.db).all({ attemptId })).map((row) => ({ ...row }))
   }
 
+  async repairCandidateAtSequence(
+    attemptId: ShipAttemptValue['id'],
+    sequence: number,
+  ): Promise<StoredShippingRepairCandidate | undefined> {
+    return await repairCandidateOfSequence(this.db).get({ attemptId, sequence })
+  }
+
   private async recordRepairCandidate(input: StoredShippingRepairCandidate): Promise<void> {
     const attempt = await this.getAttempt(input.attemptId)
     const order = await this.getOrder(input.orderId)
@@ -1723,6 +1902,14 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       candidateHeadSha: input.candidateHeadSha,
       resultToken: input.resultToken,
       recordedAt: input.recordedAt,
+    })
+    await this.queueRepairAcknowledgement({
+      resultToken: input.resultToken,
+      orderId: input.orderId,
+      attemptId: input.attemptId,
+      generation: input.generation,
+      contextDigest: input.contextDigest,
+      candidate: { repairRef: input.repairRef, candidateHeadSha: input.candidateHeadSha },
     })
   }
 
@@ -1780,8 +1967,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     return row ? mapOrder(row) : null
   }
 
-  /** Every order, FIFO: the boot and reconcile full truth and the queue
-   *  listing only. The scheduler reads {@link activeOrders}. */
+  /** Historical listing for the record builders. Recovery reads only its debt. */
   async listOrders(): Promise<ShipOrderValue[]> {
     return (await allOrders(this.db).all()).map(mapOrder)
   }
@@ -1790,6 +1976,10 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
    *  cancelled history is never read (POD-6172). */
   async activeOrders(): Promise<ShipOrderValue[]> {
     return (await activeOrdersFifo(this.db).all()).map(mapOrder)
+  }
+
+  async resumableOrders(): Promise<ShipOrderValue[]> {
+    return (await resumableOrdersFifo(this.db).all()).map(mapOrder)
   }
 
   /** The active orders of one repository under these RAW destination
@@ -2756,6 +2946,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       leaderAttemptId: ShipAttemptValue['id']
       generation: number
       terminalStep: ShipStepValue
+      daemonAcknowledgement?: ShippingDaemonAcknowledgement
       failureOrderIds: ShipOrderValue['id'][]
       isolatedAt: string
       detail: string
@@ -2780,6 +2971,8 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         throw new Error(`ship train ${input.trainId} isolation set is invalid`)
       }
       await this.appendStep(_scope, input.terminalStep)
+      if (input.daemonAcknowledgement)
+        await this.queueDaemonAcknowledgement(input.daemonAcknowledgement)
       await this.releaseTrain(_scope, manifest.id, input.isolatedAt, 'validation-isolated')
       for (const member of manifest.members) {
         const order = await this.getOrder(member.orderId)
@@ -3067,6 +3260,8 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       effectKey: string
       operation: ShipStepValue['kind']
       terminalStep: ShipStepValue
+      daemonAcknowledgement?: ShippingDaemonAcknowledgement
+      repairAcknowledgement?: ShippingRepairAcknowledgement
       repairCandidate?: StoredShippingRepairCandidate
       outcome:
         | {
@@ -3133,6 +3328,23 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         latestStep.artifactRef !== input.terminalStep.artifactRef
       ) {
         throw new Error(`ship order ${input.orderId} effect result is not an exact replay`)
+      }
+
+      if (input.daemonAcknowledgement) {
+        const request = input.daemonAcknowledgement
+        if (
+          request.orderId !== order.id ||
+          request.attemptId !== latestAttempt.id ||
+          request.generation !== input.generation ||
+          request.operation !== input.operation ||
+          request.action !== 'acknowledge'
+        ) {
+          throw new Error(`ship order ${input.orderId} acknowledgement custody fence failed`)
+        }
+        await this.queueDaemonAcknowledgement(request)
+      }
+      if (input.repairAcknowledgement) {
+        await this.queueRepairAcknowledgement(input.repairAcknowledgement)
       }
 
       if (input.outcome.kind === 'transition') {
@@ -3334,6 +3546,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       attemptId: string
       generation: number
       terminalSteps: ShipStepValue[]
+      daemonAcknowledgement?: ShippingDaemonAcknowledgement
     },
   ): Promise<ShipOrderValue> {
     return await this.createOrJoinTransaction(async () => {
@@ -3359,6 +3572,8 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         throw new Error(`ship order ${orderId} cancellation custody fence failed`)
       }
       for (const step of custody?.terminalSteps ?? []) await this.appendStep(_scope, step)
+      if (custody?.daemonAcknowledgement)
+        await this.queueDaemonAcknowledgement(custody.daemonAcknowledgement)
       if (attempt && !attempt.finishedAt) {
         await this.finishAttempt(_scope, attempt.id, attempt.leaseGeneration, {
           finishedAt: cancelledAt,
@@ -3902,6 +4117,15 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         )
       }
       for (const hold of input.invalidations ?? []) await this.raiseHold(_scope, hold)
+      // The planned invalidations and all of these receipts share this commit.
+      if (input.invalidations !== undefined && input.leader.outcome.kind === 'verified') {
+        for (const receipt of [
+          input.leader.outcome.receipt,
+          ...input.covered.map((c) => c.receipt),
+        ]) {
+          await this.completeRecoveryWork(_scope, descendantInvalidationKey(receipt))
+        }
+      }
       return leader
     })
   }

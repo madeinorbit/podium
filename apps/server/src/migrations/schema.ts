@@ -1989,6 +1989,10 @@ export const shipOrders = sqliteTable(
   },
   (table) => [
     index('idx_ship_orders_issue').on(table.issueId),
+    index('idx_ship_orders_repo_state_id').on(table.repoId, table.state, table.id),
+    index('idx_ship_orders_recovery')
+      .on(table.requestedAt, table.id)
+      .where(sql`state IN ('preflight', 'composing', 'validating', 'repairing', 'landing', 'publishing', 'verifying')`),
     unique('idx_ship_orders_id_issue').on(table.id, table.issueId),
     index('idx_ship_orders_lane').on(table.repoId, table.destination, table.requestedAt, table.id),
     uniqueIndex('idx_ship_orders_one_active_issue')
@@ -2367,6 +2371,25 @@ export const shipSteps = sqliteTable(
           OR (state = 'running' AND started_at IS NOT NULL AND finished_at IS NULL AND outcome IS NULL)
           OR (state IN ('succeeded', 'failed', 'cancelled') AND started_at IS NOT NULL AND finished_at IS NOT NULL AND outcome IS NOT NULL)`,
     ),
+  ],
+)
+
+/** Outstanding external work only. Source state and debt commit together;
+ * successful acknowledgement/invalidation deletes the debt, never its history. */
+export const shipRecoveryWork = sqliteTable(
+  'ship_recovery_work',
+  {
+    key: text().primaryKey(),
+    kind: text().$type<'daemon-ack' | 'repair-ack' | 'descendants'>().notNull(),
+    orderId: brandedRef(text('order_id').$type<ShipOrderId>(), () => shipOrders.id, {
+      onDelete: 'restrict',
+    }).notNull(),
+    payload: text().notNull(),
+  },
+  (table) => [
+    index('idx_ship_recovery_work_kind_key').on(table.kind, table.key),
+    index('idx_ship_recovery_work_order').on(table.orderId),
+    check('ship_recovery_work_kind_check', sql`kind IN ('daemon-ack', 'repair-ack', 'descendants')`),
   ],
 )
 

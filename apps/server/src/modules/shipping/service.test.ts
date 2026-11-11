@@ -12,12 +12,20 @@ import {
 } from '@podium/model'
 import { type ShippingJobResult, shippingEvidenceFingerprint } from '@podium/protocol/daemon'
 import { normalizeSettings } from '@podium/runtime'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { Ledger } from '@podium/sync'
 import { fixtureWriteScope, testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
+import { testStoreRecords } from '../../test-support/record-writer'
 import { sessionReadPorts } from '../../test-support/session-facts'
+import {
+  countStatements,
+  expectArmed,
+  expectConstantStatements,
+  type StatementPin,
+} from '../../test-support/statement-count'
 import { IssueService } from '../issues/service'
 import type { ShippingPolicyResolver } from './policy'
 import { CompatibilityShippingPolicyResolver } from './policy'
@@ -34,7 +42,6 @@ import {
   shippingResourceHolderId,
 } from './service'
 import { ShippingEvidenceRegistry } from './shipwright'
-import { testStoreRecords } from '../../test-support/record-writer'
 
 const stores: SessionStore[] = []
 afterEach(async () => {
@@ -282,6 +289,293 @@ const provedShippingJob = async (
  *  sync command, so they write as the lanes do (ADR 12 D9). */
 const laneWriter = (service: ShippingService): ShippingWriter =>
   (service as unknown as { deps: { ledger: ShippingWriter } }).deps.ledger
+
+// Real terminal history, without replaying hundreds of external effects in
+// setup. The cloned immutable rows intentionally carry no outstanding debt.
+function cloneShippingHistory(store: SessionStore, orderId: string, copies: number): void {
+  const db = (store as unknown as { db: SqlDatabase }).db
+  const tables = ['ship_orders', 'ship_attempts', 'ship_steps', 'delivery_receipts'] as const
+  const sources = tables.map((table) => ({
+    table,
+    rows: db
+      .prepare(`SELECT * FROM ${table} WHERE ${table === 'ship_orders' ? 'id' : 'order_id'} = ?`)
+      .all(orderId) as Record<string, string | number | null>[],
+  }))
+  db.exec('BEGIN')
+  try {
+    for (let i = 0; i < copies; i++) {
+      const suffix = `:history:${i}`
+      for (const { table, rows } of sources) {
+        for (const row of rows) {
+          const columns = Object.keys(row)
+          const values = columns.map((column) =>
+            column === 'id' || column === 'order_id' || column === 'attempt_id'
+              ? `${row[column]}${suffix}`
+              : row[column],
+          )
+          db.prepare(
+            `INSERT INTO ${table} (${columns.map((c) => `"${c}"`).join(',')}) VALUES (${columns.map(() => '?').join(',')})`,
+          ).run(...values)
+        }
+      }
+    }
+    db.exec('COMMIT')
+  } catch (error) {
+    db.exec('ROLLBACK')
+    throw error
+  }
+}
+
+async function recoveryFixture(shippingJob: ShippingJob = provedShippingJob) {
+  const fixture = await harness(shippingJob, { checkOrderPlane: false })
+  const issue = await fixture.issues.crud.create(fixture.issues.reports.store.serverWriter, {
+    repoPath: '/repo',
+    title: 'recovery debt',
+    startNow: false,
+  })
+  await fixture.issues.crud.update(fixture.issues.reports.store.serverWriter, issue.id, {
+    stage: 'review',
+  })
+  const { order } = await fixture.service.enqueue(laneWriter(fixture.service), {
+    issueId: issue.id,
+    ...approval,
+  })
+  return { ...fixture, order }
+}
+
+describe('ShippingService durable recovery debt', () => {
+  it('retains a shipped acknowledgement through repeated failures and clears it only on success', async () => {
+    let fail = true
+    const requests: Parameters<ShippingJob>[0][] = []
+    const fixture = await recoveryFixture(async (input, machineId) => {
+      if (input.action === 'acknowledge' && input.operation === 'verify') {
+        requests.push(input)
+        if (fail) throw new Error('acknowledgement offline')
+      }
+      return await provedShippingJob(input, machineId)
+    })
+    const { store, service, deps, order } = fixture
+    await service.runOrder(order.id)
+    expect((await store.shipping.getOrder(order.id))?.state).toBe('shipped')
+    expect(await store.shipping.recoveryWork('daemon-ack')).toHaveLength(1)
+    expect(await store.shipping.recoveryWork('descendants')).toEqual([])
+    service.dispose()
+    const restarted = new ShippingService(deps)
+    const history = vi
+      .spyOn(store.shipping, 'listOrders')
+      .mockRejectedValue(new Error('history read'))
+    const attempts = vi
+      .spyOn(store.shipping, 'attemptsForOrder')
+      .mockRejectedValue(new Error('attempt history read'))
+    const steps = vi
+      .spyOn(store.shipping, 'stepsForAttempt')
+      .mockRejectedValue(new Error('step history read'))
+    await restarted.reconcile()
+    expect(await store.shipping.recoveryWork('daemon-ack')).toHaveLength(1)
+    expect(requests).toHaveLength(2)
+    fail = false
+    // The stored request survives live issue/policy changes after shipping.
+    deps.policy = {
+      resolve: async () => {
+        throw new Error('live policy unavailable')
+      },
+    }
+    await restarted.reconcile()
+    expect(requests).toHaveLength(3)
+    expect(requests[2]).toEqual(requests[0])
+    expect(await store.shipping.recoveryWork('daemon-ack')).toEqual([])
+    await restarted.reconcile()
+    expect(requests).toHaveLength(3)
+    expect(history).not.toHaveBeenCalled()
+    expect(attempts).not.toHaveBeenCalled()
+    expect(steps).not.toHaveBeenCalled()
+    restarted.dispose()
+  })
+
+  it('replays held acknowledgements and retains daemon refusals', async () => {
+    let refuse = true
+    const fixture = await recoveryFixture(async (input, machineId) => {
+      if (input.action === 'acknowledge' && refuse) {
+        return await provedShippingJob(input, machineId, {
+          state: 'held',
+          classification: 'invalid-request',
+        })
+      }
+      return await provedShippingJob(input, machineId, {
+        state: 'held',
+        classification: 'validation-failed',
+      })
+    })
+    const { store, service, deps, order } = fixture
+    await service.runOrder(order.id)
+    expect((await store.shipping.getOrder(order.id))?.state).toBe('held')
+    expect(await store.shipping.recoveryWork('daemon-ack')).toHaveLength(1)
+    service.dispose()
+    const restarted = new ShippingService(deps)
+    await restarted.reconcile()
+    expect(await store.shipping.recoveryWork('daemon-ack')).toHaveLength(1)
+    refuse = false
+    await restarted.reconcile()
+    expect(await store.shipping.recoveryWork('daemon-ack')).toEqual([])
+    restarted.dispose()
+  })
+
+  const historyPin: StatementPin<Awaited<ReturnType<typeof recoveryFixture>>> = {
+    name: 'shipping restart with acknowledged terminal history',
+    sizes: [5, 200],
+    setup: async (size) => {
+      const fixture = await recoveryFixture()
+      await fixture.service.runOrder(fixture.order.id)
+      cloneShippingHistory(fixture.store, fixture.order.id, size - 1)
+      return fixture
+    },
+    target: ({ store }) => store,
+    run: ({ service }) => service.reconcile(),
+    check: async (_result, { store, order }, size) => {
+      expect(await store.shipping.listOrders()).toHaveLength(size)
+      expect((await store.shipping.getOrder(order.id))?.state).toBe('shipped')
+      expect(await store.shipping.recoveryWork('daemon-ack')).toEqual([])
+      expect(await store.shipping.recoveryWork('descendants')).toEqual([])
+    },
+    teardown: ({ service }) => service.dispose(),
+  }
+
+  it('runs six indexed restart statements at five and two hundred shipped orders', async () => {
+    await expectConstantStatements(historyPin, 6)
+  })
+
+  it('arms the history pin against a planted historical recovery loop', async () => {
+    await expectArmed(historyPin, 6, ({ store }) => {
+      const real = store.shipping.resumableOrders.bind(store.shipping)
+      const spy = vi.spyOn(store.shipping, 'resumableOrders').mockImplementation(async () => {
+        for (const order of await store.shipping.listOrders())
+          await store.shipping.receiptForOrder(order.id)
+        return await real()
+      })
+      return () => spy.mockRestore()
+    })
+  })
+
+  it('pages past failed daemon debt without retrying it within the same pass', async () => {
+    let fail = true
+    let replayed = 0
+    const { store, service, deps, order } = await recoveryFixture(async (input, machineId) => {
+      if (input.action === 'acknowledge' && input.operation === 'verify') {
+        replayed++
+        if (fail) throw new Error('offline')
+      }
+      return await provedShippingJob(input, machineId)
+    })
+    await service.runOrder(order.id)
+    const db = (store as unknown as { db: SqlDatabase }).db
+    for (let i = 0; i < 205; i++) {
+      db.prepare(
+        `INSERT INTO ship_recovery_work SELECT ?, kind, order_id, payload FROM ship_recovery_work WHERE kind = 'daemon-ack' LIMIT 1`,
+      ).run(`page-test:${String(i).padStart(3, '0')}`)
+    }
+    service.dispose()
+    const restarted = new ShippingService(deps)
+    replayed = 0
+    await restarted.reconcile()
+    expect(replayed).toBe(206)
+    fail = false
+    replayed = 0
+    await restarted.reconcile()
+    expect(replayed).toBe(206)
+    expect(await store.shipping.recoveryWork('daemon-ack')).toEqual([])
+    restarted.dispose()
+  })
+
+  it('bounds admission statements by predecessor pages at shallow and deep history', async () => {
+    const totals: number[] = []
+    const pages: number[] = []
+    for (const size of [5, 200]) {
+      const fixture = await historyPin.setup(size)
+      const { store, issues, service } = fixture
+      try {
+        const issue = await issues.crud.create(issues.reports.store.serverWriter, {
+          repoPath: '/repo',
+          title: `admission at ${size}`,
+          startNow: false,
+        })
+        await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
+        const count = await countStatements(store, () =>
+          service.enqueue(laneWriter(service), { issueId: issue.id, ...approval }),
+        )
+        expect(count.result.created).toBe(true)
+        totals.push(count.statements)
+        pages.push(
+          [...count.byQuery]
+            .filter(
+              ([query]) =>
+                query.includes('"state" = ?') && query.includes('inner join "delivery_receipts"'),
+            )
+            .reduce((n, [, calls]) => n + calls, 0),
+        )
+      } finally {
+        service.dispose()
+      }
+    }
+    // The Git walk is outside the transaction, 100 shipped predecessors per
+    // page, and stops at the first stale predecessor. It has no depth cap.
+    expect(pages).toEqual([2, 3])
+    expect(totals[1]).toBe(totals[0]! + 1)
+    console.info('Shipping admission statement cost', { sizes: [5, 200], totals, pages })
+  })
+
+  it('does not clear a repair acknowledgement when the external repair port fails', async () => {
+    let fail = true
+    const acknowledge = vi.fn(async () => {
+      if (fail) throw new Error('repair acknowledgement offline')
+    })
+    const { store, issues, service, deps } = await harness(
+      async (input, machineId) => ({
+        ...(await provedShippingJob(input, machineId)),
+        ...(input.operation === 'prepare-merge-group'
+          ? {
+              state: 'held' as const,
+              classification: 'merge-conflict' as const,
+              repairBaseSha: 'base-sha',
+            }
+          : {}),
+      }),
+      {
+        repair: {
+          consider: async () => ({
+            kind: 'needs-decision',
+            resultToken: 'repair-pending',
+            reasonCode: 'policy:behavior-change',
+            headline: 'Decision required',
+            detail: 'Choose a repair',
+            evidenceRefs: [],
+            actions: ['return-to-issue'],
+          }),
+          acknowledge,
+        },
+      },
+    )
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
+      repoPath: '/repo',
+      title: 'repair debt',
+      startNow: false,
+    })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
+    const { order } = await service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
+    await expect(service.runOrder(order.id)).rejects.toThrow('repair acknowledgement offline')
+    expect(await store.shipping.recoveryWork('repair-ack')).toHaveLength(1)
+    service.dispose()
+    const restarted = new ShippingService(deps)
+    await expect(restarted.reconcile()).rejects.toThrow('repair acknowledgement offline')
+    expect(await store.shipping.recoveryWork('repair-ack')).toHaveLength(1)
+    fail = false
+    await restarted.reconcile()
+    expect(await store.shipping.recoveryWork('repair-ack')).toEqual([])
+    const calls = acknowledge.mock.calls.length
+    await restarted.reconcile()
+    expect(acknowledge).toHaveBeenCalledTimes(calls)
+    restarted.dispose()
+  })
+})
 
 describe('ShippingService enqueue transaction', () => {
   it('O1 scheduler tick does not scan attempt history', async () => {
@@ -2429,7 +2723,7 @@ describe('ShippingService enqueue transaction', () => {
     restarted.dispose()
   })
 
-  it('replays shipped receipts on boot to invalidate a later stale descendant', async () => {
+  it('recovers late descendant invalidation debt and retains it across a failed ancestry check', async () => {
     const { store, issues, service, deps } = await harness(provedShippingJob, {
       resolveBranchTip: async (issue) =>
         issue.title === 'landed predecessor' ? 'lower-head' : 'upper-head',
@@ -2461,10 +2755,20 @@ describe('ShippingService enqueue transaction', () => {
       ...approval,
       approved: { ...approval.approved, sourceHeadSha: 'upper-head' },
     })
+    expect(await store.shipping.recoveryWork('descendants')).toHaveLength(1)
     service.dispose()
 
+    const isAncestor = deps.isAncestor
+    deps.isAncestor = async () => {
+      throw new Error('ancestry unavailable')
+    }
     const restarted = new ShippingService(deps)
+    await expect(restarted.reconcile()).rejects.toThrow('ancestry unavailable')
+    expect(await store.shipping.recoveryWork('descendants')).toHaveLength(1)
+    expect((await store.shipping.getOrder(upper.order.id))?.state).toBe('queued')
+    deps.isAncestor = isAncestor
     await restarted.reconcile()
+    expect(await store.shipping.recoveryWork('descendants')).toEqual([])
     expect(await store.shipping.getOrder(upper.order.id)).toMatchObject({
       state: 'held',
       holdCode: 'approval-stale',

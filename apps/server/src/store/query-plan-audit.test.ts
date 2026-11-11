@@ -550,6 +550,10 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
     'Walks the partial index idx_ship_orders_one_active_issue (named with INDEXED BY) and sorts what it holds: the active orders only, never the shipped or cancelled history (POD-6172). The plan is asserted below.',
   ],
   [
+    'apps/server/src/store/shipping.ts:resumableOrdersFifo',
+    'Walks only the partial index idx_ship_orders_recovery, named with INDEXED BY: unfinished execution states, excluding queued, held, shipped and cancelled orders.',
+  ],
+  [
     'apps/server/src/store/shipping.ts:activeOrdersOfLane',
     'Sorts the active orders of one lane, found through idx_ship_orders_lane (POD-6172).',
   ],
@@ -743,7 +747,7 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   ],
   [
     'apps/server/src/store/shipping.ts:allOrders',
-    'Whole-table read (POD-6172): every ship order, for the order-plane full truth at boot only (relay, ShippingService.reconcile, recoverDescendantInvalidations). The scheduler, its covered-prefix recovery (POD-6207) and train claims read active orders, open trains, lanes and ids; the unused queue listing that also read it is deleted (POD-6209).',
+    'The shipping record builders stream historical orders during client bootstrap; never at server startup. Recovery reads indexed durable debt and unfinished execution states (POD-6797).',
   ],
   [
     'apps/server/src/store/shipping.ts:allStackEdgesOrdered',

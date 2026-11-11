@@ -28,6 +28,7 @@ import type { MetadataChange } from '@podium/protocol'
 import type { ShippingJobRequestMessage, ShippingJobResult } from '@podium/protocol/daemon'
 import {
   SHIPPING_TRAIN_CAPABILITY,
+  ShippingJobOperation,
   shippingEvidenceFingerprint,
   shippingJobRequestFingerprint,
   shippingTrainSubsetFingerprint,
@@ -43,8 +44,12 @@ import type {
 import type { CommandPrincipal } from '../../command-principal'
 import { afterCommit } from '../../store/executor/executor'
 import {
+  daemonAcknowledgementKey,
   type RootIntegrationReceiptStore,
+  type ShippingDaemonAcknowledgement,
+  type ShippingRepairAcknowledgement,
   type ShippingRepository,
+  type StoredShippingRecoveryWork,
   type StoredShippingRepairCandidate,
   sameFrozenShipOrder,
 } from '../../store/shipping'
@@ -724,6 +729,7 @@ export class ShippingService {
       descendantManifest,
     )
     const displaced = await this.deps.repository.activeTrainsForLane(order)
+    const stalePredecessor = await this.staleAdmissionPredecessor(order, issue)
     const displacedMembers = [
       ...new Map(
         (
@@ -820,6 +826,14 @@ export class ShippingService {
               ...order,
               ...(receipt ? { currentIntegrationReceipt: receipt } : {}),
             })
+            if (result.created && stalePredecessor) {
+              await this.deps.repository.queueAdmissionInvalidation(
+                scope,
+                result.order.id,
+                stalePredecessor.order.id,
+                stalePredecessor.destinationSha,
+              )
+            }
             return result
           },
         )
@@ -916,12 +930,9 @@ export class ShippingService {
    * in this API. */
   async reconcile(): Promise<void> {
     await this.recoverDescendantInvalidations()
-    for (const order of await this.deps.repository.listOrders()) {
-      await this.replayDaemonAcknowledgements(order)
-      await this.replayRepairAcknowledgement(order)
-      if (order.state === 'shipped' || order.state === 'cancelled' || order.state === 'held')
-        continue
-      if (order.state === 'queued') continue
+    await this.replayDaemonAcknowledgements()
+    await this.replayRepairAcknowledgements()
+    for (const order of await this.deps.repository.resumableOrders()) {
       const train = await this.deps.repository.activeTrainForOrder(order.id)
       if (train && train.leaderOrderId !== order.id) continue
       const prefix = train
@@ -1568,6 +1579,7 @@ export class ShippingService {
     }
     const targetOrder = await this.requiredOrder(cancellationTarget(intent.summary) ?? order.id)
     const terminalSteps: ShipStep[] = []
+    let daemonAcknowledgement: ShippingDaemonAcknowledgement | undefined
     const train = await this.deps.repository.activeTrainForOrder(order.id)
     const trainLeader = train
       ? train.members.find((member) => member.orderId === train.leaderOrderId)
@@ -1614,11 +1626,16 @@ export class ShippingService {
       }
       let result: ShippingJobResult
       try {
-        result = await this.deps.daemon.shippingJob(
-          await this.jobInput(executionOrder, effectAttempt, executionIssue, operation, 'cancel'),
-          effectAttempt.machineId,
+        const request = await this.jobInput(
+          executionOrder,
+          effectAttempt,
+          executionIssue,
+          operation,
+          'cancel',
         )
+        result = await this.deps.daemon.shippingJob(request, effectAttempt.machineId)
         await this.assertJobResultFence(executionOrder, effectAttempt, operation, result)
+        daemonAcknowledgement = { ...request, action: 'acknowledge' }
       } catch (error) {
         const summary = describeError(error)
         await this.hold(
@@ -1739,6 +1756,9 @@ export class ShippingService {
               attemptId: attempt.id,
               generation: attempt.leaseGeneration,
               terminalSteps,
+              daemonAcknowledgement: terminalSteps.some((step) => step.kind === operation)
+                ? daemonAcknowledgement
+                : undefined,
             },
           ),
       )
@@ -1839,8 +1859,7 @@ export class ShippingService {
       )
     ).result
     if (openedRepair && this.deps.repair) {
-      this.deps.beforeRepairAcknowledge?.(openedRepair.decision.resultToken)
-      await this.deps.repair.acknowledge({
+      await this.acknowledgeRepair({
         resultToken: openedRepair.decision.resultToken,
         orderId: order.id,
         attemptId: openedRepair.candidate.attemptId,
@@ -2126,7 +2145,11 @@ export class ShippingService {
         receiptId: receipt.id,
         coveredBy: covering.id,
       })
-      await this.invalidateStaleDescendants(order, coveringReceipt.destinationSha)
+      await this.invalidateStaleDescendants(
+        order,
+        coveringReceipt.destinationSha,
+        `descendants:${receipt.id}`,
+      )
     }
   }
 
@@ -2258,9 +2281,13 @@ export class ShippingService {
   private async invalidateStaleDescendants(
     landed: ShipOrder,
     destinationSha: string,
+    recoveryKey?: string,
   ): Promise<void> {
     const pending = await this.planStaleDescendants([landed], destinationSha)
-    if (pending.length === 0) return
+    if (pending.length === 0) {
+      if (recoveryKey) await this.finishRecoveryWork(recoveryKey)
+      return
+    }
     await this.commitMany(
       this.deps.ledger,
       pending.map(({ order, hold, invalidatedBy }) => ({
@@ -2283,15 +2310,46 @@ export class ShippingService {
       })),
       async (scope) => {
         for (const { hold } of pending) await this.deps.repository.raiseHold(scope, hold)
+        if (recoveryKey) await this.deps.repository.completeRecoveryWork(scope, recoveryKey)
       },
     )
   }
 
   private async recoverDescendantInvalidations(): Promise<void> {
-    for (const landed of await this.deps.repository.listOrders()) {
-      if (landed.state !== 'shipped') continue
-      const receipt = await this.deps.repository.receiptForOrder(landed.id)
-      if (receipt) await this.invalidateStaleDescendants(landed, receipt.destinationSha)
+    await this.visitRecoveryWork('descendants', async (work) => {
+      const landed = await this.requiredOrder(work.orderId)
+      const { destinationSha } = JSON.parse(work.payload) as { destinationSha: string }
+      await this.invalidateStaleDescendants(landed, destinationSha, work.key)
+    })
+  }
+
+  /** Resolve late native-stack admissions at the write boundary. Only a stale
+   * predecessor creates debt; boot never searches delivered history for one. */
+  private async staleAdmissionPredecessor(
+    order: ShipOrder,
+    issue: IssueReport,
+  ): Promise<{ order: ShipOrder; destinationSha: string } | undefined> {
+    const stale = async (predecessor: ShipOrder, destinationSha: string) =>
+      order.approvedBaseSha !== destinationSha &&
+      !(await this.deps.isAncestor(issue, destinationSha, order.approvedBaseSha)) &&
+      (order.deliveryDependsOn.includes(predecessor.id) ||
+        (await this.deps.isAncestor(issue, predecessor.approvedHeadSha, order.approvedHeadSha)))
+
+    for (const predecessor of await this.deps.repository.ordersByIds(order.deliveryDependsOn)) {
+      if (predecessor.state !== 'shipped') continue
+      const receipt = await this.deps.repository.receiptForOrder(predecessor.id)
+      if (receipt && (await stale(predecessor, receipt.destinationSha))) {
+        return { order: predecessor, destinationSha: receipt.destinationSha }
+      }
+    }
+    let after = ''
+    for (;;) {
+      const page = await this.deps.repository.shippedPredecessors(order.repoId, after)
+      if (page.length === 0) return
+      for (const predecessor of page) {
+        if (await stale(predecessor.order, predecessor.destinationSha)) return predecessor
+      }
+      after = page.at(-1)!.order.id
     }
   }
 
@@ -2690,7 +2748,7 @@ export class ShippingService {
         ...this.shipRecords(async () => await this.trainOrderIds(order.id)),
       })
     }
-    const effect = await this.effectCommit(order, attempt, operation, result, startedAt)
+    const effect = await this.effectCommit(order, attempt, operation, result, startedAt, request)
     if (result.state === 'succeeded' && nextState) {
       const changedAt = result.finishedAt ?? this.now()
       try {
@@ -2944,6 +3002,7 @@ export class ShippingService {
           leaderAttemptId: attempt.id,
           generation: attempt.leaseGeneration,
           terminalStep: effect.terminalStep,
+          daemonAcknowledgement: effect.daemonAcknowledgement,
           failureOrderIds,
           isolatedAt: failed.finishedAt ?? this.now(),
           detail,
@@ -3023,7 +3082,7 @@ export class ShippingService {
     attempt: ShipAttempt,
     issue: IssueReport,
     result: ShippingJobResult,
-    effect: { effectKey: string; operation: ShipStep['kind']; terminalStep: ShipStep },
+    effect: Awaited<ReturnType<ShippingService['effectCommit']>>,
   ): Promise<boolean> {
     const repair = this.deps.repair
     if (
@@ -3088,6 +3147,7 @@ export class ShippingService {
         acknowledgement: repairAcknowledgement,
       }),
     }
+    effect.repairAcknowledgement = repairAcknowledgement
     if (decision.kind === 'patched') {
       const changedAt = result.finishedAt ?? this.now()
       const repairCandidate = await this.durableRepairCandidate(
@@ -3139,83 +3199,99 @@ export class ShippingService {
       result.operation,
       failedEffectAcknowledgement,
     )
-    this.deps.beforeRepairAcknowledge?.(decision.resultToken)
-    await repair.acknowledge(repairAcknowledgement)
+    await this.acknowledgeRepair(repairAcknowledgement)
     return true
   }
 
-  private async replayRepairAcknowledgement(order: ShipOrder): Promise<void> {
-    const repair = this.deps.repair
-    if (!repair) return
-    const attempt = await this.deps.repository.latestAttemptForOrder(order.id)
-    if (!attempt) return
-    const candidate = (await this.deps.repository.repairCandidatesForAttempt(attempt.id)).at(-1)
-    if (!candidate) {
-      const marker = (await this.deps.repository.stepsForAttempt(attempt.id))
-        .map((step) => parseRepairMarker(step.summary))
-        .findLast((entry) => entry?.decision.kind === 'needs-decision')
-      if (!marker || marker.decision.kind !== 'needs-decision') return
-      this.deps.beforeRepairAcknowledge?.(marker.decision.resultToken)
-      await repair.acknowledge(marker.acknowledgement)
-      return
-    }
-    this.deps.beforeRepairAcknowledge?.(candidate.resultToken)
-    await repair.acknowledge({
-      resultToken: candidate.resultToken,
-      orderId: order.id,
-      attemptId: candidate.attemptId,
-      generation: candidate.generation,
-      contextDigest: candidate.contextDigest,
-      candidate: {
-        repairRef: candidate.repairRef,
-        candidateHeadSha: candidate.candidateHeadSha,
-      },
+  private async finishRecoveryWork(key: string): Promise<void> {
+    await this.deps.ledger.commit({
+      write: async (scope) => await this.deps.repository.completeRecoveryWork(scope, key),
     })
   }
 
-  private async replayDaemonAcknowledgements(order: ShipOrder): Promise<void> {
-    const issue = await this.deps.issues.get(order.issueId)
-    for (const attempt of await this.deps.repository.attemptsForOrder(order.id)) {
-      const repairCandidates = await this.deps.repository.repairCandidatesForAttempt(attempt.id)
-      for (const step of await this.deps.repository.stepsForAttempt(attempt.id)) {
-        if (!terminalStep(step)) continue
-        if (
-          step.kind === 'preflight' ||
-          step.kind === 'apply-repair' ||
-          step.kind === 'prepare-merge-group' ||
-          step.kind === 'validate' ||
-          step.kind === 'commit-merge-group' ||
-          step.kind === 'publish' ||
-          step.kind === 'verify'
-        ) {
-          const repairMatch = step.effectKey.match(/:repair-(\d+)-([a-f0-9]{64})-([a-f0-9]{64})$/)
-          const repair = repairMatch ? repairCandidates[Number(repairMatch[1]) - 1] : null
-          if (repairMatch && !repair) {
-            throw new Error(`shipping repair effect ${step.effectKey} has no durable candidate`)
-          }
-          if (
-            (repairMatch &&
-              repair &&
-              createHash('sha256')
-                .update(`${repair.repairRef}\0${repair.candidateHeadSha}`)
-                .digest('hex') !== repairMatch[3]) ||
-            (repairMatch && repair && repair.contextDigest !== repairMatch[2])
-          ) {
-            throw new Error(`shipping repair effect ${step.effectKey} candidate digest changed`)
-          }
-          const request = await this.jobInput(
-            order,
-            attempt,
-            issue,
-            step.kind,
-            'acknowledge',
-            undefined,
-            repair,
-          )
-          await this.acknowledgeEffect(order, attempt, issue, step.kind, request)
-        }
-      }
+  private async visitRecoveryWork(
+    kind: StoredShippingRecoveryWork['kind'],
+    visit: (work: StoredShippingRecoveryWork) => Promise<void>,
+  ): Promise<void> {
+    let after = ''
+    for (;;) {
+      const page = await this.deps.repository.recoveryWork(kind, after)
+      if (page.length === 0) return
+      for (const work of page) await visit(work)
+      // A failed daemon acknowledgement keeps its row but is tried only once
+      // per pass. Successful rows can disappear without shifting this cursor.
+      after = page.at(-1)!.key
     }
+  }
+
+  private async acknowledgeRepair(input: ShippingRepairAcknowledgement): Promise<void> {
+    if (!this.deps.repair) return
+    this.deps.beforeRepairAcknowledge?.(input.resultToken)
+    await this.deps.repair.acknowledge(input)
+    await this.deps.ledger.commit({
+      write: async (scope) =>
+        await this.deps.repository.completeRepairAcknowledgement(scope, input.resultToken),
+    })
+  }
+
+  private async replayRepairAcknowledgements(): Promise<void> {
+    if (!this.deps.repair) return
+    await this.visitRecoveryWork('repair-ack', async (work) => {
+      await this.acknowledgeRepair(JSON.parse(work.payload) as ShippingRepairAcknowledgement)
+    })
+  }
+
+  private async replayDaemonAcknowledgements(): Promise<void> {
+    await this.visitRecoveryWork('daemon-ack', async (work) => {
+      const order = await this.requiredOrder(work.orderId)
+      const payload = JSON.parse(work.payload) as {
+        request?: ShippingDaemonAcknowledgement
+        stepId?: ShipStep['id']
+      }
+      let request = payload.request
+      // LEGACY(remove-after: 2027-02): one-time migration debts lack a frozen
+      // request. Removing this drops acknowledgement recovery for those debts.
+      if (!request && payload.stepId) {
+        const step = await this.deps.repository.stepById(payload.stepId)
+        if (!step || !terminalStep(step)) throw new Error(`missing recovery step ${payload.stepId}`)
+        const attempt = await this.deps.repository.getAttempt(step.attemptId)
+        if (!attempt) throw new Error(`missing recovery attempt ${step.attemptId}`)
+        const repairMatch = step.effectKey.match(/:repair-(\d+)-([a-f0-9]{64})-([a-f0-9]{64})$/)
+        const repair = repairMatch
+          ? await this.deps.repository.repairCandidateAtSequence(attempt.id, Number(repairMatch[1]))
+          : null
+        if (
+          repairMatch &&
+          (!repair ||
+            repair.contextDigest !== repairMatch[2] ||
+            createHash('sha256')
+              .update(`${repair.repairRef}\0${repair.candidateHeadSha}`)
+              .digest('hex') !== repairMatch[3])
+        ) {
+          throw new Error(`shipping repair effect ${step.effectKey} candidate digest changed`)
+        }
+        request = await this.jobInput(
+          order,
+          attempt,
+          await this.deps.issues.get(order.issueId),
+          ShippingJobOperation.parse(step.kind),
+          'acknowledge',
+          undefined,
+          repair,
+        )
+      }
+      if (!request) throw new Error(`missing recovery request ${work.key}`)
+      const attempt = await this.deps.repository.getAttempt(request.attemptId)
+      if (!attempt) throw new Error(`missing recovery attempt ${request.attemptId}`)
+      await this.acknowledgeEffect(
+        order,
+        attempt,
+        await this.deps.issues.get(order.issueId),
+        request.operation,
+        request,
+        work.key,
+      )
+    })
   }
 
   private async hold(
@@ -3230,6 +3306,8 @@ export class ShippingService {
       effectKey: string
       operation: ShipStep['kind']
       terminalStep: ShipStep
+      daemonAcknowledgement?: ShippingDaemonAcknowledgement
+      repairAcknowledgement?: ShippingRepairAcknowledgement
     },
     cancellationFailure?: { intentKey: string; terminalStep: ShipStep },
     actions: ShipHoldAction[] = ['retry', 'return-to-issue'],
@@ -3353,10 +3431,13 @@ export class ShippingService {
     operation: ShippingJobResult['operation'],
     result: ShippingJobResult,
     startedAt?: string,
+    authorityRequest?: ShippingDaemonAcknowledgement,
   ): Promise<{
     effectKey: string
     operation: ShipStep['kind']
     terminalStep: ShipStep
+    daemonAcknowledgement: ShippingDaemonAcknowledgement
+    repairAcknowledgement?: ShippingRepairAcknowledgement
   }> {
     const effectKey = await this.effectKeyFor(attempt, operation)
     startedAt ??=
@@ -3365,6 +3446,17 @@ export class ShippingService {
     return {
       effectKey,
       operation,
+      daemonAcknowledgement: {
+        ...(authorityRequest ??
+          (await this.jobInput(
+            order,
+            attempt,
+            await this.deps.issues.get(order.issueId),
+            operation,
+            'acknowledge',
+          ))),
+        action: 'acknowledge',
+      },
       terminalStep: {
         ...this.step(
           order,
@@ -3774,12 +3866,22 @@ export class ShippingService {
     issue: IssueReport,
     operation: ShippingJobResult['operation'],
     authorityRequest?: Omit<ShippingJobRequestMessage, 'type' | 'requestId'>,
+    recoveryKey?: string,
   ): Promise<void> {
     try {
       const request =
         authorityRequest ?? (await this.jobInput(order, attempt, issue, operation, 'acknowledge'))
       const result = await this.deps.daemon.shippingJob(request, attempt.machineId)
       this.assertJobResultAuthority(request, attempt, result)
+      if (
+        result.jobId !== request.jobId ||
+        result.state === 'running' ||
+        result.classification === 'invalid-request' ||
+        result.classification === 'stale-generation'
+      ) {
+        throw new Error(`shipping acknowledgement refused for ${request.jobId}`)
+      }
+      await this.finishRecoveryWork(recoveryKey ?? daemonAcknowledgementKey(request))
     } catch (error) {
       // The server commit is authoritative. A missing ack retains the daemon
       // journal for reconciliation; it must never roll back a committed effect.
