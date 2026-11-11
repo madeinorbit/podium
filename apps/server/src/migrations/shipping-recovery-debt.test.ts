@@ -21,6 +21,10 @@ describe('shipping recovery debt upgrade', () => {
           ('running', 'held', 'validate', 'running', NULL, ''),
           ('local-refusal', 'held', 'validate', 'failed', 'authorization-refused', ''),
           ('cancel', 'held', 'cancel', 'cancelled', 'cancelled', ''),
+          ('null-succeeded', 'shipped', 'verify', 'succeeded', NULL, ''),
+          ('null-failed', 'held', 'validate', 'failed', NULL, ''),
+          ('null-cancelled', 'held', 'publish', 'cancelled', NULL, ''),
+          ('null-local', 'held', 'cancel', 'cancelled', NULL, ''),
           ('broken-marker', 'held', 'validate', 'failed', 'proved', 'shipping-repair:v2:broken');
         INSERT INTO ship_repair_candidates VALUES
           ('shipped', 'attempt', 1, 'digest', 'refs/repair', 'candidate', 'patched-token');
@@ -56,6 +60,9 @@ describe('shipping recovery debt upgrade', () => {
         'legacy-daemon:broken-marker',
         'legacy-daemon:decision',
         'legacy-daemon:held-validate',
+        'legacy-daemon:null-cancelled',
+        'legacy-daemon:null-failed',
+        'legacy-daemon:null-succeeded',
         'legacy-daemon:verify',
       ])
       expect(
@@ -80,7 +87,7 @@ describe('shipping recovery debt upgrade', () => {
         },
       ])
       db.exec('DELETE FROM ship_recovery_work')
-      expect(db.prepare('SELECT COUNT(*) AS n FROM ship_steps').get()).toEqual({ n: 7 })
+      expect(db.prepare('SELECT COUNT(*) AS n FROM ship_steps').get()).toEqual({ n: 11 })
       expect(db.prepare('SELECT COUNT(*) AS n FROM ship_repair_candidates').get()).toEqual({ n: 1 })
     } finally {
       db.close()
