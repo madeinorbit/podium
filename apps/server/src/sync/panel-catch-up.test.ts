@@ -31,6 +31,7 @@ for (const kind of kinds) {
       const dbPath = join(dir, 'test.db')
       const store = await openTestStore(dbPath)
       try {
+        await store.repos.addRepo('/repo', store.hostMachineId)
         const owner = await firstAdminMemberId(store)
         const issueId = asIssueId('issue')
         await store.issues.upsertIssue(
@@ -48,8 +49,8 @@ for (const kind of kinds) {
         const feed = makeFeedVisibility({
           store,
           currentRecords: records.build,
-          audiencesFor: () => [],
-          authorizationRevision: () => 0,
+          audiencesFor: async () => new Map(),
+          authorizationRevision: async () => 0,
         })
         const authority = new Authority({
           store: store.sync,
