@@ -180,7 +180,7 @@ describe('this guard can say NO', () => {
   it('mints and disconnects Telegram through mutations while presence and polling stay queries', () => {
     expect(typeOf('settings.telegramSetupStart')).toBe('mutation')
     expect(typeOf('settings.telegramDisconnect')).toBe('mutation')
-    expect(typeOf('settings.telegramSetupPoll')).toBe('query')
+    expect(typeOf('settings.telegramSetupPoll')).toBe('mutation')
     expect(typeOf('settings.telegramBotPresence')).toBe('query')
   })
 
