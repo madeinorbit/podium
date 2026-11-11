@@ -162,9 +162,9 @@ const StageSections = observer(function StageSections(props: TasksSurfaceProps) 
     stage: s.stage,
     title: s.title,
     total: s.total,
-    folded: folds[s.stage][0],
+    folded: folds[s.stage][0] && !board?.searching,
     // A folded group keeps its header (and so its count) and drops its rows.
-    data: folds[s.stage][0] ? [] : s.rows,
+    data: folds[s.stage][0] && !board?.searching ? [] : s.rows,
   }))
 
   return (

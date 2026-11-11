@@ -252,15 +252,8 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
               </Section>
               {folded ? null : (
                 <Section modifiers={COMPACT_SECTION}>
-                  {section.ids.map((id, index) => (
-                    <NativeWorkSlot
-                      key={id}
-                      id={id}
-                      section={section}
-                      active={
-                        index >= section.window.windowStart && index < section.window.windowEnd
-                      }
-                    >
+                  {section.ids.map((id) => (
+                    <NativeWorkSlot key={id} id={id} section={section}>
                       <NativeWorkRow
                         id={id}
                         lane={phone.lane}
@@ -343,17 +336,16 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
 
 /** Keep each native row in place while its rich observer leaves the viewport.
  * Measured height is presentation state, including Dynamic Type and child hits. */
-function NativeWorkSlot({
+const NativeWorkSlot = observer(function NativeWorkSlot({
   id,
   section,
-  active,
   children,
 }: {
   id: string
   section: PhoneWorkSection
-  active: boolean
   children: React.ReactNode
 }) {
+  const active = section.window.has(id)
   const [height, setHeight] = useState(36)
   return (
     <VStack
@@ -369,7 +361,7 @@ function NativeWorkSlot({
       {active ? children : <Spacer modifiers={[frame({ height })]} />}
     </VStack>
   )
-}
+})
 
 /** Open / Snoozed / Closed as the system segmented control, with counts. */
 const WorkLanePicker = observer(function WorkLanePicker({ phone }: { phone: PhoneWorklist }) {

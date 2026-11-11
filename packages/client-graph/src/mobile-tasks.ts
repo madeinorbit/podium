@@ -85,12 +85,12 @@ class BoardTask {
   /** The board glyph follows the same attention rule as Work and the deck. */
   @lazy get mark(): TaskRowMark {
     if (this.finished) return 'done'
-    const sessions = [...this.board.pool.graph.many('issue', this.id, 'missionSessions')].flatMap(
-      (id) => {
-        const session = requireRow(omitGone(this.board.pool.model('session', id)))
-        return session ? [session as unknown as SessionView] : []
-      },
-    )
+    const sessions = [
+      ...this.board.pool.graph.subset('issue', this.id, 'missionSessions', 'unarchived'),
+    ].flatMap((id) => {
+      const session = requireRow(omitGone(this.board.pool.row('session', id, 'summary-fields')))
+      return session ? [session as unknown as SessionView] : []
+    })
     if (issueNeedsHuman(this.issue as unknown as IssueNavigationModel, sessions)) return 'needs'
     return this.stage === 'in_progress' ? 'working' : 'resting'
   }
@@ -349,6 +349,11 @@ export class MobileTasksBoard {
     return this.query.trim() ? { ...this.filter, text: this.query } : this.filter
   }
 
+  /** Search results stay visible without rewriting the user's saved folds. */
+  @lazy get searching(): boolean {
+    return Boolean(this.searchFilter.text?.trim())
+  }
+
   @lazy({ equals: compareStructural }) get chips() {
     return filterChips(this.filter)
   }
@@ -509,11 +514,14 @@ export class MobileTasksBoard {
     }
   }
 
-  /** A separate question: board filters and folds never wake the banner. */
+  /** The screening queue ignores board filters and folds, but shares its text search. */
   @lazy get proposals(): number | typeof LOADING {
     try {
       let total = 0
-      for (const id of this.boardQuery(PROPOSALS)) if (this.task(id).awaitsScreening) total++
+      const query = this.searching
+        ? { ...PROPOSALS, filter: { ...PROPOSALS.filter, text: this.searchFilter.text } }
+        : PROPOSALS
+      for (const id of this.boardQuery(query)) if (this.task(id).awaitsScreening) total++
       return total
     } catch (error) {
       if (error === LOADING) return LOADING

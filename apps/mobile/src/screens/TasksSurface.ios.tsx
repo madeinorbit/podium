@@ -212,7 +212,8 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
           ) : null}
           {pending ? <ProgressView modifiers={quietRow} /> : null}
           {ordered.map((section) => {
-            const [folded, toggle] = folds[section.stage]
+            const [savedFold, toggle] = folds[section.stage]
+            const folded = savedFold && !board?.searching
             const lane = board?.lanes.find((lane) => lane.stage === section.stage)
             const proposed = section.stage === 'proposed'
             return (
@@ -251,16 +252,21 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
                   />
                 </Section>
                 {folded || !board || section.rows.length === 0 ? null : (
-                  <Section modifiers={[listSectionMargins({ edges: 'vertical', length: 0 })]}>
-                    {section.rows.map((row, index) => (
-                      <TaskSlot
-                        key={row.id}
-                        id={row.id}
-                        lane={lane}
-                        active={Boolean(
-                          lane && index >= lane.window.windowStart && index < lane.window.windowEnd,
-                        )}
-                      >
+                  <Section
+                    modifiers={[
+                      listSectionMargins({ edges: 'vertical', length: 0 }),
+                      // Set the row inset on the section too: the native list owns
+                      // its cells above the slot's measurement and swipe wrappers.
+                      listRowInsets({
+                        leading: CARD_INSET,
+                        trailing: CARD_INSET,
+                        top: 0,
+                        bottom: 0,
+                      }),
+                    ]}
+                  >
+                    {section.rows.map((row) => (
+                      <TaskSlot key={row.id} id={row.id} lane={lane}>
                         <TaskRow row={row} board={board} props={props} />
                       </TaskSlot>
                     ))}
@@ -293,23 +299,23 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
 })
 
 /** Placeholder height follows the last native measurement, including Dynamic Type. */
-function TaskSlot({
+const TaskSlot = observer(function TaskSlot({
   id,
   lane,
-  active,
   children,
 }: {
   id: string
   lane: MobileTasksBoard['lanes'][number] | undefined
-  active: boolean
   children: ReactNode
 }) {
+  const active = lane?.window.has(id) ?? false
   const [height, setHeight] = useState(44)
   return (
     <VStack
+      spacing={0}
       modifiers={[
         ...cardRow,
-        frame({ minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
+        frame({ maxWidth: Infinity, alignment: 'leading' }),
         onAppear(() => lane?.window.appear(id)),
         onDisappear(() => lane?.window.disappear(id)),
         onGeometryChange((frame) => {
@@ -320,10 +326,10 @@ function TaskSlot({
       {active ? children : <Spacer modifiers={[frame({ height })]} />}
     </VStack>
   )
-}
+})
 
 /**
- * One 44pt task row: mark, ref, title, then child progress ("21/25") or age.
+ * One 44pt task row: mark, title, ref, then child progress ("21/25") or age.
  * Swipe left for Status and Close; long press for Work's menu (Rename, Mark as
  * unread, Status, Move out of mission, Delete) plus the sub-task disclosure.
  */
@@ -382,16 +388,6 @@ const TaskRow = taskObserver(function TaskRow({
               />
               <Text
                 modifiers={[
-                  font({ size: 11, design: 'monospaced' }),
-                  foregroundStyle({ type: 'hierarchical', style: 'tertiary' }),
-                  lineLimit(1),
-                  frame({ width: 60, alignment: 'leading' }),
-                ]}
-              >
-                {ref}
-              </Text>
-              <Text
-                modifiers={[
                   font({ textStyle: 'body', weight: unread ? 'semibold' : 'regular' }),
                   foregroundStyle({
                     type: 'hierarchical',
@@ -419,6 +415,15 @@ const TaskRow = taskObserver(function TaskRow({
                   modifiers={[accessibilityHidden()]}
                 />
               ) : null}
+              <Text
+                modifiers={[
+                  font({ size: 11, design: 'monospaced' }),
+                  foregroundStyle({ type: 'hierarchical', style: 'tertiary' }),
+                  lineLimit(1),
+                ]}
+              >
+                {ref}
+              </Text>
               <TaskFigure issue={issue} />
             </HStack>
           </Button>

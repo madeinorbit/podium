@@ -366,3 +366,93 @@ it('releases offscreen row observers while scrolling forward and back through a 
   lane.window.disappear(lane.rows[0]!.id)
   expect(lane.window.visibleRows).toHaveLength(0)
 })
+
+it('reads glyphs from cold session summaries without loading archived history', async () => {
+  const offer = { createdAt: '2026-01-01T00:00:00Z', message: 'Review', actions: [] }
+  const history = Array.from({ length: 400 }, (_, i) =>
+    seat(`history-${i}`, { archived: true, status: 'exited', offer }),
+  )
+  const cold = seat('cold', {
+    status: 'exited',
+    lastActiveAt: '2025-01-01T00:00:00Z',
+    stoppedAt: '2025-01-01T00:00:00Z',
+    agentState: { phase: 'idle' },
+  })
+  const { pool, load } = await setup([issue('root', { archived: true })], [...history, cold])
+  const board = new MobileTasksBoard(pool, options)
+  expect(pool.tables.session.size).toBe(0)
+  const marks: string[] = []
+  const reads = vi.spyOn(pool, 'row')
+  disposals.push(autorun(() => marks.push(board.task('root').mark)))
+  expect(marks).toEqual(['working'])
+  expect(
+    reads.mock.calls.filter(([kind, id]) => kind === 'session' && id.startsWith('history-')),
+  ).toEqual([])
+  expect(pool.hydrate()).toBe(0)
+  expect(load).not.toHaveBeenCalled()
+
+  // The archived but unfinished task keeps its explicit roster cold.
+  // Positive control: a cold unarchived sender's new offer still changes the glyph.
+  pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'cold', value: { ...cold, offer } }] })
+  expect(marks.at(-1)).toBe('needs')
+  pool.apply({
+    type: 'update',
+    rows: [{ kind: 'session', id: 'cold', value: { ...cold, offer, archived: true } }],
+  })
+  expect(marks.at(-1)).toBe('working')
+  // The shared subset admits an unarchived historical sender without a payload lookup.
+  pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'cold', value: { ...cold, offer } }] })
+  expect(marks.at(-1)).toBe('needs')
+  // A late offer cannot revive a closed task's attention glyph.
+  pool.apply({
+    type: 'update',
+    rows: [
+      {
+        kind: 'issue',
+        id: 'root',
+        value: issue('root', { stage: 'done', closedReason: 'done', archived: true }),
+      },
+    ],
+  })
+  expect(marks.at(-1)).toBe('done')
+  pool.apply({
+    type: 'update',
+    rows: [
+      { kind: 'session', id: 'cold', value: { ...cold, offer: { ...offer, message: 'Late' } } },
+    ],
+  })
+  expect(marks.at(-1)).toBe('done')
+  expect(pool.hydrate()).toBe(0)
+  expect(load).not.toHaveBeenCalled()
+  reads.mockRestore()
+})
+
+it('searches the Proposed screening count by the same title/ref rule as board rows', async () => {
+  const { pool } = await setup([
+    issue('plan', { seq: 2346, title: 'iOS redesign', stage: 'planning' }),
+    issue('proposal', { seq: 2347, title: 'iOS follow-up', stage: 'proposed' }),
+    issue('other', { seq: 765, title: 'Something else', stage: 'proposed' }),
+  ])
+  const board = new MobileTasksBoard(pool, options)
+  disposals.push(autorun(() => board.groups))
+  expect(board.proposals).toBe(2)
+  board.search('iOS')
+  expect(board.searching).toBe(true)
+  expect(board.proposals).toBe(1)
+  board.search('2346')
+  expect(board.proposals).toBe(0)
+  expect(board.groups).toMatchObject([{ stage: 'planning', total: 1 }])
+  board.search('2347')
+  expect(board.proposals).toBe(1)
+  expect(board.groups).toMatchObject([{ stage: 'proposed', total: 1 }])
+  board.search('no match')
+  expect(board.proposals).toBe(0)
+  expect(board.groups).toEqual([])
+  board.search('')
+  expect(board.searching).toBe(false)
+  expect(board.proposals).toBe(2)
+  // A saved text filter is the same board search, including for proposals.
+  board.setFilter({ text: '2347' })
+  expect(board.searching).toBe(true)
+  expect(board.proposals).toBe(1)
+})

@@ -1,0 +1,85 @@
+import { autorun, observable, runInAction } from 'mobx'
+import { expect, it, vi } from 'vitest'
+import { ROW_WINDOW_SIZE, RowWindow } from './row-window'
+
+it.each([400, 1600])('notifies only entering/leaving slots among %i rows', (size) => {
+  const rows = observable.array(Array.from({ length: size }, (_, i) => `row-${i}`))
+  const identify = vi.fn((id: string) => id)
+  const window = new RowWindow(() => rows.slice(), identify)
+  const reads = Array.from({ length: size }, () => vi.fn())
+  const stops = rows.map((id, index) => autorun(() => reads[index]!(window.has(id))))
+  const list = vi.fn()
+  const stopList = autorun(() => list(rows.slice()))
+  try {
+    window.appear('row-30')
+    expect(reads.filter((read) => read.mock.lastCall?.[0])).toHaveLength(ROW_WINDOW_SIZE)
+    for (const read of reads) read.mockClear()
+    identify.mockClear()
+    list.mockClear()
+
+    // Positive control: a one-row shift really changes exactly two slots.
+    window.appear('row-31')
+    window.disappear('row-30')
+    expect(reads.flatMap((read, i) => (read.mock.calls.length ? [i] : []))).toEqual([10, 50])
+    expect(reads[10]).toHaveBeenCalledWith(false)
+    expect(reads[50]).toHaveBeenCalledWith(true)
+    expect(list).not.toHaveBeenCalled()
+    expect(identify).toHaveBeenCalledTimes(ROW_WINDOW_SIZE)
+
+    for (const read of reads) read.mockClear()
+    window.appear('row-31')
+    window.disappear('row-30')
+    expect(reads.every((read) => read.mock.calls.length === 0)).toBe(true)
+
+    // Backward and distant jumps retain the same bound.
+    window.appear('row-30')
+    expect(reads.flatMap((read, i) => (read.mock.calls.length ? [i] : []))).toEqual([10, 50])
+    for (const read of reads) read.mockClear()
+    window.appear(`row-${size - 30}`)
+    expect(reads.reduce((n, read) => n + read.mock.calls.length, 0)).toBe(2 * ROW_WINDOW_SIZE)
+  } finally {
+    for (const stop of stops) stop()
+    stopList()
+  }
+  // Unmount releases appearances as well as the source subscription.
+  expect(window.visibleRows).toHaveLength(0)
+  identify.mockClear()
+  runInAction(() => rows.reverse())
+  expect(identify).not.toHaveBeenCalled()
+  const stop = autorun(() => window.has(rows[0]!))
+  expect(window.has(rows[0]!)).toBe(false)
+  window.appear(rows[0]!)
+  expect(window.has(rows[0]!)).toBe(true)
+  stop()
+})
+
+it('reindexes on source edits and ignores appearance callbacks for removed rows', () => {
+  const rows = observable.array(Array.from({ length: 100 }, (_, i) => `row-${i}`))
+  const window = new RowWindow(
+    () => rows.slice(),
+    (id) => id,
+  )
+  const values = new Map<string, boolean>()
+  const stops = rows.map((id) => autorun(() => values.set(id, window.has(id))))
+  try {
+    window.appear('row-50')
+    runInAction(() => rows.reverse())
+    expect(
+      [...values]
+        .filter(([, active]) => active)
+        .map(([id]) => id)
+        .sort(),
+    ).toEqual([...window.visibleRows].sort())
+    runInAction(() => rows.remove('row-50'))
+    expect(values.get('row-50')).toBe(false)
+    window.appear('row-80')
+    const before = [...window.visibleRows]
+    window.appear('row-50')
+    window.disappear('row-50')
+    expect(window.visibleRows).toEqual(before)
+    window.disappear('row-80')
+    expect([...values.values()].some(Boolean)).toBe(false)
+  } finally {
+    for (const stop of stops) stop()
+  }
+})
