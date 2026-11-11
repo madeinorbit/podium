@@ -10,6 +10,7 @@ async function seedMachine(store: SessionStore): Promise<void> {
     hostname: 'box.local',
     tokenHash: 'token-hash',
     ownerUserId: firstAdminMemberId(),
+    assignment: { server: false, agentExecution: true },
   })
 }
 
