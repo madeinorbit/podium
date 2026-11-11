@@ -69,6 +69,7 @@ test('leaving the active roster keeps the member in an open admin list', async (
   const departing = fullMember('departing')
   try {
     await directory.read(async () => adminAnswer([active, departing]))
+    const activeModel = directory.members[0]
     const model = directory.members[1]
     await roster.read(async () => ({ members: [active], currentMemberId: 'admin' }))
 
@@ -87,9 +88,46 @@ test('leaving the active roster keeps the member in an open admin list', async (
       email: null,
     }
     await directory.read(async () => adminAnswer([cleared]))
-    expect(directory.members[0]).toBe(requireHere(pool.model('member', active.id)))
+    expect(directory.members[0]).toBe(activeModel)
     expect(requireHere(pool.row('member', active.id))).toEqual(cleared)
     expect(isGone(pool.model('member', departing.id))).toBe(true)
+  } finally {
+    directory.dispose()
+    pool.dispose()
+  }
+})
+
+test('a public roster can reactivate a member without inventing admin details', async () => {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+  const directory = new MemberDirectory(pool)
+  const roster = memberRoster(pool)
+  const disabled = fullMember('disabled', '2026-02-01T00:00:00Z')
+  try {
+    await directory.read(async () => adminAnswer([disabled]))
+    const model = directory.members[0]
+    expect(roster.members).toEqual([])
+    await roster.read(async () => ({
+      members: [
+        { id: disabled.id, displayName: 'Enabled again', role: 'member' },
+        { id: 'new', displayName: 'New member', role: 'member' },
+      ],
+      currentMemberId: 'admin',
+    }))
+
+    expect(roster.members.map((member) => member.id)).toEqual([disabled.id, 'new'])
+    expect(roster.members[0]).toBe(model)
+    expect(roster.shared).toBe(true)
+    expect(roster.nameOf(disabled.id)).toBe('Enabled again')
+    expect(model?.disabledAt).toBe(disabled.disabledAt)
+    expect(requireHere(pool.row('member', 'new'))).toEqual({
+      id: 'new',
+      displayName: 'New member',
+      role: 'member',
+    })
+
+    await directory.read(async () => adminAnswer([{ ...disabled, disabledAt: null }]))
+    expect(directory.members[0]).toBe(model)
+    expect(model?.disabledAt).toBeNull()
   } finally {
     directory.dispose()
     pool.dispose()

@@ -1,7 +1,8 @@
 import { lazy } from '@podium/mobx-helpers'
 import type { MemberView } from '@podium/model'
 import { action, compareShallow } from 'mobx'
-import type { MobxPool, PoolRows } from './pool'
+import { here } from './lookup'
+import type { MobxPool } from './pool'
 import { RequestAnswer } from './request-answer'
 import type { MemberModel } from './requested-models'
 import { ingestRequested } from './requested-record-source'
@@ -11,6 +12,28 @@ import { type RosterFacts, rosterFacts } from './worklist/view-model'
 export interface MemberRosterAnswer {
   members: Pick<MemberView, 'id' | 'displayName' | 'role'>[]
   currentMemberId: string
+}
+
+/**
+ * The public directory hydrates only names and roles. Omitted admin fields
+ * stay as last authorized by `/list` in this principal's pool; they are not
+ * cleared or inferred from roster membership. New members have no admin data.
+ */
+export function ingestMemberRoster(
+  pool: MobxPool,
+  members: MemberRosterAnswer['members'],
+): string[] {
+  return ingestRequested(
+    pool,
+    'member',
+    members.map(({ id, displayName, role }) => ({
+      ...here(pool.row('member', id)),
+      id,
+      displayName,
+      role,
+    })),
+    (row) => row.id,
+  )
 }
 
 /**
@@ -36,21 +59,10 @@ export class MemberRoster extends RequestAnswer<true> {
 
   @action read(read: () => Promise<MemberRosterAnswer>): Promise<void> {
     return this.load(read, false, ({ members, currentMemberId }) => {
-      const memberIds = ingestRequested(
-        this.pool,
-        'member',
-        members as PoolRows['member'][],
-        (row) => row.id,
-      )
+      const memberIds = ingestMemberRoster(this.pool, members)
       const facts = rosterFacts(this.pool)
-      const present = new Set(memberIds)
-      const removed = facts.memberIds.filter((id) => !present.has(id))
-      if (removed.length)
-        this.pool.apply({
-          type: 'update',
-          rows: removed.map((id) => ({ kind: 'member', id, value: undefined })),
-        })
-      // The answer lives in the startup roster facts the worklist reads.
+      // Absence means inactive, not deleted: an admin list may still show
+      // that member. Only replace the active ids the worklist reads.
       facts.accept(memberIds, currentMemberId)
       return true as const
     })

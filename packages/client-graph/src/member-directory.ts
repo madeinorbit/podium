@@ -2,8 +2,8 @@ import { lazy } from '@podium/mobx-helpers'
 import type { MemberView } from '@podium/model'
 import { action, compareShallow } from 'mobx'
 import { here } from './lookup'
-import type { MemberRosterAnswer } from './member-roster'
-import type { MobxPool, PoolRows } from './pool'
+import { ingestMemberRoster, type MemberRosterAnswer } from './member-roster'
+import type { MobxPool } from './pool'
 import { RequestAnswer } from './request-answer'
 import { ingestRequested } from './requested-records'
 import { rosterFacts } from './worklist/view-model'
@@ -32,25 +32,30 @@ export class MemberDirectory extends RequestAnswer<Directory> {
   }
   @action read(read: () => Promise<MemberDirectoryAnswer | MemberRosterAnswer>): Promise<void> {
     return this.load(read, false, ({ members, ...answer }) => {
-      const memberIds = ingestRequested(
-        this.pool,
-        'member',
-        members as PoolRows['member'][],
-        (row) => row.id,
-      )
-      const present = new Set(memberIds)
-      const removed = (this.answer?.memberIds ?? []).filter((id) => !present.has(id))
-      if (removed.length)
-        this.pool.apply({
-          type: 'update',
-          rows: removed.map((id) => ({ kind: 'member', id, value: undefined })),
-        })
+      const full = 'invites' in answer
+      const memberIds = full
+        ? ingestRequested(this.pool, 'member', members, (row) => row.id)
+        : ingestMemberRoster(this.pool, members)
+      // `/list` includes disabled members and owns complete row replacement
+      // (including cleared optional fields) and removal. `/directory` owns
+      // only its public fields and active membership.
+      if (full) {
+        const present = new Set(memberIds)
+        const removed = (this.answer?.memberIds ?? []).filter((id) => !present.has(id))
+        if (removed.length)
+          this.pool.apply({
+            type: 'update',
+            rows: removed.map((id) => ({ kind: 'member', id, value: undefined })),
+          })
+      }
       // This request already has the roster's active names. Publish its ids
       // without fetching a second, narrower directory answer over these rows.
       rosterFacts(this.pool).accept(
-        members
-          .filter((member) => !('disabledAt' in member) || !member.disabledAt)
-          .map((member) => member.id),
+        full
+          ? members
+              .filter((member) => !('disabledAt' in member) || !member.disabledAt)
+              .map((member) => member.id)
+          : memberIds,
         answer.currentMemberId,
       )
       return {
