@@ -236,7 +236,7 @@ function ReportTakeover(): JSX.Element {
             and capped this block short of the Install id card below it. */}
         <pre
           data-testid="telemetry-report"
-          className="mb-6 w-full overflow-x-auto rounded-[9px] border border-border bg-muted p-4 font-mono text-[12.5px] text-muted-foreground leading-[1.6]"
+          className="w-full overflow-x-auto rounded-[9px] border border-border bg-muted p-4 font-mono text-[12.5px] text-muted-foreground leading-[1.6]"
         >
           {preview ? JSON.stringify(preview, null, 2) : example || 'Loading…'}
         </pre>

@@ -59,7 +59,7 @@ export function Section({
   // (styles.css): the `first:` guard that used to be here could never fire,
   // because the class banner — not this section — is the pane's first child.
   return (
-    <section id={id} tabIndex={id ? -1 : undefined}>
+    <section id={id} className="settings-section" tabIndex={id ? -1 : undefined}>
       {(title || hint || action) && (
         <header className="settings-section-header">
           {(title || hint) && (

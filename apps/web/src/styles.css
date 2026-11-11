@@ -8779,7 +8779,9 @@ a.ref-link--session::before {
 .settings-entity-subtitle {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  /* Baseline, not center: subtitles mix sans and mono runs of different sizes,
+     and centring them put each run at its own height. */
+  align-items: baseline;
   gap: 6px;
   margin-top: 2px;
   color: var(--muted-foreground);
@@ -15918,8 +15920,11 @@ button.waterfall-fold:hover {
   font: 500 10.5px / 1 var(--font-sans);
   letter-spacing: 0;
 }
-.settings-page-section > section + section,
-.settings-page-section + .settings-page-section {
+/* THE ONE GAP between settings sections. It belongs to the Section primitive,
+   not to a container: it used to hang off .settings-page-section (the search
+   anchor wrapper), so every page opened inside a page (a member, a key, a
+   machine, the privacy report) rendered its sections with no gap at all. */
+:is(.settings-section, .settings-page-section) + :is(.settings-section, .settings-page-section) {
   margin-top: 30px;
 }
 .settings-segmented {
