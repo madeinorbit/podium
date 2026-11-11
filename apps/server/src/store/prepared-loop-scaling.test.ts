@@ -16,8 +16,10 @@ interface Counts {
 interface MeasuredLoop {
   name: string
   targetSql: string
+  executionRatio: number
   repository(store: SessionStore): object
   run(store: SessionStore, n: number): void | Promise<void>
+  check?(store: SessionStore, n: number): void | Promise<void>
 }
 
 /**
@@ -70,16 +72,21 @@ const loops: MeasuredLoop[] = [
   {
     name: 'ConversationIndexRepository.upsert',
     targetSql: 'insert into "conversations"',
+    executionRatio: 1,
     repository: (store) => store.conversations.index,
     run: async (store, n) =>
       await store.conversations.index.upsert(
         fixtureWriteScope(),
         conversationRows(n, store.hostMachineId),
       ),
+    check: async (store, n) => {
+      expect(await store.conversations.index.recentPage({ limit: n + 1 })).toHaveLength(n)
+    },
   },
   {
     name: 'SyncRepository.applyLatestChangeStates',
     targetSql: 'insert into "change_latest"',
+    executionRatio: 10,
     repository: (store) => store.sync,
     run: async (store, n) => {
       await store.sync.appendChanges(
@@ -97,13 +104,18 @@ const loops: MeasuredLoop[] = [
 
 const measure = async (loop: MeasuredLoop, n: number): Promise<Counts> => {
   const store = await openTestStore(':memory:')
-  const counts = countPreparedQueryWork(loop.repository(store), loop.targetSql)
-  await loop.run(store, n)
-  return counts
+  try {
+    const counts = countPreparedQueryWork(loop.repository(store), loop.targetSql)
+    await loop.run(store, n)
+    await loop.check?.(store, n)
+    return counts
+  } finally {
+    await store.close()
+  }
 }
 
 describe('large row-loop SQL construction', () => {
-  it.each(loops)('$name keeps constructions constant while executions scale 10x', async (loop) => {
+  it.each(loops)('$name keeps constructions constant as input grows 10x', async (loop) => {
     const n = 4
     const small = await measure(loop, n)
     const large = await measure(loop, n * 10)
@@ -114,8 +126,9 @@ describe('large row-loop SQL construction', () => {
       small.constructions,
       `${loop.name}: the SQLiteSession.prepareQuery probe saw no construction`,
     ).toBeGreaterThan(0)
-    expect(executionRatio, `${loop.name}: executions must track the 10x larger input`).toBeCloseTo(
-      10,
+    // POD-6227 batches a discovery into one statement; the sync loop remains per row.
+    expect(executionRatio, `${loop.name}: execution growth must follow its batching contract`).toBeCloseTo(
+      loop.executionRatio,
       5,
     )
     expect(
