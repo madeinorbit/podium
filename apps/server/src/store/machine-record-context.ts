@@ -49,13 +49,21 @@ export class MachineRecordContextRepository {
 
   /** The resolved channel and its settings source share the source write. */
   async writeFleetChannel<T>(channel: UpdateChannel, write: () => Promise<T>): Promise<T> {
+    return (await this.saveFleetChannel(channel, write)).result
+  }
+
+  private async saveFleetChannel<T>(
+    channel: UpdateChannel,
+    write: () => Promise<T>,
+  ): Promise<{ result: T; changed: boolean }> {
+    const selected = UpdateChannel.parse(channel)
     return await this.queries.createOrJoinTransaction(async () => {
       const current = UpdateChannel.parse((await channelRow(this.db).get())?.value ?? 'stable')
-      if (current === channel) return await write()
+      if (current === selected) return { result: await write(), changed: false }
       return await this.records.compare({ display: this.machineIds }, async () => {
         const result = await write()
-        await this.setFleetChannel(channel)
-        return result
+        const changed = (await setChannel(this.db).get({ channel: selected })) !== undefined
+        return { result, changed }
       })
     })
   }
@@ -63,7 +71,7 @@ export class MachineRecordContextRepository {
   /** The server's last resolution of the effective fleet channel. Environment
    * changes are observed at the next boot, as by the existing execution path. */
   async setFleetChannel(channel: UpdateChannel): Promise<boolean> {
-    return (await setChannel(this.db).get({ channel: UpdateChannel.parse(channel) })) !== undefined
+    return (await this.saveFleetChannel(channel, async () => undefined)).changed
   }
 
   async read(): Promise<{

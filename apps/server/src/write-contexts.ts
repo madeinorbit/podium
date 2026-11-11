@@ -96,11 +96,7 @@ export const SYSTEM_WRITE_ORIGINS = {
     kind: 'server',
   },
   'machines.records': {
-    what: "a machine's synced records (the machine row and each member's access row), rewritten whenever its row or its grants change (POD-6644)",
-    kind: 'mirror',
-  },
-  'members.access': {
-    what: "a member's machine access rows, rewritten when their role or standing changes (POD-6644)",
+    what: "a machine's synced records and each member's access, compared around writes to their stored inputs",
     kind: 'mirror',
   },
   'repos.registry': {

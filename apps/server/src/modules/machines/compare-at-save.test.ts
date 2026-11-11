@@ -55,6 +55,25 @@ it('custody writes publish each final record once across their several grant wri
   )
 })
 
+it('credential adoption compares the assignment stored with the credential', async () => {
+  const o = await makeOracle()
+  const id = o.store.hostMachineId
+  const before = await o.store.sync.maxChangeSeq()
+  expect(await o.store.machines.adoptLegacyHostCredential(
+    id,
+    'machine-public-key',
+    { server: true, agentExecution: false },
+    { version: 1, source: 'enrollment', requestId: id },
+  )).toBe(true)
+  const changes = (await o.store.sync.changesSince(before))
+    .filter((row) => row.entity === 'machineAccess')
+    .map((row) => JSON.parse(row.payload ?? 'null'))
+  expect(changes).toContainEqual(expect.objectContaining({
+    serviceAssignment: { server: true, agentExecution: false },
+    components: ['server'],
+  }))
+})
+
 it('member creation, disablement, enablement and role changes compare the member across the fleet', async () => {
   const o = await makeOracle()
   const owner = await firstAdminMemberId(o.store)

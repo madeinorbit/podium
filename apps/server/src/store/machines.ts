@@ -839,9 +839,14 @@ export class MachinesRepository {
   /** The stored discriminator is authoritative; never attempt another credential kind. */
   async verifyMachineSignature(id: MachineId, transcript: string, signature: string): Promise<boolean> {
     const row = await machineRowById(this.db).get({ id })
-    return !!row && row.revokedAt === null && row.credentialKind === 'ed25519'
-      && row.tokenHash === '' && row.publicKey !== null
-      && verifyWithMachineKey(row.publicKey, transcript, signature)
+    return (
+      !!row &&
+      row.revokedAt === null &&
+      row.credentialKind === 'ed25519' &&
+      row.tokenHash === '' &&
+      row.publicKey !== null &&
+      verifyWithMachineKey(row.publicKey, transcript, signature)
+    )
   }
 
   /** New-key possession permits a lost-ack retry; replacement itself is a CAS.
@@ -871,7 +876,10 @@ export class MachinesRepository {
         ...(row.publicKey === null ? {} : { publicKey: row.publicKey }),
       }), 'upsert')
     // A simultaneous retry of the same intent may have won the CAS.
-    return result.changes === 1 || await this.verifyMachineSignature(id, transcript, rotation.newSignature)
+    return (
+      result.changes === 1 ||
+      (await this.verifyMachineSignature(id, transcript, rotation.newSignature))
+    )
   }
 
   /**
@@ -887,20 +895,22 @@ export class MachinesRepository {
    */
   async adoptLegacyHostCredential(id: MachineId, publicKey: string,
     assignment: MachineServiceAssignment, evidence: z.infer<typeof AssignmentEvidence>): Promise<boolean> {
-    MachineServiceAssignment.parse(assignment)
-    AssignmentEvidence.parse(evidence)
-    const row = await machineRowById(this.db).get({ id })
-    if (!row || row.revokedAt !== null || row.supersededBy !== null) return false
-    if (row.credentialKind === 'ed25519') return row.tokenHash === '' && row.publicKey === publicKey
-    if (row.credentialKind !== 'bearer-hash' || row.publicKey !== null) return false
-    const result = await this.committed.write(async () => await adoptHostCredentialOf(this.db).all({
-      id,
-      publicKey,
-      serviceAssignmentJson: JSON.stringify(assignment),
-      assignmentEvidenceJson: JSON.stringify(evidence),
-      tokenHash: row.tokenHash,
-    }), 'upsert')
-    return result.changes === 1
+    return await this.machineRecordWrites.compare({ machines: [id] }, async () => {
+      MachineServiceAssignment.parse(assignment)
+      AssignmentEvidence.parse(evidence)
+      const row = await machineRowById(this.db).get({ id })
+      if (!row || row.revokedAt !== null || row.supersededBy !== null) return false
+      if (row.credentialKind === 'ed25519') return row.tokenHash === '' && row.publicKey === publicKey
+      if (row.credentialKind !== 'bearer-hash' || row.publicKey !== null) return false
+      const result = await this.committed.write(async () => await adoptHostCredentialOf(this.db).all({
+        id,
+        publicKey,
+        serviceAssignmentJson: JSON.stringify(assignment),
+        assignmentEvidenceJson: JSON.stringify(evidence),
+        tokenHash: row.tokenHash,
+      }), 'upsert')
+      return result.changes === 1
+    })
   }
 
   /** Persist the operator-selected update authority for one managed machine.
@@ -942,7 +952,7 @@ export class MachinesRepository {
   /** Custody is queried from its sole manage edge; never inferred from a row. */
   async custodian(id: string): Promise<UserId | null> {
     const edge = await custodianOf(this.db).get({ id })
-    return edge ? edge.grantee as UserId : null
+    return edge ? (edge.grantee as UserId) : null
   }
 
   /** The ids of the machines this member holds custody of (POD-6301). */
@@ -989,8 +999,11 @@ export class MachinesRepository {
   async credentialIncarnation(id: MachineId): Promise<string | undefined> {
     const row = await machineRowById(this.db).get({ id })
     if (!row) return undefined
-    return row.credentialKind === 'ed25519' && row.tokenHash === '' ? row.publicKey ?? undefined
-      : row.credentialKind === 'bearer-hash' && row.publicKey === null ? row.tokenHash : undefined
+    return row.credentialKind === 'ed25519' && row.tokenHash === ''
+      ? (row.publicKey ?? undefined)
+      : row.credentialKind === 'bearer-hash' && row.publicKey === null
+        ? row.tokenHash
+        : undefined
   }
 
   /** One winner: ordinary enrollment cannot overwrite an existing identity. */

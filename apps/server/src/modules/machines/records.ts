@@ -335,7 +335,7 @@ async function recordReach(
 ): Promise<void> {
   const moved = appended.flatMap((change) => {
     if (change.entity !== 'machineAccess') return []
-    const next = change.op === 'upsert' ? (change.value?.checkoutReach ?? 'none') : 'none'
+    const next: CheckoutReach = change.op === 'upsert' ? (change.value?.checkoutReach ?? 'none') : 'none'
     return [{ ...parseMachineAccessRowId(change.id), next }]
   })
   if (moved.length === 0) return

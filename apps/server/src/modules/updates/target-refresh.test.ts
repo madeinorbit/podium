@@ -320,8 +320,8 @@ describe('scheduled refresh after supervised completion', () => {
     let saved: UpdateRecoverySnapshot | undefined
     const recovery = {
       read: () => saved && structuredClone(saved),
-      write: (snapshot: UpdateRecoverySnapshot) => {
-        saved = structuredClone(snapshot)
+      write: (snapshot: () => UpdateRecoverySnapshot) => {
+        saved = structuredClone(snapshot())
       },
     }
     let approved = target

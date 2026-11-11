@@ -277,7 +277,7 @@ describe('fleet default update channel', () => {
   })
 
   it("moves an unpinned machine's resolved channel and target the moment the fleet default changes, and leaves a pinned one alone", async () => {
-    process.env.PODIUM_UPDATE_CHANNEL = 'stable'
+    delete process.env.PODIUM_UPDATE_CHANNEL
     const { registry } = await harness()
     await addMachine(registry, 'follower')
     await addMachine(registry, 'pinned')
@@ -289,8 +289,7 @@ describe('fleet default update channel', () => {
     expect(followerBefore?.updateChannel).toBe('stable')
 
     // The fleet default moves — exactly what Settings → Updates writes.
-    process.env.PODIUM_UPDATE_CHANNEL = 'dev'
-    registry.modules.machines.refreshFleetChannel()
+    await registry.sessionStore.settings.updateDeployment({ updateChannel: 'dev' })
 
     const after = await registry.modules.machines.listMachines()
     expect(after.find((m) => m.id === 'follower')?.updateChannel).toBe('dev')

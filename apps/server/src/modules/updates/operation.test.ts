@@ -1,10 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
+import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createServer } from 'node:http'
-import { MachineUpdateExecutor, updateFingerprint } from '@podium/runtime/machine-update'
-import { requestMachineUpdate, startMachineUpdateControl } from '@podium/runtime/machine-update-control'
-import { createInstalledCoordinatorUpdate, SupervisorUpdateFailure } from './installed-restart'
 import { asMachineId, type UpdateChannel } from '@podium/model'
 import type { Operation, UpdateGrantMessage, UpdateStatusMessage, UpdateTarget } from '@podium/protocol'
 import {
@@ -12,6 +9,11 @@ import {
   UPDATE_FAILURE_EXAMPLES,
   UPDATE_FAILURE_TOKENS,
 } from '@podium/protocol'
+import { MachineUpdateExecutor, updateFingerprint } from '@podium/runtime/machine-update'
+import {
+  requestMachineUpdate,
+  startMachineUpdateControl,
+} from '@podium/runtime/machine-update-control'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { HTTP_IDLE_TIMEOUT_S } from '../../gateway/ws-server'
@@ -25,10 +27,11 @@ import {
   type OperationTimerHandle,
 } from '../operations/engine'
 import { OperationKindRegistry } from '../operations/kinds'
-import { OperationStore } from '../operations/store'
 import { LIFECYCLE_EXCLUSION_GROUP } from '../operations/lifecycle'
+import { OperationStore } from '../operations/store'
 import { DevBundleUnavailableError } from './dev-bundle'
 import { ARTIFACT_ORIGIN_UNCONFIGURED_REASON } from './dev-publisher-wiring'
+import { createInstalledCoordinatorUpdate, SupervisorUpdateFailure } from './installed-restart'
 import {
   admissibleDeferredPlaces,
   classifyMachineFailure,
@@ -3086,7 +3089,7 @@ describe('a version published mid-operation', () => {
     await updates.setTargetFromProducer('dev', devTarget({ version: '0.4.3' }))
     await updates.setTargetFromProducer('dev', devTarget({ version: '0.4.4' }))
     expect(updates.nextTarget('dev')).toBeDefined()
-    updates.setTargetUnavailable('dev', 'nothing published for this commit')
+    await updates.setTargetUnavailable('dev', 'nothing published for this commit')
     expect(updates.nextTarget('dev')).toBeUndefined()
   })
 })
@@ -3601,7 +3604,7 @@ describe('the fleet bridge', () => {
     })
     h.setTargetChanged(() => bridge.onTargetChanged())
 
-    h.updates.setTargetUnavailable('dev', 'the source checkout moved')
+    await h.updates.setTargetUnavailable('dev', 'the source checkout moved')
     await h.settleTargetChanges()
     await h.engine.whenSettled('op_1')
 
@@ -3649,7 +3652,7 @@ describe('the fleet bridge', () => {
     } as Operation
     const details = { target: packedTarget(), channel: 'dev' as const }
 
-    h.updates.setTargetUnavailable('dev', 'the source checkout moved')
+    await h.updates.setTargetUnavailable('dev', 'the source checkout moved')
 
     expect(await admissibleDeferredPlaces(operation, details, h.updates)).toEqual([])
     expect(supersededDeferredPlaces(operation, details, h.updates)).toEqual([
@@ -4904,7 +4907,7 @@ describe('coordinator backup preflight activation boundary', () => {
       f.releasePreflight.resolve()
       await f.receiptSettled.promise
       await runnerReported.promise
-      const canceled = f.reports.findLast(status => status.phaseDetail === 'canceled')!
+      const canceled = f.reports.findLast((status) => status.phaseDetail === 'canceled')!
       await f.h.updates.onStatus(asMachineId('host'), canceled)
       report.mockRestore()
       await createUpdateFleetBridge({ engine: f.h.engine, updates: f.h.updates, now: () => f.h.clock.clock.now() }).onFleetChanged()

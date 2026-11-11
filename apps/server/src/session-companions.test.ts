@@ -323,7 +323,8 @@ describe('S1 session companion records', () => {
       ])
     } else {
       expect(machines).toEqual([])
-      expect(changes.some((change) => change.entity === 'machineAccess')).toBe(true)
+      expect((await f.store.sync.changesSince(before))
+        .some((change) => change.entity === 'machineAccess')).toBe(true)
     }
   })
 

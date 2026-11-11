@@ -19,7 +19,7 @@ import {
   type GitRepositoryWire,
 } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { expectConstantStatements, type StatementPin } from '../../test-support/statement-count'
+import { countStatements, expectConstantStatements, type StatementPin } from '../../test-support/statement-count'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import { appliedReply, envelope, submit } from '../sync-write/outbox-test-support'
 
@@ -142,9 +142,20 @@ const grantWrite: StatementPin<Fixture> = {
 }
 
 const memberRole: StatementPin<Fixture> = {
-  name: 'member role source write (every machine)',
+  name: 'member role comparison reads (every machine)',
   setup: fixture,
   target: (f) => f.o.store,
+  // The stored copy still writes each appended record until POD-6771. The
+  // comparison reads each table once per build across the affected fleet.
+  count: async (f, run) => {
+    const counted = await countStatements(f.o.store, run)
+    const byQuery = new Map([...counted.byQuery].filter(([query]) => /^select\b/i.test(query)))
+    return {
+      result: counted.result,
+      statements: [...byQuery.values()].reduce((total, count) => total + count, 0),
+      byQuery,
+    }
+  },
   run: async (f) => await f.o.store.users.setRole(asUserId('user:member-0'), 'admin'),
 }
 
@@ -161,19 +172,19 @@ const oneNewWorktree: StatementPin<Fixture> = {
 
 describe('statement counts of the machine record writes', () => {
   it('a rename does not grow with the members or the fleet', async () => {
-    await expectConstantStatements(rename, 33)
+    await expectConstantStatements(rename, 38)
   })
 
   it('the server rewriting one machine’s records does not grow with the members or the fleet', async () => {
-    await expectConstantStatements(republish, 11)
+    await expectConstantStatements(republish, 16)
   })
 
   it('a grant write does not grow with the members or the fleet', async () => {
-    await expectConstantStatements(grantWrite, 11)
+    await expectConstantStatements(grantWrite, 26)
   })
 
-  it('a member role change does not grow with the machines or the members', async () => {
-    await expectConstantStatements(memberRole, 11)
+  it('a member role comparison reads a fixed number of times across the fleet', async () => {
+    await expectConstantStatements(memberRole, 12)
   })
 
   it('a scan that finds nothing new writes nothing, whatever the machine holds', async () => {

@@ -279,7 +279,7 @@ describe('UpdatesService', () => {
         await boot.svc.abandonWait(['a'], 'Another deadline expired.')
         await boot.svc.setTargetUnavailable('dev', 'Publication failed.')
         expect((await boot.svc.fleet())[0]?.reason).toEqual(reason)
-        const reboot = make(h.machines, { recovery })
+        const reboot = make(h.machines, { recovery: await recovery() })
         expect((await reboot.svc.fleet())[0]?.reason).toEqual(reason)
       } finally {
         db.close()
@@ -2417,7 +2417,7 @@ describe('UpdatesService.advertisedTarget', () => {
     const svc = shipped([m('host', { channel: 'dev' })])
     await svc.setTarget('dev', packed)
 
-    const advertised = (await svc.advertisedTarget({ kind: 'fleet', machineId: 'host' }))
+    const advertised = await svc.advertisedTarget({ kind: 'fleet', machineId: 'host' })
     const advertisedUrl = advertised?.artifacts.headless?.platforms['linux-x86_64']?.url
     expect(advertisedUrl).toBeDefined()
     expect(advertisedUrl).not.toContain('token=')
@@ -2964,7 +2964,9 @@ describe('coordinator approval guards', () => {
     expect(await restored({ approvedTarget: async () => undefined })
       .coordinatorUpdateApproved('dev', target)).toBe(false)
     expect(await restored().coordinatorUpdateApproved('dev', changed)).toBe(false)
-    const svc = restored({ approvedTarget: async (channel) => channel === 'dev' ? target : undefined })
+    const svc = restored({
+      approvedTarget: async (channel) => (channel === 'dev' ? target : undefined),
+    })
     expect(await svc.coordinatorUpdateApproved('stable', target)).toBe(false)
     expect(await restored({ recoveryOnly: true }).coordinatorUpdateApproved('dev', target)).toBe(false)
   })

@@ -46,7 +46,7 @@ describe('stored observations (POD-6765)', () => {
         machines: [],
         grants: [],
         rollouts: [],
-      })
+      }))
       await store.machines.setMachineBuild(
         machine,
         { appVersion: '0.4.2', wireSchemaDigest: 'reported', installKind: 'installed' },
