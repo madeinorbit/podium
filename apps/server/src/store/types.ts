@@ -223,6 +223,8 @@ export interface SessionRow {
   geometry?: Geometry
   createdAt: string
   lastActiveAt: string
+  /** Stored publication value, returned by reads; upserts always take exact lastActiveAt. */
+  publishedLastActiveAt?: string
   /** Completed working/compacting time in milliseconds; absent for legacy rows. */
   workingMsTotal?: number | null
   inputCount?: number

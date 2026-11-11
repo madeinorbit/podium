@@ -87,6 +87,7 @@ export type { SessionSpawnResult }
 export { DEFAULT_GEOMETRY }
 
 import type { SessionActivityHistory, SessionActivityHistoryResult } from './activity-history'
+import type { SessionActivityPublication } from './activity-publication'
 import type { AgentConcurrencyHistory, AgentConcurrencyHistoryResult } from './concurrency-history'
 import type { SessionLaunchConfig } from './launch-config'
 import type { SessionLiveTopics } from './live-topics'
@@ -304,10 +305,11 @@ export class SessionLifecycle {
   private readonly concurrencyHistory!: AgentConcurrencyHistory
   /** Durable per-session phase-transition log for the waterfall's segments. */
   private readonly activityHistory!: SessionActivityHistory
+  private readonly activityPublication!: SessionActivityPublication
   // Single timer that persists only sessions whose activity counters advanced
   // since the last tick — the repository queues their IDs at the mutation seam.
   private readonly activityFlushTimer = setInterval(() => {
-    void this.repository.flushActivity().catch((error) => {
+    void this.flushActivity().catch((error) => {
       log.error('failed to flush session activity', { error })
     })
   }, 12_000)
@@ -352,7 +354,7 @@ export class SessionLifecycle {
     this.browserOpen.dispose()
     // Graceful server restarts must not lose a resize that landed inside the
     // coalescing window; persist dirty geometry/activity before closing [spec:SP-1a0b].
-    await this.repository.flushActivity()
+    await this.flushActivity()
     // Run any coalesced session broadcast + pending delta batch. The durable
     // change log is already complete (commits happen at persist time, #256);
     // this just drains the in-flight fan-out tail deterministically.
@@ -377,6 +379,7 @@ export class SessionLifecycle {
 
   async flushActivity(): Promise<void> {
     await this.repository.flushActivity()
+    await this.activityPublication.flush()
   }
 
   async loadFromStore(): Promise<void> {

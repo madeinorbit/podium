@@ -665,10 +665,10 @@ export class SessionRepository {
    * activityDirty; flushActivity persists on a 12s tick), and the ledger's
    * byte-dedup drops persists whose WIRE meta didn't change — notably the
    * frequent counter-only flushes, whose lastOutputAt/lastInputAt live in the
-   * row but not in SessionMeta. lastActiveAt IS wire-visible and deliberately
-   * NOT projected away (unlike the conversation projection): it advances only
-   * on semantic activity (agentState transitions, shell busy flips) and is the
-   * authoritative recency delta clients order the sidebar by.
+   * row but not in SessionMeta. The exact lastActiveAt stays on the live Session
+   * and row; the upsert throttles its stored publication value to once a minute.
+   * A trailing activity tick publishes the final value, and compare-at-save
+   * appends a log row only when the built record differs.
    */
   async persist(
     writer: SessionWriter,

@@ -1004,7 +1004,18 @@ async function sessionRecordsOf(
     rows.filter((row) => !row.deletedAt),
   )
   const pass = await sessionProjectionPass(store, records)
-  return records.map((record) => ({ id: record.sessionId, value: wireRecord(record, pass) }))
+  const publishedActivity = new Map(rows.map((row) => [row.id, row.publishedLastActiveAt]))
+  return records.map((record) => {
+    const lastActiveAt = publishedActivity.get(record.sessionId)
+    if (lastActiveAt === undefined)
+      throw new Error(`Missing published activity for ${record.sessionId}`)
+    // Checkpoints still advance the exact server-side record. Only the synced
+    // projection uses the publication value, including bootstrap/worker reads.
+    return {
+      id: record.sessionId,
+      value: { ...wireRecord(record, pass), lastActiveAt },
+    }
+  })
 }
 
 const session: Builder = {

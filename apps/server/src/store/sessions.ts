@@ -35,6 +35,7 @@ import {
   isNotNull,
   isNull,
   lt,
+  lte,
   or,
   type Placeholder,
   type SQL,
@@ -83,6 +84,9 @@ import { WrittenColumns } from './written-columns'
 
 const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo', 'issue'])
 
+export const SESSION_LAST_ACTIVE_PUBLISH_INTERVAL_MS = 60_000
+const ACTIVITY_PUBLICATION_BATCH_SIZE = 256
+
 /** A stored tab order's ids; a corrupt row reads as no saved order. */
 function parseTabIds(raw: string): string[] | undefined {
   try {
@@ -100,6 +104,48 @@ function parseTabIds(raw: string): string[] | undefined {
  * schema without re-entry casts. */
 /** The one row shape every session read returns, before mapping. */
 type SessionSelect = typeof sessionsTable.$inferSelect
+
+const pendingActivityPublication = sql`${sessionsTable.publishedLastActiveAt} < ${sessionsTable.lastActiveAt} AND ${sessionsTable.deletedAt} IS NULL`
+
+// The partial index contains only sessions with an unpublished activity stamp,
+// including stopped sessions left by a restart. History never enters the tick.
+const activityPublicationsDue = prepared((db: StoreDrizzle) =>
+  db
+    .select({ id: sessionsTable.id })
+    .from(sql`${sessionsTable} INDEXED BY idx_sessions_pending_activity`)
+    .where(
+      and(
+        pendingActivityPublication,
+        lte(
+          sessionsTable.lastActivePublishAfter,
+          param(sessionsTable.lastActivePublishAfter, 'now'),
+        ),
+      ),
+    )
+    .orderBy(asc(sessionsTable.lastActivePublishAfter), asc(sessionsTable.id))
+    .limit(ACTIVITY_PUBLICATION_BATCH_SIZE)
+    .prepare(),
+)
+
+const publishSessionActivity = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .update(sessionsTable)
+    .set({
+      publishedLastActiveAt: sessionsTable.lastActiveAt,
+      lastActivePublishAfter: sql.placeholder('next'),
+    })
+    .where(
+      and(
+        inListOf(sessionsTable.id, size),
+        pendingActivityPublication,
+        lte(
+          sessionsTable.lastActivePublishAfter,
+          param(sessionsTable.lastActivePublishAfter, 'now'),
+        ),
+      ),
+    )
+    .prepare(),
+)
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
@@ -507,6 +553,9 @@ function sessionUpsertSet(
 }
 
 function fullSessionUpsertSet(value: (key: SessionColumnKey) => Placeholder | SQL | undefined) {
+  const nextPublication = value('lastActivePublishAfter')
+  const publishActivity = sql`${sessionsTable.lastActivePublishAfter} <= ${nextPublication} - ${SESSION_LAST_ACTIVE_PUBLISH_INTERVAL_MS}
+    AND excluded."last_active_at" > ${sessionsTable.publishedLastActiveAt}`
   return {
     cwd: value('cwd'),
     model: value('model'),
@@ -546,6 +595,14 @@ function fullSessionUpsertSet(value: (key: SessionColumnKey) => Placeholder | SQ
     spawnFailure: value('spawnFailure'),
     durableLabel: value('durableLabel'),
     lastActiveAt: value('lastActiveAt'),
+    publishedLastActiveAt:
+      nextPublication === undefined
+        ? undefined
+        : sql`CASE WHEN ${publishActivity} THEN excluded."last_active_at" ELSE ${sessionsTable.publishedLastActiveAt} END`,
+    lastActivePublishAfter:
+      nextPublication === undefined
+        ? undefined
+        : sql`CASE WHEN ${publishActivity} THEN ${nextPublication} ELSE ${sessionsTable.lastActivePublishAfter} END`,
     terminalCols: value('terminalCols'),
     terminalRows: value('terminalRows'),
     workingMsTotal: value('workingMsTotal'),
@@ -667,7 +724,7 @@ function manyRowGroups(changed: number): number {
 
 /** The column values of one session row, refused before any write when the row
  *  is one no client could read. */
-function sessionUpsertValues(row: SessionRow) {
+function sessionUpsertValues(row: SessionRow, now = Date.now()) {
   if (!row.ownerUserId) {
     throw new Error(`upsertSession: ownerUserId is required for ${row.id}`)
   }
@@ -716,6 +773,8 @@ function sessionUpsertValues(row: SessionRow) {
     durableLabel: row.durableLabel,
     createdAt: row.createdAt,
     lastActiveAt: row.lastActiveAt,
+    publishedLastActiveAt: row.lastActiveAt,
+    lastActivePublishAfter: now + SESSION_LAST_ACTIVE_PUBLISH_INTERVAL_MS,
     terminalCols: row.geometry?.cols ?? 80,
     terminalRows: row.geometry?.rows ?? 24,
     workingMsTotal: row.workingMsTotal ?? null,
@@ -1760,6 +1819,25 @@ export class SessionsRepository {
     })
   }
 
+  /** A bounded indexed read, once per activity tick, never once per event. */
+  async activityPublicationsDue(now: number): Promise<SessionId[]> {
+    return (await activityPublicationsDue(this.db).all({ now })).map((row) => row.id)
+  }
+
+  /** Publish the latest exact value, atomically with its next eligible time. */
+  async publishActivity(_scope: WriteScope, ids: readonly SessionId[], now: number): Promise<void> {
+    if (ids.length === 0) return
+    for (const chunk of chunked(ids)) {
+      const size = inListSize(chunk.length)
+      await publishSessionActivity(this.db, size).run({
+        ...inListValues(chunk, size),
+        now,
+        next: now + SESSION_LAST_ACTIVE_PUBLISH_INTERVAL_MS,
+      })
+    }
+    this.rowsWritten()
+  }
+
   /** The indexed columns each session row holds as this store last wrote or
    *  read them [POD-6234], so an upsert sets only those that changed. */
   private readonly writtenColumns = new WrittenColumns<IndexedColumns>('sessions:written-columns')
@@ -1772,9 +1850,10 @@ export class SessionsRepository {
    */
   async upsertSessions(_scope: WriteScope, rows: readonly SessionRow[]): Promise<void> {
     if (rows.length === 0) return
+    const now = Date.now()
     const byShape = new Map<string, ReturnType<typeof sessionUpsertValues>[]>()
     for (const row of rows) {
-      const values = sessionUpsertValues(row)
+      const values = sessionUpsertValues(row, now)
       const shape = shapeOf(values)
       const group = byShape.get(shape)
       if (group) group.push(values)
@@ -2611,6 +2690,7 @@ function mapSession(r: SessionSelect): SessionRow {
     durableLabel: r.durableLabel,
     createdAt: r.createdAt,
     lastActiveAt: r.lastActiveAt,
+    publishedLastActiveAt: r.publishedLastActiveAt,
     geometry: {
       cols: Number.isInteger(r.terminalCols) && r.terminalCols > 0 ? r.terminalCols : 80,
       rows: Number.isInteger(r.terminalRows) && r.terminalRows > 0 ? r.terminalRows : 24,

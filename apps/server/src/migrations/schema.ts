@@ -251,6 +251,9 @@ export const sessions = sqliteTable(
     durableLabel: text('durable_label').notNull(),
     createdAt: text('created_at').notNull(),
     lastActiveAt: text('last_active_at').notNull(),
+    // Publication state only. Server recency continues to read lastActiveAt.
+    publishedLastActiveAt: text('published_last_active_at').notNull().default(''),
+    lastActivePublishAfter: integer('last_active_publish_after').notNull().default(0),
     name: text(),
     archived: integer({ mode: 'boolean' }).default(sql`0`).notNull(),
     workState: text('work_state'),
@@ -334,6 +337,11 @@ export const sessions = sqliteTable(
     desiredByAgent: text('desired_by_agent').$type<SessionId>(),
   },
   (table) => [
+    index('idx_sessions_pending_activity')
+      .on(table.lastActivePublishAfter, table.id)
+      .where(
+        sql`${table.publishedLastActiveAt} < ${table.lastActiveAt} AND ${table.deletedAt} IS NULL`,
+      ),
     index('idx_sessions_deleted_by_issue').on(table.deletedByIssueId),
     // Sessions whose desired state the controller has not acknowledged yet
     // (POD-6356): what a daemon reconnect and the boot sweep reconcile. Partial,

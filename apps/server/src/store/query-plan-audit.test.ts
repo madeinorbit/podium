@@ -205,6 +205,7 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/sessions.ts:bindingOwnersOfIds', SIZES],
   ['apps/server/src/store/sessions.ts:bindingFactsOfIds', SIZES],
   ['apps/server/src/store/sessions.ts:sessionsOfIds', SIZES],
+  ['apps/server/src/store/sessions.ts:publishSessionActivity', SIZES],
   ['apps/server/src/store/sessions.ts:liveSessionsOfResumeValues', SIZES],
   ['apps/server/src/store/sessions.ts:liveSessionsOfIssueIds', SIZES],
   ['apps/server/src/store/sessions.ts:upsertSessionOfShape', ['0|id', '31|id']],

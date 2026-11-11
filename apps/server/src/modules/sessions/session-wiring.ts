@@ -31,6 +31,7 @@ import type { SessionStore } from '../../store'
 import { applyAfterCommit, spanOpen } from '../../store/executor/executor'
 import { HeadlessService } from '../superagent/headless'
 import { SessionActivityHistory } from './activity-history'
+import { SessionActivityPublication } from './activity-publication'
 import { SessionClientControl } from './client-control'
 import { AgentConcurrencyHistory } from './concurrency-history'
 import { SessionDaemonLifecycle } from './daemon-lifecycle'
@@ -139,6 +140,11 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   bag.activityHistory = new SessionActivityHistory({
     events: store.events,
     bus: bag.bus,
+    now: () => bag.now(),
+  })
+  bag.activityPublication = new SessionActivityPublication({
+    store,
+    writer: bag.deps.writers.live,
     now: () => bag.now(),
   })
   bag.terminalProof = new SessionTerminalProof({
