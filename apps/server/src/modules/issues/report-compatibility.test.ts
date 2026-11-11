@@ -178,7 +178,7 @@ it('joins an issue list once per request and never counts comments per issue', a
   }
 })
 
-it('reuses only own-row projections while labels, hierarchy and comments stay fresh', async () => {
+it('keeps labels, hierarchy and comments fresh across report and tree reads', async () => {
   const { registry, api } = await fixture()
   const parent = await api.create({
     repoPath: '/report-fixture',
@@ -213,8 +213,10 @@ it('reuses only own-row projections while labels, hierarchy and comments stay fr
   const counts = vi.spyOn(registry.sessionStore.issues, 'commentCountsOfIssues')
   try {
     expect((await api.tree({ id: parent.id, maxNodes: 1000 })).totalNodes).toBe(2)
-    expect(labels).not.toHaveBeenCalled()
-    expect(counts).not.toHaveBeenCalled()
+    // Command authorization reads the root report once; the tree needs no
+    // additional report joins per node.
+    expect(labels).toHaveBeenCalledTimes(1)
+    expect(counts).toHaveBeenCalledTimes(1)
   } finally {
     labels.mockRestore()
     counts.mockRestore()
