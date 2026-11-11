@@ -101,6 +101,8 @@ async function bench(rows: number) {
       })
       scenarios.push({ agedRows: Math.max(cutoff - 1, 0), cutoff, legacyTotal, statements })
     }
+    // Aggregate get() cursors must release their read locks before replacing the index.
+    for (const statement of legacy) statement.finalize?.()
     db.exec(migration)
     const preparedSql: string[] = []
     const traced: SqlDatabase = {
