@@ -175,7 +175,6 @@ import { LoginPropagationService } from './modules/machines/login-propagation'
 import {
   type MachineRecordsDeps,
   makeMachineRecordCompare,
-  reconcileMachineRecords,
 } from './modules/machines/records'
 import { DaemonRpcService } from './modules/machines/rpc'
 import { MachinesService, type PairingCodes } from './modules/machines/service'
@@ -718,15 +717,6 @@ export class SessionRegistry {
     // Bootstrap streams model tables. Migrations invalidate the kinds they
     // rewrite with sync_kind generations; boot never rebuilds the log.
     await this.modules.machines.storeRecordChannel()
-    // Every member's access rows (POD-6644): a member who joined or changed
-    // role while the server was down sees the machines they now may.
-    await asSystemWrite(
-      async () =>
-        await reconcileMachineRecords(
-          this.machineRecordsDeps(),
-          this.writes.system('boot.reconcile'),
-        ),
-    )
     await this.superagentDefaults.seed()
     // Only interrupted preparations need recovery; this uses the running
     // index and captures changed thread rows in their own transaction.

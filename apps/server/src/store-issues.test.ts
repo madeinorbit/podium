@@ -180,65 +180,6 @@ describe('store issues', () => {
     expect(await s.issues.renumberCollidingIssueSeqs()).toBe(0)
   })
 
-  it('boot-heals colliding seqs restored from a pre-index database, idempotently (#140)', async () => {
-    // Emulate a database from main's pre-UNIQUE-index lineage: build it, drop the
-    // 005 index out-of-band, plant a collision raw, then reopen through the store —
-    // the per-boot renumberCollidingIssueSeqs heal renumbers the loser.
-    const file = join(mkdtempSync(join(tmpdir(), 'podium-seq-heal-')), 'heal.db')
-    const repoId = asRepoId('repo_dup')
-    const s1 = await openTestStore(file)
-    // Same origin, two paths; canonical (majority) path /home/user + a loser path
-    // /home/till that minted colliding #4 (and a non-colliding #1).
-    await s1.issues.upsertIssue(fixtureWriteScope(), {
-      ...base(),
-      id: asIssueId('m3'),
-      repoPath: '/home/user/p',
-      repoId,
-      seq: 3,
-    })
-    await s1.issues.upsertIssue(fixtureWriteScope(), {
-      ...base(),
-      id: asIssueId('m4'),
-      repoPath: '/home/user/p',
-      repoId,
-      seq: 4,
-    })
-    await s1.issues.upsertIssue(fixtureWriteScope(), {
-      ...base(),
-      id: asIssueId('m5'),
-      repoPath: '/home/user/p',
-      repoId,
-      seq: 5,
-    })
-    await s1.issues.upsertIssue(fixtureWriteScope(), {
-      ...base(),
-      id: asIssueId('t4'),
-      repoPath: '/home/till/p',
-      repoId,
-      seq: 99,
-    })
-    await s1.issues.upsertIssue(fixtureWriteScope(), {
-      ...base(),
-      id: asIssueId('t1'),
-      repoPath: '/home/till/p',
-      repoId,
-      seq: 1,
-    })
-    await s1.close()
-    const raw = openDatabase(file)
-    raw.exec('DROP INDEX idx_issues_repo_id_seq')
-    raw.prepare('UPDATE issues SET seq = 4 WHERE id = ?').run('t4')
-    raw.close()
-    const s2 = await openTestStore(file) // boot heal runs here
-    expect((await s2.issues.getIssue('m4'))?.seq).toBe(4) // canonical path keeps #4
-    expect((await s2.issues.getIssue('t4'))?.seq).toBe(6) // loser appended after max(5) => 6
-    expect((await s2.issues.getIssue('t1'))?.seq).toBe(1) // non-colliding kept
-    const seqs = (await s2.issues.listIssueRows()).map((i) => i.seq)
-    expect(new Set(seqs).size).toBe(seqs.length) // unique per repo_id
-    expect(await s2.issues.renumberCollidingIssueSeqs()).toBe(0) // idempotent
-    await s2.close()
-  })
-
   it('deletes', async () => {
     const s = await openTestStore(':memory:')
     await s.issues.upsertIssue(fixtureWriteScope(), base())

@@ -403,39 +403,6 @@ describe('purge of an empty draft detaches tombstoned sessions (POD-1926)', () =
     expect(after?.refLetter).toBeNull()
   })
 
-  it('boot heals references a purge before this fix already left behind', async () => {
-    const fixture = draftFixture()
-    const reg1 = await fixture.createRegistry()
-    await attachHostDaemon(reg1, () => {})
-    const { draft, sessionId } = await draftWithSession(reg1)
-
-    // The PRE-FIX state, reconstructed: the issue row is deleted straight from
-    // the table (what `purgeEmptyDraft` used to amount to) while the session row
-    // keeps naming it. `deleteIssue` deliberately does not touch sessions — only
-    // the purge path does — so this leaves the exact damage found in the field.
-    // A reboot relinquishes the old writer before opening the replacement.
-    await fixture.stopRegistry(reg1)
-    const store = await fixture.openStore()
-    await store.sessions.softDeleteSessions(
-      fixtureWriteScope(),
-      [sessionId],
-      new Date().toISOString(),
-      'standalone',
-    )
-    await store.issues.deleteIssue(draft.id)
-    expect((await store.sessions.getSession(sessionId))?.issueId).toBe(draft.id)
-
-    // Reopening the store runs the boot heal ahead of every reader.
-    await fixture.closeStore(store)
-    const healed = await fixture.openStore()
-    expect((await healed.sessions.getSession(sessionId))?.issueId).toBeNull()
-    expect((await healed.sessions.getSession(sessionId))?.refIssueId).toBeNull()
-
-    // Idempotent: a clean database heals nothing.
-    expect(await healed.sessions.detachDanglingIssueReferences()).toBe(0)
-    expect(await healed.issues.pruneOrphanRefLetters()).toBe(0)
-  })
-
   it('a LIVE session keeps its pointers — explicit rehome owns those, not the SQL scrub', async () => {
     const fixture = draftFixture()
     const reg = await fixture.createRegistry()

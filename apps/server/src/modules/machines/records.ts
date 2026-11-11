@@ -308,28 +308,6 @@ export function makeMachineRecordCompare(
   }
 }
 
-/** The boot re-check has no source write. It remains a reconcile until POD-6221. */
-export async function reconcileMachineRecords(
-  deps: MachineRecordsDeps,
-  writer: Pick<LedgerWriter, 'reconcile'>,
-): Promise<void> {
-  const run = async () => {
-    const specs = await machineRecordSpecs(deps)
-    for (const entity of ['machine', 'machineAccess'] as const) {
-      const changes = await writer.reconcile(
-        entity,
-        specs.flatMap((spec) =>
-          spec.entity === entity && spec.op === 'upsert'
-            ? [{ id: spec.id, value: spec.value }]
-            : [],
-        ),
-      )
-      if (deps.reach) await recordReach(deps.reach, changes)
-    }
-  }
-  await (deps.reach ? deps.reach.transact(run) : run())
-}
-
 async function recordReach(
   reach: NonNullable<MachineRecordsDeps['reach']>,
   appended: readonly MetadataChange[],

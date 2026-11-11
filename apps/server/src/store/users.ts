@@ -76,8 +76,11 @@ const accountsByIds = preparedFamily((db: StoreDrizzle, size: number) =>
 // Two rows are enough to tell "exactly one" from "more than one".
 /** Machine access records need only enabled members' ids and roles. */
 const activeRecordMembers = prepared((db: StoreDrizzle) =>
-  db.select({ id: users.id, role: users.role }).from(users)
-    .where(and(isNull(users.disabledAt), inArray(users.role, [...USER_ROLES]))).prepare(),
+  db
+    .select({ id: users.id, role: users.role })
+    .from(users)
+    .where(and(isNull(users.disabledAt), inArray(users.role, [...USER_ROLES])))
+    .prepare(),
 )
 
 const firstTwoActiveMembers = prepared((db: StoreDrizzle) =>
@@ -924,15 +927,15 @@ export class UsersRepository {
       { member: asUserId(account.id) },
       async () => {
         await this.createOrJoinTransaction(async () => {
-        await insertUser(this.db).run({
-          id: asUserId(account.id),
-          displayName: account.displayName,
-          email: account.email,
-          role: account.role,
-          createdAt: account.createdAt,
-        })
-        this.accountsWritten()
-        await this.memberCreated?.(asUserId(account.id))
+          await insertUser(this.db).run({
+            id: asUserId(account.id),
+            displayName: account.displayName,
+            email: account.email,
+            role: account.role,
+            createdAt: account.createdAt,
+          })
+          this.accountsWritten()
+          await this.memberCreated?.(asUserId(account.id))
         })
       },
     )

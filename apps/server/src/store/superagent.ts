@@ -12,7 +12,7 @@ import {
   type ThreadId,
   type UserId,
 } from '@podium/model'
-import { and, asc, desc, eq, exists, isNull, notExists, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull, notExists, sql } from 'drizzle-orm'
 import {
   superagentMessages,
   superagentPendingTurns,
@@ -240,8 +240,18 @@ const pendingTurnOfThread = (db: StoreDrizzle) =>
 const syncTurnRunning = prepared((db: StoreDrizzle) =>
   db
     .update(superagentThreads)
-    .set({ turnRunning: exists(pendingTurnOfThread(db)) })
-    .where(and(eq(superagentThreads.turnRunning, true), notExists(pendingTurnOfThread(db))))
+    .set({ turnRunning: false })
+    .where(
+      inArray(
+        superagentThreads.id,
+        db
+          .select({ id: superagentThreads.id })
+          // A sparse running set remains bounded even under statistics from a
+          // tiny database. Recover no archived history just to rediscover false.
+          .from(sql`${superagentThreads} INDEXED BY idx_superagent_threads_running`)
+          .where(and(eq(superagentThreads.turnRunning, true), notExists(pendingTurnOfThread(db)))),
+      ),
+    )
     .returning()
     .prepare(),
 )
