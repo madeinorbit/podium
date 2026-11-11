@@ -61,10 +61,10 @@ import { issueDisplayRef } from '@podium/protocol'
 import { Stack } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { Fragment, type ReactNode, useCallback, useState } from 'react'
-import { StyleSheet, View } from 'react-native'
+import { StyleSheet, useWindowDimensions, View } from 'react-native'
 import { issueObserver as taskObserver } from '../client/issue-observer'
 import { useMobilePool } from '../client/mobile-pool'
-import { Filter, Plus } from '../components/icons'
+import { Filter, MoreHorizontal, Plus } from '../components/icons'
 import { NativeGroupHeader } from '../components/NativeGroupHeader.ios'
 import { RefreshOffer } from '../components/RefreshOffer'
 import { Screen } from '../components/Screen'
@@ -122,6 +122,7 @@ const MARK_COLOR: Record<TaskRowMark, string> = {
  */
 export const TasksSurface = observer(function TasksSurface(props: TasksSurfaceProps) {
   const { board } = props
+  const { fontScale } = useWindowDimensions()
   const [listRevision, setListRevision] = useState(0)
   const folds = useStageFolds()
   // The shared board's groups: non-empty lanes plus the Proposed screening group.
@@ -138,6 +139,14 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
     await new Promise((resolve) => setTimeout(resolve, MIN_REFRESH_CONFIRMATION_MS))
   }, [refresh])
   const filtered = props.chips.length > 0
+  const actions = [
+    {
+      label: filtered ? `Filter and display, ${props.chips.length} active` : 'Filter and display',
+      icon: Filter,
+      onPress: props.onFilters,
+    },
+    { label: 'New task', icon: Plus, onPress: props.onNewTask },
+  ]
 
   return (
     // The shell's Screen: large title, the subtitle in the native bar (iOS 26),
@@ -148,16 +157,12 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
       large
       title="Tasks"
       subtitle={subtitle.counts ? `${subtitle.project} · ${subtitle.counts}` : subtitle.project}
-      actions={[
-        {
-          label: filtered
-            ? `Filter and display, ${props.chips.length} active`
-            : 'Filter and display',
-          icon: Filter,
-          onPress: props.onFilters,
-        },
-        { label: 'New task', icon: Plus, onPress: props.onNewTask },
-      ]}
+      // One native menu leaves room for the search button at accessibility sizes.
+      actions={
+        fontScale >= 1.6
+          ? [{ label: 'Task actions', icon: MoreHorizontal, items: actions }]
+          : actions
+      }
     >
       {/* Search the whole board (BoardFilter.text, backlog, done and proposals
           included) from the native magnifier. Not the stacked field: a SwiftUI
@@ -343,6 +348,7 @@ const TaskRow = taskObserver(function TaskRow({
   props: TasksSurfaceProps
 }) {
   const pool = useMobilePool()
+  const { fontScale } = useWindowDimensions()
   const issue = board.issue(row.id)
   if (!here(issue.row)) return null
   const finished = isFinished(issue)
@@ -416,14 +422,16 @@ const TaskRow = taskObserver(function TaskRow({
               ) : null}
               <Text
                 modifiers={[
-                  font({ size: 11, design: 'monospaced' }),
+                  // Expo ignores size for a system textStyle font. RN's content-size
+                  // multiplier retains the 11pt base and system mono face.
+                  font({ size: 11 * fontScale, design: 'monospaced' }),
                   foregroundStyle({ type: 'hierarchical', style: 'tertiary' }),
                   lineLimit(1),
                 ]}
               >
                 {ref}
               </Text>
-              <TaskFigure issue={issue} />
+              <TaskFigure issue={issue} fontScale={fontScale} />
             </HStack>
           </Button>
         </ContextMenu.Trigger>
@@ -507,24 +515,37 @@ const TaskRow = taskObserver(function TaskRow({
 })
 
 const figureModifiers = [
-  font({ size: 12, design: 'monospaced' }),
   foregroundStyle({ type: 'hierarchical', style: 'tertiary' }),
   monospacedDigit(),
   lineLimit(1),
 ]
 
-const TaskFigure = observer(function TaskFigure({ issue }: { issue: MobileTaskIssue }) {
+const TaskFigure = observer(function TaskFigure({
+  issue,
+  fontScale,
+}: {
+  issue: MobileTaskIssue
+  fontScale: number
+}) {
   return issue.childCount > 0 ? (
-    <Text modifiers={figureModifiers}>{taskRowFigure(issue, null)}</Text>
+    <Text modifiers={[font({ size: 12 * fontScale, design: 'monospaced' }), ...figureModifiers]}>
+      {taskRowFigure(issue, null)}
+    </Text>
   ) : (
-    <TaskAge issue={issue} />
+    <TaskAge issue={issue} fontScale={fontScale} />
   )
 })
 
-const TaskAge = observer(function TaskAge({ issue }: { issue: MobileTaskIssue }) {
+const TaskAge = observer(function TaskAge({
+  issue,
+  fontScale,
+}: {
+  issue: MobileTaskIssue
+  fontScale: number
+}) {
   const now = useAgeNow(issue.updatedAt)
   return (
-    <Text modifiers={figureModifiers}>
+    <Text modifiers={[font({ size: 12 * fontScale, design: 'monospaced' }), ...figureModifiers]}>
       {taskRowFigure(issue, relativeTime(issue.updatedAt, now))}
     </Text>
   )

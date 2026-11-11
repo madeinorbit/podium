@@ -6,11 +6,14 @@ import { type Worklist, worklistView } from '@podium/client-graph/worklist/view-
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { type ReactNode, useEffect } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
+import type { ScreenAction } from '../components/screen-actions'
 import type { TasksSurfaceProps } from './TasksSurface.types'
 import type { WorkSurfaceProps } from './WorkSurface.types'
 
 const state = vi.hoisted(() => ({
   pool: null as MobxPool | null,
+  fontScale: 1,
+  actions: [] as readonly ScreenAction[],
   slot: vi.fn(),
   list: vi.fn(),
   listMount: vi.fn(),
@@ -22,6 +25,10 @@ const state = vi.hoisted(() => ({
   toggleFold: vi.fn(),
   work: null as Worklist | null,
   age: vi.fn(() => Date.parse('2026-10-03T12:00:00Z')),
+}))
+vi.mock('react-native', async (original) => ({
+  ...(await original<object>()),
+  useWindowDimensions: () => ({ width: 390, height: 844, scale: 3, fontScale: state.fontScale }),
 }))
 vi.mock('../client/mobile-pool', () => ({
   useMobilePool: () => state.pool,
@@ -47,7 +54,16 @@ vi.mock('expo-router', () => ({
   useFocusEffect: () => {},
 }))
 vi.mock('../components/Screen', () => ({
-  Screen: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  Screen: ({
+    children,
+    actions = [],
+  }: {
+    children: ReactNode
+    actions?: readonly ScreenAction[]
+  }) => {
+    state.actions = actions
+    return <div>{children}</div>
+  },
 }))
 vi.mock('../components/NativeGroupHeader.ios', () => ({
   NativeGroupHeader: ({ onToggle, title }: { onToggle: () => void; title: string }) => (
@@ -159,6 +175,8 @@ afterEach(() => {
   cleanup()
   state.pool?.dispose()
   state.pool = null
+  state.fontScale = 1
+  state.actions = []
   state.age.mockClear()
   state.slot.mockClear()
   state.list.mockClear()
@@ -200,18 +218,18 @@ it('Tasks applies zero-inset cell traits outside slot observers and keeps 44pt c
     ordering: 'priority',
     showAgentTasks: false,
   })
-  render(
-    <TasksSurface
-      {...({
-        board,
-        chips: [],
-        booting: false,
-        refresh: { onRefresh: () => {} },
-        minimizeOnScroll: {},
-        bottomInset: 0,
-      } as unknown as TasksSurfaceProps)}
-    />,
-  )
+  const onNewTask = vi.fn()
+  const props = {
+    board,
+    chips: [],
+    booting: false,
+    refresh: { onRefresh: () => {} },
+    minimizeOnScroll: {},
+    bottomInset: 0,
+    onNewTask,
+    onFilters: vi.fn(),
+  } as unknown as TasksSurfaceProps
+  const view = render(<TasksSurface {...props} />)
   const slot = screen.getByTestId('slot')
   const modifiers = (node: Element | null) => {
     if (!node) throw new Error('Expected a native view')
@@ -241,6 +259,26 @@ it('Tasks applies zero-inset cell traits outside slot observers and keeps 44pt c
       modifiers(child).some((modifier: { name: string }) => modifier.name.startsWith('listRow')),
     ).toBe(false)
   }
+  const monoSizes = () =>
+    [...slot.querySelectorAll('[data-modifiers]')].flatMap((child) =>
+      modifiers(child)
+        .filter(
+          (modifier: { name: string; value?: { design?: string } }) =>
+            modifier.name === 'font' && modifier.value?.design === 'monospaced',
+        )
+        .map((modifier: { value: { size: number } }) => modifier.value.size),
+    )
+  expect(monoSizes()).toEqual([11, 12])
+  expect(state.actions.map((action) => action.label)).toEqual(['Filter and display', 'New task'])
+  state.fontScale = 2
+  view.rerender(<TasksSurface {...props} chips={[]} />)
+  expect(monoSizes()).toEqual([22, 24])
+  expect(state.actions).toHaveLength(1)
+  expect(state.actions[0]?.label).toBe('Task actions')
+  const newTask = state.actions[0]?.items?.find((item) => item.label === 'New task')
+  expect(newTask).toBeDefined()
+  newTask?.onPress()
+  expect(onNewTask).toHaveBeenCalledOnce()
   // A taller measured row keeps its height when it leaves the active window.
   const measured = state.slot.mock.lastCall?.[0].find(
     (modifier: { name: string }) => modifier.name === 'onGeometryChange',
