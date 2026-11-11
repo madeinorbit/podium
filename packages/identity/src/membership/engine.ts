@@ -16,6 +16,7 @@ import { applyMembership } from './apply'
 import {
   activeMembershipOfAccount,
   insertMembership,
+  insertMembershipEvent,
   liveMembershipOfAccount,
   liveMembershipsOfAccount,
   lockRevision,
@@ -164,6 +165,9 @@ export function createMembershipEngine(runtime: Runtime): MembershipEngine {
       })
     }
     const row: MembershipRow = { ...facts, version, authorizationVersion }
+    // The latest membership alone cannot retain an intervening removal or
+    // disable. Its replay record commits and rolls back with the membership.
+    await insertMembershipEvent(db).run(row)
     const workspace = bound.get(facts.workspaceId)
     if (workspace?.binding.sameDatabase) {
       // The member row changes in the transaction that changed the membership.
@@ -261,7 +265,10 @@ export function createMembershipEngine(runtime: Runtime): MembershipEngine {
         await lockRevision(runtime.db()).run({ workspaceId })
         // The first read finds workspaces. The member may have changed while
         // we waited for this lock; a profile edit must preserve current rights.
-        const [current] = await liveMembershipOfAccount(runtime.db()).run({ workspaceId, accountId })
+        const [current] = await liveMembershipOfAccount(runtime.db()).run({
+          workspaceId,
+          accountId,
+        })
         if (current) await write(current, 'update', ACCOUNT_CHANGE, false)
       }
       return rows.map((row) => row.workspaceId)

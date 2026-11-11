@@ -97,6 +97,7 @@ export {
   identityAccount,
   identityInvitation,
   identityMembership,
+  identityMembershipEvent,
   identityOneTimeCode,
   identitySession,
   identityUser,

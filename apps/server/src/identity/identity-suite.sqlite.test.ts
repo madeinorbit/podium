@@ -30,6 +30,8 @@ import { newMemberId } from '@podium/model'
 import { hashPassword, isPasswordHash, verifyPasswordHash } from '@podium/runtime/auth-store'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { runDrizzleMigrations } from '../migrations'
+import { DRIZZLE_MIGRATIONS } from '../migrations/drizzle-manifest.generated'
 import { SessionStore } from '../store'
 import { probeStatements } from '../store/executor'
 import {
@@ -131,6 +133,50 @@ const harness: SuiteHarness = {
 }
 
 const run = identitySuite({ describe, it, beforeEach, afterEach, expect }, harness)
+
+it('seeds membership replay on upgrade and revokes a re-invitation hiding an old removal', () => {
+  const db = openDatabase(':memory:')
+  try {
+    const cut = DRIZZLE_MIGRATIONS.findIndex((m) => m.name.endsWith('_membership-events'))
+    expect(cut).toBeGreaterThan(0)
+    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cut))
+    for (const [version, status, authority] of [
+      [1, 'active', 0],
+      [2, 'invited', 0],
+      [3, 'invited', 3],
+      [4, 'disabled', 4],
+      [5, 'removed', 5],
+    ] as const) {
+      db.prepare(`INSERT INTO identity_membership
+        (workspace_id, member_id, role, status, version, authorization_version, created_at, updated_at)
+        VALUES ('local', ?, 'member', ?, ?, ?, 0, 0)`).run(
+        `member-${version}`,
+        status,
+        version,
+        authority,
+      )
+    }
+    const before = db.prepare('SELECT * FROM identity_membership ORDER BY version').all()
+    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cut + 1))
+    const events = () =>
+      db
+        .prepare(`SELECT version, status, authorization_version
+      FROM identity_membership_event WHERE workspace_id = 'local' AND version > 1
+      ORDER BY version`)
+        .all()
+    expect(events()).toEqual([
+      { version: 2, status: 'invited', authorization_version: 0 },
+      { version: 3, status: 'removed', authorization_version: 3 },
+      { version: 4, status: 'disabled', authorization_version: 4 },
+      { version: 5, status: 'removed', authorization_version: 5 },
+    ])
+    expect(db.prepare('SELECT * FROM identity_membership ORDER BY version').all()).toEqual(before)
+    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cut + 1))
+    expect(events()).toHaveLength(4)
+  } finally {
+    db.close()
+  }
+})
 
 describe('identity suite on sqlite: the leg', () => {
   it('ran every case of the shared suite under both configurations', () => {

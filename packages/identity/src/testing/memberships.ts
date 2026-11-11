@@ -995,13 +995,20 @@ export function membershipCases(context: MembershipCasesContext): void {
       const bob = await join()
       const before = (await rowOf(bob.memberId)) as MemberRowState
       let cursor = await revision()
+      const applied: MemberWrite['state'][] = []
       const elsewhere = (await buildIdentity(configOf(opened.database))).core.workspace(WORKSPACE, {
         rows: opened.memberRows,
         sameDatabase: false,
         cursor: { read: async () => 2_147_483_647, write: async () => {} },
       })
       const reader = (await buildIdentity(configOf(opened.database))).core.workspace(WORKSPACE, {
-        rows: opened.memberRows,
+        rows: {
+          ...opened.memberRows,
+          async write(change) {
+            applied.push(change.state)
+            await opened.memberRows.write(change)
+          },
+        },
         sameDatabase: false,
         cursor: {
           read: async () => cursor,
@@ -1014,6 +1021,7 @@ export function membershipCases(context: MembershipCasesContext): void {
       await elsewhere.memberships.enable({ actor: asAlice(), memberId: bob.memberId })
       expect(await rowOf(bob.memberId)).toEqual(before)
       await reader.catchUp()
+      expect(applied).toEqual(['disabled', 'active'])
       const after = (await rowOf(bob.memberId)) as MemberRowState
       expect(after.state).toBe('active')
       expect(after.generation > before.generation).toBe(true)

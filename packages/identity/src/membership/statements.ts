@@ -74,16 +74,16 @@ export interface MembershipRow {
   createdBy: string | null
 }
 
-const membershipColumns = (t: Tables) => ({
-  workspaceId: t.membership.workspaceId,
-  memberId: t.membership.memberId,
-  accountId: t.membership.accountId,
-  role: t.membership.role,
-  status: t.membership.status,
-  version: t.membership.version,
-  authorizationVersion: t.membership.authorizationVersion,
-  invitedEmail: t.membership.invitedEmail,
-  createdBy: t.membership.createdBy,
+const membershipColumns = (t: Tables, membership = t.membership) => ({
+  workspaceId: membership.workspaceId,
+  memberId: membership.memberId,
+  accountId: membership.accountId,
+  role: membership.role,
+  status: membership.status,
+  version: membership.version,
+  authorizationVersion: membership.authorizationVersion,
+  invitedEmail: membership.invitedEmail,
+  createdBy: membership.createdBy,
 })
 
 const ofWorkspace = (t: Tables) =>
@@ -226,8 +226,8 @@ export interface MembershipWithAccountRow extends MembershipRow {
   accountImage: string | null
 }
 
-const withAccountColumns = (t: Tables) => ({
-  ...membershipColumns(t),
+const withAccountColumns = (t: Tables, membership = t.membership) => ({
+  ...membershipColumns(t, membership),
   accountName: t.user.name,
   accountEmail: t.user.email,
   accountImage: t.user.image,
@@ -244,17 +244,37 @@ export const membershipsOfWorkspace = prepared<{ workspaceId: string }, Membersh
       .orderBy(asc(t.membership.createdAt), asc(t.membership.memberId)),
 )
 
-/** The memberships changed after a version, in the order they changed (section 11.2). */
+/** Records each change in the membership transaction, before any later change can replace it. */
+export const insertMembershipEvent = prepared<MembershipRow>((db, t) =>
+  db.insert(t.membershipEvent).values({
+    workspaceId: sql.placeholder('workspaceId'),
+    memberId: sql.placeholder('memberId'),
+    accountId: sql.placeholder('accountId'),
+    role: sql.placeholder('role'),
+    status: sql.placeholder('status'),
+    version: sql.placeholder('version'),
+    authorizationVersion: sql.placeholder('authorizationVersion'),
+    invitedEmail: sql.placeholder('invitedEmail'),
+    createdBy: sql.placeholder('createdBy'),
+  }),
+)
+
+/** Every committed membership change after a version, in order (section 11.2). */
 export const membershipsAbove = prepared<
   { workspaceId: string; version: number },
   MembershipWithAccountRow
 >((db, t) =>
   db
-    .select(withAccountColumns(t))
-    .from(t.membership)
-    .leftJoin(t.user, eq(t.user.id, t.membership.accountId))
-    .where(and(ofWorkspace(t), gt(t.membership.version, p(t.membership.version, 'version'))))
-    .orderBy(asc(t.membership.version)),
+    .select(withAccountColumns(t, t.membershipEvent))
+    .from(t.membershipEvent)
+    .leftJoin(t.user, eq(t.user.id, t.membershipEvent.accountId))
+    .where(
+      and(
+        eq(t.membershipEvent.workspaceId, p(t.membershipEvent.workspaceId, 'workspaceId')),
+        gt(t.membershipEvent.version, p(t.membershipEvent.version, 'version')),
+      ),
+    )
+    .orderBy(asc(t.membershipEvent.version)),
 )
 
 /** The members of a workspace whose account has a password. */

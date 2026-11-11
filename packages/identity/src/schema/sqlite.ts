@@ -163,6 +163,24 @@ export const identityWorkspaceRevision = sqliteTable('identity_workspace_revisio
   revision: integer('revision').notNull(),
 })
 
+/** Ordered membership changes: later invitations or activations must not hide revocation. */
+export const identityMembershipEvent = sqliteTable(
+  'identity_membership_event',
+  {
+    workspaceId: text('workspace_id').notNull(),
+    version: integer('version').notNull(),
+    memberId: text('member_id').notNull(),
+    // Historical account ids survive account deletion; profiles are joined at apply time.
+    accountId: text('account_id'),
+    role: text('role').notNull(),
+    status: text('status').notNull(),
+    authorizationVersion: integer('authorization_version').notNull(),
+    invitedEmail: text('invited_email'),
+    createdBy: text('created_by'),
+  },
+  (table) => [primaryKey({ columns: [table.workspaceId, table.version] })],
+)
+
 /** A single-use, expiring token for a membership in the invited state (section 1.5). */
 export const identityInvitation = sqliteTable(
   'identity_invitation',
@@ -195,6 +213,7 @@ export const sqliteIdentityTables = {
   verification: identityVerification,
   oneTimeCode: identityOneTimeCode,
   membership: identityMembership,
+  membershipEvent: identityMembershipEvent,
   workspaceRevision: identityWorkspaceRevision,
   invitation: identityInvitation,
 }
