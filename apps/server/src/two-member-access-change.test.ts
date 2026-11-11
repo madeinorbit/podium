@@ -117,7 +117,7 @@ it('demoting Alice rescopes her open connection and refuses what she queued as a
       role: 'member',
       actor: { memberId: alice.id },
     }),
-  ).rejects.toThrow('The last administrator cannot be demoted')
+  ).rejects.toMatchObject({ code: 'last-admin' })
   await inst.handle.identity.memberships.setRole({
     memberId: bob.id,
     role: 'admin',
