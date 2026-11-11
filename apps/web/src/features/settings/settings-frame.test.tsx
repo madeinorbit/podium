@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { lazy, Suspense, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SETTINGS_PAGES, searchSettings } from './page-definitions'
-import { Row } from './sections/shared'
+import { Row, useSettingsPermitted } from './sections/shared'
 import { SettingsPageSection } from './settings-anchors'
 import { SettingsFrame, SettingsPageActions, useSettingsFrame } from './settings-frame'
 
@@ -61,7 +61,46 @@ function Harness({ onClose = vi.fn() }: { onClose?: () => void }) {
   )
 }
 
+function ManageState() {
+  return (
+    <p>{useSettingsPermitted('records.instancePreferences.edit') ? 'Can manage' : 'Read only'}</p>
+  )
+}
+
+function OpensDetail() {
+  const { openTakeover } = useSettingsFrame()
+  return (
+    <>
+      <ManageState />
+      <button
+        type="button"
+        onClick={() => openTakeover({ title: 'Project detail', content: <ManageState /> })}
+      >
+        Open project
+      </button>
+    </>
+  )
+}
+
 describe('settings frame', () => {
+  it('gives a page opened inside a page the same permissions as the page', () => {
+    render(
+      <SettingsFrame
+        page="projects"
+        viewer={admin}
+        onPageChange={vi.fn()}
+        onClose={vi.fn()}
+        controls={{ permitted: { 'records.instancePreferences.edit': true } }}
+      >
+        <OpensDetail />
+      </SettingsFrame>,
+    )
+    expect(screen.getByText('Can manage')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Open project' }))
+    const detail = screen.getByRole('region', { name: 'Project detail' })
+    expect(within(detail).getByText('Can manage')).toBeTruthy()
+  })
+
   it('describes the member directory without promising admin actions to members', () => {
     render(
       <SettingsFrame

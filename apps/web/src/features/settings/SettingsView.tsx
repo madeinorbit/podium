@@ -559,6 +559,7 @@ const SettingsViewBody = observer(function SettingsViewBody({
         onPageChange={setSettingsTab}
         onClose={onClose}
         viewer={adminViewer}
+        controls={settings ? { settings, permitted, feedback } : undefined}
       >
         {awaitingAdmin ? (
           <p role="status" className="settings-prose text-muted-foreground">
@@ -571,37 +572,35 @@ const SettingsViewBody = observer(function SettingsViewBody({
           // cannot be fetched leaves it blank — which is what the
           // operator is staring at during a handover (POD-2762). It says
           // so, and only when it is true.
-          <SettingsControlsContext.Provider value={{ settings, permitted, feedback }}>
-            <Suspense fallback={<WaitingForServer className="flex min-h-24" />}>
-              {tab === 'projects' && permitted['records.instancePreferences.edit'] !== true && (
-                <p className="settings-prose mb-4">
-                  Only admins can change these. You can see what is set.
-                </p>
-              )}
-              {SECTION_VIEWS[tab]({
-                settings,
-                accounts,
-                patch,
-                trpc,
-                telegramSetup,
-                startTelegramSetup: () => void startTelegramSetup(),
-                disconnectTelegram: async () => {
-                  await trpc.settings.telegramDisconnect.mutate({})
-                  setTelegramSetup({ status: 'idle' })
-                },
-                telegramBotPresent,
-                refreshTelegramBot: loadTelegramBotPresence,
-                openNetworkSettings: () => setSettingsTab('access'),
-                secrets,
-                canManageSecrets: permitted['settings.setSecret'] === true,
-                secretBusy,
-                secretError,
-                setSecret: (key, value) =>
-                  writeSecret(() => trpc.settings.setSecret.mutate({ key, value })),
-                clearSecret: (key) => writeSecret(() => trpc.settings.clearSecret.mutate({ key })),
-              })}
-            </Suspense>
-          </SettingsControlsContext.Provider>
+          <Suspense fallback={<WaitingForServer className="flex min-h-24" />}>
+            {tab === 'projects' && permitted['records.instancePreferences.edit'] !== true && (
+              <p className="settings-prose mb-4">
+                Only admins can change these. You can see what is set.
+              </p>
+            )}
+            {SECTION_VIEWS[tab]({
+              settings,
+              accounts,
+              patch,
+              trpc,
+              telegramSetup,
+              startTelegramSetup: () => void startTelegramSetup(),
+              disconnectTelegram: async () => {
+                await trpc.settings.telegramDisconnect.mutate({})
+                setTelegramSetup({ status: 'idle' })
+              },
+              telegramBotPresent,
+              refreshTelegramBot: loadTelegramBotPresence,
+              openNetworkSettings: () => setSettingsTab('access'),
+              secrets,
+              canManageSecrets: permitted['settings.setSecret'] === true,
+              secretBusy,
+              secretError,
+              setSecret: (key, value) =>
+                writeSecret(() => trpc.settings.setSecret.mutate({ key, value })),
+              clearSecret: (key) => writeSecret(() => trpc.settings.clearSecret.mutate({ key })),
+            })}
+          </Suspense>
         ) : (
           // The skeleton is the row grammar at rest: same 14px padding,
           // same control column, so nothing shifts when the blob lands.

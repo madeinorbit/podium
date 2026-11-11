@@ -9,7 +9,6 @@ import { observer } from 'mobx-react-lite'
 import {
   type ChangeEvent,
   type ComponentProps,
-  createContext,
   type JSX,
   type ReactNode,
   useContext,
@@ -33,6 +32,11 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { issueAgentDescriptors } from '@/lib/issue-agents'
 import { useSettingsRowId } from '../settings-anchors'
+import {
+  SettingsControlsContext,
+  type SettingsControlsState,
+  useSettingsPermitted,
+} from '../settings-controls'
 import { useSettingsFrame } from '../settings-frame'
 
 export function Section({
@@ -144,20 +148,7 @@ export function EntityRow({
   )
 }
 
-/** Supply the existing synced settings object, never a copy of its values.
- * `setting` binds a row to its command permission, pending write and refusal.
- * Page tasks should pass the dotted leaf (or list of leaves) they edit. */
-export interface SettingsControlsState {
-  settings?: PodiumSettings
-  permitted?: Readonly<Record<string, boolean>>
-  feedback?: Readonly<Record<string, { pending?: boolean; error?: string }>>
-  readOnly?: boolean
-}
-export const SettingsControlsContext = createContext<SettingsControlsState>({})
-/** Header actions and custom controls use the same default-closed answer. */
-export function useSettingsPermitted(command: string): boolean {
-  return useContext(SettingsControlsContext).permitted?.[command] === true
-}
+export { SettingsControlsContext, type SettingsControlsState, useSettingsPermitted }
 
 type Setting = string | readonly string[]
 interface RowProps {

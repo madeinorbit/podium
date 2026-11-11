@@ -24,6 +24,7 @@ import {
   settingsPage,
   settingsSectionId,
 } from './page-definitions'
+import { SettingsControlsContext, type SettingsControlsState } from './settings-controls'
 import { adminSectionOf, visibleSettingsGroups } from './surfaces'
 
 interface Takeover {
@@ -121,6 +122,7 @@ export function SettingsFrame({
   viewer,
   toolbar,
   footer,
+  controls,
   children,
 }: {
   page: SettingsPage
@@ -130,6 +132,11 @@ export function SettingsFrame({
   viewer: AdminViewer
   toolbar?: ReactNode
   footer?: ReactNode
+  /** Settings, permissions and write feedback for the page body AND its
+   * takeovers. Takeovers render beside the body, so a provider placed around
+   * `children` never reached them: every page opened inside a page read the
+   * viewer as a member. Omit it to inherit a provider from above. */
+  controls?: SettingsControlsState
   children: ReactNode
 }) {
   const definition = settingsPage(page)
@@ -290,7 +297,7 @@ export function SettingsFrame({
     </span>
   )
 
-  return (
+  const frame = (
     <FrameContext.Provider value={actions}>
       <section
         aria-label="Settings frame"
@@ -466,6 +473,11 @@ export function SettingsFrame({
         </AppSheet>
       </section>
     </FrameContext.Provider>
+  )
+  return controls ? (
+    <SettingsControlsContext.Provider value={controls}>{frame}</SettingsControlsContext.Provider>
+  ) : (
+    frame
   )
 
   function renderResults() {
