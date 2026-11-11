@@ -69,26 +69,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/mobile/src/client/connected-devices.ts",
-      "holder": "useConnectedDevices/reload/useCallback:callback/read:callback",
-      "rule": "reader-summary",
-      "tokens": "c781611949e00d5bc388fa377314c5d4d5498ddc1ea5c8fc123fb2b47ee379eb",
-      "gate": [
-        "then:e98979cf2a5fd90561826fa467512b90bcfd8f1c5585453627b46bbd03cd3aaf"
-      ],
-      "origin": [
-        "50f1e336840e638db3fcf24fff43d0f2b6b136a645ecd0b20b050b6d6cb002fd"
-      ],
-      "fingerprint": "b0499e63e5e0a2d63eb75a4f457eee36d9e7978092109fbc2b07bca7bb628524",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5870",
-      "trigger": "Visible phone settings requests the active principal device roster.",
-      "bound": "One server answer for the current principal; the request retains IDs and writes each device into the shared pool.",
-      "reason": "This callback is the request ingestion boundary. It replaces the private device array and fences superseded or closed requests.",
-      "guard": "settings-launch-records.parity.test.ts compares every public device field and stale-response fencing; SettingsScreen.pool.test.tsx checks 1x/4x heartbeat work."
-    },
-    {
       "file": "apps/mobile/src/client/issue-fixtures.ts",
       "holder": "seedIssueFixtures",
       "rule": "loop:for-of",
@@ -906,24 +886,6 @@
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of SessionScreen/useEffect:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/screens/SettingsScreen.tsx",
-      "holder": "SettingsScreenBody/SettingsScreenBody/deviceFeed",
-      "rule": "reader-summary",
-      "tokens": "faf3825aa22424b09ee7b505893d56e869cf94e62f8fd0ee64bbc247fde34461",
-      "gate": [],
-      "origin": [
-        "50f1e336840e638db3fcf24fff43d0f2b6b136a645ecd0b20b050b6d6cb002fd"
-      ],
-      "fingerprint": "85efd32c8a3788ced2609b6a72ce186aa68670250ed42200c0f35c9a2577753c",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of SettingsScreen/deviceFeed",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
@@ -7274,24 +7236,6 @@
       "bound": "No per-interaction bound established for this existing collection origin.",
       "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
       "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/settings/sections/connected-devices.tsx",
-      "holder": "createMobilePairingApi/auth/mobileSessions/query/callback",
-      "rule": "consume:filter",
-      "tokens": "98cbca364d71099b6fb40547a52fc78567239a10a4f9ab358dc75d2177538edd",
-      "gate": [],
-      "origin": [
-        "5f8f9b91b40165a82c0d0af9cb273cc5d8c1078be436677eefa6f029ac0bf122"
-      ],
-      "fingerprint": "bdbd7cd36be76e65a57df6cfcb68d151627f7285fa135462a0645b148498f510",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createMobilePairingApi/auth/mobileSessions/query/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/features/settings/sections/privacy.tsx",
@@ -22524,60 +22468,6 @@
       "trigger": "Invocation of waitingNote/refs",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/operations-status.ts",
-      "holder": "connectedDeviceViews",
-      "rule": "consume:map",
-      "tokens": "c5b20d96013f69289a0cf3367b0294744763856b4d989323b30ab09ebb56a7e2",
-      "gate": [],
-      "origin": [
-        "8ff12b53fe953d1b180f478ea63bcbfcd4ca30dbabd7ee4c4646fa4aec08252e"
-      ],
-      "fingerprint": "b21f429c54c37b9c579197f83b9f9bc76e64fe2eca91352a38394d3f62e392ea",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of connectedDeviceViews",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/operations-status.ts",
-      "holder": "connectedDeviceViews",
-      "rule": "consume:map",
-      "tokens": "70b7f6f06b7098a44e3a3b9c5037ed8b405e6f46f9f5274876ac693cda3d8b66",
-      "gate": [],
-      "origin": [
-        "8ff12b53fe953d1b180f478ea63bcbfcd4ca30dbabd7ee4c4646fa4aec08252e"
-      ],
-      "fingerprint": "f57bc53e2f2984ff396dc934905994281199be2d257b84c7560aa06ae84f3ebf",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of connectedDeviceViews",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/operations-status.ts",
-      "holder": "connectedDeviceViews",
-      "rule": "consume:sort",
-      "tokens": "1a3dfe3e84966b05203e2666fcb5f161b4db1f8ad74b47b4a74e340f0e44e8a1",
-      "gate": [],
-      "origin": [
-        "8ff12b53fe953d1b180f478ea63bcbfcd4ca30dbabd7ee4c4646fa4aec08252e"
-      ],
-      "fingerprint": "b12075669b462021f22e9e85258527feb40889783fbf89566667911e5114de6a",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of connectedDeviceViews",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -39915,6 +39805,82 @@
       "bound": "No new caller-list or per-issue session-cardinality bound is claimed.",
       "reason": "Replacing Parameters<Store[focusIssueSession]> with an explicit SessionId[] tuple makes the existing exclusion Set and issue-session find visible to the scanner. The body and its collection operations are unchanged. POD-6724 owns proving their bounds or replacing unnecessary enumeration.",
       "guard": "Exact fingerprint and multiplicity only; this is newly exposed debt, not a scan fix. packages/client-core/src/commands/navigation.test.ts covers timeout, excluded sessions and selection changes."
+    },
+    {
+      "file": "apps/mobile/src/screens/SettingsScreen.tsx",
+      "holder": "SettingsScreenBody/SettingsScreenBody",
+      "rule": "consume:map",
+      "tokens": "a8e3196faca37126e111e7c18485dac666a7be2f05f1c23a5963d824009f8a4f",
+      "gate": [
+        "else:b5cf26c9ebb20686918b8a944e16b4cc997f9c9cb9d32518e1109a6bd1f6ab77",
+        "else:fa489679de572d7e784abe0c3509f6040e5f198e94dbee2a41a77ea318bf9b4f",
+        "else:8b5121b7b753c14320029fd5bb7ab5206ad2385c0763bfaadb90501e0a256ad0"
+      ],
+      "origin": [
+        "6443ca28dfcd8508a13e7532847f8589e3d5093f0b79f044695c93ebb069ec4e"
+      ],
+      "fingerprint": "a50df1df4b39bca05526c31b86dd3f1e1ba47c550bee8ab0243820b91ed76424",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of SettingsScreenBody/SettingsScreenBody",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/values/operations-status.ts",
+      "holder": "connectedDeviceViews",
+      "rule": "consume:map",
+      "tokens": "202333dc459cf5e35cc549990eac6faed4d597f2fc2798e96657eb04fbb4c027",
+      "gate": [],
+      "origin": [
+        "65ca6a2c4db25f28418d43e265a861a23d12444cb59ea9bc7a8f4f359c30ab0b"
+      ],
+      "fingerprint": "70b328233778c533a73765c41b7492785a7d77d927b5f2431e52f299f7e7a1d6",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of connectedDeviceViews",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/values/operations-status.ts",
+      "holder": "connectedDeviceViews",
+      "rule": "consume:map",
+      "tokens": "c0dab35331382664db44536a0a13ee144080ec3c6867050ce57b63ebeb92fdcf",
+      "gate": [],
+      "origin": [
+        "65ca6a2c4db25f28418d43e265a861a23d12444cb59ea9bc7a8f4f359c30ab0b"
+      ],
+      "fingerprint": "8344021a98223f5da8ad20545a61a152f131476746a8ca8ba7bbb269037d1047",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of connectedDeviceViews",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/values/operations-status.ts",
+      "holder": "connectedDeviceViews",
+      "rule": "consume:sort",
+      "tokens": "d18fa1719abff3d74330b809459156351dcb23fba3e086b13f8efcc41be5a96c",
+      "gate": [],
+      "origin": [
+        "65ca6a2c4db25f28418d43e265a861a23d12444cb59ea9bc7a8f4f359c30ab0b"
+      ],
+      "fingerprint": "e95d4ca4fc54f1160cbc1bf23d8edf491b76e25c621a2d954c9c4b74e74e9806",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of connectedDeviceViews",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/features/settings/page-definitions.ts",
