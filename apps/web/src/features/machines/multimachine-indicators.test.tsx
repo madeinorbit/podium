@@ -291,7 +291,7 @@ describe('memory chip is machine-aware', () => {
     expect(await screen.findByText('Codex — known-session')).toBeTruthy()
     expect(screen.getByText('missing-')).toBeTruthy()
     expect(screen.getByText('2 processes')).toBeTruthy()
-    expect(await screen.findByText(/1 hibernated/)).toBeTruthy()
+    expect(await screen.findByText(/1 paused/)).toBeTruthy()
   })
 
   it('updates an open memory view when its machine processes topic pushes', async () => {
