@@ -130,14 +130,16 @@ describe('measured driver facts across session publication paths', () => {
         )
       expect(await sessionChanges(beforeBoot)).toEqual([])
 
-      // Both the plain record publisher and the resident publisher must agree.
+      // A named no-op commit and the resident writer must agree on the record.
       const publishRecord = async () => {
         const record = (await sessions.records.read([sessionId])).get(sessionId)!
         expect(driverFacts(subjectMeta(record))).toEqual(facts)
-        const pass = await sessions.view.buildProjectionPass([record])
-        return sessions.serverWriter.capture([
-          { entity: 'session', id: sessionId, op: 'upsert', value: wireRecord(record, pass) },
-        ])
+        return (
+          await sessions.serverWriter.commit({
+            affects: [{ entity: 'session', id: sessionId }],
+            write: async () => {},
+          })
+        ).changes
       }
       await attachHostDaemon(reg)
       await bind()
