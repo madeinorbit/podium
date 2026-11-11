@@ -249,6 +249,8 @@ export function registerMemberRoutes(
       )
       if (!member?.account) throw new MembershipRefused('unavailable')
       const ids = await core.deviceSignIns.revokeAllForAccount(member.account.id)
+      // Sign-ins from before shared sign-in end with them (POD-6751, R16).
+      await users.endOldSignIns(asUserId(target))
       await users.audit('members.signOut', asUserId(actor.memberId), { memberId: target })
       return ids
     })

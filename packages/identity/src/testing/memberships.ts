@@ -43,6 +43,7 @@ export const MEMBERSHIP_SUITE_CASES = [
   'the same-machine rule admits the sole active member and nobody else',
   'disable then enable between two catch-ups still moves the member generation',
   'imports legacy links by hash, redeems each once and refuses expired links',
+  'accountOfActiveMember names the account of an active member and of nobody else',
 ] as const
 
 const WORKSPACE = 'local'
@@ -297,6 +298,28 @@ export function membershipCases(context: MembershipCasesContext): void {
         core.codes.redeemPasswordReset({ code: resetToken, password: 'Bob’s new password' })
       expect((await reset())?.accountId).toBe(bob.accountId)
       expect(await reset()).toBe(undefined)
+      await aliceUnchanged()
+    })
+
+    // The one read of the sign-in carry-over (POD-6751).
+    test(12, async () => {
+      const { accountOfActiveMember } = workspace.memberships
+      expect(await accountOfActiveMember(alice.memberId)).toBe(alice.accountId)
+      expect(await accountOfActiveMember('mem_nobody')).toBe(undefined)
+      // An invited membership names no account yet.
+      const { membership: invited } = await invite({ email: 'carol@example.test' })
+      expect(await accountOfActiveMember(invited.memberId)).toBe(undefined)
+      const bob = await join()
+      expect(await accountOfActiveMember(bob.memberId)).toBe(bob.accountId)
+      // Bob's id never answers Alice's account, nor hers his.
+      expect(bob.accountId === alice.accountId).toBe(false)
+      await workspace.memberships.disable({ actor: asAlice(), memberId: bob.memberId })
+      expect(await accountOfActiveMember(bob.memberId)).toBe(undefined)
+      await workspace.memberships.enable({ actor: asAlice(), memberId: bob.memberId })
+      expect(await accountOfActiveMember(bob.memberId)).toBe(bob.accountId)
+      await workspace.memberships.remove({ actor: asAlice(), memberId: bob.memberId })
+      expect(await accountOfActiveMember(bob.memberId)).toBe(undefined)
+      expect(await accountOfActiveMember(alice.memberId)).toBe(alice.accountId)
       await aliceUnchanged()
     })
 

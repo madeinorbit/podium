@@ -1285,6 +1285,29 @@ export const clientSessions = sqliteTable(
   ],
 )
 
+// LEGACY(remove-after: 2027-06): the sign-in carry-over's repeat records (docs/design/sign-in-carry-over.md, section 4.4); removing the table drops the ten-minute repeat of a carried old sign-in.
+// One row per old sign-in that became a device sign-in, for ten minutes. `sealed`
+// is the answer's Set-Cookie values, encrypted with a key derived from the old
+// token, which the database does not hold. `member_id` and `old_label` exist so
+// that whatever ends a member's or a label's old sign-ins can delete their
+// records with them.
+export const carriedSignIns = sqliteTable(
+  'carried_sign_ins',
+  {
+    oldTokenHash: text('old_token_hash').primaryKey(),
+    deviceSignInId: text('device_sign_in_id').notNull(),
+    sealed: text().notNull(),
+    expiresAt: text('expires_at').notNull(),
+    memberId: text('member_id').$type<UserId>().notNull(),
+    oldLabel: text('old_label').notNull(),
+  },
+  (table) => [
+    index('idx_carried_sign_ins_expires').on(table.expiresAt),
+    index('idx_carried_sign_ins_member').on(table.memberId),
+    index('idx_carried_sign_ins_label').on(table.oldLabel),
+  ],
+)
+
 // TELEGRAM CHAT BINDING (POD-1080, ADR 3 Amendment 1 D22; ADR 1 matrix row
 // `telegram-chat-binding`). The row that turns an inbound chat id — a value THE
 // SENDER CONTROLS — into a user, without ever reading identity out of the

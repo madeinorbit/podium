@@ -110,6 +110,7 @@ import { SessionsRepository } from './store/sessions'
 import { SettingsRepository } from './store/settings'
 import { SettingsAuditRepository } from './store/settings-audit'
 import { ShippingRepository } from './store/shipping'
+import { SignInCarryOverRepository } from './store/sign-in-carry-over'
 import { SuperagentRepository } from './store/superagent'
 import { TableWrites } from './store/table-writes'
 import { TelegramBindingsRepository } from './store/telegram-bindings'
@@ -206,6 +207,8 @@ export class SessionStore {
   /** User accounts (POD-1075's table, POD-1079's first reader) — the instance
    *  role a command contract's `roleFloor` is compared against. */
   readonly users: UsersRepository
+  /** Old sign-ins from before shared sign-in, and their carry records (POD-6751). */
+  readonly signInCarryOver: SignInCarryOverRepository
   /** `(chatId -> UserId)` bindings (POD-1080, ADR 3 Amendment 1 D22) — the ONLY
    *  thing an inbound Telegram message may be resolved against. An unbound chat
    *  gets no principal and is refused; it never falls back to an operator. */
@@ -442,7 +445,8 @@ export class SessionStore {
     this.accounts = new AccountsRepository(this.queries)
     this.grants = new GrantsRepository(this.queries)
     this.machines = new MachinesRepository(this.queries, this.grants)
-    this.users = new UsersRepository(this.queries, this.machines, this.grants)
+    this.signInCarryOver = new SignInCarryOverRepository(this.queries)
+    this.users = new UsersRepository(this.queries, this.machines, this.grants, this.signInCarryOver)
     this.telegramBindings = new TelegramBindingsRepository(this.queries)
     this.events = new EventsRepository(this.queries)
     this.notificationFacts = new NotificationFactsRepository(this.queries)

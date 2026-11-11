@@ -13,10 +13,13 @@ import {
   MEMBER_FENCE_REFUSAL,
   memberFenceRefuses,
   NativeClientLoginRequest,
+  SESSION_COOKIE,
 } from '@podium/protocol'
 import type { Context, Hono, MiddlewareHandler } from 'hono'
+import { deleteCookie } from 'hono/cookie'
 import { isAllowedHttpOrigin } from './http-cors'
 import { type MemberOfRequest, refusalAnswer } from './identity/member-of-request'
+import type { SignInCarryOver } from './sign-in-carry-over'
 import { browserSignInDevice } from './sign-in-device'
 
 export { isHttps, isSecureRequest } from './request-scheme'
@@ -88,6 +91,11 @@ export interface AuthRouteOptions {
   /** A device sign-in ended through this server: its open sockets close now. */
   onDeviceSignInEnded?: (deviceSignInId: string) => void
   /**
+   * The sign-in carry-over (POD-6751), on a server that built its own identity
+   * core. Absent: a cookie from before shared sign-in is never read.
+   */
+  carryOver?: SignInCarryOver
+  /**
    * A successful sign-in, for a composition root that publishes it. Fired
    * after the device sign-in exists. Best-effort by contract: the call site
    * swallows a throw, because an observer must never turn a good sign-in into
@@ -134,13 +142,26 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions): void {
   }
 
   app.get('/auth/status', async (c) => {
-    const [needsAuth, prompt, resolution] = await Promise.all([
+    const controlPlane = opts.controlPlaneAvailable?.() ?? true
+    const [needsAuth, prompt, resolved] = await Promise.all([
       identity.signInRequired(),
       core.signIn.prompt(),
-      (opts.controlPlaneAvailable?.() ?? true)
-        ? memberOfRequest(c.req.raw)
-        : ({ kind: 'unauthenticated' } as const),
+      controlPlane ? memberOfRequest(c.req.raw) : ({ kind: 'unauthenticated' } as const),
     ])
+    // THE ONE PLACE A SIGN-IN FROM BEFORE SHARED SIGN-IN IS CARRIED OVER
+    // (POD-6751). A request without a device sign-in that holds the old cookie
+    // gets a device sign-in in exchange, once; the answer is then built from
+    // the resolution of the new cookie. Nothing is carried: the answer is
+    // exactly the one without the old cookie.
+    const carried =
+      controlPlane && opts.carryOver
+        ? await opts.carryOver.carry(c.req.raw, memberOfRequest.factsOf(c.req.raw), resolved)
+        : undefined
+    const resolution = carried?.resolution ?? resolved
+    if (carried) {
+      for (const cookie of carried.setCookies) c.header('set-cookie', cookie, { append: true })
+      c.header('cache-control', 'no-store')
+    }
     const member = resolution.kind === 'member' ? resolution : undefined
     return c.json({
       needsAuth,
@@ -336,6 +357,11 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions): void {
     const ended = await core.signIn.signOut(c.req.raw, memberOfRequest.factsOf(c.req.raw))
     if (ended.deviceSignInId) opts.onDeviceSignInEnded?.(ended.deviceSignInId)
     appendCookies(c, ended.headers)
+    // A cookie from before shared sign-in is ended and cleared too, never carried (R18).
+    if (await opts.carryOver?.endForCookie(c.req.raw)) {
+      deleteCookie(c, SESSION_COOKIE, { path: '/' })
+      c.header('cache-control', 'no-store')
+    }
     return c.json({ ok: true })
   })
 }

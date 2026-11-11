@@ -1,6 +1,7 @@
 import { CommittedRows } from './committed-rows'
 import { GrantsRepository } from './grants'
 import { MachinesRepository } from './machines'
+import { SignInCarryOverRepository } from './sign-in-carry-over'
 /**
  * THE ACCOUNT ROLE READER (POD-1079) — the first reader the `users` table
  * (POD-1075) has had.
@@ -547,6 +548,7 @@ export class UsersRepository {
     queries: StoreQueries,
     private readonly machinesRepository = new MachinesRepository(queries),
     private readonly grantsRepository = new GrantsRepository(queries),
+    private readonly oldSignIns = new SignInCarryOverRepository(queries),
   ) {
     this.committed = new CommittedRows(queries.createOrJoinTransaction, 'users')
     this.rootDb = queries.rootDb
@@ -1269,6 +1271,10 @@ export class UsersRepository {
         return row ? [row] : []
       }, 'upsert')
 
+      // A member who may not act keeps no sign-in from before shared sign-in
+      // either (POD-6751, R16). Enabling them again brings none back.
+      if (disabled) await this.oldSignIns.endForMember(memberId)
+
       if (roleChanged) {
         await this.audit(
           'members.setRole',
@@ -1325,6 +1331,16 @@ export class UsersRepository {
       detailJson: JSON.stringify(detail),
       createdAt: at,
     })
+  }
+
+  /**
+   * Ends every sign-in a member still holds from before shared sign-in, and
+   * its carry records (POD-6751, R16). For the paths that end all device
+   * sign-ins of a member without changing the membership; call it in their
+   * transaction.
+   */
+  async endOldSignIns(memberId: UserId): Promise<void> {
+    await this.oldSignIns.endForMember(memberId)
   }
 
   async insertInvite(invite: typeof memberInvites.$inferInsert): Promise<void> {

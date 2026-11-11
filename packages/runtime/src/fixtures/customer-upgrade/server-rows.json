@@ -16,5 +16,9 @@
     { "id": "session-moved-peer-b", "owner_user_id": "user:sole", "agent_kind": "claude-code", "cwd": "/fixture/work", "title": "moved b", "origin_kind": "spawn", "status": "live", "durable_label": "podium-session-moved-peer-b", "created_at": "2026-08-12T10:48:45.785Z", "last_active_at": "2026-09-14T09:00:00.000Z", "machine_id": "machine-peer", "deleted_at": null },
     { "id": "session-exported-stale", "owner_user_id": "user:sole", "agent_kind": "codex", "cwd": "/fixture/work", "title": "exported", "origin_kind": "spawn", "status": "exited", "durable_label": "podium-session-exported-stale", "created_at": "2026-08-27T14:48:52.502Z", "last_active_at": "2026-08-27T14:55:36.006Z", "machine_id": "machine-laptop-stale-1", "deleted_at": null }
   ],
-  "sessionAbsentFromServer": "session-deleted"
+  "sessionAbsentFromServer": "session-deleted",
+  "client_sessions": [
+    { "token_hash": "0f372f998656fc9cdcb5005e856d36c88d8cbc9bf9eadccad89b30a534f08bd9", "user_id": "user:sole", "created_at": "2026-09-10T09:00:00.000Z", "expires_at": "2026-12-01T09:00:00.000Z", "label": "login" },
+    { "token_hash": "0a109c71fdaaa11a02bbbd739107d569bc663a928e7edc6c129b977b5368c7e4", "user_id": "user:sole", "created_at": "2026-09-10T09:00:00.000Z", "expires_at": "2027-02-01T00:00:00.000Z", "label": "break-glass" }
+  ]
 }

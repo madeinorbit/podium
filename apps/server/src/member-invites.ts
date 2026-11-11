@@ -97,15 +97,23 @@ export function memberLinks(options: {
         })
         return { userId: accepted.memberId }
       }
-      const reset = await core.codes.redeemPasswordReset({
-        code: input.token,
-        password: input.password,
+      // One transaction: the new password, the end of every device sign-in and
+      // the end of every sign-in from before shared sign-in (POD-6751, R16).
+      const { reset, member } = await core.transaction(async () => {
+        const reset = await core.codes.redeemPasswordReset({
+          code: input.token,
+          password: input.password,
+        })
+        if (!reset) throw invalid()
+        const member = (await memberships.list()).find((m) => m.account?.id === reset.accountId)
+        if (!member) throw invalid()
+        await users.endOldSignIns(asUserId(member.memberId))
+        await users.audit('members.recover', asUserId(member.memberId), {
+          memberId: member.memberId,
+        })
+        return { reset, member }
       })
-      if (!reset) throw invalid()
       for (const id of reset.endedSignInIds) options.onDeviceSignInEnded?.(id)
-      const member = (await memberships.list()).find((m) => m.account?.id === reset.accountId)
-      if (!member) throw invalid()
-      await users.audit('members.recover', asUserId(member.memberId), { memberId: member.memberId })
       return { userId: member.memberId }
     },
   }

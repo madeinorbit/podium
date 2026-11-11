@@ -59,3 +59,9 @@ export function writeIdentityShape(dir: string, shape: IdentityShape): void {
 
 /** Upgrade shapes for personal ownership, legacy assignees and private sessions (MU-15). */
 export { default as multiMemberRows } from './multi-member-rows.json'
+
+/**
+ * The old cookie values behind the fixture's real `client_sessions` rows, for
+ * the sign-in carry-over (POD-6751). Test-only values.
+ */
+export { default as oldSignInTokens } from './old-sign-in-tokens.json'

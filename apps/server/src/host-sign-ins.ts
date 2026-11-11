@@ -2,6 +2,7 @@
 import type { DeviceKind, WorkspaceIdentity } from '@podium/identity'
 import { LOCAL_DEVICE_SIGN_IN_COOKIE } from '@podium/protocol'
 import { ADMIN_PAGE_LIMIT } from './admin-routes'
+import type { SignInCarryOver } from './sign-in-carry-over'
 import { publicSignIn } from './sign-in-routes'
 
 const DEFAULT_HOST_SIGN_IN_MS = 30 * 24 * 60 * 60 * 1000
@@ -11,7 +12,12 @@ const REFUSED = {
     'Host recovery requires one member, an active administrator. Sign in with your own account instead.',
 } as const
 
-export function hostSignIns(identity: WorkspaceIdentity, onEnded: (id: string) => void) {
+export function hostSignIns(
+  identity: WorkspaceIdentity,
+  onEnded: (id: string) => void,
+  /** Present on a server that carries sign-ins over from before shared sign-in (POD-6751). */
+  carryOver?: Pick<SignInCarryOver, 'endByLabel'>,
+) {
   const { core } = identity
   async function soleAdminAccount() {
     const members = (await identity.memberships.list()).filter((m) => m.status !== 'removed')
@@ -66,7 +72,12 @@ export function hostSignIns(identity: WorkspaceIdentity, onEnded: (id: string) =
     },
 
     async revoke(kind: DeviceKind) {
-      const ended = await identity.revokeDeviceSignInsByKind(kind)
+      const ended = await core.transaction(async () => {
+        const ids = await identity.revokeDeviceSignInsByKind(kind)
+        // Host sessions minted before shared sign-in end with them (R17).
+        if (kind === 'host') await carryOver?.endByLabel('break-glass')
+        return ids
+      })
       for (const id of ended) onEnded(id)
       return { ok: true as const, revoked: ended.length }
     },

@@ -108,11 +108,14 @@ import {
   serveNative,
 } from './gateway/ws-server'
 import { hostSignIns } from './host-sign-ins'
-import { podiumCors } from './http-cors'
+import { isAllowedHttpOrigin, podiumCors } from './http-cors'
 import { PairingManager } from './hub/pairing'
 import { MemberHasNoAccount, memberCredentials } from './identity/member-credentials'
-import { type MembershipCatchUpScheduler, startMembershipCatchUp } from './identity/membership-catch-up'
 import { createMemberOfRequest, refusalAnswer } from './identity/member-of-request'
+import {
+  type MembershipCatchUpScheduler,
+  startMembershipCatchUp,
+} from './identity/membership-catch-up'
 import { type IdentitySeam, openServerIdentity } from './identity/server-identity'
 import { IssueToolProvider } from './issue-mcp'
 import { registerLocateProofRoute } from './locate-proof-route'
@@ -186,6 +189,7 @@ import { createServerReadiness } from './server-readiness'
 import { adoptLegacyHostMachine, completePreauthorizedSetup } from './setup-enrollment'
 import { registerSetupRoute } from './setup-route'
 import { closeServerFast } from './shutdown'
+import { createSignInCarryOver, type SignInCarryOver } from './sign-in-carry-over'
 import { registerSignInRoutes } from './sign-in-routes'
 import { registerDesktopWebStatic, registerMobileRouting, registerWebStatic } from './static-web'
 import { defaultDbPath, SessionStore } from './store'
@@ -251,6 +255,11 @@ export interface ServerHandle {
    * through: built on its own database, or handed in by a hosted root.
    */
   identity: WorkspaceIdentity
+  /**
+   * The sign-in carry-over (POD-6751): present on a server that built its own
+   * identity core and can write its store. For the hourly sweep and for tests.
+   */
+  signInCarryOver?: SignInCarryOver
   /** True when this process exposes only durable server-move recovery APIs. */
   recoveryOnly: boolean
   /** Server-owned maintenance channel credential; never accepted for machine authentication. */
@@ -724,17 +733,24 @@ export async function startServer(
     newMemberId: opts.newMemberIdForTests,
   })
   const credentials = memberCredentials(store.users, identity.workspace.core.accounts)
-  const membershipCatchUp = !identity.local && !recoveryOnly && !rehearsal
-    ? startMembershipCatchUp(identity.workspace, opts.membershipCatchUpSchedulerForTests)
-    : undefined
+  const membershipCatchUp =
+    !identity.local && !recoveryOnly && !rehearsal
+      ? startMembershipCatchUp(identity.workspace, opts.membershipCatchUpSchedulerForTests)
+      : undefined
   // Expired invitations and one-time codes are deleted hourly (section 2.3).
   // Not on a store that cannot be written, and not in a boot rehearsal.
+  // The sign-in carry-over (POD-6751) is built below, once the request
+  // resolver exists; the same hourly timer sweeps its leftovers.
+  let signInCarryOver: SignInCarryOver | undefined
   let stopIdentitySweep = (): void => {}
   if (!recoveryOnly && !rehearsal) {
     const sweep = setInterval(() => {
       void identity.workspace.core
         .sweep()
         .catch((err) => log.warn('identity sweep failed; the next hour retries', { err }))
+      void signInCarryOver
+        ?.sweep()
+        .catch((err) => log.warn('sign-in carry-over sweep failed; the next hour retries', { err }))
     }, IDENTITY_SWEEP_INTERVAL_MS)
     sweep.unref?.()
     stopIdentitySweep = () => clearInterval(sweep)
@@ -1643,6 +1659,21 @@ export async function startServer(
     users: store.users,
     trustedProxyHops,
   })
+  // SIGN-INS FROM BEFORE SHARED SIGN-IN (POD-6751): only on a server that
+  // built its own identity core, and not on a store that cannot be written.
+  // The period is fixed here, after the migrations and the local identity
+  // upgrade and before the server listens.
+  if (identity.local && !recoveryOnly) {
+    signInCarryOver = createSignInCarryOver({
+      store: store.signInCarryOver,
+      identity: identity.workspace,
+      memberOfRequest,
+      originAllowed: (origin, request) =>
+        isAllowedHttpOrigin(origin, new URL(request.url).host, allowedOrigins),
+      audit: (command, actor, detail) => store.users.audit(command, actor, detail),
+    })
+    await signInCarryOver.start()
+  }
   /** The member a route outside the guard acts for, or nobody. */
   const memberIdOfRequest = async (request: Request) => {
     if (!controlPlaneAvailable(readiness())) return undefined
@@ -1697,6 +1728,7 @@ export async function startServer(
     // Signing a device out closes that device's open sockets at once.
     onDeviceSignInEnded: (deviceSignInId) => revokeConnectedDeviceSignIn(deviceSignInId),
     onLogin: (event) => registry.modules.bus.emit('auth.login', event),
+    ...(signInCarryOver ? { carryOver: signInCarryOver } : {}),
   })
   const memberInvites = memberLinks({
     users: store.users,
@@ -2535,7 +2567,11 @@ export async function startServer(
               controlSocketHandler({
                 ...(identity.workspace.core.capabilities().adminEndDeviceSignIn
                   ? {
-                      hostSignIns: hostSignIns(identity.workspace, revokeConnectedDeviceSignIn),
+                      hostSignIns: hostSignIns(
+                        identity.workspace,
+                        revokeConnectedDeviceSignIn,
+                        signInCarryOver,
+                      ),
                     }
                   : {}),
                 tunnelHealth: (report) => tunnelHealth.report(report),
@@ -2602,6 +2638,7 @@ export async function startServer(
         instanceId,
         registry,
         identity: identity.workspace,
+        ...(signInCarryOver ? { signInCarryOver } : {}),
         recoveryOnly,
         maintenanceToken,
         localDaemonLink,

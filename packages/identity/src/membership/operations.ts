@@ -552,9 +552,10 @@ export function membershipOperations(
       }
     },
 
-    async accountOfActiveMember() {
-      // Built by the sign-in carry-over (POD-6751), which is its only caller.
-      throw new IdentityRefused('not-built', 'identity: accountOfActiveMember is not built yet')
+    async accountOfActiveMember(memberId) {
+      // One read by primary key. The sign-in carry-over (POD-6751) is its only caller.
+      const row = await membership(memberId)
+      return row?.status === 'active' ? (row.accountId ?? undefined) : undefined
     },
   }
 }
