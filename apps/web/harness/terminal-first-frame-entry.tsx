@@ -3,14 +3,16 @@ import '@fontsource-variable/geist-mono'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { knownReading } from '@podium/client-core/live'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { machineRecords } from '@podium/client-core/test-support/machine-records'
 import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 import { asIssueId, asSessionId, asUserId, type SessionMeta } from '@podium/model/browser'
+import { preloadTerminalRuntime } from '@podium/terminal-client-react'
 import { runInAction } from 'mobx'
+import { useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { OperatorFocusProvider } from '@/app/operator-focus'
 import { attachWorklistPool } from '@/app/store-worklist-pool'
@@ -22,8 +24,8 @@ import { makeIssue } from '@/lib/test-issue'
 import '@/index.css'
 import '@/styles.css'
 
-// A stored session without live fields. No server, terminal attach, or geometry
-// response can repair the constructor's first grid in this layout fixture.
+// A stored session without live fields. Its panel requests the first reading;
+// deliver it after that render, with no terminal attach to repair a wrong birth.
 const sessionId = asSessionId('first-frame')
 const userId = asUserId('first-frame-viewer')
 const issueId = asIssueId('reload-issue')
@@ -131,17 +133,39 @@ function attach(runtime: ClientRuntime) {
       'fixture-machine',
       knownReading({ online: true, since: null }, Date.now()),
     )
-    runtime.live.applyTopic(
-      'session.terminalState',
-      sessionId,
-      knownReading({ controller: null, geometry: { cols: 132, rows: 43 } }, Date.now()),
-    )
   })
   return attachWorklistPool(runtime, (error) => {
     throw error
   })
 }
 
+function TerminalWithLateReading() {
+  const runtime = useClientRuntime()
+  useEffect(() => {
+    const renderedAt = performance.now()
+    const timer = setTimeout(() => {
+      const label = document.getElementById('first-frame-reading')
+      if (label) {
+        label.dataset.deliveryDelayMs = String(performance.now() - renderedAt)
+        label.dataset.mountedBeforeReading = String(
+          Boolean((window as unknown as { __podium?: unknown }).__podium),
+        )
+      }
+      runInAction(() => {
+        runtime.live.applyTopic(
+          'session.terminalState',
+          sessionId,
+          knownReading({ controller: null, geometry: { cols: 132, rows: 43 } }, Date.now()),
+        )
+      })
+    }, 100)
+    return () => clearTimeout(timer)
+  }, [runtime])
+  return <AgentPanel sessionId={sessionId} />
+}
+
+// The warm renderer is the losing case: module download cannot hide the round trip.
+await preloadTerminalRuntime()
 const root = document.getElementById('root')
 if (!root) throw new Error('Missing harness root')
 createRoot(root).render(
@@ -181,7 +205,7 @@ createRoot(root).render(
               <p style={{ color: 'var(--text-dim)' }}>
                 {showIssue
                   ? 'No incremental record update is sent. Reload must retain the attachment and deferred item.'
-                  : 'Stored session has no geometry. Live session model: 132 × 43. Attach is disabled.'}
+                  : 'Size reading arrives 100 ms after the panel renders: 132 × 43. Attach is disabled.'}
               </p>
             </header>
             <section style={{ flex: 1, minHeight: 0, border: '1px solid var(--border)' }}>
@@ -193,7 +217,7 @@ createRoot(root).render(
                   onNavigate={() => {}}
                 />
               ) : (
-                <AgentPanel sessionId={sessionId} />
+                <TerminalWithLateReading />
               )}
             </section>
           </main>

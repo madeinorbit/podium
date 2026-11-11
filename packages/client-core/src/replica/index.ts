@@ -8,7 +8,6 @@ export type {
 } from '../values/issue-type'
 export { issueBodyLoading } from '../values/issue-type'
 export * from './async-storage'
-export * from './bootstrap'
 export * from './contract'
 /**
  * TWO MODULES ARE SPELLED `feed` HERE, and the paths below are explicit because

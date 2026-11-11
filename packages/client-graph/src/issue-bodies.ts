@@ -67,10 +67,11 @@ export class IssueBodyStore implements IssueBodyReader {
    *  shown until the body at the new digest arrives, so a saved edit never
    *  flashes the text it replaced. Dropped once a current body is read. */
   private readonly painted = new Map<string, unknown>()
-  /** Field/digest pairs asked for per issue, cleared when that field is read current. */
+  /** Field/digest pairs asked for per issue, cleared when current or no reader remains. */
   private readonly asked = new Map<string, Set<string>>()
   private readonly readers = createDemandAtoms<string>((id) => `issueBody:${id}`, {
     onUnobserved: (id) => {
+      this.asked.delete(id)
       if (this.retryAt.has(id)) this.release(id)
     },
   })

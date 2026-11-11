@@ -505,11 +505,9 @@ export const AgentPanel = observer(function AgentPanel({
     // server-side yet (#119) either — its one-shot attach would be dropped and
     // never retried, so `spawnConfirmed` holds the mount until the reconcile.
     enabled: gates.terminalMounted && terminalRuntimeRequestedRef.current,
-    // BORN AT W (POD-3239 B1 / MODEL rule 2). The server has always published
-    // this session's grid and nothing read it, so every terminal was
-    // constructed at xterm's 80x24 and dragged to the real size afterwards —
-    // which is the quadrant the operator saw. Read at mount time only; from then
-    // on the attach snapshot and the daemon's reports are what move the buffer.
+    // Born at W (POD-3239 B1). The shared hook briefly waits for this pane's
+    // first live size reading before constructing the buffer. The attach and
+    // daemon reports own its grid after that; topic changes never remount it.
     ...(geometry ? { initialGeometry: geometry } : {}),
     // THE BOX CLIPS (POD-3239 B3). The desktop pane hides what does not fit and
     // pads the rest with the terminal background; it never scrolls over the pty

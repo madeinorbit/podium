@@ -57,7 +57,8 @@ export function TerminalPane({
   const connected = useConnected()
   const spawnPending = useSpawnPending(sessionId)
   // The live grid this pane opens at (POD-3239 B1), marshalled to the DOM
-  // component as two primitives — see TerminalDomProps.
+  // component as two primitives. Its shared terminal hook waits briefly when
+  // these have not arrived yet — see TerminalDomProps.
   const geometry = useSessionContextGeometry(sessionId)
   // The keyboard belongs to the webview's focus, but UIKit's notifications are
   // app-wide, so the native side still sees it come up. See ACCESSORY_INSET.

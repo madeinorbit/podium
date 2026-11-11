@@ -1,12 +1,14 @@
+import { knownReading } from '@podium/client-core/live'
 import { useCommands } from '@podium/client-core/react'
-import { seedIssueFixtures } from '../client/issue-fixtures'
-import { asUserId } from '@podium/model'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { asIssueId, asSessionId, type SessionId, type SessionMeta } from '@podium/model'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
+import { asIssueId, asSessionId, asUserId, type SessionId, type SessionMeta } from '@podium/model'
 import type { MountSessionOptions } from '@podium/terminal-client/session-mount'
 import { cleanup } from '@testing-library/react'
+import { runInAction } from 'mobx'
 import { act, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { seedIssueFixtures } from '../client/issue-fixtures'
 import { renderWithMobileStore } from '../client/test-support'
 import type { TerminalControlState } from './terminal-control'
 
@@ -96,6 +98,25 @@ const { TerminalPane } = await import('./TerminalPane')
 
 const TARGET = { path: '/repo/wt', repoPath: '/repo' }
 
+async function deliverSize(runtime: ClientRuntime, sessionId: SessionId) {
+  await act(async () => {
+    runInAction(() => {
+      runtime.live.applyTopic(
+        'session.terminalState',
+        sessionId,
+        knownReading({ controller: null, geometry: { cols: 103, rows: 28 } }, Date.now()),
+      )
+    })
+  })
+}
+
+/** General lifecycle cases receive the topic after the pane's first render. */
+async function renderWithTerminalStore(...args: Parameters<typeof renderWithMobileStore>) {
+  const view = await renderWithMobileStore(...args)
+  for (const session of args[1]?.sessions ?? []) await deliverSize(view.runtime, session.sessionId)
+  return view
+}
+
 /**
  * The create path in two moves, as the launch sheet performs it: spawn through
  * the store, THEN mount the pane on the returned id. Splitting them (rather than
@@ -159,7 +180,7 @@ afterEach(cleanup)
 
 describe('TerminalPane on the create path (POD-1613)', () => {
   it('holds the attach back while the spawn is unconfirmed, then attaches when it lands', async () => {
-    const { replica } = await renderWithMobileStore(<CreateThenAttach />)
+    const { replica, runtime } = await renderWithMobileStore(<CreateThenAttach />)
     const ctl = control
     if (!ctl) throw new Error('harness did not render')
 
@@ -185,16 +206,23 @@ describe('TerminalPane on the create path (POD-1613)', () => {
       await Promise.resolve()
     })
 
-    // ...and only NOW does the pane attach — without a remount.
+    // Confirmation requests the live size; no attach is spent before its reply.
+    expect(mountSessionMock).not.toHaveBeenCalled()
+    await deliverSize(runtime, spawned)
     expect(mountSessionMock).toHaveBeenCalledTimes(1)
   })
 
-  it('attaches immediately for an already-confirmed session (the remount path)', async () => {
+  it('waits for a confirmed session’s first live size before attaching', async () => {
     const sessionId = asSessionId('sess-confirmed')
-    await renderWithMobileStore(<TerminalPane sessionId={sessionId} active />, {
+    const view = await renderWithMobileStore(<TerminalPane sessionId={sessionId} active />, {
       sessions: [confirmedRow(sessionId)],
     })
+    expect(mountSessionMock).not.toHaveBeenCalled()
+    await deliverSize(view.runtime, sessionId)
     expect(mountSessionMock).toHaveBeenCalledTimes(1)
+    expect(mountSessionMock.mock.calls[0]?.[1]).toMatchObject({
+      initialGeometry: { cols: 103, rows: 28 },
+    })
     // A scrolling crop selects the phone's spectator policy in mountSession.
     expect(lastMountOpts?.crop).toBe('scroll')
   })
@@ -231,7 +259,7 @@ describe('TerminalPane startup status (POD-393)', () => {
 
   it('says the PTY has printed nothing yet, and stops as soon as it does', async () => {
     const sessionId = asSessionId('sess-silent')
-    const view = await renderWithMobileStore(<TerminalPane sessionId={sessionId} active />, {
+    const view = await renderWithTerminalStore(<TerminalPane sessionId={sessionId} active />, {
       sessions: [confirmedRow(sessionId)],
     })
 
@@ -259,7 +287,7 @@ describe('TerminalPane startup status (POD-393)', () => {
 
   it('stays out of the way of a session that has already spoken', async () => {
     const sessionId = asSessionId('sess-talked')
-    const view = await renderWithMobileStore(<TerminalPane sessionId={sessionId} active />, {
+    const view = await renderWithTerminalStore(<TerminalPane sessionId={sessionId} active />, {
       sessions: [confirmedRow(sessionId)],
     })
     await attach(true)
@@ -285,7 +313,7 @@ describe('TerminalPane startup status (POD-393)', () => {
 describe('TerminalPane take control (POD-724)', () => {
   async function mountPane(sessionId: SessionId) {
     const published: TerminalControlState[] = []
-    const view = await renderWithMobileStore(
+    const view = await renderWithTerminalStore(
       <TerminalPane sessionId={sessionId} active onControlState={(s) => published.push(s)} />,
       { sessions: [confirmedRow(sessionId)] },
     )
@@ -366,7 +394,7 @@ describe('TerminalPane ref underlines (POD-724)', () => {
 
   it('marks only prefixes the live projection knows, colours them by live stage, and opens the task', async () => {
     const opened: string[] = []
-    const { replica } = await renderWithMobileStore(
+    const { replica } = await renderWithTerminalStore(
       <TerminalPane sessionId={SESSION} active onOpenIssue={(id) => opened.push(id)} />,
       {
         sessions: [confirmedRow(SESSION)],

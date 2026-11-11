@@ -36,8 +36,16 @@ try {
       const label = document.getElementById('first-frame-reading')
       if (label)
         label.textContent = `Measured first grid: ${grid.cols} × ${grid.rows} · before attach`
-      return { grid, first, diagnostics }
+      return {
+        grid,
+        first,
+        diagnostics,
+        deliveryDelayMs: Number(label?.dataset.deliveryDelayMs),
+        mountedBeforeReading: label?.dataset.mountedBeforeReading,
+      }
     })
+    if (!(evidence.deliveryDelayMs >= 90) || evidence.mountedBeforeReading !== 'false')
+      throw new Error(`Terminal did not wait for a late reading: ${JSON.stringify(evidence)}`)
     if (evidence.grid.cols !== 132 || evidence.grid.rows !== 43)
       throw new Error(`Wrong birth grid: ${JSON.stringify(evidence)}`)
     if (

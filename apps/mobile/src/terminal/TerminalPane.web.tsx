@@ -42,8 +42,8 @@ export function TerminalPane({
   const hub = useHub()
   const connected = useConnected()
   const references = useTerminalReferences(active)
-  // The live grid this pane opens at (POD-3239 B1). Read once at mount by
-  // `useTerminalSession`; a later row update never remounts the terminal.
+  // The live grid this pane opens at (POD-3239 B1). useTerminalSession waits
+  // briefly for its first reading; later readings never remount the terminal.
   const geometry = useSessionContextGeometry(sessionId)
   // Live reads for callbacks the terminal keeps for the lifetime of the mount:
   // the overlay asks for a stage on every repaint, and a closure that captured

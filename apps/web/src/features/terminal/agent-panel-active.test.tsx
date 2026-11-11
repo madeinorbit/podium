@@ -160,12 +160,15 @@ vi.mock('@/app/store', () => {
 
 const paneFixture = createPanePoolFixture(() => readFixture((state) => state) as never)
 vi.mock('@/app/store-worklist-pool', () => paneFixture.hooks)
+const readPanePool = paneFixture.hooks.useWorklistPool
 
 function renderPanel(...args: Parameters<Root['render']>) {
   paneFixture.sync()
   // The general lifecycle cases start with a held topic. The first-open cases
   // render the root directly so no earlier known reading can be carried stale.
-  liveFixture(paneFixture.hooks.useWorklistPool()!).sessionTerminalState('s1', {
+  const pool = readPanePool()
+  if (!pool) throw new Error('Missing pane fixture pool')
+  liveFixture(pool).sessionTerminalState('s1', {
     controller: null,
     geometry: { cols: 80, rows: 24 },
   })

@@ -1,6 +1,4 @@
-import type { Trpc } from '@/app/trpc'
-import { useSocketHub, useRequestClient } from '@podium/client-core/react'
-import { useUiValue } from '@podium/client-core/react'
+import { useRequestClient, useSocketHub, useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { observer } from '@podium/client-graph/react'
 import type { MachineFacts, MachineId, SessionId } from '@podium/model/browser'
@@ -10,6 +8,7 @@ import { useTerminalSession } from '@podium/terminal-client-react'
 import { Monitor } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useRef } from 'react'
+import type { Trpc } from '@/app/trpc'
 import { Badge } from '@/components/ui/badge'
 import { isKnownRefPrefix } from '@/lib/markdown-references'
 import { activateRef } from '@/lib/ref-activation'
@@ -232,9 +231,8 @@ const DockShellTerminal = observer(function DockShellTerminal({
     sessionId,
     appearance,
     focusWhenReady: true,
-    // Born at W, exactly as the agent panel is (POD-3239 B1). A dock shell is a
-    // terminal like any other; constructing it at 80x24 and moving it is the
-    // same wrong first frame.
+    // Born at W, exactly as the agent panel is (POD-3239 B1). The shared hook
+    // waits briefly for the first size reading requested by this pane.
     ...(geometry ? { initialGeometry: geometry } : {}),
     // Human-facing ref links (#474 / POD-529): clickable PREFIX-N tokens with
     // live stage-coloured underlines when the issue is known.
