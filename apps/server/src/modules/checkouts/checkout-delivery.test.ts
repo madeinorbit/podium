@@ -19,12 +19,22 @@
 
 import { asMachineId, asUserId, checkoutRowId, type GitRepositoryWire } from '@podium/model'
 import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { SessionStore } from '../../store'
+import { openTestStore } from '../../test-support/open-test-store'
+import {
+  countStatements,
+  expectConstantStatements,
+  type StatementPin,
+} from '../../test-support/statement-count'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 
-afterEach(() => {
+const reachStores: SessionStore[] = []
+
+afterEach(async () => {
   vi.restoreAllMocks()
   disposeOracles()
+  for (const store of reachStores.splice(0)) await store.close()
 })
 
 const AT = '2026-11-09T00:00:00.000Z'
@@ -297,4 +307,228 @@ it('a lost checkout that is gone is still evicted to the member who lost it', as
   await o.reg.modules.checkouts.registrationsChanged(MACHINE)
   await o.store.machines.touchMachine(MACHINE, 'renamed-host')
   expect(await received(o, away, USER)).toEqual([`evict ${root}`, `evict ${worktree}`].sort())
+})
+
+type ReachChange = Parameters<SessionStore['checkouts']['applyReach']>[0]
+
+async function reachStore(): Promise<SessionStore> {
+  const store = await openTestStore(':memory:')
+  reachStores.push(store)
+  return store
+}
+
+/** Distinct values in a batch catch a shared conflict-update placeholder. */
+function reachChange(size: number): Required<ReachChange> {
+  const reach = Array.from({ length: size }, (_, i) => ({
+    userId: LATE,
+    machineId: asMachineId(`reach-machine-${i}`),
+    reach: i % 2 === 0 ? ('roots' as const) : ('all' as const),
+  }))
+  const lost = reach.map((row, i) => ({ ...row, path: WORKTREE, root: i % 2 === 0 }))
+  return { reach, lost, found: lost }
+}
+
+type ReachWrite = 'reach upserts' | 'reach removals' | 'loss inserts' | 're-admission'
+
+function reachPin(
+  write: ReachWrite,
+): StatementPin<{ store: SessionStore; change: Required<ReachChange> }> {
+  return {
+    name: `applyReach ${write}`,
+    setup: async (size) => {
+      const store = await reachStore()
+      const change = reachChange(size)
+      if (write === 'reach removals') await store.checkouts.applyReach({ reach: change.reach }, AT)
+      if (write === 're-admission')
+        await store.checkouts.applyReach({ reach: [], lost: change.lost }, AT)
+      return { store, change }
+    },
+    target: (f) => f.store,
+    run: async ({ store, change }) => {
+      const changes: Record<ReachWrite, ReachChange> = {
+        'reach upserts': { reach: change.reach },
+        'reach removals': { reach: change.reach.map((row) => ({ ...row, reach: 'none' })) },
+        'loss inserts': { reach: [], lost: change.lost },
+        're-admission': { reach: [], found: change.found },
+      }
+      await store.checkouts.applyReach(changes[write], AT)
+    },
+    check: async (_, { store, change }) => {
+      const machines = change.reach.map((row) => row.machineId)
+      if (write === 'reach upserts' || write === 'reach removals') {
+        const stored = await store.checkouts.reachOfMachines(machines)
+        expect(stored.size).toBe(write === 'reach removals' ? 0 : machines.length)
+        if (write === 'reach upserts')
+          for (const row of change.reach)
+            expect(stored.get(row.machineId)?.get(LATE)?.reach).toBe(row.reach)
+      } else {
+        const stored = await store.checkouts.lostOfMachines(machines)
+        expect(stored.size).toBe(write === 're-admission' ? 0 : machines.length)
+        if (write === 'loss inserts')
+          for (const row of change.lost)
+            expect(stored.get(row.machineId)?.get(LATE)).toEqual([
+              { path: row.path, root: row.root },
+            ])
+      }
+    },
+    teardown: async ({ store }) => {
+      reachStores.splice(reachStores.indexOf(store), 1)
+      await store.close()
+    },
+  }
+}
+
+describe('checkout reach batch writes', () => {
+  it.each<ReachWrite>([
+    'reach upserts',
+    'reach removals',
+    'loss inserts',
+    're-admission',
+  ])('%s runs one statement at 5 and 200 machines', async (write) => {
+    await expectConstantStatements(reachPin(write), 1)
+  })
+
+  it('an empty change executes no statements', async () => {
+    const store = await reachStore()
+    const counted = await countStatements(store, () =>
+      store.checkouts.applyReach({ reach: [] }, AT),
+    )
+    expect(counted.statements).toBe(0)
+  })
+
+  it('chunks all four write paths at 500 rows and preserves every row', async () => {
+    const store = await reachStore()
+    const change = reachChange(1001)
+    const machines = change.reach.map((row) => row.machineId)
+    const added = await countStatements(store, () =>
+      store.checkouts.applyReach({ reach: change.reach, lost: change.lost }, AT),
+    )
+    expect((await store.checkouts.reachOfMachines(machines)).size).toBe(1001)
+    expect((await store.checkouts.lostOfMachines(machines)).size).toBe(1001)
+    const removed = await countStatements(store, () =>
+      store.checkouts.applyReach(
+        {
+          reach: change.reach.map((row) => ({ ...row, reach: 'none' })),
+          found: change.found,
+        },
+        AT,
+      ),
+    )
+    expect(await store.checkouts.reachOfMachines(machines)).toEqual(new Map())
+    expect(await store.checkouts.lostOfMachines(machines)).toEqual(new Map())
+    // Three chunks for each of the two write paths, excluding transaction control.
+    expect(added.statements).toBe(6)
+    expect(removed.statements).toBe(6)
+  })
+
+  it('a late chunk failure rolls back reach changes, found paths and earlier loss chunks', async () => {
+    const store = await reachStore()
+    const change = reachChange(501)
+    await store.checkouts.applyReach({ reach: change.reach, lost: change.lost }, AT)
+    const machines = change.reach.map((row) => row.machineId)
+    const beforeReach = await store.checkouts.reachOfMachines(machines)
+    const beforeLost = await store.checkouts.lostOfMachines(machines)
+    await expect(
+      store.checkouts.applyReach(
+        {
+          reach: change.reach.map((row) => ({ ...row, reach: 'none' })),
+          found: change.found,
+          lost: change.lost.map((row, i) => ({
+            ...row,
+            path: i === 500 ? (null as unknown as string) : '/new-loss',
+          })),
+        },
+        'later',
+      ),
+    ).rejects.toThrow()
+    expect(await store.checkouts.reachOfMachines(machines)).toEqual(beforeReach)
+    expect(await store.checkouts.lostOfMachines(machines)).toEqual(beforeLost)
+  })
+
+  it('deletes only the named composite keys and keeps unrelated losses', async () => {
+    const store = await reachStore()
+    const otherMachine = asMachineId('another-machine')
+    const reach = [MACHINE, otherMachine].flatMap((machineId) =>
+      [LATE, USER].map((userId) => ({ userId, machineId, reach: 'all' as const })),
+    )
+    const lost = reach.flatMap((row) =>
+      [ROOT, WORKTREE].map((path) => ({ ...row, path, root: path === ROOT })),
+    )
+    await store.checkouts.applyReach({ reach, lost }, AT)
+    const keys = [
+      { userId: LATE, machineId: MACHINE },
+      { userId: USER, machineId: otherMachine },
+    ]
+    await store.checkouts.applyReach(
+      {
+        reach: keys.map((row) => ({ ...row, reach: 'none' })),
+        found: keys.map((row) => ({ ...row, path: ROOT })),
+      },
+      'later',
+    )
+    const storedReach = await store.checkouts.reachOfMachines([MACHINE, otherMachine])
+    const storedLost = await store.checkouts.lostOfMachines([MACHINE, otherMachine])
+    for (const row of reach) {
+      const removed = keys.some(
+        (key) => key.userId === row.userId && key.machineId === row.machineId,
+      )
+      expect(storedReach.get(row.machineId)?.get(row.userId)?.reach).toBe(
+        removed ? undefined : 'all',
+      )
+      expect(storedLost.get(row.machineId)?.get(row.userId)).toEqual(
+        removed
+          ? [{ path: WORKTREE, root: false }]
+          : [
+              { path: WORKTREE, root: false },
+              { path: ROOT, root: true },
+            ],
+      )
+    }
+  })
+
+  it('retains a loss on conflict and inserts losses after removing found paths', async () => {
+    const store = await reachStore()
+    const row = { userId: LATE, machineId: MACHINE, path: ROOT, root: true }
+    await store.checkouts.applyReach({ reach: [], lost: [row] }, AT)
+    await store.checkouts.applyReach({ reach: [], lost: [{ ...row, root: false }] }, 'later')
+    expect((await store.checkouts.lostOfMachines([MACHINE])).get(MACHINE)?.get(LATE)).toEqual([
+      { path: ROOT, root: true },
+    ])
+    await store.checkouts.applyReach(
+      { reach: [], found: [row], lost: [{ ...row, root: false }] },
+      'later',
+    )
+    expect((await store.checkouts.lostOfMachines([MACHINE])).get(MACHINE)?.get(LATE)).toEqual([
+      { path: ROOT, root: false },
+    ])
+  })
+
+  it('the last reach wins for repeated keys across removals and upserts', async () => {
+    const store = await reachStore()
+    const key = { userId: LATE, machineId: MACHINE }
+    await store.checkouts.applyReach(
+      {
+        reach: [
+          { ...key, reach: 'all' },
+          { ...key, reach: 'none' },
+          { ...key, reach: 'roots' },
+        ],
+      },
+      AT,
+    )
+    expect((await store.checkouts.reachOfMachines([MACHINE])).get(MACHINE)?.get(LATE)?.reach).toBe(
+      'roots',
+    )
+    await store.checkouts.applyReach(
+      {
+        reach: [
+          { ...key, reach: 'none' },
+          { ...key, reach: 'all' },
+          { ...key, reach: 'none' },
+        ],
+      },
+      AT,
+    )
+    expect(await store.checkouts.reachOfMachines([MACHINE])).toEqual(new Map())
+  })
 })

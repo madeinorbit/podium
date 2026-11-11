@@ -19,7 +19,12 @@ import {
   type GitRepositoryWire,
 } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { countStatements, expectConstantStatements, type StatementPin } from '../../test-support/statement-count'
+import {
+  countStatements,
+  expectArmed,
+  expectConstantStatements,
+  type StatementPin,
+} from '../../test-support/statement-count'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import { appliedReply, envelope, submit } from '../sync-write/outbox-test-support'
 
@@ -159,6 +164,34 @@ const memberRole: StatementPin<Fixture> = {
   run: async (f) => await f.o.store.users.setRole(asUserId('user:member-0'), 'admin'),
 }
 
+// Keep the reach writes visible while POD-6771 separately batches change_latest.
+const memberRoleReach: StatementPin<Fixture> = {
+  ...memberRole,
+  name: 'member role checkout_reach writes (every machine)',
+  count: async (f, run) => {
+    const counted = await countStatements(f.o.store, run)
+    const byQuery = new Map(
+      [...counted.byQuery].filter(([query]) =>
+        /^(insert into|delete from) "checkout_reach"/i.test(query),
+      ),
+    )
+    return {
+      result: counted.result,
+      statements: [...byQuery.values()].reduce((total, count) => total + count, 0),
+      byQuery,
+    }
+  },
+  check: async (_, f, size) => {
+    const machines = [
+      f.machine,
+      ...Array.from({ length: size }, (_, i) => `other-${i}` as ReturnType<typeof asMachineId>),
+    ]
+    const reach = await f.o.store.checkouts.reachOfMachines(machines)
+    for (const machine of machines)
+      expect(reach.get(machine)?.get('user:member-0')?.reach).toBe('roots')
+  },
+}
+
 const oneNewWorktree: StatementPin<Fixture> = {
   name: 'checkouts.rescan (one new worktree)',
   setup: fixture,
@@ -185,6 +218,27 @@ describe('statement counts of the machine record writes', () => {
 
   it('a member role comparison reads a fixed number of times across the fleet', async () => {
     await expectConstantStatements(memberRole, 12)
+  })
+
+  it('a member role change batches checkout_reach writes at 5 and 200 machines', async () => {
+    await expectConstantStatements(memberRoleReach, 1)
+  })
+
+  it('the fleet checkout_reach pin catches a planted write per machine', async () => {
+    await expectArmed(memberRoleReach, 1, (f, size) => {
+      const apply = f.o.store.checkouts.applyReach.bind(f.o.store.checkouts)
+      const spy = vi
+        .spyOn(f.o.store.checkouts, 'applyReach')
+        .mockImplementation(async (change, at) => {
+          await apply(change, at)
+          for (let i = 0; i < size; i++)
+            await apply(
+              { reach: [{ userId: 'user:member-0', machineId: f.machine, reach: 'roots' }] },
+              at,
+            )
+        })
+      return () => spy.mockRestore()
+    })
   })
 
   it('a scan that finds nothing new writes nothing, whatever the machine holds', async () => {
