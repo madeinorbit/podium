@@ -1,4 +1,5 @@
 import { CommittedRows } from './committed-rows'
+import { MachineRecordWrites } from './machine-record-writes'
 /**
  * Durable grant edges, never cached authorization decisions. Every reader asks
  * this repository; there is no in-memory copy (POD-6155), so a revocation is
@@ -11,8 +12,15 @@ import { GRANT_VERBS } from '@podium/model'
 import { and, asc, count, eq, type SQL, sql } from 'drizzle-orm'
 import { grantAudiences, grants } from '../migrations/schema'
 import { operationLoader } from './executor/operation-loader'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { inListOf, inListSize, inListValues, param, prepared, preparedFamily } from './executor/sync-drizzle'
+import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
+import {
+  inListOf,
+  inListSize,
+  inListValues,
+  param,
+  prepared,
+  preparedFamily,
+} from './executor/sync-drizzle'
 
 /** The entity kind a machine grant hangs on — `ENTITY_KINDS`' `machine` member. */
 export const MACHINE_RESOURCE_KIND = 'machine'
@@ -174,7 +182,21 @@ const deleteEdge = prepared((db: StoreDrizzle) =>
 )
 
 const deleteGrantsOfGrantee = prepared((db: StoreDrizzle) =>
-  db.delete(grants).where(eq(grants.grantee, param(grants.grantee, 'grantee'))).returning().prepare(),
+  db
+    .delete(grants)
+    .where(eq(grants.grantee, param(grants.grantee, 'grantee')))
+    .returning()
+    .prepare(),
+)
+
+const machinesGrantedTo = prepared((db: StoreDrizzle) =>
+  db
+    .select({ id: grants.resourceId })
+    .from(grants)
+    .where(
+      and(eq(grants.grantee, param(grants.grantee, 'grantee')), eq(grants.resourceKind, 'machine')),
+    )
+    .prepare(),
 )
 
 const deleteGrantsOfResource = preparedFamily((db: StoreDrizzle, custody: 'retain' | 'all') =>
@@ -211,6 +233,10 @@ export class GrantsRepository {
     return this.visibilityRevisionValue
   }
 
+  async machineIdsForGrantee(grantee: string): Promise<string[]> {
+    return (await machinesGrantedTo(this.db).all({ grantee })).map(({ id }) => id)
+  }
+
   /**
    * The historical audience of each resource, revoked readers included, in one
    * read per 500 ids [POD-6156]. Every asked id gets an entry, `[]` for "no
@@ -240,7 +266,10 @@ export class GrantsRepository {
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
+  constructor(
+    queries: StoreQueries,
+    readonly machineRecordWrites = new MachineRecordWrites(),
+  ) {
     this.committed = new CommittedRows(queries.createOrJoinTransaction, 'grants')
     // The loader is invalidated after each write below AND after each commit of
     // one, which is what makes its memo exact inside write spans (POD-6189).
@@ -416,53 +445,75 @@ export class GrantsRepository {
    * that owner rather than to the previous one.
    */
   async upsert(row: GrantRow): Promise<void> {
-    if (row.custody && (row.resourceKind !== 'machine' || row.verb !== 'manage')) {
-      throw new Error('Custody requires a machine manage edge')
-    }
-    // Updating an ordinary share preserves its custody marker. A second
-    // custodian conflicts with the partial unique index and rolls back.
-    ;await this.committed.write(async () => {
-      await this.noteVisibilityAudience(row.resourceKind, row.resourceId, row.grantee)
-      return await upsertGrant(this.db, row.custody === undefined ? 'keep' : 'set').all({
-        resourceKind: row.resourceKind,
-        resourceId: row.resourceId,
-        grantee: row.grantee,
-        verb: row.verb,
-        custody: row.custody ?? false,
-        owner: row.owner,
-        visibility: row.visibility,
-        createdAt: row.createdAt,
-        actorKind: row.actorKind,
-        actorId: row.actorId,
-        onBehalfOf: row.onBehalfOf,
-      })
-    }, 'upsert')
-    this.resourceGrants.invalidate()
-    this.visibilityRevisionValue += 1
+    await this.machineRecordWrites.compare(
+      { machines: row.resourceKind === 'machine' ? [row.resourceId] : [] },
+      async () => {
+        if (row.custody && (row.resourceKind !== 'machine' || row.verb !== 'manage')) {
+          throw new Error('Custody requires a machine manage edge')
+        }
+        // Updating an ordinary share preserves its custody marker. A second
+        // custodian conflicts with the partial unique index and rolls back.
+        await this.committed.write(async () => {
+          await this.noteVisibilityAudience(row.resourceKind, row.resourceId, row.grantee)
+          return await upsertGrant(this.db, row.custody === undefined ? 'keep' : 'set').all({
+            resourceKind: row.resourceKind,
+            resourceId: row.resourceId,
+            grantee: row.grantee,
+            verb: row.verb,
+            custody: row.custody ?? false,
+            owner: row.owner,
+            visibility: row.visibility,
+            createdAt: row.createdAt,
+            actorKind: row.actorKind,
+            actorId: row.actorId,
+            onBehalfOf: row.onBehalfOf,
+          })
+        }, 'upsert')
+        this.resourceGrants.invalidate()
+        this.visibilityRevisionValue += 1
+      },
+    )
   }
 
   /** Revocation of one verb. Returns whether an edge was actually removed, so a
    *  caller can tell "revoked" from "there was nothing to revoke" without a
    *  second read that could race the delete. */
-  async remove(resourceKind: string, resourceId: string, grantee: string, verb: GrantVerb): Promise<boolean> {
-    const edge = { resourceKind, resourceId, grantee, verb }
-    const before = await countEdge(this.db).get(edge)
-    await this.committed.write(async () => {
-      await this.noteVisibilityAudience(resourceKind, resourceId, grantee)
-      return await deleteEdge(this.db).all(edge)
-    }, 'delete')
-    this.resourceGrants.invalidate()
-    const removed = (before?.n ?? 0) > 0
-    if (removed) this.visibilityRevisionValue += 1
-    return removed
+  async remove(
+    resourceKind: string,
+    resourceId: string,
+    grantee: string,
+    verb: GrantVerb,
+  ): Promise<boolean> {
+    return this.machineRecordWrites.compare(
+      { machines: resourceKind === 'machine' ? [resourceId] : [] },
+      async () => {
+        const edge = { resourceKind, resourceId, grantee, verb }
+        const before = await countEdge(this.db).get(edge)
+        await this.committed.write(async () => {
+          await this.noteVisibilityAudience(resourceKind, resourceId, grantee)
+          return await deleteEdge(this.db).all(edge)
+        }, 'delete')
+        this.resourceGrants.invalidate()
+        const removed = (before?.n ?? 0) > 0
+        if (removed) this.visibilityRevisionValue += 1
+        return removed
+      },
+    )
   }
 
   /** Member removal revokes their incoming rights, preserving everyone else's shares. */
   async removeAllForGrantee(grantee: string): Promise<void> {
-    const result = await this.committed.write(async () => await deleteGrantsOfGrantee(this.db)
-      .all({ grantee }), 'delete')
-    this.resourceGrants.invalidate()
-    if (result.changes > 0) this.visibilityRevisionValue += 1
+    await this.machineRecordWrites.compare(
+      { machines: async () => await this.machineIdsForGrantee(grantee) },
+      async () => {
+        const result = await this.committed.write(
+          async () => await deleteGrantsOfGrantee(this.db).all({ grantee }),
+          'delete',
+        )
+        this.resourceGrants.invalidate()
+        if (result.changes > 0) this.visibilityRevisionValue += 1
+      },
+    )
   }
 
   /**
@@ -473,10 +524,25 @@ export class GrantsRepository {
    * keeps it), so surviving edges would silently re-grant a machine its previous
    * owner already un-shared. This is not a reaper: it is part of the delete.
    */
-  async removeAllForResource(resourceKind: string, resourceId: string, retainCustody = false): Promise<void> {
-    const result = await this.committed.write(async () => await deleteGrantsOfResource(this.db, retainCustody ? 'retain' : 'all')
-      .all({ resourceKind, resourceId }), 'delete')
-    this.resourceGrants.invalidate()
-    if (Number(result.changes) > 0) this.visibilityRevisionValue += 1
+  async removeAllForResource(
+    resourceKind: string,
+    resourceId: string,
+    retainCustody = false,
+  ): Promise<void> {
+    await this.machineRecordWrites.compare(
+      { machines: resourceKind === 'machine' ? [resourceId] : [] },
+      async () => {
+        const result = await this.committed.write(
+          async () =>
+            await deleteGrantsOfResource(this.db, retainCustody ? 'retain' : 'all').all({
+              resourceKind,
+              resourceId,
+            }),
+          'delete',
+        )
+        this.resourceGrants.invalidate()
+        if (Number(result.changes) > 0) this.visibilityRevisionValue += 1
+      },
+    )
   }
 }

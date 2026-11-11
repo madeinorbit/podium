@@ -320,7 +320,6 @@ export class DaemonMux {
     log.info('daemon attached — the machine is now online', { machineId })
     await machines.flushQueued(machineId)
     await sessions.onMachineAttached(principal)
-    machines.schedulePublishMachines([machineId])
     this.deps.bus.emit('machine.connected', { machineId })
   }
 

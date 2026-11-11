@@ -33,7 +33,6 @@ const instanceService = (state: {
     | {
         bus: import('../bus').EventBus
         machines: {
-          refreshFleetChannel(): void | Promise<void>
           grantHostMachineIfUnowned(ownerUserId: UserId): Promise<boolean>
           completeHostSetup(
             ownerUserId: UserId,
@@ -75,13 +74,10 @@ const instanceService = (state: {
       ? async (ownerUserId) => await state.modules!.machines.grantHostMachineIfUnowned(ownerUserId)
       : undefined,
     // POD-1882: the fleet default is the channel every unpinned machine follows,
-    // so writing it has to re-resolve their targets and push the new projection.
+    // so writing it also re-resolves their update target.
     onFleetChannelChanged: state.modules
       ? async (channel) => {
-          // Order matters: load the new channel's target FIRST, then broadcast.
-          // Broadcasting first would ship the new channel with the old target.
           await state.modules?.updates.refreshTarget(channel)
-          await state.modules?.machines.refreshFleetChannel()
         }
       : undefined,
   })

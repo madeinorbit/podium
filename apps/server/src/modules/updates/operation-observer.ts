@@ -52,7 +52,7 @@ export function updateOperationObserver(
         channel, target, `Update ${row.id} failed: ${reason} Human re-approval is required.`,
       )
     }
-    updatesService.publishNextTargets()
+    await updatesService.publishNextTargets()
     // POD-2101: the deadline that used to end a silent grant aged inside a
     // `fleet()` read. The operation owns that authority now, so the moment
     // it stops waiting is the moment those grants stop being believed. A

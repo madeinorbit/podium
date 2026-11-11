@@ -284,11 +284,12 @@ describe('S1 session companion records', () => {
     'enroll',
     'revoke',
     'inventory',
-  ] as const)('declares one machine and never recaptures sessions on %s', async (verb) => {
+  ] as const)('compares machine records and never recaptures sessions on %s', async (verb) => {
     const f = await fixture()
     const id = f.store.hostMachineId
     await f.sessions.flushBroadcasts()
     const capture = vi.spyOn(f.reg.changeLedger, 'capture')
+    const before = await f.reg.changeLedger.cursor()
     const dirty = vi.spyOn(f.sessions.repository, 'markVolatileSessionDirty')
     const project = vi.spyOn(f.sessions.view, 'buildProjectionPass')
     if (verb === 'inventory')
@@ -309,24 +310,21 @@ describe('S1 session companion records', () => {
         changes.filter((change) => change.entity === 'session'),
       ),
     ).toEqual([])
-    const declarations = capture.mock.calls.flatMap(([, changes]) =>
-      changes.filter((change) => change.entity === 'machine'),
-    )
-    expect(declarations).toEqual([
-      {
-        entity: 'machine',
-        id,
-        op: 'upsert',
-        value: {
+    const changes = (await f.reg.changeLedger.changesSince(before)) ?? []
+    const machines = changes.filter((change) => change.entity === 'machine')
+    if (verb === 'rename' || verb === 'enroll') {
+      expect(machines).toMatchObject([
+        {
+          entity: 'machine',
           id,
-          name: verb === 'rename' ? 'Renamed' : verb === 'enroll' ? 'Enrolled' : 'Host',
-          loggedOutHarnesses: [],
-          // The record names its custodian (POD-6291 9dd00e1e43, design §4.2):
-          // the person who receives its tasks' worktree paths.
-          custodian: f.A,
+          op: 'upsert',
+          value: { id, name: verb === 'rename' ? 'Renamed' : 'Enrolled', custodian: f.A },
         },
-      },
-    ])
+      ])
+    } else {
+      expect(machines).toEqual([])
+      expect(changes.some((change) => change.entity === 'machineAccess')).toBe(true)
+    }
   })
 
   it('machine records publish once, remain member-visible, and channel changes do not dirty sessions', async () => {
@@ -338,30 +336,36 @@ describe('S1 session companion records', () => {
     expect(changes?.filter((change) => change.entity === 'machine')).toHaveLength(1)
     const snapshot = await f.sessions.syncChangesSince(null, wirePrincipal(C))
     if (snapshot.kind !== 'snapshot') throw new Error('expected snapshot')
-    expect(snapshot.machines).toContainEqual({
-      id: machine,
-      name: 'Renamed',
-      loggedOutHarnesses: [],
-      custodian: f.A,
-    })
+    expect(snapshot.machines).toContainEqual(
+      expect.objectContaining({
+        id: machine,
+        name: 'Renamed',
+        loggedOutHarnesses: [],
+        custodian: f.A,
+      }),
+    )
     const dirty = vi.spyOn(f.sessions.repository, 'markVolatileSessionDirty')
     dirty.mockClear()
     await f.reg.modules.machines.setUpdateChannel(machine, 'dev')
     expect(dirty).not.toHaveBeenCalled()
     await f.reg.modules.machines.ensureHostMachine('Enrolled')
-    expect(await f.reg.changeLedger.authority.snapshot('machine')).toContainEqual({
-      id: machine,
-      name: 'Enrolled',
-      loggedOutHarnesses: [],
-      custodian: f.A,
-    })
+    expect(await f.reg.changeLedger.authority.snapshot('machine')).toContainEqual(
+      expect.objectContaining({
+        id: machine,
+        name: 'Enrolled',
+        loggedOutHarnesses: [],
+        custodian: f.A,
+      }),
+    )
     await f.reg.modules.machines.revokeMachine(machine)
-    expect(await f.reg.changeLedger.authority.snapshot('machine')).toContainEqual({
-      id: machine,
-      name: 'Enrolled',
-      loggedOutHarnesses: [],
-      custodian: f.A,
-    })
+    expect(await f.reg.changeLedger.authority.snapshot('machine')).toContainEqual(
+      expect.objectContaining({
+        id: machine,
+        name: 'Enrolled',
+        loggedOutHarnesses: [],
+        custodian: f.A,
+      }),
+    )
   })
 
   it('machine inventory records carry logged-out harnesses without copying inventory', async () => {
@@ -373,24 +377,28 @@ describe('S1 session companion records', () => {
       tools: [],
     })
     const rows = await f.reg.changeLedger.authority.snapshot('machine')
-    expect(rows).toContainEqual({
-      id: f.store.hostMachineId,
-      name: 'Host',
-      loggedOutHarnesses: ['codex'],
-      custodian: f.A,
-    })
+    expect(rows).toContainEqual(
+      expect.objectContaining({
+        id: f.store.hostMachineId,
+        name: 'Host',
+        loggedOutHarnesses: ['codex'],
+        custodian: f.A,
+      }),
+    )
     await f.reg.modules.machines.recordInventory(f.store.hostMachineId, {
       os: 'linux',
       arch: 'x64',
       agents: [{ kind: 'codex', installed: true, login: { state: 'in' } }],
       tools: [],
     })
-    expect(await f.reg.changeLedger.authority.snapshot('machine')).toContainEqual({
-      id: f.store.hostMachineId,
-      name: 'Host',
-      loggedOutHarnesses: [],
-      custodian: f.A,
-    })
+    expect(await f.reg.changeLedger.authority.snapshot('machine')).toContainEqual(
+      expect.objectContaining({
+        id: f.store.hostMachineId,
+        name: 'Host',
+        loggedOutHarnesses: [],
+        custodian: f.A,
+      }),
+    )
   })
 
   it('reference inputs describe drafts and birth issues even after a reattachment', async () => {

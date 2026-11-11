@@ -1981,7 +1981,7 @@ const ensureMachines: StepRunner<UpdateOperationContext>['ensure'] = async ({
   const untouched = (step.places ?? [])
     .filter((place) => place.state === undefined || place.state === 'pending')
     .map((place) => place.id)
-  if (untouched.length > 0) context.updates.clearMachineVerdicts(details.channel, untouched)
+  if (untouched.length > 0) await context.updates.clearMachineVerdicts(details.channel, untouched)
 
   const settled = await settleMachines(operation, step, context)
   if (settled) return settled
@@ -2038,7 +2038,7 @@ const ensureMachines: StepRunner<UpdateOperationContext>['ensure'] = async ({
     })
   }
 
-  context.updates.markAuthorized(details.channel)
+  await context.updates.markAuthorized(details.channel)
   await context.updates.tick(details.channel, {
     initiator: { kind: 'operation', operationId: operation.id, step: UPDATE_STEP_MACHINES },
     eligibility: `selected by this operation's wave for ${details.target.version}`,

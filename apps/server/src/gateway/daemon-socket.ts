@@ -592,7 +592,6 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
         () => undefined,
       )
       await attaching
-      await registry.modules.machines.publishMachines([principal.machine])
       // Supervisor-only desktops have no daemon attach to wake standing catch-up.
       // Publish only after the authenticated build and live sender are installed.
       if (!recoveryTransportOnly(registry))
@@ -700,7 +699,6 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
         // A replaced socket closing is not a new lifecycle transition.
         if (!recoveryTransportOnly(registry))
           registry.bus.emit('machine.disconnected', { machineId: principal.machine })
-        await registry.modules.machines.publishMachines([principal.machine])
       }
     } catch (error) {
       warnDroppedFrame('machine', error)

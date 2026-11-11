@@ -4,7 +4,7 @@ import { createLogger } from '@podium/logger'
 import type { DaemonReadiness, SessionId } from '@podium/model'
 import {
   type AccountId,
-  AgentKind,
+  type AgentKind,
   agentCapabilityRejection,
   agentCapabilityRejectionForSelection,
   agentLoginCondition,
@@ -52,8 +52,8 @@ import {
   CAP_CREDENTIAL_IDENTITY_GUARD,
   SERVER_MOVE_CAPABILITY,
   supervisorGenerationOf,
-  unknownUpdateSpace,
   UPDATE_SPACE_CAPABILITY,
+  unknownUpdateSpace,
   wireSchemaDigest,
 } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
@@ -65,20 +65,24 @@ import type { DaemonControlPeer } from '../../gateway/daemon-ports'
 import { isPrivateOwner } from '../../private-resources'
 import { enrollSetupMachine, readSetupEnrollment } from '../../setup-enrollment'
 import type { MachineRecord, SessionStore } from '../../store'
-import { runAtRoot } from '../../store/executor/context'
-import type { SettingsAuditRow } from '../../store/settings-audit'
 import { afterCommit, spanOpen } from '../../store/executor/executor'
+import type { CompareMachineRecords } from '../../store/machine-record-writes'
+import type { SettingsAuditRow } from '../../store/settings-audit'
 import type { SyncCommandWriter } from '../../write-contexts'
 import type { EventBus } from '../bus'
 import { custodianFromEdges } from '../issues/execution-visibility'
 import type { Send } from '../sessions/session'
-import { type EnrollmentHost, type MachineManagementContext, machineTransition } from './enrollment'
 import * as credentials from './enrollment'
-import { sha256 } from './enrollment'
-import { supersedeMachine } from './supersession'
-import { deriveVersionState } from './version-state'
+import {
+  type EnrollmentHost,
+  type MachineManagementContext,
+  machineTransition,
+  sha256,
+} from './enrollment'
 import { storedMachineRecordFacts } from './record-facts'
+import { supersedeMachine } from './supersession'
 import { UpdateSpaceRequests } from './update-space-requests'
+import { deriveVersionState } from './version-state'
 
 /** The credential lifecycle lives in `./enrollment.ts`; re-exported for the
  *  fixtures and durability tests that hash a token the way the store does. */
@@ -161,7 +165,7 @@ export type MachineListing = MachineWire
 export type MachineVersionState = 'unreported' | 'current' | 'behind' | 'ahead'
 
 /** What a machine-record write commits on: a command's own writer (ADR 12 D9). */
-export type MachineRecordWriter = Pick<SyncCommandWriter, 'capture'>
+export type MachineRecordWriter = Pick<SyncCommandWriter, 'commit'>
 
 /** One machine's synced record facts, before any member's verdicts (POD-6644). */
 export interface MachineRecordFacts {
@@ -172,7 +176,16 @@ export interface MachineRecordFacts {
   /** What a member who may SEE it reads, beside their own verdicts. */
   readonly see: Omit<
     MachineAccessWire,
-    'userId' | 'machineId' | 'use' | 'owned' | 'transferable' | 'unowned' | 'adoptable' | 'supersedable' | 'harnessVersions' | 'inventory'
+    | 'userId'
+    | 'machineId'
+    | 'use'
+    | 'owned'
+    | 'transferable'
+    | 'unowned'
+    | 'adoptable'
+    | 'supersedable'
+    | 'harnessVersions'
+    | 'inventory'
   >
   /** What only a member with USE reads. */
   readonly use: Pick<MachineAccessWire, 'harnessVersions' | 'inventory'>
@@ -336,13 +349,8 @@ export interface MachinesDeps {
   bus?: EventBus
   /** Awaited derived-state work that must complete before inventory observers run. */
   onInventoryRecorded?(): Promise<void>
-  /**
-   * Write these machines' synced records (all when omitted): the `machine`
-   * row and each member's `machineAccess` row (POD-6644, `./records.ts`). On
-   * `writer` when a command's own write moved them, so the change rows carry
-   * its provenance; else as the server's own write. Absent in fixtures.
-   */
-  publishMachineRecords?(ids?: readonly MachineId[], writer?: MachineRecordWriter): Promise<void>
+  /** Compare records around a compound machine transition. */
+  compareMachineRecords?: CompareMachineRecords
   /** A machine's live condition moved (`machine.condition`). */
   conditionChanged?(machineId: MachineId): void
   /**
@@ -455,7 +463,6 @@ export class MachinesService {
     // The daemon is told once the assignment has committed (ADR 2 D10, POD-6417).
     await this.outsideTheWrite(async () => {
       this.supervisors.get(machineId)?.send({ type: 'serviceAssignment', assignment })
-      await this.publishMachines([machineId])
     }, 'machines:assignment:push')
   }
 
@@ -589,7 +596,6 @@ export class MachinesService {
   private readonly enrollmentHost: EnrollmentHost
 
   private readonly unsubscribeMachineWrites: () => void
-  private readonly unsubscribeGrantWrites: () => void
 
   constructor(private readonly deps: MachinesDeps) {
     // Machine rows are read from the table (POD-6155); a committed write only
@@ -599,20 +605,10 @@ export class MachinesService {
         this.applyMachineWrite(raw.id, change.operation === 'delete' ? null : raw.revokedAt)
       }
     })
-    // Isolated fixtures hand in a store without the grants repository.
-    const grantWrites = (deps.store as { grants?: Partial<SessionStore['grants']> }).grants
-      ?.committed
-    this.unsubscribeGrantWrites = grantWrites
-      ? grantWrites.subscribe((change) => this.onGrantsCommitted(change.rows))
-      : () => {}
-
     // Built here, not as a field initializer: `deps` is a parameter property and
     // under ES2022 class-field semantics field initializers run BEFORE it lands.
     this.enrollmentHost = {
       deps,
-      publishMachines: async (ids) => {
-        await this.publishMachines(ids)
-      },
       hasSupervisor: (machineId) => this.hasSupervisor(machineId),
       retireIncarnation: (machineId) => this.retireIncarnation(machineId),
     }
@@ -716,7 +712,6 @@ export class MachinesService {
   async recordComponent(machineId: MachineId, component: MachineComponent): Promise<void> {
     if (this.presenceReadOnly) return
     if (!(await this.deps.store.machines.addMachineComponent(machineId, component))) return
-    await this.publishMachines([machineId])
   }
 
   /** Server intent returned to the parent after every supervisor attach. */
@@ -869,7 +864,6 @@ export class MachinesService {
       services,
       at,
     )
-    await this.publishMachines([machineId])
   }
 
   /**
@@ -1191,7 +1185,6 @@ export class MachinesService {
       ...(this.presenceReadOnly ? { verifyOnly: true } : {}),
     })
     if (!result.ok) return result
-    if (frame.type === 'pair') await this.publishMachines([result.machineId])
     if (facts === undefined) {
       // A peer that sends no inventory gets the owners of the sessions placed
       // on it, which it already runs: nothing about anyone else's sessions.
@@ -1281,7 +1274,6 @@ export class MachinesService {
   dispose(): void {
     this.spaceRequests.close()
     this.unsubscribeMachineWrites()
-    this.unsubscribeGrantWrites()
   }
 
   /** Resolve the native login identity available on the machine that will run a session. */
@@ -1343,7 +1335,6 @@ export class MachinesService {
         await this.deps.store.users.setPasswordHash(actor, passwordHash, new Date().toISOString())
       return enrollSetupMachine(this.deps.store, this.deps.installationId!, request, actor)
     })
-    await this.publishMachines([this.deps.hostMachineId])
     await requestParentEnrollment({
       action: 'confirm',
       agentExecution,
@@ -1893,55 +1884,6 @@ export class MachinesService {
     return new Map(ids.map((id) => [id, custodianFromEdges(edges.get(id))]))
   }
 
-  /**
-   * Write these machines' synced records (all when omitted): the machine row,
-   * and every member's access row. An unchanged row writes nothing, so a call
-   * after a write that moved no record fact costs one read (POD-6644). Replaces
-   * the clients' `machinesChanged` fan-out.
-   */
-  async publishMachines(ids?: readonly MachineId[]): Promise<void> {
-    await this.deps.publishMachineRecords?.(ids)
-  }
-
-  /** The fan-out for a caller that cannot yield (a socket attach or detach). */
-  schedulePublishMachines(ids?: readonly MachineId[]): void {
-    void this.publishMachines(ids).catch((err: unknown) => {
-      log.warn('machine records publish failed', { err })
-    })
-  }
-
-  /**
-   * A CUSTODY CHANGE IS A CHANGE OF THE MACHINE'S ROW (POD-6291). The custodian
-   * decides who receives the worktree paths of the tasks homed here, so the
-   * row is republished after a custody edge commits, and the feed re-sends
-   * those tasks to the members whose view moved (`feed-visibility.ts`). Any
-   * grant edge moves who may see or use the machine, so every grant change
-   * republishes its access rows too (POD-6644).
-   */
-  private onGrantsCommitted(
-    rows: readonly {
-      resourceKind: string
-      resourceId: string
-      verb: string
-      custody?: boolean | null
-    }[],
-  ): void {
-    const machines = new Set(
-      rows
-        .filter((row) => row.resourceKind === 'machine')
-        .map((row) => asMachineId(row.resourceId)),
-    )
-    if (machines.size === 0) return
-    // This listener runs inside the commit's apply step, which may not query.
-    // The republish is an effect of the commit: dispatched at the ROOT scope
-    // (`runAtRoot`), it reads the new grants once the write lease is gone.
-    runAtRoot(() => {
-      void this.publishMachines([...machines]).catch((err: unknown) => {
-        log.warn('grant change could not republish the machine', { err, machines: [...machines] })
-      })
-    })
-  }
-
   // ---------------------------------------------------------------------------
   // The live condition (machine.condition), never a record
   // ---------------------------------------------------------------------------
@@ -2104,7 +2046,7 @@ export class MachinesService {
     descriptors: HarnessDescriptorWire[] = [],
   ): Promise<void> {
     // Repeated inventory still settles waiters and persists the source, but
-    // only a changed report republishes the machine and notifies login readers.
+    // only a changed report notifies login readers. The source write compares its records.
     // Sessions join machine display facts on the client (POD-4974 S6).
     const unchanged = this.lastInventoryJsonByMachine.get(machineId) === inventoryJson
     this.lastInventoryJsonByMachine.set(machineId, inventoryJson)
@@ -2114,7 +2056,6 @@ export class MachinesService {
     this.settleInventoryWaiters(machineId)
     await this.deps.onInventoryRecorded?.()
     if (unchanged) return
-    await this.publishMachines([machineId])
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId, inventory: true })
   }
 
@@ -2127,7 +2068,6 @@ export class MachinesService {
   ): Promise<void> {
     if (this.supervisors.has(machineId)) return
     await this.deps.store.machines.setMachineBuild(machineId, build, caps, at, 'legacy-daemon')
-    await this.publishMachines([machineId])
   }
 
   recordDaemonReadiness(machineId: MachineId, readiness: DaemonReadiness | undefined): void {
@@ -2145,7 +2085,6 @@ export class MachinesService {
       ...report,
       probedAt: new Date(report.probedAt).toISOString(),
     })
-    await this.publishMachines([machineId])
   }
 
   /** Route a daemon-local warning with machine scope supplied by the transport. */
@@ -2163,21 +2102,10 @@ export class MachinesService {
    * command's provenance; the bus hears it once the write has committed.
    */
   async renameMachine(id: MachineId, name: string, writer?: MachineRecordWriter): Promise<void> {
-    await this.deps.store.machines.renameMachine(id, name)
-    await this.deps.publishMachineRecords?.([id], writer)
+    await this.deps.store.machines.renameMachine(id, name, writer)
     await this.outsideTheWrite(async () => {
       if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
     }, 'machines:rename:push')
-  }
-
-  /**
-   * The fleet default moved (POD-1882). Every machine with no pin of its own now
-   * resolves to a different channel and, usually, a different target, so the
-   * cached projection is wrong for all of them at once — invalidate and push,
-   * exactly as a per-machine change does for one.
-   */
-  async refreshFleetChannel(): Promise<void> {
-    if (await this.storeRecordChannel()) await this.publishMachines()
   }
 
   /** Persist the selected source independently for every joined machine.
@@ -2189,8 +2117,7 @@ export class MachinesService {
   ): Promise<void> {
     const machine = await this.deps.store.machines.getMachine(id)
     if (!machine || machine.revokedAt) throw new Error(`unknown or revoked machine '${id}'`)
-    await this.deps.store.machines.setUpdateChannel(id, channel)
-    await this.deps.publishMachineRecords?.([id], writer)
+    await this.deps.store.machines.setUpdateChannel(id, channel, writer)
   }
 
   async shareMachine(
@@ -2328,34 +2255,38 @@ export class MachinesService {
     } = {},
   ): Promise<void> {
     if (opts.skipRowDelete) return
-    await machineTransition(this.enrollmentHost, [id], async () => {
-      const now = new Date().toISOString()
-      await this.deps.store.transact(async () => {
-        const row = await this.deps.store.machines.getMachine(id)
-        if (!row || row.revokedAt) return
-        await this.deps.store.grants.removeAllForResource('machine', id, true)
-        await this.deps.store.machines.revokeMachine(id)
-        await this.deps.store.settingsAudit.append({
-          command: 'machines.revoke',
-          outcome: 'applied',
-          ...(opts.attribution ?? {
-            actorKind: opts.by ? ('user' as const) : ('system' as const),
-            actorId: opts.by ?? 'system:machine-revoke',
-            onBehalfOf: opts.by ?? null,
-          }),
-          detail: { machineId: id },
-          redactedPaths: [],
-          createdAt: now,
+    await machineTransition(
+      this.enrollmentHost,
+      [id],
+      async () => {
+        const now = new Date().toISOString()
+        await this.deps.store.transact(async () => {
+          const row = await this.deps.store.machines.getMachine(id)
+          if (!row || row.revokedAt) return
+          await this.deps.store.grants.removeAllForResource('machine', id, true)
+          await this.deps.store.machines.revokeMachine(id)
+          await this.deps.store.settingsAudit.append({
+            command: 'machines.revoke',
+            outcome: 'applied',
+            ...(opts.attribution ?? {
+              actorKind: opts.by ? ('user' as const) : ('system' as const),
+              actorId: opts.by ?? 'system:machine-revoke',
+              onBehalfOf: opts.by ?? null,
+            }),
+            detail: { machineId: id },
+            redactedPaths: [],
+            createdAt: now,
+          })
         })
-      })
-      // The records are database writes: they commit with the revocation.
-      await this.publishMachines([id])
-    }, async () => {
-      // The transports are retired by the commit itself: the machines table's
-      // commit funnel retires a revoked machine (`applyMachineWrite`), and a
-      // rollback never reaches it. What is left is telling the rest.
-      if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
-    }, 'machines:revoke:announce')
+      },
+      async () => {
+        // The transports are retired by the commit itself: the machines table's
+        // commit funnel retires a revoked machine (`applyMachineWrite`), and a
+        // rollback never reaches it. What is left is telling the rest.
+        if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
+      },
+      'machines:revoke:announce',
+    )
   }
 
   /** Explicit legacy-bearer fixture enrollment. Production setup uses completeHostSetup;
@@ -2384,11 +2315,6 @@ export class MachinesService {
         requestId: id,
       })
     await this.recordAvailability(id)
-    // The row's NAME is derived onto every session's `machineName`, and this write is
-    // where it first becomes known (before it, the projection falls back to the raw
-    // id). Same seam a rename uses — the derived field has one way to be refreshed,
-    // not one for boot and one for later.
-    await this.publishMachines([id])
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
     return id
   }

@@ -1372,7 +1372,9 @@ interface HarnessOptions {
 async function harness(options: HarnessOptions = {}) {
   const db = openDatabase(':memory:')
   runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
-  const store = new OperationStore(syncQueriesOver(db))
+  const queries = syncQueriesOver(db)
+  const store = new OperationStore(queries)
+  const recoveryStore = new UpdateRecoveryStore(queries)
   const clock = fakeClock()
   const sent: Array<{ machineId: string; message: UpdateGrantMessage }> = []
   const fleet = options.machines ?? [machine({ id: 'vmi' })]
@@ -1412,6 +1414,7 @@ async function harness(options: HarnessOptions = {}) {
     seedProvided = false,
   ) => {
     const initialTarget = seedProvided ? seed : (options.target ?? devTarget())
+    const savedRecovery = options.durableRecovery ? await recoveryStore.read() : undefined
     const service = new UpdatesService({
       machines: async () => fleet,
       send: (machineId, message) => sent.push({ machineId, message }),
@@ -1419,7 +1422,15 @@ async function harness(options: HarnessOptions = {}) {
       nextGrantId: () => `grant_${++issuedGrants}`,
       concurrency: 3,
       ...(options.approvedTarget ? { approvedTarget: options.approvedTarget } : {}),
-      ...(options.durableRecovery ? { recovery: new UpdateRecoveryStore(db) } : {}),
+      ...(options.durableRecovery
+        ? {
+            recovery: {
+              read: () => savedRecovery,
+              write: async (snapshot: () => import('./recovery-store').UpdateRecoverySnapshot) =>
+                await recoveryStore.write(snapshot),
+            },
+          }
+        : {}),
       fleetChannel: () => 'dev',
       ...(options.resolveTarget ? { resolveTarget: options.resolveTarget } : {}),
       ...(options.recordGrant ? { recordGrant: options.recordGrant } : {}),
@@ -3064,7 +3075,7 @@ describe('a version published mid-operation', () => {
   it('does not grant anything just because a descriptor was re-published', async () => {
     const { updates, sent } = service(() => false)
     await updates.setTargetFromProducer('dev', devTarget())
-    updates.markAuthorized('dev')
+    await updates.markAuthorized('dev')
     const before = sent.length
     await updates.setTargetFromProducer('dev', packedTarget())
     expect(sent.length).toBe(before)
@@ -4738,8 +4749,14 @@ describe('coordinator backup preflight activation boundary', () => {
         if (!receipt) throw new Error('Expected a supervisor preparation receipt')
         return {
           committed: receipt.committed,
-          activate: async () => { await receipt.activate(); receiptSettled.resolve() },
-          cancel: async (reason) => { await receipt.cancel(reason); receiptSettled.resolve() },
+          activate: async () => {
+            await receipt.activate()
+            receiptSettled.resolve()
+          },
+          cancel: async (reason) => {
+            await receipt.cancel(reason)
+            receiptSettled.resolve()
+          },
         }
       },
       requestCoordinatorRestart: fallbackRestart,
@@ -4823,40 +4840,52 @@ describe('coordinator backup preflight activation boundary', () => {
     } finally { await f.close() }
   })
 
-  it.each(['disk-space', 'persistence', 'transfer', 'approval', 'cancellation', 'activation-refusal'] as const)(
-    'keeps the old coordinator serving after %s while the grant is held', async (failure) => {
-      const f = await fixture()
-      try {
-        await f.start()
-        f.releasePreparation.resolve()
-        await f.preflighting.promise
-        if (failure === 'disk-space') f.failPreflight()
-        if (failure === 'persistence') vi.spyOn(f.h.engine, 'recordDetailsLocked').mockImplementation(() => { throw new Error('preflight receipt disk full') })
-        if (failure === 'transfer') f.transfer()
-        if (failure === 'approval') f.supersede()
-        if (failure === 'cancellation') expect((await f.h.engine.cancel('op_1')).canceled).toBe(true)
-        if (failure === 'activation-refusal') await f.executor.cancel(f.executor.snapshot()!.grant.grantId)
-        f.releasePreflight.resolve()
-        await f.receiptSettled.promise
-        // The machines runner reports its asynchronous coordinator failure to the engine.
-        await new Promise<void>((resolve) => setImmediate(resolve))
-        await f.h.engine.whenSettled('op_1')
-        expect(f.adapter.activate).not.toHaveBeenCalled()
-        expect(f.fallbackRestart).not.toHaveBeenCalled()
-        expect(await f.oldServer()).toBe('old coordinator serving')
-        expect(f.executor.snapshot()!.phase).toBe('canceled')
-        if (failure === 'disk-space') {
-          expect(f.executor.snapshot()!.detail).toContain('Not enough disk space')
-          expect(f.executor.snapshot()!.reasonCode).toBe('coordinator-preparation-failed')
-        }
-        if (failure === 'persistence') {
-          expect(f.executor.snapshot()!.detail).toContain('preflight receipt disk full')
-          expect(f.executor.snapshot()!.reasonCode).toBe('coordinator-preparation-failed')
-        }
-        if (failure !== 'cancellation') expect((await f.h.read()).state).toBe('failed')
-      } finally { vi.restoreAllMocks(); await f.close() }
-    },
-  )
+  it.each([
+    'disk-space',
+    'persistence',
+    'transfer',
+    'approval',
+    'cancellation',
+    'activation-refusal',
+  ] as const)('keeps the old coordinator serving after %s while the grant is held', async (failure) => {
+    const f = await fixture()
+    try {
+      await f.start()
+      f.releasePreparation.resolve()
+      await f.preflighting.promise
+      if (failure === 'disk-space') f.failPreflight()
+      if (failure === 'persistence')
+        vi.spyOn(f.h.engine, 'recordDetailsLocked').mockImplementation(() => {
+          throw new Error('preflight receipt disk full')
+        })
+      if (failure === 'transfer') f.transfer()
+      if (failure === 'approval') f.supersede()
+      if (failure === 'cancellation') expect((await f.h.engine.cancel('op_1')).canceled).toBe(true)
+      if (failure === 'activation-refusal')
+        await f.executor.cancel(f.executor.snapshot()!.grant.grantId)
+      f.releasePreflight.resolve()
+      await f.receiptSettled.promise
+      // The machines runner reports its asynchronous coordinator failure to the engine.
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      await f.h.engine.whenSettled('op_1')
+      expect(f.adapter.activate).not.toHaveBeenCalled()
+      expect(f.fallbackRestart).not.toHaveBeenCalled()
+      expect(await f.oldServer()).toBe('old coordinator serving')
+      expect(f.executor.snapshot()!.phase).toBe('canceled')
+      if (failure === 'disk-space') {
+        expect(f.executor.snapshot()!.detail).toContain('Not enough disk space')
+        expect(f.executor.snapshot()!.reasonCode).toBe('coordinator-preparation-failed')
+      }
+      if (failure === 'persistence') {
+        expect(f.executor.snapshot()!.detail).toContain('preflight receipt disk full')
+        expect(f.executor.snapshot()!.reasonCode).toBe('coordinator-preparation-failed')
+      }
+      if (failure !== 'cancellation') expect((await f.h.read()).state).toBe('failed')
+    } finally {
+      vi.restoreAllMocks()
+      await f.close()
+    }
+  })
 
   it('preserves a preflight failure when cancellation reports reach the fleet first [POD-5290]', async () => {
     const f = await fixture()
@@ -4884,7 +4913,10 @@ describe('coordinator backup preflight activation boundary', () => {
       expect((await f.h.read()).error?.detail).toContain('Not enough disk space')
       expect(f.adapter.activate).not.toHaveBeenCalled()
       expect(await f.oldServer()).toBe('old coordinator serving')
-    } finally { vi.restoreAllMocks(); await f.close() }
+    } finally {
+      vi.restoreAllMocks()
+      await f.close()
+    }
   })
 
   /**
@@ -4991,10 +5023,17 @@ describe('coordinator backup preflight activation boundary', () => {
     const target = releaseFor(['linux-x64'])
     const fleet: WaveMachine[] = []
     const send = vi.fn()
-    const service = new UpdatesService({ machines: async () => fleet, send, now: () => 1,
-      nextGrantId: () => 'unheld', concurrency: 1, fleetChannel: () => 'dev', approvedTarget: async () => target })
-    service.setTarget('dev', target)
-    service.markAuthorized('dev')
+    const service = new UpdatesService({
+      machines: async () => fleet,
+      send,
+      now: () => 1,
+      nextGrantId: () => 'unheld',
+      concurrency: 1,
+      fleetChannel: () => 'dev',
+      approvedTarget: async () => target,
+    })
+    await service.setTarget('dev', target)
+    await service.markAuthorized('dev')
     await service.tick('dev')
     fleet.push(machine({ id: 'host', coordinator: true, presenceSource: 'supervisor',
       deliveryCaps: FEED_CAPS, platform: 'linux-x64' }))

@@ -13,16 +13,18 @@
  *
  * The verdicts are today's (`machinesForPrincipal` in `sessions/command-ctx.ts`),
  * decided by `machine-access.ts` for each member as a person acting for
- * themselves. Every row is computed and handed to `capture`, which writes only
- * what changed: a call after a write that moved no record fact appends nothing.
+ * themselves. Each source write names its records before it runs. The Authority
+ * builds them before and after that write and appends each changed record.
  *
  * STATEMENTS: the machines named, their grant edges and the members are read
- * once each; the change log is read once for the batch and appended once. The
- * count does not grow with machines or members
+ * for each build. The log appends only the changed records. The statement
+ * count stays constant with the machines or members
  * (`records.statement-count.test.ts`).
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks'
 import {
+  asMachineId,
   type MachineAccessWire,
   type MachineGrantEntry,
   type MachineId,
@@ -31,6 +33,8 @@ import {
   type UserId,
   type UserRole,
 } from '@podium/model'
+import type { MetadataChange } from '@podium/protocol'
+import type { AffectedRecordSpec, EntityChangeSpec, LedgerWriter } from '@podium/sync'
 import {
   type CheckoutReach,
   type CheckoutReaders,
@@ -49,7 +53,9 @@ import {
   machineUseDecision,
   machineVerbsFor,
 } from '../../machine-access'
-import type { MachineRecordFacts, MachineRecordWriter } from './service'
+import type { SessionStore } from '../../store'
+import type { CompareMachineRecords } from '../../store/machine-record-writes'
+import type { MachineRecordFacts } from './service'
 
 /** A member the records are written for. */
 export interface RecordMember {
@@ -84,7 +90,12 @@ export interface MachineRecordsDeps {
     apply(
       change: {
         readonly reach: readonly { userId: string; machineId: MachineId; reach: CheckoutReach }[]
-        readonly lost: readonly { userId: string; machineId: MachineId; path: string; root: boolean }[]
+        readonly lost: readonly {
+          userId: string
+          machineId: MachineId
+          path: string
+          root: boolean
+        }[]
         readonly found: readonly { userId: string; machineId: MachineId; path: string }[]
       },
       at: string,
@@ -105,7 +116,7 @@ export interface RecordGrantEdge {
   readonly onBehalfOf?: string | null
 }
 
-type Spec = Parameters<MachineRecordWriter['capture']>[0][number]
+type Spec = EntityChangeSpec
 
 const MACHINE_VERBS = new Set(['see', 'use', 'manage'])
 
@@ -198,11 +209,11 @@ export function accessRowFor(
 
 /**
  * The change specs for these machines' records (all machines when `ids` is
- * omitted), for every member, plus removals of `formerMembers`' rows.
+ * omitted), for every enabled member. Used by the builders and boot reconcile.
  */
 export async function machineRecordSpecs(
   deps: MachineRecordsDeps,
-  scope: { readonly ids?: readonly MachineId[]; readonly formerMembers?: readonly UserId[] } = {},
+  scope: { readonly ids?: readonly MachineId[] } = {},
 ): Promise<Spec[]> {
   const facts = await deps.facts(scope.ids)
   if (facts.length === 0) return []
@@ -229,59 +240,103 @@ export async function machineRecordSpecs(
           : { entity: 'machineAccess', id: accessId, op: 'upsert', value: row },
       )
     }
-    for (const former of scope.formerMembers ?? []) {
-      if (members.some((member) => member.id === former)) continue
-      specs.push({ entity: 'machineAccess', id: machineAccessRowId(former, id), op: 'remove' })
-    }
   }
   return specs
 }
 
-/**
- * Write the records on `writer`. Unchanged rows append nothing.
- *
- * With `deps.reach`, each member whose access row this write appended has
- * their checkout reach recorded in the same transaction: the new reach, the
- * live checkouts a shrink took away (`checkout_lost`, kept until the member's
- * reach covers them again), and the lost ones it re-admits. The feed's
- * machineAccess anchor evicts every lost checkout on each move of that
- * member's row, so a device away across several writes still catches up
- * (POD-6644). A run that appends no access row reads and writes no reach.
+/** Compare each source write inside its transaction, including checkout reach.
+ * Nested writes leave records already named by their enclosing write to that
+ * enclosing comparison. Custody and enrollment therefore publish their final
+ * rows together, even though they write several grant edges along the way.
  */
-export async function writeMachineRecords(
-  deps: MachineRecordsDeps,
-  writer: MachineRecordWriter,
-  scope: { readonly ids?: readonly MachineId[]; readonly formerMembers?: readonly UserId[] } = {},
-): Promise<void> {
-  const reach = deps.reach
-  const run = async () => {
-    const specs = await machineRecordSpecs(deps, scope)
-    if (specs.length === 0) return
-    const appended = await writer.capture(specs)
-    if (reach) await recordReach(reach, specs, appended)
+export function makeMachineRecordCompare(
+  store: Pick<SessionStore, 'machines' | 'users' | 'transact'>,
+  writer: Pick<LedgerWriter, 'commit'>,
+  reach: NonNullable<MachineRecordsDeps['reach']>,
+): CompareMachineRecords {
+  const scopes = new AsyncLocalStorage<{ readonly keys: ReadonlySet<string>; open: boolean }>()
+  const keyOf = (record: AffectedRecordSpec) => `${record.entity}\0${record.id}`
+  const resolve = async (ids: NonNullable<Parameters<CompareMachineRecords>[0]['machines']>) =>
+    typeof ids === 'function' ? await ids() : ids
+  return async (scope, write, commandWriter = writer) => {
+    if (!scope.member && !scope.display && Array.isArray(scope.machines) && !scope.machines.length)
+      return await write()
+    const inherited = scopes.getStore()
+    return await store.transact(async () => {
+      let names: AffectedRecordSpec[] = []
+      const { result, changes } = await commandWriter.commit({
+        affects: async () => {
+          const machines = scope.machines ? await resolve(scope.machines) : []
+          const display = scope.display ? await resolve(scope.display) : []
+          const members = machines.length ? await store.users.recordMembers() : []
+          names = machines.flatMap((id): AffectedRecordSpec[] => [
+            { entity: 'machine', id },
+            ...members.map((member) => ({
+              entity: 'machineAccess' as const,
+              id: machineAccessRowId(member.id, asMachineId(id)),
+            })),
+          ])
+          names.push(...display.map((id) => ({ entity: 'machine' as const, id })))
+          if (scope.member) {
+            const member = scope.member
+            names.push(
+              ...(await store.machines.recordIds()).map((id) => ({
+                entity: 'machineAccess' as const,
+                id: machineAccessRowId(member, id),
+              })),
+            )
+          }
+          names = names.filter((record) => !inherited?.open || !inherited.keys.has(keyOf(record)))
+          return names
+        },
+        write: async () => {
+          const held = {
+            keys: new Set([...(inherited?.open ? inherited.keys : []), ...names.map(keyOf)]),
+            open: true,
+          }
+          try {
+            return await scopes.run(held, write)
+          } finally {
+            held.open = false
+          }
+        },
+      })
+      await recordReach(reach, changes)
+      return result
+    })
   }
-  await (reach ? reach.transact(run) : run())
+}
+
+/** The boot re-check has no source write. It remains a reconcile until POD-6221. */
+export async function reconcileMachineRecords(
+  deps: MachineRecordsDeps,
+  writer: Pick<LedgerWriter, 'reconcile'>,
+): Promise<void> {
+  const run = async () => {
+    const specs = await machineRecordSpecs(deps)
+    for (const entity of ['machine', 'machineAccess'] as const) {
+      const changes = await writer.reconcile(
+        entity,
+        specs.flatMap((spec) =>
+          spec.entity === entity && spec.op === 'upsert'
+            ? [{ id: spec.id, value: spec.value }]
+            : [],
+        ),
+      )
+      if (deps.reach) await recordReach(deps.reach, changes)
+    }
+  }
+  await (deps.reach ? deps.reach.transact(run) : run())
 }
 
 async function recordReach(
   reach: NonNullable<MachineRecordsDeps['reach']>,
-  specs: readonly Spec[],
-  appended: readonly { entity: string; entityId?: string; id?: string }[],
+  appended: readonly MetadataChange[],
 ): Promise<void> {
-  const written = new Map<string, CheckoutReach>()
-  for (const spec of specs) {
-    if (spec.entity !== 'machineAccess') continue
-    const value = spec.op === 'upsert' ? (spec.value as MachineAccessWire | undefined) : undefined
-    written.set(spec.id, value?.checkoutReach ?? 'none')
-  }
   const moved = appended.flatMap((change) => {
-    const id = change.entityId ?? change.id
-    if (change.entity !== 'machineAccess' || id === undefined || !written.has(id)) return []
-    try {
-      return [{ ...parseMachineAccessRowId(id), next: written.get(id)! }]
-    } catch {
-      return []
-    }
+    if (change.entity !== 'machineAccess') return []
+    const next = change.op === 'upsert' ? (change.value?.checkoutReach ?? 'none') : 'none'
+    return [{ ...parseMachineAccessRowId(change.id), next }]
   })
   if (moved.length === 0) return
   const machines = [...new Set(moved.map((row) => row.machineId))]

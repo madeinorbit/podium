@@ -175,7 +175,11 @@ import { LogIngestService } from './modules/logs/service'
 import { MachineConditionTopic } from './modules/machines/condition-topic'
 import { routeMachineDiagnostic } from './modules/machines/diagnostics'
 import { LoginPropagationService } from './modules/machines/login-propagation'
-import { type MachineRecordsDeps, writeMachineRecords } from './modules/machines/records'
+import {
+  type MachineRecordsDeps,
+  makeMachineRecordCompare,
+  reconcileMachineRecords,
+} from './modules/machines/records'
 import { DaemonRpcService } from './modules/machines/rpc'
 import { MachinesService, type PairingCodes } from './modules/machines/service'
 import { MemoryService } from './modules/memory/service'
@@ -326,6 +330,7 @@ export type { MemoryBreakdown }
  */
 interface SessionRegistryBoot {
   readonly settings: Awaited<ReturnType<SessionStore['settings']['getSettings']>>
+  readonly updateRecovery: Awaited<ReturnType<SessionStore['updateRecovery']['read']>>
 }
 
 interface SessionRegistryOptions {
@@ -745,18 +750,14 @@ export class SessionRegistry {
     // `instancePreferences` record every member's first bootstrap holds.
     await reconcileInstancePreferences(this.writes.system('boot.reconcile'), this.store)
     await this.modules.machines.storeRecordChannel()
-    await this.writes.system('boot.reconcile').reconcile(
-      'machine',
-      (await this.modules.machines.recordFacts()).map((fact) => ({
-        id: fact.machine.id,
-        value: fact.machine,
-      })),
-    )
     // Every member's access rows (POD-6644): a member who joined or changed
     // role while the server was down sees the machines they now may.
     await asSystemWrite(
       async () =>
-        await writeMachineRecords(this.machineRecordsDeps(), this.writes.system('boot.reconcile')),
+        await reconcileMachineRecords(
+          this.machineRecordsDeps(),
+          this.writes.system('boot.reconcile'),
+        ),
     )
     // Every stored checkout onto the log (POD-6644): the migration's back-filled
     // roots, and rows written while a device was away.
@@ -832,6 +833,7 @@ export class SessionRegistry {
     const resolvedStore = store ?? (await SessionStore.open(':memory:'))
     const registry = new SessionRegistry(resolvedStore, notificationPushers, options, {
       settings: await resolvedStore.settings.getSettings(),
+      updateRecovery: await resolvedStore.updateRecovery.read(),
     })
     await registry.hydrate(options.rehearseBoot)
     return registry
@@ -968,29 +970,8 @@ export class SessionRegistry {
     // further down, after everything it announces changes to.
     let operations: OperationsModule | undefined
     const machines = new MachinesService({
-      // A SYSTEM WRITE (ADR 12 D2): the display projection is the server's own
-      // derivation of the machine row, republished whenever that row changes. It
-      // is not the caller's input, so it is allowed when a plain command's work
-      // triggers it (`setup.complete` enrolling the host, POD-6360).
-      // POD-6644: the machine and each member's access row. On the command's
-      // own writer when one moved them (a rename), else the server's own write:
-      // the records are its derivation of the machine row and the grants, so
-      // they are allowed when a plain command's work triggers them (POD-6360).
-      publishMachineRecords: async (ids, writer) => {
-        const deps = this.machineRecordsDeps()
-        if (writer) {
-          await writeMachineRecords(deps, writer, ids === undefined ? {} : { ids })
-          return
-        }
-        await asSystemWrite(
-          async () =>
-            await writeMachineRecords(
-              deps,
-              this.writes.system('machines.records'),
-              ids === undefined ? {} : { ids },
-            ),
-        )
-      },
+      compareMachineRecords: async (scope, write, writer) =>
+        await this.store.grants.machineRecordWrites.compare(scope, write, writer),
       conditionChanged: (machineId) => machineConditionChanged?.(machineId),
       instanceId,
       ...(options.updatePubkey ? { updatePubkey: options.updatePubkey } : {}),
@@ -1041,10 +1022,7 @@ export class SessionRegistry {
       facts: async (ids) => await machines.recordFacts(ids),
       // The grant edges themselves, in one read through the operation's loader.
       grants: async (ids) => await this.store.grants.loadForResources('machine', ids),
-      members: async () =>
-        (await this.store.users.list())
-          .filter((member) => member.disabledAt === null)
-          .map((member) => ({ id: asUserId(member.id), role: member.role })),
+      members: async () => await this.store.users.recordMembers(),
       // Each member's checkout reach, recorded with their access row in one
       // transaction: the feed evicts exactly what a member lost (POD-6644).
       reach: {
@@ -1092,7 +1070,10 @@ export class SessionRegistry {
       fleetLogs,
     )
     const updatesService = new UpdatesService({
-      recovery: this.store.updateRecovery,
+      recovery: {
+        read: () => boot.updateRecovery,
+        write: async (snapshot) => await this.store.updateRecovery.write(snapshot),
+      },
       recoveryOnly,
       machines: async () =>
         (await machines.listMachines())
@@ -1209,7 +1190,6 @@ export class SessionRegistry {
     // @podium/runtime, so a relay that came and went without unsubscribing would
     // leave a listener holding a dead bus — visible in tests, which build several.
     this.configChangedBridge = bridgeConfigChanged(this.bus)
-    this.bus.on('settings.changed', async () => await machines.refreshFleetChannel())
     const settings = new SettingsService(this.store.settings, this.store.secrets, this.bus, {
       telegramBindings: this.store.telegramBindings,
       // Server-originated preference writes publish the person's record (POD-6673).
@@ -1327,6 +1307,13 @@ export class SessionRegistry {
     // other writer is a declared origin (`write-contexts.ts`).
     const writes = new WriteContexts(ledger, ledger.takeScopeMint())
     this.writes = writes
+    const compareMachineRecords = makeMachineRecordCompare(
+      this.store,
+      writes.system('machines.records'),
+      this.machineRecordsDeps().reach!,
+    )
+    this.store.grants.machineRecordWrites.compare = async (scope, write, writer) =>
+      await asSystemWrite(async () => await compareMachineRecords(scope, write, writer))
     // ONE HOOK ON THE ONE APPEND (POD-1772): every orchestrator event write in
     // the server goes through `store.events.appendEvent`, so the curated
     // feed-kind subset reaches the metadata feed from the write path rather than
@@ -1362,9 +1349,20 @@ export class SessionRegistry {
     // ONE HOOK ON THE SETTINGS BLOB WRITE (POD-6677): every write of
     // `meta['settings']` publishes the instance settings record to every member
     // inside its own transaction, whoever made it.
-    this.store.settings.setInstanceFeedCapture(
-      makeInstancePreferencesFeedCapture(writes.system('feed.instancePreferences')),
+    const captureInstancePreferences = makeInstancePreferencesFeedCapture(
+      writes.system('feed.instancePreferences'),
     )
+    // Configuration above the database is resolved at boot. A settings write
+    // supplies its own stored channel inside the transaction.
+    const channelAboveSettings = this.store.settings.resolve('updateChannel', undefined, {})
+    const fixedFleetChannel =
+      channelAboveSettings.source === 'default' ? undefined : channelAboveSettings.value
+    this.store.settings.setInstanceFeedCapture(async (write, next) => {
+      await this.store.machines.recordContext.writeFleetChannel(
+        fixedFleetChannel ?? next.deployment.updateChannel ?? 'stable',
+        async () => await captureInstancePreferences(write, next),
+      )
+    })
     const issueArbitration = new IssueAuthorityArbitration(writes.system('issues.server'))
     // THE write funnel (modules/funnel): authorize → repo write → change append →
     // broadcast. Bridges ledger appends onto the bus and runs THE ordered
@@ -4443,7 +4441,6 @@ export class SessionRegistry {
     // already finished, which is what an all-offline fleet always leaves.
     targetChanged = async () => {
       await updateFleetBridge.onTargetChanged()
-      await machines.publishMachines()
     }
     /**
      * THE STANDING RECONCILIATION (§3.6, POD-2105). Offline machines are
@@ -5153,20 +5150,6 @@ export class SessionRegistry {
     const accessChangeSubscriptions = [
       this.store.users.onAccessChange((change) => {
         this.clientGateway.applyAccessChange(change)
-      }),
-      // A member's machine access follows their role (POD-6644): their access
-      // rows are rewritten, and a member who can no longer act loses theirs.
-      this.store.users.afterAccessChange(async (change) => {
-        await asSystemWrite(
-          async () =>
-            await writeMachineRecords(
-              this.machineRecordsDeps(),
-              this.writes.system('members.access'),
-              {
-                formerMembers: [change.memberId],
-              },
-            ),
-        )
       }),
     ]
     this.unsubscribeAccessChanges = () => {

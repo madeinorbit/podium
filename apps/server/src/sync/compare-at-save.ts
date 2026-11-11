@@ -12,8 +12,7 @@
  *
  * A kind not listed keeps the old compare. Kinds move one at a time.
  *
- * NOT YET MOVED (POD-6770's finding): `session`, `sessionUserState`,
- * `machine`, `machineAccess`.
+ * NOT YET MOVED (POD-6770's finding): `session`, `sessionUserState`.
  * None of them is written by one write: each is republished after the fact,
  * from memory or from a hook that runs after the source write committed, and
  * relies on the compare with the stored copy to drop what did not change. To
@@ -87,6 +86,8 @@ export const COMPARE_AT_SAVE_KINDS: readonly MetadataEntityKind[] = [
   'issueEvent',
   'pendingInteraction',
   'message',
+  'machine',
+  'machineAccess',
 ]
 
 /**

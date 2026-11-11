@@ -9,7 +9,7 @@ import { CommittedRows } from './committed-rows'
 import { createHash, timingSafeEqual } from 'node:crypto'
 import {
   Inventory,
-  MachineComponent,
+  type MachineComponent,
   MachineHarnessVersion,
   type MachineId,
   MachinePresenceSource,
@@ -20,13 +20,22 @@ import {
   type UserId,
 } from '@podium/model'
 import type { PeerBuild } from '@podium/protocol'
-import { and, asc, eq, gt, isNull, type SQL, sql } from 'drizzle-orm'
-import { machines, grants } from '../migrations/schema'
-import { MachineRecordContextRepository } from './machine-record-context'
-import { GrantsRepository } from './grants'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
-import { executeRaw, inListOf, inListSize, inListValues, param, prepared, preparedFamily } from './executor/sync-drizzle'
 import { verifyWithMachineKey } from '@podium/runtime/machine-credential'
+import type { LedgerWriter } from '@podium/sync'
+import { and, asc, eq, gt, isNull, type SQL, sql } from 'drizzle-orm'
+import { grants, machines } from '../migrations/schema'
+import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
+import {
+  executeRaw,
+  inListOf,
+  inListSize,
+  inListValues,
+  param,
+  prepared,
+  preparedFamily,
+} from './executor/sync-drizzle'
+import { GrantsRepository } from './grants'
+import { MachineRecordContextRepository } from './machine-record-context'
 import type { MachineRecord } from './types'
 
 /** RETAINED EXTERNAL-INPUT BRAND CASTS: daemon enrollment and compatibility
@@ -63,8 +72,12 @@ export const MachineAvailability = z.object({
 })
 function parseStored<T>(schema: z.ZodType<T>, raw: unknown): T | null {
   if (typeof raw !== 'string') return null
-  try { const result = schema.safeParse(JSON.parse(raw)); return result.success ? result.data : null }
-  catch { return null }
+  try {
+    const result = schema.safeParse(JSON.parse(raw))
+    return result.success ? result.data : null
+  } catch {
+    return null
+  }
 }
 export function assignmentComponents(assignment: MachineServiceAssignment): MachineComponent[] {
   return [...(assignment.server ? ['server' as const] : []), ...(assignment.agentExecution ? ['daemon' as const] : [])]
@@ -243,7 +256,13 @@ export const MACHINE_ID_SITES: readonly string[] = [
 const machineRecordPage = preparedFamily((db: StoreDrizzle, phase: 'start' | 'after') =>
   db.select(MACHINE_COLUMNS).from(machines)
     .where(phase === 'after' ? gt(machines.id, param(machines.id, 'after')) : undefined)
-    .orderBy(asc(machines.id)).limit(sql.placeholder('limit')).prepare(),
+    .orderBy(asc(machines.id))
+    .limit(sql.placeholder('limit'))
+    .prepare(),
+)
+
+const machineRecordIds = prepared((db: StoreDrizzle) =>
+  db.select({ id: machines.id }).from(machines).orderBy(asc(machines.id)).prepare(),
 )
 
 // Every query this repository runs, prepared once per store [POD-6147].
@@ -509,8 +528,16 @@ export class MachinesRepository {
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries, private readonly grantRepository = new GrantsRepository(queries)) {
-    this.recordContext = new MachineRecordContextRepository(queries)
+  constructor(
+    queries: StoreQueries,
+    private readonly grantRepository = new GrantsRepository(queries),
+    readonly machineRecordWrites = grantRepository.machineRecordWrites,
+  ) {
+    this.recordContext = new MachineRecordContextRepository(
+      queries,
+      this.machineRecordWrites,
+      async () => await this.recordIds(),
+    )
     this.committed = new CommittedRows(queries.createOrJoinTransaction, 'machines')
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction
@@ -574,26 +601,42 @@ export class MachinesRepository {
     assignment?: MachineServiceAssignment
     assignmentEvidence?: z.infer<typeof AssignmentEvidence>
   }): Promise<void> {
-    await this.createOrJoinTransaction(async () => {
-      const now = new Date().toISOString()
-      const result = await this.committed.write(async () => await upsertEnrolledMachine(this.db).all({
-        // EXTERNAL INPUT BRAND DECODE: daemon enrollment supplies its proposed
-        // id as a string; the repository is the write boundary that brands it.
-        id: m.id as MachineId,
-        name: m.name,
-        hostname: m.hostname,
-        tokenHash: m.tokenHash,
-        now,
-        podiumManaged: m.podiumManaged ?? true,
-        serviceAssignmentJson: JSON.stringify(m.assignment ?? { server: false, agentExecution: false }),
-        assignmentEvidenceJson: JSON.stringify(m.assignmentEvidence ?? { version: 1, source: 'enrollment', requestId: m.id }),
-      }), 'upsert')
-      if (result.changes === 1 && m.ownerUserId && await this.custodian(m.id) === null) await this.setMachineOwner(m.id, m.ownerUserId)
+    await this.machineRecordWrites.compare({ machines: [m.id] }, async () => {
+      await this.createOrJoinTransaction(async () => {
+        const now = new Date().toISOString()
+        const result = await this.committed.write(
+          async () =>
+            await upsertEnrolledMachine(this.db).all({
+              // EXTERNAL INPUT BRAND DECODE: daemon enrollment supplies its proposed
+              // id as a string; the repository is the write boundary that brands it.
+              id: m.id as MachineId,
+              name: m.name,
+              hostname: m.hostname,
+              tokenHash: m.tokenHash,
+              now,
+              podiumManaged: m.podiumManaged ?? true,
+              serviceAssignmentJson: JSON.stringify(
+                m.assignment ?? { server: false, agentExecution: false },
+              ),
+              assignmentEvidenceJson: JSON.stringify(
+                m.assignmentEvidence ?? { version: 1, source: 'enrollment', requestId: m.id },
+              ),
+            }),
+          'upsert',
+        )
+        if (result.changes === 1 && m.ownerUserId && (await this.custodian(m.id)) === null)
+          await this.setMachineOwner(m.id, m.ownerUserId)
+      })
     })
   }
 
   async listMachines(): Promise<MachineRecord[]> {
     return (await machinesByCreation(this.db).all()).map(machineRecordFromRow)
+  }
+
+  /** Every machine is affected by a member's standing or a fleet-wide input. */
+  async recordIds(): Promise<MachineId[]> {
+    return (await machineRecordIds(this.db).all()).map(({ id }) => id)
   }
 
   async *recordPages(pageSize = 500): AsyncGenerator<MachineRecord[]> {
@@ -652,27 +695,33 @@ export class MachinesRepository {
       probedAt: string
     },
   ): Promise<void> {
-    const path = `$."${report.harness}"`
-    await this.committed.write(
-      async () =>
-        await recordHarnessVersionOf(this.db).all({
-          id,
-          path,
-          firstSeenPath: `${path}.firstSeen`,
-          lastSeenPath: `${path}.lastSeen`,
-          versionPath: `${path}.version`,
-          harness: report.harness,
-          version: report.version,
-          probedAt: report.probedAt,
-        }),
-      'upsert',
-    )
+    await this.machineRecordWrites.compare({ machines: [id] }, async () => {
+      const path = `$."${report.harness}"`
+      await this.committed.write(
+        async () =>
+          await recordHarnessVersionOf(this.db).all({
+            id,
+            path,
+            firstSeenPath: `${path}.firstSeen`,
+            lastSeenPath: `${path}.lastSeen`,
+            versionPath: `${path}.version`,
+            harness: report.harness,
+            version: report.version,
+            probedAt: report.probedAt,
+          }),
+        'upsert',
+      )
+    })
   }
 
   /** Persist a daemon-reported inventory (#222) as the raw JSON blob. */
   async setMachineInventory(id: string, inventoryJson: string): Promise<void> {
-    await this.committed.write(async () => await setInventoryOf(this.db)
-      .all({ id: id as MachineId, inventoryJson }), 'upsert')
+    await this.machineRecordWrites.compare({ machines: [id] }, async () => {
+      await this.committed.write(
+        async () => await setInventoryOf(this.db).all({ id: id as MachineId, inventoryJson }),
+        'upsert',
+      )
+    })
   }
 
   /** Persist a compatibility-path build report. */
@@ -683,15 +732,21 @@ export class MachinesRepository {
     at: string,
     source?: MachinePresenceSource,
   ): Promise<void> {
-    await this.committed.write(async () => await setBuildOf(this.db).all({
-      id: id as MachineId,
-      appVersion: build.appVersion ?? null,
-      wireSchemaDigest: build.wireSchemaDigest ?? null,
-      installKind: build.installKind ?? null,
-      deliveryCapsJson: JSON.stringify(caps),
-      source: source ?? null,
-      at,
-    }), 'upsert')
+    await this.machineRecordWrites.compare({ machines: [id] }, async () => {
+      await this.committed.write(
+        async () =>
+          await setBuildOf(this.db).all({
+            id: id as MachineId,
+            appVersion: build.appVersion ?? null,
+            wireSchemaDigest: build.wireSchemaDigest ?? null,
+            installKind: build.installKind ?? null,
+            deliveryCapsJson: JSON.stringify(caps),
+            source: source ?? null,
+            at,
+          }),
+        'upsert',
+      )
+    })
   }
 
   /** One supervisor report atomically owns presence, build and service truth. */
@@ -702,25 +757,45 @@ export class MachinesRepository {
     services: MachineServiceReport,
     at: string,
   ): Promise<void> {
-    await this.committed.write(async () => await setSupervisorPresenceOf(this.db).all({
-      id: id as MachineId,
-      appVersion: build.appVersion ?? null,
-      wireSchemaDigest: build.wireSchemaDigest ?? null,
-      installKind: build.installKind ?? null,
-      deliveryCapsJson: JSON.stringify(caps),
-      serviceReportJson: JSON.stringify(services),
-      at,
-    }), 'upsert')
+    await this.machineRecordWrites.compare({ machines: [id] }, async () => {
+      await this.committed.write(
+        async () =>
+          await setSupervisorPresenceOf(this.db).all({
+            id: id as MachineId,
+            appVersion: build.appVersion ?? null,
+            wireSchemaDigest: build.wireSchemaDigest ?? null,
+            installKind: build.installKind ?? null,
+            deliveryCapsJson: JSON.stringify(caps),
+            serviceReportJson: JSON.stringify(services),
+            at,
+          }),
+        'upsert',
+      )
+    })
   }
 
-  async setServiceAssignment(id: string, assignment: MachineServiceAssignment, evidence: z.infer<typeof AssignmentEvidence> = { version: 1, source: 'assignment', requestId: id }): Promise<void> {
-    MachineServiceAssignment.parse(assignment)
-    AssignmentEvidence.parse(evidence)
-    await this.committed.write(async () => await setServiceAssignmentOf(this.db).all({
-      id: id as MachineId,
-      serviceAssignmentJson: JSON.stringify(assignment),
-      assignmentEvidenceJson: JSON.stringify(evidence),
-    }), 'upsert')
+  async setServiceAssignment(
+    id: string,
+    assignment: MachineServiceAssignment,
+    evidence: z.infer<typeof AssignmentEvidence> = {
+      version: 1,
+      source: 'assignment',
+      requestId: id,
+    },
+  ): Promise<void> {
+    await this.machineRecordWrites.compare({ machines: [id] }, async () => {
+      MachineServiceAssignment.parse(assignment)
+      AssignmentEvidence.parse(evidence)
+      await this.committed.write(
+        async () =>
+          await setServiceAssignmentOf(this.db).all({
+            id: id as MachineId,
+            serviceAssignmentJson: JSON.stringify(assignment),
+            assignmentEvidenceJson: JSON.stringify(evidence),
+          }),
+        'upsert',
+      )
+    })
   }
 
   /** The server-bit guard and replacement share a transaction with transfer. */
@@ -830,14 +905,38 @@ export class MachinesRepository {
 
   /** Persist the operator-selected update authority for one managed machine.
    *  `null` clears the pin and returns the machine to the fleet default (POD-1882). */
-  async setUpdateChannel(id: string, channel: UpdateChannelValue | null): Promise<void> {
-    await this.committed.write(async () => await setUpdateChannelOf(this.db)
-      .all({ id: id as MachineId, channel }), 'upsert')
+  async setUpdateChannel(
+    id: string,
+    channel: UpdateChannelValue | null,
+    writer?: Pick<LedgerWriter, 'commit'>,
+  ): Promise<void> {
+    await this.machineRecordWrites.compare(
+      { machines: [id] },
+      async () => {
+        await this.committed.write(
+          async () => await setUpdateChannelOf(this.db).all({ id: id as MachineId, channel }),
+          'upsert',
+        )
+      },
+      writer,
+    )
   }
 
-  async renameMachine(id: string, name: string): Promise<void> {
-    await this.committed.write(async () => await renameMachineOf(this.db)
-      .all({ id: id as MachineId, name }), 'upsert')
+  async renameMachine(
+    id: string,
+    name: string,
+    writer?: Pick<LedgerWriter, 'commit'>,
+  ): Promise<void> {
+    await this.machineRecordWrites.compare(
+      { machines: [id] },
+      async () => {
+        await this.committed.write(
+          async () => await renameMachineOf(this.db).all({ id: id as MachineId, name }),
+          'upsert',
+        )
+      },
+      writer,
+    )
   }
 
   /** Custody is queried from its sole manage edge; never inferred from a row. */
@@ -854,24 +953,35 @@ export class MachinesRepository {
   /** Change personal custody and its rights in the same transaction. Existing
    * shares remain records; without a custody edge they confer no machine access. */
   async setMachineOwner(id: string, grantee: UserId | null): Promise<void> {
-    await this.createOrJoinTransaction(async () => {
-      const machine = await this.getMachine(id)
-      if (!machine || machine.revokedAt) return
-      const previous = await this.custodian(id)
-      if (previous === grantee) return
-      if (previous) {
-        await this.grantRepository.remove('machine', id, previous, 'use')
-        await this.grantRepository.remove('machine', id, previous, 'manage')
-      }
-      if (grantee) {
-        // One act, one timestamp: both edges sort by created_at and then by key.
-        const createdAt = new Date().toISOString()
-        for (const verb of ['use', 'manage'] as const) await this.grantRepository.upsert({
-          resourceKind: 'machine', resourceId: id, grantee, verb, custody: verb === 'manage',
-          owner: grantee, visibility: 'owned-compute', createdAt,
-          actorKind: 'user', actorId: grantee, onBehalfOf: grantee,
-        })
-      }
+    await this.machineRecordWrites.compare({ machines: [id] }, async () => {
+      await this.createOrJoinTransaction(async () => {
+        const machine = await this.getMachine(id)
+        if (!machine || machine.revokedAt) return
+        const previous = await this.custodian(id)
+        if (previous === grantee) return
+        if (previous) {
+          await this.grantRepository.remove('machine', id, previous, 'use')
+          await this.grantRepository.remove('machine', id, previous, 'manage')
+        }
+        if (grantee) {
+          // One act, one timestamp: both edges sort by created_at and then by key.
+          const createdAt = new Date().toISOString()
+          for (const verb of ['use', 'manage'] as const)
+            await this.grantRepository.upsert({
+              resourceKind: 'machine',
+              resourceId: id,
+              grantee,
+              verb,
+              custody: verb === 'manage',
+              owner: grantee,
+              visibility: 'owned-compute',
+              createdAt,
+              actorKind: 'user',
+              actorId: grantee,
+              onBehalfOf: grantee,
+            })
+        }
+      })
     })
   }
 
@@ -884,62 +994,110 @@ export class MachinesRepository {
   }
 
   /** One winner: ordinary enrollment cannot overwrite an existing identity. */
-  async enrollMachine(m: {
-    id: MachineId; name: string; hostname: string; tokenHash: string;
-    credentialKind?: 'bearer-hash' | 'ed25519'; publicKey?: string | null;
-    ownerUserId: UserId | null; podiumManaged: boolean;
-    assignment: MachineServiceAssignment; assignmentEvidence: z.infer<typeof AssignmentEvidence>;
-  }, replaceRevokedAt?: string, replaceIncarnation?: string): Promise<boolean> {
-    const now = new Date().toISOString()
-    return this.createOrJoinTransaction(async () => {
-      const { assignment, assignmentEvidence, ownerUserId, ...identity } = m
-      const enrollment = { ...identity, credentialKind: identity.credentialKind ?? 'bearer-hash' as const, publicKey: identity.publicKey ?? null, serviceAssignmentJson: JSON.stringify(MachineServiceAssignment.parse(assignment)), assignmentEvidenceJson: JSON.stringify(AssignmentEvidence.parse(assignmentEvidence)) }
-      const values = {
-        id: enrollment.id,
-        name: enrollment.name,
-        hostname: enrollment.hostname,
-        tokenHash: enrollment.tokenHash,
-        podiumManaged: enrollment.podiumManaged,
-        credentialKind: enrollment.credentialKind,
-        publicKey: enrollment.publicKey,
-        serviceAssignmentJson: enrollment.serviceAssignmentJson,
-        assignmentEvidenceJson: enrollment.assignmentEvidenceJson,
-        now,
-      }
-      const result = await this.committed.write(async () => replaceRevokedAt === undefined
-        ? await insertEnrollment(this.db).all(values)
-        : await replaceRevokedEnrollment(this.db).all({
-            ...values,
-            replaceRevokedAt,
-            replaceIncarnation: replaceIncarnation ?? '',
-          }), 'upsert')
-      if (result.changes === 1) {
-        await this.grantRepository.removeAllForResource('machine', m.id)
-        if (ownerUserId) await this.setMachineOwner(m.id, ownerUserId)
-      }
-      return result.changes === 1
+  async enrollMachine(
+    m: {
+      id: MachineId
+      name: string
+      hostname: string
+      tokenHash: string
+      credentialKind?: 'bearer-hash' | 'ed25519'
+      publicKey?: string | null
+      ownerUserId: UserId | null
+      podiumManaged: boolean
+      assignment: MachineServiceAssignment
+      assignmentEvidence: z.infer<typeof AssignmentEvidence>
+    },
+    replaceRevokedAt?: string,
+    replaceIncarnation?: string,
+  ): Promise<boolean> {
+    return this.machineRecordWrites.compare({ machines: [m.id] }, async () => {
+      const now = new Date().toISOString()
+      return this.createOrJoinTransaction(async () => {
+        const { assignment, assignmentEvidence, ownerUserId, ...identity } = m
+        const enrollment = {
+          ...identity,
+          credentialKind: identity.credentialKind ?? ('bearer-hash' as const),
+          publicKey: identity.publicKey ?? null,
+          serviceAssignmentJson: JSON.stringify(MachineServiceAssignment.parse(assignment)),
+          assignmentEvidenceJson: JSON.stringify(AssignmentEvidence.parse(assignmentEvidence)),
+        }
+        const values = {
+          id: enrollment.id,
+          name: enrollment.name,
+          hostname: enrollment.hostname,
+          tokenHash: enrollment.tokenHash,
+          podiumManaged: enrollment.podiumManaged,
+          credentialKind: enrollment.credentialKind,
+          publicKey: enrollment.publicKey,
+          serviceAssignmentJson: enrollment.serviceAssignmentJson,
+          assignmentEvidenceJson: enrollment.assignmentEvidenceJson,
+          now,
+        }
+        const result = await this.committed.write(
+          async () =>
+            replaceRevokedAt === undefined
+              ? await insertEnrollment(this.db).all(values)
+              : await replaceRevokedEnrollment(this.db).all({
+                  ...values,
+                  replaceRevokedAt,
+                  replaceIncarnation: replaceIncarnation ?? '',
+                }),
+          'upsert',
+        )
+        if (result.changes === 1) {
+          await this.grantRepository.removeAllForResource('machine', m.id)
+          if (ownerUserId) await this.setMachineOwner(m.id, ownerUserId)
+        }
+        return result.changes === 1
+      })
     })
   }
 
   /** Supersession is terminal, including for previously issued replacement codes. */
   async supersedeMachine(id: MachineId, replacementId: MachineId): Promise<void> {
-    await this.committed.write(async () => await supersedeMachineOf(this.db)
-      .all({ id, replacementId, now: new Date().toISOString() }), 'upsert')
+    await this.machineRecordWrites.compare({ machines: [id] }, async () => {
+      await this.committed.write(
+        async () =>
+          await supersedeMachineOf(this.db).all({
+            id,
+            replacementId,
+            now: new Date().toISOString(),
+          }),
+        'upsert',
+      )
+    })
   }
 
   /** Retain identity and attribution while permanently refusing this credential. */
   async revokeMachine(id: MachineId): Promise<void> {
-    await this.committed.write(async () => await revokeMachineOf(this.db)
-      .all({ id, now: new Date().toISOString() }), 'upsert')
+    await this.machineRecordWrites.compare({ machines: [id] }, async () => {
+      await this.committed.write(
+        async () => await revokeMachineOf(this.db).all({ id, now: new Date().toISOString() }),
+        'upsert',
+      )
+    })
   }
 
   async deleteMachine(id: string): Promise<void> {
-    await this.committed.write(async () => await deleteMachineOf(this.db)
-      .all({ id: id as MachineId }), 'delete')
+    await this.machineRecordWrites.compare({ machines: [id] }, async () => {
+      await this.committed.write(
+        async () => await deleteMachineOf(this.db).all({ id: id as MachineId }),
+        'delete',
+      )
+    })
   }
 
   async touchMachine(id: string, hostname: string): Promise<void> {
-    await this.committed.write(async () => await touchMachineOf(this.db)
-      .all({ id: id as MachineId, now: new Date().toISOString(), hostname }), 'upsert')
+    await this.machineRecordWrites.compare({ machines: [id] }, async () => {
+      await this.committed.write(
+        async () =>
+          await touchMachineOf(this.db).all({
+            id: id as MachineId,
+            now: new Date().toISOString(),
+            hostname,
+          }),
+        'upsert',
+      )
+    })
   }
 }

@@ -107,7 +107,6 @@ async function fixture(opts: { checkouts?: boolean } = {}): Promise<Oracle> {
     repositories: scan.repositories,
     diagnostics: [],
   }))
-  await o.reg.modules.machines.publishMachines()
   if (opts.checkouts) {
     await o.store.repos.addRepo(ROOT, MACHINE)
     await o.reg.modules.checkouts.rescan(MACHINE)
@@ -117,6 +116,30 @@ async function fixture(opts: { checkouts?: boolean } = {}): Promise<Oracle> {
 
 const root = checkoutRowId(MACHINE, ROOT)
 const worktree = checkoutRowId(MACHINE, WORKTREE)
+
+it('a grant rollback takes its access record, checkout reach and lost paths with it', async () => {
+  const o = await fixture({ checkouts: true })
+  const before = await o.store.sync.maxChangeSeq()
+  await expect(
+    o.store.transact(async () => {
+      await o.store.grants.remove('machine', MACHINE, BOTH, 'use')
+      expect(
+        (await o.store.checkouts.reachOfMachines([MACHINE])).get(MACHINE)?.get(BOTH)?.reach,
+      ).toBe('roots')
+      expect((await o.store.checkouts.lostOfMachines([MACHINE])).get(MACHINE)?.get(BOTH)).toEqual([
+        { path: WORKTREE, root: false },
+      ])
+      throw new Error('rollback')
+    }),
+  ).rejects.toThrow('rollback')
+  expect(await o.store.sync.maxChangeSeq()).toBe(before)
+  expect((await o.store.checkouts.reachOfMachines([MACHINE])).get(MACHINE)?.get(BOTH)?.reach).toBe(
+    'all',
+  )
+  expect(
+    (await o.store.checkouts.lostOfMachines([MACHINE])).get(MACHINE)?.get(BOTH),
+  ).toBeUndefined()
+})
 
 type Cursor = Awaited<ReturnType<Oracle['reg']['changeLedger']['authority']['cursor']>>
 
@@ -193,7 +216,6 @@ it("a MANAGE-only member's first access row sends the root and no evict", async 
   const o = await fixture({ checkouts: true })
   const before = await o.reg.changeLedger.authority.cursor()
   await grant(o, LATE, 'manage')
-  await o.reg.modules.machines.publishMachines([MACHINE])
   expect(await idsTold(o, before, LATE)).toEqual([root])
   expect(await received(o, before, LATE)).toEqual([`upsert ${root}`])
 })
@@ -202,12 +224,10 @@ it('losing USE evicts exactly the worktrees, and keeps the root a manager still 
   const o = await fixture({ checkouts: true })
   const before = await o.reg.changeLedger.authority.cursor()
   await o.store.grants.remove('machine', MACHINE, BOTH, 'use')
-  await o.reg.modules.machines.publishMachines([MACHINE])
   expect(await received(o, before, BOTH)).toEqual([`evict ${worktree}`, `upsert ${root}`].sort())
   // USE alone, lost: everything it covered goes.
   const later = await o.reg.changeLedger.authority.cursor()
   await o.store.grants.remove('machine', MACHINE, USER, 'use')
-  await o.reg.modules.machines.publishMachines([MACHINE])
   expect(await received(o, later, USER)).toEqual([`evict ${root}`, `evict ${worktree}`].sort())
   // Nobody else's view moved.
   expect(await idsTold(o, before, MANAGER)).toEqual([])
@@ -220,11 +240,9 @@ it('a SEE-only member never receives a checkout id', async () => {
   await o.reg.modules.checkouts.rescan(MACHINE)
   // Their own access row moves (a rename) and the machine's custody edges move.
   await o.store.machines.renameMachine(MACHINE, 'renamed')
-  await o.reg.modules.machines.publishMachines([MACHINE])
   await grant(o, SEER, 'see')
   await o.store.repos.removeRepo(ROOT, MACHINE)
   await o.reg.modules.checkouts.registrationsChanged(MACHINE)
-  await o.reg.modules.machines.publishMachines([MACHINE])
   expect(await idsTold(o, cursor, SEER)).toEqual([])
   expect(await idsTold(o, cursor, STRANGER)).toEqual([])
 })
@@ -234,11 +252,9 @@ it('a member offline during the shrink still receives the evicts when they catch
   // The member's device holds the cursor from before the shrink, and is away.
   const away = await o.reg.changeLedger.authority.cursor()
   await o.store.grants.remove('machine', MACHINE, BOTH, 'use')
-  await o.reg.modules.machines.publishMachines([MACHINE])
   // The server keeps working meanwhile: rescans and publishes that append
   // nothing to this member's access row.
   await o.reg.modules.checkouts.rescan(MACHINE)
-  await o.reg.modules.machines.publishMachines([MACHINE])
   // Catching up from where the device stopped.
   expect(await received(o, away, BOTH)).toEqual([`evict ${worktree}`, `upsert ${root}`].sort())
 })
@@ -247,11 +263,9 @@ it("a second append to the member's access row before the device catches up stil
   const o = await fixture({ checkouts: true })
   const away = await o.reg.changeLedger.authority.cursor()
   await o.store.grants.remove('machine', MACHINE, BOTH, 'use')
-  await o.reg.modules.machines.publishMachines([MACHINE])
   // The same member's row moves again while the device is still away: the
   // machine reports a new hostname, a SEE fact on every member's row.
   await o.store.machines.touchMachine(MACHINE, 'renamed-host')
-  await o.reg.modules.machines.publishMachines([MACHINE])
   expect(await received(o, away, BOTH)).toEqual([`evict ${worktree}`, `upsert ${root}`].sort())
   // The lost set is the one worktree, not the machine's every path.
   const lost = (await o.store.checkouts.lostOfMachines([MACHINE])).get(MACHINE)?.get(BOTH)
@@ -261,10 +275,8 @@ it("a second append to the member's access row before the device catches up stil
 it('regaining USE re-admits the lost worktree and ends its evicts', async () => {
   const o = await fixture({ checkouts: true })
   await o.store.grants.remove('machine', MACHINE, BOTH, 'use')
-  await o.reg.modules.machines.publishMachines([MACHINE])
   const regrant = await o.reg.changeLedger.authority.cursor()
   await grant(o, BOTH, 'use')
-  await o.reg.modules.machines.publishMachines([MACHINE])
   expect(await received(o, regrant, BOTH)).toEqual([`upsert ${worktree}`, `upsert ${root}`].sort())
   expect(
     (await o.store.checkouts.lostOfMachines([MACHINE])).get(MACHINE)?.get(BOTH),
@@ -272,7 +284,6 @@ it('regaining USE re-admits the lost worktree and ends its evicts', async () => 
   // A later move of the row re-admits, and evicts nothing.
   const later = await o.reg.changeLedger.authority.cursor()
   await o.store.machines.touchMachine(MACHINE, 'renamed-host')
-  await o.reg.modules.machines.publishMachines([MACHINE])
   expect(await received(o, later, BOTH)).toEqual([`upsert ${worktree}`, `upsert ${root}`].sort())
 })
 
@@ -280,12 +291,10 @@ it('a lost checkout that is gone is still evicted to the member who lost it', as
   const o = await fixture({ checkouts: true })
   const away = await o.reg.changeLedger.authority.cursor()
   await o.store.grants.remove('machine', MACHINE, USER, 'use')
-  await o.reg.modules.machines.publishMachines([MACHINE])
   // The repo is unregistered while the device is away: the removals go to the
   // readers it has now, which no longer include this member.
   await o.store.repos.removeRepo(ROOT, MACHINE)
   await o.reg.modules.checkouts.registrationsChanged(MACHINE)
   await o.store.machines.touchMachine(MACHINE, 'renamed-host')
-  await o.reg.modules.machines.publishMachines([MACHINE])
   expect(await received(o, away, USER)).toEqual([`evict ${root}`, `evict ${worktree}`].sort())
 })

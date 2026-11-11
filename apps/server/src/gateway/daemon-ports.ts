@@ -82,8 +82,10 @@ export interface MachinesDaemonPort {
   /** Write a machine's synced records after a write that may have moved them
    *  (POD-6644). A socket attach cannot yield, so it schedules this and the
    *  service logs any rejection (rule 51b). */
-  schedulePublishMachines(ids?: readonly MachineId[]): void
-  recordDaemonReadiness(machineId: MachineId, readiness: DaemonFrame<'hostMetrics'>['daemonReadiness']): void
+  recordDaemonReadiness(
+    machineId: MachineId,
+    readiness: DaemonFrame<'hostMetrics'>['daemonReadiness'],
+  ): void
   recordInventory(
     machineId: MachineId,
     inventory: DaemonFrame<'inventoryReport'>['inventory'],

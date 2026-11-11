@@ -614,6 +614,7 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   ['apps/server/src/store/issue-panel.ts:artifactPage', 'Bounded keyset panel record page joined to its issue; the first page walks its primary key.'],
   ['apps/server/src/store/issue-panel.ts:deferredPage', 'Bounded keyset panel record page joined to its issue; the first page walks its primary key.'],
   ['apps/server/src/store/issue-panel.ts:statePage', 'Bounded keyset panel record page joined to its issue; the first page walks its primary key.'],
+  ['apps/server/src/store/machines.ts:machineRecordIds', 'An id-only covering walk for a change that affects the entire fleet, including a member joining or leaving.'],
   ['apps/server/src/store/machines.ts:machineRecordPage', 'A keyset page of stored machine records, bounded by requested page size. The first page walks the id index.'],
   ['apps/server/src/store/users.ts:activeRecordMembers', 'Enabled members id and role only, for each member machine-access record. The output necessarily covers the enabled membership; no credential or other account data is loaded.'],
   [
@@ -806,14 +807,7 @@ const RAW_SQL_PLANNED: ReadonlyMap<string, string> = new Map([
     'apps/server/src/sync-worker/producer.ts:SELECT min(seq) AS seq FROM changes',
     "The sync worker's retention floor, read on the snapshot the first read fixed, before the visibility repositories exist.",
   ],
-  [
-    'apps/server/src/modules/updates/recovery-store.ts:SELECT value FROM meta WHERE key = ?',
-    "The update coordinator's checkpoint: synchronous by contract (recoveryOnly restores it from a query-only database before the store's executor runs).",
-  ],
-  [
-    'apps/server/src/modules/updates/recovery-store.ts:INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)',
-    "The update coordinator's checkpoint write, synchronous by the same contract as its read.",
-  ],
+
 ])
 
 const RAW_SQL_EXEMPT: ReadonlyMap<string, string> = new Map([

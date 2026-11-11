@@ -340,7 +340,7 @@ describe('scheduled refresh after supervised completion', () => {
         fleetChannel: () => 'dev',
       })
     let service = construct()
-    service.setTarget('dev', target)
+    await service.setTarget('dev', target)
     await service.authorize()
     expect(send).toHaveBeenCalledTimes(1)
     fleet[0]!.version = target.version
@@ -359,7 +359,8 @@ describe('scheduled refresh after supervised completion', () => {
       await service.releaseInFlightGrants()
       expect(recovery.read()?.grants).toHaveLength(1)
     }
-    if (phase === 'publication-replaced') service.setTarget('dev', { ...target, critical: true })
+    if (phase === 'publication-replaced')
+      await service.setTarget('dev', { ...target, critical: true })
     if (phase === 'approval-replaced') approved = { ...target, critical: true }
 
     for (const reboot of [false, true]) {

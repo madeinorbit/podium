@@ -99,7 +99,10 @@ const upsertMeta = prepared((db: StoreDrizzle) =>
  * the `instancePreferences` feed capture. It is handed the write itself, so the
  * record can be built before it and again after it (compare at save, POD-6769).
  */
-export type InstancePreferencesFeedCapture = (write: () => Promise<void>) => Promise<void>
+export type InstancePreferencesFeedCapture = (
+  write: () => Promise<void>,
+  next: PodiumSettings,
+) => Promise<void>
 
 export class SettingsRepository {
   private committed = normalizeSettings(undefined)
@@ -293,7 +296,7 @@ export class SettingsRepository {
       }
       const capture = this.instanceFeedCapture
       if (capture === undefined) await write()
-      else await capture(write)
+      else await capture(write, next)
       applyAfterCommit(() => {
         this.committed = next
       }, 'settings-snapshot')

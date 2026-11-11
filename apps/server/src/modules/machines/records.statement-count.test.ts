@@ -80,7 +80,6 @@ async function fixture(size: number): Promise<Fixture> {
     diagnostics: [],
   }))
   // The records and checkouts as they stand before the counted run.
-  await o.reg.modules.machines.publishMachines()
   await o.reg.modules.checkouts.rescan(machine)
   return { o, machine, scan }
 }
@@ -104,13 +103,12 @@ const rename: StatementPin<Fixture> = {
 }
 
 const republish: StatementPin<Fixture> = {
-  name: 'publishMachines (one machine, every member)',
+  name: 'stored machine rename (every member)',
   setup: fixture,
   target: (f) => f.o.store,
   run: async (f) => {
-    // A rename on the store alone, so the rewrite has something to write.
+    // The repository source write carries the record comparison.
     await f.o.store.machines.renameMachine(f.machine, `direct-${++seq}`)
-    await f.o.reg.modules.machines.publishMachines([f.machine])
     return f.machine
   },
 }
@@ -120,6 +118,34 @@ const unchangedScan: StatementPin<Fixture> = {
   setup: fixture,
   target: (f) => f.o.store,
   run: async (f) => await f.o.reg.modules.checkouts.rescan(f.machine),
+}
+
+const grantWrite: StatementPin<Fixture> = {
+  name: 'machine grant source write',
+  setup: fixture,
+  target: (f) => f.o.store,
+  run: async (f) => {
+    const actor = await firstAdminMemberId(f.o.store)
+    await f.o.store.grants.upsert({
+      resourceKind: 'machine',
+      resourceId: f.machine,
+      grantee: 'user:member-0',
+      verb: 'see',
+      owner: actor,
+      visibility: 'owned-compute',
+      createdAt: AT,
+      actorKind: 'user',
+      actorId: actor,
+      onBehalfOf: actor,
+    })
+  },
+}
+
+const memberRole: StatementPin<Fixture> = {
+  name: 'member role source write (every machine)',
+  setup: fixture,
+  target: (f) => f.o.store,
+  run: async (f) => await f.o.store.users.setRole(asUserId('user:member-0'), 'admin'),
 }
 
 const oneNewWorktree: StatementPin<Fixture> = {
@@ -142,6 +168,14 @@ describe('statement counts of the machine record writes', () => {
     await expectConstantStatements(republish, 11)
   })
 
+  it('a grant write does not grow with the members or the fleet', async () => {
+    await expectConstantStatements(grantWrite, 11)
+  })
+
+  it('a member role change does not grow with the machines or the members', async () => {
+    await expectConstantStatements(memberRole, 11)
+  })
+
   it('a scan that finds nothing new writes nothing, whatever the machine holds', async () => {
     await expectConstantStatements(unchangedScan, 2)
   })
@@ -159,9 +193,6 @@ describe('statement counts of the machine record writes', () => {
 // change: the change log gains no checkout row, and no machine row.
 it('a burst of agent edits, commits and heartbeats writes no worktree or machine rows', async () => {
   const f = await fixture(8)
-  // The fixture stores the machine's inventory without publishing it: one
-  // publish first, so the burst starts from the records the server holds.
-  await f.o.reg.modules.machines.publishMachines([f.machine])
   const before = await f.o.store.sync.maxChangeSeq()
   const repo = f.scan.repositories[0]!
   for (let step = 0; step < 40; step++) {
@@ -170,7 +201,6 @@ it('a burst of agent edits, commits and heartbeats writes no worktree or machine
     await f.o.reg.modules.checkouts.rescan(f.machine)
     // A heartbeat from the same host (the fixture's hostname).
     await f.o.store.machines.touchMachine(f.machine, 'test')
-    await f.o.reg.modules.machines.publishMachines([f.machine])
   }
   const changed = (await f.o.store.sync.changesSince(before)).filter(
     (row) =>

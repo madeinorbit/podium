@@ -221,6 +221,7 @@ async function storedAccessRows(
   { store }: RecordReads,
   ids: readonly string[],
   records?: readonly MachineRecord[],
+  memberIds?: ReadonlySet<string>,
 ): Promise<BuiltRecord[]> {
   if (ids.length === 0) return []
   const machineIds = ids.map(asMachineId)
@@ -229,7 +230,8 @@ async function storedAccessRows(
   const specs = await machineRecordSpecs({
     facts: async () => facts,
     grants: async () => edges,
-    members: async () => await store.users.recordMembers(),
+    members: async () => (await store.users.recordMembers())
+      .filter((member) => memberIds === undefined || memberIds.has(member.id)),
   })
   return specs.flatMap((spec) =>
     spec.entity === 'machineAccess' && spec.op === 'upsert'
@@ -242,10 +244,16 @@ const machineAccess: Builder = {
   kind: 'machineAccess',
   shape: 'row-and-reads',
   async build(reads, ids) {
-    return await storedAccessRows(
-      reads,
-      unique(parsed(ids, parseMachineAccessRowId).map(({ machineId }) => machineId)),
-    )
+    const asked = new Set(ids)
+    const keys = parsed(ids, parseMachineAccessRowId)
+    return (
+      await storedAccessRows(
+        reads,
+        unique(keys.map(({ machineId }) => machineId)),
+        undefined,
+        new Set(keys.map(({ userId }) => userId)),
+      )
+    ).filter(({ id }) => asked.has(id))
   },
   async *streamAll(reads) {
     for await (const page of reads.store.machines.recordPages(RECORD_PAGE_SIZE))

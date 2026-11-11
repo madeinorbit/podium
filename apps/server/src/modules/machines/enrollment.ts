@@ -9,9 +9,6 @@ import { afterCommit, spanOpen } from '../../store/executor/executor'
 /** Database-owned machine credentials and custody transitions. */
 export interface EnrollmentHost {
   readonly deps: MachinesDeps
-  /** Write these machines' synced records (all when omitted) after a write
-   *  that moved them (owner transfer, adoption, supersession; POD-6644). */
-  publishMachines(ids?: readonly MachineId[]): Promise<void>
   hasSupervisor(machineId: MachineId): boolean
   retireIncarnation(machineId: MachineId): void
 }
@@ -48,7 +45,10 @@ const transitions = new WeakMap<EnrollmentHost, Map<MachineId, Promise<void>>>()
 /** Serialize credential transitions before inspecting or consuming a one-use code. */
 export async function withMachineTransition<T>(host: EnrollmentHost, id: MachineId, run: () => Promise<T>): Promise<T> {
   let pending = transitions.get(host)
-  if (!pending) { pending = new Map(); transitions.set(host, pending) }
+  if (!pending) {
+    pending = new Map()
+    transitions.set(host, pending)
+  }
   const previous = pending.get(id) ?? Promise.resolve()
   let release!: () => void
   const held = new Promise<void>((resolve) => { release = resolve })
@@ -88,25 +88,29 @@ export async function machineTransition(
       (inner, id) => () => withMachineTransition(host, id, inner),
       run,
     )()
+  const save = () =>
+    host.deps.compareMachineRecords
+      ? host.deps.compareMachineRecords({ machines: ids }, write)
+      : write()
   if (spanOpen()) {
-    await write()
+    await save()
     afterCommit(async () => await locked(outside), label)
     return
   }
   await locked(async () => {
-    await write()
+    await save()
     await outside()
   })
 }
 
-/** The machines' synced records after a write that moved them (POD-6644).
- *  They are database writes, so inside a unit of work they commit with it. */
-export async function publishAfterWrite(host: EnrollmentHost, ids: readonly MachineId[]): Promise<void> {
-  await host.publishMachines(ids)
-}
-
-export async function authenticateDaemon(host: EnrollmentHost, frame: MachineAuthenticationFrame, options: DaemonAuthenticationOptions = {}) {
-  return withMachineTransition(host, frame.machineId, () => authenticateDaemonUnlocked(host, frame, options))
+export async function authenticateDaemon(
+  host: EnrollmentHost,
+  frame: MachineAuthenticationFrame,
+  options: DaemonAuthenticationOptions = {},
+) {
+  return withMachineTransition(host, frame.machineId, () =>
+    authenticateDaemonUnlocked(host, frame, options),
+  )
 }
 
 async function authenticateDaemonUnlocked(
@@ -246,7 +250,6 @@ export async function transferOwnership(
   if (!row || row.revokedAt) throw new Error(`unknown machine '${machineId}'`)
   if (opts.skipRowUpdate) return
   await host.deps.store.machines.setMachineOwner(machineId, newOwnerUserId)
-  await host.publishMachines([machineId])
 }
 
 /** Authenticated transport attribution and agent-scope narrowing, never payload input. */
@@ -265,29 +268,38 @@ export async function transferMachineOwnership(
 ): Promise<void> {
   if (!await host.deps.userExists?.(newOwnerUserId)) throw new Error(`unknown user: ${newOwnerUserId}`)
   const scopeAllowed = context.manage?.(id) !== false
-  await machineTransition(host, [id], async () => {
-    await host.deps.store.transact(async () => {
-      const machine = await host.deps.store.machines.getMachine(id)
-      if (!machine || machine.revokedAt) throw new Error(`unknown machine '${id}'`)
-      const custodian = await host.deps.store.machines.custodian(id)
-      const admin = await host.deps.store.users.roleOf(actor) === 'admin'
-      if (!scopeAllowed || (custodian !== actor && !admin)) {
-        throw new Error('only the machine owner or an admin may transfer ownership')
-      }
-      if (newOwnerUserId === custodian) throw new Error('machine is already owned by that user')
-      await host.deps.store.grants.removeAllForResource('machine', id)
-      await host.deps.store.machines.setMachineOwner(id, newOwnerUserId)
-      await host.deps.store.settingsAudit.append({
-        command: admin && newOwnerUserId === actor ? 'takeover' : 'machines.transferOwnership',
-        outcome: 'applied',
-        ...(context.attribution ?? { actorKind: 'user' as const, actorId: actor, onBehalfOf: actor }),
-        detail: { machineId: id, previousOwnerUserId: custodian, newOwnerUserId },
-        redactedPaths: [],
-        createdAt: new Date().toISOString(),
+  await machineTransition(
+    host,
+    [id],
+    async () => {
+      await host.deps.store.transact(async () => {
+        const machine = await host.deps.store.machines.getMachine(id)
+        if (!machine || machine.revokedAt) throw new Error(`unknown machine '${id}'`)
+        const custodian = await host.deps.store.machines.custodian(id)
+        const admin = (await host.deps.store.users.roleOf(actor)) === 'admin'
+        if (!scopeAllowed || (custodian !== actor && !admin)) {
+          throw new Error('only the machine owner or an admin may transfer ownership')
+        }
+        if (newOwnerUserId === custodian) throw new Error('machine is already owned by that user')
+        await host.deps.store.grants.removeAllForResource('machine', id)
+        await host.deps.store.machines.setMachineOwner(id, newOwnerUserId)
+        await host.deps.store.settingsAudit.append({
+          command: admin && newOwnerUserId === actor ? 'takeover' : 'machines.transferOwnership',
+          outcome: 'applied',
+          ...(context.attribution ?? {
+            actorKind: 'user' as const,
+            actorId: actor,
+            onBehalfOf: actor,
+          }),
+          detail: { machineId: id, previousOwnerUserId: custodian, newOwnerUserId },
+          redactedPaths: [],
+          createdAt: new Date().toISOString(),
+        })
       })
-    })
-  }, async () => {}, 'machines:transfer')
-  await publishAfterWrite(host, [id])
+    },
+    async () => {},
+    'machines:transfer',
+  )
 }
 
 export async function effectiveOwner(host: EnrollmentHost, machineId: MachineId): Promise<UserId | null | undefined> {
@@ -300,22 +312,36 @@ export async function adoptMachine(host: EnrollmentHost, id: MachineId, newOwner
   if (context.manage?.(id) === false || await host.deps.store.users.roleOf(actor) !== 'admin') {
     throw new Error('only an admin may adopt a machine')
   }
-  if (!await host.deps.userExists?.(newOwnerUserId)) throw new Error(`unknown user: ${newOwnerUserId}`)
-  await machineTransition(host, [id], async () => {
-    await host.deps.store.transact(async () => {
-      const machine = await host.deps.store.machines.getMachine(id)
-      if (!machine || machine.revokedAt) throw new Error(`unknown machine '${id}'`)
-      if (await host.deps.store.machines.custodian(id) !== null) throw new Error('machine already has an owner — use transfer ownership')
-      await host.deps.store.grants.removeAllForResource('machine', id)
-      await host.deps.store.machines.setMachineOwner(id, newOwnerUserId)
-      await host.deps.store.settingsAudit.append({
-        command: newOwnerUserId === actor ? 'takeover' : 'machines.adopt', outcome: 'applied',
-        ...(context.attribution ?? { actorKind: 'user' as const, actorId: actor, onBehalfOf: actor }),
-        detail: { machineId: id, previousOwnerUserId: null, newOwnerUserId }, redactedPaths: [], createdAt: new Date().toISOString(),
+  if (!(await host.deps.userExists?.(newOwnerUserId)))
+    throw new Error(`unknown user: ${newOwnerUserId}`)
+  await machineTransition(
+    host,
+    [id],
+    async () => {
+      await host.deps.store.transact(async () => {
+        const machine = await host.deps.store.machines.getMachine(id)
+        if (!machine || machine.revokedAt) throw new Error(`unknown machine '${id}'`)
+        if ((await host.deps.store.machines.custodian(id)) !== null)
+          throw new Error('machine already has an owner — use transfer ownership')
+        await host.deps.store.grants.removeAllForResource('machine', id)
+        await host.deps.store.machines.setMachineOwner(id, newOwnerUserId)
+        await host.deps.store.settingsAudit.append({
+          command: newOwnerUserId === actor ? 'takeover' : 'machines.adopt',
+          outcome: 'applied',
+          ...(context.attribution ?? {
+            actorKind: 'user' as const,
+            actorId: actor,
+            onBehalfOf: actor,
+          }),
+          detail: { machineId: id, previousOwnerUserId: null, newOwnerUserId },
+          redactedPaths: [],
+          createdAt: new Date().toISOString(),
+        })
       })
-    })
-  }, async () => {}, 'machines:adopt')
-  await publishAfterWrite(host, [id])
+    },
+    async () => {},
+    'machines:adopt',
+  )
 }
 
 /** One admin-authorized decision for client enrollment and retained revoked identity.

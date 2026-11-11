@@ -1,12 +1,16 @@
 import { UpdateChannel } from '@podium/model'
-import { inArray, sql } from 'drizzle-orm'
+import { eq, inArray, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { meta } from '../migrations/schema'
 import type { StoreDrizzle, StoreQueries } from './executor/sync-drizzle'
 import { prepared } from './executor/sync-drizzle'
+import { MachineRecordWrites } from './machine-record-writes'
 
 const FLEET_CHANNEL = 'machines.fleet-channel.v1'
 const UPDATE_EXECUTION = 'updates.execution.v1'
+const channelRow = prepared((db: StoreDrizzle) =>
+  db.select({ value: meta.value }).from(meta).where(eq(meta.key, FLEET_CHANNEL)).prepare(),
+)
 const contextRows = prepared((db: StoreDrizzle) =>
   db
     .select({ key: meta.key, value: meta.value })
@@ -35,8 +39,25 @@ const StoredTargets = z.object({
 
 export class MachineRecordContextRepository {
   private readonly db: StoreDrizzle
-  constructor(queries: StoreQueries) {
+  constructor(
+    private readonly queries: StoreQueries,
+    private readonly records = new MachineRecordWrites(),
+    private readonly machineIds: () => Promise<readonly string[]> = async () => [],
+  ) {
     this.db = queries.rootDb
+  }
+
+  /** The resolved channel and its settings source share the source write. */
+  async writeFleetChannel<T>(channel: UpdateChannel, write: () => Promise<T>): Promise<T> {
+    return await this.queries.createOrJoinTransaction(async () => {
+      const current = UpdateChannel.parse((await channelRow(this.db).get())?.value ?? 'stable')
+      if (current === channel) return await write()
+      return await this.records.compare({ display: this.machineIds }, async () => {
+        const result = await write()
+        await this.setFleetChannel(channel)
+        return result
+      })
+    })
   }
 
   /** The server's last resolution of the effective fleet channel. Environment

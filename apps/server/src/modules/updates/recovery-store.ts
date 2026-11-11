@@ -1,7 +1,11 @@
 import { UpdateChannel } from '@podium/model'
 import { CONVERGENCE_STATES, UpdateGrantMessage, UpdateTarget } from '@podium/protocol'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
+import { meta } from '../../migrations/schema'
+import type { StoreDrizzle, StoreQueries } from '../../store/executor/sync-drizzle'
+import { prepared } from '../../store/executor/sync-drizzle'
+import { MachineRecordWrites } from '../../store/machine-record-writes'
 
 export const MachineFailureReason = z.object({
   code: z.string().optional(),
@@ -59,25 +63,54 @@ const RecoverySnapshot = z.object({
 export type UpdateRecoverySnapshot = z.infer<typeof RecoverySnapshot>
 export interface UpdateRecoveryPersistence {
   read(): UpdateRecoverySnapshot | undefined
-  write(snapshot: UpdateRecoverySnapshot): void
+  write(snapshot: () => UpdateRecoverySnapshot): void | Promise<void>
 }
 
-/** One atomic coordinator checkpoint in the existing database. No constructor
- * writes: recoveryOnly can restore it from a query-only database. Invalid proof
- * fails closed instead of silently restoring an empty grant map. */
-export class UpdateRecoveryStore implements UpdateRecoveryPersistence {
-  constructor(private readonly db: SqlDatabase) {}
+const checkpoint = prepared((db: StoreDrizzle) =>
+  db.select({ value: meta.value }).from(meta).where(eq(meta.key, 'updates.execution.v1')).prepare(),
+)
+const saveCheckpoint = prepared((db: StoreDrizzle) =>
+  db
+    .insert(meta)
+    .values({ key: 'updates.execution.v1', value: sql.placeholder('value') })
+    .onConflictDoUpdate({ target: meta.key, set: { value: sql.placeholder('value') } })
+    .prepare(),
+)
 
-  read(): UpdateRecoverySnapshot | undefined {
-    const row = this.db
-      .prepare('SELECT value FROM meta WHERE key = ?')
-      .get('updates.execution.v1') as { value: string } | undefined
+/** The checkpoint and any changed machine display records commit together. */
+export class UpdateRecoveryStore {
+  constructor(
+    private readonly queries: StoreQueries,
+    private readonly records = new MachineRecordWrites(),
+    private readonly machineIds: () => Promise<readonly string[]> = async () => [],
+  ) {}
+
+  async read(): Promise<UpdateRecoverySnapshot | undefined> {
+    const row = await checkpoint(this.queries.rootDb).get()
     return row ? RecoverySnapshot.parse(JSON.parse(row.value)) : undefined
   }
 
-  write(snapshot: UpdateRecoverySnapshot): void {
-    this.db
-      .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
-      .run('updates.execution.v1', JSON.stringify(snapshot))
+  async write(snapshot: () => UpdateRecoverySnapshot): Promise<void> {
+    await this.queries.createOrJoinTransaction(async () => {
+      const row = await checkpoint(this.queries.rootDb).get()
+      // Build after acquiring the write lane. Concurrent observers persist the
+      // current runtime proof when their turn arrives.
+      const next = snapshot()
+      const value = JSON.stringify(next)
+      if (row?.value === value) return
+      const previous = row ? RecoverySnapshot.parse(JSON.parse(row.value)) : undefined
+      const before = new Map(
+        previous?.targets.map(([channel, target]) => [channel, target.version]),
+      )
+      const after = new Map(next.targets.map(([channel, target]) => [channel, target.version]))
+      const moved =
+        before.size !== after.size ||
+        [...after].some(([channel, version]) => before.get(channel) !== version)
+      const write = async () => {
+        await saveCheckpoint(this.queries.rootDb).run({ value })
+      }
+      if (moved) await this.records.compare({ display: this.machineIds }, write)
+      else await write()
+    })
   }
 }

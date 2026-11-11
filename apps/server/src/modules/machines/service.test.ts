@@ -1030,8 +1030,10 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       // Called on every write of the machine's records (POD-6644). Reading the
       // owner here is the load-bearing part: a write made before the custody
       // change lands a stale entry in this array.
-      publishMachineRecords: async () => {
+      compareMachineRecords: async (_scope, write) => {
+        const result = await store.transact(write)
         broadcasts.push(await svc.effectiveOwner(MACHINE))
+        return result
       },
     } satisfies MachinesDeps)
     await store.machines.upsertMachine({

@@ -73,7 +73,6 @@ export function registerMachineRecord(registry: SyncWriteRegistry, deps: Machine
         const channel = resolveMachineChannel(pin, updates.fleetDefaultChannel())
         ctx.afterCommit(async () => {
           await updates.refreshTarget(channel)
-          await machines.publishMachines([machineId])
         }, 'machines:channel:refresh-target')
       }
       return { ok: true }

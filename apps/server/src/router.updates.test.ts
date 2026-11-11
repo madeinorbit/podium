@@ -12,10 +12,10 @@ import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import type { SessionStore } from './store'
 import { OPERATOR } from './test-support/capabilities'
+import { pinMachineChannel } from './test-support/machine-records'
 import { openTestStore } from './test-support/open-test-store'
 import { countStatements, quietShipping } from './test-support/statement-count'
 import { writeTestBackup } from './test-support/write-test-backup'
-import { pinMachineChannel } from './test-support/machine-records'
 
 /**
  * A resolved release target, WITH THE ARTIFACT A RESOLVED ONE ALWAYS HAS.
@@ -202,7 +202,7 @@ describe('read-only update space RPC', () => {
   it('requests information without invoking fleet reconciliation, creating an operation or preparing an update', async () => {
     const { registry, caller } = await harness()
     try {
-      registry.modules.updates.setTarget('dev', target())
+      await registry.modules.updates.setTarget('dev', target())
       const fleet = vi
         .spyOn(registry.modules.updates, 'fleet')
         .mockRejectedValue(new Error('Preview must not reconcile the fleet'))

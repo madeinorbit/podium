@@ -1645,7 +1645,6 @@ describe('SessionRegistry', () => {
       'hash',
     )
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    await reg.modules.machines.publishMachines()
 
     // Each member's machines are their own `machineAccess` rows (POD-6644).
     const rawIds = (await reg.modules.machines.listMachines()).map((machine) => machine.id).sort()
@@ -1712,8 +1711,6 @@ describe('SessionRegistry', () => {
       ),
     ).toBe('offline')
 
-    // Writing the records again changes nothing: each member's rows stay theirs.
-    await reg.modules.machines.publishMachines()
     expect(await accessOf(firstAdminMemberId())).toEqual(ownerInitial)
     expect(await accessOf(colleague)).toEqual(otherInitial)
     expect(otherInitial.map((machine) => machine.id).sort()).not.toEqual(rawIds)

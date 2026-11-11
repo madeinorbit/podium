@@ -440,7 +440,11 @@ export class SessionStore {
     this.settingsAudit = new SettingsAuditRepository(this.queries)
     this.accounts = new AccountsRepository(this.queries)
     this.grants = new GrantsRepository(this.queries)
-    this.machines = new MachinesRepository(this.queries, this.grants)
+    this.machines = new MachinesRepository(
+      this.queries,
+      this.grants,
+      this.grants.machineRecordWrites,
+    )
     this.users = new UsersRepository(this.queries, this.machines, this.grants)
     this.telegramBindings = new TelegramBindingsRepository(this.queries)
     this.events = new EventsRepository(this.queries)
@@ -456,13 +460,11 @@ export class SessionStore {
     this.automations = new AutomationsRepository(this.queries)
     this.effects = new EffectsRepository(this.queries)
     this.shipping = new ShippingRepository(this.queries)
-    // RESTORED. dev/mw constructed this here and the merge kept only the
-    // declaration, which carried a definite-assignment `!` -- so the field was
-    // permanently undefined and the compiler could not say so. relay.ts hands it
-    // to UpdatesService as the `recovery` port, so update recovery was silently
-    // disabled: no snapshot written, none restored across a coordinator restart.
-    // UpdateRecoveryStore was never converted and still takes the raw handle.
-    this.updateRecovery = new UpdateRecoveryStore(this.db)
+    this.updateRecovery = new UpdateRecoveryStore(
+      this.queries,
+      this.grants.machineRecordWrites,
+      async () => await this.machines.recordIds(),
+    )
     this.operations = new OperationStore(this.queries)
     this.messagingTopics = new MessagingTopicsRepository(this.queries)
     this.messagingSessionAttachments = new MessagingSessionAttachmentsRepository(this.queries)

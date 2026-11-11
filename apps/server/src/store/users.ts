@@ -21,7 +21,6 @@ import { MachinesRepository } from './machines'
  * capability.
  */
 
-import { createLogger } from '@podium/logger'
 import type { CredentialSource, UserId, UserRole } from '@podium/model'
 import { asUserId, CREDENTIAL_SOURCES, LoginEmail, USER_ROLES } from '@podium/model'
 import { and, asc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
@@ -33,7 +32,7 @@ import {
   userCredentials,
   users,
 } from '../migrations/schema'
-import { afterCommit, applyAfterCommit, spanOpen } from './executor/executor'
+import { applyAfterCommit, spanOpen } from './executor/executor'
 import { operationLoader } from './executor/operation-loader'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import {
@@ -155,8 +154,6 @@ const insertUserValues = {
 const insertUser = prepared((db: StoreDrizzle) =>
   db.insert(users).values(insertUserValues).prepare(),
 )
-
-const log = createLogger('server:users')
 
 const insertUserReturning = prepared((db: StoreDrizzle) =>
   db.insert(users).values(insertUserValues).returning().prepare(),
@@ -491,7 +488,6 @@ export class UsersRepository {
   }
 
   private readonly accessListeners = new Set<MemberAccessListener>()
-  private readonly accessEffects = new Set<(change: MemberAccessChange) => Promise<void>>()
 
   /**
    * Hear every committed change to a member's authority (POD-6293). The
@@ -502,19 +498,6 @@ export class UsersRepository {
     this.accessListeners.add(listener)
     return () => {
       this.accessListeners.delete(listener)
-    }
-  }
-
-  /**
-   * Run `effect` after every committed change to a member's authority, as an
-   * external effect of that commit: it may read and await, and its failure
-   * never undoes the change. For work that re-sends what a rescoped connection
-   * shows (its machine listing, say) rather than what it may do.
-   */
-  afterAccessChange(effect: (change: MemberAccessChange) => Promise<void>): () => void {
-    this.accessEffects.add(effect)
-    return () => {
-      this.accessEffects.delete(effect)
     }
   }
 
@@ -564,15 +547,6 @@ export class UsersRepository {
     applyAfterCommit(() => {
       for (const listener of this.accessListeners) listener(change)
     }, 'users:access-change')
-    afterCommit(async () => {
-      for (const effect of this.accessEffects) {
-        try {
-          await effect(change)
-        } catch (error) {
-          log.warn('an access-change effect failed after its commit', { error, reason })
-        }
-      }
-    }, 'users:access-change-effects')
     return row
   }
 
@@ -814,40 +788,42 @@ export class UsersRepository {
     at: string,
     actor?: UserId,
   ): Promise<void> {
-    await this.claimTransaction(async () => {
-      if (actor) await this.requireActiveAdmin(actor)
-      const existing = await accountById(this.db).get({ id: userId })
-      if (!existing) throw new MemberChangeRefused('unavailable', `unknown user: ${userId}`)
-      if ((existing.disabledAt !== null) === (disabledAt !== null)) return
-      // An admin disabling through member administration (every route passes
-      // the actor) cannot disable themselves or the last enabled admin. A
-      // system disable, in-process only, is not member administration.
-      if (disabledAt !== null && actor) {
-        if (actor === userId) throw new MemberChangeRefused('self', 'You cannot disable yourself')
-        if (await this.isLastActiveAdmin(existing)) throw lastAdmin('disabled')
-      }
-      await this.committed.write(async () => {
-        await setUserDisabledAt(this.db).all({ id: userId, disabledAt })
-        this.accountsWritten()
-        if (disabledAt !== null) {
-          await deleteClientSessionsOf(this.db).run({ userId })
+    await this.machinesRepository.machineRecordWrites.compare({ member: userId }, async () => {
+      await this.claimTransaction(async () => {
+        if (actor) await this.requireActiveAdmin(actor)
+        const existing = await accountById(this.db).get({ id: userId })
+        if (!existing) throw new MemberChangeRefused('unavailable', `unknown user: ${userId}`)
+        if ((existing.disabledAt !== null) === (disabledAt !== null)) return
+        // An admin disabling through member administration (every route passes
+        // the actor) cannot disable themselves or the last enabled admin. A
+        // system disable, in-process only, is not member administration.
+        if (disabledAt !== null && actor) {
+          if (actor === userId) throw new MemberChangeRefused('self', 'You cannot disable yourself')
+          if (await this.isLastActiveAdmin(existing)) throw lastAdmin('disabled')
         }
-        const bumped = await this.bumpAuthorization(
-          userId,
-          disabledAt === null ? 'enabled' : 'disabled',
-        )
-        const rows = bumped ? [bumped] : []
-        await insertSettingsAudit(this.db).run({
-          command: disabledAt === null ? 'members.enable' : 'members.disable',
-          outcome: 'applied',
-          actorKind: actor ? 'user' : 'system',
-          actorId: actor ?? null,
-          onBehalfOf: actor ?? null,
-          detailJson: JSON.stringify({ memberId: userId, runningAgentPolicy: 'let-finish' }),
-          createdAt: at,
-        })
-        return rows
-      }, 'upsert')
+        await this.committed.write(async () => {
+          await setUserDisabledAt(this.db).all({ id: userId, disabledAt })
+          this.accountsWritten()
+          if (disabledAt !== null) {
+            await deleteClientSessionsOf(this.db).run({ userId })
+          }
+          const bumped = await this.bumpAuthorization(
+            userId,
+            disabledAt === null ? 'enabled' : 'disabled',
+          )
+          const rows = bumped ? [bumped] : []
+          await insertSettingsAudit(this.db).run({
+            command: disabledAt === null ? 'members.enable' : 'members.disable',
+            outcome: 'applied',
+            actorKind: actor ? 'user' : 'system',
+            actorId: actor ?? null,
+            onBehalfOf: actor ?? null,
+            detailJson: JSON.stringify({ memberId: userId, runningAgentPolicy: 'let-finish' }),
+            createdAt: at,
+          })
+          return rows
+        }, 'upsert')
+      })
     })
   }
 
@@ -882,31 +858,36 @@ export class UsersRepository {
     account: Omit<UserAccountRow, 'email'> & { email?: string | null },
     passwordHash: string,
   ): Promise<void> {
-    // The write invalidates the account loaders, so the read after a mint sees
-    // the account rather than a memoised "no account"; a rollback takes what
-    // the span read after it with it (see `accounts`).
-    await this.createOrJoinTransaction(async () => {
-      await this.committed.write(
-        async () =>
-          await insertUserReturning(this.db).all({
-            // EXTERNAL INPUT BRAND DECODE: UserAccountRow is the account-import
-            // boundary and deliberately carries its source id as a string.
-            id: asUserId(account.id),
-            displayName: account.displayName,
-            email: account.email == null ? null : LoginEmail.parse(account.email),
-            role: account.role,
-            createdAt: account.createdAt,
-          }),
-        'upsert',
-      )
-      this.accountsWritten()
-      await insertCredential(this.db).run({
-        // Same external account id, branded independently for this write.
-        userId: asUserId(account.id),
-        passwordHash,
-        updatedAt: account.createdAt,
-      })
-    })
+    await this.machinesRepository.machineRecordWrites.compare(
+      { member: asUserId(account.id) },
+      async () => {
+        // The write invalidates the account loaders, so the read after a mint sees
+        // the account rather than a memoised "no account"; a rollback takes what
+        // the span read after it with it (see `accounts`).
+        await this.createOrJoinTransaction(async () => {
+          await this.committed.write(
+            async () =>
+              await insertUserReturning(this.db).all({
+                // EXTERNAL INPUT BRAND DECODE: UserAccountRow is the account-import
+                // boundary and deliberately carries its source id as a string.
+                id: asUserId(account.id),
+                displayName: account.displayName,
+                email: account.email == null ? null : LoginEmail.parse(account.email),
+                role: account.role,
+                createdAt: account.createdAt,
+              }),
+            'upsert',
+          )
+          this.accountsWritten()
+          await insertCredential(this.db).run({
+            // Same external account id, branded independently for this write.
+            userId: asUserId(account.id),
+            passwordHash,
+            updatedAt: account.createdAt,
+          })
+        })
+      },
+    )
   }
 
   async setPasswordHash(userId: UserId, passwordHash: string, updatedAt: string): Promise<void> {
@@ -932,14 +913,19 @@ export class UsersRepository {
   }
 
   async createUnclaimed(account: UserAccountRow): Promise<void> {
-    await insertUser(this.db).run({
-      id: asUserId(account.id),
-      displayName: account.displayName,
-      email: account.email,
-      role: account.role,
-      createdAt: account.createdAt,
-    })
-    this.accountsWritten()
+    await this.machinesRepository.machineRecordWrites.compare(
+      { member: asUserId(account.id) },
+      async () => {
+        await insertUser(this.db).run({
+          id: asUserId(account.id),
+          displayName: account.displayName,
+          email: account.email,
+          role: account.role,
+          createdAt: account.createdAt,
+        })
+        this.accountsWritten()
+      },
+    )
   }
 
   async findMemberByAccount(accountId: string): Promise<UserAccountRow | undefined> {
@@ -960,43 +946,51 @@ export class UsersRepository {
   }
 
   async removeMember(userId: UserId, actor: UserId): Promise<void> {
-    await this.claimTransaction(async () => {
-      await this.requireActiveAdmin(actor)
-      if (userId === actor) throw new MemberChangeRefused('self', 'You cannot remove yourself')
-      // Read the retained row: a disabled member can still hold custody, and
-      // retrying removal by member id must succeed without duplicate audits.
-      const existing = await accountById(this.db).get({ id: userId })
-      if (!existing) throw new MemberChangeRefused('unavailable', 'Member unavailable')
-      if (await this.isLastActiveAdmin(existing)) throw lastAdmin('removed')
-      const at = new Date().toISOString()
-      await this.disable(userId, at, actor)
-      const held = await custodyMachinesOf(this.db).all({ grantee: userId })
-      for (const machine of held) {
-        await this.machinesRepository.setMachineOwner(machine.id, null)
-        await insertSettingsAudit(this.db).run({
-          command: 'members.remove',
-          outcome: 'applied',
-          actorKind: 'user',
-          actorId: actor,
-          onBehalfOf: actor,
-          detailJson: JSON.stringify({
-            memberId: userId,
-            machineId: machine.id,
-            previousOwnerUserId: userId,
-            newOwnerUserId: null,
-          }),
-          createdAt: at,
+    await this.machinesRepository.machineRecordWrites.compare(
+      {
+        member: userId,
+        machines: async () => await this.grantsRepository.machineIdsForGrantee(userId),
+      },
+      async () => {
+        await this.claimTransaction(async () => {
+          await this.requireActiveAdmin(actor)
+          if (userId === actor) throw new MemberChangeRefused('self', 'You cannot remove yourself')
+          // Read the retained row: a disabled member can still hold custody, and
+          // retrying removal by member id must succeed without duplicate audits.
+          const existing = await accountById(this.db).get({ id: userId })
+          if (!existing) throw new MemberChangeRefused('unavailable', 'Member unavailable')
+          if (await this.isLastActiveAdmin(existing)) throw lastAdmin('removed')
+          const at = new Date().toISOString()
+          await this.disable(userId, at, actor)
+          const held = await custodyMachinesOf(this.db).all({ grantee: userId })
+          for (const machine of held) {
+            await this.machinesRepository.setMachineOwner(machine.id, null)
+            await insertSettingsAudit(this.db).run({
+              command: 'members.remove',
+              outcome: 'applied',
+              actorKind: 'user',
+              actorId: actor,
+              onBehalfOf: actor,
+              detailJson: JSON.stringify({
+                memberId: userId,
+                machineId: machine.id,
+                previousOwnerUserId: userId,
+                newOwnerUserId: null,
+              }),
+              createdAt: at,
+            })
+          }
+          // Keep other members' shares, including shares granted by this member.
+          // Only the removed member's incoming grants are invalidated. Session and
+          // issue attribution (and historical grant audiences) are never rewritten.
+          await this.grantsRepository.removeAllForGrantee(userId)
+          await deleteClientSessionsOf(this.db).run({ userId })
+          await deleteCredentialOf(this.db).run({ userId })
+          await deleteInvitesOfMember(this.db).run({ memberId: userId })
+          await this.bumpAuthorization(userId, 'removed')
         })
-      }
-      // Keep other members' shares, including shares granted by this member.
-      // Only the removed member's incoming grants are invalidated. Session and
-      // issue attribution (and historical grant audiences) are never rewritten.
-      await this.grantsRepository.removeAllForGrantee(userId)
-      await deleteClientSessionsOf(this.db).run({ userId })
-      await deleteCredentialOf(this.db).run({ userId })
-      await deleteInvitesOfMember(this.db).run({ memberId: userId })
-      await this.bumpAuthorization(userId, 'removed')
-    })
+      },
+    )
   }
 
   /**
@@ -1005,27 +999,29 @@ export class UsersRepository {
    * The last enabled admin cannot be demoted, so the instance always keeps one.
    */
   async setRole(userId: UserId, role: UserRole, actor?: UserId): Promise<void> {
-    await this.claimTransaction(async () => {
-      if (actor) await this.requireActiveAdmin(actor)
-      const existing = await accountById(this.db).get({ id: userId })
-      if (!existing || existing.disabledAt !== null) {
-        throw new MemberChangeRefused('unavailable', 'Member unavailable')
-      }
-      if (existing.role === role) return
-      if (existing.role === 'admin' && (await this.isLastActiveAdmin(existing))) {
-        throw lastAdmin('demoted')
-      }
-      await setUserRole(this.db).run({ id: userId, role })
-      this.accountsWritten()
-      await this.bumpAuthorization(userId, 'role')
-      await insertSettingsAudit(this.db).run({
-        command: 'members.setRole',
-        outcome: 'applied',
-        actorKind: actor ? 'user' : 'system',
-        actorId: actor ?? null,
-        onBehalfOf: actor ?? null,
-        detailJson: JSON.stringify({ memberId: userId, from: existing.role, to: role }),
-        createdAt: new Date().toISOString(),
+    await this.machinesRepository.machineRecordWrites.compare({ member: userId }, async () => {
+      await this.claimTransaction(async () => {
+        if (actor) await this.requireActiveAdmin(actor)
+        const existing = await accountById(this.db).get({ id: userId })
+        if (!existing || existing.disabledAt !== null) {
+          throw new MemberChangeRefused('unavailable', 'Member unavailable')
+        }
+        if (existing.role === role) return
+        if (existing.role === 'admin' && (await this.isLastActiveAdmin(existing))) {
+          throw lastAdmin('demoted')
+        }
+        await setUserRole(this.db).run({ id: userId, role })
+        this.accountsWritten()
+        await this.bumpAuthorization(userId, 'role')
+        await insertSettingsAudit(this.db).run({
+          command: 'members.setRole',
+          outcome: 'applied',
+          actorKind: actor ? 'user' : 'system',
+          actorId: actor ?? null,
+          onBehalfOf: actor ?? null,
+          detailJson: JSON.stringify({ memberId: userId, from: existing.role, to: role }),
+          createdAt: new Date().toISOString(),
+        })
       })
     })
   }

@@ -161,7 +161,6 @@ describe('rule 46 grant snapshots at relay composition', () => {
     const { reg, grantReads, revokeAfterFirstGrantRead } = await regWithRevocableMachineGrant()
     // The revocation also rewrites the machine's access records (POD-6644),
     // which read the grants on their own account; only the login's reads count.
-    vi.spyOn(reg.modules.machines, 'publishMachines').mockResolvedValue()
     revokeAfterFirstGrantRead()
     const gate = reg.modules.messageGate as unknown as {
       policyFor?: (principal: typeof TEST_PRINCIPAL) => Promise<{

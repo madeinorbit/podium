@@ -39,7 +39,7 @@ describe('stored observations (POD-6765)', () => {
       await store.machines.recordContext.setFleetChannel('edge')
       expect(await store.machines.recordContext.setFleetChannel('edge')).toBe(false)
       await store.machines.setUpdateChannel(machine, 'edge')
-      store.updateRecovery.write({
+      await store.updateRecovery.write(() => ({
         format: 1,
         lastGrantAuthority: 0,
         targets: [['edge', { version: '0.4.2', critical: false, artifacts: {} }]],
