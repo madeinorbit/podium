@@ -244,7 +244,6 @@ async function issueWorkForOneFieldSessionChange(
   })
   await registry.modules.sessions.flushBroadcasts()
   const after = await feedDelta(registry, before.cursor, CHANGE_LOG_OBSERVER)
-  if (after.kind !== 'delta') throw new Error('fresh fixture unexpectedly required a snapshot')
   return after.changes.filter((change) => change.entity === 'issueProjection').length
 }
 
@@ -291,8 +290,6 @@ describe('issueProjection is the only issue record', () => {
     )
 
     const snapshot = await authoritySnapshot(registry)
-    expect(snapshot.kind).toBe('snapshot')
-    if (snapshot.kind !== 'snapshot') throw new Error('expected snapshot')
     expect(snapshot.issueProjections?.map((row) => row.id).sort()).toEqual(['iss_0', 'iss_1'])
     expect(snapshot.issueDeps).toHaveLength(1)
     expect(snapshot.repos).toHaveLength(1)
@@ -311,8 +308,6 @@ describe('issueProjection is the only issue record', () => {
       'iss_0',
     )
     const snapshot = await authoritySnapshot(registry)
-    expect(snapshot.kind).toBe('snapshot')
-    if (snapshot.kind !== 'snapshot') throw new Error('expected snapshot')
     const projection = snapshot.issueProjections?.find((row) => row.id === 'iss_0')
     expect(projection).toBeDefined()
     expect(
@@ -322,8 +317,6 @@ describe('issueProjection is the only issue record', () => {
     ).toEqual([sessionId])
 
     const all = await feedDelta(registry, 0, CHANGE_LOG_OBSERVER)
-    expect(all.kind).toBe('delta')
-    if (all.kind !== 'delta') throw new Error('expected delta')
     const sessionChanges = all.changes.filter(
       (change) => change.entity === 'session' && change.id === sessionId,
     )
@@ -338,8 +331,6 @@ describe('issueProjection is the only issue record', () => {
     registries.push(reboot)
     reboot.modules.sessions.flushBroadcasts()
     const after = await feedDelta(reboot, cursor, CHANGE_LOG_OBSERVER)
-    expect(after.kind).toBe('delta')
-    if (after.kind !== 'delta') throw new Error('expected delta')
     expect(
       after.changes.filter((change) => change.entity === 'session' && change.id === sessionId),
     ).toEqual([])
@@ -420,10 +411,7 @@ describe('normalized dep emission [POD-797]', () => {
     const { registry } = await world()
     await registry.modules.sessions.flushBroadcasts()
     const before = await feedDelta(registry, 0, CHANGE_LOG_OBSERVER)
-    const beforeCount =
-      before.kind === 'delta'
-        ? before.changes.filter((change) => change.entity === 'issueDep').length
-        : 0
+    const beforeCount = before.changes.filter((change) => change.entity === 'issueDep').length
     await registry.modules.issues.hierarchy.addDep(
       registry.modules.issues.reports.store.serverWriter,
       'iss_1',
@@ -431,8 +419,7 @@ describe('normalized dep emission [POD-797]', () => {
     )
     await registry.modules.sessions.flushBroadcasts()
     const after = await feedDelta(registry, 0, CHANGE_LOG_OBSERVER)
-    const edges =
-      after.kind === 'delta' ? after.changes.filter((change) => change.entity === 'issueDep') : []
+    const edges = after.changes.filter((change) => change.entity === 'issueDep')
     expect(edges.length - beforeCount).toBe(1)
     expect(edges.at(-1)?.id).toBe('iss_1|iss_2|blocked-by')
   })

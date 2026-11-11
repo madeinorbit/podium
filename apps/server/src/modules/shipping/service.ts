@@ -14,6 +14,7 @@ import {
   type IssueReport,
   integrationReceiptMatchesOrder,
   type MachineId,
+  rawShippingDestinations,
   type ShipAttempt,
   type ShipHold,
   type ShipHoldAction,
@@ -2369,14 +2370,50 @@ export class ShippingService {
         return { order: predecessor, destinationSha: receipt.destinationSha }
       }
     }
-    let after = ''
+    const containedDestinations = new Set<string>()
+    const containedSpellings = new Map<string, Pick<ShipOrder, 'destination' | 'targetBranch'>>()
+    const remember = (destination: string, targetBranch: string) => {
+      for (const spelling of rawShippingDestinations(destination)) {
+        containedSpellings.set(JSON.stringify([spelling, targetBranch]), {
+          destination: spelling,
+          targetBranch,
+        })
+      }
+    }
+    let before: Pick<ShipOrder, 'stateChangedAt' | 'id'> | undefined
     for (;;) {
-      const page = await this.deps.repository.shippedPredecessors(order.repoId, after)
+      const page = await this.deps.repository.shippedPredecessors(order.repoId, before, [
+        ...containedSpellings.values(),
+      ])
       if (page.length === 0) return
       for (const predecessor of page) {
-        if (await stale(predecessor.order, predecessor.destinationSha)) return predecessor
+        const destination = canonicalShippingDestination(
+          predecessor.order.destination,
+          predecessor.order.targetBranch,
+        )
+        if (containedDestinations.has(destination)) {
+          remember(destination, predecessor.order.targetBranch)
+          continue
+        }
+        if (
+          order.approvedBaseSha === predecessor.destinationSha ||
+          (await this.deps.isAncestor(issue, predecessor.destinationSha, order.approvedBaseSha))
+        ) {
+          // Every earlier receipt on this destination is an ancestor of this
+          // one. Skip both daemon calls and later SQL pages for that history.
+          containedDestinations.add(destination)
+          remember(destination, predecessor.order.targetBranch)
+        } else if (
+          await this.deps.isAncestor(
+            issue,
+            predecessor.order.approvedHeadSha,
+            order.approvedHeadSha,
+          )
+        ) {
+          return predecessor
+        }
       }
-      after = page.at(-1)!.order.id
+      before = page.at(-1)!.order
     }
   }
 

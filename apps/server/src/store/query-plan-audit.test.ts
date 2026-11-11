@@ -155,6 +155,7 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/effects.ts:liveEffectsOfIds', SIZES],
   ['apps/server/src/store/shipping.ts:queuedOrdersOfLane', SIZES],
   ['apps/server/src/store/shipping.ts:ordersOfIds', SIZES],
+  ['apps/server/src/store/shipping.ts:shippedPredecessorsPage', [0, 1, 4]],
   ['apps/server/src/store/shipping.ts:queuedDependentsOfIds', SIZES],
   ['apps/server/src/store/shipping.ts:stackEdgesFromUppers', SIZES],
   ['apps/server/src/store/shipping.ts:openHoldsOfOrders', SIZES],

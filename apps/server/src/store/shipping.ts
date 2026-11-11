@@ -45,7 +45,21 @@ import {
   shippingTrainSubsetFingerprint,
 } from '@podium/protocol/daemon'
 import type { WriteScope } from '@podium/sync'
-import { and, asc, desc, eq, getTableColumns, gt, isNull, notInArray, sql } from 'drizzle-orm'
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  getTableColumns,
+  gt,
+  isNull,
+  lt,
+  lte,
+  not,
+  notInArray,
+  or,
+  sql,
+} from 'drizzle-orm'
 import {
   deliveryReceipts,
   issues,
@@ -825,9 +839,10 @@ const deleteRecoveryWork = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-// Admission checks historical predecessors here, before it commits a bounded
-// recovery item. Startup never enumerates shipped orders to discover this work.
-const shippedPredecessorsPage = prepared((db: StoreDrizzle) =>
+// Shipped stateChangedAt is the receipt's completion time, not request order.
+// Admission walks newest first and excludes destinations once their receipt is
+// contained in the approved base. Startup never enumerates shipped history.
+const shippedPredecessorsPage = preparedFamily((db: StoreDrizzle, size: number) =>
   db
     .select({ ...orderColumns, destinationSha: deliveryReceipts.destinationSha })
     .from(shipOrders)
@@ -836,10 +851,32 @@ const shippedPredecessorsPage = prepared((db: StoreDrizzle) =>
       and(
         eq(shipOrders.repoId, param(shipOrders.repoId, 'repoId')),
         eq(shipOrders.state, 'shipped'),
-        gt(shipOrders.id, param(shipOrders.id, 'after')),
+        lte(shipOrders.stateChangedAt, param(shipOrders.stateChangedAt, 'beforeAt')),
+        or(
+          lt(shipOrders.stateChangedAt, param(shipOrders.stateChangedAt, 'beforeAt')),
+          lt(shipOrders.id, param(shipOrders.id, 'beforeId')),
+        ),
+        size === 0
+          ? undefined
+          : not(
+              or(
+                ...Array.from({ length: size }, (_, index) =>
+                  and(
+                    eq(
+                      shipOrders.destination,
+                      param(shipOrders.destination, `containedDestination${index}`),
+                    ),
+                    eq(
+                      shipOrders.targetBranch,
+                      param(shipOrders.targetBranch, `containedBranch${index}`),
+                    ),
+                  ),
+                ),
+              )!,
+            ),
       ),
     )
-    .orderBy(asc(shipOrders.id))
+    .orderBy(desc(shipOrders.stateChangedAt), desc(shipOrders.id))
     .limit(100)
     .prepare(),
 )
@@ -1818,10 +1855,26 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
 
   async shippedPredecessors(
     repoId: ShipOrderValue['repoId'],
-    after = '',
+    before?: Pick<ShipOrderValue, 'stateChangedAt' | 'id'>,
+    containedDestinations: readonly Pick<ShipOrderValue, 'destination' | 'targetBranch'>[] = [],
   ): Promise<{ order: ShipOrderValue; destinationSha: string }[]> {
+    const size = inListSize(containedDestinations.length)
     return (
-      await shippedPredecessorsPage(this.db).all({ repoId, after: asShipOrderId(after) })
+      await shippedPredecessorsPage(this.db, size).all({
+        repoId,
+        beforeAt: before?.stateChangedAt ?? '\uffff',
+        beforeId: before?.id ?? '\uffff',
+        ...inListValues(
+          containedDestinations.map((lane) => lane.destination),
+          size,
+          'containedDestination',
+        ),
+        ...inListValues(
+          containedDestinations.map((lane) => lane.targetBranch),
+          size,
+          'containedBranch',
+        ),
+      })
     ).map((row) => ({ order: mapOrder(row), destinationSha: row.destinationSha }))
   }
 

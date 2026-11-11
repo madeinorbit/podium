@@ -113,9 +113,6 @@ it('keeps requested issue JSON fields on create, update, get, list and tree', as
     children: [expect.objectContaining({ id: child.id, children: [] })],
   })
   const snapshot = await authoritySnapshot(registry)
-  expect(snapshot.kind).toBe('snapshot')
-  if (snapshot.kind !== 'snapshot') throw new Error('expected snapshot')
-  expect(snapshot.issues).toEqual([])
   // The synced record carries the description's header only (POD-6767).
   expect(snapshot.issueProjections?.find((row) => row.id === created.id)).not.toHaveProperty(
     'description',
@@ -146,7 +143,6 @@ it('records the authenticated asking user without inventing a session delivery a
   const row = await registry.sessionStore.issues.getIssue(issue.id)
   expect(row?.humanQuestionAttribution).toEqual({ actor: actorUser(user), onBehalfOf: user })
   const snapshot = await authoritySnapshot(registry)
-  if (snapshot.kind !== 'snapshot') throw new Error('expected snapshot')
   expect(snapshot.issueProjections?.find((row) => row.id === issue.id)?.asked).toMatchObject({
     question: 'Which option?',
     attribution: { actor: actorUser(user), onBehalfOf: user },

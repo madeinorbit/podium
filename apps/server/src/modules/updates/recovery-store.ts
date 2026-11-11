@@ -41,11 +41,18 @@ const RecoverySnapshot = z.object({
   format: z.literal(1),
   lastGrantAuthority: z.number(),
   targets: z.array(z.tuple([UpdateChannel, UpdateTarget])),
-  withdrawnTargets: z.array(z.tuple([UpdateChannel, z.object({
-    target: UpdateTarget,
-    reason: z.string(),
-    withdrawnAt: z.number(),
-  })])).optional(),
+  withdrawnTargets: z
+    .array(
+      z.tuple([
+        UpdateChannel,
+        z.object({
+          target: UpdateTarget,
+          reason: z.string(),
+          withdrawnAt: z.number(),
+        }),
+      ]),
+    )
+    .optional(),
   machines: z.array(z.tuple([z.string(), RecoveryState])),
   grants: z.array(z.tuple([z.string(), RecoveryGrant])),
   // Optional for checkpoints written before retired execution proof was retained.
@@ -91,6 +98,10 @@ export class UpdateRecoveryStore {
   }
 
   async write(snapshot: () => UpdateRecoverySnapshot): Promise<void> {
+    // Fleet reads and ticks often leave execution proof unchanged. Compare on
+    // the read lane first, so those calls never queue a write transaction.
+    const current = await checkpoint(this.queries.rootDb).get()
+    if (current?.value === JSON.stringify(snapshot())) return
     await this.queries.createOrJoinTransaction(async () => {
       const row = await checkpoint(this.queries.rootDb).get()
       // Build after acquiring the write lane. Concurrent observers persist the

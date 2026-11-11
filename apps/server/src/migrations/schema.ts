@@ -2001,6 +2001,12 @@ export const shipOrders = sqliteTable(
   (table) => [
     index('idx_ship_orders_issue').on(table.issueId),
     index('idx_ship_orders_repo_state_id').on(table.repoId, table.state, table.id),
+    index('idx_ship_orders_predecessors').on(
+      table.repoId,
+      table.state,
+      table.stateChangedAt,
+      table.id,
+    ),
     index('idx_ship_orders_recovery')
       .on(table.requestedAt, table.id)
       .where(

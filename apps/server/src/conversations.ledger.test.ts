@@ -144,7 +144,6 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     cursor: number,
   ): Promise<MetadataChange[]> => {
     const healed = await feedDelta(registry, cursor, CHANGE_LOG_OBSERVER)
-    if (healed.kind !== 'delta') throw new Error('expected a delta read')
     return healed.changes.filter((c) => c.entity === 'conversation')
   }
 
@@ -446,8 +445,6 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     )
     await push(registry, [conv('c1', { title: 't' }), conv('c3')], { removed: ['c2'] })
     const healed = await feedDelta(registry, 0, CHANGE_LOG_OBSERVER)
-    expect(healed.kind).toBe('delta')
-    if (healed.kind !== 'delta') return
     const folded = new Map<string, unknown>()
     for (const c of healed.changes) {
       if (c.entity !== 'conversation') continue

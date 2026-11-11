@@ -290,7 +290,12 @@ const laneWriter = (service: ShippingService): ShippingWriter =>
 
 // Real terminal history, without replaying hundreds of external effects in
 // setup. The cloned immutable rows intentionally carry no outstanding debt.
-function cloneShippingHistory(store: SessionStore, orderId: string, copies: number): void {
+function cloneShippingHistory(
+  store: SessionStore,
+  orderId: string,
+  copies: number,
+  overrides: (table: string, copy: number) => Record<string, string> = () => ({}),
+): void {
   const db = (store as unknown as { db: SqlDatabase }).db
   const tables = ['ship_orders', 'ship_attempts', 'ship_steps', 'delivery_receipts'] as const
   const sources = tables.map((table) => ({
@@ -306,10 +311,13 @@ function cloneShippingHistory(store: SessionStore, orderId: string, copies: numb
       for (const { table, rows } of sources) {
         for (const row of rows) {
           const columns = Object.keys(row)
-          const values = columns.map((column) =>
-            column === 'id' || column === 'order_id' || column === 'attempt_id'
-              ? `${row[column]}${suffix}`
-              : (row[column] ?? null),
+          const patch = overrides(table, i)
+          const values = columns.map(
+            (column) =>
+              patch[column] ??
+              (column === 'id' || column === 'order_id' || column === 'attempt_id'
+                ? `${row[column]}${suffix}`
+                : (row[column] ?? null)),
           )
           db.prepare(
             `INSERT INTO ${table} (${columns.map((c) => `"${c}"`).join(',')}) VALUES (${columns.map(() => '?').join(',')})`,
@@ -621,7 +629,7 @@ describe('ShippingService durable recovery debt', () => {
     const calls: number[] = []
     for (const size of [5, 200]) {
       const { store, issues, service, deps } = await historyPin.setup(size)
-      const isAncestor = vi.fn(async () => true)
+      const isAncestor = vi.fn<typeof deps.isAncestor>(async () => true)
       deps.isAncestor = isAncestor
       const predecessors = vi.spyOn(store.shipping, 'shippedPredecessors')
       try {
@@ -670,51 +678,46 @@ describe('ShippingService durable recovery debt', () => {
   })
 
   it('walks receipts by completion newest first and stops each destination independently', async () => {
-    const { store, service, deps, order } = await historyPin.setup(5)
-    const db = (store as unknown as { db: SqlDatabase }).db
+    const { store, service, deps, order } = await historyPin.setup(1)
     // IDs and request times do not encode landing order. The newest unrelated
     // receipt must not hide an older stale source on a different destination.
     const rows = [
-      { id: order.id, destination: 'main', sha: 'old-contained', head: 'old-source', at: '01' },
+      { destination: 'main', sha: 'old-contained', head: 'old-source', at: '01' },
       {
-        id: `${order.id}:history:0`,
         destination: 'local:main',
         sha: 'contained',
         head: 'contained-source',
         at: '02',
       },
       {
-        id: `${order.id}:history:1`,
         destination: 'refs/heads/main',
         sha: 'new-unrelated',
         head: 'unrelated-source',
         at: '04',
       },
       {
-        id: `${order.id}:history:2`,
         destination: 'git:origin/release',
         sha: 'release-stale',
         head: 'release-source',
         at: '03',
       },
       {
-        id: `${order.id}:history:3`,
         destination: 'remote:origin/release',
         sha: 'release-unrelated',
         head: 'release-unrelated-source',
         at: '05',
       },
     ]
-    for (const row of rows) {
+    cloneShippingHistory(store, order.id, rows.length, (table, index): Record<string, string> => {
+      const row = rows[index]!
       const at = `2026-08-13T10:00:${row.at}.000Z`
-      db.prepare(
-        'UPDATE ship_orders SET destination = ?, approved_head_sha = ?, state_changed_at = ? WHERE id = ?',
-      ).run(row.destination, row.head, at, row.id)
-      db.prepare(
-        'UPDATE delivery_receipts SET destination = ?, destination_sha = ?, completed_at = ? WHERE order_id = ?',
-      ).run(row.destination, row.sha, at, row.id)
-    }
-    const isAncestor = vi.fn(
+      return table === 'ship_orders'
+        ? { destination: row.destination, approved_head_sha: row.head, state_changed_at: at }
+        : table === 'delivery_receipts'
+          ? { destination: row.destination, destination_sha: row.sha, completed_at: at }
+          : {}
+    })
+    const isAncestor = vi.fn<typeof deps.isAncestor>(
       async (_issue, ancestor, descendant) =>
         (ancestor === 'contained' && descendant === 'approved-base') ||
         (ancestor === 'release-source' && descendant === 'approved-head'),
@@ -729,7 +732,7 @@ describe('ShippingService durable recovery debt', () => {
         },
         await deps.issues.get(order.issueId),
       )
-      expect(stale?.order.id).toBe(`${order.id}:history:2`)
+      expect(stale?.order.id).toBe(`${order.id}:history:3`)
       expect(isAncestor.mock.calls.map(([, ancestor]) => ancestor)).toEqual([
         'release-unrelated',
         'release-unrelated-source',
@@ -762,9 +765,46 @@ describe('ShippingService durable recovery debt', () => {
     }
   })
 
+  it('pages newest receipts until containment and skips the older destination history', async () => {
+    const { store, service, deps, order } = await historyPin.setup(1)
+    cloneShippingHistory(store, order.id, 201, (table, index): Record<string, string> => {
+      const at = new Date(Date.parse(order.stateChangedAt) + (index + 1) * 1_000).toISOString()
+      return table === 'ship_orders'
+        ? { approved_head_sha: `source-${index}`, state_changed_at: at }
+        : table === 'delivery_receipts'
+          ? { destination_sha: `receipt-${index}`, completed_at: at }
+          : {}
+    })
+    const isAncestor = vi.fn<typeof deps.isAncestor>(
+      async (_issue, ancestor, descendant) =>
+        (ancestor === 'receipt-50' && descendant === 'approved-base') ||
+        (ancestor === 'source-49' && descendant === 'approved-head'),
+    )
+    deps.isAncestor = isAncestor
+    const pages = vi.spyOn(store.shipping, 'shippedPredecessors')
+    try {
+      expect(
+        await service['staleAdmissionPredecessor'](
+          {
+            ...order,
+            approvedBaseSha: 'approved-base',
+            approvedHeadSha: 'approved-head',
+          },
+          await deps.issues.get(order.issueId),
+        ),
+      ).toBeUndefined()
+      expect(pages).toHaveBeenCalledTimes(3)
+      expect(isAncestor).toHaveBeenCalledTimes(301)
+      expect(isAncestor.mock.calls.at(-1)?.slice(1)).toEqual(['receipt-50', 'approved-base'])
+    } finally {
+      pages.mockRestore()
+      service.dispose()
+    }
+  })
+
   it('checks explicit delivery dependencies before a newer contained receipt', async () => {
     const { service, deps, order } = await historyPin.setup(5)
-    const isAncestor = vi.fn(
+    const isAncestor = vi.fn<typeof deps.isAncestor>(
       async (_issue, ancestor, descendant) =>
         ancestor === 'head-sha' && descendant === 'approved-base',
     )

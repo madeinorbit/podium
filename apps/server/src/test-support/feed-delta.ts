@@ -1,7 +1,8 @@
 import type { MetadataChange, Principal } from '@podium/protocol'
 import type { SessionRegistry } from '../relay'
 
-/** Array view of direct Authority reads for existing publication assertions. */
+/** Array view of direct Authority reads for publication assertions. Evictions
+ * are omitted; this helper checks published rows, not replica eviction behavior. */
 export async function feedDelta(registry: SessionRegistry, cursor: number, principal: Principal) {
   const delivery = await registry.changeLedger.authority.changesSince(cursor, principal)
   if (!delivery || delivery.kind !== 'batch') throw new Error('expected a servable delta')

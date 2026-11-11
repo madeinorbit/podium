@@ -232,8 +232,6 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       state: { phase: 'working', since: '2026-07-09T00:00:00.000Z', nativeSubagentCount: 0 },
     })
     const healed = await feedDelta(registry, cursor, CHANGE_LOG_OBSERVER)
-    expect(healed.kind).toBe('delta')
-    if (healed.kind !== 'delta') return
     const change = healed.changes.find(
       (c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert',
     ) as { value?: SessionMeta } | undefined
@@ -244,11 +242,9 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     await registry.dispose()
     const restarted = await makeRegistry(registry.sessionStore)
     const snapshot = await authoritySnapshot(restarted)
-    expect(snapshot.kind).toBe('snapshot')
-    if (snapshot.kind === 'snapshot')
-      expect(snapshot.sessions.find((row) => row.sessionId === sessionId)?.agentState?.phase).toBe(
-        'working',
-      )
+    expect(snapshot.sessions.find((row) => row.sessionId === sessionId)?.agentState?.phase).toBe(
+      'working',
+    )
   })
 
   it('(b2) a title persist yields a durable ledger change', async () => {
@@ -264,8 +260,6 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       title: 'a real durable title',
     })
     const healed = await feedDelta(registry, cursor, CHANGE_LOG_OBSERVER)
-    expect(healed.kind).toBe('delta')
-    if (healed.kind !== 'delta') return
     const change = healed.changes.find(
       (c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert',
     ) as { value?: SessionMeta } | undefined
@@ -344,8 +338,6 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     await registry.modules.sessions.flushBroadcasts()
     // Durable: the remove is in the log…
     const healed = await feedDelta(registry, cursor, CHANGE_LOG_OBSERVER)
-    expect(healed.kind).toBe('delta')
-    if (healed.kind !== 'delta') return
     expect(
       healed.changes.some((c) => c.entity === 'session' && c.id === sessionId && c.op === 'remove'),
     ).toBe(true)
@@ -385,15 +377,11 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     // kind generation; boot itself never repairs the log.
     const second = await makeRegistry(store)
     const healed = await feedDelta(second, cursor, CHANGE_LOG_OBSERVER)
-    expect(healed.kind).toBe('delta')
-    if (healed.kind !== 'delta') return
     expect(healed.changes.filter((change) => change.entity === 'session')).toEqual([])
     const snapshot = await authoritySnapshot(second)
-    expect(snapshot.kind).toBe('snapshot')
-    if (snapshot.kind === 'snapshot')
-      expect(snapshot.sessions.find((session) => session.sessionId === sessionId)?.name).toBe(
-        'changed offline',
-      )
+    expect(snapshot.sessions.find((session) => session.sessionId === sessionId)?.name).toBe(
+      'changed offline',
+    )
   })
 
   it('(g) a reentrant ledger commit during oplog.appended cannot reorder the delta stream (#247)', async () => {
@@ -455,8 +443,6 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       else await registry.modules.machines.renameMachine(host, name)
       await registry.modules.sessions.flushBroadcasts()
       const delta = await feedDelta(registry, cursor, CHANGE_LOG_OBSERVER)
-      expect(delta.kind).toBe('delta')
-      if (delta.kind !== 'delta') throw new Error('expected delta')
       expect(delta.changes.filter((row) => row.entity === 'session')).toEqual([])
       expect(delta.changes.filter((row) => row.entity === 'machine')).toEqual([
         expect.objectContaining({ id: host, value: expect.objectContaining({ id: host, name }) }),
@@ -494,8 +480,6 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     registry.gateway.detachDaemon(host)
     await registry.modules.sessions.flushBroadcasts()
     const healed = await feedDelta(registry, cursor, CHANGE_LOG_OBSERVER)
-    expect(healed.kind).toBe('delta')
-    if (healed.kind !== 'delta') return
     const flipped = healed.changes.filter(
       (c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert',
     ) as { value?: SessionMeta }[]
@@ -533,8 +517,6 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     await registry.modules.sessions.flushBroadcasts()
 
     const changes = await feedDelta(registry, 0, CHANGE_LOG_OBSERVER)
-    expect(changes.kind).toBe('delta')
-    if (changes.kind !== 'delta') return
     // The size is a live reading (POD-6764): no session change carries it, and
     // the terminal state topic answers it.
     const sized = changes.changes.filter(
@@ -677,8 +659,6 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const cursorAfterRecovery = (await authoritySnapshot(second)).cursor
     expect(cursorAfterRecovery).toBeGreaterThan(cursorBeforeRestart)
     const recovered = await feedDelta(second, cursorBeforeRestart, CHANGE_LOG_OBSERVER)
-    expect(recovered.kind).toBe('delta')
-    if (recovered.kind !== 'delta') return
     expect(
       recovered.changes.some(
         (change) =>
@@ -734,8 +714,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       expect((projected.at(-1)?.value as SessionMeta | undefined)?.name).toBe(original)
     })
     const renames = await feedDelta(registry, cursorBefore, CHANGE_LOG_OBSERVER)
-    expect(renames.kind).toBe('delta')
-    expect(renames.kind === 'delta' ? renames.changes.length : 0).toBeGreaterThanOrEqual(2)
+    expect(renames.changes.length).toBeGreaterThanOrEqual(2)
   })
 
   it('a burst of size reports appends no session change; the newest size is the live reading', async () => {
@@ -1047,8 +1026,6 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       device: asDeviceId('snooze-reader'),
       capability: asCapabilityRef('snooze-reader'),
     })
-    expect(delta.kind).toBe('delta')
-    if (delta.kind !== 'delta') throw new Error('expected personal delta')
     expect(delta.changes).toHaveLength(1)
     expect(delta.changes[0]).toMatchObject({
       entity: 'sessionUserState',
@@ -1117,8 +1094,6 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     registry.modules.sessions.broadcastSessions()
     await registry.modules.sessions.flushBroadcasts()
     const healed = await feedDelta(registry, cursor, CHANGE_LOG_OBSERVER)
-    expect(healed.kind).toBe('delta')
-    if (healed.kind !== 'delta') return
     expect(healed.changes.filter((c) => c.entity === 'session')).toEqual([])
     // And the kill still works once the append path recovers.
     await registry.modules.sessions.killSession(registry.modules.sessions.serverWriter, {
@@ -1143,8 +1118,6 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       sessionId: b.sessionId,
     })
     const healed = await feedDelta(registry, 0, CHANGE_LOG_OBSERVER)
-    expect(healed.kind).toBe('delta')
-    if (healed.kind !== 'delta') return
     const folded = new Map<string, unknown>()
     for (const c of healed.changes) {
       if (c.entity !== 'session') continue
@@ -1184,8 +1157,6 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(listed).toBeDefined()
 
     const after = await feedDelta(registry, cursor, CHANGE_LOG_OBSERVER)
-    expect(after.kind).toBe('delta')
-    if (after.kind !== 'delta') return
     const broadcast = (
       after.changes.find(
         (c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert',
@@ -1257,7 +1228,6 @@ describe('feed identity on the wire (ADR 2 D1/D5)', () => {
     // floor is published. Seeding makes the floor a real one.
     await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     const boot = await authoritySnapshot(registry)
-    expect(boot.kind).toBe('snapshot')
     expect(boot.feedId).toBeTruthy()
     expect(boot.epoch).toBeTruthy()
     expect(boot.feedId).not.toBe(boot.epoch)
@@ -1271,7 +1241,6 @@ describe('feed identity on the wire (ADR 2 D1/D5)', () => {
     const boot = await authoritySnapshot(registry)
     await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     const catchUp = await feedDelta(registry, boot.cursor, CHANGE_LOG_OBSERVER)
-    expect(catchUp.kind).toBe('delta')
     expect(catchUp.feedId).toBe(boot.feedId)
     expect(catchUp.epoch).toBe(boot.epoch)
     expect(catchUp.minAvailableSeq).toBeGreaterThanOrEqual(1)
@@ -1285,7 +1254,7 @@ describe('feed identity on the wire (ADR 2 D1/D5)', () => {
     // Nothing has been pruned, so the whole log is servable and the horizon is
     // the log's first seq — a replica at cursor 0 must NOT be told to re-bootstrap.
     expect(horizon).toBe(1)
-    expect((await feedDelta(registry, 0, CHANGE_LOG_OBSERVER)).kind).toBe('delta')
+    await feedDelta(registry, 0, CHANGE_LOG_OBSERVER)
   })
 
   it('serves identity on every production wire-v2 delta', async () => {

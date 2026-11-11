@@ -1,0 +1,1 @@
+CREATE INDEX `idx_ship_orders_predecessors` ON `ship_orders` (`repo_id`,`state`,`state_changed_at`,`id`);
