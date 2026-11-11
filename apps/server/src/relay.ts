@@ -967,7 +967,6 @@ export class SessionRegistry {
         lost: async (ids) => await this.store.checkouts.lostOfMachines(ids),
         paths: async (ids) => await this.store.checkouts.pathsOfMachines(ids),
         apply: async (change, at) => await this.store.checkouts.applyReach(change, at),
-        transact: async (fn) => await this.store.transact(fn),
         now: () => new Date(this.now()).toISOString(),
       },
     })
@@ -1271,7 +1270,6 @@ export class SessionRegistry {
     const messageFeed = new MessageFeedPublisher({
       ledger: writes.system('feed.messages'),
       messages: this.store.messages,
-      transact: async (fn) => await this.store.transact(fn),
     })
     this.store.messages.setFeedCapture(messageFeed.capture)
     this.store.sessions.setMessageWindowWrite(messageFeed.writeSessions)

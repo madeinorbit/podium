@@ -100,13 +100,7 @@ export const CONFIRMED_PER_SESSION = 20
 
 export interface MessageFeedDeps {
   readonly ledger: Pick<LedgerWriter, 'commit'>
-  /** The window's reads ({@link messageWindow}, {@link MessagesRepository.confirmedChatTail}). */
-  readonly messages: Pick<
-    MessagesRepository,
-    'listOpenChat' | 'confirmedChatWindow' | 'confirmedChatTail'
-  >
-  /** One transaction on the store the messages table lives in. */
-  readonly transact: <T>(fn: () => Promise<T>) => Promise<T>
+  readonly messages: Pick<MessagesRepository, 'confirmedChatTail'>
   /** Defaults to {@link CONFIRMED_PER_SESSION}. */
   readonly confirmedPerSession?: number
 }

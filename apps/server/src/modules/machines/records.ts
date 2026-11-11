@@ -101,7 +101,6 @@ export interface MachineRecordsDeps {
       },
       at: string,
     ): Promise<void>
-    transact<T>(fn: () => Promise<T>): Promise<T>
     now(): string
   }
 }

@@ -366,8 +366,8 @@ export class SuperagentService {
    * the thread, cleared when it lets go. A NEW turn also clears the last failure;
    * a turn re-driven after a restart is the same turn. The lock moves first and
    * synchronously, so the order the lock had is unchanged; a failed status write
-   * is logged and never takes the turn down (the boot reconcile sets the flag
-   * from the pending-turn rows again).
+   * is logged and never takes the turn down. Restart re-adopts durable pending
+   * turns through this write path and clears interrupted preparations by index.
    */
   private async holdTurn(threadId: ThreadId, opts: { newTurn: boolean }): Promise<void> {
     this.turnInFlight.add(threadId)

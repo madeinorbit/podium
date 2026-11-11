@@ -68,7 +68,6 @@ async function harness(
   const feed = new MessageFeedPublisher({
     ledger: testLedgerWriter(ledger),
     messages: store.messages,
-    transact: async (fn) => await store.transact(fn),
     ...(opts.window === undefined ? {} : { confirmedPerSession: opts.window }),
   })
   store.messages.setFeedCapture(feed.capture)
@@ -100,7 +99,6 @@ async function harness(
     const next = new MessageFeedPublisher({
       ledger: testLedgerWriter(makeLedger(window)),
       messages: store.messages,
-      transact: async (fn) => await store.transact(fn),
       ...(window === undefined ? {} : { confirmedPerSession: window }),
     })
     store.messages.setFeedCapture(next.capture)

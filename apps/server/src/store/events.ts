@@ -818,7 +818,10 @@ export type EventAppendListener = (
 
 /** The log append runs inside the event insert's transaction, even when its
  * post-commit announcement is suppressed. A failure rolls both writes back. */
-export type EventFeedCapture = EventAppendListener
+export type EventFeedCapture = (
+  id: number,
+  event: Omit<PodiumEventRecord, 'id'>,
+) => void | Promise<void>
 
 /** The feed-kind events one retention batch deleted, inside its transaction. */
 export type EventPruneFeedCapture = (
@@ -826,10 +829,7 @@ export type EventPruneFeedCapture = (
 ) => void | Promise<void>
 
 export class EventsRepository {
-  /** The feed publisher, installed by the composition root once the ledger
-   *  exists. Absent in the storage-only unit tests, and absent for the window
-   *  between store construction and wiring — an event appended in that window is
-   *  boot bookkeeping nobody is connected to see. */
+  /** Optional post-commit observer, separate from the transactional log capture. */
   private appendListener: EventAppendListener | undefined
   private feedCapture: EventFeedCapture | undefined
   /** The feed publisher's transactional retention hook, installed with it. */

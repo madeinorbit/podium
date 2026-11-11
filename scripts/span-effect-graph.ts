@@ -380,16 +380,7 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
     label: 'SyncUnitOfWork.transact',
   },
   {
-    // The chat message feed's boot reconcile [POD-4764]: composition binds it to
-    // `SessionStore.transact`, and the body reads the open set, reconciles the
-    // feed kind and turns the capture on in one unit of work.
-    file: 'apps/server/src/modules/message-feed/feed.ts',
-    symbol: 'transact',
-    body: 'arg0',
-    label: 'MessageFeedDeps.transact',
-  },
-  {
-    // The issue-event feed's publish, retention and boot reconcile [POD-6766]:
+    // The issue-event feed's transactional append and retention captures:
     // composition binds it to `SessionStore.transact`, and the body reads the
     // window from the events table and captures the feed's change in one unit
     // of work.
@@ -397,25 +388,6 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
     symbol: 'transact',
     body: 'arg0',
     label: 'IssueEventFeedDeps.transact',
-  },
-  {
-    // The interaction feed's publish [POD-6766]: composition binds it to
-    // `SessionStore.transact`, and the body re-reads the ask and captures its
-    // upsert or removal in one unit of work.
-    file: 'apps/server/src/modules/interactions/feed.ts',
-    symbol: 'transact',
-    body: 'arg0',
-    label: 'InteractionFeedDeps.transact',
-  },
-  {
-    // The machine records' write [POD-6644]: composition binds it to
-    // `SessionStore.transact`, and the body captures the access rows and records
-    // each appended member's checkout reach in one unit of work, so the feed's
-    // anchor never reads a reach the rows did not commit with.
-    file: 'apps/server/src/modules/machines/records.ts',
-    symbol: 'transact',
-    body: 'arg0',
-    label: 'MachineRecordsDeps.reach.transact',
   },
 ]
 
@@ -604,6 +576,22 @@ export interface PortRule {
  * share a member name cannot collapse into one answer.
  */
 export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
+  'apps/server/src/store/events.ts#EventFeedCapture.EventFeedCapture': {
+    kind: 'contained',
+    why: 'The event append capture names window changes through Ledger.commit in the event insert transaction; rollback discards the row and log entries together, and subscriber delivery follows the outermost commit.',
+  },
+  'apps/server/src/store/interactions.ts#InteractionFeedCapture.InteractionFeedCapture': {
+    kind: 'contained',
+    why: 'The interaction capture names successful guarded row changes through Ledger.commit in the source transaction; subscriber delivery follows its outermost commit and rollback discards both row and log writes.',
+  },
+  'apps/server/src/store/interactions.ts#InteractionsRepository.query': {
+    kind: 'opaque',
+    why: 'The interaction repository supplies its own prepared SQL write callbacks in this file, as MessagesRepository.query does; those callback bodies are checked where they are declared.',
+  },
+  'apps/server/src/store/users.ts#UsersRepository.memberCreated': {
+    kind: 'contained',
+    why: 'Creates the member default thread through the repository write funnel in the account transaction; its log capture joins the transaction and delivers to subscribers only after commit.',
+  },
   'apps/server/src/store/machine-record-writes.ts#CompareMachineRecords.CompareMachineRecords': {
     kind: 'contained',
     why: 'Builds records around the source write and appends their changes with checkout reach in the same store transaction. Its write callback is a declared span root and delivery follows the outermost commit.',
@@ -659,10 +647,6 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   'packages/model/src/identity/first-admin.ts#<module>.firstAdminMemberId': {
     kind: 'contained',
     why: 'Resolves the active administrator through the owning store’s earliestAdmin query; it only reads database state, so rollback leaves no externally observed effect.',
-  },
-  'apps/server/src/modules/interactions/feed.ts#InteractionFeedDeps.toWire': {
-    kind: 'contained',
-    why: "The interaction feed's row-to-wire projection [POD-6766]: composition binds it to InteractionService.wireOf, a pure mapping of the row it is handed, with no read, write or publication.",
   },
   'apps/server/src/store/messages.ts#MessagesRepository.query': {
     kind: 'opaque',
@@ -1090,7 +1074,7 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   /* --- OBSERVABLE: rule 19 moves these ------------------------------------ */
   'apps/server/src/store/events.ts#EventAppendListener.EventAppendListener': {
     kind: 'observable',
-    why: 'the feed announcement itself; A row 1 is exactly this call deferred',
+    why: 'The post-commit event observer can notify external consumers; it is separate from the transactional EventFeedCapture and must remain deferred.',
   },
   'apps/server/src/modules/issues/service/types.ts#IssueDeps.onIssueCreated': {
     kind: 'observable',
