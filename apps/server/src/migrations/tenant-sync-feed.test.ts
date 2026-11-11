@@ -23,8 +23,14 @@ describe('tenant feed migration', () => {
             `INSERT INTO changes(entity, entity_id, op, payload, event_time, origin_id) VALUES ('issueProjection', 'i${i}', 'upsert', '{"v":${i}}', ${i}, 'origin')`,
           )
         db.prepare('DELETE FROM changes WHERE seq <= ?').run(5 - retained)
-        const before = db.prepare('SELECT * FROM changes ORDER BY seq').all()
-        const generations = db.prepare('SELECT * FROM sync_kind ORDER BY kind').all()
+        const before = db.prepare('SELECT * FROM changes ORDER BY seq').all() as Record<
+          string,
+          unknown
+        >[]
+        const generations = db.prepare('SELECT * FROM sync_kind ORDER BY kind').all() as Record<
+          string,
+          unknown
+        >[]
         runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
         expect(db.prepare('SELECT * FROM changes ORDER BY seq').all()).toEqual(
           before.map((r) => ({ ...r, tenant_id: 'local' })),
