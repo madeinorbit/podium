@@ -1203,7 +1203,8 @@ export const grants = sqliteTable(
     grantee: text().notNull(),
     verb: text().notNull(),
     /** Custody is carried only by a machine manage edge. */
-    custody: integer({ mode: 'boolean' }).notNull().default(false),
+    // Keep the SQL spelling shipped by the custody migration.
+    custody: integer({ mode: 'boolean' }).notNull().default(sql`false`),
     owner: text().notNull(),
     visibility: text().notNull(),
     createdAt: text('created_at').notNull(),

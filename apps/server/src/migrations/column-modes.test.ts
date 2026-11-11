@@ -38,6 +38,7 @@ const BOOLEAN_COLUMNS = [
   'checkouts.locked',
   'checkouts.prunable',
   'effects.cancel_requested',
+  'grants.custody',
   'issues.archived',
   'issues.draft',
   'issues.needs_human',
