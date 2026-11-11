@@ -1,7 +1,7 @@
 /** Run only on the server-data bench VM. Measures the real startup migration
- * at the retention cap, including its pre-migration backup and integrity check.
+ * at the retention cap, including its pre-migration backup and schema repairs.
  * bun --conditions=@podium/source scripts/server-data-bench/tenant-migration.ts */
-import { copyFileSync, mkdtempSync, rmSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
@@ -31,7 +31,9 @@ try {
   }
   const results = []
   for (let round = 1; round <= 3; round++) {
-    const path = join(root, `round-${round}.db`)
+    const roundRoot = join(root, `round-${round}`)
+    mkdirSync(roundRoot)
+    const path = join(roundRoot, 'podium.db')
     copyFileSync(source, path)
     const candidate = openDatabase(path)
     try {
@@ -60,6 +62,7 @@ try {
       results.push({ round, wallMs, applied, ...feed, ...retained })
     } finally {
       candidate.close()
+      rmSync(roundRoot, { recursive: true, force: true })
     }
   }
   process.stdout.write(
