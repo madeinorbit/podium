@@ -1224,6 +1224,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: "the record builders' reads of the model tables (POD-6769): composition binds it to the server's builder registry over the same store, so the reads join the commit's transaction and see its writes; it writes nothing",
   },
+  'packages/sync/src/authority/ports.ts#RecordSourcePort.buildMany': {
+    kind: 'contained',
+    why: "The grouped builders read the model tables through the commit's store connection and map those rows within the same transaction (POD-6791).",
+  },
   'packages/sync/src/authority/ports.ts#RecordSourcePort.comparesAtSave': {
     kind: 'contained',
     why: 'a lookup in the fixed list of kinds moved to compare at save (POD-6769); computation only',
