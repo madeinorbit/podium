@@ -338,13 +338,13 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
   {
     file: 'packages/sync/src/ledger.ts',
     symbol: 'commit',
-    body: { props: ['write', 'changes'] },
+    body: { props: ['write'] },
     label: 'Ledger.commit',
   },
   {
     file: 'packages/sync/src/authority/authority.ts',
     symbol: 'commit',
-    body: { props: ['write', 'changes'] },
+    body: { props: ['write'] },
     label: 'Authority.commit',
   },
   {
@@ -354,7 +354,7 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
     // transaction — has no root of its own to report against.
     file: 'apps/server/src/modules/issues/service/types.ts',
     symbol: 'commit',
-    body: { props: ['write', 'changes'] },
+    body: { props: ['write'] },
     label: 'IssueLedger.commit',
   },
   {
@@ -364,7 +364,7 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
     // here in its own right.
     file: 'apps/server/src/modules/sessions/session-lifecycle-types.ts',
     symbol: 'commit',
-    body: { props: ['write', 'changes'] },
+    body: { props: ['write'] },
     label: 'SessionLedger.commit',
   },
   {
@@ -414,12 +414,12 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
   },
   {
     file: 'packages/sync/src/authority/authority.ts',
-    line: 139,
+    line: 131,
     why: 'the property that HOLDS the transact port; the port itself is named by its own entry in packages/sync/src/authority/ports.ts.',
   },
   {
     file: 'packages/sync/src/ledger.ts',
-    line: 146,
+    line: 117,
     why: "the Ledger deps property; it is handed straight to the Authority, so every call goes through the port entry above. (Was 121; POD-6592's write-scope import moved it.)",
   },
   {
@@ -658,7 +658,7 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   },
   'apps/server/src/store/effects.ts#EffectFeedCapture.EffectFeedCapture': {
     kind: 'contained',
-    why: "The effect record feed's capture [POD-6357]: it appends the rows' feed changes to the change log through Ledger.capture, which joins this same transaction and defers subscriber delivery past the outermost commit. The trigger is registered separately with afterCommit. A rollback takes the appended changes with it and nothing outside the process saw them.",
+    why: "The effect record feed's capture [POD-6357]: it appends the rows' feed changes to the change log through Ledger.commit, which joins this same transaction and defers subscriber delivery past the outermost commit. The trigger is registered separately with afterCommit. A rollback takes the appended changes with it and nothing outside the process saw them.",
   },
   'apps/server/src/store/superagent.ts#SuperagentRepository.query': {
     kind: 'opaque',
@@ -666,12 +666,12 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   },
   'apps/server/src/store/superagent.ts#SuperagentThreadFeedCapture.SuperagentThreadFeedCapture': {
     kind: 'contained',
-    why: "The superagent thread record feed's capture [POD-6675]: it appends the written rows' superagentThread changes to the change log through Ledger.capture, which joins this same transaction and defers subscriber delivery past the outermost commit. A rollback takes the appended changes with it and nothing outside the process saw them.",
+    why: "The superagent thread record feed's capture [POD-6675]: it appends the written rows' superagentThread changes to the change log through Ledger.commit, which joins this same transaction and defers subscriber delivery past the outermost commit. A rollback takes the appended changes with it and nothing outside the process saw them.",
   },
   'apps/server/src/store/settings.ts#InstancePreferencesFeedCapture.InstancePreferencesFeedCapture':
     {
       kind: 'contained',
-      why: "The instance settings record feed's capture [POD-6677]: it appends the written blob's instancePreferences change to the change log through Ledger.capture, which joins this same transaction and defers subscriber delivery past the outermost commit. A rollback takes the appended change with it and nothing outside the process saw it.",
+      why: "The instance settings record feed's capture [POD-6677]: it appends the written blob's instancePreferences change to the change log through Ledger.commit, which joins this same transaction and defers subscriber delivery past the outermost commit. A rollback takes the appended change with it and nothing outside the process saw it.",
     },
   'apps/server/src/modules/superagent/thread-records.ts#ThreadRecordDeps.threads': {
     kind: 'contained',
@@ -747,27 +747,11 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   },
   'apps/server/src/modules/checkouts/service.ts#CheckoutsDeps.writer': {
     kind: 'contained',
-    why: "The checkout record feed's writer [POD-6644]: composition binds it to the server's system-scoped writer, whose capture appends the scan's checkout changes to the change log through Ledger.capture inside the reconcile's own transaction, and subscriber delivery waits for the outermost commit. A rollback takes the appended changes with the checkout rows and nothing outside the process saw them.",
-  },
-  'packages/sync/src/ledger.ts#LedgerWriter.capture': {
-    kind: 'contained',
-    why: "A scoped capture [POD-6592]: `Ledger.capture` bound to one write scope. It appends the declared changes to the change log inside the caller's own transaction, and subscriber delivery waits for the outermost commit because relay.ts wires `AuthorityDeps.postCommit` (ledger §A row 3; the immediate arm stays adjudicated at its own span root, authority.ts). A rollback takes the appended rows with it and nothing outside the process saw them.",
-  },
-  'packages/sync/src/ledger.ts#LedgerWriter.reconcile': {
-    kind: 'contained',
-    why: "A scoped reconcile [POD-6592]: `Ledger.reconcile` bound to one write scope, contained for the reason `LedgerWriter.capture` gives. The message feed's boot reconcile and the issue git-state and projection reconciles run it inside a span on purpose, so the read and the diff are one unit.",
+    why: "The checkout record feed's writer [POD-6644]: composition binds it to the server's system-scoped writer, whose commit compares the scan's checkout records around the row write and appends changes in the same transaction, and subscriber delivery waits for the outermost commit. A rollback takes the appended changes with the checkout rows and nothing outside the process saw them.",
   },
   'apps/server/src/modules/issues/service/types.ts#IssueDeps.arbitrate': {
     kind: 'contained',
     why: 'Wraps a writer in the issue revision arbitration (IssueAuthorityArbitration.wrap, POD-6594): it returns a writer and does no I/O itself; the commit it later makes is analysed at its own call.',
-  },
-  'apps/server/src/modules/issues/service/types.ts#IssueLedger.reconcile': {
-    kind: 'contained',
-    why: "The issues service's narrow face on its scoped writer's reconcile [POD-6592]; contained for the reason `LedgerWriter.reconcile` gives.",
-  },
-  'packages/sync/src/ledger.ts#LedgerCommitOp.changes': {
-    kind: 'contained',
-    why: "a pure derivation: it maps the write's result to the change specs that describe it. It reads the value the write returned and computes; it performs no database call and no effect of any kind, so a rollback leaves nothing for anything outside the process to have seen.",
   },
   /* --- captured projection inputs (POD-3855) ------------------------------ */
   'apps/server/src/modules/issues/service/types.ts#IssueDeps.sessionFacts': {
@@ -1276,10 +1260,6 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'opaque',
     why: 'a persist-options callback, supplied at the call site inside the span',
   },
-  'apps/server/src/modules/issues/service/core.ts#IssueStore.extraChanges': {
-    kind: 'opaque',
-    why: 'a persist-options callback, supplied at the call site inside the span',
-  },
   'apps/server/src/modules/issues/service/core.ts#IssueStore.decide': {
     kind: 'contained',
     why: 'a personal-record decision (POD-6290): maps the stored user-state row to a patch, computation only',
@@ -1336,17 +1316,9 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'opaque',
     why: 'an arbitration read supplied by the caller',
   },
-  'packages/sync/src/authority/ports.ts#AuthorityCommit.changes': {
-    kind: 'opaque',
-    why: "the commit's own changes body — the twin of `AuthorityCommit.write` above and of `Ledger.changes` below. It is a SPAN ROOT in its own right: `Authority.commit` is declared with `{ props: ['write', 'changes'] }`, so wherever the object literal is written down both bodies are analysed as roots of their own.",
-  },
   'packages/sync/src/ledger.ts#LedgerCommitOp.write': {
     kind: 'opaque',
-    why: "the commit's own write body, now called by `Ledger.commit` with its write scope (`write: () => op.write(scope)`, POD-6594) rather than handed on as is. It is a SPAN ROOT in its own right: `Ledger.commit` is declared with `{ props: ['write', 'changes'] }`, so wherever the object literal is written down its body is analysed there, the twin of `AuthorityCommit.write`.",
-  },
-  'packages/sync/src/ledger.ts#Ledger.changes': {
-    kind: 'opaque',
-    why: "the commit's own changes body; it is a SPAN ROOT in its own right",
+    why: "the commit's own write body, now called by `Ledger.commit` with its write scope (`write: () => op.write(scope)`, POD-6594) rather than handed on as is. It is a SPAN ROOT in its own right: `Ledger.commit` is declared with `{ props: ['write'] }`, so wherever the object literal is written down its body is analysed there, the twin of `AuthorityCommit.write`.",
   },
   'packages/sync/src/replica/replica.ts#Replica.write': {
     kind: 'opaque',
@@ -1412,7 +1384,7 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   },
   'apps/server/src/modules/sessions/session-lifecycle-types.ts#SessionDeletePlan.write': {
     kind: 'opaque',
-    why: "the plan callback; its body is supplied by whoever built the plan. The session twin of `IssueLifecyclePlan.write` — `prepareIssueSessionDelete` writes the object literal down, and because `Ledger.commit` is declared with `{ props: ['write', 'changes'] }` that literal is a SPAN ROOT in its own right there.",
+    why: "the plan callback; its body is supplied by whoever built the plan. The session twin of `IssueLifecyclePlan.write` — `prepareIssueSessionDelete` writes the object literal down, and because `Ledger.commit` is declared with `{ props: ['write'] }` that literal is a SPAN ROOT in its own right there.",
   },
   'apps/server/src/modules/sessions/session-lifecycle-types.ts#SessionDeletePlan.affects': {
     kind: 'opaque',
