@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test'
+import { describe, expect, it, spyOn } from 'bun:test'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -9,6 +9,11 @@ import { asIssueId, asMachineId, asUserId, issueEventRowId } from '@podium/model
 import { openDatabase } from '@podium/runtime/sqlite'
 import { Hono } from 'hono'
 import WebSocket from 'ws'
+import { HttpBootstrapSource, HttpDeltaSource } from '@podium/client-core/sync-stream'
+import { InMemoryReplicaStore, Replica } from '@podium/sync/replica'
+import { EventBus } from '../modules/bus'
+import { WriteFunnel } from '../modules/funnel'
+import { SessionLifecycle } from '../modules/sessions/lifecycle'
 
 const { Authority, DEVICE_GRADE_PRINCIPAL, GrantEdgeVisibilityPolicy, NoDelegationsGranted } =
   await import('@podium/sync')
@@ -148,6 +153,7 @@ async function fixture() {
     store,
     worker,
     authority,
+    built,
     seedIssue,
     moveHead,
     async close() {
@@ -157,6 +163,94 @@ async function fixture() {
     },
   }
 }
+
+describe('cursor expiry worker reload', () => {
+  it('refuses unservable in-process cursors without enumerating record builders', async () => {
+    const f = await fixture()
+    try {
+      await f.seedIssue('current')
+      await f.moveHead()
+      await f.moveHead()
+      const plan = await f.store.sync.planChangePrune({ keepRows: 1, maxAgeMs: 60_000, now: 1 })
+      await f.store.sync.pruneChangeBatch(plan, 100)
+      expect(await f.store.sync.minChangeSeq()).toBe(2)
+      const builds = spyOn(f.built, 'streamAllKinds')
+      const funnel = new WriteFunnel({
+        authority: f.authority,
+        bus: new EventBus(),
+        serving: {
+          identity: () => ({ feedId: 'fixture-feed', epoch: 'fixture-epoch' }),
+          retentionFloor: async () => (await f.store.sync.minChangeSeq()) ?? 1,
+          publish() {},
+          flushPending() {},
+        },
+        onPublished() {},
+      })
+      const sessions = { funnel } as unknown as SessionLifecycle
+      for (const cursor of [0, null, 3]) {
+        await expect(
+          SessionLifecycle.prototype.syncChangesSince.call(sessions, cursor, principal),
+        ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', message: 'cursor-too-old' })
+      }
+      expect(builds).not.toHaveBeenCalled()
+      expect(await SessionLifecycle.prototype.syncChangesSince.call(sessions, 2, principal))
+        .toMatchObject({ kind: 'delta', cursor: 2, changes: [] })
+      builds.mockRestore()
+    } finally {
+      await f.close()
+    }
+  })
+
+  it('reloads an expired client through the admitted HTTP worker with kind tokens', async () => {
+    const f = await fixture()
+    try {
+      await f.seedIssue('current')
+      await f.moveHead()
+      await f.moveHead()
+      const plan = await f.store.sync.planChangePrune({ keepRows: 1, maxAgeMs: 60_000, now: 1 })
+      await f.store.sync.pruneChangeBatch(plan, 100)
+      const builds = spyOn(f.built, 'streamAllKinds')
+      const admitted = spyOn(f.worker, 'bootstrap')
+      const store = new InMemoryReplicaStore()
+      const oldCursor = { feedId: 'fixture-feed', epoch: 'fixture-epoch', seq: 0 }
+      store.cache.installSnapshot([], oldCursor, [], undefined, { kindTokens: {} })
+      const requests: string[] = []
+      const deps = {
+        origin: 'https://example.test',
+        streamingFetch: {
+          fetch: async (url: string, init: RequestInit) => {
+            requests.push(new URL(url).pathname)
+            return await f.app.fetch(new Request(url, init))
+          },
+        },
+      }
+      const bootstraps = new HttpBootstrapSource(deps)
+      const deltas = new HttpDeltaSource(deps)
+      const replica = new Replica({
+        store: store.cache,
+        unitOfWork: store.unitOfWork,
+        authority: {
+          bootstrap: bootstraps.bootstrap.bind(bootstraps),
+          changesRange: deltas.changesRange.bind(deltas),
+        },
+      })
+      replica.connect()
+      await replica.settled()
+      expect(requests).toEqual(['/sync/delta', '/sync/bootstrap'])
+      expect(admitted).toHaveBeenCalledTimes(1)
+      expect(builds).not.toHaveBeenCalled()
+      expect(replica.posture).toBe('live')
+      expect(replica.cursor).toEqual({ ...oldCursor, seq: 2 })
+      expect(store.cache.read('issueProjection', 'current')?.value).toMatchObject({ id: 'current' })
+      expect(store.cache.readKindTokens()?.issueProjection).toBeString()
+      replica.transportDisconnected()
+      builds.mockRestore()
+      admitted.mockRestore()
+    } finally {
+      await f.close()
+    }
+  })
+})
 
 it('filters the snapshot and changes only the token whose generation was bumped', async () => {
   const f = await fixture()
