@@ -271,10 +271,10 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     // the port's own comment for why the two-parameter form was unsafe.
     sessionOwner: ({ sessionId, memo }) => ownership.sessionOwner(sessionId, memo),
     primeOwnerMemo: (memo, sessionIds) => bag.primeOwnerMemo(memo, sessionIds),
-    persistSession: async (writer, sessionId, additionalWrite, additionalChanges) => {
+    persistSession: async (writer, sessionId, additionalWrite, additionalAffects) => {
       const session = bag.sessions.get(sessionId)
       if (session)
-        return bag.repository.persist(writer, session, additionalWrite, additionalChanges)
+        return bag.repository.persist(writer, session, additionalWrite, additionalAffects)
     },
     writeSession: async (writer, sessionId, mutate) => {
       const session = bag.sessions.get(sessionId)
@@ -338,7 +338,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     flushBroadcasts: () => bag.broadcasts.flush(),
     runScheduledBroadcast: () => bag.broadcasts.runScheduled(),
     sessionLiveChanged: (sessionId) => bag.liveTopics.changed(sessionId),
-    listSessionsForBootBaseline: () => bag.view.listInPages(undefined, 'bootstrap'),
     now: () => bag.now(),
     appliedMutationMaxAgeMs: APPLIED_MUTATIONS_MAX_AGE_MS,
     onRoutingChanged: (sessionId, previous) =>
@@ -1359,7 +1358,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       bag.sessionKill.prepareSessionRuntimeRemoval(id, ret),
     failMessagesToRemovedSessions: failMessagesToRemovedSessions(bag.deps),
     repository: bag.repository,
-    sessionRemovalSpecs: (id: SessionId) => bag.sessionKill.sessionRemovalSpecs(id),
     sessionTeardown: bag.sessionTeardown,
     sessions: bag.sessions,
     state: bag.state,

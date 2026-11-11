@@ -1282,12 +1282,13 @@ export class IssuesRepository {
   readonly panel: IssuePanelRepository
   readonly gitStates: IssueGitStatesRepository
   readonly committed: CommittedRows<typeof issues.$inferSelect>
-  private sessionRefPublisher: ((ids: readonly IssueId[]) => Promise<void>) | undefined
+  private sessionRefWrite:
+    | (<T>(ids: readonly IssueId[], write: () => Promise<T>) => Promise<T>)
+    | undefined
 
-  /** Composition hook for the two repairs that change permanent session refs.
-   * Runs inside their write span; it declares authority rows, never broadcasts. */
-  setSessionRefPublisher(publish: (ids: readonly IssueId[]) => Promise<void>): void {
-    this.sessionRefPublisher = publish
+  /** Compare dependent session refs around the source issue write. */
+  setSessionRefWrite(write: NonNullable<IssuesRepository['sessionRefWrite']>): void {
+    this.sessionRefWrite = write
   }
 
   /**
@@ -1447,8 +1448,13 @@ export class IssuesRepository {
   private async writeRows(
     query: () => Promise<(typeof issues.$inferSelect)[]>,
     operation: 'upsert' | 'delete',
+    refIssueIds: readonly IssueId[] = [],
   ): Promise<{ changes: number }> {
-    const result = await this.committed.write(query, operation)
+    const write = () => this.committed.write(query, operation)
+    const result =
+      refIssueIds.length > 0 && this.sessionRefWrite
+        ? await this.sessionRefWrite(refIssueIds, write)
+        : await write()
     this.rowsWritten()
     return result
   }
@@ -1667,6 +1673,12 @@ export class IssuesRepository {
           opts?.reassign ? `${REASSIGN_SHAPE_PREFIX}${shapeOf(values)}` : shapeOf(values),
         ).all(values),
       'upsert',
+      current &&
+        (current.seq !== row.seq ||
+          current.repoId !== row.repoId ||
+          current.repoPath !== row.repoPath)
+        ? [row.id]
+        : [],
     )
     // On a skipped upsert, the draft returned to the caller carries the same
     // revision as the stored row.
@@ -2294,7 +2306,9 @@ export class IssuesRepository {
         .returning()
         .prepare(),
     ))
-    await this.writeRows(async () => await remove(this.db).all({ id: asIssueId(id) }), 'delete')
+    await this.writeRows(async () => await remove(this.db).all({ id: asIssueId(id) }), 'delete', [
+      asIssueId(id),
+    ])
   }
 
   /** Per-boot heal (POD-1926): drop letter counters whose issue is already gone —
@@ -2381,9 +2395,9 @@ export class IssuesRepository {
         await this.writeRows(
           async () => await setSeq(this.db).all({ id: u.id, seq: u.seq }),
           'upsert',
+          [u.id],
         )
       }
-      await this.sessionRefPublisher?.(updates.map((update) => update.id))
     })
     return updates.length
   }
@@ -2437,9 +2451,9 @@ export class IssuesRepository {
         await this.writeRows(
           async () => await setRepoIdAndSeq(this.db).all({ id: r.id, repoId, seq }),
           'upsert',
+          [r.id],
         )
       }
-      await this.sessionRefPublisher?.(rows.map((row) => row.id))
     })
   }
 

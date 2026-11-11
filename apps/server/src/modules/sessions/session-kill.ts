@@ -18,11 +18,9 @@
  * Dispose: none.
  */
 
-import { createLogger } from '@podium/logger'
 import type { IssueId, MachineId, SessionId } from '@podium/model'
-import type { MetadataChange } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import type { EntityChangeSpec, WriteScope } from '@podium/sync'
+import type { WriteScope } from '@podium/sync'
 import type { AutoContinueController } from '../../auto-continue'
 import type { ClientRegistry } from '../../gateway/client-registry'
 import type { SessionStore } from '../../store'
@@ -34,8 +32,6 @@ import type { SessionWriter } from './lifecycle'
 import type { SessionRepository } from './repository'
 import type { Session } from './session'
 import type { SessionStateService } from './session-state/service'
-
-const log = createLogger('server:sessions')
 
 export interface SessionKillPorts {
   store: SessionStore
@@ -61,13 +57,6 @@ export interface SessionKillPorts {
 
 export class SessionKill {
   constructor(private readonly ports: SessionKillPorts) {}
-
-  /** Durable transition for removing a local session. POD-309 removed the second
-   *  spec this used to push: a retained hub-mirror entry colliding on the same id was
-   *  revealed in the same ordered append. There is no mirror to reveal any more. */
-  sessionRemovalSpecs(sessionId: SessionId): EntityChangeSpec[] {
-    return [{ entity: 'session', id: sessionId, op: 'remove' }]
-  }
 
   /** Runtime half of a durable session removal. Issue-owned tombstones can be
    * restored and therefore use generic process kill; standalone deletion is
@@ -178,6 +167,7 @@ export class SessionKill {
     // signalled — and propagates to the caller, instead of tearing down live
     // state for a row the rolled-back transaction still holds.
     await writer.commit({
+      affects: async () => await this.ports.store.sessions.recordIds([input.sessionId]),
       write: async (scope) => {
         // Before the tombstone: each sender's notice names the session's issue
         // as the way on, read from the session while it still stands.
@@ -190,7 +180,6 @@ export class SessionKill {
         )
         await this.ports.store.sync.deleteQueuedMessagesForSession(input.sessionId)
       },
-      changes: () => this.sessionRemovalSpecs(input.sessionId),
       // THE LIVE TEARDOWN WAITS FOR THE OUTERMOST COMMIT [POD-3366], which is
       // what the paragraph above always meant. "Durable tombstone FIRST, live
       // teardown after" was written against a top-level commit; nested inside a

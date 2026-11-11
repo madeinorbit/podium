@@ -3,7 +3,14 @@ import { asConversationId, type ConversationId, type MachineId } from '@podium/m
 import { and, eq, isNotNull, isNull, max, sql } from 'drizzle-orm'
 import { conversationIdentities, conversationSegments } from '../../migrations/schema'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from '../executor/sync-drizzle'
-import { inListOf, inListSize, inListValues, param, prepared, preparedFamily } from '../executor/sync-drizzle'
+import {
+  inListOf,
+  inListSize,
+  inListValues,
+  param,
+  prepared,
+  preparedFamily,
+} from '../executor/sync-drizzle'
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
@@ -304,6 +311,12 @@ const segmentsOfConversation = prepared((db: StoreDrizzle) =>
  * RETAINED ID MINT: new ConversationIds are created from UUID-backed strings;
  * selected registry ids flow from the schema without re-entry casts. */
 export class ConversationRegistryRepository {
+  /** Installed by composition: a native-id mapping is a session record source. */
+  sessionRecordWrite?: <T>(
+    machineId: MachineId,
+    nativeIds: readonly string[],
+    write: () => Promise<T>,
+  ) => Promise<T>
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
@@ -344,7 +357,9 @@ export class ConversationRegistryRepository {
     >()
     for (const chunk of chunks(paths)) {
       const size = inListSize(chunk.length)
-      const rows = await segmentsWithPaths(this.db, size).all(inListValues(chunk, size, 'in', { machineId }))
+      const rows = await segmentsWithPaths(this.db, size).all(
+        inListValues(chunk, size, 'in', { machineId }),
+      )
       for (const row of rows) {
         if (row.path === null || out.has(row.path)) continue
         out.set(row.path, {
@@ -365,7 +380,9 @@ export class ConversationRegistryRepository {
    * harvest finds that session. Fully populated on this machine: every one of
    * the 282 `subagents/` segments carries a parent.
    */
-  async parentPodiumIds(podiumIds: readonly ConversationId[]): Promise<Map<ConversationId, ConversationId>> {
+  async parentPodiumIds(
+    podiumIds: readonly ConversationId[],
+  ): Promise<Map<ConversationId, ConversationId>> {
     const out = new Map<ConversationId, ConversationId>()
     for (const chunk of chunks(podiumIds)) {
       const size = inListSize(chunk.length)
@@ -379,7 +396,9 @@ export class ConversationRegistryRepository {
   }
 
   /** The native ids evidencing each of these conversations, earliest segment first. */
-  async nativeIdsByPodiumIds(podiumIds: readonly ConversationId[]): Promise<Map<ConversationId, string[]>> {
+  async nativeIdsByPodiumIds(
+    podiumIds: readonly ConversationId[],
+  ): Promise<Map<ConversationId, string[]>> {
     const out = new Map<ConversationId, string[]>()
     for (const chunk of chunks(podiumIds)) {
       const size = inListSize(chunk.length)
@@ -400,11 +419,16 @@ export class ConversationRegistryRepository {
    * rather than one per session, which on the biggest epic on this machine is 67
    * round trips saved from a panel's first paint.
    */
-  async pathsByNativeIds(machineId: MachineId, nativeIds: readonly string[]): Promise<Map<string, string>> {
+  async pathsByNativeIds(
+    machineId: MachineId,
+    nativeIds: readonly string[],
+  ): Promise<Map<string, string>> {
     const out = new Map<string, string>()
     for (const chunk of chunks(nativeIds)) {
       const size = inListSize(chunk.length)
-      const rows = await pathsOfNativeIds(this.db, size).all(inListValues(chunk, size, 'in', { machineId }))
+      const rows = await pathsOfNativeIds(this.db, size).all(
+        inListValues(chunk, size, 'in', { machineId }),
+      )
       for (const row of rows) if (row.path !== null) out.set(row.nativeId, row.path)
     }
     return out
@@ -416,6 +440,19 @@ export class ConversationRegistryRepository {
   }
 
   async ensure(opts: {
+    machineId: MachineId
+    nativeId: string
+    providerId: string
+    parentPodiumId?: ConversationId
+    path?: string
+    sizeBytes?: number
+  }): Promise<ConversationId> {
+    return this.sessionRecordWrite
+      ? await this.sessionRecordWrite(opts.machineId, [opts.nativeId], () => this.ensureRows(opts))
+      : await this.ensureRows(opts)
+  }
+
+  private async ensureRows(opts: {
     machineId: MachineId
     nativeId: string
     providerId: string
@@ -440,7 +477,11 @@ export class ConversationRegistryRepository {
     }
     const podiumId = asConversationId(`conv_${randomUUID()}`)
     const now = new Date().toISOString()
-    await insertIdentity(this.db).run({ podiumId, parentPodiumId: opts.parentPodiumId ?? null, createdAt: now })
+    await insertIdentity(this.db).run({
+      podiumId,
+      parentPodiumId: opts.parentPodiumId ?? null,
+      createdAt: now,
+    })
     await insertDiscoveredSegment(this.db).run({
       machineId: opts.machineId,
       nativeId: opts.nativeId,
@@ -472,7 +513,29 @@ export class ConversationRegistryRepository {
       sizeBytes?: number
     }[],
   ): Promise<Map<string, ConversationId>> {
-    const ids = await this.podiumIds(machineId, entries.map((entry) => entry.nativeId))
+    return this.sessionRecordWrite
+      ? await this.sessionRecordWrite(
+          machineId,
+          entries.map((entry) => entry.nativeId),
+          () => this.ensureManyRows(machineId, entries),
+        )
+      : await this.ensureManyRows(machineId, entries)
+  }
+
+  private async ensureManyRows(
+    machineId: MachineId,
+    entries: readonly {
+      nativeId: string
+      providerId: string
+      parentPodiumId?: ConversationId
+      path?: string
+      sizeBytes?: number
+    }[],
+  ): Promise<Map<string, ConversationId>> {
+    const ids = await this.podiumIds(
+      machineId,
+      entries.map((entry) => entry.nativeId),
+    )
     type Created = {
       nativeId: string
       providerId: string
@@ -484,8 +547,14 @@ export class ConversationRegistryRepository {
     const created = new Map<string, Created>()
     // The first parent offered for an identity: the single calls' IS NULL guard
     // let only the first one land.
-    const adopted = new Map<ConversationId, { podiumId: ConversationId; parentPodiumId: ConversationId }>()
-    const refreshed = new Map<string, { nativeId: string; path: string | null; reportedBytes: number | null }>()
+    const adopted = new Map<
+      ConversationId,
+      { podiumId: ConversationId; parentPodiumId: ConversationId }
+    >()
+    const refreshed = new Map<
+      string,
+      { nativeId: string; path: string | null; reportedBytes: number | null }
+    >()
     for (const entry of entries) {
       const fresh = created.get(entry.nativeId)
       const existing = ids.get(entry.nativeId)
@@ -505,7 +574,8 @@ export class ConversationRegistryRepository {
       // A later offer of a row this call creates folds into the row: the
       // single calls would have adopted and refreshed it after its insert.
       if (fresh) {
-        if (entry.parentPodiumId && fresh.parentPodiumId === null) fresh.parentPodiumId = entry.parentPodiumId
+        if (entry.parentPodiumId && fresh.parentPodiumId === null)
+          fresh.parentPodiumId = entry.parentPodiumId
         if (entry.path || entry.sizeBytes !== undefined) {
           fresh.path = entry.path ?? fresh.path
           fresh.reportedBytes = entry.sizeBytes ?? fresh.reportedBytes
@@ -526,9 +596,13 @@ export class ConversationRegistryRepository {
     }
     // Adoption and refresh touch only rows that existed before this call; the
     // rows it creates already carry every offer made for them.
-    if (adopted.size > 0) await adoptParents(this.db).run({ rows: JSON.stringify([...adopted.values()]) })
+    if (adopted.size > 0)
+      await adoptParents(this.db).run({ rows: JSON.stringify([...adopted.values()]) })
     if (refreshed.size > 0) {
-      await refreshSegmentFiles(this.db).run({ machineId, rows: JSON.stringify([...refreshed.values()]) })
+      await refreshSegmentFiles(this.db).run({
+        machineId,
+        rows: JSON.stringify([...refreshed.values()]),
+      })
     }
     if (created.size > 0) {
       const createdAt = new Date().toISOString()
@@ -540,6 +614,19 @@ export class ConversationRegistryRepository {
   }
 
   async linkSegment(opts: {
+    machineId: MachineId
+    newNativeId: string
+    priorNativeId: string
+    providerId: string
+  }): Promise<ConversationId> {
+    return this.sessionRecordWrite
+      ? await this.sessionRecordWrite(opts.machineId, [opts.newNativeId], () =>
+          this.linkSegmentRows(opts),
+        )
+      : await this.linkSegmentRows(opts)
+  }
+
+  private async linkSegmentRows(opts: {
     machineId: MachineId
     newNativeId: string
     priorNativeId: string
@@ -568,13 +655,19 @@ export class ConversationRegistryRepository {
   /** {@link podiumId} for many native ids on one machine: the map is keyed by
    *  the ids asked for and a missing row stays missing. One statement per 500
    *  ids (POD-6160: the durable session records of a listing ask together). */
-  async podiumIds(machineId: MachineId, nativeIds: readonly string[]): Promise<Map<string, ConversationId>> {
+  async podiumIds(
+    machineId: MachineId,
+    nativeIds: readonly string[],
+  ): Promise<Map<string, ConversationId>> {
     const out = new Map<string, ConversationId>()
     const unique = [...new Set(nativeIds)]
     for (let at = 0; at < unique.length; at += 500) {
       const chunk = unique.slice(at, at + 500)
       const size = inListSize(chunk.length)
-      const rows = await podiumIdsOfSegments(this.db, size).all({ machineId, ...inListValues(chunk, size) })
+      const rows = await podiumIdsOfSegments(this.db, size).all({
+        machineId,
+        ...inListValues(chunk, size),
+      })
       for (const row of rows) out.set(row.nativeId, row.podiumId)
     }
     return out

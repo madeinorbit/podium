@@ -17,7 +17,7 @@ import type {
 } from '@podium/model'
 import { asUserId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
-import type { EntityChangeSpec, MutationLedgerPort } from '@podium/sync'
+import type { MutationLedgerPort } from '@podium/sync'
 import { sessionsForIssue } from '../../issue-util'
 import type { SessionRow, SessionStore } from '../../store'
 import { afterCommit } from '../../store/executor/executor'
@@ -55,7 +55,6 @@ export interface SessionMetaOpsPorts {
     | 'prepareStoredSessionInstall'
     | 'publishSessionProjection'
   >
-  sessionRemovalSpecs(sessionId: SessionId): EntityChangeSpec[]
   sessionTeardown: Pick<SessionTeardown, 'tryAutoArchiveStoppedObserved'>
   sessions: Map<SessionId, Session>
   state: Pick<
@@ -122,18 +121,11 @@ export class SessionMetaOps {
     }
     const session = this.ports.sessions.get(sessionId)
     if (!session) {
-      // A session the server no longer holds in memory has no wire value to
-      // publish, so the row is written for the next boot to replay and NOTHING
-      // is broadcast. `broadcastSessions()` used to be called here and was pure
-      // theatre: it only flushes captures, this path marks none, and the flush
-      // skips a non-resident session anyway (repository.flushVolatileSessionCaptures).
-      // Not a live leak — every route out of the sessions map also drops the
-      // session from the change baseline (kill and issue-delete publish removes;
-      // a never-persisted session was never in it; a boot-skipped row is removed
-      // by the boot reconcile) — but the call read as if clients were told.
+      // A parked session is still a record: compare its offer from the tables
+      // around the source write, just as for a resident session.
       await writer.commit({
+        affects: [{ entity: 'session', id: sessionId }],
         write: async (scope) => await this.ports.store.sessions.setOffer(scope, sessionId, offer),
-        changes: () => [],
       })
       return
     }
@@ -180,8 +172,8 @@ export class SessionMetaOps {
       return
     if (!session) {
       await writer.commit({
+        affects: [{ entity: 'session', id: sessionId }],
         write: async (scope) => await this.ports.store.sessions.clearOffer(scope, sessionId),
-        changes: () => [],
       })
       return
     }
@@ -568,7 +560,11 @@ export class SessionMetaOps {
     // A deletion by a person ends only that person's sessions on the task.
     const members: { sessionId: SessionId }[] = this.ports.records
       ? await this.ports.records.issueMembers(worktreePath, issueId, 'prepareIssueSessionDelete')
-      : sessionsForIssue(worktreePath, [...this.ports.sessions.values()].map((s) => s.toMeta()), issueId)
+      : sessionsForIssue(
+          worktreePath,
+          [...this.ports.sessions.values()].map((s) => s.toMeta()),
+          issueId,
+        )
     const sessionIds = (
       ownedBy === undefined ? members : await ownedSessions(this.ports.store, members, ownedBy)
     ).map((s) => s.sessionId)
@@ -586,7 +582,7 @@ export class SessionMetaOps {
         for (const sessionId of sessionIds)
           await this.ports.store.sync.deleteQueuedMessagesForSession(sessionId)
       },
-      changes: () => sessionIds.flatMap((sessionId) => this.ports.sessionRemovalSpecs(sessionId)),
+      affects: async () => await this.ports.store.sessions.recordIds(sessionIds),
       apply: (changes, ledgerCursor) => {
         for (const remove of removals) remove()
         this.ports.repository.publishSessionProjection(changes, ledgerCursor)
@@ -616,24 +612,14 @@ export class SessionMetaOps {
     const installs: Awaited<ReturnType<SessionRepository['prepareStoredSessionInstall']>>[] = []
     for (const { session } of restored)
       installs.push(await this.ports.repository.prepareStoredSessionInstall(session, offers))
-    const view: Pick<SessionView, 'wire' | 'buildProjectionPass'> = this.ports.view
-    const pass = await view.buildProjectionPass(restored.map(({ session }) => session))
-    const restoredSessions: SessionMeta[] = []
-    for (const { session } of restored) restoredSessions.push(await view.wire(session, pass))
     return {
       sessionIds: restored.map(({ session }) => session.sessionId),
-      restoredSessions,
       write: async (scope) => {
         await this.ports.store.sessions.restoreDeletedForIssue(scope, issueId)
         for (const install of installs) await install.write(scope)
       },
-      changes: () =>
-        restoredSessions.map((session) => ({
-          entity: 'session' as const,
-          id: session.sessionId,
-          op: 'upsert' as const,
-          value: session,
-        })),
+      affects: async () =>
+        await this.ports.store.sessions.recordIds(restored.map(({ session }) => session.sessionId)),
       apply: (changes, ledgerCursor) => {
         installDrafts()
         for (const install of installs) install.apply()

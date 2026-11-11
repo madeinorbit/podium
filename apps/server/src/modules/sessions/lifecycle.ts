@@ -42,11 +42,7 @@ import type {
   SyncChangesSinceResult,
 } from '@podium/protocol'
 import type { ControlMessage, TurnEvent, TurnReceipt } from '@podium/protocol/daemon'
-import {
-  CHANGE_LOG_OBSERVER,
-  type EntityChangeSpec,
-  type MutationLedgerPort,
-} from '@podium/sync'
+import { CHANGE_LOG_OBSERVER, type MutationLedgerPort } from '@podium/sync'
 import type { AutoContinueController } from '../../auto-continue'
 import { type CommandPrincipal, resolvePrincipalAsync } from '../../command-principal'
 import type { BrowserOpenGateway } from '../../gateway/browser-open'
@@ -381,12 +377,6 @@ export class SessionLifecycle {
 
   async flushActivity(): Promise<void> {
     await this.repository.flushActivity()
-  }
-  async captureReferenceChanges(
-    writer: SessionWriter,
-    issueIds: readonly IssueId[],
-  ): Promise<void> {
-    await this.repository.captureReferenceChanges(writer, issueIds)
   }
 
   async loadFromStore(): Promise<void> {
@@ -922,10 +912,7 @@ export class SessionLifecycle {
   async releaseShellTab(sessionId: SessionId, reporterClientId: string): Promise<void> {
     const session = this.sessions.get(sessionId)
     if (!session || session.agentKind !== 'shell') return
-    if (
-      session.status !== 'live' &&
-      session.status !== 'starting'
-    ) {
+    if (session.status !== 'live' && session.status !== 'starting') {
       return
     }
     const cfg = (await this.store.settings.getSettings()).hibernation
@@ -1008,9 +995,7 @@ export class SessionLifecycle {
     // SessionRevival holds the session for the wake (every wake path goes there).
     return await this.sessionRevival.resurrectSession(input, issues)
   }
-  private sessionRemovalSpecs(sessionId: SessionId): EntityChangeSpec[] {
-    return this.sessionKill.sessionRemovalSpecs(sessionId)
-  }
+
   prepareIssueSessionDelete(
     ...args: Parameters<SessionMetaOps['prepareIssueSessionDelete']>
   ): ReturnType<SessionMetaOps['prepareIssueSessionDelete']> {
@@ -1039,10 +1024,7 @@ export class SessionLifecycle {
   private async spawn(input: Parameters<SessionStart['spawn']>[0]): Promise<SessionSpawnResult> {
     return await this.sessionStart.spawn(input)
   }
-  onClientAttached(
-    principal: ClientPrincipal,
-    client: ClientConn,
-  ): Promise<void> {
+  onClientAttached(principal: ClientPrincipal, client: ClientConn): Promise<void> {
     return this.sessionClientPlane.onClientAttached(principal, client)
   }
   onRoomJoined(...args: any[]): void {
@@ -1143,8 +1125,7 @@ export class SessionLifecycle {
       conversations: values('conversation'),
       automations: values('automation'),
       automationRuns: values('automationRun'),
-      diagnostics:
-        principal === CHANGE_LOG_OBSERVER ? await this.deps.snapshotDiagnostics() : [],
+      diagnostics: principal === CHANGE_LOG_OBSERVER ? await this.deps.snapshotDiagnostics() : [],
       cursor: sourceCursor,
       ...identity,
     }

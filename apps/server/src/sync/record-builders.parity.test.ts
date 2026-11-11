@@ -50,6 +50,8 @@ import { atParity, type KindParity, kindParity, type PublishedRow } from './reco
 
 /** Kinds this fixture writes, so their parity is not vacuous. */
 const POPULATED = [
+  'session',
+  'sessionUserState',
   'issueProjection',
   'issueDep',
   'issueUserState',
@@ -262,6 +264,11 @@ describe('record builders (POD-6763)', () => {
         agentKind: 'codex',
         cwd: '/other/w1',
       })
+      await reg.modules.sessions.state.markRead(
+        reg.modules.sessions.serverWriter,
+        await reg.modules.sessions.view.principalForTrustedUser(owner),
+        sessionId,
+      )
       await ask(reg, sessionId, 'ixn_open')
       await chatTraffic(store, sessionId, owner)
       // Retention takes the oldest events, issue events among them; the feed
@@ -365,6 +372,11 @@ describe('record builders (POD-6763)', () => {
         agentKind: 'codex',
         cwd: '/other/w1',
       })
+      await reg.modules.sessions.state.markRead(
+        reg.modules.sessions.serverWriter,
+        await reg.modules.sessions.view.principalForTrustedUser(owner),
+        sessionId,
+      )
       await ask(reg, sessionId, 'ixn_open')
       await chatTraffic(store, sessionId, owner)
       await settle(reg)

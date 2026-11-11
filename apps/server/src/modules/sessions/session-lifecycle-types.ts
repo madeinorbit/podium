@@ -11,14 +11,13 @@ import type {
   MachineId,
   MessageHeld,
   SessionId,
-  SessionMeta,
   TranscriptItemRef,
   UserId,
 } from '@podium/model'
 import type { MetadataChange, SubscriptionRegistry, SyncChangesSinceResult } from '@podium/protocol'
 import type { QueueDrainAbandonedReason, RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import type {
-  EntityChangeSpec,
+  AffectedRecordSpec,
   LedgerCommitOp,
   LedgerCommitResult,
   MutationLedgerPort,
@@ -40,15 +39,10 @@ import type { SessionStartPorts } from './session-start'
 /** Re-exported from session-shared so receipt-retention tests keep a stable site. */
 export { APPLIED_MUTATIONS_MAX_AGE_MS } from './session-shared'
 
-/** The write-seam change log face sessions run through ([spec:SP-3fe2] #256):
- *  `commit` binds a session row write and its declared change into one
- *  transaction; `reconcile` diffs the full restored truth at boot (including
- *  removes). Structurally satisfied by {@link @podium/sync.Ledger}; narrow so
- *  tests can fake it. */
 /** What a session write commits through: the writer of the command that asked,
  *  or of the named origin a daemon report or server job writes under (ADR 12
  *  D9, POD-6601). */
-export type SessionWriter = Pick<SessionLedger, 'commit' | 'capture'>
+export type SessionWriter = Pick<SessionLedger, 'commit'>
 
 /** The session service's own writers (see {@link SessionLifecycleDeps.writers}). */
 export interface SessionWriters {
@@ -56,19 +50,14 @@ export interface SessionWriters {
   readonly daemon: SessionWriter
   /** The server acting on a session after a commit (`sessions.lifecycle`). */
   readonly lifecycle: SessionWriter
-  /** Live fields captured to the feed, and the activity flush (`sessions.live`). */
+  /** Live fields persisted to the feed, and the activity flush (`sessions.live`). */
   readonly live: SessionWriter
-  /** The boot reconcile and restores (`boot.reconcile`). */
+  /** Boot restores (`boot.reconcile`). */
   readonly boot: SessionLedger
 }
 
 export interface SessionLedger {
   commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>>
-  capture(specs: EntityChangeSpec[]): Promise<MetadataChange[]>
-  reconcile(
-    entity: 'session' | 'sessionUserState',
-    rows: { id: string; value: unknown }[],
-  ): Promise<MetadataChange[]>
 }
 
 /** Non-session fields retained by the expiring wire-v1 catch-up snapshot.
@@ -85,17 +74,16 @@ export interface SessionDeletePlan {
   sessionIds: string[]
   /** Inside the issue delete's commit, with its scope. */
   write(scope: WriteScope): Promise<void>
-  changes(): EntityChangeSpec[]
+  affects(): Promise<readonly AffectedRecordSpec[]>
   apply(changes: MetadataChange[], ledgerCursor: number): void
 }
 
 /** Prepared half of restoring issue-owned session tombstones. */
 export interface SessionRestorePlan {
   sessionIds: string[]
-  restoredSessions: SessionMeta[]
   /** Inside the issue restore's commit, with its scope. */
   write(scope: WriteScope): Promise<void>
-  changes(): EntityChangeSpec[]
+  affects(): Promise<readonly AffectedRecordSpec[]>
   apply(changes: MetadataChange[], ledgerCursor: number): void
 }
 

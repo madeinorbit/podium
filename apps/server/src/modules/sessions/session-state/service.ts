@@ -51,10 +51,10 @@ import type {
   RuntimeDraftResultMessage,
   RuntimeSnapshotResultMessage,
 } from '@podium/protocol/daemon'
-import type { EntityChangeSpec } from '@podium/sync'
+import type { AffectedRecordSpec } from '@podium/sync'
 import type { ClientConn } from '../../../gateway/client-registry'
-import type { SessionStore, SnoozeMap } from '../../../store'
 import { mayReachPrivate } from '../../../issue-authz'
+import type { SessionStore, SnoozeMap } from '../../../store'
 import type { Session, SessionDurableState } from '../session'
 
 const log = createLogger('server:sessions')
@@ -165,7 +165,7 @@ export interface SessionStatePorts {
     writer: SessionWriter,
     sessionId: SessionId,
     additionalWrite?: (scope: WriteScope) => void | Promise<void>,
-    additionalChanges?: () => Promise<EntityChangeSpec[]>,
+    additionalAffects?: () => Promise<AffectedRecordSpec[]>,
   ) => Promise<void>
   /** {@link persistSession} with a durable-field write applied to the draft the
    *  commit persists [POD-3330]. Persist-only, like the method it sits beside:
@@ -395,7 +395,10 @@ export class SessionStateService {
     const target = await this.ports.sessionOwner({ sessionId, ...(memo ? { memo } : {}) })
     // Private (design §2.3, POD-6283): the owner only. No grant, no task, and
     // no admin scope reaches another person's session.
-    return target !== undefined && mayReachPrivate(principal.userId, { id: sessionId, owner: target.owner })
+    return (
+      target !== undefined &&
+      mayReachPrivate(principal.userId, { id: sessionId, owner: target.owner })
+    )
   }
 
   /** One reader-scoped set computation. Principals are already admitted by the
@@ -500,28 +503,20 @@ export class SessionStateService {
       async (scope) => {
         await write(scope)
       },
-      () => this.userStateChanges(sessionId, [userId]),
+      () => this.userStateRecords(sessionId, [userId]),
     )
     this.ports.broadcastSessions()
     return true
   }
 
-  private async userStateChanges(
+  private async userStateRecords(
     sessionId: SessionId,
     users: readonly UserId[],
-  ): Promise<EntityChangeSpec[]> {
-    return Promise.all(
-      users.map(async (userId) => ({
-        entity: 'sessionUserState' as const,
-        id: sessionUserStateRowId(userId, sessionId),
-        op: 'upsert' as const,
-        value: await this.ports.store.sessions.sessionUserStateFor(
-          userId,
-          sessionId,
-          this.ports.now(),
-        ),
-      })),
-    )
+  ): Promise<AffectedRecordSpec[]> {
+    return users.map((userId) => ({
+      entity: 'sessionUserState' as const,
+      id: sessionUserStateRowId(userId, sessionId),
+    }))
   }
 
   async markRead(
@@ -602,14 +597,19 @@ export class SessionStateService {
 
   async rearmUnreadForAll(writer: SessionWriter, sessionId: SessionId): Promise<void> {
     if (!this.ports.getSession(sessionId)) return
-    let users: UserId[] = []
     await this.ports.persistSession(
       writer,
       sessionId,
       async (scope) => {
-        users = await this.ports.store.sessions.clearAllReadAt(scope, sessionId)
+        await this.ports.store.sessions.clearAllReadAt(scope, sessionId)
       },
-      () => this.userStateChanges(sessionId, users),
+      async () =>
+        this.userStateRecords(
+          sessionId,
+          (
+            await this.ports.store.sessions.listSessionUserStateRows(sessionId, this.ports.now())
+          ).map((row) => row.userId),
+        ),
     )
     this.ports.broadcastSessions()
   }
@@ -649,14 +649,19 @@ export class SessionStateService {
   async clearAllSnoozes(writer: SessionWriter, sessionId: SessionId): Promise<void> {
     if (!this.ports.getSession(sessionId)) return
     if (!(await this.ports.store.sessions.hasAnySnooze(sessionId))) return
-    let users: UserId[] = []
     await this.ports.persistSession(
       writer,
       sessionId,
       async (scope) => {
-        users = await this.ports.store.sessions.clearAllSnoozes(scope, sessionId)
+        await this.ports.store.sessions.clearAllSnoozes(scope, sessionId)
       },
-      () => this.userStateChanges(sessionId, users),
+      async () =>
+        this.userStateRecords(
+          sessionId,
+          (
+            await this.ports.store.sessions.listSessionUserStateRows(sessionId, this.ports.now())
+          ).map((row) => row.userId),
+        ),
     )
     this.ports.broadcastSessions()
   }
@@ -1055,12 +1060,16 @@ export class SessionStateService {
 
   private async writeDraftDoc(doc: DraftDoc): Promise<void> {
     try {
-      await this.ports.store.sessions.setDraftDoc(doc.sessionId, {
-        text: doc.text,
-        updatedAt: doc.editedAt,
-        rev: doc.rev,
-        origin: doc.origin,
-        history: doc.history,
+      await this.ports.liveWriter.commit({
+        affects: [{ entity: 'session', id: doc.sessionId }],
+        write: async () =>
+          await this.ports.store.sessions.setDraftDoc(doc.sessionId, {
+            text: doc.text,
+            updatedAt: doc.editedAt,
+            rev: doc.rev,
+            origin: doc.origin,
+            history: doc.history,
+          }),
       })
     } catch (error) {
       log.warn('failed to persist the versioned draft', { err: error, sessionId: doc.sessionId })

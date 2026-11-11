@@ -451,6 +451,13 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
         .prepare(),
     ),
 
+    queuedSessionOf: prepared((db: StoreDrizzle) =>
+      db
+        .select({ sessionId: queued.sessionId })
+        .from(queued)
+        .where(eq(queued.id, param(queued.id, 'id')))
+        .prepare(),
+    ),
     deleteQueued: prepared((db: StoreDrizzle) =>
       db
         .delete(queued)
@@ -574,6 +581,24 @@ function mapChangeLogReadRow(r: {
 }
 
 export class SyncRepository {
+  /** Queue membership changes the dependent session record, in the source commit. */
+  sessionRecordWrite?: <T>(
+    ids: () => Promise<readonly SessionId[]>,
+    write: () => Promise<T>,
+  ) => Promise<T>
+
+  private async writeQueue<T>(
+    ids: () => Promise<readonly SessionId[]>,
+    write: () => Promise<T>,
+  ): Promise<T> {
+    return this.sessionRecordWrite ? await this.sessionRecordWrite(ids, write) : await write()
+  }
+
+  private async queuedSessionIds(id: string): Promise<SessionId[]> {
+    const row = await this.serverTables.queuedSessionOf(this.db).get({ id })
+    return row ? [row.sessionId] : []
+  }
+
   /**
    * The two server-owned tables, as the drizzle objects the composition root
    * hands in rather than spelled out in the SQL below. That is the whole point of
@@ -940,23 +965,28 @@ export class SyncRepository {
     // injected table object, not a null. That holds because the declaration
     // agrees with the shipped DDL, which is what `schema.test.ts` pins. Printed
     // to confirm, rather than reasoned from the builder.
-    const r = await this.serverTables.insertQueued(this.db).run({
-      id: row.id,
-      sessionId: row.sessionId,
-      text: row.text,
-      queuedAt: row.queuedAt,
-      inputOrigin: row.inputOrigin ?? 'unknown',
-      principalKind: row.principalKind ?? 'system',
-      principalRef: row.principalRef ?? 'legacy-session-inbox',
-      delegationRef: row.delegationRef ?? null,
-      actorKind: row.actorKind ?? 'system',
-      actorId: row.actorId ?? 'legacy-session-inbox',
-      onBehalfOf: row.onBehalfOf ?? null,
-      sourceMessageId: row.sourceMessageId ?? null,
-      delivery: row.delivery ?? 'when-ready',
-      attachmentsJson: row.attachmentsJson ?? null,
-    })
-    return Number(r.changes) > 0
+    return await this.writeQueue(
+      async () => [row.sessionId],
+      async () => {
+        const r = await this.serverTables.insertQueued(this.db).run({
+          id: row.id,
+          sessionId: row.sessionId,
+          text: row.text,
+          queuedAt: row.queuedAt,
+          inputOrigin: row.inputOrigin ?? 'unknown',
+          principalKind: row.principalKind ?? 'system',
+          principalRef: row.principalRef ?? 'legacy-session-inbox',
+          delegationRef: row.delegationRef ?? null,
+          actorKind: row.actorKind ?? 'system',
+          actorId: row.actorId ?? 'legacy-session-inbox',
+          onBehalfOf: row.onBehalfOf ?? null,
+          sourceMessageId: row.sourceMessageId ?? null,
+          delivery: row.delivery ?? 'when-ready',
+          attachmentsJson: row.attachmentsJson ?? null,
+        })
+        return Number(r.changes) > 0
+      },
+    )
   }
 
   /** FIFO head-first queue for one session. */
@@ -1031,15 +1061,25 @@ export class SyncRepository {
   }
 
   async deleteQueuedMessage(id: string): Promise<void> {
-    await this.serverTables.deleteQueued(this.db).run({ id })
+    await this.writeQueue(
+      () => this.queuedSessionIds(id),
+      async () => {
+        await this.serverTables.deleteQueued(this.db).run({ id })
+      },
+    )
   }
 
   /** Delete a row only while no daemon has custody of it (POD-4776): the one
    *  statement a retract and {@link reserveQueuedDelivery} race through, so
    *  exactly one of them wins. Answers whether THIS call deleted it. */
   async deleteUnreservedQueuedMessage(id: string): Promise<boolean> {
-    const r = await this.serverTables.deleteUnreservedQueued(this.db).run({ id })
-    return Number(r.changes) > 0
+    return await this.writeQueue(
+      () => this.queuedSessionIds(id),
+      async () => {
+        const r = await this.serverTables.deleteUnreservedQueued(this.db).run({ id })
+        return Number(r.changes) > 0
+      },
+    )
   }
 
   /** A retract of a daemon-held row is on its way (POD-4776): until the daemon
@@ -1079,7 +1119,12 @@ export class SyncRepository {
 
   /** Drop a dead session's queue (kill without resume ref, permanent delete). */
   async deleteQueuedMessagesForSession(sessionId: SessionId): Promise<void> {
-    await this.serverTables.deleteQueuedOfSession(this.db).run({ sessionId })
+    await this.writeQueue(
+      async () => [sessionId],
+      async () => {
+        await this.serverTables.deleteQueuedOfSession(this.db).run({ sessionId })
+      },
+    )
   }
 
   // ---- ARCHIVED: the retired node→hub issue-write outbox (POD-309) ----

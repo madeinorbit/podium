@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 /**
  * Events/steward aggregate — owns the durable orchestrator event log
  * (`podium_events`), the steward's KV state (`steward_state`) and the
@@ -525,13 +526,13 @@ const eventIdBeyondCap = prepared((db: StoreDrizzle) =>
  * projected yet and must survive retention. COALESCE covers the projector
  * never having run, where the head is 0 and nothing is fenced.
  */
-const deletePruneBatch = prepared((db: StoreDrizzle) => {
+const pruneCandidates = (db: StoreDrizzle) => {
   const projectedThrough = db
     .select({ head: runtimeEventProjectionCursors.lastEventId })
     .from(runtimeEventProjectionCursors)
     .where(eq(runtimeEventProjectionCursors.projector, RUNTIME_BOARD_PROJECTOR))
-  const victims = db
-    .select({ id: podiumEvents.id })
+  return db
+    .select({ id: podiumEvents.id, kind: podiumEvents.kind, subject: podiumEvents.subject })
     .from(podiumEvents)
     .where(
       and(
@@ -549,9 +550,22 @@ const deletePruneBatch = prepared((db: StoreDrizzle) => {
     )
     .orderBy(asc(podiumEvents.id))
     .limit(sql.placeholder('batchSize'))
+}
+
+const pruneRuntimeSessions = prepared((db: StoreDrizzle) => {
+  const victims = pruneCandidates(db).as('victims')
+  return db
+    .select({ sessionId: victims.subject })
+    .from(victims)
+    .where(eq(victims.kind, RUNTIME_EVENT_LOG_KIND))
+    .prepare()
+})
+
+const deletePruneBatch = prepared((db: StoreDrizzle) => {
+  const victims = pruneCandidates(db).as('victims')
   return db
     .delete(podiumEvents)
-    .where(inArray(podiumEvents.id, victims))
+    .where(inArray(podiumEvents.id, db.select({ id: victims.id }).from(victims)))
     .returning({ id: podiumEvents.id, kind: podiumEvents.kind, subject: podiumEvents.subject })
     .prepare()
 })
@@ -829,6 +843,12 @@ export type EventPruneFeedCapture = (
 ) => void | Promise<void>
 
 export class EventsRepository {
+  /** Retention can remove the transcript evidence a session record reads. */
+  sessionPruneWrite?: <T>(
+    ids: () => Promise<readonly SessionId[]>,
+    write: () => Promise<T>,
+  ) => Promise<T>
+
   /** Optional post-commit observer, separate from the transactional log capture. */
   private appendListener: EventAppendListener | undefined
   private feedCapture: EventFeedCapture | undefined
@@ -1373,11 +1393,17 @@ export class EventsRepository {
     }
     return await this.createOrJoinTransaction(async () => {
       // The projector's head fences runtime rows (see deletePruneBatch).
-      const deleted = await deletePruneBatch(this.db).all({
-        cutoff: plan.cutoff,
-        capThroughId: plan.capThroughId,
-        batchSize,
-      })
+      const params = { cutoff: plan.cutoff, capThroughId: plan.capThroughId, batchSize }
+      const write = async () => await deletePruneBatch(this.db).all(params)
+      const deleted = this.sessionPruneWrite
+        ? await this.sessionPruneWrite(
+            async () =>
+              (await pruneRuntimeSessions(this.db).all(params)).map((row) =>
+                asSessionId(row.sessionId),
+              ),
+            write,
+          )
+        : await write()
       // The feed's window is the newest feed-kind events that EXIST, so a prune
       // that took some of them changes the feed. Capture while this transaction
       // still owns the window, so concurrent appends cannot change its before set.

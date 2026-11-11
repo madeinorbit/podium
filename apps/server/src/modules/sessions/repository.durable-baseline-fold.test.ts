@@ -28,6 +28,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../store'
 import { applyAfterCommit, spanOpen } from '../../store/executor/executor'
 import { openTestStore } from '../../test-support/open-test-store'
+import { testStoreRecords } from '../../test-support/record-writer'
 import { repositoryWriter } from '../../test-support/session-repository-writer'
 import { SessionRepository } from './repository'
 import { Session } from './session'
@@ -52,6 +53,7 @@ async function fixture() {
   const sessions = new Map([[session.sessionId, session]])
   const ledger = new Ledger({
     repo: store.sync,
+    records: testStoreRecords(store),
     now: () => 1_000,
     transact: async (fn) => await store.transact(fn),
     applyCommit: { spanOpen, onCommit: applyAfterCommit },

@@ -12,12 +12,9 @@
  *
  * A kind not listed keeps the old compare. Kinds move one at a time.
  *
- * NOT YET MOVED (POD-6770's finding): `session`, `sessionUserState`.
- * None of them is written by one write: each is republished after the fact,
- * from memory or from a hook that runs after the source write committed, and
- * relies on the compare with the stored copy to drop what did not change. To
- * move one, every SOURCE write names the dependent record before it runs (a
- * queue write names its session, a grant write the machine's rows).
+ * Every kind now compares at save. Each SOURCE write names its dependent
+ * records before it runs (a queue write names its session, a grant write the
+ * machine's rows), including writes to the satellites a record joins.
  *
  * READING IS SEPARATE FROM THIS LIST. The record source builds every kind in
  * the registry, moved or not: the start-up load, the sharing rules and the
@@ -88,6 +85,8 @@ export const COMPARE_AT_SAVE_KINDS: readonly MetadataEntityKind[] = [
   'message',
   'machine',
   'machineAccess',
+  'session',
+  'sessionUserState',
 ]
 
 /**

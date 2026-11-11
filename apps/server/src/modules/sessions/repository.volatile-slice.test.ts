@@ -1,6 +1,7 @@
 import { asMachineId, asSessionId, firstAdminMemberId } from '@podium/model'
-import type { EntityChangeSpec } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { openTestStore } from '../../test-support/open-test-store'
+import { recordTestWriter } from '../../test-support/record-writer'
 import { SessionRepository } from './repository'
 import { Session } from './session'
 
@@ -22,61 +23,58 @@ function makeSession(index: number): Session {
   })
 }
 
-function fixture(count: number) {
+const stores: Awaited<ReturnType<typeof openTestStore>>[] = []
+
+async function fixture(count: number) {
+  const store = await openTestStore(':memory:')
+  stores.push(store)
   const rows = Array.from({ length: count }, (_, index) => makeSession(index))
   const sessions = new Map(rows.map((session) => [session.sessionId, session]))
-  let seq = 0
-  const capture = vi.fn((specs: EntityChangeSpec[]) =>
-    specs.map((spec) => ({
-      seq: ++seq,
-      entity: spec.entity,
-      entityId: spec.id,
-      op: spec.op,
-      ...('value' in spec ? { value: spec.value } : {}),
-    })),
-  )
-  const wire = vi.fn((session: Session) => ({
-    sessionId: session.sessionId,
-    title: session.title,
-  }))
+  const { writer } = recordTestWriter(store, { transact: (fn) => store.transact(fn) })
+  const commit = vi.fn(writer.commit)
+  const upsert = vi.spyOn(store.sessions, 'upsertSession')
+  const upserts = vi.spyOn(store.sessions, 'upsertSessions')
   const runScheduledBroadcast = vi.fn()
   const repo = new SessionRepository({
     sessions,
-    writers: ((ledger) => ({ live: ledger, boot: ledger }))({ capture }),
-    view: { buildProjectionPass: async () => ({}), wire },
+    store,
+    writers: ((ledger) => ({ live: ledger, boot: ledger }))({ commit }),
+    view: {},
     now: () => Date.now(),
     runScheduledBroadcast,
     broadcastSessions: vi.fn(),
     flushBroadcasts: vi.fn(),
     listSessions: vi.fn(async () => []),
   } as never)
-  return { repo, rows, sessions, capture, wire, runScheduledBroadcast }
+  return { repo, rows, sessions, store, commit, upsert, upserts, runScheduledBroadcast }
 }
 
 afterEach(() => {
   vi.useRealTimers()
+  for (const store of stores.splice(0)) store.close()
+  vi.restoreAllMocks()
 })
 
 describe('SessionRepository volatile capture slices [POD-2322]', () => {
   it('drains at most 32 candidates and reports deterministic progress', async () => {
     vi.useFakeTimers()
-    const { repo, rows, wire } = fixture(40)
+    const { repo, rows, upserts } = await fixture(40)
     for (const row of rows) repo.markVolatileSessionDirty(row.sessionId)
 
     const first = await repo.drainVolatileCaptureSlice()
     expect(first.changes).toHaveLength(32)
     expect(first.remaining).toBe(8)
-    expect(wire).toHaveBeenCalledTimes(32)
+    expect(upserts.mock.calls[0]?.[1]).toHaveLength(32)
 
     const second = await repo.drainVolatileCaptureSlice()
     expect(second.changes).toHaveLength(8)
     expect(second.remaining).toBe(0)
-    expect(wire).toHaveBeenCalledTimes(40)
+    expect(upserts.mock.calls[1]?.[1]).toHaveLength(8)
   })
 
   it('stops on the CPU budget only between complete candidates', async () => {
     vi.useFakeTimers()
-    const { repo, rows, wire } = fixture(5)
+    const { repo, rows, upserts } = await fixture(5)
     for (const row of rows) repo.markVolatileSessionDirty(row.sessionId)
     const ticks = [0, 5, 10]
 
@@ -86,40 +84,41 @@ describe('SessionRepository volatile capture slices [POD-2322]', () => {
       now: () => ticks.shift() ?? 10,
     })
 
-    expect(wire).toHaveBeenCalledTimes(2)
+    expect(upserts.mock.calls[0]?.[1]).toHaveLength(2)
     expect(result.remaining).toBe(3)
   })
 
-  it('keeps a same-slice mutation pending and captures its newest value next', async () => {
+  it('keeps a same-slice mutation pending and persists its newest value next', async () => {
+    const { repo, rows, store, upsert } = await fixture(1)
     vi.useFakeTimers()
-    const { repo, rows, wire } = fixture(1)
     const row = rows[0]!
-    let mutateDuringWire = true
-    wire.mockImplementation((session: Session) => {
-      const projected = { sessionId: session.sessionId, title: session.title }
-      if (mutateDuringWire) {
-        mutateDuringWire = false
-        session.title = 'newest'
-        repo.markVolatileSessionDirty(session.sessionId)
-      }
-      return projected
+    const first = asMachineId('first-target')
+    const latest = asMachineId('latest-target')
+    row.handoffTargetMachineId = first
+    const realUpsert = upsert.getMockImplementation()!
+    upsert.mockImplementationOnce(async (scope, value) => {
+      await realUpsert(scope, value)
+      row.handoffTargetMachineId = latest
+      repo.markVolatileSessionDirty(row.sessionId)
     })
     repo.markVolatileSessionDirty(row.sessionId)
 
     expect((await repo.drainVolatileCaptureSlice()).remaining).toBe(1)
+    expect((await store.sessions.getSession(row.sessionId))?.handoffTargetMachineId).toBe(first)
+    expect(row.handoffTargetMachineId).toBe(latest)
     expect((await repo.drainVolatileCaptureSlice()).remaining).toBe(0)
-    expect(wire.mock.results.map((result) => result.value.title)).toEqual(['title-0', 'newest'])
+    expect((await store.sessions.getSession(row.sessionId))?.handoffTargetMachineId).toBe(latest)
   })
 
   it('keeps a failed slice pending and schedules the existing retry', async () => {
     vi.useFakeTimers()
-    const { repo, rows, capture, runScheduledBroadcast } = fixture(2)
+    const { repo, rows, commit, runScheduledBroadcast } = await fixture(2)
     for (const row of rows) repo.markVolatileSessionDirty(row.sessionId)
     // Enter the state the production timer has just before it drains: the
     // initial zero-delay handle is cleared, so a failure can arm the retry.
     vi.advanceTimersByTime(0)
     runScheduledBroadcast.mockClear()
-    capture.mockImplementationOnce(() => {
+    commit.mockImplementationOnce(() => {
       throw new Error('ledger unavailable')
     })
 
@@ -133,13 +132,13 @@ describe('SessionRepository volatile capture slices [POD-2322]', () => {
 
   it('the synchronous barrier drains the complete backlog', async () => {
     vi.useFakeTimers()
-    const { repo, rows, wire } = fixture(100)
+    const { repo, rows, upserts } = await fixture(100)
     for (const row of rows) repo.markVolatileSessionDirty(row.sessionId)
 
     const changes = await repo.flushVolatileSessionCaptures()
 
     expect(changes).toHaveLength(100)
-    expect(wire).toHaveBeenCalledTimes(100)
+    expect(upserts.mock.calls[0]?.[1]).toHaveLength(100)
     expect(repo.hasPendingVolatile()).toBe(false)
   })
 })

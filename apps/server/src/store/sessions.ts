@@ -19,10 +19,11 @@ import {
   SessionLifecycleFailure,
   SessionMeta,
   type SessionUserStateWire,
+  sessionUserStateRowId,
   type TabOrderWire,
   type UserId,
 } from '@podium/model'
-import type { WriteScope } from '@podium/sync'
+import type { AffectedRecordSpec, WriteScope } from '@podium/sync'
 import {
   and,
   asc,
@@ -959,6 +960,20 @@ const allUserStateRows = prepared((db: StoreDrizzle) =>
   db.select().from(sessionUserState).where(undefined).prepare(),
 )
 
+const personalRecordKeys = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({ userId: sessionUserState.userId, sessionId: sessionUserState.sessionId })
+    .from(sessionUserState)
+    .where(inListOf(sessionUserState.sessionId, size))
+    .unionAll(
+      db
+        .select({ userId: snoozesTable.userId, sessionId: snoozesTable.sessionId })
+        .from(snoozesTable)
+        .where(inListOf(snoozesTable.sessionId, size)),
+    )
+    .prepare(),
+)
+
 const userStateRowsOfSession = prepared((db: StoreDrizzle) =>
   db
     .select()
@@ -1361,6 +1376,20 @@ export class SessionsRepository {
   }
 
   // ---- sessions ----
+  /** Records whose existence follows these sessions, including sparse personal rows. */
+  async recordIds(ids: readonly SessionId[]): Promise<AffectedRecordSpec[]> {
+    const records: AffectedRecordSpec[] = ids.map((id) => ({ entity: 'session', id }))
+    for (const chunk of chunked(ids)) {
+      const size = inListSize(chunk.length)
+      for (const row of await personalRecordKeys(this.db, size).all(inListValues(chunk, size)))
+        records.push({
+          entity: 'sessionUserState',
+          id: sessionUserStateRowId(row.userId, row.sessionId),
+        })
+    }
+    return records
+  }
+
   /** The owners of the sessions placed on one machine (a peer that sends no
    * inventory), or of the named ids. Raw facts: the caller decides who may
    * learn them (`disclosedBindingFacts`, `modules/machines/service.ts`). */

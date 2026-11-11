@@ -80,7 +80,6 @@ async function fixture(file = ':memory:') {
     now: () => Date.parse(stamp),
     prepareSessionRuntimeRemoval: vi.fn(async () => vi.fn()),
     failMessagesToRemovedSessions: vi.fn(async () => {}),
-    sessionRemovalSpecs: vi.fn(),
     sessionTeardown: { tryAutoArchiveStoppedObserved: vi.fn() },
     state: {
       prepareStoredDrafts: vi.fn(async () => vi.fn()),
@@ -190,12 +189,10 @@ describe('async offer persistence', () => {
     const listOffers = vi.spyOn(store.sessions, 'offersOf')
     const plan = await ops.prepareIssueSessionRestore(issueId)
     expect(plan.sessionIds).toEqual([sessionId])
-    expect(plan.restoredSessions[0]?.sessionId).toBe(sessionId)
     expect(listOffers).toHaveBeenCalledOnce()
     expect(sessions.size).toBe(0)
     await plan.write(fixtureWriteScope())
-    const changes = await plan.changes()
-    expect(changes[0]?.value).toEqual(plan.restoredSessions[0])
+    expect(await plan.affects()).toContainEqual({ entity: 'session', id: sessionId })
     expect(plan.apply([], 0)).toBeUndefined()
     expect(listOffers).toHaveBeenCalledOnce()
     expect(repository.prepareStoredSessionInstall).toHaveBeenCalledWith(session, {
@@ -212,7 +209,6 @@ describe('async offer persistence', () => {
     repository.sessionFromStoredRow.mockResolvedValueOnce(null)
     const plan = await ops.prepareIssueSessionRestore(issueId)
     expect(plan.sessionIds).toEqual([])
-    expect(plan.restoredSessions).toEqual([])
   })
 })
 

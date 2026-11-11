@@ -172,10 +172,7 @@ import { LogIngestService } from './modules/logs/service'
 import { MachineConditionTopic } from './modules/machines/condition-topic'
 import { routeMachineDiagnostic } from './modules/machines/diagnostics'
 import { LoginPropagationService } from './modules/machines/login-propagation'
-import {
-  type MachineRecordsDeps,
-  makeMachineRecordCompare,
-} from './modules/machines/records'
+import { type MachineRecordsDeps, makeMachineRecordCompare } from './modules/machines/records'
 import { DaemonRpcService } from './modules/machines/rpc'
 import { MachinesService, type PairingCodes } from './modules/machines/service'
 import { MemoryService } from './modules/memory/service'
@@ -234,9 +231,7 @@ import {
   settledSpawnLaunch,
 } from './modules/sessions/session-launch-effect'
 import type { SnapshotTail } from './modules/sessions/session-lifecycle-types'
-import {
-  makeInstancePreferencesFeedCapture,
-} from './modules/settings/instance-record'
+import { makeInstancePreferencesFeedCapture } from './modules/settings/instance-record'
 import {
   bridgeConfigChanged,
   SettingsService,
@@ -258,9 +253,7 @@ import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
 import type { HeadlessService } from './modules/superagent/headless'
 import type { SuperagentService } from './modules/superagent/service'
-import {
-  makeThreadFeedCapture,
-} from './modules/superagent/thread-records'
+import { makeThreadFeedCapture } from './modules/superagent/thread-records'
 import { SyncWriteEntry } from './modules/sync-write/entry'
 import { registerFamilyCommands } from './modules/sync-write/family-commands'
 import { registerOutboxCommands } from './modules/sync-write/outbox-commands'
@@ -292,6 +285,7 @@ import { currentReadScope, readScopeSlot } from './store/executor/read-scope'
 import { compareAtSaveRecords } from './sync/compare-at-save'
 import { readKindTokens } from './sync/kind-tokens'
 import type { SyncDeltaPorts } from './sync/route-support'
+import { installSessionSourceWrites } from './sync/session-source-writes'
 import { autoContinueSender, systemIssueNotice } from './system-notices'
 import { WriteContexts } from './write-contexts'
 
@@ -1246,6 +1240,7 @@ export class SessionRegistry {
     )
     this.store.grants.machineRecordWrites.compare = async (scope, write, writer) =>
       await asSystemWrite(async () => await compareMachineRecords(scope, write, writer))
+    installSessionSourceWrites(this.store, writes.system('sessions.live'))
     // ONE HOOK ON THE ONE APPEND (POD-1772): every orchestrator event write in
     // the server goes through `store.events.appendEvent`, so the curated
     // feed-kind subset reaches the metadata feed from the write path rather than
@@ -1275,8 +1270,9 @@ export class SessionRegistry {
     this.store.superagent.setThreadFeedCapture(
       makeThreadFeedCapture(writes.system('feed.superagentThreads')),
     )
-    this.store.users.setMemberCreated(async (userId) =>
-      await asSystemWrite(async () => await this.store.superagent.seedMemberGlobalThread(userId)),
+    this.store.users.setMemberCreated(
+      async (userId) =>
+        await asSystemWrite(async () => await this.store.superagent.seedMemberGlobalThread(userId)),
     )
     // ONE HOOK ON THE SETTINGS BLOB WRITE (POD-6677): every write of
     // `meta['settings']` publishes the instance settings record to every member
@@ -2380,10 +2376,6 @@ export class SessionRegistry {
     })
     const headless = sessionsSvc.headless
     this.bus.on('session.openUrl', (request) => sessionsSvc.onOpenUrl(request))
-    const sessionRefs = writes.system('sessions.refs')
-    this.store.issues.setSessionRefPublisher((ids) =>
-      sessionsSvc.captureReferenceChanges(sessionRefs, ids),
-    )
     // Session-bound lock auto-release [spec:SP-85d1]: a finished/exited session
     const notify = new NotifyService(
       {

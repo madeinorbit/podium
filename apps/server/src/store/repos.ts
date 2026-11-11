@@ -1,5 +1,10 @@
 import { createLogger } from '@podium/logger'
-import { isMachinePathWithinRoot, machinePathKey, machinePathSeparator, normalizeMachinePath } from '@podium/model'
+import {
+  isMachinePathWithinRoot,
+  machinePathKey,
+  machinePathSeparator,
+  normalizeMachinePath,
+} from '@podium/model'
 /**
  * Repos aggregate — owns the `repos` table (registered repo roots per machine,
  * origin URLs and the stable repo_id identity, #74).
@@ -106,7 +111,10 @@ const upsertDraftSeq = prepared((db: StoreDrizzle) =>
   db
     .insert(repoDraftSeq)
     .values({ repoId: sql.placeholder('repoId'), nextSeq: sql.placeholder('nextSeq') })
-    .onConflictDoUpdate({ target: repoDraftSeq.repoId, set: { nextSeq: sql.placeholder('nextSeq') } })
+    .onConflictDoUpdate({
+      target: repoDraftSeq.repoId,
+      set: { nextSeq: sql.placeholder('nextSeq') },
+    })
     .prepare(),
 )
 
@@ -154,7 +162,9 @@ function repoRowAt() {
 /** A prepared builder write on `repos` / `repo_prefixes`. */
 type RepoWrite = (db: StoreDrizzle) => { run(values: Record<string, unknown>): Promise<unknown> }
 /** A prepared write that returns the rows it changed. */
-type RepoReturningWrite = (db: StoreDrizzle) => { all(values: Record<string, unknown>): Promise<unknown[]> }
+type RepoReturningWrite = (db: StoreDrizzle) => {
+  all(values: Record<string, unknown>): Promise<unknown[]>
+}
 /** A prepared whole raw statement (`UPDATE OR IGNORE`, POD-3406). */
 type RepoRawWrite = (db: StoreDrizzle) => ReturnType<StoreDrizzle['run']>
 
@@ -167,6 +177,8 @@ interface RegistryRow {
 }
 
 export class ReposRepository {
+  /** Registry roots change the repo identity a session's permanent draft ref carries. */
+  sessionRecordWrite?: <T>(path: string, write: () => Promise<T>) => Promise<T>
   /**
    * The registry read, held for the duration of a pass (POD-1638).
    *
@@ -319,21 +331,25 @@ export class ReposRepository {
     const prefixRows = await registryPrefixes(this.db).all()
     const prefixes = new Map(prefixRows.map((r) => [r.repoId, r.prefix] as const))
     const baseBranches = new Map(
-      prefixRows.flatMap((r) => (r.defaultParentBranch ? [[r.repoId, r.defaultParentBranch] as const] : [])),
+      prefixRows.flatMap((r) =>
+        r.defaultParentBranch ? [[r.repoId, r.defaultParentBranch] as const] : [],
+      ),
     )
     this.cached = { rows, prefixes, baseBranches }
     return this.cached
   }
 
   /** Full repo rows including machineId, originUrl, repoId and prefix (#474). */
-  async listRepos(machineId?: MachineId): Promise<{
-    machineId: MachineId
-    path: string
-    originUrl: string | null
-    repoId: RepoId | null
-    prefix: string | null
-    defaultParentBranch: string | null
-  }[]> {
+  async listRepos(machineId?: MachineId): Promise<
+    {
+      machineId: MachineId
+      path: string
+      originUrl: string | null
+      repoId: RepoId | null
+      prefix: string | null
+      defaultParentBranch: string | null
+    }[]
+  > {
     const { rows: allRows, prefixes, baseBranches } = await this.registry()
     // Same rows, same `ORDER BY rowid ASC` order, filtered in memory: the
     // machine-scoped statement this replaces read the same table with the same
@@ -392,9 +408,9 @@ export class ReposRepository {
   async prefixResolver(): Promise<(path: string) => string | null> {
     const resolve = await this.repoIdResolver()
     const prefixes = (await this.registry()).prefixes
-    return path => {
+    return (path) => {
       const id = resolve(path)
-      return id ? prefixes.get(id) ?? null : null
+      return id ? (prefixes.get(id) ?? null) : null
     }
   }
 
@@ -430,7 +446,7 @@ export class ReposRepository {
         .prepare(),
     ))
     await insertPrefix(this.db).run({ repoId, prefix })
-    return await this.prefixForRepoId(repoId) ?? prefix
+    return (await this.prefixForRepoId(repoId)) ?? prefix
   }
 
   /**
@@ -492,7 +508,10 @@ export class ReposRepository {
   /** The base branch for the repo an ISSUE in `repoPath` belongs to (or null),
    *  resolved the way the issue's own repo_id is ({@link issueRepoIdResolver}).
    *  A registry read only — it never touches git. */
-  async defaultParentBranchForIssueRepo(repoPath: string, machineId?: MachineId | null): Promise<string | null> {
+  async defaultParentBranchForIssueRepo(
+    repoPath: string,
+    machineId?: MachineId | null,
+  ): Promise<string | null> {
     const id = (await this.issueRepoIdResolver())(repoPath, machineId)
     return id ? await this.defaultParentBranchForRepoId(id) : null
   }
@@ -502,13 +521,20 @@ export class ReposRepository {
    * like the prefix. The caller checks the branch exists; this only stores it, and
    * existing issues keep the parent they were created with.
    */
-  async setRepoDefaultParentBranch(machineId: MachineId, path: string, branch: string | null): Promise<void> {
+  async setRepoDefaultParentBranch(
+    machineId: MachineId,
+    path: string,
+    branch: string | null,
+  ): Promise<void> {
     const normalizedPath = normalizeRepoPath(path)
     const repoId = await this.resolveRepoIdForPath(normalizedPath, machineId)
     // The row is the prefix row, which registration mints; a repo registered
     // before prefixes existed gets one here rather than losing the write.
-    if (branch !== null && await this.prefixForRepoId(repoId) === null) {
-      await this.ensurePrefixForRepoId(repoId, machinePathBasename(normalizedPath) || normalizedPath)
+    if (branch !== null && (await this.prefixForRepoId(repoId)) === null) {
+      await this.ensurePrefixForRepoId(
+        repoId,
+        machinePathBasename(normalizedPath) || normalizedPath,
+      )
     }
     await this.invalidateRegistry()
     const setBaseBranch = (this.repoWrites.setBaseBranch ??= prepared((db: StoreDrizzle) =>
@@ -541,11 +567,32 @@ export class ReposRepository {
   // readLocalOriginUrl is a no-op (null) for paths that don't exist on this host, so remote-machine
   // repos simply get the path-fallback id until a scan reports their origin (updateRepoOrigin then
   // upgrades it). An explicit `prefix` overrides derivation (validated + uniqueness-checked, #474).
-  async addRepo(path: string, machineId: MachineId, originUrl?: string, prefix?: string): Promise<void> {
+  async addRepo(
+    path: string,
+    machineId: MachineId,
+    originUrl?: string,
+    prefix?: string,
+  ): Promise<void> {
+    return this.sessionRecordWrite
+      ? await this.sessionRecordWrite(path, () =>
+          this.addRepoRows(path, machineId, originUrl, prefix),
+        )
+      : await this.addRepoRows(path, machineId, originUrl, prefix)
+  }
+
+  private async addRepoRows(
+    path: string,
+    machineId: MachineId,
+    originUrl?: string,
+    prefix?: string,
+  ): Promise<void> {
     const requestedPath = normalizeRepoPath(path)
-    const normalizedPath = machinePathSeparator(requestedPath) === '\\'
-      ? (await this.listRepos(machineId)).find(row => machinePathKey(normalizeRepoPath(row.path)) === machinePathKey(requestedPath))?.path ?? requestedPath
-      : requestedPath
+    const normalizedPath =
+      machinePathSeparator(requestedPath) === '\\'
+        ? ((await this.listRepos(machineId)).find(
+            (row) => machinePathKey(normalizeRepoPath(row.path)) === machinePathKey(requestedPath),
+          )?.path ?? requestedPath)
+        : requestedPath
     const origin = originUrl ?? readLocalOriginUrl(normalizedPath) ?? undefined
     // The repo's machine may be Windows while this server is not: its path's own separator.
     const repoName = machinePathBasename(path.trim()) || null
@@ -587,7 +634,7 @@ export class ReposRepository {
     // Assign the human-facing prefix for this logical repo (#474). An explicit,
     // validated override wins over derivation; a sibling checkout already sharing
     // this repo_id keeps its prefix.
-    if (await this.prefixForRepoId(repoId) === null) {
+    if ((await this.prefixForRepoId(repoId)) === null) {
       if (prefix !== undefined) {
         if (!isValidPrefix(prefix)) {
           throw new Error(`invalid repo prefix ${JSON.stringify(prefix)} — must match ^[A-Z]{2,5}$`)
@@ -596,12 +643,13 @@ export class ReposRepository {
         await this.invalidateRegistry()
         // Same statement and the same enumeration as `ensurePrefixForRepoId`;
         // `prefix` reached here through `isValidPrefix` above.
-        const insertPrefix = (this.repoWrites.insertPrefixIfAbsent ??= prepared((db: StoreDrizzle) =>
-          db
-            .insert(repoPrefixes)
-            .values({ repoId: sql.placeholder('repoId'), prefix: sql.placeholder('prefix') })
-            .onConflictDoNothing()
-            .prepare(),
+        const insertPrefix = (this.repoWrites.insertPrefixIfAbsent ??= prepared(
+          (db: StoreDrizzle) =>
+            db
+              .insert(repoPrefixes)
+              .values({ repoId: sql.placeholder('repoId'), prefix: sql.placeholder('prefix') })
+              .onConflictDoNothing()
+              .prepare(),
         ))
         await insertPrefix(this.db).run({ repoId, prefix })
       } else {
@@ -617,11 +665,26 @@ export class ReposRepository {
    * already origin-derived, so identities stay stable if the remote moves.
    */
   async updateRepoOrigin(machineId: MachineId, path: string, originUrl: string): Promise<void> {
+    return this.sessionRecordWrite
+      ? await this.sessionRecordWrite(path, () =>
+          this.updateRepoOriginRows(machineId, path, originUrl),
+        )
+      : await this.updateRepoOriginRows(machineId, path, originUrl)
+  }
+
+  private async updateRepoOriginRows(
+    machineId: MachineId,
+    path: string,
+    originUrl: string,
+  ): Promise<void> {
     const requestedPath = normalizeRepoPath(path)
     const rows = await repoPathsAndIdsOnMachine(this.db).all({ machineId })
-    const row = rows.find((r) => machinePathKey(normalizeRepoPath(r.path)) === machinePathKey(requestedPath))
+    const row = rows.find(
+      (r) => machinePathKey(normalizeRepoPath(r.path)) === machinePathKey(requestedPath),
+    )
     if (!row) return
-    const normalizedPath = machinePathSeparator(requestedPath) === '\\' ? normalizeRepoPath(row.path) : requestedPath
+    const normalizedPath =
+      machinePathSeparator(requestedPath) === '\\' ? normalizeRepoPath(row.path) : requestedPath
     // Ahead of the branches rather than in each: this method writes `repos` on
     // every path below it, and the read it invalidates is one this method's own
     // `prefixForRepoId` call takes back afterwards.
@@ -672,7 +735,10 @@ export class ReposRepository {
     ))
     await setOrigin(this.db).run({ originUrl, repoId, machineId, path: targetPath })
     for (const duplicate of rows) {
-      if (duplicate.path !== targetPath && machinePathKey(normalizeRepoPath(duplicate.path)) === machinePathKey(normalizedPath)) {
+      if (
+        duplicate.path !== targetPath &&
+        machinePathKey(normalizeRepoPath(duplicate.path)) === machinePathKey(normalizedPath)
+      ) {
         await deleteRow(this.db).run({ machineId, path: duplicate.path })
       }
     }
@@ -681,7 +747,7 @@ export class ReposRepository {
         this.assignRepoIdToIssuesUnder(newId, repoPath)
       // Re-key the human-facing prefix from the path-fallback id onto the stable
       // origin-derived id (#474), unless the target already owns one.
-      if (row.repoId && row.repoId !== newId && await this.prefixForRepoId(newId) === null) {
+      if (row.repoId && row.repoId !== newId && (await this.prefixForRepoId(newId)) === null) {
         // Again, because the condition above READ the prefix map and so re-held it:
         // the drop at the top of this method is already spent by the time this
         // statement runs. Invalidating before every write is not enough on its own —
@@ -725,17 +791,19 @@ export class ReposRepository {
       db
         .update(repoPrefixes)
         .set({ defaultParentBranch: sql.placeholder('branch') })
-        .where(and(
-          eq(repoPrefixes.repoId, param(repoPrefixes.repoId, 'repoId')),
-          isNull(repoPrefixes.defaultParentBranch),
-        ))
+        .where(
+          and(
+            eq(repoPrefixes.repoId, param(repoPrefixes.repoId, 'repoId')),
+            isNull(repoPrefixes.defaultParentBranch),
+          ),
+        )
         .returning({ repoId: repoPrefixes.repoId })
         .prepare(),
     ))
     if ((await carry(this.db).all({ branch: source, repoId: to })).length > 0) return
     const kept = await this.defaultParentBranchForRepoId(to)
     if (kept && kept !== source) {
-      log.warn('repo identity converged with two base branches; keeping the destination\'s', {
+      log.warn("repo identity converged with two base branches; keeping the destination's", {
         from,
         to,
         kept,
@@ -747,7 +815,10 @@ export class ReposRepository {
   /** Resolve a reported repo, or derive only under a machine explicitly named by the caller. */
   async resolveRepoIdForPath(repoPath: string, machineId?: MachineId | null): Promise<RepoId> {
     const id = (await this.repoIdResolver())(repoPath, machineId)
-    if (!id) throw new Error(`no reporting machine for repo path ${repoPath}; choose a machine or wait for discovery`)
+    if (!id)
+      throw new Error(
+        `no reporting machine for repo path ${repoPath}; choose a machine or wait for discovery`,
+      )
     return id
   }
 
@@ -775,14 +846,20 @@ export class ReposRepository {
    * answering from the pre-write registry. Take it inside the pass that uses it —
    * which is every caller today, all of them read-only loops.
    */
-  async repoIdResolver(): Promise<(repoPath: string, machineId?: MachineId | null) => RepoId | null> {
+  async repoIdResolver(): Promise<
+    (repoPath: string, machineId?: MachineId | null) => RepoId | null
+  > {
     const roots = await this.sortedRoots()
     return (repoPath: string, machineId?: MachineId | null): RepoId | null => {
       const normalizedRepoPath = machinePathKey(normalizeRepoPath(repoPath))
       const match = roots.find(
-        (r) => (machineId == null || r.machineId === machineId) && rootContains(r.path, normalizedRepoPath),
+        (r) =>
+          (machineId == null || r.machineId === machineId) &&
+          rootContains(r.path, normalizedRepoPath),
       )
-      return match?.repoId ?? (machineId ? deriveRepoId({ machineId, path: normalizedRepoPath }) : null)
+      return (
+        match?.repoId ?? (machineId ? deriveRepoId({ machineId, path: normalizedRepoPath }) : null)
+      )
     }
   }
 
@@ -804,7 +881,9 @@ export class ReposRepository {
    *  3. else derive under the pin, the only machine the caller named (2b803efb5);
    *  4. no pin and no report: null — nothing may derive under the server's host.
    */
-  async issueRepoIdResolver(): Promise<(repoPath: string, machineId?: MachineId | null) => RepoId | null> {
+  async issueRepoIdResolver(): Promise<
+    (repoPath: string, machineId?: MachineId | null) => RepoId | null
+  > {
     const roots = await this.sortedRoots()
     return (repoPath: string, machineId?: MachineId | null): RepoId | null => {
       const normalizedRepoPath = machinePathKey(normalizeRepoPath(repoPath))
@@ -816,7 +895,10 @@ export class ReposRepository {
       if (own) return own.repoId ?? derived
       // Longest-first, so equal-length containing roots are the SAME root string.
       const longest = containing[0]
-      if (longest?.repoId && containing.every((r) => r.path !== longest.path || r.repoId === longest.repoId)) {
+      if (
+        longest?.repoId &&
+        containing.every((r) => r.path !== longest.path || r.repoId === longest.repoId)
+      ) {
         return longest.repoId
       }
       return derived
@@ -834,7 +916,10 @@ export class ReposRepository {
   /** {@link issueRepoIdResolver} for one issue path; throws where it answers null. */
   async resolveIssueRepoId(repoPath: string, machineId?: MachineId | null): Promise<RepoId> {
     const id = (await this.issueRepoIdResolver())(repoPath, machineId)
-    if (!id) throw new Error(`no reporting machine for repo path ${repoPath}; choose a machine or wait for discovery`)
+    if (!id)
+      throw new Error(
+        `no reporting machine for repo path ${repoPath}; choose a machine or wait for discovery`,
+      )
     return id
   }
 
@@ -867,9 +952,16 @@ export class ReposRepository {
     const posixMachines = new Set<MachineId>()
     for (const root of await this.listRepos()) {
       explained.add(deriveRepoId({ machineId: root.machineId, path: root.path }))
-      if (root.originUrl) explained.add(deriveRepoId({ originUrl: root.originUrl, machineId: root.machineId, path: root.path }))
+      if (root.originUrl)
+        explained.add(
+          deriveRepoId({ originUrl: root.originUrl, machineId: root.machineId, path: root.path }),
+        )
       const key = machinePathKey(normalizeRepoPath(root.path))
-      if (machinePathSeparator(key) === '\\' || !key.startsWith('/') || !(key.charCodeAt(key.length - 1) < 0x7f)) {
+      if (
+        machinePathSeparator(key) === '\\' ||
+        !key.startsWith('/') ||
+        !(key.charCodeAt(key.length - 1) < 0x7f)
+      ) {
         wholeMachines.add(root.machineId)
         continue
       }
@@ -888,13 +980,25 @@ export class ReposRepository {
   }
 
   /** Registered roots, normalized and longest-first — the one snapshot both resolvers read. */
-  private async sortedRoots(): Promise<Array<{ repoId: RepoId | null; machineId: MachineId; path: string }>> {
+  private async sortedRoots(): Promise<
+    Array<{ repoId: RepoId | null; machineId: MachineId; path: string }>
+  > {
     return (await this.listRepos())
-      .map((r) => ({ repoId: r.repoId, machineId: r.machineId, path: machinePathKey(normalizeRepoPath(r.path)) }))
+      .map((r) => ({
+        repoId: r.repoId,
+        machineId: r.machineId,
+        path: machinePathKey(normalizeRepoPath(r.path)),
+      }))
       .sort((a, b) => b.path.length - a.path.length)
   }
 
   async removeRepo(path: string, machineId: MachineId): Promise<void> {
+    return this.sessionRecordWrite
+      ? await this.sessionRecordWrite(path, () => this.removeRepoRows(path, machineId))
+      : await this.removeRepoRows(path, machineId)
+  }
+
+  private async removeRepoRows(path: string, machineId: MachineId): Promise<void> {
     const normalizedPath = normalizeRepoPath(path)
     const rows = await repoPathsOnMachine(this.db).all({ machineId })
     await this.invalidateRegistry()

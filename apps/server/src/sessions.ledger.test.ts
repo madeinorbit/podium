@@ -1,4 +1,3 @@
-import { CHANGE_LOG_OBSERVER } from '@podium/sync'
 import {
   asMachineId,
   asRepoId,
@@ -16,7 +15,7 @@ import {
   type Principal,
   type ServerMessage,
 } from '@podium/protocol'
-import { Ledger } from '@podium/sync'
+import { CHANGE_LOG_OBSERVER, Ledger } from '@podium/sync'
 import { fixtureWriteScope, testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionLifecycle } from './modules/sessions/lifecycle'
@@ -25,8 +24,8 @@ import type { SessionStore } from './store'
 import { attachTestClient } from './test-support/client-transport'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
-import { clientSessionViews } from './test-support/session-views'
 import { testStoreRecords } from './test-support/record-writer'
+import { clientSessionViews } from './test-support/session-views'
 
 type ProjectionEvent = {
   generation: number
@@ -405,7 +404,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     ])
   })
 
-  it('(f) boot reconcile records offline row changes durably, with no fan-out', async () => {
+  it('(f) boot reads current rows without reconciling offline writes', async () => {
     const store = await openTestStore(':memory:')
     const first = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     await attachHostDaemon(first, () => {})
@@ -419,15 +418,19 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const row = (await store.sessions.loadSessions()).find((r) => r.id === sessionId)
     if (!row) throw new Error('row missing')
     await store.sessions.upsertSession(fixtureWriteScope(), { ...row, name: 'changed offline' })
-    // Restart over the same store: loadFromStore reconciles against the ledger.
+    // Startup streams the tables. An out-of-band writer must invalidate the
+    // kind generation; boot itself never repairs the log.
     const second = await makeRegistry(store)
     const healed = await second.modules.sessions.syncChangesSince(cursor, CHANGE_LOG_OBSERVER)
     expect(healed.kind).toBe('delta')
     if (healed.kind !== 'delta') return
-    const change = healed.changes.find(
-      (c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert',
-    ) as { value?: SessionMeta } | undefined
-    expect(change?.value?.name).toBe('changed offline')
+    expect(healed.changes.filter((change) => change.entity === 'session')).toEqual([])
+    const snapshot = await second.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)
+    expect(snapshot.kind).toBe('snapshot')
+    if (snapshot.kind === 'snapshot')
+      expect(snapshot.sessions.find((session) => session.sessionId === sessionId)?.name).toBe(
+        'changed offline',
+      )
   })
 
   it('(g) a reentrant ledger commit during oplog.appended cannot reorder the delta stream (#247)', async () => {
@@ -692,7 +695,9 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     await first.clientGateway.routeClientFrame(clientId, { type: 'detach', sessionId })
     await first.modules.sessions.flushBroadcasts()
     const generationBeforeRestart = first.modules.sessions.sessionsGeneration()
-    const cursorBeforeRestart = (await first.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)).cursor
+    const cursorBeforeRestart = (
+      await first.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)
+    ).cursor
     await first.dispose()
 
     const second = await makeRegistry(store)
@@ -711,9 +716,14 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     await second.modules.sessions.flushBroadcasts()
     const generationAfterRestart = second.modules.sessions.sessionsGeneration()
     expect(generationAfterRestart).toBeGreaterThan(0)
-    const cursorAfterRecovery = (await second.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)).cursor
+    const cursorAfterRecovery = (
+      await second.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)
+    ).cursor
     expect(cursorAfterRecovery).toBeGreaterThan(cursorBeforeRestart)
-    const recovered = await second.modules.sessions.syncChangesSince(cursorBeforeRestart, CHANGE_LOG_OBSERVER)
+    const recovered = await second.modules.sessions.syncChangesSince(
+      cursorBeforeRestart,
+      CHANGE_LOG_OBSERVER,
+    )
     expect(recovered.kind).toBe('delta')
     if (recovered.kind !== 'delta') return
     expect(
@@ -724,7 +734,9 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     ).toBe(true)
     second.modules.sessions.broadcastSessions()
     await second.modules.sessions.flushBroadcasts()
-    expect(await second.modules.sessions.syncChangesSince(cursorAfterRecovery, CHANGE_LOG_OBSERVER)).toMatchObject({
+    expect(
+      await second.modules.sessions.syncChangesSince(cursorAfterRecovery, CHANGE_LOG_OBSERVER),
+    ).toMatchObject({
       kind: 'delta',
       cursor: cursorAfterRecovery,
       changes: [],
@@ -751,7 +763,9 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(originalSession).toBeDefined()
     const original = originalSession?.name
     current.inbox.length = 0
-    const cursorBefore = (await registry.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)).cursor
+    const cursorBefore = (
+      await registry.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)
+    ).cursor
 
     await registry.modules.sessions.renameSession(registry.modules.sessions.serverWriter, {
       sessionId,
@@ -770,7 +784,10 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       expect(projected.length).toBeGreaterThan(0)
       expect((projected.at(-1)?.value as SessionMeta | undefined)?.name).toBe(original)
     })
-    const renames = await registry.modules.sessions.syncChangesSince(cursorBefore, CHANGE_LOG_OBSERVER)
+    const renames = await registry.modules.sessions.syncChangesSince(
+      cursorBefore,
+      CHANGE_LOG_OBSERVER,
+    )
     expect(renames.kind).toBe('delta')
     expect(renames.kind === 'delta' ? renames.changes.length : 0).toBeGreaterThanOrEqual(2)
   })
@@ -859,7 +876,9 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       expect.objectContaining({
         type: 'presenceRoomState',
         room,
-        members: [expect.objectContaining({ identity: { kind: 'user', user: firstAdminMemberId() } })],
+        members: [
+          expect.objectContaining({ identity: { kind: 'user', user: firstAdminMemberId() } }),
+        ],
       }),
     )
     granteeMessages.length = 0
@@ -1001,7 +1020,9 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(
       (await clientSessionViews(registry)).find((s) => s.sessionId === sessionId)?.name,
     ).toBeUndefined()
-    expect(await registry.modules.sessions.syncChangesSince(cursor, CHANGE_LOG_OBSERVER)).toMatchObject({
+    expect(
+      await registry.modules.sessions.syncChangesSince(cursor, CHANGE_LOG_OBSERVER),
+    ).toMatchObject({
       kind: 'delta',
       cursor,
       changes: [],
@@ -1063,7 +1084,9 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(
       (await clientSessionViews(registry)).find((s) => s.sessionId === sessionId)?.snoozedUntil,
     ).toBeUndefined()
-    expect(await registry.modules.sessions.syncChangesSince(cursor, CHANGE_LOG_OBSERVER)).toMatchObject({
+    expect(
+      await registry.modules.sessions.syncChangesSince(cursor, CHANGE_LOG_OBSERVER),
+    ).toMatchObject({
       kind: 'delta',
       cursor,
       changes: [],
@@ -1305,7 +1328,10 @@ describe('feed identity on the wire (ADR 2 D1/D5)', () => {
     const registry = await makeRegistry()
     const boot = await registry.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)
     await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
-    const catchUp = await registry.modules.sessions.syncChangesSince(boot.cursor, CHANGE_LOG_OBSERVER)
+    const catchUp = await registry.modules.sessions.syncChangesSince(
+      boot.cursor,
+      CHANGE_LOG_OBSERVER,
+    )
     expect(catchUp.kind).toBe('delta')
     expect(catchUp.feedId).toBe(boot.feedId)
     expect(catchUp.epoch).toBe(boot.epoch)
@@ -1320,7 +1346,9 @@ describe('feed identity on the wire (ADR 2 D1/D5)', () => {
     // Nothing has been pruned, so the whole log is servable and the horizon is
     // the log's first seq — a replica at cursor 0 must NOT be told to re-bootstrap.
     expect(horizon).toBe(1)
-    expect((await registry.modules.sessions.syncChangesSince(0, CHANGE_LOG_OBSERVER)).kind).toBe('delta')
+    expect((await registry.modules.sessions.syncChangesSince(0, CHANGE_LOG_OBSERVER)).kind).toBe(
+      'delta',
+    )
   })
 
   it('serves identity on every production wire-v2 delta', async () => {
