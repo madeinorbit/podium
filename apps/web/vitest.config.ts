@@ -1,7 +1,7 @@
 import { productWorkMeter } from '../../tests/worklist/harness/src/perf/vite'
 import { standardDecorators } from '../../scripts/vite-standard-decorators'
 import { fileURLToPath } from 'node:url'
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
 import { sharedVitestConfig } from '../../vitest.config'
 
 // Web-local vitest config. The repo-root vitest.config.ts excludes **/.claude/**,
@@ -53,6 +53,7 @@ export default defineConfig({
     setupFiles: sharedSetupFiles,
     environment: 'happy-dom',
     include: ['src/**/*.test.{ts,tsx}', 'test/**/*.test.{ts,tsx}'],
+    exclude: [...configDefaults.exclude, '**/*.integration.*'],
     passWithNoTests: false,
   },
 })
