@@ -12,7 +12,7 @@ import { deleteExpiredInvitations } from './membership/statements'
 import { workspaceIdentity } from './membership/workspace'
 import { CLIENT_ADDRESS_HEADER, createRuntime, type Runtime } from './runtime'
 import { signInOperations } from './sign-in'
-import { deleteExpiredCodes } from './statements'
+import { accountForAuthentication, deleteExpiredCodes } from './statements'
 import type { IdentityConfig, IdentityCore } from './types'
 
 /** Headers a proxy or a caller may have set; none of them reaches the library. */
@@ -135,7 +135,32 @@ export async function buildIdentity(
         headers,
         ...(hasBody ? { body: await request.arrayBuffer() } : {}),
       })
-      return await runtime.transaction(() => configuration.auth.handler(forwarded))
+      return await runtime.transaction(async () => {
+        if (path === '/reset-password' && request.method === 'POST') {
+          const body: unknown = await forwarded
+            .clone()
+            .json()
+            .catch(() => null)
+          if (
+            body &&
+            typeof body === 'object' &&
+            'token' in body &&
+            typeof body.token === 'string' &&
+            body.token.length <= 128
+          ) {
+            const verification = await configuration.context.internalAdapter.findVerificationValue(
+              `reset-password:${body.token}`,
+            )
+            if (verification && verification.expiresAt.getTime() > runtime.now().getTime()) {
+              // Reset and password issuance take the same lock before writing.
+              // A sign-in that proved the old hash must finish before reset,
+              // or recheck the new hash after reset; it cannot survive between.
+              await accountForAuthentication(runtime.db()).run({ id: verification.value })
+            }
+          }
+        }
+        return await configuration.auth.handler(forwarded)
+      })
     }
   }
   return { core, runtime }

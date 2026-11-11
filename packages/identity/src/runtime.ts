@@ -240,6 +240,7 @@ export async function createRuntime(config: IdentityConfig): Promise<Runtime> {
         enabled: true,
         disableSignUp: !config.selfSignUp,
         requireEmailVerification: false,
+        revokeSessionsOnPasswordReset: true,
         ...(config.passwordHashing ? { password: config.passwordHashing } : {}),
         ...(mail
           ? {
@@ -282,8 +283,7 @@ export async function createRuntime(config: IdentityConfig): Promise<Runtime> {
         },
       },
       account: {
-        // The account-create gate below also requires local verification and
-        // refuses linking while a password remains on the account.
+        // Both the local account and the provider must prove the same address.
         accountLinking: {
           enabled: Object.keys(providers).length > 0,
           requireLocalEmailVerified: true,
@@ -316,14 +316,10 @@ export async function createRuntime(config: IdentityConfig): Promise<Runtime> {
               if (method.providerId === 'credential') return
               const db = scope.getStore()?.db ?? root
               const [account] = await accountForAuthentication(db).run({ id: method.userId })
-              const [password] = await passwordOfAccount(db).run({ accountId: method.userId })
-              if (!account?.emailVerified || password?.password)
+              if (!account?.emailVerified)
                 throw new APIError('FORBIDDEN', {
-                  code: password?.password
-                    ? 'password_account_linking_disabled'
-                    : 'email_not_verified',
-                  message:
-                    'This account cannot link a sign-in provider. Use its existing sign-in method.',
+                  code: 'email_not_verified',
+                  message: 'Verify your email before linking a sign-in provider.',
                 })
             },
           },
@@ -356,6 +352,15 @@ export async function createRuntime(config: IdentityConfig): Promise<Runtime> {
                 const [password] = await passwordOfAccount(db).run({ accountId: session.userId })
                 if (!password?.password)
                   throw new APIError('UNAUTHORIZED', { message: 'Sign in again.' })
+                if (context?.path === '/sign-in/email') {
+                  const submitted = context.body?.password
+                  if (
+                    typeof submitted !== 'string' ||
+                    !(await runtime.verifyPassword(submitted, password.password))
+                  ) {
+                    throw new APIError('UNAUTHORIZED', { message: 'Sign in again.' })
+                  }
+                }
               }
               const device = deviceScope.getStore()?.device
               const given = session as Record<string, unknown>
