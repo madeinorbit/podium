@@ -106,6 +106,7 @@ const answers: Record<string, unknown> = {
     },
   },
   'settings.secretPresence.query': [],
+  'settings.telegramBotPresence.query': false,
   'accounts.list.query': [],
   'accounts.keys.query': [],
   'auth.profile.query': { email: member ? 'member@example.com' : 'admin@example.com' },
