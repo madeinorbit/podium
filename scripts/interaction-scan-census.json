@@ -32678,7 +32678,7 @@
       "file": "apps/mobile/src/screens/PulseScreen.tsx",
       "holder": "PulseScreen/feed",
       "rule": "reader-summary",
-      "tokens": "b3f5278116922a040052f0b402172398f065fe69629d9ef6a1890b84a698fab2",
+      "tokens": "d65e4a2e7af280488004db178b56115543c0640e67485ecf14c73055faebadd0",
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
@@ -32689,7 +32689,7 @@
         "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "70f8416f540efd6b0819f2df89f6f07c64ee17e5d986f003fc9fb06a0206af75",
+      "fingerprint": "e9924cd36fcdd68514fae36534e9db4305828697b3c3f8311a5dcd7072a23c0c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -32721,13 +32721,13 @@
       "file": "apps/mobile/src/screens/PulseScreen.tsx",
       "holder": "PulseScreen/useMemo:callback/fleet",
       "rule": "helper-consumer",
-      "tokens": "5625f8f7949f88a4e1954635c4cb2c7a42b9ccf7b683b028cc5b57449ba1bf1b",
+      "tokens": "17b6d327f683a2d195096a62235246be46c83fe95c779c694696bf6fd55feff7",
       "gate": [],
       "origin": [
         "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
         "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
       ],
-      "fingerprint": "8b46d994c163a564d23398368d9091547e9da896f2809499136216860b6d9c42",
+      "fingerprint": "5d3c436b2ddb5178af5262a69113df88086a32e65b716005b2d82121a0a1ff5f",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
