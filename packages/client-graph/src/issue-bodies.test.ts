@@ -32,10 +32,25 @@ const settle = async () => {
 }
 
 describe('IssueBodyStore', () => {
+  const readers: (() => void)[] = []
+  const watch = (
+    store: IssueBodyStore,
+    id: string,
+    field: IssueBodyField = 'brief',
+    digest = 'd',
+  ) => {
+    const close = autorun(() => {
+      store.read(id, field, digest)
+    })
+    readers.push(close)
+    return close
+  }
+
   beforeEach(() => {
     vi.useFakeTimers()
   })
   afterEach(() => {
+    for (const close of readers.splice(0)) close()
     vi.useRealTimers()
   })
 
@@ -108,7 +123,7 @@ describe('IssueBodyStore', () => {
       throw new Error('offline')
     })
     store.bind(fetch)
-    store.read('a', 'brief', 'd')
+    watch(store, 'a')
     await settle()
     let attempts = 1
     for (const delay of [1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000]) {
@@ -128,7 +143,7 @@ describe('IssueBodyStore', () => {
     )
     fetch.mockRejectedValueOnce(new Error('offline'))
     store.bind(fetch)
-    for (let i = 0; i < BODY_BATCH_IDS + 7; i++) store.read(`i${i}`, 'brief', 'd')
+    for (let i = 0; i < BODY_BATCH_IDS + 7; i++) watch(store, `i${i}`)
     await settle()
     expect(fetch.mock.calls.map(([ids]) => ids.length)).toEqual([BODY_BATCH_IDS, 7])
     await vi.advanceTimersByTimeAsync(1_000)
@@ -136,6 +151,88 @@ describe('IssueBodyStore', () => {
     expect(fetch.mock.calls[2]).toEqual(fetch.mock.calls[0])
     expect(store.read('i0', 'brief', 'd')).toEqual({ value: 'i0', current: true })
     expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('drops retries for closed issues and requeues the same digest on the next read', async () => {
+    const store = new IssueBodyStore()
+    const fetch = vi.fn(async (ids: readonly string[]) =>
+      ids.map((id) => body(id, 'brief', 'd', id)),
+    )
+    fetch.mockRejectedValueOnce(new Error('offline'))
+    store.bind(fetch)
+    const close = watch(store, 'a')
+    watch(store, 'b')
+    await settle()
+    close()
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(fetch.mock.calls.map(([ids]) => [...ids])).toEqual([['a', 'b'], ['b']])
+    expect(vi.getTimerCount()).toBe(0)
+    watch(store, 'a')
+    await settle()
+    expect(fetch.mock.calls.map(([ids]) => [...ids])).toEqual([['a', 'b'], ['b'], ['a']])
+    expect(store.read('a', 'brief', 'd')).toEqual({ value: 'a', current: true })
+  })
+
+  it('keeps retries until the last field reader closes, then cancels the timer', async () => {
+    const store = new IssueBodyStore()
+    const fetch = vi.fn(async () => {
+      throw new Error('offline')
+    })
+    store.bind(fetch)
+    const closeBrief = watch(store, 'a')
+    const closeDescription = watch(store, 'a', 'description')
+    await settle()
+    closeBrief()
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(fetch).toHaveBeenCalledTimes(2)
+    closeDescription()
+    expect(vi.getTimerCount()).toBe(0)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(fetch).toHaveBeenCalledTimes(2)
+    watch(store, 'a', 'description')
+    await settle()
+    expect(fetch).toHaveBeenCalledTimes(3)
+  })
+
+  it('does not retry a failure with no observer, but permits the next imperative read', async () => {
+    const store = new IssueBodyStore()
+    const fetch = vi.fn(async () => [body('a', 'brief', 'd', 'Recovered')])
+    fetch.mockRejectedValueOnce(new Error('offline'))
+    store.bind(fetch)
+    store.read('a', 'brief', 'd')
+    await settle()
+    expect(vi.getTimerCount()).toBe(0)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(store.read('a', 'brief', 'd')).toBe(LOADING)
+    await settle()
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(store.read('a', 'brief', 'd')).toEqual({ value: 'Recovered', current: true })
+  })
+
+  it('does not queue a failed flight after its last reader closes', async () => {
+    const store = new IssueBodyStore()
+    let fail!: (error: Error) => void
+    const fetch = vi.fn(async () => [body('a', 'brief', 'd', 'Recovered')])
+    fetch.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          fail = reject
+        }),
+    )
+    store.bind(fetch)
+    const close = watch(store, 'a')
+    await settle()
+    close()
+    fail(new Error('offline'))
+    await settle()
+    expect(vi.getTimerCount()).toBe(0)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    watch(store, 'a')
+    await settle()
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(store.read('a', 'brief', 'd')).toEqual({ value: 'Recovered', current: true })
   })
 
   it('retries pending text on reconnect once and releases the subscription on unbind', async () => {
@@ -148,7 +245,7 @@ describe('IssueBodyStore', () => {
       reconnect = listener
       return stopReconnect
     })
-    store.read('a', 'brief', 'd')
+    watch(store, 'a')
     await settle()
     for (let event = 0; event < 20; event++) reconnect()
     await settle()
@@ -167,7 +264,7 @@ describe('IssueBodyStore', () => {
     const fetch = vi.fn(async () => [body('a', 'brief', 'd', 'Recovered')])
     fetch.mockRejectedValueOnce(new Error('offline'))
     const unbind = store.bind(fetch)
-    store.read('a', 'brief', 'd')
+    watch(store, 'a')
     await settle()
     unbind()
     await vi.advanceTimersByTimeAsync(60_000)
@@ -194,7 +291,7 @@ describe('IssueBodyStore', () => {
         }),
     )
     store.bind(fetch)
-    store.read('a', 'brief', 'd')
+    watch(store, 'a')
     await settle()
     await vi.advanceTimersByTimeAsync(1_000)
     expect(fetch).toHaveBeenCalledTimes(2)
@@ -318,6 +415,36 @@ describe('IssueModel bodies', () => {
     expect(issue.bodyLoading('brief')).toBe(false)
     await settle()
     expect(calls).toEqual([])
+  })
+
+  it.each([
+    'description',
+    'brief',
+  ] as const)('loads reverted %s text again through A, B, A and releases the edit guard', async (field) => {
+    const rowAt = (digest: string) => issueRow({ bodies: { [field]: { digest, size: 1 } } })
+    const pool = poolWith(rowAt('A'))
+    const held = new Map<string, IssueBodyWire[]>()
+    const { calls, fetch } = server(held)
+    const unbind = pool.issueBodies.bind(fetch)
+    const issue = pool.issueObject('a')
+    const paints: unknown[] = []
+    const close = autorun(() => {
+      paints.push([issue[field], issue.bodyLoading(field)])
+    })
+    try {
+      for (const digest of ['A', 'B', 'A']) {
+        const value = field === 'description' ? { value: digest } : digest
+        held.set('a', [body('a', field, digest, value)])
+        pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'a', value: rowAt(digest) }] })
+        await settle()
+        expect(paints.at(-1)).toEqual([digest, false])
+      }
+      expect(calls).toEqual([['a'], ['a'], ['a']])
+    } finally {
+      close()
+      unbind()
+      pool.dispose()
+    }
   })
 
   it('delivers brief and description after a failed fetch while the same reader stays open', async () => {
