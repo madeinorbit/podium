@@ -136,8 +136,12 @@ for (const kind of kinds) {
           ).toMatchObject([{ entity: kind, entityId: id, op: 'remove' }])
         }
         if (kind === 'issuePanelArtifact') {
-          const state = await feed.state.forBatch!([{ entity: kind, entityId: id }])
-          expect(state.shapeFor!(owner, { entity: kind, entityId: id }, value)).toBeUndefined()
+          const prepare = feed.state.forBatch
+          if (!prepare) throw new Error('panel visibility must prepare a batch')
+          const state = await prepare([{ entity: kind, entityId: id }])
+          const shape = state.shapeFor
+          if (!shape) throw new Error('panel visibility must shape artifacts')
+          expect(shape(owner, { entity: kind, entityId: id }, value)).toBeUndefined()
         }
       } finally {
         await store.close()

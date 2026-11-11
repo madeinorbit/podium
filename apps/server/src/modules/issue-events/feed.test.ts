@@ -89,9 +89,11 @@ async function harness(opts: { windowSize?: number } = {}) {
 }
 
 describe('IssueEventFeedPublisher', () => {
-  it('reads only the named event payload when appending to a full window', async () => {
-    const { store, append } = await harness()
-    for (let n = 0; n < 201; n++) await append()
+  it.each([
+    5, 200,
+  ])('reads only the named event payload in a full %i-event window', async (windowSize) => {
+    const { store, append } = await harness({ windowSize })
+    for (let n = 0; n < windowSize + 1; n++) await append()
     const observations: StatementObservation[] = []
     const detach = probeStatements(store, (row) => observations.push(row))
     try {
@@ -105,12 +107,13 @@ describe('IssueEventFeedPublisher', () => {
     console.log(
       'issue event append reads',
       JSON.stringify({
+        windowSize,
         statements: reads.length,
         rows: reads.reduce((sum, row) => sum + row.rows, 0),
         rowsPerStatement: reads.map((row) => row.rows),
       }),
     )
-    expect(reads.map((row) => row.rows)).toEqual([201, 1, 1])
+    expect(reads.map((row) => row.rows)).toEqual([windowSize + 1, 1, 1])
   })
 
   it('builds only asked IDs inside the current window, with their actual subject', async () => {
@@ -120,7 +123,7 @@ describe('IssueEventFeedPublisher', () => {
     const wanted = await append({ subject: 'wanted' })
     const excluded = await append({ kind: 'issue.mailSent' })
     const subjectless = await append({ subject: '' })
-    const builder = serverRecordBuilders().get('issueEvent')!
+    const builder = serverRecordBuilders().get('issueEvent')
     const reads = {
       store,
       now: Date.now,
@@ -133,6 +136,7 @@ describe('IssueEventFeedPublisher', () => {
       issueEventRowId(wanted, 'wrong-subject'),
       issueEventRowId(excluded, 'POD-13'),
       issueEventRowId(subjectless, ''),
+      issueEventRowId(1_000_000, 'missing'),
       'malformed',
     ])
     expect(built.map((record) => record.id)).toEqual([issueEventRowId(wanted, 'wanted')])

@@ -456,6 +456,22 @@ const feedWindowIds = prepared((db: StoreDrizzle) => {
     .prepare()
 })
 
+/** Requested feed-kind rows still at or above the current window's floor. */
+const feedEventsOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select()
+    .from(podiumEvents)
+    .where(
+      and(
+        inListOf(podiumEvents.id, size),
+        gte(podiumEvents.id, param(podiumEvents.id, 'floor')),
+        inArray(podiumEvents.kind, [...FEED_EVENT_KINDS]),
+        ne(podiumEvents.subject, ''),
+      ),
+    )
+    .prepare(),
+)
+
 /** The feed-kind events of these subjects at or above `floor` (the window's
  *  oldest), oldest first; keyed by the subject list's bucketed size. */
 const feedEventsOfSubjects = preparedFamily((db: StoreDrizzle, size: number) =>
@@ -1309,6 +1325,25 @@ export class EventsRepository {
     offset?: number
   }): Promise<{ id: number; subject: string }[]> {
     return await feedWindowIds(this.db).all(this.feedWindowValues(opts))
+  }
+
+  /** Only these events' payloads, provided the current feed window holds them. */
+  async feedWindowByIds(ids: readonly number[], windowSize: number): Promise<PodiumEventRecord[]> {
+    const unique = [...new Set(ids)]
+    if (unique.length === 0) return []
+    const [oldest] = await this.feedWindowIds({ limit: 1, offset: Math.max(windowSize - 1, 0) })
+    const floor = oldest?.id ?? 0
+    const out: PodiumEventRecord[] = []
+    for (let at = 0; at < unique.length; at += 500) {
+      const chunk = unique.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      for (const row of await feedEventsOfIds(this.db, size).all({
+        floor,
+        ...inListValues(chunk, size),
+      }))
+        out.push(rowToEvent(row))
+    }
+    return out
   }
 
   /**

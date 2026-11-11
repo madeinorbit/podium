@@ -427,9 +427,12 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
             ref.entity === 'issuePanelState'
               ? ref.entityId
               : prefetch.panelParents.get(`${ref.entity}:${ref.entityId}`)
-          // A missing row has no content to expose. Its remove still reaches
-          // every task reader, including after a physical item deletion.
-          return parent === undefined || mayReadIssueFromSnapshot(userId, parent, prefetch)
+          // Catch-up evaluates historical upserts too. With no current item
+          // or issue, only a payload-free remove may reach the reader.
+          if (parent === undefined || !prefetch.issues.has(parent)) {
+            return 'op' in ref && ref.op === 'remove'
+          }
+          return mayReadIssueFromSnapshot(userId, parent, prefetch)
         }
         if (
           ref.entity === 'issueProjection' ||
@@ -646,7 +649,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         if (ref.entity === 'issuePanelArtifact') {
           const parent = prefetch.panelParents.get(`${ref.entity}:${ref.entityId}`)
           const row = parent ? prefetch.issues.get(parent) : undefined
-          if (!row) throw new Error('artifact shaping requires its parent issue')
+          if (!row) return undefined
           return withoutHiddenExecutionFields(
             { worktreePath: row.worktreePath ?? undefined, panel: { artifacts: [value] } },
             issueExecutionAccess(userId, executionPointersOf(row), executionFactsOf(prefetch)),

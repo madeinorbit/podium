@@ -90,7 +90,7 @@ import { effectRecordOf } from '../modules/effects/feed'
 import type { EffectExecutorRegistry } from '../modules/effects/registry'
 import { openInteractionRecords } from '../modules/interactions/feed'
 import { interactionWireOf } from '../modules/interactions/service'
-import { issueEventWindow } from '../modules/issue-events/feed'
+import { FEED_WINDOW, issueEventRecordOf, issueEventWindow } from '../modules/issue-events/feed'
 import {
   issueBodiesOf,
   issueBodiesOfRow,
@@ -491,10 +491,18 @@ async function issueEventRecords({ store, eventWindow }: RecordReads): Promise<B
 const issueEvent: Builder = {
   kind: 'issueEvent',
   shape: 'windowed',
-  // The window is FEED_WINDOW rows, so "these ids" is the window filtered.
-  async build(reads, ids) {
-    if (parsed(ids, parseIssueEventRowId).length === 0) return []
-    return await issueEventRecords(reads)
+  async build({ store, eventWindow = FEED_WINDOW }, ids) {
+    const keys = parsed(ids, parseIssueEventRowId)
+    if (keys.length === 0) return []
+    const asked = new Set(ids)
+    const events = await store.events.feedWindowByIds(
+      keys.map((key) => key.eventId),
+      eventWindow,
+    )
+    return events.flatMap((event) => {
+      const value = issueEventRecordOf(event)
+      return asked.has(value.id) ? [{ id: value.id, value }] : []
+    })
   },
   streamAll: (reads) => pagesOf(issueEventRecords(reads)),
 }

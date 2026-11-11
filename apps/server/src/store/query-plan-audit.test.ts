@@ -141,6 +141,7 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/messages.ts:confirmedChatTail', ['live|1', 'live|4', 'any|1', 'any|4']],
   ['apps/server/src/store/interactions.ts:openInteractionsOfIds', SIZES],
   ['apps/server/src/store/events.ts:feedEventsOfSubjects', SIZES],
+  ['apps/server/src/store/events.ts:feedEventsOfIds', SIZES],
   ['apps/server/src/store/sessions.ts:pinsOfUsers', SIZES],
   ['apps/server/src/store/sessions.ts:tabOrdersOfUsers', SIZES],
   ['apps/server/src/store/superagent.ts:threadsOfIds', SIZES],
