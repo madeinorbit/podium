@@ -108,7 +108,7 @@ and one reworded comment. No behaviour changed, so no tests were added.
 
 ## Filed, not fixed
 
-- **POD-440** — `packages/runtime` session-mint tripwire fails on main
+- **POD-440** — `packages/runtime` host-sign-in tripwire fails on main
   (`client_sessions` gained `userId` while the mint is FS-only). Aborts
   `bun run test` before later packages run.
 - **POD-442** — `bun run audit:composition` is red on main and nothing executes

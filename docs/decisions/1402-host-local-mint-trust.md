@@ -1,8 +1,10 @@
 # POD-1402 — Host-local mint trust (ACCEPT)
 
+Historical decision. The current host command obtains a shared identity code through the server’s local control socket. This record describes the former filesystem ceremony.
+
 **Status:** Decided 2026-08-02  
 **Decision:** ACCEPT under single-operator Podium  
-**Reopen:** POD-1067 (multi-user) — instrument in `HOST_LOCAL_MINT_TRUST` + tripwire tests  
+**Reopen:** POD-1067 (multi-user) — host-local trust boundary and tripwire tests\
 **ADR:** [ADR 3 D14](../adr/0003-command-security.md)
 
 **Operator amendment (2026-08-11):** Multi-user reopened this decision. The accepted interim boundary is now a fail-closed helper: `mint-session` refuses before writing whenever the instance contains more than one account. This removes the supported escalation path but does not stop a same-OS-user process from writing the database directly; full containment still requires OS/process separation. The historical tripwire is retired in favor of direct tests of this guard.
@@ -10,13 +12,13 @@
 ## Fact (executed, not inferred)
 
 From a constrained agent shell on the live instance (session with
-`PODIUM_AGENT_RELAY=http://127.0.0.1:45778/session/…`, same OS user as the
+`PODIUM_AGENT_RELAY=http://127.0.0.1:<relay-port>/session/…`, same OS user as the
 operator):
 
 | Step | Command / path | Result |
 |---|---|---|
 | Identity | `PODIUM_AGENT_RELAY`, `PODIUM_SESSION_RELAY` set; `PODIUM_SESSION_TOKEN` unset | Agent relay principal |
-| Files readable | `/home/mgw/.podium/podium.db` (rw), `auth.json` (r; keys: `passwordHash` only) | Same as operator OS user |
+| Files readable | `/home/operator/.podium/podium.db` (rw), `auth.json` (r; keys: `passwordHash` only) | Same as operator OS user |
 | Operator-only over relay | `podium issue promote POD-1113 --outside-scope` | `only an operator may promote a proposed issue` (exit 1) |
 | Operator-only over relay | `podium issue delete …` | `not allowed to 'delete' issues` |
 | Mint | `podium auth mint-session --ttl 2m --print-only` | 43-char token; stderr expiry 2m out |
@@ -52,14 +54,13 @@ arrives without rebinding mint.**
 
 | Piece | Location |
 |---|---|
-| Decision object | `HOST_LOCAL_MINT_TRUST` in `packages/runtime/src/session-token.ts` |
-| Coherence + schema tripwire | `packages/runtime/src/session-mint.test.ts` (schema read via relative path) |
+| Decision object | Historical host-local trust record |
+| Coherence + schema tripwire | Historical runtime host-sign-in test (schema read via relative path) |
 | ADR | ADR 3 D14 |
 | CLI help | `podium auth` usage (two-line trust note) |
 
-**Behaviour change:** none. `session-mint.ts` adds comments + the exported
-`HOST_LOCAL_MINT_TRUST` constant; `mintBreakGlassSession` logic is unchanged.
-`auth-cli.ts` changes `AUTH_USAGE` help text only.
+**Behaviour change at the time:** none. The runtime host-sign-in implementation
+retained its behavior; the trust record, tripwire and CLI help changed.
 
 Multi-user must, in one change: set `assumesSingleOperator: false`, set
 `mintBoundToIdentity: true`, and actually bind mint to an identity.

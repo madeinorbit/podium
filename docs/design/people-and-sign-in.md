@@ -853,7 +853,7 @@ Pairing state is the shared one-time code row, so pairing works when a hosted wo
 | `GET /v1/login-password` | Stays. True when the earliest admin's account has a password | POD-6747 |
 | `POST /v1/login-password` (`podium setup`) | Stays. `accounts.setPassword` for the earliest admin's account. This is the host command that recovers a last admin who has no email | POD-6747 |
 | `POST /v1/member-recovery` (`podium auth recovery-link <email>`) | Stays. Issues a `password-reset` code for the account with that email, created by `host`; audit `members.recoveryIssued` with `by: 'host'` | POD-6747 |
-| `podium auth mint-session` writes a `break-glass` row straight into `client_sessions` (`packages/runtime/src/session-token.ts`) | New `POST /v1/host-sign-in {ttlMs?}`: issues a `host-sign-in` code; the command redeems it at once over loopback and caches the signed token as today. Refused when the workspace has more than one membership that is not `removed`, the rule `mintBreakGlassSession` has today. The server must be running | POD-6748 |
+| `podium auth mint-session` (host command) | New `POST /v1/host-sign-in {ttlMs?}`: issues a `host-sign-in` code; the command redeems it at once over loopback and caches the signed token as today. Refused when the workspace has more than one membership that is not `removed`, the existing single-membership rule. The server must be running | POD-6748 |
 | `podium auth sessions`, `podium auth revoke-sessions [--label]` read and delete `client_sessions` directly | New `GET /v1/sign-ins` and `POST /v1/sign-ins/revoke {kind}` on the control socket; the default kind is `host` | POD-6748 |
 | `/v1/public-url`, `/v1/tunnel-health`, `/v1/connect-publish`, `/v1/diagnostics` | Not sign-in; unchanged | none |
 

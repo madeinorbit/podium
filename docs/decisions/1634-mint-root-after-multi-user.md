@@ -1,5 +1,7 @@
 # POD-1634 — The mint root after multi-user landed
 
+Historical decision. The current host command obtains a shared identity code through the server’s local control socket. This record describes the former filesystem ceremony.
+
 **Status:** Amended by operator decision 2026-08-11
 **Decision:** The Part 1 fail-closed account-count mitigation below is accepted. The deliberately red schema tripwire is retired; full host isolation remains future architecture work.
 **Supersedes nothing; completes** POD-1604 (which reached the same verdict and stopped).
@@ -11,7 +13,7 @@ Measured on `issue/1634-bind-the-mint-or-narrow-its-tripwire` at `79ac3f586`.
 
 ## The question
 
-`packages/runtime/src/session-mint.test.ts` — *"POD-1402 tripwire: host cannot
+The historical runtime host-sign-in test — *"POD-1402 tripwire: host cannot
 express a second human while mint is FS-only (ADR 3 D14)"* — is red. The brief
 offered two endings: **(a)** bind the mint and flip `mintBoundToIdentity`, or
 **(b)** narrow the tripwire's condition because the column landed for an
@@ -52,14 +54,14 @@ Not schema-only. Verified call sites:
 - `CLIENT_PRINCIPAL_GRADE` flipped `'device'` → `'user'`
   (`gateway/client-principal.ts:24`).
 
-`HOST_LOCAL_MINT_TRUST.reopenWhen` — *"a second human principal exists on one
+The historical trust record’s reopening condition — *"a second human principal exists on one
 instance"* — is **met**. Note POD-1067, the issue that was supposed to design
 this, is still `proposed`: the machinery arrived ahead of it via the POD-1439
 reconciliation, and ahead of D14's prerequisite.
 
 ## (a) is not available either — and ADR 3 D14 pre-rejected the mechanism
 
-The mint root is unchanged. `mintBreakGlassSession`
+The mint root is unchanged. the former filesystem host-sign-in helper
 (`packages/runtime/src/session-token.ts:127-152`) checks only that `podium.db`
 exists and is writable, then inserts `FIRST_ADMIN_USER_ID`. No credential is
 consulted; `MintOptions` has no principal field. **On a host that now models
@@ -105,7 +107,7 @@ symptom, not the disease.
 ## Recommended remediation, in two parts
 
 **Part 1 — cheap, honest, reverses the delta D14 actually named (recommended).**
-Make `mintBreakGlassSession` **fail closed when the instance holds more than one
+Make the former filesystem host-sign-in helper **fail closed when the instance holds more than one
 user account**. D14's argument for ACCEPT was that mint *"does not enlarge the set
 of processes that could already act as the operator"* — it only converted *"a
 multi-step attack into one documented verb."* Refusing the verb once a second

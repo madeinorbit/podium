@@ -172,7 +172,7 @@ Both drivers accept rowid ordering, `INSERT OR REPLACE`, `INSERT OR IGNORE`, `ON
 portability. What leaves the repositories is what a remote connection cannot rely on or what
 belongs to the driver and migrations: `PRAGMA` (10 runtime sites, including `table_info`
 introspection at `store.ts:585` and `store/sessions.ts:887`), `sqlite_master` reads,
-`ATTACH`. `INSERT OR REPLACE` (13 statements plus `session-mint.ts:186`) deletes and re-inserts:
+`ATTACH`. `INSERT OR REPLACE` (13 statements plus the former filesystem sign-in writer) deletes and re-inserts:
 none of its targets is a foreign-key parent, so no cascade is involved, but every column not
 named resets to its default; a conversion to an upsert must name every column. FTS5 stays behind
 the search port. The boot upgrades in `store.ts` (machine identity, repo identity, worktree

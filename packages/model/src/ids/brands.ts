@@ -333,7 +333,7 @@ export const asDeliveryReceiptId = (s: string): DeliveryReceiptId => s as Delive
 // `z.string()` and tightening one turns a payload that parses today into a parse
 // failure. That argument is about fields that ALREADY PARSE. `mem_` and `inv_`
 // fields do not exist yet — A2 adds the member column, A4 adds
-// `member_invites` — so there is no such payload, and a permissive field schema
+// Workspace invitation storage — so there is no such payload, and a permissive field schema
 // here would only be an invitation to bind the unchecked one at the very fields
 // the prefix exists to protect. `MemberIdField` is therefore the same schema as
 // `MemberId`, named so a schema author reaching for the usual spelling cannot
@@ -351,7 +351,7 @@ export const asMemberId = (s: string): MemberId => s as MemberId
 export const newMemberId = (at?: Instant): MemberId =>
   asMemberId(mintBrandedId(MEMBER_ID_PREFIX, at))
 
-/** §9.1: a workspace invite — `member_invites`, the A4 invite-and-claim row. */
+/** §9.1: a workspace invitation identifier, preserved when a link is imported. */
 export const INVITE_ID_PREFIX = ID_PREFIXES.invite
 export const InviteId = brandedIdSchema(INVITE_ID_PREFIX).brand<'InviteId'>()
 export type InviteId = z.infer<typeof InviteId>

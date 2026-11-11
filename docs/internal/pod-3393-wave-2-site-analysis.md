@@ -88,7 +88,7 @@ behaviour and this wave preserves it rather than improving it.
 
 Mapper lines that exist only because the driver returns `unknown` — the `as string` casts in
 `users.read`, `grants.toRow`, `approvals.toRow`, and the ten-field hand-typed select in
-`auth.listClientSessions` — go, provided the rows arrive with the schema's TypeScript names. That
+the historical device-sign-in listing — go, provided the rows arrive with the schema's TypeScript names. That
 proviso is the second half of the blocker in §0: a builder query issued as text through the client
 returns PHYSICAL column names, and only drizzle's own execution path maps them back (spec rule 7,
 and the spike says so at `store/spike/turso-append/sync-append.ts:57-68`).
@@ -404,7 +404,7 @@ The comparison, against `PRAGMA table_info` on the MIGRATED database rather than
 | `users.credentialFor` | `SELECT *` | 4 | 4 | exact, 4/4 |
 | `grants.listForResource` / `listForResources` / `listForKind` | `SELECT *` | 10 | 10 | exact, 10/10 |
 | `approvals.get` / `listPending` / `listExecuting` | `SELECT *` | 11 | 11 | exact, 11/11 |
-| `auth.listClientSessions` | 10 named | 10 | 10 | exact, same set |
+| the historical device-sign-in listing | 10 named | 10 | 10 | exact, same set |
 | `auth.getClientSession` | 8 named | 8 | 10 | exact, same 8 |
 | `auth.deleteOwnedMobileClientSession` | `token_hash` | 1 | 10 | exact |
 | `users.list` | `id` | 1 | 5 | exact |
@@ -502,7 +502,7 @@ auth.createClientSession
           VALUES (?, ?, ?, ?, ?,
                   ?, ?, ?,
                   ?, ?)
-auth.listClientSessions
+historical device-sign-in listing
     select "token_hash", "user_id", "created_at", "expires_at", "label", "session_id", "device_id", "device_name", "platform", "last_seen_at" from "client_sessions" order by "client_sessions"."created_at" desc
 auth.getClientSession
     select "user_id", "expires_at", "label", "session_id", "device_id", "device_name", "platform", "last_seen_at" from "client_sessions" where "client_sessions"."token_hash" = ?
@@ -656,7 +656,7 @@ Wave 2 spreads `getTableColumns` nowhere, so rule 39's literal trigger has no si
 statements in §9.2 and §9.5: **10 bare `.select()` sites** each replacing an original `SELECT *`, exact
 against `PRAGMA table_info` on the migrated database (5/5, 4/4, 10/10 ×3, 11/11 ×3, and the two
 `user_credentials` reads), and **9 explicit projections** all n/n, widest 10/10
-(`auth.listClientSessions`). No mismatch to resolve, so rule 39a's false-positive class did not arise;
+(the historical device-sign-in listing). No mismatch to resolve, so rule 39a's false-positive class did not arise;
 the counts came from printed SQL compared against the shipped table, never from pairing a projection
 with the first SELECT in its method.
 
