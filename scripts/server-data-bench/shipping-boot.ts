@@ -8,6 +8,8 @@
  * The standard h1a1/h10a1 corpus is augmented with 50/500 fully acknowledged
  * shipped orders, one successful attempt and terminal verify step each. Both
  * arms have zero active shipping work and zero outstanding recovery debt.
+ * A synthetic acknowledgement port answers immediately; the benchmark counts
+ * those calls instead of waiting for offline fixture machines' RPC deadlines.
  * Each arm warms once, then fresh copies boot in A B A B order. Listen time
  * and the first ShippingService.reconcile duration are measured separately:
  * relay starts recovery without awaiting it, so it can finish after listen.
@@ -118,6 +120,7 @@ async function serve(): Promise<void> {
     throw new Error('isolated bench state required')
   let shippingMs = Number.NaN
   let recoveryError: string | undefined
+  let acknowledgements = 0
   let listenMs = Number.NaN
   let started = false
   let recovered!: () => void
@@ -131,6 +134,30 @@ async function serve(): Promise<void> {
   ShippingService.prototype.reconcile = async function () {
     if (started) return await original.call(this)
     started = true
+    const deps = (this as unknown as { deps: ConstructorParameters<typeof Service>[0] }).deps
+    const daemon = deps.daemon
+    deps.daemon = {
+      shippingJob: async (request, machineId) => {
+        if (request.action !== 'acknowledge') throw new Error('unexpected active shipping work')
+        acknowledgements++
+        return {
+          jobId: request.jobId,
+          requestDigest: request.requestDigest,
+          orderId: request.orderId,
+          attemptId: request.attemptId,
+          machineId,
+          generation: request.generation,
+          operation: request.operation,
+          state: 'succeeded',
+          classification: 'proved',
+          summary: 'fixture acknowledgement',
+          logs: [],
+          artifactRefs: [],
+          heartbeatedAt: '2026-01-01T00:00:00Z',
+          finishedAt: '2026-01-01T00:00:00Z',
+        }
+      },
+    }
     const at = performance.now()
     try {
       await original.call(this)
@@ -138,6 +165,7 @@ async function serve(): Promise<void> {
       recoveryError = String(error)
       throw error
     } finally {
+      deps.daemon = daemon
       shippingMs = performance.now() - at
       recovered()
     }
@@ -155,7 +183,9 @@ async function serve(): Promise<void> {
   const server = await startServer({ port: 0, host: '127.0.0.1', transcriptLake: 'off' })
   if (!started) throw new Error('startup did not invoke shipping recovery')
   await recoveryDone
-  console.log(JSON.stringify({ shippingBoot: true, shippingMs, listenMs, recoveryError }))
+  console.log(
+    JSON.stringify({ shippingBoot: true, shippingMs, listenMs, acknowledgements, recoveryError }),
+  )
   const lines = createInterface({ input: process.stdin })
   for await (const line of lines) {
     if (line === 'stop') {
@@ -165,7 +195,10 @@ async function serve(): Promise<void> {
   }
 }
 
-async function boot(arm: string, root: string): Promise<{ shippingMs: number; listenMs: number }> {
+async function boot(
+  arm: string,
+  root: string,
+): Promise<{ shippingMs: number; listenMs: number; acknowledgements: number }> {
   const child = spawn(
     bun,
     ['--conditions=@podium/source', import.meta.filename, '--serve', `--checkout=${arm}`],
@@ -179,7 +212,11 @@ async function boot(arm: string, root: string): Promise<{ shippingMs: number; li
   const log: string[] = []
   const exited = new Promise<number | null>((done) => child.once('exit', done))
   try {
-    const record = await new Promise<{ shippingMs: number; listenMs: number }>((done, reject) => {
+    const record = await new Promise<{
+      shippingMs: number
+      listenMs: number
+      acknowledgements: number
+    }>((done, reject) => {
       const timer = setTimeout(() => reject(new Error('shipping boot exceeded 180s')), 180_000)
       child.once('error', reject)
       child.once('exit', (code) => {
@@ -288,6 +325,9 @@ async function main(): Promise<void> {
           const state = join(root, `${cell}-${label}-${round}`)
           cpSync(templates[label]!, state, { recursive: true })
           const record = { cell, orders, arm: label, round, ...(await boot(arms[label]!, state)) }
+          if (record.acknowledgements !== (label === 'A' ? orders : 0)) {
+            throw new Error(`unexpected acknowledgement count ${JSON.stringify(record)}`)
+          }
           results.push(record)
           console.log(JSON.stringify(record))
           writeFileSync(join(root, 'results.json'), JSON.stringify({ shas, results }, null, 2))
