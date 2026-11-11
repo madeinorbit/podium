@@ -5,12 +5,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { gunzipSync, zstdDecompressSync } from 'node:zlib'
+import { HttpBootstrapSource, HttpDeltaSource } from '@podium/client-core/sync-stream'
 import { asIssueId, asMachineId, asUserId, issueEventRowId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
+import { InMemoryReplicaStore, Replica } from '@podium/sync/replica'
 import { Hono } from 'hono'
 import WebSocket from 'ws'
-import { HttpBootstrapSource, HttpDeltaSource } from '@podium/client-core/sync-stream'
-import { InMemoryReplicaStore, Replica } from '@podium/sync/replica'
 import { EventBus } from '../modules/bus'
 import { WriteFunnel } from '../modules/funnel'
 import { SessionLifecycle } from '../modules/sessions/lifecycle'
@@ -193,8 +193,9 @@ describe('cursor expiry worker reload', () => {
         ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', message: 'cursor-too-old' })
       }
       expect(builds).not.toHaveBeenCalled()
-      expect(await SessionLifecycle.prototype.syncChangesSince.call(sessions, 2, principal))
-        .toMatchObject({ kind: 'delta', cursor: 2, changes: [] })
+      expect(
+        await SessionLifecycle.prototype.syncChangesSince.call(sessions, 2, principal),
+      ).toMatchObject({ kind: 'delta', cursor: 2, changes: [] })
       builds.mockRestore()
     } finally {
       await f.close()
@@ -220,7 +221,10 @@ describe('cursor expiry worker reload', () => {
         streamingFetch: {
           fetch: async (url: string, init: RequestInit) => {
             requests.push(new URL(url).pathname)
-            return await f.app.fetch(new Request(url, init))
+            // Hono's in-process fetch does not decompress response bodies.
+            const headers = new Headers(init.headers)
+            headers.set('accept-encoding', 'identity')
+            return await f.app.fetch(new Request(url, { ...init, headers }))
           },
         },
       }

@@ -33,6 +33,7 @@
 
 import { join } from 'node:path'
 import { type APIRequestContext, expect, type Page, test } from '@playwright/test'
+import { HttpBootstrapSource } from '@podium/client-core/sync-stream'
 import { openApp, RELAY } from './_harness'
 
 /**
@@ -448,10 +449,23 @@ test('kernel Outbox dead-letter retry, edit, and discard after a live apply refu
       .not.toBeUndefined()
     if (!sessionId) throw new Error('shared issue agent did not appear for grantee')
 
-    const memberSlice = await rpc<{
-      rows: Array<{ entity: string; entityId: string }>
-    }>(memberContext.request, 'sync.feedSlice', undefined, 'get')
-    expect(memberSlice.rows).toEqual(
+    const source = new HttpBootstrapSource({
+      origin: HTTP,
+      streamingFetch: {
+        fetch: async (url) => {
+          const response = await memberContext.request.get(url, {
+            headers: { 'accept-encoding': 'identity' },
+          })
+          return new Response(await response.body(), {
+            status: response.status(),
+            headers: response.headers(),
+          })
+        },
+      },
+    })
+    const memberSlice: Array<{ entity: string; entityId: string }> = []
+    for await (const chunk of source.bootstrap()) memberSlice.push(...chunk.changes)
+    expect(memberSlice).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ entity: 'issue', entityId: issue.id }),
         expect.objectContaining({ entity: 'session', entityId: sessionId }),

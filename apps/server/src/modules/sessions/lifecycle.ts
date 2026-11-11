@@ -9,6 +9,7 @@ import type {
   TranscriptItem,
 } from '@podium/model'
 import { type AgentKind, spawnedByParentSessionId, type UserId } from '@podium/model'
+import { TRPCError } from '@trpc/server'
 
 /**
  * WHO a session wire projection is being built for — the explicit argument
@@ -35,14 +36,13 @@ import type {
   InteractionEvent,
   LiveServerMessage,
   MachinePrincipal,
-  MetadataChange,
   PendingInteraction,
   Principal,
   SessionBindingAdoptLaunchInstruction,
   SyncChangesSinceResult,
 } from '@podium/protocol'
 import type { ControlMessage, TurnEvent, TurnReceipt } from '@podium/protocol/daemon'
-import { CHANGE_LOG_OBSERVER, type MutationLedgerPort } from '@podium/sync'
+import type { MutationLedgerPort } from '@podium/sync'
 import type { AutoContinueController } from '../../auto-continue'
 import { type CommandPrincipal, resolvePrincipalAsync } from '../../command-principal'
 import type { BrowserOpenGateway } from '../../gateway/browser-open'
@@ -1100,37 +1100,8 @@ export class SessionLifecycle {
     const changes = await this.funnel.changesSince(cursor, principal)
     if (changes) return { kind: 'delta', changes, cursor: sourceCursor, ...identity }
 
-    const snapshot = await this.funnel.snapshot(principal)
-    const values = <T>(entity: MetadataChange['entity']): T[] =>
-      snapshot
-        .filter((change) => change.entity === entity && change.op === 'upsert')
-        .map((change) => change.value as T)
-    return {
-      kind: 'snapshot',
-      sessions: values('session'),
-      sessionUserStates: values('sessionUserState'),
-      machines: values('machine'),
-      // Required empty compatibility field; supported clients read normalized kinds.
-      issues: [],
-      issueProjections: values('issueProjection'),
-      issueBodies: values('issueBodies'),
-      issuePanelTodos: values('issuePanelTodo'),
-      issuePanelArtifacts: values('issuePanelArtifact'),
-      issuePanelDeferreds: values('issuePanelDeferred'),
-      issuePanelStates: values('issuePanelState'),
-
-      issueUserStates: values('issueUserState'),
-      issueGitStates: values('issueGitState'),
-      issueDeps: values('issueDep'),
-      repos: values('repo'),
-      shipOrders: values('shipOrder'),
-      shipLanes: values('shipLane'),
-      conversations: values('conversation'),
-      automations: values('automation'),
-      automationRuns: values('automationRun'),
-      diagnostics: principal === CHANGE_LOG_OBSERVER ? await this.deps.snapshotDiagnostics() : [],
-      cursor: sourceCursor,
-      ...identity,
-    }
+    // Full reloads belong to /sync/bootstrap: the admitted worker builds and
+    // streams records there. Never run the builders on this request's thread.
+    throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'cursor-too-old' })
   }
 }

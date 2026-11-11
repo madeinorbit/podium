@@ -8633,19 +8633,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Protocol.SyncChangesSinceResult;
             meta: unknown;
         }>;
-        "feedSlice": TRPC.TRPCQueryProcedure<{
-            input: (undefined) | ({});
-            output: {
-                epoch: string;
-                feedId: string;
-                rows: {
-                    entity: string;
-                    entityId: string;
-                }[];
-                throughSeq: number;
-            };
-            meta: unknown;
-        }>;
         "submit": TRPC.TRPCMutationProcedure<{
             input: Input_sync_submit;
             output: Protocol.SyncSubmitReply;

@@ -122,10 +122,6 @@ export class WriteFunnel {
     return delivery.changes.flatMap(toBusChange)
   }
 
-  async snapshot(principal: Principal): Promise<MetadataChange[]> {
-    return (await this.deps.authority.bootstrap(principal)).changes.flatMap(toBusChange)
-  }
-
   async cursor(): Promise<number> {
     return await this.deps.authority.cursor()
   }
@@ -147,44 +143,6 @@ export class WriteFunnel {
   /** The published retention horizon (ADR 2 D5), from that same source. */
   async minAvailableSeq(): Promise<number> {
     return await this.deps.serving.retentionFloor()
-  }
-
-  /**
-   * THE AUTHORITY'S OWN VIEW OF THIS PRINCIPAL'S SLICE (POD-376).
-   *
-   * The third snapshot of the shadow comparison — see
-   * `docs/agents/pod-376-shadow-comparison-basis.md` §2.1. It is NOT a fourth
-   * opinion about visibility: `AuthorityPort.bootstrap` applies the authority
-   * visibility policy. The HTTP equivalent is `sync-worker/producer.ts`, whose
-   * `bootstrapVisibility` composition in `sync-worker/visibility.ts` constructs
-   * that same GrantEdgeVisibilityPolicy over the worker snapshot. Both call
-   * `forBootstrap` and `decide` for the authenticated principal; they do not
-   * maintain separate visibility rules. That shared policy is the reason the comparison can classify an absence rather than
-   * suppress it — a harness that computed its own expectation of the slice would
-   * be grading the cutover against a second implementation of the thing under
-   * test.
-   *
-   * Keys and revisions only, never payloads: the classification needs identity
-   * and a version, and shipping every row's value to a diagnostic read would make
-   * a debugging aid the largest response on the wire.
-   */
-  async feedSlice(principal: import('@podium/protocol').Principal): Promise<{
-    feedId: string
-    epoch: string
-    throughSeq: number
-    rows: { entity: string; entityId: string }[]
-  }> {
-    const identity = await this.deps.serving.identity()
-    const world = await this.deps.authority.bootstrap(principal)
-    return {
-      feedId: identity.feedId,
-      epoch: identity.epoch,
-      throughSeq: world.throughSeq,
-      rows: world.changes.map((change) => ({
-        entity: change.entity,
-        entityId: change.entityId,
-      })),
-    }
   }
 
   // ---- THE ordered, coalesced delivery pipe (#256) ----

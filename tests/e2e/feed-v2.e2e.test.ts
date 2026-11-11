@@ -29,7 +29,7 @@
  * The brief's standing check, run at this seam: a client goes offline, the world
  * moves without it, it reconnects, and a SECOND client of the same principal ends
  * up holding the same slice. The convergence assertion compares the two clients'
- * stores to each other AND to the authority's own slice (`sync.feedSlice`), which
+ * stores to each other AND to the worker's HTTP bootstrap slice, which
  * is the comparison basis rather than a two-way diff — two clients agreeing on the
  * wrong answer is not convergence.
  */
@@ -42,6 +42,7 @@ import {
   FeedSink,
   PushedBootstrapSource,
 } from '@podium/client-core/replica/feed'
+import { HttpBootstrapSource } from '@podium/client-core/sync-stream'
 import { type ServerMessage, CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { IndexedDbSyncStore, type IdbFactoryLike } from '@podium/sync/adapters/indexeddb'
 import { Replica } from '@podium/sync/replica'
@@ -188,8 +189,15 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
 
   /** `(entity, entityId)` keys the AUTHORITY says this principal's slice holds. */
   async function authoritySlice(): Promise<string[]> {
-    const slice = await trpc.sync.feedSlice.query({})
-    return slice.rows.map((r) => `${r.entity}:${r.entityId}`).sort()
+    const source = new HttpBootstrapSource({
+      origin: baseUrl,
+      streamingFetch: { fetch: (url, init) => fetch(url, init) },
+    })
+    const keys: string[] = []
+    for await (const chunk of source.bootstrap()) {
+      for (const row of chunk.changes) keys.push(`${row.entity}:${row.entityId}`)
+    }
+    return keys.sort()
   }
 
   it('a v2 peer is served feed frames, and the kernel replica installs the authority slice', async () => {

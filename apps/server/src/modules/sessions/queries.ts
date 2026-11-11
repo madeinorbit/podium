@@ -170,39 +170,13 @@ export const SESSION_QUERIES = {
 } as const
 
 export const SYNC_QUERIES = {
-  /** Metadata-oplog catch-up (docs/spec/oplog-read-path.md): null cursor =
-   *  bootstrap snapshot; a valid cursor = the changes after it; a
-   *  compacted/future cursor falls back to snapshot. The client heals every WS
-   *  (re)connect through this. */
+  /** Delta-only catch-up. An unservable cursor is refused with cursor-too-old;
+   *  clients reload through the admitted /sync/bootstrap worker. */
   changesSince: q(
     z.object({ cursor: z.number().int().nonnegative().nullable() }),
     async (s, input) =>
       await s.modules.sessions.syncChangesSince(
         input.cursor,
-        s.feedPrincipal ??
-          (() => {
-            throw new Error('authenticated feed principal required')
-          })(),
-      ),
-  ),
-  /**
-   * THE AUTHORITY'S OWN VIEW OF THIS PRINCIPAL'S SLICE (POD-376).
-   *
-   * A DIAGNOSTIC READ, and the third snapshot of the shadow comparison. It exists
-   * so the comparison can classify an absence against what the Authority says
-   * rather than suppress it — see
-   * `docs/agents/pod-376-shadow-comparison-basis.md` §2.2.
-   *
-   * It leaks nothing the feed does not already deliver: it is
-   * `AuthorityPort.bootstrap` for the SAME principal, evaluated through the SAME
-   * policy object, reduced to keys. A principal that may not see a row does not
-   * receive its key here either — which is exactly the property that makes it
-   * usable as the comparison's basis.
-   */
-  feedSlice: q(
-    z.object({}).optional(),
-    async (s) =>
-      await s.modules.funnel.feedSlice(
         s.feedPrincipal ??
           (() => {
             throw new Error('authenticated feed principal required')
