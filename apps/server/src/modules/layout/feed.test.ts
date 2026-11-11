@@ -82,6 +82,11 @@ function memoryStore(): AuthorityStore {
 function memoryLayoutRepo() {
   const byUser = new Map<string, Map<string, unknown>>()
   return {
+    async allForBootReconcile() {
+      return [...byUser].flatMap(([user, values]) =>
+        [...values].map(([key, value]) => ({ userId: asUserId(user), key, value })),
+      )
+    },
     getSnapshot(userId: UserId): LayoutSnapshot {
       const m = byUser.get(userId)
       return m ? Object.fromEntries(m) : {}

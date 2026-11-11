@@ -91,6 +91,13 @@ function memoryStore(): AuthorityStore {
 function memoryCursorRepo() {
   const byUser = new Map<string, Map<string, StoredReadPosition>>()
   return {
+    async *allPositionPages(pageSize: number) {
+      const rows = [...byUser].flatMap(([user, positions]) =>
+        [...positions].map(([streamId, value]) => ({ userId: asUserId(user), streamId, ...value })),
+      )
+      for (let offset = 0; offset < rows.length; offset += pageSize)
+        yield rows.slice(offset, offset + pageSize)
+    },
     getSnapshot(userId: UserId): ReadPositionSnapshot {
       const m = byUser.get(userId)
       return m ? (Object.fromEntries(m) as ReadPositionSnapshot) : {}
