@@ -75,16 +75,26 @@ async function signIn(
   inst: TwoMemberInstance,
   email: string,
   password: string,
-): Promise<{ status: number; cookie?: string; retryAfterSeconds?: number }> {
-  const response = await fetch(new URL('/auth/login', inst.origin), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-  })
+): Promise<{ status: number; cookie?: string }> {
+  const request = () =>
+    fetch(new URL('/auth/login', inst.origin), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    })
+  let response = await request()
+  // These instances share the loopback address budget. Observe Retry-After
+  // before checking membership behavior, without changing the production limit.
+  if (response.status === 429) {
+    const retryAfterSeconds = Number(response.headers.get('retry-after'))
+    expect(retryAfterSeconds).toBeGreaterThan(0)
+    await response.body?.cancel()
+    await new Promise((resolve) => setTimeout(resolve, (retryAfterSeconds + 0.1) * 1000))
+    response = await request()
+  }
   const cookie = response.headers.get('set-cookie')?.split(';', 1)[0]
   return {
     status: response.status,
-    retryAfterSeconds: Number(response.headers.get('retry-after')),
     ...(response.ok && cookie ? { cookie } : {}),
   }
 }
@@ -120,15 +130,7 @@ async function join(
     displayName: name,
   })
   expect(completed.status, JSON.stringify(completed.body)).toBe(200)
-  let signedIn = await signIn(inst, email, password)
-  // Concurrent-admission tests boot several instances in one process. The
-  // library correctly shares the loopback address budget: a real client waits
-  // for Retry-After, without resetting or changing that production limit.
-  if (signedIn.status === 429) {
-    expect(signedIn.retryAfterSeconds).toBeGreaterThan(0)
-    await new Promise((resolve) => setTimeout(resolve, (signedIn.retryAfterSeconds! + 0.1) * 1000))
-    signedIn = await signIn(inst, email, password)
-  }
+  const signedIn = await signIn(inst, email, password)
   expect(signedIn.status).toBe(200)
   return {
     id: asUserId(completed.body.userId as string),
