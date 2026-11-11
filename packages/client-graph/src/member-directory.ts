@@ -1,3 +1,4 @@
+import type { AuthCapabilities } from '@podium/client-core/accounts'
 import { lazy } from '@podium/mobx-helpers'
 import type { MemberView } from '@podium/model'
 import { action, compareShallow } from 'mobx'
@@ -17,7 +18,7 @@ export interface MemberDirectoryAnswer {
     role: string
     expiresAt: string
   }[]
-  mailAvailable: boolean
+  capabilities?: AuthCapabilities
   currentMemberId: string
   /** Absent on older servers, where the UI still asks for confirmation. */
   hasOwnCredential?: boolean
@@ -62,7 +63,8 @@ export class MemberDirectory extends RequestAnswer<Directory> {
         memberIds,
         currentMemberId: answer.currentMemberId,
         invites: 'invites' in answer ? answer.invites : [],
-        mailAvailable: 'mailAvailable' in answer && answer.mailAvailable,
+        // What the server's sign-in edition offers; the admin list carries it.
+        capabilities: 'capabilities' in answer ? answer.capabilities : undefined,
         hasOwnCredential: 'hasOwnCredential' in answer ? answer.hasOwnCredential : false,
         actions: 'actions' in answer ? answer.actions : undefined,
       }
@@ -75,8 +77,14 @@ export class MemberDirectory extends RequestAnswer<Directory> {
   @lazy get invites() {
     return this.answer?.invites ?? []
   }
-  @lazy get mailAvailable() {
-    return this.answer?.mailAvailable ?? false
+  @lazy get capabilities() {
+    return this.answer?.capabilities
+  }
+  @lazy get needsEmailBeforeInvite() {
+    return (
+      this.capabilities?.sameMachineSignIn === true &&
+      !this.members.find((member) => member.id === this.currentMemberId)?.email
+    )
   }
   @lazy get currentMemberId() {
     return this.answer?.currentMemberId
@@ -86,7 +94,13 @@ export class MemberDirectory extends RequestAnswer<Directory> {
   }
   /** The server's allowed actions for one member; none until it says so. */
   actionsFor(memberId: string): readonly string[] {
-    return this.answer?.actions?.[memberId] ?? []
+    return (this.answer?.actions?.[memberId] ?? []).filter((action) =>
+      action === 'recovery'
+        ? this.capabilities?.passwordReset === 'admin-link'
+        : action === 'signOutEverywhere'
+          ? memberId === this.currentMemberId || this.capabilities?.adminSignOutEverywhere === true
+          : true,
+    )
   }
   dispose() {
     this.close()

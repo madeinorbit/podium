@@ -1,11 +1,22 @@
+import { accountPageUrl } from '@podium/client-core/accounts'
 import { relativeTime } from '@podium/client-core/focus'
 import { devicePlatformLabel, visibleFleetOperations } from '@podium/client-core/values'
 import type { DeviceSignInView } from '@podium/protocol'
 import { useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { useMemo, useState } from 'react'
-import { Alert, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import {
+  Alert,
+  Linking,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native'
 import { logout } from '../client/auth'
+import { useAuthStatus } from '../client/auth-context'
 import { useConnectedDevices } from '../client/connected-devices'
 import { DEMO_HOST_METRICS, DEMO_MACHINES, demoEnabled } from '../client/demoData'
 import { useConnected, useHttpOrigin } from '../client/hooks'
@@ -47,6 +58,7 @@ export function SettingsScreen() {
 
 const SettingsScreenBody = observer(function SettingsScreenBody() {
   const router = useRouter()
+  const capabilities = useAuthStatus()?.capabilities
   // The modal sheet reaches the physical bottom edge, so the last row still has
   // to clear the home indicator (the hook is the plain safe-area inset here).
   const bottomInset = useContentBottomInset()
@@ -272,6 +284,18 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
         </Text>
 
         <SectionHeader label="Where you’re signed in" />
+        {capabilities?.accountUrl && (
+          <Text
+            accessibilityRole="link"
+            style={styles.hintCompact}
+            onPress={() => {
+              const url = accountPageUrl(capabilities, 'devices')
+              if (url) void Linking.openURL(url)
+            }}
+          >
+            Manage all account devices
+          </Text>
+        )}
         <View style={styles.panel}>
           {deviceFeed.loading && devices.length === 0 ? (
             <Row label="Devices" value="loading…" />

@@ -1,3 +1,4 @@
+import type { AuthCapabilities } from '@podium/client-core/accounts'
 import {
   activateServerProfile,
   adoptServerProfileMove,
@@ -65,7 +66,6 @@ import {
 } from './hosted-sign-in'
 import { hostedSignIn } from './hosted-sign-in-runtime'
 import { LaunchReadyView } from './launch-ready'
-import { PairingWelcome } from './pairing-welcome'
 import {
   captureMobileHandoffUrl,
   consumePendingMobileHandoff,
@@ -92,6 +92,7 @@ import {
   preflightServer,
   type ServerPreflight,
 } from './pairing'
+import { PairingWelcome } from './pairing-welcome'
 import {
   deleteProfileCredential,
   getProfileCredential,
@@ -302,7 +303,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
     reason: string
     server: string
     workspaceId?: string
-    signInUrl?: string
+    capabilities?: AuthCapabilities
   } | null>(null)
   const [handoffStatus, setHandoffStatus] = useState('')
   const [hostedReturn, setHostedReturn] = useState<{
@@ -940,15 +941,15 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         const status = await fetchAuthStatus(result.server, result.token, result.workspaceId)
         if (!current()) return
         if (!status.authed || !status.userId) {
-          if (status.providerSignedIn === true && status.deniedReason) {
+          if (status.denied === 'not_workspace_member') {
             await revokePhoneSession(result)
             session = null
             if (!current()) return
             setMembershipRefusal({
-              reason: status.deniedReason,
+              reason: 'This account is not a member of this workspace.',
               server: result.server,
               workspaceId: result.workspaceId,
-              signInUrl: status.signInUrl,
+              capabilities: status.capabilities,
             })
             setHostedReturn(null)
             setHandoffStatus('')
@@ -1478,7 +1479,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           reason={membershipRefusal.reason}
           workspaceId={membershipRefusal.workspaceId}
           server={membershipRefusal.server}
-          signInUrl={membershipRefusal.signInUrl}
+          capabilities={membershipRefusal.capabilities}
         />
       </LaunchReadyView>
     )

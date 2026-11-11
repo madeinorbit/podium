@@ -5,8 +5,12 @@ import { createKernelReplica, createSideCache, memoryStorage } from '@podium/cli
 import { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { MobxPool } from '@podium/client-graph'
 import { screenOptions } from '@podium/client-graph/host'
+import { here } from '@podium/client-graph/lookup'
+import { MemberDirectory } from '@podium/client-graph/member-directory'
+import { MemberRoster } from '@podium/client-graph/member-roster'
 import * as runtimePool from '@podium/client-graph/runtime-pool'
 import { asUserId } from '@podium/model'
+import { observer } from 'mobx-react-lite'
 import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -39,6 +43,12 @@ function Probe(): null {
   return null
 }
 
+const PrivacyEmailProbe = observer(function PrivacyEmailProbe() {
+  const pool = useWorklistPool()
+  const member = pool ? here(pool.model('member', 'pool-alice')) : undefined
+  return <p>{member?.email ?? 'No member email'}</p>
+})
+
 const replicaFactory = vi.fn(() => {
   const cache = new ScenarioCache()
   cache.put('issueProjection', id, corpus.issueProjections.find((row) => row.id === id)!)
@@ -55,7 +65,7 @@ function binding(next: ClientRuntime): () => void {
 
 function render(
   who: ClientPrincipal | null = alice,
-  options: { config?: typeof config; strict?: boolean } = {},
+  options: { config?: typeof config; strict?: boolean; privacy?: boolean } = {},
 ): void {
   const provider = (
     <StoreProvider
@@ -68,6 +78,7 @@ function render(
       attachRuntime={binding}
     >
       <Probe />
+      {options.privacy && <PrivacyEmailProbe />}
     </StoreProvider>
   )
   act(() => root.render(options.strict ? <StrictMode>{provider}</StrictMode> : provider))
@@ -207,3 +218,46 @@ describe('StoreProvider owns the sidebar pool', () => {
 
 const originalDestroy = ClientRuntime.prototype.dispose
 const originalDispose = ClientRuntime.prototype.dispose
+
+it('keeps admin People email after refresh and erases it from models and screen on account switch', async () => {
+  render(alice)
+  const adminPool = await ready()
+  const directory = new MemberDirectory(adminPool),
+    roster = new MemberRoster(adminPool)
+  await act(async () => {
+    await directory.read(async () => ({
+      members: [
+        { id: 'pool-alice', displayName: 'Alice', role: 'admin', email: 'alice@example.com' },
+      ],
+      invites: [],
+      currentMemberId: 'pool-alice',
+    }))
+    await roster.read(async () => ({
+      members: [{ id: 'pool-alice', displayName: 'Alice', role: 'admin' }],
+      currentMemberId: 'pool-alice',
+    }))
+  })
+  expect(directory.members[0]?.email).toBe('alice@example.com')
+  render(alice, { privacy: true })
+  expect(container.textContent).toContain('alice@example.com')
+  render(bob, { privacy: true })
+  expect(container.textContent).not.toContain('alice@example.com')
+  const memberPool = await ready()
+  expect(memberPool).not.toBe(adminPool)
+  const publicRoster = new MemberRoster(memberPool)
+  await act(async () => {
+    await publicRoster.read(async () => ({
+      currentMemberId: 'pool-bob',
+      members: [
+        { id: 'pool-alice', displayName: 'Alice', role: 'admin' },
+        { id: 'pool-bob', displayName: 'Bob', role: 'member' },
+      ],
+    }))
+  })
+  expect(here(memberPool.model('member', 'pool-alice'))?.email).toBeUndefined()
+  expect(container.textContent).not.toContain('alice@example.com')
+  expect(container.textContent).toContain('No member email')
+  publicRoster.dispose()
+  directory.dispose()
+  roster.dispose()
+})

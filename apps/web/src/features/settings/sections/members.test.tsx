@@ -2,6 +2,7 @@ import '@/test-support/mock-request-pool.test.fixture'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { passwordCapabilities } from '@/test-support/auth-capabilities'
 import { MembersSection } from './members'
 
 const frame = vi.hoisted(() => ({ openTakeover: vi.fn(), closeTakeover: vi.fn() }))
@@ -18,15 +19,21 @@ vi.mock('../settings-frame', () => ({
 vi.mock('../admin-viewer', () => ({ useAdminSections: () => viewer }))
 vi.mock('../stable-access', () => {
   const trpc = { accounts: { keys: { query: keys.query }, share: { mutate: keys.share } } }
-  return { useSettingsTrpc: () => trpc }
+  return { useSettingsTrpc: () => trpc, useSettingsClient: () => ({ setSettingsTab: vi.fn() }) }
 })
 
 const base = {
   currentMemberId: 'admin',
   hasOwnCredential: true,
-  mailAvailable: false,
   members: [
-    { id: 'admin', displayName: 'Owner', email: null, role: 'admin', disabledAt: null },
+    // The inviting admin has an address: a password server asks for one before an invite.
+    {
+      id: 'admin',
+      displayName: 'Owner',
+      email: 'owner@example.com',
+      role: 'admin',
+      disabledAt: null,
+    },
     {
       id: 'anna',
       displayName: 'Anna',
@@ -54,7 +61,9 @@ function mockApi(
   options: { mail?: boolean; password?: boolean; refusal?: { path: string; error: string } } = {},
 ) {
   const data = structuredClone(base)
-  data.mailAvailable = options.mail ?? false
+  const capabilities = options.mail
+    ? { ...passwordCapabilities, invitationDelivery: 'mail' as const }
+    : passwordCapabilities
   data.hasOwnCredential = options.password ?? true
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const refusal = options.refusal && url.endsWith(options.refusal.path)
@@ -71,6 +80,16 @@ function mockApi(
       json: async () =>
         refusal
           ? { error: options.refusal?.error }
+          : url.endsWith('/status')
+            ? {
+                needsAuth: true,
+                authed: true,
+                userId: data.currentMemberId,
+                memberId: data.currentMemberId,
+                syncBoundaryId: 'fixture',
+                capabilities,
+                prompt: 'email-password',
+              }
           : url.endsWith('/list')
             ? data
             : url.endsWith('/directory')
@@ -80,16 +99,17 @@ function mockApi(
                     .filter((member) => !member.disabledAt)
                     .map(({ id, displayName, role }) => ({ id, displayName, role })),
                 }
-              : url.endsWith('/admin/access')
+              : url.endsWith('/admin/sign-ins')
                 ? {
                     signInsTotal: 1,
                     signIns: [
                       {
                         id: 'device-anna',
+                        current: false,
                         memberId: 'anna',
                         deviceName: 'Anna’s phone',
                         platform: 'iOS',
-                        kind: 'mobile',
+                        kind: 'phone',
                         createdAt: '2026-01-01',
                         lastSeenAt: '2026-01-02',
                         expiresAt: '2099-01-01',
@@ -147,7 +167,10 @@ test('members read names and roles without requesting admin lists or revealing e
   expect(screen.queryByText('Pending invites')).toBeNull()
   expect(request.mock.calls.some(([url]) => url.endsWith('/directory'))).toBe(true)
   expect(
-    request.mock.calls.some(([url]) => url.endsWith('/list') || url.endsWith('/admin/access')),
+    request.mock.calls.some(
+      ([url]) =>
+        url.endsWith('/list') || url.endsWith('/admin/sign-ins') || url.endsWith('/status'),
+    ),
   ).toBe(false)
 })
 
@@ -322,7 +345,7 @@ test('invite flow removes the member picker, creates a link and preserves copy f
   expect(request).toHaveBeenCalledWith(
     expect.stringMatching(/\/invite$/),
     expect.objectContaining({
-      body: JSON.stringify({ email: 'new@example.com', role: 'member', sendEmail: false }),
+      body: JSON.stringify({ email: 'new@example.com', role: 'member' }),
     }),
   )
   vi.stubGlobal('navigator', { clipboard: undefined })
@@ -330,20 +353,22 @@ test('invite flow removes the member picker, creates a link and preserves copy f
   await ui.findByText('Select the link above and copy it.')
 })
 
-test('mail controls are available only when configured and require an address', async () => {
+test('a mail edition always emails the invitation and requires an address', async () => {
   const request = mockApi({ mail: true })
   const { ui } = await openInvite()
-  fireEvent.click(ui.getByRole('switch', { name: 'Email the link' }))
-  expect(ui.getByRole('button', { name: 'Create invite link' })).toHaveProperty('disabled', true)
+  expect(ui.queryByRole('switch', { name: 'Email the link' })).toBeNull()
+  await waitFor(() =>
+    expect(ui.getByRole('button', { name: 'Send invitation' })).toHaveProperty('disabled', true),
+  )
   fireEvent.change(ui.getByRole('textbox', { name: 'Email' }), {
     target: { value: 'new@example.com' },
   })
-  fireEvent.click(ui.getByRole('button', { name: 'Create invite link' }))
+  fireEvent.click(ui.getByRole('button', { name: 'Send invitation' }))
   await ui.findByText('Invitation emailed.')
   expect(request).toHaveBeenCalledWith(
     expect.stringMatching(/\/invite$/),
     expect.objectContaining({
-      body: JSON.stringify({ email: 'new@example.com', role: 'member', sendEmail: true }),
+      body: JSON.stringify({ email: 'new@example.com', role: 'member' }),
     }),
   )
 })
@@ -368,7 +393,6 @@ test.each([
     expect.objectContaining({
       body: JSON.stringify({
         role: 'admin',
-        sendEmail: false,
         current: hasPassword ? 'invite-password' : '',
       }),
     }),

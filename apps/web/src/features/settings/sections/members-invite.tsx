@@ -2,9 +2,9 @@ import { observer } from 'mobx-react-lite'
 import { useId, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Switch } from '@/components/ui/switch'
 import { memberRequest } from '@/features/setup/member-api'
 import { useSettingsFrame } from '../settings-frame'
+import { useSettingsClient } from '../stable-access'
 import type { MembersPage } from './members-data'
 import { MemberLinkResult } from './members-link-result'
 import { MemberRoleControl } from './members-role'
@@ -26,34 +26,33 @@ export const InviteMember = observer(function InviteMember({
 }) {
   const id = useId()
   const { closeTakeover } = useSettingsFrame()
+  const { setSettingsTab } = useSettingsClient()
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<'member' | 'admin'>('member')
-  const [sendEmail, setSendEmail] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [receipt, setReceipt] = useState<MemberLinkReceipt>()
-  const mail = data.mailAvailable && sendEmail
+  const [emailed, setEmailed] = useState(false)
+  // The server's sign-in edition decides delivery: a mail edition always emails the invitation.
+  const mail = data.capabilities?.invitationDelivery === 'mail'
+  const blocked = data.needsEmailBeforeInvite || (mail && !email.trim())
   const needsPassword = role === 'admin' && data.hasOwnCredential
 
   const invite = async (current = '') => {
-    if (busy || (mail && !email.trim())) return
+    if (busy || blocked) return
     setBusy(true)
     setError(null)
     try {
       const answer = await memberRequest<{ url: string; mailSent?: boolean }>(origin, 'invite', {
         ...(email.trim() ? { email: email.trim() } : {}),
         role,
-        sendEmail: mail,
         ...(role === 'admin' ? { current } : {}),
       })
-      setReceipt({
-        url: answer.url,
-        notice: mail
-          ? answer.mailSent
-            ? 'Invitation emailed.'
-            : 'Email wasn’t sent. Copy the link below.'
-          : 'Invitation ready to share.',
-      })
+      if (mail) {
+        if (!answer.mailSent)
+          throw new Error('The invitation was not emailed. Try again or contact an admin.')
+        setEmailed(true)
+      } else setReceipt({ url: answer.url, notice: 'Invitation ready to share.' })
       await reload()
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause)
@@ -63,6 +62,18 @@ export const InviteMember = observer(function InviteMember({
       setBusy(false)
     }
   }
+
+  if (emailed)
+    return (
+      <Section title="Invitation sent">
+        <p className="settings-prose" role="status">
+          Invitation emailed.
+        </p>
+        <div className="mt-4 flex justify-end">
+          <Button onClick={closeTakeover}>Done</Button>
+        </div>
+      </Section>
+    )
 
   if (receipt)
     return (
@@ -77,8 +88,31 @@ export const InviteMember = observer(function InviteMember({
 
   return (
     <>
+      {data.needsEmailBeforeInvite && (
+        <p className="settings-prose mb-4">
+          Add your email address before inviting another person.{' '}
+          <Button
+            variant="link"
+            className="h-auto p-0"
+            onClick={() => {
+              closeTakeover()
+              setSettingsTab('account')
+            }}
+          >
+            Add your email in Account
+          </Button>
+          .
+        </p>
+      )}
       <Section>
-        <Row label="Email" description="Optional. Without it you get a link to share yourself.">
+        <Row
+          label="Email"
+          description={
+            mail
+              ? 'Required. The invitation is emailed to this address.'
+              : 'Optional. Without it you get a link to share yourself.'
+          }
+        >
           <label className="sr-only" htmlFor={`${id}-email`}>
             Email
           </label>
@@ -87,6 +121,7 @@ export const InviteMember = observer(function InviteMember({
             type="email"
             placeholder="name@example.com"
             maxLength={254}
+            required={mail}
             value={email}
             disabled={busy}
             onChange={(event) => setEmail(event.target.value)}
@@ -95,18 +130,10 @@ export const InviteMember = observer(function InviteMember({
         <Row label="Role" description="Admins manage members, machines and workspace settings.">
           <MemberRoleControl value={role} onChange={setRole} disabled={busy} />
         </Row>
-        {data.mailAvailable && (
-          <Row label="Email the link" description="Sent from this workspace’s mail server.">
-            <Switch
-              aria-label="Email the link"
-              checked={sendEmail}
-              disabled={busy}
-              onCheckedChange={setSendEmail}
-            />
-          </Row>
-        )}
       </Section>
-      <p className="settings-prose mt-4">The link works once and expires in 7 days.</p>
+      <p className="settings-prose mt-4">
+        {mail ? 'The invitation' : 'The link'} works once and expires in 7 days.
+      </p>
       {error && (
         <p className="settings-prose mt-2 text-destructive" role="alert">
           {error}
@@ -115,11 +142,13 @@ export const InviteMember = observer(function InviteMember({
       {needsPassword ? (
         <ConfirmInline
           sentence="Inviting an admin needs your password."
-          actionLabel="Create invite link"
+          actionLabel={mail ? 'Send invitation' : 'Create invite link'}
           hasPassword
           pending={busy}
           onConfirm={async (password) => {
-            if (mail && !email.trim()) throw new Error('Enter an email address to email the link.')
+            if (data.needsEmailBeforeInvite)
+              throw new Error('Add your email address before inviting another person.')
+            if (mail && !email.trim()) throw new Error('Enter an email address to send the invitation.')
             await invite(password)
           }}
           onCancel={closeTakeover}
@@ -130,12 +159,12 @@ export const InviteMember = observer(function InviteMember({
             Cancel
           </Button>
           <Button
-            disabled={busy || (mail && !email.trim())}
+            disabled={busy || blocked}
             pending={busy}
-            pendingLabel="Creating…"
+            pendingLabel={mail ? 'Sending…' : 'Creating…'}
             onClick={() => void invite()}
           >
-            Create invite link
+            {mail ? 'Send invitation' : 'Create invite link'}
           </Button>
         </div>
       )}

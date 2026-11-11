@@ -1,5 +1,7 @@
+import type { Capabilities } from '@podium/identity'
 import { UserId } from '@podium/model'
 import { NativeClientLoginResponse } from '@podium/protocol'
+import { z } from 'zod'
 import { parseReplicaNamespaceKey } from '../replica/principal-storage'
 import {
   classifyAuthStatus,
@@ -16,10 +18,44 @@ export interface AuthStatus {
   userId: UserId | null
   syncBoundaryId?: string
   memberId?: string
-  mode?: 'local' | 'cloud'
-  signInUrl?: string
-  providerSignedIn?: boolean
-  deniedReason?: string
+  capabilities?: AuthCapabilities
+  prompt?: SignInPrompt
+  denied?: 'not_workspace_member'
+}
+
+export type AuthCapabilities = Capabilities
+export type SignInPrompt = 'password' | 'email-password'
+
+const capabilitiesSchema: z.ZodType<AuthCapabilities> = z.object({
+  version: z.literal(1),
+  passwordSignIn: z.boolean(),
+  providers: z.array(z.enum(['google', 'github'])),
+  selfSignUp: z.boolean(),
+  invitationDelivery: z.enum(['link', 'mail']),
+  passwordReset: z.enum(['admin-link', 'mail']),
+  emailVerification: z.boolean(),
+  organisations: z.boolean(),
+  sameMachineSignIn: z.boolean(),
+  adminSignOutEverywhere: z.boolean(),
+  adminEndDeviceSignIn: z.boolean(),
+  accountUrl: z
+    .string()
+    .url()
+    .refine((url) => new URL(url).protocol === 'https:')
+    .nullable(),
+})
+
+/** Account pages are rooted at the server-reported URL, including its path. */
+export function accountPageUrl(
+  capabilities: AuthCapabilities,
+  page: 'sign-in' | 'sign-up' | 'forgot-password' | 'workspaces' | 'devices' | '',
+  returnTo?: string,
+): string | undefined {
+  if (!capabilities.accountUrl) return undefined
+  const base = capabilities.accountUrl.replace(/\/$/, '')
+  const url = new URL(page ? `${base}/${page}` : base)
+  if (returnTo) url.searchParams.set('returnTo', returnTo)
+  return url.href
 }
 
 export type AuthBootstrap =
@@ -43,7 +79,7 @@ export type LoginResult =
 
 export const MEMBERSHIP_DENIED_COPY = {
   title: 'Workspace access is missing',
-  body: 'Use another Podium Cloud account, or accept an invitation to this workspace in your browser.',
+  body: 'Use another account, or accept an invitation to this workspace in your browser.',
   action: 'Use another account',
 } as const
 
@@ -89,27 +125,37 @@ export function parseAuthStatus(body: unknown): AuthStatus {
   return projectAuthStatus(row)
 }
 
+function readCapabilities(value: unknown): AuthCapabilities {
+  const parsed = capabilitiesSchema.safeParse(value)
+  if (!parsed.success)
+    throw new ReplicaGateError('auth capabilities response was invalid', {
+      kind: 'auth-intercepted',
+    })
+  return parsed.data
+}
+
 function projectAuthStatus(row: Record<string, unknown>): AuthStatus {
   return {
     needsAuth: row.needsAuth === true,
     authed: row.authed === true,
     userId: typeof row.userId === 'string' ? UserId.parse(row.userId) : null,
-    ...(row.mode === 'cloud' || row.mode === 'local' ? { mode: row.mode } : {}),
+    ...(row.capabilities === undefined ? {} : { capabilities: readCapabilities(row.capabilities) }),
+    ...(row.prompt === 'password' || row.prompt === 'email-password' ? { prompt: row.prompt } : {}),
     ...(typeof row.syncBoundaryId === 'string' && row.syncBoundaryId
       ? { syncBoundaryId: row.syncBoundaryId }
       : {}),
     ...(typeof row.memberId === 'string' && row.memberId ? { memberId: row.memberId } : {}),
-    ...(typeof row.signInUrl === 'string' ? { signInUrl: row.signInUrl } : {}),
-    ...(row.providerSignedIn === true ? { providerSignedIn: true } : {}),
-    ...(typeof row.deniedReason === 'string' && row.deniedReason
-      ? { deniedReason: row.deniedReason }
-      : {}),
+    ...(row.denied === 'not_workspace_member' ? { denied: row.denied } : {}),
   }
 }
 
 export function decideAccount(status: AuthStatus): AccountDecision {
-  if (!status.authed && status.providerSignedIn === true && status.deniedReason)
-    return { kind: 'membership-denied', reason: status.deniedReason, status }
+  if (!status.authed && status.denied === 'not_workspace_member')
+    return {
+      kind: 'membership-denied',
+      reason: 'This account is not a member of this workspace.',
+      status,
+    }
   if (status.needsAuth && !status.authed) return { kind: 'login', status }
   const outcome = classifyAuthStatus(status)
   return 'principal' in outcome
@@ -122,9 +168,7 @@ function browserProbeDecision(body: unknown): AccountDecision {
   const row = body !== null && typeof body === 'object' ? (body as Record<string, unknown>) : {}
   const status = projectAuthStatus(row)
   if (status.needsAuth && !status.authed) {
-    if (status.mode === 'cloud' && status.providerSignedIn === true && status.deniedReason)
-      return { kind: 'membership-denied', reason: status.deniedReason, status }
-    return { kind: 'login', status }
+    return decideAccount(status)
   }
   const outcome = classifyAuthStatus(body as Parameters<typeof classifyAuthStatus>[0])
   return 'principal' in outcome
@@ -361,22 +405,7 @@ export function createAuthClient(options: {
     origin: string,
     bearer: string | null = null,
     workspaceId?: string,
-    knownMode?: 'local' | 'cloud',
   ): Promise<void> {
-    const mode = knownMode ?? (await fetchAuthStatus(origin, bearer, workspaceId)).mode ?? 'local'
-    if (mode === 'cloud') {
-      const response = await request(
-        origin + '/platform/auth/sign-out',
-        init(origin, '/platform/auth/sign-out', bearer, workspaceId ? { workspaceId } : undefined, {
-          method: 'POST',
-          redirect: 'error',
-          headers: { 'content-type': 'application/json' },
-          body: '{}',
-        }),
-      )
-      if (!response.ok) throw new Error(`Cloud sign-out failed: ${response.status}`)
-      if (browser) return
-    }
     const response = await request(
       origin + '/auth/logout',
       init(origin, '/auth/logout', bearer, workspaceId ? { workspaceId } : undefined, {

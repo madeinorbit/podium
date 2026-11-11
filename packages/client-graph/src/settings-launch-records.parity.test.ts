@@ -8,6 +8,7 @@ import { createLaunchWorkPicker } from './launch-option-views'
 import { launchRecords } from './launch-records'
 import { here, isGone } from './lookup'
 import { MemberDirectory } from './member-directory'
+import { MemberRoster } from './member-roster'
 import { MobxPool } from './pool'
 import { RecordRequest } from './requested-records'
 import { SettingsRepositories } from './settings-repositories'
@@ -72,7 +73,6 @@ it('matches every account/member/device fact from the old section responses and 
       members: [member],
       invites: [],
       currentMemberId: 'owner',
-      mailAvailable: true,
     }))
     await devices.read(async () => [device])
     const accountAnswer = values(accounts.models[0]!, account)
@@ -95,7 +95,6 @@ it('matches every account/member/device fact from the old section responses and 
       members: [{ ...member, displayName: 'Renamed' }],
       invites: [],
       currentMemberId: 'owner',
-      mailAvailable: false,
     }))
     await devices.read(async () => [{ ...device, deviceName: 'Renamed phone' }])
     expect(accounts.models[0]).toBe(a)
@@ -354,6 +353,68 @@ it('keeps repository names live and resolves root, clone and nested launch targe
   } catch (cause) {
     throw new Error(step, { cause })
   } finally {
+    p.dispose()
+  }
+})
+
+it('preserves People account fields when the active roster returns partial member records', async () => {
+  const p = pool(),
+    directory = new MemberDirectory(p),
+    roster = new MemberRoster(p)
+  const alice = { ...member, id: 'alice', displayName: 'Alice', email: 'alice@example.com' }
+  const bob = { ...member, id: 'bob', displayName: 'Bob', email: 'bob@example.com', role: 'member' }
+  try {
+    await directory.read(async () => ({
+      members: [alice, bob],
+      invites: [],
+      currentMemberId: 'alice',
+    }))
+    const before = directory.members[0]
+    await roster.read(async () => ({
+      currentMemberId: 'alice',
+      members: [
+        { id: 'alice', displayName: 'Alice', role: 'admin' },
+        { id: 'bob', displayName: 'Bob', role: 'member' },
+      ],
+    }))
+    expect(directory.members[0]).toBe(before)
+    expect(directory.members.map((m) => m.email)).toEqual(['alice@example.com', 'bob@example.com'])
+    expect(directory.members[0]?.accountId).toBe(alice.accountId)
+  } finally {
+    directory.dispose()
+    roster.dispose()
+    p.dispose()
+  }
+})
+it('an active-only roster does not remove a disabled member from the admin People record set', async () => {
+  const p = pool(),
+    directory = new MemberDirectory(p),
+    roster = new MemberRoster(p)
+  try {
+    await directory.read(async () => ({
+      currentMemberId: 'alice',
+      invites: [],
+      members: [
+        { ...member, id: 'alice', displayName: 'Alice' },
+        { ...member, id: 'bob', displayName: 'Bob', disabledAt: '2026-11-01T00:00:00Z' },
+      ],
+    }))
+    await roster.read(async () => ({
+      currentMemberId: 'alice',
+      members: [
+        { id: 'alice', displayName: 'Alice', role: 'admin' },
+        { id: 'bob', displayName: 'Bob', role: 'member' },
+      ],
+    }))
+    await roster.read(async () => ({
+      currentMemberId: 'alice',
+      members: [{ id: 'alice', displayName: 'Alice', role: 'admin' }],
+    }))
+    expect(roster.members.map((m) => m.id)).toEqual(['alice'])
+    expect(directory.members.map((m) => m.id)).toEqual(['alice', 'bob'])
+  } finally {
+    directory.dispose()
+    roster.dispose()
     p.dispose()
   }
 })

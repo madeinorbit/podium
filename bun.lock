@@ -289,6 +289,7 @@
       "dependencies": {
         "@podium/commands": "workspace:*",
         "@podium/harness": "workspace:*",
+        "@podium/identity": "workspace:*",
         "@podium/logger": "workspace:*",
         "@podium/mobx-helpers": "workspace:*",
         "@podium/model": "workspace:*",

@@ -1,3 +1,4 @@
+import { accountPageUrl } from '@podium/client-core/accounts'
 import { relativeTime } from '@podium/client-core/focus'
 import type { RecordRequest } from '@podium/client-graph/requested-records'
 import { lazy } from '@podium/mobx-helpers'
@@ -35,6 +36,7 @@ import { memberRequest } from '@/features/setup/member-api'
 import { useAccount } from '@/lib/account-context'
 import { useAgeNow, useCountdown, useDeadlineNow } from '@/lib/clock-hooks'
 import { WorkingMark } from '@/lib/motion/WorkingMark'
+import { useServerAuthStatus } from '@/lib/server-auth-status'
 import { workspaceFetch } from '@/lib/workspace-request'
 import { useSettingsUnsyncedChangeCount } from '../readers'
 import { deviceKey, useSettingsRecords } from '../record-readers'
@@ -800,6 +802,7 @@ export function PhonePairingFlow({
   autoStart?: boolean
   onSessionsChanged?: () => void
 }): JSX.Element {
+  const capabilities = useServerAuthStatus()?.capabilities
   const httpOrigin = serverConfig(window.location).httpOrigin
   const api = useMemo(
     () => injectedApi ?? createMobilePairingApi(httpOrigin),
@@ -1093,6 +1096,13 @@ export function PhonePairingFlow({
         {announcement}
       </p>
 
+      {capabilities?.accountUrl && (
+        <p className="settings-prose mb-4">
+          <a className="underline" href={accountPageUrl(capabilities, 'devices')}>
+            Manage all account devices
+          </a>
+        </p>
+      )}
       <section
         ref={flowRegionRef}
         aria-label="Phone pairing status"

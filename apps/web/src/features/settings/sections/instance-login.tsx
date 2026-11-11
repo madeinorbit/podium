@@ -1,3 +1,4 @@
+import type { AuthCapabilities } from '@podium/client-core/accounts'
 import { RequestAnswer } from '@podium/client-graph/request-answer'
 import { observer } from 'mobx-react-lite'
 import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -15,9 +16,12 @@ type AuthStatus = Awaited<ReturnType<Trpc['auth']['status']['query']>>
 /** Instance policy has one reversible control, separate from personal passwords. */
 export const InstanceLoginSection = observer(function InstanceLoginSection({
   trpc,
+  capabilities,
   onChanged,
 }: {
   trpc: Trpc
+  /** What the server's sign-in edition offers; absent while it loads. */
+  capabilities?: AuthCapabilities | undefined
   onChanged?: () => void
 }): JSX.Element | null {
   const client = useSettingsClient()
@@ -43,8 +47,9 @@ export const InstanceLoginSection = observer(function InstanceLoginSection({
       // requiring sign-in, so this device keeps access to the change it made.
       if (required && data?.hostLocalRequest && data.hasOwnCredential) {
         const profile = await trpc.auth.profile.query()
+        // A sign-in without an address is the sole password account's.
         await authRequest(serverConfig(window.location).httpOrigin, 'login', {
-          email: profile.email ?? 'user:sole',
+          ...(profile.email ? { email: profile.email } : {}),
           password: current,
           prepareSignIn: true,
         })
@@ -165,8 +170,17 @@ export const InstanceLoginSection = observer(function InstanceLoginSection({
           }}
         />
       )}
-      <Row label="New people join" description="Each link works once and expires after 7 days.">
-        <span className="settings-prose">With an invite link</span>
+      <Row
+        label="New people join"
+        description={
+          capabilities?.invitationDelivery === 'mail'
+            ? 'An admin emails an invitation with a workspace role under Members.'
+            : 'Each link works once and expires after 7 days.'
+        }
+      >
+        <span className="settings-prose">
+          {capabilities?.invitationDelivery === 'mail' ? 'With an emailed invitation' : 'With an invite link'}
+        </span>
         <Button
           type="button"
           variant="ghost"

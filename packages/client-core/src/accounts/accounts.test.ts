@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { principalKeyPrefix } from '../replica/principal-storage'
 import {
+  type AccountCredentials,
   activateServerProfile,
   browserProfileMetadataStorage,
+  CredentialWriteQueue,
   canOpenProfileOffline,
   clearProfileIdentity,
   cookieCredentials,
@@ -9,18 +12,15 @@ import {
   createAuthClient,
   createServerProfiles,
   createSingleServerAccounts,
-  CredentialWriteQueue,
   drainProfileCleanups,
   eraseAccountData,
   offlineProfileStatus,
-  removeServerProfile,
   readBrowserSignInWithEmail,
   rememberBrowserSignInWithEmail,
+  removeServerProfile,
   resolveOfflinePrincipal,
-  type AccountCredentials,
   type ServerProfile,
 } from './index'
-import { principalKeyPrefix } from '../replica/principal-storage'
 
 const ALICE = JSON.stringify(['installation-a', 'alice'])
 const BOB = JSON.stringify(['installation-a', 'bob'])
@@ -143,15 +143,18 @@ describe('browser account metadata storage', () => {
     await expect(result).rejects.toThrow('storage unavailable')
   })
 
-  it.each([null, '0', 'true', 'alice', '1'])(
-    'reads the existing sign-in hint %j without adopting an identity',
-    (hint) => {
-      const getItem = vi.fn(() => hint)
-      vi.stubGlobal('localStorage', { getItem })
-      expect(readBrowserSignInWithEmail()).toBe(hint === '1')
-      expect(getItem).toHaveBeenCalledExactlyOnceWith('podium.login.withEmail')
-    },
-  )
+  it.each([
+    null,
+    '0',
+    'true',
+    'alice',
+    '1',
+  ])('reads the existing sign-in hint %j without adopting an identity', (hint) => {
+    const getItem = vi.fn(() => hint)
+    vi.stubGlobal('localStorage', { getItem })
+    expect(readBrowserSignInWithEmail()).toBe(hint === '1')
+    expect(getItem).toHaveBeenCalledExactlyOnceWith('podium.login.withEmail')
+  })
 
   it('remembers both sign-in forms without changing account or UI records', () => {
     const values = new Map([
@@ -223,14 +226,12 @@ describe('one sign-in decision for both credential deliveries', () => {
         Response.json({
           ...status,
           authed: false,
-          mode: 'cloud',
-          providerSignedIn: true,
-          deniedReason: 'not a member',
+          denied: 'not_workspace_member',
         }),
     })
     expect(await client.probeAuth('https://a.example')).toMatchObject({
       kind: 'membership-denied',
-      reason: 'not a member',
+      reason: 'This account is not a member of this workspace.',
     })
   })
 
@@ -305,7 +306,6 @@ describe('one sign-in decision for both credential deliveries', () => {
       'https://a.example',
       null,
       undefined,
-      'local',
     )
     expect(fetch).toHaveBeenCalledWith(
       'https://a.example/auth/logout',

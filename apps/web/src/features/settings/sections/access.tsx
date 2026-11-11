@@ -1,3 +1,4 @@
+import { type AuthCapabilities, accountPageUrl } from '@podium/client-core/accounts'
 import { RequestAnswer } from '@podium/client-graph/request-answer'
 import type { DeviceSignInView } from '@podium/protocol'
 import { Laptop, Shield, Smartphone } from 'lucide-react'
@@ -13,7 +14,7 @@ import { SettingsPageSection } from '../settings-anchors'
 import { useSettingsTrpc } from '../stable-access'
 import { InstanceLoginSection } from './instance-login'
 import { AdvancedNetworkRows, NetworkSection } from './network'
-import { EntityRow, Section } from './shared'
+import { EntityRow, Row, Section } from './shared'
 
 /** `/auth/admin/access`: a bounded request answer, never a second member profile. */
 export interface AccessAnswer {
@@ -101,7 +102,7 @@ const AccessPage = observer(function AccessPage() {
 const HostAccess = observer(function HostAccess({ network }: { network: NetworkSettingsView }) {
   const trpc = useSettingsTrpc()
   const answer = useMemo(
-    () => new RequestAnswer<AccessAnswer & AccessSignIns & { canRevoke: boolean }>(),
+    () => new RequestAnswer<AccessAnswer & AccessSignIns & { capabilities: AuthCapabilities }>(),
     [],
   )
   const origin = serverConfig(window.location).httpOrigin
@@ -111,13 +112,9 @@ const HostAccess = observer(function HostAccess({ network }: { network: NetworkS
         const [access, signIns, status] = await Promise.all([
           authRequest<AccessAnswer>(origin, 'admin/access'),
           authRequest<AccessSignIns>(origin, 'admin/sign-ins'),
-          authRequest<{ capabilities?: { adminEndDeviceSignIn: boolean } }>(origin, 'status'),
+          authRequest<{ capabilities: AuthCapabilities }>(origin, 'status'),
         ])
-        return {
-          ...access,
-          ...signIns,
-          canRevoke: status.capabilities?.adminEndDeviceSignIn === true,
-        }
+        return { ...access, ...signIns, capabilities: status.capabilities }
       }),
     [answer, origin],
   )
@@ -155,7 +152,7 @@ const HostAccess = observer(function HostAccess({ network }: { network: NetworkS
     <SignInRow
       key={signIn.id}
       signIn={signIn}
-      canRevoke={data?.canRevoke === true}
+      canRevoke={data?.capabilities?.adminEndDeviceSignIn === true}
       revoking={revoking}
       error={revokeError && revokeError.id === signIn.id ? revokeError.message : undefined}
       onRevoke={revoke}
@@ -167,14 +164,18 @@ const HostAccess = observer(function HostAccess({ network }: { network: NetworkS
         <NetworkSection view={network} />
       </SettingsPageSection>
       <SettingsPageSection id="instance-login">
-        <InstanceLoginSection trpc={trpc} onChanged={() => void reload()} />
+        <InstanceLoginSection
+          trpc={trpc}
+          capabilities={data?.capabilities}
+          onChanged={() => void reload()}
+        />
       </SettingsPageSection>
       <SettingsPageSection id="access">
         <Section
           list
           title="Signed in now"
           hint={
-            data?.canRevoke
+            data?.capabilities?.adminEndDeviceSignIn
               ? 'Every sign-in that has not expired. Ending one signs that device out at once.'
               : 'Every sign-in that has not expired.'
           }
@@ -238,6 +239,16 @@ const HostAccess = observer(function HostAccess({ network }: { network: NetworkS
       <SettingsPageSection id="access-advanced">
         <Section title="Advanced" hint="Set by this deployment’s configuration.">
           <AdvancedNetworkRows view={network} />
+          {data?.capabilities?.organisations && data.capabilities.accountUrl && (
+            <Row
+              label="Organisations"
+              description="Manage organisations and workspaces in your account."
+            >
+              <a className="underline" href={accountPageUrl(data.capabilities, 'workspaces')}>
+                Manage organisations
+              </a>
+            </Row>
+          )}
           {advanced.map(signInRow)}
         </Section>
       </SettingsPageSection>

@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { accountCapabilities, passwordCapabilities } from '../test-support/auth-capabilities'
 
 const mocks = vi.hoisted(() => ({
   begin: vi.fn(),
@@ -19,15 +20,14 @@ vi.mock('./auth', () => ({
 }))
 const denied = {
   kind: 'membership-denied',
-  reason: 'not a member of this workspace',
+  reason: 'This account is not a member of this workspace.',
   status: {
     needsAuth: true,
     userId: null,
-    mode: 'cloud',
+    capabilities: { ...accountCapabilities, accountUrl: 'https://app.example/account' },
+    prompt: 'email-password',
     authed: false,
-    providerSignedIn: true,
-    deniedReason: 'not a member of this workspace',
-    signInUrl: 'https://app.example/account/sign-in',
+    denied: 'not_workspace_member',
   },
 } as const
 vi.mock('./hosted-sign-in-runtime', () => ({ hostedSignIn: { begin: mocks.begin } }))
@@ -48,7 +48,11 @@ vi.mock('../screens/LoginScreen', () => ({
     repairNeeded ? <div>Pair this phone again</div> : null,
 }))
 vi.mock('../components/PressableScale', () => ({
-  PressableScale: ({ children, onPress }: any) => <button onClick={onPress}>{children}</button>,
+  PressableScale: ({ children, onPress }: any) => (
+    <button type="button" onClick={onPress}>
+      {children}
+    </button>
+  ),
 }))
 
 import { AuthGate } from './AuthGate'
@@ -78,7 +82,13 @@ it('passes the selected workspace and account origin through membership recovery
 it('tells the phone to pair again if its pre-upgrade credential is refused', async () => {
   mocks.probe.mockResolvedValue({
     kind: 'login',
-    status: { needsAuth: true, authed: false, userId: null },
+    status: {
+      needsAuth: true,
+      authed: false,
+      userId: null,
+      capabilities: passwordCapabilities,
+      prompt: 'email-password',
+    },
   })
   render(
     <AuthGate>

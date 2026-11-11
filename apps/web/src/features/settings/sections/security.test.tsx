@@ -2,6 +2,8 @@ import '@/test-support/mock-request-pool.test.fixture'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Trpc } from '@/app/trpc'
+import { ServerAuthStatusContext } from '@/lib/server-auth-status'
+import { accountCapabilities } from '@/test-support/auth-capabilities'
 import { AccountProfileSection } from './security'
 
 const frame = vi.hoisted(() => ({ openTakeover: vi.fn(), closeTakeover: vi.fn() }))
@@ -126,6 +128,23 @@ describe('Account Profile', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
     expect(await screen.findByRole('textbox', { name: 'Name' })).toBeTruthy()
+  })
+
+  it('replaces email and password with the account pages when the server reports an account URL', async () => {
+    const trpc = fakeTrpc()
+    render(
+      <ServerAuthStatusContext.Provider
+        value={{ needsAuth: true, authed: true, userId: null, capabilities: accountCapabilities }}
+      >
+        <AccountProfileSection trpc={trpc} />
+      </ServerAuthStatusContext.Provider>,
+    )
+    expect(await screen.findByRole('link', { name: 'Manage account' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Reset password by email' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Manage organisations' })).toBeTruthy()
+    expect(screen.getByRole('textbox', { name: 'Name' })).toBeTruthy()
+    expect(screen.queryByRole('textbox', { name: 'Email' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^(change|set) password$/i })).toBeNull()
   })
 })
 

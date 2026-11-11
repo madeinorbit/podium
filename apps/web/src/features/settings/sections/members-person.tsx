@@ -330,7 +330,7 @@ const PersonDevices = observer(function PersonDevices({
           )}
           {person.devices.length ? (
             person.devices.map((device) => (
-              <div key={device.id || `${device.kind}-${device.createdAt}-${device.expiresAt}`}>
+              <div key={device.id}>
                 <EntityRow
                   leading={<Monitor size={18} />}
                   title={deviceLabel(device)}
@@ -347,7 +347,7 @@ const PersonDevices = observer(function PersonDevices({
                   trailing={
                     !person.self &&
                     person.allows('signOutEverywhere') &&
-                    device.id && (
+                    data.capabilities?.adminEndDeviceSignIn && (
                       <Button
                         type="button"
                         size="sm"
@@ -356,7 +356,7 @@ const PersonDevices = observer(function PersonDevices({
                         pending={revoking === device.id}
                         pendingLabel="Signing out…"
                         aria-label={`Sign out ${deviceLabel(device)}`}
-                        onClick={() => device.id && void revoke(device.id)}
+                        onClick={() => void revoke(device.id)}
                       >
                         Sign out
                       </Button>

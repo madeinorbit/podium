@@ -1,8 +1,9 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { PODIUM_SCHEME, formatPodiumLink } from '@podium/protocol'
 import { offlineProfileStatus } from '@podium/client-core/accounts'
+import { formatPodiumLink, PODIUM_SCHEME } from '@podium/protocol'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { accountCapabilities } from '../test-support/auth-capabilities'
 import type { ServerProfileContextValue } from './server-profile-context'
 import type { ServerProfileState } from './server-profiles'
 
@@ -139,16 +140,16 @@ vi.mock('./hosted-sign-in-runtime', () => ({
 }))
 
 import {
-  resetInitialNativeLinkConsumptionForTests,
-  ServerProfileGate,
-  useServerProfile,
-} from './ServerProfileGate'
-import {
   captureMobileHandoffUrl,
   consumePendingMobileHandoff,
   pendingMobileHandoffSnapshot,
 } from './mobile-handoff'
 import { installMobileMetadataStorage } from './mobile-metadata-storage'
+import {
+  resetInitialNativeLinkConsumptionForTests,
+  ServerProfileGate,
+  useServerProfile,
+} from './ServerProfileGate'
 
 function ProfileProbe() {
   const context = useServerProfile()
@@ -1580,9 +1581,8 @@ describe('hosted sign-in profile activation', () => {
       authed: false,
       needsAuth: true,
       userId: null,
-      mode: 'cloud',
-      providerSignedIn: true,
-      deniedReason: 'not a member of this workspace',
+      capabilities: accountCapabilities,
+      denied: 'not_workspace_member',
     })
     seams.getInitialUrl.mockResolvedValue(link)
     render(
@@ -1590,7 +1590,7 @@ describe('hosted sign-in profile activation', () => {
         <ProfileProbe />
       </ServerProfileGate>,
     )
-    await screen.findByText('not a member of this workspace')
+    await screen.findByText('This account is not a member of this workspace.')
     expect(screen.queryByText('Could not finish sign-in. Start sign-in again.')).toBeNull()
     expect(screen.getByRole('button', { name: 'Use another account' })).toBeTruthy()
     expect(seams.setCredential).not.toHaveBeenCalled()

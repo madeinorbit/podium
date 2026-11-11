@@ -19,7 +19,6 @@ const adminAnswer = (members: MemberView[]): MemberDirectoryAnswer => ({
   members,
   currentMemberId: 'admin',
   invites: [],
-  mailAvailable: true,
   actions: { active: ['setRole'] },
 })
 
@@ -145,7 +144,7 @@ test('a member-readable directory exposes names and roles with no admin authorit
     ['Alice', 'member'],
   ])
   expect(directory.invites).toEqual([])
-  expect(directory.mailAvailable).toBe(false)
+  expect(directory.capabilities).toBeUndefined()
   expect(directory.hasOwnCredential).toBe(false)
   expect(directory.actionsFor('alice')).toEqual([])
   expect(memberRoster(pool).nameOf('alice')).toBe('Alice')
@@ -169,7 +168,6 @@ test('an admin directory supplies active roster names without losing full member
         members: [member('active', null), member('disabled', '2026-01-01')],
         currentMemberId: 'admin',
         invites: [],
-        mailAvailable: true,
         hasOwnCredential: true,
         actions: { active: ['setRole'] },
       }) as MemberDirectoryAnswer,

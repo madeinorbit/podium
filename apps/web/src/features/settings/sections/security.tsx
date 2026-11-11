@@ -1,9 +1,11 @@
+import { accountPageUrl } from '@podium/client-core/accounts'
 import { observer } from 'mobx-react-lite'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { serverConfig, type Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { useServerAuthStatus } from '@/lib/server-auth-status'
 import { workspaceFetch } from '@/lib/workspace-request'
 import { memberKey, useSettingsRecords } from '../record-readers'
 import { useSettingsFrame } from '../settings-frame'
@@ -20,6 +22,8 @@ export const AccountProfileSection = observer(function AccountProfileSection({
   trpc: Trpc
 }) {
   const frame = useSettingsFrame()
+  // A hosted account keeps its address and sign-in methods on the account pages.
+  const capabilities = useServerAuthStatus()?.capabilities
   const readProfile = useCallback(async () => [await trpc.auth.profile.query()], [trpc])
   const { request, reload } = useSettingsRecords('member', readProfile, memberKey)
   const profile = request?.models[0]
@@ -168,101 +172,121 @@ export const AccountProfileSection = observer(function AccountProfileSection({
           onChange={(event) => void saveName(event.target.value)}
         />
       </Row>
-      <form
-        onSubmit={(event) => {
-          event.preventDefault()
-          submitEmail()
-        }}
-      >
-        <Row
-          label="Email"
-          description={
-            status.hasOwnCredential
-              ? 'You sign in with it. Changing it asks for your password.'
-              : 'You sign in with it.'
-          }
-          pending={emailBusy}
-          error={emailError}
+      {capabilities?.accountUrl ? (
+        <Row label="Account" description="Manage your sign-in methods and email in your account.">
+          <a className="underline" href={accountPageUrl(capabilities, '')}>
+            Manage account
+          </a>
+          {capabilities.passwordReset === 'mail' && (
+            <a className="underline" href={accountPageUrl(capabilities, 'forgot-password')}>
+              Reset password by email
+            </a>
+          )}
+          {capabilities.organisations && (
+            <a className="underline" href={accountPageUrl(capabilities, 'workspaces')}>
+              Manage organisations
+            </a>
+          )}
+        </Row>
+      ) : (
+        <>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault()
+            submitEmail()
+          }}
         >
-          <Input
-            ref={emailField}
-            aria-label="Email"
-            type="email"
-            autoComplete="username"
-            required
-            maxLength={254}
-            value={emailDraft ?? profile.email ?? ''}
-            onChange={(event) => {
-              setEmailDraft(event.target.value)
+          <Row
+            label="Email"
+            description={
+              status.hasOwnCredential
+                ? 'You sign in with it. Changing it asks for your password.'
+                : 'You sign in with it.'
+            }
+            pending={emailBusy}
+            error={emailError}
+          >
+            <Input
+              ref={emailField}
+              aria-label="Email"
+              type="email"
+              autoComplete="username"
+              required
+              maxLength={254}
+              value={emailDraft ?? profile.email ?? ''}
+              onChange={(event) => {
+                setEmailDraft(event.target.value)
+                setEmailChange(null)
+                setEmailError(null)
+              }}
+              onBlur={submitEmail}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  setEmailDraft(null)
+                  setEmailChange(null)
+                  setEmailError(null)
+                }
+              }}
+            />
+          </Row>
+        </form>
+        {emailChange !== null && (
+          <ConfirmInline
+            key={emailChange}
+            sentence={
+              <>
+                Change your email to <strong>{emailChange}</strong>?
+              </>
+            }
+            hasPassword
+            actionLabel="Save email"
+            pending={emailBusy}
+            onCancel={() => {
+              setEmailDraft(null)
               setEmailChange(null)
               setEmailError(null)
             }}
-            onBlur={submitEmail}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                event.preventDefault()
-                event.stopPropagation()
-                setEmailDraft(null)
-                setEmailChange(null)
-                setEmailError(null)
-              }
-            }}
+            onConfirm={(password) => saveEmail(emailChange, password)}
           />
-        </Row>
-      </form>
-      {emailChange !== null && (
-        <ConfirmInline
-          key={emailChange}
-          sentence={
-            <>
-              Change your email to <strong>{emailChange}</strong>?
-            </>
-          }
-          hasPassword
-          actionLabel="Save email"
-          pending={emailBusy}
-          onCancel={() => {
-            setEmailDraft(null)
-            setEmailChange(null)
-            setEmailError(null)
-          }}
-          onConfirm={(password) => saveEmail(emailChange, password)}
-        />
-      )}
-      <Row
-        label="Password"
-        description={
-          status.hasOwnCredential
-            ? 'Your password signs you in to this Podium.'
-            : 'You don’t have a password yet.'
-        }
-      >
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() =>
-            frame.openTakeover({
-              title: status.hasOwnCredential ? 'Change password' : 'Set password',
-              content: (
-                <PasswordTakeover
-                  trpc={trpc}
-                  email={profile.email ?? null}
-                  hasOwnCredential={status.hasOwnCredential}
-                  onCancel={frame.closeTakeover}
-                  onSaved={(active) => {
-                    loadStatus()
-                    if (active) frame.closeTakeover()
-                    toast.success('Password saved.')
-                  }}
-                />
-              ),
-            })
+        )}
+        <Row
+          label="Password"
+          description={
+            status.hasOwnCredential
+              ? 'Your password signs you in to this Podium.'
+              : 'You don’t have a password yet.'
           }
         >
-          {status.hasOwnCredential ? 'Change password' : 'Set password'}
-        </Button>
-      </Row>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              frame.openTakeover({
+                title: status.hasOwnCredential ? 'Change password' : 'Set password',
+                content: (
+                  <PasswordTakeover
+                    trpc={trpc}
+                    email={profile.email ?? null}
+                    hasOwnCredential={status.hasOwnCredential}
+                    onCancel={frame.closeTakeover}
+                    onSaved={(active) => {
+                      loadStatus()
+                      if (active) frame.closeTakeover()
+                      toast.success('Password saved.')
+                    }}
+                  />
+                ),
+              })
+            }
+          >
+            {status.hasOwnCredential ? 'Change password' : 'Set password'}
+          </Button>
+        </Row>
+        </>
+      )}
       <Row
         label="Role"
         description={
@@ -334,7 +358,8 @@ function PasswordTakeover({
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             credentials: 'include',
-            body: JSON.stringify({ email: email ?? 'user:sole', password: next }),
+            // A sign-in without an address is the sole password account's.
+            body: JSON.stringify(email ? { email, password: next } : { password: next }),
           },
         )
         if (!response.ok)

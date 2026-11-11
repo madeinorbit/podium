@@ -12,6 +12,7 @@ import { serverConfig } from '@/app/trpc'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { authRequest, memberRequest } from '@/features/setup/member-api'
+import { webAuth } from '@/lib/accounts'
 import { AdminViewerError } from '../AdminViewerError'
 import { useAdminSections } from '../admin-viewer'
 import { settingsSectionId } from '../page-definitions'
@@ -33,13 +34,17 @@ export const MembersSection = observer(function MembersSection() {
   const reload = useCallback(async () => {
     if (!data || viewer.status !== 'ready') return
     await Promise.all([
-      data.read(() =>
-        admin
-          ? memberRequest<MemberDirectoryAnswer>(origin, 'list')
-          : memberRequest<MemberRosterAnswer>(origin, 'directory'),
-      ),
+      data.read(async () => {
+        if (!admin) return await memberRequest<MemberRosterAnswer>(origin, 'directory')
+        // What this server's sign-in edition offers decides invitations, resets and sign-outs.
+        const [directory, status] = await Promise.all([
+          memberRequest<MemberDirectoryAnswer>(origin, 'list'),
+          webAuth.fetchAuthStatus(origin),
+        ])
+        return { ...directory, capabilities: status.capabilities }
+      }),
       ...(admin
-        ? [data.devices.load(() => authRequest<MemberSignInsAnswer>(origin, 'admin/access'))]
+        ? [data.devices.load(() => authRequest<MemberSignInsAnswer>(origin, 'admin/sign-ins'))]
         : []),
     ])
   }, [admin, data, origin, viewer.status])
@@ -225,7 +230,6 @@ const PendingInvite = observer(function PendingInvite({
               ...(invite.email ? { email: invite.email } : {}),
               role: invite.role,
               current,
-              sendEmail: false,
             },
       )
       // Preserve the usable result even if the second request fails.

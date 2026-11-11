@@ -287,7 +287,9 @@ const until = async (pred: () => boolean, ms = 5000): Promise<void> => {
 // Each fixture device, including one in a later instance, is a distinct client.
 let fixtureDeviceAddresses = 0
 
-export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
+export async function startTwoMemberInstance(
+  options: { runtimeWorkers?: boolean } = {},
+): Promise<TwoMemberInstance> {
   const priorStateDir = process.env.PODIUM_STATE_DIR
   const stateDir = mkdtempSync(join(tmpdir(), 'podium-two-member-'))
   writeFileSync(
@@ -300,7 +302,8 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
   const fixtureIds: string[] = [...FIXTURE_MEMBER_IDS]
   const handle = await startServer({
     port: 0,
-    janitorWorkerForTests: noJanitorWorkerForTests,
+    // Unit runners suppress threads; real browsers need the production sync worker too.
+    ...(options.runtimeWorkers ? {} : { janitorWorkerForTests: noJanitorWorkerForTests }),
     newMemberIdForTests: () => fixtureIds.shift() ?? newMemberId(),
   })
   const origin = `http://127.0.0.1:${handle.port}`

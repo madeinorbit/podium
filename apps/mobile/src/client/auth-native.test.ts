@@ -17,10 +17,7 @@ describe('native auth transport', () => {
   })
 
   it('treats a non-2xx logout response as failed revocation', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(Response.json({ needsAuth: true, authed: true, userId: 'user:admin' }))
-      .mockResolvedValue(new Response('{}', { status: 503 }))
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 503 }))
     vi.stubGlobal('fetch', fetchMock)
     await expect(logout('https://podium.example', 'phone-token')).rejects.toThrow(
       'logout failed: 503',
@@ -64,40 +61,14 @@ describe('native auth transport', () => {
   })
 })
 
-it('revokes a hosted bearer through the platform and still retires pairing credentials', async () => {
-  const fetchMock = vi
-    .fn()
-    .mockResolvedValueOnce(
-      Response.json({
-        needsAuth: true,
-        authed: true,
-        userId: 'user:admin',
-        mode: 'cloud',
-        signInUrl: 'https://ade.podium.do/account/sign-in',
-      }),
-    )
-    .mockResolvedValue(Response.json({ ok: true }))
+it('revokes a device bearer through the shared sign-out endpoint without an edition probe', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(Response.json({ ok: true }))
   vi.stubGlobal('fetch', fetchMock)
-  await logout('https://api.podium.do', 'cloud-token')
+  await logout('https://workspace.example', 'device-token')
   expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
-    'https://api.podium.do/auth/status',
-    'https://api.podium.do/platform/auth/sign-out',
-    'https://api.podium.do/auth/logout',
+    'https://workspace.example/auth/logout',
   ])
-  const init = fetchMock.mock.calls[1]![1] as RequestInit
-  expect(new Headers(init.headers).get('Authorization')).toBe('Bearer cloud-token')
+  const init = fetchMock.mock.calls[0]![1] as RequestInit
+  expect(new Headers(init.headers).get('Authorization')).toBe('Bearer device-token')
   expect(init.credentials).toBe('omit')
-  expect(init.redirect).toBe('error')
-})
-it('reports platform revocation failure instead of claiming sign-out succeeded', async () => {
-  const fetchMock = vi
-    .fn()
-    .mockResolvedValueOnce(
-      Response.json({ needsAuth: true, authed: true, userId: 'user:admin', mode: 'cloud' }),
-    )
-    .mockResolvedValue(new Response(null, { status: 503 }))
-  vi.stubGlobal('fetch', fetchMock)
-  await expect(logout('https://api.podium.do', 'cloud-token')).rejects.toThrow(
-    'Cloud sign-out failed: 503',
-  )
 })

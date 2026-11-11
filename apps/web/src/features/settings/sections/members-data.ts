@@ -3,22 +3,14 @@ import type { MobxPool } from '@podium/client-graph/pool'
 import { RequestAnswer } from '@podium/client-graph/request-answer'
 import type { MemberModel } from '@podium/client-graph/requested-models'
 import { companion, lazy } from '@podium/mobx-helpers'
+import type { DeviceSignInView } from '@podium/protocol'
 import { compareShallow } from 'mobx'
 import { SettingsMachines } from '../settings-machine-readers'
 
-/** Public sign-in metadata from the existing admin Access answer; never credentials. */
+/** Public device sign-ins from `/auth/admin/sign-ins`, each with its member; never credentials. */
 export interface MemberSignInsAnswer {
   signInsTotal?: number
-  signIns: {
-    id?: string | null
-    memberId: string
-    kind: string
-    deviceName: string | null
-    platform: string | null
-    createdAt: string
-    lastSeenAt: string | null
-    expiresAt: string
-  }[]
+  signIns: (DeviceSignInView & { memberId: string })[]
 }
 
 export class MembersPage extends MemberDirectory {
@@ -87,10 +79,4 @@ export const memberRoleLabel = (role: string): string => (role === 'admin' ? 'Ad
 
 export const deviceLabel = (device: MemberSignInsAnswer['signIns'][number]): string =>
   device.deviceName ||
-  ({
-    login: 'Browser or desktop',
-    mobile: 'Phone',
-    upstream: 'Upstream link',
-    'break-glass': 'Host recovery',
-  }[device.kind] ??
-    device.kind)
+  { browser: 'Browser', desktop: 'Desktop', phone: 'Phone', host: 'Host recovery' }[device.kind]
