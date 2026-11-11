@@ -141,8 +141,12 @@ function describeNonEnvelope(status: number, text: string, carriedCredential: bo
 export interface IssueClientOptions {
   /** A signed device sign-in token (the same value a browser receives) sent as a
    *  cookie on every call. Absent = no cookie, which is correct on an instance with no
-   *  password configured: `clientAuthGuard` passes those through. */
-  sessionToken?: string
+   *  password configured: `clientAuthGuard` passes those through.
+   *
+   *  A function is asked once, when the first call is made, and its answer is
+   *  used for every call of this client. A rejection fails that call with the
+   *  function's own message. */
+  sessionToken?: string | (() => Promise<string | undefined>)
   /** Stable hosted workspace selector sent before authentication. */
   workspaceId?: string
   /** Injected in tests. */
@@ -165,6 +169,13 @@ export function makeIssueClient(baseUrl: string, opts: IssueClientOptions = {}):
   const origin = new URL(baseUrl)
   const sendCookie =
     origin.protocol === 'https:' || ['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname)
+  let lazyToken: Promise<string | undefined> | undefined
+  const resolvedSessionToken = (): Promise<string | undefined> => {
+    const { sessionToken } = opts
+    if (typeof sessionToken !== 'function') return Promise.resolve(sessionToken)
+    lazyToken ??= sessionToken()
+    return lazyToken
+  }
   // The CALL SIGNATURE, not `typeof fetch`: under Bun's lib types the global also
   // carries a `preconnect` method, and a wrapper is not obliged to reimplement it —
   // `httpBatchLink` only ever calls this.
@@ -173,10 +184,11 @@ export function makeIssueClient(baseUrl: string, opts: IssueClientOptions = {}):
     init?: Parameters<typeof fetch>[1],
   ): Promise<Response> => {
     const headers = new Headers(init?.headers)
-    if (opts.sessionToken && sendCookie)
+    const sessionToken = await resolvedSessionToken()
+    if (sessionToken && sendCookie)
       headers.set(
         'cookie',
-        `${deviceSignInCookieName(origin.protocol)}=${encodeURIComponent(opts.sessionToken)}`,
+        `${deviceSignInCookieName(origin.protocol)}=${encodeURIComponent(sessionToken)}`,
       )
     if (opts.workspaceId) headers.set('Podium-Workspace-Id', opts.workspaceId)
     const res = await doFetch(input as never, { ...init, headers })
@@ -185,7 +197,7 @@ export function makeIssueClient(baseUrl: string, opts: IssueClientOptions = {}):
     // Response built from the same text rather than the drained original.
     const text = await res.text().catch(() => '')
     if (!isTrpcEnvelope(text))
-      throw new Error(describeNonEnvelope(res.status, text, Boolean(opts.sessionToken)))
+      throw new Error(describeNonEnvelope(res.status, text, Boolean(sessionToken)))
     return new Response(text, {
       status: res.status,
       statusText: res.statusText,

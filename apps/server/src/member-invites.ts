@@ -79,7 +79,8 @@ export function memberLinks(options: {
       }
       const reset = await core.codes.inspectPasswordReset(token)
       if (!reset || core.capabilities().passwordReset !== 'admin-link') throw invalid()
-      return { kind: 'password-reset' as const, ...reset }
+      // The account id is for the server, not for whoever holds the link.
+      return { kind: 'password-reset' as const, email: reset.email, expiresAt: reset.expiresAt }
     },
     async complete(input: {
       token: string
@@ -97,23 +98,25 @@ export function memberLinks(options: {
         })
         return { userId: accepted.memberId }
       }
-      // One transaction: the new password, the end of every device sign-in and
-      // the end of every sign-in from before shared sign-in (POD-6751, R16).
-      const { reset, member } = await core.transaction(async () => {
-        const reset = await core.codes.redeemPasswordReset({
-          code: input.token,
-          password: input.password,
-        })
-        if (!reset) throw invalid()
-        const member = (await memberships.list()).find((m) => m.account?.id === reset.accountId)
-        if (!member) throw invalid()
-        await users.endOldSignIns(asUserId(member.memberId))
-        await users.audit('members.recover', asUserId(member.memberId), {
-          memberId: member.memberId,
-        })
-        return { reset, member }
+      // Sign-ins from before shared sign-in end FIRST, in a transaction of
+      // their own (POD-6751, R16). The reset hashes the new password, which
+      // is slow on purpose, so no write transaction may be open around it. If
+      // the reset then fails, the member has lost nothing but old sign-ins:
+      // they sign in again, which is the safe direction.
+      const live = await core.codes.inspectPasswordReset(input.token)
+      if (!live) throw invalid()
+      const holder = (await memberships.list()).find((m) => m.account?.id === live.accountId)
+      if (!holder) throw invalid()
+      await users.endOldSignIns(asUserId(holder.memberId))
+      const reset = await core.codes.redeemPasswordReset({
+        code: input.token,
+        password: input.password,
       })
+      if (!reset) throw invalid()
       for (const id of reset.endedSignInIds) options.onDeviceSignInEnded?.(id)
+      const member = (await memberships.list()).find((m) => m.account?.id === reset.accountId)
+      if (!member) throw invalid()
+      await users.audit('members.recover', asUserId(member.memberId), { memberId: member.memberId })
       return { userId: member.memberId }
     },
   }

@@ -531,7 +531,14 @@ export interface OneTimeCodeOperations {
     facts: ConnectionFacts,
   ): Promise<IssuedSignIn | 'pending' | undefined>
 
-  inspectPasswordReset(code: string): Promise<{ email: string | null; expiresAt: Date } | undefined>
+  /**
+   * What a live password-reset code is for. `accountId` is for server code that
+   * must act for that account before the code is redeemed; it is not for the
+   * person who holds the link.
+   */
+  inspectPasswordReset(
+    code: string,
+  ): Promise<{ accountId: string; email: string | null; expiresAt: Date } | undefined>
   redeemPasswordReset(input: {
     code: string
     password: string

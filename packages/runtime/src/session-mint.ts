@@ -47,6 +47,42 @@ export function readCachedSessionToken(
   return Date.parse(parsed.expiresAt) > now() ? parsed.token : undefined
 }
 
+/** The form of a session token from before shared sign-in: 32 random bytes, base64url, unsigned. */
+const OLD_SESSION_TOKEN = /^[A-Za-z0-9_-]{43}$/
+
+/** A signed device sign-in token always carries a signature after a dot; an old token never does. */
+export function isOldFormSessionToken(value: string): boolean {
+  return OLD_SESSION_TOKEN.test(value)
+}
+
+// LEGACY(remove-after: 2027-06): reads the `cli-session.json` a `podium auth mint-session` from before shared sign-in wrote; removing it makes the host mint a new session once after such an upgrade.
+/**
+ * The token of an OLD-FORM cache file, unexpired: `{ token, expiresAt }` with
+ * no version, as the command wrote it before shared sign-in. It is not a
+ * credential any more. The `podium` command exchanges it once at the server's
+ * status route for a signed device sign-in and rewrites the file
+ * (docs/design/sign-in-carry-over.md, section 6.1). Never deletes the file.
+ */
+export function readOldFormSessionToken(
+  at: string = stateDir(),
+  now: () => number = Date.now,
+): { token: string; expiresAt: string } | undefined {
+  let parsed: Partial<MintedSession> & { version?: number }
+  try {
+    parsed = JSON.parse(readFileSync(sessionTokenPath(at), 'utf8')) as Partial<MintedSession> & {
+      version?: number
+    }
+  } catch {
+    return undefined
+  }
+  if (parsed?.version !== undefined) return undefined
+  if (typeof parsed.token !== 'string' || typeof parsed.expiresAt !== 'string') return undefined
+  if (!isOldFormSessionToken(parsed.token)) return undefined
+  return Date.parse(parsed.expiresAt) > now()
+    ? { token: parsed.token, expiresAt: parsed.expiresAt }
+    : undefined
+}
+
 /**
  * The operator credential for a direct (non-relay) CLI call, or undefined when there is
  * none — which is the correct state on an instance with no password configured, where

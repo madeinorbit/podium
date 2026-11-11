@@ -59,6 +59,23 @@ function ownership(db: SqlDatabase) {
   }
 }
 
+/**
+ * The one line the sign-in carry-over writes at its first start (POD-6751):
+ * when the period ends and how many old sign-ins could still be carried.
+ */
+function carryOverLine(bootLog: string): { endsAt: string; oldSignIns: number } | undefined {
+  for (const line of bootLog.split('\n')) {
+    try {
+      const record = JSON.parse(line)
+      if (record.ns === 'server:sign-in-carry-over' && typeof record.endsAt === 'string')
+        return { endsAt: record.endsAt, oldSignIns: record.oldSignIns }
+    } catch {}
+  }
+  return undefined
+}
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000
+const RETIRED_LABELS = ['upstream', 'server-transfer-claim']
+
 describe('upgrade rehearsal', () => {
   it('snapshots committed WAL pages without copying credentials, backups or unrelated state', () => {
     const source = join(root, 'wal-source')
@@ -129,6 +146,8 @@ describe('upgrade rehearsal', () => {
       for (const [table, rows] of [
         ['machines', serverRows.machines],
         ['sessions', serverRows.sessions],
+        // The sole member's old sign-ins, for the carry-over (POD-6751).
+        ['client_sessions', serverRows.client_sessions],
       ] as const) {
         for (const row of rows) {
           const keys = Object.keys(row)
@@ -152,10 +171,17 @@ describe('upgrade rehearsal', () => {
       )
     const before = hashes()
     symlinkSync(source, join(source, 'live-state-link'))
+    const rehearsedAt = Date.now()
     const output = await rehearse(source, join(root, 'copy')).catch((error) => {
       const log = readFileSync(join(root, 'copy', 'boot.log'), 'utf8')
       throw new Error(`${String(error)}\n${log}`, { cause: error })
     })
+    // The boot log names the end of the carry-over period and the number of old sign-ins.
+    const carryOver = carryOverLine(readFileSync(join(output, 'boot.log'), 'utf8'))
+    expect(carryOver?.oldSignIns).toBe(serverRows.client_sessions.length)
+    const periodMs = Date.parse(carryOver?.endsAt ?? '') - rehearsedAt
+    expect(periodMs).toBeGreaterThanOrEqual(THIRTY_DAYS_MS)
+    expect(periodMs).toBeLessThan(THIRTY_DAYS_MS + 10 * 60_000)
     expect(hashes()).toEqual(before)
     expect(readdirSync(source).sort()).toEqual([...names, 'live-state-link'].sort())
     expect(readdirSync(join(output, 'state'))).not.toContain('live-state-link')
@@ -281,6 +307,7 @@ describe('upgrade rehearsal', () => {
         db.close()
       }
       const sourceBefore = createHash('sha256').update(readFileSync(sourcePath)).digest('hex')
+      const rehearsedAt = Date.now()
       const output = await rehearse(source, join(root, `member-copy-${multiple}`))
       expect(createHash('sha256').update(readFileSync(sourcePath)).digest('hex')).toBe(sourceBefore)
       const upgraded = openDatabase(join(output, 'state', 'podium.db'), { readOnly: true })
@@ -289,7 +316,33 @@ describe('upgrade rehearsal', () => {
           n: DRIZZLE_MIGRATIONS.length,
         })
         expect(upgraded.prepare('PRAGMA quick_check').get()).toEqual({ quick_check: 'ok' })
-        expect(ownership(upgraded)).toEqual(before)
+        // The upgrade deletes the sign-ins of the two retired labels (POD-6750)
+        // and leaves every other old sign-in exactly as it was.
+        const kept = (logins: unknown[]) =>
+          (logins as { label: string }[]).filter((row) => !RETIRED_LABELS.includes(row.label))
+        const after = ownership(upgraded)
+        expect({ ...after, logins: kept(after.logins) }).toEqual({
+          ...before,
+          logins: kept(before.logins),
+        })
+        expect(after.logins).toEqual(kept(before.logins))
+        // The boot log names the end of the carry-over period and how many
+        // old sign-ins could still be carried: those of a person's three labels.
+        const honoured = (before.logins as { label: string }[]).filter((row) =>
+          ['login', 'mobile', 'break-glass'].includes(row.label),
+        )
+        expect(honoured.length).toBe(multiple ? 8 : 5)
+        const carryOver = carryOverLine(readFileSync(join(output, 'boot.log'), 'utf8'))
+        expect(carryOver?.oldSignIns).toBe(honoured.length)
+        const periodMs = Date.parse(carryOver?.endsAt ?? '') - rehearsedAt
+        expect(periodMs).toBeGreaterThanOrEqual(THIRTY_DAYS_MS)
+        expect(periodMs).toBeLessThan(THIRTY_DAYS_MS + 10 * 60_000)
+        expect(
+          upgraded.prepare("SELECT value FROM meta WHERE key = 'signInCarryOver.endsAt'").get(),
+        ).toEqual({ value: carryOver?.endsAt })
+        expect(upgraded.prepare('SELECT count(*) AS n FROM carried_sign_ins').get()).toEqual({
+          n: 0,
+        })
         const memberships = upgraded
           .prepare(`
         SELECT m.member_id, m.role, m.status, a.password

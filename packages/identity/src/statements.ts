@@ -627,10 +627,10 @@ export const recordWrongVerifier = prepared<{ id: string }>((db, t) =>
 
 export const liveResetCode = prepared<
   { codeHash: string; now: Date },
-  { email: string; expiresAt: Date }
+  { accountId: string; email: string; expiresAt: Date }
 >((db, t) =>
   db
-    .select({ email: t.user.email, expiresAt: t.oneTimeCode.expiresAt })
+    .select({ accountId: t.user.id, email: t.user.email, expiresAt: t.oneTimeCode.expiresAt })
     .from(t.oneTimeCode)
     .innerJoin(t.user, eq(t.user.id, t.oneTimeCode.accountId))
     .where(

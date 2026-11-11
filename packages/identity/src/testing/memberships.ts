@@ -291,6 +291,7 @@ export function membershipCases(context: MembershipCasesContext): void {
         }),
       ).toBe(true)
       expect(await core.codes.inspectPasswordReset(resetToken)).toEqual({
+        accountId: bob.accountId,
         email: invitation.email,
         expiresAt,
       })

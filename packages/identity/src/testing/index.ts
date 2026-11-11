@@ -1125,6 +1125,8 @@ export function identitySuite(runner: SuiteRunner, harness: SuiteHarness): Ident
         expect(reset.expiresAt.getTime() > Date.now() + 23 * 60 * 60_000).toBe(true)
         const inspected = await core.codes.inspectPasswordReset(reset.code)
         expect(inspected?.email).toBe('bob@example.test')
+        // It names Bob's account and nobody else's.
+        expect(inspected?.accountId).toBe(bob.id)
         expect(await core.codes.inspectPasswordReset('no such code')).toBe(undefined)
         // A reset code is not a sign-in code, and trying it as one does not spend it.
         expect(

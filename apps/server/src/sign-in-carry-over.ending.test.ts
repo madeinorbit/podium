@@ -365,6 +365,83 @@ describe('whatever ends all device sign-ins of a member (test 16)', () => {
   }, 120_000)
 })
 
+describe('a password reset that fails', () => {
+  it('after the old sign-ins were ended: Bob’s old cookies stay dead and he signs in again; Alice is untouched', async () => {
+    const i = await start('two-members')
+    const alice = await i.status(oldCookie(OLD_TOKENS.aliceBrowser))
+    const before = i.oldSignIns()
+    const recovery = await asAlice(i, alice.cookie, 'recovery', BOB)
+    const { codes } = i.handle.identity.core
+    const redeem = codes.redeemPasswordReset
+    // The redemption fails after the first step ran.
+    codes.redeemPasswordReset = async () => {
+      throw new Error('injected fault in the redemption')
+    }
+    try {
+      const failed = await i.request('/auth/members/complete', {
+        method: 'POST',
+        body: { token: recovery.body.invite.token, password: 'a password that is never set' },
+      })
+      expect(failed.status).toBeGreaterThanOrEqual(400)
+    } finally {
+      codes.redeemPasswordReset = redeem
+    }
+    expect(of(BOB, i.oldSignIns())).toEqual([])
+    expect(of(ALICE, i.oldSignIns())).toEqual(of(ALICE, before))
+    for (const token of [OLD_TOKENS.bobBrowser, OLD_TOKENS.bobPhone]) {
+      const refused = await i.status(oldCookie(token))
+      expect(refused.body).toMatchObject({ authed: false })
+      expect(refused.setCookies).toEqual([])
+    }
+    // His password is the one he had: he signs in again with it.
+    const signIn = await i.request('/auth/login', {
+      method: 'POST',
+      body: { email: 'bob@example.test', password: PASSWORDS[BOB] },
+    })
+    expect(signIn.status).toBe(200)
+    expect(signIn.body).toMatchObject({ memberId: BOB })
+    // The code was not spent by the failure and still works once.
+    const done = await i.request('/auth/members/complete', {
+      method: 'POST',
+      body: { token: recovery.body.invite.token, password: 'bob has a new password now' },
+    })
+    expect(done.status).toBe(200)
+  }, 120_000)
+
+  it('with an unknown or an expired code: refused, and it ends nobody’s old sign-ins', async () => {
+    const i = await start('two-members')
+    const alice = await i.status(oldCookie(OLD_TOKENS.aliceBrowser))
+    const recovery = await asAlice(i, alice.cookie, 'recovery', BOB)
+    // The person who holds the link is never shown the account it is for.
+    const inspected = await i.request('/auth/members/inspect', {
+      method: 'POST',
+      body: { token: recovery.body.invite.token },
+    })
+    expect(Object.keys(inspected.body).sort()).toEqual(['email', 'expiresAt', 'kind'])
+    const before = i.oldSignIns()
+
+    const unknown = await i.request('/auth/members/complete', {
+      method: 'POST',
+      body: { token: 'x'.repeat(43), password: 'a password that is never set' },
+    })
+    expect(unknown.status).toBeGreaterThanOrEqual(400)
+    expect(unknown.status).toBeLessThan(500)
+    moveClock(DAY + 60_000)
+    const expired = await i.request('/auth/members/complete', {
+      method: 'POST',
+      body: { token: recovery.body.invite.token, password: 'a password that is never set' },
+    })
+    expect(expired.status).toBeGreaterThanOrEqual(400)
+    expect(expired.status).toBeLessThan(500)
+    // A code that names nobody ends nothing: Bob's old sign-ins are what they were.
+    expect(i.oldSignIns()).toEqual(before)
+    expect((await i.status(oldCookie(OLD_TOKENS.bobBrowser))).body).toMatchObject({
+      authed: true,
+      memberId: BOB,
+    })
+  }, 120_000)
+})
+
 describe('the host and sign-out (tests 17, 18)', () => {
   it('revoking host sign-ins on the control socket deletes the break-glass old sign-ins and no others', async () => {
     const spare = 'fixture-old-host-token-that-is-never-presented'

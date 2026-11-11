@@ -81,6 +81,8 @@ export function auditEventSentence(event: SecurityEvent): string {
         event.target?.id === event.actor.id ? 'their password' : `${person}’s password`
       return sentence(`reset ${password}`, `reset ${password}`)
     }
+    case 'members.signInCarried':
+      return sentence('stayed signed in through the upgrade', 'stay signed in through the upgrade')
     case 'takeover':
       return sentence(`took over ${machine}`, `take over ${machine}`)
     case 'machines.adopt': {

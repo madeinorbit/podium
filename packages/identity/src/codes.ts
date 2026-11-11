@@ -320,6 +320,7 @@ export function oneTimeCodeOperations(
       })
       if (!row) return undefined
       return {
+        accountId: row.accountId,
         email: isGeneratedIdentifier(row.email) ? null : row.email,
         expiresAt: row.expiresAt,
       }

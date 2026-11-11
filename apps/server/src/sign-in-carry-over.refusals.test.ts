@@ -209,15 +209,23 @@ describe('on the upgraded two-member fixture, nothing below is ever carried', ()
 
   it('test 26: a foreign Origin on the status request', async () => {
     const cookie = oldCookie(OLD_TOKENS.aliceBrowser)
-    const origin = { origin: 'https://evil.example' }
-    const without = await i.request('/auth/status', { headers: origin })
-    const { answer, writes } = await observed(i, () =>
-      i.request('/auth/status', { cookie, headers: origin }),
-    )
-    expect(answer.status).toBe(without.status)
-    expect(answer.text).toBe(without.text)
-    expect(answer.setCookies).toEqual([])
-    expect(writes).toEqual([])
+    // Over HTTPS, so that the Origin is the only thing that stands in the way.
+    // (On plain HTTP a foreign Origin already makes the request "not this
+    // machine", which is refused as https_required.)
+    for (const headers of [
+      { ...https, origin: 'https://evil.example' },
+      { origin: 'https://evil.example' },
+    ]) {
+      const without = await i.request('/auth/status', { headers })
+      const { answer, writes } = await observed(i, () =>
+        i.request('/auth/status', { cookie, headers }),
+      )
+      expect(answer.status).toBe(without.status)
+      expect(answer.text).toBe(without.text)
+      expect(answer.body).toMatchObject({ authed: false })
+      expect(answer.setCookies).toEqual([])
+      expect(writes).toEqual([])
+    }
   })
 })
 
@@ -253,14 +261,51 @@ describe('boundaries that do carry, next to the ones that do not', () => {
     const i = f
     const refused = await i.request('/auth/status', {
       cookie: oldCookie(OLD_TOKENS.aliceBrowser),
-      headers: { origin: 'https://evil.example' },
+      headers: { ...https, origin: 'https://evil.example' },
     })
     expect(refused.body).toMatchObject({ authed: false })
+    expect(refused.setCookies).toEqual([])
+    // The same request from the page this server serves (TLS ends at the proxy
+    // in front of it, so the scheme of the origin differs and the host does not).
     const carried = await i.request('/auth/status', {
       cookie: oldCookie(OLD_TOKENS.aliceBrowser),
-      headers: { origin: i.origin },
+      headers: { ...https, origin: `https://127.0.0.1:${i.handle.port}` },
     })
     expect(carried.body).toMatchObject({ authed: true, memberId: ALICE })
+    expect(carried.cookie).toMatch(/^__Secure-podium\.session_token=/)
+  }, 120_000)
+
+  it('R9 at the module: an unauthenticated request over plain HTTP from elsewhere is not carried', async () => {
+    f = await startUpgradedInstance('two-members')
+    const i = f
+    const before = oldRows(i)
+    // The status route never gets here: its resolution is https_required. The
+    // module refuses by itself too, whatever resolution it is handed.
+    const request = new Request(`${i.origin}/auth/status`, {
+      headers: { cookie: oldCookie(OLD_TOKENS.aliceBrowser) },
+    })
+    const carried = await i.handle.signInCarryOver?.carry(
+      request,
+      { scheme: 'http', sameMachine: false, clientAddress: '203.0.113.7' },
+      { kind: 'unauthenticated' },
+    )
+    expect(carried).toBeUndefined()
+    expect(oldRows(i)).toEqual(before)
+    expect(issued(i).deviceSignIns).toEqual([])
+    // And it never carries for a resolution that is not "no device sign-in".
+    for (const resolution of [
+      { kind: 'https_required' },
+      { kind: 'not-a-member', accountId: 'someone' },
+    ] as const) {
+      expect(
+        await i.handle.signInCarryOver?.carry(
+          request,
+          { scheme: 'https', sameMachine: false, clientAddress: '203.0.113.7' },
+          resolution,
+        ),
+      ).toBeUndefined()
+    }
+    expect(oldRows(i)).toEqual(before)
   }, 120_000)
 
   it('test 27: Bob’s valid sign-in with Alice’s old cookie stays Bob, and costs no statement more', async () => {

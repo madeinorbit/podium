@@ -3,7 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import {
+  isOldFormSessionToken,
   readCachedSessionToken,
+  readOldFormSessionToken,
   resolveSessionToken,
   saveCachedSessionToken,
   sessionTokenPath,
@@ -52,4 +54,47 @@ it('leaves a pre-upgrade cache file alone for the carry-over', () => {
   writeFileSync(sessionTokenPath(dir), bytes)
   expect(resolveSessionToken({}, dir)).toBeUndefined()
   expect(readFileSync(sessionTokenPath(dir), 'utf8')).toBe(bytes)
+})
+
+// The old-form cache, for the sign-in carry-over (POD-6751).
+const OLD_TOKEN = 'Krhai8IVO7WU7uCc6cw94ZJckKFeeQ2iVNKGOm-di1U'
+
+it('reads an old-form cache as old, never as a credential, and leaves the file alone', () => {
+  const old = { token: OLD_TOKEN, expiresAt: '2999-01-01T00:00:00.000Z' }
+  const text = `${JSON.stringify(old, null, 2)}\n`
+  writeFileSync(sessionTokenPath(dir), text, { mode: 0o600 })
+  // The ordinary reader does not hand an old token out as a credential.
+  expect(readCachedSessionToken(dir)).toBeUndefined()
+  expect(resolveSessionToken({}, dir)).toBeUndefined()
+  expect(readOldFormSessionToken(dir)).toEqual(old)
+  expect(readFileSync(sessionTokenPath(dir), 'utf8')).toBe(text)
+})
+
+it('does not take a new-form cache, an expired old one or a malformed one for an old-form cache', () => {
+  saveCachedSessionToken({ token: 'signed.token=', expiresAt: '2999-01-01T00:00:00.000Z' }, dir)
+  expect(readOldFormSessionToken(dir)).toBeUndefined()
+  // A version-2 file whose token happens to look old is still the new form.
+  saveCachedSessionToken({ token: OLD_TOKEN, expiresAt: '2999-01-01T00:00:00.000Z' }, dir)
+  expect(readOldFormSessionToken(dir)).toBeUndefined()
+  writeFileSync(
+    sessionTokenPath(dir),
+    JSON.stringify({ token: OLD_TOKEN, expiresAt: '2020-01-01T00:00:00.000Z' }),
+  )
+  expect(readOldFormSessionToken(dir)).toBeUndefined()
+  writeFileSync(
+    sessionTokenPath(dir),
+    JSON.stringify({ token: 'signed.token=', expiresAt: '2999-01-01T00:00:00.000Z' }),
+  )
+  expect(readOldFormSessionToken(dir)).toBeUndefined()
+  writeFileSync(sessionTokenPath(dir), 'not json')
+  expect(readOldFormSessionToken(dir)).toBeUndefined()
+  rmSync(sessionTokenPath(dir))
+  expect(readOldFormSessionToken(dir)).toBeUndefined()
+})
+
+it('tells an old token from a signed one by its form', () => {
+  expect(isOldFormSessionToken(OLD_TOKEN)).toBe(true)
+  expect(isOldFormSessionToken(`${OLD_TOKEN}.c2lnbmF0dXJl`)).toBe(false)
+  expect(isOldFormSessionToken('short')).toBe(false)
+  expect(isOldFormSessionToken('')).toBe(false)
 })
