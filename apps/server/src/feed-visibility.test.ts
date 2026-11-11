@@ -5,8 +5,8 @@ import {
   asUserId,
   checkoutRowId,
   interactionRowId,
-  machineAccessRowId,
   issueUserStateRowId,
+  machineAccessRowId,
   messageRecordRowId,
   subscriptionRowId,
 } from '@podium/model'
@@ -72,7 +72,10 @@ async function fixture() {
       visibilityFacts: async () => ({
         workflows: new Map([['shared', { ownerUserId: owner, scope: 'repository' as const }]]),
         revisions: new Map([
-          ['wfr_shared', { workflowId: 'shared', ownerUserId: owner, scope: 'repository' as const }],
+          [
+            'wfr_shared',
+            { workflowId: 'shared', ownerUserId: owner, scope: 'repository' as const },
+          ],
         ]),
         bindings: new Map([['issue:shared', owner]]),
         runs: new Map([['shared', owner]]),
@@ -284,17 +287,17 @@ describe('feed visibility grant semantics', () => {
       { entity: 'effect', entityId: 'eff_issue' },
       { entity: 'effect', entityId: 'eff_session' },
     ])
-    // Each subject is still decided per reader: the issue grant opens the issue's
-    // record, not the session's.
+    // Tasks are shared (bf835836e5); sessions are owner-only (e4c5c6f369).
+    // A legacy session grant must not expose its effect to another member.
     const subjects = (await effectsOf()) ?? []
     let state = await policy.state.forBatch!(subjects)
     expect(subjects.map((ref) => state.mayRead(reader, ref))).toEqual([true, false])
     await grant('session', reader, 'read')
     state = await policy.state.forBatch!(subjects)
-    expect(subjects.map((ref) => state.mayRead(reader, ref))).toEqual([true, true])
+    expect(subjects.map((ref) => state.mayRead(reader, ref))).toEqual([true, false])
 
-    // A revoke keeps the reader in the edge's audience with the same subjects, so
-    // the records leave their devices with the issue.
+    // Historical grants still anchor the same subjects; revoking one cannot
+    // revoke a member's access to a shared task.
     await store.grants.remove('issue', 'shared', reader, 'read')
     const revokedEdge = await edgeOf(policy.anchors, {
       entity: 'issueProjection',
@@ -303,9 +306,8 @@ describe('feed visibility grant semantics', () => {
     expect(revokedEdge?.audience).toEqual([reader])
     expect(revokedEdge?.subjects).toContainEqual({ entity: 'effect', entityId: 'eff_issue' })
     state = await policy.state.forBatch!(subjects)
-    expect(state.mayRead(reader, subjects[0]!)).toBe(false)
-    // On the live feed the issue's next write takes the record off the reader's
-    // devices; the session's stays, through its own grant.
+    expect(state.mayRead(reader, subjects[0]!)).toBe(true)
+    // The next task write still delivers its effect after the grant is removed.
     const beforeRevokeWrite = await authority.cursor()
     await authority.capture([
       {
@@ -321,12 +323,12 @@ describe('feed visibility grant semantics', () => {
       revokedDelta.changes
         .filter((change) => change.entity === 'effect' && change.entityId === 'eff_issue')
         .map((change) => change.op),
-    ).toEqual(['evict'])
+    ).toEqual(['upsert'])
     expect(
       (await authority.bootstrap(principalOf(reader))).changes.some(
         (change) => change.entity === 'effect' && change.entityId === 'eff_issue',
       ),
-    ).toBe(false)
+    ).toBe(true)
   })
   it('an effect is read by its creator and by the readers of its target (POD-6357)', async () => {
     const { policy, grant } = await fixture()
@@ -343,7 +345,7 @@ describe('feed visibility grant semantics', () => {
       expect(readable(owner)).toEqual(['eff_issue', 'eff_session'])
       // A read grant on the issue only: the session's grant is not there.
       expect(readable(reader)).toEqual(['eff_issue'])
-      expect(readable(stranger)).toEqual([])
+      expect(readable(stranger)).toEqual(['eff_issue'])
     }
   })
 
@@ -393,7 +395,12 @@ describe('feed visibility grant semantics', () => {
     ]
     for (const prepare of [policy.state.forBootstrap!, policy.state.forBatch!]) {
       const state = await prepare(rows)
-      for (const kind of ['workflow', 'workflowRevision', 'workflowBinding', 'workflowRun'] as const) {
+      for (const kind of [
+        'workflow',
+        'workflowRevision',
+        'workflowBinding',
+        'workflowRun',
+      ] as const) {
         expect(state.classOf(kind)).toBe('personal')
       }
       const readable = (user: typeof owner) =>
@@ -599,7 +606,12 @@ describe('the issue anchor edge reads the normalized record', () => {
 // A machine's records (POD-6644): each member's access row is theirs alone, and
 // a checkout reaches only the members holding `use` on its machine.
 describe('machine access and checkout rows', () => {
-  const machineGrant = (store: SessionStore, grantee: string, verb: GrantRow['verb'], custody = false) =>
+  const machineGrant = (
+    store: SessionStore,
+    grantee: string,
+    verb: GrantRow['verb'],
+    custody = false,
+  ) =>
     store.grants.upsert({
       resourceKind: 'machine',
       resourceId: 'm1',
@@ -621,7 +633,10 @@ describe('machine access and checkout rows', () => {
     await machineGrant(store, reader, 'use')
     await machineGrant(store, stranger, 'see')
 
-    const access = { entity: 'machineAccess' as const, entityId: machineAccessRowId(reader, asMachineId('m1')) }
+    const access = {
+      entity: 'machineAccess' as const,
+      entityId: machineAccessRowId(reader, asMachineId('m1')),
+    }
     expect(policy.state.classOf('machineAccess')).toBe('per-user-state')
     expect(policy.state.keyedUserOf(access)).toBe(reader)
     expect(policy.state.keyedUserOf({ entity: 'machineAccess', entityId: 'malformed' })).toBeNull()
@@ -659,12 +674,18 @@ describe('machine access and checkout rows', () => {
       prunable: false,
     })
     await store.checkouts.apply(
-      [row('/home/u/podium', '/home/u/podium'), row('/home/u/.worktrees/feature', '/home/u/podium')],
+      [
+        row('/home/u/podium', '/home/u/podium'),
+        row('/home/u/.worktrees/feature', '/home/u/podium'),
+      ],
       [],
       '2026-11-09T00:00:00Z',
     )
     const root = { entity: 'checkout' as const, entityId: checkoutRowId(m1, '/home/u/podium') }
-    const worktree = { entity: 'checkout' as const, entityId: checkoutRowId(m1, '/home/u/.worktrees/feature') }
+    const worktree = {
+      entity: 'checkout' as const,
+      entityId: checkoutRowId(m1, '/home/u/.worktrees/feature'),
+    }
     // A removed checkout (no row) is read as a worktree: no path leaks to a manager.
     const gone = { entity: 'checkout' as const, entityId: checkoutRowId(m1, '/home/u/gone') }
     const state = await policy.state.forBatch!([root, worktree, gone])
