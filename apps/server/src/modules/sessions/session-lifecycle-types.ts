@@ -299,6 +299,12 @@ export interface SessionLifecycleDeps {
   /** POD-665: a worktree appeared/vanished out from under connected clients —
    *  nudge them to re-fetch repos. Raw invalidation, no payload. */
   onWorktreesChanged(repoPath: string, machineId?: MachineId): void
+  /**
+   * A repo registry write of the server's own (a handoff's clone on its
+   * target), committed with the logical repo's record (POD-6770). Absent in
+   * fixtures with no feed: the write then runs bare.
+   */
+  commitRepoWrite?<T>(write: () => Promise<T>): Promise<T>
   /** Prepare every registered source of machine-authored context before spawn.
    * Providers commit side effects only after the session row + command exist. */
   instructionsForStart(input: {

@@ -259,6 +259,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     issueAccess: bag.deps.issueAccess,
     getSession: (sessionId) => bag.sessions.get(sessionId),
     onWorktreesChanged: (repoPath, machineId) => bag.deps.onWorktreesChanged(repoPath, machineId),
+    ...(bag.deps.commitRepoWrite ? { commitRepoWrite: bag.deps.commitRepoWrite } : {}),
   })
   bag.state = new SessionStateService({
     store,

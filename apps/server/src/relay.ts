@@ -2169,6 +2169,7 @@ export class SessionRegistry {
       snapshotDiagnostics,
       installedIssueProjection,
       onWorktreesChanged: broadcastWorktreesChanged,
+      commitRepoWrite: async (write) => await this.commitServerRepoWrite(write),
       instructionsForStart: (input) => sessionInstructions.prepare(input),
       agentLaunch: async (input) => await agentProfiles.launch(input),
       // The issue service is composed after sessions; these run only on a start.
@@ -4841,9 +4842,17 @@ export class SessionRegistry {
     // Scans and clones on a machine (POD-6396).
     this.repoDiscovery = new MachineRepoDiscovery({
       listRepos: async () => await this.store.repos.listRepos(),
+      // Through the registry's write funnel: a discovered or healed repo's
+      // record commits with its row. Bare writes left it off the feed until
+      // the next boot reconcile (POD-6769's finding).
       addRepo: async (path, machineId, originUrl) =>
-        await this.store.repos.addRepo(path, machineId, originUrl),
-      removeRepo: async (path, machineId) => await this.store.repos.removeRepo(path, machineId),
+        await this.commitServerRepoWrite(
+          async () => await this.store.repos.addRepo(path, machineId, originUrl),
+        ),
+      removeRepo: async (path, machineId) =>
+        await this.commitServerRepoWrite(
+          async () => await this.store.repos.removeRepo(path, machineId),
+        ),
       // Liveness probed on the MACHINE (POD-1498), never inferred from scan coverage:
       // browseDirs answers from that daemon's own filesystem, and a directory that is
       // gone comes back without a listing. Any failure to answer is treated as "cannot
@@ -5245,6 +5254,20 @@ export class SessionRegistry {
   /** Register the daemon-local upload fence for the all-in-one process. */
   attachLocalDaemonPortableState(control: LocalPortableStateControl): void {
     this.localDaemonPortableState = control
+  }
+
+  /**
+   * A repo registry write the server makes by itself (a scan's discovery, a
+   * handoff's clone), in one commit with the logical repos' records (POD-6770).
+   */
+  private async commitServerRepoWrite<T>(write: () => Promise<T>): Promise<T> {
+    return await asSystemWrite(
+      async () =>
+        await this.modules.issues.reports.store.commitRepoWrite(
+          this.writes.system('repos.registry'),
+          write,
+        ),
+    )
   }
 
   /**

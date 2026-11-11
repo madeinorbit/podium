@@ -103,6 +103,10 @@ export const SYSTEM_WRITE_ORIGINS = {
     what: "a member's machine access rows, rewritten when their role or standing changes (POD-6644)",
     kind: 'mirror',
   },
+  'repos.registry': {
+    what: "a repo the server registers by itself: one a machine scan discovered or healed, and the clone a handoff makes on its target machine. The logical repo's record commits with the row (POD-6770)",
+    kind: 'server',
+  },
   'checkouts.scan': {
     what: "a machine's checkouts, from its daemon's scans, written only when one is created or removed or a branch is checked out (POD-6644)",
     kind: 'mirror',

@@ -37,6 +37,9 @@ export interface SessionWorkspacePorts {
   /** A session restored from its row when it is parked out of memory (POD-6160 D2f). */
   readSession?(sessionId: SessionId): Promise<Session | undefined>
   onWorktreesChanged(repoPath: string, machineId?: MachineId): void
+  /** The repo registry write funnel: the row and the logical repo's record
+   *  commit together (POD-6770). Absent: the write runs bare (fixtures). */
+  commitRepoWrite?<T>(write: () => Promise<T>): Promise<T>
 }
 
 /** Machine-scoped repository and worktree operations used by lifecycle and handoff. */
@@ -379,12 +382,18 @@ export class SessionWorkspace {
       targetMachineId,
     )
     if (!cloned.ok) throw new Error(`could not clone repository on target: ${cloned.output}`)
-    await this.ports.store.repos.addRepo(
-      targetPath,
-      targetMachineId,
-      sourceRepo.originUrl,
-      sourceRepo.prefix ?? undefined,
-    )
+    // Through the registry's write funnel, so the cloned repo's record reaches
+    // clients with the row. A bare write left it off the feed until the next
+    // boot reconcile (POD-6769's finding).
+    const originUrl = sourceRepo.originUrl
+    const register = async () =>
+      await this.ports.store.repos.addRepo(
+        targetPath,
+        targetMachineId,
+        originUrl,
+        sourceRepo.prefix ?? undefined,
+      )
+    await (this.ports.commitRepoWrite ? this.ports.commitRepoWrite(register) : register())
     const registered = (await this.ports.store.repos
       .listRepos(targetMachineId))
       .find((repo) => machinePathsEqual(repo.path, targetPath))
