@@ -18,9 +18,9 @@ import { UserRound } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
-import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
+import { settingsReceipt } from '../settings-receipt'
 import { useSettingsTrpc } from '../stable-access'
 import { EntityRow, Row, Section } from './shared'
 
@@ -116,7 +116,7 @@ export const KeySharing = observer(function KeySharing({
         users: nextMode === 'people' ? [...users] : [],
       })
       onChanged()
-      toast(
+      settingsReceipt(
         'Saved',
         undo
           ? {

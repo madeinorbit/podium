@@ -1,10 +1,10 @@
 import type { HarnessAgent } from '@podium/runtime'
 import type { JSX } from 'react'
 import { useState } from 'react'
-import { toast } from 'sonner'
 import type { Trpc } from '@/app/trpc'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { settingsReceipt } from '../settings-receipt'
 import type { AccountView } from './shared'
 
 /** The personal login copy switch (D11). */
@@ -56,7 +56,7 @@ export function UseOnMyMachinesBox({
     try {
       await trpc.accounts.useOnMyMachines.mutate({ harness, fingerprint, enabled })
       onChanged()
-      toast('Saved', { action: { label: 'Undo', onClick: () => void change(!enabled) } })
+      settingsReceipt('Saved', { action: { label: 'Undo', onClick: () => void change(!enabled) } })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {

@@ -1,6 +1,5 @@
 import type { PodiumSettings } from '@podium/runtime'
 import type { JSX } from 'react'
-import { toast } from 'sonner'
 import { type ShellDensity, useDensity } from '@/app/density'
 import { type ThemeMode, useTheme } from '@/app/theme'
 import { Button } from '@/components/ui/button'
@@ -14,6 +13,7 @@ import {
 import { useTerminalAppearance } from '@/features/terminal/use-terminal-appearance'
 import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
 import { useSettingsRowId } from '../settings-anchors'
+import { settingsReceipt } from '../settings-receipt'
 import { NumberRow, Row, Section, SegmentedRow, SwitchRow, TextRow, ThisDeviceTag } from './shared'
 import { AccountTipsRow } from './tips'
 
@@ -35,7 +35,7 @@ const PROJECT_SORTS = [
 /** Custom visual controls use the same immediate-save/Undo contract as rows. */
 function saveDeviceChoice(save: () => void, undo: () => void): void {
   save()
-  toast('Saved', { action: { label: 'Undo', onClick: undo } })
+  settingsReceipt('Saved', { action: { label: 'Undo', onClick: undo } })
 }
 
 export function AppearanceSection({

@@ -1,7 +1,7 @@
 import { observer } from 'mobx-react-lite'
-import { toast } from 'sonner'
 import { Switch } from '@/components/ui/switch'
 import { type AccountTipLogContract, useAccountTipLog } from '@/features/tips/account-tip-log'
+import { settingsReceipt } from '../settings-receipt'
 import { Row } from './shared'
 
 export const ShowTipsRow = observer(function ShowTipsRow({ log }: { log: AccountTipLogContract }) {
@@ -17,7 +17,7 @@ export const ShowTipsRow = observer(function ShowTipsRow({ log }: { log: Account
         onCheckedChange={(on) => {
           const previous = log.enabled
           const undo = log.setEnabled(on)
-          toast('Saved', {
+          settingsReceipt('Saved', {
             action: { label: 'Undo', onClick: undo ?? (() => log.setEnabled(previous)) },
           })
         }}

@@ -50,6 +50,7 @@ import {
 import { WorkflowSection } from './sections/workflow'
 import { SettingsPageSection } from './settings-anchors'
 import { SettingsFrame } from './settings-frame'
+import { settingsReceipt } from './settings-receipt'
 import { useSettingsClient } from './stable-access'
 import { adminSectionOf, visibleSettingsGroups } from './surfaces'
 
@@ -531,7 +532,7 @@ const SettingsViewBody = observer(function SettingsViewBody({
         permitted,
       )
       clearFeedback()
-      toast('Saved', {
+      settingsReceipt('Saved', {
         action: {
           label: 'Undo',
           onClick: () => {

@@ -38,6 +38,7 @@ import {
   useSettingsPermitted,
 } from '../settings-controls'
 import { useSettingsFrame } from '../settings-frame'
+import { settingsReceipt } from '../settings-receipt'
 
 export function Section({
   id,
@@ -339,7 +340,7 @@ function useControlChange<T>(onChange: Change<T>, setting?: Setting) {
       // Record-backed rows get their Undo from SettingsView.patch. Other row
       // writers (including this-device preferences) get it here.
       if (!setting)
-        toast('Saved', {
+        settingsReceipt('Saved', {
           action: {
             label: 'Undo',
             onClick: () => {
@@ -623,7 +624,7 @@ export function SecretRow({
     try {
       const undo = await onRemove()
       setConfirming(false)
-      toast(
+      settingsReceipt(
         'Removed',
         undo
           ? {
@@ -711,7 +712,7 @@ function SecretEntry({
         setError(null)
         void onSave(value)
           .then(() => {
-            toast('Saved')
+            settingsReceipt('Saved')
             onDone()
           })
           .catch((error: unknown) => {

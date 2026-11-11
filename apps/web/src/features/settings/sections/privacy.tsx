@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { useSettingsTrpc } from '@/features/settings/stable-access'
 import { useSettingsFrame } from '../settings-frame'
+import { settingsReceipt } from '../settings-receipt'
 import { forcedNotice, useForcedSetting } from '../use-forced-setting'
 import { Row, Section } from './shared'
 
@@ -90,7 +91,7 @@ export const PrivacySection = observer(function PrivacySection({
       setState(previous)
       return
     }
-    toast('Saved', {
+    settingsReceipt('Saved', {
       action: { label: 'Undo', onClick: () => void writeTier(key, previousOn) },
     })
   }

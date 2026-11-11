@@ -13812,6 +13812,48 @@ button.waterfall-fold:hover {
   color: var(--info);
 }
 
+/* THE SETTINGS RECEIPT (POD-6823). "Saved" with its Undo is a one-word
+   receipt, not a notice: the design's 36px pill with a green check, the word
+   and a ghost Undo on one centred line. The notice box above is built for
+   paragraphs (top-aligned, roomy, an outlined chip button), and drew a bulky
+   card with the word riding above its own button. One more class step than
+   each notice rule it narrows. */
+[data-sonner-toast].cn-toast.cn-toast-receipt[data-styled="true"] {
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 4px 5px 4px 12px;
+  border-color: var(--border-strong);
+  border-radius: 9px;
+}
+/* The word takes the button's 26px line box so both centre on the same line. */
+[data-sonner-toast].cn-toast.cn-toast-receipt[data-styled="true"] [data-title] {
+  font-size: 12.5px;
+  line-height: 26px;
+}
+[data-sonner-toast].cn-toast.cn-toast-receipt[data-styled="true"] [data-icon] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  color: var(--success);
+}
+[data-sonner-toast].cn-toast.cn-toast-receipt[data-styled="true"] [data-icon] svg {
+  width: 14px;
+  height: 14px;
+}
+[data-sonner-toast].cn-toast.cn-toast-receipt[data-styled="true"] [data-button] {
+  height: 26px;
+  margin-left: 4px;
+  padding: 0 10px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-strong, var(--foreground));
+}
+[data-sonner-toast].cn-toast.cn-toast-receipt[data-styled="true"] [data-button]:hover {
+  border-color: transparent;
+  background: var(--accent);
+}
+
 /* Sonner's stock button is the toast's own colours inverted — a white slab on
    ink. Neutral actions in this system are a chip fill behind a strong border. */
 [data-sonner-toast].cn-toast[data-styled="true"] [data-button] {

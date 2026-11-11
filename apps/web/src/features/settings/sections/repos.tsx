@@ -22,6 +22,7 @@ import { throughRestarts } from '@/lib/chunk-recovery'
 import { REF_PREFIXES_CHANGED_EVENT } from '@/lib/ref-activation'
 import { cn } from '@/lib/utils'
 import { SettingsPageActions, useSettingsFrame } from '../settings-frame'
+import { settingsReceipt } from '../settings-receipt'
 import { ConfirmInline, EntityRow, Row, Section, useSettingsPermitted, ValueRow } from './shared'
 
 const RepoScanFlow = lazy(() =>
@@ -216,7 +217,7 @@ const PrefixRow = observer(function PrefixRow({
       })
       window.dispatchEvent(new Event(REF_PREFIXES_CHANGED_EVENT))
       cancel()
-      toast('Saved')
+      settingsReceipt('Saved')
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error))
     } finally {

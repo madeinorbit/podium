@@ -9,6 +9,7 @@ import { useServerAuthStatus } from '@/lib/server-auth-status'
 import { workspaceFetch } from '@/lib/workspace-request'
 import { memberKey, useSettingsRecords } from '../record-readers'
 import { useSettingsFrame } from '../settings-frame'
+import { settingsReceipt } from '../settings-receipt'
 import { CommitInput, ConfirmInline, Row, Section } from './shared'
 
 type AuthStatus = Awaited<ReturnType<Trpc['auth']['status']['query']>>
@@ -97,7 +98,7 @@ export const AccountProfileSection = observer(function AccountProfileSection({
     try {
       await trpc.auth.setDisplayName.mutate({ displayName })
       await reload()
-      toast.success('Saved', {
+      settingsReceipt('Saved', {
         action: {
           label: 'Undo',
           onClick: () => {

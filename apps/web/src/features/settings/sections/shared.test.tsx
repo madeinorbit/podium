@@ -197,7 +197,12 @@ describe('server-owned secret projections', () => {
       within(screen.getByRole('form', { name: 'Remove' })).getByRole('button', { name: 'Remove' }),
     )
     await waitFor(() => expect(remove).toHaveBeenCalledOnce())
-    await waitFor(() => expect(notice).toHaveBeenCalledWith('Removed', undefined))
+    await waitFor(() =>
+      expect(notice).toHaveBeenCalledWith(
+        'Removed',
+        expect.not.objectContaining({ action: expect.anything() }),
+      ),
+    )
   })
   it('shows a server masked identity when supplied', () => {
     render(

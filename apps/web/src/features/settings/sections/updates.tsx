@@ -26,6 +26,7 @@ import {
   MachineUpdateMessages,
 } from '../machine-update-controls'
 import { useSettingsMachine, useSettingsMachineIds, useSettingsMachines } from '../readers'
+import { settingsReceipt } from '../settings-receipt'
 import { useSettingsTrpc } from '../stable-access'
 import { DiagnosticLoggingSubsection } from './diagnostic-logging'
 import { EntityRow, Row, Section, useSettingsPermitted } from './shared'
@@ -197,7 +198,9 @@ export const UpdatesSection = observer(function UpdatesSection(): JSX.Element {
       setEnvForced(result.envForced)
       setChannelSource(result.channelSource)
       if (announce && prev)
-        toast('Saved', { action: { label: 'Undo', onClick: () => void choose(prev, false) } })
+        settingsReceipt('Saved', {
+          action: { label: 'Undo', onClick: () => void choose(prev, false) },
+        })
       else if (!announce) toast('Change undone')
       // Keep the shell's native fallback on this server's channel. Dev points at
       // this server's public shell manifest; the signed artifact itself remains on GitHub.
