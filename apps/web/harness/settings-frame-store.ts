@@ -130,7 +130,7 @@ const answers: Record<string, unknown> = {
     usage: 'off',
     crash: 'off',
     endpoint: 'https://telemetry.example.com',
-    installId: 'demo',
+    installId: '49967f2f-f791-481f-910b-709bfa0a07e7',
   },
   'telemetry.preview.query': { version: '0.3.1', os: 'linux', machines: 0 },
 }

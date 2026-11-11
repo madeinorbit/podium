@@ -232,9 +232,11 @@ function ReportTakeover(): JSX.Element {
         <p className="settings-micro mb-2">
           {preview ? 'Next report from this workspace' : 'What a report looks like'}
         </p>
+        {/* Not .settings-prose: its 62ch measure is for wrapped explanations,
+            and capped this block short of the Install id card below it. */}
         <pre
           data-testid="telemetry-report"
-          className="settings-prose max-w-full overflow-x-auto rounded bg-muted p-4 font-mono"
+          className="mb-6 w-full overflow-x-auto rounded-[9px] border border-border bg-muted p-4 font-mono text-[12.5px] text-muted-foreground leading-[1.6]"
         >
           {preview ? JSON.stringify(preview, null, 2) : example || 'Loading…'}
         </pre>
@@ -244,6 +246,9 @@ function ReportTakeover(): JSX.Element {
           label="Install id"
           description={
             <>
+              <code className="settings-value mb-1 block break-all">
+                {state?.installId ?? (state ? 'Created when reports are on' : 'Loading…')}
+              </code>
               Random. Resetting it makes future reports look like a new install.
               {(forcedIdentity.forced || forcedSince.forced) && (
                 <span className="settings-micro mt-1 block">
@@ -255,22 +260,17 @@ function ReportTakeover(): JSX.Element {
           error={error}
           pending={busy}
         >
-          <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-            <code className="settings-micro break-all">
-              {state?.installId ?? (state ? 'Created when reports are on' : 'Loading…')}
-            </code>
-            {state?.installId && (
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                disabled={busy || loadingPreview || forcedIdentity.forced || forcedSince.forced}
-                onClick={() => void resetId()}
-              >
-                Reset
-              </Button>
-            )}
-          </div>
+          {state?.installId && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={busy || loadingPreview || forcedIdentity.forced || forcedSince.forced}
+              onClick={() => void resetId()}
+            >
+              Reset
+            </Button>
+          )}
         </Row>
       </Section>
       <p className="settings-micro mt-3">
