@@ -51,7 +51,7 @@ import {
 import type { ShippingIssueMutation } from '../issues/service/crud'
 import { LeaseProjection } from './lease-projection'
 import type { ShippingPolicyResolver } from './policy'
-import { shipOrderProjectionRow } from './projection'
+import { scheduledShippingProjection, shipOrderProjectionRow } from './projection'
 import {
   canonicalShippingDestination,
   GreenPrefixCache,
@@ -4037,6 +4037,16 @@ export class ShippingService {
         },
       })),
       write,
+    )
+  }
+
+  /** Full snapshot oracle for shipping tests. Startup recovery does not call it. */
+  private async fullProjection(): Promise<ReturnType<typeof scheduledShippingProjection>> {
+    return scheduledShippingProjection(
+      await this.deps.repository.listOrders(),
+      await this.deps.repository.listHolds(),
+      await this.deps.repository.listReceipts(),
+      await this.deps.repository.listNativeStackEdges(),
     )
   }
 

@@ -198,10 +198,11 @@ describe('record builders (POD-6763)', () => {
     const store = await openTestStore(path)
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     try {
-      await attachHostDaemon(reg, () => {}, { repos: ['/repo'] })
-      // The helper registers the repo behind the ledger: publish it, as the
-      // boot reconcile does.
-      await reg.issues.reports.store.publishRepos()
+      await attachHostDaemon(reg, () => {}, { repos: [] })
+      const issues = reg.issues.reports.store
+      await issues.commitRepoWrite(issues.serverWriter, async () =>
+        await store.repos.addRepo('/repo', store.hostMachineId),
+      )
       await quietShipping(reg)
       const owner = await firstAdminMemberId(store)
       const writer = reg.issues.reports.store.serverWriter

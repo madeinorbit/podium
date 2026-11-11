@@ -287,7 +287,6 @@ describe('issueProjection is the only issue record', () => {
   it('cold snapshot includes all normalized issue collections for reload bootstrap', async () => {
     const { registry, store } = await world({ issues: 2, sessions: 0 })
     await store.repos.addRepo('/repo', store.hostMachineId)
-    await registry.modules.issues.reports.store.publishRepos()
     await registry.modules.issues.hierarchy.addDep(
       registry.modules.issues.reports.store.serverWriter,
       'iss_0',

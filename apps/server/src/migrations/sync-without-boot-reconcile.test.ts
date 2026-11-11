@@ -32,7 +32,7 @@ function insert(db: Db, table: string, values: Record<string, string | number | 
   const keys = Object.keys(row)
   db.prepare(
     `INSERT INTO ${table} (${keys.join(',')}) VALUES (${keys.map(() => '?').join(',')})`,
-  ).run(...keys.map((key) => row[key]))
+  ).run(...keys.map((key) => row[key] ?? null))
 }
 
 describe('the upgrade without boot reconcile', () => {
@@ -119,7 +119,12 @@ describe('the upgrade without boot reconcile', () => {
         { id: 'global', owner_user_id: 'owner' },
         { id: 'global:member', owner_user_id: 'member' },
       ])
-      const generations = db.prepare('SELECT kind, generation FROM sync_kind ORDER BY kind').all()
+      const generations = db
+        .prepare('SELECT kind, generation FROM sync_kind ORDER BY kind')
+        .all() as {
+        kind: string
+        generation: number
+      }[]
       expect(generations.map((r) => r.kind)).toEqual([...serverRecordBuilders().kinds()].sort())
       expect(generations.find((r) => r.kind === 'pendingInteraction')?.generation).toBe(8)
       expect(

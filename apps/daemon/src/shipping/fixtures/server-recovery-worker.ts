@@ -57,7 +57,6 @@ const issues = await IssueService.create({
   funnel: { run: (op) => op.write() },
   ledger: testLedgerWriter(ledger),
 })
-await issues.boot()
 
 const daemonWorker = new URL('./daemon-rpc-worker.ts', import.meta.url).pathname
 const git = (...argv: string[]): string =>

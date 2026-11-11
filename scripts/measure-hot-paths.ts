@@ -86,7 +86,6 @@
  * is a number a rebase can silently move.
  */
 
-import { fixtureWriteScope } from '@podium/sync/testing'
 import { readFileSync, writeFileSync } from 'node:fs'
 import {
   asMachineId,
@@ -427,34 +426,6 @@ async function measureFrames(): Promise<Report> {
     attachClient(fixture, (message) => inbox.push(message))
     await settle(fixture)
 
-    // (3) BOOT RECONCILE. `IssueService.boot` is the real thing, not an
-    // imitation: relay.ts calls exactly this at composition. Re-running it with
-    // a connection already attached is what puts its burst on the wire where it
-    // can be counted. It reconciles issues, projections and dep edges — three
-    // full-truth passes in one synchronous burst, which must coalesce to ONE
-    // frame.
-    //
-    // THE BASELINE HAS TO BE STALE OR THIS MEASURES NOTHING. A reconcile against
-    // an up-to-date change log diffs to nothing and publishes nothing, and "0
-    // frames" would then be reported as the best possible result forever. This
-    // is the condition boot exists for (POD-1597: "every issue whose change-log
-    // baseline has aged out of retention re-stages here") and it is produced the
-    // way retention produces it — writing the rows through the REPOSITORY, which
-    // appends no change row, rather than through the service write seam.
-    for (const id of fixture.issueIds) {
-      const row = await fixture.store.issues.getIssue(id)
-      if (row === null || row === undefined) throw new Error(`fixture issue ${id} vanished`)
-      await fixture.store.issues.upsertIssue(fixtureWriteScope(), {
-        ...row,
-        title: `${row.title} (aged out)`,
-      })
-    }
-    inbox.length = 0
-    await fixture.registry.issues.boot()
-    await settle(fixture)
-    const reconcileFrames = feedFrames(inbox, 'feedDelta')
-    const reconcileChanges = changeCount(inbox)
-
     // (4) BIND STORM. The redeploy watchdog-kill incident's shape: a daemon
     // reattach replaying one `bind` per surviving session, each a commit.
     inbox.length = 0
@@ -473,12 +444,6 @@ async function measureFrames(): Promise<Report> {
       at: new Date().toISOString(),
       scale: { sessions: SESSION_COUNT, issues: ISSUE_COUNT },
       metrics: {
-        'bootReconcile.framesPerBurst': {
-          value: reconcileFrames,
-          control: reconcileChanges,
-          controlOf: 'entity changes the boot reconcile published',
-          unit: 'frames-per-burst',
-        },
         'bindStorm.framesPerBurst': {
           value: stormFrames,
           control: stormChanges,

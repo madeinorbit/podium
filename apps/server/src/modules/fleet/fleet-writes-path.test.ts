@@ -18,7 +18,6 @@
 
 import {
   asMachineId,
-  asMutationId,
   asUserId,
   firstAdminMemberId,
   type MachineId,
@@ -200,14 +199,14 @@ describe('the fleet writes are on the sync write entry point', () => {
     expect(again.rows).toEqual([])
   })
 
-  it('a repo reconcile no write caused (a scan, boot) appends rows with no provenance', async () => {
+  it('a server repo source write appends rows with no command provenance', async () => {
     const o = await oracle()
     const host = o.store.hostMachineId
-    // A store write outside any command, then the full-truth publish the scan
-    // and boot paths use: the server's own write, so no command is named.
-    await o.store.repos.addRepo('/abs/repo-scan-6524', host, undefined, 'SCN')
     const before = await o.reg.changeLedger.cursor()
-    await o.reg.modules.issues.reports.store.publishRepos()
+    const issues = o.reg.modules.issues.reports.store
+    await issues.commitRepoWrite(issues.serverWriter, async () =>
+      await o.store.repos.addRepo('/abs/repo-scan-6524', host, undefined, 'SCN'),
+    )
     const rows = (await o.store.sync.changesSince(before)).filter((r) => r.entity === 'repo')
     expect(rows.length).toBeGreaterThan(0)
     for (const row of rows) {

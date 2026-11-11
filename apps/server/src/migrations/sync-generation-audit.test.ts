@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { serverRecordBuilders } from '../sync/record-builders'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 
 // Data rewrites invalidate every record derived from the touched table.
@@ -26,23 +27,23 @@ const kindsByTable: Record<string, readonly string[]> = {
   issue_panel_states: ['issuePanelState'],
   sessions: ['session', 'sessionUserState', 'message'],
   session_user_state: ['sessionUserState'],
-  session_snoozes: ['sessionUserState'],
+  snoozes: ['sessionUserState'],
   messages: ['message'],
   podium_events: ['issueEvent'],
+  subscriptions: ['subscription'],
   pending_interactions: ['pendingInteraction'],
   machines: ['machine', 'machineAccess'],
-  machine_record_context: ['machine'],
   users: ['machineAccess', 'sessionUserState'],
   grants: ['machineAccess'],
   repos: ['repo', 'checkout', 'session'],
   repo_prefixes: ['repo', 'session'],
   checkouts: ['checkout'],
   user_layout: ['userLayout'],
-  user_read_positions: ['userReadPosition'],
+  user_read_position: ['userReadPosition'],
   pins: ['pin'],
-  tab_orders: ['tabOrder'],
+  tab_order: ['tabOrder'],
   user_preferences: ['userPreferences'],
-  meta: ['instancePreferences'],
+  meta: ['instancePreferences', 'machine'],
   agent_profiles: ['agentProfile'],
   superagent_threads: ['superagentThread'],
   effects: ['effect'],
@@ -55,7 +56,7 @@ const kindsByTable: Record<string, readonly string[]> = {
   workflow_run_steps: ['workflowRun'],
   conversation_identities: ['conversation'],
   conversation_segments: ['conversation'],
-  conversation_index: ['conversation'],
+  conversations: ['conversation'],
   ship_orders: ['shipOrder', 'shipLane'],
   ship_holds: ['shipOrder', 'shipLane'],
   delivery_receipts: ['shipOrder', 'shipLane'],
@@ -68,7 +69,7 @@ function missingBumps(sql: string): string[] {
   const bumped = new Set<string>()
   for (const statement of statements) {
     for (const match of statement.matchAll(
-      /\b(?:UPDATE|DELETE\s+FROM|INSERT(?:\s+OR\s+\w+)?\s+INTO)\s+[`"]?(\w+)[`"]?/gi,
+      /\b(?:UPDATE|DELETE\s+FROM|INSERT(?:\s+OR\s+\w+)?\s+INTO|ALTER\s+TABLE|DROP\s+TABLE|CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?|RENAME\s+TO)\s+[`"]?(\w+)[`"]?/gi,
     )) {
       for (const kind of kindsByTable[match[1]!] ?? []) rewritten.add(kind)
     }
@@ -103,4 +104,9 @@ describe('synced data migration generations', () => {
       'pendingInteraction',
     ])
   })
+})
+it('covers every registered record kind', () => {
+  expect([...new Set(Object.values(kindsByTable).flat())].sort()).toEqual(
+    [...serverRecordBuilders().kinds()].sort(),
+  )
 })
