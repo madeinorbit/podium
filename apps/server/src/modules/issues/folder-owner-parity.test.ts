@@ -12,11 +12,12 @@
  * ties, trailing separators, relative paths, and Windows drive, UNC,
  * mixed-separator and mixed-case forms.
  *
- * ONE DELIBERATE DIFFERENCE, pinned at the end: a POSIX-absolute folder used to
+ * The cross-form regression at the end: a POSIX-absolute folder used to
  * count as inside a Windows-style worktree with the same tail (`/r/wt` inside
  * `C:\r\wt`), an accident of resolving a rooted path against the root's drive.
  * A folder and a worktree always come from the same machine, so the two forms
- * never meet in a real answer; the new lookup does not reproduce it.
+ * never meet in a real answer. Both the shared membership helper and the indexed
+ * lookup now reject it, after the containment repair in fb03ddcb68.
  */
 
 import { fixtureWriteScope } from '@podium/sync/testing'
@@ -148,10 +149,10 @@ describe('folder owner: the indexed query answers like the old algorithm', () =>
       '', '/', 'C:\\', 'not-a-path',
     ])
 
-    // The one deliberate difference (see the header).
+    // Both containment paths reject the old cross-form accident (see the header).
     const access = new DurableIssueAccessIndex(store.issues, store.grants, store.repos)
     const crossForm = '/Repo/.worktrees/Win/x'
-    expect(oracle(rows, crossForm, new Set()).owner).toBe('iss_edge_12')
+    expect(oracle(rows, crossForm, new Set()).owner).toBeNull()
     expect(await access.issueForCwd(crossForm)).toBeNull()
   })
 
