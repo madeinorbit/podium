@@ -111,6 +111,11 @@ export interface Runtime {
       device?: DeviceDescription
     },
   ): Promise<{ response: Response; created: DeviceScope['created'] }>
+  /** Verifies a mailed token only after proving the account it names, under its lock. */
+  verifyEmail(
+    configuration: Configuration,
+    input: { token: string; headers: Headers; prove: (accountId: string) => Promise<boolean> },
+  ): Promise<Response>
   /** A Set-Cookie value that carries this token under the configuration's cookie. */
   sessionCookie(configuration: Configuration, token: string, expiresAt: Date): string
   hashPassword(password: string): Promise<string>
@@ -142,6 +147,10 @@ export async function createRuntime(config: IdentityConfig): Promise<Runtime> {
 
   const scope = new AsyncLocalStorage<{ db: object }>()
   const deviceScope = new AsyncLocalStorage<DeviceScope>()
+  const verificationScope = new AsyncLocalStorage<{
+    token: string
+    prove: (accountId: string) => Promise<boolean>
+  }>()
   let adapterOptions: BetterAuthOptions | undefined
   const transactionAdapters = new WeakMap<object, LibraryAdapter>()
 
@@ -244,6 +253,11 @@ export async function createRuntime(config: IdentityConfig): Promise<Runtime> {
         ...(config.passwordHashing ? { password: config.passwordHashing } : {}),
         ...(mail
           ? {
+              onPasswordReset: async ({ user }) => {
+                // A mailed reset proves the address and replaces the password;
+                // unlike verification, no knowledge of the old password is needed.
+                await runtime.library.internalAdapter.updateUser(user.id, { emailVerified: true })
+              },
               sendResetPassword: async ({ user, url, token }) =>
                 mail.send({
                   to: user.email,
@@ -258,6 +272,21 @@ export async function createRuntime(config: IdentityConfig): Promise<Runtime> {
             emailVerification: {
               sendOnSignUp: true,
               autoSignInAfterVerification: false,
+              beforeEmailVerification: async (user) => {
+                const db = scope.getStore()?.db ?? root
+                const [account] = await accountForAuthentication(db).run({ id: user.id })
+                // The library has validated the JWT. Recheck the address after
+                // taking the same lock as password changes and provider recovery.
+                if (!account || account.email !== user.email)
+                  throw new APIError('BAD_REQUEST', {
+                    message: 'This verification link has expired.',
+                  })
+                if (!(await verificationScope.getStore()?.prove(user.id)))
+                  throw new APIError('FORBIDDEN', {
+                    code: 'verification_account_proof_required',
+                    message: 'Enter this account’s password to verify its email.',
+                  })
+              },
               sendVerificationEmail: async ({ user, url, token }) =>
                 mail.send({
                   to: user.email,
@@ -291,7 +320,11 @@ export async function createRuntime(config: IdentityConfig): Promise<Runtime> {
         encryptOAuthTokens: true,
       },
       verification: { storeIdentifier: 'hashed' },
-      rateLimit: { enabled: true, storage: config.rateLimit.storage },
+      rateLimit: {
+        enabled: true,
+        storage: config.rateLimit.storage,
+        customRules: { '/verify-email': { window: 10, max: 3 } },
+      },
       disabledPaths: DISABLED_LIBRARY_PATHS,
       advanced: {
         cookiePrefix: 'podium',
@@ -408,7 +441,35 @@ export async function createRuntime(config: IdentityConfig): Promise<Runtime> {
     name: Configuration['name'],
     variant: Parameters<typeof options>[0],
   ): Promise<Configuration> {
-    const auth = betterAuth(options(variant))
+    const settings = options(variant)
+    const configured: BetterAuthOptions = {
+      ...settings,
+      plugins: [
+        ...(settings.plugins ?? []),
+        {
+          id: 'fragment-email-verification',
+          // Run through the HTTP handler's rate limiter, then bridge the
+          // token-free POST to the library's JWT verifier without a token URL.
+          onRequest: async (request) => {
+            if (
+              request.method !== 'POST' ||
+              new URL(request.url).pathname !== `${basePath}/verify-email`
+            )
+              return
+            const ceremony = verificationScope.getStore()
+            if (!ceremony) return { response: new Response(null, { status: 403 }) }
+            return {
+              response: await auth.api.verifyEmail({
+                query: { token: ceremony.token },
+                headers: request.headers,
+                asResponse: true,
+              }),
+            }
+          },
+        },
+      ],
+    }
+    const auth: Auth = betterAuth(configured)
     const context = await auth.$context
     if (config.accounts === 'shared') {
       for (const provider of context.socialProviders) {
@@ -498,6 +559,16 @@ export async function createRuntime(config: IdentityConfig): Promise<Runtime> {
     configurationFor,
     configurations,
     library,
+    async verifyEmail(configuration, input) {
+      const request = new Request(`${configuration.origin}${configuration.basePath}/verify-email`, {
+        method: 'POST',
+        headers: input.headers,
+        body: JSON.stringify({ token: input.token }),
+      })
+      return await verificationScope.run(input, () =>
+        transaction(() => configuration.auth.handler(request)),
+      )
+    },
     async callLibrary(configuration, call) {
       const headers = new Headers()
       for (const name of FORWARDED_CALLER_HEADERS) {

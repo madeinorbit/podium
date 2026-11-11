@@ -105,12 +105,22 @@ export async function buildIdentity(
         ) {
           return new Response(null, { status: 400 })
         }
-        // Call the library API directly: the browser POST and its URL never
-        // carry a token or an invitation callback in their path or query.
-        return await configuration.auth.api.verifyEmail({
-          query: { token: body.token },
+        const password = 'password' in body ? body.password : undefined
+        if (password !== undefined && (typeof password !== 'string' || password.length > 128))
+          return new Response(null, { status: 400 })
+        // The POST bridge keeps tokens and invitation callbacks out of request
+        // URLs while retaining the library's rate limiter and JWT verifier.
+        return await runtime.verifyEmail(configuration, {
+          token: body.token,
           headers,
-          asResponse: true,
+          prove: async (accountId) => {
+            const resolution = await credentials.resolve(request, facts)
+            if (resolution.kind === 'device-sign-in' && resolution.accountId === accountId)
+              return true
+            return (
+              typeof password === 'string' && (await accounts.verifyPassword(accountId, password))
+            )
+          },
         })
       }
       if (path.startsWith('/reset-password/') || (path === '/reset-password' && incoming.search)) {

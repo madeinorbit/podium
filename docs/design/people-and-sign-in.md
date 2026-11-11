@@ -316,7 +316,7 @@ export type TransactionPort<Db> = <T>(fn: (db: Db) => Promise<T>) => Promise<T>
 2. The library builds its statements on every call. That cannot be changed from outside, so library statements are allowed only where a person performs a ceremony: sign-in, sign-out, renewal (at most once a day per device), account and password writes, the mail flows. They never run on the per-request path, on the socket heartbeat or in a loop.
 3. Statement counts are pinned (rule 8): resolving a request is one statement, revalidating a socket is one statement, each for 5 and for 200 accounts.
 4. The statements the library issues during the shared suite are captured at the driver and each is planned with `EXPLAIN QUERY PLAN`; a table scan fails the SQLite leg.
-5. Passwords are hashed and verified outside any write transaction. The library's password sign-in opens no transaction (read at `dist/api/routes/sign-in.mjs`); the package hashes a new password before it opens its own.
+5. The package hashes a new password before opening its own write transaction. Hosted password issuance, email verification, mailed reset and provider recovery serialize on the account row; their final password and live-session checks run under that lock so an old password or revoked session cannot survive concurrent recovery.
 
 ### 2.3 Creating the core
 
@@ -448,6 +448,10 @@ export interface DeviceDescription {
 
 Rules:
 
+- Hosted self sign-up stays open, but an unverified account has no workspace authority and cannot accept an invitation. Invitation acceptance requires a verified email matching its invited address.
+- A mailed verification token proves the address, not ownership of a password registration. Before initially marking the address verified, require a live session of that same account or its current password. On a second device, the account client asks for the password; verification itself creates no sign-in. A different account's session is not proof.
+- A person who did not create a password registration recovers through a mailed password reset: the single-use token proves the address, installs their new password, marks the address verified and ends all browser and device sign-ins, including pending hand-overs authorized by them. Password checks and changes cannot race past that revocation.
+- Link a provider only when both sides have proved the same address. A verified provider meeting an unverified password registration first removes its password and sessions, then marks the account verified and links. An already verified password account keeps its password when linking the same verified provider email.
 - A change of an account's name, picture or email adds one to the version of each of its memberships (through the workspace revision), so apply-membership copies the new facts to the member rows. The package installs this as a library database hook on the account, so a change made through the library's own profile route in the cloud is covered.
 - `signIn.password` keeps today's throttle: eight failures for one identifier lock that identifier for five minutes; at most 10,000 identifiers are tracked; a request without an email is counted under one fixed key. The counters are in memory, per process (section 13.4).
 - A bearer is delivered only when the request carries no `Origin` header and `facts.scheme` is `https`, as today's native login.
@@ -1266,6 +1270,8 @@ Phone pairing uses the same mechanism in the other order: the signed-in device i
 | Device sign-in token | about 190 bits | 30 days, renewed daily while used; a host session as long as the operator chose | ended by sign-out, revoke, password reset, and with `accounts: 'local'` by disable and remove |
 
 All are stored only as hashes (section 1.6). A link carries its token in the URL fragment, so it reaches no server log and no referrer, as today.
+
+Hosted invitation, password-reset and email-verification secrets, including an invitation nested in a verification callback, stay in fragments handled by the account client. Redemption sends the token in a POST body. Verification never signs the person in automatically; it also requires the account proof in section 2.4.
 
 ### 13.2 An attacker with an old cookie
 
