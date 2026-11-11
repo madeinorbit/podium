@@ -1125,6 +1125,7 @@ export function createRowSource(
           ...(Object.keys(PER_USER_KINDS) as PerUserKind[]).flatMap((kind) =>
             perUserRows(kind, pending),
           ),
+          ...RECORD_COMPANION_KINDS.flatMap((kind) => recordRows(kind, pending)),
         ],
       }
       emit(event, recovering)
@@ -1412,6 +1413,7 @@ export function createRowSource(
           ...snapshot('automation'),
           ...snapshot('automationRun'),
           ...snapshot('effect'),
+          ...RECORD_COMPANION_KINDS.flatMap((kind) => snapshot(kind)),
         ],
       })
       coldIndex = index
