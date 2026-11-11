@@ -501,21 +501,28 @@ describe('JanitorService [spec:SP-c29e]', () => {
   it('[POD-925 review] ChangeLogPrunePlanner advances fromSeq so recovery cannot starve', async () => {
     const db = openDatabase(':memory:')
     try {
-      db.exec(`CREATE TABLE changes (
-        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      db.exec(`CREATE TABLE sync_feed (
+        tenant_id TEXT PRIMARY KEY, head_seq INTEGER NOT NULL, floor_seq INTEGER NOT NULL
+      );
+      INSERT INTO sync_feed VALUES ('local', 250, 1);
+      CREATE TABLE changes (
+        tenant_id TEXT NOT NULL,
+        seq INTEGER NOT NULL,
         entity TEXT,
         entity_id TEXT,
         op TEXT,
         payload TEXT,
-        event_time INTEGER
-      )`)
+        event_time INTEGER,
+        PRIMARY KEY (tenant_id, seq)
+      );
+      CREATE INDEX changes_event_time ON changes (tenant_id, event_time, seq)`)
       const insert = db.prepare(
-        'INSERT INTO changes (entity, entity_id, op, payload, event_time) VALUES (?, ?, ?, ?, ?)',
+        "INSERT INTO changes (tenant_id, seq, entity, entity_id, op, payload, event_time) VALUES ('local', ?, ?, ?, ?, ?, ?)",
       )
       // 250 aged rows; batchSize 100 → first plan 3 batches; after deleting 200, replan continues.
       const aged = Date.parse('2026-07-01T00:00:00.000Z')
       for (let i = 0; i < 250; i++) {
-        insert.run('issue', `i${i}`, 'upsert', '{}', aged)
+        insert.run(i + 1, 'issue', `i${i}`, 'upsert', '{}', aged)
       }
       const planner = new ChangeLogPrunePlanner(db)
       const first = await planner.plan({
@@ -528,7 +535,8 @@ describe('JanitorService [spec:SP-c29e]', () => {
       expect(first[0]?.fromSeq).toBe(1)
       expect(first[1]?.fromSeq).toBe(101)
       // Simulate a capped first tick deleting the first 200 rows (2 batches).
-      db.prepare('DELETE FROM changes WHERE seq <= 200').run()
+      db.prepare("DELETE FROM changes WHERE tenant_id = 'local' AND seq <= 200").run()
+      db.prepare("UPDATE sync_feed SET floor_seq = 201 WHERE tenant_id = 'local'").run()
       const second = await planner.plan({
         keepRows: 0,
         maxAgeMs: 1,
