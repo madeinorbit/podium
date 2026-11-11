@@ -1,16 +1,16 @@
-import { memberFacts } from './store/fixtures/test-support'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId, asUserId } from '@podium/model'
-import { prepareSetupEnrollment, confirmSetupEnrollment, signMachineHello } from '@podium/runtime/setup-enrollment'
+import { hashPassword } from '@podium/runtime/auth-store'
 import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
+import { confirmSetupEnrollment, prepareSetupEnrollment, signMachineHello } from '@podium/runtime/setup-enrollment'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { adoptLegacyHostMachine, completePreauthorizedSetup, enrollSetupMachine, readSetupEnrollment } from './setup-enrollment'
-import { hashPassword } from '@podium/runtime/auth-store'
+import type { SessionStore } from './store'
+import { memberFacts } from './store/fixtures/test-support'
 import { openTestStore } from './test-support/open-test-store'
 import { openTestIdentity } from './test-support/test-identity'
-import type { SessionStore } from './store'
 
 const actor = asUserId('setup-admin')
 const stores: SessionStore[] = []

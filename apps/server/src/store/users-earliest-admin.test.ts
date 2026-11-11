@@ -1,4 +1,3 @@
-import { memberFacts } from './fixtures/test-support'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,6 +6,7 @@ import { earliestAdminMember } from '@podium/runtime/earliest-admin'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import { openTestStore } from '../test-support/open-test-store'
+import { memberFacts } from './fixtures/test-support'
 
 describe('UsersRepository.earliestAdmin', () => {
   it('is the member the migration minted, through the boundary schema', async () => {

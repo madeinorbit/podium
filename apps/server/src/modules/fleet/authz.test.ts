@@ -1,6 +1,6 @@
-import { memberFacts } from '../../store/fixtures/test-support'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { resolvePrincipal } from '../../command-principal'
+import { memberFacts } from '../../store/fixtures/test-support'
 /**
  * THE FLEET AUTHORIZATION GATE (POD-1079) — what POD-384 declared and nothing
  * read until now.
@@ -48,11 +48,11 @@ import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
 import { OPERATOR } from '../../test-support/capabilities'
+import { renameMachine } from '../../test-support/machine-records'
 import { openTestStore } from '../../test-support/open-test-store'
 import { SuperagentService } from '../superagent'
 import { FLEET_TARGETS, type FleetAuthzDeps, fleetAuthzFailure, roleSatisfiesFloor } from './authz'
 import { MACHINE_SCAN_KIND } from './discovery-effects'
-import { renameMachine } from '../../test-support/machine-records'
 
 const OWNER = firstAdminMemberId()
 const COLLEAGUE: UserId = asUserId('colleague')

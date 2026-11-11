@@ -1,4 +1,3 @@
-import { memberFacts } from './store/fixtures/test-support'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -21,6 +20,7 @@ import {
 import { asDelegationRef, CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterAll, describe, expect, it, vi } from 'vitest'
+import { memberFacts } from './store/fixtures/test-support'
 import { messageTestWriter, messageTestWriters } from './test-support/message-writer'
 import { clientSessionViews } from './test-support/session-views'
 

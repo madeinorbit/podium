@@ -1,4 +1,3 @@
-import { memberFacts } from './store/fixtures/test-support'
 /** Database-authoritative enrollment and legacy stage-1 bearer regressions (rules 2–4). */
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -6,10 +5,11 @@ import { join } from 'node:path'
 import { asMachineId, asUserId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
-import { mintPairingToken, openEnrollmentLedger, verifyPairingToken, type EnrollmentLedger } from './enrollment-ledger'
+import { type EnrollmentLedger, mintPairingToken, openEnrollmentLedger, verifyPairingToken } from './enrollment-ledger'
 import { canSeeMachine, checkMachineUse, checkMachineVerb, machineVerbsFor, ownershipSnapshotFromMachines } from './machine-access'
 import { MachinesService, sha256 } from './modules/machines/service'
 import type { SessionStore } from './store'
+import { memberFacts } from './store/fixtures/test-support'
 import { openTestStore } from './test-support/open-test-store'
 
 const OWNER = asUserId('user:enrollment-admin')

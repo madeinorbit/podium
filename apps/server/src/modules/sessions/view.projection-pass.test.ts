@@ -1,8 +1,8 @@
-import { memberFacts } from '../../store/fixtures/test-support'
 import { asIssueId, asMachineId, asSessionId, asUserId } from '@podium/model'
 import { formatSessionRef } from '@podium/protocol'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterAll, describe, expect, it, vi } from 'vitest'
+import { memberFacts } from '../../store/fixtures/test-support'
 
 // Resolve profiling before importing the store/driver instrumentation.
 const previousProfile = vi.hoisted(() => {

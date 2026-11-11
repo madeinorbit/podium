@@ -1,5 +1,5 @@
-import { memberFacts } from '../store/fixtures/test-support'
 import { mintSigningKeyPair, publicKeyWire } from '@podium/runtime/signing'
+import { memberFacts } from '../store/fixtures/test-support'
 /**
  * THE GATEWAY END, THROUGH THE REAL SOCKET PATH. `wsServer.daemon.test.ts` already
  * pins today's daemon behaviour and still passes unchanged over the new framing;

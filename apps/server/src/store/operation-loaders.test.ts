@@ -1,4 +1,3 @@
-import { memberFacts } from './fixtures/test-support'
 /**
  * The repository loaders [POD-6149] against a real store, counted at the driver:
  * several loads in one tick are one query, a loaded row is reused for the rest
@@ -14,6 +13,7 @@ import { countStatements } from '../test-support/statement-count'
 import { withOperation } from './executor/operation-scope'
 import { withReadScope } from './executor/read-scope'
 import type { StoreQueries } from './executor/sync-drizzle'
+import { memberFacts } from './fixtures/test-support'
 import { type GrantRow, GrantsRepository } from './grants'
 import type { SessionRow } from './types'
 

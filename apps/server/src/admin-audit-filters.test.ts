@@ -1,9 +1,9 @@
-import { memberFacts } from './store/fixtures/test-support'
 import { asUserId, firstAdminMemberId } from '@podium/model'
 import { Hono } from 'hono'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { registerAdminRoutes, type SecurityEvent } from './admin-routes'
 import type { SessionStore } from './store'
+import { memberFacts } from './store/fixtures/test-support'
 import { openTestStore } from './test-support/open-test-store'
 import { openTestIdentity } from './test-support/test-identity'
 

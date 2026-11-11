@@ -1,4 +1,3 @@
-import { memberFacts } from './store/fixtures/test-support'
 import {
   asIssueId,
   asMachineId,
@@ -15,6 +14,7 @@ import { readSessionRefs, type SessionRefFacts } from './modules/sessions/refs'
 import { buildSuperagentTools } from './modules/superagent/tools'
 import { RepoRegistry } from './repo-registry'
 import type { IssueRow } from './store'
+import { memberFacts } from './store/fixtures/test-support'
 
 afterEach(async () => {
   await disposeOracles()

@@ -1,20 +1,19 @@
-import { memberFacts } from './store/fixtures/test-support'
 import { asMachineId, asUserId, type Capability, firstAdminMemberId } from '@podium/model'
 import { hashPassword } from '@podium/runtime/auth-store'
 import { TRPCError } from '@trpc/server'
 import { describe, expect, it } from 'vitest'
 import { resolvePrincipal } from './command-principal'
 import { PairingManager } from './hub/pairing'
-
 import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
+import { memberFacts } from './store/fixtures/test-support'
 import { OPERATOR } from './test-support/capabilities'
 import { attachDaemonWithInventory, fixtureInventory } from './test-support/daemon-inventory'
 import { attachHostDaemon } from './test-support/host-daemon'
-import { openTestStore } from './test-support/open-test-store'
 import { renameMachine } from './test-support/machine-records'
+import { openTestStore } from './test-support/open-test-store'
 
 async function machineCaller() {
   const store = await openTestStore(':memory:')

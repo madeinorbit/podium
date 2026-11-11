@@ -1,10 +1,10 @@
-import { memberFacts } from './store/fixtures/test-support'
 import { createHash } from 'node:crypto'
-import { mintSigningKeyPair, publicKeyWire } from '@podium/runtime/signing'
-import { signWithMachine } from '@podium/runtime/machine-credential'
 import { asMachineId, asSessionId, asUserId } from '@podium/model'
+import { signWithMachine } from '@podium/runtime/machine-credential'
+import { mintSigningKeyPair, publicKeyWire } from '@podium/runtime/signing'
 import { describe, expect, it, vi } from 'vitest'
 import { MachinesService } from './modules/machines/service'
+import { memberFacts } from './store/fixtures/test-support'
 import { openTestStore } from './test-support/open-test-store'
 
 const oldId = asMachineId('old-machine'), newId = asMachineId('new-machine')

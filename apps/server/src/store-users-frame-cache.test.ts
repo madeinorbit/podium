@@ -1,9 +1,9 @@
-import { memberFacts } from './store/fixtures/test-support'
 import { asUserId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { SessionStore } from './store'
-import { type StatementProbeHolder, probeStatements } from './store/executor'
+import { probeStatements, type StatementProbeHolder } from './store/executor'
 import { withReadScope } from './store/executor/read-scope'
+import { memberFacts } from './store/fixtures/test-support'
 import { openTestStore } from './test-support/open-test-store'
 
 /**

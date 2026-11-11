@@ -1,4 +1,3 @@
-import { memberFacts } from './store/fixtures/test-support'
 import {
   asSessionId,
   asThreadId,
@@ -25,6 +24,7 @@ import {
 import { buildGlobalSeed } from './modules/superagent/global'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
+import { memberFacts } from './store/fixtures/test-support'
 import { OPERATOR } from './test-support/capabilities'
 import { attachDaemonWithInventory, fixtureInventory } from './test-support/daemon-inventory'
 import { forceFeature } from './test-support/features'

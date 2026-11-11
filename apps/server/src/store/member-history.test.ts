@@ -1,10 +1,10 @@
-import { memberFacts } from './fixtures/test-support'
 import { asUserId } from '@podium/model'
 import { expect, it } from 'vitest'
 import type { FamilyState } from '../modules/derived-family'
 import { USAGE_QUERIES } from '../modules/misc-queries'
 import { openTestStore } from '../test-support/open-test-store'
 import { expectConstantStatements } from '../test-support/statement-count'
+import { memberFacts } from './fixtures/test-support'
 
 it('preserves a one-member daemon’s complete legacy usage response', async () => {
   const store = await openTestStore(':memory:')

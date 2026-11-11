@@ -1,4 +1,3 @@
-import { memberFacts } from './store/fixtures/test-support'
 import {
   asRepoId,
   asThreadId,
@@ -8,12 +7,13 @@ import {
 } from '@podium/model'
 import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { userCommandPrincipal } from './command-principal'
 import type { FamilyState } from './modules/derived-family'
 import { disposeOracles, makeOracle } from './modules/sessions/oracle-support'
 import { SESSION_QUERIES } from './modules/sessions/queries'
 import { buildSuperagentTools } from './modules/superagent/tools'
-import { userCommandPrincipal } from './command-principal'
 import { privateResourceAccess } from './private-resources'
+import { memberFacts } from './store/fixtures/test-support'
 
 const NOW = Date.parse('2026-10-02T12:00:00.000Z')
 const B = asUserId('user:b')
