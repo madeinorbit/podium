@@ -252,23 +252,17 @@ export function runDrizzleMigrations(
     )
   }
 
-  // Capture rollback state before either DDL or the following boot import.
-  const deferredImport = ordered.some(
-    (m) => !semanticallyApplied.has(m.name) && m.sql.startsWith('-- after-local-identity-import'),
-  )
-  if (
-    (pending.length > 0 || deferredImport) &&
-    opts.dbPath !== undefined &&
-    opts.dbPath !== ':memory:' &&
-    hasAnyDataTable(db)
-  ) {
-    const backupStarted = performance.now()
-    backupDatabase(db, opts.dbPath, `drizzle-${applied.size}`)
-    bootStage('backup', backupStarted)
-  }
   if (pending.length === 0) {
     if (opts.skipSchemaRepair !== true) reportRepairs(db)
     return []
+  }
+
+  // Snapshot before schema work. A retry with only retirement deferred keeps
+  // the original pre-upgrade snapshot instead of ageing it out of retention.
+  if (opts.dbPath !== undefined && opts.dbPath !== ':memory:' && hasAnyDataTable(db)) {
+    const backupStarted = performance.now()
+    backupDatabase(db, opts.dbPath, `drizzle-${applied.size}`)
+    bootStage('backup', backupStarted)
   }
 
   const client = bunSqliteClient(db)

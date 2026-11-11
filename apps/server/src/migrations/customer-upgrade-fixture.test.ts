@@ -43,6 +43,7 @@ import {
   seedCustomerMembers,
 } from '../test-support/customer-upgrade-database'
 import { openTestStore } from '../test-support/open-test-store'
+import { retainedSnapshotPaths } from './backup'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { runDrizzleMigrations } from './index'
 
@@ -437,7 +438,9 @@ describe('customer upgrade fixture: server', () => {
       sourceFeedId: 'feed-1',
       sourceFeedEpoch: epoch,
       sourceApplicationVersion: 'fixture',
-      sourceSchemaVersion: DRIZZLE_MIGRATIONS.filter(m => !m.sql.startsWith('-- after-local-identity-import')).at(-1)!.name,
+      sourceSchemaVersion: DRIZZLE_MIGRATIONS.filter(
+        (m) => !m.sql.startsWith('-- after-local-identity-import'),
+      ).at(-1)!.name,
       checkpoint: () => {},
     })
     const paths = snapshot.files.map((entry) => entry.path)
@@ -597,7 +600,8 @@ describe('MU-15: customer personal data across the complete multi-user migration
             .get(),
         ).toEqual({ joined_via: 'start' })
       expect(db.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get()).toEqual({
-        n: DRIZZLE_MIGRATIONS.filter(m => !m.sql.startsWith('-- after-local-identity-import')).length,
+        n: DRIZZLE_MIGRATIONS.filter((m) => !m.sql.startsWith('-- after-local-identity-import'))
+          .length,
       })
       expect(db.prepare('PRAGMA quick_check').get()).toEqual({ quick_check: 'ok' })
     })
@@ -640,4 +644,39 @@ describe('MU-15: customer personal data across the complete multi-user migration
       await store.close()
     }
   })
+})
+
+it('keeps the original Alice and Bob rollback snapshot when boot retries before local import', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'podium-import-retry-'))
+  roots.push(root)
+  const path = join(root, 'podium.db')
+  const db = openDatabase(path)
+  try {
+    seedCustomerMembers(db, true)
+    expect(
+      db
+        .prepare(
+          "SELECT id FROM users WHERE id IN ('mem_upgrade_alice', 'mem_upgrade_bob') ORDER BY id",
+        )
+        .all(),
+    ).toEqual([{ id: 'mem_upgrade_alice' }, { id: 'mem_upgrade_bob' }])
+    const credentials = db.prepare('SELECT * FROM user_credentials ORDER BY user_id').all()
+    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS, { dbPath: path, skipSchemaRepair: true })
+    const snapshots = retainedSnapshotPaths(path)
+    expect(snapshots).toHaveLength(1)
+    expect(
+      db.prepare("SELECT value FROM meta WHERE key = 'identity.legacyLinksImported'").get(),
+    ).toBeUndefined()
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    // The schema step committed, but the data step has not recorded completion.
+    // Another boot must keep its original rollback snapshot rather than stage
+    // a newer partial-upgrade snapshot and eventually prune the original away.
+    expect(
+      runDrizzleMigrations(db, DRIZZLE_MIGRATIONS, { dbPath: path, skipSchemaRepair: true }),
+    ).toEqual([])
+    expect(retainedSnapshotPaths(path)).toEqual(snapshots)
+    expect(db.prepare('SELECT * FROM user_credentials ORDER BY user_id').all()).toEqual(credentials)
+  } finally {
+    db.close()
+  }
 })
