@@ -1462,6 +1462,8 @@ interface CloudRuntime {
  * without either dragging the other's transport along.
  */
 type CheckError = 'INVALID_URL' | 'DNS_FAILED' | 'PRIVATE_ADDRESS' | 'REDIRECTED' | 'TLS_INVALID' | 'PORT_NOT_REACHABLE' | 'UNREACHABLE' | 'NOT_PODIUM' | 'IDENTITY_MISMATCH'
+/** Connect cannot probe this port. No opinion about the address's reachability. */
+ | 'PORT_UNSUPPORTED'
 /** Connect itself could not be reached or refused the request. Never a failed check. */
  | 'CONNECT_UNAVAILABLE';
 
