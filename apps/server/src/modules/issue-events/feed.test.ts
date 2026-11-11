@@ -16,6 +16,8 @@ import { testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../store'
 import { afterCommit, applyAfterCommit, spanOpen } from '../../store/executor/executor'
+import { probeStatements, type StatementObservation } from '../../store/executor/statement-probe'
+import { serverRecordBuilders } from '../../sync/record-builders'
 import { openTestStore } from '../../test-support/open-test-store'
 import { expectRecordLogParity } from '../../test-support/record-log-parity'
 import { testStoreRecords } from '../../test-support/record-writer'
@@ -87,6 +89,56 @@ async function harness(opts: { windowSize?: number } = {}) {
 }
 
 describe('IssueEventFeedPublisher', () => {
+  it('reads only the named event payload when appending to a full window', async () => {
+    const { store, append } = await harness()
+    for (let n = 0; n < 201; n++) await append()
+    const observations: StatementObservation[] = []
+    const detach = probeStatements(store, (row) => observations.push(row))
+    try {
+      await append()
+    } finally {
+      detach()
+    }
+    const reads = observations.filter(
+      (row) => row.sql.startsWith('select') && row.sql.includes('"podium_events"'),
+    )
+    console.log(
+      'issue event append reads',
+      JSON.stringify({
+        statements: reads.length,
+        rows: reads.reduce((sum, row) => sum + row.rows, 0),
+        rowsPerStatement: reads.map((row) => row.rows),
+      }),
+    )
+    expect(reads.map((row) => row.rows)).toEqual([201, 1, 1])
+  })
+
+  it('builds only asked IDs inside the current window, with their actual subject', async () => {
+    const { store, append } = await harness({ windowSize: 2 })
+    const old = await append()
+    await append()
+    const wanted = await append({ subject: 'wanted' })
+    const excluded = await append({ kind: 'issue.mailSent' })
+    const subjectless = await append({ subject: '' })
+    const builder = serverRecordBuilders().get('issueEvent')!
+    const reads = {
+      store,
+      now: Date.now,
+      eventWindow: 2,
+      effectExecutors: { get: () => undefined },
+    }
+    const built = await builder.build(reads, [
+      issueEventRowId(old, 'POD-13'),
+      issueEventRowId(wanted, 'wanted'),
+      issueEventRowId(wanted, 'wrong-subject'),
+      issueEventRowId(excluded, 'POD-13'),
+      issueEventRowId(subjectless, ''),
+      'malformed',
+    ])
+    expect(built.map((record) => record.id)).toEqual([issueEventRowId(wanted, 'wanted')])
+    expect(await builder.build(reads, [])).toEqual([])
+  })
+
   it('publishes a curated event as an upsert keyed on the composite row id', async () => {
     const { ledger, append } = await harness()
     const cursor = await ledger.cursor()
