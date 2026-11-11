@@ -41,9 +41,9 @@ function shippingHistory(dbPath: string, count: number): void {
   try {
     const source = db
       .prepare(`SELECT i.id AS issueId, i.repo_path AS repoPath,
-      i.machine_id AS machineId, r.repo_id AS repoId, i.owner_user_id AS memberId
-      FROM issues i JOIN repos r ON r.path = i.repo_path AND r.machine_id = i.machine_id
-      WHERE i.branch IS NOT NULL AND i.machine_id IS NOT NULL AND r.repo_id IS NOT NULL LIMIT 1`)
+      r.machine_id AS machineId, r.repo_id AS repoId, i.owner_user_id AS memberId
+      FROM issues i JOIN repos r ON r.path = i.repo_path
+      WHERE i.branch IS NOT NULL AND r.repo_id IS NOT NULL LIMIT 1`)
       .get() as {
       issueId: string
       repoPath: string
