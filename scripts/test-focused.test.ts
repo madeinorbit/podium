@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { join, relative, resolve } from 'node:path'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { delimiter, join, relative, resolve } from 'node:path'
+import { stripVTControlCharacters } from 'node:util'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { SHARD_REPORT_DIR_ENV, shardReportPath } from '../apps/server/test-shard-report'
 import { shardIds } from '../apps/server/vitest.shard'
@@ -253,19 +254,34 @@ it('mapped external failure', () => fail())
 it('positive after failure', () => expect(2).toBe(2))
 `,
       )
-      const result = run(['test:file', '--', source])
-      expect(result.code, result.output).toBe(1)
-      expect(result.output).not.toContain('EISDIR')
-      expect(result.output).not.toContain('Unhandled Errors')
-      expect(result.output).toMatch(/Tests\s+2 failed\s*\|\s*2 passed\s*\(4\)/)
-      expect(result.output).toContain('"payload": "actual"')
-      expect(result.output).toContain('"payload": "expected"')
-      expect(result.output).toContain('source-location.test.ts:')
-      expect(result.output).toContain('original.ts:2:2')
-      expect(result.output).toContain('new Promise native:1:11')
-      expect(result.output).toContain('caller missing-stack-source.ts:1:1')
-      expect(result.output).toContain('caller malformed\0source.ts:1:1')
-      expect(result.output).toContain('mapped external sentinel')
+      const env = {
+        ...process.env,
+        PATH: process.env.PATH,
+        FORCE_COLOR: '1',
+        NO_COLOR: undefined,
+      }
+      if (runtime === 'node') {
+        // Reproduce a Bun parent/toolchain that shadows Node on PATH.
+        const bin = join(locationDirectory, 'bin')
+        mkdirSync(bin)
+        symlinkSync(process.execPath, join(bin, process.platform === 'win32' ? 'node.exe' : 'node'))
+        env.PATH = `${bin}${delimiter}${env.PATH ?? ''}`
+      }
+      const result = run(['test:file', '--', source], env)
+      const output = stripVTControlCharacters(result.output)
+      expect(result.code, output).toBe(1)
+      expect(result.output).toContain('\u001b[')
+      expect(output).not.toContain('EISDIR')
+      expect(output).not.toContain('Unhandled Errors')
+      expect(output).toMatch(/Tests\s+2 failed\s*\|\s*2 passed\s*\(4\)/)
+      expect(output).toContain('"payload": "actual"')
+      expect(output).toContain('"payload": "expected"')
+      expect(output).toContain('source-location.test.ts:')
+      expect(output).toContain('original.ts:2:2')
+      expect(output).toContain('new Promise native:1:11')
+      expect(output).toContain('caller missing-stack-source.ts:1:1')
+      expect(output).toContain('caller malformed\0source.ts:1:1')
+      expect(output).toContain('mapped external sentinel')
     } finally {
       if (runtime === 'node') rmSync(locationDirectory, { recursive: true, force: true })
     }
