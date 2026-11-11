@@ -76,7 +76,7 @@ const KINDS = [
   'machine',
   'issueGitState',
 ] as const satisfies readonly Kind[]
-/** Feed kinds added after the recording: POD-6357's one-shot effects, and the synced records of POD-5620 (machines and checkouts, profiles, workflows and subscriptions, instance and personal settings, pins and tab orders, superagent threads). */
+/** Feed kinds added after the recording: POD-6357's one-shot effects, and the synced records of POD-5620 (machines and checkouts, profiles, workflows and subscriptions, instance and personal settings, pins and tab orders, superagent threads), and the issue's bodies and panel items split out of its record under POD-6253. */
 const KINDS_ADDED_SINCE = [
   'effect',
   'checkout',
@@ -92,6 +92,11 @@ const KINDS_ADDED_SINCE = [
   'tabOrder',
   'userPreferences',
   'superagentThread',
+  'issueBodies',
+  'issuePanelTodo',
+  'issuePanelArtifact',
+  'issuePanelDeferred',
+  'issuePanelState',
 ] as const satisfies readonly Kind[]
 
 type Op =
