@@ -1,30 +1,8 @@
 /**
- * RECORD BUILDERS ON A DATABASE COPY (POD-6763, design POD-6253 §1).
- *
- * Two jobs, both read-only on the copy (it is opened with `readOnly`, inside
- * one read transaction, so every read shares one snapshot):
- *
- *   parity  For each of the 37 kinds built from the database, compare `build(ids)` and
- *           `streamAll()` with the `change_latest` payloads, record for record.
- *           The effect kind is built with the server's real effect executors,
- *           taken from a server booted on an empty temporary store.
- *
- *   load    One arm of the start-up load measurement, in its own process so
- *           its peak memory is its own: `--arm=latest` streams the producer's
- *           `change_latest` read (parse each payload, serialize the change);
- *           `--arm=builders` streams every kind's `streamAll()` and serializes
- *           the same change shape. Prints one JSON line: rows, bytes, ms and
- *           peak memory, in total and per kind.
- *
- *   bench   Runs `load` for both arms, interleaved latest/builders for
- *           `--rounds` rounds, and prints the medians side by side.
- *
- * Run on the bench VM (never on the operator's live machine, never on a live
- * database):
- *
- *   bun --conditions=@podium/source apps/server/scripts/record-builders.ts parity --db=<copy> [--immutable] [--kinds=a,b] [--out=<file.json>] [--samples=5] [--values]
- *   bun --conditions=@podium/source apps/server/scripts/record-builders.ts bench --db=<copy> [--rounds=3] [--out=<file.json>]
- *   bun --conditions=@podium/source apps/server/scripts/record-builders.ts load --db=<copy> --arm=latest|builders
+ * Model record consistency and startup-load measurements on a database copy.
+ * `parity` compares streamAll with build(ids) in one read snapshot; `load`
+ * measures the model-table stream; `bench` repeats that load in fresh processes.
+ * Run on the bench VM, with --db=<copy> and optional --out=<report.json>.
  */
 
 import { spawnSync } from 'node:child_process'
@@ -33,10 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { MetadataEntityKind } from '@podium/protocol'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
-import { SyncRepository } from '@podium/sync/adapters/sqlite/sync-repository'
-import { syncServerTables } from '../src/migrations/sync-server-tables'
 import type { EffectExecutorRegistry } from '../src/modules/effects/registry'
-import { createBunStoreExecutor } from '../src/store/executor/bun-driver'
 import { DATABASE_ONLY_BUILDERS, serverRecordBuilders } from '../src/sync/record-builders'
 import { atParity, type KindParity, kindParity } from '../src/sync/record-parity'
 import { recordReadsOver } from '../src/sync-worker/record-reads'
@@ -93,37 +68,24 @@ const passthroughExecutors = {
   get: () => ({ input: { safeParse: (v: unknown) => ({ success: true, data: v }) } }),
 } as unknown as EffectExecutorRegistry
 
-/**
- * Fields left out of the comparison, per kind. The issue's four fat fields
- * leave the issue record in the slim-records phase (POD-6767), which changes
- * the projection both sides use; they are compared again once it lands.
- */
-const IGNORED_FIELDS: Partial<Record<MetadataEntityKind, readonly string[]>> = {
-  issueProjection: ['brief', 'panel', 'description', 'activityNotes'],
-}
-
 async function parity(): Promise<void> {
   const executors = await realEffectExecutors()
   const db = openSnapshot(dbPath!)
   const { reads, close } = recordReadsOver(db, { effectExecutors: executors })
-  const sync = new SyncRepository(
-    createBunStoreExecutor({ database: db }).queries,
-    syncServerTables,
-  )
   const registry = serverRecordBuilders()
   const results: KindParity[] = []
   const started = performance.now()
   try {
     for (const kind of kinds) {
       const t = performance.now()
-      const published = (await sync.installedStatesOf(kind)).map((row) => ({
-        entityId: row.entityId,
-        payload: row.payload,
-      }))
+      const published: { entityId: string; payload: string }[] = []
+      for await (const page of registry.streamAll(reads, kind)) {
+        for (const record of page)
+          published.push({ entityId: record.id, payload: JSON.stringify(record.value) })
+      }
       const result = await kindParity(registry, reads, kind, published, {
         sampleLimit: Number(args.get('samples') ?? 5),
         keepValues: args.has('values'),
-        ignoreFields: IGNORED_FIELDS[kind] ?? [],
       })
       results.push(result)
       console.error(
@@ -186,7 +148,7 @@ function table(results: readonly KindParity[]): string {
 // ---------------------------------------------------------------------------
 
 interface ArmResult {
-  arm: 'latest' | 'builders'
+  arm: 'builders'
   rows: number
   bytes: number
   ms: number
@@ -211,9 +173,8 @@ function vmHwmMb(): number {
 }
 
 async function load(): Promise<void> {
-  const arm = args.get('arm') as ArmResult['arm']
-  if (arm !== 'latest' && arm !== 'builders') throw new Error('--arm=latest|builders')
-  const wanted = new Set<string>(kinds)
+  const arm = 'builders' as const
+  if (args.has('arm') && args.get('arm') !== arm) throw new Error('--arm=builders')
   const db = openSnapshot(dbPath!)
   const startRssMb = mb(process.memoryUsage().rss)
   let peakHeap = process.memoryUsage().heapUsed
@@ -234,34 +195,7 @@ async function load(): Promise<void> {
   let rows = 0,
     bytes = 0
   const started = performance.now()
-  if (arm === 'latest') {
-    // The producer's pass two, without visibility: the same statement.
-    const statement = db.prepare(
-      'SELECT seq, entity, entity_id, payload FROM change_latest ORDER BY seq',
-    )
-    let n = 0
-    for (const row of statement.iterate!() as IterableIterator<{
-      seq: number
-      entity: string
-      entity_id: string
-      payload: string
-    }>) {
-      if (!wanted.has(row.entity)) continue
-      const change = {
-        seq: row.seq,
-        entity: row.entity,
-        entityId: row.entity_id,
-        op: 'upsert',
-        value: JSON.parse(row.payload),
-      }
-      const size = utf8.encode(JSON.stringify(change)).byteLength
-      rows++
-      bytes += size
-      count(row.entity, size)
-      if (++n % 500 === 0) sample()
-    }
-    statement.finalize?.()
-  } else {
+  {
     const { reads, close } = recordReadsOver(db, { effectExecutors: passthroughExecutors })
     const registry = serverRecordBuilders()
     for (const kind of kinds) {
@@ -305,9 +239,7 @@ async function bench(): Promise<void> {
   const rounds = Number(args.get('rounds') ?? 3)
   const runs: ArmResult[] = []
   for (let round = 1; round <= rounds; round++) {
-    for (const arm of round % 2
-      ? (['latest', 'builders'] as const)
-      : (['builders', 'latest'] as const)) {
+    for (const arm of ['builders'] as const) {
       const child = spawnSync(
         process.execPath,
         [
@@ -351,13 +283,12 @@ async function bench(): Promise<void> {
   const report = {
     db: dbPath,
     at: new Date().toISOString(),
-    latest: summary('latest'),
     builders: summary('builders'),
     runs,
   }
   const out = args.get('out')
   if (out) writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`)
-  console.log(JSON.stringify({ latest: report.latest, builders: report.builders }, null, 2))
+  console.log(JSON.stringify({ builders: report.builders }, null, 2))
 }
 
 if (command === 'parity') await parity()

@@ -9,6 +9,7 @@ import { SessionRegistry } from '../relay'
 import { recordReadsOver } from '../sync-worker/record-reads'
 import { assignHostMachine } from '../test-support/host-daemon'
 import { rawSql } from '../test-support/issue-corpus'
+import { loggedRows } from '../test-support/logged-rows'
 import { openTestStore } from '../test-support/open-test-store'
 import { quietShipping } from '../test-support/statement-count'
 import { type RecordReads, serverRecordBuilders } from './record-builders'
@@ -145,16 +146,16 @@ describe('stored observations (POD-6765)', () => {
 
       expected = new Map()
       for (const kind of kinds) {
-        const published = (await store.sync.installedStatesOf(kind)).map(
-          ({ entityId, payload }) => ({ entityId, payload }),
-        )
+        const published = (await loggedRows(store, kind)).map(({ entityId, payload }) => ({
+          entityId,
+          payload,
+        }))
         expect(published.length, kind).toBeGreaterThan(0)
         const parity = await kindParity(builders, reads, kind, published, { keepValues: true })
         expect(atParity(parity), JSON.stringify(parity, null, 2)).toBe(true)
         expected.set(kind, await collectRecords(builders.streamAll(reads, kind)))
       }
       rawSql(store, 'DELETE FROM changes')
-      rawSql(store, 'DELETE FROM change_latest')
     } finally {
       await registry.dispose()
       await store.close()

@@ -5,6 +5,7 @@ Governs: POD-289 (Phase 2 sync kernel), POD-305 (Authority), POD-306 (Replica + 
 Related ADRs: ADR 1 (authority/ownership matrix), ADR 3 (command security & lifecycle), ADR 4 (representation policy), ADR 5 (peer topology seam), ADR 6 (replica storage), ADR 7 (plane/message inventory)
 Spec components: [spec:SP-3fe2] (strangler rebuild), [spec:SP-0371] (hub deferred), [spec:SP-4428] (drizzle-kit)
 **Amended by:** [Amendment 1 — the feed becomes per-principal](0002-sync-protocol-amendment-1.md) (POD-1072, 2026-07-29): D2's "the feed stays **unscoped**" clause is **overturned** (D2's one-feed/one-global-seq/one-cursor half survives verbatim); D5's safety proof is re-proved over the per-principal slice and gains an op-stream constraint; D6's bootstrap reads the principal's scoped slice (shape unchanged); and the Deferred bullet **"Per-client feed scoping"** is **struck — its own stated trigger fired**. New decisions D12–D17 (per-principal feed, covered-range watermarks, `evict` op + `rescope` frame, scoped bootstrap, retention/op-stream constraints, load-bearing-from-day-one and the must-land-before-POD-308 ordering). D1, D3, D4, D7–D11 are unchanged.
+**Amended by:** [Amendment 2 — model bootstrap and feed retention](0002-sync-protocol-amendment-2.md) (POD-6771, 2026-11-11): replaces D5's fixed limits with 30 days and 500,000 rows per feed; current state comes from model tables.
 
 ---
 

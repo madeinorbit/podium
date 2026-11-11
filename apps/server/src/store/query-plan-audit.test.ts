@@ -772,10 +772,6 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
     'Whole-table read (POD-6172): every stored draft, replayed to a connecting client (session-state replayDrafts); a row exists only while its text is not empty, so it grows with unsent drafts, not with history.',
   ],
   [
-    'packages/sync/src/adapters/sqlite/sync-repository.ts:installedWorld',
-    'Whole-table read (POD-6172): the sync bootstrap of change_latest (sync behaviour, out of POD-6148 scope).',
-  ],
-  [
     'apps/server/src/store/automations.ts:allLiveRuns',
     'The automationRun record builder streams stored runs during client bootstrap; never at server startup.',
   ],

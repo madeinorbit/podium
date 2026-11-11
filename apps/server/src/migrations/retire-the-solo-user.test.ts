@@ -1,3 +1,4 @@
+import { ModelRecords } from '@podium/sync/testing'
 /**
  * THE LIVE-UPGRADE TEST for the solo-user retirement (A2, spec §8).
  *
@@ -43,7 +44,7 @@
  */
 
 import { MemberId, UserId } from '@podium/model'
-import { type ServerMessage, SubscriptionRegistry, CLIENT_WIRE_VERSION } from '@podium/protocol'
+import { CLIENT_WIRE_VERSION, type ServerMessage, SubscriptionRegistry } from '@podium/protocol'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { DEVICE_GRADE_PRINCIPAL, FeedIdentityRegistry, Ledger } from '@podium/sync'
 import { describe, expect, it } from 'vitest'
@@ -54,7 +55,13 @@ import {
 } from '../../../../packages/sync/src/adapters/sqlite/test-support'
 import { userClientPrincipal } from '../gateway/client-principal'
 import { FeedServing } from '../gateway/feed-serving'
-import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
+import { DRIZZLE_MIGRATIONS as ALL_MIGRATIONS } from './drizzle-manifest.generated'
+
+const DRIZZLE_MIGRATIONS = ALL_MIGRATIONS.slice(
+  0,
+  ALL_MIGRATIONS.findIndex((m) => m.name.endsWith('_sync-log-only')),
+)
+
 import { mintIdsIn, runDrizzleMigrations } from './index'
 
 const MIGRATION = 'retire-the-solo-user'
@@ -553,8 +560,18 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
     )
     const makeServing = () => {
       const bootRepo = new SyncRepository(createTestSyncQueries(db), testSyncServerTables)
+      const records = new ModelRecords()
+      records.set([
+        {
+          entity: 'session',
+          entityId: 'sess-1',
+          op: 'upsert',
+          value: { sessionId: 'sess-1', ownerUserId: firstAdminId(db) },
+        },
+      ])
       const ledger = new Ledger({
         repo: bootRepo,
+        records,
         now: () => 1,
         transact: queries.createOrJoinTransaction,
       })
@@ -599,9 +616,9 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
     // This client has consumed the old owner at the current head.
     const before = makeServing()
     const cold = await connect(before.serving, 'cold')
-    expect(cold.map(frame => frame.type)).toEqual(['feedResume'])
+    expect(cold.map((frame) => frame.type)).toEqual(['feedResume'])
     const oldWorld = await before.authority.bootstrap(DEVICE_GRADE_PRINCIPAL)
-    expect(oldWorld.changes.map(change => change.value)).toEqual([
+    expect(oldWorld.changes.map((change) => change.value)).toEqual([
       { sessionId: 'sess-1', ownerUserId: RETIRED },
     ])
     const held = { ...(await before.serving.identity()), seq: await repo.maxChangeSeq() }
@@ -617,9 +634,9 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
     expect((await after.serving.identity()).feedId).toBe(held.feedId)
     expect((await after.serving.identity()).epoch).not.toBe(held.epoch)
     const received = await connect(after.serving, 'reconnected', held)
-    expect(received.map(frame => frame.type)).toEqual(['feedResyncRequired'])
+    expect(received.map((frame) => frame.type)).toEqual(['feedResyncRequired'])
     const bootstrap = await after.authority.bootstrap(DEVICE_GRADE_PRINCIPAL)
-    expect(bootstrap.changes.map(change => change.value)).toEqual([
+    expect(bootstrap.changes.map((change) => change.value)).toEqual([
       { sessionId: 'sess-1', ownerUserId: firstAdminId(db) },
     ])
     expect((db.prepare('SELECT seq FROM change_latest').get() as { seq: number }).seq).toBe(

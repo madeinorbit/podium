@@ -190,14 +190,11 @@ export interface ShippingIssuePort {
  */
 export interface ShippingWriter {
   commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>>
-  capture(specs: EntityChangeSpec[]): Promise<MetadataChange[]>
 }
 
 /** The lane machine's own writer, a `server` origin (`shipping.lanes`): every
  *  write the lanes make, the boot reconcile included. Never a command's. */
-export interface ShippingLedgerPort extends ShippingWriter {
-  reconcile(entity: 'shipOrder' | 'shipLane', rows: { id: string; value: unknown }[]): unknown
-}
+export interface ShippingLedgerPort extends ShippingWriter {}
 
 export interface ShippingDaemonPort {
   shippingJob(

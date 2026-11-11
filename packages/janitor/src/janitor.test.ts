@@ -18,6 +18,7 @@ import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
  * and naming one locally says so.
  */
 const A_MEMBER = asUserId('mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv')
+
 import { describe, expect, it, vi } from 'vitest'
 import {
   ChangeLogPrunePlanner,
@@ -47,8 +48,8 @@ const readyLease = (
   autoArchiveReadWindowMs: 7 * 24 * 60 * 60 * 1000,
   eventRetentionMaxAgeDays: 14,
   eventRetentionMaxRows: 50_000,
-  changeKeepRows: 20_000,
-  changeMaxAgeMs: 3 * 24 * 60 * 60 * 1000,
+  changeKeepRows: 500_000,
+  changeMaxAgeMs: 30 * 24 * 60 * 60 * 1000,
   maintenanceCommandMaxAgeMs: 14 * 24 * 60 * 60 * 1000,
   worktreeGcMode: over.worktreeGcMode ?? 'propose',
   worktreeGcAfterDays: over.worktreeGcAfterDays ?? 14,
@@ -357,8 +358,8 @@ describe('JanitorService [spec:SP-c29e]', () => {
       ],
       planChangeLogPrune: async () => [
         {
-          keepRows: 20_000,
-          maxAgeMs: 3 * 24 * 60 * 60 * 1000,
+          keepRows: 500_000,
+          maxAgeMs: 30 * 24 * 60 * 60 * 1000,
           thresholdSeq: 9,
           batchSize: 100,
           fromSeq: 1,

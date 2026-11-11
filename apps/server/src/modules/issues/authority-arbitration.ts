@@ -38,18 +38,11 @@ export class IssueAuthorityArbitration {
 
   readonly ledger: {
     commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>>
-    capture(specs: EntityChangeSpec[]): Promise<MetadataChange[]>
-    reconcile(
-      entity: MetadataEntityKind,
-      rows: { id: string; value: unknown }[],
-    ): Promise<MetadataChange[]>
   }
 
   constructor(private readonly source: Omit<LedgerWriter, 'scope'>) {
     this.ledger = {
       commit: async (op) => await this.commit(this.source, op),
-      capture: async (specs) => await this.source.capture(specs),
-      reconcile: async (entity, rows) => await this.source.reconcile(entity, rows),
     }
   }
 
@@ -71,10 +64,9 @@ export class IssueAuthorityArbitration {
    * ledger did, so moving a write onto its command's writer changes nothing
    * about how it is arbitrated.
    */
-  wrap(writer: Pick<LedgerWriter, 'commit' | 'capture'>): Pick<LedgerWriter, 'commit' | 'capture'> {
+  wrap(writer: Pick<LedgerWriter, 'commit'>): Pick<LedgerWriter, 'commit'> {
     return {
       commit: async (op) => await this.commit(writer, op),
-      capture: async (specs) => await writer.capture(specs),
     }
   }
 

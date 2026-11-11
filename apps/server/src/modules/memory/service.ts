@@ -39,10 +39,6 @@ export type ConversationCommandWriter = Pick<LedgerWriter, 'commit'>
  */
 export interface MemoryLedger {
   commit<T>(operation: LedgerCommitOp<T>): LedgerCommitResult<T> | Promise<LedgerCommitResult<T>>
-  reconcile(
-    entity: 'conversation',
-    rows: { id: string; value: unknown }[],
-  ): MetadataChange[] | Promise<MetadataChange[]>
 }
 
 export interface MemoryServiceDeps {

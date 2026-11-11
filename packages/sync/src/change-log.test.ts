@@ -1,9 +1,8 @@
 import { asMutationId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
-import { Authority } from './authority/authority'
 import type { ChangeLogReadRow } from './authority/change-lifecycle'
 import { type ChangeLogStore, ChangeRangeBootstrapRequired, readChangesRange } from './change-log'
-import { installedWorldOver } from './conformance/installed-reads'
+import { ModelAuthority as Authority } from './conformance/model-records'
 import {
   DEVICE_GRADE_PRINCIPAL,
   DeviceGradeNoAnchors,
@@ -42,7 +41,7 @@ function fixture(count = 3) {
       afterRead()
       return page
     }),
-    ...installedWorldOver(async () => []),
+
     planChangePrune: async () => ({ thresholdSeq: 0 }),
     pruneChangeBatch: async () => 0,
   }

@@ -1,11 +1,11 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import type { MutationId, SessionId } from '@podium/model'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { sql } from 'drizzle-orm'
-import { drizzle as proxyDrizzle } from 'drizzle-orm/sqlite-proxy'
-import { AsyncLocalStorage } from 'node:async_hooks'
 import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { drizzle as proxyDrizzle } from 'drizzle-orm/sqlite-proxy'
 import type { SyncServerTables } from './server-tables'
-import type { StoreQueries, StoreDrizzle } from './store-queries'
+import type { StoreDrizzle, StoreQueries } from './store-queries'
 import { SyncRepository } from './sync-repository'
 
 /**
@@ -69,7 +69,7 @@ export const testSyncServerTables: SyncServerTables = {
 
 /**
  * A `SyncRepository` over a fresh in-memory SQLite DB carrying the tables it
- * reads: `changes`, `change_latest`, `applied_mutations` and `feed_identity` (owned
+ * reads: `changes`, `applied_mutations` and `feed_identity` (owned
  * by THIS adapter's `./schema.ts` since POD-305) plus `queued_messages` and `upstream_outbox`
  * (feature-owned, declared in apps/server's schema — this adapter reads them,
  * and reading a table is not owning it).
@@ -107,7 +107,7 @@ export function createTestSyncRepository(): SyncRepository {
  * without the refusal stub.
  */
 type FullTestDrizzle = ReturnType<typeof proxyDrizzle>
-type TestTransactionDrizzle = Parameters<Parameters<FullTestDrizzle["transaction"]>[0]>[0]
+type TestTransactionDrizzle = Parameters<Parameters<FullTestDrizzle['transaction']>[0]>[0]
 
 const testTransactionScope = new AsyncLocalStorage<FullTestDrizzle | TestTransactionDrizzle>()
 
@@ -136,10 +136,7 @@ export function createTestSyncQueries(db: SqlDatabase = createTestSyncDatabase()
       if (current) {
         return current.transaction((inner) => testTransactionScope.run(inner, fn))
       }
-      return rootDb.transaction(
-        (tx) => testTransactionScope.run(tx, fn),
-        { behavior: 'immediate' },
-      )
+      return rootDb.transaction((tx) => testTransactionScope.run(tx, fn), { behavior: 'immediate' })
     },
   }
 }
@@ -166,18 +163,7 @@ export function createTestSyncDatabase(): SqlDatabase {
   )
   db.exec('CREATE INDEX changes_entity ON changes(entity, entity_id, seq)')
   db.exec('CREATE INDEX changes_event_time ON changes(event_time)')
-  db.exec(
-    // POD-678's installed world: the latest LIVE state per (entity, id), written
-    // by the same append that writes `changes` and never pruned with it.
-    `CREATE TABLE change_latest (
-       entity    TEXT NOT NULL,
-       entity_id TEXT NOT NULL,
-       seq       INTEGER NOT NULL,
-       payload   TEXT NOT NULL,
-       PRIMARY KEY (entity, entity_id)
-     )`,
-  )
-  db.exec('CREATE INDEX change_latest_seq ON change_latest(seq)')
+
   db.exec(
     `CREATE TABLE applied_mutations (
        mutation_id TEXT PRIMARY KEY,

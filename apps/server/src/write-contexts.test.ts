@@ -1,3 +1,4 @@
+import { ModelLedger as Ledger } from '@podium/sync/testing'
 /**
  * THE WRITE CONTEXTS (ADR 12 D9, POD-6592): who may write synced data follows
  * from what code was handed, and the origin table is the census of every writer
@@ -5,7 +6,7 @@
  */
 
 import { asMutationId } from '@podium/model'
-import { DEVICE_GRADE_PRINCIPAL, type EntityChangeSpec, Ledger } from '@podium/sync'
+import { DEVICE_GRADE_PRINCIPAL, type EntityChangeSpec } from '@podium/sync'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   PlainCommandWroteSyncedData,
@@ -92,7 +93,7 @@ describe('write contexts', () => {
     const { ledger, writes } = await contexts()
     const start = await ledger.cursor()
     const writer = writes.sync(asMutationId('mut_ctx'))
-    await inCommand('mut_ctx', async () => await writer.capture([spec('a')]))
+    await inCommand('mut_ctx', async () => await writer.commit(ledger.rowWrite([spec('a')])))
     const appended = await rows(ledger, start)
     expect(appended.map((r) => [r.entityId, r.mutationId])).toEqual([['a', 'mut_ctx']])
   })
@@ -102,7 +103,10 @@ describe('write contexts', () => {
     const start = await ledger.cursor()
     const feed = writes.system('feed.messages')
     await expect(
-      withPlainCommand('accounts.signIn', async () => await feed.capture([spec('p')])),
+      withPlainCommand(
+        'accounts.signIn',
+        async () => await feed.commit(ledger.rowWrite([spec('p')])),
+      ),
     ).rejects.toBeInstanceOf(PlainCommandWroteSyncedData)
     expect(await ledger.cursor()).toBe(start)
   })
@@ -112,18 +116,18 @@ describe('write contexts', () => {
     const start = await ledger.cursor()
     const boot = writes.system('boot.reconcile')
     await expect(
-      inCommand('mut_boot', async () => await boot.capture([spec('b')])),
+      inCommand('mut_boot', async () => await boot.commit(ledger.rowWrite([spec('b')]))),
     ).rejects.toBeInstanceOf(SystemWriteInsideCommand)
     expect(await ledger.cursor()).toBe(start)
 
     const mirror = writes.system('feed.messages')
-    await inCommand('mut_m', async () => await mirror.capture([spec('m')]))
+    await inCommand('mut_m', async () => await mirror.commit(ledger.rowWrite([spec('m')])))
     expect((await rows(ledger, start)).map((r) => r.mutationId)).toEqual(['mut_m'])
 
     // Outside any command the server origin writes on its own account, with no
     // command's provenance.
     const before = await ledger.cursor()
-    await boot.capture([spec('r')])
+    await boot.commit(ledger.rowWrite([spec('r')]))
     expect((await rows(ledger, before)).map((r) => [r.entityId, r.mutationId])).toEqual([
       ['r', undefined],
     ])
@@ -158,7 +162,10 @@ describe('the session writes have named origins (POD-6601)', () => {
     for (const origin of ['sessions.daemon', 'sessions.lifecycle'] as const) {
       const writer = writes.system(origin)
       await expect(
-        inCommand(`mut_${origin}`, async () => await writer.capture([spec(origin)])),
+        inCommand(
+          `mut_${origin}`,
+          async () => await writer.commit(ledger.rowWrite([spec(origin)])),
+        ),
       ).rejects.toBeInstanceOf(SystemWriteInsideCommand)
     }
     expect(await ledger.cursor()).toBe(start)
@@ -183,7 +190,10 @@ describe('the superagent writes per command (POD-6606)', () => {
     for (const origin of ['superagent.turns', 'superagent.bridge'] as const) {
       const writer = writes.system(origin)
       await expect(
-        inCommand(`mut_${origin}`, async () => await writer.capture([spec(origin)])),
+        inCommand(
+          `mut_${origin}`,
+          async () => await writer.commit(ledger.rowWrite([spec(origin)])),
+        ),
       ).rejects.toBeInstanceOf(SystemWriteInsideCommand)
     }
     expect(await ledger.cursor()).toBe(start)
@@ -208,12 +218,15 @@ describe('the message writes have named origins (POD-6602)', () => {
     for (const origin of ['messages.daemon', 'messages.delivery', 'messages.server'] as const) {
       const writer = writes.system(origin)
       await expect(
-        inCommand(`mut_${origin}`, async () => await writer.capture([spec(origin)])),
+        inCommand(
+          `mut_${origin}`,
+          async () => await writer.commit(ledger.rowWrite([spec(origin)])),
+        ),
       ).rejects.toBeInstanceOf(SystemWriteInsideCommand)
       await expect(
         inCommand(
           `mut_${origin}_commit`,
-          async () => await writer.commit({ write: async () => undefined, changes: () => [] }),
+          async () => await writer.commit({ write: async () => undefined }),
         ),
       ).rejects.toBeInstanceOf(SystemWriteInsideCommand)
     }

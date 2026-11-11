@@ -226,7 +226,6 @@ describe('the change log', () => {
     rows[150] = { entity: null, entityId: 'bad', op: 'upsert', payload: '{}' } as never
     await expect(repo.appendChanges(rows, 1)).rejects.toThrow()
     expect(stored('SELECT COUNT(*) AS n FROM changes')).toEqual([{ n: 0 }])
-    expect(stored('SELECT COUNT(*) AS n FROM change_latest')).toEqual([{ n: 0 }])
   })
 
   it('carries a `remove` through with a null payload', async () => {
@@ -246,7 +245,6 @@ describe('the statements themselves', () => {
     // `upstream_outbox`.
     const { repo, sql } = recordingRepo()
     await repo.changesSince(0)
-    await repo.latestChangeStates()
     await repo.listQueuedMessages(session('s1'))
     await repo.listParkedUpstreamMutations()
     const selects = sql().filter((s) => s.startsWith('select'))
@@ -266,7 +264,6 @@ describe('the statements themselves', () => {
       'causation_id',
       'mutation_id',
     ])
-    expect(projection('change_latest')).toEqual(['seq', 'entity', 'entity_id', 'payload'])
     expect(projection('queued_messages')).toEqual([
       'id',
       'text',
@@ -371,64 +368,9 @@ describe('retention', () => {
     expect(await repo.minChangeSeq()).toBe(5)
     await expect(repo.pruneChangeBatch({ thresholdSeq: 10 }, 0)).rejects.toThrow(RangeError)
   })
-
-  it('touches `changes` ONLY — the installed world survives a full prune', async () => {
-    await append(3, 1_000)
-    expect(await repo.pruneChangeBatch({ thresholdSeq: 3 })).toBe(3)
-    expect(await repo.latestChangeStates()).toHaveLength(3)
-  })
 })
 
-describe('the installed world', () => {
-  it('keeps LOG order inside one batch, so a later remove wins over an earlier upsert', async () => {
-    // The reason `applyLatestChangeStates` is row-by-row rather than two bulk
-    // statements: grouped by op, the upsert would be applied last and the entity
-    // would stay installed.
-    await repo.appendChanges(
-      [
-        change('issueProjection', 'i1', 'upsert', '{"v":1}'),
-        change('issueProjection', 'i1', 'remove', null),
-      ],
-      1,
-    )
-    expect(await repo.latestChangeStates()).toEqual([])
-  })
-
-  it('takes the LAST upsert of one entity in a batch', async () => {
-    await repo.appendChanges(
-      [
-        change('issueProjection', 'i1', 'upsert', '{"v":1}'),
-        change('issueProjection', 'i1', 'upsert', '{"v":2}'),
-      ],
-      1,
-    )
-    expect(await repo.latestChangeStates()).toEqual([
-      { seq: 2, entity: 'issueProjection', entityId: 'i1', op: 'upsert', payload: '{"v":2}' },
-    ])
-  })
-
-  it('treats a payload-less upsert as "not installed"', async () => {
-    await repo.appendChanges([change('issueProjection', 'i1', 'upsert', '{}')], 1)
-    await repo.appendChanges([change('issueProjection', 'i1', 'upsert', null)], 2)
-    expect(await repo.latestChangeStates()).toEqual([])
-    expect(stored('SELECT COUNT(*) AS n FROM change_latest')).toEqual([{ n: 0 }])
-  })
-
-  it('returns the world in seq order', async () => {
-    await repo.appendChanges(
-      [
-        change('issueProjection', 'i1', 'upsert', '1'),
-        change('issueProjection', 'i2', 'upsert', '2'),
-      ],
-      1,
-    )
-    await repo.appendChanges([change('issueProjection', 'i1', 'upsert', '3')], 2)
-    expect((await repo.latestChangeStates()).map((r) => [r.entityId, r.seq])).toEqual([
-      ['i2', 2],
-      ['i1', 3],
-    ])
-  })
-})
+describe('the installed world', () => {})
 
 describe('the installed world, read by key [POD-6156]', () => {
   beforeEach(async () => {
@@ -444,46 +386,6 @@ describe('the installed world, read by key [POD-6156]', () => {
       ],
       1,
     )
-  })
-
-  it('returns the installed rows of the asked keys only, once each', async () => {
-    const rows = await repo.installedStates([
-      { entity: 'issueProjection', entityId: 'a' },
-      { entity: 'issueDep', entityId: 'a|c|related' },
-      { entity: 'issueDep', entityId: 'a|c|related' },
-      { entity: 'issueDep', entityId: 'a|gone|related' },
-      { entity: 'issueProjection', entityId: 'missing' },
-      // Same id, other kind: a key is the pair.
-      { entity: 'issueGitState', entityId: 'a' },
-    ])
-    expect(rows.sort((x, y) => x.seq - y.seq)).toEqual([
-      { seq: 2, entity: 'issueDep', entityId: 'a|c|related', op: 'upsert', payload: '"ac"' },
-      { seq: 6, entity: 'issueProjection', entityId: 'a', op: 'upsert', payload: '"issue"' },
-    ])
-    expect(await repo.installedStates([])).toEqual([])
-  })
-
-  it('reads more keys than one statement holds', async () => {
-    const keys = Array.from({ length: 600 }, (_, i) => ({
-      entity: 'issueProjection',
-      entityId: `k${i}`,
-    }))
-    expect(
-      await repo.installedStates([...keys, { entity: 'issueProjection', entityId: 'a' }]),
-    ).toEqual([
-      { seq: 6, entity: 'issueProjection', entityId: 'a', op: 'upsert', payload: '"issue"' },
-    ])
-  })
-
-  it('returns the ids under each prefix and no others, with their seqs', async () => {
-    const ids = await repo.installedIdsWithPrefixes('issueDep', ['a|', 'a\\|x|'])
-    expect(ids.sort((x, y) => x.seq - y.seq)).toEqual([
-      { entityId: 'a|b|blocked-by', seq: 1 },
-      { entityId: 'a|c|related', seq: 2 },
-      { entityId: 'a\\|x|y|related', seq: 4 },
-    ])
-    expect(await repo.installedIdsWithPrefixes('issueProjection', ['a|'])).toEqual([])
-    expect(await repo.installedIdsWithPrefixes('issueDep', [])).toEqual([])
   })
 })
 

@@ -347,13 +347,13 @@ export class EffectsRunner {
   private async write<T>(recordId: string, fn: (scope: WriteScope) => Promise<T>): Promise<T> {
     return await withWriteProvenance(
       { causationId: recordId },
-      async () => (await this.deps.writer.commit({ write: fn, changes: () => [] })).result,
+      async () => (await this.deps.writer.commit({ write: fn })).result,
     )
   }
 
   /** A sweep's write, on the runner's own writer. */
   private async sweepWrite<T>(fn: (scope: WriteScope) => Promise<T>): Promise<T> {
-    return (await this.deps.writer.commit({ write: fn, changes: () => [] })).result
+    return (await this.deps.writer.commit({ write: fn })).result
   }
 }
 

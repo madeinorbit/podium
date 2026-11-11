@@ -1,668 +1,204 @@
-/**
- * THE AUTHORITY — unit-tested INDEPENDENT OF apps/server, which is the
- * acceptance criterion. Nothing here imports a server module, a database, or a
- * transport; the store is an in-memory double and `transact` is a real span with
- * observable rollback, so the atomicity claims are measured rather than asserted.
- */
-
-import {
-  asMutationId,
-  type ChangeProvenanceFields,
-  type MatrixRow,
-  OWNERSHIP_MATRIX,
-} from '@podium/model'
+import { asMutationId, OWNERSHIP_MATRIX } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
-import type { ChangeLogStore } from '../change-log'
-import { installedWorldOver } from '../conformance/installed-reads'
+import { memoryChangeLog } from '../conformance/ledger-writer'
+import { ModelAuthority } from '../conformance/model-records'
 import {
   DEVICE_GRADE_PRINCIPAL,
   DeviceGradeNoAnchors,
   DeviceGradeUnscopedPolicy,
 } from '../feed/visibility'
-import { Authority } from './authority'
-import type { ChangeLogReadRow, ScopedChange, StagedChangeSpec } from './change-lifecycle'
+import type { AuthorityDeps } from './authority'
+import type { StagedChangeSpec } from './change-lifecycle'
 
-const rowWith = (rule: string): string => {
-  const row = (OWNERSHIP_MATRIX as readonly MatrixRow[]).find((r) => r.conflict === rule)
-  if (!row) throw new Error(`no shipped matrix row declares '${rule}'`)
-  return row.id
-}
-
-/**
- * An in-memory change log with a REAL transaction: `transact` snapshots the row
- * array and restores it on a throw.
- *
- * That matters more than it looks. With a pass-through `(fn) => fn()` every
- * rollback assertion in this file would be vacuous — the append would simply have
- * happened, and "the change log is untouched" would be measuring an append that
- * was never reached rather than one that was undone.
- */
-function memoryStore() {
-  let rows: ChangeLogReadRow[] = []
-  let nextSeq = 1
-  const store: ChangeLogStore & { rows: typeof rows } = {
-    get rows() {
-      return rows
-    },
-    async appendChanges(batch, _eventTime) {
-      const seqs: number[] = []
-      for (const r of batch) {
-        rows.push({ seq: nextSeq, ...r })
-        seqs.push(nextSeq)
-        nextSeq += 1
-      }
-      return seqs
-    },
-    maxChangeSeq: async () => nextSeq - 1,
-    minChangeSeq: async () => rows[0]?.seq ?? null,
-    changesSince: async (cursor) => rows.filter((r) => r.seq > cursor),
-    changesInRange: async (from, through, limit) =>
-      rows.filter((r) => r.seq > from && r.seq <= through).slice(0, limit),
-    planChangePrune: async () => ({ thresholdSeq: 0 }),
-    pruneChangeBatch: async () => 0,
-    ...installedWorldOver(async () => {
-      const latest = new Map<string, (typeof rows)[number]>()
-      for (const r of rows) latest.set(`${r.entity}/${r.entityId}`, r)
-      return [...latest.values()]
-    }),
-  }
-  const transact = async <T>(fn: () => Promise<T>): Promise<T> => {
-    const snapshot = rows.slice()
-    const savedSeq = nextSeq
-    try {
-      return await fn()
-    } catch (err) {
-      rows = snapshot
-      nextSeq = savedSeq
-      throw err
-    }
-  }
-  return {
-    store,
-    transact,
-    get rows() {
-      return rows
-    },
-  }
-}
-
-const upsert = (id: string, value: unknown): StagedChangeSpec => ({
+const upsert = (entityId: string, value: unknown): StagedChangeSpec => ({
   entity: 'session',
-  entityId: id,
+  entityId,
   op: 'upsert',
   value,
 })
-
-function build(now: () => number = () => 1000) {
-  const mem = memoryStore()
-  return {
-    mem,
-    authority: new Authority({
-      store: mem.store,
-      now,
-      transact: mem.transact,
-      // These cases are about the FUNNEL — order, arbitration, the ordered pipe.
-      // They stand for the one-principal deployment, so they name the policy that
-      // matches it rather than inventing a permissive fake: a fake here would be a
-      // second definition of "everyone", and the audited one is this.
-      visibility: new DeviceGradeUnscopedPolicy(),
-      anchors: new DeviceGradeNoAnchors(),
-    }),
-  }
-}
-
-/**
- * Subscribe as the single principal these cases stand for, unwrapping the
- * delivery to the rows.
- *
- * The unwrap is deliberate and narrow: `subscribe` now hands over a
- * `ScopedDelivery` (rows plus the range they were evaluated over — see
- * `scoping.ts`), and the cases below are about ORDER and ARBITRATION, which the
- * rows alone express. The scoping properties have their own file
- * (`authority.scoped.test.ts`), so neither suite is asserting the other's job.
- */
-function subscribe(
-  authority: Authority,
-  fn: (changes: readonly ScopedChange[]) => void,
-): () => void {
-  return authority.subscribe(DEVICE_GRADE_PRINCIPAL, (delivery) => {
-    if (delivery.kind === 'batch') fn(delivery.changes)
+const build = (extra: Partial<AuthorityDeps> = {}) =>
+  new ModelAuthority({
+    store: memoryChangeLog(),
+    now: () => 1_000,
+    transact: (fn) => fn(),
+    visibility: new DeviceGradeUnscopedPolicy(),
+    anchors: new DeviceGradeNoAnchors(),
+    ...extra,
   })
+const rowWith = (conflict: string) => {
+  const row = OWNERSHIP_MATRIX.find((row) => row.conflict === conflict)
+  if (!row) throw new Error(`missing ${conflict}`)
+  return row.id
 }
 
-// ---------------------------------------------------------------------------
-// THE FUNNEL ORDER — the property the join exists to make structural
-// ---------------------------------------------------------------------------
-
-describe('authorize → arbitrate → write → append → broadcast', () => {
-  it('runs the steps in that order', async () => {
-    const { mem, authority } = build()
-    const trace: string[] = []
-    subscribe(authority, () => trace.push('broadcast'))
-    await authority.commit({
-      authorize: async () => {
-        trace.push('authorize')
-      },
-      arbitrate: { rowId: rowWith('exp-rev'), attempt: {} },
-      write: async () => {
-        trace.push('write')
-        return 'ok'
-      },
-      changes: () => {
-        trace.push('changes')
-        return [upsert('s1', { a: 1 })]
+describe('authority write funnel', () => {
+  it('authorizes, arbitrates inside the transaction, writes, appends and broadcasts in order', async () => {
+    const order: string[] = []
+    let inside = false
+    const store = memoryChangeLog()
+    const append = store.appendChanges.bind(store)
+    store.appendChanges = async (...args) => {
+      order.push('append')
+      return await append(...args)
+    }
+    const authority = build({
+      store,
+      transact: async (fn) => {
+        inside = true
+        try {
+          return await fn()
+        } finally {
+          inside = false
+        }
       },
     })
-    expect(trace).toEqual(['authorize', 'write', 'changes', 'broadcast'])
-    expect(mem.rows).toHaveLength(1)
-  })
-
-  it('a throwing authorize writes NOTHING and appends NOTHING', async () => {
-    // "A forbidden op must never write" as control flow rather than as every
-    // caller remembering. The write is unreachable past the throw.
-    const { mem, authority } = build()
-    const write = vi.fn()
-    await expect(
-      authority.commit({
-        authorize: async () => {
-          throw new Error('denied')
-        },
-        write,
-        changes: () => [upsert('s1', { a: 1 })],
-      }),
-    ).rejects.toThrow('denied')
-    expect(write).not.toHaveBeenCalled()
-    expect(mem.rows).toEqual([])
-  })
-
-  it('a REJECTED arbitration writes nothing and appends nothing', async () => {
-    // A rejection must leave no entity change to undo, which is why arbitration
-    // runs BEFORE the write rather than being checked after it.
-    const { mem, authority } = build()
-    const write = vi.fn(async () => 'ok')
+    authority.subscribe(DEVICE_GRADE_PRINCIPAL, () => {
+      expect(inside).toBe(false)
+      order.push('broadcast')
+    })
+    const spec = upsert('s', { a: 1 })
     const outcome = await authority.commit({
+      authorize: async () => {
+        order.push('authorize')
+      },
       arbitrate: {
         rowId: rowWith('exp-rev'),
         attempt: { expectedRevision: 1 },
-        current: async () => ({ revision: 9 }),
+        current: async () => {
+          expect(inside).toBe(true)
+          order.push('arbitrate')
+          return { revision: 1 }
+        },
       },
-      write,
-      changes: () => [upsert('s1', { a: 1 })],
+      affects: [spec],
+      write: async () => {
+        order.push('write')
+        authority.models.set([spec])
+        return 42
+      },
     })
-    expect(outcome).toEqual({ outcome: 'rejected', reason: 'revision-mismatch' })
-    expect(write).not.toHaveBeenCalled()
-    expect(mem.rows).toEqual([])
+    expect(outcome).toMatchObject({ outcome: 'committed', result: 42, changes: [{ seq: 1 }] })
+    expect(order).toEqual(['authorize', 'arbitrate', 'write', 'append', 'broadcast'])
   })
 
-  it('authorization runs BEFORE arbitration', async () => {
-    // The order is not cosmetic. A principal who may not write at all must be
-    // refused without learning anything about the row's revision — a rejection
-    // carries a reason and a denial must not, so a denial that arrived AFTER an
-    // arbitration verdict would already have leaked whether the row exists.
-    const { authority } = build()
-    const trace: string[] = []
+  it('refuses an unauthorized write before arbitration or data reads', async () => {
+    const authority = build()
+    const current = vi.fn(async () => ({ revision: 1 }))
+    const write = vi.fn(async () => undefined)
     await expect(
       authority.commit({
         authorize: async () => {
-          trace.push('authorize')
           throw new Error('denied')
         },
-        arbitrate: {
-          rowId: rowWith('cmd'),
-          attempt: {},
-          commandRule: () => {
-            trace.push('arbitrate')
-            return { ok: true }
-          },
-        },
-        write: async () => 'ok',
-        changes: () => [],
+        arbitrate: { rowId: rowWith('exp-rev'), attempt: { expectedRevision: 1 }, current },
+        write,
       }),
     ).rejects.toThrow('denied')
-    expect(trace).toEqual(['authorize'])
+    expect(current).not.toHaveBeenCalled()
+    expect(write).not.toHaveBeenCalled()
+    expect(await authority.cursor()).toBe(0)
   })
-})
 
-// ---------------------------------------------------------------------------
-// ONE SPAN — ADR 2 D10
-// ---------------------------------------------------------------------------
-
-describe('the entity write and the change append share one span', () => {
-  it('reads arbitration current state inside the write transaction', async () => {
-    const mem = memoryStore()
-    const trace: string[] = []
-    const authority = new Authority({
-      store: mem.store,
-      now: () => 1000,
-      transact: async (work) => {
-        trace.push('transaction-begin')
-        const result = await mem.transact(work)
-        trace.push('transaction-end')
-        return result
-      },
-      visibility: new DeviceGradeUnscopedPolicy(),
-      anchors: new DeviceGradeNoAnchors(),
-    })
-    const outcome = await authority.commit({
+  it('rejects stale arbitration before writing', async () => {
+    const authority = build()
+    const write = vi.fn(async () => undefined)
+    const result = await authority.commit({
       arbitrate: {
         rowId: rowWith('exp-rev'),
-        attempt: { expectedRevision: 4 },
-        current: async () => {
-          trace.push('read-current')
-          return { revision: 4 }
-        },
+        attempt: { expectedRevision: 1 },
+        current: async () => ({ revision: 2 }),
       },
-      write: async () => {
-        trace.push('write')
-        return 'ok'
-      },
-      changes: () => [],
+      write,
     })
-    expect(outcome.outcome).toBe('committed')
-    expect(trace).toEqual(['transaction-begin', 'read-current', 'write', 'transaction-end'])
-  })
-
-  it('rolls the append back when changes() throws', async () => {
-    const { mem, authority } = build()
-    await expect(
-      authority.commit({
-        write: async () => 'ok',
-        changes: () => {
-          throw new Error('boom')
-        },
-      }),
-    ).rejects.toThrow('boom')
-    expect(mem.rows).toEqual([])
-  })
-
-  it('leaves the in-memory baseline untouched after a rollback', async () => {
-    // The subtle half. If the baseline folded BEFORE the span committed, a
-    // rolled-back upsert would be remembered as applied, and the retry of the
-    // same write would dedup away — a write silently lost with the log and the
-    // tables both consistent and both wrong.
-    const { mem, authority } = build()
-    let fail = true
-    await expect(
-      authority.commit({
-        write: async () => 'ok',
-        changes: () => {
-          const specs = [upsert('s1', { a: 1 })]
-          if (fail) throw new Error('boom')
-          return specs
-        },
-      }),
-    ).rejects.toThrow()
-    fail = false
-    const outcome = await authority.commit({
-      write: async () => 'ok',
-      changes: () => [upsert('s1', { a: 1 })],
-    })
-    expect(outcome.outcome).toBe('committed')
-    expect(mem.rows).toHaveLength(1)
-  })
-
-  it('does not append until the awaited entity write resolves', async () => {
-    const { mem, authority } = build()
-    let releaseWrite: () => void = () => undefined
-    let reportStarted: () => void = () => undefined
-    const writeStarted = new Promise<void>((resolve) => {
-      reportStarted = resolve
-    })
-    const writeMayFinish = new Promise<void>((resolve) => {
-      releaseWrite = resolve
-    })
-    const pending = authority.commit({
-      write: async () => {
-        reportStarted()
-        await writeMayFinish
-        return 'later'
-      },
-      changes: () => [upsert('s1', { a: 1 })],
-    })
-    await writeStarted
-    expect(mem.rows).toEqual([])
-    releaseWrite()
-    const outcome = await pending
-    expect(outcome.outcome).toBe('committed')
-    expect(mem.rows).toHaveLength(1)
-  })
-  it('does not broadcast a change the span rolled back', async () => {
-    const { authority } = build()
-    const seen: unknown[] = []
-    subscribe(authority, (c) => seen.push(c))
-    await expect(
-      authority.commit({
-        write: async () => 'ok',
-        changes: () => {
-          throw new Error('boom')
-        },
-      }),
-    ).rejects.toThrow()
-    expect(seen).toEqual([])
-  })
-})
-
-// ---------------------------------------------------------------------------
-// THE ORDERED PIPE — the reorder bug, reproduced
-// ---------------------------------------------------------------------------
-
-describe('the broadcast pipe delivers in APPEND order under reentrancy', () => {
-  it('does not deliver a reentrant commit ahead of the batch that caused it', async () => {
-    // THE BUG, reproduced: subscriber A commits again while being told about
-    // batch N. Without the queue, B is told about N+1 first and sees
-    // [N-1, N+1, N] — and delta clients apply `seq !== cursor + 1 → heal`, so B's
-    // cursor advances past N and heals forever against a log that returns the
-    // same rows in the same order.
-    const { authority } = build()
-    let reentered = false
-    // The reentrant commit is a PROMISE now that the store is async, so the
-    // subscriber cannot await it — a subscriber returns void by construction.
-    // The case awaits it before asserting instead. That is a settling await and
-    // not a relaxation: the ordering claim is unchanged, and the batch it waits
-    // for is the very one whose position is under test.
-    let reentrant: Promise<unknown> | undefined
-    subscribe(authority, () => {
-      if (reentered) return
-      reentered = true
-      reentrant = authority.commit({
-        write: async () => 'ok',
-        changes: () => [upsert('s2', { b: 1 })],
-      })
-    })
-    const bSaw: number[] = []
-    subscribe(authority, (changes) => {
-      for (const c of changes) bSaw.push(c.seq)
-    })
-    await authority.commit({ write: async () => 'ok', changes: () => [upsert('s1', { a: 1 })] })
-    await reentrant
-    expect(bSaw).toEqual([1, 2])
-  })
-
-  it('tells every subscriber even when an earlier one throws', async () => {
-    // The changes are already durable, so a throwing subscriber must not make a
-    // committed write look failed and must not silence the ones after it.
-    const { authority } = build()
-    const seen: number[] = []
-    subscribe(authority, () => {
-      throw new Error('subscriber boom')
-    })
-    subscribe(authority, (changes) => seen.push(changes.length))
-    const outcome = await authority.commit({
-      write: async () => 'ok',
-      changes: () => [upsert('s1', { a: 1 })],
-    })
-    expect(outcome.outcome).toBe('committed')
-    expect(seen).toEqual([1])
-  })
-
-  it('never broadcasts an empty batch', async () => {
-    const { authority } = build()
-    const batches: number[] = []
-    subscribe(authority, (c) => batches.push(c.length))
-    await authority.commit({ write: async () => 'ok', changes: () => [] })
-    expect(batches).toEqual([])
-  })
-
-  it('stops delivering after unsubscribe', async () => {
-    const { authority } = build()
-    const seen: number[] = []
-    const off = subscribe(authority, (c) => seen.push(c.length))
-    await authority.commit({ write: async () => 'ok', changes: () => [upsert('s1', { a: 1 })] })
-    off()
-    await authority.commit({ write: async () => 'ok', changes: () => [upsert('s1', { a: 2 })] })
-    expect(seen).toEqual([1])
-  })
-})
-
-// ---------------------------------------------------------------------------
-// DEDUP, RECONCILE, CURSOR
-// ---------------------------------------------------------------------------
-
-describe('dedup and the boot reconcile', () => {
-  it('drops a no-op upsert', async () => {
-    const { mem, authority } = build()
-    await authority.commit({ write: async () => 'ok', changes: () => [upsert('s1', { a: 1 })] })
-    const second = await authority.commit({
-      write: async () => 'ok',
-      changes: () => [upsert('s1', { a: 1 })],
-    })
-    expect(second).toMatchObject({ outcome: 'committed', changes: [] })
-    expect(mem.rows).toHaveLength(1)
-  })
-
-  it('drops a remove of an id the log never recorded', async () => {
-    const { mem, authority } = build()
-    await authority.capture([{ entity: 'session', entityId: 'ghost', op: 'remove' }])
-    expect(mem.rows).toEqual([])
-  })
-
-  it('stages an upsert and a remove of the same id in ONE batch', async () => {
-    // Batch-local overlay: the remove compares against the batch's own staged
-    // state, not against the pre-batch baseline, so a first-sight upsert
-    // followed by a remove stages BOTH.
-    const { authority } = build()
-    const changes = await authority.capture([
-      upsert('s1', { a: 1 }),
-      { entity: 'session', entityId: 's1', op: 'remove' },
-    ])
-    expect(changes.map((c) => c.op)).toEqual(['upsert', 'remove'])
-  })
-
-  it('reconcile emits a REMOVE for an id that vanished while the Authority was down', async () => {
-    // The only surviving full-list diff, and the reason reconcile exists: a
-    // deletion that happened while nothing was running has no write to have
-    // declared it, so the truth of "what is here now" is the only evidence.
-    const { authority } = build()
-    await authority.capture([upsert('s1', { a: 1 }), upsert('s2', { b: 1 })])
-    const changes = await authority.reconcile('session', [{ id: 's1', value: { a: 1 } }])
-    expect(changes).toEqual([
-      expect.objectContaining({ entityId: 's2', op: 'remove', entity: 'session' }),
-    ])
-  })
-
-  it('cursor is 0 before any change and tracks the highest seq after', async () => {
-    const { authority } = build()
+    expect(result.outcome).toBe('rejected')
+    expect(write).not.toHaveBeenCalled()
     expect(await authority.cursor()).toBe(0)
-    await authority.capture([upsert('s1', { a: 1 })])
-    expect(await authority.cursor()).toBe(1)
   })
 
-  it('changesSince(null) means "re-bootstrap", not "nothing changed"', async () => {
-    // A cold reader has no cursor to heal from, and an empty array would tell it
-    // it was already up to date.
-    const { authority } = build()
-    await authority.capture([upsert('s1', { a: 1 })])
-    expect(await authority.changesSince(null, DEVICE_GRADE_PRINCIPAL)).toBeNull()
-    const reply = await authority.changesSince(0, DEVICE_GRADE_PRINCIPAL)
-    expect(reply?.kind).toBe('batch')
-    expect(reply?.kind === 'batch' && reply.changes).toHaveLength(1)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// THE CLOCK — ADR 1 D3 condition 1
-// ---------------------------------------------------------------------------
-
-describe('the arbitration clock is the AUTHORITY’s', () => {
-  it('stamps the attempt from its own clock, not from the caller', async () => {
-    // The port has nowhere for a caller to supply an event time, so the only way
-    // to observe which clock was used is to watch what the rule is handed.
-    const { authority } = build(() => 4242)
-    let seen: number | undefined
-    await authority.commit({
-      arbitrate: {
-        rowId: rowWith('cmd'),
-        attempt: {},
-        commandRule: (attempt) => {
-          seen = attempt.eventTime
-          return { ok: true }
+  it('waits for the source write and broadcasts no rows when it throws', async () => {
+    const authority = build()
+    const delivered = vi.fn()
+    authority.subscribe(DEVICE_GRADE_PRINCIPAL, delivered)
+    const spec = upsert('s', 1)
+    await expect(
+      authority.commit({
+        affects: [spec],
+        write: async () => {
+          authority.models.set([spec])
+          await Promise.resolve()
+          throw new Error('failed')
         },
-      },
-      write: async () => 'ok',
-      changes: () => [],
-    })
-    expect(seen).toBe(4242)
-  })
-
-  it('a later write beats an earlier one on a field-LWW row, by the Authority clock', async () => {
-    let clock = 100
-    const { authority } = build(() => clock)
-    const lww = rowWith('field-LWW')
-    clock = 50
-    expect(
-      await authority.commit({
-        arbitrate: { rowId: lww, attempt: {}, current: async () => ({ eventTime: 100 }) },
-        write: async () => 'ok',
-        changes: () => [],
       }),
-    ).toMatchObject({ outcome: 'rejected', reason: 'stale-write' })
-    clock = 200
-    expect(
-      await authority.commit({
-        arbitrate: { rowId: lww, attempt: {}, current: async () => ({ eventTime: 100 }) },
-        write: async () => 'ok',
-        changes: () => [],
-      }),
-    ).toMatchObject({ outcome: 'committed' })
-  })
-})
-
-// ---------------------------------------------------------------------------
-// PROVENANCE — ADR 2 D8, ADR 12 (POD-6272)
-// ---------------------------------------------------------------------------
-
-describe('provenance rides the change log', () => {
-  const M = asMutationId('m-1')
-  const OTHER = asMutationId('m-explicit')
-
-  /** `build()` with an ambient provenance port whose answer a test can change. */
-  function withProvenance(initial: ChangeProvenanceFields | undefined) {
-    let ambient = initial
-    const mem = memoryStore()
-    const authority = new Authority({
-      store: mem.store,
-      now: () => 1000,
-      transact: mem.transact,
-      visibility: new DeviceGradeUnscopedPolicy(),
-      anchors: new DeviceGradeNoAnchors(),
-      provenance: { current: () => ambient },
-    })
-    return {
-      mem,
-      authority,
-      set: (next: ChangeProvenanceFields | undefined) => {
-        ambient = next
-      },
-    }
-  }
-
-  it('capture stamps the ambient provenance on the stored row and its broadcast', async () => {
-    const { mem, authority } = withProvenance({ mutationId: M, causationId: M })
-    const delivered: ScopedChange[] = []
-    subscribe(authority, (changes) => delivered.push(...changes))
-    const returned = await authority.capture([upsert('s1', { a: 1 })])
-    expect(mem.rows.at(-1)).toMatchObject({ mutationId: M, causationId: M })
-    expect(delivered[0]).toMatchObject({ mutationId: M, causationId: M })
-    expect(returned[0]).toMatchObject({ mutationId: M, causationId: M })
+    ).rejects.toThrow('failed')
+    expect(delivered).not.toHaveBeenCalled()
+    expect(await authority.snapshot('session')).toEqual([])
+    expect(await authority.save([spec])).toHaveLength(1)
   })
 
-  it('commit stamps the ambient provenance on every row it appends', async () => {
-    const { mem, authority } = withProvenance({ originId: 'peer-1', mutationId: M })
-    const outcome = await authority.commit({
-      write: async () => 'ok',
-      changes: () => [upsert('s1', { a: 1 }), upsert('s2', { b: 1 })],
+  it('delivers reentrant writes after every subscriber receives the causing batch', async () => {
+    const authority = build()
+    const seen: string[] = []
+    let nested: Promise<unknown> | undefined
+    authority.subscribe(DEVICE_GRADE_PRINCIPAL, (delivery) => {
+      seen.push(`a${delivery.throughSeq}`)
+      if (delivery.throughSeq === 1) nested = authority.save([upsert('second', 2)])
     })
-    expect(mem.rows).toEqual([
-      expect.objectContaining({ entityId: 's1', originId: 'peer-1', mutationId: M }),
-      expect.objectContaining({ entityId: 's2', originId: 'peer-1', mutationId: M }),
-    ])
-    expect(outcome).toMatchObject({
-      outcome: 'committed',
-      changes: [{ mutationId: M }, { mutationId: M }],
+    authority.subscribe(DEVICE_GRADE_PRINCIPAL, (delivery) => {
+      seen.push(`b${delivery.throughSeq}`)
     })
+    await authority.save([upsert('first', 1)])
+    await nested
+    expect(seen).toEqual(['a1', 'b1', 'a2', 'b2'])
   })
 
-  it('reads the ambient provenance once, at the call, not after the write', async () => {
-    // The port answers from the CALLER's async context. A commit whose write
-    // awaits must still stamp what was current when the call began.
-    const { mem, authority, set } = withProvenance({ mutationId: M })
+  it('isolates subscriber failures and stops delivery after unsubscribe', async () => {
+    const authority = build()
+    authority.subscribe(DEVICE_GRADE_PRINCIPAL, () => {
+      throw new Error('subscriber')
+    })
+    const delivered = vi.fn()
+    const off = authority.subscribe(DEVICE_GRADE_PRINCIPAL, delivered)
+    await authority.save([upsert('s', 1)])
+    off()
+    await authority.save([upsert('s', 2)])
+    expect(delivered).toHaveBeenCalledTimes(1)
+  })
+
+  it('stamps ambient provenance once at the call, preserving an explicit group', async () => {
+    let mutationId = asMutationId('first')
+    const current = vi.fn(() => ({ mutationId, originId: 'ambient' }))
+    const store = memoryChangeLog()
+    const authority = build({ store, provenance: { current } })
+    const spec = upsert('s', 1)
     await authority.commit({
+      affects: [spec],
       write: async () => {
-        set({ mutationId: OTHER })
-        return 'ok'
+        mutationId = asMutationId('later')
+        authority.models.set([spec])
       },
-      changes: () => [upsert('s1', { a: 1 })],
     })
-    expect(mem.rows[0]).toMatchObject({ mutationId: M })
-  })
-
-  it('an explicit spec provenance wins over the ambient one', async () => {
-    const { mem, authority } = withProvenance({ mutationId: M, causationId: M })
-    await authority.capture([{ ...upsert('s1', { a: 1 }), mutationId: OTHER }])
-    expect(mem.rows[0]).toMatchObject({ mutationId: OTHER })
-    // The WHOLE group comes from the spec: an ambient causation id is not
-    // grafted onto a row whose writer named its own provenance.
-    expect(mem.rows[0]).not.toHaveProperty('causationId')
-  })
-
-  it('reconcile appends rows without provenance', async () => {
-    const { mem, authority } = withProvenance({ mutationId: M })
-    await authority.reconcile('session', [{ id: 's1', value: { a: 1 } }])
-    expect(mem.rows).toHaveLength(1)
-    expect(mem.rows[0]).not.toHaveProperty('mutationId')
-    expect(mem.rows[0]).not.toHaveProperty('causationId')
-    expect(mem.rows[0]).not.toHaveProperty('originId')
-  })
-
-  it('absent stays absent: no port, or a port with nothing current, adds no keys', async () => {
-    for (const { authority, mem } of [build(), withProvenance(undefined)]) {
-      await authority.capture([upsert('s1', { a: 1 })])
-      expect(Object.keys(mem.rows[0] as object).sort()).toEqual([
-        'entity',
-        'entityId',
-        'op',
-        'payload',
-        'seq',
-      ])
-    }
-  })
-
-  it('a key the port reports as undefined is not written as a key', async () => {
-    const { mem, authority } = withProvenance({ mutationId: M, causationId: undefined })
-    await authority.capture([upsert('s1', { a: 1 })])
-    expect(mem.rows[0]).not.toHaveProperty('causationId')
-  })
-
-  it('a no-op write under a new mutation id still appends nothing', async () => {
-    // ADR 2 D8's reason provenance lives on the envelope: dedup compares the
-    // payload only, so a resubmitted unchanged value is still a no-op. The
-    // reply's receipt (Task 2) is what confirms such a write.
-    const { mem, authority, set } = withProvenance({ mutationId: M })
-    await authority.capture([upsert('s1', { a: 1 })])
-    set({ mutationId: OTHER })
-    expect(await authority.capture([upsert('s1', { a: 1 })])).toEqual([])
-    expect(mem.rows).toHaveLength(1)
-  })
-
-  it('changesRange returns the provenance it stored', async () => {
-    const { authority, set } = withProvenance({ mutationId: M, causationId: M })
-    await authority.capture([upsert('s1', { a: 1 })])
-    set(undefined)
-    await authority.capture([upsert('s2', { b: 1 })])
-    const reply = await authority.changesSince(0, DEVICE_GRADE_PRINCIPAL)
-    expect(reply?.kind).toBe('batch')
-    const changes = reply?.kind === 'batch' ? reply.changes : []
-    expect(changes).toEqual([
-      {
-        seq: 1,
-        entity: 'session',
-        entityId: 's1',
-        op: 'upsert',
-        value: { a: 1 },
-        mutationId: M,
-        causationId: M,
-      },
-      { seq: 2, entity: 'session', entityId: 's2', op: 'upsert', value: { b: 1 } },
+    await authority.save([{ ...upsert('t', 2), causationId: 'explicit' }])
+    expect(current).toHaveBeenCalledTimes(2)
+    expect(await store.changesSince(0)).toMatchObject([
+      { mutationId: 'first', originId: 'ambient' },
+      { causationId: 'explicit' },
     ])
+    const second = (await store.changesSince(1))[0]!
+    expect(second).not.toHaveProperty('mutationId')
+    expect(second).not.toHaveProperty('originId')
+    expect(await authority.save([spec])).toEqual([])
+  })
+
+  it('bootstraps from model rows after the entire catch-up log is deleted', async () => {
+    const store = memoryChangeLog()
+    const authority = build({ store })
+    await authority.save([upsert('old', 1), upsert('new', 2)])
+    store.minChangeSeq = async () => null
+    store.changesInRange = async () => []
+    const snapshot = await authority.bootstrap(DEVICE_GRADE_PRINCIPAL)
+    expect(snapshot.throughSeq).toBe(2)
+    expect(snapshot.changes.map((row) => row.entityId)).toEqual(['old', 'new'])
+    expect(snapshot.changes.map((row) => row.seq)).toEqual([2, 2])
+    expect(await authority.changesSince(0, DEVICE_GRADE_PRINCIPAL)).toBeNull()
   })
 })

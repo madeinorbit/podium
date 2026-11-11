@@ -191,10 +191,12 @@ const commitIssue = (
   value: unknown,
   op: 'upsert' | 'remove' = 'upsert',
 ) =>
-  testLedgerWriter(plumbing.ledger).commit({
-    write: async () => {},
-    changes: () => [{ entity: 'issueProjection', id, op, ...(op === 'upsert' ? { value } : {}) }],
-  })
+  testLedgerWriter(plumbing.ledger).commit(
+    plumbing.ledger.modelOperation({
+      write: async () => {},
+      rows: () => [{ entity: 'issueProjection', id, op, ...(op === 'upsert' ? { value } : {}) }],
+    }),
+  )
 
 /** Wait for admission and for every live socket to certify the committed head.
  * A single microtask cannot drain the asynchronous store reads and fan-out.

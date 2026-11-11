@@ -95,7 +95,7 @@ export type ChangeLogWriteRow = Omit<StoredChangeRow, 'eventTime'>
  * A stored row re-read with its assigned `seq`. The payload is still serialized
  * bytes — this is the persistence shape, not {@link SequencedChange}.
  *
- * Used by `changesSince` and `latestChangeStates` on the store port so those
+ * Used by the change-log range readers on the store port so those
  * two reads cannot invent a third field list beside {@link StoredChangeRow}.
  */
 export type ChangeLogReadRow = ChangeLogWriteRow & { seq: number }

@@ -1,6 +1,6 @@
 import type { MetadataChange } from '@podium/protocol'
 import { Ledger, type LedgerDeps, type StoredChangeRow } from '@podium/sync'
-import { installedWorldOver, testLedgerWriter } from '@podium/sync/testing'
+import { testLedgerWriter } from '@podium/sync/testing'
 import type { SessionStore } from '../../../store'
 import { testStoreRecords } from '../../../test-support/record-writer'
 import type { IssueDeps } from './types'
@@ -101,10 +101,5 @@ export function memoryChangeLogStore(): LedgerDeps['repo'] {
       rows.filter((r) => r.seq > from && r.seq <= through).slice(0, limit),
     planChangePrune: async () => ({ thresholdSeq: 0 }),
     pruneChangeBatch: async () => 0,
-    ...installedWorldOver(async () => {
-      const latest = new Map<string, Row>()
-      for (const r of rows) latest.set(`${r.entity} ${r.entityId}`, r)
-      return [...latest.values()]
-    }),
   }
 }

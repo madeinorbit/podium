@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import type { IssueId, IssueProjection, SessionId, UserId } from '@podium/model'
-import { attributionOf, type CommandAttribution, type CommandPrincipal, onBehalfOfUser } from '../../../command-principal'
+import {
+  attributionOf,
+  type CommandAttribution,
+  type CommandPrincipal,
+  onBehalfOfUser,
+} from '../../../command-principal'
 import type { IssueMessageRow } from '../../../store'
 import { settingsAuditAttribution } from '../../../store/settings-audit'
 import type { IssueStore } from './core'
@@ -262,7 +267,6 @@ export class IssueCommentsMailModule {
       // rows' delivery status, a synced write; their feed changes come from the
       // messages table's capture, so the commit declares none.
       await writer.commit({
-        changes: () => [],
         write: async (scope) => {
           const at = this.store.now()
           if (unreadIds.length) {
@@ -319,7 +323,6 @@ export class IssueCommentsMailModule {
     opts?: { sessionId?: SessionId },
   ): Promise<{ claimed: boolean; message: IssueMessageRow }> {
     const { result: claimed } = await writer.commit({
-      changes: () => [],
       write: async (scope) => {
         const won = await this.store.deps.store.issues.claimIssueMessage(
           messageId,

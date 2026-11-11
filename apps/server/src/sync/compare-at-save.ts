@@ -1,46 +1,7 @@
 /**
- * WHICH KINDS COMPARE AT SAVE (POD-6769, design POD-6253 §3).
- *
- * A kind in {@link COMPARE_AT_SAVE_KINDS} has moved: a write names the records
- * it may affect in its commit's `affects`, and the Authority builds them from
- * the database before the write and again after it, through the record
- * builders (`record-builders.ts`), appending a change for each that differs.
- * Nothing compares such a kind's value with `change_latest` when it is saved.
- * The Authority refuses the other path for a moved kind (a declared change or a
- * capture), and refuses a named record of a kind that is not listed, so the
- * list is the fact and not a description of it.
- *
- * A kind not listed keeps the old compare. Kinds move one at a time.
- *
- * Every kind now compares at save. Each SOURCE write names its dependent
- * records before it runs (a queue write names its session, a grant write the
- * machine's rows), including writes to the satellites a record joins.
- *
- * READING IS SEPARATE FROM THIS LIST. The record source builds every kind in
- * the registry, moved or not: the start-up load, the sharing rules and the
- * Authority's by-id reads take current values from it (POD-6770).
- *
- * HOW A KIND MOVES
- *  1. It has a record builder (`record-builders.ts`): `build(ids)` answers the
- *     record exactly as its publisher publishes it. Prove that with the parity
- *     test and tool of POD-6763 before going on.
- *  2. Every writer names the record instead of declaring its value. In a
- *     `commit`: `affects: [{ entity, id }]`, and drop the kind's entries from
- *     `changes`. A writer that must read to know the ids passes a function,
- *     which runs inside the transaction before the first build. A row the
- *     write creates under an id it decides is named in `creates`.
- *  3. A `capture` of the kind becomes a `commit` that runs the row write: a
- *     capture has no write to build around. A repository hook that published
- *     after its row write wraps that write instead.
- *  4. Add the kind to the list below, in the same commit as its writers.
- *  5. Tests that build their own Ledger give it `testStoreRecords(store)`
- *     (`test-support/record-writer.ts`); a service unit test with no Ledger
- *     uses `recordTestWriter`.
- *  6. Re-pin the kind's statement-count tests: two builds replace one read of
- *     `change_latest`.
- *
- * Boot never reconciles a moved kind: migrations bump its sync_kind
- * generation, and client reloads stream the current model tables (POD-6221).
+ * Every synced kind compares model records before and after its source write.
+ * A writer names records in affects, creates, or the closed after-write list.
+ * Bootstrap and access checks use the same builders; there is no copy fallback.
  */
 
 import type { MetadataEntityKind } from '@podium/protocol'

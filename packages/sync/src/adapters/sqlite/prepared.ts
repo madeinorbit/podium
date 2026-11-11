@@ -12,7 +12,7 @@
  * drizzle instance over the executor's AMBIENT client, whose router resolves the
  * enclosing transaction for each statement as it executes. So a query prepared
  * once runs inside whatever transaction is current when it is executed, exactly
- * like the fluent form did (`SyncRepository`'s `change_latest` statements have
+ * like the fluent form did (the sync repository's append statements have
  * relied on this since POD-3494).
  *
  * The helpers here are keyed by that drizzle instance rather than held as plain
@@ -33,7 +33,15 @@
  *     SHAPE. The key comes from a finite domain, never from a value.
  */
 
-import { type Column, inArray, notInArray, Param, type Placeholder, type SQL, sql } from 'drizzle-orm'
+import {
+  type Column,
+  inArray,
+  notInArray,
+  Param,
+  type Placeholder,
+  type SQL,
+  sql,
+} from 'drizzle-orm'
 
 // ---------------------------------------------------------------------------
 // The definition registry [POD-6148]

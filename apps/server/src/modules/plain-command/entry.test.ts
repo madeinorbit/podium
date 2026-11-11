@@ -1,14 +1,15 @@
+import { ModelLedger as Ledger } from '@podium/sync/testing'
 /**
  * THE PLAIN COMMAND PATH (ADR 12 D8, POD-6360).
  *
- * The no-Authority claim is tested against the REAL write-seam Ledger, composed
+ * The no-Authority claim is tested against the REAL write-seam composed
  * with the provenance port `relay.ts` gives it, over a real store: a double would
  * prove only that the double refuses.
  */
 
 import { type AnyCommandContract, accountsConnectContract } from '@podium/commands'
 import { asUserId, firstAdminMemberId } from '@podium/model'
-import { DEVICE_GRADE_PRINCIPAL, Ledger } from '@podium/sync'
+import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
 import { testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
@@ -194,7 +195,8 @@ describe('a plain handler cannot obtain a synced writer', () => {
         principal: admin,
         transport: 'trpc',
         input: { note: 'x' },
-        run: async () => await testLedgerWriter(ledger).capture(conversation('c-plain')),
+        run: async () =>
+          await testLedgerWriter(ledger).commit(ledger.rowWrite(conversation('c-plain'))),
       }),
     ).rejects.toBeInstanceOf(PlainCommandWroteSyncedData)
     expect(await changeCount(ledger)).toBe(0)
@@ -214,7 +216,6 @@ describe('a plain handler cannot obtain a synced writer', () => {
             write: async () => {
               wrote = true
             },
-            changes: async () => conversation('c-commit'),
           }),
       }),
     ).rejects.toBeInstanceOf(PlainCommandWroteSyncedData)
@@ -224,7 +225,7 @@ describe('a plain handler cannot obtain a synced writer', () => {
 
   it('the same capture outside any plain command succeeds (the refusal is the scope, not the ledger)', async () => {
     const ledger = await realLedger()
-    await testLedgerWriter(ledger).capture(conversation('c-outside'))
+    await testLedgerWriter(ledger).commit(ledger.rowWrite(conversation('c-outside')))
     expect(await changeCount(ledger)).toBe(1)
   })
 
@@ -237,7 +238,8 @@ describe('a plain handler cannot obtain a synced writer', () => {
       input: { note: 'x' },
       run: async () => {
         await asSystemWrite(
-          async () => await testLedgerWriter(ledger).capture(conversation('c-system')),
+          async () =>
+            await testLedgerWriter(ledger).commit(ledger.rowWrite(conversation('c-system'))),
         )
         return 'done'
       },
@@ -260,7 +262,8 @@ describe('a plain handler cannot obtain a synced writer', () => {
       input: { note: 'x' },
       run: () => {
         later = gate.then(
-          async () => await testLedgerWriter(ledger).capture(conversation('c-later')),
+          async () =>
+            await testLedgerWriter(ledger).commit(ledger.rowWrite(conversation('c-later'))),
         )
       },
     })
@@ -282,7 +285,7 @@ describe('a plain handler cannot obtain a synced writer', () => {
       input: { note: 'x' },
       run: async () => await held,
     })
-    await testLedgerWriter(ledger).capture(conversation('c-beside'))
+    await testLedgerWriter(ledger).commit(ledger.rowWrite(conversation('c-beside')))
     release()
     await plain
     expect(await changeCount(ledger)).toBe(1)

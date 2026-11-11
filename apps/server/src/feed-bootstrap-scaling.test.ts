@@ -40,7 +40,7 @@ import { fixtureWriteScope } from '@podium/sync/testing'
  * corpus sizes differ instead of matching.
  */
 
-import { asUserId, firstAdminMemberId, issueDepId } from '@podium/model'
+import { asSessionId, asUserId, firstAdminMemberId, issueDepId } from '@podium/model'
 import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
 import { queryAttributionEnabled } from '@podium/runtime/query-attribution'
 import type { EntityChangeSpec, Ledger } from '@podium/sync'
@@ -232,8 +232,6 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
         } as never)
       }
     })
-    const latestStates = vi.spyOn(store.sync, 'latestChangeStates')
-    const installedReads = vi.spyOn(store.sync, 'installedStates')
     // RE-POINTED, NOT RELAXED [POD-3261]. The conserved quantity this test names
     // is ONE SESSION READ per generation, however many anchored issue refs the
     // batch carries; only the read changed. It was `loadSessions()` — every live
@@ -529,16 +527,39 @@ describe('POD-6155 — feed passes read grants in one grouped query', () => {
     try {
       const publish = () =>
         grantReadsDuring(reg, async () => {
+          const ids = Array.from({ length: 50 }, (_, i) => asSessionId(`shared_${i}`))
           await internals(reg)
             .writes.system('conversations.discovery')
-            .capture(
-              Array.from({ length: 50 }, (_, i) => ({
-                entity: 'session',
-                id: `shared_${i}`,
-                op: 'upsert',
-                value: { id: `shared_${i}`, v: 2 },
-              })) as EntityChangeSpec[],
-            )
+            .commit({
+              affects: ids.map((id) => ({ entity: 'session', id })),
+              write: async (scope) =>
+                await store.sessions.upsertSessions(
+                  scope,
+                  ids.map((id) => ({
+                    id,
+                    ownerUserId: OTHER_OWNER,
+                    agentKind: 'codex',
+                    cwd: '/repo',
+                    title: id,
+                    name: null,
+                    originKind: 'spawn',
+                    conversationId: null,
+                    resumeKind: null,
+                    resumeValue: null,
+                    status: 'exited',
+                    exitCode: 0,
+                    durableLabel: id,
+                    createdAt: '2026-11-11T00:00:00.000Z',
+                    lastActiveAt: '2026-11-11T00:00:00.000Z',
+                    lastOutputAt: null,
+                    lastInputAt: null,
+                    lastResumedAt: null,
+                    machineId: store.hostMachineId,
+                    headless: false,
+                    issueId: null,
+                  })),
+                ),
+            })
           await delivery
         })
       // Attribution must be enabled before import. The focused acceptance run

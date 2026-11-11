@@ -1,10 +1,11 @@
 import type { MetadataChange } from '@podium/protocol'
 import type { AuthorityPort, ScopedChange, ScopedDelivery } from '@podium/sync'
-import { CHANGE_LOG_OBSERVER, Ledger } from '@podium/sync'
+import { CHANGE_LOG_OBSERVER } from '@podium/sync'
 import { testLedgerWriter } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
 import { type OnPublicationIdle, scheduleFeedFlush } from '../gateway/feed-serving'
 import { afterCommit, applyAfterCommit, spanOpen } from '../store/executor/executor'
+import { StoreModelLedger as Ledger } from '../test-support/model-ledger'
 import { openTestStore } from '../test-support/open-test-store'
 import { EventBus } from './bus'
 import { WriteFunnel } from './funnel'
@@ -32,7 +33,7 @@ async function makeFunnel() {
   const bus = new EventBus()
   const serving = recordingServing()
   const onPublished = vi.fn()
-  const ledger = new Ledger({
+  const ledger = new Ledger(store, {
     repo: store.sync,
     now: () => 1_000,
     transact: async (fn) => await store.transact(fn),
@@ -143,15 +144,19 @@ describe('WriteFunnel.run ordering', () => {
 describe('WriteFunnel.changesSince / cursor (ledger passthrough)', () => {
   it('serves ledger-appended changes from a cursor (one shared durable log)', async () => {
     const { funnel, ledger } = await makeFunnel()
-    await testLedgerWriter(ledger).commit({
-      write: async () => {},
-      changes: () => [{ entity: 'conversation', id: 'c1', op: 'upsert', value: { a: 1 } }],
-    })
+    await testLedgerWriter(ledger).commit(
+      ledger.modelOperation({
+        write: async () => {},
+        rows: () => [{ entity: 'conversation', id: 'c1', op: 'upsert', value: { a: 1 } }],
+      }),
+    )
     const cursor = await funnel.cursor()
-    await testLedgerWriter(ledger).commit({
-      write: async () => {},
-      changes: () => [{ entity: 'conversation', id: 'c1', op: 'upsert', value: { a: 2 } }],
-    })
+    await testLedgerWriter(ledger).commit(
+      ledger.modelOperation({
+        write: async () => {},
+        rows: () => [{ entity: 'conversation', id: 'c1', op: 'upsert', value: { a: 2 } }],
+      }),
+    )
     const changes = await funnel.changesSince(cursor, CHANGE_LOG_OBSERVER)
     expect(changes?.map((c) => c.id)).toEqual(['c1'])
     expect(await funnel.cursor()).toBe(2)
@@ -397,19 +402,23 @@ describe('the ordered, coalesced delivery pipe (#256)', () => {
       reentered = true
       funnel.flushDeltas()
       rowsAtBusEmit = serving.rows().map((change) => change.entityId)
-      innerCommit = testLedgerWriter(ledger).commit({
+      innerCommit = testLedgerWriter(ledger).commit(
+        ledger.modelOperation({
+          write: async () => {},
+          rows: () => [
+            { entity: 'issueProjection', id: 'inner', op: 'upsert', value: { id: 'inner' } },
+          ],
+        }),
+      )
+    })
+    await testLedgerWriter(ledger).commit(
+      ledger.modelOperation({
         write: async () => {},
-        changes: () => [
-          { entity: 'issueProjection', id: 'inner', op: 'upsert', value: { id: 'inner' } },
+        rows: () => [
+          { entity: 'issueProjection', id: 'outer', op: 'upsert', value: { id: 'outer' } },
         ],
-      })
-    })
-    await testLedgerWriter(ledger).commit({
-      write: async () => {},
-      changes: () => [
-        { entity: 'issueProjection', id: 'outer', op: 'upsert', value: { id: 'outer' } },
-      ],
-    })
+      }),
+    )
     await innerCommit
     funnel.flushDeltas()
     const emitted = serving.rows()

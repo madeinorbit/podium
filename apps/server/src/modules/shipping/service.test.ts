@@ -187,8 +187,6 @@ async function harness(
       commit: checked(async (op) => await testLedgerWriter(ledger).commit(op)) as ReturnType<
         typeof testLedgerWriter
       >['commit'],
-      capture: async (specs) => await testLedgerWriter(ledger).capture(specs),
-      reconcile: async (entity, rows) => await testLedgerWriter(ledger).reconcile(entity, rows),
     },
     daemon: { shippingJob },
     authorization: {
@@ -3040,12 +3038,6 @@ describe('ShippingService enqueue transaction', () => {
       startedAt: '2026-08-13T10:00:00.000Z',
       members: admitted.map(({ receipt }) => ({ orderId: receipt.order.id })),
     })
-    // The train was claimed behind the ledger: publish it, as the boot
-    // reconcile would. A later commit logs what it changes, not what an
-    // earlier write left unpublished (compare at save, POD-6769).
-    const seeded = await service['fullProjection']()
-    await testLedgerWriter(ledger).reconcile('shipOrder', seeded.orders)
-    await testLedgerWriter(ledger).reconcile('shipLane', seeded.lanes)
     await expect(
       service.enqueue(laneWriter(service), { issueId: sibling.issue.id, ...approval }),
     ).resolves.toMatchObject({
@@ -3575,12 +3567,10 @@ describe('POD-4974 O2 ship lanes', () => {
       stateChangedAt: at,
     })
   }
-  /** Publish the boot truth for what was seeded, as the server's hydrate does,
-   * without `reconcile()`, whose tick would start running the seeded orders. */
-  const publishSeeded = async (service: ShippingService, ledger: Ledger) => {
-    const truth = await service['fullProjection']()
-    await testLedgerWriter(ledger).reconcile('shipOrder', truth.orders)
-    await testLedgerWriter(ledger).reconcile('shipLane', truth.lanes)
+  /** Bootstrap reads seeded model truth without starting the lane machine. */
+  const publishSeeded = async (_service: ShippingService, ledger: Ledger) => {
+    await ledger.authority.snapshot('shipOrder')
+    await ledger.authority.snapshot('shipLane')
   }
   const published = async (ledger: Ledger) => {
     const lanes = (await ledger.authority.snapshot('shipLane')) as ShipLaneProjection[]
@@ -3641,18 +3631,8 @@ describe('POD-4974 O2 ship lanes', () => {
         minute: 3,
         repoPath: '/other',
       })
-      const truth = await service['fullProjection']()
-      // A ledger persisted by O2 still carries ranks. Boot/reconnect must replace
-      // those rows once; subsequent lane movement must not stamp them again.
-      await testLedgerWriter(ledger).reconcile(
-        'shipOrder',
-        truth.orders.map((row, index) => ({
-          ...row,
-          value: { ...row.value, queueRank: index + 1 },
-        })),
-      )
-      await testLedgerWriter(ledger).reconcile('shipLane', truth.lanes)
-      expect((await published(ledger)).orders.every((row) => 'queueRank' in row)).toBe(true)
+      // Bootstrap uses model rows, so obsolete ranks in old log rows are absent.
+      expect((await published(ledger)).orders.every((row) => !('queueRank' in row))).toBe(true)
       await publishSeeded(service, ledger)
       const before = await published(ledger)
       for (const row of before.orders) expect(row).not.toHaveProperty('queueRank')

@@ -1,3 +1,4 @@
+import { StoreModelLedger as Ledger } from '../../test-support/model-ledger'
 /**
  * The two harness shapes from POD-3248, with the REAL services wired [POD-3260].
  *
@@ -17,7 +18,6 @@
  * log with no way to notice.
  */
 
-import { Ledger } from '@podium/sync'
 import { testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../../store'
@@ -35,7 +35,7 @@ afterEach(async () => {
 async function openWiredStore(): Promise<{ store: SessionStore; ledger: Ledger }> {
   const store = await openTestStore(':memory:')
   stores.push(store)
-  const ledger = new Ledger({
+  const ledger = new Ledger(store, {
     repo: store.sync,
     now: () => Date.now(),
     transact: async (fn) => await store.transact(fn),
@@ -56,10 +56,12 @@ describe('a nested ledger.commit publishes after the OUTER commit', () => {
     })
 
     await store.transact(async () => {
-      await testLedgerWriter(ledger).commit({
-        write: async () => 'ok',
-        changes: () => [...upsert('i1', { v: 1 })],
-      })
+      await testLedgerWriter(ledger).commit(
+        ledger.modelOperation({
+          write: async () => 'ok',
+          rows: () => [...upsert('i1', { v: 1 })],
+        }),
+      )
       // The assertion that matters, and it is INSIDE the span: the savepoint has
       // released and the subscriber must still not have heard about it.
       expect(delivered).toEqual([])
@@ -76,10 +78,12 @@ describe('a nested ledger.commit publishes after the OUTER commit', () => {
 
     await expect(
       store.transact(async () => {
-        await testLedgerWriter(ledger).commit({
-          write: async () => 'ok',
-          changes: () => [...upsert('i2', { v: 1 })],
-        })
+        await testLedgerWriter(ledger).commit(
+          ledger.modelOperation({
+            write: async () => 'ok',
+            rows: () => [...upsert('i2', { v: 1 })],
+          }),
+        )
         throw new Error('the attach failed after the nested commit')
       }),
     ).rejects.toThrow('the attach failed after the nested commit')
@@ -100,10 +104,12 @@ describe('a nested ledger.commit publishes after the OUTER commit', () => {
     ledger.onAppended((changes) => {
       for (const change of changes) delivered.push(change.id)
     })
-    await testLedgerWriter(ledger).commit({
-      write: async () => 'ok',
-      changes: () => [...upsert('i3', { v: 1 })],
-    })
+    await testLedgerWriter(ledger).commit(
+      ledger.modelOperation({
+        write: async () => 'ok',
+        rows: () => [...upsert('i3', { v: 1 })],
+      }),
+    )
     expect(delivered).toEqual(['i3'])
   })
 })
@@ -122,19 +128,23 @@ describe('a subscriber that commits from inside its own notification', () => {
         for (const change of changes) seen.push(`${name}:${change.id}`)
         if (name === 'A' && !reentered) {
           reentered = true
-          reentrantCommit = testLedgerWriter(ledger).commit({
-            write: async () => 'ok',
-            changes: () => [...upsert('second', { v: 1 })],
-          })
+          reentrantCommit = testLedgerWriter(ledger).commit(
+            ledger.modelOperation({
+              write: async () => 'ok',
+              rows: () => [...upsert('second', { v: 1 })],
+            }),
+          )
         }
       })
     }
 
     await store.transact(async () => {
-      await testLedgerWriter(ledger).commit({
-        write: async () => 'ok',
-        changes: () => [...upsert('first', { v: 1 })],
-      })
+      await testLedgerWriter(ledger).commit(
+        ledger.modelOperation({
+          write: async () => 'ok',
+          rows: () => [...upsert('first', { v: 1 })],
+        }),
+      )
     })
 
     // Notification listeners are synchronous; the test owns the async commit
@@ -158,10 +168,12 @@ describe('a durable follow-up that rejects', () => {
     let caught: unknown
     try {
       await store.transact(async () => {
-        await testLedgerWriter(ledger).commit({
-          write: async () => 'ok',
-          changes: () => [...upsert('i4', { v: 1 })],
-        })
+        await testLedgerWriter(ledger).commit(
+          ledger.modelOperation({
+            write: async () => 'ok',
+            rows: () => [...upsert('i4', { v: 1 })],
+          }),
+        )
         postCommit().followUp(() => {
           throw new Error('the derived row could not be written')
         }, 'derived-row')

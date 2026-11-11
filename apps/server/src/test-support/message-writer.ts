@@ -16,19 +16,17 @@ import type { MessageServiceWriters } from '../modules/messages/service'
 type Transact = { transact<T>(fn: () => Promise<T>): Promise<T> }
 
 /** A commit (and an empty capture) for a messages test. */
-export function messageTestWriter(store?: Transact): Pick<LedgerWriter, 'commit' | 'capture'> {
+export function messageTestWriter(store?: Transact): Pick<LedgerWriter, 'commit'> {
   return {
     commit: async (op) => {
       const run = async () => {
         const result = await op.write(fixtureWriteScope())
-        await op.changes?.(result)
         return result
       }
       const result = store ? await store.transact(run) : await run()
       op.apply?.(result, [])
       return { result, changes: [] }
     },
-    capture: async () => [],
   }
 }
 

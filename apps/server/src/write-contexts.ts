@@ -184,7 +184,7 @@ export const SYSTEM_WRITE_ORIGINS = {
 export type SystemWriteOrigin = keyof typeof SYSTEM_WRITE_ORIGINS
 
 /** The writes a sync handler's unit of work may make, bound to its command. */
-export type SyncCommandWriter = Pick<LedgerWriter, 'commit' | 'capture'>
+export type SyncCommandWriter = Pick<LedgerWriter, 'commit'>
 
 /** A server-originated writer, for one declared origin. */
 export interface SystemWriteContext extends LedgerWriter {
@@ -220,7 +220,7 @@ export class WriteContexts {
   /** The writer of one sync command. For the sync write entry point only. */
   sync(mutationId: MutationId): SyncCommandWriter {
     const writer = this.ledger.writer(this.mint.sync(mutationId))
-    return { commit: writer.commit, capture: writer.capture }
+    return { commit: writer.commit }
   }
 
   /** A writer for one declared server origin. */
@@ -241,14 +241,6 @@ export class WriteContexts {
       commit: async (op) => {
         guard()
         return await writer.commit(op)
-      },
-      capture: async (specs) => {
-        guard()
-        return await writer.capture(specs)
-      },
-      reconcile: async (entity, rows) => {
-        guard()
-        return await writer.reconcile(entity, rows)
       },
     }
   }

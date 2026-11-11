@@ -14,7 +14,6 @@ import { asMutationId, type ChangeProvenanceFields } from '@podium/model'
 import type { MetadataEntityKind } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import type { ChangeLogStore } from '../change-log'
-import { installedWorldOver } from '../conformance/installed-reads'
 import { DeviceGradeNoAnchors, DeviceGradeUnscopedPolicy } from '../feed/visibility'
 import { Authority, ChangeDetectionPathMismatch } from './authority'
 import type { ChangeLogReadRow } from './change-lifecycle'
@@ -31,13 +30,7 @@ function world(provenance?: () => ChangeProvenanceFields | undefined) {
   /** The model tables: kind → id → the row's wire value. */
   let tables = new Map<string, Map<string, unknown>>()
   const builds: { kind: string; ids: readonly string[] }[] = []
-  const installedReads: unknown[] = []
 
-  const world = installedWorldOver(async () => {
-    const latest = new Map<string, ChangeLogReadRow>()
-    for (const r of log) latest.set(`${r.entity}/${r.entityId}`, r)
-    return [...latest.values()]
-  })
   const store: ChangeLogStore = {
     async appendChanges(batch) {
       const seqs: number[] = []
@@ -55,11 +48,6 @@ function world(provenance?: () => ChangeProvenanceFields | undefined) {
       log.filter((r) => r.seq > from && r.seq <= through).slice(0, limit),
     planChangePrune: async () => ({ thresholdSeq: 0 }),
     pruneChangeBatch: async () => 0,
-    ...world,
-    installedStates: async (keys) => {
-      installedReads.push(keys)
-      return await world.installedStates(keys)
-    },
   }
   const transact = async <T>(fn: () => Promise<T>): Promise<T> => {
     const savedLog = log.slice()
@@ -108,7 +96,6 @@ function world(provenance?: () => ChangeProvenanceFields | undefined) {
   return {
     authority,
     builds,
-    installedReads,
     get log() {
       return log
     },
@@ -182,7 +169,6 @@ describe('compare at save', () => {
     // The old compare would have appended it (the copy is missing). This write
     // changed nothing, so nothing is appended.
     expect(untouched).toEqual([])
-    expect(w.installedReads).toEqual([])
   })
 
   it('builds each kind once before and once after, whatever the number of records', async () => {
@@ -308,18 +294,6 @@ describe('compare at save', () => {
       ['b', undefined, 'own-origin'],
     ])
   })
-
-  it('a commit carries compared and declared changes together, compared first', async () => {
-    const w = world()
-    const changes = await committed(
-      w.authority.commit({
-        affects: [layout('a')],
-        write: async () => w.set('userLayout', 'a', 1),
-        changes: () => [{ entity: 'session', entityId: 's1', op: 'upsert', value: { id: 's1' } }],
-      }),
-    )
-    expect(changes.map((c) => (c as { entity: string }).entity)).toEqual(['userLayout', 'session'])
-  })
 })
 
 describe('records named after the write', () => {
@@ -420,39 +394,5 @@ describe('a kind uses one path', () => {
       }),
     ).rejects.toBeInstanceOf(ChangeDetectionPathMismatch)
     expect(ran).toBe(false)
-  })
-
-  it('refuses a declared change of a moved kind and rolls the write back', async () => {
-    const w = world()
-    await expect(
-      w.authority.commit({
-        write: async () => w.set('userLayout', 'a', 1),
-        changes: () => [{ entity: 'userLayout', entityId: 'a', op: 'upsert', value: 1 }],
-      }),
-    ).rejects.toBeInstanceOf(ChangeDetectionPathMismatch)
-    expect(w.log).toEqual([])
-    expect(w.builds).toEqual([])
-  })
-
-  it('refuses a capture of a moved kind', async () => {
-    const w = world()
-    await expect(
-      w.authority.capture([{ entity: 'pin', entityId: 'p', op: 'upsert', value: 1 }]),
-    ).rejects.toBeInstanceOf(ChangeDetectionPathMismatch)
-  })
-
-  it('a kind that has not moved keeps the compare with the stored row', async () => {
-    const w = world()
-    const spec = { entity: 'session' as const, entityId: 's1', op: 'upsert' as const, value: 1 }
-    expect(await w.authority.capture([spec])).toHaveLength(1)
-    expect(await w.authority.capture([spec])).toHaveLength(0)
-    expect(w.installedReads).toHaveLength(2)
-    expect(w.builds).toEqual([])
-  })
-
-  it('reconcile still compares a moved kind with the stored rows', async () => {
-    const w = world()
-    expect(await w.authority.reconcile('userLayout', [{ id: 'a', value: 1 }])).toHaveLength(1)
-    expect(await w.authority.reconcile('userLayout', [{ id: 'a', value: 1 }])).toHaveLength(0)
   })
 })

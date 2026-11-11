@@ -1,3 +1,4 @@
+import { StoreModelLedger as Ledger } from '../../test-support/model-ledger'
 /**
  * THE SYNC WRITE ENTRY POINT (ADR 12 D2, POD-6273) against a real store.
  *
@@ -20,7 +21,7 @@ import {
   type UserId,
 } from '@podium/model'
 import type { SyncSubmitInput, SyncSubmitReply } from '@podium/protocol'
-import { DEVICE_GRADE_PRINCIPAL, Ledger, MutationLedger } from '@podium/sync'
+import { DEVICE_GRADE_PRINCIPAL, MutationLedger } from '@podium/sync'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
@@ -57,7 +58,7 @@ interface Harness {
 async function harness(): Promise<Harness> {
   const store = await openTestStore(':memory:')
   opened.push(store)
-  const ledger = new Ledger({
+  const ledger = new Ledger(store, {
     repo: store.sync,
     now: () => 1_000,
     transact: async (fn) => await store.transact(fn),
@@ -119,17 +120,19 @@ function registerPut(
       if (opts.runs) opts.runs.count += 1
       await opts.gate?.(input)
       // The data row and its change entry, in one commit on the command's writer.
-      await ctx.ledger.commit({
-        write: async (scope) =>
-          await h.store.layout.set(
-            scope,
-            h.adminId,
-            `sidebar.section.${input.id}`,
-            input.note,
-            '2026-11-04T00:00:00.000Z',
-          ),
-        changes: () => [conversation(input.id, input.note)],
-      })
+      await ctx.ledger.commit(
+        h.ledger.modelOperation({
+          write: async (scope) =>
+            await h.store.layout.set(
+              scope,
+              h.adminId,
+              `sidebar.section.${input.id}`,
+              input.note,
+              '2026-11-04T00:00:00.000Z',
+            ),
+          rows: () => [conversation(input.id, input.note)],
+        }),
+      )
       await opts.after?.(ctx, input)
       return { stored: input.id }
     },
@@ -607,7 +610,7 @@ describe('sync write entry point: what an old route adapter needs (POD-6350)', (
       contract: putContract,
       target: () => NO_TARGET,
       handle: async (ctx, input) => {
-        await ctx.ledger.capture([conversation(input.id, input.note)])
+        await ctx.ledger.commit(h.ledger.rowWrite([conversation(input.id, input.note)]))
         throw new SyncWriteRefused({ kind: 'invalid' })
       },
       rolledBack: async (_ctx, input, error) => {

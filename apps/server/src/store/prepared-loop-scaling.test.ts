@@ -77,22 +77,6 @@ const loops: MeasuredLoop[] = [
         conversationRows(n, store.hostMachineId),
       ),
   },
-  {
-    name: 'SyncRepository.applyLatestChangeStates',
-    targetSql: 'insert into "change_latest"',
-    repository: (store) => store.sync,
-    run: async (store, n) => {
-      await store.sync.appendChanges(
-        Array.from({ length: n }, (_, i) => ({
-          entity: 'issueProjection',
-          entityId: `issue-${i}`,
-          op: 'upsert' as const,
-          payload: '{}',
-        })),
-        1,
-      )
-    },
-  },
 ]
 
 const measure = async (loop: MeasuredLoop, n: number): Promise<Counts> => {

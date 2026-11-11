@@ -49,10 +49,12 @@ class Peer implements EdgePeer {
 }
 
 const commit = (p: Awaited<ReturnType<typeof feedTestPlumbing>>, id: string) =>
-  testLedgerWriter(p.ledger).commit({
-    write: async () => {},
-    changes: () => [{ entity: 'session', id, op: 'upsert', value: { sessionId: id } }],
-  })
+  testLedgerWriter(p.ledger).commit(
+    p.ledger.modelOperation({
+      write: async () => {},
+      rows: () => [{ entity: 'session', id, op: 'upsert', value: { sessionId: id } }],
+    }),
+  )
 
 /** A populated server, and a peer already admitted the ordinary way — the state
  *  every one of these cases reconnects INTO. */

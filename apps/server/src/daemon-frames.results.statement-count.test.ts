@@ -257,12 +257,8 @@ describe('daemon *Result frames: pinned statement counts at 5 and 200', () => {
       },
     )
 
-  // POD-6227 registers a report's conversations in batches (one read, then one
-  // write per kind of write), where it read and wrote each one. What still
-  // grows is the change log's own write: a commit upserts change_latest once
-  // per change (`SyncRepository`, sync behaviour, POD-6228), and appends to
-  // `changes` 100 rows a statement (the log's bound on bound values). This pin
-  // counts those two exactly and holds every other statement constant.
+  // Discovery has fixed work apart from the 100-row change-log INSERT chunks.
+  // There is no per-record copy-table write (POD-6228 is superseded).
   it('scanResult that discovers as many new conversations as the size', async () => {
     const counts = await measureAtSizes(scan(false))
     const matching = (tally: StatementTally, pattern: RegExp) =>
@@ -270,8 +266,8 @@ describe('daemon *Result frames: pinned statement counts at 5 and 200', () => {
     const latest = (tally: StatementTally) => matching(tally, /^insert into "change_latest"/i)
     const appended = (tally: StatementTally) => matching(tally, /^insert into "changes"/i)
     const detail = describeGrowth(counts.small, counts.large)
-    expect([latest(counts.small), appended(counts.small)], detail).toEqual([5, 1])
-    expect([latest(counts.large), appended(counts.large)], detail).toEqual([200, 2])
+    expect([latest(counts.small), appended(counts.small)], detail).toEqual([0, 1])
+    expect([latest(counts.large), appended(counts.large)], detail).toEqual([0, 2])
     for (const tally of [counts.small, counts.large]) {
       expect(tally.statements - latest(tally) - appended(tally), detail).toBe(9)
     }
@@ -302,7 +298,7 @@ describe('daemon *Result frames: pinned statement counts at 5 and 200', () => {
   })
 
   it('scanResult pin is armed', async () => {
-    await expectArmed(scan(true), 5, plantPerSession)
+    await expectArmed(scan(true), 6, plantPerSession)
   })
 
   interface Approval extends Fixture {

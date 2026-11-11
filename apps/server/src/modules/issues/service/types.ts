@@ -44,27 +44,13 @@ export interface IssueFunnel {
  * that asked, or a named server origin's for the server's own issue writes. The
  * service's write methods take it per call; it never lives in the service.
  */
-export type IssueWriter = Pick<IssueLedger, 'commit' | 'capture'>
+export type IssueWriter = Pick<IssueLedger, 'commit'>
 
 /** The parameters of a writer-first method, after its writer. */
 export type WriterRest<F> = F extends (writer: IssueWriter, ...rest: infer A) => unknown ? A : never
 
 export interface IssueLedger {
   commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>>
-  /** Reconcile normalized issues, their companions and repository facts. */
-  reconcile(
-    entity:
-      | 'issueProjection'
-      | 'issueBodies'
-      | 'issuePanelTodo' | 'issuePanelArtifact' | 'issuePanelDeferred' | 'issuePanelState'
-      | 'issueUserState'
-      | 'issueGitState'
-      | 'issueDep'
-      | 'repo',
-    rows: { id: string; value: unknown }[],
-  ): Promise<MetadataChange[]>
-  /** Append partial truth without diffing unrelated baseline rows (POD-210). */
-  capture(specs: EntityChangeSpec[]): Promise<MetadataChange[]>
 }
 
 /** Read-gated auto-archive window (issue #127): a done+read issue auto-archives

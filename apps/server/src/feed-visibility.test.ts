@@ -13,12 +13,12 @@ import {
 } from '@podium/model'
 import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
 import {
-  Authority,
   type EntityRef,
   GrantEdgeVisibilityPolicy,
   NoDelegationsGranted,
   type VisibilityAnchorPort,
 } from '@podium/sync'
+import { ModelAuthority as Authority } from '@podium/sync/testing'
 import { afterEach, describe, expect, expectTypeOf, it } from 'vitest'
 import { makeFeedVisibility } from './feed-visibility'
 import type { FeedVisibilityStore, IssueRow, SessionRow } from './hot-path-ports'
@@ -185,7 +185,7 @@ describe('feed visibility grant semantics', () => {
     })
     const id = asIssueId('shared')
     const cursor = await authority.cursor()
-    await authority.capture(
+    await authority.save(
       [owner, reader].map((userId) => ({
         entity: 'issueUserState',
         entityId: issueUserStateRowId(userId, id),
@@ -245,7 +245,7 @@ describe('feed visibility grant semantics', () => {
       anchors: policy.anchors,
     })
     // The merge's record is written before anyone is let in, and does not change after.
-    await authority.capture([
+    await authority.save([
       {
         entity: 'issueProjection',
         entityId: 'shared',
@@ -256,7 +256,7 @@ describe('feed visibility grant semantics', () => {
     ])
     const cursor = await authority.cursor()
     await grant('issue', reader, 'read')
-    await authority.capture([
+    await authority.save([
       {
         entity: 'issueProjection',
         entityId: 'shared',
@@ -315,7 +315,7 @@ describe('feed visibility grant semantics', () => {
     // On the live feed the issue's next write takes the record off the reader's
     // devices; the session's stays, through its own grant.
     const beforeRevokeWrite = await authority.cursor()
-    await authority.capture([
+    await authority.save([
       {
         entity: 'issueProjection',
         entityId: 'shared',
@@ -570,7 +570,7 @@ describe('the issue anchor edge reads the normalized record', () => {
       visibility: new GrantEdgeVisibilityPolicy(policy.state, new NoDelegationsGranted()),
       anchors: policy.anchors,
     })
-    await authority.capture([
+    await authority.save([
       {
         entity: 'issueProjection',
         entityId: 'shared',
@@ -580,7 +580,7 @@ describe('the issue anchor edge reads the normalized record', () => {
     ])
     const cursor = await authority.cursor()
     await grant('issue', reader, 'read')
-    await authority.capture([
+    await authority.save([
       {
         entity: 'issueProjection',
         entityId: 'shared',

@@ -45,7 +45,7 @@ import type { RuntimeDurableQueuePort } from './runtime-gateway'
 
 /** A session write's writer (the same shape as `SessionWriter`), named here
  *  without importing the lifecycle's types (POD-6602). */
-type SessionWriter = Pick<LedgerWriter, 'commit' | 'capture'>
+type SessionWriter = Pick<LedgerWriter, 'commit'>
 
 /**
  * HOW A MIGRATED CALLER NAMES ITS INTENT.

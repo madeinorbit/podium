@@ -59,7 +59,7 @@ export function noticeMessageId(factKey: string, sessionId: SessionId, eventId: 
 export function stewardNoticeSender(
   messages: Pick<MessageDeliveryService, 'send'>,
   /** The steward's own writer (`steward`): its notices are its own writes. */
-  writer: Pick<LedgerWriter, 'commit' | 'capture'>,
+  writer: Pick<LedgerWriter, 'commit'>,
 ): StewardDeps['sendNotice'] {
   return async (sessionId, text, messageId, lifecycle) => {
     await messages.send(
@@ -389,7 +389,7 @@ export interface StewardDeps {
    *  steward's own nudge for the same fact would just be a duplicate? */
   messages: Pick<SessionStore['messages'], 'alreadyCommunicated'>
   /** The steward's own writer, a `server` origin (`steward`, ADR 12 D9). */
-  writer: Pick<LedgerWriter, 'commit' | 'capture'>
+  writer: Pick<LedgerWriter, 'commit'>
   issues: {
     readonly reports: Pick<
       IssueService['reports'],

@@ -1,3 +1,4 @@
+import { ModelRecords } from '@podium/sync/testing'
 /**
  * Restore + epoch re-mint (ADR 2 D1) over the REAL migration chain, the REAL
  * SQLite files and the REAL Ledger — nothing here is stubbed but the free-space
@@ -63,16 +64,20 @@ function authority(): typeof preparedAuthority {
 }
 
 /** Identity reads are synchronous snapshots; only setup resolves or mints. */
+const fixtureRecords = new WeakMap<Ledger, ModelRecords>()
 type LedgerWithIdentity = Ledger & { feedIdentity: () => FeedIdentity }
 
 async function ledgerOver(db: SqlDatabase): Promise<LedgerWithIdentity> {
   const queries = syncQueriesOver(db)
   const repo = new SyncRepository(queries, syncServerTables)
+  const records = new ModelRecords()
   const ledger = new Ledger({
     repo,
+    records,
     now: () => 1_000,
     transact: queries.createOrJoinTransaction,
   }) as LedgerWithIdentity
+  fixtureRecords.set(ledger, records)
   const registry = new FeedIdentityRegistry(
     {
       readIdentity: async () => await repo.readFeedIdentity(),
@@ -88,9 +93,14 @@ async function ledgerOver(db: SqlDatabase): Promise<LedgerWithIdentity> {
 /** Append `n` distinct issue upserts, returning the ledger's cursor after them. */
 async function write(ledger: Ledger, ids: string[]): Promise<number> {
   for (const id of ids) {
-    await testLedgerWriter(ledger).commit({
-      write: async () => undefined,
-      changes: () => [{ entity: 'issueProjection', id, op: 'upsert', value: { id, title: id } }],
+    await ledger.authority.commit({
+      affects: [{ entity: 'issueProjection', entityId: id }],
+      write: async () =>
+        fixtureRecords
+          .get(ledger)!
+          .set([
+            { entity: 'issueProjection', entityId: id, op: 'upsert', value: { id, title: id } },
+          ]),
     })
   }
   return await ledger.cursor()

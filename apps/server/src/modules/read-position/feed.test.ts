@@ -31,7 +31,7 @@ import {
   NoDelegationsGranted,
   type VisibilityStatePort,
 } from '@podium/sync'
-import { authorityCommitWriter, installedWorldOver } from '@podium/sync/testing'
+import { authorityCommitWriter } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import type { StoredReadPosition } from '../../store/user-read-position'
 import { compareAtSaveRecords } from '../../sync/compare-at-save'
@@ -84,11 +84,6 @@ function memoryStore(): AuthorityStore {
       rows.filter((r) => r.seq > from && r.seq <= through).slice(0, limit),
     planChangePrune: async () => ({ thresholdSeq: 0 }),
     pruneChangeBatch: async () => 0,
-    ...installedWorldOver(async () => {
-      const latest = new Map<string, (typeof rows)[number]>()
-      for (const r of rows) latest.set(`${r.entity}/${r.entityId}`, r)
-      return [...latest.values()]
-    }),
   } as AuthorityStore
 }
 

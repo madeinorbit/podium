@@ -74,10 +74,10 @@ async function harness(
   store.sessions.setMessageWindowWrite(feed.writeSessions)
   // Each session is on the feed as it is in the server, so its removal is a change.
   for (const id of opts.sessions ?? [S1, S2]) {
-    await store.sessions.upsertSession(fixtureWriteScope(), session(id))
-    await testLedgerWriter(ledger).capture([
-      { entity: 'session', id, op: 'upsert', value: sessionValue(id, {}) },
-    ])
+    await testLedgerWriter(ledger).commit({
+      affects: [{ entity: 'session', id }],
+      write: async (scope) => await store.sessions.upsertSession(scope, session(id)),
+    })
   }
   /**
    * What a device that followed the feed from the start holds, keyed by
@@ -123,16 +123,7 @@ async function harness(
             ...patch,
           })
       },
-      changes: async () => [
-        patch === null || patch === 'purge'
-          ? { entity: 'session', id, op: 'remove' }
-          : {
-              entity: 'session',
-              id,
-              op: 'upsert',
-              value: sessionValue(id, patch),
-            },
-      ],
+      affects: [{ entity: 'session', id }],
     })
   }
   /** The ids a device bootstrapping now would receive, sorted. */

@@ -46,28 +46,11 @@ export interface ChangeLogStore {
   }): Promise<ChangePrunePlan>
   /** Delete one bounded, indexed head batch from a fixed plan. */
   pruneChangeBatch(plan: ChangePrunePlan, batchSize: number): Promise<number>
-  /** THE INSTALLED WORLD — the latest live state per (entity, id): the bootstrap
-   *  read (see
-   *  `ChangeStorePort.latestChangeStates`). Independent of retention (POD-678):
-   *  the row budget bounds what `changesSince` can serve, never what exists. Only
-   *  `upsert` rows come back — a removed entity is not in the world. */
-  latestChangeStates(): Promise<readonly ChangeLogReadRow[]>
-  /** The installed rows of these keys, in no particular order; a key with no
-   *  installed row is absent. One grouped read: what a commit's dedup reads
-   *  inside its own span [POD-6156]. */
-  installedStates(
-    keys: readonly { readonly entity: string; readonly entityId: string }[],
-  ): Promise<readonly ChangeLogReadRow[]>
-  /** Every installed row of one entity kind, in seq order [POD-6156]. */
-  installedStatesOf(entity: string): Promise<readonly ChangeLogReadRow[]>
 }
 
-/** Retention: keep the newest 20k rows, and nothing older than 3 days —
- *  whichever budget deletes more (fixed-plan, head-only batches). */
-export const CHANGE_KEEP_ROWS = 20_000
-export const CHANGE_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000
-/** Prune cadence, counted in APPEND BATCHES that actually wrote rows. */
-export const CHANGE_PRUNE_EVERY = 64
+/** Per-feed retention: at most 500,000 rows and 30 days, whichever removes more.
+ *  This database currently has one feed; hosting partitions both budgets by tenant. */
+export { CHANGE_KEEP_ROWS, CHANGE_MAX_AGE_MS } from '@podium/protocol'
 /** Delete-unit bound, measured below the 12ms slice target on representative rows. */
 export const CHANGE_PRUNE_BATCH_ROWS = 100
 
@@ -116,40 +99,6 @@ export async function pruneChangeLog(
     },
   )
   return { deleted, metrics }
-}
-
-/**
- * The stored payload as a detection key, or `undefined` for a corrupt one that
- * does not parse. A corrupt row counts as "not there" [POD-6156]: its next
- * upsert re-records it and a remove of it is dropped. The key is the whole
- * payload: a field that churns without meaning leaves the record instead of
- * being skipped by detection (POD-6768 took the conversation's activity stamps
- * off it, the last kind with a projected key).
- */
-export function storedKeyOf(
-  _entity: MetadataEntityKind,
-  payload: string | undefined,
-): string | undefined {
-  if (payload === undefined) return undefined
-  try {
-    JSON.parse(payload)
-    return payload
-  } catch {
-    return undefined
-  }
-}
-
-/**
- * Would upserting `value` (serialized as `json`) change the stored row? Byte
- * equality of the whole record against the stored payload [POD-6156].
- */
-export function differsFromStored(
-  _entity: MetadataEntityKind,
-  payload: string | undefined,
-  _value: unknown,
-  json: string,
-): boolean {
-  return payload !== json
 }
 
 /**

@@ -429,11 +429,11 @@ interface NewEffectInUnit {
 
 export interface RegistryModules {
   /** The superagent's own session writes (`superagent.tools`, POD-6601). */
-  superagentToolsWriter: Pick<LedgerWriter, 'commit' | 'capture'>
+  superagentToolsWriter: Pick<LedgerWriter, 'commit'>
   /** The superagent's turn runner, after a send commits (`superagent.turns`, POD-6606). */
-  superagentTurnsWriter: Pick<LedgerWriter, 'commit' | 'capture'>
+  superagentTurnsWriter: Pick<LedgerWriter, 'commit'>
   /** The messaging bridge's superagent sends, with no command (`superagent.bridge`, POD-6606). */
-  superagentBridgeWriter: Pick<LedgerWriter, 'commit' | 'capture'>
+  superagentBridgeWriter: Pick<LedgerWriter, 'commit'>
   bus: EventBus
   funnel: WriteFunnel
   sessions: SessionLifecycle
@@ -2845,7 +2845,7 @@ export class SessionRegistry {
       locks: this.store.locks,
       transact: async (fn) => await this.store.transact(fn),
       // NOT THROUGH THE AUTHORITY (POD-6419). A lease is server-local: a lock
-      // write publishes no change (the funnel was handed `changes: () => []`),
+      // write publishes no change (the funnel was handed ``),
       // and a lock write from a person or an agent is a plain command, whose
       // scope gives it no Authority (ADR 12 D8). Its own `transact` is the unit.
       funnel: {
@@ -4269,7 +4269,7 @@ export class SessionRegistry {
           },
           now,
         )
-      return (await writer.commit({ write: insert, changes: () => [] })).result
+      return (await writer.commit({ write: insert })).result
     }
     const syncWrite = new SyncWriteEntry({
       registry: new SyncWriteRegistry(),

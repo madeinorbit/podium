@@ -1,3 +1,4 @@
+import { ModelAuthority as Authority } from '@podium/sync/testing'
 /**
  * WHO MAY READ A DELIVERY LANE (POD-4974 O2, decision 2): anyone who may read at
  * least one order queued in it. The lane's readers change when orders leave it,
@@ -19,7 +20,6 @@ import {
 } from '@podium/model'
 import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
 import {
-  Authority,
   type EntityRef,
   GrantEdgeVisibilityPolicy,
   NoDelegationsGranted,
@@ -198,7 +198,7 @@ describe('POD-4974 O2 lane visibility', () => {
     const unknown: EntityRef = { entity: 'shipLane', entityId: 'not-a-lane' }
     expect((await policy.state.forBatch!([unknown])).mayRead(owner, unknown)).toBe(false)
 
-    await authority.capture([
+    await authority.save([
       {
         entity: 'shipLane',
         entityId: LANE.entityId,
@@ -219,7 +219,7 @@ describe('POD-4974 O2 lane visibility', () => {
   // evicted, and every member gets the lane's new value.
   it('keeps the lane for every member while a queued order remains in it', async () => {
     const { store, policy, authority } = await fixture()
-    await authority.capture([
+    await authority.save([
       ...['order-shared', 'order-private'].map((id) => ({
         entity: 'shipOrder' as const,
         entityId: id,
@@ -249,7 +249,7 @@ describe('POD-4974 O2 lane visibility', () => {
     expect(
       await edgeOf(policy.anchors, { entity: 'shipOrder', entityId: 'order-shared' }),
     ).toBeNull()
-    await authority.capture([
+    await authority.save([
       { entity: 'shipOrder', entityId: 'order-shared', op: 'remove' },
       { entity: 'shipLane', entityId: LANE.entityId, op: 'upsert', value: lane('order-private') },
     ])
@@ -267,7 +267,7 @@ describe('POD-4974 O2 lane visibility', () => {
 
   it('names the lanes of an issue queued orders when a grant moves its audience', async () => {
     const { policy, authority, grant } = await fixture()
-    await authority.capture([
+    await authority.save([
       {
         entity: 'shipOrder',
         entityId: 'order-private',

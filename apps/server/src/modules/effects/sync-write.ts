@@ -114,7 +114,7 @@ export function registerEffectCommands(registry: SyncWriteRegistry, deps: Effect
         )
       // One commit on the command's writer; the effects table's capture appends
       // the record's feed change in it (ADR 12 D9).
-      const row = (await ctx.ledger.commit({ write: insert, changes: () => [] })).result
+      const row = (await ctx.ledger.commit({ write: insert })).result
       return resultOf(row)
     },
   })
@@ -126,7 +126,6 @@ export function registerEffectCommands(registry: SyncWriteRegistry, deps: Effect
       // Already ended, or already asked: nothing to change, and that is not a refusal.
       const asked = await ctx.ledger.commit({
         write: async (scope) => await deps.repo.requestCancel(scope, input.id, deps.now()),
-        changes: () => [],
       })
       const row = asked.result ?? (await deps.repo.get(input.id))
       if (row === undefined) throw new SyncWriteRefused({ kind: 'target-not-found' })
@@ -140,7 +139,6 @@ export function registerEffectCommands(registry: SyncWriteRegistry, deps: Effect
     handle: async (ctx, input: EffectsDismissInput): Promise<{ dismissed: true }> => {
       const dismissed = await ctx.ledger.commit({
         write: async (scope) => await deps.repo.tombstone(scope, input.id, deps.now()),
-        changes: () => [],
       })
       if (dismissed.result === undefined) {
         // Still pending or running: it has to end (or be cancelled) first.

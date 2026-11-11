@@ -27,7 +27,7 @@ export interface RestoreIssueResult {
 }
 
 /** What an issue delete or restore commits on: the command's own writer. */
-type IssueLifecycleWriter = Pick<LedgerWriter, 'commit' | 'capture'>
+type IssueLifecycleWriter = Pick<LedgerWriter, 'commit'>
 
 export class IssueSessionLifecycle {
   private readonly closedIssueStops = new Map<string, Promise<void>>()

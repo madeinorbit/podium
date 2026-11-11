@@ -1,3 +1,4 @@
+import { StoreModelLedger as Ledger } from '../test-support/model-ledger'
 /**
  * A REAL serving edge over an in-memory store, for tests (POD-1203).
  *
@@ -22,7 +23,6 @@ import {
   FeedIdentityRegistry,
   type FeedRetentionPort,
   type FeedVisibilityPolicy,
-  Ledger,
   type VisibilityAnchorPort,
 } from '@podium/sync'
 import type { SessionStore } from '../store'
@@ -74,7 +74,7 @@ export async function feedTestPlumbing(
   } = {},
 ): Promise<FeedTestPlumbing> {
   const store = await openTestStore(':memory:')
-  const ledger = new Ledger({
+  const ledger = new Ledger(store, {
     ...(opts.visibility ? { visibility: opts.visibility } : {}),
     ...(opts.anchors ? { anchors: opts.anchors } : {}),
     repo: store.sync,

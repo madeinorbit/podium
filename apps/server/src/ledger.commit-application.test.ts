@@ -1,9 +1,9 @@
 import { type MatrixRow, OWNERSHIP_MATRIX } from '@podium/model'
-import { Ledger } from '@podium/sync'
 import { fixtureWriteScope, testLedgerWriter } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import type { SessionStore } from './store'
 import { applyAfterCommit, spanOpen } from './store/executor/executor'
+import { StoreModelLedger as Ledger } from './test-support/model-ledger'
 import { openTestStore } from './test-support/open-test-store'
 
 /**
@@ -31,7 +31,7 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
   })
 
   function makeLedger(store: SessionStore): Ledger {
-    return new Ledger({
+    return new Ledger(store, {
       repo: store.sync,
       now: () => 1_000,
       transact: async (fn) => await store.transact(fn),
@@ -51,11 +51,13 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
     const ledger = makeLedger(store)
     const applied: string[] = []
 
-    await testLedgerWriter(ledger).commit({
-      write: async () => 'w',
-      changes: () => [upsert('c-inline')],
-      apply: (result) => applied.push(`applied:${result}`),
-    })
+    await testLedgerWriter(ledger).commit(
+      ledger.modelOperation({
+        write: async () => 'w',
+        rows: () => [upsert('c-inline')],
+        apply: (result) => applied.push(`applied:${result}`),
+      }),
+    )
 
     // Not "eventually": the synchronous store returns T and not Promise<T>, so
     // a caller's next line already observes the install today.
@@ -68,11 +70,13 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
     const applied: string[] = []
 
     await store.transact(async () => {
-      await testLedgerWriter(ledger).commit({
-        write: async () => {},
-        changes: () => [upsert('c-deferred')],
-        apply: () => applied.push('applied'),
-      })
+      await testLedgerWriter(ledger).commit(
+        ledger.modelOperation({
+          write: async () => {},
+          rows: () => [upsert('c-deferred')],
+          apply: () => applied.push('applied'),
+        }),
+      )
       // THE MECHANISM: the savepoint has been released and the rows are still
       // not durable. Read here, inside the window the bug lived in.
       expect(applied).toEqual([])
@@ -88,15 +92,17 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
 
     await expect(
       store.transact(async () => {
-        await testLedgerWriter(ledger).commit({
-          write: async () => {
-            await store.conversations.index.upsert(fixtureWriteScope(), [
-              { ...conversationRow('c-rolled-back'), machineId: store.hostMachineId },
-            ])
-          },
-          changes: () => [upsert('c-rolled-back')],
-          apply: () => applied.push('applied'),
-        })
+        await testLedgerWriter(ledger).commit(
+          ledger.modelOperation({
+            write: async () => {
+              await store.conversations.index.upsert(fixtureWriteScope(), [
+                { ...conversationRow('c-rolled-back'), machineId: store.hostMachineId },
+              ])
+            },
+            rows: () => [upsert('c-rolled-back')],
+            apply: () => applied.push('applied'),
+          }),
+        )
         throw new Error('enclosing span failed')
       }),
     ).rejects.toThrow('enclosing span failed')
@@ -118,18 +124,22 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
     const store = await openTestStore(':memory:')
     const ledger = makeLedger(store)
 
-    const first = await testLedgerWriter(ledger).commit({
-      write: async () => {},
-      changes: () => [upsert('c-dedup')],
-    })
+    const first = await testLedgerWriter(ledger).commit(
+      ledger.modelOperation({
+        write: async () => {},
+        rows: () => [upsert('c-dedup')],
+      }),
+    )
     expect(first.changes.map((c) => c.id)).toEqual(['c-dedup'])
 
     const applied: string[] = []
-    const second = await testLedgerWriter(ledger).commit({
-      write: async () => {},
-      changes: () => [upsert('c-dedup')],
-      apply: () => applied.push('applied'),
-    })
+    const second = await testLedgerWriter(ledger).commit(
+      ledger.modelOperation({
+        write: async () => {},
+        rows: () => [upsert('c-dedup')],
+        apply: () => applied.push('applied'),
+      }),
+    )
     expect(second.changes).toEqual([])
     expect(applied).toEqual(['applied'])
   })
@@ -144,20 +154,24 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
     const foldedIds = async () =>
       (await ledger.authority.snapshot('conversation')).map((v) => (v as { id: string }).id)
 
-    await testLedgerWriter(ledger).commit({
-      write: async () => {},
-      changes: () => [upsert('c-order-outer')],
-      apply: async () =>
-        seen.push((await foldedIds()).includes('c-order-outer') ? 'after' : 'before'),
-    })
+    await testLedgerWriter(ledger).commit(
+      ledger.modelOperation({
+        write: async () => {},
+        rows: () => [upsert('c-order-outer')],
+        apply: async () =>
+          seen.push((await foldedIds()).includes('c-order-outer') ? 'after' : 'before'),
+      }),
+    )
 
     await store.transact(async () => {
-      await testLedgerWriter(ledger).commit({
-        write: async () => {},
-        changes: () => [upsert('c-order-inner')],
-        apply: async () =>
-          seen.push((await foldedIds()).includes('c-order-inner') ? 'after' : 'before'),
-      })
+      await testLedgerWriter(ledger).commit(
+        ledger.modelOperation({
+          write: async () => {},
+          rows: () => [upsert('c-order-inner')],
+          apply: async () =>
+            seen.push((await foldedIds()).includes('c-order-inner') ? 'after' : 'before'),
+        }),
+      )
     })
 
     expect(seen).toEqual(['after', 'after'])
@@ -176,18 +190,20 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
     const applied: string[] = []
 
     await expect(
-      testLedgerWriter(ledger).commit({
-        arbitrate: {
-          rowId: expRevRow.id,
-          attempt: { expectedRevision: 1 },
-          current: async () => ({ revision: 9 }),
-        },
-        write: async () => {
-          throw new Error('the write must be unreachable past a rejection')
-        },
-        changes: () => [upsert('c-rejected')],
-        apply: () => applied.push('applied'),
-      }),
+      testLedgerWriter(ledger).commit(
+        ledger.modelOperation({
+          arbitrate: {
+            rowId: expRevRow.id,
+            attempt: { expectedRevision: 1 },
+            current: async () => ({ revision: 9 }),
+          },
+          write: async () => {
+            throw new Error('the write must be unreachable past a rejection')
+          },
+          rows: () => [upsert('c-rejected')],
+          apply: () => applied.push('applied'),
+        }),
+      ),
     ).rejects.toThrow(/revision-mismatch/)
 
     expect(applied).toEqual([])
@@ -199,13 +215,15 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
     const applied: string[] = []
 
     await expect(
-      testLedgerWriter(ledger).commit({
-        write: async () => {
-          throw new Error('the write failed')
-        },
-        changes: () => [upsert('c-failed')],
-        apply: () => applied.push('applied'),
-      }),
+      testLedgerWriter(ledger).commit(
+        ledger.modelOperation({
+          write: async () => {
+            throw new Error('the write failed')
+          },
+          rows: () => [upsert('c-failed')],
+          apply: () => applied.push('applied'),
+        }),
+      ),
     ).rejects.toThrow('the write failed')
 
     expect(applied).toEqual([])

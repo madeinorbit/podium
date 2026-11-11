@@ -257,11 +257,11 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
             headless: false,
             issueId: null,
           }),
-        changes: () => {
-          throw new Error('declaration failed')
+        creates: () => {
+          throw new Error('record naming failed')
         },
       }),
-    ).rejects.toThrow('declaration failed')
+    ).rejects.toThrow('record naming failed')
     // The session row write inside the same transact span rolled back too.
     expect((await store.sessions.loadSessions()).find((r) => r.id === 's-atomic')).toBeUndefined()
     expect(await ledger.cursor()).toBe(cursorBefore)

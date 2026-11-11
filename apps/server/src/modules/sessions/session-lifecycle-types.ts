@@ -18,7 +18,6 @@ import type { MetadataChange, SubscriptionRegistry, SyncChangesSinceResult } fro
 import type { QueueDrainAbandonedReason, RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import type {
   AffectedRecordSpec,
-  EntityChangeSpec,
   LedgerCommitOp,
   LedgerCommitResult,
   MutationLedgerPort,
@@ -43,7 +42,7 @@ export { APPLIED_MUTATIONS_MAX_AGE_MS } from './session-shared'
 /** What a session write commits through: the writer of the command that asked,
  *  or of the named origin a daemon report or server job writes under (ADR 12
  *  D9, POD-6601). */
-export type SessionWriter = Pick<SessionLedger, 'commit' | 'capture'>
+export type SessionWriter = Pick<SessionLedger, 'commit'>
 
 /** The session service's own writers (see {@link SessionLifecycleDeps.writers}). */
 export interface SessionWriters {
@@ -59,8 +58,6 @@ export interface SessionWriters {
 
 export interface SessionLedger {
   commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>>
-  /** Shared capability required by collaborating modules; session kinds use `commit`. */
-  capture(specs: EntityChangeSpec[]): Promise<MetadataChange[]>
 }
 
 /** Non-session fields retained by the expiring wire-v1 catch-up snapshot.

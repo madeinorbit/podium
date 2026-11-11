@@ -1,3 +1,4 @@
+import { loggedRows } from '../test-support/logged-rows'
 /**
  * APPROVALS BECOME EFFECT RECORDS (POD-6674), through the real migration chain.
  *
@@ -199,7 +200,7 @@ test('the migrated live copies are readable without boot log seeding', async () 
   const { store, registry } = await bootOn(seededFile())
   try {
     const changed = async () =>
-      (await store.sync.latestChangeStates())
+      (await loggedRows(store))
         .filter((row) => row.entity === 'effect')
         .map((row) => row.entityId)
         .sort()

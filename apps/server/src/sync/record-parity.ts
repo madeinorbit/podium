@@ -1,8 +1,8 @@
 /**
  * RECORD PARITY (POD-6763): is a built record the published record?
  *
- * For each kind, the published side is `change_latest` (what a new client is
- * sent today); the built side is the kind's builder on the same snapshot. Two
+ * For each kind, the published side is the fixture's emitted records; the
+ * built side is the kind's builder on the same snapshot. Two
  * questions per kind, record for record:
  *
  *  - `build(ids)` for every published id: equal value, different value, or no
@@ -32,7 +32,7 @@ export interface RecordDifference {
 
 export interface KindParity {
   readonly kind: MetadataEntityKind
-  /** Rows in `change_latest` with a payload. */
+  /** Published fixture rows with a payload. */
   readonly published: number
   /** Published rows `build(ids)` answered with an equal value. */
   readonly equal: number

@@ -5,7 +5,7 @@
  * model refresh) has no synced effect, so it gets NO access to the Authority: it
  * cannot write synced data, even by accident. Its handler runs inside this
  * scope, and the write-seam Ledger's `ProvenancePort` — which the Authority reads
- * once, synchronously, before every `commit` and `capture` — refuses while the
+ * once, synchronously, before every `commit` — refuses while the
  * scope is open ({@link syncedWriteProvenance}). A synced write from a plain
  * handler therefore throws before it opens a transaction, and appends nothing.
  *

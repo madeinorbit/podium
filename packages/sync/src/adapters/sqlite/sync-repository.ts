@@ -27,35 +27,12 @@
 
 import type { MutationId, SessionId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
-import {
-  and,
-  asc,
-  count,
-  eq,
-  gt,
-  gte,
-  inArray,
-  isNull,
-  lt,
-  lte,
-  max,
-  min,
-  or,
-  sql,
-} from 'drizzle-orm'
+import { and, asc, count, eq, gt, inArray, isNull, lt, lte, max, min, sql } from 'drizzle-orm'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import type { ChangeLogReadRow, ChangeLogWriteRow } from '../../authority/change-lifecycle'
 import type { ChangePrunePlan } from '../../change-log'
-import {
-  inListOf,
-  inListSize,
-  inListValues,
-  param,
-  prefixUpperBound,
-  prepared,
-  preparedFamily,
-} from './prepared'
-import { appliedMutations, changeLatest, changes, feedIdentity, syncKind } from './schema'
+import { inListOf, inListSize, inListValues, param, prepared, preparedFamily } from './prepared'
+import { appliedMutations, changes, feedIdentity, syncKind } from './schema'
 import type { QueuedMessagesTable, SyncServerTables, UpstreamOutboxTable } from './server-tables'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './store-queries'
 
@@ -83,39 +60,6 @@ const sqliteSequence = sqliteTable('sqlite_sequence', {
 // A migration creates at most one row per registered kind. Every advertisement
 // needs the whole map, whose size is independent of the amount of synced data.
 const kindGenerations = prepared((db: StoreDrizzle) => db.select().from(syncKind).prepare())
-
-// Every query this repository runs, prepared once per store [POD-6147]. A
-// prepared query closes over the store's ONE drizzle instance, whose ambient
-// router resolves the enclosing span on every execution; the two
-// `change_latest` statements have relied on that since POD-3494.
-
-const upsertLatestChangeState = prepared((db: StoreDrizzle) =>
-  db
-    .insert(changeLatest)
-    .values({
-      entity: sql.placeholder('entity'),
-      entityId: sql.placeholder('entityId'),
-      seq: sql.placeholder('seq'),
-      payload: sql.placeholder('payload'),
-    })
-    .onConflictDoUpdate({
-      target: [changeLatest.entity, changeLatest.entityId],
-      set: { seq: sql`excluded.seq`, payload: sql`excluded.payload` },
-    })
-    .prepare(),
-)
-
-const deleteLatestChangeState = prepared((db: StoreDrizzle) =>
-  db
-    .delete(changeLatest)
-    .where(
-      and(
-        eq(changeLatest.entity, sql.placeholder('entity')),
-        eq(changeLatest.entityId, sql.placeholder('entityId')),
-      ),
-    )
-    .prepare(),
-)
 
 /**
  * One append chunk, keyed by its ROW COUNT (1 to the 100-row chunk of
@@ -230,92 +174,6 @@ const deleteChangeHead = prepared((db: StoreDrizzle) =>
     )
     .prepare(),
 )
-
-// FOUR COLUMNS OF FOUR — the whole table, named rather than spread so the
-// projection stays a statement about what this read wants [spec rule 39].
-const installedWorld = prepared((db: StoreDrizzle) =>
-  db
-    .select({
-      seq: changeLatest.seq,
-      entity: changeLatest.entity,
-      entityId: changeLatest.entityId,
-      payload: changeLatest.payload,
-    })
-    .from(changeLatest)
-    .prepare(),
-)
-
-/**
- * Installed rows by key, `size` keys per statement [POD-6156]: one primary-key
- * seek per `(entity, entity_id)` pair. Each arm of the OR names both key
- * columns, so every arm is a seek on the primary key and the arms are read
- * together (SQLite's multi-index OR, a bitmap OR on Postgres). Never built at
- * size 0: an OR of nothing is no condition at all.
- */
-const installedRowsOfKeys = preparedFamily((db: StoreDrizzle, size: number) =>
-  db
-    .select({
-      seq: changeLatest.seq,
-      entity: changeLatest.entity,
-      entityId: changeLatest.entityId,
-      payload: changeLatest.payload,
-    })
-    .from(changeLatest)
-    .where(
-      or(
-        ...Array.from({ length: Math.max(size, 1) }, (_, i) =>
-          and(
-            eq(changeLatest.entity, param(changeLatest.entity, `entity${i}`)),
-            eq(changeLatest.entityId, param(changeLatest.entityId, `entityId${i}`)),
-          ),
-        ),
-      ),
-    )
-    .prepare(),
-)
-
-/**
- * Installed ids of one kind under `size` key prefixes [POD-6156]: one primary-key
- * range per prefix, `entity = ? AND entity_id >= prefix AND entity_id < bound`,
- * the same OR-of-seeks shape as {@link installedRowsOfKeys}. Keys and seqs only;
- * no payload is read.
- */
-const installedIdsUnderPrefixes = preparedFamily((db: StoreDrizzle, size: number) =>
-  db
-    .select({ seq: changeLatest.seq, entityId: changeLatest.entityId })
-    .from(changeLatest)
-    .where(
-      or(
-        ...Array.from({ length: Math.max(size, 1) }, (_, i) =>
-          and(
-            eq(changeLatest.entity, param(changeLatest.entity, `entity${i}`)),
-            gte(changeLatest.entityId, param(changeLatest.entityId, `from${i}`)),
-            lt(changeLatest.entityId, param(changeLatest.entityId, `below${i}`)),
-          ),
-        ),
-      ),
-    )
-    .prepare(),
-)
-
-/** Every installed row of one kind: a range of the primary key's first column [POD-6156]. */
-const installedRowsOfKind = prepared((db: StoreDrizzle) =>
-  db
-    .select({
-      seq: changeLatest.seq,
-      entity: changeLatest.entity,
-      entityId: changeLatest.entityId,
-      payload: changeLatest.payload,
-    })
-    .from(changeLatest)
-    .where(eq(changeLatest.entity, param(changeLatest.entity, 'entity')))
-    .prepare(),
-)
-
-/** Pairs per grouped key read: two parameters each, under SQLite's 999. */
-const KEY_CHUNK = 250
-/** Prefixes per grouped range read: three parameters each. */
-const PREFIX_CHUNK = 160
 
 const appliedMutationResult = prepared((db: StoreDrizzle) =>
   db
@@ -674,51 +532,9 @@ export class SyncRepository {
         const last = Number(result.lastInsertRowid)
         const first = last - chunk.length + 1
         for (let i = 0; i < chunk.length; i++) seqs.push(first + i)
-        await this.applyLatestChangeStates(chunk, first)
       }
     })
     return seqs
-  }
-
-  /**
-   * Advance the installed world (`change_latest`) for one appended chunk, INSIDE
-   * the append's transaction — so the world can never describe a change the log
-   * does not hold, or miss one it does.
-   *
-   * ROW BY ROW, IN ORDER, and that is not a missed batching opportunity: a batch
-   * may legitimately carry `upsert` then `remove` for one entity (a first-sight
-   * row that is gone by the end of the same reconcile), and grouping the two ops
-   * into bulk statements would apply them in op order rather than log order —
-   * leaving the removed entity installed. Sequenced statements inside one
-   * transaction are what make "last write in the batch wins" true here for the
-   * same reason it is true in the log.
-   */
-  private async applyLatestChangeStates(
-    rows: readonly ChangeLogWriteRow[],
-    firstSeq: number,
-  ): Promise<void> {
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i] as ChangeLogWriteRow
-      // A payload-less upsert is the corrupt row every reader of the fold already
-      // skips, so the world it describes is "this entity is not installed" — which
-      // is what the delete arm writes. Storing it instead would put a NULL where
-      // the column says NOT NULL; keeping the PREVIOUS state would be worse still,
-      // since the folded log never showed it once a corrupt row landed on top.
-      if (row.op === 'upsert' && row.payload !== null) {
-        // TARGETED ON THE PRIMARY KEY, which is `change_latest`'s ONLY uniqueness
-        // constraint — checked with `pragma index_list` on the migrated table, so
-        // no conflict can arrive on a constraint this target does not cover
-        // [spec rule 31a].
-        await upsertLatestChangeState(this.db).run({
-          entity: row.entity,
-          entityId: row.entityId,
-          seq: firstSeq + i,
-          payload: row.payload,
-        })
-      } else {
-        await deleteLatestChangeState(this.db).run({ entity: row.entity, entityId: row.entityId })
-      }
-    }
   }
 
   /** Highest assigned seq ever (survives head-pruning via sqlite_sequence). 0 = none. */
@@ -785,9 +601,7 @@ export class SyncRepository {
   /**
    * [spec:SP-c29e] One bounded DELETE using the indexed seq primary key.
    *
-   * Touches `changes` ONLY. The installed world is not retained data — see
-   * {@link latestChangeStates} — so a prune that also swept it would be deleting
-   * the answer to "what is there?" in order to bound the answer to "what changed?".
+   * Trimming the catch-up log never changes the model tables used by bootstrap.
    */
   async pruneChangeBatch(plan: ChangePrunePlan, batchSize = 500): Promise<number> {
     if (!Number.isInteger(batchSize) || batchSize <= 0) {
@@ -799,109 +613,6 @@ export class SyncRepository {
       batchSize,
     })
     return Number(result.changes)
-  }
-
-  /**
-   * THE INSTALLED WORLD — the latest state per (entity, id): the bootstrap read a
-   * client's whole world is built from.
-   *
-   * Read from `change_latest`, NOT folded from `changes` (POD-678). The fold over
-   * the log was only ever as complete as retention left it, and retention is a
-   * WINDOW: on the live install the 20k row budget bit after ~27 hours, so this
-   * returned 66 of 631 issues and every client that attached afterwards resolved
-   * the other 565 as unknown references. The projection is maintained by the one
-   * writer that appends the log and is never pruned, so "what is there?" stops
-   * depending on how recently it was written.
-   *
-   * ONLY LIVE UPSERTS come back, where the fold used to also return `remove`
-   * tombstones. No consumer read them: the bootstrap skips non-upsert rows
-   * before doing anything.
-   *
-   * READ AFRESH ON EVERY CALL [POD-6156]. It used to be kept in memory between
-   * appends for the visibility anchors, and parsed whole at boot into the
-   * Authority's dedup baseline. The anchors and dedup now read the rows they
-   * need by key ({@link installedStates}); the bootstrap is the one caller left.
-   */
-  async latestChangeStates(): Promise<ChangeLogReadRow[]> {
-    const rows = await installedWorld(this.db).all()
-    // Read payload pages in table order. ORDER BY seq chooses change_latest_seq
-    // and scatters a full-world read across the DB (14.9s on the 1GB incident
-    // copy). Preserve the public sequence order with an in-memory numeric sort.
-    rows.sort((a, b) => a.seq - b.seq)
-    return rows.map((r) => mapChangeLogReadRow({ ...r, op: 'upsert' }))
-  }
-
-  /**
-   * THE INSTALLED ROWS FOR THESE KEYS, and nothing else [POD-6156].
-   *
-   * What a visibility check reads after a write: the current value of each
-   * subject it re-scopes. Grouped, so a batch of any size costs one statement per
-   * {@link KEY_CHUNK} keys, never one per key. A key with no installed row is
-   * simply absent; the rows come back in no particular order.
-   */
-  async installedStates(
-    keys: readonly { readonly entity: string; readonly entityId: string }[],
-  ): Promise<ChangeLogReadRow[]> {
-    const distinct = [
-      ...new Map(keys.map((key) => [`${key.entity}\u0000${key.entityId}`, key])).values(),
-    ]
-    const out: ChangeLogReadRow[] = []
-    for (let start = 0; start < distinct.length; start += KEY_CHUNK) {
-      const chunk = distinct.slice(start, start + KEY_CHUNK)
-      const size = inListSize(chunk.length)
-      const values: Record<string, unknown> = {}
-      for (let i = 0; i < size; i++) {
-        // Padding repeats the last key: a duplicate arm matches nothing new.
-        const key = chunk[Math.min(i, chunk.length - 1)] as (typeof chunk)[number]
-        values[`entity${i}`] = key.entity
-        values[`entityId${i}`] = key.entityId
-      }
-      const rows = await installedRowsOfKeys(this.db, size).all(values)
-      for (const row of rows) out.push(mapChangeLogReadRow({ ...row, op: 'upsert' }))
-    }
-    return out
-  }
-
-  /**
-   * Every installed row of one entity kind, in seq order [POD-6156]: what the
-   * Authority reconciles a kind's full truth against, and what a feed
-   * publisher seeds its carried set from. Sorted here, as
-   * {@link latestChangeStates} is, so the read walks the primary key.
-   */
-  async installedStatesOf(entity: string): Promise<ChangeLogReadRow[]> {
-    const rows = await installedRowsOfKind(this.db).all({ entity })
-    rows.sort((a, b) => a.seq - b.seq)
-    return rows.map((r) => mapChangeLogReadRow({ ...r, op: 'upsert' }))
-  }
-
-  /**
-   * The installed ids of one kind that start with any of these prefixes, with
-   * their seqs [POD-6156]. Each prefix must end in an ASCII separator (see
-   * {@link prefixUpperBound}); the caller still checks that a returned id parses
-   * the way it expects, since a prefix only bounds the range.
-   */
-  async installedIdsWithPrefixes(
-    entity: string,
-    prefixes: readonly string[],
-  ): Promise<{ entityId: string; seq: number }[]> {
-    const distinct = [...new Set(prefixes)]
-    const out: { entityId: string; seq: number }[] = []
-    for (let start = 0; start < distinct.length; start += PREFIX_CHUNK) {
-      const chunk = distinct.slice(start, start + PREFIX_CHUNK)
-      const size = inListSize(chunk.length)
-      const values: Record<string, unknown> = {}
-      for (let i = 0; i < size; i++) {
-        const prefix = chunk[Math.min(i, chunk.length - 1)] as string
-        values[`entity${i}`] = entity
-        values[`from${i}`] = prefix
-        values[`below${i}`] = prefixUpperBound(prefix)
-      }
-      // Overlapping prefixes would return a key twice; the map keeps it once.
-      for (const row of await installedIdsUnderPrefixes(this.db, size).all(values)) {
-        out.push({ entityId: row.entityId, seq: row.seq })
-      }
-    }
-    return [...new Map(out.map((row) => [row.entityId, row])).values()]
   }
 
   // ---- outbox write path (docs/spec/outbox-write-path.md) ----

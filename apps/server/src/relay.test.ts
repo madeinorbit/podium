@@ -20,6 +20,7 @@ import {
 import { asDelegationRef, CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterAll, describe, expect, it, vi } from 'vitest'
+import { loggedRowsFor } from './test-support/logged-rows'
 import { messageTestWriter, messageTestWriters } from './test-support/message-writer'
 import { clientSessionViews } from './test-support/session-views'
 
@@ -1597,7 +1598,7 @@ describe('SessionRegistry', () => {
     )
   })
 
-  it('scopes each member\'s machine access rows to that member', async () => {
+  it("scopes each member's machine access rows to that member", async () => {
     const colleague = asUserId('colleague')
     const store = await openTestStore(':memory:', TEST_MACHINE)
     // The host's own row, as setup enrollment writes it (boot no longer does,
@@ -1641,7 +1642,13 @@ describe('SessionRegistry', () => {
     })
     // The colleague is a member, so the server writes their access rows too.
     await store.users.create(
-      { id: colleague, displayName: 'Colleague', role: 'member', createdAt: '2026-08-02T00:00:00.000Z', disabledAt: null },
+      {
+        id: colleague,
+        displayName: 'Colleague',
+        role: 'member',
+        createdAt: '2026-08-02T00:00:00.000Z',
+        disabledAt: null,
+      },
       'hash',
     )
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
@@ -1650,7 +1657,8 @@ describe('SessionRegistry', () => {
     const rawIds = (await reg.modules.machines.listMachines()).map((machine) => machine.id).sort()
     const accessOf = async (user: string) =>
       (
-        await store.sync.installedStates(
+        await loggedRowsFor(
+          store,
           rawIds.map((machine) => ({
             entity: 'machineAccess',
             entityId: machineAccessRowId(asUserId(user), asMachineId(machine)),

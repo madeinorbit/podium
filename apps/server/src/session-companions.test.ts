@@ -288,7 +288,6 @@ describe('S1 session companion records', () => {
     const f = await fixture()
     const id = f.store.hostMachineId
     await f.sessions.flushBroadcasts()
-    const capture = vi.spyOn(f.reg.changeLedger, 'capture')
     const before = await f.reg.changeLedger.cursor()
     const dirty = vi.spyOn(f.sessions.repository, 'markVolatileSessionDirty')
     const project = vi.spyOn(f.sessions.view, 'buildProjectionPass')
@@ -305,12 +304,8 @@ describe('S1 session companion records', () => {
     await f.sessions.flushBroadcasts()
     expect(dirty).not.toHaveBeenCalled()
     expect(project).not.toHaveBeenCalled()
-    expect(
-      capture.mock.calls.flatMap(([, changes]) =>
-        changes.filter((change) => change.entity === 'session'),
-      ),
-    ).toEqual([])
     const changes = (await f.reg.changeLedger.changesSince(before)) ?? []
+    expect(changes.filter((change) => change.entity === 'session')).toEqual([])
     const machines = changes.filter((change) => change.entity === 'machine')
     if (verb === 'rename' || verb === 'enroll') {
       expect(machines).toMatchObject([
@@ -323,8 +318,11 @@ describe('S1 session companion records', () => {
       ])
     } else {
       expect(machines).toEqual([])
-      expect((await f.store.sync.changesSince(before))
-        .some((change) => change.entity === 'machineAccess')).toBe(true)
+      expect(
+        (await f.store.sync.changesSince(before)).some(
+          (change) => change.entity === 'machineAccess',
+        ),
+      ).toBe(true)
     }
   })
 

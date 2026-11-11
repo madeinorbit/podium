@@ -173,7 +173,6 @@ export function registerSuperagentThreadRecords(
         // The row's own capture publishes the record inside this unit, under
         // this command's provenance.
         write: async () => await deps.threads().updateSuperagentThreadBinding(thread.id, values),
-        changes: () => [],
       })
       return { ok: true }
     },

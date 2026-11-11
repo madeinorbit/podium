@@ -1,3 +1,4 @@
+import { loggedRowsFor } from './test-support/logged-rows'
 /**
  * MU-11: ACCESS CHANGES TAKE EFFECT AT THEIR COMMIT (POD-6293; design §2.1,
  * §4.5, acceptance matrix MU-11).
@@ -16,10 +17,11 @@ import {
   actorUser,
   agentIdentityFromSessionId,
   asSessionId,
+  machineAccessRowId,
+  parseMachineAccessRowId,
   type SessionId,
   type UserId,
 } from '@podium/model'
-import { machineAccessRowId, parseMachineAccessRowId } from '@podium/model'
 import { asDelegationRef } from '@podium/protocol'
 import { afterEach, expect, it } from 'vitest'
 import type { ClientConn } from './gateway/client-registry'
@@ -112,10 +114,10 @@ it('demoting Alice rescopes her open connection and refuses what she queued as a
 
   const feed = await (await inst.as('alice')).feed()
   // The machines Alice may see are her `machineAccess` records (POD-6644).
-  const sync = inst.handle.registry.sessionStore.sync
   const visibleToAlice = async () =>
     (
-      await sync.installedStates(
+      await loggedRowsFor(
+        inst.handle.registry.sessionStore,
         [inst.machines.alice, inst.machines.bob].map((machine) => ({
           entity: 'machineAccess',
           entityId: machineAccessRowId(alice.id, machine),

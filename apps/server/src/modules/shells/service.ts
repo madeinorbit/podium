@@ -66,10 +66,7 @@ export interface DockShellSessionPort {
     machineId?: MachineId
     actor?: string
   }): Promise<{ sessionId: SessionId }>
-  archiveSession?(
-    writer: Pick<LedgerWriter, 'commit' | 'capture'>,
-    sessionId: SessionId,
-  ): Promise<void>
+  archiveSession?(writer: Pick<LedgerWriter, 'commit'>, sessionId: SessionId): Promise<void>
 }
 
 export interface DockShellSessionView {
@@ -103,7 +100,7 @@ export class DockShellService {
    * normal shell spawn (agentKind 'shell'); only the mapping is new.
    */
   async forWorktree(
-    writer: Pick<LedgerWriter, 'commit' | 'capture'>,
+    writer: Pick<LedgerWriter, 'commit'>,
     userId: UserId,
     worktreePath: string,
     opts: { machineId?: MachineId; actor?: string } = {},

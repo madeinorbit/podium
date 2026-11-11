@@ -42,6 +42,7 @@ import type { MessageRow } from '../store/types'
 import { recordReadsOver } from '../sync-worker/record-reads'
 import { attachHostDaemon } from '../test-support/host-daemon'
 import { issueRowFixture } from '../test-support/issue-row'
+import { loggedRows } from '../test-support/logged-rows'
 import { openTestStore } from '../test-support/open-test-store'
 import { quietShipping } from '../test-support/statement-count'
 import type { WriteContexts } from '../write-contexts'
@@ -274,12 +275,12 @@ describe('record builders (POD-6763)', () => {
       // Retention takes the oldest events, issue events among them; the feed
       // lets them go (POD-6766: the window is the events that exist).
       await settle(reg)
-      const carriedBefore = (await store.sync.installedStatesOf('issueEvent')).length
+      const carriedBefore = (await loggedRows(store, 'issueEvent')).length
       await store.events.pruneEventBatch(
         await store.events.planEventPrune({ maxAgeDays: 3650, maxRows: 2 }),
       )
       await settle(reg)
-      expect((await store.sync.installedStatesOf('issueEvent')).length).toBeLessThan(carriedBefore)
+      expect((await loggedRows(store, 'issueEvent')).length).toBeLessThan(carriedBefore)
       // And a newer issue event arrives after the prune.
       await reg.issues.crud.create(writer, {
         repoPath: '/repo',
@@ -391,9 +392,7 @@ describe('record builders (POD-6763)', () => {
       const prunedEvent = issueEventRowId(999_999, 'POD-1')
       const closedAsk = interactionRowId(sessionId, 'ixn_closed')
       const message = messageRecordRowId({ sessionId, senderUserId: owner, messageId: 'msg_open' })
-      const current = (await store.sync.installedStatesOf('message')).find(
-        (row) => row.entityId === message,
-      )
+      const current = (await loggedRows(store, 'message')).find((row) => row.entityId === message)
       expect(current?.payload).toBeTruthy()
       await store.sync.appendChanges(
         [
@@ -442,7 +441,7 @@ describe('record builders (POD-6763)', () => {
       expect(
         JSON.parse(loaded.kinds.get('message')?.get(message)?.payload ?? '{}'),
       ).not.toHaveProperty('legacy')
-      const logged = (await store.sync.installedStatesOf('issueEvent')).map((row) => row.entityId)
+      const logged = (await loggedRows(store, 'issueEvent')).map((row) => row.entityId)
       expect(logged).toContain(prunedEvent)
     } finally {
       await reg.dispose()

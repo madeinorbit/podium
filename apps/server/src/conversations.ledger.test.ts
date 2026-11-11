@@ -189,11 +189,11 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
             'c-old',
           ])
         },
-        changes: () => {
-          throw new Error('declaration failed')
+        creates: () => {
+          throw new Error('record naming failed')
         },
       }),
-    ).rejects.toThrow('declaration failed')
+    ).rejects.toThrow('record naming failed')
     const ids = (await store.conversations.index.search({})).map((r) => r.id)
     expect(ids).toContain('c-old') // delete rolled back
     expect(ids).not.toContain('c-new') // upsert rolled back

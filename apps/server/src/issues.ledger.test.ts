@@ -406,11 +406,11 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       testLedgerWriter(ledger).commit({
         write: async () =>
           await store.issues.upsertIssue(fixtureWriteScope(), { ...row, title: 'mutated' }),
-        changes: () => {
-          throw new Error('declaration failed')
+        creates: () => {
+          throw new Error('record naming failed')
         },
       }),
-    ).rejects.toThrow('declaration failed')
+    ).rejects.toThrow('record naming failed')
     // The entity write inside the same transact span rolled back with the append.
     expect((await store.issues.listIssueRows()).find((r) => r.id === wire.id)?.title).toBe(
       'original',
@@ -753,11 +753,11 @@ describe('per-entity revision (ADR 2 D3)', () => {
       testLedgerWriter(ledger).commit({
         write: async () =>
           await store.issues.upsertIssue(fixtureWriteScope(), { ...row, title: 'mutated' }),
-        changes: () => {
-          throw new Error('declaration failed')
+        creates: () => {
+          throw new Error('record naming failed')
         },
       }),
-    ).rejects.toThrow('declaration failed')
+    ).rejects.toThrow('record naming failed')
     // upsertIssue assigned revision 2 inside the span; the throw rolled the row
     // back, so the token must have gone with it — a burned revision would leave
     // the authority claiming a write that never landed, and the next real write

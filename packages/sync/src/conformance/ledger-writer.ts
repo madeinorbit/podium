@@ -16,7 +16,6 @@ import {
   toKernelAffects,
 } from '../ledger'
 import { type WriteScope, WriteScopeIssuer, type WriteScopeMint } from '../write-scope'
-import { installedWorldOver } from './installed-reads'
 
 const mints = new WeakMap<Ledger, WriteScopeMint>()
 
@@ -60,8 +59,7 @@ export function fixtureCommitWriter(
   return {
     commit: async (op) => {
       const result = await op.write(fixtureWriteScope())
-      const specs = (await op.changes?.(result)) ?? []
-      await onChanges?.(specs)
+      await onChanges?.([])
       op.apply?.(result, [])
       return { result, changes: [] }
     },
@@ -82,7 +80,6 @@ export function authorityCommitWriter(
 ): Pick<LedgerWriter, 'commit'> {
   return {
     commit: async <T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>> => {
-      const declare = op.changes
       const creates = op.creates
       const wrote = op.wrote
       const outcome = await authority.commit<T>({
@@ -100,12 +97,6 @@ export function authorityCommitWriter(
             }),
         ...(op.affects === undefined ? {} : { affects: toKernelAffects(op.affects) }),
         write: async () => await op.write(fixtureWriteScope()),
-        ...(declare === undefined
-          ? {}
-          : {
-              changes: async (result: T) =>
-                (await declare(result)).map(({ id, ...rest }) => ({ ...rest, entityId: id })),
-            }),
       })
       if (outcome.outcome !== 'committed') throw new Error(`rejected: ${outcome.reason}`)
       onAppended?.(
@@ -141,10 +132,5 @@ export function memoryChangeLog(): ChangeLogStore {
       rows.filter((r) => r.seq > from && r.seq <= through).slice(0, limit),
     planChangePrune: async () => ({ thresholdSeq: 0 }),
     pruneChangeBatch: async () => 0,
-    ...installedWorldOver(async () => {
-      const latest = new Map<string, ChangeLogReadRow>()
-      for (const r of rows) latest.set(`${r.entity}/${r.entityId}`, r)
-      return [...latest.values()]
-    }),
   }
 }

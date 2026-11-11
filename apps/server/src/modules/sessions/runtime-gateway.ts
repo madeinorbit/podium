@@ -48,7 +48,7 @@ import type { RuntimeEventGate, RuntimeEventGateResult } from './runtime-event-g
 
 /** A session write's writer (the same shape as `SessionWriter`), named here
  *  without importing the lifecycle's types (POD-6602). */
-type SessionWriter = Pick<LedgerWriter, 'commit' | 'capture'>
+type SessionWriter = Pick<LedgerWriter, 'commit'>
 
 /**
  * The durable FIFO, as this gateway needs it.

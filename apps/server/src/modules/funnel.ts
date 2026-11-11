@@ -93,11 +93,8 @@ export class WriteFunnel {
    */
   async run<T>(op: { authorize?: () => Promise<void>; write: () => Promise<T> }): Promise<T> {
     // Through the KERNEL, so the order is the Authority's to enforce rather than
-    // this method's to remember. `changes: () => []` is the honest declaration
-    // for these call sites: issue mail, subscriptions and locks are durable
-    // writes with no publishable change, so there is nothing to append — which
-    // is a different statement from "we did not get round to declaring it", and
-    // the empty array says so at each call rather than in a comment here.
+    // this method's to remember. Source repositories name any records they
+    // change; a write without affected records appends nothing.
     //
     // No `arbitrate`, so this cannot be rejected; the outcome is committed by
     // construction. Asserted rather than cast, because "cannot happen" plus a
@@ -105,7 +102,6 @@ export class WriteFunnel {
     const outcome = await this.deps.authority.commit({
       ...(op.authorize === undefined ? {} : { authorize: op.authorize }),
       write: op.write,
-      changes: () => [],
     })
     if (outcome.outcome !== 'committed') {
       throw new Error(

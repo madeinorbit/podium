@@ -262,7 +262,7 @@ export interface MailHandlerContext {
    * POD-6601): what the write creates in its unit (an agent spawn's launch
    * record) is written with it.
    */
-  writer?: Pick<LedgerWriter, 'commit' | 'capture'>
+  writer?: Pick<LedgerWriter, 'commit'>
   /**
    * An await saw the child settle (POD-6525): the gate retires the parent's
    * wake claim as its own write once the wait is over. Absent = the await
@@ -558,7 +558,7 @@ export class MailAccess {
 export function mailWriter(
   ctx: Pick<MailHandlerContext, 'writer'>,
   what: string,
-): Pick<LedgerWriter, 'commit' | 'capture'> {
+): Pick<LedgerWriter, 'commit'> {
   if (ctx.writer === undefined)
     throw new Error(`${what}: a mail write runs with its command's writer`)
   return ctx.writer

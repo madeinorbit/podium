@@ -10,7 +10,12 @@
 import { openDatabase } from '@podium/runtime/sqlite'
 import { expect, it } from 'vitest'
 import { runDrizzleMigrations } from '.'
-import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
+import { DRIZZLE_MIGRATIONS as ALL_MIGRATIONS } from './drizzle-manifest.generated'
+
+const DRIZZLE_MIGRATIONS = ALL_MIGRATIONS.slice(
+  0,
+  ALL_MIGRATIONS.findIndex((m) => m.name.endsWith('_sync-log-only')),
+)
 
 it('rewrites stored reconnecting sessions and their change-log payloads to live', () => {
   const cut = DRIZZLE_MIGRATIONS.findIndex((m) => m.name.endsWith('_session-reconnecting-is-live'))

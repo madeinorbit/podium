@@ -141,7 +141,6 @@ export const APPROVAL_EXEC_DEADLINE_MS = 7 * 60_000
 /** The most waiting requests one duplicate check reads. */
 const AWAITING_LIMIT = 500
 
-
 /**
  * The closed server catalog (POD-6415): the ops the SERVER runs after approval,
  * through the same doors every transport uses (`executeServerOp`). Every other
@@ -346,7 +345,6 @@ export class ApprovalService {
           },
           now,
         ),
-      changes: () => [],
     })
     await this.log(id, approval, 'issue.approval_requested')
     return {
@@ -445,7 +443,6 @@ export class ApprovalService {
       await ctx.ledger.commit({
         write: async (scope) =>
           await this.deps.effects.decide(scope, row.id, decision, revision, now),
-        changes: () => [],
       })
     ).result
     if (decided === undefined) throw new SyncWriteRefused({ kind: 'conflict' })
@@ -628,7 +625,6 @@ export class ApprovalService {
                 settlement,
                 now,
               ),
-            changes: () => [],
           })
         ).result,
     )

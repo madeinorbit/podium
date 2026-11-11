@@ -1,8 +1,8 @@
-import { Ledger } from '@podium/sync'
 import { fixtureWriteScope, testLedgerWriter } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import type { SessionStore } from './store'
 import { applyAfterCommit, spanOpen } from './store/executor/executor'
+import { StoreModelLedger as Ledger } from './test-support/model-ledger'
 import { openTestStore } from './test-support/open-test-store'
 
 /**
@@ -29,7 +29,7 @@ describe('dedup follows the outermost commit (POD-3328)', () => {
   })
 
   function makeLedger(store: SessionStore): Ledger {
-    return new Ledger({
+    return new Ledger(store, {
       repo: store.sync,
       now: () => 1_000,
       transact: async (fn) => await store.transact(fn),
@@ -52,21 +52,23 @@ describe('dedup follows the outermost commit (POD-3328)', () => {
       store.transact(async () => {
         // A nested ledger.commit: its own transact span degrades to a savepoint
         // and RELEASES when this callback returns.
-        await testLedgerWriter(ledger).commit({
-          write: async () => {
-            await store.conversations.index.upsert(fixtureWriteScope(), [
-              { ...conversationRow('c-rolled-back'), machineId: store.hostMachineId },
-            ])
-          },
-          changes: () => [
-            {
-              entity: 'conversation',
-              id: 'c-rolled-back',
-              op: 'upsert',
-              value: conversationRow('c-rolled-back'),
+        await testLedgerWriter(ledger).commit(
+          ledger.modelOperation({
+            write: async () => {
+              await store.conversations.index.upsert(fixtureWriteScope(), [
+                { ...conversationRow('c-rolled-back'), machineId: store.hostMachineId },
+              ])
             },
-          ],
-        })
+            rows: () => [
+              {
+                entity: 'conversation',
+                id: 'c-rolled-back',
+                op: 'upsert',
+                value: conversationRow('c-rolled-back'),
+              },
+            ],
+          }),
+        )
         // …and now the ENCLOSING span fails, after the savepoint was released.
         throw new Error('enclosing span failed')
       }),
@@ -87,17 +89,19 @@ describe('dedup follows the outermost commit (POD-3328)', () => {
 
     await expect(
       store.transact(async () => {
-        await testLedgerWriter(ledger).commit({
-          write: async () => {},
-          changes: () => [
-            {
-              entity: 'conversation',
-              id: 'c-rolled-back',
-              op: 'upsert',
-              value: conversationRow('c-rolled-back'),
-            },
-          ],
-        })
+        await testLedgerWriter(ledger).commit(
+          ledger.modelOperation({
+            write: async () => {},
+            rows: () => [
+              {
+                entity: 'conversation',
+                id: 'c-rolled-back',
+                op: 'upsert',
+                value: conversationRow('c-rolled-back'),
+              },
+            ],
+          }),
+        )
         throw new Error('enclosing span failed')
       }),
     ).rejects.toThrow('enclosing span failed')
@@ -105,17 +109,19 @@ describe('dedup follows the outermost commit (POD-3328)', () => {
     // Committing the SAME value again must append: the row is not in the log,
     // so a baseline that still held its detection key would dedup away the only
     // record of a row that does exist.
-    const { changes } = await testLedgerWriter(ledger).commit({
-      write: async () => {},
-      changes: () => [
-        {
-          entity: 'conversation',
-          id: 'c-rolled-back',
-          op: 'upsert',
-          value: conversationRow('c-rolled-back'),
-        },
-      ],
-    })
+    const { changes } = await testLedgerWriter(ledger).commit(
+      ledger.modelOperation({
+        write: async () => {},
+        rows: () => [
+          {
+            entity: 'conversation',
+            id: 'c-rolled-back',
+            op: 'upsert',
+            value: conversationRow('c-rolled-back'),
+          },
+        ],
+      }),
+    )
     expect(changes.map((c) => ({ id: c.id, op: c.op }))).toEqual([
       { id: 'c-rolled-back', op: 'upsert' },
     ])
@@ -128,27 +134,36 @@ describe('dedup follows the outermost commit (POD-3328)', () => {
     const cursorBefore = await ledger.cursor()
 
     await store.transact(async () => {
-      await testLedgerWriter(ledger).commit({
-        write: async () => {
-          await store.conversations.index.upsert(fixtureWriteScope(), [
-            { ...conversationRow('c-kept'), machineId: store.hostMachineId },
-          ])
-        },
-        changes: () => [
-          { entity: 'conversation', id: 'c-kept', op: 'upsert', value: conversationRow('c-kept') },
-        ],
-      })
+      await testLedgerWriter(ledger).commit(
+        ledger.modelOperation({
+          write: async () => {
+            await store.conversations.index.upsert(fixtureWriteScope(), [
+              { ...conversationRow('c-kept'), machineId: store.hostMachineId },
+            ])
+          },
+          rows: () => [
+            {
+              entity: 'conversation',
+              id: 'c-kept',
+              op: 'upsert',
+              value: conversationRow('c-kept'),
+            },
+          ],
+        }),
+      )
     })
 
     expect(await ledger.cursor()).toBe(cursorBefore + 1)
     expect(await baselineIds(ledger)).toContain('c-kept')
     // And the fold landed, so the same value now dedups away.
-    const { changes } = await testLedgerWriter(ledger).commit({
-      write: async () => {},
-      changes: () => [
-        { entity: 'conversation', id: 'c-kept', op: 'upsert', value: conversationRow('c-kept') },
-      ],
-    })
+    const { changes } = await testLedgerWriter(ledger).commit(
+      ledger.modelOperation({
+        write: async () => {},
+        rows: () => [
+          { entity: 'conversation', id: 'c-kept', op: 'upsert', value: conversationRow('c-kept') },
+        ],
+      }),
+    )
     expect(changes).toEqual([])
   })
 
@@ -168,17 +183,19 @@ describe('dedup follows the outermost commit (POD-3328)', () => {
 
     await expect(
       store.transact(async () => {
-        await testLedgerWriter(ledger).commit({
-          write: async () => {},
-          changes: () => [
-            {
-              entity: 'conversation',
-              id: 'c-orphan',
-              op: 'upsert',
-              value: conversationRow('c-orphan'),
-            },
-          ],
-        })
+        await testLedgerWriter(ledger).commit(
+          ledger.modelOperation({
+            write: async () => {},
+            rows: () => [
+              {
+                entity: 'conversation',
+                id: 'c-orphan',
+                op: 'upsert',
+                value: conversationRow('c-orphan'),
+              },
+            ],
+          }),
+        )
         throw new Error('enclosing span failed')
       }),
     ).rejects.toThrow('enclosing span failed')
@@ -187,20 +204,22 @@ describe('dedup follows the outermost commit (POD-3328)', () => {
     // `changes()` runs, so the orphan is only dropped if the layer knows which
     // UNIT staged it rather than merely that something is open.
     let seenInsideTheSpan: string[] = []
-    await testLedgerWriter(ledger).commit({
-      write: async () => {},
-      changes: async () => {
-        seenInsideTheSpan = await baselineIds(ledger)
-        return [
-          {
-            entity: 'conversation',
-            id: 'c-other',
-            op: 'upsert',
-            value: conversationRow('c-other'),
-          },
-        ]
-      },
-    })
+    await testLedgerWriter(ledger).commit(
+      ledger.modelOperation({
+        write: async () => {},
+        rows: async () => {
+          seenInsideTheSpan = await baselineIds(ledger)
+          return [
+            {
+              entity: 'conversation',
+              id: 'c-other',
+              op: 'upsert',
+              value: conversationRow('c-other'),
+            },
+          ]
+        },
+      }),
+    )
 
     expect(seenInsideTheSpan).not.toContain('c-orphan')
     expect(await baselineIds(ledger)).not.toContain('c-orphan')
@@ -219,36 +238,42 @@ describe('dedup follows the outermost commit (POD-3328)', () => {
     const cursorBefore = await ledger.cursor()
 
     await store.transact(async () => {
-      await testLedgerWriter(ledger).commit({
-        write: async () => {},
-        changes: () => [
-          {
-            entity: 'conversation',
-            id: 'c-churn',
-            op: 'upsert',
-            value: conversationRow('c-churn'),
-          },
-        ],
-      })
+      await testLedgerWriter(ledger).commit(
+        ledger.modelOperation({
+          write: async () => {},
+          rows: () => [
+            {
+              entity: 'conversation',
+              id: 'c-churn',
+              op: 'upsert',
+              value: conversationRow('c-churn'),
+            },
+          ],
+        }),
+      )
       // Same value again: the first write is not folded yet, but the overlay
       // holds it, so this dedups away exactly as it does outside a span.
-      const repeat = await testLedgerWriter(ledger).commit({
-        write: async () => {},
-        changes: () => [
-          {
-            entity: 'conversation',
-            id: 'c-churn',
-            op: 'upsert',
-            value: conversationRow('c-churn'),
-          },
-        ],
-      })
+      const repeat = await testLedgerWriter(ledger).commit(
+        ledger.modelOperation({
+          write: async () => {},
+          rows: () => [
+            {
+              entity: 'conversation',
+              id: 'c-churn',
+              op: 'upsert',
+              value: conversationRow('c-churn'),
+            },
+          ],
+        }),
+      )
       expect(repeat.changes).toEqual([])
       // And the remove is NOT dropped, because the overlay says the id is there.
-      const removed = await testLedgerWriter(ledger).commit({
-        write: async () => {},
-        changes: () => [{ entity: 'conversation', id: 'c-churn', op: 'remove' }],
-      })
+      const removed = await testLedgerWriter(ledger).commit(
+        ledger.modelOperation({
+          write: async () => {},
+          rows: () => [{ entity: 'conversation', id: 'c-churn', op: 'remove' }],
+        }),
+      )
       expect(removed.changes.map((c) => c.op)).toEqual(['remove'])
     })
 

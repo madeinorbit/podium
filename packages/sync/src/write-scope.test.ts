@@ -10,22 +10,21 @@
 
 import { describe, expect, it } from 'vitest'
 import { createTestSyncRepository } from './adapters/sqlite/test-support'
-import { type EntityChangeSpec, Ledger } from './ledger'
+import { ModelRecords } from './conformance/model-records'
+import { Ledger } from './ledger'
 import type { WriteScope } from './write-scope'
 
 const passthrough = async <T>(fn: () => Promise<T>): Promise<T> => await fn()
 const makeLedger = () =>
-  new Ledger({ repo: createTestSyncRepository(), now: Date.now, transact: passthrough })
-
-const spec = (id: string): EntityChangeSpec => ({
-  entity: 'issueProjection',
-  id,
-  op: 'upsert',
-  value: { id, title: id },
-})
+  new Ledger({
+    repo: createTestSyncRepository(),
+    records: new ModelRecords(),
+    now: Date.now,
+    transact: passthrough,
+  })
 
 describe('write scopes', () => {
-  it('a sync scope and a system scope both commit and capture', async () => {
+  it('a sync scope and a system scope both commit', async () => {
     const ledger = makeLedger()
     const mint = ledger.takeScopeMint()
     const sync = mint.sync('mut_a')
@@ -37,11 +36,10 @@ describe('write scopes', () => {
 
     const committed = await ledger.commit(sync, {
       write: async () => 'ok',
-      changes: () => [spec('a')],
     })
-    expect(committed.changes.map((c) => c.id)).toEqual(['a'])
-    const captured = await ledger.capture(system, [spec('b')])
-    expect(captured.map((c) => c.id)).toEqual(['b'])
+    expect(committed.result).toBe('ok')
+    const own = await ledger.commit(system, { write: async () => 'system' })
+    expect(own.result).toBe('system')
   })
 
   it('the mint is handed out once', () => {
@@ -61,10 +59,8 @@ describe('write scopes', () => {
           write: async () => {
             wrote = true
           },
-          changes: () => [spec('x')],
         }),
       ).rejects.toThrow(/not issued by this ledger/)
-      await expect(ledger.capture(scope, [spec('y')])).rejects.toThrow(/not issued by this ledger/)
     }
     expect(wrote).toBe(false)
     expect(await ledger.cursor()).toBe(0)
@@ -74,9 +70,7 @@ describe('write scopes', () => {
     const ledger = makeLedger()
     const typeOnly = () => {
       // @ts-expect-error a commit names its scope
-      void ledger.commit({ write: async () => 'ok', changes: () => [] })
-      // @ts-expect-error a capture names its scope
-      void ledger.capture([spec('z')])
+      void ledger.commit({ write: async () => 'ok' })
       // @ts-expect-error a scope cannot be written by hand
       const handMade: WriteScope = { origin: 'system', cause: 'x' }
       void handMade

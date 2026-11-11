@@ -1,4 +1,5 @@
 import {
+  type AutomationId,
   AutomationIdField,
   type AutomationRunId,
   asAutomationRunId,
@@ -6,7 +7,6 @@ import {
   MachineIdField,
   SessionIdField,
   UserIdField,
-  type AutomationId,
 } from '@podium/model'
 import { z } from 'zod'
 
@@ -45,8 +45,8 @@ export const MESSAGE_WAIT_TTL_MS = 7 * 24 * 60 * 60_000
 export const EVENT_RETENTION_MAX_AGE_DAYS = 14
 export const EVENT_RETENTION_MAX_ROWS = 50_000
 export const EVENT_PRUNE_BATCH_ROWS = 500
-export const CHANGE_KEEP_ROWS = 20_000
-export const CHANGE_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000
+export const CHANGE_KEEP_ROWS = 500_000
+export const CHANGE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
 export const CHANGE_PRUNE_BATCH_ROWS = 100
 /** Keep applied maintenance command rows long enough for overlap/replay proof. */
 export const MAINTENANCE_COMMAND_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000
@@ -527,7 +527,10 @@ export function worktreeGcRunKey(observed: WorktreeGcObservation): string {
   ].join('/')
 }
 
-export function automationOccurrenceRunId(automationId: AutomationId, firedAt: string): AutomationRunId {
+export function automationOccurrenceRunId(
+  automationId: AutomationId,
+  firedAt: string,
+): AutomationRunId {
   return asAutomationRunId(`arun_${encode(automationId)}_${encode(firedAt)}`.slice(0, 128))
 }
 

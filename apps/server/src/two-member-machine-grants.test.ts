@@ -1,3 +1,4 @@
+import { loggedRowsFor } from './test-support/logged-rows'
 /**
  * WHO ELSE MAY USE A MACHINE, AND TAKING IT AWAY AGAIN (POD-6700).
  *
@@ -42,7 +43,7 @@ const trpc = async (who: 'alice' | 'bob'): Promise<any> => (await f.as(who)).trp
 
 /** `member`'s synced access row for `machine`, as the feed would deliver it. */
 async function accessRow(member: UserId, machine: MachineId): Promise<MachineAccessWire | null> {
-  const [row] = await f.handle.registry.sessionStore.sync.installedStates([
+  const [row] = await loggedRowsFor(f.handle.registry.sessionStore, [
     { entity: 'machineAccess', entityId: machineAccessRowId(member, machine) },
   ])
   const payload = row?.payload

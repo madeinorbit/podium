@@ -137,7 +137,6 @@ export class SessionTeardown {
       // The server's own write (`sessions.lifecycle`): the park was its decision.
       await this.ports.writer.commit({
         write: async (scope) => await fail(scope, [sessionId]),
-        changes: () => [],
       })
     }
     await this.ports.store.sync.deleteQueuedMessagesForSession(sessionId)

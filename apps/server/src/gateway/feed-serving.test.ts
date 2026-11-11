@@ -35,10 +35,12 @@ const commit = (
   id: string,
   value: unknown,
 ) =>
-  testLedgerWriter(plumbing.ledger).commit({
-    write: async () => {},
-    changes: () => [{ entity, id, op: 'upsert', value }],
-  })
+  testLedgerWriter(plumbing.ledger).commit(
+    plumbing.ledger.modelOperation({
+      write: async () => {},
+      rows: () => [{ entity, id, op: 'upsert', value }],
+    }),
+  )
 
 /** Publish whatever the Authority has appended, exactly as the funnel does. */
 async function publishPending(
