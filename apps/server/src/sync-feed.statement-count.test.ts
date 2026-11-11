@@ -426,7 +426,7 @@ describe('client hello: pinned statement counts at 5 and 200', () => {
       expect((w as Client).inbox).toContainEqual(
         expect.objectContaining({
           type: 'welcome',
-          kindTokens: expect.objectContaining({ issueProjection: expect.stringMatching(/:0$/) }),
+          kindTokens: expect.objectContaining({ issueProjection: expect.stringMatching(/:1$/) }),
         }),
       )
     },

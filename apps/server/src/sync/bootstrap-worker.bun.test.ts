@@ -173,8 +173,8 @@ it('filters the snapshot and changes only the token whose generation was bumped'
     }
     const full = await records('/sync/bootstrap')
     const before = full[0].kindTokens
-    expect(before.issuePanelState).toMatch(/:0$/)
-    expect(before.issueProjection).toMatch(/:0$/)
+    expect(before.issuePanelState).toMatch(/:1$/)
+    expect(before.issueProjection).toMatch(/:1$/)
     const db = openDatabase(f.path)
     try {
       db.exec(
@@ -187,7 +187,7 @@ it('filters the snapshot and changes only the token whose generation was bumped'
     expect(filtered[0]).toMatchObject({ kinds: ['issuePanelState'], seq: full[0].seq })
     expect(filtered[0].kindTokens).toEqual({
       ...before,
-      issuePanelState: before.issuePanelState.replace(/:0$/, ':1'),
+      issuePanelState: before.issuePanelState.replace(/:1$/, ':2'),
     })
     expect(
       filtered

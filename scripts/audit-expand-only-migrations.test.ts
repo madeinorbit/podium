@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   APPROVED_CONTRACT_STEPS,
@@ -7,6 +8,17 @@ import {
   runChecks,
   unadmitted,
 } from './audit-expand-only-migrations'
+
+it('admits exactly the preserving tenant feed re-keys', () => {
+  const path = 'apps/server/src/migrations/drizzle/20261111141656_tenant-sync-feed/migration.sql'
+  const sql = readFileSync(new URL(`../${path}`, import.meta.url), 'utf8')
+  expect(findDestructiveDdl(sql).map((finding) => finding.kind)).toEqual([
+    'table-rebuild',
+    'table-rebuild',
+  ])
+  expect(unadmitted(path, findDestructiveDdl(sql))).toEqual([])
+  expect(unadmitted(path, findDestructiveDdl(`${sql}\nDROP TABLE users;`))).toHaveLength(1)
+})
 
 describe('findDestructiveDdl', () => {
   it('passes a plain additive column', () => {

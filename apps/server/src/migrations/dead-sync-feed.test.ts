@@ -110,7 +110,7 @@ describe('the dead sync_feed migration', () => {
     })
     expect(issueRevision(reopened)).toEqual(expectedIssueRevision)
     expect(restored.feedId).toBe('live-feed')
-    expect(restored.previousEpoch).toBe('live-epoch')
+    expect(restored.previousEpoch).toBe(feedIdentity(reopened).epoch)
     expect(restored.epoch).not.toBe('live-epoch')
 
     expect(runDrizzleMigrations(reopened, DRIZZLE_MIGRATIONS)).toEqual([])

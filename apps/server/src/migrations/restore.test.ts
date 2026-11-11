@@ -575,7 +575,7 @@ describe('restoring a backup from before feed identity existed', () => {
     expect(() =>
       booted
         .prepare(
-          'INSERT INTO feed_identity (singleton, feed_id, epoch, minted_at) VALUES (1, ?, ?, ?)',
+          "INSERT INTO sync_feed (tenant_id, feed_id, epoch, minted_at, head_seq, floor_seq) VALUES ('local', ?, ?, ?, 0, 1)",
         )
         .run('duplicate_feed', 'duplicate_epoch', 1),
     ).toThrow(/UNIQUE constraint failed/)

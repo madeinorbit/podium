@@ -87,17 +87,6 @@ export const APPROVED_CONTRACT_STEPS = new Map<
   }
 >([
   [
-    'apps/server/src/migrations/drizzle/20261111141656_tenant-sync-feed/migration.sql',
-    {
-      reason:
-        'POD-6253 authorized preserving re-keys for tenant numbering; all rows, generations and cursor bounds survive (POD-6775)',
-      admits: [
-        { kind: 'table-rebuild', table: 'changes' },
-        { kind: 'table-rebuild', table: 'sync_kind' },
-      ],
-    },
-  ],
-  [
     'apps/server/src/migrations/drizzle/20260929145432_drop-legacy-message-status/migration.sql',
     {
       // POD-4787 (user decision, 2026-09-29): drop the legacy `messages.status`
@@ -183,6 +172,17 @@ export const APPROVED_CONTRACT_STEPS = new Map<
       // (apps/daemon/src/convergence.ts), so that rollback is refused by design.
       reason: 'adds the issue_deps.type CHECK (D7), which SQLite can only do by a rebuild',
       admits: [{ kind: 'table-rebuild', table: 'issue_deps' }],
+    },
+  ],
+  [
+    'apps/server/src/migrations/drizzle/20261111141656_tenant-sync-feed/migration.sql',
+    {
+      reason:
+        'POD-6253 authorized preserving re-keys for tenant numbering; all rows, generations and cursor bounds survive (POD-6775)',
+      admits: [
+        { kind: 'table-rebuild', table: 'changes' },
+        { kind: 'table-rebuild', table: 'sync_kind' },
+      ],
     },
   ],
 ])

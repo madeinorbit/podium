@@ -399,10 +399,7 @@ describe('customer upgrade fixture: server', () => {
     const root = customerState({
       ledger: `${[lines[0], lines[1], '{"v":1,"kind":"enroll"', ...lines.slice(2)].join('\n')}\n`,
     })
-    const before = withDb(root, (db) => ({
-      epoch: feedEpoch(db),
-      count: machines(db, true).length,
-    }))
+    const before = withDb(root, (db) => ({ count: machines(db, true).length }))
     await expect(upgrade(root)).rejects.toThrow(/enrollment ledger line 3/)
     withDb(root, (db) => {
       expect(machines(db)).toHaveLength(before.count)

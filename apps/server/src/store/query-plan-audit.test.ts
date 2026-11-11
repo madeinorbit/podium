@@ -1658,7 +1658,6 @@ describe('POD-6223 — statistics of tables analysed while tiny', () => {
         'apps/server/src/store/messages.ts:queuedAheadOf []',
         'apps/server/src/store/conversations/registry.ts:segmentsWithPaths [4]',
         'apps/server/src/store/sessions.ts:liveSessionsOnMachine []',
-        'packages/sync/src/adapters/sqlite/sync-repository.ts:changesAfter []',
       ]),
     )
     expect(flagged.length).toBeGreaterThan(100)

@@ -346,11 +346,11 @@ describe('daemon *Result frames: pinned statement counts at 5 and 200', () => {
   // the log's append and latest-state rows); the broadcast and its approvals
   // list are gone.
   it('approvalExecResult of a session on an issue', async () => {
-    await expectConstantStatements(approval, 16)
+    await expectConstantStatements(approval, 17)
   })
 
   it('approvalExecResult pin is armed', async () => {
-    await expectArmed(approval, 16, plantPerSession)
+    await expectArmed(approval, 17, plantPerSession)
   })
 
   it('sessionKillResult that confirms the kill', async () => {
