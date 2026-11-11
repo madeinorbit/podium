@@ -5045,7 +5045,7 @@ export class SessionRegistry {
       topics,
       serverBuild: () => serverBuildVersion(),
       serverFeatures: () => serverFeatureFacts(),
-      syncKindTokens: () => readKindTokens(this.store.sync),
+      syncKindTokens: () => readKindTokens(this.store.sync, effectExecutors.kinds()),
       now: () => this.now(),
       // This task is independent of session replay and feed admission
       // (POD-3509). Approvals reach a client on the feed (POD-6674).

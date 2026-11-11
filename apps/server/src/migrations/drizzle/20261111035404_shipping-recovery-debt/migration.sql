@@ -20,7 +20,7 @@ SELECT 'legacy-daemon:' || id, 'daemon-ack', order_id, json_object('stepId', id)
 FROM ship_steps
 WHERE state IN ('succeeded', 'failed', 'cancelled')
   AND kind IN ('preflight', 'apply-repair', 'prepare-merge-group', 'validate', 'commit-merge-group', 'publish', 'verify')
-  AND outcome <> 'authorization-refused';
+  AND outcome IS NOT 'authorization-refused';
 --> statement-breakpoint
 INSERT OR IGNORE INTO ship_recovery_work (key, kind, order_id, payload)
 SELECT 'repair:' || result_token, 'repair-ack', order_id,

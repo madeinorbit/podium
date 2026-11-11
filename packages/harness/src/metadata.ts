@@ -83,6 +83,8 @@ export type {
   LoginIdentity,
   PortableCredential,
 } from './manifest.js'
+// Static driver vocabulary for consumers that fingerprint declaration-derived facts.
+export { DRIVER_IDS, RETIRED_DRIVER_IDS } from './manifest.js'
 export type { HarnessComposerReadiness, HarnessInterrupt } from './registry.js'
 // The prompt-echo text predicate (POD-5615): a pure fact about what a harness
 // wrote — whether submitted text matches a recorded transcript prompt after

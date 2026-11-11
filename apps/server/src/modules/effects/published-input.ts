@@ -3,8 +3,8 @@
  *
  * Five kinds publish less than they store: an answer shows how it was given
  * and never the answer, a file save its size and never its bytes. Each rule is
- * a plain function of the STORED input (the create parses the input before it
- * stores it), kept here with no imports from the kinds' own modules, so every
+ * serializable data applied to the STORED input (the create parses the input
+ * before it stores it), kept here with no imports from the kinds' own modules, so every
  * process that builds an effect record from the database applies the same
  * rule: the server, and the sync worker, which holds no executor.
  *
@@ -16,48 +16,79 @@ import type { EffectExecutorRegistry } from './registry'
 
 type Stored = Record<string, unknown>
 
-const pick = (input: Stored, keys: readonly string[]): Stored => {
-  const out: Stored = {}
-  for (const key of keys) if (input[key] !== undefined) out[key] = input[key]
-  return out
-}
+type Field =
+  | string
+  | { readonly lengthOf: string }
+  | { readonly from: string; readonly when: 'defined' | 'present' | 'truthy' }
+type PublicationRule =
+  | { readonly omit: readonly string[] }
+  | { readonly fields: Readonly<Record<string, Field>> }
 
-/** The rules, by effect kind. Each takes the stored input as an object. */
+const defined = (key: string): Field => ({ from: key, when: 'defined' })
+
+/** The rules, by effect kind. The kind token fingerprints these data, rather
+ * than function source, so bundled server and worker builds get the same token. */
 export const EFFECT_PUBLISHED_INPUT = {
   // The feed shows how it was answered, never the answer.
-  'session.answer': (input: Stored) => ({
-    via: input.via,
-    ...('interactionId' in input && input.interactionId !== undefined
-      ? { interactionId: input.interactionId }
-      : {}),
-  }),
+  'session.answer': { fields: { via: 'via', interactionId: defined('interactionId') } },
   // The task's long texts are on the task, not on its start.
-  'issue.start': (input: Stored) => {
-    const { description: _description, brief: _brief, ...rest } = input
-    return rest
-  },
+  'issue.start': { omit: ['description', 'brief'] },
   // A save shows where and how much, never the bytes.
-  'file.write': (input: Stored) => ({
-    path: input.path,
-    size: (input.content as { length: number }).length,
-    ...('root' in input ? { root: input.root } : {}),
-    ...(input.baseHash ? { baseHash: input.baseHash } : {}),
-  }),
-  'session.handoff': (input: Stored) => ({ machineId: input.machineId }),
-  'session.launch': (input: Stored) => ({
-    ...pick(input, ['agentKind']),
-    cwd: input.cwd,
-    // Where its draft task goes (POD-6408): a device that reloads while the
-    // launch waits paints the task's placeholder from this. Not a secret.
-    ...pick(input, ['machineId', 'issueId', 'title', 'model', 'effort', 'wake', 'draftIssue']),
-  }),
-} as const satisfies Record<string, (input: Stored) => unknown>
+  'file.write': {
+    fields: {
+      path: 'path',
+      size: { lengthOf: 'content' },
+      root: { from: 'root', when: 'present' },
+      baseHash: { from: 'baseHash', when: 'truthy' },
+    },
+  },
+  'session.handoff': { fields: { machineId: 'machineId' } },
+  'session.launch': {
+    fields: {
+      agentKind: defined('agentKind'),
+      cwd: 'cwd',
+      // Where its draft task goes (POD-6408): a device that reloads while the
+      // launch waits paints the task's placeholder from this. Not a secret.
+      machineId: defined('machineId'),
+      issueId: defined('issueId'),
+      title: defined('title'),
+      model: defined('model'),
+      effort: defined('effort'),
+      wake: defined('wake'),
+      draftIssue: defined('draftIssue'),
+    },
+  },
+} as const satisfies Record<string, PublicationRule>
+
+function publish(rule: PublicationRule, input: Stored): Stored {
+  if ('omit' in rule) {
+    const out = { ...input }
+    for (const key of rule.omit) delete out[key]
+    return out
+  }
+  const out: Stored = {}
+  for (const [key, field] of Object.entries(rule.fields)) {
+    if (typeof field === 'string') out[key] = input[field]
+    else if ('lengthOf' in field) out[key] = (input[field.lengthOf] as { length: number }).length
+    else {
+      const value = input[field.from]
+      const include =
+        field.when === 'present'
+          ? field.from in input
+          : field.when === 'defined'
+            ? value !== undefined
+            : !!value
+      if (include) out[key] = value
+    }
+  }
+  return out
+}
 
 export type PublishingEffectKind = keyof typeof EFFECT_PUBLISHED_INPUT
 
 /** A kind's rule as its executor declares it (`EffectExecutor.publish`). */
 export function publishedInputOf<In>(kind: PublishingEffectKind): (input: In) => unknown {
-  return EFFECT_PUBLISHED_INPUT[kind] as unknown as (input: In) => unknown
+  return (input) => publish(EFFECT_PUBLISHED_INPUT[kind], input as Stored)
 }
 
 /**
@@ -67,14 +98,14 @@ export function publishedInputOf<In>(kind: PublishingEffectKind): (input: In) =>
  */
 export function effectPublication(served: Iterable<string>): Pick<EffectExecutorRegistry, 'get'> {
   const kinds = new Set(served)
-  const rules: Record<string, ((input: Stored) => unknown) | undefined> = EFFECT_PUBLISHED_INPUT
+  const rules: Readonly<Record<string, PublicationRule | undefined>> = EFFECT_PUBLISHED_INPUT
   return {
     get: (kind) => {
       if (!kinds.has(kind)) return undefined
-      const publish = rules[kind]
-      return (publish === undefined ? { kind } : { kind, publish }) as ReturnType<
-        EffectExecutorRegistry['get']
-      >
+      const rule = rules[kind]
+      return (
+        rule === undefined ? { kind } : { kind, publish: (input: Stored) => publish(rule, input) }
+      ) as ReturnType<EffectExecutorRegistry['get']>
     },
   }
 }

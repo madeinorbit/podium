@@ -107,7 +107,7 @@ async function* produceRecords(
       if (job.from > seq || target > seq) throw new SyncWorkerError('future-cursor')
       if (minAvailableSeq > job.from + 1) throw new SyncWorkerError('compacted-or-unknown')
       const { policy, anchors, sync } = context
-      const kindTokens = await readKindTokens(sync)
+      const kindTokens = await readKindTokens(sync, options.effectKinds)
       const omitted = job.omitKinds && new Set<string>(job.omitKinds)
       const iterator = scopeChangesRange(
         sync,
@@ -190,7 +190,7 @@ async function* produceRecords(
     // Stream the model tables a page at a time inside the snapshot fixed by
     // the head read (design POD-6253 §4). Every row carries that head number.
     const { policy: world, records: source, sync } = context
-    const kindTokens = await readKindTokens(sync)
+    const kindTokens = await readKindTokens(sync, options.effectKinds)
     check()
     const meta: SyncMetaSummary = {
       type: 'syncMeta',

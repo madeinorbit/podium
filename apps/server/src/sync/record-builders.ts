@@ -19,6 +19,9 @@
  * restores it with (`modules/sessions/records.ts`).
  *
  * WHAT IS NOT A PURE FUNCTION OF ROWS, AND WHY IT IS STILL HERE
+ *  - Code-derived facts (harness policies/capabilities, wire compatibility,
+ *    defaults, effect publication and window sizes) are fingerprinted per kind
+ *    in `kind-tokens.ts`, so an upgrade reloads their records without a row write.
  *  - `effect`: the published input depends on which effect kinds this server
  *    serves and how each publishes its input (`EffectExecutorRegistry`). That
  *    is code, not data, but a process must hold the same registry to build it.

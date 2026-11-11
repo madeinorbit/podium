@@ -26,6 +26,7 @@ async function tokens(
     effectKinds?: string[]
     publicationRules?: unknown
     handoff?: boolean
+    driverFamily?: 'server' | 'terminal'
     settings?: unknown
     eventWindow?: number
     confirmedPerSession?: number
@@ -49,6 +50,10 @@ async function tokens(
     const actual = await original<typeof import('../harness-manifest')>()
     return {
       ...actual,
+      driverFamilyForId: (id: string) =>
+        id === 'generic-pty' && options.driverFamily !== undefined
+          ? options.driverFamily
+          : actual.driverFamilyForId(id),
       harnessCapabilitiesFor: (kind: string) => {
         const capabilities = actual.harnessCapabilitiesFor(kind)
         return kind === 'codex' && options.handoff !== undefined
@@ -133,6 +138,15 @@ describe('record kind code inputs', () => {
     )
   })
 
+  it('changes only session when a declared driver family changes', async () => {
+    expect(
+      changedKinds(
+        await tokens({ driverFamily: 'terminal' }),
+        await tokens({ driverFamily: 'server' }),
+      ),
+    ).toEqual(['session'])
+  })
+
   it('changes only instancePreferences when a resolved default changes', async () => {
     const before = await tokens()
     const after = await tokens({
@@ -154,6 +168,6 @@ describe('record kind code inputs', () => {
     const before = await tokens()
     const after = await tokens({ generations: [{ kind: 'machineAccess', generation: 7 }] })
     expect(changedKinds(before, after)).toEqual(['machineAccess'])
-    expect(after.machineAccess).toBe(`${before.machineAccess!.split(':')[0]}:7`)
+    expect(after.machineAccess?.split(':')).toEqual([before.machineAccess?.split(':')[0], '7'])
   })
 })
