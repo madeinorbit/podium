@@ -51,7 +51,7 @@ const SESSION = asSessionId('bench-session')
 await store.sessions.upsertSession({
   id: SESSION,
   ownerUserId: asUserId('user:bench-0'),
-  agentKind: 'claude-code',
+  agentKind: 'shell',
   cwd: '/bench',
   title: 'bench',
   name: null,

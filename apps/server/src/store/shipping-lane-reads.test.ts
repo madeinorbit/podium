@@ -187,8 +187,8 @@ describe('POD-4974 O2 lane-scoped shipping reads', () => {
       // CONSTANT-IDENTIFIER STATEMENT POD-5612 — the probe interpolates the
       // constant the assertion above verified against sqlite_master, to prove
       // the index serves that exact shape. Nothing user-supplied enters it.
+      // CONSTANT-IDENTIFIER STATEMENT POD-5612
       sql.raw(
-        // CONSTANT-IDENTIFIER STATEMENT POD-5612
         `EXPLAIN QUERY PLAN SELECT id FROM ship_orders WHERE ${ACTIVE_SHIP_ORDER_TERM} AND state = 'queued' AND EXISTS (SELECT 1 FROM json_each(delivery_depends_on) WHERE json_each.value IN ('dependency'))`,
       ),
     )) as { detail: string }[]

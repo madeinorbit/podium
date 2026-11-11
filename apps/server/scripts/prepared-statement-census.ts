@@ -50,7 +50,7 @@ const ALICE = asUserId('user:census-alice')
 const session = (id: string) => ({
   id: asSessionId(id),
   ownerUserId: ALICE,
-  agentKind: 'claude-code' as const,
+  agentKind: 'shell' as const,
   cwd: '/census',
   title: 'census',
   name: null,

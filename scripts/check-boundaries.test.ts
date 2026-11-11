@@ -1643,6 +1643,15 @@ describe('sql-raw-literal (POD-3252 rule 16)', () => {
     ).toEqual([])
   })
 
+  it('keeps an approved constant marker attached across formatting', () => {
+    const approved = 'apps/server/src/store/shipping-lane-reads.test.ts'
+    const marker = '// CONSTANT-IDENTIFIER STATEMENT POD-5612'
+    const call = 'const term = sql.raw(ACTIVE_SHIP_ORDER_TERM)'
+    expect(checkSqlRawLiteral(approved, `${marker}\n${call}`)).toEqual([])
+    expect(checkSqlRawLiteral(FILE, `${marker}\n${call}`)).toHaveLength(1)
+    expect(checkSqlRawLiteral(approved, `${marker}\nconst unrelated = 1\n${call}`)).toHaveLength(1)
+  })
+
   it('is quiet on the REAL repository — the control', () => {
     expect(realRepoViolations().filter((v) => v.rule === 'sql-raw-literal')).toEqual([])
   })

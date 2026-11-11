@@ -4,7 +4,6 @@
  * migration backfill over colliding repo names.
  */
 import { asIssueId, asMachineId, asRepoId } from '@podium/model'
-import { sql } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import type { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
@@ -178,12 +177,12 @@ describe('repo base branches (POD-2065)', () => {
     // ... then a concurrent writer sets it without passing through this class's
     // invalidation, as an interleaved scan would between read and write.
     const repos = s.repos as unknown as {
-      rootDb: { run(q: unknown): Promise<unknown> }
       carryBaseBranch(from: string, to: string): Promise<void>
     }
-    await repos.rootDb.run(
-      sql`UPDATE repo_prefixes SET default_parent_branch = 'main' WHERE repo_id = ${ids['/a/podium']}`,
-    )
+    const raw = (s as unknown as { db: { prepare(sql: string): { run(id: string): unknown } } }).db
+    raw
+      .prepare("UPDATE repo_prefixes SET default_parent_branch = 'main' WHERE repo_id = ?")
+      .run(ids['/a/podium']!)
     await repos.carryBaseBranch(ids['/b/podium']!, ids['/a/podium']!)
     await s.repos.invalidateRegistry()
     expect(await s.repos.defaultParentBranchForRepoId(ids['/a/podium']!)).toBe('main')

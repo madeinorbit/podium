@@ -1730,7 +1730,7 @@ function resolveRelativeModule(repoRoot: string, fromFile: string, spec: string)
     .split(sep)
     .join('/')
   for (const candidate of [base, `${base}.ts`, `${base}.tsx`, `${base}/index.ts`]) {
-    if (candidate.endsWith('.ts') || candidate.endsWith('.tsx')) {
+    if (candidate.endsWith('.ts') || candidate.endsWith('.tsx') || candidate.endsWith('.json')) {
       if (existsSync(join(repoRoot, candidate))) return candidate
     }
   }
@@ -3118,7 +3118,8 @@ export function checkDrizzleImportHome(file: string, source: string): Violation[
  * CONSTANT. Rewriting it as one statement per table turns ONE round trip into
  * FOURTEEN at boot, which rule 24 says is the finding rather than the fix.
  *
- * TWO KEYS, BOTH REQUIRED: the file listed here AND the token on the line. A
+ * TWO KEYS, BOTH REQUIRED: the listed file AND the token at the call or in
+ * its immediately preceding comment (stable under formatting). A
  * listed file cannot quietly grow a second raw statement, and the token pasted
  * into an unlisted file does nothing. The token is deliberately NOT
  * `// DECISION POD-<n>`: a decision marker means UNANSWERED and Stage A's exit
@@ -3185,8 +3186,12 @@ export function checkSqlRawLiteral(file: string, source: string): Violation[] {
     // site. My first two attempts hooked it to the raw-EXECUTION rule, which
     // never sees `sql.raw(...)` at all and so was inert both times.
     const constant = CONSTANT_IDENTIFIER_STATEMENTS.get(file)
-    const tokenOnLine =
-      constant !== undefined && (source.split('\n')[line - 1] ?? '').includes(constant.token)
+    const sourceLines = source.split('\n')
+    const previous = sourceLines[line - 2] ?? ''
+    const tokenOnLine = constant !== undefined && (
+      (sourceLines[line - 1] ?? '').includes(constant.token) ||
+      (/^\s*\/\//.test(previous) && previous.includes(constant.token))
+    )
     if (
       argument !== null &&
       !SQL_RAW_STRING_LITERAL.test(argument.trim()) &&
@@ -4228,8 +4233,8 @@ export function checkClientGraphBoundaries(file: string, source: string): Violat
     if (
       graph &&
       !ref.typeOnly &&
-      (/^@podium\/client-core(?:$|\/engine(?:\/|$))/.test(ref.specifier) ||
-        (path !== null && /^packages\/client-core\/src(?:$|\/index$|\/engine(?:\/|$))/.test(path)))
+      (/^@podium\/client-core(?:$|\/(?:engine|runtime-root)(?:\/|$))/.test(ref.specifier) ||
+        (path !== null && /^packages\/client-core\/src(?:$|\/index$|\/(?:engine|runtime-root)(?:\/|$))/.test(path)))
     ) {
       violations.push({
         file,

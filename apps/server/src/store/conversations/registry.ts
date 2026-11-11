@@ -202,7 +202,7 @@ const insertDiscoveredSegment = prepared((db: StoreDrizzle) =>
 
 /** The rows of the bound JSON array `rows`, and one field of the row a statement is reading. */
 const offeredRows = () => sql`json_each(${sql.placeholder('rows')})`
-const offered = (field: string) => sql.raw(`value ->> '$.${field}'`)
+const offered = (field: string) => sql`value ->> ${`$.${field}`}`
 
 const insertIdentities = prepared((db: StoreDrizzle) =>
   db
