@@ -162,6 +162,8 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     // decision above — always projected; null = nobody asked for a driver, which
     // is also what a row written before the column reads as.
     requestedDriverId: null,
+    boundDriverId: null,
+    boundDriverCapabilities: null,
     // Whether the launch ever had a conversation (POD-2392): always projected,
     // null = the row makes no claim (which is what a pre-column row reads as).
     conversationBinding: null,
