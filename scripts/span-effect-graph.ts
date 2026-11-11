@@ -922,6 +922,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: 'a clock read for the preference timestamp; a rollback publishes no observation outside this process',
   },
+  'apps/server/src/modules/settings/service.ts#SettingsService.writeBinding': {
+    kind: 'contained',
+    why: 'Both writeTelegramRoute callers supply only a TelegramBindingsRepository upsert or removeForUser statement on the same store transaction, so rollback undoes the binding with its routing preference and no provider I/O or publication occurs inside the span.',
+  },
   'apps/server/src/modules/lock/service.ts#LockServiceDeps.now': {
     kind: 'contained',
     why: 'a clock read',
