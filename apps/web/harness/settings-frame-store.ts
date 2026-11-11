@@ -78,7 +78,7 @@ pool.bindLayout({
   ready: () => true,
 })
 const live = liveFixture(pool)
-live.outbox({ pending: 0, inflight: 0, rejected: 0 } as never)
+live.outbox({ pending: 0, deadLetters: [] })
 const repositories: {
   path: string
   repoId: string
@@ -394,6 +394,9 @@ window.fetch = (async (input: RequestInfo | URL) => {
         ? [
             {
               sessionId: 'demo-browser',
+              userId: member ? 'member' : 'demo',
+              label: 'login',
+              deviceId: 'browser-device',
               kind: 'browser',
               deviceName: 'This browser',
               platform: 'linux',
