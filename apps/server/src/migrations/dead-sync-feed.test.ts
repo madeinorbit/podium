@@ -105,18 +105,16 @@ describe('the dead sync_feed migration', () => {
 
     const reopened = openDatabase(dbPath)
     expect(reopened.prepare('SELECT feed_id, epoch FROM sync_feed').get()).toEqual({
-      feed_id: 'dead-feed',
-      epoch: 'dead-epoch',
+      feed_id: 'live-feed',
+      epoch: restored.epoch,
     })
     expect(issueRevision(reopened)).toEqual(expectedIssueRevision)
     expect(restored.feedId).toBe('live-feed')
     expect(restored.previousEpoch).toBe('live-epoch')
     expect(restored.epoch).not.toBe('live-epoch')
 
-    expect(runDrizzleMigrations(reopened, DRIZZLE_MIGRATIONS.slice(0, cut + 1))).toEqual([
-      migration.name,
-    ])
-    expect(hasTable(reopened, 'sync_feed')).toBe(false)
+    expect(runDrizzleMigrations(reopened, DRIZZLE_MIGRATIONS)).toEqual([])
+    expect(hasTable(reopened, 'sync_feed')).toBe(true)
     expect(hasTable(reopened, 'feed_identity')).toBe(true)
     expect(issueRevision(reopened)).toEqual(expectedIssueRevision)
     reopened.close()

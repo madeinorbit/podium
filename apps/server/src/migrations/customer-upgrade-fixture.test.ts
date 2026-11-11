@@ -81,7 +81,7 @@ const meta = (db: SqlDatabase, key: string): string | undefined =>
     ?.value
 const feedEpoch = (db: SqlDatabase): string | undefined =>
   (
-    db.prepare('SELECT epoch FROM feed_identity WHERE singleton = 1').get() as
+    db.prepare("SELECT epoch FROM sync_feed WHERE tenant_id = 'local'").get() as
       | { epoch: string }
       | undefined
   )?.epoch

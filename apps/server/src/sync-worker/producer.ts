@@ -19,8 +19,8 @@ import {
 } from '@podium/sync/bootstrap-worker'
 import { perfPrincipal } from '../modules/perf/principal'
 import { perf } from '../modules/perf/registry'
-import { pipeSyncBody } from '../sync/pipe-sync-body'
 import { readKindTokens } from '../sync/kind-tokens'
+import { pipeSyncBody } from '../sync/pipe-sync-body'
 import { type BootstrapMetrics, type SyncJob, type SyncMetaSummary, SyncWorkerError } from './types'
 import { type BootstrapVisibilityOptions, bootstrapVisibility } from './visibility'
 
@@ -98,22 +98,15 @@ async function* produceRecords(
     transaction = true
     const capture = performance.now()
     // This FIRST read fixes the SQLite snapshot; every visibility read shares it.
-    const seq =
-      (
-        db.prepare("SELECT seq FROM sqlite_sequence WHERE name='changes'").get() as
-          | { seq: number }
-          | undefined
-      )?.seq ?? 0
-    const minAvailableSeq =
-      (db.prepare('SELECT min(seq) AS seq FROM changes').get() as { seq: number | null }).seq ??
-      seq + 1
+    bundle = bootstrapVisibility(db, options)
+    const context = await bundle.context
+    const { headSeq: seq, floorSeq: minAvailableSeq } = await context.sync.readFeedState()
     phase('capture', capture)
     if (job.mode === 'delta') {
       const target = job.to ?? seq
       if (job.from > seq || target > seq) throw new SyncWorkerError('future-cursor')
       if (minAvailableSeq > job.from + 1) throw new SyncWorkerError('compacted-or-unknown')
-      bundle = bootstrapVisibility(db, options)
-      const { policy, anchors, sync } = await bundle.context
+      const { policy, anchors, sync } = context
       const kindTokens = await readKindTokens(sync)
       const omitted = job.omitKinds && new Set<string>(job.omitKinds)
       const iterator = scopeChangesRange(
@@ -196,8 +189,7 @@ async function* produceRecords(
     }
     // Stream the model tables a page at a time inside the snapshot fixed by
     // the head read (design POD-6253 §4). Every row carries that head number.
-    bundle = bootstrapVisibility(db, options)
-    const { policy: world, records: source, sync } = await bundle.context
+    const { policy: world, records: source, sync } = context
     const kindTokens = await readKindTokens(sync)
     check()
     const meta: SyncMetaSummary = {

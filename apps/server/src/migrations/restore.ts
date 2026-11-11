@@ -72,6 +72,8 @@ import { openDatabase } from '@podium/runtime/sqlite'
 import { FeedIdentityRegistry, SyncRepository } from '@podium/sync'
 import { syncQueriesOver } from '../store/executor/sync-drizzle'
 import { freeDiskBytes } from './backup'
+import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
+import { runDrizzleMigrations } from './index'
 import { syncServerTables } from './sync-server-tables'
 
 export interface RestoreReport {
@@ -243,6 +245,9 @@ async function remintRestoredEpoch(
   if (!hasTable(db, 'feed_identity')) {
     return { feedId: null, previousEpoch: null, epoch: null }
   }
+  // Upgrade the staged backup before using today's repository schema. This is
+  // still before the atomic rename: no restored timeline becomes live unbumped.
+  runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
   // POD-1246: this used `remintEpoch(new SyncRepository(db), mint)` from main's
   // `packages/sync/src/feed-identity.ts`. That module was retired in favour of
   // integration's `feed/identity.ts`, whose `FeedIdentityRegistry.bump()` is the

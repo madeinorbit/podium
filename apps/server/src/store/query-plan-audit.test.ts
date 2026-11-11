@@ -356,8 +356,6 @@ const LOW_SELECTIVITY: ReadonlySet<string> = new Set([
  * accepted for the reason given.
  */
 const SMALL_TABLES: ReadonlyMap<string, string> = new Map([
-  ['sqlite_sequence', "SQLite's own table: one row per AUTOINCREMENT table."],
-  ['sync_kind', 'One generation per record kind ever rewritten by a migration.'],
   ['accounts', 'Provider accounts the operator configures by hand.'],
   ['automations', 'Schedules people define by hand; a handful per person.'],
   ['machines', 'The fleet: one row per enrolled machine.'],
@@ -824,16 +822,7 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
  * A raw statement added anywhere in that source fails the census until it is
  * listed, and a listed key with no site left fails it too.
  */
-const RAW_SQL_PLANNED: ReadonlyMap<string, string> = new Map([
-  [
-    "apps/server/src/sync-worker/producer.ts:SELECT seq FROM sqlite_sequence WHERE name='changes'",
-    "The sync worker's first read on its read-only snapshot: it fixes the snapshot, before any repository exists on the connection.",
-  ],
-  [
-    'apps/server/src/sync-worker/producer.ts:SELECT min(seq) AS seq FROM changes',
-    "The sync worker's retention floor, read on the snapshot the first read fixed, before the visibility repositories exist.",
-  ],
-])
+const RAW_SQL_PLANNED: ReadonlyMap<string, string> = new Map([])
 
 const RAW_SQL_EXEMPT: ReadonlyMap<string, string> = new Map([
   [

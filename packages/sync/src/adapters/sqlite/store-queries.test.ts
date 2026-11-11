@@ -30,7 +30,7 @@ describe('the sync adapter query port', () => {
     // the repository — so the assertion is that the port carried the caller's
     // database, not merely that the repository is self-consistent.
     expect(
-      db.prepare('SELECT feed_id, epoch FROM feed_identity WHERE singleton = 1').get(),
+      db.prepare("SELECT feed_id, epoch FROM sync_feed WHERE tenant_id = 'local'").get(),
     ).toEqual({ feed_id: 'feed-1', epoch: 'epoch-1' })
   })
 

@@ -269,7 +269,7 @@ describe('daemon *Result frames: pinned statement counts at 5 and 200', () => {
     expect([latest(counts.small), appended(counts.small)], detail).toEqual([0, 1])
     expect([latest(counts.large), appended(counts.large)], detail).toEqual([0, 2])
     for (const tally of [counts.small, counts.large]) {
-      expect(tally.statements - latest(tally) - appended(tally), detail).toBe(9)
+      expect(tally.statements - latest(tally) - appended(tally), detail).toBe(10)
     }
   })
 

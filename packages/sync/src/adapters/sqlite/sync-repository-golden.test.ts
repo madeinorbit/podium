@@ -586,8 +586,8 @@ describe('the feed identity', () => {
     await repo.writeFeedIdentity({ feedId: 'feed-1', epoch: 'epoch-1' }, 100)
     await repo.writeFeedIdentity({ feedId: 'feed-1', epoch: 'epoch-2' }, 200)
     expect(await repo.readFeedIdentity()).toEqual({ feedId: 'feed-1', epoch: 'epoch-2' })
-    expect(stored('SELECT singleton, minted_at FROM feed_identity')).toEqual([
-      { singleton: 1, minted_at: 200 },
+    expect(stored('SELECT tenant_id, minted_at FROM sync_feed')).toEqual([
+      { tenant_id: 'local', minted_at: 200 },
     ])
   })
 })

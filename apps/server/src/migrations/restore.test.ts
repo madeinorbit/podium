@@ -189,7 +189,7 @@ describe('the migration creates the feed-identity table', () => {
         .run('feed_b', 'epoch_1', 3),
     ).toThrow(/feed_identity_singleton/)
 
-    const rows = db.prepare('SELECT feed_id, epoch FROM feed_identity').all()
+    const rows = db.prepare('SELECT feed_id, epoch FROM sync_feed').all()
     expect(rows).toEqual([{ feed_id: 'feed_a', epoch: 'epoch_2' }])
     expect(await repo.readFeedIdentity()).toEqual({ feedId: 'feed_a', epoch: 'epoch_2' })
   })

@@ -1,9 +1,9 @@
 import {
   FeedChange,
   MetadataChange,
-  schemaDigest,
   type MetadataEntityKind,
   type SyncKindTokens,
+  schemaDigest,
 } from '@podium/protocol'
 import type { SyncRepository } from '@podium/sync'
 import { DATABASE_ONLY_BUILDERS } from './record-builders'
@@ -11,8 +11,8 @@ import { DATABASE_ONLY_BUILDERS } from './record-builders'
 // Change the salt when a kind's published meaning changes without a schema
 // change. A data migration that rewrites a kind instead increments its
 // generation in the same migration:
-// INSERT INTO sync_kind (kind, generation) VALUES ('example', 1)
-// ON CONFLICT (kind) DO UPDATE SET generation = sync_kind.generation + 1;
+// INSERT INTO sync_kind (tenant_id, kind, generation) VALUES ('local', 'example', 1)
+// ON CONFLICT (tenant_id, kind) DO UPDATE SET generation = sync_kind.generation + 1;
 const salts: Partial<Record<MetadataEntityKind, string>> = {}
 
 // The scoped feed has its own schema for some kinds. Other kinds use the

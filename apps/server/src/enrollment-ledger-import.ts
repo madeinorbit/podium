@@ -162,7 +162,7 @@ export function importEnrollmentLedger(db: SqlDatabase, stateDir: string): boole
         }
       }
     }
-    db.prepare('UPDATE feed_identity SET epoch = ? WHERE singleton = 1').run(`ledger-import-${Date.now()}`)
+    db.prepare("UPDATE sync_feed SET epoch = ? WHERE tenant_id = 'local'").run(`ledger-import-${Date.now()}`)
     db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(LEDGER_IMPORT_MARKER, new Date().toISOString())
     db.exec('COMMIT')
   } catch (error) {

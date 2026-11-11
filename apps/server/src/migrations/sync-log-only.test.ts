@@ -18,7 +18,7 @@ describe('sync log without the copy table', () => {
       const before = ['changes', 'feed_identity', 'sync_kind', 'users'].map((table) =>
         db.prepare(`SELECT * FROM ${table}`).all(),
       )
-      runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+      runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cut + 1))
       expect(
         db
           .prepare(
@@ -30,7 +30,7 @@ describe('sync log without the copy table', () => {
         db.prepare(`SELECT * FROM ${table}`).all(),
       )
       expect(after).toEqual(before)
-      runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+      runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cut + 1))
       expect(db.prepare('SELECT seq FROM changes').all()).toEqual([{ seq: 1 }])
     } finally {
       db.close()

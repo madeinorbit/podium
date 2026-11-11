@@ -54,9 +54,9 @@ import type { SQLiteAsyncDatabase } from 'drizzle-orm/sqlite-core'
  * What a write reports back.
  *
  * `bigint` is the driver's, not a widening: SQLite row ids exceed
- * `Number.MAX_SAFE_INTEGER` and the handle says so. `appendChanges` reads
- * `lastInsertRowid` to derive the seqs it just assigned, so this is a member the
- * adapter genuinely depends on rather than a shape copied over wholesale.
+ * `Number.MAX_SAFE_INTEGER` and the handle says so. The driver reports
+ * `lastInsertRowid` for other repositories; sync numbers come from the tenant
+ * feed row rather than that engine-specific value.
  */
 export interface SyncRunResult {
   readonly changes: number | bigint

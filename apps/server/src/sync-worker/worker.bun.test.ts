@@ -55,11 +55,16 @@ function append(writer: SqlDatabase, name: string, text = 'x') {
         "INSERT INTO agent_profiles(id,name,instructions,created_at,updated_at) VALUES (?,?,?,'t0','t0')",
       )
       .run(id, `profile ${id}`, text)
+    const { head_seq: seq } = writer
+      .prepare(
+        "UPDATE sync_feed SET head_seq = head_seq + 1 WHERE tenant_id = 'local' RETURNING head_seq",
+      )
+      .get() as { head_seq: number }
     writer
       .prepare(
-        "INSERT INTO changes(entity,entity_id,op,payload,event_time) VALUES ('agentProfile',?,'upsert','{}',1)",
+        "INSERT INTO changes(tenant_id,seq,entity,entity_id,op,payload,event_time) VALUES ('local',?,'agentProfile',?,'upsert','{}',1)",
       )
-      .run(id)
+      .run(seq, id)
     writer.exec('COMMIT')
   } catch (error) {
     writer.exec('ROLLBACK')
@@ -293,7 +298,9 @@ it.each([
       minAvailableSeq: 1,
     })
     append(f.writer, 'later')
-    f.writer.exec('DELETE FROM changes WHERE seq < 50')
+    f.writer.exec(
+      "DELETE FROM changes WHERE tenant_id = 'local' AND seq < 50; UPDATE sync_feed SET floor_seq = 50 WHERE tenant_id = 'local'",
+    )
     let bytes = Buffer.from(await new Response(transfer.body).arrayBuffer())
     if (encoding === 'gzip') bytes = gunzipSync(bytes)
     if (encoding === 'zstd') bytes = zstdDecompressSync(bytes)

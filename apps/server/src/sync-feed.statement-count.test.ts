@@ -286,11 +286,11 @@ describe('sync worker: pinned statement counts at 5 and 200', () => {
   // `change_latest` and one prefetch for the whole world.
   // POD-6791 shares the issue/body-header read; the kind-generation read adds one: 65.
   it('a bootstrap for the owner', async () => {
-    await expectConstantStatements(bootstrap, 65)
+    await expectConstantStatements(bootstrap, 64)
   })
 
   it('a bootstrap pin is armed', async () => {
-    await expectArmed(bootstrap, 65, plantPerSessionRead)
+    await expectArmed(bootstrap, 64, plantPerSessionRead)
   })
 
   it('reads a filtered bootstrap with the same statement count at both sizes', async () => {
@@ -305,7 +305,7 @@ describe('sync worker: pinned statement counts at 5 and 200', () => {
       },
       true,
     )
-    await expectConstantStatements(filtered, 6)
+    await expectConstantStatements(filtered, 5)
   })
 
   const delta = pin(
@@ -328,11 +328,11 @@ describe('sync worker: pinned statement counts at 5 and 200', () => {
   // (tasks are shared, design §2.2, §4.1). RE-PINNED 7 -> 6 FOR POD-6766: the
   // issue-event subjects are no longer read from change_latest up front.
   it('a delta over one rename of every issue', async () => {
-    await expectConstantStatements(delta, 7)
+    await expectConstantStatements(delta, 6)
   })
 
   it('a delta pin is armed', async () => {
-    await expectArmed(delta, 7, plantPerAudienceRead)
+    await expectArmed(delta, 6, plantPerAudienceRead)
   })
 })
 
@@ -398,11 +398,7 @@ describe('client hello: pinned statement counts at 5 and 200', () => {
     return { ...w, clientId, inbox }
   }
 
-  const hello = (
-    c: Client,
-    feedCursor?: unknown,
-    caps = [CAP_SYNC_HTTP_V1],
-  ) =>
+  const hello = (c: Client, feedCursor?: unknown, caps = [CAP_SYNC_HTTP_V1]) =>
     c.reg.clientGateway.routeClientFrame(c.clientId, {
       type: 'hello',
       caps,

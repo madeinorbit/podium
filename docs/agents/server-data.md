@@ -23,7 +23,7 @@ Memory may hold only:
 
 Synced records are built from the model tables. A data migration that rewrites
 them must bump every affected kind's `sync_kind.generation` in the same migration
-(`INSERT ... ON CONFLICT(kind) DO UPDATE SET generation = sync_kind.generation + 1`).
+(`INSERT ... ON CONFLICT(tenant_id, kind) DO UPDATE SET generation = sync_kind.generation + 1`).
 Boot does not repair the sync log. Historical upgrades that require service logic
 use the normal write funnel and a durable completion receipt.
 

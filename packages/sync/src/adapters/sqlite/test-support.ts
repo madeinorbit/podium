@@ -148,7 +148,8 @@ export function createTestSyncDatabase(): SqlDatabase {
   const db = openDatabase(':memory:')
   db.exec(
     `CREATE TABLE changes (
-       seq        INTEGER PRIMARY KEY AUTOINCREMENT,
+       tenant_id  TEXT NOT NULL,
+       seq        INTEGER NOT NULL,
        entity     TEXT NOT NULL,
        entity_id  TEXT NOT NULL,
        op         TEXT NOT NULL,
@@ -158,11 +159,20 @@ export function createTestSyncDatabase(): SqlDatabase {
        -- its own behalf (boot reconcile, steward sweep) has no causing command.
        origin_id    TEXT,
        causation_id TEXT,
-       mutation_id  TEXT
+       mutation_id  TEXT,
+       PRIMARY KEY (tenant_id, seq)
      )`,
   )
-  db.exec('CREATE INDEX changes_entity ON changes(entity, entity_id, seq)')
-  db.exec('CREATE INDEX changes_event_time ON changes(event_time)')
+  db.exec('CREATE INDEX changes_entity ON changes(tenant_id, entity, entity_id, seq)')
+  db.exec('CREATE INDEX changes_event_time ON changes(tenant_id, event_time)')
+  db.exec(`CREATE TABLE sync_feed (
+    tenant_id TEXT PRIMARY KEY, feed_id TEXT NOT NULL, epoch TEXT NOT NULL,
+    minted_at INTEGER NOT NULL, head_seq INTEGER NOT NULL, floor_seq INTEGER NOT NULL
+  )`)
+  db.exec(`CREATE TABLE sync_kind (
+    tenant_id TEXT NOT NULL, kind TEXT NOT NULL, generation INTEGER NOT NULL,
+    PRIMARY KEY (tenant_id, kind)
+  )`)
 
   db.exec(
     `CREATE TABLE applied_mutations (

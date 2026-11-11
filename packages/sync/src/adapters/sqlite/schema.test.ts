@@ -21,7 +21,7 @@
 import { getTableConfig } from 'drizzle-orm/sqlite-core'
 import { describe, expect, it } from 'vitest'
 import { FeedIdentityRegistry } from '../../feed'
-import { appliedMutations, changes, feedIdentity } from './schema'
+import { appliedMutations, changes, feedIdentity, syncFeed, syncKind } from './schema'
 import { SyncRepository } from './sync-repository'
 import {
   createTestSyncDatabase,
@@ -100,27 +100,16 @@ describe('the test fixture mirrors the adapter-owned schema', () => {
   })
 })
 
-describe('the change log keeps AUTOINCREMENT', () => {
-  it('declares seq as an autoincrementing primary key', () => {
-    // Not stylistic. Without AUTOINCREMENT, SQLite reuses the rowids of deleted
-    // rows — and head-pruning (ADR 2 D5) deletes from the TAIL of the log, so a
-    // reused seq would hand two different changes the same position in the ONE
-    // global sequence and every replica that saw the first would skip the second.
-    const seq = getTableConfig(changes).columns.find((c) => c.name === 'seq')
-    expect(seq?.primary).toBe(true)
-    expect((seq as { autoIncrement?: boolean } | undefined)?.autoIncrement).toBe(true)
-  })
-
-  it('and the fixture creates it that way too', () => {
-    // sqlite_master is the only place the keyword survives — PRAGMA table_info
-    // reports the column as an ordinary INTEGER primary key either way, so a
-    // fixture that lost AUTOINCREMENT would pass the column comparison above.
-    const db = createTestSyncDatabase()
-    const ddl = (
-      db.prepare("SELECT sql FROM sqlite_master WHERE name = 'changes'").get() as { sql: string }
-    ).sql
-    db.close()
-    expect(ddl.toUpperCase()).toContain('AUTOINCREMENT')
+describe('tenant sync keys', () => {
+  it('keys changes and kind generations by tenant', () => {
+    for (const table of [changes, syncKind]) {
+      expect(getTableConfig(table).primaryKeys[0]?.columns.map((c) => c.name)).toEqual([
+        'tenant_id',
+        table === changes ? 'seq' : 'kind',
+      ])
+    }
+    expect(fixtureColumns('sync_feed')).toEqual(declaredColumns(syncFeed))
+    expect(fixtureColumns('sync_kind')).toEqual(declaredColumns(syncKind))
   })
 })
 
@@ -162,7 +151,7 @@ describe('feed identity persists, and there is exactly one of it', () => {
     await repo.writeFeedIdentity({ feedId: 'feed-a', epoch: '01JQ0P9Q1C2D3E4F5G6H7J8K9M' }, 2)
 
     expect((await repo.readFeedIdentity())?.epoch).toBe('01JQ0P9Q1C2D3E4F5G6H7J8K9M')
-    const { n } = db.prepare('SELECT COUNT(*) AS n FROM feed_identity').get() as { n: number }
+    const { n } = db.prepare('SELECT COUNT(*) AS n FROM sync_feed').get() as { n: number }
     expect(n).toBe(1)
     db.close()
   })

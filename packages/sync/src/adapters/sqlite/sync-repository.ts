@@ -1,6 +1,6 @@
 /**
  * Sync aggregate — owns the durable read/write sync machinery:
- * the feed's identity (`feed_identity`, ADR 2 D1), the metadata oplog (`changes`,
+ * the tenant feed (`sync_feed`, ADR 2 D1), the metadata oplog (`changes`,
  * docs/spec/oplog-read-path.md), the outbox write path (`applied_mutations` +
  * `queued_messages`, docs/spec/outbox-write-path.md) and the node⇄hub
  * issue-write outbox (`upstream_outbox` — ARCHIVED at POD-309: read-only, see
@@ -27,39 +27,52 @@
 
 import type { MutationId, SessionId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
-import { and, asc, count, eq, gt, inArray, isNull, lt, lte, max, min, sql } from 'drizzle-orm'
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { and, asc, count, eq, gt, inArray, isNull, lt, lte, max, sql } from 'drizzle-orm'
 import type { ChangeLogReadRow, ChangeLogWriteRow } from '../../authority/change-lifecycle'
 import type { ChangePrunePlan } from '../../change-log'
 import { inListOf, inListSize, inListValues, param, prepared, preparedFamily } from './prepared'
-import { appliedMutations, changes, feedIdentity, syncKind } from './schema'
+import { appliedMutations, changes, SELF_HOSTED_TENANT_ID, syncFeed, syncKind } from './schema'
 import type { QueuedMessagesTable, SyncServerTables, UpstreamOutboxTable } from './server-tables'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './store-queries'
 
-/**
- * SQLite's OWN autoincrement bookkeeping table, declared so that
- * {@link SyncRepository.maxChangeSeq} can read it through the builder rather
- * than as a whole raw statement.
- *
- * DELIBERATELY NOT IN `./schema.ts`. That file is named in `drizzle.config.ts`,
- * so a table declared there is a table drizzle-kit will try to CREATE — and
- * `sqlite_sequence` is the engine's, created and dropped by SQLite itself the
- * first time an AUTOINCREMENT table is written. Declaring it here keeps it out of
- * the journal while still giving the read the schema's names and types.
- *
- * It is not `sqlite_master` and it is not a `PRAGMA`: this is ordinary table data
- * on SQLite and on Turso alike (measured for the append spike,
- * `store/spike/turso-append/`), which is why the boundary lint's driver-only list
- * does not name it and why the read survives the remote backend.
- */
-const sqliteSequence = sqliteTable('sqlite_sequence', {
-  name: text().notNull(),
-  seq: integer().notNull(),
-})
+// One row per registered kind in this tenant, independent of record count.
+const kindGenerations = prepared((db: StoreDrizzle) =>
+  db
+    .select({ kind: syncKind.kind, generation: syncKind.generation })
+    .from(syncKind)
+    .where(eq(syncKind.tenantId, param(syncKind.tenantId, 'tenantId')))
+    .prepare(),
+)
 
-// A migration creates at most one row per registered kind. Every advertisement
-// needs the whole map, whose size is independent of the amount of synced data.
-const kindGenerations = prepared((db: StoreDrizzle) => db.select().from(syncKind).prepare())
+/** UPDATE holds this tenant's row lock until the surrounding write commits.
+ * Postgres uses the same UPDATE ... RETURNING contract; it must never use a
+ * sequence, whose numbers can commit in a different order or survive rollback. */
+const reserveChangeSeqs = prepared((db: StoreDrizzle) =>
+  db
+    .update(syncFeed)
+    .set({ headSeq: sql`${syncFeed.headSeq} + ${sql.placeholder('count')}` })
+    .where(eq(syncFeed.tenantId, param(syncFeed.tenantId, 'tenantId')))
+    .returning({ headSeq: syncFeed.headSeq })
+    .prepare(),
+)
+
+const currentFeedState = prepared((db: StoreDrizzle) =>
+  db
+    .select({ headSeq: syncFeed.headSeq, floorSeq: syncFeed.floorSeq })
+    .from(syncFeed)
+    .where(eq(syncFeed.tenantId, param(syncFeed.tenantId, 'tenantId')))
+    .prepare(),
+)
+
+const advanceFloor = prepared((db: StoreDrizzle) =>
+  db
+    .update(syncFeed)
+    .set({
+      floorSeq: sql`coalesce((select min(${changes.seq}) from ${changes} where ${changes.tenantId} = ${sql.placeholder('tenantId')}), ${syncFeed.headSeq} + 1)`,
+    })
+    .where(eq(syncFeed.tenantId, param(syncFeed.tenantId, 'tenantId')))
+    .prepare(),
+)
 
 /**
  * One append chunk, keyed by its ROW COUNT (1 to the 100-row chunk of
@@ -73,6 +86,8 @@ const insertChangeRows = preparedFamily((db: StoreDrizzle, rows: number) =>
     .insert(changes)
     .values(
       Array.from({ length: rows }, (_, i) => ({
+        tenantId: sql.placeholder('tenantId'),
+        seq: sql.placeholder(`seq${i}`),
         entity: sql.placeholder(`entity${i}`),
         entityId: sql.placeholder(`entityId${i}`),
         op: sql.placeholder(`op${i}`),
@@ -83,21 +98,6 @@ const insertChangeRows = preparedFamily((db: StoreDrizzle, rows: number) =>
         mutationId: sql.placeholder(`mutationId${i}`),
       })),
     )
-    .prepare(),
-)
-
-const highestAssignedSeq = prepared((db: StoreDrizzle) =>
-  db
-    .select({ seq: sqliteSequence.seq })
-    .from(sqliteSequence)
-    .where(eq(sqliteSequence.name, 'changes'))
-    .prepare(),
-)
-
-const lowestRetainedSeq = prepared((db: StoreDrizzle) =>
-  db
-    .select({ seq: min(changes.seq) })
-    .from(changes)
     .prepare(),
 )
 
@@ -118,7 +118,12 @@ const changesAfter = prepared((db: StoreDrizzle) =>
       mutationId: changes.mutationId,
     })
     .from(changes)
-    .where(gt(changes.seq, param(changes.seq, 'cursor')))
+    .where(
+      and(
+        eq(changes.tenantId, param(changes.tenantId, 'tenantId')),
+        gt(changes.seq, param(changes.seq, 'cursor')),
+      ),
+    )
     .orderBy(asc(changes.seq))
     .limit(sql.placeholder('limit'))
     .prepare(),
@@ -139,6 +144,7 @@ const changesBetween = prepared((db: StoreDrizzle) =>
     .from(changes)
     .where(
       and(
+        eq(changes.tenantId, param(changes.tenantId, 'tenantId')),
         gt(changes.seq, param(changes.seq, 'from')),
         lte(changes.seq, param(changes.seq, 'through')),
       ),
@@ -154,7 +160,12 @@ const newestAgedSeq = prepared((db: StoreDrizzle) =>
   db
     .select({ seq: max(changes.seq) })
     .from(sql`${changes} indexed by ${sql.identifier('changes_event_time')}`)
-    .where(lt(changes.eventTime, param(changes.eventTime, 'before')))
+    .where(
+      and(
+        eq(changes.tenantId, param(changes.tenantId, 'tenantId')),
+        lt(changes.eventTime, param(changes.eventTime, 'before')),
+      ),
+    )
     .prepare(),
 )
 
@@ -162,14 +173,22 @@ const deleteChangeHead = prepared((db: StoreDrizzle) =>
   db
     .delete(changes)
     .where(
-      inArray(
-        changes.seq,
-        db
-          .select({ seq: changes.seq })
-          .from(changes)
-          .where(lte(changes.seq, param(changes.seq, 'thresholdSeq')))
-          .orderBy(asc(changes.seq))
-          .limit(sql.placeholder('batchSize')),
+      and(
+        eq(changes.tenantId, param(changes.tenantId, 'tenantId')),
+        inArray(
+          changes.seq,
+          db
+            .select({ seq: changes.seq })
+            .from(changes)
+            .where(
+              and(
+                eq(changes.tenantId, param(changes.tenantId, 'tenantId')),
+                lte(changes.seq, param(changes.seq, 'thresholdSeq')),
+              ),
+            )
+            .orderBy(asc(changes.seq))
+            .limit(sql.placeholder('batchSize')),
+        ),
       ),
     )
     .prepare(),
@@ -205,23 +224,31 @@ const deleteAppliedMutationsBefore = prepared((db: StoreDrizzle) =>
 
 const currentFeedIdentity = prepared((db: StoreDrizzle) =>
   db
-    .select({ feedId: feedIdentity.feedId, epoch: feedIdentity.epoch })
-    .from(feedIdentity)
-    .where(eq(feedIdentity.singleton, 1))
+    .select({ feedId: syncFeed.feedId, epoch: syncFeed.epoch })
+    .from(syncFeed)
+    .where(eq(syncFeed.tenantId, param(syncFeed.tenantId, 'tenantId')))
     .prepare(),
+)
+
+const initialFeedValues = {
+  tenantId: sql.placeholder('tenantId'),
+  feedId: sql.placeholder('feedId'),
+  epoch: sql.placeholder('epoch'),
+  mintedAt: sql.placeholder('mintedAt'),
+  headSeq: 0,
+  floorSeq: 1,
+}
+
+const ensureFeedIdentity = prepared((db: StoreDrizzle) =>
+  db.insert(syncFeed).values(initialFeedValues).onConflictDoNothing().prepare(),
 )
 
 const upsertFeedIdentity = prepared((db: StoreDrizzle) =>
   db
-    .insert(feedIdentity)
-    .values({
-      singleton: 1,
-      feedId: sql.placeholder('feedId'),
-      epoch: sql.placeholder('epoch'),
-      mintedAt: sql.placeholder('mintedAt'),
-    })
+    .insert(syncFeed)
+    .values(initialFeedValues)
     .onConflictDoUpdate({
-      target: feedIdentity.singleton,
+      target: syncFeed.tenantId,
       set: {
         feedId: sql`excluded.feed_id`,
         epoch: sql`excluded.epoch`,
@@ -480,7 +507,12 @@ export class SyncRepository {
     return this.rootDb
   }
 
-  constructor(queries: StoreQueries, tables: SyncServerTables) {
+  constructor(
+    queries: StoreQueries,
+    tables: SyncServerTables,
+    readonly tenantId: string = SELF_HOSTED_TENANT_ID,
+  ) {
+    if (!tenantId) throw new Error('a sync repository requires a tenant')
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction
     this.serverTables = serverTableQueries(tables.queuedMessages, tables.upstreamOutbox)
@@ -490,36 +522,40 @@ export class SyncRepository {
 
   /**
    * Append a batch of change rows in one transaction and return their assigned seqs
-   * (contiguous — the whole batch commits inside BEGIN IMMEDIATE, so no interleaving).
-   * The caller (Ledger) has already deduped; rows arrive only for real changes.
+   * (contiguous — reservation and append commit together under the tenant row lock).
+   * The compare-at-save funnel sends only real changes.
    *
    * Row type is {@link ChangeLogWriteRow} — composed from the lifecycle shape,
    * not restated here (POD-1251).
    */
   async appendChanges(rows: readonly ChangeLogWriteRow[], eventTime: number): Promise<number[]> {
     if (rows.length === 0) return []
+    // Ten bound values per row including repeated tenant/event time placeholders:
+    // 100 rows fit SQLite's supported builds (the previous batch already repeated
+    // eventTime per row). Never pad a VALUES list: every action gets one number.
     const seqs: number[] = []
-    // Stay below SQLite's conservative 999-parameter builds (100 × 8 = 800)
-    // while collapsing a live-scale reconcile from hundreds of statements to a
-    // handful. One outer transaction preserves the contiguous, non-interleaved
-    // sequence contract across every chunk.
-    //
-    // EIGHT PARAMETERS PER ROW since POD-6272 bound the provenance triple
-    // (previously five: drizzle emitted a literal `null` for those three
-    // columns). `seq` is still a literal `null`, so 100 rows bind 800 plus the
-    // shared `eventTime`, which keeps the chunk under the 999 ceiling.
     const chunkSize = 100
     await this.createOrJoinTransaction(async () => {
+      const { tenantId } = this
+      let reserved = await reserveChangeSeqs(this.db).get({ tenantId, count: rows.length })
+      if (!reserved) {
+        // A first writer can precede client admission. A competing first writer
+        // must keep the winner's identity, so initialization never updates it.
+        await ensureFeedIdentity(this.db).run({
+          tenantId,
+          feedId: crypto.randomUUID(),
+          epoch: crypto.randomUUID(),
+          mintedAt: eventTime,
+        })
+        reserved = await reserveChangeSeqs(this.db).get({ tenantId, count: rows.length })
+      }
+      if (!reserved) throw new Error('tenant feed reservation failed')
+      const first = reserved.headSeq - rows.length + 1
       for (let start = 0; start < rows.length; start += chunkSize) {
         const chunk = rows.slice(start, start + chunkSize)
-        // AN EXPLICIT NULL WHERE THE ORIGINAL OMITTED [spec rule 43], and it is
-        // safe on this table for both shapes it takes. `seq` is INTEGER PRIMARY
-        // KEY AUTOINCREMENT, where an explicit null auto-assigns exactly as an
-        // omission does; the three provenance columns are nullable with no
-        // DEFAULT clause, so null IS what the omission stored. No column of
-        // `changes` carries a default for an explicit null to defeat.
-        const values: Record<string, unknown> = { eventTime }
+        const values: Record<string, unknown> = { eventTime, tenantId }
         chunk.forEach((row, i) => {
+          values[`seq${i}`] = first + start + i
           values[`entity${i}`] = row.entity
           values[`entityId${i}`] = row.entityId
           values[`op${i}`] = row.op
@@ -528,31 +564,32 @@ export class SyncRepository {
           values[`causationId${i}`] = row.causationId ?? null
           values[`mutationId${i}`] = row.mutationId ?? null
         })
-        const result = await insertChangeRows(this.db, chunk.length).run(values)
-        const last = Number(result.lastInsertRowid)
-        const first = last - chunk.length + 1
-        for (let i = 0; i < chunk.length; i++) seqs.push(first + i)
+        await insertChangeRows(this.db, chunk.length).run(values)
       }
+      for (let i = 0; i < rows.length; i++) seqs.push(first + i)
     })
     return seqs
   }
 
-  /** Highest assigned seq ever (survives head-pruning via sqlite_sequence). 0 = none. */
+  /** One snapshot read of this tenant's durable cursor bounds. */
+  async readFeedState(): Promise<{ headSeq: number; floorSeq: number }> {
+    return (
+      (await currentFeedState(this.db).get({ tenantId: this.tenantId })) ?? {
+        headSeq: 0,
+        floorSeq: 1,
+      }
+    )
+  }
+
+  /** Highest committed seq for this tenant, surviving a fully pruned log. */
   async maxChangeSeq(): Promise<number> {
-    // ABSENT ROW, NOT ZERO, is the empty case: SQLite creates the
-    // `sqlite_sequence` entry on the first insert, so a log that has never been
-    // written has no row here at all.
-    const row = await highestAssignedSeq(this.db).get()
-    return row?.seq ?? 0
+    return (await this.readFeedState()).headSeq
   }
 
   /** Lowest RETAINED seq, or null when the log is empty. */
   async minChangeSeq(): Promise<number | null> {
-    // An aggregate over an empty table is still ONE row carrying NULL, which is
-    // the `null` this returns; the `?? null` is for `.get()`'s optional type, not
-    // for a case SQLite produces.
-    const row = await lowestRetainedSeq(this.db).get()
-    return row?.seq ?? null
+    const { headSeq, floorSeq } = await this.readFeedState()
+    return floorSeq <= headSeq ? floorSeq : null
   }
 
   /**
@@ -561,13 +598,18 @@ export class SyncRepository {
    * this is a plain range read.
    */
   async changesSince(cursor: number, limit = 10_000): Promise<ChangeLogReadRow[]> {
-    const rows = await changesAfter(this.db).all({ cursor, limit })
+    const rows = await changesAfter(this.db).all({ tenantId: this.tenantId, cursor, limit })
     return rows.map((r) => mapChangeLogReadRow(r))
   }
 
   /** Read exactly (from, through], with a bounded page size. */
   async changesInRange(from: number, through: number, limit: number): Promise<ChangeLogReadRow[]> {
-    const rows = await changesBetween(this.db).all({ from, through, limit })
+    const rows = await changesBetween(this.db).all({
+      tenantId: this.tenantId,
+      from,
+      through,
+      limit,
+    })
     return rows.map((r) => mapChangeLogReadRow(r))
   }
 
@@ -594,7 +636,10 @@ export class SyncRepository {
     // fixture, `EXPLAIN QUERY PLAN` reports `SEARCH changes` without it against
     // `SEARCH changes USING COVERING INDEX changes_event_time` with it, and this
     // read runs once per prune job.
-    const aged = await newestAgedSeq(this.db).get({ before: opts.now - opts.maxAgeMs })
+    const aged = await newestAgedSeq(this.db).get({
+      tenantId: this.tenantId,
+      before: opts.now - opts.maxAgeMs,
+    })
     return { thresholdSeq: Math.max(rowCapSeq, aged?.seq ?? 0) }
   }
 
@@ -608,11 +653,17 @@ export class SyncRepository {
       throw new RangeError('batchSize must be a positive integer')
     }
     if (plan.thresholdSeq <= 0) return 0
-    const result = await deleteChangeHead(this.db).run({
-      thresholdSeq: plan.thresholdSeq,
-      batchSize,
+    return await this.createOrJoinTransaction(async () => {
+      // Take the same tenant lock as appends before changing the floor.
+      await reserveChangeSeqs(this.db).get({ tenantId: this.tenantId, count: 0 })
+      const result = await deleteChangeHead(this.db).run({
+        tenantId: this.tenantId,
+        thresholdSeq: plan.thresholdSeq,
+        batchSize,
+      })
+      if (Number(result.changes) > 0) await advanceFloor(this.db).run({ tenantId: this.tenantId })
+      return Number(result.changes)
     })
-    return Number(result.changes)
   }
 
   // ---- outbox write path (docs/spec/outbox-write-path.md) ----
@@ -863,7 +914,7 @@ export class SyncRepository {
   }
 
   async readKindGenerations(): Promise<{ kind: string; generation: number }[]> {
-    return await kindGenerations(this.db).all()
+    return await kindGenerations(this.db).all({ tenantId: this.tenantId })
   }
 
   // ---- feed identity (ADR 2 D1) ----
@@ -879,12 +930,12 @@ export class SyncRepository {
    * and the one that runs would depend on which door the write came through.
    */
   async readFeedIdentity(): Promise<{ feedId: string; epoch: string } | null> {
-    const row = await currentFeedIdentity(this.db).get()
+    const row = await currentFeedIdentity(this.db).get({ tenantId: this.tenantId })
     return row === undefined ? null : { feedId: row.feedId, epoch: row.epoch }
   }
 
   /**
-   * Persist the identity. UPSERT on the singleton key, so a bump REPLACES rather
+   * Persist the identity. UPSERT on the tenant key, so a bump REPLACES rather
    * than appends: there is exactly one current generation, and a table that could
    * hold two would leave "which epoch is this feed on?" answered by whichever row
    * a query happened to return first.
@@ -893,10 +944,11 @@ export class SyncRepository {
     identity: { feedId: string; epoch: string },
     mintedAt: number,
   ): Promise<void> {
-    // TARGETED ON THE PRIMARY KEY, which is `feed_identity`'s ONLY uniqueness
+    // TARGETED ON THE PRIMARY KEY, which is `sync_feed`'s ONLY uniqueness
     // constraint — checked with `pragma index_list` on the migrated table
     // [spec rule 31a].
     await upsertFeedIdentity(this.db).run({
+      tenantId: this.tenantId,
       feedId: identity.feedId,
       epoch: identity.epoch,
       mintedAt,

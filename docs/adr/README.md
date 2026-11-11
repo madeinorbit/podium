@@ -31,6 +31,9 @@ tip `2ddfec21`. Source proposal committed at
 
 ## Amendments (2026-07-29 — multi-user)
 
+ADR 13: [Tenant sync feeds](0013-tenant-sync-feeds.md) adopts the hosted shared-store
+target and triggers ADR 1 D5.3 for tenant-keyed sync infrastructure (POD-6775).
+
 The **first five** encode the human decisions of 2026-07-28/29 recorded in
 `docs/multi-user-readiness.md`; the sixth (ADR 1 Amd 2) answers POD-645's instance-identity
 drift questions and exists largely to stop that work being misread as multi-tenancy. All six

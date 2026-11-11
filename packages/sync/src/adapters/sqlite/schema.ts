@@ -60,17 +60,10 @@ import type { MutationId } from '@podium/model'
 import { sql } from 'drizzle-orm'
 import { check, index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
-/**
- * THE CHANGE LOG — the one global sequence (ADR 2 D2).
- *
- * `seq` is `INTEGER PRIMARY KEY AUTOINCREMENT`, and the AUTOINCREMENT keyword is
- * load-bearing rather than stylistic: without it SQLite reuses the rowids of
- * deleted rows, and head-pruning (ADR 2 D5) deletes from the TAIL of the log. A
- * reused seq would hand two different changes the same position in the one
- * global sequence, and every replica that had seen the first would silently skip
- * the second. `sqlite_sequence` is also where `maxChangeSeq()` reads the highest
- * seq EVER assigned, which is how the cursor survives pruning.
- */
+/** One instance is one tenant, matching PDM-107's self-hosted identity workspace. */
+export const SELF_HOSTED_TENANT_ID = 'local'
+
+/** The feed row assigns seqs transactionally; pruning never resets its head. */
 /**
  * Column groups for the change log, split so no single object literal restates
  * the change-row field list (POD-1251 / `change-row-typings`). The table below
@@ -111,15 +104,17 @@ const changeProvenanceColumns = {
 export const changes = sqliteTable(
   'changes',
   {
-    seq: integer().primaryKey({ autoIncrement: true }),
+    tenantId: text('tenant_id').notNull(),
+    seq: integer().notNull(),
     ...changeTargetColumns,
     op: text().notNull(),
     ...changeBodyColumns,
     ...changeProvenanceColumns,
   },
   (table) => [
-    index('changes_entity').on(table.entity, table.entityId, table.seq),
-    index('changes_event_time').on(table.eventTime),
+    primaryKey({ columns: [table.tenantId, table.seq] }),
+    index('changes_entity').on(table.tenantId, table.entity, table.entityId, table.seq),
+    index('changes_event_time').on(table.tenantId, table.eventTime),
   ],
 )
 
@@ -159,6 +154,7 @@ export const changes = sqliteTable(
  * INSPECTABLE; the bump itself is an operator action from [spec:SP-4428]'s
  * runbook, and `FeedIdentityRegistry.bump` is what that action calls.
  */
+// LEGACY(remove-after: 2027-02): retained singleton table for a later contract migration; live identity is in sync_feed.
 export const feedIdentity = sqliteTable(
   'feed_identity',
   {
@@ -172,11 +168,27 @@ export const feedIdentity = sqliteTable(
   (table) => [check('feed_identity_singleton', sql`${table.singleton} = 1`)],
 )
 
-/** Absent kinds are at generation zero. Hosting adds the tenant key. */
-export const syncKind = sqliteTable('sync_kind', {
-  kind: text().primaryKey(),
-  generation: integer().notNull(),
+/** The identity and cursor bounds travel with each tenant's durable log. */
+export const syncFeed = sqliteTable('sync_feed', {
+  tenantId: text('tenant_id').primaryKey(),
+  feedId: text('feed_id').notNull(),
+  epoch: text().notNull(),
+  mintedAt: integer('minted_at').notNull(),
+  headSeq: integer('head_seq').notNull(),
+  /** Oldest retained seq; head + 1 when empty. Cursor + 1 must reach it. */
+  floorSeq: integer('floor_seq').notNull(),
 })
+
+/** Absent kinds are at generation zero within their tenant. */
+export const syncKind = sqliteTable(
+  'sync_kind',
+  {
+    tenantId: text('tenant_id').notNull(),
+    kind: text().notNull(),
+    generation: integer().notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.tenantId, table.kind] })],
+)
 
 export const appliedMutations = sqliteTable(
   'applied_mutations',
