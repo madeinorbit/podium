@@ -80,6 +80,7 @@ describe('Access address', () => {
     const complete = vi.fn().mockResolvedValue({ mode: 'server' })
     Object.assign(fixture.trpc.setup, {
       options: { query: vi.fn().mockResolvedValue([]) },
+      commandFor: { query: vi.fn().mockResolvedValue({ command: '', hint: '' }) },
       complete: { mutate: complete },
     })
     Object.assign(fixture.trpc, {
@@ -91,12 +92,11 @@ describe('Access address', () => {
     fireEvent.change(await screen.findByLabelText(/Podium URL/i), {
       target: { value: 'https://example.com:18787' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Save address' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Check and save' }))
     await waitFor(() => expect(complete).toHaveBeenCalledTimes(1))
-    expect(complete).toHaveBeenCalledWith({
-      publicUrl: 'https://example.com:18787',
-      confirmUrlChange: true,
-    })
+    expect(complete).toHaveBeenCalledWith(
+      expect.objectContaining({ publicUrl: 'https://example.com:18787', confirmUrlChange: true }),
+    )
     expect(fixture.closeTakeover).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('button', { name: /use this URL anyway/i })).toBeNull()
   })
