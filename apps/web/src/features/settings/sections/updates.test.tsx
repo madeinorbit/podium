@@ -482,7 +482,7 @@ describe('UpdatesSection', () => {
     expect(screen.getByRole('button', { name: 'Edge' }).getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByText('dev+abc1234')).toBeTruthy()
     const version = screen.getByText('dev+abc1234').closest('.settings-row')!
-    const channel = screen.getByRole('group', { name: 'Update channel' })
+    const channel = screen.getByRole('button', { name: 'Edge' }).closest('fieldset')!
     expect(channel.classList.contains('settings-segmented')).toBe(true)
     expect(version.nextElementSibling).toBe(channel.closest('.settings-row'))
     const undo = notify.mock.calls.find((call) => call[0] === 'Saved')?.[1]?.action

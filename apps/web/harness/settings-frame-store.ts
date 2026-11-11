@@ -11,6 +11,7 @@ import {
 import { FEATURES } from '@podium/protocol'
 import { observable, runInAction } from 'mobx'
 import { useMemo, useSyncExternalStore } from 'react'
+import { headerEntities } from '../../../packages/client-graph/src/header-entities'
 import { liveFixture } from '../../../packages/client-graph/src/live-fixture'
 
 const params = new URLSearchParams(location.search)
@@ -364,11 +365,48 @@ if (populated) {
         arch: 'x64',
         loggedOutHarnesses: [],
         grants: [],
-        services: {},
+        serviceAssignment: { server: machine.id === 'studio', agentExecution: true },
+        services: {
+          server: { policy: 'enabled', state: 'available' },
+          agentExecution: { policy: 'enabled', state: 'available' },
+        },
         installedAgents: [],
       } as never,
     })),
   })
+  pool.apply({
+    type: 'update',
+    rows: [
+      {
+        kind: 'repo',
+        id: 'repo-podium',
+        value: {
+          id: 'repo-podium',
+          name: 'Podium',
+          prefix: 'POD',
+          defaultParentBranch: 'main',
+          path: '/workspace/podium',
+        } as never,
+      },
+    ],
+  })
+  headerEntities(pool).apply([
+    {
+      kind: 'repository',
+      id: 'scan-podium',
+      value: {
+        kind: 'repository',
+        repoId: 'repo-podium',
+        machineId: 'studio',
+        path: '/workspace/podium',
+        name: 'Podium',
+        originUrl: 'https://example.com/team/podium.git',
+        branch: 'main',
+        worktrees: [],
+      } as never,
+    },
+  ])
+  headerEntities(pool).order('repository', ['scan-podium'])
   for (const machine of machines) live.online(machine.id, machine.online)
   updates.fleet.machines = machines.map((m) => ({
     ...m,
@@ -393,7 +431,7 @@ window.fetch = (async (input: RequestInfo | URL) => {
       sessions: populated
         ? [
             {
-              sessionId: 'demo-browser',
+              sessionId: 'demo-browser-session-0001',
               userId: member ? 'member' : 'demo',
               label: 'login',
               deviceId: 'browser-device',
