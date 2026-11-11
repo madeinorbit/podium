@@ -55,7 +55,12 @@ function deferred<T>() {
 }
 
 it('keeps the newer answer when an older poll settles last', async () => {
-  const view = new TaskCostView(new MobxPool({ selectedIssueId: null, coarseNow: 0 }))
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+  pool.apply({
+    type: 'update',
+    rows: ['old', 'new'].map((id) => ({ kind: 'issue', id, value: issue(id, 'project') as never })),
+  })
+  const view = new TaskCostView(pool)
   const older = deferred<TaskCostRowWire[]>()
   const newer = deferred<TaskCostRowWire[]>()
   const first = view.read(() => older.promise)
@@ -92,6 +97,13 @@ it('prices once per answer and groups by the pool issue project', async () => {
   // Reading again without a new answer hands back the same cached rows.
   expect(view.topTasks).toBe(before)
   expect(reruns).toBe(1)
+  pool.apply({
+    type: 'update',
+    rows: [
+      { kind: 'issue', id: 'a', value: { ...issue('a', 'podium'), title: 'Renamed' } as never },
+    ],
+  })
+  expect(view.topTasks).toBe(before) // Metadata changes do not reprice the same candidates.
   stop()
   view.dispose()
 })
@@ -143,6 +155,7 @@ it('groups cold task summaries without hydrating full issues', async () => {
   const view = new TaskCostView(pool)
   await view.read(async () => [row('cold', 10)])
   expect(pool.tables.issue.size).toBe(0)
+  expect(view.topTasks).toEqual([{ issueId: 'cold', windowCostUsd: 10 }])
   expect(view.projectGroups?.rows[0]?.project).toBe('project')
   expect(pool.hydrate()).toBe(0)
   expect(load).not.toHaveBeenCalled()
@@ -150,6 +163,64 @@ it('groups cold task summaries without hydrating full issues', async () => {
   pool.row('issue', 'cold')
   expect(pool.hydrate()).toBe(1)
   expect(load).toHaveBeenCalledTimes(1)
+  view.dispose()
+  pool.dispose()
+})
+
+it('omits gone candidates before ranking and restores them only when the pool readmits them', async () => {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 }, undefined, {
+    load: () => undefined,
+    summaries: ISSUE_PAGE_SUMMARIES,
+    schedule: () => () => {},
+  })
+  const ids = ['a', 'b', 'c', 'd', 'e', 'f', 'removed']
+  pool.apply({
+    type: 'update',
+    rows: ids.map((id) => ({ kind: 'issue', id, value: issue(id, 'project') as never })),
+  })
+  const view = new TaskCostView(pool)
+  await view.read(async () => [
+    row('removed', 100),
+    row('invisible', 90),
+    ...ids.slice(0, 6).map((id, i) => row(id, 6 - i)),
+  ])
+  let ranked: string[] = []
+  const stop = autorun(() => {
+    ranked = view.topTasks?.map((task) => task.issueId) ?? []
+  })
+  expect(ranked).toContain('removed') // Positive control: visible high spend does rank.
+  pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'removed', value: undefined }] })
+  pool.hydrate() // Settle the unknown/invisible task through the actual pool loader.
+  expect(ranked).toEqual(['a', 'b', 'c', 'd', 'e'])
+  expect(view.projectGroups?.attributedUsd).toBe(21)
+  pool.apply({
+    type: 'update',
+    rows: [{ kind: 'issue', id: 'invisible', value: issue('invisible', 'project') as never }],
+  })
+  expect(ranked).toEqual(['invisible', 'a', 'b', 'c', 'd'])
+  stop()
+  view.dispose()
+  pool.dispose()
+})
+
+it('reads only window folds for top tasks and projects; the full sheet still prices history on demand', async () => {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+  pool.apply({
+    type: 'update',
+    rows: [{ kind: 'issue', id: 'a', value: issue('a', 'project') as never }],
+  })
+  const view = new TaskCostView(pool)
+  const history = vi.fn(() => [usd(500)])
+  const task = row('a', 10)
+  Object.defineProperty(task, 'models', { get: history })
+  Object.defineProperty(task, 'rollupModels', { get: history })
+  await view.read(async () => [task])
+  expect(view.topTasks).toEqual([{ issueId: 'a', windowCostUsd: 10 }])
+  expect(view.projectGroups?.attributedUsd).toBe(10)
+  expect(history).not.toHaveBeenCalled()
+  // Positive control: all-time consumers retain their existing semantics.
+  expect(view.rows?.[0]?.estCostUsd).toBe(500)
+  expect(history).toHaveBeenCalled()
   view.dispose()
   pool.dispose()
 })

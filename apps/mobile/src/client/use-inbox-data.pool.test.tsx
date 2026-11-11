@@ -12,6 +12,7 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asUserId } from '@podium/model'
 import type { PodiumTarget } from '@podium/protocol'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { observer } from 'mobx-react-lite'
 import { type ReactNode, useEffect } from 'react'
 import { Linking } from 'react-native'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -172,7 +173,7 @@ const tokens = [
   { token: 'SYN-1000-A', kind: 'session' as const, prefix: 'SYN' },
   { token: 'UTF-8', kind: 'issue' as const, prefix: 'UTF' },
 ]
-function PulseProbe() {
+const PulseProbe = observer(function PulseProbe() {
   const pulse = useOpeningView(useMobilePool(), createPulseView)
   const data = usePulseFeed(pulse)
   const { hosts } = usePulseLive()
@@ -183,11 +184,10 @@ function PulseProbe() {
         hosts,
         quota: data.quota,
         buckets: data.buckets,
-        history: data.history,
       })}
     </output>
   )
-}
+})
 function Screens() {
   return (
     <>
@@ -426,19 +426,21 @@ it('routes issue and permanent session references and preserves scoped handoff d
 })
 
 it('updates pulse machines and streamed health without rebuilding quota polling for unrelated rows', async () => {
-  const app = await mount(<PulseProbe />)
+  let history: ReturnType<typeof vi.spyOn> | undefined
+  const app = await mount(<PulseProbe />, (data) => {
+    history = vi.spyOn(
+      (data.api.quota as unknown as { history: { query: () => Promise<unknown[]> } }).history,
+      'query',
+    )
+  })
   const reading = () => JSON.parse(app.view.getByTestId('pulse').textContent!)
   await waitFor(() => {
     expect(reading().machines).toHaveLength(3)
     expect(reading().hosts).toHaveLength(3)
     expect(reading().quota).toHaveLength(1)
-    expect(reading().history).not.toBeNull()
   })
-  const quota = vi.spyOn(app.data.api.quota.summary, 'query'),
-    history = vi.spyOn(
-      (app.data.api.quota as never as { history: { query: () => Promise<unknown[]> } }).history,
-      'query',
-    )
+  expect(history).not.toHaveBeenCalled()
+  const quota = vi.spyOn(app.data.api.quota.summary, 'query')
   await act(async () => {
     app.data.activity(1)
     app.data.publishMetrics(2)
@@ -701,7 +703,7 @@ it('keeps the Pulse chart stable across host samples and follows live task ident
   expect(state.chartRenders).toBeGreaterThan(chartBefore)
 })
 
-it('shows an unreadable harvest instead of zero spend when the first cost read fails', async () => {
+it('keeps healthy usage, quota and machines when the first cost read fails', async () => {
   const app = await mount(<PulseScreen />, (data) => {
     Object.assign(data.api, {
       cost: {
@@ -713,10 +715,19 @@ it('shows an unreadable harvest instead of zero spend when the first cost read f
       },
     })
   })
-  await waitFor(() =>
-    expect(
-      app.view.getByText('Couldn’t reach the daemon for usage or quota. Pull down to try again.'),
-    ).toBeTruthy(),
-  )
-  expect(app.view.queryByText('$0.00')).toBeNull()
+  await waitFor(() => expect(app.view.getByText('Couldn’t read task costs.')).toBeTruthy())
+  expect(app.view.getByText(/API-equivalent cost/)).toBeTruthy()
+  expect(app.view.getByText('Machines')).toBeTruthy()
+  expect(app.view.queryByText('Reading quota…')).toBeNull()
+  expect(app.view.queryByText(/No machine is signed in/)).toBeNull()
+})
+
+it('shows quota failure without hiding a successful usage harvest', async () => {
+  const app = await mount(<PulseScreen />, (data) => {
+    vi.spyOn(data.api.quota.summary, 'query').mockRejectedValue(new Error('quota failed'))
+  })
+  await waitFor(() => expect(app.view.getByText('Couldn’t read quota.')).toBeTruthy())
+  expect(app.view.queryByText(/No machine is signed in/)).toBeNull()
+  expect(app.view.getByText(/API-equivalent cost/)).toBeTruthy()
+  expect(app.view.getByText('Machines')).toBeTruthy()
 })

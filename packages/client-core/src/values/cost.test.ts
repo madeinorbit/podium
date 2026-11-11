@@ -21,6 +21,7 @@ import {
   taskCostView,
   taskRateUsd,
   topWindowTasks,
+  windowTaskCosts,
 } from './cost'
 import { bucketCostUsd } from './usage'
 
@@ -511,4 +512,34 @@ describe('topWindowTasks', () => {
     expect(top.map((t) => t.seq)).toEqual([6, 5, 4, 3, 2])
     expect(top[0]?.windowCostUsd).toBeCloseTo(30)
   })
+})
+
+it('window-only ranking matches the full sheet on the same folds without reading history', () => {
+  const rows = Array.from({ length: 8 }, (_, i) => ({
+    issueId: `task-${i}`,
+    models: [model({ inputTokens: (8 - i) * 1_000_000 })],
+    rollupModels: [model({ inputTokens: 99_000_000 })],
+    windowModels: i === 0 ? [] : [model({ inputTokens: i * 1_000_000 })],
+    rollupMessages: 10,
+  })) as TaskCostRowWire[]
+  const full = topWindowTasks(taskCostRows(rows).rows).map(({ issueId, windowCostUsd }) => ({
+    issueId,
+    windowCostUsd,
+  }))
+  expect(topWindowTasks(windowTaskCosts(rows))).toEqual(full)
+  expect(full.map((row) => row.issueId)).toEqual(['task-7', 'task-6', 'task-5', 'task-4', 'task-3'])
+  for (const row of rows) {
+    Object.defineProperty(row, 'models', {
+      get() {
+        throw new Error('all-time pricing')
+      },
+    })
+    Object.defineProperty(row, 'rollupModels', {
+      get() {
+        throw new Error('rollup pricing')
+      },
+    })
+  }
+  expect(topWindowTasks(windowTaskCosts(rows))).toEqual(full)
+  expect(() => taskCostRows(rows)).toThrow() // Positive control: history trap is active.
 })

@@ -117,12 +117,14 @@ export const PulseScreen = observer(function PulseScreen() {
   return (
     <Screen
       title="Pulse"
+      grouped
       large
-      subtitle={cold && feed.failed ? 'No reading' : pulseSubtitle(hero, range, cold)}
+      subtitle={cold && pulse?.error != null ? 'No reading' : pulseSubtitle(hero, range, cold)}
       right={<RangeButton range={range} onChange={setRange} />}
     >
       <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
         <ScrollView
+          style={styles.scroll}
           ref={listRef as never}
           refreshControl={refreshControl}
           // The native large-title header is translucent and floats over the
@@ -148,7 +150,10 @@ export const PulseScreen = observer(function PulseScreen() {
             machinesSection={machinesSection}
             pool={pool}
             cold={cold}
-            failed={cold && feed.failed}
+            failed={pulse?.error != null}
+            quotaCold={feed.quota === null}
+            quotaFailed={feed.quotaFailed}
+            tasksFailed={costs?.error != null}
             onRetry={feed.reload}
             onOpenTask={onOpenTask}
             buildStamp={buildStamp.text}
@@ -281,6 +286,7 @@ function RangeButton({
 }
 
 const styles = StyleSheet.create({
+  scroll: { flex: 1, backgroundColor: color.groupedBg },
   content: {
     paddingHorizontal: space.lg,
   },

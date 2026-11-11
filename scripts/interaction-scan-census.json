@@ -626,25 +626,25 @@
       "rule": "helper-consumer",
       "tokens": "136c7a0d0a2859de01f3d9a8077cf54517987e784b438a0d773f294c9de44e70",
       "gate": [
-        "else:3bdd7388d2ed9ad80e904ff8fef948a9bce37ac6a94a2e79ea20ebfca85e470b"
+        "else:affab26aef41d4aa5fc9e8ae170003d70282721f52cc7452d4f7e0ca35d1c4b1"
       ],
       "origin": [
         "2b76bc86aadbbc2ab5ec8d21e18487eab3d87af87397ce54059339e4785c971b"
       ],
-      "fingerprint": "71cc90c91a0faccf2c7d7248d8279e801a45f2ce5b613c6b891dea1d0111ec5e",
+      "fingerprint": "fb272c8fe6c0a64cd3c6f85064d9fdd0fe8748f7cede3252bdd8f1b69bdd46ac",
       "count": 1,
       "classification": "visible output",
       "owner": "POD-2379",
       "trigger": "Pulse tab renders its header subtitle.",
       "bound": "One usage summary answer and the chosen range.",
-      "reason": "Formats the hero figure into the large-title subtitle; no collection is enumerated beyond the summary already derived. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 53d961aac65a1d37d1c8913f584a6b5cf0bfab579509825a24b4b79ce86e439b.",
+      "reason": "Formats the hero figure into the large-title subtitle; no collection is enumerated beyond the summary already derived. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 53d961aac65a1d37d1c8913f584a6b5cf0bfab579509825a24b4b79ce86e439b. POD-2396 separates shared reading errors and removes the unused quota-history request; existing machine collection scope is unchanged. Predecessor: 71cc90c91a0faccf2c7d7248d8279e801a45f2ce5b613c6b891dea1d0111ec5e.",
       "guard": "scripts/check-interaction-scans.ts"
     },
     {
       "file": "apps/mobile/src/screens/PulseScreen.tsx",
       "holder": "PulseScreen/PulseScreen/feed",
       "rule": "reader-summary",
-      "tokens": "b97ab360a36adac0e8e5adffd1bd574dc633ee22b03560dc06a91c0fb0e9e45c",
+      "tokens": "b28907fd8ed4168bfee9b79eebb78c7be862e89396e9d6da03369816bfb2f51a",
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
@@ -653,14 +653,14 @@
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "d68580d53f9d328ce194431028062c058fb25657f756776258ca5d52c08f26ad",
+      "fingerprint": "72cbc8ddda387eab78442d91bace3b65e0149b168b964449796f2fe0eb34c549",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "bound": "No per-interaction bound established for this existing collection origin.",
       "guard": "scripts/check-interaction-scans.ts",
       "trigger": "Pulse reading in PulseScreen/PulseScreen/feed.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. Predecessor: 14ce25f65f6dd859009a289343af3efb4c583e1f4aa67fc1e9a694080d447733. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 2ae006d45c6e5593389be70e20af342644b6ed8db679d48b2ea8ac7f8bacabe3. POD-2391 moves the same reading to the shared opening or a host-only component; collection cardinality debt is unchanged. Predecessor: 8f43f11c39795a61a386d9ba749038f57b504687bd26d3b6a92221a6c8c731a9."
+      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. Predecessor: 14ce25f65f6dd859009a289343af3efb4c583e1f4aa67fc1e9a694080d447733. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 2ae006d45c6e5593389be70e20af342644b6ed8db679d48b2ea8ac7f8bacabe3. POD-2391 moves the same reading to the shared opening or a host-only component; collection cardinality debt is unchanged. Predecessor: 8f43f11c39795a61a386d9ba749038f57b504687bd26d3b6a92221a6c8c731a9. POD-2396 separates shared reading errors and removes the unused quota-history request; existing machine collection scope is unchanged. Predecessor: d68580d53f9d328ce194431028062c058fb25657f756776258ca5d52c08f26ad."
     },
     {
       "file": "apps/mobile/src/screens/PulseScreen.tsx",
@@ -36353,6 +36353,24 @@
       "bound": "One owner-cached conversation and one local view per mounted reader, keyed by the explicit session ID; no catalogue enumeration in either wrapper.",
       "reason": "Both callers borrow the extracted existing conversation factory. The send/interrupt and record-ingestion paths remain individually tracked; this wrapper does not repair their separate debt.",
       "guard": "SessionConversation draft-isolation and stop tests preserve addressed rendering at 1x/4x; TaskSummary.offer tests cover captured session/offer identity and the real shared Sends dismissal/failure flow."
+    },
+    {
+      "file": "packages/client-core/src/values/cost.ts",
+      "holder": "windowTaskCosts/map:callback/windowCostUsd/reduce:callback",
+      "rule": "reader-summary",
+      "tokens": "95a8e08f9adf7a894e784baf3d41c9fdcd20e0a665f19d9e3b0243b0b9fbf453",
+      "gate": [],
+      "origin": [
+        "c398c53566d168764177ae7aa024cb47dbb9738463b587af0129f142a32a5652"
+      ],
+      "fingerprint": "6b684008a1ae5ff4c3bc8bbb01821148e817ad44c29dfd0fc0ce738d58b40cc6",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Price the accepted cost.tasks answer for the focused Pulse window ranking.",
+      "bound": "One pass over visible candidates and their window model folds; no all-time or ancestor pricing. The existing cost query still returns all-history task rows.",
+      "reason": "POD-2396 replaces Pulse all-time cohort pricing with window-only pricing using the existing modelTotalCostUsd rule. The model pricing catalogue origin is the same as projectCostGroups/usd; this does not claim to repair catalogue cardinality or server all-history work.",
+      "guard": "cost.test.ts compares window ranks with the existing sheet; task-cost-view.test.ts traps all-time model reads and verifies pool visibility before ranking."
     }
   ]
 }

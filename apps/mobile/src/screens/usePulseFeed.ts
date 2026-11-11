@@ -1,13 +1,7 @@
 import { type MachineCapacityReadings, machineViewsFromWire } from '@podium/client-core/values'
 import { headerView } from '@podium/client-graph/header-views'
 import type { PulseView } from '@podium/client-graph/pulse-view'
-import type {
-  MachineId,
-  MachineQuotaWire,
-  MachineWire,
-  QuotaWindowHistoryWire,
-  UsageBucketWire,
-} from '@podium/model'
+import type { MachineId, MachineQuotaWire, MachineWire, UsageBucketWire } from '@podium/model'
 import type { HostMemoryBreakdown } from '@podium/protocol'
 import { useFocusEffect } from 'expo-router'
 import { useCallback, useRef, useState } from 'react'
@@ -15,7 +9,6 @@ import {
   DEMO_MACHINES,
   DEMO_MEMORY_BREAKDOWNS,
   DEMO_QUOTA,
-  DEMO_QUOTA_HISTORY,
   DEMO_USAGE_BUCKETS,
   demoEnabled,
 } from '../client/demoData'
@@ -33,9 +26,9 @@ import {
   settleWithConcurrency,
 } from './capacity-refresh'
 
-/** Quota/history and capacity keep their existing profile-scoped readings.
- * Usage and task costs belong to the shared Pulse opening and publish as one
- * harvest. Host metrics subscribe in the verdict and machines components.
+/** Capacity keeps its existing profile-scoped readings.
+ * Quota, usage and task costs belong to the shared Pulse opening. Host metrics
+ * subscribe in the verdict and machines components.
  * Polls run only while focused; machine-list changes affect capacity reads,
  * never the usage/cost refresh cadence.
  */
@@ -44,8 +37,6 @@ const REFRESH_MS = 60_000
 const CAPACITY_CONCURRENCY = 3
 
 interface PulseCache {
-  quota: MachineQuotaWire[]
-  history: QuotaWindowHistoryWire[]
   capacityReadings: MachineCapacityReadings
   loadPerCore: number | null
   fetchedAt: number
@@ -59,23 +50,20 @@ export function resetPulseCache(): void {
 }
 
 export interface PulseFeed {
-  /** Null only until this launch has had an answer: the one cold state. */
+  /** Each reading is null until its own first successful answer. */
   quota: MachineQuotaWire[] | null
   buckets: UsageBucketWire[] | null
-  history: QuotaWindowHistoryWire[] | null
   /** The same per-principal projection the desktop machine surface receives. */
   machines: readonly MachineWire[]
   /** Answers only for machines whose live `use` gate admitted the daemon walk. */
   capacityReadings: MachineCapacityReadings
   /** The auto-park threshold the load meter fills against; null = policy off. */
   loadPerCore: number | null
-  /** When the polled pair was taken — and the clock every figure is derived
-   *  against. Falls back to launch time while cold so nothing renders NaN. */
+  /** Usage harvest time, with the policy reading time as a cold fallback. */
   nowMs: number
   fetchedAt: number | null
   /** The last attempt failed. With figures on screen, they are simply older. */
-  failed: boolean
-  historyFailed: boolean
+  quotaFailed: boolean
   reload: () => void
 }
 
@@ -95,22 +83,14 @@ export function usePulseFeed(pulse: PulseView | null): PulseFeed {
   const demo = demoEnabled()
   const [answer, setAnswer] = useState<{
     profileKey: string
-    quota: MachineQuotaWire[] | null
-    history: QuotaWindowHistoryWire[] | null
     capacityReadings: MachineCapacityReadings
     loadPerCore: number | null
     fetchedAt: number | null
-    failed: boolean
-    historyFailed: boolean
   }>(() => ({
     profileKey,
-    quota: cached?.quota ?? null,
-    history: cached?.history ?? null,
     capacityReadings: cached?.capacityReadings ?? {},
     loadPerCore: cached?.loadPerCore ?? null,
     fetchedAt: cached?.fetchedAt ?? null,
-    failed: false,
-    historyFailed: false,
   }))
   // A pull-to-refresh asks for ANOTHER READ, not for the poller to be rebuilt.
   // Routing it through the live loader keeps the 60s cadence intact — bumping a
@@ -133,16 +113,15 @@ export function usePulseFeed(pulse: PulseView | null): PulseFeed {
         void pulse?.refresh(
           () => Promise.resolve({ buckets: DEMO_USAGE_BUCKETS }),
           () => Promise.resolve([]),
+          () => Promise.resolve(DEMO_QUOTA),
         )
-        return
+        return () => pulse?.cancel()
       }
       let cancelled = false
       const capacityOwner = profileKey
       const updateCache = (patch: Partial<PulseCache>): PulseCache => {
         const prior = cacheByProfile.get(profileKey)
         const next: PulseCache = {
-          quota: prior?.quota ?? [],
-          history: prior?.history ?? [],
           capacityReadings: prior?.capacityReadings ?? {},
           loadPerCore: prior?.loadPerCore ?? null,
           fetchedAt: prior?.fetchedAt ?? Date.now(),
@@ -152,62 +131,27 @@ export function usePulseFeed(pulse: PulseView | null): PulseFeed {
         return next
       }
       const loadReadings = (): void => {
-        Promise.all([
-          trpc.quota.summary.query(),
-          pulse?.refresh(
-            () => trpc.usage.summary.query(),
-            () => trpc.cost.tasks.query(),
-          ),
-          // The threshold the load meter means anything against. Best-effort:
-          // without it the meter falls back to the documented default rather
-          // than disappearing.
-          trpc.settings.get.query().then(
-            (s) => (s.hibernation.enabled ? s.hibernation.loadPerCore : null),
-            () => null,
-          ),
-        ]).then(
-          ([quota, , loadPerCore]) => {
+        void pulse?.refresh(
+          () => trpc.usage.summary.query(),
+          () => trpc.cost.tasks.query(),
+          () => trpc.quota.summary.query(),
+        )
+        // This optional policy reading does not gate any Pulse telemetry.
+        void trpc.settings.get.query().then(
+          (settings) => {
             if (cancelled) return
             const cached = updateCache({
-              quota,
-              loadPerCore,
+              loadPerCore: settings.hibernation.enabled ? settings.hibernation.loadPerCore : null,
               fetchedAt: Date.now(),
             })
-            if (!cancelled) {
-              setAnswer((current) => ({
-                ...current,
-                profileKey,
-                quota: cached.quota,
-                loadPerCore: cached.loadPerCore,
-                fetchedAt: cached.fetchedAt,
-                failed: pulse?.error != null,
-              }))
-            }
+            setAnswer((current) => ({
+              ...current,
+              profileKey,
+              loadPerCore: cached.loadPerCore,
+              fetchedAt: cached.fetchedAt,
+            }))
           },
-          () => {
-            // Whatever is on screen stays; only its currency changed.
-            if (!cancelled) setAnswer((a) => ({ ...a, failed: true }))
-          },
-        )
-      }
-
-      const loadHistory = (): void => {
-        void trpc.quota.history.query({ days: 42 }).then(
-          (history) => {
-            if (cancelled) return
-            updateCache({ history })
-            if (!cancelled) {
-              setAnswer((current) => ({
-                ...current,
-                profileKey,
-                history,
-                historyFailed: false,
-              }))
-            }
-          },
-          () => {
-            if (!cancelled) setAnswer((current) => ({ ...current, historyFailed: true }))
-          },
+          () => {},
         )
       }
 
@@ -247,8 +191,6 @@ export function usePulseFeed(pulse: PulseView | null): PulseFeed {
               : {
                   ...current,
                   profileKey,
-                  quota: null,
-                  history: null,
                   capacityReadings: {},
                 }),
             capacityReadings: started,
@@ -299,7 +241,6 @@ export function usePulseFeed(pulse: PulseView | null): PulseFeed {
 
       const load = (forceCapacity = false): void => {
         loadReadings()
-        loadHistory()
         loadBreakdowns(forceCapacity)
       }
       capacityLoadRef.current = () => loadBreakdowns(false)
@@ -329,7 +270,6 @@ export function usePulseFeed(pulse: PulseView | null): PulseFeed {
     return {
       quota: DEMO_QUOTA,
       buckets: DEMO_USAGE_BUCKETS,
-      history: DEMO_QUOTA_HISTORY,
       machines: DEMO_MACHINES,
       capacityReadings: Object.fromEntries(
         Object.entries(DEMO_MEMORY_BREAKDOWNS).map(([machineId, value]) => [
@@ -340,8 +280,7 @@ export function usePulseFeed(pulse: PulseView | null): PulseFeed {
       loadPerCore: 1.5,
       nowMs: Date.now(),
       fetchedAt: Date.now(),
-      failed: false,
-      historyFailed: false,
+      quotaFailed: false,
       reload,
     }
   }
@@ -350,20 +289,20 @@ export function usePulseFeed(pulse: PulseView | null): PulseFeed {
     return {
       quota: null,
       buckets: null,
-      history: null,
       machines,
       capacityReadings: {},
       loadPerCore: null,
       nowMs: Date.now(),
       fetchedAt: null,
-      failed: false,
-      historyFailed: false,
+      quotaFailed: false,
       reload,
     }
   }
 
   return {
     ...answer,
+    quota: pulse?.quota.answer ?? null,
+    quotaFailed: pulse?.quota.error != null,
     buckets: pulse?.answer?.buckets ?? null,
     machines,
     nowMs: pulse?.answer?.nowMs ?? answer.fetchedAt ?? Date.now(),

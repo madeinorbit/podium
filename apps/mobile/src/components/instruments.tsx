@@ -106,6 +106,7 @@ export function HourTrace({
       {dayEvery && slots.length > dayEvery
         ? Array.from({ length: Math.floor((slots.length - 1) / dayEvery) }, (_, i) => (
             <View
+              // biome-ignore lint/suspicious/noArrayIndexKey: fixed calendar grid positions never reorder.
               key={`grid-${i + 1}`}
               style={[styles.gridline, { left: `${(((i + 1) * dayEvery) / slots.length) * 100}%` }]}
             />
@@ -254,7 +255,7 @@ const styles = StyleSheet.create({
     backgroundColor: color.tertiaryFill,
   },
   card: {
-    backgroundColor: color.card,
+    backgroundColor: color.groupedCard,
     borderRadius: CARD_RADIUS,
     overflow: 'hidden',
   },

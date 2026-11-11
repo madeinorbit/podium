@@ -6,11 +6,11 @@ import {
   type ProjectCostRow,
   type ProjectCostView,
   type QuotaRowView,
-  type TaskCostRowView,
   USAGE_PROVIDER_LABEL,
   type UsageModelShare,
   type UsageSummaryView,
   type visibleFleetOperations,
+  type WindowTaskCostRow,
 } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph/loading'
 import { isGone } from '@podium/client-graph/lookup'
@@ -58,13 +58,16 @@ export interface PulseBodyProps {
   verdict: QuotaVerdict | null
   /** Top projects; null until the task costs have answered. */
   projects: ProjectCostView | null
-  tasks: TaskCostRowView[]
+  tasks: WindowTaskCostRow[]
   tasksCold: boolean
   models: UsageModelShare[]
   fleet: Fleet
   cold: boolean
-  /** Cold AND the last read failed: nothing truthful to draw. */
+  /** Usage failure, independent of quota, costs and live machines. */
   failed: boolean
+  quotaCold?: boolean
+  quotaFailed?: boolean
+  tasksFailed?: boolean
   onRetry: () => void
   onOpenTask: (issueId: string) => void
   buildStamp: string
@@ -84,26 +87,12 @@ export const PulseBody = memo(function PulseBody(props: PulseBodyProps) {
   // Quota, projects, tasks and models have no five-hour reading; say which window they are.
   const weekNote = range === 'fiveHour' ? 'Last 7 days' : undefined
 
-  if (props.failed) {
-    return (
-      <View style={styles.page}>
-        <Card>
-          <View style={styles.message}>
-            <Text style={styles.messageText}>
-              Couldn’t reach the daemon for usage or quota. Pull down to try again.
-            </Text>
-            <Pressable accessibilityRole="button" onPress={props.onRetry} hitSlop={8}>
-              <Text style={styles.retry}>Try Again</Text>
-            </Pressable>
-          </View>
-        </Card>
-      </View>
-    )
-  }
-
   return (
     <View style={styles.page}>
       <Card>
+        {props.failed ? (
+          <ReadingFailure label="usage" stale={!cold} onRetry={props.onRetry} />
+        ) : null}
         <HeroBlock hero={hero} cold={cold} />
         <View style={styles.stats}>
           <Stat
@@ -140,14 +129,19 @@ export const PulseBody = memo(function PulseBody(props: PulseBodyProps) {
       )}
       {open('quota') ? (
         <Card>
+          {props.quotaFailed ? (
+            <ReadingFailure label="quota" stale={!props.quotaCold} onRetry={props.onRetry} />
+          ) : null}
           {props.quota.length === 0 ? (
-            <Message
-              text={
-                cold
-                  ? 'Reading quota…'
-                  : 'No machine is signed in to a provider that reports plan limits.'
-              }
-            />
+            props.quotaFailed ? null : (
+              <Message
+                text={
+                  (props.quotaCold ?? cold)
+                    ? 'Reading quota…'
+                    : 'No machine is signed in to a provider that reports plan limits.'
+                }
+              />
+            )
           ) : (
             props.quota.map((row, i) => <QuotaRow key={row.key} row={row} first={i === 0} />)
           )}
@@ -164,14 +158,19 @@ export const PulseBody = memo(function PulseBody(props: PulseBodyProps) {
       />
       {open('projects') ? (
         <Card>
+          {props.tasksFailed ? (
+            <ReadingFailure label="task costs" stale={!props.tasksCold} onRetry={props.onRetry} />
+          ) : null}
           {props.projects === null || props.projects.rows.length === 0 ? (
-            <Message
-              text={
-                props.projects === null
-                  ? 'Reading task costs…'
-                  : 'No task with a known project spent anything this week.'
-              }
-            />
+            props.tasksFailed ? null : (
+              <Message
+                text={
+                  props.projects === null
+                    ? 'Reading task costs…'
+                    : 'No task with a known project spent anything this week.'
+                }
+              />
+            )
           ) : (
             props.projects.rows.map((project, i) => (
               <ProjectRow
@@ -194,7 +193,13 @@ export const PulseBody = memo(function PulseBody(props: PulseBodyProps) {
         <Card>
           {props.tasks.length === 0 ? (
             <Message
-              text={props.tasksCold ? 'Reading task costs…' : 'No task spent anything this week.'}
+              text={
+                props.tasksCold
+                  ? props.tasksFailed
+                    ? 'Task costs unavailable.'
+                    : 'Reading task costs…'
+                  : 'No task spent anything this week.'
+              }
             />
           ) : (
             props.tasks.map((task, i) => (
@@ -221,7 +226,13 @@ export const PulseBody = memo(function PulseBody(props: PulseBodyProps) {
         <Card>
           {props.models.length === 0 ? (
             <Message
-              text={cold ? 'Reading usage…' : 'No harness transcripts in the last seven days.'}
+              text={
+                cold
+                  ? props.failed
+                    ? 'Usage unavailable.'
+                    : 'Reading usage…'
+                  : 'No harness transcripts in the last seven days.'
+              }
             />
           ) : (
             props.models.map((model, i) => (
@@ -295,6 +306,27 @@ const HeroBlock = memo(function HeroBlock({ hero, cold }: { hero: PulseHero; col
     </View>
   )
 })
+
+function ReadingFailure({
+  label,
+  stale,
+  onRetry,
+}: {
+  label: string
+  stale: boolean
+  onRetry: () => void
+}) {
+  return (
+    <View style={styles.message}>
+      <Text style={styles.messageText}>
+        {stale ? `Couldn’t refresh ${label}. Showing the last reading.` : `Couldn’t read ${label}.`}
+      </Text>
+      <Pressable accessibilityRole="button" onPress={onRetry} hitSlop={8}>
+        <Text style={styles.retry}>Try Again</Text>
+      </Pressable>
+    </View>
+  )
+}
 
 function Stat({ label, value, first = false }: { label: string; value: string; first?: boolean }) {
   return (

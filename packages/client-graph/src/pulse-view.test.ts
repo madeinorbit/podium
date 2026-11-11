@@ -1,5 +1,4 @@
 import type { TaskCostRowWire, UsageBucketWire } from '@podium/model'
-import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { MobxPool } from './pool'
 import { PulseView } from './pulse-view'
@@ -27,65 +26,57 @@ const buckets = [
 const tasks = [{ issueId: 'task' }] as TaskCostRowWire[]
 const open = () => new PulseView(new MobxPool({ selectedIssueId: null, coarseNow: 0 }))
 
-it('joins refreshes, reads costs after harvest, and publishes both atomically', async () => {
+it('joins refreshes and publishes usage before the dependent cost read settles', async () => {
   const view = open()
   const usage = deferred<{ buckets: UsageBucketWire[] }>()
   const costs = deferred<TaskCostRowWire[]>()
   const readUsage = vi.fn(() => usage.promise)
   const readCosts = vi.fn(() => costs.promise)
-  const seen: unknown[] = []
-  const stop = autorun(() => seen.push([view.answer?.buckets, view.costs.answer]))
   const first = view.refresh(readUsage, readCosts)
   expect(view.refresh(readUsage, readCosts)).toBe(first)
   expect(readUsage).toHaveBeenCalledTimes(1)
   expect(readCosts).not.toHaveBeenCalled()
   usage.resolve({ buckets })
-  await Promise.resolve()
+  await vi.waitFor(() => expect(readCosts).toHaveBeenCalledTimes(1))
   expect(readCosts).toHaveBeenCalledTimes(1)
-  expect(view.answer).toBeUndefined()
+  expect(view.answer?.buckets).toBe(buckets)
   costs.resolve(tasks)
   await first
-  expect(seen).toEqual([
-    [undefined, undefined],
-    [buckets, tasks],
-  ])
+  expect(view.costs.answer).toBe(tasks)
   await view.refresh(
     async () => ({ buckets: [] }),
     async () => [],
   )
   expect(view.answer?.buckets).toEqual([])
   expect(view.costs.answer).toEqual([])
-  stop()
   view.dispose()
 })
 
-it('keeps the last pair when a new cost read fails', async () => {
+it('keeps successful usage and the last cost answer when a new cost read fails', async () => {
   const view = open()
   await view.refresh(
     async () => ({ buckets }),
     async () => tasks,
   )
-  const before = view.answer
   await view.refresh(
     async () => ({ buckets: [] }),
     async () => {
       throw new Error('offline')
     },
   )
-  expect(view.answer).toBe(before)
+  expect(view.answer?.buckets).toEqual([])
   expect(view.costs.answer).toBe(tasks)
-  expect(view.error).toBe('offline')
+  expect(view.error).toBeNull()
+  expect(view.costs.error).toBe('offline')
   view.dispose()
 })
 
 it('fences both answers after blur while allowing a new focus to succeed', async () => {
   const view = open()
   const oldCosts = deferred<TaskCostRowWire[]>()
-  const old = view.refresh(
-    async () => ({ buckets }),
-    () => oldCosts.promise,
-  )
-  await Promise.resolve()
+  const readOldCosts = vi.fn(() => oldCosts.promise)
+  const old = view.refresh(async () => ({ buckets }), readOldCosts)
+  await vi.waitFor(() => expect(readOldCosts).toHaveBeenCalledTimes(1))
   view.cancel()
   await view.refresh(
     async () => ({ buckets: [] }),
@@ -112,6 +103,155 @@ it('keeps the loading calendar at the opening time until a harvest arrives', asy
     expect(view.summary.days.at(-1)?.hours[0]?.startMs).toBe(new Date(2026, 10, 12).getTime())
   } finally {
     view.dispose()
+    clock.mockRestore()
+  }
+})
+
+it('keeps quota and usage on a first cost failure, and clears only the recovered error', async () => {
+  const view = open()
+  await view.refresh(
+    async () => ({ buckets }),
+    async () => {
+      throw new Error('cost failed')
+    },
+    async () => [],
+  )
+  expect(view.answer?.buckets).toBe(buckets)
+  expect(view.quota.answer).toEqual([])
+  expect(view.quota.error).toBeNull()
+  expect(view.costs.answer).toBeUndefined()
+  expect(view.costs.error).toBe('cost failed')
+  expect(view.projects).toBeNull()
+  await view.refresh(
+    async () => ({ buckets }),
+    async () => [],
+    async () => {
+      throw new Error('quota failed')
+    },
+  )
+  expect(view.costs.error).toBeNull()
+  expect(view.costs.answer).toEqual([])
+  expect(view.quota.answer).toEqual([])
+  expect(view.quota.error).toBe('quota failed')
+  view.dispose()
+})
+
+it('reports first quota failure independently and still harvests usage and costs', async () => {
+  const view = open()
+  await view.refresh(
+    async () => ({ buckets }),
+    async () => tasks,
+    async () => {
+      throw new Error('quota failed')
+    },
+  )
+  expect(view.quota.answer).toBeUndefined()
+  expect(view.quota.error).toBe('quota failed')
+  expect(view.answer?.buckets).toBe(buckets)
+  expect(view.costs.answer).toBe(tasks)
+  expect(view.error).toBeNull()
+  view.dispose()
+})
+
+it('does not start costs after a failed harvest, while quota still succeeds', async () => {
+  const view = open()
+  const readCosts = vi.fn(async () => tasks)
+  await view.refresh(
+    async () => {
+      throw new Error('usage failed')
+    },
+    readCosts,
+    async () => [],
+  )
+  expect(view.error).toBe('usage failed')
+  expect(view.costs.error).toBe('usage failed')
+  expect(view.quota.answer).toEqual([])
+  expect(readCosts).not.toHaveBeenCalled()
+  view.dispose()
+})
+
+it('does not start costs after blur during usage; a new focus may read normally', async () => {
+  const view = open()
+  const oldUsage = deferred<{ buckets: UsageBucketWire[] }>()
+  const oldQuota = deferred<never[]>()
+  const readCosts = vi.fn(async () => tasks)
+  const old = view.refresh(
+    () => oldUsage.promise,
+    readCosts,
+    () => oldQuota.promise,
+  )
+  view.cancel()
+  await view.refresh(
+    async () => ({ buckets: [] }),
+    async () => [],
+    async () => {
+      throw new Error('new quota')
+    },
+  )
+  oldUsage.resolve({ buckets })
+  oldQuota.resolve([])
+  await old
+  expect(readCosts).not.toHaveBeenCalled()
+  expect(view.answer?.buckets).toEqual([])
+  expect(view.costs.answer).toEqual([])
+  expect(view.quota.answer).toBeUndefined()
+  expect(view.quota.error).toBe('new quota')
+  view.dispose()
+})
+
+it('holds attribution against the matched harvest while newer usage succeeds alone', async () => {
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-11T12:00:00Z'))
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+  pool.apply({
+    type: 'update',
+    rows: [
+      {
+        kind: 'issue',
+        id: 'task',
+        value: {
+          id: 'task',
+          seq: 1,
+          title: 'Task',
+          stage: 'in_progress',
+          repoName: 'project',
+          repoPath: '/project',
+          createdAt: '2026-11-01T00:00:00Z',
+          updatedAt: '2026-11-01T00:00:00Z',
+        } as never,
+      },
+    ],
+  })
+  const view = new PulseView(pool)
+  const costs = [
+    { issueId: 'task', windowModels: [{ ...buckets[0], inputTokens: 10 }] },
+  ] as TaskCostRowWire[]
+  try {
+    await view.refresh(
+      async () => ({ buckets }),
+      async () => costs,
+    )
+    expect(view.projects?.attributedPercent).toBeCloseTo(50)
+    const total = view.projects?.windowTotalUsd
+    const pendingCosts = deferred<TaskCostRowWire[]>()
+    const pending = view.refresh(
+      async () => ({ buckets: buckets.map((bucket) => ({ ...bucket, inputTokens: 40 })) }),
+      () => pendingCosts.promise,
+    )
+    await vi.waitFor(() => expect(view.summary.week.estCostUsd).toBeCloseTo((total ?? 0) * 2))
+    expect(view.projects?.attributedPercent).toBeCloseTo(50)
+    pendingCosts.reject(new Error('cost failed'))
+    await pending
+    expect(view.projects?.windowTotalUsd).toBe(total)
+    expect(view.projects?.attributedPercent).toBeCloseTo(50)
+    // Positive control: the next successful pair must advance the denominator.
+    await view.refresh(
+      async () => ({ buckets: buckets.map((bucket) => ({ ...bucket, inputTokens: 40 })) }),
+      async () => costs,
+    )
+    expect(view.projects?.attributedPercent).toBeCloseTo(25)
+  } finally {
+    view.dispose()
+    pool.dispose()
     clock.mockRestore()
   }
 })

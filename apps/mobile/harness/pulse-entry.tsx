@@ -45,7 +45,10 @@ import { color, sans, space } from '../src/theme/theme'
 
 const params = new URLSearchParams(window.location.search)
 const range = (params.get('range') as PulseRange | null) ?? 'week'
-const cold = params.get('state') === 'cold'
+const usageFailed = params.get('state') === 'usage-failed'
+const quotaFailed = params.get('state') === 'quota-failed'
+const costsFailed = params.get('state') === 'costs-failed'
+const cold = params.get('state') === 'cold' || usageFailed
 const outState = params.get('state') === 'out'
 const nowMs = Date.now()
 
@@ -154,16 +157,22 @@ function Harness() {
         <Text style={styles.title}>Pulse</Text>
         <Text style={styles.cap}>{rangeShort(range)} ⌄</Text>
       </View>
-      <Text style={styles.subtitle}>{pulseSubtitle(pulseHero(summary, range), range, cold)}</Text>
+      <Text style={styles.subtitle}>
+        {usageFailed ? 'No reading' : pulseSubtitle(pulseHero(summary, range), range, cold)}
+      </Text>
       <View style={styles.content}>
         <PulseBody
           pool={pool}
           range={range}
           hero={pulseHero(summary, range)}
           summary={summary}
-          quota={cold ? [] : gatingQuotaRows(groupQuotaByAccount(quota), nowMs)}
+          quota={
+            (cold && !usageFailed) || quotaFailed
+              ? []
+              : gatingQuotaRows(groupQuotaByAccount(quota), nowMs)
+          }
           verdict={
-            cold
+            (cold && !usageFailed) || quotaFailed
               ? null
               : quotaVerdict(
                   capacityView({
@@ -174,9 +183,13 @@ function Harness() {
                   }),
                 )
           }
-          projects={cold ? null : projectCostRows(taskRows, projectOf, summary.week.estCostUsd)}
-          tasks={cold ? [] : topWindowTasks(taskCostRows(taskRows).rows)}
-          tasksCold={cold}
+          projects={
+            cold || costsFailed
+              ? null
+              : projectCostRows(taskRows, projectOf, summary.week.estCostUsd)
+          }
+          tasks={cold || costsFailed ? [] : topWindowTasks(taskCostRows(taskRows).rows)}
+          tasksCold={cold || costsFailed}
           models={modelShares(summary, 6)}
           fleet={visibleFleetOperations({
             machines: DEMO_MACHINES,
@@ -186,7 +199,10 @@ function Harness() {
             nowMs,
           })}
           cold={cold}
-          failed={false}
+          failed={usageFailed}
+          quotaCold={(cold && !usageFailed) || quotaFailed}
+          quotaFailed={quotaFailed}
+          tasksFailed={costsFailed || usageFailed}
           onRetry={() => {}}
           onOpenTask={() => {}}
           buildStamp={'demo.server · harness\nphone 0.3 · server 0.3'}
@@ -197,7 +213,7 @@ function Harness() {
 }
 
 const styles = StyleSheet.create({
-  phone: { width: 402, backgroundColor: color.bg, paddingTop: 62, paddingBottom: 48 },
+  phone: { width: 402, backgroundColor: color.groupedBg, paddingTop: 62, paddingBottom: 48 },
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',

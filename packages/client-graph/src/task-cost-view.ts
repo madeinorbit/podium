@@ -4,12 +4,13 @@ import {
   type TaskCostRowView,
   taskCostRows,
   topWindowTasks,
+  windowTaskCosts,
 } from '@podium/client-core/values'
 import { lazy } from '@podium/mobx-helpers'
 import type { TaskCostRowWire } from '@podium/model'
 import { machinePathKey } from '@podium/model/browser'
-import { action } from 'mobx'
-import { here } from './lookup'
+import { action, compareShallow } from 'mobx'
+import { here, isGone } from './lookup'
 import type { MobxPool } from './pool'
 import { RequestAnswer } from './request-answer'
 
@@ -48,14 +49,28 @@ export class TaskCostView extends RequestAnswer<readonly TaskCostRowWire[]> {
     return this.priced?.cohort ?? null
   }
 
-  /** The window's five dearest tasks by their own cost. */
-  @lazy get topTasks(): TaskCostRowView[] | null {
-    return this.rows ? topWindowTasks(this.rows) : null
+  /** Loading candidates keep their place until the pool resolves visibility.
+   * Gone candidates cannot displace a visible task or contribute project spend. */
+  @lazy({ equals: compareShallow }) get visibleCandidates() {
+    return (
+      this.answer?.filter(
+        (row) => !isGone(this.pool.row('issue', row.issueId, 'summary-fields')),
+      ) ?? null
+    )
+  }
+
+  /** Price only the window folds; the all-time sheet cohort remains on demand. */
+  @lazy({ equals: compareShallow }) get windowRows() {
+    return this.visibleCandidates ? windowTaskCosts(this.visibleCandidates) : null
+  }
+
+  @lazy({ equals: compareShallow }) get topTasks() {
+    return this.windowRows ? topWindowTasks(this.windowRows) : null
   }
 
   /** Window spend grouped by project; read against a total with `projectCostShares`. */
   @lazy get projectGroups() {
-    const answer = this.answer
+    const answer = this.visibleCandidates
     return answer ? projectCostGroups(answer, (issueId) => this.projectOf(issueId)) : null
   }
 

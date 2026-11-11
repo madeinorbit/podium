@@ -564,12 +564,22 @@ export function projectCostShares(
   }
 }
 
+/** The fields a window-only ranking needs, without all-time cohort pricing. */
+export type WindowTaskCostRow = Pick<TaskCostRowView, 'issueId' | 'windowCostUsd'>
+
+export function windowTaskCosts(rows: readonly TaskCostRowWire[]): WindowTaskCostRow[] {
+  return rows.map((row) => ({
+    issueId: row.issueId,
+    windowCostUsd: row.windowModels.reduce((sum, model) => sum + modelTotalCostUsd(model), 0),
+  }))
+}
+
 /**
  * The window's dearest tasks: priced rows ranked by each task's OWN cost
  * inside the harvest window (`windowCostUsd`), so a parent and its children
  * are never counted twice. Tasks with no spend in the window are left out.
  */
-export function topWindowTasks(rows: readonly TaskCostRowView[], limit = 5): TaskCostRowView[] {
+export function topWindowTasks<T extends WindowTaskCostRow>(rows: readonly T[], limit = 5): T[] {
   return rows
     .filter((row) => row.windowCostUsd > 0)
     .sort((a, b) => b.windowCostUsd - a.windowCostUsd)
