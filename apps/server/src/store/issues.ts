@@ -1676,9 +1676,9 @@ export class IssuesRepository {
           opts?.reassign ? `${REASSIGN_SHAPE_PREFIX}${shapeOf(values)}` : shapeOf(values),
         ).all(values),
       'upsert',
-      current && (current.repoId !== row.repoId || current.repoPath !== row.repoPath)
-        ? [row.id]
-        : [],
+      // An existing issue's full-row write carries the birth-ref inputs too.
+      // Name its dependents conservatively; unchanged records append nothing.
+      current ? [row.id] : [],
     )
     // On a skipped upsert, the draft returned to the caller carries the same
     // revision as the stored row.
