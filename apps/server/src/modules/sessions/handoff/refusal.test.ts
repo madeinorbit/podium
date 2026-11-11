@@ -10,7 +10,7 @@
  */
 
 import type { MachineId } from '@podium/model'
-import { asMachineId, asSessionId, asUserId, firstAdminMemberId, type UserId } from '@podium/model'
+import { asMachineId, asSessionId, asUserId, type UserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { CommandPrincipal } from '../../../command-principal'
 import type { MachineOwnershipIndex, MachineOwnershipRow } from '../../../machine-access'
@@ -18,11 +18,13 @@ import { machineUseGateFor } from './access'
 import { HandoffRefusalError, handoffRefusalOf, refusalForMachineAccess } from './refusal'
 
 const COLLEAGUE: UserId = asUserId('colleague')
+const CALLER: UserId = asUserId('caller')
 
 const user = (id: UserId): CommandPrincipal => ({
   kind: 'user',
   user: id,
-  capability: { role: 'admin', scope: { kind: 'all' } },
+  // An administrator may inspect the fleet; these refusals exercise a regular member.
+  capability: { role: 'member', scope: { kind: 'all' } },
 })
 
 /**
@@ -35,7 +37,7 @@ const user = (id: UserId): CommandPrincipal => ({
 const ownership: MachineOwnershipIndex = {
   rowFor: (machineId): MachineOwnershipRow | undefined => {
     const rows: Record<string, MachineOwnershipRow> = {
-      mine: { machine: 'mine' as MachineId, owner: firstAdminMemberId(), grants: [{ subject: firstAdminMemberId(), verb: 'use' }, { subject: firstAdminMemberId(), verb: 'manage', custody: true }] },
+      mine: { machine: 'mine' as MachineId, owner: CALLER, grants: [{ subject: CALLER, verb: 'use' }, { subject: CALLER, verb: 'manage', custody: true }] },
       theirs: {
         machine: 'theirs' as MachineId,
         owner: COLLEAGUE,
@@ -45,7 +47,7 @@ const ownership: MachineOwnershipIndex = {
       shared: {
         machine: 'shared' as MachineId,
         owner: COLLEAGUE,
-        grants: [{ subject: COLLEAGUE, verb: 'use' }, { subject: COLLEAGUE, verb: 'manage', custody: true }, { subject: firstAdminMemberId(), verb: 'see' }],
+        grants: [{ subject: COLLEAGUE, verb: 'use' }, { subject: COLLEAGUE, verb: 'manage', custody: true }, { subject: CALLER, verb: 'see' }],
         name: 'shared-box',
       },
     }
@@ -53,7 +55,7 @@ const ownership: MachineOwnershipIndex = {
   },
 }
 
-const gate = machineUseGateFor({ principal: user(firstAdminMemberId()), ownership })
+const gate = machineUseGateFor({ principal: user(CALLER), ownership })
 
 const refusalFor = (machineId: string): { reason: unknown; message: string } => {
   try {
