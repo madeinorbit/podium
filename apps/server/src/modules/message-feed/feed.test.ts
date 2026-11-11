@@ -616,8 +616,6 @@ describe('the chat message feed', () => {
     await confirm(store, 'msg_live')
     await confirm(store, 'msg_gone', S2)
     await store.messages.addMessage(fixtureWriteScope(), chat('msg_open', { toId: S2 }))
-    // Simulate an archive made by a release predating the transactional hook.
-    store.sessions.setMessageWindowWrite(async (_, write) => await write())
     await store.sessions.upsertSession(fixtureWriteScope(), {
       ...(await rowOf(store, S2)),
       archived: true,

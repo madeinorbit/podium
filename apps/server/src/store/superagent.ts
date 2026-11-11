@@ -245,7 +245,7 @@ const syncTurnRunning = prepared((db: StoreDrizzle) =>
       inArray(
         superagentThreads.id,
         db
-          .select({ id: superagentThreads.id })
+          .select({ id: sql<ThreadId>`${superagentThreads.id}` })
           // A sparse running set remains bounded even under statistics from a
           // tiny database. Recover no archived history just to rediscover false.
           .from(sql`${superagentThreads} INDEXED BY idx_superagent_threads_running`)

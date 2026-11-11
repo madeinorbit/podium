@@ -112,7 +112,7 @@ describe('the upgrade without boot reconcile', () => {
       expect(
         db
           .prepare(
-            "SELECT id, owner_user_id FROM superagent_threads WHERE kind = 'global' ORDER BY id",
+            "SELECT id, owner_user_id FROM superagent_threads WHERE kind = 'global' AND owner_user_id IN ('owner', 'member') ORDER BY id",
           )
           .all(),
       ).toEqual([

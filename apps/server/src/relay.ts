@@ -1281,6 +1281,9 @@ export class SessionRegistry {
     this.store.superagent.setThreadFeedCapture(
       makeThreadFeedCapture(writes.system('feed.superagentThreads')),
     )
+    this.store.users.setMemberCreated(async (userId) =>
+      await asSystemWrite(async () => await this.store.superagent.seedMemberGlobalThread(userId)),
+    )
     // ONE HOOK ON THE SETTINGS BLOB WRITE (POD-6677): every write of
     // `meta['settings']` publishes the instance settings record to every member
     // inside its own transaction, whoever made it.

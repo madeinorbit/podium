@@ -135,7 +135,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     }
   })
 
-  it('boot reconciles every user and retains stored git observations after restart', async () => {
+  it('loads personal rows and stored git observations without a boot log seed', async () => {
     const { svc, store, ledger } = await harness()
     try {
       const issue = await svc.crud.create(svc.reports.store.serverWriter, {
@@ -161,19 +161,12 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
         ((await ledger.changesSince(cursor)) ?? []).find((c) => c.entity === 'issueGitState'),
       ).toBeUndefined()
       expect(await svc.reports.store.gitState(issue.id)).toMatchObject({ ahead: 2, dirtyFiles: 0 })
-      const personal = ((await ledger.changesSince(0)) ?? []).filter(
-        (c) => c.entity === 'issueUserState',
-      )
-      expect(personal).toContainEqual(
-        expect.objectContaining({
-          id: issueUserStateRowId(other, issue.id),
-          value: expect.objectContaining({
-            userId: other,
-            entityId: issue.id,
-            tuckedAt: '2026-07-02',
-          }),
-        }),
-      )
+      const personal = await ledger.authority.snapshot('issueUserState')
+      expect(personal).toContainEqual(expect.objectContaining({
+        userId: other,
+        entityId: issue.id,
+        tuckedAt: '2026-07-02',
+      }))
     } finally {
       await store.close()
     }
@@ -501,6 +494,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       startNow: false,
     })
     const cursorBefore = await ledger.cursor()
+    const snapshotBefore = await ledger.authority.snapshot('issueProjection')
     const spy = vi.spyOn(store.sync, 'appendChanges').mockImplementationOnce(() => {
       throw new Error('append failed')
     })
@@ -519,11 +513,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     expect(await ledger.cursor()).toBe(cursorBefore)
     // A subsequent full-list reconcile appends NOTHING — no fabricated upsert
     // for a row the store never accepted.
-    const reconciled = await testLedgerWriter(ledger).reconcile(
-      'issueProjection',
-      (await svc.reports.store.allProjections()) ?? [],
-    )
-    expect(reconciled).toEqual([])
+    expect(await ledger.authority.snapshot('issueProjection')).toEqual(snapshotBefore)
     expect(await ledger.cursor()).toBe(cursorBefore)
   })
 
@@ -535,6 +525,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       startNow: false,
     })
     const cursorBefore = await ledger.cursor()
+    const snapshotBefore = await ledger.authority.snapshot('issueProjection')
     setNow('2026-07-01T00:01:00.000Z') // a later stamp must roll back too
     const spy = vi.spyOn(store.sync, 'appendChanges').mockImplementationOnce(() => {
       throw new Error('append failed')
@@ -552,11 +543,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     expect(await ledger.cursor()).toBe(cursorBefore)
     // A follow-up full-list reconcile appends NOTHING — the phantom title is
     // gone from memory, so nothing fabricates a durable upsert for it.
-    const reconciled = await testLedgerWriter(ledger).reconcile(
-      'issueProjection',
-      (await svc.reports.store.allProjections()) ?? [],
-    )
-    expect(reconciled).toEqual([])
+    expect(await ledger.authority.snapshot('issueProjection')).toEqual(snapshotBefore)
     expect(await ledger.cursor()).toBe(cursorBefore)
     // A successful retry then works end to end.
     const retried = await svc.crud.update(svc.reports.store.serverWriter, wire.id, {
@@ -585,6 +572,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     })
     const updatedAtBefore = (await svc.reports.get(wire.id))?.updatedAt
     const cursorBefore = await ledger.cursor()
+    const snapshotBefore = await ledger.authority.snapshot('issueProjection')
     setNow('2026-07-01T00:01:00.000Z')
     const spy = vi.spyOn(store.sync, 'appendChanges').mockImplementationOnce(() => {
       throw new Error('append failed')
@@ -597,11 +585,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     // stamp was restored — a reconcile sees byte-identical wire truth.
     expect(await store.issues.getIssueLabels(wire.id)).toEqual([])
     expect((await svc.reports.get(wire.id))?.updatedAt).toBe(updatedAtBefore)
-    const reconciled = await testLedgerWriter(ledger).reconcile(
-      'issueProjection',
-      (await svc.reports.store.allProjections()) ?? [],
-    )
-    expect(reconciled).toEqual([])
+    expect(await ledger.authority.snapshot('issueProjection')).toEqual(snapshotBefore)
     expect(await ledger.cursor()).toBe(cursorBefore)
   })
 
@@ -613,6 +597,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       startNow: false,
     })
     const cursorBefore = await ledger.cursor()
+    const snapshotBefore = await ledger.authority.snapshot('issueProjection')
     const spy = vi.spyOn(store.sync, 'appendChanges').mockImplementationOnce(() => {
       throw new Error('append failed')
     })
@@ -624,14 +609,10 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     expect((await store.issues.listIssueRows()).some((r) => r.id === wire.id)).toBe(true)
     expect(await ledger.cursor()).toBe(cursorBefore)
     // A subsequent reconcile of the (unchanged) truth appends nothing.
-    const reconciled = await testLedgerWriter(ledger).reconcile(
-      'issueProjection',
-      (await svc.reports.store.allProjections()) ?? [],
-    )
-    expect(reconciled).toEqual([])
+    expect(await ledger.authority.snapshot('issueProjection')).toEqual(snapshotBefore)
   })
 
-  it('boot reconcile records rows changed while the server was down, without fan-out', async () => {
+  it('bootstrap reads migrated rows without rewriting the log', async () => {
     const { store, svc } = await harness()
     const wire = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
@@ -786,7 +767,7 @@ describe('per-entity revision (ADR 2 D3)', () => {
 
   // ---- The dedup interaction (the one that could quietly break either half) ----
 
-  it('does NOT burn on a write-less reconcile — the dedup keeps working', async () => {
+  it('reading the current model does not change its revision or append to the log', async () => {
     // The byte-equality baseline exists to stop no-op churn, and a revision that
     // moved on every republish would defeat it AND lie about writes that never
     // happened. Reconcile is the write-less path (full-list rebroadcast on
@@ -803,14 +784,8 @@ describe('per-entity revision (ADR 2 D3)', () => {
     const cursorBefore = await ledger.cursor()
 
     // Two republishes of unchanged truth.
-    await testLedgerWriter(ledger).reconcile(
-      'issueProjection',
-      (await svc.reports.store.allProjections()) ?? [],
-    )
-    await testLedgerWriter(ledger).reconcile(
-      'issueProjection',
-      (await svc.reports.store.allProjections()) ?? [],
-    )
+    await ledger.authority.snapshot('issueProjection')
+    await ledger.authority.snapshot('issueProjection')
 
     expect(appended.flat()).toEqual([]) // fully deduped
     expect(await ledger.cursor()).toBe(cursorBefore) // nothing appended
