@@ -1,4 +1,5 @@
 import { HARNESS_VERSION_POLICIES } from '@podium/harness/browser'
+import { DEFAULT_FLEET_UPDATE_CHANNEL } from '@podium/model'
 import { DEFAULT_SETTINGS } from '@podium/runtime'
 import type { SyncRepository } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -7,6 +8,7 @@ import { EFFECT_PUBLISHED_INPUT } from '../modules/effects/published-input'
 const mockedModules = [
   '@podium/harness/browser',
   '@podium/protocol',
+  '@podium/model',
   '@podium/runtime',
   '../harness-manifest',
   '../modules/effects/published-input',
@@ -28,6 +30,7 @@ async function tokens(
     handoff?: boolean
     driverFamily?: 'server' | 'terminal'
     settings?: unknown
+    fleetChannel?: string
     eventWindow?: number
     confirmedPerSession?: number
     generations?: { kind: string; generation: number }[]
@@ -45,6 +48,10 @@ async function tokens(
   vi.doMock('@podium/runtime', async (original) => ({
     ...(await original<typeof import('@podium/runtime')>()),
     DEFAULT_SETTINGS: options.settings ?? DEFAULT_SETTINGS,
+  }))
+  vi.doMock('@podium/model', async (original) => ({
+    ...(await original<typeof import('@podium/model')>()),
+    DEFAULT_FLEET_UPDATE_CHANNEL: options.fleetChannel ?? DEFAULT_FLEET_UPDATE_CHANNEL,
   }))
   vi.doMock('../harness-manifest', async (original) => {
     const actual = await original<typeof import('../harness-manifest')>()
@@ -86,6 +93,10 @@ function changedKinds(before: Record<string, string>, after: Record<string, stri
 }
 
 describe('record kind code inputs', () => {
+  it('changes only machine when the fleet channel default changes', async () => {
+    expect(changedKinds(await tokens(), await tokens({ fleetChannel: 'dev' }))).toEqual(['machine'])
+  })
+
   it('changes only machineAccess when the harness verification policy changes', async () => {
     const before = await tokens()
     const after = await tokens({

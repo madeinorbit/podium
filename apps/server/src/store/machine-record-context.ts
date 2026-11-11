@@ -1,4 +1,4 @@
-import { UpdateChannel } from '@podium/model'
+import { DEFAULT_FLEET_UPDATE_CHANNEL, UpdateChannel } from '@podium/model'
 import { eq, inArray, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { meta } from '../migrations/schema'
@@ -58,7 +58,9 @@ export class MachineRecordContextRepository {
   ): Promise<{ result: T; changed: boolean }> {
     const selected = UpdateChannel.parse(channel)
     return await this.queries.createOrJoinTransaction(async () => {
-      const current = UpdateChannel.parse((await channelRow(this.db).get())?.value ?? 'stable')
+      const current = UpdateChannel.parse(
+        (await channelRow(this.db).get())?.value ?? DEFAULT_FLEET_UPDATE_CHANNEL,
+      )
       if (current === selected) return { result: await write(), changed: false }
       return await this.records.compare({ display: this.machineIds }, async () => {
         const result = await write()
@@ -79,7 +81,9 @@ export class MachineRecordContextRepository {
     targets: ReadonlyMap<UpdateChannel, { version: string }>
   }> {
     const rows = new Map((await contextRows(this.db).all()).map(({ key, value }) => [key, value]))
-    const fleetChannel = UpdateChannel.parse(rows.get(FLEET_CHANNEL) ?? 'stable')
+    const fleetChannel = UpdateChannel.parse(
+      rows.get(FLEET_CHANNEL) ?? DEFAULT_FLEET_UPDATE_CHANNEL,
+    )
     const targets = new Map<UpdateChannel, { version: string }>()
     const bytes = rows.get(UPDATE_EXECUTION)
     if (bytes) {
