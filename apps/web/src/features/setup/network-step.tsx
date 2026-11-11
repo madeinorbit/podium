@@ -1,5 +1,11 @@
-import { CHECK_ERROR_SENTENCES, type CheckResult } from '@podium/runtime/connect-check'
+import {
+  CHECK_ERROR_SENTENCES,
+  type CheckResult,
+  isCheckUnavailable,
+  normalizeCheckResult,
+} from '@podium/runtime/connect-check'
 import { type ReactNode, useCallback, useEffect, useState } from 'react'
+import { toast } from 'sonner'
 import { serverConfig, type Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -61,6 +67,7 @@ export function reachabilityHintFor(verdict: CheckResult | undefined): string | 
   if ((verdict as CheckResult).ok) return null
   const code = String((verdict as { error?: unknown }).error ?? 'UNKNOWN')
   if (code === 'CONNECT_UNAVAILABLE') return null
+  if (code === 'PORT_UNSUPPORTED') return CHECK_ERROR_SENTENCES.PORT_UNSUPPORTED
   const sentence =
     (CHECK_ERROR_SENTENCES as Partial<Record<string, string>>)[code] ??
     `The outside probe reported a problem it described as ${code}.`
@@ -224,7 +231,7 @@ function NetworkStepForm({
   // 'checking' while the cloud is asked, 'failed' holding the hint the operator
   // may overrule. Never an error: a failed probe blocks nothing.
   const [reach, setReach] = useState<
-    { status: 'checking' } | { status: 'failed'; message: string } | null
+    { status: 'checking' } | { status: 'failed' | 'unavailable'; message: string } | null
   >(null)
   const hasPassword = initial.hasPassword
   // Ephemeral quick-tunnel flag for the pasted URL (mirrors the CLI's warning).
@@ -303,24 +310,29 @@ function NetworkStepForm({
       // opinion" and commit exactly as the screen did before the probe existed.
       // `force` is the "Use this URL anyway" override: it commits the SAME payload
       // without asking again. There is no flag, config, or strict mode that blocks.
+      let checkNotice: string | null = null
       if (!force && url.trim()) {
         setBusy(true)
         setReach({ status: 'checking' })
         let verdict: CheckResult | undefined
         try {
-          verdict = await trpc.connect.check.query({ url: url.trim() })
+          verdict = normalizeCheckResult(
+            url.trim(),
+            await trpc.connect.check.query({ url: url.trim() }),
+          )
         } catch {
           verdict = undefined
         }
         onChecked?.({ url: url.trim(), checkedAt: new Date().toISOString(), verdict })
         const hint = reachabilityHintFor(verdict)
-        if (hint !== null) {
+        if (hint !== null && !isCheckUnavailable(verdict)) {
           // Failed probe, override NOT taken: commit nothing, stay on the URL field.
           setReach({ status: 'failed', message: hint })
           setBusy(false)
           return
         }
-        setReach(null)
+        checkNotice = hint
+        setReach(hint === null ? null : { status: 'unavailable', message: hint })
         // Fall through to the commit below with `busy` still true.
       } else {
         setBusy(true)
@@ -344,6 +356,7 @@ function NetworkStepForm({
           }).catch(() => {})
         }
         setSaved(true)
+        if (checkNotice) toast.info(checkNotice)
         onSaved()
       } catch (e) {
         setErr(e instanceof Error ? e.message : String(e))
@@ -479,6 +492,11 @@ function NetworkStepForm({
         {reach?.status === 'checking' && (
           <p role="status" className="text-[12px] text-muted-foreground">
             Checking that this URL is reachable from the outside…
+          </p>
+        )}
+        {reach?.status === 'unavailable' && (
+          <p role="status" className="text-[12px] text-muted-foreground">
+            {reach.message}
           </p>
         )}
         {reach?.status === 'failed' && (

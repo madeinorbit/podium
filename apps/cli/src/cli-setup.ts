@@ -10,7 +10,11 @@ import {
   stateDir,
   withConfigWriteLock,
 } from '@podium/runtime/config'
-import { CHECK_ERROR_SENTENCES, type CheckResult } from '@podium/runtime/connect-check'
+import {
+  CHECK_ERROR_SENTENCES,
+  type CheckResult,
+  normalizeCheckResult,
+} from '@podium/runtime/connect-check'
 import { clearConnectivity, readLiveConnectivity } from '@podium/runtime/connectivity'
 import { decodeJoin } from '@podium/runtime/join'
 import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
@@ -814,7 +818,12 @@ async function verifyReachable(
     }
     spin.error(`${url} did not answer from this machine through ${via}.`)
   } else {
-    const verdict = await checks.outside(url)
+    const outside = await checks.outside(url)
+    const verdict = outside === undefined ? undefined : normalizeCheckResult(url, outside)
+    if (verdict && !verdict.ok && verdict.error === 'PORT_UNSUPPORTED') {
+      io.warn(CHECK_ERROR_SENTENCES.PORT_UNSUPPORTED)
+      return 'ok'
+    }
     if (verdict === undefined || (!verdict.ok && verdict.error === 'CONNECT_UNAVAILABLE')) {
       // No outside opinion (Connect off or out of reach): this machine asks instead. That
       // still proves the name, the certificate and the proxy, which is what a typo breaks.

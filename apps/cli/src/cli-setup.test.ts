@@ -904,6 +904,7 @@ describe('runCliSetup', () => {
         'UNREACHABLE',
         'NOT_PODIUM',
         'IDENTITY_MISMATCH',
+        'PORT_UNSUPPORTED',
         'CONNECT_UNAVAILABLE',
       ]
       // Total: the map covers the union exactly, so adding a code fails here (and at

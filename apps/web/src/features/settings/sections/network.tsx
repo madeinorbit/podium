@@ -1,4 +1,5 @@
 import { observer } from '@podium/client-graph/react'
+import { isCheckUnavailable, normalizeCheckResult } from '@podium/runtime/connect-check'
 import { type JSX, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -45,7 +46,7 @@ export const NetworkSection = observer(function NetworkSection({
     const url = info.publicUrl
     setChecking(true)
     try {
-      const verdict = await trpc.connect.check.query({ url })
+      const verdict = normalizeCheckResult(url, await trpc.connect.check.query({ url }))
       setLastCheck({ url, checkedAt: new Date().toISOString(), verdict })
     } catch {
       setLastCheck({ url, checkedAt: new Date().toISOString(), verdict: undefined })
@@ -58,7 +59,7 @@ export const NetworkSection = observer(function NetworkSection({
   const checkLabel = currentCheck
     ? currentCheck.verdict?.ok
       ? `Reachable · Checked ${checked}`
-      : currentCheck.verdict === undefined || currentCheck.verdict.error === 'CONNECT_UNAVAILABLE'
+      : isCheckUnavailable(currentCheck.verdict)
         ? `Check unavailable · Attempted ${checked}`
         : `Not reachable from outside · Checked ${checked}`
     : 'Not checked yet'
