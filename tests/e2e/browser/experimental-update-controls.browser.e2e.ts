@@ -10,7 +10,7 @@ import { RELAY } from './_harness'
  * state — the fleet-default selector on Updates is present with the flag off,
  * grows a Development option with it on, and the per-machine selector on
  * Updates appears and disappears with the same flag while the machine's
- * resolved source stays readable either way.
+ * version stays readable either way.
  */
 test.skip(({ isMobile }) => isMobile, 'desktop test (settings nav is desktop-oriented)')
 
@@ -74,9 +74,15 @@ test('the update controls follow the Podium-development flag', async ({ page }) 
   await openMachineUpdates(page)
   const controls = page.locator('[data-machine-update-controls]').first()
   await expect(controls.getByLabel(/^Update channel for /)).toHaveCount(0)
-  // Hidden control, but never a hidden ANSWER — the machine still says where it is.
-  await expect(controls.locator('[data-machine-update-source]')).toBeVisible()
-  await expect(controls.getByText(/Target /)).toBeVisible()
+  const version = page
+    .getByTestId(/^update-machine-/)
+    .filter({ has: page.locator('[data-machine-update-controls]') })
+    .first()
+    .locator('.font-mono')
+    .first()
+  await expect(version).toBeVisible()
+  const machineVersion = (await version.innerText()).split(' → ')[0]!.trim()
+  expect(machineVersion).not.toBe('')
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/machines-flag-off.png`, fullPage: true })
 
   // ---- flag ON: Development offered, per-machine selector back ----
@@ -92,6 +98,7 @@ test('the update controls follow the Podium-development flag', async ({ page }) 
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/updates-flag-on.png`, fullPage: true })
 
   await openMachineUpdates(page)
+  await expect(version).toContainText(machineVersion)
   const selector = page
     .locator('[data-machine-update-controls]')
     .first()

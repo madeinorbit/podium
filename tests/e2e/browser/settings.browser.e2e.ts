@@ -94,6 +94,13 @@ async function openShell(page: Page): Promise<void> {
   await page.locator('aside').first().waitFor({ state: 'visible', timeout: 15_000 })
 }
 
+async function openAgents(page: Page) {
+  await page.getByRole('banner').getByRole('button', { name: 'Settings', exact: true }).click()
+  const settings = page.getByRole('dialog', { name: 'Settings' })
+  await settings.getByRole('button', { name: 'Agents', exact: true }).click()
+  return settings
+}
+
 function backgroundWorkSection(page: Page) {
   return page
     .getByRole('dialog', { name: 'Settings' })
@@ -147,16 +154,9 @@ test('native account profile labels render when available', async ({ page }) => 
   await settings.getByRole('button', { name: 'AI accounts', exact: true }).click()
 
   const section = accountsSection(page)
-  // The address renders twice: the outer pill and the inner identity span.
-  // Assert on the inner span itself, so a wrapping regression (nowrap) fails
-  // the overflow assertion on the element that actually wraps.
-  const value = section.locator('span').filter({ hasText: E2E_LONG_IDENTITY_EMAIL }).last()
+  const value = section.getByText(E2E_LONG_IDENTITY_EMAIL, { exact: true })
   await expect(value).toBeVisible()
-  // The badge renders the FULL identity with word-boundary wrapping
-  // (break-words, never truncate — POD-452/POD-456): the ~99-char fixture
-  // address wraps to multiple lines at this width with zero horizontal
-  // overflow. Assert the design guarantee (fully rendered, never clipped),
-  // not the line count.
+  // The full identity fits the row without clipping, even for the long fixture.
   const layout = await value.evaluate((element) => ({
     clientWidth: element.clientWidth,
     scrollWidth: element.scrollWidth,
@@ -178,10 +178,7 @@ test('new sessions allows effort with automatic model selection', async ({ page 
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
 
-  await page
-    .getByRole('banner')
-    .getByRole('button', { name: 'Settings', exact: true })
-    .click({ timeout: 15_000 })
+  await openAgents(page)
   const section = newSessionsSection(page)
   await expect(section.getByRole('button', { name: 'Model' }).first()).toContainText('Auto')
   const effort = section.locator('fieldset[aria-label="Effort"]')
@@ -189,7 +186,7 @@ test('new sessions allows effort with automatic model selection', async ({ page 
   await expect(section.getByText('Subagent model', { exact: true })).toBeVisible()
   await expect(section.getByText('Model for the helpers Codex starts on its own.')).toBeVisible()
   await effort.getByRole('button', { name: 'Extra high', exact: true }).click()
-  await expect(page.getByText(/Saved(?:\s*✓|\.)/)).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible({ timeout: 10_000 })
 
   await expect
     .poll(async () => (await myPreferences(trpc)).value)
@@ -206,10 +203,7 @@ test('new sessions exposes and persists both Grok implementation models', async 
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
 
-  await page
-    .getByRole('banner')
-    .getByRole('button', { name: 'Settings', exact: true })
-    .click({ timeout: 15_000 })
+  await openAgents(page)
   const section = newSessionsSection(page)
   // The role model precedes the optional subagent model.
   // role picker is first, as in the effort test above.
@@ -222,7 +216,7 @@ test('new sessions exposes and persists both Grok implementation models', async 
   })
   await expect(composer).toBeVisible()
   await composer.click()
-  await expect(page.getByText(/Saved(?:\s*✓|\.)/)).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible({ timeout: 10_000 })
 
   await expect
     .poll(async () => (await myPreferences(trpc)).value)
@@ -243,12 +237,7 @@ test('superagent saves model and segmented effort immediately', async ({ page })
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
 
-  await page
-    .getByRole('banner')
-    .getByRole('button', { name: 'Settings', exact: true })
-    .click({ timeout: 15_000 })
-  const settings = page.getByRole('dialog', { name: 'Settings' })
-  await expect(settings).toBeVisible({ timeout: 10_000 })
+  const settings = await openAgents(page)
   await expect(settings.getByRole('heading', { name: 'Superagent', exact: true })).toBeVisible()
 
   const section = superagentSection(page)
@@ -259,7 +248,7 @@ test('superagent saves model and segmented effort immediately', async ({ page })
 
   const effort = section.locator('fieldset[aria-label="Effort"]')
   await effort.getByRole('button', { name: 'Extra high', exact: true }).click()
-  await expect(page.getByText(/Saved(?:\s*✓|\.)/)).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible({ timeout: 10_000 })
 
   // The record holds the leaves I chose; `harness` resolves from the account.
   await expect
@@ -276,12 +265,7 @@ test('background LLM only offers executable API accounts', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
 
-  await page
-    .getByRole('banner')
-    .getByRole('button', { name: 'Settings', exact: true })
-    .click({ timeout: 15_000 })
-  const settings = page.getByRole('dialog', { name: 'Settings' })
-  await expect(settings).toBeVisible({ timeout: 10_000 })
+  const settings = await openAgents(page)
   await expect(
     settings.getByRole('heading', { name: 'Background model', exact: true }),
   ).toBeVisible()
@@ -322,7 +306,7 @@ test('idle-session convergence target round-trips and renders', async ({ page })
   ).toBeVisible()
   await input.fill('12')
   await input.press('Enter')
-  await expect(page.getByText(/Saved(?:\s*✓|\.)/)).toBeVisible()
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible()
   await expect
     .poll(async () => (await instancePreferences(trpc))['hibernation.maxIdleSessions'])
     .toBe(12)
