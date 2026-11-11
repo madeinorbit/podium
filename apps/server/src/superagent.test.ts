@@ -1,4 +1,3 @@
-import { clientSessionViews } from './test-support/session-views'
 import {
   asAccountId,
   asSessionId,
@@ -23,6 +22,7 @@ import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { attachDaemonWithInventory, fixtureInventory } from './test-support/daemon-inventory'
 import { assignHostMachine, attachHostDaemon } from './test-support/host-daemon'
+import { clientSessionViews } from './test-support/session-views'
 
 const item = (o: Partial<TranscriptItem>): TranscriptItem => ({
   id: 'i',
@@ -219,13 +219,23 @@ describe('start_agent tool wiring (issue #60)', () => {
     expect((await registry.issues.reports.get(meta?.issueId ?? ''))?.draft).toBe(true)
   })
 
-  it("opens a non-admin's thread in a terminal as that owner, never joining a task they cannot write", async () => {
+  it("opens a non-admin's thread in a terminal as that owner on a shared task", async () => {
     const { registry, sa } = await harness()
     const colleague = asUserId('colleague')
     // The host is the admin's machine: the colleague's run there uses only the
     // colleague's own connection, sent to it, never the admin's native login
     // (design §2.4, §2.5; 26568b8f5f).
     const store = registry.sessionStore
+    await store.users.create(
+      {
+        id: colleague,
+        displayName: 'Colleague',
+        role: 'member',
+        createdAt: '2026-11-04T00:00:00.000Z',
+        disabledAt: null,
+      },
+      'fixture-only-password-hash',
+    )
     const accountId = asAccountId('managed:anthropic')
     await store.accounts.upsert({
       id: accountId,
@@ -237,11 +247,19 @@ describe('start_agent tool wiring (issue #60)', () => {
       scope: 'role',
       createdAt: 1,
     })
-    await store.accounts.markSent(colleague, accountId, store.hostMachineId, '2026-11-04T00:00:00.000Z')
+    await store.accounts.markSent(
+      colleague,
+      accountId,
+      store.hostMachineId,
+      '2026-11-04T00:00:00.000Z',
+    )
     const settings = await store.settings.getSettingsFor(colleague)
     await store.settings.setSettingsFor(
       colleague,
-      { ...settings, roles: { ...settings.roles, coding: { ...settings.roles.coding, accountId } } },
+      {
+        ...settings,
+        roles: { ...settings.roles, coding: { ...settings.roles.coding, accountId } },
+      },
       '2026-11-04T00:00:00.000Z',
     )
     const task = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
@@ -270,10 +288,11 @@ describe('start_agent tool wiring (issue #60)', () => {
     })
 
     const issueId = await registry.modules.sessions.readSessionIssueId(sessionId)
-    expect(issueId).not.toBe(task.id)
-    const draft = await registry.sessionStore.issues.getIssue(issueId ?? '')
-    expect(draft?.draft).toBe(true)
-    expect(draft?.ownerUserId).toBe(colleague)
+    // Shared tasks admit every active member (bf835836e5); the session stays
+    // private to the thread's owner even on somebody else's task and machine.
+    expect(issueId).toBe(task.id)
+    expect((await store.sessions.getSession(sessionId))?.ownerUserId).toBe(colleague)
+    expect((await store.issues.getIssue(task.id))?.ownerUserId).toBe(firstAdminMemberId())
   })
 
   it('tags spawnedBy with the executing thread when known', async () => {
@@ -623,8 +642,11 @@ describe('session-steering tool belt (issue #62)', () => {
     // The tools act for a thread's owner (POD-6284): a thread-blind belt reaches
     // no session at all. These tests drive the belt as the boot-seeded `global`
     // thread, whose owner is the one who owns the sessions `spawn` creates.
-    const tool = async (name: string, args: Record<string, unknown>, threadId = asThreadId('global')) =>
-      await sa.callMcpTool(name, args, threadId)
+    const tool = async (
+      name: string,
+      args: Record<string, unknown>,
+      threadId = asThreadId('global'),
+    ) => await sa.callMcpTool(name, args, threadId)
     return { registry, sa, inputs, answers, sends, spawn, ask, answer, metaOf, tool }
   }
 
@@ -783,8 +805,14 @@ describe('session-steering tool belt (issue #62)', () => {
   it('answer_question fails closed without a bound transport identity', async () => {
     const h = await harness({ transcriptItems: [askItem()] })
     const sessionId = await h.spawn(true)
-    markPending(h, sessionId)
-    expect(await h.sa.callMcpTool('answer_question', { sessionId, answer: 'Yes' })).toBe(
+    await markPending(h, sessionId)
+    const threadId = asThreadId('answer_without_transport')
+    await h.registry.sessionStore.superagent.upsertSuperagentThread({
+      id: threadId,
+      ownerUserId: firstAdminMemberId(),
+      kind: 'btw',
+    })
+    expect(await h.sa.callMcpTool('answer_question', { sessionId, answer: 'Yes' }, threadId)).toBe(
       'failed: answer caller identity unavailable',
     )
     expect(h.inputs).toEqual([])
@@ -800,9 +828,9 @@ describe('session-steering tool belt (issue #62)', () => {
 
   it('resume_and_send fails on an unknown session', async () => {
     const h = await harness()
-    expect(
-      await h.tool('resume_and_send', { sessionId: asSessionId('nope'), text: 'x' }),
-    ).toBe('unknown session')
+    expect(await h.tool('resume_and_send', { sessionId: asSessionId('nope'), text: 'x' })).toBe(
+      'unknown session',
+    )
   })
 
   it("continue_session sends 'continue' through the contract to an errored live session only", async () => {
@@ -860,20 +888,14 @@ describe('session-steering tool belt (issue #62)', () => {
       'unknown session',
     )
     const sessionId = await h.spawn(true) // live but no resume ref yet
-    expect(await h.tool('hibernate_session', { sessionId })).toMatch(
-      /failed: no resume ref/,
-    )
+    expect(await h.tool('hibernate_session', { sessionId })).toMatch(/failed: no resume ref/)
   })
 
   it("snooze_session supports 'next-message' (null) and ISO timestamps; clear_snooze undoes", async () => {
     const h = await harness()
     const sessionId = await h.spawn()
     expect(
-      await h.tool(
-        'snooze_session',
-        { sessionId, until: 'next-message' },
-        asThreadId('global'),
-      ),
+      await h.tool('snooze_session', { sessionId, until: 'next-message' }, asThreadId('global')),
     ).toBe(JSON.stringify({ snoozedUntil: null }))
     expect((await h.metaOf(sessionId))?.snoozedUntil).toBeNull()
     // A FUTURE deadline. It used to be a fixed past date and still round-tripped,
@@ -885,9 +907,7 @@ describe('session-steering tool belt (issue #62)', () => {
     const iso = '2999-07-03T05:00:00.000Z'
     await h.tool('snooze_session', { sessionId, until: iso }, asThreadId('global'))
     expect((await h.metaOf(sessionId))?.snoozedUntil).toBe(iso)
-    expect(await h.tool('clear_snooze', { sessionId }, asThreadId('global'))).toBe(
-      'snooze cleared',
-    )
+    expect(await h.tool('clear_snooze', { sessionId }, asThreadId('global'))).toBe('snooze cleared')
     expect((await h.metaOf(sessionId))?.snoozedUntil).toBeUndefined()
   })
 
@@ -931,21 +951,17 @@ describe('session-steering tool belt (issue #62)', () => {
         until: 'next-message',
       }),
     ).toBe('unknown session')
-    expect(await h.tool('clear_snooze', { sessionId: asSessionId('nope') })).toBe(
-      'unknown session',
-    )
+    expect(await h.tool('clear_snooze', { sessionId: asSessionId('nope') })).toBe('unknown session')
   })
 
   it('rename_session sets the user-facing name', async () => {
     const h = await harness()
     const sessionId = await h.spawn()
-    expect(await h.tool('rename_session', { sessionId, name: 'auth fix' })).toBe(
-      'renamed',
-    )
+    expect(await h.tool('rename_session', { sessionId, name: 'auth fix' })).toBe('renamed')
     expect((await h.metaOf(sessionId))?.name).toBe('auth fix')
-    expect(
-      await h.tool('rename_session', { sessionId: asSessionId('nope'), name: 'x' }),
-    ).toBe('unknown session')
+    expect(await h.tool('rename_session', { sessionId: asSessionId('nope'), name: 'x' })).toBe(
+      'unknown session',
+    )
   })
 
   it('set_work_state validates against the protocol WorkState enum', async () => {
@@ -1032,9 +1048,9 @@ describe('session-steering tool belt (issue #62)', () => {
       sessionId,
       until: null,
     })
-    const rows = JSON.parse(
-      await h.tool('list_sessions', {}, asThreadId('global')),
-    ) as Array<Record<string, unknown>>
+    const rows = JSON.parse(await h.tool('list_sessions', {}, asThreadId('global'))) as Array<
+      Record<string, unknown>
+    >
     expect(rows[0]).toMatchObject({ sessionId, spawnedBy: 'user', snoozedUntil: null })
   })
 })
