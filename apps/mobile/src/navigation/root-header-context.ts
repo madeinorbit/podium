@@ -12,6 +12,8 @@ export interface RootHeaderState {
   monoSubtitle?: boolean
   offset: SharedValue<number>
   compact: boolean
+  /** iOS 16/17 keeps both header states visible without scroll-driven effects. */
+  fadeEnabled?: boolean
 }
 
 export const RootHeaderContext = createContext<RootHeaderState | null>(null)

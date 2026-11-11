@@ -64,7 +64,7 @@ import { Fragment, type ReactNode, useCallback, useState } from 'react'
 import { Text as RNText, StyleSheet, useWindowDimensions, View } from 'react-native'
 import { issueObserver as taskObserver } from '../client/issue-observer'
 import { useMobilePool } from '../client/mobile-pool'
-import { Filter, MoreHorizontal, Plus } from '../components/icons'
+import { Filter, MoreHorizontal, Plus, Search } from '../components/icons'
 import { NativeGroupHeader } from '../components/NativeGroupHeader.ios'
 import { RefreshOffer } from '../components/RefreshOffer'
 import { Screen } from '../components/Screen'
@@ -73,6 +73,7 @@ import { MIN_REFRESH_CONFIRMATION_MS } from '../hooks/useRefreshableTab'
 import { useAgeNow } from '../lib/clock-hooks'
 import { workMenuActionIds } from '../lib/work-menu'
 import { RootTabList } from '../navigation/RootTabList.ios'
+import { useRootTabSearch } from '../navigation/useRootTabSearch'
 import { color } from '../theme/theme'
 import { type TasksSurfaceProps, taskRowFigure, tasksSubtitle } from './TasksSurface.types'
 import { useStageFolds } from './tasks-folds'
@@ -123,6 +124,7 @@ const MARK_COLOR: Record<TaskRowMark, string> = {
  */
 export const TasksSurface = observer(function TasksSurface(props: TasksSurfaceProps) {
   const { board } = props
+  const search = useRootTabSearch(board?.searchFilter.text ?? '')
   const { fontScale } = useWindowDimensions()
   const [listRevision, setListRevision] = useState(0)
   const folds = useStageFolds()
@@ -141,6 +143,7 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
   }, [refresh])
   const filtered = props.chips.length > 0
   const actions = [
+    { label: 'Search tasks', icon: Search, onPress: search.open },
     {
       label: filtered ? `Filter and display, ${props.chips.length} active` : 'Filter and display',
       icon: Filter,
@@ -168,29 +171,30 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
           {subtitle.counts ? ` · ${subtitle.counts}` : ''}
         </>
       }
-      // One native menu leaves room for the search button at accessibility sizes.
+      // Fold the three title-row actions into one menu at accessibility sizes.
       actions={
         fontScale >= 1.6
           ? [{ label: 'Task actions', icon: MoreHorizontal, items: actions }]
           : actions
       }
     >
-      {/* Search the whole board (BoardFilter.text, backlog, done and proposals
-          included) from the native magnifier. Not the stacked field: a SwiftUI
-          List is not a scroll view UIKit's bar can track, so that field would
-          sit open under the title instead of hiding until pulled down. */}
-      <Stack.SearchBar
-        placement="integratedButton"
-        placeholder="Search tasks or ID"
-        autoCapitalize="none"
-        onChangeText={(event) => board?.search(event.nativeEvent.text)}
-        onCancelButtonPress={() => {
-          board?.search('')
-          // SwiftUI otherwise anchors the restored groups to the last search
-          // result. A fresh List returns to the top, including an empty search.
-          setListRevision((revision) => revision + 1)
-        }}
-      />
+      {/* No idle field or duplicate native magnifier above the title row.
+          The title-row action mounts and focuses the existing native search. */}
+      {search.visible ? (
+        <Stack.SearchBar
+          ref={search.searchRef}
+          placement="integratedButton"
+          placeholder="Search tasks or ID"
+          autoCapitalize="none"
+          onChangeText={(event) => board?.search(event.nativeEvent.text)}
+          onCancelButtonPress={() => {
+            board?.search('')
+            search.close()
+            // Restoring the groups also restores their first title row.
+            setListRevision((revision) => revision + 1)
+          }}
+        />
+      ) : null}
       {/* React Native notices cannot sit inside a SwiftUI List. */}
       <View>
         <StorageNoticeAlert />

@@ -17,24 +17,29 @@ import { useRootHeader } from './root-header-context'
 export function RootTabList({ children, modifiers = [], ...props }: ComponentProps<typeof List>) {
   const header = useRootHeader()
   const offset = header?.offset
+  const fadeEnabled = header?.fadeEnabled !== false
   const initialOffset = useSharedValue<number | null>(null)
   // Lane/search changes replace the List, so its new first row starts expanded.
   useLayoutEffect(() => {
     if (offset) offset.value = 0
   }, [offset])
   const insets = useSafeAreaInsets()
-  const geometry = useScrollGeometryChange((g) => {
-    'worklet'
-    if (!offset) return
-    if (initialOffset.value === null) initialOffset.value = g.contentOffsetY
-    offset.value = Math.max(0, g.contentOffsetY - initialOffset.value)
-  })
+  const geometry = useScrollGeometryChange(
+    header && fadeEnabled
+      ? (g) => {
+          'worklet'
+          if (!offset) return
+          if (initialOffset.value === null) initialOffset.value = g.contentOffsetY
+          offset.value = Math.max(0, g.contentOffsetY - initialOffset.value)
+        }
+      : undefined,
+  )
   return (
     <List
       {...props}
       modifiers={[
         ...modifiers,
-        ...(header
+        ...(header && fadeEnabled
           ? [
               ignoreSafeArea({ regions: 'container', edges: 'top' }),
               ...(geometry ? [geometry] : []),
@@ -51,7 +56,7 @@ export function RootTabList({ children, modifiers = [], ...props }: ComponentPro
           ]}
         >
           <RNHostView matchContents={{ vertical: true }}>
-            <View style={{ paddingTop: insets.top }}>
+            <View style={{ paddingTop: fadeEnabled ? insets.top : 0 }}>
               <RootTabTitle />
             </View>
           </RNHostView>

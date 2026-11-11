@@ -22,6 +22,19 @@ export function RootTabScrollView({
         {children}
       </ScrollView>
     )
+  // Static pre-iOS-18 bar contents need the normal full bar inset, so the
+  // retained large row sits below them instead of occupying the same space.
+  if (header.fadeEnabled === false)
+    return (
+      <ScrollView
+        {...props}
+        contentContainerStyle={contentContainerStyle}
+        contentInsetAdjustmentBehavior="automatic"
+      >
+        <RootTabTitle />
+        {children}
+      </ScrollView>
+    )
   return (
     <Animated.ScrollView
       {...props}

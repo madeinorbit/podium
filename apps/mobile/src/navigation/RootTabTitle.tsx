@@ -9,8 +9,9 @@ import { rootHeaderProgress } from './root-header-progress'
 export function RootTabTitle() {
   const header = useRootHeader()
   const offset = header?.offset
+  const fadeEnabled = header?.fadeEnabled !== false
   const fade = useAnimatedStyle(() => ({
-    opacity: offset ? 1 - rootHeaderProgress(offset.value) : 1,
+    opacity: offset && fadeEnabled ? 1 - rootHeaderProgress(offset.value) : 1,
   }))
   if (!header) return null
   return (

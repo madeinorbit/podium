@@ -1,10 +1,11 @@
-import { act, fireEvent, render } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { cloneElement, type ReactNode } from 'react'
 import { Text, View } from 'react-native'
 import type { SharedValue } from 'react-native-reanimated'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const native = vi.hoisted(() => ({
+  version: 26,
   options: {} as Record<string, unknown>,
   scroll: undefined as
     | undefined
@@ -13,7 +14,16 @@ const native = vi.hoisted(() => ({
 }))
 vi.mock('react-native', async (original) => {
   const rn = await original<typeof import('react-native')>()
-  return { ...rn, Platform: { ...rn.Platform, OS: 'ios', Version: 26 } }
+  return {
+    ...rn,
+    Platform: {
+      ...rn.Platform,
+      OS: 'ios',
+      get Version() {
+        return native.version
+      },
+    },
+  }
 })
 vi.mock('expo-router/stack', () => {
   const Slot = ({ children }: { children: ReactNode }) => children
@@ -76,7 +86,10 @@ const { rootHeaderProgress } = await import('./root-header-progress')
 
 beforeEach(() => {
   native.options = {}
+  native.version = 26
 })
+
+afterEach(cleanup)
 
 describe('root tab chrome', () => {
   it('keeps the native bar but disables its large title only on root screens', () => {
@@ -134,6 +147,30 @@ describe('root tab chrome', () => {
     )
     expect(screen.queryByRole('button', { name: 'New work' })).toBeNull()
     expect(screen.getByRole('heading', { name: 'Work' })).toBeTruthy()
+  })
+
+  it('keeps the inline bar and content title visible on iOS 16/17 without a scroll bridge', () => {
+    native.version = 17
+    const content = (
+      <Screen
+        large
+        title="Tasks"
+        actions={[
+          { label: 'Search tasks', icon: { ios: 'magnifyingglass' } as never, onPress: vi.fn() },
+        ]}
+      >
+        <RootTabScrollView>
+          <Text>Rows</Text>
+        </RootTabScrollView>
+      </Screen>
+    )
+    const screen = render(content)
+    expect(screen.getAllByRole('heading', { name: 'Tasks' })).toHaveLength(2)
+    expect(screen.getAllByRole('button', { name: 'Search tasks' })).toHaveLength(2)
+    act(() => native.scroll?.({ contentOffset: { y: 100 }, contentInset: { top: 60 } }))
+    screen.rerender(cloneElement(content))
+    expect(screen.getAllByRole('heading', { name: 'Tasks' })).toHaveLength(2)
+    expect(native.options).toMatchObject({ headerShown: true, headerLargeTitleEnabled: false })
   })
 
   it('normalizes RN insets without collapsing during pull-to-refresh', () => {
