@@ -1,4 +1,6 @@
 import { asMachineId, asUserId, firstAdminMemberId, machineAccessRowId } from '@podium/model'
+import { machinePublicKeyWire } from '@podium/runtime/machine-credential'
+import { mintSigningKeyPair } from '@podium/runtime/signing'
 import { afterEach, expect, it, vi } from 'vitest'
 import { disposeOracles, makeOracle } from '../sessions/oracle-support'
 
@@ -61,7 +63,7 @@ it('credential adoption compares the assignment stored with the credential', asy
   const before = await o.store.sync.maxChangeSeq()
   expect(await o.store.machines.adoptLegacyHostCredential(
     id,
-    'machine-public-key',
+    machinePublicKeyWire(mintSigningKeyPair()),
     { server: true, agentExecution: false },
     { version: 1, source: 'enrollment', requestId: id },
   )).toBe(true)

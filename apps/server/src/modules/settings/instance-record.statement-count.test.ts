@@ -66,12 +66,11 @@ describe('statement counts of the instance settings edit', () => {
   it('does not grow with the members or the preferences the store holds', async () => {
     // POD-6769: the record is built before and after the blob write (+1). The
     // base ran 16 against its pin of 15 at f4053a3909.
-    // The stored fleet-channel check adds one read on this source write.
-    await expectConstantStatements(instanceEdit, 18)
+    await expectConstantStatements(instanceEdit, 17)
   })
 
   it('is armed: a read per member on the edit path fails it', async () => {
-    await expectArmed(instanceEdit, 18, (o, size) => {
+    await expectArmed(instanceEdit, 17, (o, size) => {
       const users = o.store.users
       const original = users.roleOf.bind(users)
       users.roleOf = async (user) => {
