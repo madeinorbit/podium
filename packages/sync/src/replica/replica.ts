@@ -57,6 +57,7 @@ import type {
   EntityRecord,
   ExitKind,
   HealRung,
+  KindTokens,
   Posture,
   RebootstrapCause,
   ReplicaEvent,
@@ -126,6 +127,33 @@ export interface TransitionOutcome {
 }
 
 const entityKey = (entity: string, entityId: string): string => `${entity}\u0000${entityId}`
+
+class PartialBootstrapUnavailable extends Error {}
+
+/** Undefined means the installed map and the advertised map have no usable baseline. */
+function changedKinds(
+  installed: KindTokens | undefined,
+  offered: KindTokens | undefined,
+): string[] | undefined {
+  if (
+    !installed ||
+    !offered ||
+    Object.keys(installed).some((kind) => !Object.hasOwn(offered, kind))
+  )
+    return undefined
+  return Object.keys(offered).filter(
+    (kind) => !Object.hasOwn(installed, kind) || installed[kind] !== offered[kind],
+  )
+}
+
+function sameKinds(expected: ReadonlySet<string>, offered: readonly string[] | undefined): boolean {
+  return (
+    offered !== undefined &&
+    expected.size === offered.length &&
+    offered.every((kind) => expected.has(kind)) &&
+    new Set(offered).size === expected.size
+  )
+}
 
 /**
  * Bound on one buffer drain, so a non-terminating drain is LOUD rather than silent
@@ -338,6 +366,23 @@ export class Replica {
 
   requestRebootstrap(): void {
     this.rebootstrap('resync-required')
+  }
+
+  /** Called from both the connection advertisement and the HTTP delta header. */
+  observeKindTokens(offered: KindTokens | undefined): void {
+    if (this.cursorValue === null || this.state === 'bootstrapping') return
+    let installed: KindTokens | undefined
+    try {
+      installed = this.store.readKindTokens()
+    } catch (error) {
+      if (!(error instanceof ReplicaStoreCorruptError)) throw error
+      this.onCorruption()
+      return
+    }
+    if (installed === undefined && offered === undefined) return
+    const kinds = changedKinds(installed, offered)
+    if (kinds?.length === 0) return
+    this.rebootstrap('kind-shape', kinds && new Set(kinds))
   }
 
   connect(): TransitionOutcome {
@@ -562,10 +607,8 @@ export class Replica {
    * must open the unit of work; a frame whose provenance names only other writers'
    * commands covers nothing, so it need not.
    *
-   * When nothing is covered, the cache write is a lone single-region operation and
-   * autocommits — D10 clause 2 permits that explicitly, and opening a span to enrol
-   * one participant would add a unit of work whose commit and abort are already the
-   * store write's own.
+   * A lone cache write normally autocommits (D10 clause 2). A kind replacement
+   * uses the unit of work to wait for durable publication of its new token.
    *
    * Everything the Replica itself observes — the cursor, `exits`, public events —
    * is updated by the CALLER, strictly after this returns, so no observer can see
@@ -575,35 +618,26 @@ export class Replica {
     evidence: RetirementEvidence,
     write: (span?: SyncSpan) => void,
     adopt: () => void,
+    awaitDurability = false,
   ): Promise<void> {
     // The one choke point every post-commit burst passes through, so wrapping
     // HERE is what makes `batchEvents`'s "one burst, one call" a property rather
     // than a rule each call site remembers: a live frame, a heal reply, a
     // drained buffer frame and a whole install all adopt through this function.
     const adoptBatched = (): void => this.batchEvents(adopt)
-    const overlay = this.overlayPort
-    if (overlay === undefined || !overlay.covers(evidence)) {
-      // ONE REGION. D10 clause 2 permits an autocommit explicitly, and a span here
-      // would add a unit of work whose commit and abort are already the store write's
-      // own. Named `single-region autocommit` so it is not mistaken for a fallback:
-      // the multi-participant path CANNOT reach it, because reaching it requires the
-      // overlay to cover nothing, and a commit that retires nothing enrols no second
-      // participant.
+    const overlay = this.overlayPort?.covers(evidence) ? this.overlayPort : undefined
+    const unitOfWork = this.unitOfWork
+    if (unitOfWork === undefined || (overlay === undefined && !awaitDurability)) {
       write()
       adoptBatched()
-      // Already durable and already adopted. A resolved promise keeps ONE return type
-      // for both arms, so a caller cannot forget to await the arm that needs it.
       return Promise.resolve()
     }
-    // MULTI-REGION. The boundary belongs to the unit of work, never to this class.
-    // Guaranteed present: the constructor refuses an overlay without one.
-    const unitOfWork = this.unitOfWork as SyncUnitOfWork
     return unitOfWork.transact(async (span) => {
       // The ASYNC enrolment first, and AWAITED. This is the line POD-1158 exists
       // for: a durable outbox store cannot enrol synchronously, and `transact`'s
       // body is the one place allowed to await. Doing it before the cache write also
       // means a refusal costs nothing — no region has staged yet.
-      await overlay.retire(evidence, span)
+      if (overlay) await overlay.retire(evidence, span)
       write(span)
       // Strictly AFTER durability, through the span's own protocol. Nothing the
       // Replica observes — cursor, exits, public events — escapes before the commit,
@@ -750,8 +784,10 @@ export class Replica {
       }
       let range: Awaited<ReturnType<AuthorityReadPort['changesRange']>>
       try {
-        range = await this.authority.changesRange(cursor, signal, (target) => {
-          if (generation === this.walkGeneration) targetSeq = target.seq
+        range = await this.authority.changesRange(cursor, signal, (target, kindTokens) => {
+          if (generation !== this.walkGeneration) return
+          targetSeq = target.seq
+          this.observeKindTokens(kindTokens)
         })
       } catch {
         sourceFailed()
@@ -918,7 +954,7 @@ export class Replica {
    * front: rungs 2-6 must never blank the UI before the replacement state is
    * installed (D7 stale-visible + D6.4).
    */
-  private rebootstrap(cause: RebootstrapCause): void {
+  private rebootstrap(cause: RebootstrapCause, kinds?: ReadonlySet<string>): void {
     // Bump first, then read: a superseded walk notices the mismatch and abandons
     // its staging rather than installing a slice the ladder has moved past.
     this.walkAbort.abort()
@@ -941,14 +977,14 @@ export class Replica {
     this.counters.bootstraps += 1
     this.counters.pendingGap = false
     this.setPosture('bootstrapping')
-    this.emit({ type: 'heal', rung: rungFor(cause), cause })
+    this.emit({ type: 'heal', rung: rungFor(cause), cause, ...(kinds && { partial: true }) })
     this.run(async () => {
       if (generation !== this.walkGeneration) return
       // After prior frame commits settle, before the new walk. Clearing eagerly
       // while an older span is still staged would let its publication restore
       // the old certification behind this recovery.
       try {
-        if (this.store.readPersonalRowsCompleteAt() !== null) {
+        if (kinds === undefined && this.store.readPersonalRowsCompleteAt() !== null) {
           this.store.applyAtomic({ operations: [], personalRowsCompleteAt: null })
         }
       } catch (error) {
@@ -957,21 +993,29 @@ export class Replica {
         if (cause !== 'local-corruption' || !(error instanceof ReplicaStoreCorruptError))
           throw error
       }
-      await this.walk(cause, generation)
+      await this.walk(cause, generation, kinds)
     })
   }
 
-  private async walk(cause: RebootstrapCause, generation: number): Promise<void> {
+  private async walk(
+    cause: RebootstrapCause,
+    generation: number,
+    kinds?: ReadonlySet<string>,
+  ): Promise<void> {
     let lastError = 'unknown'
     for (let attempt = 1; attempt <= this.maxBootstrapAttempts; attempt += 1) {
       if (generation !== this.walkGeneration) return // superseded; staging discarded
       try {
-        const installed = await this.attemptWalk(cause, generation)
+        const installed = await this.attemptWalk(cause, generation, kinds)
         if (installed || generation !== this.walkGeneration) return
         lastError = 'stream ended before the last chunk'
         this.note('D6-RESTART')
       } catch (error) {
         if (generation !== this.walkGeneration) return
+        if (error instanceof PartialBootstrapUnavailable) {
+          this.rebootstrap('kind-shape')
+          return
+        }
         if (error instanceof ReplicaStoreCorruptError) {
           // Rung 5 discovered from INSIDE a walk. Escalating is correct exactly
           // once: a walk that is not already the corruption walk hands over to
@@ -1009,23 +1053,27 @@ export class Replica {
   }
 
   /** One attempt. Returns true iff the slice was installed. */
-  private async attemptWalk(cause: RebootstrapCause, generation: number): Promise<boolean> {
+  private async attemptWalk(
+    cause: RebootstrapCause,
+    generation: number,
+    kinds?: ReadonlySet<string>,
+  ): Promise<boolean> {
     const staging = new Map<string, EntityRecord>()
-    let head: { feedId: string; epoch: string; snapshotSeq: number } | null = null
-    let sawLast = false
-
-    for await (const chunk of this.authority.bootstrap(this.walkAbort.signal)) {
+    const signal = this.walkAbort.signal
+    let head: BootstrapChunk | undefined
+    for await (const chunk of this.authority.bootstrap(signal, kinds && [...kinds])) {
       if (generation !== this.walkGeneration) return false
-      if (head === null) {
-        head = { feedId: chunk.feedId, epoch: chunk.epoch, snapshotSeq: chunk.snapshotSeq }
-      } else if (
-        chunk.feedId !== head.feedId ||
-        chunk.epoch !== head.epoch ||
-        chunk.snapshotSeq !== head.snapshotSeq
+      if (
+        head &&
+        (chunk.feedId !== head.feedId ||
+          chunk.epoch !== head.epoch ||
+          chunk.snapshotSeq !== head.snapshotSeq)
       ) {
         throw new Error('bootstrap chunks disagree about the snapshot point')
       }
+      head = chunk
       for (const change of chunk.changes) {
+        if (kinds && !kinds.has(change.entity)) throw new PartialBootstrapUnavailable()
         // D6 — a snapshot is POSITIVE STATE. A remove/evict inside it is not a
         // smaller snapshot, it is a malformed one.
         if (change.op !== 'upsert' || change.payload === undefined) {
@@ -1055,23 +1103,85 @@ export class Replica {
           },
         })
       }
-      if (chunk.last) {
-        sawLast = true
-        break
-      }
+      if (chunk.last) break
     }
 
-    if (head === null || !sawLast) return false
+    if (!head?.last) return false
     if (generation !== this.walkGeneration) return false
 
-    await this.install(cause, head, staging)
+    let catchup: readonly ChangeEnvelope[] = []
+    if (kinds) {
+      const current = this.cursorValue
+      const snapshot = { feedId: head.feedId, epoch: head.epoch, seq: head.snapshotSeq }
+      if (
+        !current ||
+        current.feedId !== head.feedId ||
+        current.epoch !== head.epoch ||
+        current.seq > snapshot.seq ||
+        !sameKinds(kinds, head.kinds) ||
+        !sameKinds(kinds, changedKinds(this.store.readKindTokens(), head.kindTokens))
+      ) {
+        throw new PartialBootstrapUnavailable()
+      }
+      catchup = await this.catchUpOtherKinds(current, snapshot, kinds, head.kindTokens, signal)
+    } else if (head.kinds !== undefined) {
+      throw new Error('full bootstrap received a filtered snapshot')
+    }
+    if (generation !== this.walkGeneration) return false
+    await this.install(cause, head, staging, kinds, catchup, generation)
     return true
+  }
+
+  /** A filtered snapshot cannot certify the shared cursor for the other kinds. */
+  private async catchUpOtherKinds(
+    from: Cursor,
+    snapshot: Cursor,
+    kinds: ReadonlySet<string>,
+    tokens: KindTokens | undefined,
+    signal: AbortSignal,
+  ): Promise<readonly ChangeEnvelope[]> {
+    if (from.seq === snapshot.seq) return []
+    let sawTarget = false
+    const range = await this.authority.changesRange(
+      from,
+      signal,
+      (target, offered) => {
+        if (!sameCursor(snapshot, target) || changedKinds(tokens, offered)?.length !== 0)
+          throw new PartialBootstrapUnavailable()
+        sawTarget = true
+      },
+      { to: snapshot.seq, omitKinds: [...kinds] },
+    )
+    if ('kind' in range) throw new PartialBootstrapUnavailable()
+    let seq = from.seq
+    const changes: ChangeEnvelope[] = []
+    for await (const frame of range) {
+      if (signal.aborted) return []
+      if (
+        !sawTarget ||
+        frame.feedId !== from.feedId ||
+        frame.epoch !== from.epoch ||
+        frame.fromSeq !== seq ||
+        frame.seq > snapshot.seq ||
+        this.rejects(frame) !== null ||
+        frame.changes.some((change) => kinds.has(change.entity))
+      ) {
+        throw new PartialBootstrapUnavailable()
+      }
+      for (const change of frame.changes) changes.push(change)
+      seq = frame.seq
+    }
+    if (!sawTarget || seq !== snapshot.seq) throw new PartialBootstrapUnavailable()
+    return changes
   }
 
   private async install(
     cause: RebootstrapCause,
-    head: { feedId: string; epoch: string; snapshotSeq: number },
+    head: BootstrapChunk,
     staging: Map<string, EntityRecord>,
+    kinds: ReadonlySet<string> | undefined,
+    catchup: readonly ChangeEnvelope[],
+    generation: number,
   ): Promise<void> {
     const snapshotCursor: Cursor = {
       feedId: head.feedId,
@@ -1095,6 +1205,10 @@ export class Replica {
     // so the simple rule is also the cheap one.
     const mutations: CacheMutation[] = []
     const emissions: { changes: readonly ChangeEnvelope[]; cursor: Cursor }[] = []
+    if (catchup.length > 0) {
+      mutations.push(toMutation(catchup, snapshotCursor))
+      emissions.push({ changes: catchup, cursor: snapshotCursor })
+    }
     let running = snapshotCursor
     let gapAt = -1
     for (let i = 0; i < buffered.length; i += 1) {
@@ -1115,6 +1229,14 @@ export class Replica {
     }
 
     const rows = [...staging.values()]
+    const dropped =
+      kinds &&
+      this.store
+        .readEntities()
+        .filter(
+          ({ entity, entityId }) => kinds.has(entity) && !staging.has(entityKey(entity, entityId)),
+        )
+        .map(({ entity, entityId }) => ({ entity, entityId }))
     // THE ATOMIC SWAP. This replaces the cache (that is the D7 "discard") and
     // applies the buffered frames, the cursor AND the retirements the included
     // frames owe, in the SAME transaction.
@@ -1126,9 +1248,8 @@ export class Replica {
     // was accepted when it was not. `emissions` is exactly the included set, which
     // is why the batch is derived from it rather than from `buffered`.
     //
-    // The evidence certifies `running`, the cursor this install lands on, and says
-    // it is an INSTALL: a new truth, so it covers receipts from another epoch too
-    // (a restored backup), which no delta can ever reach again (ADR 12).
+    // The evidence certifies the final cursor. A full install also covers receipts
+    // from a previous epoch, such as after a restored backup (ADR 12).
     //
     // The ENTIRE post-commit tail lives in `adopt`, not merely part of it. Splitting
     // it was a real bug while this was being written: `setPosture('live')` ran before
@@ -1140,19 +1261,32 @@ export class Replica {
       {
         matches: retirementsOf(emissions.map((emission) => emission.changes)),
         through: running,
-        install: true,
+        install: kinds === undefined,
       },
       (span) => {
-        this.store.installSnapshot(rows, snapshotCursor, mutations, span)
+        const prepare = (): void => {
+          if (generation !== this.walkGeneration) throw new Error('superseded bootstrap')
+        }
+        prepare()
+        span?.join({ prepare, publish() {} })
+        this.store.installSnapshot(rows, snapshotCursor, mutations, span, {
+          kinds,
+          kindTokens: head.kindTokens,
+        })
       },
       () => {
         // Consume exactly the prefix this install included. Frames that arrived while
         // the transaction was open are LATER in feed order and stay buffered for the
         // drain below — clearing outright would drop them.
-        this.buffer = this.buffer.slice(buffered.length)
+        if (generation === this.walkGeneration) this.buffer = this.buffer.slice(buffered.length)
         this.note('D6-INSTALL')
         this.cursorValue = running
-        this.exits.clear()
+        if (kinds === undefined) this.exits.clear()
+        else {
+          for (const key of this.exits.keys()) {
+            if (kinds.has(key.slice(0, key.indexOf('\u0000')))) this.exits.delete(key)
+          }
+        }
 
         for (const row of rows) this.emit({ type: 'upserted', record: row, readmitted: false })
         this.emit({
@@ -1160,7 +1294,8 @@ export class Replica {
           cause,
           snapshotSeq: head.snapshotSeq,
           entityCount: rows.length,
-          bufferedFramesApplied: mutations.length,
+          bufferedFramesApplied: mutations.length - (catchup.length > 0 ? 1 : 0),
+          ...(dropped && { dropped }),
         })
         // Same emission semantics as the live and heal paths — one function, so a
         // change applied through a bootstrap is projected exactly as a change applied
@@ -1169,6 +1304,7 @@ export class Replica {
           this.emitApplied(emission.changes, emission.cursor)
         }
 
+        if (generation !== this.walkGeneration) return
         this.setPosture('live')
         if (gapAt >= 0 || this.transportGap) {
           this.transportGap = false
@@ -1195,8 +1331,9 @@ export class Replica {
           this.startHeal()
         }
       },
+      kinds !== undefined,
     )
-    if (this.state === 'live') await this.drainBuffer()
+    if (this.state === 'live' && generation === this.walkGeneration) await this.drainBuffer()
   }
 
   // ─── Rung 5 ───────────────────────────────────────────────────────────────

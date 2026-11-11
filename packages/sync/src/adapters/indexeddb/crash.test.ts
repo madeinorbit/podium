@@ -38,6 +38,7 @@
 
 import type { MutationId } from '@podium/model'
 import { actorUser, asUserId } from '@podium/model'
+import { IDBKeyRange } from 'fake-indexeddb'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { OutboxRecord } from '../../outbox/records'
 import type { Cursor } from '../../replica/types'
@@ -82,11 +83,82 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
   const open = async (): Promise<IndexedDbSyncStore> =>
     await IndexedDbSyncStore.open({
       factory: factory as IdbFactoryLike,
+      keyRange: IDBKeyRange,
       databaseName: REPLICA_DB_NAME,
       onDegraded: (degradation) => {
         degradations.push(degradation)
       },
     })
+
+  it('commits a kind replacement and its tokens together, including rows another tab wrote', async () => {
+    const first = await open()
+    const view = first.viewFor(PRINCIPAL)
+    const issue = {
+      entity: 'issueProjection',
+      entityId: 'old',
+      value: { old: true },
+      provenance: { seq: 1 },
+    }
+    const repo = { entity: 'repo', entityId: 'keep', value: {}, provenance: { seq: 1 } }
+    const oldTokens = { issueProjection: 'old', repo: 'unchanged' }
+    await first.unitOfWork.transact(async (span) => {
+      view.cache.installSnapshot([issue, repo], CURSOR_1, [], span, { kindTokens: oldTokens })
+      expect(
+        await view.outbox.apply(
+          {
+            put: [record('queued')],
+            expect: [{ mutationId: M, expect: 'absent' }],
+          },
+          span,
+        ),
+      ).toEqual({ ok: true })
+    })
+    const newTokens = { ...oldTokens, issueProjection: 'new' }
+    const replace = (store: IndexedDbSyncStore) =>
+      store.unitOfWork.transact(async (span) => {
+        store
+          .viewFor(PRINCIPAL)
+          .cache.installSnapshot(
+            [{ ...issue, entityId: 'new', value: { old: false } }],
+            CURSOR_2,
+            [],
+            span,
+            { kinds: new Set([issue.entity]), kindTokens: newTokens },
+          )
+      })
+    factory.denyWriteAt({ at: 2, error: new Error('power loss') })
+    await expect(replace(first)).rejects.toThrow('power loss')
+    expect(view.cache.readKindTokens()).toEqual(oldTokens)
+    const other = await open()
+    const otherView = other.viewFor(PRINCIPAL)
+    expect(otherView.cache.readCursor()).toEqual(CURSOR_1)
+    expect(otherView.cache.readKindTokens()).toEqual(oldTokens)
+    expect(otherView.cache.read(issue.entity, 'old')).toEqual(issue)
+    otherView.cache.applyAtomic({
+      operations: [{ ...issue, entityId: 'other-tab', kind: 'upsert' }],
+    })
+    await other.settled()
+    await replace(first)
+    first.close()
+    other.close()
+
+    const reopened = await open()
+    try {
+      const saved = reopened.viewFor(PRINCIPAL)
+      expect(saved.cache.readCursor()).toEqual(CURSOR_2)
+      expect(saved.cache.readKindTokens()).toEqual(newTokens)
+      expect(
+        saved.cache
+          .readEntities()
+          .map((row) => row.entityId)
+          .sort(),
+      ).toEqual(['keep', 'new'])
+      expect(saved.cache.read(repo.entity, repo.entityId)).toEqual(repo)
+      expect(await saved.outbox.read()).toEqual([record('queued')])
+    } finally {
+      reopened.close()
+    }
+  })
 
   /**
    * PRE: entity E@v0, cursor seq 1, and the user's command M durable in `applied`.

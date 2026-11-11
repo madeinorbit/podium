@@ -88,6 +88,52 @@ it('counts keyed membership through eviction, readmission and replacement withou
   expect(replica.rowCount!('sessions')).toBe(0)
 })
 
+it('publishes only the addresses affected by a kind reload', () => {
+  const cache = new FakeCache()
+  cache.cursor = cache.completeAt = { feedId: 'f', epoch: 'e', seq: 1 }
+  cache.put('session', 's1', session('s1'))
+  cache.put('issueProjection', 'old', issue('old'))
+  const { replica } = build(cache)
+  const previousSessions = replica.rows('sessions')
+  const issues = vi.fn()
+  const sessions = vi.fn()
+  const addressed = vi.fn()
+  replica.subscribeRows('issueProjections', issues)
+  replica.subscribeRows('sessions', sessions)
+  replica.subscribeAddressedBatch!(addressed)
+  replica.onKernelEvent({ type: 'heal', rung: 2, cause: 'kind-shape', partial: true })
+
+  cache.drop('issueProjection', 'old')
+  cache.put('issueProjection', 'new', issue('new'))
+  replica.batch(() => {
+    replica.onKernelEvent({
+      type: 'upserted',
+      record: cache.read('issueProjection', 'new')!,
+      readmitted: false,
+    })
+    replica.onKernelEvent({
+      type: 'bootstrap-installed',
+      cause: 'kind-shape',
+      snapshotSeq: 2,
+      entityCount: 1,
+      bufferedFramesApplied: 0,
+      dropped: [{ entity: 'issueProjection', entityId: 'old' }],
+    })
+  })
+
+  expect(addressed).toHaveBeenCalledExactlyOnceWith({
+    type: 'update',
+    rows: [
+      { kind: 'issueProjections', id: 'new' },
+      { kind: 'issueProjections', id: 'old' },
+    ],
+  })
+  expect(issues).toHaveBeenCalledTimes(1)
+  expect(sessions).not.toHaveBeenCalled()
+  expect(replica.rows('sessions')).toBe(previousSessions)
+  expect(replica.rows('issueProjections')).toEqual([issue('new')])
+})
+
 it('lists keyed membership through deltas and replacement without building the sorted row array', () => {
   const { cache, replica } = build()
   cache.put('session', 's2', session('s2'))

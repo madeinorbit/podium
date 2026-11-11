@@ -75,24 +75,27 @@ import {
   nextPersonalRowsCompleteAt,
   type PersonalRowsCompleteness,
   type ScopedCacheCursor,
+  snapshotCacheCursor,
   trustedPersonalRowsCompleteAt,
 } from '../../replica/cache-completeness'
 import type {
   CacheMutation,
   OwnedSyncSpan,
   ReplicaCacheStore,
+  SnapshotVersions,
   SyncSpan,
   SyncSpanParticipant,
   SyncUnitOfWork,
 } from '../../replica/ports'
 import { ReplicaStoreCorruptError } from '../../replica/ports'
-import type { Cursor, EntityRecord } from '../../replica/types'
+import type { Cursor, EntityRecord, KindTokens } from '../../replica/types'
 import { SyncCommitConflict } from '../../span'
 import { ChangedKeyDraft } from '../changed-key-draft'
 import { mergeScrubReports, planSecretScrub, type SecretScrubReport } from '../secret-scrub'
 import {
   type IdbDatabaseLike,
   type IdbFactoryLike,
+  type IdbKeyRangeLike,
   type IdbTransactionLike,
   isQuotaError,
   requestAsPromise,
@@ -157,6 +160,7 @@ export interface IndexedDbStoreOptions {
    * cursor and authored outbox rows are independent of this policy. */
   readonly retainEntity?: (entity: string) => boolean
   readonly factory: IdbFactoryLike
+  readonly keyRange?: IdbKeyRangeLike
   readonly databaseName?: string
   /**
    * How long `indexedDB.open` may sit before the adapter degrades to memory.
@@ -182,7 +186,7 @@ export interface IndexedDbStoreOptions {
 /** One staged IndexedDB operation, issued into the commit transaction verbatim and IN ORDER. */
 type IdbOp =
   | { readonly kind: 'put'; readonly store: string; readonly value: unknown }
-  | { readonly kind: 'delete'; readonly store: string; readonly key: readonly unknown[] }
+  | { readonly kind: 'delete'; readonly store: string; readonly key: unknown }
 
 /** The post-state one span has staged, per region, plus the durable operations that produce it. */
 interface SpanDraft {
@@ -1102,6 +1106,11 @@ export class IndexedDbSyncStore {
     return this.options.retainEntity?.(entity) ?? true
   }
 
+  entityKindRange(principal: string, entity: string): unknown {
+    // In compound-key order, every string id sorts before the array sentinel.
+    return this.options.keyRange?.bound([principal, entity], [principal, entity, []])
+  }
+
   entitiesOf(principal: string): Map<string, EntityRecord> {
     return this.entities.get(principal) ?? new Map()
   }
@@ -1165,6 +1174,11 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
     return cursorTriple(this.store.cursorOf(this.principal))
   }
 
+  readKindTokens(): KindTokens | undefined {
+    this.store.guardReadable()
+    return this.store.cursorOf(this.principal)?.kindTokens
+  }
+
   readPersonalRowsCompleteAt(): Cursor | null {
     this.store.guardReadable()
     return cursorTriple(this.store.personalRowsCompleteAtOf(this.principal))
@@ -1205,6 +1219,7 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
     cursor: Cursor,
     buffered: readonly CacheMutation[],
     span?: SyncSpan,
+    versions: SnapshotVersions = {},
   ): void {
     this.store.guardReadable()
     // Reject invalid buffered certification before staging any snapshot writes.
@@ -1214,14 +1229,27 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
       // rows, the buffered deltas apply on top, and the cursor commits — one
       // transaction, no half-installed replica.
       const current = this.slice(draft)
-      for (const existing of current.values(this.store.entitiesOf(this.principal))) {
-        draft.ops.push({
-          kind: 'delete',
-          store: ENTITY_STORE,
-          key: [this.principal, existing.entity, existing.entityId],
-        })
+      const next = versions.kinds ? current : new ChangedKeyDraft(new Map<string, EntityRecord>())
+      const ranges = new Set<string>()
+      for (const entity of versions.kinds ?? []) {
+        const key = this.store.entityKindRange(this.principal, entity)
+        if (key === undefined) continue
+        // The durable range also removes rows a second tab added after this
+        // tab hydrated its mirror.
+        ranges.add(entity)
+        draft.ops.push({ kind: 'delete', store: ENTITY_STORE, key })
       }
-      const next = new ChangedKeyDraft(new Map<string, EntityRecord>())
+      for (const existing of current.values(this.store.entitiesOf(this.principal))) {
+        if (versions.kinds && !versions.kinds.has(existing.entity)) continue
+        if (!ranges.has(existing.entity)) {
+          draft.ops.push({
+            kind: 'delete',
+            store: ENTITY_STORE,
+            key: [this.principal, existing.entity, existing.entityId],
+          })
+        }
+        if (versions.kinds) next.delete(rowKey(existing.entity, existing.entityId))
+      }
       draft.entities.set(this.principal, next)
       draft.touchedCache = true
       for (const row of rows) {
@@ -1235,7 +1263,7 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
         if (mutation.cursor !== undefined) head = mutation.cursor
       }
       const completeAt = certifyPersonalRowsCompleteAt(head)
-      this.setCursor(draft, completeAt)
+      this.setCursor(draft, snapshotCacheCursor(completeAt, versions.kindTokens))
       this.setPersonalRowsCompleteAt(draft, completeAt)
     }
     if (span !== undefined) {

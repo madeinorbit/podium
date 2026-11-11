@@ -1,5 +1,11 @@
 import { SYNC_CONTENT_TYPE, SyncBootstrapRequired, type SyncMeta } from '@podium/protocol'
-import type { BootstrapChunk, BootstrapRequired, Cursor, DeltaFrame } from '@podium/sync/replica'
+import type {
+  AuthorityReadPort,
+  BootstrapChunk,
+  BootstrapRequired,
+  Cursor,
+  DeltaFrame,
+} from '@podium/sync/replica'
 import { toBootstrapChunk, toDeltaFrame } from '../replica/feed/frames'
 import { SyncAuthExpiredError, SyncCancelledError, SyncCorruptContentError, SyncFormatError, SyncNetworkError, SyncStreamFailed } from './errors'
 import { NdjsonLineReader } from './ndjson-reader'
@@ -123,8 +129,14 @@ export class HttpBootstrapSource {
    *  own transfer while other tabs and devices of the user never cancel each other. */
   private readonly clientId = globalThis.crypto.randomUUID()
   constructor(private readonly deps: HttpSyncSourceDeps) {}
-  async *bootstrap(signal?: AbortSignal): AsyncGenerator<BootstrapChunk> {
-    const path = '/sync/bootstrap'
+  async *bootstrap(
+    signal?: AbortSignal,
+    kinds?: readonly string[],
+  ): AsyncGenerator<BootstrapChunk> {
+    const path =
+      kinds === undefined
+        ? '/sync/bootstrap'
+        : `/sync/bootstrap?${new URLSearchParams({ kinds: kinds.join(',') })}`
     const attempt = beginAttempt(this.deps, 'bootstrap', path)
     // The DEFAULT is 'cancelled', because the commonest non-completion here is
     // the Replica breaking out of its `for await` when a walk is superseded —
@@ -149,7 +161,15 @@ export class HttpBootstrapSource {
           // Settled BEFORE the yield: the Replica breaks on `last`, so this
           // generator is never resumed and anything after the yield is dead code.
           outcome = 'complete'
-          yield { feedId: meta.feedId, epoch: meta.epoch, snapshotSeq: meta.seq, changes: [], last: true }
+          yield {
+            feedId: meta.feedId,
+            epoch: meta.epoch,
+            snapshotSeq: meta.seq,
+            changes: [],
+            last: true,
+            ...(meta.kindTokens && { kindTokens: meta.kindTokens }),
+            ...(meta.kinds && { kinds: meta.kinds }),
+          }
         }
       }
     } catch (error) {
@@ -198,8 +218,17 @@ async function refusal(response: Response, signal?: AbortSignal): Promise<Bootst
 }
 export class HttpDeltaSource {
   constructor(private readonly deps: HttpSyncSourceDeps) {}
-  async changesRange(cursor: Cursor, signal?: AbortSignal, onTarget?: (target: Cursor) => void): Promise<AsyncIterable<DeltaFrame> | BootstrapRequired> {
+  async changesRange(
+    cursor: Cursor,
+    signal?: AbortSignal,
+    onTarget?: Parameters<AuthorityReadPort['changesRange']>[2],
+    options?: Parameters<AuthorityReadPort['changesRange']>[3],
+  ): Promise<AsyncIterable<DeltaFrame> | BootstrapRequired> {
     const query = new URLSearchParams({ feedId: cursor.feedId, epoch: cursor.epoch, from: String(cursor.seq) })
+    if (options) {
+      query.set('to', String(options.to))
+      query.set('omitKinds', options.omitKinds.join(','))
+    }
     const path = `/sync/delta?${query}`
     const attempt = beginAttempt(this.deps, 'delta', path)
     let response: Response
@@ -231,7 +260,9 @@ export class HttpDeltaSource {
             if (record.mode !== 'delta' || record.feedId !== cursor.feedId || record.epoch !== cursor.epoch || record.fromSeq !== cursor.seq) {
               throw new SyncCorruptContentError('requested-cursor-mismatch')
             }
-            onTarget?.({ feedId: record.feedId, epoch: record.epoch, seq: record.seq })
+            const target = { feedId: record.feedId, epoch: record.epoch, seq: record.seq }
+            if (record.kindTokens === undefined) onTarget?.(target)
+            else onTarget?.(target, record.kindTokens)
             // Preserve the retention certificate for an equal-endpoint range.
             if (record.seq === cursor.seq) yield { kind: 'delta', ...cursor, fromSeq: cursor.seq, minAvailableSeq: record.minAvailableSeq, changes: [] }
           } else if (record.type === 'feedDelta') yield toDeltaFrame(record)

@@ -2740,6 +2740,7 @@ const CAUSES: Record<RebootstrapCause, true> = {
   'epoch-mismatch': true,
   'local-corruption': true,
   'schema-version': true,
+  'kind-shape': true,
   'cold-start': true,
 }
 void CAUSES

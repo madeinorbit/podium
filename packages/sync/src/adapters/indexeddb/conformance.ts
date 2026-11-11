@@ -34,8 +34,8 @@ import type {
 } from '../../conformance/instantiation'
 import type { OutboxApplyResult, OutboxStoreMutation, OutboxStorePort } from '../../outbox/ports'
 import type { OutboxRecord } from '../../outbox/records'
-import type { CacheMutation, ReplicaCacheStore } from '../../replica/ports'
-import type { Cursor, EntityRecord } from '../../replica/types'
+import type { CacheMutation, ReplicaCacheStore, SnapshotVersions } from '../../replica/ports'
+import type { Cursor, EntityRecord, KindTokens } from '../../replica/types'
 import type { OwnedSyncSpan, SyncSpan, SyncUnitOfWork } from '../../span'
 import type { IdbFactoryLike } from './idb'
 import { REPLICA_DB_NAME } from './schema'
@@ -53,6 +53,9 @@ class GatedCache implements ReplicaCacheStore {
 
   readCursor(): Cursor | null {
     return this.inner.readCursor()
+  }
+  readKindTokens(): KindTokens | undefined {
+    return this.inner.readKindTokens()
   }
   readPersonalRowsCompleteAt(): Cursor | null {
     return this.inner.readPersonalRowsCompleteAt()
@@ -81,9 +84,10 @@ class GatedCache implements ReplicaCacheStore {
     cursor: Cursor,
     buffered: readonly CacheMutation[],
     span?: SyncSpan,
+    versions?: SnapshotVersions,
   ): void {
     this.refuseIfDenied()
-    this.inner.installSnapshot(rows, cursor, buffered, span)
+    this.inner.installSnapshot(rows, cursor, buffered, span, versions)
     for (const mutation of buffered) this.observe(mutation)
   }
   discardCache(): void {

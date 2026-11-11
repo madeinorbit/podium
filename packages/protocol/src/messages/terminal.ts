@@ -14,7 +14,7 @@ import {
 } from '@podium/model'
 import { z } from 'zod'
 import { PresenceIdentity } from '../planes/presence-rooms'
-import { FeedCursorField } from './feed'
+import { FeedCursorField, SyncKindTokens } from './feed'
 import { ClientLogOrigin } from './logs'
 import { NativeBindingReceipt } from './native-binding'
 
@@ -69,6 +69,7 @@ export const CAP_METADATA_DELTA = 'metadataDelta'
  *  unconditionally. That is safe in the same way the whole additive rule is —
  *  zod objects STRIP unknown keys, so an older client's parse drops them. */
 export const CAP_SYNC_FEED_IDENTITY = 'syncFeedIdentity'
+export const CAP_SYNC_KIND_VERSIONS = 'sync.kind-versions.v1'
 
 export const CAP_ISSUES_NORMALIZED = 'issuesNormalized'
 /** Client capability: this connection accepts v1 binary PTY output envelopes.
@@ -309,6 +310,7 @@ export const WelcomeMessage = z.object({
   clientId: z.string(),
   /** Capabilities negotiated for this connection. Absent from older servers. */
   caps: z.array(z.string()).optional(),
+  kindTokens: SyncKindTokens.optional(),
   /**
    * The account this connection is signed in as, sent with `topics.v1` so the
    * client can hold its own `account.events:<user>` topic (ADR 7 Amendment 2

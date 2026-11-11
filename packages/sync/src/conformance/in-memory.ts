@@ -31,8 +31,8 @@ import type { OutboxApplyResult, OutboxStoreMutation, OutboxStorePort } from '..
 import type { OutboxRecord } from '../outbox/records'
 import { InMemoryOutboxStore, InMemoryUnitOfWork } from '../outbox/test-doubles'
 import { InMemoryReplicaStore, type StoreView } from '../replica/memory-store'
-import type { CacheMutation, ReplicaCacheStore } from '../replica/ports'
-import type { Cursor, EntityRecord } from '../replica/types'
+import type { CacheMutation, ReplicaCacheStore, SnapshotVersions } from '../replica/ports'
+import type { Cursor, EntityRecord, KindTokens } from '../replica/types'
 import type { OwnedSyncSpan, SyncSpan, SyncUnitOfWork } from '../span'
 import type {
   ConformanceStorage,
@@ -67,6 +67,9 @@ class GatedCache implements ReplicaCacheStore {
   readCursor(): Cursor | null {
     return this.inner.readCursor()
   }
+  readKindTokens(): KindTokens | undefined {
+    return this.inner.readKindTokens()
+  }
   readPersonalRowsCompleteAt(): Cursor | null {
     return this.inner.readPersonalRowsCompleteAt()
   }
@@ -97,9 +100,10 @@ class GatedCache implements ReplicaCacheStore {
     cursor: Cursor,
     buffered: readonly CacheMutation[],
     span?: SyncSpan,
+    versions?: SnapshotVersions,
   ): void {
     this.refuseIfDenied()
-    this.inner.installSnapshot(rows, cursor, buffered, span)
+    this.inner.installSnapshot(rows, cursor, buffered, span, versions)
     // A bootstrap install carries the buffered frames' operations too; they cross the
     // same port and carry the same obligation.
     for (const mutation of buffered) this.observe(mutation)

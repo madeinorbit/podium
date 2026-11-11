@@ -1,4 +1,9 @@
-import type { Principal, SyncMeta, SyncBootstrapRequiredReason } from '@podium/protocol'
+import type {
+  MetadataEntityKind,
+  Principal,
+  SyncMeta,
+  SyncBootstrapRequiredReason,
+} from '@podium/protocol'
 
 export const SYNC_WORKER_MAX_JOBS = 2
 export const SYNC_WORKER_QUEUE_DEPTH = 8
@@ -6,19 +11,22 @@ export const SYNC_CHUNK_BYTES = 64 * 1024
 export const SYNC_JOB_DEADLINE_MS = 10 * 60 * 1000
 
 export interface BootstrapJob {
+  mode?: 'snapshot'
   transferId: string
   principal: Principal
   feedId: string
   epoch: string
   encoding: 'identity' | 'gzip' | 'zstd'
+  kinds?: [MetadataEntityKind, ...MetadataEntityKind[]]
   /** Absolute epoch milliseconds; omitted means ten minutes from admission. */
   deadlineMs?: number
 }
-export interface DeltaJob extends BootstrapJob {
+export interface DeltaJob extends Omit<BootstrapJob, 'kinds' | 'mode'> {
   mode: 'delta'
   from: number
   to?: number
   pageRows?: number
+  omitKinds?: readonly MetadataEntityKind[]
 }
 export type SyncJob = BootstrapJob | DeltaJob
 export type SyncMetaSummary = SyncMeta

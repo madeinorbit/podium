@@ -1,6 +1,12 @@
 import { SyncWorkerError, type SyncWorkerClient } from '../sync-worker/worker-client'
 import { randomUUID } from 'node:crypto'
-import { parseSyncDeltaQuery, principalRoutingId, SyncBootstrapRequiredReason, type Principal } from '@podium/protocol'
+import {
+  parseSyncBootstrapKinds,
+  parseSyncDeltaQuery,
+  principalRoutingId,
+  SyncBootstrapRequiredReason,
+  type Principal,
+} from '@podium/protocol'
 import type { Hono } from 'hono'
 import { negotiateContentCoding, syncResponseHeaders, syncRefusal, observeSyncTransfer, logSyncTransfer, transferLog, type SyncTransferMetrics, type SyncDeltaPorts } from './route-support'
 
@@ -20,6 +26,8 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
   app.get('/sync/bootstrap', async (c) => {
     const principal = await deps.principal(c.req.raw)
     if (!principal) return syncRefusal('noFeedPrincipal', 'authenticated feed principal required')
+    const kinds = parseSyncBootstrapKinds(new URL(c.req.url).searchParams)
+    if (!kinds.success) return c.json({ error: 'invalid bootstrap kinds' }, 400)
     const coding = negotiateContentCoding(c.req.raw.headers.get('accept-encoding'))
     if (coding === 'not-acceptable') return c.body(null, 406)
     const routingId = String(principalRoutingId(principal))
@@ -58,7 +66,17 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
       if (!worker) throw new SyncWorkerError('unavailable')
       const { feedId, epoch } = await deps.serving.identity()
       if (signal.aborted) throw new SyncWorkerError('cancelled')
-      const transfer = worker.bootstrap({ transferId, principal, feedId, epoch, encoding: coding }, signal)
+      const transfer = worker.bootstrap(
+        {
+          transferId,
+          principal,
+          feedId,
+          epoch,
+          encoding: coding,
+          ...(kinds.data && { kinds: kinds.data }),
+        },
+        signal,
+      )
       completionOwnsLog = true
       // Completion arrives independently of body demand, including queue refusal,
       // disconnected readers, shutdown, and a dead worker. Never parse relay bytes.
@@ -114,8 +132,21 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
       }
       const worker = deps.worker?.()
       if (!worker?.delta) throw new SyncWorkerError('unavailable')
-      const transfer = worker.delta({ mode: 'delta', transferId, principal, feedId, epoch,
-        encoding: coding, from: query.data.from, to: query.data.to, pageRows: deps.pageRows ?? 500 }, c.req.raw.signal)
+      const transfer = worker.delta(
+        {
+          mode: 'delta',
+          transferId,
+          principal,
+          feedId,
+          epoch,
+          encoding: coding,
+          from: query.data.from,
+          to: query.data.to,
+          pageRows: deps.pageRows ?? 500,
+          ...(query.data.omitKinds && { omitKinds: query.data.omitKinds }),
+        },
+        c.req.raw.signal,
+      )
       completionOwnsLog = true
       void transfer.completed.then(({ metrics: captured, reason }) => {
         if (captured) {

@@ -147,6 +147,10 @@ export const FEED_ENTITY_KINDS: readonly string[] = FeedChange.options.map(
   (arm) => (arm.shape.entity as z.ZodLiteral<string>).value,
 )
 
+/** Opaque versions of the published record kinds, compared by equality. */
+export const SyncKindTokens = z.record(z.string().min(1), z.string().min(1))
+export type SyncKindTokens = Readonly<z.infer<typeof SyncKindTokens>>
+
 /** The catch-all arm — a kind THIS build does not know, from a newer server.
  *  Kinds this build CAN parse are excluded, so a known-kind row with an invalid
  *  value still fails parse (quarantine → the frame keeps its other rows and the

@@ -223,6 +223,12 @@ export const feedIdentity = sqliteTable(
   (table) => [check('feed_identity_singleton', sql`${table.singleton} = 1`)],
 )
 
+/** Absent kinds are at generation zero. Hosting adds the tenant key. */
+export const syncKind = sqliteTable('sync_kind', {
+  kind: text().primaryKey(),
+  generation: integer().notNull(),
+})
+
 export const appliedMutations = sqliteTable(
   'applied_mutations',
   {

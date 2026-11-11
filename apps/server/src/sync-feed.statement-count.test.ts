@@ -22,7 +22,13 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { firstAdminMemberId, type IssueId, type UserId } from '@podium/model'
-import { CLIENT_WIRE_VERSION, type Principal, type ServerMessage } from '@podium/protocol'
+import {
+  CAP_SYNC_HTTP_V1,
+  CAP_SYNC_KIND_VERSIONS,
+  CLIENT_WIRE_VERSION,
+  type Principal,
+  type ServerMessage,
+} from '@podium/protocol'
 import { queryKey } from '@podium/runtime/query-attribution'
 import type { OpenOptions, SqlDatabase } from '@podium/runtime/sqlite'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
@@ -273,20 +279,34 @@ describe('sync worker: pinned statement counts at 5 and 200', () => {
     true,
   )
 
-  // RE-PINNED 6 -> 65 FOR POD-6770: the load is built from the model tables.
-  // The snapshot's head and floor, then for each of the 37 kinds its
+  // The snapshot's head, floor and kind generations, then for each of the 37 kinds its
   // builder reads (one or a few statements per page) and the sharing
   // rules' reads for that page. The count is per PAGE of 500 records, by
   // design: it is the same at 5 and 200 rows, and a kind with more than one
   // page pays its reads once per page. Before, it was two passes over
   // `change_latest` and one prefetch for the whole world.
-  // POD-6791: the issue and its body headers share a page read: 65 -> 64.
+  // POD-6791 shares the issue/body-header read; the kind-generation read adds one: 65.
   it('a bootstrap for the owner', async () => {
-    await expectConstantStatements(bootstrap, 64)
+    await expectConstantStatements(bootstrap, 65)
   })
 
   it('a bootstrap pin is armed', async () => {
-    await expectArmed(bootstrap, 64, plantPerSessionRead)
+    await expectArmed(bootstrap, 65, plantPerSessionRead)
+  })
+
+  it('reads a filtered bootstrap with the same statement count at both sizes', async () => {
+    const filtered = pin(
+      'filtered worker bootstrap',
+      (size) => world(size),
+      async (w) => await records(w, job(w, { kinds: ['issueProjection'] })),
+      (result, _w, size) => {
+        const rows = rowsOf(result as { type: string; changes?: unknown[] }[], 'feedBootstrap')
+        expect(rows).toHaveLength(size)
+        expect(rows).toEqual(rows.map(() => expect.objectContaining({ entity: 'issueProjection' })))
+      },
+      true,
+    )
+    await expectConstantStatements(filtered, 6)
   })
 
   const delta = pin(
@@ -303,17 +323,17 @@ describe('sync worker: pinned statement counts at 5 and 200', () => {
     true,
   )
 
-  // The producer's head and floor, the page of changes, and the batch
+  // The producer's head, floor and kind generations, the page of changes, and the batch
   // prefetch's reads (issues, grant audiences, sessions). RE-PINNED 8 -> 7 FOR
   // POD-6341: the prefetch's issue grants read (#9119be47) left with POD-6288
   // (tasks are shared, design §2.2, §4.1). RE-PINNED 7 -> 6 FOR POD-6766: the
   // issue-event subjects are no longer read from change_latest up front.
   it('a delta over one rename of every issue', async () => {
-    await expectConstantStatements(delta, 6)
+    await expectConstantStatements(delta, 7)
   })
 
   it('a delta pin is armed', async () => {
-    await expectArmed(delta, 6, plantPerAudienceRead)
+    await expectArmed(delta, 7, plantPerAudienceRead)
   })
 })
 
@@ -380,10 +400,14 @@ describe('client hello: pinned statement counts at 5 and 200', () => {
     return { ...w, clientId, inbox }
   }
 
-  const hello = (c: Client, feedCursor?: unknown) =>
+  const hello = (
+    c: Client,
+    feedCursor?: unknown,
+    caps = [CAP_SYNC_HTTP_V1, CAP_SYNC_KIND_VERSIONS],
+  ) =>
     c.reg.clientGateway.routeClientFrame(c.clientId, {
       type: 'hello',
-      caps: ['sync.http.v1'],
+      caps,
       wireVersion: CLIENT_WIRE_VERSION,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
@@ -405,20 +429,25 @@ describe('client hello: pinned statement counts at 5 and 200', () => {
     },
     check: (_result, w) => {
       expect((w as Client).inbox.some((message) => message.type === 'feedResume')).toBe(true)
+      expect((w as Client).inbox).toContainEqual(
+        expect.objectContaining({
+          type: 'welcome',
+          kindTokens: expect.objectContaining({ issueProjection: expect.stringMatching(/:0$/) }),
+        }),
+      )
     },
     teardown,
   })
 
   const fresh = helloPin('hello without a cursor', async () => undefined)
 
-  // The head it is admitted at. The resume trace read the head a second time
-  // whether tracing was on or not, until POD-6227: 2 -> 1.
+  // The head it is admitted at and the kind generations.
   it('a hello without a cursor is admitted at the head', async () => {
-    await expectConstantStatements(fresh, 1)
+    await expectConstantStatements(fresh, 2)
   })
 
   it('a hello pin is armed', async () => {
-    await expectArmed(fresh, 1, plantPerIssue)
+    await expectArmed(fresh, 2, plantPerIssue)
   })
 
   it('a hello that resumes from a cursor', async () => {
@@ -427,8 +456,24 @@ describe('client hello: pinned statement counts at 5 and 200', () => {
         ...(await (c.reg.syncDelta.serving as FeedServing).identity()),
         seq: c.from,
       })),
-      // The head and the retention floor the cursor is checked against.
-      2,
+      // The head, retention floor and kind generations.
+      3,
     )
+  })
+
+  it('requests a full reload from a current client without kind versions', async () => {
+    const c = await connected(5)
+    try {
+      const serving = c.reg.syncDelta.serving as FeedServing
+      const cursor = { ...(await serving.identity()), seq: c.from }
+      await hello(c, cursor, [CAP_SYNC_HTTP_V1])
+      await serving.admissionSettled()
+      expect(c.inbox).toContainEqual(expect.objectContaining({ type: 'feedResyncRequired' }))
+      expect(
+        c.inbox.some((message) => message.type === 'welcome' && message.kindTokens !== undefined),
+      ).toBe(false)
+    } finally {
+      await teardown(c)
+    }
   })
 })

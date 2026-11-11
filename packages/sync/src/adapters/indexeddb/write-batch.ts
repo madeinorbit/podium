@@ -2,7 +2,7 @@ import type { IdbObjectStoreLike, IdbRequestLike, IdbTransactionLike } from './i
 
 type Write =
   | { readonly kind: 'put'; readonly store: string; readonly value: unknown }
-  | { readonly kind: 'delete'; readonly store: string; readonly key: readonly unknown[] }
+  | { readonly kind: 'delete'; readonly store: string; readonly key: unknown }
 
 /** Bound synchronous structured-clone work without splitting the transaction.
  * The next batch starts inside this transaction's own request success event,

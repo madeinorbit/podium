@@ -34,6 +34,8 @@ export interface Cursor {
   readonly seq: number
 }
 
+export type KindTokens = Readonly<Record<string, string>>
+
 /**
  * The removal family, all three members (ADR 2 D5 + Amendment 1 D14.5). D5 warns
  * that soft-delete and tombstone "look identical from a distance and are not";
@@ -170,6 +172,9 @@ export interface BootstrapChunk {
   /** Positive state only — `upsert` rows. A `remove`/`evict` here is malformed. */
   readonly changes: readonly ChangeEnvelope[]
   readonly last: boolean
+  /** Transfer header metadata, certified when the last chunk arrives. */
+  readonly kindTokens?: KindTokens
+  readonly kinds?: readonly string[]
 }
 
 /**
@@ -215,6 +220,8 @@ export type RebootstrapCause =
   | 'local-corruption'
   /** rung 6 — replica schema version bump (D4). */
   | 'schema-version'
+  /** A wire schema, publication rule, or stored generation changed. */
+  | 'kind-shape'
   /** rung 2 — a cold client has no cursor to heal from. */
   | 'cold-start'
 
@@ -253,13 +260,20 @@ export type ReplicaEvent =
       /** Fixed source target; undefined only for sources without target metadata. */
       readonly targetSeq: number | undefined
     }
-  | { readonly type: 'heal'; readonly rung: HealRung; readonly cause: RebootstrapCause | 'gap' }
+  | {
+      readonly type: 'heal'
+      readonly rung: HealRung
+      readonly cause: RebootstrapCause | 'gap'
+      readonly partial?: true
+    }
   | {
       readonly type: 'bootstrap-installed'
       readonly cause: RebootstrapCause
       readonly snapshotSeq: number
       readonly entityCount: number
       readonly bufferedFramesApplied: number
+      /** A filtered install reports the cached addresses absent from the new slice. */
+      readonly dropped?: readonly Pick<EntityRecord, 'entity' | 'entityId'>[]
     }
   /** Surfaced, never swallowed. The prior slice stays visible (D7 stale-visible). */
   | {

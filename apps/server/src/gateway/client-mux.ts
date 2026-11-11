@@ -49,6 +49,8 @@ import type { SessionId, UserId, UserRole } from '@podium/model'
 import {
   CAP_METADATA_DELTA,
   CAP_SYNC_HTTP_V1,
+  CAP_SYNC_KIND_VERSIONS,
+  type SyncKindTokens,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TOPICS_V1,
   type ClientMessage,
@@ -201,6 +203,7 @@ export interface ClientMuxDeps {
   /** What this build and its config say about its feature flags, sent in every
    *  `welcome` beside the build (POD-6677). */
   readonly serverFeatures?: () => ServerFeatureFacts
+  readonly syncKindTokens?: () => Promise<SyncKindTokens>
   /** The clock `pong` reports, for the client's skew reading. */
   readonly now?: () => number
 }
@@ -450,19 +453,31 @@ export class ClientMux {
         msg.feedCursor,
       )
       if (conn.entityServingRefused) return Promise.resolve(completion)
-      this.deps.registry.deliver(conn, {
-        type: 'welcome',
+      const readKindTokens = conn.caps.has(CAP_SYNC_KIND_VERSIONS)
+        ? this.deps.syncKindTokens
+        : undefined
+      const welcome = {
+        type: 'welcome' as const,
         wireVersion: conn.wireVersion,
         clientId: conn.id,
         caps: [
           ...(conn.caps.has(CAP_TERMINAL_INPUT_BINARY_V1) ? [CAP_TERMINAL_INPUT_BINARY_V1] : []),
           ...(conn.caps.has(CAP_TOPICS_V1) ? [CAP_TOPICS_V1] : []),
+          ...(readKindTokens ? [CAP_SYNC_KIND_VERSIONS] : []),
         ],
         // Topics: the account whose `account.events` this client may hold (D26).
         ...(conn.caps.has(CAP_TOPICS_V1) ? { accountUser: conn.principal.user } : {}),
         ...(this.deps.serverBuild ? { serverBuild: this.deps.serverBuild() } : {}),
         ...(this.deps.serverFeatures ? { serverFeatures: wireFacts(this.deps.serverFeatures()) } : {}),
-      })
+      }
+      if (readKindTokens) {
+        const delivered = readKindTokens().then((kindTokens) => {
+          if (this.deps.registry.get(id) === conn && !conn.entityServingRefused)
+            this.deps.registry.deliver(conn, { ...welcome, kindTokens })
+        })
+        return Promise.all([completion, delivered]).then(() => undefined)
+      }
+      this.deps.registry.deliver(conn, welcome)
     }
     return Promise.resolve(completion)
   }
@@ -559,6 +574,8 @@ export class ClientMux {
       wireVersion: conn.wireVersion,
       acceptsDelta: conn.caps.has(CAP_METADATA_DELTA),
       syncHttp: conn.caps.has(CAP_SYNC_HTTP_V1),
+      reloadLegacyKinds:
+        this.deps.syncKindTokens !== undefined && !conn.caps.has(CAP_SYNC_KIND_VERSIONS),
       send: (msg: Parameters<ClientRegistry['deliver']>[1]) =>
         this.deps.registry.deliver(conn, msg),
       sendSequence: (source: Parameters<ClientRegistry['deliverSequence']>[1]) =>

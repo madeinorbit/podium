@@ -1,9 +1,10 @@
 import type { CacheMutation } from './ports'
-import type { Cursor } from './types'
+import type { Cursor, KindTokens } from './types'
 
 /** Private cursor metadata. Old snapshot installers replace it with a plain triple. */
 export interface ScopedCacheCursor extends Cursor {
   readonly scopeFingerprint?: string
+  readonly kindTokens?: KindTokens
 }
 
 export interface PersonalRowsCompleteness extends ScopedCacheCursor {
@@ -83,6 +84,14 @@ export function certifyPersonalRowsCompleteAt(
   return { feedId: cursor.feedId, epoch: cursor.epoch, seq: cursor.seq, scopeFingerprint }
 }
 
+/** Bind shape tokens to the same durable cursor as the rows they describe. */
+export function snapshotCacheCursor(
+  completeAt: PersonalRowsCompleteness,
+  kindTokens: KindTokens | undefined,
+): ScopedCacheCursor {
+  return kindTokens === undefined ? completeAt : { ...completeAt, kindTokens: { ...kindTokens } }
+}
+
 /** Shared port law, evaluated BEFORE any adapter stages data. */
 export function nextPersonalRowsCompleteAt(
   previous: Cursor | null,
@@ -115,8 +124,12 @@ export function nextCacheCompleteness(
         ? previous
         : certifyPersonalRowsCompleteAt(completeAt, previous?.scopeFingerprint)
   }
+  if (mutation.cursor === undefined) return { cursor, marker: nextMarker }
+  const next = nextMarker ?? cursorTriple(mutation.cursor)
+  const kindTokens = cursor?.kindTokens
+  const sameFeed = cursor?.feedId === next?.feedId && cursor?.epoch === next?.epoch
   return {
-    cursor: mutation.cursor === undefined ? cursor : (nextMarker ?? cursorTriple(mutation.cursor)),
+    cursor: sameFeed && next && kindTokens ? { ...next, kindTokens } : next,
     marker: nextMarker,
   }
 }

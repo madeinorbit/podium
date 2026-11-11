@@ -102,6 +102,69 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
       },
     })
 
+  it('commits a kind replacement and its tokens together while keeping authored work', async () => {
+    const first = await open()
+    const view = first.viewFor(PRINCIPAL)
+    const issue = {
+      entity: 'issueProjection',
+      entityId: 'old',
+      value: { old: true },
+      provenance: { seq: 1 },
+    }
+    const repo = { entity: 'repo', entityId: 'keep', value: {}, provenance: { seq: 1 } }
+    const oldTokens = { issueProjection: 'old', repo: 'unchanged' }
+    await first.unitOfWork.transact(async (span) => {
+      view.cache.installSnapshot([issue, repo], CURSOR_1, [], span, { kindTokens: oldTokens })
+      expect(
+        await view.outbox.apply(
+          {
+            put: [record('queued')],
+            expect: [{ mutationId: M, expect: 'absent' }],
+          },
+          span,
+        ),
+      ).toEqual({ ok: true })
+    })
+    const newTokens = { ...oldTokens, issueProjection: 'new' }
+    const replace = (store: SqliteSyncStore) =>
+      store.unitOfWork.transact(async (span) => {
+        store
+          .viewFor(PRINCIPAL)
+          .cache.installSnapshot(
+            [{ ...issue, entityId: 'new', value: { old: false } }],
+            CURSOR_2,
+            [],
+            span,
+            { kinds: new Set([issue.entity]), kindTokens: newTokens },
+          )
+      })
+    faulty.denyWriteAt({ at: 2, error: new Error('power loss') })
+    await expect(replace(first)).rejects.toThrow('power loss')
+    first.close()
+    const retry = await open()
+    expect(retry.viewFor(PRINCIPAL).cache.readKindTokens()).toEqual(oldTokens)
+    expect(retry.viewFor(PRINCIPAL).cache.read(issue.entity, 'old')?.value).toEqual(issue.value)
+    await replace(retry)
+    retry.close()
+
+    const reopened = await open()
+    try {
+      const saved = reopened.viewFor(PRINCIPAL)
+      expect(saved.cache.readCursor()).toEqual(CURSOR_2)
+      expect(saved.cache.readKindTokens()).toEqual(newTokens)
+      expect(
+        saved.cache
+          .readEntities()
+          .map((row) => row.entityId)
+          .sort(),
+      ).toEqual(['keep', 'new'])
+      expect(saved.cache.read(repo.entity, repo.entityId)?.value).toEqual(repo.value)
+      expect(await saved.outbox.read()).toEqual([record('queued')])
+    } finally {
+      reopened.close()
+    }
+  })
+
   /**
    * PRE: entity E@v0, cursor seq 1, and the user's command M durable in `applied`.
    *

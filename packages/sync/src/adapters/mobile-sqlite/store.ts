@@ -96,18 +96,20 @@ import {
   nextPersonalRowsCompleteAt,
   type PersonalRowsCompleteness,
   type ScopedCacheCursor,
+  snapshotCacheCursor,
   trustedPersonalRowsCompleteAt,
 } from '../../replica/cache-completeness'
 import type {
   CacheMutation,
   OwnedSyncSpan,
   ReplicaCacheStore,
+  SnapshotVersions,
   SyncSpan,
   SyncSpanParticipant,
   SyncUnitOfWork,
 } from '../../replica/ports'
 import { ReplicaStoreCorruptError } from '../../replica/ports'
-import type { Cursor, EntityRecord } from '../../replica/types'
+import type { Cursor, EntityRecord, KindTokens } from '../../replica/types'
 import { SyncCommitConflict } from '../../span'
 import { ChangedKeyDraft } from '../changed-key-draft'
 import { mergeScrubReports, planSecretScrub, type SecretScrubReport } from '../secret-scrub'
@@ -1007,6 +1009,11 @@ class SqliteCacheStore implements ReplicaCacheStore {
     return cursorTriple(this.store.cursorOf(this.principal))
   }
 
+  readKindTokens(): KindTokens | undefined {
+    this.store.guardReadable()
+    return this.store.cursorOf(this.principal)?.kindTokens
+  }
+
   readPersonalRowsCompleteAt(): Cursor | null {
     this.store.guardReadable()
     return cursorTriple(this.store.personalRowsCompleteAtOf(this.principal))
@@ -1045,6 +1052,7 @@ class SqliteCacheStore implements ReplicaCacheStore {
     cursor: Cursor,
     buffered: readonly CacheMutation[],
     span?: SyncSpan,
+    versions: SnapshotVersions = {},
   ): void {
     this.store.guardReadable()
     // Reject invalid buffered certification before staging any snapshot writes.
@@ -1053,12 +1061,26 @@ class SqliteCacheStore implements ReplicaCacheStore {
       // The atomic swap of ADR 2 D6.4: the staged slice REPLACES this principal's
       // rows, the buffered deltas apply on top, and the cursor commits — one
       // transaction, no half-installed replica.
-      draft.ops.push({
-        sql: `DELETE FROM ${ENTITY_TABLE} WHERE principal = ?`,
-        params: [this.principal],
-      })
-      const next = new ChangedKeyDraft(new Map<string, EntityRecord>())
-      draft.entities.set(this.principal, next)
+      let next: ChangedKeyDraft<EntityRecord>
+      if (versions.kinds) {
+        next = this.slice(draft)
+        for (const entity of versions.kinds) {
+          draft.ops.push({
+            sql: `DELETE FROM ${ENTITY_TABLE} WHERE principal = ? AND entity = ?`,
+            params: [this.principal, entity],
+          })
+        }
+        for (const row of next.values(this.store.entitiesOf(this.principal))) {
+          if (versions.kinds.has(row.entity)) next.delete(rowKey(row.entity, row.entityId))
+        }
+      } else {
+        draft.ops.push({
+          sql: `DELETE FROM ${ENTITY_TABLE} WHERE principal = ?`,
+          params: [this.principal],
+        })
+        next = new ChangedKeyDraft(new Map<string, EntityRecord>())
+        draft.entities.set(this.principal, next)
+      }
       draft.touchedCache = true
       for (const row of rows) {
         if (!this.store.retainsEntity(row.entity)) continue
@@ -1071,7 +1093,7 @@ class SqliteCacheStore implements ReplicaCacheStore {
         if (mutation.cursor !== undefined) head = mutation.cursor
       }
       const completeAt = certifyPersonalRowsCompleteAt(head)
-      this.setCursor(draft, completeAt)
+      this.setCursor(draft, snapshotCacheCursor(completeAt, versions.kindTokens))
       this.setPersonalRowsCompleteAt(draft, completeAt)
     }
     if (span !== undefined) {

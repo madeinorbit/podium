@@ -149,6 +149,7 @@ export async function openKernelAssembly(
     openStore: (onDegraded) =>
       IndexedDbSyncStore.open({
         factory: options.factory ?? (globalThis.indexedDB as unknown as IdbFactoryLike),
+        keyRange: options.factory === undefined ? globalThis.IDBKeyRange : undefined,
         databaseName,
         retainEntity: retainReplicaEntity,
         onDegraded,

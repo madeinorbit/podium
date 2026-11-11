@@ -29,6 +29,7 @@ import {
   nextPersonalRowsCompleteAt,
   type PersonalRowsCompleteness,
   type ScopedCacheCursor,
+  snapshotCacheCursor,
   trustedPersonalRowsCompleteAt,
 } from './cache-completeness'
 import type { RetirementIntent } from './overlay'
@@ -36,12 +37,13 @@ import type {
   CacheMutation,
   OwnedSyncSpan,
   ReplicaCacheStore,
+  SnapshotVersions,
   SyncSpan,
   SyncSpanParticipant,
   SyncUnitOfWork,
 } from './ports'
 import { ReplicaStoreCorruptError } from './ports'
-import type { Cursor, EntityRecord } from './types'
+import type { Cursor, EntityRecord, KindTokens } from './types'
 
 const key = (entity: string, entityId: string): string => `${entity}\u0000${entityId}`
 
@@ -142,6 +144,11 @@ class InMemoryCache implements ReplicaCacheStore {
     return cursorTriple(this.cursorValue)
   }
 
+  readKindTokens(): KindTokens | undefined {
+    this.guard()
+    return this.cursorValue?.kindTokens
+  }
+
   readPersonalRowsCompleteAt(): Cursor | null {
     this.guard()
     return cursorTriple(
@@ -198,6 +205,7 @@ class InMemoryCache implements ReplicaCacheStore {
     cursor: Cursor,
     buffered: readonly CacheMutation[],
     span?: SyncSpan,
+    versions: SnapshotVersions = {},
   ): void {
     this.guard()
     // Reject invalid buffered certification before staging any snapshot writes.
@@ -206,7 +214,13 @@ class InMemoryCache implements ReplicaCacheStore {
     // the D7 "discard the cache"), the buffered deltas apply on top, and the
     // cursor commits — one transaction, no half-installed replica, and no window
     // in which the replica holds a mixture of two principals' slices.
+    const draft = span === undefined ? undefined : this.draftFor(span)
     const next = new Map<string, EntityRecord>()
+    if (versions.kinds) {
+      for (const [key, row] of draft?.rows ?? this.rows) {
+        if (!versions.kinds.has(row.entity)) next.set(key, row)
+      }
+    }
     for (const row of rows) next.set(key(row.entity, row.entityId), row)
     let head = cursor
     for (const mutation of buffered) {
@@ -214,18 +228,18 @@ class InMemoryCache implements ReplicaCacheStore {
       if (mutation.cursor !== undefined) head = mutation.cursor
     }
     const completeAt = certifyPersonalRowsCompleteAt(head)
-    if (span === undefined) {
+    const installed = snapshotCacheCursor(completeAt, versions.kindTokens)
+    if (draft === undefined) {
       this.rows = next
-      this.cursorValue = completeAt
+      this.cursorValue = installed
       this.personalRowsCompleteAt = completeAt
       this.physical.countTransaction()
       return
     }
     // An install REPLACES rather than extends, so it overwrites the draft's rows
     // outright — the replacement IS the semantics, unlike applyAtomic's extension.
-    const draft = this.draftFor(span)
     draft.rows = next
-    draft.cursor = completeAt
+    draft.cursor = installed
     draft.personalRowsCompleteAt = completeAt
   }
 

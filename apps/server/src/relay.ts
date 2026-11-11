@@ -284,6 +284,7 @@ import { registerUpdateEffect, type UpdateEffects } from './modules/updates/upda
 import { readUsageSummary } from './modules/usage-summary'
 import { reconcileUserRecords } from './modules/user-records/reconcile'
 import { reconcileWorkflowRecords } from './modules/workflows/records'
+import { readKindTokens } from './sync/kind-tokens'
 import { WorkflowService } from './modules/workflows/service'
 import { asSystemWrite, syncedWriteProvenance } from './plain-command-scope'
 import { privateResourceAccess } from './private-resources'
@@ -5138,6 +5139,7 @@ export class SessionRegistry {
       topics,
       serverBuild: () => serverBuildVersion(),
       serverFeatures: () => serverFeatureFacts(),
+      syncKindTokens: () => readKindTokens(this.store.sync),
       now: () => this.now(),
       // This task is independent of session replay and feed admission
       // (POD-3509). Approvals reach a client on the feed (POD-6674).

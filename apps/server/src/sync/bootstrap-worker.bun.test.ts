@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { gunzipSync, zstdDecompressSync } from 'node:zlib'
 import { asIssueId, asMachineId, asUserId, issueEventRowId } from '@podium/model'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { Hono } from 'hono'
 import WebSocket from 'ws'
 
@@ -143,6 +144,7 @@ async function fixture() {
   })
   return {
     app,
+    path,
     store,
     worker,
     authority,
@@ -155,6 +157,59 @@ async function fixture() {
     },
   }
 }
+
+it('filters the snapshot and changes only the token whose generation was bumped', async () => {
+  const f = await fixture()
+  try {
+    await f.seedIssue('first', 12)
+    await f.moveHead()
+    const records = async (path: string) => {
+      const response = await f.app.request(path, { headers: { 'accept-encoding': 'identity' } })
+      expect(response.status).toBe(200)
+      return (await response.text())
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line))
+    }
+    const full = await records('/sync/bootstrap')
+    const before = full[0].kindTokens
+    expect(before.issuePanelState).toMatch(/:0$/)
+    expect(before.issueProjection).toMatch(/:0$/)
+    const db = openDatabase(f.path)
+    try {
+      db.exec(
+        "INSERT INTO sync_kind (kind, generation) VALUES ('issuePanelState', 1) ON CONFLICT (kind) DO UPDATE SET generation = sync_kind.generation + 1",
+      )
+    } finally {
+      db.close()
+    }
+    const filtered = await records('/sync/bootstrap?kinds=issuePanelState')
+    expect(filtered[0]).toMatchObject({ kinds: ['issuePanelState'], seq: full[0].seq })
+    expect(filtered[0].kindTokens).toEqual({
+      ...before,
+      issuePanelState: before.issuePanelState.replace(/:0$/, ':1'),
+    })
+    expect(
+      filtered
+        .filter((record) => record.type === 'feedBootstrap')
+        .flatMap((record) => record.changes)
+        .map((row) => [row.entity, row.entityId]),
+    ).toEqual([['issuePanelState', 'first']])
+    expect(
+      (await f.app.request('/sync/bootstrap?kinds=issuePanelState,issuePanelState')).status,
+    ).toBe(400)
+    const delta = await records(
+      '/sync/delta?feedId=fixture-feed&epoch=fixture-epoch&from=0&to=1&omitKinds=issueProjection',
+    )
+    expect(delta[0].kindTokens).toEqual(filtered[0].kindTokens)
+    expect(
+      delta.filter((record) => record.type === 'feedDelta').flatMap((record) => record.changes),
+    ).toEqual([])
+    expect(delta.at(-1)).toMatchObject({ type: 'syncComplete', seq: 1, rows: 0 })
+  } finally {
+    await f.close()
+  }
+})
 
 it.each([
   'identity',

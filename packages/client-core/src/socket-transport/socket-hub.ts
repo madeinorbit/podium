@@ -19,6 +19,8 @@ import {
   CAP_METADATA_DELTA,
   CAP_SYNC_FEED_IDENTITY,
   CAP_SYNC_HTTP_V1,
+  CAP_SYNC_KIND_VERSIONS,
+  type SyncKindTokens,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   CAP_TOPICS_V1,
@@ -345,6 +347,7 @@ export interface FeedSinkPort {
    * that read `.seq` here would be the second place the D7 ladder lives.
    */
   readonly syncHttp?: boolean
+  kindTokens?(tokens: SyncKindTokens): void
   requestRebootstrap?(): void
   helloFields(): FeedHelloFields | null
   /**
@@ -881,6 +884,7 @@ export class SocketHub {
         caps: [
           CAP_TOPICS_V1,
           ...(this.opts.feed?.syncHttp ? [CAP_SYNC_HTTP_V1] : []),
+          ...(this.opts.feed?.kindTokens ? [CAP_SYNC_KIND_VERSIONS] : []),
           ...(this.legacyFeed
             ? [
                 CAP_METADATA_DELTA,
@@ -2015,6 +2019,7 @@ export class SocketHub {
     },
     welcome: (msg) => {
       this.clientIdValue = msg.clientId
+      if (msg.kindTokens !== undefined) this.opts.feed?.kindTokens?.(msg.kindTokens)
       this.inputBinaryAcknowledged =
         this.inputBinaryTransport && msg.caps?.includes(CAP_TERMINAL_INPUT_BINARY_V1) === true
       if (msg.caps?.includes(CAP_TOPICS_V1) === true && msg.accountUser !== undefined) {

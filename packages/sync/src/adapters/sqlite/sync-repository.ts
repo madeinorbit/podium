@@ -55,7 +55,7 @@ import {
   prepared,
   preparedFamily,
 } from './prepared'
-import { appliedMutations, changeLatest, changes, feedIdentity } from './schema'
+import { appliedMutations, changeLatest, changes, feedIdentity, syncKind } from './schema'
 import type { QueuedMessagesTable, SyncServerTables, UpstreamOutboxTable } from './server-tables'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './store-queries'
 
@@ -79,6 +79,10 @@ const sqliteSequence = sqliteTable('sqlite_sequence', {
   name: text().notNull(),
   seq: integer().notNull(),
 })
+
+// A migration creates at most one row per registered kind. Every advertisement
+// needs the whole map, whose size is independent of the amount of synced data.
+const kindGenerations = prepared((db: StoreDrizzle) => db.select().from(syncKind).prepare())
 
 // Every query this repository runs, prepared once per store [POD-6147]. A
 // prepared query closes over the store's ONE drizzle instance, whose ambient
@@ -1100,6 +1104,10 @@ export class SyncRepository {
       proc: r.proc as string,
       queuedAt: Number(r.queuedAt),
     }))
+  }
+
+  async readKindGenerations(): Promise<{ kind: string; generation: number }[]> {
+    return await kindGenerations(this.db).all()
   }
 
   // ---- feed identity (ADR 2 D1) ----

@@ -28,6 +28,7 @@ import type {
   Cursor,
   DeltaFrame,
   EntityRecord,
+  KindTokens,
 } from './types'
 
 /**
@@ -94,12 +95,19 @@ export interface CacheMutation {
   readonly personalRowsCompleteAt?: Cursor | null
 }
 
+export interface SnapshotVersions {
+  /** Omit kinds for a full replacement. */
+  readonly kinds?: ReadonlySet<string>
+  readonly kindTokens?: KindTokens
+}
+
 /**
  * The replica CACHE: entities + cursor + personal-row completeness.
  * Everything on this port has a home at the authority and is re-derivable at will.
  */
 export interface ReplicaCacheStore {
   readCursor(): Cursor | null
+  readKindTokens(): KindTokens | undefined
   /**
    * Optional certification after adapter scope-fingerprint validation (Amendment 1 D10).
    * Consumers still require an exact installed-cursor match; private metadata stays hidden.
@@ -147,6 +155,7 @@ export interface ReplicaCacheStore {
     cursor: Cursor,
     buffered: readonly CacheMutation[],
     span?: SyncSpan,
+    versions?: SnapshotVersions,
   ): void
   /** Discard entities, cursor and personal-row completeness. Cannot reach the outbox. */
   discardCache(): void
@@ -201,14 +210,15 @@ export interface AuthorityReadPort {
   changesRange(
     cursor: Cursor,
     signal?: AbortSignal,
-    onTarget?: (target: Cursor) => void,
+    onTarget?: (target: Cursor, kindTokens?: KindTokens) => void,
+    options?: { readonly to: number; readonly omitKinds: readonly string[] },
   ): Promise<AsyncIterable<DeltaFrame> | BootstrapRequired>
   /**
    * ADR 2 D6 / Amendment 1 D15 — the principal's slice, chunked and paced.
    * Pacing lives on the authority side of this port (D6: "the bootstrap must
    * never own the loop"); the Replica just consumes chunks as they arrive.
    */
-  bootstrap(signal?: AbortSignal): AsyncIterable<BootstrapChunk>
+  bootstrap(signal?: AbortSignal, kinds?: readonly string[]): AsyncIterable<BootstrapChunk>
 }
 
 /**

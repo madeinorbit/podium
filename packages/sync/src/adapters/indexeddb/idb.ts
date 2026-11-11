@@ -69,6 +69,10 @@ export interface IdbFactoryLike {
   deleteDatabase(name: string): IdbOpenRequestLike
 }
 
+export interface IdbKeyRangeLike {
+  bound(lower: readonly unknown[], upper: readonly unknown[]): unknown
+}
+
 /**
  * The one DOM global read in this package, behind a function nothing here calls.
  *

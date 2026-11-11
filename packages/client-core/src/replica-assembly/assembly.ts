@@ -285,33 +285,46 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
     const replicaKernel = new KernelReplica({
       store: view.cache,
       authority: {
-        async *bootstrap(signal) {
+        async *bootstrap(signal, kinds) {
           progress.beginAttempt()
           try {
-            for await (const chunk of bootstraps.bootstrap(signal)) {
+            for await (const chunk of bootstraps.bootstrap(signal, kinds)) {
               if (chunk.last) progress.noteSaving()
               yield chunk
             }
           } catch (error) {
-            reportFailure(error)
+            if (
+              !kinds ||
+              error instanceof SyncAuthExpiredError ||
+              error instanceof SyncNetworkError
+            )
+              reportFailure(error)
             throw error
           }
         },
-        async changesRange(cursor, signal, onTarget) {
-          progress.beginAttempt()
+        async changesRange(cursor, signal, onTarget, options) {
+          if (!options) progress.beginAttempt()
+          const report = (error: unknown) => {
+            if (
+              !options ||
+              error instanceof SyncAuthExpiredError ||
+              error instanceof SyncNetworkError
+            )
+              reportFailure(error)
+          }
           try {
-            const range = await deltas.changesRange(cursor, signal, onTarget)
+            const range = await deltas.changesRange(cursor, signal, onTarget, options)
             if ('kind' in range) return range
             return (async function* () {
               try {
                 yield* range
               } catch (error) {
-                reportFailure(error)
+                report(error)
                 throw error
               }
             })()
           } catch (error) {
-            reportFailure(error)
+            report(error)
             throw error
           }
         },
@@ -361,6 +374,9 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
     }
     const feed: FeedSinkPort = {
       syncHttp: true,
+      kindTokens: (tokens) => {
+        if (!stopped) sink.kindTokens(tokens)
+      },
       requestRebootstrap: () => {
         if (!stopped) sink.requestRebootstrap()
       },

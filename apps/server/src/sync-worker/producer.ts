@@ -2,6 +2,7 @@ import { setImmediate as yieldLoop } from 'node:timers/promises'
 import { createLogger } from '@podium/logger'
 import {
   CLIENT_WIRE_VERSION,
+  type MetadataEntityKind,
   SYNC_BATCH_MAX_ROWS,
   SYNC_BATCH_TARGET_BYTES,
   SYNC_LINE_MAX_BYTES,
@@ -9,6 +10,7 @@ import {
   wireSchemaDigest,
 } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
+import type { RecordSourcePort } from '@podium/sync'
 import {
   ChangeRangeBootstrapRequired,
   DEFAULT_RESCOPE_THRESHOLD,
@@ -18,11 +20,26 @@ import {
 import { perfPrincipal } from '../modules/perf/principal'
 import { perf } from '../modules/perf/registry'
 import { pipeSyncBody } from '../sync/pipe-sync-body'
+import { readKindTokens } from '../sync/kind-tokens'
 import { type BootstrapMetrics, type SyncJob, type SyncMetaSummary, SyncWorkerError } from './types'
 import { type BootstrapVisibilityOptions, bootstrapVisibility } from './visibility'
 
 const log = createLogger('server:sync-bootstrap')
 const utf8 = new TextEncoder()
+/** Full loads share grouped reads; filtered loads read only the requested kinds. */
+async function* bootstrapPages(
+  source: RecordSourcePort,
+  kinds: readonly MetadataEntityKind[] | undefined,
+) {
+  if (kinds === undefined) {
+    yield* source.streamAllKinds()
+    return
+  }
+  for (const entity of kinds) {
+    for await (const records of source.streamAll(entity)) yield { entity, records }
+  }
+}
+
 /**
  * One read-only WAL connection per active job in the one worker. Holding the reader
  * for a transfer prevents checkpointing past its snapshot until completion/cancel;
@@ -91,12 +108,14 @@ async function* produceRecords(
       (db.prepare('SELECT min(seq) AS seq FROM changes').get() as { seq: number | null }).seq ??
       seq + 1
     phase('capture', capture)
-    if ('mode' in job && job.mode === 'delta') {
+    if (job.mode === 'delta') {
       const target = job.to ?? seq
       if (job.from > seq || target > seq) throw new SyncWorkerError('future-cursor')
       if (minAvailableSeq > job.from + 1) throw new SyncWorkerError('compacted-or-unknown')
       bundle = bootstrapVisibility(db, options)
       const { policy, anchors, sync } = await bundle.context
+      const kindTokens = await readKindTokens(sync)
+      const omitted = job.omitKinds && new Set<string>(job.omitKinds)
       const iterator = scopeChangesRange(
         sync,
         { policy, anchors, rescopeThreshold: DEFAULT_RESCOPE_THRESHOLD },
@@ -120,6 +139,7 @@ async function* produceRecords(
           seq: target,
           fromSeq: job.from,
           minAvailableSeq,
+          kindTokens,
         }
         const bytes = line(meta)
         onMeta(meta)
@@ -136,7 +156,12 @@ async function* produceRecords(
             })
             return
           }
-          rows += delivery.changes.length
+          // Scope the entire log batch first: an omitted row can still
+          // change visibility for a kind the replica is catching up.
+          const changes = omitted
+            ? delivery.changes.filter((change) => !omitted.has(change.entity))
+            : delivery.changes
+          rows += changes.length
           yield line({
             type: 'feedDelta',
             feedId: job.feedId,
@@ -144,7 +169,7 @@ async function* produceRecords(
             fromSeq: delivery.fromSeq,
             seq: delivery.throughSeq,
             minAvailableSeq,
-            changes: delivery.changes,
+            changes,
           })
           await yieldLoop()
           check()
@@ -172,7 +197,8 @@ async function* produceRecords(
     // Stream the model tables a page at a time inside the snapshot fixed by
     // the head read (design POD-6253 §4). Every row carries that head number.
     bundle = bootstrapVisibility(db, options)
-    const { policy: world, records: source } = await bundle.context
+    const { policy: world, records: source, sync } = await bundle.context
+    const kindTokens = await readKindTokens(sync)
     check()
     const meta: SyncMetaSummary = {
       type: 'syncMeta',
@@ -185,6 +211,8 @@ async function* produceRecords(
       epoch: job.epoch,
       seq,
       minAvailableSeq,
+      kindTokens,
+      ...(job.kinds && { kinds: job.kinds }),
       // No `totalRows`: the count is known only once every table is read, and
       // the load streams in one pass.
     }
@@ -204,7 +232,7 @@ async function* produceRecords(
       ...(last ? { totalRows: rows } : {}),
     })
     const batchOverhead = utf8.encode(JSON.stringify(frame([], false)) + '\n').byteLength
-    const pages = source.streamAllKinds()[Symbol.asyncIterator]()
+    const pages = bootstrapPages(source, job.kinds)[Symbol.asyncIterator]()
     try {
       for (;;) {
         const build = performance.now()

@@ -37,6 +37,128 @@ function sources(reply: () => Response | Promise<Response>) {
   return { bootstrap: new HttpBootstrapSource(deps), delta: new HttpDeltaSource(deps), fetch, deps }
 }
 
+it('reloads a changed kind and catches up other kinds before advancing the shared cursor', async () => {
+  const store = new InMemoryReplicaStore()
+  const cache = store.cache
+  const unchanged = {
+    entity: 'other-kind',
+    entityId: 'keep',
+    value: { name: 'same object' },
+    provenance: { seq: 5 },
+  }
+  cache.installSnapshot(
+    [
+      unchanged,
+      { entity: row.entity, entityId: 'obsolete', value: { old: true }, provenance: { seq: 5 } },
+    ],
+    cursor,
+    [],
+    undefined,
+    { kindTokens: { [row.entity]: 'old', 'other-kind': 'unchanged' } },
+  )
+  const kindTokens = { [row.entity]: 'new', 'other-kind': 'unchanged' }
+  const caughtUp = {
+    ...row,
+    entity: 'other-kind',
+    entityId: 'new',
+    seq: 7,
+    value: { changed: true },
+  }
+  const requests: string[] = []
+  const deps = {
+    origin: 'https://example.test',
+    streamingFetch: {
+      fetch: async (url: string) => {
+        const { pathname, searchParams } = new URL(url)
+        requests.push(pathname + new URL(url).search)
+        if (pathname === '/sync/bootstrap') {
+          return response([{ ...meta, kinds: [row.entity], kindTokens }, chunk, complete])
+        }
+        if (!searchParams.has('to')) {
+          // A newly deployed schema is advertised before any old delta payload.
+          return response([{ ...deltaMeta, kindTokens }])
+        }
+        expect(cache.readCursor()).toEqual(cursor)
+        expect(cache.read(row.entity, 'obsolete')?.value).toEqual({ old: true })
+        return response([{ ...deltaMeta, kindTokens }, { ...delta, changes: [caughtUp] }, complete])
+      },
+    },
+  }
+  const bootstraps = new HttpBootstrapSource(deps)
+  const deltas = new HttpDeltaSource(deps)
+  const replica = new Replica({
+    store: cache,
+    unitOfWork: store.unitOfWork,
+    authority: {
+      bootstrap: bootstraps.bootstrap.bind(bootstraps),
+      changesRange: deltas.changesRange.bind(deltas),
+    },
+  })
+  replica.connect()
+  await replica.settled()
+  expect(requests).toEqual([
+    '/sync/delta?feedId=feed-1&epoch=epoch-1&from=5',
+    '/sync/bootstrap?kinds=future-kind',
+    '/sync/delta?feedId=feed-1&epoch=epoch-1&from=5&to=10&omitKinds=future-kind',
+  ])
+  expect(cache.readCursor()).toEqual({ ...cursor, seq: 10 })
+  expect(cache.readKindTokens()).toEqual(kindTokens)
+  expect(cache.read(row.entity, 'obsolete')).toBeUndefined()
+  expect(cache.read(row.entity, row.entityId)?.value).toEqual(row.value)
+  expect(cache.read('other-kind', 'keep')).toBe(unchanged)
+  expect(cache.read('other-kind', 'new')?.value).toEqual(caughtUp.value)
+  await replica.receive({
+    kind: 'delta', feedId: cursor.feedId, epoch: cursor.epoch,
+    fromSeq: 10, seq: 11, minAvailableSeq: 0, changes: [],
+  })
+  expect(cache.readCursor()?.seq).toBe(11)
+  expect(cache.readKindTokens()).toEqual(kindTokens)
+})
+
+it('uses a full bootstrap when a filtered snapshot cannot catch up the other kinds', async () => {
+  const store = new InMemoryReplicaStore()
+  store.cache.installSnapshot([], cursor, [], undefined, { kindTokens: { [row.entity]: 'old' } })
+  const kindTokens = { [row.entity]: 'new' }
+  const requests: string[] = []
+  const deps = {
+    origin: 'https://example.test',
+    streamingFetch: {
+      fetch: async (url: string) => {
+        const parsed = new URL(url)
+        requests.push(parsed.pathname + parsed.search)
+        return parsed.pathname === '/sync/bootstrap'
+          ? response([
+              { ...meta, kindTokens, ...(parsed.search && { kinds: [row.entity] }) },
+              chunk,
+              complete,
+            ])
+          : new Response(
+              JSON.stringify({ kind: 'bootstrap-required', reason: 'compacted-or-unknown' }),
+              { status: 409 },
+            )
+      },
+    },
+  }
+  const bootstraps = new HttpBootstrapSource(deps)
+  const deltas = new HttpDeltaSource(deps)
+  const replica = new Replica({
+    store: store.cache,
+    authority: {
+      bootstrap: bootstraps.bootstrap.bind(bootstraps),
+      changesRange: deltas.changesRange.bind(deltas),
+    },
+  })
+  new FeedSink({ replica }).kindTokens(kindTokens)
+  await replica.settled()
+  expect(requests).toEqual([
+    '/sync/bootstrap?kinds=future-kind',
+    '/sync/delta?feedId=feed-1&epoch=epoch-1&from=5&to=10&omitKinds=future-kind',
+    '/sync/bootstrap',
+  ])
+  expect(replica.cursor).toEqual({ ...cursor, seq: 10 })
+  expect(store.cache.readKindTokens()).toEqual(kindTokens)
+})
+
 describe('NdjsonLineReader', () => {
   it('decodes every possible split, including inside multibyte UTF-8', async () => {
     const text = 'aé🦊\n日本語\nend\n'

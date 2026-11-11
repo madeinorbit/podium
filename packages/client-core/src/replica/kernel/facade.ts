@@ -720,18 +720,29 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
           return
         }
         case 'bootstrap-installed':
+          if (event.dropped !== undefined) {
+            revisitSessionMarkers(true)
+            for (const { entity, entityId } of event.dropped) {
+              const kind = kindForEntity(entity)
+              if (kind !== undefined) touchRow(kind, entityId)
+            }
+            cursorMoved()
+            return
+          }
           sessionMarkersLoaded = true
           touchAllKinds(event.cause === 'rescope' ? 'rescope' : 'bootstrap')
           cursorMoved()
           return
+        case 'heal':
+          if (event.rung !== 1 && !event.partial) revisitSessionMarkers(false)
+          return
         case 'posture':
-          if (event.posture === 'bootstrapping') revisitSessionMarkers(false)
           // Legacy caches revisit absence once; certified warm caches are
           // already final at attach and do no work on the first live event.
           if (event.posture === 'live') revisitSessionMarkers(true)
           return
         default:
-          // `cursor`, `heal`, `bootstrap-failed` do not change the
+          // `cursor` and `bootstrap-failed` do not change the
           // rows. A watermark-only stretch must leave the rendered slice
           // BYTE-IDENTICAL (basis matrix case 6), and notifying here is how that
           // property would be lost.

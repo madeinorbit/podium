@@ -7,9 +7,11 @@ import {
   FeedBootstrapMessageLenient,
   FeedDeltaMessage,
   FeedDeltaMessageLenient,
+  SyncKindTokens,
   validateFeedFrame,
   type FeedFrameViolation,
 } from './feed'
+import { MetadataEntityKind } from './sync'
 
 // Structural WHATWG contracts keep this package's ES-only typecheck DOM-free.
 const utf8 = globalThis as unknown as { TextEncoder: new () => { encode(input: string): Uint8Array } }
@@ -61,6 +63,9 @@ const SyncMetaShape = z.object({
   wireVersion: z.literal(CLIENT_WIRE_VERSION),
   wireSchemaDigest: z.string().regex(/^[0-9a-f]{16}$/),
   totalRows: Count.optional(),
+  kindTokens: SyncKindTokens.optional(),
+  /** Present only when the snapshot covers a requested subset. */
+  kinds: z.array(z.string().min(1)).nonempty().optional(),
 })
 export type SyncMeta = z.infer<typeof SyncMetaShape>
 export const SyncMeta = SyncMetaShape.refine(validMeta, { message: 'invalid meta range or mode' })
@@ -77,7 +82,7 @@ export type SyncError = z.infer<typeof SyncError>
 function validMeta(meta: SyncMeta): boolean {
   return meta.mode === 'snapshot'
     ? meta.fromSeq === undefined
-    : meta.fromSeq !== undefined && meta.fromSeq <= meta.seq
+    : meta.kinds === undefined && meta.fromSeq !== undefined && meta.fromSeq <= meta.seq
 }
 
 /** Producer vocabulary reuses the existing strict entity schemas unchanged. */
@@ -118,22 +123,53 @@ export function parseSyncRecord(line: string): SyncRecordParseResult {
     : { kind: 'refused', reason: 'invalid-record' }
 }
 
-const QuerySeq = z.string().regex(/^(0|[1-9][0-9]*)$/).transform(Number).pipe(Count)
+const QuerySeq = z
+  .string()
+  .regex(/^(0|[1-9][0-9]*)$/)
+  .transform(Number)
+  .pipe(Count)
+const QueryKinds = z
+  .string()
+  .transform((value) => value.split(','))
+  .pipe(
+    z
+      .array(MetadataEntityKind)
+      .nonempty()
+      .refine((kinds) => new Set(kinds).size === kinds.length),
+  )
+
+export function parseSyncBootstrapKinds(query: SyncQueryParams) {
+  return QueryKinds.optional().safeParse(singleQueryValue(query, 'kinds'))
+}
+
+function singleQueryValue(query: SyncQueryParams, key: string): string | string[] | undefined {
+  const values = query.getAll(key)
+  return values.length > 1 ? values : values[0]
+}
+
 /** One shared feedId/epoch identifies both cursors. Duplicate parameters fail. */
-export const SyncDeltaQuery = z.object({
-  feedId: CertifiedRangeFields.feedId,
-  epoch: CertifiedRangeFields.epoch,
-  from: QuerySeq,
-  to: QuerySeq.optional(),
-}).refine((query) => query.to === undefined || query.to >= query.from, {
-  message: 'to must be greater than or equal to from', path: ['to'],
-})
+export const SyncDeltaQuery = z
+  .object({
+    feedId: CertifiedRangeFields.feedId,
+    epoch: CertifiedRangeFields.epoch,
+    from: QuerySeq,
+    to: QuerySeq.optional(),
+    omitKinds: QueryKinds.optional(),
+  })
+  .refine((query) => query.to === undefined || query.to >= query.from, {
+    message: 'to must be greater than or equal to from',
+    path: ['to'],
+  })
+  .refine((query) => query.omitKinds === undefined || query.to !== undefined, {
+    message: 'omitKinds requires a fixed end cursor',
+    path: ['omitKinds'],
+  })
 export type SyncDeltaQuery = z.infer<typeof SyncDeltaQuery>
 export function parseSyncDeltaQuery(query: SyncQueryParams): ReturnType<typeof SyncDeltaQuery.safeParse> {
   const fields: Record<string, unknown> = {}
-  for (const key of ['feedId', 'epoch', 'from', 'to']) {
-    const values = query.getAll(key)
-    if (values.length) fields[key] = values.length === 1 ? values[0] : values
+  for (const key of ['feedId', 'epoch', 'from', 'to', 'omitKinds']) {
+    const value = singleQueryValue(query, key)
+    if (value !== undefined) fields[key] = value
   }
   return SyncDeltaQuery.safeParse(fields)
 }

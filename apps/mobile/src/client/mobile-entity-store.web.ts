@@ -1,5 +1,9 @@
 import { retainReplicaEntity } from '@podium/client-core/replica'
-import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
+import {
+  type IdbFactoryLike,
+  type IdbKeyRangeLike,
+  IndexedDbSyncStore,
+} from '@podium/sync/adapters/indexeddb'
 
 /**
  * Open the durable entity store used by the Expo web runtime.
@@ -10,6 +14,7 @@ import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/i
 export function openMobileEntityStore(databaseName: string, onDegraded: (cause: string) => void) {
   return IndexedDbSyncStore.open({
     factory: globalThis.indexedDB as unknown as IdbFactoryLike,
+    keyRange: (globalThis as { IDBKeyRange?: IdbKeyRangeLike }).IDBKeyRange,
     databaseName,
     retainEntity: retainReplicaEntity,
     onDegraded: (degradation) => onDegraded(String(degradation.cause)),

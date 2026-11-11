@@ -153,6 +153,15 @@ export function schemaSignature(schema: z.ZodTypeAny): string {
   return signature(schema, new Set())
 }
 
+function digest(text: string): string {
+  return fnv1a(text, 0x811c9dc5) + fnv1a(text, 0x01000193)
+}
+
+/** Fingerprint one wire shape. The salt covers changes outside the schema. */
+export function schemaDigest(schema: z.ZodTypeAny, salt: string): string {
+  return digest(`${schemaSignature(schema)}\n${salt}`)
+}
+
 /** The canonical signature string the digest is taken over. Exported for the
  *  human staring at two machines that disagree, where the diff is the answer. */
 export function wireSchemaSignature(): string {
@@ -242,9 +251,6 @@ let cached: string | undefined
  * life — the schemas are module-level constants.
  */
 export function wireSchemaDigest(): string {
-  if (cached === undefined) {
-    const text = wireSchemaSignature()
-    cached = fnv1a(text, 0x811c9dc5) + fnv1a(text, 0x01000193)
-  }
+  if (cached === undefined) cached = digest(wireSchemaSignature())
   return cached
 }

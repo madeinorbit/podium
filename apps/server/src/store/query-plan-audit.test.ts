@@ -350,6 +350,7 @@ const LOW_SELECTIVITY: ReadonlySet<string> = new Set([
  */
 const SMALL_TABLES: ReadonlyMap<string, string> = new Map([
   ['sqlite_sequence', "SQLite's own table: one row per AUTOINCREMENT table."],
+  ['sync_kind', 'One generation per record kind ever rewritten by a migration.'],
   ['accounts', 'Provider accounts the operator configures by hand.'],
   ['automations', 'Schedules people define by hand; a handful per person.'],
   ['machines', 'The fleet: one row per enrolled machine.'],
