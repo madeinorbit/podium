@@ -131,7 +131,7 @@ describe('fixed dependency types migration (POD-6100)', () => {
         )
         .all() as { name: string }[]
     ).map((r) => r.name)
-    expect(indexes).toEqual(['idx_issue_deps_from', 'idx_issue_deps_to'])
+    expect(indexes).toEqual(['idx_issue_deps_from', 'idx_issue_deps_to_from'])
 
     db.prepare('PRAGMA foreign_keys = ON').run()
     db.prepare("DELETE FROM issues WHERE id = 'a'").run()
