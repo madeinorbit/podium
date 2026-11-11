@@ -35,6 +35,7 @@ describe('authority write funnel', () => {
   it('authorizes, arbitrates inside the transaction, writes, appends and broadcasts in order', async () => {
     const order: string[] = []
     let inside = false
+    const followUps: (() => Promise<void>)[] = []
     const store = memoryChangeLog()
     const append = store.appendChanges.bind(store)
     store.appendChanges = async (...args) => {
@@ -43,6 +44,9 @@ describe('authority write funnel', () => {
     }
     const authority = build({
       store,
+      postCommit: (step) => {
+        followUps.push(step)
+      },
       transact: async (fn) => {
         inside = true
         try {
@@ -78,6 +82,7 @@ describe('authority write funnel', () => {
       },
     })
     expect(outcome).toMatchObject({ outcome: 'committed', result: 42, changes: [{ seq: 1 }] })
+    for (const step of followUps) await step()
     expect(order).toEqual(['authorize', 'arbitrate', 'write', 'append', 'broadcast'])
   })
 

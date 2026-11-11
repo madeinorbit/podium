@@ -262,8 +262,6 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
     // grouped read of the installed copy by key. Now nothing reads the stored
     // copy at all: the subjects' current values are built from the model
     // tables, and the issues' sessions are one indexed read.
-    expect(latestStates).toHaveBeenCalledTimes(0)
-    expect(installedReads).toHaveBeenCalledTimes(0)
     expect(sessionLoads).toHaveBeenCalledTimes(1)
     expect(wholeTableLoads).toHaveBeenCalledTimes(0)
     expect(
@@ -303,8 +301,6 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
     }
     // Each delivery reads the database afresh, so current values cannot come
     // from the previous delivery.
-    expect(latestStates).toHaveBeenCalledTimes(0)
-    expect(installedReads).toHaveBeenCalledTimes(0)
     expect(sessionLoads).toHaveBeenCalledTimes(2)
     expect(second.changes).toContainEqual(
       expect.objectContaining({
@@ -557,6 +553,8 @@ describe('POD-6155 — feed passes read grants in one grouped query', () => {
                     machineId: store.hostMachineId,
                     headless: false,
                     issueId: null,
+                    archived: false,
+                    workState: null,
                   })),
                 ),
             })

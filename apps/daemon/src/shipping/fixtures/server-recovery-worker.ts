@@ -23,6 +23,7 @@ import {
   ShippingService,
 } from '../../../../server/src/modules/shipping'
 import { SessionStore } from '../../../../server/src/store'
+import { testStoreRecords } from '../../../../server/src/test-support/record-writer'
 
 const [phase, dbPath, repoPath, daemonJournal] = process.argv.slice(2)
 if (!phase || !dbPath || !repoPath || !daemonJournal) throw new Error('missing recovery arguments')
@@ -31,6 +32,7 @@ const store = await SessionStore.open(dbPath, machineId)
 const ownerUserId = await firstAdminMemberId(store)
 const ledger = new Ledger({
   repo: store.sync,
+  records: testStoreRecords(store),
   now: Date.now,
   transact: (fn) => store.transact(fn),
 })

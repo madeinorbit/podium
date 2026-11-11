@@ -51,7 +51,7 @@ try {
       row.entity_id,
       row.op,
       row.payload,
-      (index * CHANGE_MAX_AGE_MS) / CHANGE_KEEP_ROWS,
+      Math.floor(Date.now() - CHANGE_MAX_AGE_MS + (index * CHANGE_MAX_AGE_MS) / CHANGE_KEEP_ROWS),
       row.origin_id,
       row.causation_id,
       row.mutation_id,

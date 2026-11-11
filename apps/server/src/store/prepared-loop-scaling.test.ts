@@ -86,26 +86,34 @@ const measure = async (loop: MeasuredLoop, n: number): Promise<Counts> => {
   return counts
 }
 
-describe('large row-loop SQL construction', () => {
-  it.each(loops)('$name keeps constructions constant while executions scale 10x', async (loop) => {
-    const n = 4
-    const small = await measure(loop, n)
-    const large = await measure(loop, n * 10)
-    const executionRatio = large.executions / small.executions
-    const constructionRatio = large.constructions / small.constructions
+describe('prepared batch SQL construction', () => {
+  it('builds a conversation upsert once and runs one statement per report', async () => {
+    const loop = loops[0]!
+    const small = await measure(loop, 4)
+    const large = await measure(loop, 40)
+    expect(small).toEqual({ constructions: 1, executions: 1 })
+    expect(large).toEqual(small)
+  })
 
-    expect(
-      small.constructions,
-      `${loop.name}: the SQLiteSession.prepareQuery probe saw no construction`,
-    ).toBeGreaterThan(0)
-    expect(executionRatio, `${loop.name}: executions must track the 10x larger input`).toBeCloseTo(
-      10,
-      5,
-    )
-    expect(
-      constructionRatio,
-      `${loop.name}: SQLiteSession.prepareQuery constructions scaled with row count`,
-    ).toBeLessThanOrEqual(1)
+  it('constructs each log chunk once and appends 100 rows per statement', async () => {
+    const loop: MeasuredLoop = {
+      name: 'SyncRepository.appendChanges',
+      targetSql: 'insert into "changes"',
+      repository: (store) => store.sync,
+      run: async (store, size) => {
+        await store.sync.appendChanges(
+          Array.from({ length: size }, (_, i) => ({
+            entity: 'conversation',
+            entityId: `c${i}`,
+            op: 'upsert' as const,
+            payload: '{}',
+          })),
+          1,
+        )
+      },
+    }
+    expect(await measure(loop, 100)).toEqual({ constructions: 1, executions: 1 })
+    expect(await measure(loop, 1000)).toEqual({ constructions: 1, executions: 10 })
   })
 })
 

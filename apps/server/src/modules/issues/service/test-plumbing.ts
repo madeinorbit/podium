@@ -1,6 +1,6 @@
 import type { MetadataChange } from '@podium/protocol'
 import { Ledger, type LedgerDeps, type StoredChangeRow } from '@podium/sync'
-import { testLedgerWriter } from '@podium/sync/testing'
+import { ModelRecords, testLedgerWriter } from '@podium/sync/testing'
 import type { SessionStore } from '../../../store'
 import { testStoreRecords } from '../../../test-support/record-writer'
 import type { IssueDeps } from './types'
@@ -51,11 +51,13 @@ export function issueTestPlumbing(
   /** The real Ledger behind `ledger`, for a test that reads the log back. */
   readonly changeLog: Ledger
 } {
+  const emptyRecords = new ModelRecords()
+  emptyRecords.comparesAtSave = () => false
   const ledger = new Ledger({
     repo: memoryChangeLogStore(),
     now: Date.now,
     transact: opts.transact ?? (async (fn) => await fn()),
-    ...(opts.store === undefined ? {} : { records: testStoreRecords(opts.store) }),
+    records: opts.store === undefined ? emptyRecords : testStoreRecords(opts.store),
   })
   ledger.onAppended((changes) => {
     for (const change of changes) onPublished(change)

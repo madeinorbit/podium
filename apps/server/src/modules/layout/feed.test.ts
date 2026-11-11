@@ -131,7 +131,13 @@ function build() {
     transact: (fn) => fn(),
     visibility: new GrantEdgeVisibilityPolicy(visibilityPort, new NoDelegationsGranted()),
     anchors: new DeviceGradeNoAnchors(),
-    records: compareAtSaveRecords({ store: { layout: repo } } as never, ['userLayout']),
+    records: {
+      ...compareAtSaveRecords({ store: { layout: repo } } as never, ['userLayout']),
+      async *streamAllKinds() {
+        for await (const records of this.streamAll('userLayout'))
+          yield { entity: 'userLayout' as const, records }
+      },
+    },
   })
   const service = new LayoutService({
     layout: repo as never,

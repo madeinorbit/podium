@@ -42,10 +42,11 @@ describe('the shipped objects have one serving tail', () => {
 
   it('a REAL edge grants HTTP resume without constructing a pushed world', async () => {
     const plumbing = await feedTestPlumbing()
-    await testLedgerWriter(plumbing.ledger).commit({
-      write: async () => {},
-      changes: () => [{ entity: 'issueProjection', id: 'i1', op: 'upsert', value: { id: 'i1' } }],
-    })
+    await testLedgerWriter(plumbing.ledger).commit(
+      plumbing.ledger.rowWrite([
+        { entity: 'issueProjection', id: 'i1', op: 'upsert', value: { id: 'i1' } },
+      ]),
+    )
     const received: { type: string }[] = []
     const refusal = plumbing.serving.attach(
       {

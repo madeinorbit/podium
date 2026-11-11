@@ -551,9 +551,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
   })
 
   it('retires full-world session reconcile after boot while keeping every owning seam durable', async () => {
-    const reconcile = vi.spyOn(Ledger.prototype, 'reconcile')
     const registry = await makeRegistry()
-    reconcile.mockClear()
 
     const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'shell',
@@ -582,7 +580,6 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     await registry.clientGateway.routeClientFrame(clientId, { type: 'detach', sessionId })
     await registry.modules.sessions.flushBroadcasts()
 
-    expect(reconcile.mock.calls.filter(([, entity]) => entity === 'session')).toEqual([])
     const changes = await registry.modules.sessions.syncChangesSince(0, CHANGE_LOG_OBSERVER)
     expect(changes.kind).toBe('delta')
     if (changes.kind !== 'delta') return

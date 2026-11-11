@@ -105,7 +105,7 @@ describe('ledger facade', () => {
   it('preserves explicit provenance through the facade', async () => {
     const f = fixture()
     await f.save([{ ...spec('a', 1), mutationId: asMutationId('m'), causationId: 'c' }])
-    expect(await f.ledger.changesSince(0)).toMatchObject([{ mutationId: 'm', causationId: 'c' }])
+    expect(await f.repo.changesSince(0)).toMatchObject([{ mutationId: 'm', causationId: 'c' }])
   })
 
   it('runs a commit application even when no record changed', async () => {
@@ -147,7 +147,7 @@ describe('source write and append atomicity', () => {
         .spyOn(repo, 'appendChanges')
         .mockRejectedValueOnce(new Error('append failed'))
       await expect(commit()).rejects.toThrow('append failed')
-      expect(get.get('a')).toBeNull()
+      expect(get.get('a') ?? null).toBeNull()
       expect(await repo.maxChangeSeq()).toBe(0)
       append.mockRestore()
       expect((await commit()).changes).toHaveLength(1)

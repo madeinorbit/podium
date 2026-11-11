@@ -17,7 +17,8 @@ export class StoreModelLedger extends Ledger {
   constructor(store: SessionStore, deps: Omit<LedgerDeps, 'records'>) {
     const records = new ModelRecords()
     const user = firstAdminMemberId()
-    const key = (entity: string, id: string) => `test-model:${JSON.stringify([entity, id])}`
+    const key = (entity: string, id: string) =>
+      `sidebar.section.test-model:${JSON.stringify([entity, id])}`
     records.build = async (entity, ids) => {
       const snapshot = await store.layout.getSnapshot(user)
       return ids.flatMap((id) => {
@@ -28,8 +29,11 @@ export class StoreModelLedger extends Ledger {
     records.streamAll = async function* (entity: MetadataEntityKind) {
       const snapshot = await store.layout.getSnapshot(user)
       yield Object.entries(snapshot).flatMap(([name, value]) => {
-        if (!name.startsWith('test-model:')) return []
-        const [kind, id] = JSON.parse(name.slice('test-model:'.length)) as [string, string]
+        if (!name.startsWith('sidebar.section.test-model:')) return []
+        const [kind, id] = JSON.parse(name.slice('sidebar.section.test-model:'.length)) as [
+          string,
+          string,
+        ]
         return kind === entity ? [{ id, value }] : []
       })
     }
@@ -40,7 +44,7 @@ export class StoreModelLedger extends Ledger {
   private async put(scope: WriteScope, rows: readonly EntityChangeSpec[]): Promise<void> {
     const user = firstAdminMemberId()
     for (const row of rows) {
-      const key = `test-model:${JSON.stringify([row.entity, row.id])}`
+      const key = `sidebar.section.test-model:${JSON.stringify([row.entity, row.id])}`
       if (row.op === 'remove') await this.modelStore.layout.clear(scope, user, key)
       else await this.modelStore.layout.set(scope, user, key, row.value, '2026-11-11T00:00:00.000Z')
     }

@@ -37,7 +37,7 @@ export class ModelRecords implements RecordSourcePort {
     for (const [entity, ids] of idsByKind) yield { entity, records: await this.build(entity, ids) }
   }
 
-  async *streamAll(entity: MetadataEntityKind) {
+  async *streamAll(entity: MetadataEntityKind): AsyncIterable<readonly BuiltRecord[]> {
     yield [...this.rows.values()].filter((row) => row.entity === entity)
   }
 
@@ -53,7 +53,7 @@ export class ModelAuthority extends Authority {
   readonly models: ModelRecords
 
   constructor(deps: Omit<AuthorityDeps, 'records'> & { records?: RecordSourcePort }) {
-    const models = new ModelRecords()
+    const models = deps.records instanceof ModelRecords ? deps.records : new ModelRecords()
     super({
       ...deps,
       records: deps.records ?? models,

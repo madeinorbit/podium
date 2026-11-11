@@ -135,9 +135,13 @@ function build() {
     transact: (fn) => fn(),
     visibility: new GrantEdgeVisibilityPolicy(visibilityPort, new NoDelegationsGranted()),
     anchors: new DeviceGradeNoAnchors(),
-    records: compareAtSaveRecords({ store: { readPositions: repo } } as never, [
-      'userReadPosition',
-    ]),
+    records: {
+      ...compareAtSaveRecords({ store: { readPositions: repo } } as never, ['userReadPosition']),
+      async *streamAllKinds() {
+        for await (const records of this.streamAll('userReadPosition'))
+          yield { entity: 'userReadPosition' as const, records }
+      },
+    },
   })
   const service = new ReadPositionService({ cursors: repo as never })
   // The command's writer: each commit goes through the Authority, which builds

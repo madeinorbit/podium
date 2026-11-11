@@ -370,8 +370,6 @@ describe('retention', () => {
   })
 })
 
-describe('the installed world', () => {})
-
 describe('the installed world, read by key [POD-6156]', () => {
   beforeEach(async () => {
     await repo.appendChanges(
