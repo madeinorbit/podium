@@ -22860,12 +22860,12 @@
       "file": "apps/web/src/features/settings/settings-frame.tsx",
       "holder": "SettingsFrame",
       "rule": "consume:map",
-      "tokens": "e06cf93a04feb99f0d3a4eea32401990765c0c40a259a0cba1786e1171ff8710",
+      "tokens": "99c0ff64f2760fc700ff360a016ff3597d0975db22d4ca5a8a66102007ca4958",
       "gate": [],
       "origin": [
         "d49f274c5b2705c6ab314db7db852ee2c21f193774334621c352ee9e5979f60d"
       ],
-      "fingerprint": "3f2156d5f25545e78f4075cc8d44307b0ac146df68239de3db72e21324b03a7b",
+      "fingerprint": "4acf5db4052cf9f2619f223ecf20a200b399b68ca5b0126664e70010b510afdd",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6652",

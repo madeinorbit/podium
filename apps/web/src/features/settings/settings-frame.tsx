@@ -114,6 +114,21 @@ function isTyping(target: EventTarget | null): boolean {
   )
 }
 
+/** Provide the controls when the frame was given them; otherwise inherit. */
+function ControlsBoundary({
+  controls,
+  children,
+}: {
+  controls?: SettingsControlsState
+  children: ReactNode
+}) {
+  return controls ? (
+    <SettingsControlsContext.Provider value={controls}>{children}</SettingsControlsContext.Provider>
+  ) : (
+    <>{children}</>
+  )
+}
+
 export function SettingsFrame({
   page,
   selectedPage,
@@ -297,187 +312,184 @@ export function SettingsFrame({
     </span>
   )
 
-  const frame = (
-    <FrameContext.Provider value={actions}>
-      <section
-        aria-label="Settings frame"
-        onKeyDown={(event) => {
-          if (event.key !== 'Escape' || event.defaultPrevented) return
-          if (takeover) {
-            event.preventDefault()
-            event.stopPropagation()
-            closeTakeover()
-          } else if (searching) {
-            event.preventDefault()
-            event.stopPropagation()
-            setQuery('')
-            filterRef.current?.blur()
-          }
-        }}
-      >
-        <AppSheet
-          label="Settings"
-          title={sheetTitle}
-          testId="settings-sheet"
-          onClose={onClose}
-          toolbar={toolbar}
-          className={cn(
-            'app-sheet-settings',
-            phonePage && 'settings-in-page',
-            searching && 'settings-searching',
-          )}
+  return (
+    <ControlsBoundary controls={controls}>
+      <FrameContext.Provider value={actions}>
+        <section
+          aria-label="Settings frame"
+          onKeyDown={(event) => {
+            if (event.key !== 'Escape' || event.defaultPrevented) return
+            if (takeover) {
+              event.preventDefault()
+              event.stopPropagation()
+              closeTakeover()
+            } else if (searching) {
+              event.preventDefault()
+              event.stopPropagation()
+              setQuery('')
+              filterRef.current?.blur()
+            }
+          }}
         >
-          <section aria-label="Settings content" className="settings-panes">
-            <nav
-              className="settings-rail [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-              aria-label="Settings sections"
-              aria-busy={viewer.status === 'loading'}
-            >
-              <div className="settings-search-field">
-                <Search size={13} aria-hidden="true" />
-                <Input
-                  ref={filterRef}
-                  type="search"
-                  value={query}
-                  aria-label="Search settings"
-                  placeholder="Search settings"
-                  onChange={(event) => {
-                    setQuery(event.target.value)
-                    setSelectedResult(0)
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-                      event.preventDefault()
-                      setSelectedResult((current) =>
-                        Math.max(
-                          0,
-                          Math.min(
-                            results.length - 1,
-                            current + (event.key === 'ArrowDown' ? 1 : -1),
+          <AppSheet
+            label="Settings"
+            title={sheetTitle}
+            testId="settings-sheet"
+            onClose={onClose}
+            toolbar={toolbar}
+            className={cn(
+              'app-sheet-settings',
+              phonePage && 'settings-in-page',
+              searching && 'settings-searching',
+            )}
+          >
+            <section aria-label="Settings content" className="settings-panes">
+              <nav
+                className="settings-rail [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                aria-label="Settings sections"
+                aria-busy={viewer.status === 'loading'}
+              >
+                <div className="settings-search-field">
+                  <Search size={13} aria-hidden="true" />
+                  <Input
+                    ref={filterRef}
+                    type="search"
+                    value={query}
+                    aria-label="Search settings"
+                    placeholder="Search settings"
+                    onChange={(event) => {
+                      setQuery(event.target.value)
+                      setSelectedResult(0)
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                        event.preventDefault()
+                        setSelectedResult((current) =>
+                          Math.max(
+                            0,
+                            Math.min(
+                              results.length - 1,
+                              current + (event.key === 'ArrowDown' ? 1 : -1),
+                            ),
                           ),
-                        ),
-                      )
-                    } else if (event.key === 'Enter' && results[selectedResult]) {
-                      event.preventDefault()
-                      openResult(results[selectedResult]!)
-                    } else if (event.key === 'Escape') {
-                      event.preventDefault()
-                      event.stopPropagation()
-                      setQuery('')
-                      event.currentTarget.blur()
-                    }
-                  }}
-                />
-                {!query && <kbd>/</kbd>}
-              </div>
-              {groups.map((group) => (
-                <div className="settings-rail-section" key={group.surface}>
-                  <div className="settings-rail-heading">
-                    <span className="settings-eyebrow settings-rail-group">{group.label}</span>
-                    {group.surface === 'workspace' && (
-                      <span className="settings-rail-hint">Everyone</span>
-                    )}
-                  </div>
-                  {viewer.status === 'loading' ? (
-                    <div
-                      className="settings-rail-skeleton"
-                      aria-label={`Loading ${group.label.toLowerCase()} pages`}
-                      role="status"
-                    >
-                      {(group.surface === 'personal'
-                        ? [0, 1, 2, 3, 4]
-                        : [0, 1, 2, 3, 4, 5, 6, 7]
-                      ).map((i) => (
-                        <div key={i} />
-                      ))}
+                        )
+                      } else if (event.key === 'Enter' && results[selectedResult]) {
+                        event.preventDefault()
+                        openResult(results[selectedResult]!)
+                      } else if (event.key === 'Escape') {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        setQuery('')
+                        event.currentTarget.blur()
+                      }
+                    }}
+                  />
+                  {!query && <kbd>/</kbd>}
+                </div>
+                {groups.map((group) => (
+                  <div className="settings-rail-section" key={group.surface}>
+                    <div className="settings-rail-heading">
+                      <span className="settings-eyebrow settings-rail-group">{group.label}</span>
+                      {group.surface === 'workspace' && (
+                        <span className="settings-rail-hint">Everyone</span>
+                      )}
                     </div>
-                  ) : (
-                    group.tabs.map((entry) => {
-                      const Icon = entry.icon
-                      return (
-                        <button
-                          type="button"
-                          data-pressable
-                          key={entry.key}
-                          className="settings-rail-item"
-                          aria-current={
-                            !searching && !takeover && entry.key === page ? 'page' : undefined
-                          }
-                          onClick={() => openPage(entry.key)}
-                        >
-                          <Icon size={14} aria-hidden="true" />
-                          <span>{entry.label}</span>
-                        </button>
-                      )
-                    })
-                  )}
-                </div>
-              ))}
-              {(!narrow || !phonePage) && <AdminViewerError viewer={viewer} />}
-            </nav>
-            <div className="settings-pane">
-              <div ref={scrollRef} className="settings-pane-scroll">
-                <div className="settings-measure">
-                  {narrow && phonePage && <AdminViewerError viewer={viewer} />}
-                  {searching && <div className="settings-search-results">{renderResults()}</div>}
-                  {takeover && (
-                    <SettingsTakeover
-                      page={page}
-                      title={takeover.title}
-                      description={takeover.description}
-                      onBack={closeTakeover}
-                    >
-                      {takeover.content}
-                    </SettingsTakeover>
-                  )}
-                  <div
-                    hidden={searching || Boolean(takeover)}
-                    className="settings-page-content settings-section-enter"
-                    key={page}
-                  >
-                    {pageOffered && (
-                      <header className="settings-page-header">
-                        <div>
-                          <h3 ref={pageRef} tabIndex={-1} className="settings-page-title">
-                            {definition.label}
-                            {(definition.adminOnly || definition.group === 'workspace') && (
-                              <span
-                                className="settings-scope-tag"
-                                title={
-                                  definition.adminOnly
-                                    ? 'Only admins see this page'
-                                    : 'Changes here apply to everyone in this workspace'
-                                }
-                              >
-                                {definition.adminOnly ? (
-                                  <Lock size={11} aria-hidden="true" />
-                                ) : (
-                                  <Users size={11} aria-hidden="true" />
-                                )}
-                                {definition.adminOnly ? 'Admins' : 'Everyone'}
-                              </span>
-                            )}
-                          </h3>
-                          <p className="settings-prose mt-1.5">{description}</p>
-                        </div>
-                        <div ref={setActionSlot} className="settings-page-actions" />
-                      </header>
+                    {viewer.status === 'loading' ? (
+                      <div
+                        className="settings-rail-skeleton"
+                        aria-label={`Loading ${group.label.toLowerCase()} pages`}
+                        role="status"
+                      >
+                        {(group.surface === 'personal'
+                          ? [0, 1, 2, 3, 4]
+                          : [0, 1, 2, 3, 4, 5, 6, 7]
+                        ).map((i) => (
+                          <div key={i} />
+                        ))}
+                      </div>
+                    ) : (
+                      group.tabs.map((entry) => {
+                        const Icon = entry.icon
+                        return (
+                          <button
+                            type="button"
+                            data-pressable
+                            key={entry.key}
+                            className="settings-rail-item"
+                            aria-current={
+                              !searching && !takeover && entry.key === page ? 'page' : undefined
+                            }
+                            onClick={() => openPage(entry.key)}
+                          >
+                            <Icon size={14} aria-hidden="true" />
+                            <span>{entry.label}</span>
+                          </button>
+                        )
+                      })
                     )}
-                    {children}
+                  </div>
+                ))}
+                {(!narrow || !phonePage) && <AdminViewerError viewer={viewer} />}
+              </nav>
+              <div className="settings-pane">
+                <div ref={scrollRef} className="settings-pane-scroll">
+                  <div className="settings-measure">
+                    {narrow && phonePage && <AdminViewerError viewer={viewer} />}
+                    {searching && <div className="settings-search-results">{renderResults()}</div>}
+                    {takeover && (
+                      <SettingsTakeover
+                        page={page}
+                        title={takeover.title}
+                        description={takeover.description}
+                        onBack={closeTakeover}
+                      >
+                        {takeover.content}
+                      </SettingsTakeover>
+                    )}
+                    <div
+                      hidden={searching || Boolean(takeover)}
+                      className="settings-page-content settings-section-enter"
+                      key={page}
+                    >
+                      {pageOffered && (
+                        <header className="settings-page-header">
+                          <div>
+                            <h3 ref={pageRef} tabIndex={-1} className="settings-page-title">
+                              {definition.label}
+                              {(definition.adminOnly || definition.group === 'workspace') && (
+                                <span
+                                  className="settings-scope-tag"
+                                  title={
+                                    definition.adminOnly
+                                      ? 'Only admins see this page'
+                                      : 'Changes here apply to everyone in this workspace'
+                                  }
+                                >
+                                  {definition.adminOnly ? (
+                                    <Lock size={11} aria-hidden="true" />
+                                  ) : (
+                                    <Users size={11} aria-hidden="true" />
+                                  )}
+                                  {definition.adminOnly ? 'Admins' : 'Everyone'}
+                                </span>
+                              )}
+                            </h3>
+                            <p className="settings-prose mt-1.5">{description}</p>
+                          </div>
+                          <div ref={setActionSlot} className="settings-page-actions" />
+                        </header>
+                      )}
+                      {children}
+                    </div>
                   </div>
                 </div>
+                {footer}
               </div>
-              {footer}
-            </div>
-          </section>
-        </AppSheet>
-      </section>
-    </FrameContext.Provider>
-  )
-  return controls ? (
-    <SettingsControlsContext.Provider value={controls}>{frame}</SettingsControlsContext.Provider>
-  ) : (
-    frame
+            </section>
+          </AppSheet>
+        </section>
+      </FrameContext.Provider>
+    </ControlsBoundary>
   )
 
   function renderResults() {
