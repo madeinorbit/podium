@@ -38,6 +38,7 @@
       "schema": "ChangeLogPruneObservation",
       "variant": "minimal",
       "wire": {
+        "tenantId": "tenantId",
         "keepRows": 1,
         "maxAgeMs": 1,
         "thresholdSeq": 1,
@@ -47,12 +48,13 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"keepRows\":1,\"maxAgeMs\":1,\"thresholdSeq\":1,\"batchSize\":1,\"fromSeq\":1}"
+      "encoded": "{\"tenantId\":\"tenantId\",\"keepRows\":1,\"maxAgeMs\":1,\"thresholdSeq\":1,\"batchSize\":1,\"fromSeq\":1}"
     },
     {
       "schema": "ChangeLogPruneObservation",
       "variant": "full",
       "wire": {
+        "tenantId": "tenantId",
         "keepRows": 1,
         "maxAgeMs": 1,
         "thresholdSeq": 1,
@@ -62,7 +64,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"keepRows\":1,\"maxAgeMs\":1,\"thresholdSeq\":1,\"batchSize\":1,\"fromSeq\":1}"
+      "encoded": "{\"tenantId\":\"tenantId\",\"keepRows\":1,\"maxAgeMs\":1,\"thresholdSeq\":1,\"batchSize\":1,\"fromSeq\":1}"
     },
     {
       "schema": "ConnectScanObservation",
@@ -231,6 +233,7 @@
         "runKey": "runKey",
         "fencingToken": 3,
         "observed": {
+          "tenantId": "observed.tenantId",
           "keepRows": 3,
           "maxAgeMs": 3,
           "thresholdSeq": 3,
@@ -241,7 +244,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"protocolVersion\":3,\"schemaVersion\":\"schemaVersion\",\"jobKind\":\"change-log-prune\",\"runKey\":\"runKey\",\"fencingToken\":3,\"observed\":{\"keepRows\":3,\"maxAgeMs\":3,\"thresholdSeq\":3,\"batchSize\":3,\"fromSeq\":3}}"
+      "encoded": "{\"protocolVersion\":3,\"schemaVersion\":\"schemaVersion\",\"jobKind\":\"change-log-prune\",\"runKey\":\"runKey\",\"fencingToken\":3,\"observed\":{\"tenantId\":\"observed.tenantId\",\"keepRows\":3,\"maxAgeMs\":3,\"thresholdSeq\":3,\"batchSize\":3,\"fromSeq\":3}}"
     },
     {
       "schema": "MaintenanceCommand",
