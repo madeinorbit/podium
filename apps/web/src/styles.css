@@ -12,6 +12,12 @@
   --status-strip-h: 28px;
   --sheet-gap: 14px;
   --sheet-max: 1180px;
+  /* Global overlay order: background notices < modal sheets < portalled
+     popovers (Base UI's z-50) < toasts (Sonner). The backdrop also covers
+     background cards, so only the sheet receives pointers until it closes. */
+  --z-background-card: 30;
+  --z-sheet-backdrop: 40;
+  --z-sheet: 41;
   /* The single horizontal datum every column header aligns to. Three columns
      used to sit at 88 / 74 / 78px, so no line ran across the window. */
   --section-bar-h: 36px;
@@ -8587,7 +8593,7 @@ a.ref-link--session::before {
 .app-sheet-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  z-index: var(--z-sheet-backdrop);
   /* The dialog overlay's own recipe (components/ui/dialog.tsx): a light wash
      plus a hair of blur. Heavier would hide the live shell, which is the whole
      point of a sheet. */
@@ -8603,7 +8609,7 @@ a.ref-link--session::before {
   left: 50%;
   width: min(var(--sheet-max), calc(100% - 2 * var(--sheet-gap)));
   transform: translateX(-50%);
-  z-index: 41;
+  z-index: var(--z-sheet);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -11919,7 +11925,7 @@ button.waterfall-fold:hover {
   position: fixed;
   right: 16px;
   bottom: 36px;
-  z-index: 50;
+  z-index: var(--z-background-card);
   width: min(448px, calc(100vw - 32px));
   max-height: min(620px, calc(100dvh - 64px));
   display: flex;
