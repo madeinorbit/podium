@@ -380,7 +380,10 @@ export function createRuntimeWorklistPool(
     // Issue bodies load through the runtime's request client (POD-6767).
     const bodies = runtime.api?.issues?.bodies
     const unbindBodies = bodies
-      ? pool.issueBodies.bind(async (ids) => await bodies.query({ ids: ids as IssueId[] }))
+      ? pool.issueBodies.bind(
+          async (ids) => await bodies.query({ ids: ids as IssueId[] }),
+          (retry) => runtime.services.connection.onReconnected(retry),
+        )
       : () => {}
     const principal = runtime.principal
     let stopLayout: () => void = () => {}

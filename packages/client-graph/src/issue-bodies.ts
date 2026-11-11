@@ -18,12 +18,16 @@ import { LOADING } from './loading'
  *   an edit form waits for the new one.
  * - A body is kept for the pool's life. It is what the reader opened, so the
  *   set grows with what a person looks at, not with the instance.
+ * - Failed ids retry with exponential backoff from 1 to 30 seconds. One timer
+ *   and serial batches serve pending reads; reconnect resumes them promptly.
  *
  * The fetch is bound by the app (`bind`), so the data layer names no
  * transport. Before it is bound, requests wait.
  */
 export const BODY_WINDOW_MS = 50
 export const BODY_BATCH_IDS = 50
+const BODY_RETRY_MS = 1_000
+const BODY_RETRY_MAX_MS = 30_000
 
 /** The app's `issues.bodies` call. */
 export type IssueBodyFetch = (ids: readonly string[]) => Promise<readonly IssueBodyWire[]>
@@ -44,6 +48,11 @@ export interface IssueBodyReader {
 
 const keyOf = (issueId: string, field: IssueBodyField) => `${issueId}\u0000${field}`
 
+interface BodyBinding {
+  readonly fetch: IssueBodyFetch
+  stopReconnect?: () => void
+}
+
 export class IssueBodyStore implements IssueBodyReader {
   /** The body held for each issue field, by the digest it was fetched at. */
   private readonly held = observable.map<
@@ -59,15 +68,39 @@ export class IssueBodyStore implements IssueBodyReader {
   private readonly asked = new Set<string>()
   /** Issues waiting for the next call. */
   private readonly queue = new Set<string>()
+  /** Failed issues stay queued, but reads cannot bring their retry forward. */
+  private readonly retryAt = new Map<string, number>()
+  private readonly retryDelay = new Map<string, number>()
   private timer: ReturnType<typeof setTimeout> | undefined
-  private fetch: IssueBodyFetch | undefined
+  private timerAt = Infinity
+  private binding: BodyBinding | undefined
+  private flight: { readonly binding: BodyBinding; readonly ids: Set<string> } | undefined
 
-  /** Bind the app's fetch; returns the unbind. Waiting requests go out. */
-  bind(fetch: IssueBodyFetch): () => void {
-    this.fetch = fetch
-    if (this.queue.size > 0) this.arm()
-    return () => {
-      if (this.fetch === fetch) this.fetch = undefined
+  /** Bind the app's fetch and reconnect signal; returns the unbind. Pending
+   *  requests resume without another read, including after a reconnect. */
+  bind(fetch: IssueBodyFetch, onReconnect?: (retry: () => void) => () => void): () => void {
+    if (this.binding !== undefined) this.unbind(this.binding)
+    const binding: BodyBinding = { fetch }
+    this.binding = binding
+    const resume = () => {
+      if (this.binding !== binding) return
+      this.retryAt.clear()
+      this.retryDelay.clear()
+      this.arm()
+    }
+    binding.stopReconnect = onReconnect?.(resume)
+    resume()
+    return () => this.unbind(binding)
+  }
+
+  private unbind(binding: BodyBinding): void {
+    if (this.binding !== binding) return
+    this.binding = undefined
+    binding.stopReconnect?.()
+    this.clearTimer()
+    if (this.flight?.binding === binding) {
+      for (const id of this.flight.ids) this.queue.add(id)
+      this.flight = undefined
     }
   }
 
@@ -103,40 +136,73 @@ export class IssueBodyStore implements IssueBodyReader {
   }
 
   private arm(): void {
-    if (this.timer !== undefined || this.fetch === undefined) return
+    if (this.binding === undefined || this.flight !== undefined || this.queue.size === 0) return
+    const now = Date.now()
+    if (this.timer !== undefined && this.timerAt <= now + BODY_WINDOW_MS) return
+    let at = Infinity
+    for (const id of this.queue) at = Math.min(at, this.retryAt.get(id) ?? now + BODY_WINDOW_MS)
+    if (this.timer !== undefined && this.timerAt <= at) return
+    this.clearTimer()
+    this.timerAt = at
     // Out of the reading derivation: the load starts after it.
-    this.timer = setTimeout(() => {
-      this.timer = undefined
-      void this.flush()
-    }, BODY_WINDOW_MS)
+    this.timer = setTimeout(
+      () => {
+        this.timer = undefined
+        this.timerAt = Infinity
+        void this.flush()
+      },
+      Math.max(0, at - now),
+    )
+  }
+
+  private clearTimer(): void {
+    if (this.timer !== undefined) clearTimeout(this.timer)
+    this.timer = undefined
+    this.timerAt = Infinity
   }
 
   private async flush(): Promise<void> {
-    const fetch = this.fetch
-    if (fetch === undefined) return
-    const ids = [...this.queue]
-    this.queue.clear()
-    for (let start = 0; start < ids.length; start += BODY_BATCH_IDS) {
-      const batch = ids.slice(start, start + BODY_BATCH_IDS)
-      let bodies: readonly IssueBodyWire[]
-      try {
-        bodies = await fetch(batch)
-      } catch {
-        // Asked again on the next read: a reopened issue, a redrawn screen.
-        this.forget(batch)
-        continue
+    const binding = this.binding
+    if (binding === undefined || this.flight !== undefined) return
+    const now = Date.now()
+    const ids = [...this.queue].filter((id) => (this.retryAt.get(id) ?? 0) <= now)
+    for (const id of ids) this.queue.delete(id)
+    const flight = { binding, ids: new Set(ids) }
+    this.flight = flight
+    try {
+      for (let start = 0; start < ids.length; start += BODY_BATCH_IDS) {
+        if (this.binding !== binding) return
+        const batch = ids.slice(start, start + BODY_BATCH_IDS)
+        let bodies: readonly IssueBodyWire[]
+        try {
+          bodies = await binding.fetch(batch)
+        } catch {
+          if (this.binding !== binding) return
+          for (const id of batch) {
+            const delay = this.retryDelay.get(id) ?? BODY_RETRY_MS
+            this.retryDelay.set(id, Math.min(delay * 2, BODY_RETRY_MAX_MS))
+            this.retryAt.set(id, Date.now() + delay)
+            this.queue.add(id)
+            flight.ids.delete(id)
+          }
+          continue
+        }
+        if (this.binding !== binding) return
+        for (const id of batch) {
+          this.retryAt.delete(id)
+          this.retryDelay.delete(id)
+          flight.ids.delete(id)
+        }
+        // An answer at another digest (the body moved meanwhile) is held too.
+        // The ask stays answered: the stale header does not ask again, and the
+        // header that catches up names a new digest, which does.
+        this.put(bodies)
       }
-      // An answer at another digest (the body moved meanwhile) is held too.
-      // The ask stays answered: the stale header does not ask again, and the
-      // header that catches up names a new digest, which does.
-      this.put(bodies)
-    }
-  }
-
-  private forget(ids: readonly string[]): void {
-    const prefixes = ids.map((id) => `${id}\u0000`)
-    for (const ask of [...this.asked]) {
-      if (prefixes.some((prefix) => ask.startsWith(prefix))) this.asked.delete(ask)
+    } finally {
+      if (this.flight === flight) {
+        this.flight = undefined
+        this.arm()
+      }
     }
   }
 }
