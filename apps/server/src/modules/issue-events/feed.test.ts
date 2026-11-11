@@ -16,7 +16,11 @@ import { testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../store'
 import { afterCommit, applyAfterCommit, spanOpen } from '../../store/executor/executor'
-import { probeStatements, type StatementObservation } from '../../store/executor/statement-probe'
+import {
+  probeStatements,
+  type StatementObservation,
+  type StatementProbeHolder,
+} from '../../store/executor/statement-probe'
 import { serverRecordBuilders } from '../../sync/record-builders'
 import { openTestStore } from '../../test-support/open-test-store'
 import { expectRecordLogParity } from '../../test-support/record-log-parity'
@@ -95,7 +99,9 @@ describe('IssueEventFeedPublisher', () => {
     const { store, append } = await harness({ windowSize })
     for (let n = 0; n < windowSize + 1; n++) await append()
     const observations: StatementObservation[] = []
-    const detach = probeStatements(store, (row) => observations.push(row))
+    const detach = probeStatements(store as unknown as StatementProbeHolder, (row) =>
+      observations.push(row),
+    )
     try {
       await append()
     } finally {
