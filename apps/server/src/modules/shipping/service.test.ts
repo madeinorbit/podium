@@ -311,7 +311,7 @@ function cloneShippingHistory(store: SessionStore, orderId: string, copies: numb
           const values = columns.map((column) =>
             column === 'id' || column === 'order_id' || column === 'attempt_id'
               ? `${row[column]}${suffix}`
-              : row[column],
+                : (row[column] ?? null),
           )
           db.prepare(
             `INSERT INTO ${table} (${columns.map((c) => `"${c}"`).join(',')}) VALUES (${columns.map(() => '?').join(',')})`,
@@ -344,6 +344,46 @@ async function recoveryFixture(shippingJob: ShippingJob = provedShippingJob) {
 }
 
 describe('ShippingService durable recovery debt', () => {
+  it('commits every event of a multi-event issue write in the same transaction', async () => {
+    const { store, issues, service } = await harness()
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
+      repoPath: '/repo',
+      title: 'multi-event shipping write',
+      startNow: false,
+    })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
+    const events = () =>
+      store.events.listEventsSince(0, {
+        subject: issue.id,
+        kinds: ['issue.shipping_enqueued', 'issue.needs_human'],
+      })
+    await store.transact(async () => {
+      const committed = await issues.crud.shippingCommitMany(
+        issues.reports.store.serverWriter,
+        [
+          {
+            id: issue.id,
+            mutation: {
+              expectedStage: 'review',
+              nextStage: 'shipping',
+              needsHuman: true,
+              event: { kind: 'issue.shipping_enqueued', payload: { orderId: 'multi-event-order' } },
+            },
+          },
+        ],
+        () => 42,
+      )
+      expect(committed.result).toBe(42)
+      expect((await events()).map((event) => event.kind)).toEqual([
+        'issue.shipping_enqueued',
+        'issue.needs_human',
+      ])
+      expect((await store.issues.getIssue(issue.id))?.stage).toBe('shipping')
+    })
+    expect(await events()).toHaveLength(2)
+    service.dispose()
+  })
+
   it('retains a shipped acknowledgement through repeated failures and clears it only on success', async () => {
     let fail = true
     const requests: Parameters<ShippingJob>[0][] = []
@@ -492,6 +532,7 @@ describe('ShippingService durable recovery debt', () => {
     for (const size of [5, 200]) {
       const fixture = await historyPin.setup(size)
       const { store, issues, service } = fixture
+      const predecessors = vi.spyOn(store.shipping, 'shippedPredecessors')
       try {
         const issue = await issues.crud.create(issues.reports.store.serverWriter, {
           repoPath: '/repo',
@@ -504,15 +545,9 @@ describe('ShippingService durable recovery debt', () => {
         )
         expect(count.result.created).toBe(true)
         totals.push(count.statements)
-        pages.push(
-          [...count.byQuery]
-            .filter(
-              ([query]) =>
-                query.includes('"state" = ?') && query.includes('inner join "delivery_receipts"'),
-            )
-            .reduce((n, [, calls]) => n + calls, 0),
-        )
+        pages.push(predecessors.mock.calls.length)
       } finally {
+        predecessors.mockRestore()
         service.dispose()
       }
     }

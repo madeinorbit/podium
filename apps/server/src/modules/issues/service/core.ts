@@ -1168,24 +1168,26 @@ export class IssueStore {
           const undrafted = await this.rowsByIds(
             committedEvents.flatMap((event) => (drafted.has(event.subject) ? [] : [event.subject])),
           )
-          eventIds = await Promise.all(
-            committedEvents.map(
-              async (event) =>
-                await this.deps.store.events.appendEvent(
-                  {
-                    ts: this.now(),
-                    kind: event.kind,
-                    subject: event.subject,
-                    repoPath:
-                      drafted.get(event.subject)?.repoPath ??
-                      undrafted.get(event.subject)?.repoPath ??
-                      null,
-                    payload: event.payload,
-                  },
-                  { announce: false },
-                ),
-            ),
-          )
+          // appendEvent owns a nested transaction; savepoints in this span
+          // must finish in order before the next event opens one.
+          eventIds = []
+          for (const event of committedEvents) {
+            eventIds.push(
+              await this.deps.store.events.appendEvent(
+                {
+                  ts: this.now(),
+                  kind: event.kind,
+                  subject: event.subject,
+                  repoPath:
+                    drafted.get(event.subject)?.repoPath ??
+                    undrafted.get(event.subject)?.repoPath ??
+                    null,
+                  payload: event.payload,
+                },
+                { announce: false },
+              ),
+            )
+          }
           return { result, wires }
         },
       })
