@@ -3,6 +3,7 @@ import { relativeTime } from '@podium/client-core/focus'
 import type { MachineWire } from '@podium/model'
 import { asMachineId } from '@podium/model'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import type { ReactElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { NativeDesktopBridge } from '@/lib/nativeDesktop'
@@ -197,9 +198,8 @@ describe('add machine choices', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add machine' }))
     const mint = state.trpc.machines.pairingCode.mutate
     expect(mint).not.toHaveBeenCalled()
-    fireEvent.click(
-      screen.getByRole('switch', { name: /^Copy agent logins from your other machines/ }),
-    )
+    await userEvent.click(screen.getByText('Copy agent logins from your other machines'))
+    expect(screen.getByRole('switch').getAttribute('aria-checked')).toBe('false')
     expect(mint).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Create command' }))
     await waitFor(() =>
