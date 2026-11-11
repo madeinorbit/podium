@@ -210,7 +210,9 @@ it('shows subagent model only when the harness accepts it', () => {
   expect(screen.getByText('Subagent model')).toBeTruthy()
   const section = screen.getByRole('heading', { name: 'New sessions' }).closest('section')
   if (!section) throw new Error('Missing new sessions section')
-  expect(within(section).getByText(/usage counts against that subscription or account/i)).toBeTruthy()
+  expect(
+    within(section).getByText(/usage counts against that subscription or account/i),
+  ).toBeTruthy()
   const next = normalizeSettings({ roles: { coding: { accountId: 'native:codex' } } })
   rerender(<AgentsSection settings={next} accounts={accounts} patch={vi.fn()} />)
   expect(screen.queryByText('Subagent model')).toBeNull()

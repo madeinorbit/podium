@@ -116,6 +116,7 @@ import { automationPromptSender } from './modules/automations/prompt'
 import { AutomationScheduler } from './modules/automations/scheduler'
 import { AutomationsService } from './modules/automations/service'
 import { EventBus, type EventMap } from './modules/bus'
+import { CheckoutsService } from './modules/checkouts/service'
 import { DaemonRequestBroker } from './modules/daemon-request'
 import { awaitEffectSettled } from './modules/effects/await'
 import { makeEffectFeedCapture } from './modules/effects/feed'
@@ -177,7 +178,6 @@ import { routeMachineDiagnostic } from './modules/machines/diagnostics'
 import { LoginPropagationService } from './modules/machines/login-propagation'
 import { type MachineRecordsDeps, writeMachineRecords } from './modules/machines/records'
 import { DaemonRpcService } from './modules/machines/rpc'
-import { CheckoutsService } from './modules/checkouts/service'
 import { MachinesService, type PairingCodes } from './modules/machines/service'
 import { MemoryService } from './modules/memory/service'
 import { MessageFeedPublisher } from './modules/message-feed/feed'
@@ -742,15 +742,13 @@ export class SessionRegistry {
     // The instance settings (POD-6677): the stored blob onto the log as the one
     // `instancePreferences` record every member's first bootstrap holds.
     await reconcileInstancePreferences(this.writes.system('boot.reconcile'), this.store)
-    await this.writes
-      .system('boot.reconcile')
-      .reconcile(
-        'machine',
-        (await this.modules.machines.recordFacts()).map((fact) => ({
-          id: fact.machine.id,
-          value: fact.machine,
-        })),
-      )
+    await this.writes.system('boot.reconcile').reconcile(
+      'machine',
+      (await this.modules.machines.recordFacts()).map((fact) => ({
+        id: fact.machine.id,
+        value: fact.machine,
+      })),
+    )
     // Every member's access rows (POD-6644): a member who joined or changed
     // role while the server was down sees the machines they now may.
     await asSystemWrite(
@@ -1215,7 +1213,9 @@ export class SessionRegistry {
       // Read per call: the write contexts are built after this service.
       preferenceWriter: {
         commit: async (op) =>
-          await asSystemWrite(async () => await this.writes.system('settings.preferences').commit(op)),
+          await asSystemWrite(
+            async () => await this.writes.system('settings.preferences').commit(op),
+          ),
       },
       // The append-only settings trail (POD-421). Injected here so the transport
       // never reaches into the store for it.
@@ -1616,7 +1616,9 @@ export class SessionRegistry {
       online: (machineId) => machines.hasDaemon(machineId),
       writer: () => ({
         capture: async (specs) =>
-          await asSystemWrite(async () => await this.writes.system('checkouts.scan').capture(specs)),
+          await asSystemWrite(
+            async () => await this.writes.system('checkouts.scan').capture(specs),
+          ),
       }),
       // Scan-reported origins are the server's own write (POD-6417).
       publishRepos: async () => {
@@ -5131,9 +5133,13 @@ export class SessionRegistry {
       this.store.users.afterAccessChange(async (change) => {
         await asSystemWrite(
           async () =>
-            await writeMachineRecords(this.machineRecordsDeps(), this.writes.system('members.access'), {
-              formerMembers: [change.memberId],
-            }),
+            await writeMachineRecords(
+              this.machineRecordsDeps(),
+              this.writes.system('members.access'),
+              {
+                formerMembers: [change.memberId],
+              },
+            ),
         )
       }),
     ]

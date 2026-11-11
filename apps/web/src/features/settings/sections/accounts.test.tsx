@@ -324,7 +324,9 @@ describe('personal AI accounts', () => {
       }),
     )
     await waitFor(() =>
-      expect(flow().getByRole('switch', { name: 'Ana' }).getAttribute('aria-disabled')).not.toBe('true'),
+      expect(flow().getByRole('switch', { name: 'Ana' }).getAttribute('aria-disabled')).not.toBe(
+        'true',
+      ),
     )
     fireEvent.click(flow().getByRole('switch', { name: 'Ana' }))
     await waitFor(() =>
@@ -356,7 +358,9 @@ describe('personal AI accounts', () => {
     expect(await screen.findByText(/Ana’s key/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Add your own' }))
     fireEvent.click(flow().getByRole('button', { name: 'Add' }))
-    const input = flow().getByLabelText('Anthropic API key', { selector: 'input' }) as HTMLInputElement
+    const input = flow().getByLabelText('Anthropic API key', {
+      selector: 'input',
+    }) as HTMLInputElement
     expect(input.type).toBe('password')
     expect(input.value).toBe('')
     fireEvent.change(input, { target: { value: 'sk-new-personal-key' } })
@@ -471,7 +475,9 @@ describe('personal AI accounts', () => {
     })
     fireEvent.click(flow().getByRole('button', { name: 'Save' }))
     expect(await flow().findByText('Bad credential')).toBeTruthy()
-    expect((flow().getByLabelText('Anthropic API key', { selector: 'input' }) as HTMLInputElement).type).toBe('password')
+    expect(
+      (flow().getByLabelText('Anthropic API key', { selector: 'input' }) as HTMLInputElement).type,
+    ).toBe('password')
     expect(flow().getByRole('button', { name: 'Save' })).toBeTruthy()
     expect(frame.closeTakeover).not.toHaveBeenCalled()
   })

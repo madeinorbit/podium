@@ -135,9 +135,15 @@ describe('Account password takeover', () => {
     vi.stubGlobal('fetch', fetchMock)
     const trpc = fakeTrpc()
     await openPassword(trpc)
-    fireEvent.change(screen.getByLabelText('Current password', { selector: 'input' }), { target: { value: 'old' } })
-    fireEvent.change(screen.getByLabelText('New password', { selector: 'input' }), { target: { value: 'new' } })
-    fireEvent.change(screen.getByLabelText('Confirm new password', { selector: 'input' }), { target: { value: 'new' } })
+    fireEvent.change(screen.getByLabelText('Current password', { selector: 'input' }), {
+      target: { value: 'old' },
+    })
+    fireEvent.change(screen.getByLabelText('New password', { selector: 'input' }), {
+      target: { value: 'new' },
+    })
+    fireEvent.change(screen.getByLabelText('Confirm new password', { selector: 'input' }), {
+      target: { value: 'new' },
+    })
     fireEvent.submit(screen.getByLabelText('New password', { selector: 'input' }).closest('form')!)
     await waitFor(() =>
       expect(trpc.auth.setPassword.mutate).toHaveBeenCalledWith({ current: 'old', next: 'new' }),
@@ -154,8 +160,12 @@ describe('Account password takeover', () => {
   it('refuses a mismatched confirmation before writing a credential', async () => {
     const trpc = fakeTrpc(false)
     await openPassword(trpc)
-    fireEvent.change(screen.getByLabelText('New password', { selector: 'input' }), { target: { value: 'one' } })
-    fireEvent.change(screen.getByLabelText('Confirm new password', { selector: 'input' }), { target: { value: 'two' } })
+    fireEvent.change(screen.getByLabelText('New password', { selector: 'input' }), {
+      target: { value: 'one' },
+    })
+    fireEvent.change(screen.getByLabelText('Confirm new password', { selector: 'input' }), {
+      target: { value: 'two' },
+    })
     fireEvent.submit(screen.getByLabelText('New password', { selector: 'input' }).closest('form')!)
     expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Passwords don’t match.')
     expect(trpc.auth.setPassword.mutate).not.toHaveBeenCalled()
@@ -165,8 +175,12 @@ describe('Account password takeover', () => {
     vi.stubGlobal('fetch', fetchMock)
     const trpc = fakeTrpc(false)
     await openPassword(trpc)
-    fireEvent.change(screen.getByLabelText('New password', { selector: 'input' }), { target: { value: 'new' } })
-    fireEvent.change(screen.getByLabelText('Confirm new password', { selector: 'input' }), { target: { value: 'new' } })
+    fireEvent.change(screen.getByLabelText('New password', { selector: 'input' }), {
+      target: { value: 'new' },
+    })
+    fireEvent.change(screen.getByLabelText('Confirm new password', { selector: 'input' }), {
+      target: { value: 'new' },
+    })
     fireEvent.submit(screen.getByLabelText('New password', { selector: 'input' }).closest('form')!)
     expect(await screen.findByRole('alert')).toHaveProperty(
       'textContent',
@@ -183,8 +197,12 @@ describe('Account password takeover', () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
     await openPassword(trpc)
-    fireEvent.change(screen.getByLabelText('New password', { selector: 'input' }), { target: { value: 'new' } })
-    fireEvent.change(screen.getByLabelText('Confirm new password', { selector: 'input' }), { target: { value: 'new' } })
+    fireEvent.change(screen.getByLabelText('New password', { selector: 'input' }), {
+      target: { value: 'new' },
+    })
+    fireEvent.change(screen.getByLabelText('Confirm new password', { selector: 'input' }), {
+      target: { value: 'new' },
+    })
     fireEvent.submit(screen.getByLabelText('New password', { selector: 'input' }).closest('form')!)
     await waitFor(() => expect(frame.closeTakeover).toHaveBeenCalledOnce())
     expect(fetchMock).not.toHaveBeenCalled()
@@ -198,8 +216,12 @@ describe('Account password takeover', () => {
       }),
     )
     const flow = await openPassword(trpc)
-    fireEvent.change(screen.getByLabelText('New password', { selector: 'input' }), { target: { value: 'new' } })
-    fireEvent.change(screen.getByLabelText('Confirm new password', { selector: 'input' }), { target: { value: 'new' } })
+    fireEvent.change(screen.getByLabelText('New password', { selector: 'input' }), {
+      target: { value: 'new' },
+    })
+    fireEvent.change(screen.getByLabelText('Confirm new password', { selector: 'input' }), {
+      target: { value: 'new' },
+    })
     fireEvent.submit(screen.getByLabelText('New password', { selector: 'input' }).closest('form')!)
     flow.unmount()
     finish?.({ loginRequired: false })

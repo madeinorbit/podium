@@ -223,7 +223,9 @@ describe('Access', () => {
   it('keeps sign-in on for an administrator viewing Access remotely', async () => {
     serve({ hostLocalRequest: false })
     render(<AccessSection />)
-    expect(await screen.findByText('Can only be turned off on the server machine itself.')).toBeTruthy()
+    expect(
+      await screen.findByText('Can only be turned off on the server machine itself.'),
+    ).toBeTruthy()
     expect(screen.queryByRole('switch', { name: 'Require sign-in' })).toBeNull()
   })
 
@@ -234,7 +236,9 @@ describe('Access', () => {
     fireEvent.click(control)
     fireEvent.change(screen.getByLabelText('Your password'), { target: { value: 'the password' } })
     fireEvent.click(screen.getByRole('button', { name: 'Require sign-in' }))
-    expect(await screen.findByText('Can only be turned off on the server machine itself.')).toBeTruthy()
+    expect(
+      await screen.findByText('Can only be turned off on the server machine itself.'),
+    ).toBeTruthy()
     expect(fixture.trpc.auth.setLoginRequired.mutate).toHaveBeenCalledWith({
       required: true,
       current: 'the password',

@@ -150,9 +150,9 @@ describe('the derived settings router CALLS the gate', () => {
 
   it('a member is refused a secret WRITE', async () => {
     const { call } = await harness('member')
-    await expect(
-      call.settings.setSecret({ key: SECRET_KEY, value: SECRET }),
-    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await expect(call.settings.setSecret({ key: SECRET_KEY, value: SECRET })).rejects.toMatchObject(
+      { code: 'FORBIDDEN' },
+    )
   })
 
   it('…and the refused write did NOT happen — the gate runs BEFORE the handler', async () => {
@@ -182,7 +182,10 @@ describe('member Telegram disconnect', () => {
       (await store.telegramBindings.listForUser(firstAdminMemberId())).map((row) => row.chatId),
     ).toEqual(['444'])
     await expect(
-      call.settings.setSecret({ key: 'notifications.telegramBotToken', value: '123456:other-token' }),
+      call.settings.setSecret({
+        key: 'notifications.telegramBotToken',
+        value: '123456:other-token',
+      }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' })
     await expect(
       call.settings.clearSecret({ key: 'notifications.telegramBotToken' }),
@@ -311,10 +314,9 @@ describe('member Telegram disconnect', () => {
       await expect(call.settings.telegramSetupPoll({ setupId: setup.setupId })).rejects.toThrow(
         'preference write failed',
       )
-      expect((await store.telegramBindings.listForUser(alice)).map((row) => row.chatId).sort()).toEqual([
-        '111',
-        '222',
-      ])
+      expect(
+        (await store.telegramBindings.listForUser(alice)).map((row) => row.chatId).sort(),
+      ).toEqual(['111', '222'])
       expect((await store.settings.getSettingsFor(alice)).notifications.telegramChatId).toBe('222')
       expect(await call.settings.telegramSetupPoll({ setupId: setup.setupId })).toMatchObject({
         status: 'connected',
@@ -329,9 +331,9 @@ describe('member Telegram disconnect', () => {
 describe('the derived settings router WRITES the trail', () => {
   it('refuses workspace provider keys even for an administrator', async () => {
     const { call, store } = await harness('admin')
-    await expect(
-      call.settings.setSecret({ key: 'apiKeys.openai', value: SECRET }),
-    ).rejects.toThrow('Settings → AI accounts')
+    await expect(call.settings.setSecret({ key: 'apiKeys.openai', value: SECRET })).rejects.toThrow(
+      'Settings → AI accounts',
+    )
     expect(await store.secrets.getOrEmpty('apiKeys.openai')).toBe('')
   })
 
@@ -385,9 +387,9 @@ describe('the derived settings router WRITES the trail', () => {
     // rejected is now caught in a link nothing used to look at.
     const { call, audit, store } = await harness('admin')
     throwFromSecretWrite(store, new Error(`rejected value ${SECRET}`))
-    await expect(
-      call.settings.setSecret({ key: SECRET_KEY, value: SECRET }),
-    ).rejects.toMatchObject({ message: REDACTED_MESSAGE })
+    await expect(call.settings.setSecret({ key: SECRET_KEY, value: SECRET })).rejects.toMatchObject(
+      { message: REDACTED_MESSAGE },
+    )
     const rows = (await audit()).filter((r) => r.command === 'settings.setSecret')
     expect(rows).toHaveLength(1)
     expect(rows[0]?.outcome).toBe('refused')

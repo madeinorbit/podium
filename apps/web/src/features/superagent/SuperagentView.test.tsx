@@ -195,7 +195,10 @@ vi.mock('@/lib/voice', () => ({
 vi.mock('@/lib/markdown', () => ({ renderMarkdown: (t: string) => `<p>${t}</p>` }))
 vi.mock('./use-superagent-inputs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./use-superagent-inputs')>()
-  return { ...actual, useSuperagentAccess: () => ({ ...actual.useSuperagentAccess(), readPosition }) }
+  return {
+    ...actual,
+    useSuperagentAccess: () => ({ ...actual.useSuperagentAccess(), readPosition }),
+  }
 })
 /**
  * THE CHAT IS STUBBED, AND THAT IS THE POINT OF THIS FILE (POD-782).
