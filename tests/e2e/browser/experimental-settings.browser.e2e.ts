@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page, test } from '@playwright/test'
-import { deferUpdateOffers, gotoWorkspace, RELAY } from './_harness'
+import { deferUpdateOffers, RELAY } from './_harness'
 
 /**
  * Runtime verification of Settings → Labs [spec:SP-f4b9] against the
@@ -51,15 +51,7 @@ async function openWorkspace(page: Page): Promise<void> {
     history.pushState(null, '', `/${location.search}`)
     dispatchEvent(new PopStateEvent('popstate'))
   })
-  await gotoWorkspace(page)
-  const emptyPanel = page.getByText('No panel — use + to start one.')
-  if (await emptyPanel.isVisible().catch(() => false)) {
-    await page
-      .getByRole('button', { name: /^New .+ in .+/ })
-      .first()
-      .click({ timeout: 15_000 })
-    await expect(emptyPanel).toBeHidden({ timeout: 20_000 })
-  }
+  await expect(page.getByRole('dialog', { name: 'Settings', exact: true })).toHaveCount(0)
 }
 
 test('Labs saves Shipping on change and opens the feature', async ({ page }) => {
