@@ -102,6 +102,18 @@ describe('IssueBodyStore', () => {
     expect(store.read('a', 'brief', 'd2')).toEqual({ value: 'Second', current: true })
   })
 
+  it('does not immediately fetch again when the response is ahead of the observed header', async () => {
+    const store = new IssueBodyStore()
+    const { calls, fetch } = server(new Map([['a', [body('a', 'brief', 'd2', 'Newer')]]]))
+    store.bind(fetch)
+    watch(store, 'a', 'brief', 'd1')
+    await settle()
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(calls).toEqual([['a']])
+    expect(vi.getTimerCount()).toBe(0)
+    expect(store.read('a', 'brief', 'd2')).toEqual({ value: 'Newer', current: true })
+  })
+
   it('shows the text a settled edit painted until its body arrives', async () => {
     const store = new IssueBodyStore()
     const held = new Map([['a', [body('a', 'brief', 'd1', 'Old')]]])

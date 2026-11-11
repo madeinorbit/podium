@@ -1,3 +1,4 @@
+import { createDemandAtoms } from '@podium/mobx-helpers'
 import type { IssueBodyField, IssueBodyWire } from '@podium/model/browser'
 import { action, observable } from 'mobx'
 import { LOADING } from './loading'
@@ -12,14 +13,16 @@ import { LOADING } from './loading'
  *
  * - Requests made within {@link BODY_WINDOW_MS} of each other go out as one
  *   `issues.bodies` call (at most {@link BODY_BATCH_IDS} issues each).
- * - A body is kept by its digest, so an issue write that leaves a body alone
+ * - One body is kept per field with its digest, so an issue write that leaves a body alone
  *   keeps the copy held here; a header that moves asks again, and the copy
  *   held meanwhile is answered as not current, so a screen keeps its text and
  *   an edit form waits for the new one.
  * - A body is kept for the pool's life. It is what the reader opened, so the
  *   set grows with what a person looks at, not with the instance.
- * - Failed ids retry with exponential backoff from 1 to 30 seconds. One timer
- *   and serial batches serve pending reads; reconnect resumes them promptly.
+ * - Failed ids retry with exponential backoff from 1 to 30 seconds while a
+ *   reader observes them. One timer and serial batches serve pending reads;
+ *   reconnect resumes them promptly. The last reader drops queued requests
+ *   and their marks, so the next read can ask again.
  *
  * The fetch is bound by the app (`bind`), so the data layer names no
  * transport. Before it is bound, requests wait.
@@ -64,8 +67,11 @@ export class IssueBodyStore implements IssueBodyReader {
    *  shown until the body at the new digest arrives, so a saved edit never
    *  flashes the text it replaced. Dropped once a current body is read. */
   private readonly painted = new Map<string, unknown>()
-  /** `issue field digest` triples asked for and not yet answered. */
-  private readonly asked = new Set<string>()
+  /** Field/digest pairs asked for per issue, cleared when its fetch answers. */
+  private readonly asked = new Map<string, Set<string>>()
+  private readonly readers = createDemandAtoms<string>((id) => `issueBody:${id}`, {
+    onUnobserved: (id) => this.release(id),
+  })
   /** Issues waiting for the next call. */
   private readonly queue = new Set<string>()
   /** Failed issues stay queued, but reads cannot bring their retry forward. */
@@ -107,15 +113,21 @@ export class IssueBodyStore implements IssueBodyReader {
   /** TRACKED: the body held for the field (current when it is at `digest`),
    *  or `LOADING`; anything but the current body queues a load. */
   read(issueId: string, field: IssueBodyField, digest: string): HeldIssueBody | typeof LOADING {
+    this.readers.observe(issueId)
     const key = keyOf(issueId, field)
     const held = this.held.get(key)
     if (held !== undefined && held.digest === digest) {
       this.painted.delete(key)
       return { value: held.value, current: true }
     }
-    const ask = `${key}\u0000${digest}`
-    if (!this.asked.has(ask)) {
-      this.asked.add(ask)
+    const ask = `${field}\u0000${digest}`
+    let asked = this.asked.get(issueId)
+    if (!asked?.has(ask)) {
+      if (asked === undefined) {
+        asked = new Set()
+        this.asked.set(issueId, asked)
+      }
+      asked.add(ask)
       this.queue.add(issueId)
       this.arm()
     }
@@ -133,6 +145,14 @@ export class IssueBodyStore implements IssueBodyReader {
     for (const body of bodies) {
       this.held.set(keyOf(body.issueId, body.field), { digest: body.digest, value: body.value })
     }
+  }
+
+  private release(issueId: string): void {
+    this.asked.delete(issueId)
+    this.queue.delete(issueId)
+    this.retryAt.delete(issueId)
+    this.retryDelay.delete(issueId)
+    if (this.queue.size === 0) this.clearTimer()
   }
 
   private arm(): void {
@@ -179,24 +199,30 @@ export class IssueBodyStore implements IssueBodyReader {
         } catch {
           if (this.binding !== binding) return
           for (const id of batch) {
+            flight.ids.delete(id)
+            if (!this.readers.has(id)) {
+              this.release(id)
+              continue
+            }
             const delay = this.retryDelay.get(id) ?? BODY_RETRY_MS
             this.retryDelay.set(id, Math.min(delay * 2, BODY_RETRY_MAX_MS))
             this.retryAt.set(id, Date.now() + delay)
             this.queue.add(id)
-            flight.ids.delete(id)
           }
           continue
         }
         if (this.binding !== binding) return
+        // Publish before clearing marks: an answer ahead of its header must
+        // not immediately ask again from the reading derivation.
+        this.put(bodies)
         for (const id of batch) {
+          // Only one body per field is held, so a later return to an earlier
+          // digest must be free to fetch that text again.
+          this.asked.delete(id)
           this.retryAt.delete(id)
           this.retryDelay.delete(id)
           flight.ids.delete(id)
         }
-        // An answer at another digest (the body moved meanwhile) is held too.
-        // The ask stays answered: the stale header does not ask again, and the
-        // header that catches up names a new digest, which does.
-        this.put(bodies)
       }
     } finally {
       if (this.flight === flight) {
