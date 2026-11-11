@@ -24,7 +24,7 @@ const user = (id: UserId): CommandPrincipal => ({
   kind: 'user',
   user: id,
   // An administrator may inspect the fleet; these refusals exercise a regular member.
-  capability: { role: 'member', scope: { kind: 'all' } },
+  capability: { role: 'worker', scope: { kind: 'all' } },
 })
 
 /**
