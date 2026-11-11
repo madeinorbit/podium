@@ -608,7 +608,9 @@ describe('IssueService unread (#124)', () => {
     await svc.crud.markIssueRead(svc.reports.store.serverWriter, w.id)
     expect(await svc.reports.unreadFor(w.id)).toBe(false)
     clock = '2026-06-30T00:00:02.000Z'
-    const reordered = await svc.crud.update(svc.reports.store.serverWriter, w.id, { sortKey: 'x2c' })
+    const reordered = await svc.crud.update(svc.reports.store.serverWriter, w.id, {
+      sortKey: 'x2c',
+    })
     expect(await svc.reports.unreadFor(w.id)).toBe(false)
     expect(reordered.updatedAt).toBe('2026-06-30T00:00:01.000Z')
   })
@@ -1111,9 +1113,9 @@ describe('IssueService close retires session offers (POD-290)', () => {
     await svc.crud.close(svc.reports.store.serverWriter, w.id)
 
     expect(clearSessionOffer).toHaveBeenCalledTimes(2)
-    expect(clearSessionOffer).toHaveBeenCalledWith('/r/wt/delegate')
-    expect(clearSessionOffer).toHaveBeenCalledWith('/r/wt/coord')
-    expect(clearSessionOffer).not.toHaveBeenCalledWith('/elsewhere')
+    expect(clearSessionOffer).toHaveBeenCalledWith(svc.reports.store.serverWriter, '/r/wt/delegate')
+    expect(clearSessionOffer).toHaveBeenCalledWith(svc.reports.store.serverWriter, '/r/wt/coord')
+    expect(clearSessionOffer).not.toHaveBeenCalledWith(svc.reports.store.serverWriter, '/elsewhere')
   })
 
   it('board drag / CLI update({ stage: done }) retires offers the same way', async () => {
@@ -1130,7 +1132,7 @@ describe('IssueService close retires session offers (POD-290)', () => {
     await svc.crud.update(svc.reports.store.serverWriter, w.id, { stage: 'done' })
 
     expect(clearSessionOffer).toHaveBeenCalledTimes(1)
-    expect(clearSessionOffer).toHaveBeenCalledWith('/r/wt')
+    expect(clearSessionOffer).toHaveBeenCalledWith(svc.reports.store.serverWriter, '/r/wt')
   })
 
   it('skips sessions without an offer and is a no-op on re-close', async () => {
@@ -1147,7 +1149,7 @@ describe('IssueService close retires session offers (POD-290)', () => {
 
     await svc.crud.close(svc.reports.store.serverWriter, w.id)
     expect(clearSessionOffer).toHaveBeenCalledTimes(1)
-    expect(clearSessionOffer).toHaveBeenCalledWith('/r/wt/offer')
+    expect(clearSessionOffer).toHaveBeenCalledWith(svc.reports.store.serverWriter, '/r/wt/offer')
 
     clearSessionOffer.mockClear()
     await svc.crud.close(svc.reports.store.serverWriter, w.id)
@@ -1173,7 +1175,7 @@ describe('IssueService close retires session offers (POD-290)', () => {
 
     await svc.crud.close(svc.reports.store.serverWriter, w.id)
 
-    expect(clearSessionOffer).toHaveBeenCalledWith('attached')
+    expect(clearSessionOffer).toHaveBeenCalledWith(svc.reports.store.serverWriter, 'attached')
   })
 })
 
@@ -1194,9 +1196,17 @@ describe('IssueService archive cascade to sessions (#133)', () => {
     await svc.attention.archive(svc.reports.store.serverWriter, w.id)
     // Both member sessions (cwd inside the worktree) are archived; the outsider is not.
     expect(setSessionArchived).toHaveBeenCalledTimes(2)
-    expect(setSessionArchived).toHaveBeenCalledWith('/r/wt', true)
-    expect(setSessionArchived).toHaveBeenCalledWith('/r/wt/pkg', true)
-    expect(setSessionArchived).not.toHaveBeenCalledWith('/elsewhere', true)
+    expect(setSessionArchived).toHaveBeenCalledWith(svc.reports.store.serverWriter, '/r/wt', true)
+    expect(setSessionArchived).toHaveBeenCalledWith(
+      svc.reports.store.serverWriter,
+      '/r/wt/pkg',
+      true,
+    )
+    expect(setSessionArchived).not.toHaveBeenCalledWith(
+      svc.reports.store.serverWriter,
+      '/elsewhere',
+      true,
+    )
   })
 
   it('a context-menu / CLI update({ archived: true }) cascades the same way', async () => {
@@ -1209,7 +1219,7 @@ describe('IssueService archive cascade to sessions (#133)', () => {
     await svc.crud.update(svc.reports.store.serverWriter, w.id, { worktreePath: '/r/wt' })
     setSessionArchived.mockClear()
     await svc.crud.update(svc.reports.store.serverWriter, w.id, { archived: true })
-    expect(setSessionArchived).toHaveBeenCalledWith('/r/wt', true)
+    expect(setSessionArchived).toHaveBeenCalledWith(svc.reports.store.serverWriter, '/r/wt', true)
   })
 
   it('the S5 auto-archive sweep also archives member sessions so the worktree row disappears', async () => {
@@ -1227,7 +1237,7 @@ describe('IssueService archive cascade to sessions (#133)', () => {
     const nowMs = Date.parse('2026-06-30T00:00:00.000Z')
     const archived = await svc.attention.sweepAutoArchive(nowMs + 8 * 24 * 3600_000)
     expect(archived.map((a) => a.id)).toEqual([w.id])
-    expect(setSessionArchived).toHaveBeenCalledWith('/r/wt', true)
+    expect(setSessionArchived).toHaveBeenCalledWith(svc.reports.store.serverWriter, '/r/wt', true)
   })
 
   it('un-archiving an issue does NOT cascade (sessions stay archived unless restored explicitly)', async () => {
@@ -1281,7 +1291,11 @@ describe('IssueService archive cascade to sessions (#133)', () => {
     expect((await svc.reports.get(open.id))?.archived).toBe(true)
     expect((await svc.reports.get(unread.id))?.archived).toBe(true)
     expect((await svc.reports.get(grandchild.id))?.archived).toBe(true)
-    expect(setSessionArchived).toHaveBeenCalledWith('/r/wt-live', true)
+    expect(setSessionArchived).toHaveBeenCalledWith(
+      svc.reports.store.serverWriter,
+      '/r/wt-live',
+      true,
+    )
   })
 
   it('context-menu update({ archived: true }) takes the same descendant walk', async () => {
@@ -1355,8 +1369,16 @@ describe('IssueService archive cascade to sessions (#133)', () => {
     setSessionArchived.mockClear()
     await svc.attention.archive(svc.reports.store.serverWriter, w.id)
     expect(setSessionArchived).toHaveBeenCalledTimes(1)
-    expect(setSessionArchived).toHaveBeenCalledWith('/r/wt/live', true)
-    expect(setSessionArchived).not.toHaveBeenCalledWith('/r/wt/gone', true)
+    expect(setSessionArchived).toHaveBeenCalledWith(
+      svc.reports.store.serverWriter,
+      '/r/wt/live',
+      true,
+    )
+    expect(setSessionArchived).not.toHaveBeenCalledWith(
+      svc.reports.store.serverWriter,
+      '/r/wt/gone',
+      true,
+    )
   })
 })
 
@@ -3798,7 +3820,11 @@ describe('IssueService field mutations (P1)', () => {
 
   it('claim sets in_progress and leaves the assignee, the owner, alone; close sets done + reason', async () => {
     const { svc } = await harness()
-    const a = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
     const claimed = await svc.crud.claim(svc.reports.store.serverWriter, a.id)
     // POD-6287: the assignee IS the owner; a claim without one names nobody new.
     expect(claimed.assignee).toBe(a.owner)
