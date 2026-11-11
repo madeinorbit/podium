@@ -74,6 +74,10 @@ describe('settings frame', () => {
     )
     expect(screen.getByText('People who can sign in to this workspace.')).toBeTruthy()
     expect(screen.queryByText(/Open someone to change their role/)).toBeNull()
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'pending invites' } })
+    expect(screen.queryByRole('button', { name: 'Pending invites Members' })).toBeNull()
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'add a machine' } })
+    expect(screen.queryByRole('button', { name: 'Add a machine Machines' })).toBeNull()
   })
 
   it('searches row help and keywords across pages, then focuses and highlights the row once', async () => {

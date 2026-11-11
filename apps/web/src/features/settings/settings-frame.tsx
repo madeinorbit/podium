@@ -144,7 +144,12 @@ export function SettingsFrame({
   const requiredSection = adminSectionOf(page)
   const pageOffered = requiredSection === undefined || viewer.sections.includes(requiredSection)
   const [query, setQuery] = useState('')
-  const results = searchSettings(query, pages)
+  const results = searchSettings(query, pages).filter((result) => {
+    if (result.page.key === 'members' && result.section) return viewer.sections.includes('people')
+    if (result.page.key === 'machines' && result.label === 'Add a machine')
+      return viewer.sections.includes('machines')
+    return true
+  })
   const searching = query.trim().length > 0
   const [selectedResult, setSelectedResult] = useState(0)
   const [narrow, setNarrow] = useState(() => window.matchMedia('(max-width: 759px)').matches)
