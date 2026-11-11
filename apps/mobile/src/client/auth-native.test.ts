@@ -9,11 +9,14 @@ afterEach(() => {
 })
 
 describe('native auth transport', () => {
-  it('refuses cleartext password submission before fetch', async () => {
+  it('refuses cleartext password submission while reading only public HTTPS guidance', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
     await expect(login('http://192.168.1.8', 'secret')).resolves.toMatchObject({ ok: false })
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('http://192.168.1.8/auth/status')
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ credentials: 'omit' })
+    expect(fetchMock.mock.calls[0]?.[1]?.body).toBeUndefined()
   })
 
   it('treats a non-2xx logout response as failed revocation', async () => {

@@ -4,6 +4,7 @@ import {
   accountPageUrl,
   type SignInPrompt,
 } from '@podium/client-core/accounts'
+import { httpsRequiredRefusal } from '@podium/protocol'
 import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -13,6 +14,7 @@ import {
   useState,
 } from 'react'
 import { clientRegistration } from '@/app/client-registration'
+import { HttpsRequiredScreen } from '@/app/HttpsRequiredScreen'
 import { LoadingScreen } from '@/app/LoadingScreen'
 import { serverConfig } from '@/app/trpc'
 import { AccountContext, expiredPrincipalOf, SYNC_AUTH_EXPIRED_EVENT } from '@/lib/account-context'
@@ -669,6 +671,8 @@ export function LoginGate({
       />
     )
   if (phase === 'loading' || (phase === 'ready' && auth === undefined)) return <LoadingScreen />
+  if (auth?.kind === 'failure' && auth.failure.kind === 'auth-insecure')
+    return <HttpsRequiredScreen guidance={auth.failure.guidance ?? httpsRequiredRefusal()} />
   const app =
     auth === undefined ? null : (
       <ServerAuthStatusContext.Provider value={status ?? null}>

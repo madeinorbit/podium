@@ -13,6 +13,7 @@
  */
 
 import type { ReplicaFailure } from '@podium/client-core/replica-assembly'
+import { httpsRequiredRefusal } from '@podium/protocol'
 
 export type { ReplicaFailure } from '@podium/client-core/replica-assembly'
 export {
@@ -109,13 +110,12 @@ export function describeReplicaFailure(
     case 'auth-insecure':
       return {
         eyebrow: 'Connection / not secure',
-        headline: 'Podium will not send\nyour token in the clear.',
-        prose:
-          'This browser holds a bearer credential and the link to the server is plain HTTP, which anyone on the network can read. Reach this server over HTTPS, or over localhost, and the credential travels safely.',
+        headline: 'Connect with HTTPS',
+        prose: (failure.guidance ?? httpsRequiredRefusal()).message,
         fields: [
           target,
           { label: 'Required', value: 'https:// or localhost' },
-          { label: 'Next check', value: 'podium config get publicUrl', tone: 'command' },
+          { label: 'Next check', value: 'podium setup', tone: 'command' },
         ],
       }
     case 'auth-refused':

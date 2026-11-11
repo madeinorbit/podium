@@ -199,12 +199,18 @@ describe('on the upgraded two-member fixture, nothing below is ever carried', ()
     const without = await i.status(undefined, remoteHttp)
     const { answer, writes } = await observed(i, () => i.status(cookie, remoteHttp))
     expect(answer.text).toBe(without.text)
-    expect(answer.body).toMatchObject({ authed: false })
+    expect(answer.body).toMatchObject({
+      error: 'https_required',
+      message: expect.stringContaining('HTTPS for sign-in from other computers'),
+    })
     expect(answer.setCookies).toEqual([])
     expect(writes).toEqual([])
     const guarded = await i.request('/trpc/auth.profile', { cookie, headers: remoteHttp })
     expect(guarded.status).toBe(400)
-    expect(guarded.body).toEqual({ error: 'https_required' })
+    expect(guarded.body).toMatchObject({
+      error: 'https_required',
+      message: expect.stringContaining('HTTPS for sign-in from other computers'),
+    })
   })
 
   it('test 26: a foreign Origin on the status request', async () => {
@@ -222,7 +228,9 @@ describe('on the upgraded two-member fixture, nothing below is ever carried', ()
       )
       expect(answer.status).toBe(without.status)
       expect(answer.text).toBe(without.text)
-      expect(answer.body).toMatchObject({ authed: false })
+      expect(answer.body).toMatchObject(
+        'x-forwarded-proto' in headers ? { authed: false } : { error: 'https_required' },
+      )
       expect(answer.setCookies).toEqual([])
       expect(writes).toEqual([])
     }
@@ -242,7 +250,7 @@ describe('boundaries that do carry, next to the ones that do not', () => {
     f = await startUpgradedInstance('two-members')
     const i = f
     const cookie = oldCookie(OLD_TOKENS.aliceBrowser)
-    expect((await i.status(cookie, remoteHttp)).body).toMatchObject({ authed: false })
+    expect((await i.status(cookie, remoteHttp)).body).toMatchObject({ error: 'https_required' })
     const carried = await i.status(cookie, https)
     expect(carried.body).toMatchObject({ authed: true, memberId: ALICE })
     expect(carried.cookie).toMatch(/^__Secure-podium\.session_token=/)

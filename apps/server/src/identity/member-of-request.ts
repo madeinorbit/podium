@@ -21,6 +21,7 @@
  */
 import type { ConnectionFacts, DeviceKind, WorkspaceIdentity } from '@podium/identity'
 import { asUserId, type UserId, type UserRole } from '@podium/model'
+import { type HttpsRequiredRefusal, httpsRequiredRefusal, signInHttpsUrl } from '@podium/protocol'
 import { type UserCommandPrincipal, userCommandPrincipal } from '../command-principal'
 import { isHostLocalRequest } from '../readiness-boundary'
 import { clientAddressForRequest, isSecureRequest } from '../request-scheme'
@@ -39,14 +40,14 @@ export type MemberResolution =
     }
   | { kind: 'not-a-member'; accountId: string }
   | { kind: 'unauthenticated' }
-  | { kind: 'https_required' }
+  | { kind: 'https_required'; httpsUrl?: string }
 
 export type MemberRefusal = Exclude<MemberResolution, { kind: 'member' }>
 
 /** The HTTP answer for a caller who is not admitted (specification, section 5.2). */
 export function refusalAnswer(refusal: MemberRefusal): {
   status: 400 | 401 | 403
-  body: { error: string }
+  body: { error: string } | HttpsRequiredRefusal
 } {
   switch (refusal.kind) {
     case 'unauthenticated':
@@ -54,7 +55,7 @@ export function refusalAnswer(refusal: MemberRefusal): {
     case 'not-a-member':
       return { status: 403, body: { error: 'not_workspace_member' } }
     case 'https_required':
-      return { status: 400, body: { error: 'https_required' } }
+      return { status: 400, body: httpsRequiredRefusal(refusal.httpsUrl) }
   }
 }
 
@@ -71,6 +72,8 @@ export function createMemberOfRequest(deps: {
   users: { get(id: UserId): Promise<{ role: UserRole } | undefined> }
   /** Reverse-proxy hops whose forwarding values the operator declared trusted. */
   trustedProxyHops: number
+  /** The server's advertised address, read per refusal so tunnel changes take effect. */
+  publicUrl?: () => string | undefined
 }): MemberOfRequest {
   /**
    * `request` is the request as the HTTP app sees it: `x-podium-peer-address`
@@ -94,6 +97,10 @@ export function createMemberOfRequest(deps: {
   })
 
   const resolve = async (request: Request): Promise<MemberResolution> => {
+    const httpsRequired = (): MemberResolution => {
+      const httpsUrl = signInHttpsUrl(deps.publicUrl?.())
+      return { kind: 'https_required', ...(httpsUrl ? { httpsUrl } : {}) }
+    }
     const facts = factsOf(request)
     // An explicit bearer requires HTTPS, even on loopback. It must not
     // disappear from the request and allow a different cookie to take over.
@@ -101,9 +108,10 @@ export function createMemberOfRequest(deps: {
       facts.scheme === 'http' &&
       /^Bearer(?: |$)/i.test(request.headers.get('authorization') ?? '')
     ) {
-      return { kind: 'https_required' }
+      return httpsRequired()
     }
     const resolution = await deps.identity.resolve(request, facts)
+    if (resolution.kind === 'https_required') return httpsRequired()
     if (resolution.kind !== 'member') {
       return resolution.kind === 'not-a-member'
         ? { kind: 'not-a-member', accountId: resolution.accountId }

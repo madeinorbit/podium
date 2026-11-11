@@ -1,4 +1,5 @@
 import type { AuthStatus } from '@podium/client-core/accounts'
+import { httpsRequiredRefusal } from '@podium/protocol'
 import { type JSX, useEffect, useState } from 'react'
 import { LoginView } from '@/features/setup/LoginGate'
 import { webAuth } from '@/lib/accounts'
@@ -12,6 +13,7 @@ import { useServerAuthStatus } from '@/lib/server-auth-status'
 import { workspaceFetch } from '@/lib/workspace-request'
 import { type ReloadWindow, reloadApp } from './AppErrorPage'
 import { BootScreen, type BootTrace } from './BootScreen'
+import { HttpsRequiredScreen } from './HttpsRequiredScreen'
 import { LoadingScreen } from './LoadingScreen'
 
 /**
@@ -127,6 +129,8 @@ export function ReplicaFailureScreen({
     )
   }
 
+  if (cause.kind === 'auth-insecure')
+    return <HttpsRequiredScreen guidance={cause.guidance ?? httpsRequiredRefusal()} />
   const copy = describeReplicaFailure(cause, { endpoint: endpointLabel(httpOrigin) })
   return (
     <BootScreen

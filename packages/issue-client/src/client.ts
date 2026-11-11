@@ -5,6 +5,7 @@ import {
 } from '@podium/commands'
 import {
   deviceSignInCookieName,
+  readHttpsRequiredRefusal,
   type SyncSubmitTransport,
   writesThroughSubmit,
 } from '@podium/protocol'
@@ -122,6 +123,12 @@ function isTrpcEnvelope(text: string): boolean {
  *  misleading when a session was already sent — it tells the operator to do the thing they
  *  just did, and never says the credential was rejected. `carriedCredential` splits them. */
 function describeNonEnvelope(status: number, text: string, carriedCredential: boolean): string {
+  try {
+    const guidance = readHttpsRequiredRefusal(JSON.parse(text))
+    if (guidance) return `${guidance.message}\nHTTPS setup: ${guidance.docsUrl}`
+  } catch {
+    // An ordinary non-JSON transport failure keeps its existing description.
+  }
   const detail = text.trim() ? `: ${text.trim().slice(0, 500)}` : ''
   if (status === 401 && carriedCredential)
     return (

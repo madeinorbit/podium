@@ -75,6 +75,47 @@ Replace `18787` with your port if you changed it (`port` in `~/.podium/config.js
 After you paste the URL, setup saves it as `publicUrl` in `~/.podium/config.json` and asks
 you to restart `podium` to apply.
 
+## HTTPS for sign-in
+
+Sign-in from another computer requires HTTPS. If you previously used a LAN address
+such as `http://192.0.2.10:18787`, switch your browser, desktop app, phone app and CLI
+to the server's HTTPS address. Existing HTTP sessions do not bypass this requirement.
+Plain HTTP on `localhost` or `127.0.0.1` on the server itself keeps working, including
+the all-in-one desktop app's own connection.
+
+On the server, run `podium setup` and choose a networking option to configure HTTPS
+and save its address. For private access, install Tailscale on the server and each
+client device, then run `tailscale serve 18787` on the server. Use the HTTPS address
+it prints. For public access, use Tailscale Funnel, Cloudflare Tunnel or a reverse
+proxy with a certificate trusted by your clients. Replace `18787` with your configured
+port. To change an existing installation's advertised address, run `podium setup` and
+choose **Change how this machine is reached (its URL)**.
+
+For example, Caddy on the server can terminate HTTPS for a domain you control:
+
+```caddyfile
+podium.example.com {
+    reverse_proxy 127.0.0.1:18787
+}
+```
+
+Point the domain at the proxy and allow the ports it needs to obtain and serve its
+certificate. Keep Podium's backend listener private. A proxy must set
+`X-Forwarded-Proto: https` and append the original client address to
+`X-Forwarded-For`; Caddy's `reverse_proxy` does this. A loopback-bound Podium listener
+trusts one local proxy hop by default. If the proxy reaches a non-loopback backend,
+set `PODIUM_TRUSTED_PROXY_HOPS=1` in the **server process environment**, and restrict
+backend access to that proxy. Use the actual hop count for a longer trusted chain.
+Restart Podium after changing these process settings. Setting the public address
+alone does not make HTTP secure or enable trust in forwarding headers.
+
+For direct TLS, configure both `PODIUM_TLS_KEY_FILE` and `PODIUM_TLS_CERT_FILE` in the
+server process environment, then restart. The certificate must be trusted on every
+client. Advertise the reachable HTTPS address with `PODIUM_PUBLIC_URL` when deployment
+configuration owns it, or save it through the URL option in `podium setup`. Podium reports this
+address in its HTTP refusal so clients can show where to reconnect. It never guesses
+an HTTPS address from the HTTP hostname.
+
 ### Keeping a quick tunnel's URL current
 
 A Cloudflare quick tunnel gets a new `https://<random>.trycloudflare.com` address every time

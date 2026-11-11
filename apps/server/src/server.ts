@@ -109,6 +109,7 @@ import {
 } from './gateway/ws-server'
 import { hostSignIns } from './host-sign-ins'
 import { isAllowedHttpOrigin, podiumCors } from './http-cors'
+import { httpsSignInWarning, registerHttpsRequiredPage } from './https-required'
 import { PairingManager } from './hub/pairing'
 import { MemberHasNoAccount, memberCredentials } from './identity/member-credentials'
 import { createMemberOfRequest, refusalAnswer } from './identity/member-of-request'
@@ -1659,6 +1660,7 @@ export async function startServer(
     identity: identity.workspace,
     users: store.users,
     trustedProxyHops,
+    publicUrl: claimedPublicUrl,
   })
   // SIGN-INS FROM BEFORE SHARED SIGN-IN (POD-6751): only on a server that
   // built its own identity core, and not on a store that cannot be written.
@@ -1716,6 +1718,7 @@ export async function startServer(
   app.use('/auth/*', authReadinessBoundary(readiness))
   let revokeConnectedDeviceSignIn: (credentialId: string) => void = () => {}
   registerAuthRoute(app, {
+    publicUrl: claimedPublicUrl,
     syncBoundaryId: () => opts.workspaceId ?? installation.installationId,
     identity: identity.workspace,
     // One resolver for every human-client transport; the status route reports
@@ -1975,6 +1978,7 @@ export async function startServer(
   // Serve the built web UIs for external clients (browser/phone/other desktop) —
   // see desktopWebDir/phoneWebDir for where each dist comes from.
   const mobileWebDir = phoneWebDir()
+  registerHttpsRequiredPage(app, memberOfRequest)
   // Routing first so its /mobile fallback middleware owns the dist-absent case;
   // presence is probed per request (the mobile dist may be exported after boot).
   const mobileIndex = mobileWebDir ? join(mobileWebDir, 'index.html') : ''
@@ -2128,6 +2132,13 @@ export async function startServer(
         },
       })
       bootStage('listen', listenStarted)
+      const httpsWarning = httpsSignInWarning({
+        loopback: isLoopbackHost(host),
+        tls: tls !== undefined,
+        trustedProxyHops,
+        publicUrl: claimedPublicUrl(),
+      })
+      if (httpsWarning) log.warn(httpsWarning)
       if (!rehearsal) startDeferredSourceMovePoll()
     } catch (err) {
       await failListen(err)

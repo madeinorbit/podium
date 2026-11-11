@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { serverRelocationDestination } from '@podium/client-core/live-connection'
 import { asMachineId, asUserId, firstAdminMemberId, type UserId } from '@podium/model'
-import { MEMBER_FENCE_HEADER, MEMBER_FENCE_REFUSAL } from '@podium/protocol'
+import { httpsRequiredRefusal, MEMBER_FENCE_HEADER, MEMBER_FENCE_REFUSAL } from '@podium/protocol'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
@@ -91,6 +91,31 @@ afterEach(async () => {
 })
 
 describe('request transport security', () => {
+  test('gives remote HTTP clients HTTPS guidance before offering sign-in', async () => {
+    const app = makeApp()
+    for (const path of ['/auth/status', '/auth/login']) {
+      const response = await app.request(`http://podium.example${path}`, {
+        method: path.endsWith('login') ? 'POST' : 'GET',
+        headers: { 'x-podium-peer-address': '192.0.2.10' },
+      })
+      expect(response.status).toBe(400)
+      expect(await response.json()).toMatchObject({
+        error: 'https_required',
+        message: expect.stringContaining('HTTPS for sign-in from other computers'),
+        httpsUrl: null,
+        docsUrl: expect.stringContaining('#https-for-sign-in'),
+      })
+    }
+  })
+
+  test.each(['localhost', '127.0.0.1'])('keeps same-machine HTTP status on %s', async (host) => {
+    const response = await makeApp().request(`http://${host}:18787/auth/status`, {
+      headers: { 'x-podium-peer-address': '127.0.0.1' },
+    })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ authed: true })
+  })
+
   test('trusts the real URL protocol and ignores forwarding by default', () => {
     expect(isSecureRequest('https://podium.example/auth/status', 'http')).toBe(true)
     expect(isSecureRequest('http://podium.internal/auth/status', 'https')).toBe(false)
@@ -329,7 +354,7 @@ describe('POST /auth/login', () => {
       body: JSON.stringify({ password: PASSWORD }),
     })
     expect(res.status).toBe(400)
-    expect(await res.json()).toEqual({ error: 'https_required' })
+    expect(await res.json()).toEqual(httpsRequiredRefusal())
     expect(res.headers.getSetCookie()).toEqual([])
   })
 
@@ -741,7 +766,7 @@ describe('clientAuthGuard', () => {
       headers: { 'x-podium-peer-address': '192.168.1.44', authorization: 'Bearer secret' },
     })
     expect(plain.status).toBe(400)
-    expect(await plain.json()).toEqual({ error: 'https_required' })
+    expect(await plain.json()).toEqual(httpsRequiredRefusal())
   })
 
   test('lets a CORS preflight through without a sign-in', async () => {

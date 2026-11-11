@@ -1,3 +1,4 @@
+import { httpsRequiredRefusal } from '@podium/protocol'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 
@@ -15,12 +16,37 @@ vi.mock('./demoData', () => ({ demoEnabled: () => false }))
 vi.mock('./launch-ready', () => ({ LaunchReadyView: ({ children }: any) => children }))
 vi.mock('../screens/LoginScreen', () => ({ LoginScreen: () => <div>SIGN IN</div> }))
 vi.mock('../components/PressableScale', () => ({
-  PressableScale: ({ children, onPress }: any) => <button onClick={onPress}>{children}</button>,
+  PressableScale: ({ children, onPress }: any) => (
+    <button type="button" onClick={onPress}>
+      {children}
+    </button>
+  ),
 }))
+
 import { AuthGate } from './AuthGate'
+
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+})
+
+it('shows the server HTTPS guidance and next step on a phone instead of sign-in', async () => {
+  const guidance = httpsRequiredRefusal('https://podium.example')
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json(guidance, { status: 400 })),
+  )
+  render(
+    <AuthGate>
+      <div>WORKSPACE</div>
+    </AuthGate>,
+  )
+  await screen.findByText('Connect with HTTPS')
+  expect(screen.getByText(guidance.message)).toBeTruthy()
+  expect(screen.getByText('https://podium.example')).toBeTruthy()
+  expect(screen.getByText('HTTPS setup instructions')).toBeTruthy()
+  expect(screen.queryByText('SIGN IN')).toBeNull()
+  expect(screen.queryByText('WORKSPACE')).toBeNull()
 })
 
 it('fails closed on a mobile HTTP auth refusal instead of opening a stale workspace', async () => {

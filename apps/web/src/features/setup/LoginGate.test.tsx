@@ -1,3 +1,4 @@
+import { httpsRequiredRefusal } from '@podium/protocol'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ClientRegistration, clientRegistration } from '@/app/client-registration'
@@ -41,6 +42,29 @@ function statusFetch(body: unknown) {
 }
 
 describe('LoginGate', () => {
+  it.each([
+    'browser',
+    'desktop',
+  ])('shows dedicated HTTPS guidance for a refused %s connection', async (surface) => {
+    const guidance = httpsRequiredRefusal('https://podium.example')
+    if (surface === 'desktop') vi.stubGlobal('__PODIUM_DESKTOP__', { platform: 'linux' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json(guidance, { status: 400 })),
+    )
+    render(<LoginGate>{child}</LoginGate>)
+    await screen.findByRole('heading', { name: 'Connect with HTTPS' })
+    expect(screen.getByText(guidance.message)).toBeTruthy()
+    expect(
+      screen.getByRole('link', { name: 'Open https://podium.example' }).getAttribute('href'),
+    ).toBe('https://podium.example')
+    expect(
+      screen.getByRole('link', { name: 'HTTPS setup instructions' }).getAttribute('href'),
+    ).toBe(guidance.docsUrl)
+    expect(screen.queryByLabelText(/password/i)).toBeNull()
+    expect(screen.queryByText('APP-READY')).toBeNull()
+  })
+
   it('renders the app when no password is required (open mode)', async () => {
     vi.stubGlobal('fetch', statusFetch({ needsAuth: false, authed: false }))
     render(<LoginGate>{child}</LoginGate>)

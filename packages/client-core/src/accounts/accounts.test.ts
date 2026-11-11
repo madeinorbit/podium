@@ -283,13 +283,22 @@ describe('one sign-in decision for both credential deliveries', () => {
   })
 
   it('never sends a password or a bearer over native cleartext', async () => {
-    const fetch = vi.fn()
+    const fetch = vi.fn(
+      async (_input: Parameters<typeof globalThis.fetch>[0], _init?: RequestInit) =>
+        Response.json({ error: 'https_required' }, { status: 400 }),
+    )
     const client = createAuthClient({ credentials: nativeCredentials(), fetch })
     expect(await client.login('http://192.168.1.2', 'secret')).toMatchObject({ ok: false })
     await expect(client.fetchAuthStatus('http://192.168.1.2', 'token')).rejects.toMatchObject({
       failure: { kind: 'auth-insecure' },
     })
-    expect(fetch).not.toHaveBeenCalled()
+    expect(fetch).toHaveBeenCalledTimes(2)
+    for (const [url, init] of fetch.mock.calls) {
+      expect(url).toBe('http://192.168.1.2/auth/status')
+      expect(init?.body).toBeUndefined()
+      expect(new Headers(init?.headers).has('authorization')).toBe(false)
+      expect(init?.credentials).toBe('omit')
+    }
   })
 
   it('checks a browser login identity before opening the app', async () => {

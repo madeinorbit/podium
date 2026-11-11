@@ -206,7 +206,10 @@ describe('open mode acts as the sole active member', () => {
     // Not this machine, and plain HTTP: nothing is read and nobody may sign in
     // here (people and sign-in specification, section 2.3).
     expect(res.status).toBe(400)
-    expect(await res.json()).toEqual({ error: 'https_required' })
+    expect(await res.json()).toMatchObject({
+      error: 'https_required',
+      message: expect.stringContaining('HTTPS for sign-in from other computers'),
+    })
   })
 
   it('does not use open-mode authorization for pairing control or device management', async () => {
@@ -241,9 +244,11 @@ describe('open mode acts as the sole active member', () => {
     const res = await fetch(url('/auth/status'), {
       headers: { 'x-forwarded-for': '203.0.113.9', 'x-forwarded-host': 'podium.example.com' },
     })
-    const body = (await res.json()) as { authed: boolean; userId?: string }
+    const body = (await res.json()) as { error: string; message: string; userId?: string }
 
-    expect(body.authed).toBe(false)
+    expect(res.status).toBe(400)
+    expect(body.error).toBe('https_required')
+    expect(body.message).toContain('HTTPS for sign-in from other computers')
     expect(body.userId).toBeUndefined()
   })
 })

@@ -10,6 +10,7 @@ import { IdentityRefused, type WorkspaceIdentity } from '@podium/identity'
 import { asUserId, type ServerReadiness, type UserId } from '@podium/model'
 import {
   fencedMemberOf,
+  httpsRequiredRefusal,
   MEMBER_FENCE_REFUSAL,
   memberFenceRefuses,
   NativeClientLoginRequest,
@@ -73,6 +74,7 @@ export interface AuthRouteOptions {
   identity: WorkspaceIdentity
   /** The one resolver every human-client transport uses. */
   memberOfRequest: MemberOfRequest
+  publicUrl?: () => string | undefined
   /**
    * Whether `GET /auth/status` may report a signed-in caller yet. The control
    * plane, not the data plane (POD-2766): while activation is pending the
@@ -123,6 +125,21 @@ function transferDestination(next: string, requestUrl: string): string {
 export function registerAuthRoute(app: Hono, opts: AuthRouteOptions): void {
   const { identity, memberOfRequest } = opts
   const { core } = identity
+
+  // Refuse before showing a prompt or accepting a password. This is the same
+  // resolution as the data plane, including the same-machine HTTP exception.
+  app.use('/auth/*', async (c, next) => {
+    if (c.req.method === 'OPTIONS') return await next()
+    if (memberOfRequest.factsOf(c.req.raw).scheme === 'http') {
+      const resolution = await memberOfRequest(c.req.raw)
+      if (resolution.kind === 'https_required') {
+        const { status, body } = refusalAnswer(resolution)
+        c.header('cache-control', 'no-store')
+        return c.json(body, status)
+      }
+    }
+    await next()
+  })
 
   /**
    * The package builds its own request to the sign-in library and never shows
@@ -233,7 +250,7 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions): void {
       return c.redirect(next, 303)
     } catch (error) {
       if (error instanceof IdentityRefused && error.code === 'https_required') {
-        return c.json({ error: error.code }, 400)
+        return c.json(httpsRequiredRefusal(opts.publicUrl?.()), 400)
       }
       throw error
     }
@@ -311,7 +328,8 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions): void {
           'retry-after': String(outcome.retryAfterSeconds),
         })
       }
-      if (outcome.refused === 'https_required') return c.json({ error: 'https_required' }, 400)
+      if (outcome.refused === 'https_required')
+        return c.json(httpsRequiredRefusal(opts.publicUrl?.()), 400)
       return c.json({ error: 'invalid password' }, 401)
     }
 

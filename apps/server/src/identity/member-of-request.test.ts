@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createIdentityCore, type IssuedSignIn, type WorkspaceIdentity } from '@podium/identity'
 import { asUserId, newMemberId } from '@podium/model'
+import { httpsRequiredRefusal } from '@podium/protocol'
 import { hashPassword, isPasswordHash, verifyPasswordHash } from '@podium/runtime/auth-store'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../store'
@@ -164,7 +165,7 @@ describe('memberOfRequest', () => {
     expect(resolution).toEqual({ kind: 'https_required' })
     expect(refusalAnswer(resolution as MemberRefusal)).toEqual({
       status: 400,
-      body: { error: 'https_required' },
+      body: httpsRequiredRefusal(),
     })
   })
 

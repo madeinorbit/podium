@@ -1,6 +1,10 @@
 import type { Capabilities } from '@podium/identity'
 import { UserId } from '@podium/model'
-import { NativeClientLoginResponse } from '@podium/protocol'
+import {
+  httpsRequiredRefusal,
+  NativeClientLoginResponse,
+  readHttpsRequiredRefusal,
+} from '@podium/protocol'
 import { z } from 'zod'
 import { parseReplicaNamespaceKey } from '../replica/principal-storage'
 import {
@@ -72,8 +76,7 @@ export function accountPageUrl(
   const base = capabilities.accountUrl.replace(/\/$/, '')
   const url = new URL(page ? `${base}/${page}` : base)
   if (returnTo) {
-    if (carriesInvitationToken(returnTo))
-      url.hash = new URLSearchParams({ returnTo }).toString()
+    if (carriesInvitationToken(returnTo)) url.hash = new URLSearchParams({ returnTo }).toString()
     else url.searchParams.set('returnTo', returnTo)
   }
   return url.href
@@ -121,7 +124,14 @@ class UnreadableAuthResponse extends ReplicaGateError {
 function failure(failure: ReplicaFailure): AccountDecision {
   return {
     kind: 'ready',
-    auth: { kind: 'failure', message: 'authenticated account is unavailable', failure },
+    auth: {
+      kind: 'failure',
+      message:
+        failure.kind === 'auth-insecure'
+          ? (failure.guidance ?? httpsRequiredRefusal()).message
+          : 'authenticated account is unavailable',
+      failure,
+    },
   }
 }
 
@@ -243,6 +253,7 @@ export async function resolveAccountPrincipal(args: {
   } catch {
     return resolveOfflinePrincipal(args.inspectNamespaces())
   }
+  if (!response.ok) await throwHttpsRequired(response)
   if (!response.ok)
     throw new ReplicaGateError(
       'authenticated account is unavailable',
@@ -280,8 +291,9 @@ export function createAuthClient(options: {
     extra: RequestInit = {},
   ): RequestInit => {
     if (bearer && !origin.startsWith('https://'))
-      throw new ReplicaGateError('refusing to send a bearer over cleartext HTTP', {
+      throw new ReplicaGateError(httpsRequiredRefusal().message, {
         kind: 'auth-insecure',
+        guidance: httpsRequiredRefusal(),
       })
     const headers = new Headers(extra.headers)
     if (!browser && bearer) headers.set('Authorization', `Bearer ${bearer}`)
@@ -304,10 +316,27 @@ export function createAuthClient(options: {
     bearer: string | null = null,
     workspaceId?: string,
   ): Promise<unknown> {
-    const response = await request(
-      origin + '/auth/status',
-      init(origin, '/auth/status', bearer, workspaceId ? { workspaceId } : undefined),
-    )
+    let response: Response
+    try {
+      response = await request(
+        origin + '/auth/status',
+        // Discovery carries no native credential over HTTP. It can still read the
+        // server's HTTPS refusal and advertised address before refusing that bearer.
+        init(
+          origin,
+          '/auth/status',
+          origin.startsWith('https://') ? bearer : null,
+          workspaceId ? { workspaceId } : undefined,
+        ),
+      )
+    } catch (cause) {
+      if (!browser && !origin.startsWith('https://')) {
+        const guidance = httpsRequiredRefusal()
+        throw new ReplicaGateError(guidance.message, { kind: 'auth-insecure', guidance })
+      }
+      throw cause
+    }
+    if (!response.ok) await throwHttpsRequired(response)
     if (!response.ok)
       throw new ReplicaGateError(
         'auth status failed: ' + response.status,
@@ -315,6 +344,11 @@ export function createAuthClient(options: {
           ? { kind: 'auth-insecure' }
           : { kind: 'auth-refused', status: response.status },
       )
+    if (bearer && !origin.startsWith('https://'))
+      throw new ReplicaGateError(httpsRequiredRefusal().message, {
+        kind: 'auth-insecure',
+        guidance: httpsRequiredRefusal(),
+      })
     return response.json().catch(() => {
       throw new UnreadableAuthResponse()
     })
@@ -377,8 +411,15 @@ export function createAuthClient(options: {
     workspaceId?: string,
     deviceKind?: 'desktop',
   ): Promise<LoginResult> {
-    if (!browser && !origin.startsWith('https://'))
-      return { ok: false, error: 'Native sign-in requires trusted HTTPS. No password was sent.' }
+    if (!browser && !origin.startsWith('https://')) {
+      try {
+        await fetchStatusBody(origin, null, workspaceId)
+      } catch (cause) {
+        if (cause instanceof ReplicaGateError && cause.failure.kind === 'auth-insecure')
+          return { ok: false, error: cause.message }
+      }
+      return { ok: false, error: httpsRequiredRefusal().message }
+    }
     const platform = options.platform ?? 'unknown'
     const response = await request(
       origin + '/auth/login',
@@ -414,6 +455,8 @@ export function createAuthClient(options: {
         ? { ok: true, bearer: parsed.data.token }
         : { ok: false, error: 'Server did not return a native session. Update the server.' }
     }
+    const guidance = readHttpsRequiredRefusal(await response.json().catch(() => null))
+    if (guidance) return { ok: false, error: guidance.message }
     if (options.loginRefusalMessage)
       return { ok: false, error: options.loginRefusalMessage(response.status) }
     if (response.status === 401) return { ok: false, error: 'Wrong email or password.' }
@@ -437,4 +480,9 @@ export function createAuthClient(options: {
   }
 
   return { fetchAuthStatus, probeAuth, checkLiveAuth, login, logout }
+}
+
+async function throwHttpsRequired(response: Response): Promise<void> {
+  const guidance = readHttpsRequiredRefusal(await response.json().catch(() => null))
+  if (guidance) throw new ReplicaGateError(guidance.message, { kind: 'auth-insecure', guidance })
 }
