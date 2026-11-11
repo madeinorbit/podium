@@ -612,36 +612,185 @@ describe('ShippingService durable recovery debt', () => {
     restarted.dispose()
   })
 
-  it('bounds admission statements by predecessor pages at shallow and deep history', async () => {
+  it.each([
+    'admission',
+    'held retry',
+  ] as const)('bounds %s daemon calls at five and two hundred shipped orders', async (operation) => {
     const totals: number[] = []
     const pages: number[] = []
+    const calls: number[] = []
     for (const size of [5, 200]) {
-      const fixture = await historyPin.setup(size)
-      const { store, issues, service } = fixture
+      const { store, issues, service, deps } = await historyPin.setup(size)
+      const isAncestor = vi.fn(async () => true)
+      deps.isAncestor = isAncestor
       const predecessors = vi.spyOn(store.shipping, 'shippedPredecessors')
       try {
         const issue = await issues.crud.create(issues.reports.store.serverWriter, {
           repoPath: '/repo',
-          title: `admission at ${size}`,
+          title: `${operation} at ${size}`,
           startNow: false,
         })
         await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
-        const count = await countStatements(store, () =>
-          service.enqueue(laneWriter(service), { issueId: issue.id, ...approval }),
-        )
-        expect(count.result.created).toBe(true)
+        const admit = () => service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
+        let run: () => Promise<unknown> = admit
+        if (operation === 'held retry') {
+          const { order } = await admit()
+          deps.daemon!.shippingJob = (input, machineId) =>
+            provedShippingJob(input, machineId, {
+              state: 'held',
+              classification: 'validation-failed',
+            })
+          await service.runOrder(order.id)
+          const hold = await store.shipping.openHoldForOrder(order.id)
+          expect(hold).not.toBeNull()
+          run = () =>
+            service.resolveHold(laneWriter(service), {
+              orderId: order.id,
+              action: 'retry',
+              expectedGeneration: hold!.generation,
+              principal: approval.principal,
+            })
+        }
+        predecessors.mockClear()
+        isAncestor.mockClear()
+        const count = await countStatements(store, run)
+        expect((await store.shipping.activeOrderForIssue(issue.id))?.state).toBe('queued')
         totals.push(count.statements)
         pages.push(predecessors.mock.calls.length)
+        calls.push(isAncestor.mock.calls.length)
       } finally {
         predecessors.mockRestore()
         service.dispose()
       }
     }
-    // The Git walk is outside the transaction, 100 shipped predecessors per
-    // page, and stops at the first stale predecessor. It has no depth cap.
-    expect(pages).toEqual([2, 3])
-    expect(totals[1]).toBe(totals[0]! + 1)
-    console.info('Shipping admission statement cost', { sizes: [5, 200], totals, pages })
+    expect(calls).toEqual([1, 1])
+    expect(pages).toEqual([2, 2])
+    expect(totals[1]).toBe(totals[0])
+    console.info('Shipping admission cost', { operation, sizes: [5, 200], totals, pages, calls })
+  })
+
+  it('walks receipts by completion newest first and stops each destination independently', async () => {
+    const { store, service, deps, order } = await historyPin.setup(5)
+    const db = (store as unknown as { db: SqlDatabase }).db
+    // IDs and request times do not encode landing order. The newest unrelated
+    // receipt must not hide an older stale source on a different destination.
+    const rows = [
+      { id: order.id, destination: 'main', sha: 'old-contained', head: 'old-source', at: '01' },
+      {
+        id: `${order.id}:history:0`,
+        destination: 'local:main',
+        sha: 'contained',
+        head: 'contained-source',
+        at: '02',
+      },
+      {
+        id: `${order.id}:history:1`,
+        destination: 'refs/heads/main',
+        sha: 'new-unrelated',
+        head: 'unrelated-source',
+        at: '04',
+      },
+      {
+        id: `${order.id}:history:2`,
+        destination: 'git:origin/release',
+        sha: 'release-stale',
+        head: 'release-source',
+        at: '03',
+      },
+      {
+        id: `${order.id}:history:3`,
+        destination: 'remote:origin/release',
+        sha: 'release-unrelated',
+        head: 'release-unrelated-source',
+        at: '05',
+      },
+    ]
+    for (const row of rows) {
+      const at = `2026-08-13T10:00:${row.at}.000Z`
+      db.prepare(
+        'UPDATE ship_orders SET destination = ?, approved_head_sha = ?, state_changed_at = ? WHERE id = ?',
+      ).run(row.destination, row.head, at, row.id)
+      db.prepare(
+        'UPDATE delivery_receipts SET destination = ?, destination_sha = ?, completed_at = ? WHERE order_id = ?',
+      ).run(row.destination, row.sha, at, row.id)
+    }
+    const isAncestor = vi.fn(
+      async (_issue, ancestor, descendant) =>
+        (ancestor === 'contained' && descendant === 'approved-base') ||
+        (ancestor === 'release-source' && descendant === 'approved-head'),
+    )
+    deps.isAncestor = isAncestor
+    try {
+      const stale = await service['staleAdmissionPredecessor'](
+        {
+          ...order,
+          approvedBaseSha: 'approved-base',
+          approvedHeadSha: 'approved-head',
+        },
+        await deps.issues.get(order.issueId),
+      )
+      expect(stale?.order.id).toBe(`${order.id}:history:2`)
+      expect(isAncestor.mock.calls.map(([, ancestor]) => ancestor)).toEqual([
+        'release-unrelated',
+        'release-unrelated-source',
+        'new-unrelated',
+        'unrelated-source',
+        'release-stale',
+        'release-source',
+      ])
+      // Once the release source is unrelated too, main reaches its contained
+      // receipt and skips the older alias, even though that old source matches.
+      isAncestor.mockImplementation(
+        async (_issue, ancestor, descendant) =>
+          (ancestor === 'contained' && descendant === 'approved-base') ||
+          (ancestor === 'old-source' && descendant === 'approved-head'),
+      )
+      isAncestor.mockClear()
+      expect(
+        await service['staleAdmissionPredecessor'](
+          {
+            ...order,
+            approvedBaseSha: 'approved-base',
+            approvedHeadSha: 'approved-head',
+          },
+          await deps.issues.get(order.issueId),
+        ),
+      ).toBeUndefined()
+      expect(isAncestor.mock.calls.map(([, ancestor]) => ancestor)).not.toContain('old-contained')
+    } finally {
+      service.dispose()
+    }
+  })
+
+  it('checks explicit delivery dependencies before a newer contained receipt', async () => {
+    const { service, deps, order } = await historyPin.setup(5)
+    const isAncestor = vi.fn(
+      async (_issue, ancestor, descendant) =>
+        ancestor === 'head-sha' && descendant === 'approved-base',
+    )
+    deps.isAncestor = isAncestor
+    const receipt = await deps.repository.receiptForOrder(order.id)
+    const original = deps.repository.receiptForOrder.bind(deps.repository)
+    const receiptRead = vi
+      .spyOn(deps.repository, 'receiptForOrder')
+      .mockImplementation(async (id) =>
+        id === order.id ? { ...receipt!, destinationSha: 'explicit-stale' } : await original(id),
+      )
+    try {
+      const stale = await service['staleAdmissionPredecessor'](
+        {
+          ...order,
+          approvedBaseSha: 'approved-base',
+          deliveryDependsOn: [order.id],
+        },
+        await deps.issues.get(order.issueId),
+      )
+      expect(stale).toMatchObject({ order: { id: order.id }, destinationSha: 'explicit-stale' })
+      expect(isAncestor.mock.calls.map(([, ancestor]) => ancestor)).toEqual(['explicit-stale'])
+    } finally {
+      receiptRead.mockRestore()
+      service.dispose()
+    }
   })
 
   it('does not clear a repair acknowledgement when the external repair port fails', async () => {

@@ -66,6 +66,37 @@ const m = (id: string, over: Record<string, unknown> = {}) => ({
 })
 
 describe('UpdatesService', () => {
+  it('keeps unchanged fleet reads and ticks out of the recovery write lane', async () => {
+    const db = openDatabase(':memory:')
+    db.exec('CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+    const queries = syncQueriesOver(db)
+    const transactions = vi.spyOn(queries, 'createOrJoinTransaction')
+    const recovery = new UpdateRecoveryStore(queries)
+    const { svc } = make([m('a')], {
+      recovery: { read: () => undefined, write: (snapshot) => recovery.write(snapshot) },
+    })
+    try {
+      const target: UpdateTarget = {
+        version: '0.4.2',
+        critical: false,
+        artifacts: { headless: { delivery: 'feed', platforms: {} } },
+      }
+      await svc.setTarget(target)
+      expect(transactions).toHaveBeenCalledTimes(1)
+      transactions.mockClear()
+      expect(await svc.fleet()).toHaveLength(1)
+      await svc.tick()
+      await svc.fleet()
+      expect(transactions).not.toHaveBeenCalled()
+      await svc.setTarget({ ...target, version: '0.4.3' })
+      expect(transactions).toHaveBeenCalledTimes(1)
+      expect((await recovery.read())?.targets[0]?.[1].version).toBe('0.4.3')
+    } finally {
+      transactions.mockRestore()
+      db.close()
+    }
+  })
+
   it('keeps rollback reports sticky and only an operator grant lifts the local veto', async () => {
     const { svc, send } = make([m('a')])
     await svc.setTarget({
