@@ -162,11 +162,13 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       ).toBeUndefined()
       expect(await svc.reports.store.gitState(issue.id)).toMatchObject({ ahead: 2, dirtyFiles: 0 })
       const personal = await ledger.authority.snapshot('issueUserState')
-      expect(personal).toContainEqual(expect.objectContaining({
-        userId: other,
-        entityId: issue.id,
-        tuckedAt: '2026-07-02',
-      }))
+      expect(personal).toContainEqual(
+        expect.objectContaining({
+          userId: other,
+          entityId: issue.id,
+          tuckedAt: '2026-07-02',
+        }),
+      )
     } finally {
       await store.close()
     }
@@ -646,8 +648,9 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     const cursorBefore = await ledger2.cursor()
     expect(await ledger2.changesSince(cursorBefore)).toEqual([])
     const loaded = await ledger2.authority.snapshot('issueProjection')
-    expect(loaded.find((row) => (row as { id: string }).id === wire.id)).toMatchObject({ title: 'changed offline' })
-
+    expect(loaded.find((row) => (row as { id: string }).id === wire.id)).toMatchObject({
+      title: 'changed offline',
+    })
   })
 })
 
@@ -820,7 +823,11 @@ describe('per-entity revision (ADR 2 D3)', () => {
     // every column as stored, so the upsert's guard skips the row: no revision,
     // no change row. A real change through the same path still revises.
     const { svc, ledger } = await harness()
-    const wire = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'A', startNow: false })
+    const wire = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
     const sorted = await svc.crud.update(svc.reports.store.serverWriter, wire.id, { sortKey: 'm' })
     expect(sorted.revision).toBe(2)
     const cursorBefore = await ledger.cursor()
@@ -840,7 +847,11 @@ describe('per-entity revision (ADR 2 D3)', () => {
     // touch — would leave the client's revision behind the authority's with no
     // change row to catch it up, which is the divergence D3 exists to prevent.
     const { svc, ledger, setNow } = await harness()
-    const wire = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'A', startNow: false })
+    const wire = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
     const cursorBefore = await ledger.cursor()
     setNow('2026-07-03T00:00:00.000Z')
     const again = await svc.crud.update(svc.reports.store.serverWriter, wire.id, { title: 'A' })

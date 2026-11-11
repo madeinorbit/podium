@@ -9,17 +9,15 @@ import {
   EffectRecordWire,
   GlobalChangeOpField,
   InstancePreferencesWire,
+  IssueBodiesWire,
   IssueDepProjection,
   IssueEventWire,
   IssueGitStateProjection,
-  IssueBodiesWire,
-  IssuePanelTodoWire,
   IssuePanelArtifactWire,
   IssuePanelDeferredWire,
   IssuePanelStateWire,
-
+  IssuePanelTodoWire,
   IssueProjection,
-  SlimIssueProjection,
   IssueUserStateWire,
   LayoutWire,
   MachineAccessWire,
@@ -31,6 +29,7 @@ import {
   type SessionId,
   SessionMeta,
   SessionUserStateWire,
+  SlimIssueProjection,
   SubscriptionWire,
   SuperagentThreadWire,
   TabOrderWire,
@@ -323,7 +322,6 @@ export const MetadataChange = z.discriminatedUnion('entity', [
   metadataChangeArm(z.literal('issuePanelArtifact'), IssuePanelArtifactWire),
   metadataChangeArm(z.literal('issuePanelDeferred'), IssuePanelDeferredWire),
   metadataChangeArm(z.literal('issuePanelState'), IssuePanelStateWire),
-
 ])
 export type MetadataChange = z.infer<typeof MetadataChange>
 export const MetadataEntityKind = z.enum([
@@ -364,7 +362,6 @@ export const MetadataEntityKind = z.enum([
   'issuePanelArtifact',
   'issuePanelDeferred',
   'issuePanelState',
-
 ])
 export type MetadataEntityKind = z.infer<typeof MetadataEntityKind>
 

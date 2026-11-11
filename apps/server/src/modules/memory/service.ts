@@ -8,11 +8,7 @@ import type {
 } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import type { MetadataChange } from '@podium/protocol'
-import type {
-  LedgerCommitOp,
-  LedgerCommitResult,
-  LedgerWriter,
-} from '@podium/sync'
+import type { LedgerCommitOp, LedgerCommitResult, LedgerWriter } from '@podium/sync'
 import { transcriptRecordMapperFor } from '../../harness-manifest'
 import type { SessionStore } from '../../store'
 import type { ConversationPageCursor } from '../../store/conversations/index'

@@ -1015,7 +1015,13 @@ export const WIRE_FIXTURES: WireFixture[] = [
     value: {
       type: 'scanResult',
       requestId: 'req-5',
-      conversations: [{ ...CONVERSATION_SUMMARY_FULL, path: '/home/u/.claude/projects/x/native-1.jsonl', sizeBytes: 999 }],
+      conversations: [
+        {
+          ...CONVERSATION_SUMMARY_FULL,
+          path: '/home/u/.claude/projects/x/native-1.jsonl',
+          sizeBytes: 999,
+        },
+      ],
       diagnostics: [],
       removed: [],
     },

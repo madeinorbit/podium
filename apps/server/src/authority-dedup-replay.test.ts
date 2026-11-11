@@ -182,8 +182,10 @@ function generate(seed: number, length: number): Op[] {
         rows: ids.filter(() => r.chance(0.6)).map((id) => ({ id, value: valueFor(entity, id) })),
       }
     }
-    if (roll < 78 && depth < 2) return { kind: 'rollback', ops: Array.from({ length: 1 + r.int(3) }, () => op(depth + 1)) }
-    if (roll < 86 && depth < 2) return { kind: 'nested', ops: Array.from({ length: 1 + r.int(3) }, () => op(depth + 1)) }
+    if (roll < 78 && depth < 2)
+      return { kind: 'rollback', ops: Array.from({ length: 1 + r.int(3) }, () => op(depth + 1)) }
+    if (roll < 86 && depth < 2)
+      return { kind: 'nested', ops: Array.from({ length: 1 + r.int(3) }, () => op(depth + 1)) }
     if (roll < 89 && depth === 0) return { kind: 'restart' }
     if (roll < 92 && depth === 0) {
       return {
@@ -218,12 +220,22 @@ async function arm() {
   const record: unknown[] = []
   /** Each reconcile's remove seqs, in log order; the group the comparison frees. */
   const removeGroups: number[][] = []
-  const row = (c: SequencedChange) => [c.seq, c.entity, c.entityId, c.op, JSON.stringify((c as { value?: unknown }).value ?? null)]
-  const emitted = (label: string, changes: readonly SequencedChange[]) => record.push([label, changes.map(row)])
+  const row = (c: SequencedChange) => [
+    c.seq,
+    c.entity,
+    c.entityId,
+    c.op,
+    JSON.stringify((c as { value?: unknown }).value ?? null),
+  ]
+  const emitted = (label: string, changes: readonly SequencedChange[]) =>
+    record.push([label, changes.map(row)])
   const run = async (op: Op): Promise<void> => {
     switch (op.kind) {
       case 'commit': {
-        const outcome = await authority.commit({ write: async () => undefined, changes: () => op.specs })
+        const outcome = await authority.commit({
+          write: async () => undefined,
+          changes: () => op.specs,
+        })
         if (outcome.outcome === 'committed') emitted('commit', outcome.changes)
         return
       }
@@ -275,11 +287,7 @@ async function arm() {
       case 'snapshot': {
         const values = await authority.snapshot(op.entity)
         // A snapshot is a set: compared by id.
-        record.push([
-          'snapshot',
-          op.entity,
-          values.map((v) => JSON.stringify(v)).sort(),
-        ])
+        record.push(['snapshot', op.entity, values.map((v) => JSON.stringify(v)).sort()])
         return
       }
     }
@@ -293,7 +301,14 @@ async function arm() {
     /** The change log, each reconcile's removes sorted inside their own seq range. */
     log: async () => {
       const rows = (await store.sync.changesSince(0, 100_000)).map(
-        (r) => [r.seq, r.entity, r.entityId, r.op, r.payload] as [number, string, string, string, string | null],
+        (r) =>
+          [r.seq, r.entity, r.entityId, r.op, r.payload] as [
+            number,
+            string,
+            string,
+            string,
+            string | null,
+          ],
       )
       const bySeq = new Map(rows.map((r) => [r[0], r]))
       for (const seqs of removeGroups) {
@@ -308,7 +323,12 @@ async function arm() {
     },
     run,
     world: async () =>
-      (await store.sync.latestChangeStates()).map((row) => [row.seq, row.entity, row.entityId, row.payload]),
+      (await store.sync.latestChangeStates()).map((row) => [
+        row.seq,
+        row.entity,
+        row.entityId,
+        row.payload,
+      ]),
   }
 }
 
@@ -348,7 +368,9 @@ describe('Authority dedup: the database answers like the baseline did', () => {
       for (const op of generate(seed, 400)) await current.run(op)
       // The sequence is live: it appended, deduped, rolled back and reconciled.
       expect((await current.log()).length).toBeGreaterThan(100)
-      expect(current.record.filter((entry) => (entry as unknown[])[0] === 'rolled back').length).toBeGreaterThan(0)
+      expect(
+        current.record.filter((entry) => (entry as unknown[])[0] === 'rolled back').length,
+      ).toBeGreaterThan(0)
       const fingerprint = createHash('sha256')
         .update(JSON.stringify([current.record, await current.log(), await current.world()]))
         .digest('hex')
@@ -394,11 +416,22 @@ describe('Authority dedup: statements per commit', () => {
     run: async (f) =>
       await f.authority.commit({
         write: async () => undefined,
-        changes: () => [
-          { entity: 'issueProjection', entityId: 'issueProjection-0', op: 'upsert', value: { id: 'issueProjection-0', v: 2 } },
-          { entity: 'session', entityId: 'session-1', op: 'upsert', value: { id: 'session-1', v: 1 } },
-          { entity: 'conversation', entityId: 'conversation-2', op: 'remove' },
-        ] as StagedChangeSpec[],
+        changes: () =>
+          [
+            {
+              entity: 'issueProjection',
+              entityId: 'issueProjection-0',
+              op: 'upsert',
+              value: { id: 'issueProjection-0', v: 2 },
+            },
+            {
+              entity: 'session',
+              entityId: 'session-1',
+              op: 'upsert',
+              value: { id: 'session-1', v: 1 },
+            },
+            { entity: 'conversation', entityId: 'conversation-2', op: 'remove' },
+          ] as StagedChangeSpec[],
       }),
     check: (result: unknown) => {
       const outcome = result as { outcome: string; changes: SequencedChange[] }

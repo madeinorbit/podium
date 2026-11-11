@@ -1,9 +1,12 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import type { ConversationOutbox, ConversationRecords } from '@podium/client-core/conversation'
-import type { OutboxChatSend } from '@podium/client-core/conversation'
+import type {
+  ConversationOutbox,
+  ConversationRecords,
+  OutboxChatSend,
+} from '@podium/client-core/conversation'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph'
+import { omitGone } from '@podium/client-graph/lookup'
 import type { MessageModel } from '@podium/client-graph/message-models'
 import type { MobileSessionRows } from '@podium/client-graph/mobile-session-schema'
 import type { MachineFacts, SessionId } from '@podium/model'

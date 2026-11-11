@@ -140,11 +140,7 @@ vi.mock('../components/TaskSheet', () => ({
   TaskSheet: (props: TaskSheetProps) => {
     seams.sheet = props
     const { issue } = props
-    return issue ? (
-      <aside>
-        {issue.title}
-      </aside>
-    ) : null
+    return issue ? <aside>{issue.title}</aside> : null
   },
 }))
 // SessionActionCard reaches OfferArtifactStrip -> ArtifactViewer -> the native
