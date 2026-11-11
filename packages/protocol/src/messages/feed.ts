@@ -408,7 +408,7 @@ export function validateFeedFrame(frame: {
     if (change.seq <= frame.fromSeq || change.seq > frame.seq) {
       if (!violations.includes('row-outside-range')) violations.push('row-outside-range')
     }
-    // NON-DECREASING, not strictly increasing (wire version 10, POD-6770): rows
+    // NON-DECREASING, not strictly increasing (wire version 5, POD-6770): rows
     // may share a number. A start-up load is built from the model tables, whose
     // records have no change number of their own, so every row carries the head
     // number the load is stamped with; the replica's own rule (`validateFrame`)

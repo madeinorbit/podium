@@ -177,7 +177,7 @@ The session record carried values only the running process knows: who controls t
 - **Client count** is the session presence room's occupancy; it is not a topic and not a record field.
 - What describes the session until it starts again stays **synced and stored**: the bound driver and its capabilities, the composer engine flag, the observed model and effort, the agent's colour and a move's target machine.
 - Visibility is the session record's own (`session` resolver): who may read the record may read its readings.
-- No old-client path: the client wire version went to 6.
+- No old-client path: the client wire version went to 5, the one bump for the POD-6253 epic.
 
 ### D27. Transcript, preview, terminal and draft (designed now, moved last)
 
