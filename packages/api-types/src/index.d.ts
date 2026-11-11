@@ -8626,13 +8626,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         }>;
     };
     "sync": {
-        "changesSince": TRPC.TRPCQueryProcedure<{
-            input: {
-                cursor: null | number;
-            };
-            output: Protocol.SyncChangesSinceResult;
-            meta: unknown;
-        }>;
         "submit": TRPC.TRPCMutationProcedure<{
             input: Input_sync_submit;
             output: Protocol.SyncSubmitReply;
