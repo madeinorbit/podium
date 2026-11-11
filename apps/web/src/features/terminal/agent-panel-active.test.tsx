@@ -252,7 +252,7 @@ describe('AgentPanel active wiring', () => {
     ]
     paneFixture.sync()
     const pool = paneFixture.hooks.useWorklistPool()!
-    paneFixture.owner.replica.applySnapshot('issuePanelArtifacts', [
+    paneFixture.replica.applySnapshot('issuePanelArtifacts', [
       {
         id: 'first-frame-artifact',
         issueId: 'iss-evidence',

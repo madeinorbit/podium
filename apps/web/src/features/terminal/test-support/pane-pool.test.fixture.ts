@@ -232,6 +232,9 @@ export function createPanePoolFixture(readInputs: () => PaneInputs) {
 
   return {
     owner,
+    get replica() {
+      return replica
+    },
     sync,
     dispose() {
       conversations?.dispose()
