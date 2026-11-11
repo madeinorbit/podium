@@ -436,13 +436,13 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
   },
   {
     file: 'packages/identity/src/runtime.ts',
-    line: 79,
-    why: "the identity package's own transaction, declared on its Runtime. It only joins or forwards to the edition's port above, so it is machinery under the span the port opens, not a second mouth.",
+    line: 90,
+    why: "Runtime.transaction joins or delegates to the edition's database port. The server's createOrJoinTransaction binding is already a named opener; classifying this forwarding method as well would count the same span twice.",
   },
   {
     file: 'packages/identity/src/runtime.ts',
-    line: 180,
-    why: "the same declaration's implementation.",
+    line: 201,
+    why: "The implementation of Runtime.transaction joins the current async-local transaction or delegates to the edition's database port, binding the library adapter to that handle. It does not introduce an independent span.",
   },
   {
     file: 'packages/identity/src/types.ts',
@@ -451,8 +451,8 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
   },
   {
     file: 'packages/identity/src/types.ts',
-    line: 425,
-    why: 'the hosted applied-cursor transaction port (PDM-509). The server binds it to SessionStore.transact, already classified above; the port itself does not open another span.',
+    line: 427,
+    why: 'AppliedCursor.transaction is the hosted applied-cursor port (PDM-509), bound by the server to SessionStore.transact, already classified above. The forwarding port does not introduce an independent span.',
   },
 ]
 
