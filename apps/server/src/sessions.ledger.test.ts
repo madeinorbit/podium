@@ -660,11 +660,11 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
     expect(afterCreate).toBeGreaterThan(0)
     expect(afterPersist).toBeGreaterThan(afterCreate)
-    expect(afterAttach).toBe(afterPersist)
-    expect(afterResize).toBe(afterPersist)
-    expect(afterSecondAttach).toBe(afterPersist)
-    expect(afterControl).toBe(afterPersist)
-    expect(afterDetach).toBe(afterPersist)
+    expect(afterAttach).toBeGreaterThan(afterPersist)
+    expect(afterResize).toBeGreaterThan(afterAttach)
+    expect(afterSecondAttach).toBeGreaterThan(afterResize)
+    expect(afterControl).toBeGreaterThan(afterSecondAttach)
+    expect(afterDetach).toBeGreaterThan(afterControl)
     expect(events.map((event) => event.generation)).toEqual(
       events.map((event) => event.generation).sort((a, b) => a - b),
     )

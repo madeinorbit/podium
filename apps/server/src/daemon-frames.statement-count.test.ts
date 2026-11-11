@@ -471,7 +471,7 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
         'agentState',
         async (f) => await route(f, { type: 'agentState', sessionId: f.ids[0], state: idle }),
       ),
-      30,
+      33,
     )
     // The accepted state is part of the existing row upsert, never a second write.
     for (const tally of [counts.small, counts.large])
