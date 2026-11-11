@@ -16,6 +16,7 @@ import {
   UserRound,
   Users,
 } from 'lucide-react'
+import { modChord } from '@/lib/mod-chord'
 
 export type SettingsGroup = 'personal' | 'workspace'
 
@@ -164,6 +165,12 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
         'Logins on your machines',
         'CLI logins found on the machines you look after.',
         'subscription claude codex grok opencode cursor pi sign in',
+      ),
+      section(
+        'accounts',
+        'Sign in to an agent',
+        'Sign in to an agent on a machine you look after.',
+        'login claude codex machine subscription connect',
       ),
       section(
         'accounts',
@@ -347,9 +354,15 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
       ),
       section(
         'machines',
-        'Machine access',
-        'Who looks after a machine and who may run agents on it.',
-        'custodian grants give use share adopt remove revoke',
+        'Let someone run agents on a machine',
+        'Choose who else may use a machine you look after.',
+        'custodian grants give use share access remove revoke',
+      ),
+      section(
+        'machines',
+        'Adopt an unowned machine',
+        'Look after a machine that nobody owns yet.',
+        'custodian nobody owner claim access',
       ),
       row(
         'hibernation',
@@ -468,6 +481,12 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
         'Disable a member',
         'Stop a member signing in, or remove them from the workspace.',
         'suspend block enable remove',
+      ),
+      section(
+        'pending-invites',
+        'Pending invites',
+        'Create a new link or revoke an invitation that has not been used.',
+        'invitation invite expiry email resend copy link',
       ),
       section(
         'members',
@@ -677,7 +696,12 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     keywords: 'experimental feature flags preview development',
     rows: [
       ...FEATURES.filter((flag) => flag.visibility !== 'hidden').map((flag) =>
-        row('labs', flag.name, flag.description, flag.id),
+        row(
+          'labs',
+          flag.id === 'command-palette' ? `Search everything (${modChord('K')})` : flag.name,
+          flag.description,
+          flag.id,
+        ),
       ),
     ],
   },

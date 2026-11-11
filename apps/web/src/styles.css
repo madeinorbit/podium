@@ -8477,6 +8477,7 @@ a.ref-link--session::before {
 }
 .settings-entity-title {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -8493,7 +8494,7 @@ a.ref-link--session::before {
   align-items: center;
   gap: 6px;
   margin-top: 2px;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
   font-size: 12px;
   line-height: 1.5;
   overflow-wrap: anywhere;
@@ -8569,6 +8570,7 @@ a.ref-link--session::before {
 }
 .settings-control {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   /* The gap a switch and its status text were missing: they touched. */
   gap: 10px;
@@ -9848,10 +9850,8 @@ a.ref-link--session::before {
 .settings-pane-scroll {
   flex: 1;
   min-height: 0;
-  /* The bottom is deep on purpose: the save bar floats over the last rows, and
-     a form whose final control can be hidden under its own Save is the oldest
-     settings-screen defect there is. */
-  padding: 28px var(--settings-pane-pad) 104px;
+  /* Breathing room after the last row; settings save on change. */
+  padding: 28px var(--settings-pane-pad) 48px;
   overflow-y: auto;
 }
 /* The measure constrains the TEXT, never the pane — that inversion is what made
@@ -15508,10 +15508,14 @@ button.waterfall-fold:hover {
 /* The settings frame: two scopes, one page header, and in-pane subflows. */
 .settings-sheet-title {
   display: inline-flex;
+  min-width: 0;
   align-items: center;
   gap: 10px;
 }
 .settings-sheet-crumb {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--text-dim);
   font-weight: 400;
 }
@@ -15628,9 +15632,39 @@ button.waterfall-fold:hover {
 }
 .settings-page-section > section + section,
 .settings-page-section + .settings-page-section {
-  margin-top: 28px;
-  padding-top: 24px;
-  border-top: 1px solid var(--hairline-soft);
+  margin-top: 30px;
+}
+.settings-segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 8px;
+  padding: 2px;
+  background: var(--well-floor);
+  box-shadow:
+    inset 0 1px 0 var(--well-lip),
+    inset 0 -1px 0 var(--well-lit);
+}
+.settings-segmented > button[aria-pressed="true"] {
+  background: var(--cell-raised);
+  color: var(--text-strong);
+  box-shadow:
+    inset 0 1px 0 var(--cell-lit),
+    0 0 0 1px var(--border);
+}
+.settings-audit-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+.settings-audit-filters > [data-slot="select-trigger"] {
+  flex: 1;
+  min-width: min(150px, 100%);
 }
 .settings-flow-back {
   margin: -6px 0 18px -8px;
@@ -15723,6 +15757,17 @@ button.waterfall-fold:hover {
   .app-sheet-settings .settings-sheet-crumb {
     display: none;
   }
+  .app-sheet-settings.settings-in-page .settings-sheet-name,
+  .app-sheet-settings.settings-searching .settings-sheet-name,
+  .app-sheet-settings .settings-sheet-separator {
+    display: none;
+  }
+  .app-sheet-settings.settings-in-page .settings-sheet-crumb,
+  .app-sheet-settings.settings-searching .settings-sheet-crumb {
+    display: block;
+    color: var(--text-strong);
+    font-weight: 600;
+  }
   .app-sheet-settings.settings-in-page .settings-rail {
     display: none;
   }
@@ -15752,6 +15797,29 @@ button.waterfall-fold:hover {
   }
   .app-sheet-settings.settings-searching .settings-search-field {
     margin-bottom: 0;
+  }
+  .settings-section-header {
+    flex-wrap: wrap;
+    gap: 10px 16px;
+  }
+  .settings-section-header > :first-child {
+    flex: 1 1 180px;
+  }
+  .settings-entity-name {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .settings-entity-row:has(.settings-entity-trailing :is(select, [role="switch"])) {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+  .settings-entity-row:has(.settings-entity-trailing :is(select, [role="switch"]))
+    .settings-entity-trailing {
+    grid-column: 2;
+    max-width: 100%;
+  }
+  .settings-pane .settings-row:has(> .settings-control > [role="switch"]:only-child) {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
   }
   .settings-page-header {
     gap: 12px;

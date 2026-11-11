@@ -4,7 +4,8 @@ import type { Operation, ReleaseProposal } from '@podium/protocol'
 import { parseOperation, ReleaseProposal as ReleaseProposalSchema } from '@podium/protocol'
 import { History, Server } from 'lucide-react'
 import type { JSX } from 'react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { type FailureReason, MachineFailureReason } from '@/features/updates/MachineFailureReason'
@@ -90,6 +91,10 @@ export const UpdatesSection = observer(function UpdatesSection(): JSX.Element {
   const actions = useMemo(() => new MachineUpdateActions(trpc), [trpc])
   const [updatingAll, setUpdatingAll] = useState(false)
   const [channel, setChannel] = useState<FleetChannel | null>(null)
+  const channelValue = useRef(channel)
+  channelValue.current = channel
+  const channelSaving = useRef(false)
+  const [channelBusy, setChannelBusy] = useState(false)
   // PODIUM_UPDATE_CHANNEL in the deployment's environment beats config.json, and
   // the server resolves machines against the env value. When it is set, the
   // selector must say so rather than offer a write that cannot take (POD-1882).
@@ -179,9 +184,11 @@ export const UpdatesSection = observer(function UpdatesSection(): JSX.Element {
     }
   }, [trpc])
 
-  const choose = async (next: FleetChannel) => {
-    if (next === channel || envForced) return
-    const prev = channel
+  const choose = async (next: FleetChannel, announce = true) => {
+    if (next === channelValue.current || envForced || channelSaving.current) return
+    const prev = channelValue.current
+    channelSaving.current = true
+    setChannelBusy(true)
     setChannelError(null)
     setChannel(next) // optimistic
     try {
@@ -189,6 +196,9 @@ export const UpdatesSection = observer(function UpdatesSection(): JSX.Element {
       setChannel(result.channel)
       setEnvForced(result.envForced)
       setChannelSource(result.channelSource)
+      if (announce && prev)
+        toast('Saved', { action: { label: 'Undo', onClick: () => void choose(prev, false) } })
+      else if (!announce) toast('Change undone')
       // Keep the shell's native fallback on this server's channel. Dev points at
       // this server's public shell manifest; the signed artifact itself remains on GitHub.
       try {
@@ -199,6 +209,9 @@ export const UpdatesSection = observer(function UpdatesSection(): JSX.Element {
     } catch (e) {
       setChannel(prev)
       setChannelError(e instanceof Error ? e.message : String(e))
+    } finally {
+      channelSaving.current = false
+      setChannelBusy(false)
     }
   }
 
@@ -348,54 +361,6 @@ export const UpdatesSection = observer(function UpdatesSection(): JSX.Element {
     <>
       <Section title="Version">
         <Row
-          label="Update channel"
-          description={
-            channel === 'stable'
-              ? 'Released builds.'
-              : channel === 'dev'
-                ? 'Builds from this workspace’s development branch.'
-                : 'Latest builds from main, a few times a day.'
-          }
-          readOnly={!admin}
-          readOnlyValue={channel ? CHANNEL_LABELS[channel] : 'Loading…'}
-          error={channelError}
-        >
-          {channel === null ? (
-            <span className="settings-micro">Loading…</span>
-          ) : (
-            <div className="flex flex-wrap gap-1">
-              {options.map((option) => (
-                <Button
-                  key={option.value}
-                  type="button"
-                  size="sm"
-                  variant={channel === option.value ? 'default' : 'outline'}
-                  aria-pressed={channel === option.value}
-                  disabled={envForced}
-                  onClick={() => void choose(option.value)}
-                >
-                  {option.label}
-                </Button>
-              ))}
-              {!developing && channel === 'dev' && (
-                <span className="settings-micro">Development</span>
-              )}
-            </div>
-          )}
-        </Row>
-        {envForced && (
-          <p className="settings-list-note settings-prose text-warning">
-            {channelSource === 'file' ? 'config.json' : 'PODIUM_UPDATE_CHANNEL'} overrides the
-            configured channel. Remove the override to choose the update channel here.
-          </p>
-        )}
-        {updateScope === 'fleet-only' && (
-          <p className="settings-list-note settings-prose">
-            Server updates are managed by this deployment; machines still update from the{' '}
-            {channel ?? 'configured'} feed.
-          </p>
-        )}
-        <Row
           label="Podium"
           description={
             showComponentVersions
@@ -435,6 +400,64 @@ export const UpdatesSection = observer(function UpdatesSection(): JSX.Element {
             </code>
           )}
         </Row>
+        <Row
+          label="Update channel"
+          description={
+            channel === 'stable'
+              ? 'Released builds.'
+              : channel === 'dev'
+                ? 'Builds from this workspace’s development branch.'
+                : 'Latest builds from main, a few times a day.'
+          }
+          readOnly={!admin}
+          readOnlyValue={channel ? CHANNEL_LABELS[channel] : 'Loading…'}
+          error={channelError}
+          pending={channelBusy}
+        >
+          {channel === null ? (
+            <span className="settings-micro">Loading…</span>
+          ) : (
+            <fieldset
+              aria-label="Update channel"
+              className="settings-segmented"
+              disabled={envForced || channelBusy}
+            >
+              {options.map((option) => (
+                <Button
+                  key={option.value}
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className={
+                    channel === option.value
+                      ? 'bg-secondary text-foreground'
+                      : 'text-muted-foreground'
+                  }
+                  aria-pressed={channel === option.value}
+                  disabled={envForced}
+                  onClick={() => void choose(option.value)}
+                >
+                  {option.label}
+                </Button>
+              ))}
+              {!developing && channel === 'dev' && (
+                <span className="settings-micro self-center px-2">Development</span>
+              )}
+            </fieldset>
+          )}
+        </Row>
+        {envForced && (
+          <p className="settings-list-note settings-prose text-warning">
+            {channelSource === 'file' ? 'config.json' : 'PODIUM_UPDATE_CHANNEL'} overrides the
+            configured channel. Remove the override to choose the update channel here.
+          </p>
+        )}
+        {updateScope === 'fleet-only' && (
+          <p className="settings-list-note settings-prose">
+            Server updates are managed by this deployment; machines still update from the{' '}
+            {channel ?? 'configured'} feed.
+          </p>
+        )}
         <Row label="Last checked">
           <LastChecked checks={checks} channel={channel} />
           {admin && (

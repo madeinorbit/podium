@@ -438,7 +438,7 @@ const BrowserNotificationsRow = observer(function BrowserNotificationsRow({
         onChange={(web) => patch({ notifications: { ...settings.notifications, web } })}
       />
       {settings.notifications.web && (
-        <div className="settings-prose mt-1 mb-3 flex items-start gap-2 rounded-md border border-hairline-soft bg-muted/30 p-3">
+        <div className="settings-list-note settings-prose flex items-start gap-2">
           <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
           <div>
             <span>
@@ -455,7 +455,7 @@ const BrowserNotificationsRow = observer(function BrowserNotificationsRow({
                 type="button"
                 size="sm"
                 variant="outline"
-                className="ml-2"
+                className="mt-2"
                 disabled={pending}
                 onClick={() => void grant()}
               >

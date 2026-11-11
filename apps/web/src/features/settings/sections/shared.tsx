@@ -36,12 +36,14 @@ import { useSettingsRowId } from '../settings-anchors'
 import { useSettingsFrame } from '../settings-frame'
 
 export function Section({
+  id,
   title,
   hint,
   action,
   list,
   children,
 }: {
+  id?: string
   title?: ReactNode
   hint?: string
   action?: ReactNode
@@ -53,7 +55,7 @@ export function Section({
   // (styles.css): the `first:` guard that used to be here could never fire,
   // because the class banner — not this section — is the pane's first child.
   return (
-    <section>
+    <section id={id} tabIndex={id ? -1 : undefined}>
       {(title || hint || action) && (
         <header className="settings-section-header">
           <div className="min-w-0">
@@ -239,11 +241,18 @@ export const Row = observer(function Row(props: RowProps): JSX.Element {
       aria-busy={state.pending || undefined}
     >
       <div className="min-w-0">
-        <span id={`${id}-label`} className="settings-label inline-flex items-center gap-2">
+        <span
+          id={`${id}-label`}
+          className="settings-label inline-flex flex-wrap items-center gap-2"
+        >
           {label}
           {device && <ThisDeviceTag />}
         </span>
-        {description && <p className="settings-prose mt-1">{description}</p>}
+        {description && (
+          <p id={`${id}-description`} className="settings-prose mt-1">
+            {description}
+          </p>
+        )}
         {state.error && (
           <p id={`${id}-error`} className="settings-prose mt-1 text-destructive" role="alert">
             {state.error}
@@ -261,7 +270,11 @@ export const Row = observer(function Row(props: RowProps): JSX.Element {
           className="settings-control m-0 min-w-0 border-0 p-0"
           disabled={state.pending}
           aria-labelledby={`${id}-label`}
-          aria-describedby={state.error ? `${id}-error` : undefined}
+          aria-describedby={
+            [description && `${id}-description`, state.error && `${id}-error`]
+              .filter(Boolean)
+              .join(' ') || undefined
+          }
         >
           {children}
         </fieldset>
@@ -403,10 +416,7 @@ export function SegmentedRow<T extends string>({
       pending={change.pending || props.pending}
       readOnlyValue={options.find((o) => o.value === value)?.label ?? value}
     >
-      <fieldset
-        aria-label={props.label}
-        className="m-0 flex min-w-0 rounded-lg border border-hairline-soft bg-muted/40 p-0.5"
-      >
+      <fieldset aria-label={props.label} className="settings-segmented">
         {options.map((option) => (
           <Button
             key={option.value}

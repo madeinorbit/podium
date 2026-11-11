@@ -136,7 +136,9 @@ export function SettingsFrame({
   const description =
     page === 'members' && !viewer.sections.includes('people')
       ? 'People who can sign in to this workspace.'
-      : definition.description
+      : page === 'machines' && !viewer.sections.includes('machines')
+        ? 'The computers you look after or may run agents on.'
+        : definition.description
   const groups = visibleSettingsGroups(SETTINGS_GROUPS, viewer.sections)
   const pages = groups.flatMap((group) => group.tabs)
   const requiredSection = adminSectionOf(page)
@@ -275,9 +277,10 @@ export function SettingsFrame({
       >
         <ArrowLeft size={16} aria-hidden="true" />
       </button>
-      <span>Settings</span>
+      <span className="settings-sheet-name">Settings</span>
       <span className="settings-sheet-crumb" aria-hidden="true">
-        / {searching ? 'Search' : (takeover?.title ?? definition.label)}
+        <span className="settings-sheet-separator">/ </span>
+        {searching ? 'Search' : (takeover?.title ?? definition.label)}
       </span>
     </span>
   )

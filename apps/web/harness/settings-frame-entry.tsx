@@ -1,5 +1,6 @@
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Toaster } from '@/components/ui/sonner'
 import { Row } from '@/features/settings/sections/shared'
 import './settings-frame-store'
 import { useState } from 'react'
@@ -56,6 +57,7 @@ function Harness() {
   return (
     <ThemeProvider>
       <DensityProvider>
+        <Toaster position="bottom-center" />
         <div style={{ padding: 20, color: 'var(--muted-foreground)' }}>Podium · Work</div>
         {open &&
           (params.has('flow') ? (

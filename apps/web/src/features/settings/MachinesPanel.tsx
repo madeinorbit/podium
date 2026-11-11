@@ -50,9 +50,6 @@ export const MachinesPanel = observer(function MachinesPanel() {
           </Button>
         </SettingsPageActions>
       )}
-      {!admin && (
-        <p className="settings-prose mb-4">The computers you look after or may run agents on.</p>
-      )}
       {hosting && !alreadyPaired && <HostThisDeviceCard hosting={hosting} />}
       <ActiveServerMove canRecover={admin} />
       <Section list>

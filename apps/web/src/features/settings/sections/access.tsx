@@ -170,10 +170,7 @@ const HostAccess = observer(function HostAccess({ network }: { network: NetworkS
           title="Signed in now"
           hint="Every sign-in that has not expired. Ending one signs that device out at once."
           action={
-            <fieldset
-              aria-label="Filter sign-ins"
-              className="inline-flex rounded-lg border border-hairline-soft bg-muted/40 p-0.5"
-            >
+            <fieldset aria-label="Filter sign-ins" className="settings-segmented">
               {(['everyone', 'phones'] as const).map((value) => (
                 <Button
                   key={value}

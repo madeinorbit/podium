@@ -8,6 +8,9 @@ import { renderSettingsPool } from '@/test-support/mock-settings-pool-fixture'
 import { SettingsOpening } from '../SettingsOpening'
 import { SettingsControlsContext } from './shared'
 
+const notify = vi.hoisted(() => vi.fn())
+vi.mock('sonner', () => ({ toast: notify }))
+
 const trpc = {
   setup: {
     channel: { query: vi.fn() },
@@ -463,7 +466,7 @@ describe('UpdatesSection', () => {
     expect(source.textContent).toContain('Reloading')
   })
 
-  it('keeps the channel selector writable', async () => {
+  it('saves a segmented channel choice with Undo after the running version', async () => {
     trpc.setup.channel.query.mockResolvedValue({ channel: 'stable', envForced: false })
     trpc.setup.info.query.mockResolvedValue({ appVersion: 'dev+abc1234' })
     quietHistory()
@@ -478,6 +481,18 @@ describe('UpdatesSection', () => {
     )
     expect(screen.getByRole('button', { name: 'Edge' }).getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByText('dev+abc1234')).toBeTruthy()
+    const version = screen.getByText('dev+abc1234').closest('.settings-row')!
+    const channel = screen.getByRole('group', { name: 'Update channel' })
+    expect(channel.classList.contains('settings-segmented')).toBe(true)
+    expect(version.nextElementSibling).toBe(channel.closest('.settings-row'))
+    const undo = notify.mock.calls.find((call) => call[0] === 'Saved')?.[1]?.action
+    expect(undo?.label).toBe('Undo')
+    trpc.setup.setChannel.mutate.mockResolvedValue({ channel: 'stable', envForced: false })
+    await act(async () => undo.onClick())
+    await waitFor(() =>
+      expect(trpc.setup.setChannel.mutate).toHaveBeenLastCalledWith({ channel: 'stable' }),
+    )
+    expect(screen.getByRole('button', { name: 'Stable' }).getAttribute('aria-pressed')).toBe('true')
   })
 
   it('persists a stable switch into the native shell', async () => {

@@ -70,7 +70,7 @@ describe('Account Profile', () => {
     expect(screen.getByText('Member')).toBeTruthy()
     expect(screen.queryByRole('combobox', { name: 'Role' })).toBeNull()
   })
-  it('asks for a password only when a changed email is submitted', async () => {
+  it('asks for a password when a changed email blurs', async () => {
     const trpc = fakeTrpc()
     render(<AccountProfileSection trpc={trpc} />)
     const email = await screen.findByRole('textbox', { name: 'Email' })
@@ -80,7 +80,7 @@ describe('Account Profile', () => {
     expect(trpc.auth.setEmail.mutate).not.toHaveBeenCalled()
     fireEvent.change(email, { target: { value: 'next@example.com' } })
     expect(screen.queryByLabelText('Your password')).toBeNull()
-    fireEvent.submit(email.closest('form')!)
+    fireEvent.blur(email)
     fireEvent.change(screen.getByLabelText('Your password'), { target: { value: 'secret' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save email' }))
     await waitFor(() =>
@@ -90,12 +90,12 @@ describe('Account Profile', () => {
       }),
     )
   })
-  it('saves an email without a password when the caller has none', async () => {
+  it('saves an email on blur without a password when the caller has none', async () => {
     const trpc = fakeTrpc(false)
     render(<AccountProfileSection trpc={trpc} />)
     const email = await screen.findByRole('textbox', { name: 'Email' })
     fireEvent.change(email, { target: { value: 'next@example.com' } })
-    fireEvent.submit(email.closest('form')!)
+    fireEvent.blur(email)
     await waitFor(() =>
       expect(trpc.auth.setEmail.mutate).toHaveBeenCalledWith({
         email: 'next@example.com',

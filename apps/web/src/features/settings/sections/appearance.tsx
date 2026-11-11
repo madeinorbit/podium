@@ -92,13 +92,13 @@ function ThemeCards(): JSX.Element {
           <ThisDeviceTag />
         </span>
       }
-      list={false}
+      list
     >
       <fieldset
         id={id}
         tabIndex={id ? -1 : undefined}
         aria-label="Theme"
-        className="m-0 grid min-w-0 grid-cols-3 gap-3 border-0 p-0"
+        className="m-0 grid min-w-0 grid-cols-3 gap-3 border-0 p-3.5"
       >
         {THEMES.map((theme) => (
           <Button

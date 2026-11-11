@@ -8,6 +8,7 @@ import type { PodiumSettings } from '@podium/runtime'
 import type { JSX } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
+import { modChord } from '@/lib/mod-chord'
 import { type FeatureStates, useFeaturesState } from '@/lib/use-feature'
 import { Row, Section } from './shared'
 
@@ -44,12 +45,14 @@ export const LabsSection = observer(function LabsSection({
           carries a badge. It had its own flex layout and its own sizes. */}
       {listed.map((flag) => {
         const checked = flag.enabled
+        const label =
+          flag.id === 'command-palette' ? `Search everything (${modChord('K')})` : flag.name
         const showDevBadge = Boolean(state?.devMode && isDevOnlyListed(flag, channel))
         return (
           <Row
             key={flag.id}
             setting="experimental"
-            label={flag.name}
+            label={label}
             readOnlyValue={checked ? 'On' : 'Off'}
             description={
               <>
@@ -67,7 +70,7 @@ export const LabsSection = observer(function LabsSection({
           >
             <Switch
               className="flex-none"
-              aria-label={flag.name}
+              aria-label={label}
               checked={checked}
               disabled={flag.locked}
               onCheckedChange={(next) =>

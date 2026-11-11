@@ -240,10 +240,7 @@ export const AgentRoleFields = observer(function AgentRoleFields({
         }
         readOnlyValue={effortLabel(resolved.harness, backend.effort)}
       >
-        <fieldset
-          aria-label="Effort"
-          className="m-0 flex min-w-0 flex-wrap rounded-lg border border-hairline-soft bg-muted/40 p-0.5"
-        >
+        <fieldset aria-label="Effort" className="settings-segmented">
           {(effortOptions.length ? effortOptions : [{ value: AUTO, label: 'Auto' }]).map(
             (option) => (
               <Button

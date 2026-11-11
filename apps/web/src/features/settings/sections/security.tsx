@@ -34,6 +34,7 @@ export const AccountProfileSection = observer(function AccountProfileSection({
   const [emailBusy, setEmailBusy] = useState(false)
   const nameSaving = useRef(false)
   const emailSaving = useRef(false)
+  const emailField = useRef<HTMLInputElement>(null)
 
   const loadStatus = useCallback(() => {
     const generation = ++statusRequest.current
@@ -142,6 +143,10 @@ export const AccountProfileSection = observer(function AccountProfileSection({
       setEmailError('Enter an email address.')
       return
     }
+    if (!emailField.current?.validity.valid) {
+      setEmailError('Enter a valid email address.')
+      return
+    }
     setEmailError(null)
     if (status.hasOwnCredential) setEmailChange(email)
     else void saveEmail(email)
@@ -171,11 +176,16 @@ export const AccountProfileSection = observer(function AccountProfileSection({
       >
         <Row
           label="Email"
-          description="You sign in with it. Changing it asks for your password."
+          description={
+            status.hasOwnCredential
+              ? 'You sign in with it. Changing it asks for your password.'
+              : 'You sign in with it.'
+          }
           pending={emailBusy}
           error={emailError}
         >
           <Input
+            ref={emailField}
             aria-label="Email"
             type="email"
             autoComplete="username"
@@ -187,6 +197,7 @@ export const AccountProfileSection = observer(function AccountProfileSection({
               setEmailChange(null)
               setEmailError(null)
             }}
+            onBlur={submitEmail}
             onKeyDown={(event) => {
               if (event.key === 'Escape') {
                 event.preventDefault()
@@ -211,6 +222,7 @@ export const AccountProfileSection = observer(function AccountProfileSection({
           actionLabel="Save email"
           pending={emailBusy}
           onCancel={() => {
+            setEmailDraft(null)
             setEmailChange(null)
             setEmailError(null)
           }}

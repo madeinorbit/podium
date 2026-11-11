@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button'
 import { authRequest, memberRequest } from '@/features/setup/member-api'
 import { AdminViewerError } from '../AdminViewerError'
 import { useAdminSections } from '../admin-viewer'
+import { settingsSectionId } from '../page-definitions'
 import { SettingsPageActions, useSettingsFrame } from '../settings-frame'
 import { type MemberSignInsAnswer, MembersPage, memberRoleLabel } from './members-data'
 import { InviteMember, type MemberLinkReceipt } from './members-invite'
@@ -128,7 +129,7 @@ export const MembersSection = observer(function MembersSection() {
         )}
       </Section>
       {admin && (
-        <Section title="Pending invites" list>
+        <Section id={settingsSectionId('pending-invites')} title="Pending invites" list>
           {data.invites.length ? (
             data.invites.map((invite) => (
               <PendingInvite

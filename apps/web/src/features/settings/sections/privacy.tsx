@@ -281,8 +281,7 @@ function ReportTakeover(): JSX.Element {
       {state && (
         <p className="settings-micro mt-2">
           Reports go to <code>{state.endpoint}</code>, which drops IP addresses and forwards to
-          PostHog. From a terminal: <code>podium telemetry show</code> ·{' '}
-          <code>podium telemetry off</code>
+          PostHog.
         </p>
       )}
     </>

@@ -86,7 +86,7 @@ export const AuditSection = observer(function AuditSection(): JSX.Element {
       []),
   ]
   const filters = (
-    <div className="flex w-37.5 flex-wrap gap-2 sm:w-auto">
+    <div className="settings-audit-filters">
       <Select items={people} value={actor} onValueChange={(value) => setActor(value ?? '')}>
         <SelectTrigger className="min-w-37.5" aria-label="Person">
           <SelectValue />

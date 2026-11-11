@@ -537,6 +537,11 @@ export const AccountsSection = observer(function AccountsSection(): JSX.Element 
             {request.error}
           </p>
         )}
+        {accounts !== undefined && !request?.error && native.length === 0 && (
+          <p className="settings-list-note settings-prose">
+            No agent logins found. Install an agent on a machine you look after to sign in.
+          </p>
+        )}
         {installed.map((account) => (
           <NativeAccountRow key={account.id} account={account} onChanged={refresh} />
         ))}

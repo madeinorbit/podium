@@ -150,6 +150,10 @@ describe('settings frame', () => {
 
 describe('settings search catalog', () => {
   it.each([
+    ['sign in to an agent', 'Sign in to an agent', 'settings-section-accounts'],
+    ['let someone run agents', 'Let someone run agents on a machine', 'settings-section-machines'],
+    ['adopt an unowned machine', 'Adopt an unowned machine', 'settings-section-machines'],
+    ['pending invites', 'Pending invites', 'settings-section-pending-invites'],
     ['fleet default channel', 'Update channel', 'settings-updates-update-channel'],
     ['running version', 'Podium', 'settings-updates-podium'],
     ['check now', 'Last checked', 'settings-updates-last-checked'],

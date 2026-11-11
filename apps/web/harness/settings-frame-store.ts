@@ -1,4 +1,5 @@
 /** Isolated fixtures for the shipping settings view. No requests reach a server. */
+
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import {
@@ -10,6 +11,7 @@ import {
 import { FEATURES } from '@podium/protocol'
 import { observable, runInAction } from 'mobx'
 import { useMemo, useSyncExternalStore } from 'react'
+import { liveFixture } from '../../../packages/client-graph/src/live-fixture'
 
 const params = new URLSearchParams(location.search)
 export const member = params.get('as') === 'member'
@@ -50,10 +52,15 @@ export function useWorklistPoolProjection<T>(read: (pool: MobxPool) => T) {
   const projection = useMemo(() => createPoolProjection(pool, read), [read])
   return useSyncExternalStore(projection.subscribe, projection.getSnapshot)
 }
+const deviceValues = observable.map<string, string | null>()
 const listeners = new Set<(keys: ReadonlySet<string>) => void>()
 export const deviceState = {
-  get: (key: string) => localStorage.getItem(`settings-harness:${key}`),
+  get: (key: string) =>
+    deviceValues.has(key)
+      ? deviceValues.get(key)!
+      : localStorage.getItem(`settings-harness:${key}`),
   set: (key: string, value: string | null) => {
+    runInAction(() => deviceValues.set(key, value))
     if (value === null) localStorage.removeItem(`settings-harness:${key}`)
     else localStorage.setItem(`settings-harness:${key}`, value)
     for (const listener of listeners) listener(new Set([key]))
@@ -65,6 +72,13 @@ export const deviceState = {
     }
   },
 }
+pool.bindLayout({
+  read: deviceState.get,
+  write: (key, value) => deviceState.set(key, value as string | null),
+  ready: () => true,
+})
+const live = liveFixture(pool)
+live.outbox({ pending: 0, inflight: 0, rejected: 0 } as never)
 const repositories: {
   path: string
   repoId: string
@@ -355,6 +369,7 @@ if (populated) {
       } as never,
     })),
   })
+  for (const machine of machines) live.online(machine.id, machine.online)
   updates.fleet.machines = machines.map((m) => ({
     ...m,
     version: m.appVersion,
@@ -450,3 +465,4 @@ window.fetch = (async (input: RequestInfo | URL) => {
     })
   return Response.json({})
 }) as typeof fetch
+Object.assign(window, { settingsHarness: { calls, pool, deviceState, navigate: setSettingsTab } })
