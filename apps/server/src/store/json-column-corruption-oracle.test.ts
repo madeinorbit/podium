@@ -998,7 +998,8 @@ describe('the corrupt-blob oracle', () => {
   })
 
   it('refuses unreadable authoritative delegation instead of dropping its scope', async () => {
-    const { store, sessionId } = await seed()
+    const { store } = await seed()
+    const sessionId = SESSION
     try {
       rawDb(store)
         .prepare(`INSERT INTO sessions
