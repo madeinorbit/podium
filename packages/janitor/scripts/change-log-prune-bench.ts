@@ -32,9 +32,12 @@ async function timing(run: () => unknown | Promise<unknown>) {
 }
 
 function plan(db: SqlDatabase, sql: string, params: SqlParam[]) {
-  return (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...params) as { detail: string }[]).map(
-    (row) => row.detail,
-  )
+  const statement = db.prepare(`EXPLAIN QUERY PLAN ${sql}`)
+  try {
+    return (statement.all(...params) as { detail: string }[]).map((row) => row.detail)
+  } finally {
+    statement.finalize?.()
+  }
 }
 
 async function bench(rows: number) {
@@ -101,7 +104,7 @@ async function bench(rows: number) {
       })
       scenarios.push({ agedRows: Math.max(cutoff - 1, 0), cutoff, legacyTotal, statements })
     }
-    // Aggregate get() cursors must release their read locks before replacing the index.
+    // Release every prepared baseline statement before replacing the measured index.
     for (const statement of legacy) statement.finalize?.()
     db.exec(migration)
     const preparedSql: string[] = []
