@@ -219,7 +219,7 @@ describe('FirstTaskActivation', () => {
 
     const section = await screen.findByRole('region', { name: 'Detected accounts' })
     const boxes = await within(section).findAllByRole('checkbox', {
-      name: /Automatically transfer and use these credentials on other machines I own/,
+      name: /Use on all my machines/,
     })
     expect(boxes).toHaveLength(2)
     expect(boxes.map((box) => box.getAttribute('aria-checked'))).toEqual(['false', 'false'])

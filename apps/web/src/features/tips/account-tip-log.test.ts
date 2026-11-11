@@ -121,7 +121,7 @@ it('re-enabling restores one-time tips and the phone promo across devices, with 
   expect(reload.rendered.ready).toBe(true)
   expect(reload.rendered.enabled).toBe(true)
   expect(reload.rendered.seen).toEqual(ACCOUNT_TIP_IDS.map(() => false))
-  expect(reload.layout.get('mobile.promoDismissed')).toBeNull()
+  expect(reload.layout.get('mobile.promoDismissed')).toBeUndefined()
   undo?.()
   expect(reload.rendered.enabled).toBe(false)
   expect(reload.rendered.seen).toEqual(ACCOUNT_TIP_IDS.map(() => true))
