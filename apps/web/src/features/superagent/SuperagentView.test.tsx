@@ -8,6 +8,7 @@ import {
   type SuperagentThreadWire,
 } from '@podium/model'
 import { fireEvent, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -192,6 +193,10 @@ vi.mock('@/lib/voice', () => ({
   useVoiceInput: () => ({ supported: false, listening: false, toggle: vi.fn() }),
 }))
 vi.mock('@/lib/markdown', () => ({ renderMarkdown: (t: string) => `<p>${t}</p>` }))
+vi.mock('./use-superagent-inputs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./use-superagent-inputs')>()
+  return { ...actual, useSuperagentAccess: () => ({ ...actual.useSuperagentAccess(), readPosition }) }
+})
 /**
  * THE CHAT IS STUBBED, AND THAT IS THE POINT OF THIS FILE (POD-782).
  *
@@ -411,7 +416,7 @@ describe('Clear context', () => {
   it('routes through superagent.clear so the global thread restarts fresh', async () => {
     await mount()
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Superagent conversation actions' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Superagent conversation actions' }))
     })
     await act(async () => {
       fireEvent.click(screen.getByRole('menuitem', { name: 'Clear conversation' }))
@@ -424,7 +429,7 @@ describe('Open in terminal', () => {
   it('clears the issue selection so the pane lands on the PTY session, not an issue workspace', async () => {
     await mount()
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Superagent conversation actions' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Superagent conversation actions' }))
     })
     // The resumed PTY session lands in the sessions broadcast a beat later.
     storeSessions = [{ sessionId: asSessionId('pty-1'), cwd: '/home/u' }]
@@ -467,7 +472,7 @@ describe('Start a fresh session', () => {
   it('restarts the global harness without clearing the conversation', async () => {
     await mount()
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Superagent conversation actions' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Superagent conversation actions' }))
     })
     await act(async () => {
       fireEvent.click(screen.getByRole('menuitem', { name: 'Start a fresh session' }))
