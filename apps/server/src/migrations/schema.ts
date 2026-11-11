@@ -2393,6 +2393,16 @@ export const shipRecoveryWork = sqliteTable(
   ],
 )
 
+/** A planning fence for queued membership and newly committed receipts. */
+export const shipRecoveryRevision = sqliteTable(
+  'ship_recovery_revision',
+  {
+    id: integer().primaryKey(),
+    revision: integer().notNull().default(0),
+  },
+  () => [check('ship_recovery_revision_singleton', sql`id = 1`)],
+)
+
 export const shipHolds = sqliteTable(
   'ship_holds',
   {

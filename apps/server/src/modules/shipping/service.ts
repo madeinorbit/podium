@@ -729,6 +729,7 @@ export class ShippingService {
       descendantManifest,
     )
     const displaced = await this.deps.repository.activeTrainsForLane(order)
+    const admissionRevision = await this.deps.repository.recoveryRevision()
     const stalePredecessor = await this.staleAdmissionPredecessor(order, issue)
     const displacedMembers = [
       ...new Map(
@@ -822,6 +823,7 @@ export class ShippingService {
                 'integration receipt changed before shipping custody committed',
               )
             }
+            await this.deps.repository.assertRecoveryRevision(scope, admissionRevision)
             const result = await this.deps.repository.createOrReturnActiveOrder(scope, {
               ...order,
               ...(receipt ? { currentIntegrationReceipt: receipt } : {}),
@@ -839,6 +841,12 @@ export class ShippingService {
         )
       ).result
     } catch (error) {
+      if (error instanceof Error && /shipping recovery revision fence failed/.test(error.message)) {
+        throw new ShippingAdmissionError(
+          'source-stale',
+          'shipping changed while predecessor ancestry was checked; retry admission',
+        )
+      }
       if (error instanceof Error && /different active ship order/.test(error.message)) {
         throw new ShippingAdmissionError('source-stale', error.message)
       }
@@ -1294,6 +1302,7 @@ export class ShippingService {
           return
         }
         const landingTrain = await this.deps.repository.trainManifestForAttempt(attempt.id)
+        const recoveryRevision = await this.deps.repository.recoveryRevision()
         const descendantInvalidations = await this.planStaleDescendants(
           [order, ...coveredSettlements.map((covered) => covered.order)],
           destinationSha,
@@ -1355,6 +1364,7 @@ export class ShippingService {
             ],
             async (scope) =>
               await this.deps.repository.completeVerifiedTrain(scope, {
+                expectedRecoveryRevision: recoveryRevision,
                 leader: {
                   orderId: order.id,
                   expectedState: 'verifying',
@@ -1782,6 +1792,10 @@ export class ShippingService {
     if (order.state !== 'held') throw new Error(`shipping order ${order.id} is not held`)
     const nextState =
       action === 'return-to-issue' ? 'cancelled' : action === 'open-repair' ? 'repairing' : 'queued'
+    const admissionRevision =
+      nextState === 'queued' ? await this.deps.repository.recoveryRevision() : undefined
+    const stalePredecessor =
+      nextState === 'queued' ? await this.staleAdmissionPredecessor(order, issue) : undefined
     const at = this.now()
     const hold = await this.deps.repository.openHoldForOrder(order.id)
     if (!hold || hold.generation !== expectedGeneration) {
@@ -1845,6 +1859,9 @@ export class ShippingService {
           },
         },
         async (scope) => {
+          if (admissionRevision !== undefined) {
+            await this.deps.repository.assertRecoveryRevision(scope, admissionRevision)
+          }
           await this.deps.repository.resolveHold(
             scope,
             order.id,
@@ -1854,6 +1871,15 @@ export class ShippingService {
             at,
             openedRepair?.candidate,
           )
+          if (stalePredecessor) {
+            await this.deps.repository.queueAdmissionInvalidation(
+              scope,
+              order.id,
+              stalePredecessor.order.id,
+              stalePredecessor.destinationSha,
+              `hold:${expectedGeneration}`,
+            )
+          }
           return await this.requiredOrder(order.id)
         },
       )
@@ -2283,9 +2309,10 @@ export class ShippingService {
     destinationSha: string,
     recoveryKey?: string,
   ): Promise<void> {
+    const recoveryRevision = await this.deps.repository.recoveryRevision()
     const pending = await this.planStaleDescendants([landed], destinationSha)
     if (pending.length === 0) {
-      if (recoveryKey) await this.finishRecoveryWork(recoveryKey)
+      if (recoveryKey) await this.finishRecoveryWork(recoveryKey, recoveryRevision)
       return
     }
     await this.commitMany(
@@ -2309,8 +2336,11 @@ export class ShippingService {
         },
       })),
       async (scope) => {
+        await this.deps.repository.assertRecoveryRevision(scope, recoveryRevision)
         for (const { hold } of pending) await this.deps.repository.raiseHold(scope, hold)
-        if (recoveryKey) await this.deps.repository.completeRecoveryWork(scope, recoveryKey)
+        if (recoveryKey && (await this.deps.repository.recoveryRevision()) === recoveryRevision) {
+          await this.deps.repository.completeRecoveryWork(scope, recoveryKey)
+        }
       },
     )
   }
@@ -3203,9 +3233,13 @@ export class ShippingService {
     return true
   }
 
-  private async finishRecoveryWork(key: string): Promise<void> {
+  private async finishRecoveryWork(key: string, revision?: number): Promise<void> {
     await this.deps.ledger.commit({
-      write: async (scope) => await this.deps.repository.completeRecoveryWork(scope, key),
+      write: async (scope) => {
+        if (revision !== undefined)
+          await this.deps.repository.assertRecoveryRevision(scope, revision)
+        await this.deps.repository.completeRecoveryWork(scope, key)
+      },
     })
   }
 
@@ -3556,7 +3590,9 @@ export class ShippingService {
   private isEffectCustodyRefusal(error: unknown): boolean {
     return (
       error instanceof Error &&
-      /effect (?:dispatch )?custody fence failed|durable cancellation intent/.test(error.message)
+      /effect (?:dispatch )?custody fence failed|durable cancellation intent|shipping recovery revision fence failed/.test(
+        error.message,
+      )
     )
   }
 

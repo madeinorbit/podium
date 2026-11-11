@@ -57,6 +57,7 @@ import {
   shipLaneRevisions,
   shipOrderStackEdges,
   shipOrders,
+  shipRecoveryRevision,
   shipRecoveryWork,
   shipRepairCandidates,
   shipSteps,
@@ -785,6 +786,22 @@ const recoveryWorkPage = prepared((db: StoreDrizzle) =>
     )
     .orderBy(asc(shipRecoveryWork.key))
     .limit(100)
+    .prepare(),
+)
+
+const recoveryRevision = prepared((db: StoreDrizzle) =>
+  db
+    .select({ revision: shipRecoveryRevision.revision })
+    .from(shipRecoveryRevision)
+    .where(eq(shipRecoveryRevision.id, 1))
+    .prepare(),
+)
+
+const advanceRecoveryRevision = prepared((db: StoreDrizzle) =>
+  db
+    .update(shipRecoveryRevision)
+    .set({ revision: sql`${shipRecoveryRevision.revision} + 1` })
+    .where(eq(shipRecoveryRevision.id, 1))
     .prepare(),
 )
 
@@ -1737,6 +1754,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       destination: receipt.destination,
       completedAt: receipt.completedAt,
     })
+    await this.advanceRecoveryRevision()
     await this.queueDescendantInvalidation(
       descendantInvalidationKey(receipt),
       receipt.orderId,
@@ -1749,6 +1767,22 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     after = '',
   ): Promise<StoredShippingRecoveryWork[]> {
     return await recoveryWorkPage(this.db).all({ kind, after })
+  }
+
+  async recoveryRevision(): Promise<number> {
+    const row = await recoveryRevision(this.db).get()
+    if (!row) throw new Error('shipping recovery revision is missing')
+    return row.revision
+  }
+
+  async assertRecoveryRevision(_scope: WriteScope, expected: number): Promise<void> {
+    if ((await this.recoveryRevision()) !== expected) {
+      throw new Error('shipping recovery revision fence failed')
+    }
+  }
+
+  private async advanceRecoveryRevision(): Promise<void> {
+    await advanceRecoveryRevision(this.db).run()
   }
 
   async completeRecoveryWork(_scope: WriteScope, key: string): Promise<void> {
@@ -1773,9 +1807,10 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     admittedOrderId: ShipOrderValue['id'],
     landedOrderId: ShipOrderValue['id'],
     destinationSha: string,
+    source = 'new',
   ): Promise<void> {
     await this.queueDescendantInvalidation(
-      `admission:${admittedOrderId}`,
+      `admission:${admittedOrderId}:${source}`,
       landedOrderId,
       destinationSha,
     )
@@ -2299,6 +2334,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         stateChangedAt: order.stateChangedAt,
         holdCode: order.holdCode ?? null,
       })
+      await this.advanceRecoveryRevision()
       await this.bumpLaneRevision(laneKey, order.requestedAt)
       await this.invalidateActiveLane(_scope, laneKey, order.requestedAt, 'lane-enqueue')
       return (await this.getOrder(order.id)) as ShipOrderValue
@@ -2368,6 +2404,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     if (result.changes !== 1) {
       throw new Error(`ship order ${id} state fence failed: expected ${expectedState}`)
     }
+    if (nextState === 'queued') await this.advanceRecoveryRevision()
     return (await this.getOrder(id)) as ShipOrderValue
   }
 
@@ -2989,6 +3026,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
             stateChangedAt: input.isolatedAt,
             id: member.orderId,
           })
+          await this.advanceRecoveryRevision()
           if (changed.changes !== 1)
             throw new Error(`ship train ${manifest.id} green member reset failed`)
           continue
@@ -3039,6 +3077,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
             stateChangedAt: at,
             id: member.orderId,
           })
+          await this.advanceRecoveryRevision()
           if (changed.changes !== 1)
             throw new Error(`ship train ${row.id} reset was not manifest-wide`)
         }
@@ -3605,6 +3644,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
               stateChangedAt: cancelledAt,
               id: sibling.id,
             })
+            await this.advanceRecoveryRevision()
           } else {
             const holdGeneration = { generation: await this.highestHoldGeneration(sibling.id) }
             await this.raiseHold(_scope, {
@@ -3812,6 +3852,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
               stateChangedAt: hold.raisedAt,
               id: sibling.id,
             })
+            await this.advanceRecoveryRevision()
             continue
           }
           const siblingGeneration = { generation: await this.highestHoldGeneration(sibling.id) }
@@ -3885,6 +3926,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         id: asShipOrderId(orderId),
       })
       if (orderChanged.changes !== 1) throw new Error(`ship order ${orderId} is not held`)
+      if (nextState === 'queued') await this.advanceRecoveryRevision()
       const row = await holdOfOrderGeneration(this.db).get({
         orderId: asShipOrderId(orderId),
         generation: expectedGeneration,
@@ -4095,10 +4137,14 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         effectEnvelopeKey: string
       }[]
       invalidations?: ShipHoldValue[]
+      expectedRecoveryRevision?: number
       release?: { trainId: ShipTrainManifestValue['id']; releasedAt: string; reason: string }
     },
   ): Promise<ShipOrderValue> {
     return await this.createOrJoinTransaction(async () => {
+      if (input.expectedRecoveryRevision !== undefined) {
+        await this.assertRecoveryRevision(_scope, input.expectedRecoveryRevision)
+      }
       const leader = await this.commitEffectResult(_scope, input.leader)
       for (const covered of input.covered) {
         await this.completeCoveredOrder(
@@ -4118,7 +4164,13 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       }
       for (const hold of input.invalidations ?? []) await this.raiseHold(_scope, hold)
       // The planned invalidations and all of these receipts share this commit.
-      if (input.invalidations !== undefined && input.leader.outcome.kind === 'verified') {
+      if (
+        input.expectedRecoveryRevision !== undefined &&
+        input.invalidations !== undefined &&
+        input.leader.outcome.kind === 'verified' &&
+        (await this.recoveryRevision()) ===
+          input.expectedRecoveryRevision + 1 + input.covered.length
+      ) {
         for (const receipt of [
           input.leader.outcome.receipt,
           ...input.covered.map((c) => c.receipt),

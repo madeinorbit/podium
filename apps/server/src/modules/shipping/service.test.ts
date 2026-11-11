@@ -311,7 +311,7 @@ function cloneShippingHistory(store: SessionStore, orderId: string, copies: numb
           const values = columns.map((column) =>
             column === 'id' || column === 'order_id' || column === 'attempt_id'
               ? `${row[column]}${suffix}`
-                : (row[column] ?? null),
+              : (row[column] ?? null),
           )
           db.prepare(
             `INSERT INTO ${table} (${columns.map((c) => `"${c}"`).join(',')}) VALUES (${columns.map(() => '?').join(',')})`,
@@ -382,6 +382,94 @@ describe('ShippingService durable recovery debt', () => {
     })
     expect(await events()).toHaveLength(2)
     service.dispose()
+  })
+
+  it('refuses receipt settlement when an admission overtakes its descendant plan', async () => {
+    const { store, issues, service, deps } = await harness(provedShippingJob, {
+      resolveBranchTip: async (issue) =>
+        issue.title === 'racing predecessor' ? 'lower-head' : 'upper-head',
+      isAncestor: async (_issue, ancestor, descendant) =>
+        ancestor === 'lower-head' && descendant === 'upper-head',
+    })
+    const lowerIssue = await issues.crud.create(issues.reports.store.serverWriter, {
+      repoPath: '/repo',
+      title: 'racing predecessor',
+      startNow: false,
+    })
+    await issues.crud.update(issues.reports.store.serverWriter, lowerIssue.id, { stage: 'review' })
+    const lower = await service.enqueue(laneWriter(service), {
+      issueId: lowerIssue.id,
+      ...approval,
+      approved: { ...approval.approved, sourceHeadSha: 'lower-head' },
+    })
+    let upperId: ShipOrder['id'] | undefined
+    const active = store.shipping.activeOrders.bind(store.shipping)
+    const spy = vi.spyOn(store.shipping, 'activeOrders').mockImplementationOnce(async () => {
+      const snapshot = await active()
+      const upperIssue = await issues.crud.create(issues.reports.store.serverWriter, {
+        repoPath: '/repo',
+        title: 'racing descendant',
+        startNow: false,
+      })
+      await issues.crud.update(issues.reports.store.serverWriter, upperIssue.id, {
+        stage: 'review',
+      })
+      upperId = (
+        await service.enqueue(laneWriter(service), {
+          issueId: upperIssue.id,
+          ...approval,
+          approved: { ...approval.approved, sourceHeadSha: 'upper-head' },
+        })
+      ).order.id
+      return snapshot
+    })
+    await service.runOrder(lower.order.id)
+    spy.mockRestore()
+    expect(upperId).toBeDefined()
+    expect((await store.shipping.getOrder(lower.order.id))?.state).toBe('verifying')
+    expect(await store.shipping.receiptForOrder(lower.order.id)).toBeNull()
+    expect((await store.shipping.getOrder(upperId!))?.state).toBe('queued')
+    service.dispose()
+    const restarted = new ShippingService(deps)
+    await restarted.reconcile()
+    expect((await store.shipping.getOrder(lower.order.id))?.state).toBe('shipped')
+    expect((await store.shipping.getOrder(upperId!))?.holdCode).toBe('approval-stale')
+    expect(await store.shipping.recoveryWork('descendants')).toEqual([])
+    restarted.dispose()
+  })
+
+  it('rolls back an admission whose predecessor snapshot moved before its commit', async () => {
+    const { store, issues, service, deps } = await harness()
+    const first = await issues.crud.create(issues.reports.store.serverWriter, {
+      repoPath: '/repo',
+      title: 'first admission',
+      startNow: false,
+    })
+    const second = await issues.crud.create(issues.reports.store.serverWriter, {
+      repoPath: '/repo',
+      title: 'overtaking admission',
+      startNow: false,
+    })
+    await issues.crud.update(issues.reports.store.serverWriter, first.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, second.id, { stage: 'review' })
+    const other = new ShippingService(deps)
+    const read = store.shipping.shippedPredecessors.bind(store.shipping)
+    const spy = vi
+      .spyOn(store.shipping, 'shippedPredecessors')
+      .mockImplementationOnce(async (...args) => {
+        const snapshot = await read(...args)
+        await other.enqueue(laneWriter(other), { issueId: second.id, ...approval })
+        return snapshot
+      })
+    await expect(
+      service.enqueue(laneWriter(service), { issueId: first.id, ...approval }),
+    ).rejects.toThrow(/shipping changed while predecessor ancestry was checked/)
+    expect(await store.shipping.activeOrderForIssue(first.id)).toBeNull()
+    expect((await store.issues.getIssue(first.id))?.stage).toBe('review')
+    expect(await store.shipping.activeOrderForIssue(second.id)).not.toBeNull()
+    spy.mockRestore()
+    service.dispose()
+    other.dispose()
   })
 
   it('retains a shipped acknowledgement through repeated failures and clears it only on success', async () => {
