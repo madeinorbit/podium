@@ -385,6 +385,10 @@ production.
 
 ### D5 — Tombstones are feed rows; retention is a **liveness** parameter, not a correctness one
 
+The horizon is superseded by [Amendment 2](0002-sync-protocol-amendment-2.md):
+30 days and 500,000 rows per feed, whichever removes more. The head-pruning
+safety argument below still applies.
+
 **Decide.** Deletion replicates as an explicit `op: 'remove'` change row — a tombstone
 in the feed, with a null payload. This ratifies the shipped shape.
 
@@ -812,7 +816,7 @@ relationship made explicit — POD-306 asks for exactly this reconciliation:
 
 | Horizon | Value | Owner |
 |---|---|---|
-| Change retention | 20k rows / **3 days**, whichever deletes more (`change-log.ts:36-37`) | **ADR 2** (D5) — it is the feed's |
+| Change retention | **30 days / 500,000 rows per feed**, whichever removes more | **ADR 2** ([Amendment 2](0002-sync-protocol-amendment-2.md)) — it is the feed's |
 | Receipt retention (`applied_mutations`) | **30 days** (`service.ts:84`) | **ADR 2** — it is the dedupe horizon of the feed's write path |
 | Outbox entry max age | `OUTBOX_MAX_AGE_MS` + `SKEW_MARGIN_MS` — **value not restated here** | **ADR 3** (D10) — it owns the outbox |
 
