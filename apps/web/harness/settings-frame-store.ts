@@ -97,6 +97,10 @@ const setupInfo = {
   appVersion: '0.3.1',
   transcriptLake: 'off',
   bindHost: '0.0.0.0',
+  ...(params.has('unsupported-port') && {
+    networkOption: 'manual',
+    publicUrl: 'https://example.com',
+  }),
 }
 const answers: Record<string, unknown> = {
   'settings.viewer.query': {
@@ -135,6 +139,18 @@ const answers: Record<string, unknown> = {
   'telemetry.preview.query': { version: '0.3.1', os: 'linux', machines: 0 },
 }
 const calls: { key: string; input?: unknown }[] = []
+// Reproduce the deployed Connect's 443-only refusal in the real address flow.
+if (params.has('unsupported-port')) {
+  answers['auth.status.query'] = { hasOwnCredential: true }
+  answers['setup.options.query'] = [
+    { id: 'manual', label: 'Your own reverse proxy', note: 'A stable HTTPS address.' },
+  ]
+  answers['connect.check.query'] = {
+    ok: false,
+    error: 'INVALID_URL',
+    detail: 'must be on port 443',
+  }
+}
 Object.assign(window, { settingsHarness: { calls, pool } })
 function endpoint(path: string[] = []): unknown {
   return new Proxy(() => {}, {
@@ -148,6 +164,10 @@ function endpoint(path: string[] = []): unknown {
         return Promise.reject(new Error('This change could not be saved. Try again.'))
       if (key === 'auth.setDisplayName.mutate')
         Object.assign(answers['auth.profile.query'] as object, args[0])
+      if (key === 'setup.complete.mutate' && params.has('unsupported-port')) {
+        Object.assign(setupInfo, { publicUrl: args[0].publicUrl })
+        return Promise.resolve({ mode: 'server' })
+      }
       if (key === 'auth.setEmail.mutate')
         Object.assign(answers['auth.profile.query'] as object, { email: args[0].email })
       if (key === 'setup.setChannel.mutate')

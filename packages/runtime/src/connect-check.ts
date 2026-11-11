@@ -83,7 +83,8 @@ export function normalizeCheckResult(url: string, verdict: CheckResult): CheckRe
   if (
     verdict.ok ||
     verdict.error !== 'INVALID_URL' ||
-    verdict.detail?.trim() !== 'must be on port 443'
+    typeof verdict.detail !== 'string' ||
+    verdict.detail.trim() !== 'must be on port 443'
   ) {
     return verdict
   }
