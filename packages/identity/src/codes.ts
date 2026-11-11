@@ -195,7 +195,7 @@ export function oneTimeCodeOperations(
             source.expiresAt.getTime(),
           ),
         )
-        const code = newSecret()
+        const code = runtime.config.handOverCode?.() ?? newSecret()
         const [bound] = await authoriseAttempt(runtime.db()).run({
           id: attempt.id,
           now,

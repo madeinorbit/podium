@@ -74,6 +74,11 @@ export interface IdentityConfig {
    * no invitation is mailed and the admin copies the link the route builds.
    */
   invitationUrl?: (token: string, workspaceId: string) => string
+  /**
+   * Optional hand-over format for installed clients. Must supply at least 128
+   * random bits. Used only by codes.authorise; absent: 32 random bytes.
+   */
+  handOverCode?: () => string
   now?: () => Date
 }
 

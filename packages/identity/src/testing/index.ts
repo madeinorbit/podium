@@ -988,6 +988,28 @@ export function identitySuite(runner: SuiteRunner, harness: SuiteHarness): Ident
       })
 
       // 9 -----------------------------------------------------------------
+      it('an edition hand-over code is stored hashed and redeemed exactly once', async () => {
+        const code = `edition_${randomBytes(32).toString('base64url')}`
+        const configured = await buildIdentity({ ...runtime.config, handOverCode: () => code })
+        const source = await configured.core.deviceSignIns.create(
+          alice.id, { kind: 'browser' }, 'cookie', https(),
+        )
+        const verifier = randomBytes(32).toString('base64url')
+        const challenge = sha256Hex(verifier)
+        await configured.core.codes.begin({ purpose: 'hand-over', challenge })
+        const authorised = await configured.core.codes.authorise({
+          challenge, accountId: alice.id, sourceSignInId: source.deviceSignInId,
+        })
+        expect(authorised).toMatchObject({ code })
+        expect(await opened.stored('oneTimeCode', 'code_hash')).toContain(sha256Hex(code))
+        const redeem = () => configured.core.codes.redeem(
+          { code, verifier, purpose: 'hand-over' }, { kind: 'desktop' }, 'bearer', https(),
+        )
+        const signIn = issued(await redeem())
+        expect(signIn.accountId).toBe(alice.id)
+        expect(await redeem()).toBe(undefined)
+      })
+
       test(8, async () => {
         const source = await core.deviceSignIns.create(
           alice.id,
@@ -1026,6 +1048,8 @@ export function identitySuite(runner: SuiteRunner, harness: SuiteHarness): Ident
         })
         expect(typeof authorised === 'object').toBe(true)
         if (typeof authorised !== 'object') return
+        expect(authorised.code).toMatch(/^[A-Za-z0-9_-]{43}$/)
+        expect(Buffer.from(authorised.code, 'base64url')).toHaveLength(32)
         // The code lives at most three minutes.
         expect(authorised.expiresAt.getTime() <= Date.now() + 3 * 60_000 + 1000).toBe(true)
         // An attempt is authorised once.
