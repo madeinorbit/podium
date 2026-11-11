@@ -568,17 +568,15 @@ export class Authority implements AuthorityPort {
     // record of every kind the record source answers for, stamped with the
     // head number. A built record has no change number of its own.
     if (records !== undefined) {
-      for (const entity of records.kinds()) {
-        for await (const page of records.streamAll(entity)) {
-          for (const record of page) {
-            state.push({
-              seq: head,
-              entity,
-              entityId: record.id,
-              op: 'upsert',
-              value: record.value,
-            })
-          }
+      for await (const { entity, records: page } of records.streamAllKinds()) {
+        for (const record of page) {
+          state.push({
+            seq: head,
+            entity,
+            entityId: record.id,
+            op: 'upsert',
+            value: record.value,
+          })
         }
       }
       return await scopeBootstrap({ policy: this.deps.visibility }, principal, state, head)
@@ -715,8 +713,8 @@ export class Authority implements AuthorityPort {
   }
 
   /**
-   * The named records as the database holds them now: one `build` per kind,
-   * whatever the number of records. A named id with no record is absent.
+   * The named records as the database holds them now. Kinds backed by the
+   * same rows can share a read. A named id with no record is absent.
    */
   private async buildRecords(named: readonly AffectedRecord[]): Promise<Map<string, BuiltState>> {
     const built = new Map<string, BuiltState>()
@@ -728,9 +726,9 @@ export class Authority implements AuthorityPort {
       if (ids === undefined) idsByKind.set(record.entity, [record.entityId])
       else ids.push(record.entityId)
     }
-    for (const [kind, ids] of idsByKind) {
-      for (const record of await records.build(kind, ids)) {
-        built.set(entityOverlayKey(kind, record.id), {
+    for await (const { entity, records: page } of records.buildMany(idsByKind)) {
+      for (const record of page) {
+        built.set(entityOverlayKey(entity, record.id), {
           value: record.value,
           json: JSON.stringify(record.value),
         })

@@ -131,10 +131,11 @@ export function compareAtSaveRecords(
     comparesAtSave: (kind) => moved.has(kind),
     namedAfterWrite: (kind) => namedAfter.has(kind),
     build: async (kind, ids) => await registry.build(reads, kind, ids),
-    // EVERY kind the registry builds, moved or not, in the registry's order,
-    // which is the order a start-up load streams (POD-6770): reading a record
-    // from the database does not wait for its writers to compare at save.
+    buildMany: (idsByKind) => registry.buildMany(reads, idsByKind),
+    // Every kind the registry builds, including kinds whose writers still
+    // use the old compare (POD-6770).
     kinds: () => registry.kinds(),
     streamAll: (kind) => registry.streamAll(reads, kind),
+    streamAllKinds: () => registry.streamAllKinds(reads),
   }
 }

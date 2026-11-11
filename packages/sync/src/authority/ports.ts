@@ -23,7 +23,7 @@
 import type { ChangeProvenanceFields } from '@podium/model'
 import type { MetadataEntityKind, Principal } from '@podium/protocol'
 import type { FeedScopingGrade } from '../feed/visibility'
-import type { BuiltRecord } from '../record-builders'
+import type { BuiltRecord, RecordIdsByKind, RecordPage } from '../record-builders'
 import type { ArbitrationAttempt, ArbitrationRejection, ArbitrationRequest } from './arbitration'
 import type {
   ChangeLogReadRow,
@@ -175,6 +175,8 @@ export interface RecordSourcePort {
    */
   namedAfterWrite(kind: MetadataEntityKind): boolean
   build(kind: MetadataEntityKind, ids: readonly string[]): Promise<readonly BuiltRecord[]>
+  /** Build one side of a commit's comparison, sharing reads across kinds. */
+  buildMany(idsByKind: RecordIdsByKind): AsyncIterable<RecordPage>
   /**
    * Every kind this source builds, in the order a start-up load streams them
    * (POD-6770). A superset of the kinds that {@link comparesAtSave}: a record
@@ -183,6 +185,8 @@ export interface RecordSourcePort {
   kinds(): readonly MetadataEntityKind[]
   /** Every record of a kind as the database holds it now, a page at a time. */
   streamAll(kind: MetadataEntityKind): AsyncIterable<readonly BuiltRecord[]>
+  /** Every record in the start-up load, a page of one kind at a time. */
+  streamAllKinds(): AsyncIterable<RecordPage>
 }
 
 /**

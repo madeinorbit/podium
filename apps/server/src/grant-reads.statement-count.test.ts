@@ -222,5 +222,6 @@ describe('grant reads per change, a running session on an issue: pinned at 5 and
 // POD-6218: the earliest admin is one statement, once per operation: issues.update -1.
 // Incoming scoped-write receipt reads plus private owner-only session/shared-task projection.
 const RENAME = 12
-const ISSUE_UPDATE = 31
+// POD-6791: the issue and its body headers share the before and after reads.
+const ISSUE_UPDATE = 29
 const OBSERVATION = 11

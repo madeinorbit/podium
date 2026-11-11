@@ -13,6 +13,7 @@ import {
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import { makeFeedVisibility } from '../feed-visibility'
+import { issueBodiesOfRow } from '../modules/issues/projection'
 import { openTestStore } from '../test-support/open-test-store'
 import { testStoreRecords } from '../test-support/record-writer'
 import { produceBootstrap } from './producer'
@@ -89,7 +90,13 @@ describe('snapshot bootstrap producer', () => {
     const store = await openTestStore(path)
     try {
       await store.issues.upsertIssue(fixtureWriteScope(), issue('shared'))
-      await store.issues.upsertIssue(fixtureWriteScope(), { ...issue('private'), seq: 2 })
+      await store.issues.upsertIssue(fixtureWriteScope(), {
+        ...issue('private'),
+        seq: 2,
+        description: 'Issue body',
+        brief: 'Issue brief',
+      })
+      const headers = issueBodiesOfRow((await store.issues.getIssue('private'))!)
       await store.grants.upsert({
         resourceKind: 'issue',
         resourceId: 'shared',
@@ -138,6 +145,9 @@ describe('snapshot bootstrap producer', () => {
         )
         const rows = output.filter((r) => r.type === 'feedBootstrap').flatMap((r) => r.changes)
         expect(rows).toEqual(expected.changes)
+        expect(rows.filter((r) => r.entity === 'issueBodies').map((r) => r.value)).toEqual([
+          headers,
+        ])
         // Built from the issue rows, each stamped with the head number.
         if (user === 'owner') {
           expect(rows.filter((r) => r.entity === 'issueProjection').map((r) => r.entityId)).toEqual(

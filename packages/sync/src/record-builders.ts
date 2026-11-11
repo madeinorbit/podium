@@ -16,9 +16,8 @@
  * batch of that member's ids) and the caller still gets exactly the ids it
  * asked for, once each, in the order it asked.
  *
- * The compare-at-save step reads the registry (`AuthorityCommit.affects`,
- * POD-6769). The start-up load and the sharing rules move onto it in later
- * phases.
+ * Compare at save, the start-up load and the sharing rules read the registry.
+ * Kinds backed by the same rows can share a read for one build or stream page.
  */
 
 import type { MetadataEntityKind } from '@podium/protocol'
@@ -27,6 +26,23 @@ import type { MetadataEntityKind } from '@podium/protocol'
 export interface BuiltRecord {
   readonly id: string
   readonly value: unknown
+}
+
+export interface RecordPage {
+  readonly entity: MetadataEntityKind
+  readonly records: readonly BuiltRecord[]
+}
+
+export type RecordIdsByKind = ReadonlyMap<MetadataEntityKind, readonly string[]>
+
+/** A shared read for kinds that also have their own single-kind builders. */
+export interface RecordBuilderGroup<R> {
+  readonly kinds: readonly MetadataEntityKind[]
+  build(
+    reads: R,
+    idsByKind: RecordIdsByKind,
+  ): Promise<ReadonlyMap<MetadataEntityKind, readonly BuiltRecord[]>>
+  streamAll(reads: R): AsyncIterable<RecordPage>
 }
 
 /**
@@ -63,12 +79,34 @@ export class UnknownRecordBuilder extends Error {
   }
 }
 
+function recordsForIds(records: readonly BuiltRecord[], ids: readonly string[]): BuiltRecord[] {
+  const built = new Map<string, BuiltRecord>()
+  for (const record of records) {
+    if (!built.has(record.id)) built.set(record.id, record)
+  }
+  return ids.flatMap((id) => {
+    const record = built.get(id)
+    return record === undefined ? [] : [record]
+  })
+}
+
 /** The per-kind builders of one composition root. */
 export class RecordBuilderRegistry<R> {
   private readonly byKind = new Map<MetadataEntityKind, RecordBuilder<R>>()
+  private readonly groupsByKind = new Map<MetadataEntityKind, RecordBuilderGroup<R>>()
 
-  constructor(builders: readonly RecordBuilder<R>[] = []) {
+  constructor(
+    builders: readonly RecordBuilder<R>[] = [],
+    groups: readonly RecordBuilderGroup<R>[] = [],
+  ) {
     for (const builder of builders) this.register(builder)
+    for (const group of groups) {
+      for (const kind of group.kinds) {
+        this.get(kind)
+        if (this.groupsByKind.has(kind)) throw new DuplicateRecordBuilder(kind)
+        this.groupsByKind.set(kind, group)
+      }
+    }
   }
 
   register(builder: RecordBuilder<R>): this {
@@ -96,18 +134,52 @@ export class RecordBuilderRegistry<R> {
   async build(reads: R, kind: MetadataEntityKind, ids: readonly string[]): Promise<BuiltRecord[]> {
     const asked = [...new Set(ids)]
     if (asked.length === 0) return []
-    const built = new Map<string, BuiltRecord>()
-    for (const record of await this.get(kind).build(reads, asked)) {
-      if (!built.has(record.id)) built.set(record.id, record)
+    return recordsForIds(await this.get(kind).build(reads, asked), asked)
+  }
+
+  /** Read the requested kinds together where they share a builder. */
+  async *buildMany(reads: R, idsByKind: RecordIdsByKind): AsyncGenerator<RecordPage> {
+    const builtGroups = new Set<RecordBuilderGroup<R>>()
+    for (const [entity, ids] of idsByKind) {
+      if (ids.length === 0) continue
+      const group = this.groupsByKind.get(entity)
+      if (group) {
+        if (builtGroups.has(group)) continue
+        const askedByKind = new Map<MetadataEntityKind, readonly string[]>()
+        for (const kind of group.kinds) {
+          const asked = idsByKind.get(kind)
+          if (asked?.length) askedByKind.set(kind, [...new Set(asked)])
+        }
+        if (askedByKind.size > 1) {
+          builtGroups.add(group)
+          const built = await group.build(reads, askedByKind)
+          for (const [kind, asked] of askedByKind) {
+            yield { entity: kind, records: recordsForIds(built.get(kind) ?? [], asked) }
+          }
+          continue
+        }
+      }
+      yield { entity, records: await this.build(reads, entity, ids) }
     }
-    return asked.flatMap((id) => {
-      const record = built.get(id)
-      return record === undefined ? [] : [record]
-    })
   }
 
   streamAll(reads: R, kind: MetadataEntityKind): AsyncIterable<readonly BuiltRecord[]> {
     return this.get(kind).streamAll(reads)
+  }
+
+  /** Every record, in registry order, with each group streamed at its first kind. */
+  async *streamAllKinds(reads: R): AsyncGenerator<RecordPage> {
+    const streamedGroups = new Set<RecordBuilderGroup<R>>()
+    for (const [entity, builder] of this.byKind) {
+      const group = this.groupsByKind.get(entity)
+      if (group) {
+        if (streamedGroups.has(group)) continue
+        streamedGroups.add(group)
+        yield* group.streamAll(reads)
+      } else {
+        for await (const records of builder.streamAll(reads)) yield { entity, records }
+      }
+    }
   }
 }
 

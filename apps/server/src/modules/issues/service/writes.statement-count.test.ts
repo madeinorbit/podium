@@ -94,7 +94,8 @@ describe('issue writes that read other issues: pinned statement counts at 5 and 
       // before and after like the issue's: 13 -> 22.
       // POD-6770: the git observation compares at save too. Its one declared
       // read becomes a build before the write and one after: 22 -> 23.
-      23,
+      // POD-6791: the issue and its body headers share each read: 23 -> 21.
+      21,
     )
   })
 
@@ -107,7 +108,8 @@ describe('issue writes that read other issues: pinned statement counts at 5 and 
       // two builds (POD-6767): 8 -> 16.
       // POD-6770: the git observation is built before and after, where it
       // was read once: 16 -> 17.
-      17,
+      // POD-6791: the issue and its body headers share each read: 17 -> 15.
+      15,
     )
   })
 

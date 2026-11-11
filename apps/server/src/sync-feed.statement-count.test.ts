@@ -275,17 +275,18 @@ describe('sync worker: pinned statement counts at 5 and 200', () => {
 
   // RE-PINNED 6 -> 65 FOR POD-6770: the load is built from the model tables.
   // The snapshot's head and floor, then for each of the 37 kinds its
-  // `streamAll()` reads (one or a few statements per page) and the sharing
+  // builder reads (one or a few statements per page) and the sharing
   // rules' reads for that page. The count is per PAGE of 500 records, by
   // design: it is the same at 5 and 200 rows, and a kind with more than one
   // page pays its reads once per page. Before, it was two passes over
   // `change_latest` and one prefetch for the whole world.
+  // POD-6791: the issue and its body headers share a page read: 65 -> 64.
   it('a bootstrap for the owner', async () => {
-    await expectConstantStatements(bootstrap, 65)
+    await expectConstantStatements(bootstrap, 64)
   })
 
   it('a bootstrap pin is armed', async () => {
-    await expectArmed(bootstrap, 65, plantPerSessionRead)
+    await expectArmed(bootstrap, 64, plantPerSessionRead)
   })
 
   const delta = pin(
@@ -332,12 +333,13 @@ describe('in-process syncChangesSince: pinned statement counts at 5 and 200', ()
   // RE-PINNED 6 -> 63 FOR POD-6770: the in-process snapshot builds every
   // kind from the model tables too (`Authority.bootstrap`), then prepares the
   // sharing rules once for the whole world.
+  // POD-6791: the issue and its body headers share a page read: 63 -> 62.
   it('a snapshot for the owner', async () => {
-    await expectConstantStatements(snapshot, 63)
+    await expectConstantStatements(snapshot, 62)
   })
 
   it('a snapshot pin is armed', async () => {
-    await expectArmed(snapshot, 63, plantPerIssue)
+    await expectArmed(snapshot, 62, plantPerIssue)
   })
 
   const since = pin(

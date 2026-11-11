@@ -27,15 +27,20 @@ import {
   type UserId,
 } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { RecordBuilderRegistry } from '@podium/sync/record-builders'
+import {
+  type BuiltRecord,
+  RecordBuilderRegistry,
+  type RecordIdsByKind,
+} from '@podium/sync/record-builders'
 import { fixtureWriteScope } from '@podium/sync/testing'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../command-principal'
 import { SessionRegistry } from '../relay'
 import type { SessionStore } from '../store'
 import type { MessageRow } from '../store/types'
 import { recordReadsOver } from '../sync-worker/record-reads'
 import { attachHostDaemon } from '../test-support/host-daemon'
+import { issueRowFixture } from '../test-support/issue-row'
 import { openTestStore } from '../test-support/open-test-store'
 import { quietShipping } from '../test-support/statement-count'
 import type { WriteContexts } from '../write-contexts'
@@ -141,6 +146,50 @@ describe('record builders (POD-6763)', () => {
     expect(
       () => new RecordBuilderRegistry([...DATABASE_ONLY_BUILDERS, DATABASE_ONLY_BUILDERS[0]!]),
     ).toThrow(/already registered/)
+  })
+
+  it('shares one issue read while preserving each kind’s requested ids and order', async () => {
+    const store = await openTestStore(':memory:')
+    try {
+      for (const [index, id] of ['a', 'b', 'c', 'empty'].entries()) {
+        await store.issues.upsertIssue(
+          fixtureWriteScope(),
+          issueRowFixture({
+            id,
+            seq: index + 1,
+            parentId: null,
+            description: id === 'empty' ? '' : `Body of ${id}`,
+            brief: null,
+          }),
+        )
+      }
+      const reads: RecordReads = { store, effectExecutors: { get: () => undefined }, now: Date.now }
+      const registry = serverRecordBuilders()
+      const asked: RecordIdsByKind = new Map([
+        ['issueBodies', ['b', 'a', 'empty', 'missing', 'b']],
+        ['issueProjection', ['c', 'a', 'missing', 'c']],
+      ])
+      const expected = new Map<string, readonly BuiltRecord[]>()
+      for (const [kind, ids] of asked) expected.set(kind, await registry.build(reads, kind, ids))
+      const getIssues = vi.spyOn(store.issues, 'getIssues')
+      try {
+        const built = new Map<string, readonly BuiltRecord[]>()
+        for await (const { entity, records } of registry.buildMany(reads, asked)) {
+          built.set(entity, records)
+        }
+        expect(built).toEqual(expected)
+        expect(built.get('issueProjection')?.map(({ id }) => id)).toEqual(['c', 'a'])
+        expect(built.get('issueBodies')?.map(({ id }) => id)).toEqual(['b', 'a'])
+        expect(getIssues).toHaveBeenCalledTimes(1)
+        expect(new Set(getIssues.mock.calls[0]![0])).toEqual(
+          new Set(['a', 'b', 'c', 'empty', 'missing']),
+        )
+      } finally {
+        getIssues.mockRestore()
+      }
+    } finally {
+      await store.close()
+    }
   })
 
   it('builds every published record equal to its change_latest payload', async () => {

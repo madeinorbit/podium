@@ -33,15 +33,14 @@
  *    {@link CONFIRMED_PER_SESSION} confirmed ones. Their publishers decide
  *    what the feed carries from the same reads (POD-6766), so the two agree.
  *
- * The compare-at-save step reads them (`compare-at-save.ts`, POD-6769); the
- * start-up load and the sharing rules do not yet.
+ * Compare at save, the start-up load and the sharing rules read these builders.
  */
 
 import {
   asMachineId,
-  ISSUE_PANEL_KINDS,
   checkoutRowId,
   INSTANCE_PREFERENCES_ROW_ID,
+  ISSUE_PANEL_KINDS,
   instancePreferencesRecordOf,
   issueUserStateRowId,
   issueUserStateToWire,
@@ -80,7 +79,9 @@ import {
   pagesOf,
   RECORD_PAGE_SIZE,
   type RecordBuilder,
+  type RecordBuilderGroup,
   RecordBuilderRegistry,
+  type RecordPage,
 } from '@podium/sync/record-builders'
 import { effectRecordOf } from '../modules/effects/feed'
 import type { EffectExecutorRegistry } from '../modules/effects/registry'
@@ -88,10 +89,13 @@ import { openInteractionRecords } from '../modules/interactions/feed'
 import { interactionWireOf } from '../modules/interactions/service'
 import { issueEventWindow } from '../modules/issue-events/feed'
 import {
+  issueBodiesOf,
   issueBodiesOfRow,
   issueDepToProjection,
-  slimIssueProjectionOfRow,
+  issueRowToProjection,
   repoProjectionRows,
+  slimIssueProjection,
+  slimIssueProjectionOfRow,
 } from '../modules/issues/projection'
 import { storedMachineRecordFacts } from '../modules/machines/record-facts'
 import { machineRecordSpecs } from '../modules/machines/records'
@@ -326,6 +330,54 @@ const issueBodies: Builder = {
   async *streamAll({ store }) {
     for await (const page of store.issues.issueRowPages(RECORD_PAGE_SIZE)) {
       yield issueBodyRecords(page)
+    }
+  },
+}
+
+/** Map each stored row once and use its projection for both records. */
+async function issueRecordPages(
+  store: RecordReads['store'],
+  rows: readonly IssueRow[],
+  projectionIds?: ReadonlySet<string>,
+  bodyIds?: ReadonlySet<string>,
+): Promise<readonly RecordPage[]> {
+  const projectionRows = projectionIds ? rows.filter(({ id }) => projectionIds.has(id)) : rows
+  const labels = await store.issues.labelsOfIssues(projectionRows.map(({ id }) => id))
+  const projections: BuiltRecord[] = []
+  const bodies: BuiltRecord[] = []
+  for (const row of rows) {
+    try {
+      const { id } = row
+      const projection = issueRowToProjection(row, labels.get(id) ?? [])
+      if (!projectionIds || projectionIds.has(id)) {
+        projections.push({ id, value: slimIssueProjection(projection) })
+      }
+      if (!bodyIds || bodyIds.has(id)) {
+        const value = issueBodiesOf(projection)
+        if (value) bodies.push({ id, value })
+      }
+    } catch {
+      // A row that cannot be projected has no records.
+    }
+  }
+  return [
+    { entity: 'issueProjection', records: projections },
+    { entity: 'issueBodies', records: bodies },
+  ]
+}
+
+const issueRecordGroup: RecordBuilderGroup<RecordReads> = {
+  kinds: ['issueProjection', 'issueBodies'],
+  async build({ store }, idsByKind) {
+    const projectionIds = new Set(idsByKind.get('issueProjection'))
+    const bodyIds = new Set(idsByKind.get('issueBodies'))
+    const rows = await store.issues.getIssues([...projectionIds, ...bodyIds])
+    const pages = await issueRecordPages(store, [...rows.values()], projectionIds, bodyIds)
+    return new Map(pages.map(({ entity, records }) => [entity, records]))
+  },
+  async *streamAll({ store }) {
+    for await (const rows of store.issues.issueRowPages(RECORD_PAGE_SIZE)) {
+      yield* await issueRecordPages(store, rows)
     }
   },
 }
@@ -968,14 +1020,18 @@ export const DATABASE_ONLY_BUILDERS: readonly Builder[] = [
   repo,
   issueProjection,
   issueBodies,
-  ...ISSUE_PANEL_KINDS.map((kind): Builder => ({
-    kind, shape: 'row',
-    build: async ({ store }, ids) => (await store.issues.panel.getMany(kind, ids)).map(value => ({ id: value.id, value })),
-    async *streamAll({ store }) {
-      for await (const page of store.issues.panel.pages(kind, RECORD_PAGE_SIZE))
-        yield page.map(value => ({ id: value.id, value }))
-    },
-  })),
+  ...ISSUE_PANEL_KINDS.map(
+    (kind): Builder => ({
+      kind,
+      shape: 'row',
+      build: async ({ store }, ids) =>
+        (await store.issues.panel.getMany(kind, ids)).map((value) => ({ id: value.id, value })),
+      async *streamAll({ store }) {
+        for await (const page of store.issues.panel.pages(kind, RECORD_PAGE_SIZE))
+          yield page.map((value) => ({ id: value.id, value }))
+      },
+    }),
+  ),
   issueDep,
   issueUserState,
   subscription,
@@ -1005,5 +1061,5 @@ export const DATABASE_ONLY_BUILDERS: readonly Builder[] = [
 ]
 
 export function serverRecordBuilders(): RecordBuilderRegistry<RecordReads> {
-  return new RecordBuilderRegistry(DATABASE_ONLY_BUILDERS)
+  return new RecordBuilderRegistry(DATABASE_ONLY_BUILDERS, [issueRecordGroup])
 }

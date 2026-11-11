@@ -169,11 +169,8 @@ async function* produceRecords(
         await iterator.return?.()
       }
     }
-    // THE WORLD FROM THE MODEL TABLES (POD-6770, design POD-6253 §4): every
-    // kind's `streamAll()`, a page at a time, inside the snapshot the head
-    // read above fixed. Nothing here reads the stored copy of the last
-    // published values. A built record has no change number of its own, so
-    // every row carries the head number the load is stamped with.
+    // Stream the model tables a page at a time inside the snapshot fixed by
+    // the head read (design POD-6253 §4). Every row carries that head number.
     bundle = bootstrapVisibility(db, options)
     const { policy: world, records: source } = await bundle.context
     check()
@@ -207,61 +204,57 @@ async function* produceRecords(
       ...(last ? { totalRows: rows } : {}),
     })
     const batchOverhead = utf8.encode(JSON.stringify(frame([], false)) + '\n').byteLength
-    for (const entity of source.kinds()) {
-      const pages = source.streamAll(entity)[Symbol.asyncIterator]()
-      try {
-        for (;;) {
-          const build = performance.now()
-          const next = await pages.next()
-          phase('build', build)
-          if (next.done) break
-          const page = next.value
-          refCount += page.length
-          check()
-          // The sharing rules' facts for exactly this page's records.
-          const prepare = performance.now()
-          const policy = await world.forBootstrap(
-            page.map((record) => ({ entity, entityId: record.id })),
-          )
-          phase('visibility', prepare)
-          check()
-          for (const record of page) {
-            const ref = { entity, entityId: record.id }
-            if (!policy.decide(job.principal, ref).visible) continue
-            const change = {
-              seq,
-              entity,
-              entityId: record.id,
-              op: 'upsert',
-              // The row as this principal may receive it (design §4.2, POD-6288).
-              value: shapedValue(policy, job.principal, ref, record.value),
-            }
-            const size = utf8.encode(JSON.stringify(change)).byteLength
-            if (
-              utf8.encode(JSON.stringify(frame([change], false))).byteLength > SYNC_LINE_MAX_BYTES
-            )
-              throw new SyncWorkerError('row-too-large')
-            if (
-              batch.length &&
-              (batch.length >= SYNC_BATCH_MAX_ROWS ||
-                batchOverhead + batchBytes + size + batch.length > SYNC_BATCH_TARGET_BYTES)
-            ) {
-              yield line(frame(batch, false))
-              batch = []
-              batchBytes = 0
-              await yieldLoop()
-              check()
-            }
-            batch.push(change)
-            batchBytes += size
-            rows++
+    const pages = source.streamAllKinds()[Symbol.asyncIterator]()
+    try {
+      for (;;) {
+        const build = performance.now()
+        const next = await pages.next()
+        phase('build', build)
+        if (next.done) break
+        const { entity, records: page } = next.value
+        refCount += page.length
+        check()
+        // The sharing rules' facts for exactly this page's records.
+        const prepare = performance.now()
+        const policy = await world.forBootstrap(
+          page.map((record) => ({ entity, entityId: record.id })),
+        )
+        phase('visibility', prepare)
+        check()
+        for (const record of page) {
+          const ref = { entity, entityId: record.id }
+          if (!policy.decide(job.principal, ref).visible) continue
+          const change = {
+            seq,
+            entity,
+            entityId: record.id,
+            op: 'upsert',
+            // The row as this principal may receive it (design §4.2, POD-6288).
+            value: shapedValue(policy, job.principal, ref, record.value),
           }
-          await yieldLoop()
-          check()
+          const size = utf8.encode(JSON.stringify(change)).byteLength
+          if (utf8.encode(JSON.stringify(frame([change], false))).byteLength > SYNC_LINE_MAX_BYTES)
+            throw new SyncWorkerError('row-too-large')
+          if (
+            batch.length &&
+            (batch.length >= SYNC_BATCH_MAX_ROWS ||
+              batchOverhead + batchBytes + size + batch.length > SYNC_BATCH_TARGET_BYTES)
+          ) {
+            yield line(frame(batch, false))
+            batch = []
+            batchBytes = 0
+            await yieldLoop()
+            check()
+          }
+          batch.push(change)
+          batchBytes += size
+          rows++
         }
-      } finally {
-        await pages.return?.()
+        await yieldLoop()
+        check()
       }
+    } finally {
+      await pages.return?.()
     }
     heapAfterPrefetch = process.memoryUsage().heapUsed
     yield line(frame(batch, true))
