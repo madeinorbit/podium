@@ -1226,8 +1226,8 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
 /**
  * Feed identity on the wire (ADR 2 D1/D5) at the REAL registry, so these pin the
- * production wiring rather than a stub: what `sync.changesSince` actually
- * returns, and what a delta client actually receives.
+ * production wiring rather than a stub: the worker bootstrap and direct
+ * Authority read share the identity the delta client receives.
  */
 describe('feed identity on the wire (ADR 2 D1/D5)', () => {
   const registries: SessionRegistry[] = []
