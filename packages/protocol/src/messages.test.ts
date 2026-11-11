@@ -308,7 +308,7 @@ describe('ServerMessage', () => {
     resume: { kind: 'codex-thread', value: 'conv-1' },
   }
   const cases: ServerMessage[] = [
-    { type: 'welcome', clientId: 'c0' },
+    { type: 'welcome', kindTokens: {}, clientId: 'c0' },
     { type: 'attached', sessionId: asSessionId('s1'), controllerId: 'c0', geometry, epoch: 0 },
     { type: 'attached', sessionId: asSessionId('s1'), controllerId: null, geometry, epoch: 0 },
     { type: 'outputFrame', sessionId: asSessionId('s1'), seq: 3, epoch: 1, data: 'eA==' },
@@ -374,7 +374,7 @@ describe('parseServerMessageLenient (per-element quarantine)', () => {
 
   it('parses non-collection messages strictly', () => {
     const { message, dropped } = parseServerMessageLenient(
-      JSON.stringify({ type: 'welcome', clientId: 'c0' }),
+      JSON.stringify({ type: 'welcome', kindTokens: {}, clientId: 'c0' }),
     )
     expect(dropped).toBe(0)
     expect(message?.type).toBe('welcome')

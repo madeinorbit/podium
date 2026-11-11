@@ -1,10 +1,11 @@
 {
-  "sync.meta.snapshot": "{\"type\":\"syncMeta\",\"formatVersion\":1,\"mode\":\"snapshot\",\"transferId\":\"transfer-1\",\"feedId\":\"feed-1\",\"epoch\":\"epoch-1\",\"seq\":10,\"minAvailableSeq\":0,\"wireVersion\":10,\"wireSchemaDigest\":\"0123456789abcdef\",\"totalRows\":0}",
-  "sync.meta.delta": "{\"type\":\"syncMeta\",\"formatVersion\":1,\"mode\":\"delta\",\"transferId\":\"transfer-1\",\"feedId\":\"feed-1\",\"epoch\":\"epoch-1\",\"seq\":10,\"fromSeq\":5,\"minAvailableSeq\":0,\"wireVersion\":10,\"wireSchemaDigest\":\"0123456789abcdef\"}",
+  "sync.meta.snapshot": "{\"type\":\"syncMeta\",\"formatVersion\":1,\"mode\":\"snapshot\",\"transferId\":\"transfer-1\",\"feedId\":\"feed-1\",\"epoch\":\"epoch-1\",\"seq\":10,\"minAvailableSeq\":0,\"wireVersion\":12,\"wireSchemaDigest\":\"0123456789abcdef\",\"totalRows\":0,\"kindTokens\":{}}",
+  "sync.meta.delta": "{\"type\":\"syncMeta\",\"formatVersion\":1,\"mode\":\"delta\",\"transferId\":\"transfer-1\",\"feedId\":\"feed-1\",\"epoch\":\"epoch-1\",\"seq\":10,\"fromSeq\":5,\"minAvailableSeq\":0,\"wireVersion\":12,\"wireSchemaDigest\":\"0123456789abcdef\",\"kindTokens\":{}}",
   "sync.bootstrap": "{\"type\":\"feedBootstrap\",\"feedId\":\"feed-1\",\"epoch\":\"epoch-1\",\"fromSeq\":0,\"seq\":10,\"minAvailableSeq\":0,\"changes\":[],\"last\":true}",
   "sync.delta": "{\"type\":\"feedDelta\",\"feedId\":\"feed-1\",\"epoch\":\"epoch-1\",\"fromSeq\":5,\"seq\":10,\"minAvailableSeq\":0,\"changes\":[{\"seq\":8,\"entity\":\"issueProjection\",\"entityId\":\"issue-1\",\"op\":\"evict\"}]}",
   "sync.complete": "{\"type\":\"syncComplete\",\"transferId\":\"transfer-1\",\"seq\":10,\"records\":1,\"rows\":1}",
   "sync.error": "{\"type\":\"syncError\",\"transferId\":\"transfer-1\",\"reason\":\"read-failed\"}",
+  "welcome.kindTokens": "{\"type\":\"welcome\",\"clientId\":\"client-1\",\"kindTokens\":{\"session\":\"0123456789abcdef:0\"}}",
   "SessionUserStateWire.never-read": "{\"userId\":\"user-b\",\"sessionId\":\"sess-1\",\"readAt\":null}",
   "SessionUserStateWire.next-message": "{\"userId\":\"user-a\",\"sessionId\":\"sess-1\",\"readAt\":\"2026-07-30T10:00:00.000Z\",\"snoozedUntil\":null}",
   "SessionUserStateWire.timed": "{\"userId\":\"user-b\",\"sessionId\":\"sess-1\",\"readAt\":null,\"snoozedUntil\":\"2026-07-30T12:00:00.000Z\"}",

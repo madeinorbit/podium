@@ -156,7 +156,7 @@ export class HttpBootstrapSource {
           if (record.mode !== 'snapshot') throw new SyncCorruptContentError('snapshot-meta-required')
           meta = record
         } else if (record.type === 'feedBootstrap') {
-          yield { ...toBootstrapChunk(record), last: false }
+          yield { ...toBootstrapChunk(record, meta!.kindTokens), last: false }
         } else if (record.type === 'syncComplete' && meta) {
           // Settled BEFORE the yield: the Replica breaks on `last`, so this
           // generator is never resumed and anything after the yield is dead code.
@@ -167,7 +167,7 @@ export class HttpBootstrapSource {
             snapshotSeq: meta.seq,
             changes: [],
             last: true,
-            ...(meta.kindTokens && { kindTokens: meta.kindTokens }),
+            kindTokens: meta.kindTokens,
             ...(meta.kinds && { kinds: meta.kinds }),
           }
         }
@@ -261,8 +261,7 @@ export class HttpDeltaSource {
               throw new SyncCorruptContentError('requested-cursor-mismatch')
             }
             const target = { feedId: record.feedId, epoch: record.epoch, seq: record.seq }
-            if (record.kindTokens === undefined) onTarget?.(target)
-            else onTarget?.(target, record.kindTokens)
+            onTarget?.(target, record.kindTokens)
             // Preserve the retention certificate for an equal-endpoint range.
             if (record.seq === cursor.seq) yield { kind: 'delta', ...cursor, fromSeq: cursor.seq, minAvailableSeq: record.minAvailableSeq, changes: [] }
           } else if (record.type === 'feedDelta') yield toDeltaFrame(record)

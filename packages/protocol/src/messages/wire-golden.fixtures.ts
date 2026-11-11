@@ -463,6 +463,15 @@ const HANDOFF_MANIFEST_MINIMAL = {
 export const WIRE_FIXTURES: WireFixture[] = [
   ...SYNC_WIRE_FIXTURES,
   {
+    name: 'welcome.kindTokens',
+    schema: ServerMessage,
+    value: {
+      type: 'welcome',
+      clientId: 'client-1',
+      kindTokens: { session: '0123456789abcdef:0' },
+    },
+  },
+  {
     name: 'SessionUserStateWire.never-read',
     schema: SessionUserStateWire,
     value: { userId: 'user-b', sessionId: 'sess-1', readAt: null },

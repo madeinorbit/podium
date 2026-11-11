@@ -91,6 +91,9 @@ export function createFeedRelay(
   return {
     feed: {
       syncHttp: sink.syncHttp,
+      kindTokens: (tokens) => {
+        if (!stopped) sink.kindTokens(tokens)
+      },
       requestRebootstrap: () => {
         if (!stopped) sink.requestRebootstrap?.()
       },

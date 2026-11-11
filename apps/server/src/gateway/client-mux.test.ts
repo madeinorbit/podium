@@ -68,7 +68,7 @@ const topicsStub = (): TopicRouting =>
 
 async function harness(
   mobileVersions?: ClientMuxDeps['mobileVersions'],
-  extra: Pick<ClientMuxDeps, 'serverBuild' | 'serverFeatures' | 'now'> = {},
+  extra: Partial<Pick<ClientMuxDeps, 'serverBuild' | 'serverFeatures' | 'now' | 'syncKindTokens'>> = {},
 ) {
   const registry = new ClientRegistry()
   const ports: ClientFeaturePorts = {
@@ -86,6 +86,7 @@ async function harness(
   const bootstrap = vi.fn<ClientMuxDeps['bootstrap']>(async () => {})
   const feed = (await feedTestPlumbing()).serving
   const mux = new ClientMux({
+    syncKindTokens: async () => ({}),
     mobileVersions,
     registry,
     ports,
@@ -238,9 +239,26 @@ describe('the principal comes from the AUTHENTICATED TRANSPORT', () => {
 })
 
 describe('the connection lifecycle', () => {
-  it('registers, welcomes with the SERVER-minted id, then bootstraps the feature', async () => {
+  it('welcomes every current client with shape tokens without a capability gate', async () => {
+    const kindTokens = { session: 'shape:0' }
+    const h = await harness(undefined, { syncKindTokens: async () => kindTokens })
+    expect(h.sent).toEqual([])
+    await h.mux.routeClientFrame(h.id, {
+      type: 'hello',
+      clientId: '',
+      wireVersion: CLIENT_WIRE_VERSION,
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      caps: [CAP_SYNC_HTTP_V1],
+    })
+    expect(h.sent.filter((msg) => msg.type === 'welcome')).toEqual([
+      expect.objectContaining({ clientId: h.id, kindTokens }),
+    ])
+    h.mux.detachClient(h.id)
+  })
+
+  it('registers synchronously and bootstraps the feature before hello', async () => {
     const h = await harness()
-    expect(h.sent[0]).toEqual({ type: 'welcome', clientId: h.id })
+    expect(h.sent).toEqual([])
     expect(h.ports.sessions.onClientAttached).toHaveBeenCalledTimes(1)
     expect(h.bootstrap).toHaveBeenCalledTimes(1)
     expect(vi.mocked(h.ports.sessions.onClientAttached).mock.invocationCallOrder[0]).toBeLessThan(
@@ -272,7 +290,7 @@ describe('the connection lifecycle', () => {
     const sent: ServerMessage[] = []
     vi.mocked(h.ports.sessions.onClientAttached).mockImplementation(async (_principal, conn) => {
       expect(h.registry.get(conn.id)).toBe(conn)
-      expect(sent).toEqual([{ type: 'welcome', clientId: conn.id }])
+      expect(sent).toEqual([])
       started.push('sessions')
       await sessions.promise
       conn.send({ type: 'attentionEvent', sessionId: 's-1' as never, title: 't', body: 'b' })
@@ -285,7 +303,7 @@ describe('the connection lifecycle', () => {
     const id = attachTestClient(h.mux, (msg) => sent.push(msg))
     expect(typeof id).toBe('string')
     expect(started).toEqual(['sessions', 'bootstrap'])
-    expect(sent).toEqual([{ type: 'welcome', clientId: id }])
+    expect(sent).toEqual([])
     h.mux.routeClientFrame(id, { type: 'ping' })
     expect(sent.at(-1)).toEqual({ type: 'pong', serverTime: expect.any(Number) })
     h.mux.routeClientFrame(id, A_ROUTABLE_FRAME)
@@ -309,7 +327,7 @@ describe('the connection lifecycle', () => {
     await h.feed.admissionSettled()
     expect(sent.filter((msg) => msg.type === 'feedResume')).toHaveLength(1)
     expect(sent).toContainEqual(
-      expect.objectContaining({ type: 'welcome', wireVersion: CLIENT_WIRE_VERSION }),
+      expect.objectContaining({ type: 'welcome', kindTokens: {}, wireVersion: CLIENT_WIRE_VERSION }),
     )
     expect(sent.filter((msg) => ['sessionsChanged', 'feedBootstrap'].includes(msg.type))).toEqual(
       [],
@@ -347,7 +365,7 @@ describe('the connection lifecycle', () => {
       const id = attachTestClient(h.mux, (msg) => sent.push(msg))
       h.mux.routeClientFrame(id, { type: 'ping' })
       await h.feed.admissionSettled()
-      expect(sent[0]).toEqual({ type: 'welcome', clientId: id })
+      expect(sent.filter((msg) => msg.type === 'welcome')).toEqual([])
       expect(sent).toContainEqual({ type: 'pong', serverTime: expect.any(Number) })
       expect(
         sent.filter((msg) => ['sessionsChanged', 'feedBootstrap', 'feedResume'].includes(msg.type)),
@@ -403,6 +421,7 @@ describe('the connection lifecycle', () => {
     await h.mux.routeClientFrame(h.id, hello)
     expect(h.sent.at(-1)).toEqual({
       type: 'welcome',
+      kindTokens: {},
       wireVersion: CLIENT_WIRE_VERSION,
       clientId: h.id,
       caps: [CAP_TERMINAL_INPUT_BINARY_V1],
@@ -524,6 +543,7 @@ describe('the fan-out mechanism — delivery SHAPE, preserved', () => {
   async function fanout() {
     const registry = new ClientRegistry()
     const mux = new ClientMux({
+      syncKindTokens: async () => ({}),
       registry,
       ports: {
         sessions: {
@@ -547,7 +567,7 @@ describe('the fan-out mechanism — delivery SHAPE, preserved', () => {
       inboxes.set(id, inbox)
       return id
     })
-    // Drop the welcomes so the assertions below read on fan-out alone.
+    // Drop setup messages so the assertions below read on fan-out alone.
     for (const inbox of inboxes.values()) inbox.length = 0
     return { registry, mux, ids, inboxes }
   }
@@ -657,7 +677,7 @@ it('serves a newer client at the server maximum and welcomes it with that dialec
   })
   expect(h.registry.get(id)?.wireVersion).toBe(CLIENT_WIRE_VERSION)
   expect(sent).toContainEqual(
-    expect.objectContaining({ type: 'welcome', wireVersion: CLIENT_WIRE_VERSION }),
+    expect.objectContaining({ type: 'welcome', kindTokens: {}, wireVersion: CLIENT_WIRE_VERSION }),
   )
   h.mux.detachClient(id)
 })

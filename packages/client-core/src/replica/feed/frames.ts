@@ -37,6 +37,7 @@ import type {
   FeedDeltaMessageLenient,
   FeedRescopeMessage,
   FeedResyncRequiredMessage,
+  SyncKindTokens,
 } from '@podium/protocol'
 import type { BootstrapChunk, ChangeEnvelope, ServerFrame } from '@podium/sync/replica'
 
@@ -142,8 +143,12 @@ export function toResyncFrame(
  * no kernel counterpart; the kernel's `BootstrapChunk` states the same claim by
  * being a bootstrap.
  */
-export function toBootstrapChunk(message: FeedBootstrapMessageLenient): BootstrapChunk {
+export function toBootstrapChunk(
+  message: FeedBootstrapMessageLenient,
+  kindTokens: SyncKindTokens,
+): BootstrapChunk {
   return {
+    kindTokens,
     feedId: message.feedId,
     epoch: message.epoch,
     snapshotSeq: message.seq,

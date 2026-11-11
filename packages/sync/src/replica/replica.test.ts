@@ -2398,7 +2398,7 @@ describe('incremental range healing', () => {
     })
     let pulls = 0
     vi.spyOn(h.authority, 'changesRange').mockImplementation(async (_cursor, _signal, onTarget) => {
-      onTarget?.(cursorAt(12))
+      onTarget?.(cursorAt(12), {})
       return (async function* () {
         pulls += 1
         yield first

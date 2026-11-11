@@ -6,7 +6,7 @@ import { HttpBootstrapSource, HttpDeltaSource, NdjsonLineReader, readSyncStream,
 
 const encoder = new TextEncoder()
 const cursor = { feedId: 'feed-1', epoch: 'epoch-1', seq: 5 }
-const meta = { type: 'syncMeta', formatVersion: 1, mode: 'snapshot', transferId: 't', feedId: cursor.feedId, epoch: cursor.epoch, seq: 10, minAvailableSeq: 0, wireVersion: CLIENT_WIRE_VERSION, wireSchemaDigest: '0123456789abcdef', totalRows: 1 }
+const meta = { type: 'syncMeta', kindTokens: {}, formatVersion: 1, mode: 'snapshot', transferId: 't', feedId: cursor.feedId, epoch: cursor.epoch, seq: 10, minAvailableSeq: 0, wireVersion: CLIENT_WIRE_VERSION, wireSchemaDigest: '0123456789abcdef', totalRows: 1 }
 const row = { seq: 1, entity: 'future-kind', entityId: 'one', op: 'upsert', value: { title: 'é 🦊' } }
 const chunk = { type: 'feedBootstrap', feedId: cursor.feedId, epoch: cursor.epoch, fromSeq: 0, seq: 10, minAvailableSeq: 0, changes: [row], last: true }
 const complete = { type: 'syncComplete', transferId: 't', seq: 10, records: 1, rows: 1 }
@@ -113,6 +113,59 @@ it('reloads a changed kind and catches up other kinds before advancing the share
   })
   expect(cache.readCursor()?.seq).toBe(11)
   expect(cache.readKindTokens()).toEqual(kindTokens)
+})
+
+it.each([undefined, { 'other-kind': 'unchanged' }])(
+  'reloads kinds with no stored token (%j)',
+  async (installedTokens) => {
+    const store = new InMemoryReplicaStore()
+    store.cache.installSnapshot([], cursor, [], undefined, { kindTokens: installedTokens })
+    const kindTokens = installedTokens
+      ? { ...installedTokens, [row.entity]: 'new' }
+      : { [row.entity]: 'new' }
+    const source = sources(() =>
+      response([
+        { ...meta, seq: cursor.seq, kindTokens, kinds: [row.entity] },
+        { ...chunk, seq: cursor.seq },
+        { ...complete, seq: cursor.seq },
+      ]),
+    )
+    const replica = new Replica({
+      store: store.cache,
+      authority: {
+        bootstrap: source.bootstrap.bootstrap.bind(source.bootstrap),
+        changesRange: source.delta.changesRange.bind(source.delta),
+      },
+    })
+    new FeedSink({ replica }).kindTokens(kindTokens)
+    await replica.settled()
+    expect(source.fetch).toHaveBeenCalledTimes(1)
+    expect(source.fetch.mock.calls[0]?.[0]).toBe(
+      'https://example.test/sync/bootstrap?kinds=future-kind',
+    )
+    expect(store.cache.readKindTokens()).toEqual(kindTokens)
+    expect(store.cache.read(row.entity, row.entityId)?.value).toEqual(row.value)
+  },
+)
+
+it('rejects a filtered response without its kind certificate without a full-reload fallback', async () => {
+  const store = new InMemoryReplicaStore()
+  store.cache.installSnapshot([], cursor, [], undefined, { kindTokens: { [row.entity]: 'old' } })
+  const source = sources(() => response([meta, chunk, complete]))
+  const replica = new Replica({
+    store: store.cache,
+    authority: {
+      bootstrap: source.bootstrap.bootstrap.bind(source.bootstrap),
+      changesRange: source.delta.changesRange.bind(source.delta),
+    },
+    maxBootstrapAttempts: 1,
+  })
+  new FeedSink({ replica }).kindTokens({ [row.entity]: 'new' })
+  await replica.settled()
+  expect(source.fetch).toHaveBeenCalledTimes(1)
+  expect(source.fetch.mock.calls[0]?.[0]).toContain('/sync/bootstrap?kinds=future-kind')
+  expect(store.cache.readCursor()).toEqual(cursor)
+  expect(store.cache.readKindTokens()).toEqual({ [row.entity]: 'old' })
 })
 
 it('uses a full bootstrap when a filtered snapshot cannot catch up the other kinds', async () => {
@@ -250,6 +303,14 @@ describe('readSyncStream', () => {
 })
 
 describe('HTTP sources', () => {
+  it('rejects a tokenless server header before yielding bootstrap or delta data', async () => {
+    const source = sources(() => response([{ ...meta, kindTokens: undefined }, chunk, complete]))
+    await expect(source.bootstrap.bootstrap().next()).rejects.toBeInstanceOf(SyncCorruptContentError)
+    const deltas = sources(() => response([{ ...deltaMeta, kindTokens: undefined }, delta, complete]))
+    await expect(collectRange(deltas.delta.changesRange(cursor))).rejects.toBeInstanceOf(SyncCorruptContentError)
+    expect(source.fetch).toHaveBeenCalledTimes(1)
+    expect(deltas.fetch).toHaveBeenCalledTimes(1)
+  })
   it('yields bootstrap data before completion and emits last only after EOF', async () => {
     const stream = byteStream(wire([meta, chunk, complete]).map(line => encoder.encode(line)))
     const source = sources(() => new Response(stream.body, { headers: { 'content-type': 'application/x-ndjson' } }))
@@ -313,7 +374,7 @@ describe('HTTP sources', () => {
     const target = vi.fn()
     const range = await source.delta.changesRange(cursor, undefined, target)
     const reply = await collectRange(Promise.resolve(range))
-    expect(target).toHaveBeenCalledWith({ ...cursor, seq: 10 })
+    expect(target).toHaveBeenCalledWith({ ...cursor, seq: 10 }, meta.kindTokens)
     expect(reply).toMatchObject([{ fromSeq: 5, seq: 7, changes: [{ seq: 6 }] }, { fromSeq: 7, seq: 10, changes: [{ seq: 9 }] }])
     expect(source.fetch.mock.calls[0]?.[0]).toBe('https://example.test/sync/delta?feedId=feed-1&epoch=epoch-1&from=5')
   })

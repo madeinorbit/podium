@@ -173,7 +173,7 @@ export interface BootstrapChunk {
   readonly changes: readonly ChangeEnvelope[]
   readonly last: boolean
   /** Transfer header metadata, certified when the last chunk arrives. */
-  readonly kindTokens?: KindTokens
+  readonly kindTokens: KindTokens
   readonly kinds?: readonly string[]
 }
 

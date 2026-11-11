@@ -246,7 +246,7 @@ export function describePersonalRowCompleteness(instantiation: SyncInstantiation
           bootstrap: async function* () {
             entered.release()
             await walk.promise
-            yield { feedId: 'feed', epoch: 'epoch', snapshotSeq: 10, changes: [], last: true }
+            yield { feedId: 'feed', epoch: 'epoch', snapshotSeq: 10, changes: [], last: true, kindTokens: {} }
           },
         },
         overlay: {
@@ -338,7 +338,7 @@ export function describePersonalRowCompleteness(instantiation: SyncInstantiation
             bootstrap: async function* () {
               entered.release()
               await walk.promise
-              yield { feedId: 'feed', epoch: 'epoch', snapshotSeq: 10, changes: [], last: true }
+              yield { feedId: 'feed', epoch: 'epoch', snapshotSeq: 10, changes: [], last: true, kindTokens: {} }
             },
           },
         })

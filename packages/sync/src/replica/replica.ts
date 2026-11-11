@@ -130,19 +130,15 @@ const entityKey = (entity: string, entityId: string): string => `${entity}\u0000
 
 class PartialBootstrapUnavailable extends Error {}
 
-/** Undefined means the installed map and the advertised map have no usable baseline. */
+/** A retired kind requires a full replacement; missing local tokens reload their kinds. */
 function changedKinds(
   installed: KindTokens | undefined,
-  offered: KindTokens | undefined,
+  offered: KindTokens,
 ): string[] | undefined {
-  if (
-    !installed ||
-    !offered ||
-    Object.keys(installed).some((kind) => !Object.hasOwn(offered, kind))
-  )
+  if (installed && Object.keys(installed).some((kind) => !Object.hasOwn(offered, kind)))
     return undefined
   return Object.keys(offered).filter(
-    (kind) => !Object.hasOwn(installed, kind) || installed[kind] !== offered[kind],
+    (kind) => !installed || !Object.hasOwn(installed, kind) || installed[kind] !== offered[kind],
   )
 }
 
@@ -369,7 +365,7 @@ export class Replica {
   }
 
   /** Called from both the connection advertisement and the HTTP delta header. */
-  observeKindTokens(offered: KindTokens | undefined): void {
+  observeKindTokens(offered: KindTokens): void {
     if (this.cursorValue === null || this.state === 'bootstrapping') return
     let installed: KindTokens | undefined
     try {
@@ -379,7 +375,6 @@ export class Replica {
       this.onCorruption()
       return
     }
-    if (installed === undefined && offered === undefined) return
     const kinds = changedKinds(installed, offered)
     if (kinds?.length === 0) return
     this.rebootstrap('kind-shape', kinds && new Set(kinds))
@@ -1073,7 +1068,8 @@ export class Replica {
       }
       head = chunk
       for (const change of chunk.changes) {
-        if (kinds && !kinds.has(change.entity)) throw new PartialBootstrapUnavailable()
+        if (kinds && !kinds.has(change.entity))
+          throw new Error('filtered bootstrap carried an unrequested kind')
         // D6 — a snapshot is POSITIVE STATE. A remove/evict inside it is not a
         // smaller snapshot, it is a malformed one.
         if (change.op !== 'upsert' || change.payload === undefined) {
@@ -1111,6 +1107,8 @@ export class Replica {
 
     let catchup: readonly ChangeEnvelope[] = []
     if (kinds) {
+      if (!sameKinds(kinds, head.kinds))
+        throw new Error('filtered bootstrap did not certify the requested kinds')
       const current = this.cursorValue
       const snapshot = { feedId: head.feedId, epoch: head.epoch, seq: head.snapshotSeq }
       if (
@@ -1118,7 +1116,6 @@ export class Replica {
         current.feedId !== head.feedId ||
         current.epoch !== head.epoch ||
         current.seq > snapshot.seq ||
-        !sameKinds(kinds, head.kinds) ||
         !sameKinds(kinds, changedKinds(this.store.readKindTokens(), head.kindTokens))
       ) {
         throw new PartialBootstrapUnavailable()
@@ -1137,7 +1134,7 @@ export class Replica {
     from: Cursor,
     snapshot: Cursor,
     kinds: ReadonlySet<string>,
-    tokens: KindTokens | undefined,
+    tokens: KindTokens,
     signal: AbortSignal,
   ): Promise<readonly ChangeEnvelope[]> {
     if (from.seq === snapshot.seq) return []

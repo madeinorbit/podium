@@ -44,9 +44,12 @@
  *
  * Concrete translators carry mechanical expiry. When the support floor passes
  * their version, remove them and keep the registry, telemetry and 426 backstop
- * for the next rollout. The current window is [10, 10]: version 10 (POD-6770)
- * builds the start-up load from the model tables, so every one of its rows
- * carries the head number, which an older client's frame check refuses as
+ * for the next rollout. The current window is [12, 12]: version 12 (POD-6772)
+ * requires per-kind shape tokens at connect and in HTTP transfer headers;
+ * clients update with the server, without a capability gate or tokenless fallback.
+ * Version 11 is reserved for POD-6768's session live-plane changes.
+ * Version 10 (POD-6770) builds the start-up load from the model tables, so
+ * every one of its rows carries the head number, which an older client's frame check refuses as
  * unordered; version 9 (POD-6778) made the issue panel items records of their
  * own; version 7 (POD-6767) took the issue bodies (brief, panel, description,
  * activity notes) off the issue record, which an older client reads there;
@@ -58,7 +61,7 @@ import { z } from 'zod'
 /** Client framing evolves independently of daemon framing. Bump only for breaking
  * changes; additive features negotiate capabilities. Each floor retains the edge
  * adapters needed for cached clients and rolling daemon upgrades. */
-export const CLIENT_WIRE_VERSION = 10
+export const CLIENT_WIRE_VERSION = 12
 
 /**
  * @deprecated Use {@link versionSupport}. This equality check is NOT what the
@@ -86,7 +89,7 @@ export function isProtocolCompatible(a: number, b: number): boolean {
  * fails while an adapter for a version below this floor still exists, so the
  * floor and the adapter set cannot drift apart.
  */
-export const MIN_CLIENT_WIRE_VERSION = 10
+export const MIN_CLIENT_WIRE_VERSION = 12
 
 /**
  * Every version inside the window, ascending.

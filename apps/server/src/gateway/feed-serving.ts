@@ -61,7 +61,6 @@ const MIN_RESUME_WIRE_VERSION = 2
 /** One admitted client, as this module needs it. */
 export interface FeedPeer extends EdgePeer {
   readonly syncHttp?: boolean
-  readonly reloadLegacyKinds?: boolean
   /** End a failed admission's transport; absent for in-process sinks. */
   terminate?(): void
 }
@@ -359,9 +358,7 @@ export class FeedServing {
    * been told it was resumed.
    */
   private async canResume(peer: FeedPeer, cursor: FeedCursorField): Promise<boolean> {
-    // A client without per-kind tokens cannot establish that its persisted
-    // rows match this build, even when its feed cursor is still in range.
-    if (peer.reloadLegacyKinds || peer.wireVersion < MIN_RESUME_WIRE_VERSION) return false
+    if (peer.wireVersion < MIN_RESUME_WIRE_VERSION) return false
     // IDENTITY FIRST (ADR 2 D1). A seq from another feed, or one presented against
     // an epoch this server has rolled past, is not a smaller number — it is a
     // position in a sequence that no longer exists.

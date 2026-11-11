@@ -123,7 +123,7 @@ describe('provenance on frame rows', () => {
           ...provenance,
         },
       ] as never,
-    })
+    }, { repo: 'shape:0' })
     expect(chunk.changes).toEqual([
       { seq: 3, entity: 'repo', entityId: 'r1', op: 'upsert', payload: { id: 'r1' } },
     ])

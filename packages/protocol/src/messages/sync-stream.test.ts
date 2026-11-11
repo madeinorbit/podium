@@ -6,6 +6,7 @@ import {
 } from './sync-stream'
 import { SYNC_WIRE_FIXTURES } from './sync-stream.fixtures'
 import golden from './wire-golden.json'
+import { WelcomeMessage } from './terminal'
 
 const { URLSearchParams } = globalThis as unknown as {
   URLSearchParams: new (query: string) => { getAll(name: string): string[]; set(name: string, value: string): void }
@@ -29,6 +30,14 @@ describe('HTTP sync records', () => {
     expect(SyncMeta.safeParse({ ...meta, fromSeq: undefined }).success).toBe(false)
     expect(SyncRecord.safeParse({ ...meta, fromSeq: 11 }).success).toBe(false)
     expect(SyncRecord.safeParse({ ...meta, mode: 'snapshot' }).success).toBe(false)
+  })
+  it('requires shape tokens in transfer headers and the welcome', () => {
+    expect(SyncMeta.safeParse({ ...meta, kindTokens: undefined }).success).toBe(false)
+    expect(parseSyncRecord(JSON.stringify({ ...meta, kindTokens: undefined }))).toEqual({
+      kind: 'refused', reason: 'invalid-record',
+    })
+    expect(WelcomeMessage.safeParse({ type: 'welcome', clientId: 'client-1' }).success).toBe(false)
+    expect(WelcomeMessage.parse({ type: 'welcome', clientId: 'client-1', kindTokens: {} }).kindTokens).toEqual({})
   })
   it('ignores unknown types and tolerates unknown entity kinds only for consumers', () => {
     expect(parseSyncRecord('{"type":"futureRecord","extra":1}')).toEqual({ kind: 'ignored', type: 'futureRecord' })

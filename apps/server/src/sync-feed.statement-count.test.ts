@@ -24,7 +24,6 @@ import { join } from 'node:path'
 import { firstAdminMemberId, type IssueId, type UserId } from '@podium/model'
 import {
   CAP_SYNC_HTTP_V1,
-  CAP_SYNC_KIND_VERSIONS,
   CLIENT_WIRE_VERSION,
   type Principal,
   type ServerMessage,
@@ -395,7 +394,6 @@ describe('client hello: pinned statement counts at 5 and 200', () => {
     const w = await world(size)
     const inbox: ServerMessage[] = []
     const clientId = attachTestClient(w.reg.clientGateway, (message) => inbox.push(message))
-    await expect.poll(() => inbox.some((message) => message.type === 'welcome')).toBe(true)
     await settle(w.reg)
     return { ...w, clientId, inbox }
   }
@@ -403,7 +401,7 @@ describe('client hello: pinned statement counts at 5 and 200', () => {
   const hello = (
     c: Client,
     feedCursor?: unknown,
-    caps = [CAP_SYNC_HTTP_V1, CAP_SYNC_KIND_VERSIONS],
+    caps = [CAP_SYNC_HTTP_V1],
   ) =>
     c.reg.clientGateway.routeClientFrame(c.clientId, {
       type: 'hello',
@@ -461,17 +459,18 @@ describe('client hello: pinned statement counts at 5 and 200', () => {
     )
   })
 
-  it('requests a full reload from a current client without kind versions', async () => {
+  it('resumes and advertises tokens without a shape-version capability', async () => {
     const c = await connected(5)
     try {
       const serving = c.reg.syncDelta.serving as FeedServing
       const cursor = { ...(await serving.identity()), seq: c.from }
       await hello(c, cursor, [CAP_SYNC_HTTP_V1])
       await serving.admissionSettled()
-      expect(c.inbox).toContainEqual(expect.objectContaining({ type: 'feedResyncRequired' }))
+      expect(c.inbox).toContainEqual(expect.objectContaining({ type: 'feedResume' }))
+      expect(c.inbox.some((message) => message.type === 'feedResyncRequired')).toBe(false)
       expect(
         c.inbox.some((message) => message.type === 'welcome' && message.kindTokens !== undefined),
-      ).toBe(false)
+      ).toBe(true)
     } finally {
       await teardown(c)
     }

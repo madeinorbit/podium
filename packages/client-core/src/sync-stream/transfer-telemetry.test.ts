@@ -18,7 +18,7 @@ const TRANSFER_ID = 'srv-transfer'
 /** A well-formed snapshot of `records` records carrying `rowsPer` rows each. */
 function snapshot(records: number, rowsPer: number): unknown[] {
   const lines: unknown[] = [{
-    type: 'syncMeta', formatVersion: 1, mode: 'snapshot', transferId: TRANSFER_ID, ...feed,
+    type: 'syncMeta', kindTokens: {}, formatVersion: 1, mode: 'snapshot', transferId: TRANSFER_ID, ...feed,
     seq: SNAPSHOT_SEQ, minAvailableSeq: 0, wireVersion: CLIENT_WIRE_VERSION,
     wireSchemaDigest: '0123456789abcdef', totalRows: records * rowsPer,
   }]
@@ -37,7 +37,7 @@ function snapshot(records: number, rowsPer: number): unknown[] {
 
 function deltaRange(from: number, to: number): unknown[] {
   return [
-    { type: 'syncMeta', formatVersion: 1, mode: 'delta', transferId: TRANSFER_ID, ...feed,
+    { type: 'syncMeta', kindTokens: {}, formatVersion: 1, mode: 'delta', transferId: TRANSFER_ID, ...feed,
       seq: to, fromSeq: from, minAvailableSeq: 0, wireVersion: CLIENT_WIRE_VERSION, wireSchemaDigest: '0123456789abcdef' },
     { type: 'feedDelta', ...feed, fromSeq: from, seq: to, minAvailableSeq: 0,
       changes: [{ seq: to, entity: 'future-kind', entityId: 'd', op: 'upsert', value: {} }] },

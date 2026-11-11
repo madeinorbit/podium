@@ -34,18 +34,18 @@
       "file": "apps/mobile/src/client/test-replica.ts",
       "holder": "createMobileTestReplica/replica",
       "rule": "reader-summary",
-      "tokens": "0129a7ac80f65c0e85e165496202dfa30972e7b0129acf9544b183cb8261c9d6",
+      "tokens": "9417cbbd5dfa35f5a145c4f7704e040b90edc4c809ffcc7ab3621cc1d5d3b6c5",
       "gate": [],
       "origin": [
         "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
       ],
-      "fingerprint": "59d6d2d429443d500bfcd0b17b1e9c29389e57d7c79f91fcc09af14ce8842c14",
+      "fingerprint": "085973b0652b22df3444e123a6ca42e96ca0a5ab1028c24d0c738771b2b4f12a",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
       "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
       "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
-      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged.",
       "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     },
     {
@@ -8659,40 +8659,40 @@
       "file": "apps/web/src/lib/kernelReplica.ts",
       "holder": "openKernelAssembly/assembly",
       "rule": "helper-consumer",
-      "tokens": "aab4690795adb37495e6e43e701d0a528377899f01a67dad85821652efc6695a",
+      "tokens": "1bf97718853e597f9cd95df14087f864a02eefa73bca8bed7c6cfe06e03c5568",
       "gate": [
         "exit:then:5e2a14e1fded6dcf5bd2bbeb0a38680fd681e01937e3beb0794cbfbe6fbfbbad"
       ],
       "origin": [
         "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
       ],
-      "fingerprint": "ef5c6d5137cba7143eb04240fba6ea302f964a5eb112cef6cef29c88be964024",
+      "fingerprint": "2f5a4a1a8e814a47e717ecc6d4fac817342108f0bade0b27abe66be0a090573e",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
       "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
       "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
-      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged.",
       "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     },
     {
       "file": "apps/web/src/lib/kernelReplica.ts",
       "holder": "openKernelAssembly/assembly",
       "rule": "reader-summary",
-      "tokens": "7659bc099025646e87af0ae0e2c7db7351407324efb900ad0978da3cae38dd79",
+      "tokens": "e3fbffd9d4cb96239eb491e1be85dc99e820d462b7db001ba9f651cf9f9ab454",
       "gate": [
         "exit:then:5e2a14e1fded6dcf5bd2bbeb0a38680fd681e01937e3beb0794cbfbe6fbfbbad"
       ],
       "origin": [
         "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
       ],
-      "fingerprint": "d4794fb8778725fea41346187972aa864b612affded23c5a968cd19bb758a743",
+      "fingerprint": "1609b6a8e801f0eeb3046a9b1a364fac3089038ebde945f5133e5d852180254c",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
       "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
       "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
-      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged.",
       "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     },
     {
@@ -12071,18 +12071,18 @@
       "file": "packages/client-core/src/demo/demo-replica.ts",
       "holder": "createDemoReplica",
       "rule": "reader-summary",
-      "tokens": "2e6e4b391bc4c020a000626d9e4ea77c05fda14192406566e656809bb8fc4206",
+      "tokens": "aee28b7df7a484e1f82f2ac13cf848dd53e5cd06130dfec5c47e349d722aa3bb",
       "gate": [],
       "origin": [
         "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
       ],
-      "fingerprint": "6c35896e20848913f05c9539fa14b3e72d13959705051ca6e1d00ffce8dce633",
+      "fingerprint": "819b498ff596de1d151cdbe9b6d7e1e24b1e5d7b327bb325a04391788a5691e8",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
       "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
       "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
-      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged.",
       "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     },
     {

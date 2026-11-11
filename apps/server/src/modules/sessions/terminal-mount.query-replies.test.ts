@@ -108,7 +108,7 @@ function fixture(withDesktop = true) {
     cleanups.push(() => hub.dispose())
     hub.connect()
     socket.onopen?.({})
-    socket.deliver({ type: 'welcome', clientId: id } as ServerMessage)
+    socket.deliver({ type: 'welcome', kindTokens: {}, clientId: id } as ServerMessage)
 
     const viewport = document.createElement('div')
     viewport.style.cssText = `width:${width}px;height:480px;overflow:auto`

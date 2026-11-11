@@ -632,7 +632,7 @@ export class ConformanceAuthority {
             ? this.head()
             : Math.min(this.changesSinceCeiling, this.head())
         const frame = this.frameFor(principal, cursor.seq, upTo)
-        onTarget?.({ feedId: frame.feedId, epoch: frame.epoch, seq: frame.seq })
+        onTarget?.({ feedId: frame.feedId, epoch: frame.epoch, seq: frame.seq }, {})
         return (async function* () {
           yield frame
         })()
@@ -756,7 +756,7 @@ export class ConformanceAuthority {
       if (rows.length === 0) {
         await Promise.resolve()
         this.chunkTrace.push(`${who}:empty`)
-        yield { feedId: this.feedId, epoch: this.epoch, snapshotSeq, changes: [], last: true }
+        yield { feedId: this.feedId, epoch: this.epoch, snapshotSeq, changes: [], last: true, kindTokens: {} }
         return
       }
       for (let i = 0; i < rows.length; i += this.chunkSize) {
@@ -766,6 +766,7 @@ export class ConformanceAuthority {
           feedId: this.feedId,
           epoch: this.epoch,
           snapshotSeq,
+          kindTokens: {},
           changes: rows.slice(i, i + this.chunkSize),
           last: i + this.chunkSize >= rows.length,
         }

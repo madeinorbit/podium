@@ -35,6 +35,7 @@ function syncResponse(records: unknown[]): Response {
 }
 const syncMeta = {
   type: 'syncMeta',
+  kindTokens: {},
   formatVersion: 1,
   wireVersion: CLIENT_WIRE_VERSION,
   wireSchemaDigest: '0123456789abcdef',

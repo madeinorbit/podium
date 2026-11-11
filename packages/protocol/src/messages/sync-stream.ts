@@ -63,7 +63,7 @@ const SyncMetaShape = z.object({
   wireVersion: z.literal(CLIENT_WIRE_VERSION),
   wireSchemaDigest: z.string().regex(/^[0-9a-f]{16}$/),
   totalRows: Count.optional(),
-  kindTokens: SyncKindTokens.optional(),
+  kindTokens: SyncKindTokens,
   /** Present only when the snapshot covers a requested subset. */
   kinds: z.array(z.string().min(1)).nonempty().optional(),
 })

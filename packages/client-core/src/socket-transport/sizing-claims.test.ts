@@ -137,7 +137,7 @@ describe('C1 (REWRITTEN for POD-3239 B2/B8): a SessionConnection has NO geometry
       onAttached: () => events.push('attached'),
     })
 
-    socket.deliver({ type: 'welcome', clientId: 'client-1' } as ServerMessage)
+    socket.deliver({ type: 'welcome', kindTokens: {}, clientId: 'client-1' } as ServerMessage)
 
     expect(events).toEqual(['state:undefinedxundefined'])
   })

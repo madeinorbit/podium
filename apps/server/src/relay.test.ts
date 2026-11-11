@@ -1570,7 +1570,7 @@ describe('SessionRegistry', () => {
     })
     const c = sink()
     const id = await attachCurrent(reg, c.send)
-    expect(c.sent).toContainEqual({ type: 'welcome', clientId: id })
+    expect(c.sent).toContainEqual({ type: 'welcome', kindTokens: {}, clientId: id })
     const principal = reg.clientGateway.principalOf(id)
     if (!principal) throw new Error('missing authenticated principal')
     const authority = reg.syncDelta.authority

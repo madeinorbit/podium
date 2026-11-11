@@ -24,6 +24,7 @@ import {
 function sink() {
   return {
     syncHttp: true,
+    kindTokens: () => {},
     helloFields: () => null,
     connected: vi.fn(),
     disconnected: vi.fn(),

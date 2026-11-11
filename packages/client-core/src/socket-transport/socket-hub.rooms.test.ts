@@ -60,6 +60,7 @@ describe('SocketHub rooms and principal lifecycle', () => {
       url: 'ws://transport.test',
       makeSocket: () => socket,
       feed: {
+        kindTokens: () => {},
         helloFields: () => null,
         connected: vi.fn(),
         disconnected: vi.fn(),
@@ -142,7 +143,7 @@ describe('SocketHub rooms and principal lifecycle', () => {
     hub.connect()
     const first = sockets[0] as FakeSocket
     first.open()
-    first.receive({ type: 'welcome', clientId: 'client-one' })
+    first.receive({ type: 'welcome', kindTokens: {}, clientId: 'client-one' })
     first.receive({
       type: 'attached',
       sessionId,

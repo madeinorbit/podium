@@ -144,6 +144,7 @@ describe('the hub learns the server (welcome and pong)', () => {
     socket.open()
     socket.recv({
       type: 'welcome',
+      kindTokens: {},
       clientId: 'c1',
       serverBuild: '0.1.0+one',
       serverFeatures: facts('a'),
@@ -152,6 +153,7 @@ describe('the hub learns the server (welcome and pong)', () => {
     // The redeploy: the socket drops, the new server answers the reconnect.
     socket.recv({
       type: 'welcome',
+      kindTokens: {},
       clientId: 'c2',
       serverBuild: '0.1.0+two',
       serverFeatures: facts('a'),
@@ -166,8 +168,8 @@ describe('the hub learns the server (welcome and pong)', () => {
     const hub = new SocketHub({ url: 'ws://x', makeSocket: () => socket })
     hub.connect()
     socket.open()
-    socket.recv({ type: 'welcome', clientId: 'c1', serverBuild: 'b1' })
-    socket.recv({ type: 'welcome', clientId: 'c1' })
+    socket.recv({ type: 'welcome', kindTokens: {}, clientId: 'c1', serverBuild: 'b1' })
+    socket.recv({ type: 'welcome', kindTokens: {}, clientId: 'c1' })
     expect(hub.serverIdentity()?.build).toBe('b1')
     hub.dispose()
   })

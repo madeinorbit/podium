@@ -131,6 +131,7 @@ async function gateway(owners: Map<string, UserId>, grants: Map<string, UserId[]
     },
   }
   const mux = new ClientMux({
+    syncKindTokens: async () => ({ session: 'shape:0' }),
     registry,
     ports,
     feed: plumbing.serving,

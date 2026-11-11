@@ -210,7 +210,7 @@ export interface AuthorityReadPort {
   changesRange(
     cursor: Cursor,
     signal?: AbortSignal,
-    onTarget?: (target: Cursor, kindTokens?: KindTokens) => void,
+    onTarget?: (target: Cursor, kindTokens: KindTokens) => void,
     options?: { readonly to: number; readonly omitKinds: readonly string[] },
   ): Promise<AsyncIterable<DeltaFrame> | BootstrapRequired>
   /**

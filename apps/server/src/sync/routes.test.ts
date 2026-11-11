@@ -8,7 +8,7 @@ import { registerSyncRoutes, type SyncRouteDeps } from './routes'
 function fixture() {
   const bytes = new TextEncoder().encode('opaque worker bytes\n')
   const delta = vi.fn<SyncWorkerClient['delta']>(() => ({
-    meta: Promise.resolve({ type: 'syncMeta', formatVersion: 1, mode: 'delta', transferId: 't',
+    meta: Promise.resolve({ type: 'syncMeta', kindTokens: {}, formatVersion: 1, mode: 'delta', transferId: 't',
       feedId: 'f', epoch: 'e', fromSeq: 0, seq: 8, minAvailableSeq: 1, wireVersion: CLIENT_WIRE_VERSION, wireSchemaDigest: '0000000000000000' }),
     body: new ReadableStream({ start(controller) { controller.enqueue(bytes); controller.close() } }),
     completed: Promise.resolve({}),

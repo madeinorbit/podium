@@ -57,7 +57,7 @@ describe('lossy drops report themselves', () => {
     expect(sink.sendBinaryLossy(Uint8Array.of(1, 2, 3), onDrop)).toBe(false)
     expect(onDrop).toHaveBeenCalledOnce()
     const onJsonDrop = vi.fn()
-    expect(sink.sendLossy({ type: 'welcome', clientId: 'x' }, onJsonDrop)).toBe(false)
+    expect(sink.sendLossy({ type: 'welcome', kindTokens: {}, clientId: 'x' }, onJsonDrop)).toBe(false)
     expect(onJsonDrop).toHaveBeenCalledOnce()
   })
 
@@ -95,7 +95,7 @@ describe('a pulled sequence may carry binary frames', () => {
     const sink = new OrderedClientSend(ws, limits)
     const items = [
       new SequenceBinary(Uint8Array.of(0xaa)),
-      { type: 'welcome' as const, clientId: 'mid' },
+      { type: 'welcome' as const, kindTokens: {}, clientId: 'mid' },
       new SequenceBinary(Uint8Array.of(0xbb, 0xcc)),
     ]
     let i = 0

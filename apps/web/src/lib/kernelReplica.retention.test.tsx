@@ -222,6 +222,7 @@ describe('web legacy issue retention', () => {
             [
               {
                 type: 'syncMeta',
+                kindTokens: {},
                 formatVersion: 1,
                 mode: 'delta',
                 transferId: 't',

@@ -125,6 +125,7 @@ export async function liveConnectionProof() {
                 [
                   {
                     type: 'syncMeta',
+                    kindTokens: {},
                     formatVersion: 1,
                     mode: 'delta',
                     transferId: 'fixture',

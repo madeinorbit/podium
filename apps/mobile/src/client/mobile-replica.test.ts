@@ -243,6 +243,7 @@ async function open(args: {
         const records = [
           {
             type: 'syncMeta',
+            kindTokens: {},
             formatVersion: 1,
             mode: 'snapshot',
             transferId: 'fixture',
@@ -911,6 +912,7 @@ describe('HTTP sync through the mobile assembly', () => {
       controller.enqueue(new TextEncoder().encode(JSON.stringify(record) + '\n'))
     const meta = {
       type: 'syncMeta',
+      kindTokens: {},
       formatVersion: 1,
       mode: 'snapshot',
       transferId: 'mobile',

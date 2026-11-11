@@ -8,6 +8,7 @@ export const SYNC_WIRE_FIXTURES: WireFixture[] = [
     schema: SyncRecord,
     value: {
       type: 'syncMeta',
+      kindTokens: {},
       formatVersion: 1,
       mode: 'snapshot',
       transferId: 'transfer-1',
@@ -25,6 +26,7 @@ export const SYNC_WIRE_FIXTURES: WireFixture[] = [
     schema: SyncRecord,
     value: {
       type: 'syncMeta',
+      kindTokens: {},
       formatVersion: 1,
       mode: 'delta',
       transferId: 'transfer-1',

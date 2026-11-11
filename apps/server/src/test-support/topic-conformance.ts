@@ -594,6 +594,7 @@ export async function createTopicWorld(
             conn.caps = new Set(msg.caps ?? [])
             conn.send({
               type: 'welcome',
+              kindTokens: {},
               clientId: id,
               caps: conn.caps.has(CAP_TOPICS_V1) ? [CAP_TOPICS_V1] : [],
               ...(conn.caps.has(CAP_TOPICS_V1) ? { accountUser: user } : {}),

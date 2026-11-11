@@ -238,6 +238,7 @@ it.each([
       .map((line) => JSON.parse(line))
     expect(records[0]).toMatchObject({
       type: 'syncMeta',
+      kindTokens: {},
       seq: head,
       feedId: 'fixture-feed',
       epoch: 'fixture-epoch',

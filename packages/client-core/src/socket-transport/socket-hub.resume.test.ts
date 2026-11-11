@@ -42,6 +42,7 @@ function setup(fields: () => FeedHelloFields | null) {
   const sockets: FakeSocket[] = []
   const promised: boolean[] = []
   const feed: FeedSinkPort = {
+    kindTokens: () => {},
     helloFields: fields,
     connected: (worldPromised) => promised.push(worldPromised),
     disconnected: () => {},
@@ -104,6 +105,7 @@ it('advertises HTTP sync at attach and hello for the shared web/native hub', () 
     makeSocket,
     feed: {
       syncHttp: true,
+      kindTokens: () => {},
       helloFields: () => POSITION,
       connected() {}, disconnected() {}, frame() {},
     },

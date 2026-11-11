@@ -49,7 +49,6 @@ import type { SessionId, UserId, UserRole } from '@podium/model'
 import {
   CAP_METADATA_DELTA,
   CAP_SYNC_HTTP_V1,
-  CAP_SYNC_KIND_VERSIONS,
   type SyncKindTokens,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TOPICS_V1,
@@ -203,7 +202,7 @@ export interface ClientMuxDeps {
   /** What this build and its config say about its feature flags, sent in every
    *  `welcome` beside the build (POD-6677). */
   readonly serverFeatures?: () => ServerFeatureFacts
-  readonly syncKindTokens?: () => Promise<SyncKindTokens>
+  readonly syncKindTokens: () => Promise<SyncKindTokens>
   /** The clock `pong` reports, for the client's skew reading. */
   readonly now?: () => number
 }
@@ -238,10 +237,11 @@ export class ClientMux {
   }
 
   /**
-   * A client socket connected. Mint its id and principal, register it, tell it
-   * its id, then hand it to the feature ports for their non-entity bootstrap.
+   * A client socket connected. Mint its id and principal, register it, then
+   * hand it to the feature ports for their non-entity bootstrap. The hello
+   * reply delivers its server-issued id and shape tokens together.
    *
-   * Registration and welcome are synchronous, before either bootstrap starts.
+   * Registration is synchronous, before either bootstrap starts.
    * The session hook, non-session bootstrap and feed admission start in that
    * order, but complete independently. Feed owns entity bootstrap/publication;
    * its completion is not a barrier for drafts, machines, approvals or hosts.
@@ -298,10 +298,6 @@ export class ClientMux {
       peerId: id,
       wireVersion: conn.wireVersion,
     })
-    // `welcome` is the gateway's frame: it carries the id THIS module minted, and
-    // it is what makes the reconnect reclaim's `hello.clientId` a server-issued
-    // value rather than a client-chosen one.
-    this.deps.registry.deliver(conn, { type: 'welcome', clientId: id })
     // Deliberately NOT awaited (rule 51 case 2 / rule 57): wireClientSocket
     // needs the id in this turn to install message/close handlers. These are
     // independent streams, not a global bootstrap-complete barrier: SocketHub
@@ -453,9 +449,6 @@ export class ClientMux {
         msg.feedCursor,
       )
       if (conn.entityServingRefused) return Promise.resolve(completion)
-      const readKindTokens = conn.caps.has(CAP_SYNC_KIND_VERSIONS)
-        ? this.deps.syncKindTokens
-        : undefined
       const welcome = {
         type: 'welcome' as const,
         wireVersion: conn.wireVersion,
@@ -463,21 +456,17 @@ export class ClientMux {
         caps: [
           ...(conn.caps.has(CAP_TERMINAL_INPUT_BINARY_V1) ? [CAP_TERMINAL_INPUT_BINARY_V1] : []),
           ...(conn.caps.has(CAP_TOPICS_V1) ? [CAP_TOPICS_V1] : []),
-          ...(readKindTokens ? [CAP_SYNC_KIND_VERSIONS] : []),
         ],
         // Topics: the account whose `account.events` this client may hold (D26).
         ...(conn.caps.has(CAP_TOPICS_V1) ? { accountUser: conn.principal.user } : {}),
         ...(this.deps.serverBuild ? { serverBuild: this.deps.serverBuild() } : {}),
         ...(this.deps.serverFeatures ? { serverFeatures: wireFacts(this.deps.serverFeatures()) } : {}),
       }
-      if (readKindTokens) {
-        const delivered = readKindTokens().then((kindTokens) => {
-          if (this.deps.registry.get(id) === conn && !conn.entityServingRefused)
-            this.deps.registry.deliver(conn, { ...welcome, kindTokens })
-        })
-        return Promise.all([completion, delivered]).then(() => undefined)
-      }
-      this.deps.registry.deliver(conn, welcome)
+      const delivered = this.deps.syncKindTokens().then((kindTokens) => {
+        if (this.deps.registry.get(conn.id) === conn && !conn.entityServingRefused)
+          this.deps.registry.deliver(conn, { ...welcome, kindTokens })
+      })
+      return Promise.all([completion, delivered]).then(() => undefined)
     }
     return Promise.resolve(completion)
   }
@@ -574,8 +563,6 @@ export class ClientMux {
       wireVersion: conn.wireVersion,
       acceptsDelta: conn.caps.has(CAP_METADATA_DELTA),
       syncHttp: conn.caps.has(CAP_SYNC_HTTP_V1),
-      reloadLegacyKinds:
-        this.deps.syncKindTokens !== undefined && !conn.caps.has(CAP_SYNC_KIND_VERSIONS),
       send: (msg: Parameters<ClientRegistry['deliver']>[1]) =>
         this.deps.registry.deliver(conn, msg),
       sendSequence: (source: Parameters<ClientRegistry['deliverSequence']>[1]) =>
