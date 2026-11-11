@@ -17,9 +17,10 @@
  * builds them before and after that write and appends each changed record.
  *
  * STATEMENTS: the machines named, their grant edges and the members are read
- * for each build. The log appends only the changed records. The statement
- * count stays constant with the machines or members
- * (`records.statement-count.test.ts`).
+ * for each build. Comparison reads stay constant as the fleet grows
+ * (`records.statement-count.test.ts`). The log appends only changed records.
+ * Checkout reach and the remaining stored sync copy still write each changed
+ * row individually when a member's role changes across the fleet.
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks'
