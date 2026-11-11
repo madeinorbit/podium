@@ -16,7 +16,11 @@ import type { ReferenceState } from '../../../../tests/worklist/diagnostics/refe
 type Store = ReferenceState & { drafts: Record<string, string> }
 
 import { outboxChatSends } from '@podium/client-core/conversation'
-import type { IssueBodyValues, IssueViewModel, ReplicaAddressedBatch } from '@podium/client-core/replica'
+import type {
+  IssueBodyValues,
+  IssueViewModel,
+  ReplicaAddressedBatch,
+} from '@podium/client-core/replica'
 import { MobxPool } from '@podium/client-graph'
 import {
   CHAT_CONTEXT_ENTITIES,
@@ -134,7 +138,7 @@ export async function createChatContextFixture(resumeTwins = false) {
             ],
           }
         : undefined,
-  })) as unknown as (IssueViewModel & IssueBodyValues)[]  // bodies painted on (POD-6767)
+  })) as unknown as (IssueViewModel & IssueBodyValues)[] // bodies painted on (POD-6767)
   let messages = data.messages,
     interactions = [...data.interactions].reverse()
   let queued = [
@@ -299,6 +303,20 @@ export async function createChatContextFixture(resumeTwins = false) {
       },
     ],
   })
+  const publishArtifacts = (issue: IssueViewModel & IssueBodyValues) => {
+    pool.apply({
+      type: 'update',
+      rows: (issue.panel?.artifacts ?? []).map((artifact, position) => {
+        const id = `fixture-artifact:${issue.id}:${position}`
+        return {
+          kind: 'issuePanelArtifact' as const,
+          id,
+          value: { ...artifact, id, issueId: issue.id, position } as never,
+        }
+      }),
+    })
+  }
+  for (const issue of issues) publishArtifacts(issue)
   // The machine record (with my access row) and its online condition (POD-6644).
   headerEntities(pool).apply([
     ...seedFixtureMachines(pool, state.machines as never),
@@ -339,6 +357,7 @@ export async function createChatContextFixture(resumeTwins = false) {
     exitSource,
     counts,
     issues,
+    publishArtifacts,
     sessions,
     data,
     check,

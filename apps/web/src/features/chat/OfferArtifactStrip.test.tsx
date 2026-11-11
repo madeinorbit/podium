@@ -80,6 +80,13 @@ function publishUnchangedSelection(): void {
 vi.mock('@/app/store', () => ({
   readFixture: useTestStoreSelector,
 }))
+// These tile/layout checks supply the issue answer directly. The panel test
+// exercises the real normalized issue/artifact lookup.
+vi.mock('./use-chat-context', async (original) => ({
+  ...(await original<typeof import('./use-chat-context')>()),
+  useChatArtifactIssue: (session: SessionModel) =>
+    useTestStoreSelector(() => issues.find((issue) => issue.id === session.issueId)),
+}))
 
 const art = (path: string, addedAt: string, artifactId?: ArtifactId): IssuePanelArtifact => ({
   path,

@@ -16,6 +16,7 @@ try {
   const browser = await chromium.launch({ headless: true })
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } })
+    page.on('pageerror', (error) => console.error(error.message))
     await page.goto(`http://127.0.0.1:${address.port}/harness/terminal-first-frame.html?e2e=1`)
     await page.waitForFunction(() =>
       Boolean((window as unknown as { __podium?: unknown }).__podium),
@@ -39,6 +40,11 @@ try {
     })
     if (evidence.grid.cols !== 132 || evidence.grid.rows !== 43)
       throw new Error(`Wrong birth grid: ${JSON.stringify(evidence)}`)
+    if (
+      JSON.stringify(evidence.first?.data.initialGeometry) !==
+      JSON.stringify({ cols: 132, rows: 43 })
+    )
+      throw new Error(`Missing model geometry at mount: ${JSON.stringify(evidence.first)}`)
     await writeFile(join(output, 'first-frame.json'), JSON.stringify(evidence, null, 2))
     await page.screenshot({ path: join(output, 'first-frame.png') })
     console.log(JSON.stringify({ output, grid: evidence.grid, first: evidence.first }))

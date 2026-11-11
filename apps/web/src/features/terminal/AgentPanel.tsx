@@ -256,7 +256,7 @@ export const AgentPanel = observer(function AgentPanel({
     onEnterNative: () => rearmFlushRef.current?.(),
   })
   const referenceStages = usePaneReferenceStages(gates.terminalActive)
-  const testPool = useWorklistPool()
+  const pool = useWorklistPool()
   // Keep the terminal's imperative getter current through pool attachment
   // without remounting the terminal or changing its transcript subscription.
   const referenceStagesRef = useRef(referenceStages)
@@ -526,7 +526,7 @@ export const AgentPanel = observer(function AgentPanel({
     focusWhenReady: true,
     test: E2E,
     testSessions: () => {
-      const rows = testPool ? readSessions(testPool) : undefined
+      const rows = pool ? readSessions(pool) : undefined
       return Array.isArray(rows)
         ? rows.map((row) => ({ sessionId: row.sessionId, title: row.title }))
         : []
@@ -1302,7 +1302,7 @@ export const AgentPanel = observer(function AgentPanel({
                     disabled={!nativeOffer}
                     onAction={sendOfferPrompt}
                     onDismiss={dismissOffer}
-                    {...(session && testPool ? { session: testPool.sessionObject(sessionId) } : {})}
+                    {...(session && pool ? { session: pool.sessionObject(sessionId) } : {})}
                   />
                 </div>
               </div>

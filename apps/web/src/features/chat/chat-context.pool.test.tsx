@@ -305,6 +305,7 @@ it('resolves a chat attachment id to its stored copy on the session issue (POD-2
       ...issue,
       panel: { ...issue.panel!, artifacts: [...issue.panel!.artifacts, upload] },
     } as never
+    corpus.publishArtifacts(corpus.issues[0]!)
     corpus.pool.apply({
       type: 'update',
       rows: [{ kind: 'issue', id: issue.id, value: corpus.issues[0] as never }],
@@ -347,6 +348,7 @@ it('drops gallery lookup with the private session while its task artifact stays 
       ],
     },
   }
+  corpus.publishArtifacts(sharedIssue as never)
   corpus.pool.apply({
     type: 'update',
     rows: [{ kind: 'issue', id: issue.id, value: sharedIssue as never }],
@@ -469,6 +471,7 @@ it('shows a path-less image turn from its matched message record’s stored copy
         ],
       },
     } as never
+    corpus.publishArtifacts(corpus.issues[0]!)
     corpus.pool.apply({
       type: 'update',
       rows: [{ kind: 'issue', id: issue.id, value: corpus.issues[0] as never }],

@@ -28,6 +28,12 @@ import {
 import { expectedThreads } from '../../../../tests/worklist/diagnostics/superagent-check'
 
 const loading = (row: unknown): row is symbol => typeof row === 'symbol'
+/** Compare displayed fields across DTOs and the current shared item models. */
+const panelItemFacts = (item: object) => {
+  const row = ('row' in item ? item.row : item) as Record<string, unknown>
+  const { id: _id, issueId: _issueId, position: _position, ...facts } = row
+  return facts
+}
 export function checkChatContext(
   pool: MobxPool,
   state: Store,
@@ -125,7 +131,11 @@ export function checkChatContext(
         issue
           ? {
               id: issue.id,
-              panel: issue.panel,
+              panel: {
+                todos: (issue.panel?.todos ?? []).map(panelItemFacts),
+                artifacts: (issue.panel?.artifacts ?? []).map(panelItemFacts),
+                deferred: (issue.panel?.deferred ?? []).map(panelItemFacts),
+              },
               root: issue.worktreePath ?? issue.repoPath,
               machineId: issue.machineId,
             }
