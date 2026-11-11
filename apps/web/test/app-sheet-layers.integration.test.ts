@@ -29,6 +29,7 @@ it('keeps utility sheet controls clickable over an update offer until the sheet 
       },
     ],
     resolve: { alias: { '@': `${appRoot}src` }, dedupe: ['react', 'react-dom'] },
+    optimizeDeps: { entries: ['test/app-sheet-layers.browser.tsx'] },
     server: { host: '127.0.0.1', port: 0, hmr: false },
   })
   let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined
@@ -38,7 +39,9 @@ it('keeps utility sheet controls clickable over an update offer until the sheet 
     const page = await browser.newPage({ viewport: { width: 1000, height: 720 } })
     const errors: string[] = []
     page.on('pageerror', (error) => errors.push(error.message))
-    await page.goto(`${server.resolvedUrls!.local[0]}sheet-test`)
+    const origin = server.resolvedUrls?.local[0]
+    if (!origin) throw new Error('Sheet fixture did not bind TCP')
+    await page.goto(`${origin}sheet-test`)
     const offer = page.getByRole('dialog', { name: 'Podium update' })
     await expectBrowser(offer).toBeVisible()
 
@@ -52,14 +55,13 @@ it('keeps utility sheet controls clickable over an update offer until the sheet 
       // Non-vacuity: the control's click point must be inside the offer's box.
       const controlBox = await control.boundingBox()
       const offerBox = await offer.boundingBox()
-      expect(controlBox).not.toBeNull()
-      expect(offerBox).not.toBeNull()
-      const x = controlBox!.x + controlBox!.width / 2
-      const y = controlBox!.y + controlBox!.height / 2
-      expect(x).toBeGreaterThan(offerBox!.x)
-      expect(x).toBeLessThan(offerBox!.x + offerBox!.width)
-      expect(y).toBeGreaterThan(offerBox!.y)
-      expect(y).toBeLessThan(offerBox!.y + offerBox!.height)
+      if (!controlBox || !offerBox) throw new Error('Missing sheet control or update card')
+      const x = controlBox.x + controlBox.width / 2
+      const y = controlBox.y + controlBox.height / 2
+      expect(x).toBeGreaterThan(offerBox.x)
+      expect(x).toBeLessThan(offerBox.x + offerBox.width)
+      expect(y).toBeGreaterThan(offerBox.y)
+      expect(y).toBeLessThan(offerBox.y + offerBox.height)
 
       const before = await control.getAttribute('aria-pressed')
       await control.click()
