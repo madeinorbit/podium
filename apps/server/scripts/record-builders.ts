@@ -39,7 +39,7 @@ function openSnapshot(path: string): SqlDatabase {
   // `--immutable` for a backup file nothing writes: no locks, no -wal/-shm touched.
   const db = openDatabase(path, { readOnly: true, immutable: args.has('immutable') })
   db.exec('PRAGMA query_only = ON; PRAGMA busy_timeout = 1000; BEGIN')
-  db.prepare("SELECT seq FROM sqlite_sequence WHERE name='changes'").get()
+  db.prepare('SELECT head_seq FROM sync_feed LIMIT 1').get()
   return db
 }
 

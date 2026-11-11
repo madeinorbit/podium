@@ -509,13 +509,22 @@ export class SyncRepository {
 
   constructor(
     queries: StoreQueries,
-    tables: SyncServerTables,
+    private readonly tables: SyncServerTables,
     readonly tenantId: string = SELF_HOSTED_TENANT_ID,
   ) {
     if (!tenantId) throw new Error('a sync repository requires a tenant')
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction
     this.serverTables = serverTableQueries(tables.queuedMessages, tables.upstreamOutbox)
+  }
+
+  /** A tenant-bound view over the same executor and transaction runner. */
+  forTenant(tenantId: string): SyncRepository {
+    return new SyncRepository(
+      { rootDb: this.rootDb, createOrJoinTransaction: this.createOrJoinTransaction },
+      this.tables,
+      tenantId,
+    )
   }
 
   // ---- metadata oplog (docs/spec/oplog-read-path.md) ----
@@ -629,13 +638,10 @@ export class SyncRepository {
     now: number
   }): Promise<ChangePrunePlan> {
     const rowCapSeq = (await this.maxChangeSeq()) - opts.keepRows
-    // `INDEXED BY` HAS NO BUILDER FORM, so the FROM clause is an `sql` fragment —
-    // which rule 1 allows inside a builder query, and which keeps the WHERE, the
-    // aggregate and the row decoding on the builder where the rest of this file
-    // is. The hint is load-bearing rather than decoration: measured on the
-    // fixture, `EXPLAIN QUERY PLAN` reports `SEARCH changes` without it against
-    // `SEARCH changes USING COVERING INDEX changes_event_time` with it, and this
-    // read runs once per prune job.
+    // Force the covering (tenant_id, event_time, seq) index: the age lookup
+    // seeks this tenant's time range and reads seq without loading log payloads.
+    // seq must be explicit because the composite primary key is not the rowid.
+    // `INDEXED BY` has no builder form, hence newestAgedSeq's SQL FROM fragment.
     const aged = await newestAgedSeq(this.db).get({
       tenantId: this.tenantId,
       before: opts.now - opts.maxAgeMs,

@@ -164,7 +164,7 @@ export function createTestSyncDatabase(): SqlDatabase {
      )`,
   )
   db.exec('CREATE INDEX changes_entity ON changes(tenant_id, entity, entity_id, seq)')
-  db.exec('CREATE INDEX changes_event_time ON changes(tenant_id, event_time)')
+  db.exec('CREATE INDEX changes_event_time ON changes(tenant_id, event_time, seq)')
   db.exec(`CREATE TABLE sync_feed (
     tenant_id TEXT PRIMARY KEY, feed_id TEXT NOT NULL, epoch TEXT NOT NULL,
     minted_at INTEGER NOT NULL, head_seq INTEGER NOT NULL, floor_seq INTEGER NOT NULL

@@ -244,9 +244,6 @@ export class Ledger {
    */
   readonly authority: Authority
   private readonly listeners = new Set<(changes: MetadataChange[]) => void>()
-  private readonly shutdown = new AbortController()
-  private pruneFlight: Promise<void> | undefined
-  private pruneRerunRequested = false
   /** Who may write (ADR 12 D9): every commit names a scope this
    *  issuer handed out. */
   private readonly scopes = new WriteScopeIssuer()
@@ -433,12 +430,6 @@ export class Ledger {
     return await this.authority.cursor()
   }
 
-  /** Cancel maintenance between bounded units during server shutdown. */
-  dispose(): void {
-    this.pruneRerunRequested = false
-    this.shutdown.abort()
-  }
-
   /** Fires after commit with the appended changes (never with
    *  an empty batch). Per-listener try/catch so a listener throw can't break the
    *  committer. Returns an unsubscribe. */
@@ -447,54 +438,6 @@ export class Ledger {
     return () => {
       this.listeners.delete(listener)
     }
-  }
-
-  /**
-   * [spec:SP-c29e] Coalesce overlapping cadence triggers into the current
-   * retention flight plus at most one rerun.
-   */
-  private async schedulePrune(): Promise<void> {
-    if (this.shutdown.signal.aborted) return
-    if (this.pruneFlight) {
-      this.pruneRerunRequested = true
-      return
-    }
-    const flight = this.drainPruneRequests()
-    this.pruneFlight = flight
-    const clear = () => {
-      if (this.pruneFlight === flight) this.pruneFlight = undefined
-    }
-    void flight.then(clear, (err) => {
-      clear()
-      log.error('retention prune failed (writes remain durable)', { err })
-    })
-  }
-
-  private async drainPruneRequests(): Promise<void> {
-    let failed = false
-    let failure: unknown
-    do {
-      this.pruneRerunRequested = false
-      try {
-        const { metrics } = await pruneChangeLog(this.deps.repo, {
-          keepRows: CHANGE_KEEP_ROWS,
-          maxAgeMs: CHANGE_MAX_AGE_MS,
-          now: this.deps.now(),
-          signal: this.shutdown.signal,
-          monotonicNow: this.deps.monotonicNow,
-          onMetrics: this.deps.onPruneMetrics,
-        })
-        if (metrics.exceededPlacementThreshold) {
-          log.warn('retention job is a candidate for janitor placement', {
-            durationMs: Number(metrics.totalDurationMs.toFixed(1)),
-          })
-        }
-      } catch (err) {
-        if (!failed) failure = err
-        failed = true
-      }
-    } while (this.pruneRerunRequested && !this.shutdown.signal.aborted)
-    if (failed) throw failure
   }
 }
 

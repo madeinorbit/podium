@@ -1,4 +1,5 @@
 import { readdirSync, readFileSync } from 'node:fs'
+import { changeLogPruneRunKey } from '@podium/protocol'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it, vi } from 'vitest'
 import { ChangeLogPrunePlanner } from './janitor'
@@ -27,15 +28,23 @@ function seed(db: SqlDatabase, tenant: string, head: number, floor: number, aged
 }
 
 describe('ChangeLogPrunePlanner tenant bounds', () => {
-  it('keeps another tenant’s high head and old rows out of the local plan', async () => {
+  it('plans every tenant with its own head, floor and age threshold', async () => {
     const db = database()
     try {
       seed(db, 'local', 12, 8, 8)
       seed(db, 'busy', 1_008, 1_001, 1_008)
-      expect(await new ChangeLogPrunePlanner(db).plan(input)).toEqual([
-        { keepRows: 3, maxAgeMs: 1_000, batchSize: 2, thresholdSeq: 9, fromSeq: 8 },
+      const batches = await new ChangeLogPrunePlanner(db).plan(input)
+      expect(batches.filter((batch) => batch.tenantId === 'local')).toEqual([
+        {
+          tenantId: 'local',
+          keepRows: 3,
+          maxAgeMs: 1_000,
+          batchSize: 2,
+          thresholdSeq: 9,
+          fromSeq: 8,
+        },
       ])
-      const busy = await new ChangeLogPrunePlanner(db, 'busy').plan(input)
+      const busy = batches.filter((batch) => batch.tenantId === 'busy')
       expect(busy.map((batch) => batch.fromSeq)).toEqual([1_001, 1_003, 1_005, 1_007])
       expect(busy.every((batch) => batch.thresholdSeq === 1_008)).toBe(true)
     } finally {
@@ -59,7 +68,14 @@ describe('ChangeLogPrunePlanner tenant bounds', () => {
         12,
       )
       expect(await new ChangeLogPrunePlanner(db).plan({ ...input, keepRows: 100 })).toEqual([
-        { keepRows: 100, maxAgeMs: 1_000, batchSize: 2, thresholdSeq: 9, fromSeq: 8 },
+        {
+          tenantId: 'local',
+          keepRows: 100,
+          maxAgeMs: 1_000,
+          batchSize: 2,
+          thresholdSeq: 9,
+          fromSeq: 8,
+        },
       ])
     } finally {
       db.close()
@@ -72,7 +88,34 @@ describe('ChangeLogPrunePlanner tenant bounds', () => {
       seed(db, 'busy', 1_008, 1_001, 1_008)
       if (state === 'empty') seed(db, 'local', 12, 13)
       if (state === 'retained') seed(db, 'local', 12, 11)
-      expect(await new ChangeLogPrunePlanner(db).plan(input)).toEqual([])
+      const batches = await new ChangeLogPrunePlanner(db).plan(input)
+      expect(batches).toHaveLength(4)
+      expect(batches.every((batch) => batch.tenantId === 'busy')).toBe(true)
+    } finally {
+      db.close()
+    }
+  })
+
+  it('keeps replay keys distinct for tenants with identical sequence bounds', async () => {
+    const db = database()
+    try {
+      seed(db, 'one/tenant', 5, 1, 5)
+      seed(db, 'two', 5, 1, 5)
+      const batches = await new ChangeLogPrunePlanner(db).plan(input)
+      expect(batches).toHaveLength(6)
+      expect(new Set(batches.map(changeLogPruneRunKey)).size).toBe(6)
+    } finally {
+      db.close()
+    }
+  })
+
+  it('pages tenant metadata beyond one page without dropping a tenant', async () => {
+    const db = database()
+    try {
+      for (let i = 0; i < 30; i++) seed(db, `tenant-${i}`, 1, 1, 1)
+      const batches = await new ChangeLogPrunePlanner(db).plan(input)
+      expect(batches).toHaveLength(30)
+      expect(new Set(batches.map((batch) => batch.tenantId)).size).toBe(30)
     } finally {
       db.close()
     }
@@ -127,23 +170,16 @@ describe('ChangeLogPrunePlanner tenant bounds', () => {
       await planner.plan(input)
       const queries = prepare.mock.calls.map(([query]) => query)
       prepare.mockRestore()
-      // Both statements are prepared once, independent of ticks and batch count.
-      expect(queries).toHaveLength(2)
-      const plans = queries.map(
-        (query) =>
-          db
-            .prepare(`EXPLAIN QUERY PLAN ${query}`)
-            .all(...(query.includes('sync_feed') ? ['local'] : ['local', 1_000])) as {
-            detail: string
-          }[],
+      // One paged statement is prepared once, independent of ticks and tenant count.
+      expect(queries).toHaveLength(1)
+      const plans = db.prepare(`EXPLAIN QUERY PLAN ${queries[0]}`).all(1_000, '', 25) as {
+        detail: string
+      }[]
+      expect(plans.some((row) => /\bSCAN\b/.test(row.detail))).toBe(false)
+      expect(plans.some((row) => /SEARCH feed USING INDEX/.test(row.detail))).toBe(true)
+      expect(plans.map((row) => row.detail).join('\n')).toContain(
+        'USING COVERING INDEX changes_event_time (tenant_id=? AND event_time<?)',
       )
-      expect(plans.flat().every((row) => row.detail.startsWith('SEARCH '))).toBe(true)
-      expect(
-        plans
-          .flat()
-          .map((row) => row.detail)
-          .join('\n'),
-      ).toContain('USING COVERING INDEX changes_event_time (tenant_id=? AND event_time<?)')
     } finally {
       db.close()
     }

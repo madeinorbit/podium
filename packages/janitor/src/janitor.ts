@@ -744,49 +744,60 @@ export class EventLogPrunePlanner {
   }
 }
 
-/** Plan change-log prune batches from durable WAL facts. */
+/** Plan each tenant's change-log prune batches from durable WAL facts. */
 export class ChangeLogPrunePlanner {
-  constructor(private readonly db: SqlDatabase) {}
+  private readonly feeds: ReturnType<SqlDatabase['prepare']>
+
+  constructor(db: SqlDatabase) {
+    this.feeds = db.prepare(`
+      SELECT feed.tenant_id, feed.head_seq, feed.floor_seq,
+        (SELECT MAX(seq) FROM changes INDEXED BY changes_event_time
+         WHERE tenant_id = feed.tenant_id AND event_time < ?) AS aged_seq
+      FROM sync_feed AS feed
+      WHERE feed.tenant_id > ? AND feed.floor_seq <= feed.head_seq
+      ORDER BY feed.tenant_id
+      LIMIT ?
+    `)
+  }
 
   async plan(input: ChangeLogPrunePlanInput): Promise<ChangeLogPruneObservation[]> {
-    const maxSeq = (
-      this.db.prepare('SELECT COALESCE(MAX(seq), 0) AS m FROM changes').get() as { m: number }
-    ).m
-    const rowCapSeq = maxSeq - input.keepRows
-    const aged = this.db
-      .prepare('SELECT MAX(seq) AS seq FROM changes WHERE event_time < ?')
-      .get(input.nowMs - input.maxAgeMs) as { seq: number | null }
-    const thresholdSeq = Math.max(rowCapSeq, aged.seq ?? 0)
-    if (thresholdSeq <= 0) return []
-    const minSeq = (
-      this.db.prepare('SELECT MIN(seq) AS m FROM changes WHERE seq <= ?').get(thresholdSeq) as {
-        m: number | null
-      }
-    ).m
-    if (minSeq == null) return []
-    const eligible = (
-      this.db.prepare('SELECT COUNT(*) AS n FROM changes WHERE seq <= ?').get(thresholdSeq) as {
-        n: number
-      }
-    ).n
-    if (eligible <= 0) return []
-    const batchCount = Math.ceil(eligible / input.batchSize)
-    const limit = Math.min(batchCount, CANDIDATE_LIMIT)
     const batches: ChangeLogPruneObservation[] = []
-    // fromSeq tracks the retained head so recovery after a capped tick issues
-    // new runKeys instead of already-applied batchIndex 0 under the same threshold.
-    await runTimeBudgetedJob(() => {
-      if (batches.length >= limit) return 'done'
-      batches.push({
-        keepRows: input.keepRows,
-        maxAgeMs: input.maxAgeMs,
-        thresholdSeq,
-        batchSize: input.batchSize,
-        fromSeq: minSeq + batches.length * input.batchSize,
-      })
-      return batches.length >= limit ? 'done' : 'continue'
-    })
-    return batches
+    let afterTenant = ''
+    for (;;) {
+      // A page reads tenant bounds and age thresholds in one SQLite snapshot.
+      // The correlated lookup seeks the covering age index for each tenant,
+      // without loading payloads or issuing a query per tenant from JavaScript.
+      const feeds = this.feeds.all(
+        input.nowMs - input.maxAgeMs,
+        afterTenant,
+        CANDIDATE_PAGE_SIZE,
+      ) as { tenant_id: string; head_seq: number; floor_seq: number; aged_seq: number | null }[]
+      for (const feed of feeds) {
+        // Appends commit contiguous seqs with the head; retention removes only
+        // a prefix and advances the floor, so the eligible count is arithmetic.
+        const thresholdSeq = Math.max(feed.head_seq - input.keepRows, feed.aged_seq ?? 0)
+        const eligible = thresholdSeq - feed.floor_seq + 1
+        if (eligible <= 0) continue
+        const limit = Math.min(Math.ceil(eligible / input.batchSize), CANDIDATE_LIMIT)
+        let batchIndex = 0
+        // Bound each tenant's plan to 100 batches. Its durable floor gives
+        // recovery new runKeys after a capped tick instead of starving the tail.
+        await runTimeBudgetedJob(() => {
+          batches.push({
+            tenantId: feed.tenant_id,
+            keepRows: input.keepRows,
+            maxAgeMs: input.maxAgeMs,
+            thresholdSeq,
+            batchSize: input.batchSize,
+            fromSeq: feed.floor_seq + batchIndex * input.batchSize,
+          })
+          batchIndex += 1
+          return batchIndex >= limit ? 'done' : 'continue'
+        })
+      }
+      if (feeds.length < CANDIDATE_PAGE_SIZE) return batches
+      afterTenant = feeds[feeds.length - 1]!.tenant_id
+    }
   }
 }
 

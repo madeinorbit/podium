@@ -5201,7 +5201,6 @@ export class SessionRegistry {
     this.accountQuota.dispose()
     this.accountUsage.dispose()
     this.quotaBackfill.dispose()
-    this.ledger.dispose()
     clearInterval(this.messageSweep)
     clearInterval(this.queuedInputSweep)
     clearInterval(this.pendingUploadSweep)

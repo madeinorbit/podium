@@ -358,6 +358,7 @@ describe('JanitorService [spec:SP-c29e]', () => {
       ],
       planChangeLogPrune: async () => [
         {
+          tenantId: 'local',
           keepRows: 500_000,
           maxAgeMs: 30 * 24 * 60 * 60 * 1000,
           thresholdSeq: 9,

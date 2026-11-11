@@ -719,8 +719,8 @@ export async function startServer(
     (!store.settings.resolve('authOpenMode').value && (await store.users.hasPerUserCredentials()))
   const mobilePairing = new MobilePairingManager()
   // Readiness gate [spec:SP-c29e]: a bloated change log is fully pruned in
-  // bounded, yielding units before SessionRegistry constructs its Ledger and
-  // folds/reconciles the retained rows. The server does not listen meanwhile.
+  // bounded, yielding units before the server starts serving catch-up reads.
+  // The server does not listen meanwhile.
   if (!recoveryOnly) {
     const bootPrune = await prepareLedgerBoot({
       repo: store.sync,

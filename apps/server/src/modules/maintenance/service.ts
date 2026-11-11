@@ -337,7 +337,8 @@ export class MaintenanceService {
     ) {
       return this.stale(command, 'precondition')
     }
-    const plan = await this.store.sync.planChangePrune({
+    const repo = this.store.sync.forTenant(observed.tenantId)
+    const plan = await repo.planChangePrune({
       keepRows: observed.keepRows,
       maxAgeMs: observed.maxAgeMs,
       now: nowMs,
@@ -345,7 +346,7 @@ export class MaintenanceService {
     if (plan.thresholdSeq < observed.thresholdSeq) {
       return this.stale(command, 'precondition')
     }
-    const deleted = await this.store.sync.pruneChangeBatch(
+    const deleted = await repo.pruneChangeBatch(
       { thresholdSeq: observed.thresholdSeq },
       observed.batchSize,
     )

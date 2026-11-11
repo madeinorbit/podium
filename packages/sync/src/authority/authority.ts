@@ -142,10 +142,6 @@ export interface AuthorityDeps {
    * is a SAVEPOINT. "After my savepoint released" is not "after the transaction
    * committed": the outer body can still throw, and every subscriber has already
    * been told about changes the database then rolls back.
-   *
-   * Both record builds and the append run inside the write transaction.
-   * Rollback therefore discards source rows and log rows together.
-
    */
   postCommit?: PostCommitFollowUpPort
   /**

@@ -114,7 +114,7 @@ export const changes = sqliteTable(
   (table) => [
     primaryKey({ columns: [table.tenantId, table.seq] }),
     index('changes_entity').on(table.tenantId, table.entity, table.entityId, table.seq),
-    index('changes_event_time').on(table.tenantId, table.eventTime),
+    index('changes_event_time').on(table.tenantId, table.eventTime, table.seq),
   ],
 )
 

@@ -37,8 +37,10 @@ import { z } from 'zod'
 // (`deliveryStatus: 'stored'`) instead of the legacy word (`status: 'queued'`).
 // A v4 janitor's observation fails a v5 server's parse, and the reverse, so the
 // handshake refuses the mismatch.
-export const MAINTENANCE_PROTOCOL_VERSION = 5
-export const MAINTENANCE_SCHEMA_VERSION = 'maintenance-v5'
+// v6: change-log retention observations and replay keys name the tenant; the
+// planner reads sync_feed bounds and the covering tenant/time/seq index.
+export const MAINTENANCE_PROTOCOL_VERSION = 6
+export const MAINTENANCE_SCHEMA_VERSION = 'maintenance-v6'
 export const MESSAGE_WAIT_TTL_MS = 7 * 24 * 60 * 60_000
 
 /** Shared retention constants the janitor and server both honor. */
@@ -124,6 +126,7 @@ export const EventLogPruneObservation = z.object({
 export type EventLogPruneObservation = z.infer<typeof EventLogPruneObservation>
 
 export const ChangeLogPruneObservation = z.object({
+  tenantId: z.string().min(1),
   keepRows: z.number().int().nonnegative(),
   maxAgeMs: z.number().int().nonnegative(),
   thresholdSeq: z.number().int(),
@@ -462,6 +465,7 @@ export function eventLogPruneRunKey(observed: EventLogPruneObservation): string 
 export function changeLogPruneRunKey(observed: ChangeLogPruneObservation): string {
   return [
     'change-log-prune',
+    encode(observed.tenantId),
     String(observed.thresholdSeq),
     String(observed.batchSize),
     String(observed.fromSeq),
