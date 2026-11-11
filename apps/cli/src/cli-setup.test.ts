@@ -776,6 +776,37 @@ describe('runCliSetup', () => {
   })
 
   describe('advisory reachability probe (POD-4534)', () => {
+    it.each([
+      { ok: false, error: 'INVALID_URL', detail: 'must be on port 443' },
+      { ok: false, error: 'PORT_UNSUPPORTED', detail: 'port is outside the probe allowlist' },
+    ] satisfies CheckResult[])('keeps a non-443 address without a correction or local-check prompt: $error', async (verdict) => {
+      const s = scriptedIO([
+        'all-in-one',
+        MANUAL,
+        'https://example.com:18787',
+        's3cret',
+        's3cret',
+        false,
+      ])
+      const inside = vi.fn(async () => false)
+      await runCliSetup(s.io, 18787, {
+        ...HERMETIC,
+        setPassword: vi.fn(async () => {}),
+        startBackend: echoBackend,
+        waitForEnrollment: async () => {},
+        hasCommand: () => true,
+        checkReachability: async () => verdict,
+        checkInside: inside,
+      })
+      expect(loadConfig().publicUrl).toBe('https://example.com:18787')
+      expect(s.output).toContain(CHECK_ERROR_SENTENCES.PORT_UNSUPPORTED)
+      expect(s.output.join('\n')).not.toMatch(
+        /not a usable URL|check for typos|must be on port 443/,
+      )
+      expect(s.prompts).not.toContain('What now?')
+      expect(inside).not.toHaveBeenCalled()
+    })
+
     const failWith =
       (error: CheckError, detail = 'probe detail'): (() => Promise<CheckResult>) =>
       async () => ({ ok: false, error, detail })

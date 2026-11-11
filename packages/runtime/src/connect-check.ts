@@ -54,8 +54,8 @@ export const CHECK_ERROR_SENTENCES: Record<CheckError, string> = {
     'Nothing is listening on that port from the outside. Make sure the funnel or tunnel ' +
     'command is still running, and that no firewall or tailnet ACL blocks it.',
   UNREACHABLE:
-    'Nothing answered at that address. The machine may be offline, or the tunnel or funnel ' +
-    'has stopped.',
+    'The outside probe could not reach Podium at that address. The machine may be offline, ' +
+    'or its tunnel, funnel or reverse proxy may need attention.',
   NOT_PODIUM:
     'Something answered, but it is not Podium. Another service may be on that address, or ' +
     'the reverse proxy is pointing at the wrong port.',
@@ -78,6 +78,7 @@ export function describeCheckError(error: CheckError): string {
  * only that refusal, for an explicit non-443 HTTPS port; other URL errors keep
  * their meaning. Apply at the transport and UI boundaries for mixed deployments.
  */
+// LEGACY(remove-after: 2027-05): Deployed Connect rejects non-443 ports as invalid URLs.
 export function normalizeCheckResult(url: string, verdict: CheckResult): CheckResult {
   if (
     verdict.ok ||

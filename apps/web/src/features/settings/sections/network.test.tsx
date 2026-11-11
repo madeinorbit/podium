@@ -1,5 +1,6 @@
 import '@/test-support/mock-core-store-handle'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { CHECK_ERROR_SENTENCES, type CheckResult } from '@podium/runtime/connect-check'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Trpc } from '@/app/trpc'
 import { type NetworkInfo, NetworkSettingsView } from '../network-view'
@@ -52,6 +53,54 @@ async function network(overrides: Record<string, unknown> = {}) {
 }
 
 describe('Access address', () => {
+  it.each([
+    { ok: false, error: 'INVALID_URL', detail: 'must be on port 443' },
+    { ok: false, error: 'PORT_UNSUPPORTED', detail: 'port is outside the probe allowlist' },
+  ] satisfies CheckResult[])('labels a port the probe cannot check as unavailable: $error', async (verdict) => {
+    const view = await network({ publicUrl: 'https://example.com:18787' })
+    vi.mocked(fixture.trpc.connect.check.query).mockResolvedValue(verdict)
+    render(<NetworkSection view={view} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Check now' }))
+    expect(await screen.findByText(/Check unavailable · Attempted/)).toBeTruthy()
+    expect(screen.getByText(CHECK_ERROR_SENTENCES.PORT_UNSUPPORTED)).toBeTruthy()
+    expect(screen.queryByText(/Not reachable from outside/)).toBeNull()
+    expect(screen.queryByText(/not a usable URL|check for typos|must be on port 443/)).toBeNull()
+    expect(fixture.trpc.connect.check.query).toHaveBeenCalledWith({
+      url: 'https://example.com:18787',
+    })
+  })
+
+  it('saves a changed non-443 address without an override when the deployed probe refuses its port', async () => {
+    const view = await network({ publicUrl: 'https://example.com' })
+    vi.mocked(fixture.trpc.connect.check.query).mockResolvedValue({
+      ok: false,
+      error: 'INVALID_URL',
+      detail: 'must be on port 443',
+    })
+    const complete = vi.fn().mockResolvedValue({ mode: 'server' })
+    Object.assign(fixture.trpc.setup, {
+      options: { query: vi.fn().mockResolvedValue([]) },
+      complete: { mutate: complete },
+    })
+    Object.assign(fixture.trpc, {
+      auth: { status: { query: vi.fn().mockResolvedValue({ hasOwnCredential: true }) } },
+    })
+    render(<NetworkSection view={view} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Change' }))
+    render(fixture.openTakeover.mock.calls[0]?.[0].content)
+    fireEvent.change(await screen.findByLabelText(/Podium URL/i), {
+      target: { value: 'https://example.com:18787' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save address' }))
+    await waitFor(() => expect(complete).toHaveBeenCalledTimes(1))
+    expect(complete).toHaveBeenCalledWith({
+      publicUrl: 'https://example.com:18787',
+      confirmUrlChange: true,
+    })
+    expect(fixture.closeTakeover).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('button', { name: /use this URL anyway/i })).toBeNull()
+  })
+
   it('keeps a normal setup-saved address editable and opens a takeover with the rejoin warning', async () => {
     render(<NetworkSection view={await network()} />)
     expect(screen.getByText('https://podium.example')).toBeTruthy()

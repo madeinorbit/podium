@@ -229,7 +229,7 @@ function NetworkStepForm({
   const [saved, setSaved] = useState(false)
   // THE ADVISORY PROBE (POD-4535): null = no opinion yet (or no opinion at all),
   // 'checking' while the cloud is asked, 'failed' holding the hint the operator
-  // may overrule. Never an error: a failed probe blocks nothing.
+  // may overrule, 'unavailable' explaining a port the probe cannot check.
   const [reach, setReach] = useState<
     { status: 'checking' } | { status: 'failed' | 'unavailable'; message: string } | null
   >(null)

@@ -64,8 +64,8 @@ function stubFetch(): void {
 }
 
 /** Fill the fresh-instance form (password mode) and press the private button. */
-async function fillAndSubmit(): Promise<void> {
-  fireEvent.change(await screen.findByLabelText(/podium url/i), { target: { value: URL } })
+async function fillAndSubmit(url = URL): Promise<void> {
+  fireEvent.change(await screen.findByLabelText(/podium url/i), { target: { value: url } })
   fireEvent.change(screen.getByLabelText(/^login password$/i), { target: { value: 'hunter2' } })
   fireEvent.click(screen.getByRole('button', { name: /^(finish|save network settings)$/i }))
 }
@@ -77,6 +77,11 @@ afterEach(() => {
 })
 
 describe('reachabilityHintFor', () => {
+  it('describes an unsupported port without repeating a URL rejection', () => {
+    expect(
+      reachabilityHintFor({ ok: false, error: 'PORT_UNSUPPORTED', detail: 'must be on port 443' }),
+    ).toBe(CHECK_ERROR_SENTENCES.PORT_UNSUPPORTED)
+  })
   it('has no opinion on ok, CONNECT_UNAVAILABLE, or no answer', () => {
     expect(reachabilityHintFor(undefined)).toBeNull()
     expect(reachabilityHintFor({ ok: true, url: URL, resolvedTo: [] })).toBeNull()
@@ -103,6 +108,50 @@ describe('reachabilityHintFor', () => {
 })
 
 describe('NetworkStep advisory probe', () => {
+  it.each([
+    { ok: false, error: 'INVALID_URL', detail: 'must be on port 443' },
+    { ok: false, error: 'PORT_UNSUPPORTED', detail: 'port is outside the probe allowlist' },
+  ] satisfies CheckResult[])('saves a non-443 address directly when Connect cannot check it: $error', async (verdict) => {
+    stubFetch()
+    const complete = vi.fn().mockResolvedValue({ mode: 'all-in-one' })
+    const onSaved = vi.fn()
+    const onChecked = vi.fn()
+    const url = 'https://example.com:18787'
+    render(
+      <NetworkStep
+        embedded
+        trpc={fakeTrpc({ complete, check: async () => verdict })}
+        onSaved={onSaved}
+        onChecked={onChecked}
+      />,
+    )
+    await fillAndSubmit(url)
+    await waitFor(() => expect(complete).toHaveBeenCalledTimes(1))
+    expect(complete).toHaveBeenCalledWith(expect.objectContaining({ publicUrl: url }))
+    expect(onSaved).toHaveBeenCalledTimes(1)
+    expect(onChecked).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url,
+        verdict: expect.objectContaining({ error: 'PORT_UNSUPPORTED' }),
+      }),
+    )
+    expect(screen.getByText(CHECK_ERROR_SENTENCES.PORT_UNSUPPORTED)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /use this url anyway/i })).toBeNull()
+    expect(screen.queryByText(/not a usable URL|check for typos|must be on port 443/)).toBeNull()
+  })
+
+  it('still offers the override for a probed non-443 address that cannot be reached', async () => {
+    stubFetch()
+    const trpc = fakeTrpc({ check: async () => FAIL })
+    render(<NetworkStep embedded trpc={trpc} onSaved={vi.fn()} />)
+    await fillAndSubmit('https://example.com:8443')
+    fireEvent.click(await screen.findByRole('button', { name: /use this url anyway/i }))
+    await waitFor(() => expect(trpc.setup.complete.mutate).toHaveBeenCalledTimes(1))
+    expect(trpc.setup.complete.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ publicUrl: 'https://example.com:8443' }),
+    )
+  })
+
   it('shows the check while it runs, then commits silently on ok', async () => {
     stubFetch()
     let resolveCheck!: (v: CheckResult) => void
