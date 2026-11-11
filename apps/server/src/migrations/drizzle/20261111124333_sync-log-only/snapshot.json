@@ -1,9 +1,9 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "3d876f7c-6fc9-4cf7-b3d9-8c798824a93c",
+  "id": "9333b3d3-e1ca-4d16-95d3-a96b439cf512",
   "prevIds": [
-    "7d9b18a4-6397-4c35-9663-338cf9d66b44"
+    "c58fe44a-2457-4259-abc8-e7932e3b4469"
   ],
   "ddl": [
     {
@@ -6731,6 +6731,26 @@
       "default": null,
       "generated": null,
       "name": "last_active_at",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "''",
+      "generated": null,
+      "name": "published_last_active_at",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "last_active_publish_after",
       "entityType": "columns",
       "table": "sessions"
     },
@@ -14142,6 +14162,24 @@
       "name": "idx_session_user_state_session",
       "entityType": "indexes",
       "table": "session_user_state"
+    },
+    {
+      "columns": [
+        {
+          "value": "last_active_publish_after",
+          "isExpression": false
+        },
+        {
+          "value": "id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": "\"sessions\".\"published_last_active_at\" < \"sessions\".\"last_active_at\" AND \"sessions\".\"deleted_at\" IS NULL",
+      "origin": "manual",
+      "name": "idx_sessions_pending_activity",
+      "entityType": "indexes",
+      "table": "sessions"
     },
     {
       "columns": [

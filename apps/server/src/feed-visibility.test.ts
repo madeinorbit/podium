@@ -18,7 +18,7 @@ import {
   NoDelegationsGranted,
   type VisibilityAnchorPort,
 } from '@podium/sync'
-import { ModelAuthority as Authority } from '@podium/sync/testing'
+import { ModelAuthority as Authority, ModelRecords } from '@podium/sync/testing'
 import { afterEach, describe, expect, expectTypeOf, it } from 'vitest'
 import { makeFeedVisibility } from './feed-visibility'
 import type { FeedVisibilityStore, IssueRow, SessionRow } from './hot-path-ports'
@@ -112,11 +112,12 @@ async function fixture() {
     grants: store.grants,
     checkouts: store.checkouts,
   }
+  const records = new ModelRecords()
   const policy = makeFeedVisibility({
     store: rows,
     audiencesFor: (kind, ids) => store.grants.visibilityAudiencesFor(kind, ids),
     authorizationRevision: () => store.grants.visibilityRevision(),
-    currentRecords: testStoreRecords(store).build,
+    currentRecords: records.build.bind(records),
   })
   const grant = async (kind: string, grantee: string, verb: GrantRow['verb']) =>
     store.grants.upsert({
@@ -131,7 +132,7 @@ async function fixture() {
       actorId: owner,
       onBehalfOf: owner,
     })
-  return { store, policy, grant, issue }
+  return { store, policy, grant, issue, records }
 }
 const creator = asUserId('creator')
 const firstAdmin = asUserId('first-admin')
@@ -168,10 +169,11 @@ const refs: EntityRef[] = [
 
 describe('feed visibility grant semantics', () => {
   it('keeps issue user-state private in bootstrap and delta even when the issue is shared', async () => {
-    const { store, policy, grant } = await fixture()
+    const { store, policy, grant, records } = await fixture()
     await grant('issue', reader, 'read')
     const authority = new Authority({
       store: store.sync,
+      records,
       now: () => 1_000,
       transact: async (fn) => await store.transact(fn),
       visibility: new GrantEdgeVisibilityPolicy(policy.state, new NoDelegationsGranted()),
@@ -229,8 +231,8 @@ describe('feed visibility grant semantics', () => {
       (await edgeOf(policy.anchors, { entity: 'issueProjection', entityId: 'shared' }))?.subjects,
     ).toContainEqual(git)
   })
-  it("effect records share their target's audience and ride its grant/revoke subjects (POD-6401)", async () => {
-    const { store, policy, grant } = await fixture()
+  it('effect records follow current target readership and use model values for re-admission', async () => {
+    const { store, policy, grant, records } = await fixture()
     const principalOf = (user: typeof owner): Principal => ({
       kind: 'user',
       user,
@@ -239,6 +241,7 @@ describe('feed visibility grant semantics', () => {
     })
     const authority = new Authority({
       store: store.sync,
+      records,
       now: () => 1_000,
       transact: async (fn) => await store.transact(fn),
       visibility: new GrantEdgeVisibilityPolicy(policy.state, new NoDelegationsGranted()),
@@ -292,17 +295,16 @@ describe('feed visibility grant semantics', () => {
       { entity: 'effect', entityId: 'eff_issue' },
       { entity: 'effect', entityId: 'eff_session' },
     ])
-    // Each subject is still decided per reader: the issue grant opens the issue's
-    // record, not the session's.
+    // Each subject follows its target: tenant-visible issues and private sessions.
     const subjects = (await effectsOf()) ?? []
     let state = await policy.state.forBatch!(subjects)
     expect(subjects.map((ref) => state.mayRead(reader, ref))).toEqual([true, false])
     await grant('session', reader, 'read')
     state = await policy.state.forBatch!(subjects)
-    expect(subjects.map((ref) => state.mayRead(reader, ref))).toEqual([true, true])
+    expect(subjects.map((ref) => state.mayRead(reader, ref))).toEqual([true, false])
 
-    // A revoke keeps the reader in the edge's audience with the same subjects, so
-    // the records leave their devices with the issue.
+    // The edge still names the reader and its subjects after revocation.
+    // Issues are tenant-visible, so their effects remain readable; sessions stay private.
     await store.grants.remove('issue', 'shared', reader, 'read')
     const revokedEdge = await edgeOf(policy.anchors, {
       entity: 'issueProjection',
@@ -311,9 +313,8 @@ describe('feed visibility grant semantics', () => {
     expect(revokedEdge?.audience).toEqual([reader])
     expect(revokedEdge?.subjects).toContainEqual({ entity: 'effect', entityId: 'eff_issue' })
     state = await policy.state.forBatch!(subjects)
-    expect(state.mayRead(reader, subjects[0]!)).toBe(false)
-    // On the live feed the issue's next write takes the record off the reader's
-    // devices; the session's stays, through its own grant.
+    expect(state.mayRead(reader, subjects[0]!)).toBe(true)
+    // The next issue write re-admits its readable effect from the model table.
     const beforeRevokeWrite = await authority.cursor()
     await authority.save([
       {
@@ -329,12 +330,12 @@ describe('feed visibility grant semantics', () => {
       revokedDelta.changes
         .filter((change) => change.entity === 'effect' && change.entityId === 'eff_issue')
         .map((change) => change.op),
-    ).toEqual(['evict'])
+    ).toEqual(['upsert'])
     expect(
       (await authority.bootstrap(principalOf(reader))).changes.some(
         (change) => change.entity === 'effect' && change.entityId === 'eff_issue',
       ),
-    ).toBe(false)
+    ).toBe(true)
   })
   it('an effect is read by its creator and by the readers of its target (POD-6357)', async () => {
     const { policy, grant } = await fixture()
@@ -349,9 +350,9 @@ describe('feed visibility grant semantics', () => {
         effects.filter((ref) => state.mayRead(user, ref)).map((ref) => ref.entityId)
       expect(readable(creator)).toEqual(['eff_issue', 'eff_session', 'eff_machine'])
       expect(readable(owner)).toEqual(['eff_issue', 'eff_session'])
-      // A read grant on the issue only: the session's grant is not there.
+      // Every member reads the issue; sessions still belong to their owner.
       expect(readable(reader)).toEqual(['eff_issue'])
-      expect(readable(stranger)).toEqual([])
+      expect(readable(stranger)).toEqual(['eff_issue'])
     }
   })
 
@@ -562,9 +563,10 @@ describe('rows scoped by the session named in their id', () => {
  */
 describe('the issue anchor edge reads the normalized record', () => {
   it('a share re-admits the normalized issue and names only current subjects', async () => {
-    const { store, policy, grant } = await fixture()
+    const { store, policy, grant, records } = await fixture()
     const authority = new Authority({
       store: store.sync,
+      records,
       now: () => 1_000,
       transact: async (fn) => await store.transact(fn),
       visibility: new GrantEdgeVisibilityPolicy(policy.state, new NoDelegationsGranted()),

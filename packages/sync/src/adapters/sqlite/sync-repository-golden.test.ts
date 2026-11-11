@@ -370,23 +370,6 @@ describe('retention', () => {
   })
 })
 
-describe('the installed world, read by key [POD-6156]', () => {
-  beforeEach(async () => {
-    await repo.appendChanges(
-      [
-        change('issueDep', 'a|b|blocked-by', 'upsert', '"ab"'),
-        change('issueDep', 'a|c|related', 'upsert', '"ac"'),
-        change('issueDep', 'ab|c|related', 'upsert', '"abc"'),
-        change('issueDep', 'a\\|x|y|related', 'upsert', '"escaped"'),
-        change('issueDep', 'a|gone|related', 'upsert', '"gone"'),
-        change('issueProjection', 'a', 'upsert', '"issue"'),
-        change('issueDep', 'a|gone|related', 'remove', null),
-      ],
-      1,
-    )
-  })
-})
-
 describe('the applied-mutation receipts', () => {
   const id = asMutationId('mut-1')
 

@@ -88,7 +88,7 @@ describe('the upgrade without boot reconcile', () => {
         created_at: TS,
       })
       db.exec("INSERT INTO sync_kind VALUES ('pendingInteraction', 7)")
-      runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+      runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cut + 1))
       expect(db.prepare('SELECT issue_id, ref_issue_id, ref_letter FROM sessions').get()).toEqual({
         issue_id: null,
         ref_issue_id: null,
@@ -130,7 +130,7 @@ describe('the upgrade without boot reconcile', () => {
       expect(
         generations.filter((r) => r.kind !== 'pendingInteraction').every((r) => r.generation === 1),
       ).toBe(true)
-      runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+      runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cut + 1))
       expect(db.prepare('SELECT kind, generation FROM sync_kind ORDER BY kind').all()).toEqual(
         generations,
       )

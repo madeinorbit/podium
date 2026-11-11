@@ -59,7 +59,7 @@ import { DRIZZLE_MIGRATIONS as ALL_MIGRATIONS } from './drizzle-manifest.generat
 
 const DRIZZLE_MIGRATIONS = ALL_MIGRATIONS.slice(
   0,
-  ALL_MIGRATIONS.findIndex((m) => m.name.endsWith('_sync-log-only')),
+  ALL_MIGRATIONS.findIndex((m) => m.name.endsWith('_retire-the-solo-user')) + 1,
 )
 
 import { mintIdsIn, runDrizzleMigrations } from './index'
@@ -558,6 +558,8 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
       ],
       1,
     )
+    db.exec(`INSERT OR REPLACE INTO change_latest (entity, entity_id, seq, payload)
+      SELECT entity, entity_id, seq, payload FROM changes WHERE op = 'upsert' AND payload IS NOT NULL ORDER BY seq`)
     const makeServing = () => {
       const bootRepo = new SyncRepository(createTestSyncQueries(db), testSyncServerTables)
       const records = new ModelRecords()
@@ -670,6 +672,8 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
       ],
       1,
     )
+    db.exec(`INSERT OR REPLACE INTO change_latest (entity, entity_id, seq, payload)
+      SELECT entity, entity_id, seq, payload FROM changes WHERE op = 'upsert' AND payload IS NOT NULL ORDER BY seq`)
     const migration = retirementMigration()
     expect(() =>
       runDrizzleMigrations(db, [

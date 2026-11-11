@@ -20,8 +20,8 @@ import {
 import { asDelegationRef, CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterAll, describe, expect, it, vi } from 'vitest'
-import { loggedRowsFor } from './test-support/logged-rows'
 import { messageTestWriter, messageTestWriters } from './test-support/message-writer'
+import { testStoreRecords } from './test-support/record-writer'
 import { clientSessionViews } from './test-support/session-views'
 
 /** Every durable session row names a machine (POD-318) — there is no column default. */
@@ -1657,18 +1657,13 @@ describe('SessionRegistry', () => {
     const rawIds = (await reg.modules.machines.listMachines()).map((machine) => machine.id).sort()
     const accessOf = async (user: string) =>
       (
-        await loggedRowsFor(
-          store,
-          rawIds.map((machine) => ({
-            entity: 'machineAccess',
-            entityId: machineAccessRowId(asUserId(user), asMachineId(machine)),
-          })),
+        await testStoreRecords(store).build(
+          'machineAccess',
+          rawIds.map((machine) => machineAccessRowId(asUserId(user), asMachineId(machine))),
         )
-      ).flatMap((row) => {
-        if (row.payload === null) return []
-        const access = JSON.parse(row.payload) as MachineAccessWire
-        // The predicates read the live condition beside the record: offline.
-        return [{ ...access, id: access.machineId, online: false }]
+      ).map((row) => {
+        const access = row.value as MachineAccessWire
+        return { ...access, id: access.machineId, online: false }
       })
 
     // The admin SEES every machine (80bc92021 POD-3960: administration grants
