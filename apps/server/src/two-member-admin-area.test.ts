@@ -19,6 +19,7 @@
 import { asMachineId } from '@podium/model'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { projectSecurityEvent } from './admin-routes'
+import { memberActions } from './member-routes'
 import { sha256 } from './modules/machines/enrollment'
 import {
   MEMBERS,
@@ -108,6 +109,10 @@ describe('People: the allowed actions come from the server', () => {
   it('names what Alice may do to each member', async () => {
     const { status, body } = await get('alice', '/auth/members/list')
     expect(status).toBe(200)
+    const members = await f.handle.identity.memberships.list()
+    const hosted = memberActions(members, MEMBERS.alice.id, { ...f.handle.identity.core.capabilities(), accountUrl: 'https://account.example/account', adminSignOutEverywhere: false, passwordReset: 'mail' })
+    expect(hosted[MEMBERS.alice.id]).toEqual([])
+    expect(hosted[MEMBERS.bob.id]).not.toContain('signOutEverywhere')
     expect(body.actions).toEqual({
       [MEMBERS.alice.id]: ['signOutEverywhere'],
       [MEMBERS.bob.id]: ['setRole', 'disable', 'remove', 'recovery', 'signOutEverywhere'],

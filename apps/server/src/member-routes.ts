@@ -34,7 +34,10 @@ export function memberActions(
   return Object.fromEntries(
     members.map((member) => {
       const actions: MemberAction[] = []
-      if (member.memberId === actor) actions.push('signOutEverywhere')
+      if (member.memberId === actor) {
+        // Shared accounts manage their account-wide sign-out on the account page.
+        if (!capabilities.accountUrl) actions.push('signOutEverywhere')
+      }
       else if (member.status === 'disabled')
         actions.push(
           ...(member.account ? ['enable' as const, 'remove' as const] : ['invite' as const]),

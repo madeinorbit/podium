@@ -182,3 +182,32 @@ test('an admin directory supplies active roster names without losing full member
   directory.dispose()
   pool.dispose()
 })
+
+test.each([
+  [null, ['signOutEverywhere']],
+  ['https://accounts.example/account', []],
+] as const)('self sign-out everywhere stays on the account page when there is one (%s)', async (accountUrl, expected) => {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+  const directory = new MemberDirectory(pool)
+  await directory.read(async () => ({
+    ...adminAnswer([fullMember('admin')]),
+    actions: { admin: ['signOutEverywhere'] },
+    capabilities: {
+      version: 1,
+      passwordSignIn: true,
+      providers: [],
+      selfSignUp: false,
+      invitationDelivery: 'link',
+      passwordReset: 'admin-link',
+      emailVerification: false,
+      organisations: false,
+      sameMachineSignIn: accountUrl === null,
+      adminSignOutEverywhere: true,
+      adminEndDeviceSignIn: true,
+      accountUrl,
+    },
+  }))
+  expect(directory.actionsFor('admin')).toEqual(expected)
+  directory.dispose()
+  pool.dispose()
+})

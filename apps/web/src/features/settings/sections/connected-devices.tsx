@@ -561,6 +561,8 @@ export const SignedInDevicesSection = observer(function SignedInDevicesSection({
 }): JSX.Element {
   const pool = useWorklistPool()
   const account = useAccount()
+  // A shared account signs out everywhere on its account page, not per workspace.
+  const accountWide = !useServerAuthStatus()?.capabilities?.accountUrl
   const unsyncedChangeCount = useSettingsUnsyncedChangeCount()
   const readDevices = useCallback(() => api.auth.mobileSessions.query(), [api])
   const { request, reload } = useSettingsRecords('device', readDevices, deviceKey)
@@ -734,6 +736,7 @@ export const SignedInDevicesSection = observer(function SignedInDevicesSection({
               )}
             </div>
           ))}
+          {accountWide && (
           <div className="settings-list-note flex flex-wrap items-center justify-between gap-3">
             <p className="settings-prose flex items-center gap-2">
               <LogOut size={15} aria-hidden="true" />
@@ -750,7 +753,8 @@ export const SignedInDevicesSection = observer(function SignedInDevicesSection({
               Sign out everywhere
             </Button>
           </div>
-          {confirming === 'all' && (
+          )}
+          {accountWide && confirming === 'all' && (
             <div className="px-4">
               <ConfirmInline
                 sentence={

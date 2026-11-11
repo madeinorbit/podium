@@ -98,7 +98,9 @@ export class MemberDirectory extends RequestAnswer<Directory> {
       action === 'recovery'
         ? this.capabilities?.passwordReset === 'admin-link'
         : action === 'signOutEverywhere'
-          ? memberId === this.currentMemberId || this.capabilities?.adminSignOutEverywhere === true
+          ? memberId === this.currentMemberId
+            ? !this.capabilities?.accountUrl
+            : this.capabilities?.adminSignOutEverywhere === true
           : true,
     )
   }
