@@ -1221,6 +1221,7 @@
         "src/sync/content-coding.ts",
         "src/sync/kind-tokens.test.ts",
         "src/sync/kind-tokens.ts",
+        "src/sync/panel-catch-up.test.ts",
         "src/sync/pipe-sync-body.ts",
         "src/sync/record-builders.statement-count.test.ts",
         "src/sync/record-builders.ts",
