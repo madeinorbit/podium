@@ -9,7 +9,7 @@ import type {} from './shell-readers.browser'
 const red = process.argv.find(arg => arg.startsWith('--red='))?.slice(6)
 const output = '.artifacts/shell-readers', origin = 'http://127.0.0.1:45182', clock = Date.now()
 await mkdir(output, { recursive: true })
-const server = spawn(process.execPath, ['apps/web/node_modules/vite/bin/vite.js', '--config', 'apps/web/vite.shell-readers-proof.config.ts', '--port', '45182', '--strictPort'], { stdio: ['ignore', 'ignore', 'ignore'] })
+const server = spawn(process.execPath, ['apps/web/node_modules/vite/bin/vite.js', '--config', 'apps/web/vite.shell-readers-proof.config.ts', '--port', '45182', '--strictPort'], { stdio: ['ignore', 'ignore', 'inherit'] })
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined
 try {
   const deadline = Date.now() + 60000
@@ -24,6 +24,8 @@ try {
     const page = await browser.newPage({ viewport: { width: 1600, height: 1000 }, reducedMotion: 'reduce' })
     let errors = 0
     page.on('pageerror', error => { errors++; console.error(`Synthetic shell fixture: ${error.message}`) })
+    page.on('requestfailed', request => console.error(`Synthetic shell request: ${request.url()} ${request.failure()?.errorText}`))
+    page.on('response', response => { if (response.status() >= 400) console.error(`Synthetic shell response: ${response.status()} ${response.url()}`) })
     await page.addInitScript(({ clock, plantChrome }) => {
       Object.assign(globalThis, { __shellPlantChrome: plantChrome })
       Object.assign(window, { Date: new Proxy(Date, { construct: (target, args) => Reflect.construct(target, args.length ? args : [clock]), get: (target, key) => key === 'now' ? () => clock : Reflect.get(target, key) }) })
