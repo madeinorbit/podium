@@ -131,13 +131,17 @@ function generate(seed: number, length: number): Op[] {
   const ids = ['a', 'b', 'c', 'd', 'e', 'f']
   const valueFor = (entity: Kind, id: string): unknown => {
     if (entity === 'conversation') {
-      return {
+      const value = {
         id,
         title: `t${r.int(2)}`,
         updatedAt: `2026-10-16T00:00:0${r.int(4)}Z`,
         messageCount: r.int(3),
-        statusHint: r.pick(['idle', 'busy']),
       }
+      // The recording also drew a `statusHint` here, a field detection ignored
+      // until POD-6765 retired it. The draw stays, so every later pick is the
+      // recorded one; the field is gone from the value.
+      r.pick(['idle', 'busy'])
+      return value
     }
     return { id, v: r.int(3), tag: r.pick(['x', 'y']) }
   }
@@ -308,14 +312,20 @@ async function arm() {
   }
 }
 
-/** What the baseline emitted for each sequence, recorded when the two were compared. */
+/**
+ * What the baseline emitted for each sequence, recorded when the two were
+ * compared, less the conversation's `statusHint`, which POD-6765 retired. The
+ * recorded output was hashed again at dev/mw 504c59982e, where the original
+ * fingerprints still passed, with that one field cut from every conversation
+ * payload (POD-6770); these are those hashes. Nothing else was re-recorded.
+ */
 const BASELINE_FINGERPRINTS: Record<number, string> = {
-  1: '459e0ffb0aeb751b74be0108cb6b475cfbb216ac09982fb5aec7c0b8d20a10be',
-  2: '643d3a69c88c984816872156ebb69a494161bdd701339d48ac7a1caf103b6042',
-  3: '2a02d376044978c17d210c1bfe74b38016dcee220a717cbefca8c6fa801b0006',
-  4: '4ad6be9dd7f335719dd6d325d65cdc1d327e015b66f9ccab7a71d2197606e9d6',
-  5: '8c3b22f53e59ec5df7719512f0d92e1efbc2d913cbd13f96de2b6f5520eabc2b',
-  6: '83615cb2ad82db4de92938bd29bb6c616a2677842befb16e398e49877e6f94d7',
+  1: 'daf7ce53407dc8bd92c40e09f47c8be788f598714e1f41585fb376ba66049751',
+  2: '37670eb9dcf11374fdc09744fa8c58a35c598210940e342324c3eba72384cb97',
+  3: '90200e553c0c8c56d039ba4d263f0e74aeb7e12e82ee301541f2e95c0754eb47',
+  4: 'a673ea5086ffafdca62ab570a0cba90aa0451cfd163898e0cf7a9891cea2e6c1',
+  5: '4605b45087205420353a258b6173cdce0312cd8bfc6b65b063a7c972f706aa6a',
+  6: '47513cc87f825de8a89985d8639e6e59997c4610f429feea96c515157d245bae',
 }
 
 describe('the recorded kind list', () => {
