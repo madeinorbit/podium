@@ -7,7 +7,6 @@
 import {
   copyFileSync,
   existsSync,
-  fsyncSync,
   mkdtempSync,
   readdirSync,
   renameSync,
@@ -17,6 +16,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
+import { fsyncPath } from '@podium/runtime/fsync'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -32,9 +32,13 @@ vi.mock('node:fs', async (importOriginal) => {
   return {
     ...actual,
     copyFileSync: vi.fn(actual.copyFileSync),
-    fsyncSync: vi.fn(actual.fsyncSync),
     renameSync: vi.fn(actual.renameSync),
   }
+})
+
+vi.mock('@podium/runtime/fsync', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@podium/runtime/fsync')>()
+  return { ...actual, fsyncPath: vi.fn(actual.fsyncPath) }
 })
 
 vi.mock('@podium/runtime/sqlite', async (importOriginal) => {
@@ -67,7 +71,7 @@ function backupMains(dir: string): string[] {
 
 beforeEach(() => {
   vi.mocked(copyFileSync).mockClear()
-  vi.mocked(fsyncSync).mockClear()
+  vi.mocked(fsyncPath).mockClear()
   vi.mocked(renameSync).mockClear()
   vi.mocked(openDatabase).mockClear()
 })
@@ -135,7 +139,8 @@ describe('backupDatabase preflight', () => {
     expect(backupMains(dir)).toEqual([basename(backupPath as string)])
     expect(String(vi.mocked(copyFileSync).mock.calls[0]?.[1])).toContain('.partial-')
     expect(vi.mocked(renameSync).mock.calls.at(-1)?.[1]).toBe(backupPath)
-    const fileFsyncOrder = vi.mocked(fsyncSync).mock.invocationCallOrder[0]
+    expect(vi.mocked(fsyncPath).mock.calls[0]?.[0]).toContain('.partial-')
+    const fileFsyncOrder = vi.mocked(fsyncPath).mock.invocationCallOrder[0]
     const publishOrder = vi.mocked(renameSync).mock.invocationCallOrder.at(-1)
     if (fileFsyncOrder === undefined || publishOrder === undefined) {
       throw new Error('snapshot did not reach fsync and rename')
