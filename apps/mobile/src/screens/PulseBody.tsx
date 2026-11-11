@@ -68,7 +68,7 @@ export interface PulseBodyProps {
   quotaCold?: boolean
   quotaFailed?: boolean
   tasksFailed?: boolean
-  onRetry: () => void
+  onRetry: (reading: 'usage' | 'quota') => void
   onOpenTask: (issueId: string) => void
   buildStamp: string
 }
@@ -91,7 +91,7 @@ export const PulseBody = memo(function PulseBody(props: PulseBodyProps) {
     <View style={styles.page}>
       <Card>
         {props.failed ? (
-          <ReadingFailure label="usage" stale={!cold} onRetry={props.onRetry} />
+          <ReadingFailure label="usage" stale={!cold} onRetry={() => props.onRetry('usage')} />
         ) : null}
         <HeroBlock hero={hero} cold={cold} />
         <View style={styles.stats}>
@@ -130,7 +130,11 @@ export const PulseBody = memo(function PulseBody(props: PulseBodyProps) {
       {open('quota') ? (
         <Card>
           {props.quotaFailed ? (
-            <ReadingFailure label="quota" stale={!props.quotaCold} onRetry={props.onRetry} />
+            <ReadingFailure
+              label="quota"
+              stale={!props.quotaCold}
+              onRetry={() => props.onRetry('quota')}
+            />
           ) : null}
           {props.quota.length === 0 ? (
             props.quotaFailed ? null : (
@@ -159,7 +163,11 @@ export const PulseBody = memo(function PulseBody(props: PulseBodyProps) {
       {open('projects') ? (
         <Card>
           {props.tasksFailed ? (
-            <ReadingFailure label="task costs" stale={!props.tasksCold} onRetry={props.onRetry} />
+            <ReadingFailure
+              label="task costs"
+              stale={!props.tasksCold}
+              onRetry={() => props.onRetry('usage')}
+            />
           ) : null}
           {props.projects === null || props.projects.rows.length === 0 ? (
             props.tasksFailed ? null : (

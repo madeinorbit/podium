@@ -64,7 +64,7 @@ export interface PulseFeed {
   fetchedAt: number | null
   /** The last attempt failed. With figures on screen, they are simply older. */
   quotaFailed: boolean
-  reload: () => void
+  reload: (reading?: 'usage' | 'quota') => void
 }
 
 const EMPTY_MACHINES: readonly MachineWire[] = []
@@ -97,9 +97,9 @@ export function usePulseFeed(pulse: PulseView | null): PulseFeed {
   // counter in the effect's dependency list would tear the interval down and
   // start a fresh one from zero on every pull. Unfocused, there is no loader
   // and the pull is a no-op, which is correct: nothing is on screen to refresh.
-  const loadRef = useRef<() => void>(() => {})
+  const loadRef = useRef<(reading?: 'usage' | 'quota') => void>(() => {})
   const capacityLoadRef = useRef<() => void>(() => {})
-  const reload = useCallback(() => loadRef.current(), [])
+  const reload = useCallback((reading?: 'usage' | 'quota') => loadRef.current(reading), [])
   const capacityFence = useRef(new CapacityRefreshFence(profileKey)).current
   const capacityScheduler = useRef(new CapacityRefreshScheduler()).current
 
@@ -130,7 +130,18 @@ export function usePulseFeed(pulse: PulseView | null): PulseFeed {
         cacheByProfile.set(profileKey, next)
         return next
       }
-      const loadReadings = (): void => {
+      const loadReadings = (reading?: 'usage' | 'quota'): void => {
+        if (reading === 'quota') {
+          void pulse?.refreshQuota(() => trpc.quota.summary.query())
+          return
+        }
+        if (reading === 'usage') {
+          void pulse?.refreshUsage(
+            () => trpc.usage.summary.query(),
+            () => trpc.cost.tasks.query(),
+          )
+          return
+        }
         void pulse?.refresh(
           () => trpc.usage.summary.query(),
           () => trpc.cost.tasks.query(),
@@ -244,7 +255,7 @@ export function usePulseFeed(pulse: PulseView | null): PulseFeed {
         loadBreakdowns(forceCapacity)
       }
       capacityLoadRef.current = () => loadBreakdowns(false)
-      loadRef.current = () => load(true)
+      loadRef.current = (reading) => (reading ? loadReadings(reading) : load(true))
       load()
       const poll = setInterval(() => {
         loadReadings()

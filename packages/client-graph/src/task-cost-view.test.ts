@@ -224,3 +224,49 @@ it('reads only window folds for top tasks and projects; the full sheet still pri
   view.dispose()
   pool.dispose()
 })
+
+it('never observes or loads all-time-only task summaries for window readers', async () => {
+  const load = vi.fn(() => undefined)
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 }, undefined, {
+    load,
+    summaries: ISSUE_PAGE_SUMMARIES,
+    schedule: () => () => {},
+  })
+  pool.apply({
+    type: 'update',
+    rows: [{ kind: 'issue', id: 'week', value: issue('week', 'project') as never }],
+  })
+  const view = new TaskCostView(pool)
+  const history = row('history', 0)
+  history.models = [usd(500)]
+  const rows = vi.spyOn(pool, 'row')
+  await view.read(async () => [history, row('week', 10)])
+  const stop = autorun(() => {
+    view.topTasks
+    view.projectGroups
+  })
+  expect(rows.mock.calls.some(([kind, id]) => kind === 'issue' && id === 'history')).toBe(false)
+  expect(pool.hydrate()).toBe(0)
+  expect(load).not.toHaveBeenCalled()
+  expect(view.topTasks).toEqual([{ issueId: 'week', windowCostUsd: 10 }])
+  expect(view.projectGroups?.attributedUsd).toBe(10)
+  rows.mockClear()
+  pool.apply({
+    type: 'update',
+    rows: [{ kind: 'issue', id: 'history', value: issue('history', 'old') as never }],
+  })
+  expect(
+    rows.mock.calls.filter(([kind, , mode]) => kind === 'issue' && mode === 'summary-fields'),
+  ).toEqual([])
+  // Positive control: removing a window candidate does invalidate the visibility read.
+  pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'week', value: undefined }] })
+  expect(view.topTasks).toEqual([])
+  expect(view.projectGroups?.attributedUsd).toBe(0)
+  expect(rows.mock.calls.some(([kind, id]) => kind === 'issue' && id === 'week')).toBe(true)
+  // The all-time sheet still includes the historical spend on demand.
+  expect(view.rows?.find((task) => task.issueId === 'history')?.estCostUsd).toBe(500)
+  stop()
+  rows.mockRestore()
+  view.dispose()
+  pool.dispose()
+})

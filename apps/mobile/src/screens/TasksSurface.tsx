@@ -162,9 +162,9 @@ const StageSections = observer(function StageSections(props: TasksSurfaceProps) 
     stage: s.stage,
     title: s.title,
     total: s.total,
-    folded: folds[s.stage][0] && !board?.searching,
+    folded: board?.isFolded(folds[s.stage][0]) ?? folds[s.stage][0],
     // A folded group keeps its header (and so its count) and drops its rows.
-    data: folds[s.stage][0] && !board?.searching ? [] : s.rows,
+    data: (board?.isFolded(folds[s.stage][0]) ?? folds[s.stage][0]) ? [] : s.rows,
   }))
 
   return (
@@ -212,7 +212,7 @@ const StageSections = observer(function StageSections(props: TasksSurfaceProps) 
             title={section.title}
             count={section.total}
             collapsed={section.folded}
-            onToggle={folds[section.stage][1]}
+            onToggle={() => board?.toggleFold(folds[section.stage][1])}
             {...(section.stage === 'proposed' && screenable
               ? { onScreen: props.onScreenProposals }
               : {})}

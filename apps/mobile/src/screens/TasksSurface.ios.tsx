@@ -213,7 +213,7 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
           {pending ? <ProgressView modifiers={quietRow} /> : null}
           {ordered.map((section) => {
             const [savedFold, toggle] = folds[section.stage]
-            const folded = savedFold && !board?.searching
+            const folded = board?.isFolded(savedFold) ?? savedFold
             const lane = board?.lanes.find((lane) => lane.stage === section.stage)
             const proposed = section.stage === 'proposed'
             return (
@@ -225,7 +225,7 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
                     title={section.title}
                     count={section.total}
                     folded={folded}
-                    onToggle={toggle}
+                    onToggle={() => board?.toggleFold(toggle)}
                     trailing={
                       proposed && screenable ? (
                         <Button

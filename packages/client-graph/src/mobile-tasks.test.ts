@@ -9,6 +9,7 @@ import {
 import { attachMobileScreens } from './mobile-screens'
 import { MOBILE_SCREEN_SUMMARIES, type MobileTasksOptions } from './mobile-screens-schema'
 import { MOBILE_TASK_WINDOW_SIZE, MobileTasksBoard } from './mobile-tasks'
+import { ProposalScreening } from './mobile-triage'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
 
@@ -455,4 +456,56 @@ it('searches the Proposed screening count by the same title/ref rule as board ro
   board.setFilter({ text: '2347' })
   expect(board.searching).toBe(true)
   expect(board.proposals).toBe(1)
+})
+
+it('opens exactly the advertised screening selection, including saved text filters', async () => {
+  const { pool } = await setup([
+    issue('match', { seq: 2347, title: 'iOS follow-up', stage: 'proposed' }),
+    issue('unrelated', { seq: 9999, title: 'Something else', stage: 'proposed', priority: 0 }),
+    issue('nested', { title: 'iOS child', stage: 'proposed', parentId: 'match' }),
+    issue('agent', { title: 'iOS agent', stage: 'proposed', audience: 'agent' }),
+  ])
+  const board = new MobileTasksBoard(pool, options)
+  disposals.push(autorun(() => board.groups))
+  for (const text of ['iOS', '2347', 'no match', '']) {
+    board.search(text)
+    const deck = new ProposalScreening(pool, board.searchFilter.text)
+    expect(deck.queue).toEqual(board.screeningIds)
+    expect(board.proposals).toBe(text === 'no match' ? 0 : text ? 1 : 2)
+    if (text && text !== 'no match') expect(deck.queue).toEqual(['match'])
+    if (!text) expect(deck.queue).toEqual(['unrelated', 'match'])
+  }
+  board.setFilter({ text: '2347', stage: 'review' })
+  const deck = new ProposalScreening(pool, board.searchFilter.text)
+  expect(board.proposals).toBe(1)
+  expect(deck.queue).toEqual(['match'])
+  expect(board.groups).toMatchObject([{ stage: 'proposed', total: 1, rows: [] }])
+})
+
+it('holds search groups open and ignores header taps without changing saved folds', async () => {
+  const { pool } = await setup([])
+  const board = new MobileTasksBoard(pool, options)
+  let saved = true
+  const toggleSaved = vi.fn(() => {
+    saved = !saved
+  })
+  expect(board.isFolded(saved)).toBe(true)
+  board.search('match')
+  expect(board.isFolded(saved)).toBe(false)
+  board.toggleFold(toggleSaved)
+  expect(toggleSaved).not.toHaveBeenCalled()
+  expect(saved).toBe(true)
+  board.search('')
+  expect(board.isFolded(saved)).toBe(true)
+  // Positive control: a normal header tap writes the preference and folds change.
+  board.toggleFold(toggleSaved)
+  expect(toggleSaved).toHaveBeenCalledTimes(1)
+  expect(board.isFolded(saved)).toBe(false)
+  board.setFilter({ text: 'saved search' })
+  board.toggleFold(toggleSaved)
+  expect(toggleSaved).toHaveBeenCalledTimes(1)
+  board.clearFilter('text')
+  board.toggleFold(toggleSaved)
+  expect(toggleSaved).toHaveBeenCalledTimes(2)
+  expect(board.isFolded(saved)).toBe(true)
 })

@@ -103,7 +103,12 @@ export const IssuesScreen = observer(function IssuesScreen() {
         minimizeOnScroll={minimizeOnScroll}
         bottomInset={bottomInset}
         onOpen={(id) => router.push(`/issue/${encodeURIComponent(id)}`)}
-        onScreenProposals={() => router.push('/screen-proposed')}
+        onScreenProposals={() =>
+          router.push({
+            pathname: '/screen-proposed',
+            params: { text: board?.searchFilter.text ?? '' },
+          })
+        }
         onRemoveFilter={(key) => board?.clearFilter(key)}
         onOpenActions={(issue) => openMenu(issue.id)}
         onAction={onAction}

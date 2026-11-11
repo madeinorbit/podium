@@ -49,12 +49,15 @@ export class TaskCostView extends RequestAnswer<readonly TaskCostRowWire[]> {
     return this.priced?.cohort ?? null
   }
 
-  /** Loading candidates keep their place until the pool resolves visibility.
+  /** Skip all-time-only rows before observing any pool summaries.
+   * Loading candidates keep their place until the pool resolves visibility.
    * Gone candidates cannot displace a visible task or contribute project spend. */
   @lazy({ equals: compareShallow }) get visibleCandidates() {
     return (
       this.answer?.filter(
-        (row) => !isGone(this.pool.row('issue', row.issueId, 'summary-fields')),
+        (row) =>
+          row.windowModels.length > 0 &&
+          !isGone(this.pool.row('issue', row.issueId, 'summary-fields')),
       ) ?? null
     )
   }

@@ -14,6 +14,7 @@ const state = vi.hoisted(() => ({
   slot: vi.fn(),
   list: vi.fn(),
   folded: false,
+  toggleFold: vi.fn(),
   work: null as Worklist | null,
   age: vi.fn(() => Date.parse('2026-10-03T12:00:00Z')),
 }))
@@ -40,7 +41,13 @@ vi.mock('expo-router', () => ({
 vi.mock('../components/Screen', () => ({
   Screen: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }))
-vi.mock('../components/NativeGroupHeader.ios', () => ({ NativeGroupHeader: () => null }))
+vi.mock('../components/NativeGroupHeader.ios', () => ({
+  NativeGroupHeader: ({ onToggle, title }: { onToggle: () => void; title: string }) => (
+    <button type="button" data-testid="group-header" onClick={onToggle}>
+      {title}
+    </button>
+  ),
+}))
 vi.mock('../components/RefreshOffer', () => ({ RefreshOffer: () => null }))
 vi.mock('../components/StorageNoticeAlert', () => ({ StorageNoticeAlert: () => null }))
 vi.mock('./tasks-folds', () => ({
@@ -48,7 +55,7 @@ vi.mock('./tasks-folds', () => ({
     Object.fromEntries(
       ['in_progress', 'review', 'planning', 'backlog', 'proposed', 'done'].map((stage) => [
         stage,
-        [state.folded, () => {}],
+        [state.folded, state.toggleFold],
       ]),
     ),
 }))
@@ -137,6 +144,7 @@ afterEach(() => {
   state.age.mockClear()
   state.slot.mockClear()
   state.list.mockClear()
+  state.toggleFold.mockClear()
   state.folded = false
   state.work = null
 })
@@ -222,8 +230,12 @@ it('native placeholders activate a bounded window both ways; only age labels rea
   const hit = screen.getByTestId('slot')
   act(() => fireEvent.mouseEnter(hit))
   expect(screen.getByText('Task 150')).toBeTruthy()
+  fireEvent.click(screen.getByTestId('group-header'))
+  expect(state.toggleFold).not.toHaveBeenCalled()
   act(() => board.search(''))
   expect(screen.queryAllByTestId('slot')).toHaveLength(0)
+  fireEvent.click(screen.getByTestId('group-header'))
+  expect(state.toggleFold).toHaveBeenCalledTimes(1)
 })
 
 it('Work keeps its native list and unchanged slots quiet during a one-row scroll', async () => {

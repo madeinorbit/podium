@@ -255,3 +255,99 @@ it('holds attribution against the matched harvest while newer usage succeeds alo
     clock.mockRestore()
   }
 })
+
+it('retries quota while costs remain pending and coalesces only other quota reads', async () => {
+  const view = open()
+  const costs = deferred<TaskCostRowWire[]>()
+  const readCosts = vi.fn(() => costs.promise)
+  const readUsage = vi.fn(async () => ({ buckets }))
+  const first = view.refresh(readUsage, readCosts, async () => {
+    throw new Error('quota failed')
+  })
+  await vi.waitFor(() => {
+    expect(view.quota.error).toBe('quota failed')
+    expect(readCosts).toHaveBeenCalledTimes(1)
+  })
+  expect(view.costs.loading).toBe(true)
+  const quota = deferred<never[]>()
+  const readQuota = vi.fn(() => quota.promise)
+  const retry = view.refreshQuota(readQuota)
+  expect(readQuota).toHaveBeenCalledTimes(1)
+  // Positive control: repeated quota taps still join their own pending request.
+  expect(view.refreshQuota(readQuota)).toBe(retry)
+  expect(readQuota).toHaveBeenCalledTimes(1)
+  quota.resolve([])
+  await retry
+  expect(view.quota.answer).toEqual([])
+  expect(view.quota.error).toBeNull()
+  expect(view.costs.loading).toBe(true)
+  expect(readUsage).toHaveBeenCalledTimes(1)
+  expect(readCosts).toHaveBeenCalledTimes(1)
+  costs.resolve(tasks)
+  await first
+  expect(view.costs.answer).toBe(tasks)
+  view.dispose()
+})
+
+it.each([
+  'usage',
+  'costs',
+] as const)('retries failed %s while quota remains pending, keeping the harvest before costs', async (failure) => {
+  const view = open()
+  const quota = deferred<never[]>()
+  const readQuota = vi.fn(() => quota.promise)
+  const first = view.refresh(
+    async () => {
+      if (failure === 'usage') throw new Error('usage failed')
+      return { buckets }
+    },
+    async () => {
+      throw new Error('costs failed')
+    },
+    readQuota,
+  )
+  await vi.waitFor(() => expect(view.costs.error).toBe(`${failure} failed`))
+  expect(view.quota.loading).toBe(true)
+  const usage = deferred<{ buckets: UsageBucketWire[] }>()
+  const costs = deferred<TaskCostRowWire[]>()
+  const readUsage = vi.fn(() => usage.promise)
+  const readCosts = vi.fn(() => costs.promise)
+  const retry = view.refreshUsage(readUsage, readCosts)
+  expect(readUsage).toHaveBeenCalledTimes(1)
+  expect(view.refreshUsage(readUsage, readCosts)).toBe(retry)
+  expect(readUsage).toHaveBeenCalledTimes(1)
+  expect(readCosts).not.toHaveBeenCalled()
+  usage.resolve({ buckets })
+  await vi.waitFor(() => expect(readCosts).toHaveBeenCalledTimes(1))
+  // Positive control: pending costs still coalesce the entire harvest pair.
+  expect(view.refreshUsage(readUsage, readCosts)).toBe(retry)
+  costs.resolve(tasks)
+  await retry
+  expect(view.answer?.buckets).toBe(buckets)
+  expect(view.costs.answer).toBe(tasks)
+  expect(view.error).toBeNull()
+  expect(view.costs.error).toBeNull()
+  expect(view.quota.loading).toBe(true)
+  expect(readQuota).toHaveBeenCalledTimes(1)
+  quota.resolve([])
+  await first
+  expect(view.quota.answer).toEqual([])
+  view.dispose()
+})
+
+it('a full refresh starts a fresh quota read even while it joins pending usage', async () => {
+  const view = open()
+  const usage = deferred<{ buckets: UsageBucketWire[] }>()
+  const readUsage = vi.fn(() => usage.promise)
+  const readCosts = vi.fn(async () => tasks)
+  const readQuota = vi.fn(async () => [])
+  const first = view.refresh(readUsage, readCosts, readQuota)
+  await vi.waitFor(() => expect(view.quota.loading).toBe(false))
+  const next = view.refresh(readUsage, readCosts, readQuota)
+  expect(readQuota).toHaveBeenCalledTimes(2)
+  expect(readUsage).toHaveBeenCalledTimes(1)
+  usage.resolve({ buckets })
+  await Promise.all([first, next])
+  expect(readCosts).toHaveBeenCalledTimes(1)
+  view.dispose()
+})

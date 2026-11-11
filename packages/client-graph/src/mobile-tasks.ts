@@ -8,6 +8,7 @@ import { action, compareShallow, compareStructural, observable, observableRef } 
 import type { BoardListRow, BoardQuery } from './issue-board-schema'
 import { omitGone } from './lookup'
 import { MOBILE_TASK_STAGES, type MobileTasksOptions } from './mobile-screens-schema'
+import { screeningQueue } from './mobile-triage'
 import type { IssueModel, ModelOf } from './models'
 import type { MobxPool } from './pool'
 import { RowWindow } from './row-window'
@@ -41,7 +42,6 @@ const CLOSED_STATUSES: ReadonlySet<string> = new Set([
 /** A filter that asks for closed work shows done work whatever the toggle says. */
 export const filterShowsDone = (filter: BoardFilter): boolean =>
   filter.status === 'closed' || (filter.stage !== undefined && CLOSED_STATUSES.has(filter.stage))
-const PROPOSALS: BoardQuery = { kind: 'board', filter: { stage: 'proposed' }, showAgentTasks: true }
 
 /** The phone board's rules about one issue. Facts about the issue itself stay
  * on its shared model; these answers depend on the board's options and on
@@ -115,11 +115,6 @@ class BoardTask {
         !scope.agent &&
         this.stage === 'proposed',
     )
-  }
-
-  /** Counted by the proposals banner: screenable, and not inside another proposal. */
-  @lazy get awaitsScreening(): boolean {
-    return this.screenable && !this.ancestors.some((id) => this.board.task(id).stage === 'proposed')
   }
 
   // --- Membership under the board's options
@@ -354,6 +349,15 @@ export class MobileTasksBoard {
     return Boolean(this.searchFilter.text?.trim())
   }
 
+  /** Search holds groups open; header taps must not change saved preferences. */
+  isFolded(saved: boolean): boolean {
+    return saved && !this.searching
+  }
+
+  @action toggleFold(toggleSaved: () => void): void {
+    if (!this.searching) toggleSaved()
+  }
+
   @lazy({ equals: compareStructural }) get chips() {
     return filterChips(this.filter)
   }
@@ -514,18 +518,13 @@ export class MobileTasksBoard {
     }
   }
 
-  /** The screening queue ignores board filters and folds, but shares its text search. */
+  /** The count and the opened deck share this selection, ignoring other board filters. */
+  @lazy({ equals: compareShallow }) get screeningIds() {
+    return screeningQueue(this.pool, this.searchFilter.text)
+  }
+
   @lazy get proposals(): number | typeof LOADING {
-    try {
-      let total = 0
-      const query = this.searching
-        ? { ...PROPOSALS, filter: { ...PROPOSALS.filter, text: this.searchFilter.text } }
-        : PROPOSALS
-      for (const id of this.boardQuery(query)) if (this.task(id).awaitsScreening) total++
-      return total
-    } catch (error) {
-      if (error === LOADING) return LOADING
-      throw error
-    }
+    const ids = this.screeningIds
+    return ids === LOADING ? LOADING : (ids?.length ?? 0)
   }
 }

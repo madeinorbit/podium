@@ -1,11 +1,12 @@
-import { omitGone } from './lookup'
 import type { AttentionGroup } from '@podium/client-core/focus'
-import { action, compareShallow, observable, observableRef, reaction } from 'mobx'
-import { lazy } from '@podium/mobx-helpers'
-import { readPageIssue, type PageIssue } from './issue-page'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import type { MobxPool } from './pool'
+import { lazy } from '@podium/mobx-helpers'
+import { action, compareShallow, observable, observableRef, reaction } from 'mobx'
+import type { BoardQuery } from './issue-board-schema'
+import { type PageIssue, readPageIssue } from './issue-page'
 import { LOADING, type Loaded } from './loading'
+import { omitGone } from './lookup'
+import type { MobxPool } from './pool'
 
 type ScreeningSummary = Pick<
   IssueViewModel,
@@ -131,8 +132,8 @@ export class MobileInbox {
   }
 }
 
-export function screeningQueue(pool: MobxPool): Loaded<string[]> {
-  return pool.queries.project(
+export function screeningQueue(pool: MobxPool, text = ''): Loaded<string[]> {
+  const queue = pool.queries.project(
     { kind: 'proposedIssues' },
     'mobileInbox.screeningIds',
     (id) => readScreeningId(pool, id),
@@ -143,6 +144,17 @@ export function screeningQueue(pool: MobxPool): Loaded<string[]> {
       },
     },
   )
+  if (!queue || queue === LOADING || !text.trim()) return queue
+  // Reuse the board's maintained text candidates, including its title/ref semantics.
+  const query: BoardQuery = {
+    kind: 'board',
+    filter: { stage: 'proposed', text },
+    showAgentTasks: true,
+  }
+  const matches = omitGone(pool.row('issueBoardQuery', JSON.stringify(query)))
+  if (!matches || matches === LOADING) return matches
+  const ids = new Set(matches.ids)
+  return queue.filter((id) => ids.has(id))
 }
 
 /** Explicit opening order: retain the decided prefix, remove departed cards and
@@ -169,9 +181,12 @@ export class ProposalScreening {
   @observableRef accessor order: readonly string[] = EMPTY
   @observable accessor index = 0
   private readonly waits = new Set<() => void>()
-  constructor(readonly pool: MobxPool) {}
+  constructor(
+    readonly pool: MobxPool,
+    readonly text = '',
+  ) {}
   @lazy get queue() {
-    return screeningQueue(this.pool)
+    return screeningQueue(this.pool, this.text)
   }
   @lazy get booting() {
     const state = omitGone(this.pool.row('mobileInboxState', 'state'))

@@ -1,9 +1,10 @@
 /** Real Tasks screen and observer rows; navigation/transport chrome is stubbed. */
+
+import { attachMobileScreens } from '@podium/client-graph/mobile-screens'
+import { MobxPool } from '@podium/client-graph/pool'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { Profiler, type ReactNode, useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { attachMobileScreens } from '@podium/client-graph/mobile-screens'
-import { MobxPool } from '@podium/client-graph/pool'
 
 const state = vi.hoisted(() => ({
   pool: null as MobxPool | null,
@@ -155,6 +156,7 @@ afterEach(() => {
   state.pool = null
   state.counts.clear()
   state.lists = 0
+  router.push.mockClear()
 })
 
 it('redraws only the changed task row and keeps the folded proposals and expansion', async () => {
@@ -177,7 +179,7 @@ it('redraws only the changed task row and keeps the folded proposals and expansi
   expect(screen.queryByRole('button', { name: /Task 4: proposal/ })).toBeNull()
   expect(screen.queryByRole('button', { name: /Task 3: child/ })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Screen proposed' }))
-  expect(router.push).toHaveBeenCalledWith('/screen-proposed')
+  expect(router.push).toHaveBeenCalledWith({ pathname: '/screen-proposed', params: { text: '' } })
   fireEvent.click(screen.getByRole('button', { name: 'Proposed, 1 task' }))
   expect(screen.getByRole('button', { name: /Task 4: proposal/ })).toBeTruthy()
   const lists = state.lists
@@ -198,4 +200,40 @@ it('redraws only the changed task row and keeps the folded proposals and expansi
   expect(screen.getByRole('button', { name: /Task 3: child/ })).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: /Task 3: child/ }))
   expect(router.push).toHaveBeenCalledWith('/issue/child')
+})
+
+it('opens the counted search selection and leaves saved folds untouched on search header taps', async () => {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: now })
+  state.pool = pool
+  pool.apply({
+    type: 'replace',
+    rows: [
+      issue('matching proposal', 2347, { stage: 'proposed' }),
+      issue('unrelated proposal', 2348, { stage: 'proposed' }),
+    ].map((value) => ({ kind: 'issue' as const, id: value.id, value })),
+  })
+  await attachMobileScreens(pool)
+  render(<IssuesScreen />)
+  expect(screen.getByRole('button', { name: 'Proposed, 2 tasks' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Search tasks' }))
+  fireEvent.change(screen.getByRole('textbox', { name: 'Search tasks' }), {
+    target: { value: '2347' },
+  })
+  expect(screen.getByRole('button', { name: 'Proposed, 1 task' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: /Task 2347: matching proposal/ })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: /Task 2348:/ })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Screen proposed' }))
+  expect(router.push).toHaveBeenCalledExactlyOnceWith({
+    pathname: '/screen-proposed',
+    params: { text: '2347' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Proposed, 1 task' }))
+  expect(screen.getByRole('button', { name: /Task 2347: matching proposal/ })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Close task search' }))
+  expect(screen.getByRole('button', { name: 'Proposed, 2 tasks' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: /Task 2347:/ })).toBeNull()
+  // Positive control: the same header changes the saved fold outside search.
+  fireEvent.click(screen.getByRole('button', { name: 'Proposed, 2 tasks' }))
+  expect(screen.getByRole('button', { name: /Task 2347:/ })).toBeTruthy()
+  expect(screen.getByRole('button', { name: /Task 2348:/ })).toBeTruthy()
 })

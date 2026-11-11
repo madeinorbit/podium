@@ -1,15 +1,15 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { ProposalScreening } from '@podium/client-graph/mobile-triage'
-import { LOADING } from '@podium/client-graph/loading'
-import { observer } from 'mobx-react-lite'
-import { useMobilePool } from '../client/mobile-pool'
-import { issueObserver } from '../client/issue-observer'
 import { issueRepoName } from '@podium/client-core/values'
-import { useRouter } from 'expo-router'
+import { LOADING } from '@podium/client-graph/loading'
+import { ProposalScreening } from '@podium/client-graph/mobile-triage'
+import { useLocalSearchParams, useRouter } from 'expo-router'
+import { observer } from 'mobx-react-lite'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useStoreActions, useTrpc } from '../client/hooks'
+import { issueObserver } from '../client/issue-observer'
+import { useMobilePool } from '../client/mobile-pool'
 import { Icon } from '../components/Icon'
 import { Check, Inbox, Play, RotateCcw, SkipForward, X } from '../components/icons'
 import { PressableScale } from '../components/PressableScale'
@@ -46,11 +46,12 @@ const VisibleScreeningCard = issueObserver(ScreeningCard)
  */
 export const ProposalScreeningScreen = observer(function ProposalScreeningScreen() {
   const router = useRouter()
+  const { text = '' } = useLocalSearchParams<{ text?: string }>()
   const pool = useMobilePool()
   const trpc = useTrpc()
   const { closeIssue } = useStoreActions()
   const insets = useSafeAreaInsets()
-  const deck = useMemo(() => (pool ? new ProposalScreening(pool) : null), [pool])
+  const deck = useMemo(() => (pool ? new ProposalScreening(pool, text) : null), [pool, text])
   useEffect(() => deck?.open(), [deck])
   const [outcomes, setOutcomes] = useState<Record<string, ScreeningOutcome>>({})
   const [failures, setFailures] = useState<Failure[]>([])

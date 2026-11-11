@@ -21,7 +21,8 @@ export class PulseView extends RequestAnswer<PulseReading> {
   @observable private accessor costWindowTotalUsd: number | null = null
   // Stored on open: the loading calendar stays still until a harvest replaces it.
   private readonly openedAt = Date.now()
-  private pending: Promise<void> | undefined
+  private pendingUsage: Promise<void> | undefined
+  private pendingQuota: Promise<void> | undefined
   private generation = 0
 
   constructor(pool: MobxPool) {
@@ -34,7 +35,27 @@ export class PulseView extends RequestAnswer<PulseReading> {
     costs: () => Promise<readonly TaskCostRowWire[]>,
     quota?: () => Promise<MachineQuotaWire[]>,
   ): Promise<void> {
-    if (this.pending) return this.pending
+    const usageAndCosts = this.refreshUsage(usage, costs)
+    return quota
+      ? Promise.all([usageAndCosts, this.refreshQuota(quota)]).then(() => undefined)
+      : usageAndCosts
+  }
+
+  @action refreshQuota(read: () => Promise<MachineQuotaWire[]>): Promise<void> {
+    if (this.pendingQuota) return this.pendingQuota
+    const pending = this.quota.load(read)
+    this.pendingQuota = pending
+    void pending.finally(() => {
+      if (this.pendingQuota === pending) this.pendingQuota = undefined
+    })
+    return pending
+  }
+
+  @action refreshUsage(
+    usage: () => Promise<{ buckets: UsageBucketWire[] }>,
+    costs: () => Promise<readonly TaskCostRowWire[]>,
+  ): Promise<void> {
+    if (this.pendingUsage) return this.pendingUsage
     const generation = this.generation
     let reading: PulseReading | undefined
     const usageAndCosts = this.load(async () => {
@@ -57,14 +78,11 @@ export class PulseView extends RequestAnswer<PulseReading> {
         return tasks
       })
     })
-    const pending = Promise.all([usageAndCosts, quota ? this.quota.load(quota) : undefined]).then(
-      () => undefined,
-    )
-    this.pending = pending
-    void pending.finally(() => {
-      if (this.pending === pending) this.pending = undefined
+    this.pendingUsage = usageAndCosts
+    void usageAndCosts.finally(() => {
+      if (this.pendingUsage === usageAndCosts) this.pendingUsage = undefined
     })
-    return pending
+    return usageAndCosts
   }
 
   @lazy get summary() {
@@ -86,7 +104,8 @@ export class PulseView extends RequestAnswer<PulseReading> {
     super.cancel()
     this.costs.cancel()
     this.quota.cancel()
-    this.pending = undefined
+    this.pendingUsage = undefined
+    this.pendingQuota = undefined
   }
 
   dispose(): void {
