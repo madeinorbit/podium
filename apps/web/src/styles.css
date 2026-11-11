@@ -15658,6 +15658,8 @@ button.waterfall-fold:hover {
 }
 .settings-audit-filters {
   display: flex;
+  width: 320px;
+  max-width: 100%;
   flex-wrap: wrap;
   gap: 8px;
   min-width: 0;
@@ -15729,7 +15731,7 @@ button.waterfall-fold:hover {
 }
 @media (max-width: 759px) {
   .app-sheet-settings {
-    --settings-pane-pad: 20px;
+    --settings-pane-pad: 16px;
     top: 0;
     bottom: 0;
     width: 100vw;
@@ -15817,7 +15819,7 @@ button.waterfall-fold:hover {
     grid-column: 2;
     max-width: 100%;
   }
-  .settings-pane .settings-row:has(> .settings-control > [role="switch"]:only-child) {
+  .settings-pane .settings-row:has(> .settings-control > [data-slot="switch"]) {
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
   }

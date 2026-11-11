@@ -58,11 +58,13 @@ export function Section({
     <section id={id} tabIndex={id ? -1 : undefined}>
       {(title || hint || action) && (
         <header className="settings-section-header">
-          <div className="min-w-0">
-            {title && <h3 className="settings-h">{title}</h3>}
-            {hint && <p className="settings-prose mt-1.5">{hint}</p>}
-          </div>
-          {action && <div className="shrink-0">{action}</div>}
+          {(title || hint) && (
+            <div className="min-w-0">
+              {title && <h3 className="settings-h">{title}</h3>}
+              {hint && <p className="settings-prose mt-1.5">{hint}</p>}
+            </div>
+          )}
+          {action && <div className="max-w-full shrink-0">{action}</div>}
         </header>
       )}
       {list === false ? (
