@@ -100,6 +100,7 @@ function fixture(replace: boolean) {
   }
   return {
     pool: handle.pool,
+    count: (entity: (typeof examples)[number]['entity']) => feed.source.cold?.().count(entity),
     dispose() {
       handle.dispose()
       feed.dispose()
@@ -111,7 +112,7 @@ describe.each([false, true])('record companions after a snapshot (replacement=%s
   it.each(examples)('$entity remains in the source-backed model population', (example) => {
     const f = fixture(replace)
     try {
-      expect(f.pool.queries.count(example.entity)).toBe(1)
+      expect(f.count(example.entity)).toBe(1)
       const model = requireHere(f.pool.model(example.entity, example.id))
       const { id: _wireId, ...fields } = example.row as Record<string, unknown>
       expect(model.row).toMatchObject({ ...fields, id: example.id })
