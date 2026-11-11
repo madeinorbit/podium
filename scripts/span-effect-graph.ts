@@ -426,12 +426,12 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
   },
   {
     file: 'packages/identity/src/types.ts',
-    line: 108,
+    line: 113,
     why: "the identity package's database port, SQLite arm (POD-6744): the property that HOLDS the transaction runner an edition hands in. On the server that runner is `createOrJoinTransaction`, which is named as an opener where the server binds it.",
   },
   {
     file: 'packages/identity/src/types.ts',
-    line: 109,
+    line: 114,
     why: "the identity package's database port, Postgres arm: the same property for the cloud's database. No server span exists there.",
   },
   {
@@ -446,12 +446,12 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
   },
   {
     file: 'packages/identity/src/types.ts',
-    line: 144,
+    line: 149,
     why: "the identity core's `transaction` (PDM-495): forwards to the edition's port above. The server's self-hosted issue and revoke ceremonies run identity and audit statements on that same store connection, then close sockets after commit.",
   },
   {
     file: 'packages/identity/src/types.ts',
-    line: 420,
+    line: 425,
     why: 'the hosted applied-cursor transaction port (PDM-509). The server binds it to SessionStore.transact, already classified above; the port itself does not open another span.',
   },
 ]
