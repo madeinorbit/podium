@@ -1,7 +1,7 @@
-import { productWorkMeter } from '../../tests/worklist/harness/src/perf/vite'
-import { standardDecorators } from '../../scripts/vite-standard-decorators'
 import { fileURLToPath } from 'node:url'
 import { configDefaults, defineConfig } from 'vitest/config'
+import { standardDecorators } from '../../scripts/vite-standard-decorators'
+import { productWorkMeter } from '../../tests/worklist/harness/src/perf/vite'
 import { sharedVitestConfig } from '../../vitest.config'
 
 // Web-local vitest config. The repo-root vitest.config.ts excludes **/.claude/**,
