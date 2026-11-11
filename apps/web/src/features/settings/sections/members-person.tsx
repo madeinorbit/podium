@@ -1,7 +1,7 @@
 import { relativeTime } from '@podium/client-core/focus'
 import { memberRoster } from '@podium/client-graph/member-roster'
 import type { MemberModel } from '@podium/client-graph/requested-models'
-import { KeyRound, Monitor, Server } from 'lucide-react'
+import { KeyRound, Server } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
@@ -11,6 +11,7 @@ import { authRequest, memberRequest } from '@/features/setup/member-api'
 import { useClock } from '@/lib/clock-hooks'
 import { useSettingsFrame } from '../settings-frame'
 import { useSettingsTrpc } from '../stable-access'
+import { SignInIcon } from './access'
 import { KeySharing, StoredKeys } from './key-sharing'
 import { deviceLabel, type MembersPage, memberRoleLabel, type SettingsPerson } from './members-data'
 import { MemberLinkResult } from './members-link-result'
@@ -335,7 +336,7 @@ const PersonDevices = observer(function PersonDevices({
             person.devices.map((device) => (
               <div key={device.id}>
                 <EntityRow
-                  leading={<Monitor size={18} />}
+                  leading={<SignInIcon kind={device.kind} />}
                   title={deviceLabel(device)}
                   subtitle={
                     <>

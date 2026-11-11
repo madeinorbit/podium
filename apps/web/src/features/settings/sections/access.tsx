@@ -256,6 +256,12 @@ const HostAccess = observer(function HostAccess({ network }: { network: NetworkS
   )
 })
 
+/** One icon per kind of sign-in, shared by Access and a member's Devices. */
+export function SignInIcon({ kind }: { kind: string }): JSX.Element {
+  const Icon = kind === 'phone' ? Smartphone : kind === 'host' ? Shield : Laptop
+  return <Icon size={18} aria-hidden="true" />
+}
+
 const KIND_LABEL: Record<SignIn['kind'], string> = {
   browser: 'Browser',
   desktop: 'Desktop',
@@ -276,12 +282,11 @@ function SignInRow({
   error?: string
   onRevoke: (id: string) => Promise<void>
 }) {
-  const Icon = signIn.kind === 'phone' ? Smartphone : signIn.kind === 'host' ? Shield : Laptop
   const device = signIn.deviceName || KIND_LABEL[signIn.kind]
   const now = useClock(30_000)
   return (
     <EntityRow
-      leading={<Icon size={18} aria-hidden="true" />}
+      leading={<SignInIcon kind={signIn.kind} />}
       title={signIn.memberName}
       pills={
         <span className="settings-micro min-w-0 max-w-full break-words">
