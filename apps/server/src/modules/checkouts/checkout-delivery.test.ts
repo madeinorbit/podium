@@ -338,6 +338,16 @@ function reachPin(
     setup: async (size) => {
       const store = await reachStore()
       const change = reachChange(size)
+      if (write === 'reach upserts')
+        await store.checkouts.applyReach(
+          {
+            reach: change.reach.map((row) => ({
+              ...row,
+              reach: row.reach === 'all' ? 'roots' : 'all',
+            })),
+          },
+          AT,
+        )
       if (write === 'reach removals') await store.checkouts.applyReach({ reach: change.reach }, AT)
       if (write === 're-admission')
         await store.checkouts.applyReach({ reach: [], lost: change.lost }, AT)
@@ -475,13 +485,17 @@ describe('checkout reach batch writes', () => {
       expect(storedReach.get(row.machineId)?.get(row.userId)?.reach).toBe(
         removed ? undefined : 'all',
       )
-      expect(storedLost.get(row.machineId)?.get(row.userId)).toEqual(
-        removed
-          ? [{ path: WORKTREE, root: false }]
-          : [
-              { path: WORKTREE, root: false },
-              { path: ROOT, root: true },
-            ],
+      const paths = storedLost.get(row.machineId)?.get(row.userId) ?? []
+      expect(paths).toHaveLength(removed ? 1 : 2)
+      expect(paths).toEqual(
+        expect.arrayContaining(
+          removed
+            ? [{ path: WORKTREE, root: false }]
+            : [
+                { path: WORKTREE, root: false },
+                { path: ROOT, root: true },
+              ],
+        ),
       )
     }
   })

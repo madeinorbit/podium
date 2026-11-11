@@ -190,6 +190,11 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/checkouts.ts:rootPathsOfMachines', SIZES],
   ['apps/server/src/store/checkouts.ts:reachOfMachines', SIZES],
   ['apps/server/src/store/checkouts.ts:lostOfMachines', SIZES],
+  // Reach writes use bounded power-of-two shapes; include the padded maximum.
+  ['apps/server/src/store/checkouts.ts:upsertReach', [1, 4, 512]],
+  ['apps/server/src/store/checkouts.ts:deleteReach', [1, 4, 512]],
+  ['apps/server/src/store/checkouts.ts:insertLost', [1, 4, 512]],
+  ['apps/server/src/store/checkouts.ts:deleteLost', [1, 4, 512]],
   ['apps/server/src/store/users.ts:accountsByIds', SIZES],
   ['apps/server/src/store/issues.ts:worktreeOwnersOf', SIZES],
   ['apps/server/src/store/issues.ts:liveWorktreesOnMachines', SIZES],

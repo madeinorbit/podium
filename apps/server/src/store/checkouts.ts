@@ -11,7 +11,7 @@
  */
 
 import type { CheckoutKind, CheckoutWire, MachineId, RepoId } from '@podium/model'
-import { and, asc, eq, isNull, sql } from 'drizzle-orm'
+import { and, asc, eq, isNull, or, sql } from 'drizzle-orm'
 import type { CheckoutReach } from '../checkout-reach'
 import { checkoutLost, checkoutReach, checkouts } from '../migrations/schema'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
@@ -120,29 +120,35 @@ const reachOfMachines = preparedFamily((db: StoreDrizzle, size: number) =>
     .prepare(),
 )
 
-const upsertReach = prepared((db: StoreDrizzle) =>
+const upsertReach = preparedFamily((db: StoreDrizzle, size: number) =>
   db
     .insert(checkoutReach)
-    .values({
-      userId: sql.placeholder('userId'),
-      machineId: sql.placeholder('machineId'),
-      reach: sql.placeholder('reach'),
-      updatedAt: sql.placeholder('updatedAt'),
-    })
+    .values(
+      Array.from({ length: size }, (_, i) => ({
+        userId: sql.placeholder(`userId${i}`),
+        machineId: sql.placeholder(`machineId${i}`),
+        reach: sql.placeholder(`reach${i}`),
+        updatedAt: sql.placeholder('at'),
+      })),
+    )
     .onConflictDoUpdate({
       target: [checkoutReach.userId, checkoutReach.machineId],
-      set: { reach: sql.placeholder('reach'), updatedAt: sql.placeholder('updatedAt') },
+      set: { reach: sql`excluded.reach`, updatedAt: sql`excluded.updated_at` },
     })
     .prepare(),
 )
 
-const deleteReach = prepared((db: StoreDrizzle) =>
+const deleteReach = preparedFamily((db: StoreDrizzle, size: number) =>
   db
     .delete(checkoutReach)
     .where(
-      and(
-        eq(checkoutReach.userId, param(checkoutReach.userId, 'userId')),
-        eq(checkoutReach.machineId, param(checkoutReach.machineId, 'machineId')),
+      or(
+        ...Array.from({ length: size }, (_, i) =>
+          and(
+            eq(checkoutReach.userId, param(checkoutReach.userId, `userId${i}`)),
+            eq(checkoutReach.machineId, param(checkoutReach.machineId, `machineId${i}`)),
+          ),
+        ),
       ),
     )
     .prepare(),
@@ -162,32 +168,54 @@ const lostOfMachines = preparedFamily((db: StoreDrizzle, size: number) =>
     .prepare(),
 )
 
-const insertLost = prepared((db: StoreDrizzle) =>
+const insertLost = preparedFamily((db: StoreDrizzle, size: number) =>
   db
     .insert(checkoutLost)
-    .values({
-      userId: sql.placeholder('userId'),
-      machineId: sql.placeholder('machineId'),
-      path: sql.placeholder('path'),
-      root: sql.placeholder('root'),
-      lostAt: sql.placeholder('lostAt'),
-    })
+    .values(
+      Array.from({ length: size }, (_, i) => ({
+        userId: sql.placeholder(`userId${i}`),
+        machineId: sql.placeholder(`machineId${i}`),
+        path: sql.placeholder(`path${i}`),
+        root: sql.placeholder(`root${i}`),
+        lostAt: sql.placeholder('at'),
+      })),
+    )
     .onConflictDoNothing()
     .prepare(),
 )
 
-const deleteLost = prepared((db: StoreDrizzle) =>
+const deleteLost = preparedFamily((db: StoreDrizzle, size: number) =>
   db
     .delete(checkoutLost)
     .where(
-      and(
-        eq(checkoutLost.userId, param(checkoutLost.userId, 'userId')),
-        eq(checkoutLost.machineId, param(checkoutLost.machineId, 'machineId')),
-        eq(checkoutLost.path, param(checkoutLost.path, 'path')),
+      or(
+        ...Array.from({ length: size }, (_, i) =>
+          and(
+            eq(checkoutLost.userId, param(checkoutLost.userId, `userId${i}`)),
+            eq(checkoutLost.machineId, param(checkoutLost.machineId, `machineId${i}`)),
+            eq(checkoutLost.path, param(checkoutLost.path, `path${i}`)),
+          ),
+        ),
       ),
     )
     .prepare(),
 )
+
+/** At most 500 rows per write, with ten prepared shapes (1 through 512).
+ *  Repeating the final row pads a shape without changing an upsert, an
+ *  insert-on-conflict-do-nothing or a composite-key deletion. */
+function* reachBatches(rows: readonly object[], at: string) {
+  for (let start = 0; start < rows.length; start += 500) {
+    const chunk = rows.slice(start, start + 500)
+    const size = inListSize(chunk.length)
+    const values: Record<string, unknown> = { at }
+    for (let i = 0; i < size; i++) {
+      const row = chunk[Math.min(i, chunk.length - 1)] as object
+      for (const [key, value] of Object.entries(row)) values[`${key}${i}`] = value
+    }
+    yield { size, values }
+  }
+}
 
 const checkoutPlaceholders = {
   machineId: sql.placeholder('machineId'),
@@ -357,7 +385,8 @@ export class CheckoutsRepository {
   }
 
   /** Record these reaches, and add and drop these lost checkouts, in one
-   *  transaction. A member with no reach has no reach row. */
+   *  transaction, one statement per 500 rows of each write kind. A member
+   *  with no reach has no reach row. */
   async applyReach(
     change: {
       readonly reach: readonly { userId: string; machineId: MachineId; reach: CheckoutReach }[]
@@ -375,14 +404,28 @@ export class CheckoutsRepository {
       found = change.found ?? []
     if (change.reach.length === 0 && lost.length === 0 && found.length === 0) return
     await this.createOrJoinTransaction(async () => {
-      for (const row of change.reach) {
-        const key = { userId: row.userId, machineId: row.machineId }
-        if (row.reach === 'none') await deleteReach(this.db).run(key)
-        else await upsertReach(this.db).run({ ...key, reach: row.reach, updatedAt: at })
+      // Partition only after taking the final reach for each key: a repeated
+      // key still follows the row-at-a-time writer's last-write-wins rule.
+      const latest = new Map(
+        change.reach.map((row) => [JSON.stringify([row.userId, row.machineId]), row]),
+      )
+      const upserts: (typeof change.reach)[number][] = []
+      const removes: (typeof change.reach)[number][] = []
+      for (const row of latest.values()) {
+        if (row.reach === 'none') removes.push(row)
+        else upserts.push(row)
       }
-      for (const row of found) await deleteLost(this.db).run(row)
-      for (const row of lost)
-        await insertLost(this.db).run({ ...row, root: row.root ? 1 : 0, lostAt: at })
+      for (const { size, values } of reachBatches(upserts, at))
+        await upsertReach(this.db, size).run(values)
+      for (const { size, values } of reachBatches(removes, at))
+        await deleteReach(this.db, size).run(values)
+      for (const { size, values } of reachBatches(found, at))
+        await deleteLost(this.db, size).run(values)
+      for (const { size, values } of reachBatches(
+        lost.map((row) => ({ ...row, root: row.root ? 1 : 0 })),
+        at,
+      ))
+        await insertLost(this.db, size).run(values)
     })
   }
 
