@@ -20,6 +20,39 @@ it('admits exactly the preserving tenant feed re-keys', () => {
   expect(unadmitted(path, findDestructiveDdl(`${sql}\nDROP TABLE users;`))).toHaveLength(1)
 })
 
+describe.each([
+  {
+    migration: '20261110205811_issue-panel-records',
+    issue: 'POD-6778',
+    kinds: ['drop-table', 'drop-column', 'drop-column', 'drop-column'],
+  },
+  {
+    migration: '20261111124333_sync-log-only',
+    issue: 'POD-6771',
+    kinds: ['drop-table'],
+  },
+])('POD-6253 contract step $migration', ({ migration, issue, kinds }) => {
+  const path = `apps/server/src/migrations/drizzle/${migration}/migration.sql`
+  const sql = readFileSync(new URL(`../${path}`, import.meta.url), 'utf8')
+  const findings = findDestructiveDdl(sql)
+
+  it('admits its intended drops only in its own file, with the authorizing issue', () => {
+    expect(findings.map((finding) => finding.kind)).toEqual(kinds)
+    expect(APPROVED_CONTRACT_STEPS.get(path)?.reason).toContain('POD-6253')
+    expect(APPROVED_CONTRACT_STEPS.get(path)?.reason).toContain(issue)
+    expect(unadmitted(path, findings)).toEqual([])
+    expect(unadmitted('elsewhere.sql', findings)).toEqual(findings)
+  })
+
+  it('still rejects every repeated drop and unrelated destructive DDL', () => {
+    for (const finding of findings) {
+      expect(unadmitted(path, [...findings, finding])).toEqual([finding])
+    }
+    const extra = findDestructiveDdl('ALTER TABLE issues DROP COLUMN brief; DROP TABLE issues;')
+    expect(unadmitted(path, [...findings, ...extra])).toEqual(extra)
+  })
+})
+
 describe('findDestructiveDdl', () => {
   it('passes a plain additive column', () => {
     expect(findDestructiveDdl('ALTER TABLE machines ADD COLUMN app_version text;')).toEqual([])

@@ -75,8 +75,8 @@ export const HISTORICAL_ALLOWLIST = new Set<string>([
 
 /**
  * CONTRACT STEPS a person decided to ship, each with its reason. Unlike the
- * historical allowlist this names the exact finding admitted — its kind and the
- * table it rebuilds — so anything ELSE destructive in the same file still fails
+ * historical allowlist this names the exact finding admitted — its kind, table
+ * and optional column — so anything ELSE destructive in the same file still fails
  * the gate. It is not a policy change: each entry is one reviewed decision.
  */
 export const APPROVED_CONTRACT_STEPS = new Map<
@@ -172,6 +172,30 @@ export const APPROVED_CONTRACT_STEPS = new Map<
       // (apps/daemon/src/convergence.ts), so that rollback is refused by design.
       reason: 'adds the issue_deps.type CHECK (D7), which SQLite can only do by a rebuild',
       admits: [{ kind: 'table-rebuild', table: 'issue_deps' }],
+    },
+  ],
+  [
+    'apps/server/src/migrations/drizzle/20261110205811_issue-panel-records/migration.sql',
+    {
+      reason:
+        'POD-6253 authorized panel records (POD-6778): validate and copy panel items and state fields into issue_panel_* before dropping their old columns and the migration-only validation table',
+      admits: [
+        // The CHECK helper has finished validating the source JSON before this drop.
+        { kind: 'drop-table', table: '__panel_migration_validation' },
+        // Backfilled into issue_panel_states.text and issue_panel_states.updated_at.
+        { kind: 'drop-column', table: 'issues', column: 'activity_notes' },
+        { kind: 'drop-column', table: 'issues', column: 'notes_updated_at' },
+        // Backfilled into issue_panel_todos, issue_panel_artifacts and issue_panel_deferred.
+        { kind: 'drop-column', table: 'issues', column: 'panel' },
+      ],
+    },
+  ],
+  [
+    'apps/server/src/migrations/drizzle/20261111124333_sync-log-only/migration.sql',
+    {
+      reason:
+        'POD-6253 authorized removing the redundant change_latest copy (POD-6771): bootstrap reads canonical model tables and changes retains the replay log',
+      admits: [{ kind: 'drop-table', table: 'change_latest' }],
     },
   ],
   [
