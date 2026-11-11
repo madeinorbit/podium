@@ -43,7 +43,7 @@
  */
 
 import { MemberId, UserId } from '@podium/model'
-import { type ServerMessage, SubscriptionRegistry, CLIENT_WIRE_VERSION } from '@podium/protocol'
+import { CLIENT_WIRE_VERSION, type ServerMessage, SubscriptionRegistry } from '@podium/protocol'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { DEVICE_GRADE_PRINCIPAL, FeedIdentityRegistry, Ledger } from '@podium/sync'
 import { describe, expect, it } from 'vitest'
@@ -80,6 +80,11 @@ const cutIndex = () => {
   expect(cut).toBeGreaterThan(0)
   return cut
 }
+
+// These witnesses test one historical, one-shot migration, including a
+// deliberate replay. Later migrations retire its tables and change payloads;
+// the complete current chain is covered by customer-upgrade-fixture.test.ts.
+const throughRetirement = () => DRIZZLE_MIGRATIONS.slice(0, cutIndex() + 1)
 
 interface ColumnInfo {
   name: string
@@ -186,7 +191,9 @@ function seedRow(db: SqlDatabase, table: string, column: string): boolean {
       values.push(`seed-${c.name}-${seedCounter}`)
       continue
     }
-    if (c.notnull === 0 || c.dflt_value !== null) continue
+    // SQLite permits NULL in a TEXT PRIMARY KEY unless NOT NULL was spelled.
+    // A real machine still has an id; later custody migrations need it.
+    if ((c.notnull === 0 && c.pk === 0) || c.dflt_value !== null) continue
     if (c.pk === 1 && /INTEGER/i.test(c.type)) continue
     names.push(c.name)
     values.push(
@@ -251,7 +258,7 @@ const firstAdminId = (db: SqlDatabase): string =>
 describe('retire-the-solo-user: the first member gets a minted id', () => {
   it('replaces the literal with a well-formed mem_ id', () => {
     const db = preMigrationDb()
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughRetirement())
 
     const rows = db.prepare('SELECT id, role, disabled_at FROM users').all() as {
       id: string
@@ -288,7 +295,7 @@ describe('retire-the-solo-user: the first member gets a minted id', () => {
       'INSERT OR REPLACE INTO user_credentials (user_id, source, password_hash, updated_at) VALUES (?, ?, ?, ?)',
     ).run(RETIRED, 'per-user-scrypt', 'scrypt:hash', '2026-08-01T00:00:00.000Z')
 
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughRetirement())
 
     const after = db.prepare('SELECT id, display_name, created_at FROM users').get() as {
       id: string
@@ -316,7 +323,7 @@ describe('retire-the-solo-user: the first member gets a minted id', () => {
       'INSERT INTO users (id, display_name, role, created_at, disabled_at) VALUES (?, ?, ?, ?, NULL)',
     ).run('anna', 'Anna', 'member', '2026-08-01T00:00:00.000Z')
 
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughRetirement())
 
     const ids = (
       db.prepare('SELECT id FROM users ORDER BY created_at').all() as { id: string }[]
@@ -381,7 +388,7 @@ describe('retire-the-solo-user: shipping approval custody', () => {
         /immutable/,
       )
 
-      runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+      runDrizzleMigrations(db, throughRetirement())
 
       expect(db.prepare('SELECT * FROM ship_orders').get()).toEqual({
         ...before,
@@ -459,7 +466,7 @@ describe('retire-the-solo-user: shipping approval custody', () => {
       expect(() => db.exec("UPDATE ship_orders SET requested_by_actor_id = 'tampered'")).toThrow(
         /immutable/,
       )
-      runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+      runDrizzleMigrations(db, throughRetirement())
       expect(firstAdminId(db)).not.toBe(RETIRED)
     } finally {
       db.close()
@@ -477,7 +484,7 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
     expect(seeded).toBeGreaterThan(40)
     expect(survivingLiterals(db).length).toBeGreaterThan(40)
 
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughRetirement())
 
     // Named, not counted: a failure has to say WHICH column was missed, because
     // "63 of 66" is a five-minute search and `issues.assignee` is not.
@@ -490,7 +497,7 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
     // owns anything.
     const db = preMigrationDb()
     seedEveryOwnerColumn(db)
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughRetirement())
 
     const id = firstAdminId(db)
     const owners = db
@@ -507,7 +514,7 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
       'INSERT INTO client_sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)',
     ).run('hash-laptop', RETIRED, '2026-07-01T00:00:00.000Z', '2026-09-01T00:00:00.000Z')
 
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughRetirement())
 
     const row = db.prepare('SELECT token_hash, user_id, expires_at FROM client_sessions').get() as {
       token_hash: string
@@ -526,7 +533,7 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
       'INSERT INTO changes (entity, entity_id, op, payload, event_time) VALUES (?, ?, ?, ?, ?)',
     ).run('session', 'sess-1', 'upsert', `{"id":"sess-1","ownerUserId":"${RETIRED}"}`, 1)
 
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughRetirement())
 
     const payload = (db.prepare('SELECT payload FROM changes').get() as { payload: string }).payload
     expect(payload).toBe(`{"id":"sess-1","ownerUserId":"${firstAdminId(db)}"}`)
@@ -599,9 +606,9 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
     // This client has consumed the old owner at the current head.
     const before = makeServing()
     const cold = await connect(before.serving, 'cold')
-    expect(cold.map(frame => frame.type)).toEqual(['feedResume'])
+    expect(cold.map((frame) => frame.type)).toEqual(['feedResume'])
     const oldWorld = await before.authority.bootstrap(DEVICE_GRADE_PRINCIPAL)
-    expect(oldWorld.changes.map(change => change.value)).toEqual([
+    expect(oldWorld.changes.map((change) => change.value)).toEqual([
       { sessionId: 'sess-1', ownerUserId: RETIRED },
     ])
     const held = { ...(await before.serving.identity()), seq: await repo.maxChangeSeq() }
@@ -611,26 +618,26 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
     expect(oldPayload.ownerUserId).toBe(RETIRED)
     if (compacted) db.exec('DELETE FROM changes')
 
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughRetirement())
 
     const after = makeServing() // boot reads the committed generation afresh
     expect((await after.serving.identity()).feedId).toBe(held.feedId)
     expect((await after.serving.identity()).epoch).not.toBe(held.epoch)
     const received = await connect(after.serving, 'reconnected', held)
-    expect(received.map(frame => frame.type)).toEqual(['feedResyncRequired'])
+    expect(received.map((frame) => frame.type)).toEqual(['feedResyncRequired'])
     const bootstrap = await after.authority.bootstrap(DEVICE_GRADE_PRINCIPAL)
-    expect(bootstrap.changes.map(change => change.value)).toEqual([
+    expect(bootstrap.changes.map((change) => change.value)).toEqual([
       { sessionId: 'sess-1', ownerUserId: firstAdminId(db) },
     ])
     expect((db.prepare('SELECT seq FROM change_latest').get() as { seq: number }).seq).toBe(
       held.seq,
     )
     const identity = await repo.readFeedIdentity()
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughRetirement())
     expect(await repo.readFeedIdentity()).toEqual(identity)
     // Even a direct replay of this migration finds no old payload to invalidate.
     runDrizzleMigrations(db, [
-      ...DRIZZLE_MIGRATIONS,
+      ...throughRetirement(),
       { ...retirementMigration(), name: '20990101000000_retirement-replay' },
     ])
     expect(await repo.readFeedIdentity()).toEqual(identity)
@@ -681,7 +688,7 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
     // refute.
     const db = preMigrationDb()
     seedEveryOwnerColumn(db)
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughRetirement())
     expect(survivingLiterals(db)).toEqual([])
 
     db.prepare('UPDATE pins SET user_id = ?').run(RETIRED)
@@ -701,7 +708,7 @@ describe('retire-the-solo-user: the defaults are gone', () => {
     )
     expect(defaulted.length).toBeGreaterThan(10)
 
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughRetirement())
 
     const still = tablesOf(db).flatMap((table) =>
       columnsOf(db, table)
@@ -720,7 +727,7 @@ describe('retire-the-solo-user: the defaults are gone', () => {
     seedEveryOwnerColumn(db)
     const before = db.prepare('SELECT COUNT(*) AS n FROM sessions').get() as { n: number }
 
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughRetirement())
 
     const after = db.prepare('SELECT COUNT(*) AS n FROM sessions').get() as { n: number }
     expect(after.n).toBe(before.n)
