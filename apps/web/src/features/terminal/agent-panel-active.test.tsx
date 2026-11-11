@@ -252,24 +252,20 @@ describe('AgentPanel active wiring', () => {
     ]
     paneFixture.sync()
     const pool = paneFixture.hooks.useWorklistPool()!
-    pool.apply({
-      type: 'update',
-      rows: [
-        {
-          kind: 'issuePanelArtifact',
-          id: 'first-frame-artifact',
-          value: {
-            id: 'first-frame-artifact',
-            issueId: 'iss-evidence',
-            position: 0,
-            path: 'first-frame.png',
-            addedAt: '2026-06-03T00:02:00.000Z',
-          } as never,
-        },
-      ],
-    })
+    paneFixture.owner.replica.applySnapshot('issuePanelArtifacts', [
+      {
+        id: 'first-frame-artifact',
+        issueId: 'iss-evidence',
+        position: 0,
+        path: 'first-frame.png',
+        addedAt: '2026-06-03T00:02:00.000Z',
+      } as never,
+    ])
     await act(async () => root.render(<AgentPanel sessionId={asSessionId('s1')} active />))
     await flush()
+    expect(
+      pool.issueObject('iss-evidence').panelArtifacts.map((artifact) => artifact.path),
+    ).toEqual(['first-frame.png'])
     expect(pool.row('session', 's1')).not.toHaveProperty('lastInputAt')
     const dock = container.querySelector('[data-testid="native-offer-dock"]')
     expect(dock).not.toBeNull()
