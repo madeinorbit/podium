@@ -150,6 +150,31 @@ describe('IssueBodyStore', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it.each([
+    'brief',
+    'description',
+  ] as const)('refetches reverted %s after the last reader leaves an answer ahead of its header', async (field) => {
+    const store = new IssueBodyStore()
+    const held = new Map([['a', [body('a', field, 'd2', 'Newer')]]])
+    const { calls, fetch } = server(held)
+    store.bind(fetch)
+    const closeFirst = watch(store, 'a', field, 'd1')
+    const closeLast = watch(store, 'a', field, 'd1')
+    await settle()
+    expect(store.read('a', field, 'd1')).toEqual({ value: 'Newer', current: false })
+    closeFirst()
+    await settle()
+    expect(calls).toEqual([['a']])
+    closeLast()
+
+    // The replica never saw d2. While away, the server reverts exactly to d1.
+    held.set('a', [body('a', field, 'd1', 'Reverted')])
+    watch(store, 'a', field, 'd1')
+    await settle()
+    expect(calls).toEqual([['a'], ['a']])
+    expect(store.read('a', field, 'd1')).toEqual({ value: 'Reverted', current: true })
+  })
+
   it('shows the text a settled edit painted until its body arrives', async () => {
     const store = new IssueBodyStore()
     const held = new Map([['a', [body('a', 'brief', 'd1', 'Old')]]])

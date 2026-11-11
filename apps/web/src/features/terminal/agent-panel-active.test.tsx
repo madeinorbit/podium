@@ -21,6 +21,9 @@ const setActive = vi.fn()
 const dispose = vi.fn()
 const requestControl = vi.fn()
 const terminalFocus = vi.fn()
+const terminalResize = vi.fn()
+const terminalRepaint = vi.fn()
+let attachedGeometry: { cols: number; rows: number } | undefined
 const desktopHooks = globalThis as {
   __PODIUM_FOCUS_SESSION_PROMPT__?: () => void
   __PODIUM_TOGGLE_SESSION_VIEW__?: () => void
@@ -28,7 +31,7 @@ const desktopHooks = globalThis as {
 // Loosely typed args (el, opts) so the captured opts.active is inspectable.
 const mountSessionMock = vi.fn((_el: unknown, _opts: { active?: boolean }) => ({
   connection: {
-    state: () => ({ role: 'controller' }),
+    state: () => ({ role: 'controller', ...attachedGeometry }),
     sendInput: vi.fn(),
     requestControl,
   },
@@ -39,6 +42,8 @@ const mountSessionMock = vi.fn((_el: unknown, _opts: { active?: boolean }) => ({
     onScroll: () => () => {},
     atBottom: () => true,
     focus: terminalFocus,
+    resize: terminalResize,
+    forceRepaint: terminalRepaint,
     screenText: () => '',
     scrollToBottom: vi.fn(),
     requestPaste: vi.fn(),
@@ -158,6 +163,12 @@ vi.mock('@/app/store-worklist-pool', () => paneFixture.hooks)
 
 function renderPanel(...args: Parameters<Root['render']>) {
   paneFixture.sync()
+  // The general lifecycle cases start with a held topic. The first-open cases
+  // render the root directly so no earlier known reading can be carried stale.
+  liveFixture(paneFixture.hooks.useWorklistPool()!).sessionTerminalState('s1', {
+    controller: null,
+    geometry: { cols: 80, rows: 24 },
+  })
   root.render(...args)
 }
 
@@ -194,6 +205,9 @@ beforeEach(() => {
   setActive.mockClear()
   dispose.mockClear()
   terminalFocus.mockClear()
+  terminalResize.mockClear()
+  terminalRepaint.mockClear()
+  attachedGeometry = undefined
   mountSessionMock.mockClear()
   subscribeTranscript.mockClear()
   unsubscribeTranscript.mockClear()
@@ -202,6 +216,7 @@ beforeEach(() => {
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
+  paneFixture.sync()
 })
 
 afterEach(() => {
@@ -209,6 +224,7 @@ afterEach(() => {
   container.remove()
   paneFixture.dispose()
   vi.clearAllMocks()
+  vi.useRealTimers()
 })
 
 async function flush(): Promise<void> {
@@ -219,17 +235,57 @@ async function flush(): Promise<void> {
 }
 
 describe('AgentPanel active wiring', () => {
-  it('constructs the first terminal at the live session size without geometry on its row', async () => {
-    paneFixture.sync()
+  it('waits for the first live size after render before constructing the terminal', async () => {
+    vi.useFakeTimers()
     const pool = paneFixture.hooks.useWorklistPool()!
+    liveFixture(pool).sessionTerminalState('s1', undefined)
     const geometry = { cols: 132, rows: 43 }
-    liveFixture(pool).sessionTerminalState('s1', { controller: null, geometry })
     expect(pool.row('session', 's1')).not.toHaveProperty('geometry')
 
     await act(async () => root.render(<AgentPanel sessionId={asSessionId('s1')} active />))
     await flush()
+    await act(async () => vi.advanceTimersByTimeAsync(100))
+    expect(mountSessionMock).not.toHaveBeenCalled()
 
+    await act(async () => {
+      liveFixture(pool).sessionTerminalState('s1', { controller: null, geometry })
+    })
+    await flush()
+
+    expect(mountSessionMock).toHaveBeenCalledTimes(1)
     expect(mountSessionMock.mock.calls[0]?.[1]).toMatchObject({ initialGeometry: geometry })
+    await act(async () => vi.advanceTimersByTimeAsync(500))
+    expect(mountSessionMock).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    false,
+    true,
+  ])('bounds the size wait and accepts a late size before attach=%s', async (attached) => {
+    vi.useFakeTimers()
+    const pool = paneFixture.hooks.useWorklistPool()!
+    liveFixture(pool).sessionTerminalState('s1', undefined)
+    await act(async () => root.render(<AgentPanel sessionId={asSessionId('s1')} active />))
+    await flush()
+    await act(async () => vi.advanceTimersByTimeAsync(499))
+    expect(mountSessionMock).not.toHaveBeenCalled()
+    await act(async () => vi.advanceTimersByTimeAsync(1))
+    await flush()
+    expect(mountSessionMock).toHaveBeenCalledTimes(1)
+    expect(mountSessionMock.mock.calls[0]?.[1]).not.toHaveProperty('initialGeometry')
+
+    // An attach is authoritative even if the topic reading arrives after it.
+    if (attached) attachedGeometry = { cols: 140, rows: 45 }
+    await act(async () => {
+      liveFixture(pool).sessionTerminalState('s1', {
+        controller: null,
+        geometry: { cols: 132, rows: 43 },
+      })
+    })
+    await flush()
+    expect(mountSessionMock).toHaveBeenCalledTimes(1)
+    expect(terminalResize.mock.calls).toEqual(attached ? [] : [[132, 43]])
+    expect(terminalRepaint).toHaveBeenCalledTimes(attached ? 0 : 1)
   })
 
   it('shows new-file evidence in the native offer dock when the live last input arrives', async () => {
