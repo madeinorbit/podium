@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
+import { stripVTControlCharacters } from 'node:util'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { executionErrors } from './test-focused'
 import { LANES, laneCommand, planFiles, repositoryRoot } from './test-lanes'
@@ -14,23 +15,29 @@ const run = (args: string[]) => {
     timeout: 30_000,
   })
   expect(result.error, `${result.stdout}\n${result.stderr}`).toBeUndefined()
-  return { code: result.status, output: `${result.stdout}\n${result.stderr}` }
+  return {
+    code: result.status,
+    output: stripVTControlCharacters(`${result.stdout}\n${result.stderr}`),
+  }
 }
 
 describe('focused test execution', () => {
   let directory: string
   let passing: string
+  let passingTsx: string
   let excluded: string
   let empty: string
 
   beforeAll(() => {
     directory = mkdtempSync(join(root, 'scripts/.focused-test-fixture-'))
     passing = join(directory, 'passing.test.ts')
+    passingTsx = `${passing}x`
     excluded = join(directory, 'excluded.bench.test.ts')
     empty = join(directory, 'empty.test.ts')
     const source =
       "import { it, expect } from 'vitest'\nit('focused sentinel', () => expect(1).toBe(1))\n"
     writeFileSync(passing, source)
+    writeFileSync(passingTsx, source.replace('focused sentinel', 'focused tsx sentinel'))
     writeFileSync(excluded, source)
     writeFileSync(empty, 'export {}\n')
   })
@@ -70,6 +77,44 @@ describe('focused test execution', () => {
     const result = run(['test:file', '--', passing, '-t', '^focused sentinel$'])
     expect(result.code, result.output).toBe(0)
     expect(result.output).toMatch(/1 passed/)
+  }, 35_000)
+
+  it.each([
+    ['test:file', 'ts'],
+    ['test:file', 'tsx'],
+    ['test:lane', 'ts'],
+    ['test:lane', 'tsx'],
+  ])(
+    '%s selects only the named .%s file when extensions collide',
+    (wrapper, extension) => {
+      const file = extension === 'ts' ? passing : passingTsx
+      const args = wrapper === 'test:file' ? [file] : ['node', file]
+      const result = run([wrapper, '--', ...args])
+      expect(result.code, result.output).toBe(0)
+      expect(result.output).toMatch(/Test Files\s+1 passed\s*\(1\)/)
+      expect(result.output).toMatch(/Tests\s+1 passed\s*\(1\)/)
+    },
+    35_000,
+  )
+
+  it('executes both extensions when both files are named', () => {
+    const result = run(['test:file', '--', passing, passingTsx])
+    expect(result.code, result.output).toBe(0)
+    expect(result.output).toMatch(/Test Files\s+2 passed\s*\(2\)/)
+    expect(result.output).toMatch(/Tests\s+2 passed\s*\(2\)/)
+  }, 35_000)
+
+  it('preserves substring selection when the filter does not name a file', () => {
+    const result = run(['test:lane', '--', 'node', passing.slice(0, -3)])
+    expect(result.code, result.output).toBe(0)
+    expect(result.output).toMatch(/Test Files\s+2 passed\s*\(2\)/)
+    expect(result.output).toMatch(/Tests\s+2 passed\s*\(2\)/)
+  }, 35_000)
+
+  it('still refuses extra files collected by a broader lane filter', () => {
+    const result = run(['test:lane', '--', 'node', passing, directory])
+    expect(result.code, result.output).toBe(1)
+    expect(result.output).toContain(`refusing to run an extra file: ${empty}`)
   }, 35_000)
 
   it.each([

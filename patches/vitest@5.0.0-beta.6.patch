@@ -1,8 +1,21 @@
 diff --git a/dist/chunks/cli-api.cZcvaUFI.js b/dist/chunks/cli-api.cZcvaUFI.js
-index a54557b4cd9da583313539f8af607746deec5484..507fe9c6217751b3bbc1028238e9364e62beb533 100644
 --- a/dist/chunks/cli-api.cZcvaUFI.js
 +++ b/dist/chunks/cli-api.cZcvaUFI.js
-@@ -17654,7 +17654,9 @@ class TestRun {
+@@ -13495,9 +13495,13 @@
+ 	}
+ 	filterFiles(testFiles, filters, dir) {
+ 		if (filters.length && process.platform === "win32") filters = filters.map((f) => slash(f));
++		// Existing file filters are exact; directories and partial names remain substrings.
++		const exactFiles = new Map(filters.map((f) => [f, existsSync(f) && statSync(f).isFile() ? resolve$1(f) : null]));
+ 		if (filters.length) return testFiles.filter((t) => {
+ 			const testFile = relative(dir, t).toLocaleLowerCase();
+ 			return filters.some((f) => {
++				const exact = exactFiles.get(f);
++				if (exact) return process.platform === "win32" ? t.toLocaleLowerCase() === exact.toLocaleLowerCase() : t === exact;
+ 				// if filter is a full file path, we should include it if it's in the same folder
+ 				if (isAbsolute(f) && t.startsWith(f)) return true;
+ 				const relativePath = f.endsWith("/") ? join(relative(dir, f), "/") : relative(dir, f);
+@@ -17654,7 +17658,9 @@
  				else error.stacks = parseErrorStacktrace(error, {
  					frameFilter: project.config.onStackTrace,
  					getSourceMap(file) {
