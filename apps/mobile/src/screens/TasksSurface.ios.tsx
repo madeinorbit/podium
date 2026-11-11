@@ -122,6 +122,7 @@ const MARK_COLOR: Record<TaskRowMark, string> = {
  */
 export const TasksSurface = observer(function TasksSurface(props: TasksSurfaceProps) {
   const { board } = props
+  const [listRevision, setListRevision] = useState(0)
   const folds = useStageFolds()
   // The shared board's groups: non-empty lanes plus the Proposed screening group.
   const groups = board?.groups ?? LOADING
@@ -167,7 +168,12 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
         placeholder="Search tasks or ID"
         autoCapitalize="none"
         onChangeText={(event) => board?.search(event.nativeEvent.text)}
-        onCancelButtonPress={() => board?.search('')}
+        onCancelButtonPress={() => {
+          board?.search('')
+          // SwiftUI otherwise anchors the restored groups to the last search
+          // result. A fresh List returns to the top, including an empty search.
+          setListRevision((revision) => revision + 1)
+        }}
       />
       {/* React Native notices cannot sit inside a SwiftUI List. */}
       <View>
@@ -176,6 +182,7 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
       </View>
       <Host style={styles.host} seedColor={color.accentTint}>
         <List
+          key={listRevision}
           modifiers={[
             listStyle('insetGrouped'),
             listSectionSpacing(0),
@@ -375,7 +382,9 @@ const TaskRow = taskObserver(function TaskRow({
             <HStack
               spacing={8}
               modifiers={[
-                frame({ minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
+                // Match Work's content height, allowing for the native wrappers
+                // around the label. Dynamic Type can still grow the row.
+                frame({ minHeight: 36, maxWidth: Infinity, alignment: 'leading' }),
                 contentShape(shapes.rectangle()),
               ]}
             >

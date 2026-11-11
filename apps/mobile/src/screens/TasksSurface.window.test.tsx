@@ -4,7 +4,7 @@ import { MOBILE_TASK_WINDOW_SIZE, MobileTasksBoard } from '@podium/client-graph/
 import { MobxPool } from '@podium/client-graph/pool'
 import { type Worklist, worklistView } from '@podium/client-graph/worklist/view-model'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { type ReactNode, useEffect } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { TasksSurfaceProps } from './TasksSurface.types'
 import type { WorkSurfaceProps } from './WorkSurface.types'
@@ -13,6 +13,11 @@ const state = vi.hoisted(() => ({
   pool: null as MobxPool | null,
   slot: vi.fn(),
   list: vi.fn(),
+  listMount: vi.fn(),
+  search: null as {
+    onChangeText: (event: { nativeEvent: { text: string } }) => void
+    onCancelButtonPress: () => void
+  } | null,
   folded: false,
   toggleFold: vi.fn(),
   work: null as Worklist | null,
@@ -33,7 +38,10 @@ vi.mock('../hooks/useRefreshableTab', () => ({ MIN_REFRESH_CONFIRMATION_MS: 0 })
 vi.mock('expo-router', () => ({
   Stack: {
     Screen: () => null,
-    SearchBar: () => null,
+    SearchBar: (props: NonNullable<typeof state.search>) => {
+      state.search = props
+      return null
+    },
     Toolbar: Object.assign(() => null, { Button: () => null }),
   },
   useFocusEffect: () => {},
@@ -123,6 +131,9 @@ vi.mock('@expo/ui/swift-ui', () => {
     HStack: Box,
     Image: () => null,
     List: ({ children }: Props) => {
+      useEffect(() => {
+        state.listMount()
+      }, [])
       state.list()
       return <Box>{children}</Box>
     },
@@ -144,6 +155,8 @@ afterEach(() => {
   state.age.mockClear()
   state.slot.mockClear()
   state.list.mockClear()
+  state.listMount.mockClear()
+  state.search = null
   state.toggleFold.mockClear()
   state.folded = false
   state.work = null
@@ -236,6 +249,17 @@ it('native placeholders activate a bounded window both ways; only age labels rea
   expect(screen.queryAllByTestId('slot')).toHaveLength(0)
   fireEvent.click(screen.getByTestId('group-header'))
   expect(state.toggleFold).toHaveBeenCalledTimes(1)
+  // Cancel resets the native list even when UIKit clears the text first.
+  act(() => state.search?.onChangeText({ nativeEvent: { text: 'Task 150' } }))
+  const mounts = state.listMount.mock.calls.length
+  act(() => state.search?.onChangeText({ nativeEvent: { text: '' } }))
+  expect(state.listMount).toHaveBeenCalledTimes(mounts)
+  act(() => state.search?.onCancelButtonPress())
+  expect(state.listMount).toHaveBeenCalledTimes(mounts + 1)
+  expect(board.query).toBe('')
+  expect(screen.queryAllByTestId('slot')).toHaveLength(0)
+  act(() => state.search?.onCancelButtonPress())
+  expect(state.listMount).toHaveBeenCalledTimes(mounts + 2)
 })
 
 it('Work keeps its native list and unchanged slots quiet during a one-row scroll', async () => {
