@@ -234,6 +234,24 @@ export interface OpenerSpec {
  */
 export const SPAN_OPENERS: readonly OpenerSpec[] = [
   {
+    file: 'apps/server/src/store/machine-record-writes.ts',
+    symbol: 'CompareMachineRecords',
+    body: 'arg1',
+    label: 'MachineRecordWrites.compare',
+  },
+  {
+    file: 'apps/server/src/store/machine-record-context.ts',
+    symbol: 'writeFleetChannel',
+    body: 'arg1',
+    label: 'MachineRecordContextRepository.writeFleetChannel',
+  },
+  {
+    file: 'apps/server/src/modules/updates/recovery-store.ts',
+    symbol: 'write',
+    body: 'arg0',
+    label: 'UpdateRecoveryStore.write',
+  },
+  {
     file: 'packages/runtime/src/update-signing-key.ts',
     symbol: 'transaction',
     body: 'arg1',
@@ -586,6 +604,30 @@ export interface PortRule {
  * share a member name cannot collapse into one answer.
  */
 export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
+  'apps/server/src/store/machine-record-writes.ts#CompareMachineRecords.CompareMachineRecords': {
+    kind: 'contained',
+    why: 'Builds records around the source write and appends their changes with checkout reach in the same store transaction. Its write callback is a declared span root and delivery follows the outermost commit.',
+  },
+  'apps/server/src/store/machine-record-writes.ts#MachineIds.MachineIds': {
+    kind: 'contained',
+    why: 'Selects affected machine identifiers through prepared store reads in the current transaction. The providers read machine IDs or grant resource IDs.',
+  },
+  'apps/server/src/store/machine-record-context.ts#MachineRecordContextRepository.write': {
+    kind: 'opaque',
+    why: 'The settings source write supplied to writeFleetChannel. Its body is checked at that declared span opener and commits with the resolved fleet channel.',
+  },
+  'apps/server/src/modules/updates/recovery-store.ts#UpdateRecoveryStore.snapshot': {
+    kind: 'opaque',
+    why: 'Builds the checkpoint after acquiring the write lane. The caller supplies its body at the declared UpdateRecoveryStore.write span opener.',
+  },
+  'apps/server/src/modules/updates/recovery-store.ts#UpdateRecoveryPersistence.write': {
+    kind: 'contained',
+    why: 'Persists the checkpoint and compares any affected machine records in the same store transaction. The snapshot callback is checked at the declared write opener.',
+  },
+  'apps/server/src/modules/updates/service.ts#UpdatesDeps.now': {
+    kind: 'contained',
+    why: 'The injected updater clock supplies checkpoint timestamps through a read of time with no external publication.',
+  },
   'apps/server/src/store/accounts.ts#AccountsRepository.onRemoved': {
     kind: 'contained',
     why: "The audit row for a taken-back send [POD-6699]: the accounts.unsend handler binds it to SettingsAuditRepository.append, an INSERT that joins this transaction, so a rollback takes the record with the removal and nothing outside the process saw it.",
