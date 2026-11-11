@@ -1,10 +1,14 @@
 import { HARNESS_VERSION_POLICIES } from '@podium/harness/browser'
 import { DRIVER_IDS, RETIRED_DRIVER_IDS } from '@podium/harness/metadata'
 import {
+  AgentCandidate,
   AgentKind,
   DEFAULT_FLEET_UPDATE_CHANNEL,
   FEED_EVENT_KINDS,
   instancePreferencesRecordOf,
+  MAX_AGENT_PROFILE_CANDIDATES,
+  WorkflowStep,
+  WorkflowStepEvidence,
 } from '@podium/model'
 import {
   FeedChange,
@@ -27,6 +31,11 @@ import { DATABASE_ONLY_BUILDERS } from './record-builders'
 // Code constants that influence a record's value or membership automatically
 // change its token. Compare at save cannot notice these changes on upgrade:
 // both builds use the new code. Keep these inputs beside the schema inputs.
+const profileInputs = {
+  modelDefault: AgentCandidate.shape.model.parse(undefined),
+  effortDefault: AgentCandidate.shape.effort.parse(undefined),
+  maxCandidates: MAX_AGENT_PROFILE_CANDIDATES,
+}
 const codeInputs: Partial<Record<MetadataEntityKind, unknown>> = {
   machine: {
     agentKinds: AgentKind.options,
@@ -55,6 +64,14 @@ const codeInputs: Partial<Record<MetadataEntityKind, unknown>> = {
     oomAttributionWindowMs: OOM_ATTRIBUTION_WINDOW_MS,
   },
   instancePreferences: instancePreferencesRecordOf(DEFAULT_SETTINGS),
+  // The wire schema fingerprints default wrappers, not their values. These
+  // parsers fill absent fields when reading stored profiles, steps and evidence.
+  agentProfile: profileInputs,
+  workflowRevision: {
+    instructionsDefault: WorkflowStep.shape.instructions.parse(undefined),
+    completionGuidanceDefault: WorkflowStep.shape.completionGuidance.parse(undefined),
+  },
+  workflowRun: { profile: profileInputs, evidenceDefaults: WorkflowStepEvidence.parse({}) },
   issueEvent: { window: FEED_WINDOW, kinds: FEED_EVENT_KINDS },
   message: { confirmedPerSession: CONFIRMED_PER_SESSION },
 }

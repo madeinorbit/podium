@@ -31,6 +31,10 @@ async function tokens(
     driverFamily?: 'server' | 'terminal'
     settings?: unknown
     fleetChannel?: string
+    candidateDefault?: string
+    candidateLimit?: number
+    workflowInstructionsDefault?: string
+    evidenceSummaryDefault?: string
     eventWindow?: number
     confirmedPerSession?: number
     generations?: { kind: string; generation: number }[]
@@ -49,10 +53,38 @@ async function tokens(
     ...(await original<typeof import('@podium/runtime')>()),
     DEFAULT_SETTINGS: options.settings ?? DEFAULT_SETTINGS,
   }))
-  vi.doMock('@podium/model', async (original) => ({
-    ...(await original<typeof import('@podium/model')>()),
-    DEFAULT_FLEET_UPDATE_CHANNEL: options.fleetChannel ?? DEFAULT_FLEET_UPDATE_CHANNEL,
-  }))
+  vi.doMock('@podium/model', async (original) => {
+    const actual = await original<typeof import('@podium/model')>()
+    return {
+      ...actual,
+      DEFAULT_FLEET_UPDATE_CHANNEL: options.fleetChannel ?? DEFAULT_FLEET_UPDATE_CHANNEL,
+      MAX_AGENT_PROFILE_CANDIDATES: options.candidateLimit ?? actual.MAX_AGENT_PROFILE_CANDIDATES,
+      AgentCandidate:
+        options.candidateDefault === undefined
+          ? actual.AgentCandidate
+          : actual.AgentCandidate.extend({
+              model: actual.AgentCandidate.shape.model
+                .removeDefault()
+                .default(options.candidateDefault),
+            }),
+      WorkflowStep:
+        options.workflowInstructionsDefault === undefined
+          ? actual.WorkflowStep
+          : actual.WorkflowStep.extend({
+              instructions: actual.WorkflowStep.shape.instructions
+                .removeDefault()
+                .default(options.workflowInstructionsDefault),
+            }),
+      WorkflowStepEvidence:
+        options.evidenceSummaryDefault === undefined
+          ? actual.WorkflowStepEvidence
+          : actual.WorkflowStepEvidence.extend({
+              summary: actual.WorkflowStepEvidence.shape.summary
+                .removeDefault()
+                .default(options.evidenceSummaryDefault),
+            }),
+    }
+  })
   vi.doMock('../harness-manifest', async (original) => {
     const actual = await original<typeof import('../harness-manifest')>()
     return {
@@ -173,6 +205,31 @@ describe('record kind code inputs', () => {
     const before = await tokens()
     expect(changedKinds(before, await tokens({ eventWindow: 201 }))).toEqual(['issueEvent'])
     expect(changedKinds(before, await tokens({ confirmedPerSession: 21 }))).toEqual(['message'])
+  })
+
+  it('changes profiles and workflow run snapshots when a candidate default changes', async () => {
+    expect(changedKinds(await tokens(), await tokens({ candidateDefault: 'new-default' }))).toEqual(
+      ['agentProfile', 'workflowRun'],
+    )
+  })
+
+  it('changes profiles and workflow run snapshots when the candidate limit changes', async () => {
+    expect(changedKinds(await tokens(), await tokens({ candidateLimit: 9 }))).toEqual([
+      'agentProfile',
+      'workflowRun',
+    ])
+  })
+
+  it('changes only workflowRevision when a stored step default changes', async () => {
+    expect(
+      changedKinds(await tokens(), await tokens({ workflowInstructionsDefault: 'new-default' })),
+    ).toEqual(['workflowRevision'])
+  })
+
+  it('changes only workflowRun when an evidence default changes', async () => {
+    expect(
+      changedKinds(await tokens(), await tokens({ evidenceSummaryDefault: 'new-default' })),
+    ).toEqual(['workflowRun'])
   })
 
   it('keeps migration generations as a separate kind-local token input', async () => {
