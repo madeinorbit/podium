@@ -438,10 +438,13 @@ const BrowserNotificationsRow = observer(function BrowserNotificationsRow({
         onChange={(web) => patch({ notifications: { ...settings.notifications, web } })}
       />
       {settings.notifications.web && (
-        <div className="settings-list-note settings-prose flex items-start gap-2">
-          <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-          <div>
-            <span>
+        <div className="settings-list-note settings-prose">
+          {/* One line, as the design has it: icon, the browser's answer, then the
+              action. The button used to sit inline under a top margin, which
+              dropped the sentence below the icon and left no gap before it. */}
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+            <Info className="size-3.5 shrink-0" aria-hidden="true" />
+            <span className="min-w-0 flex-1">
               {permission === 'default'
                 ? 'This browser has not been asked yet.'
                 : permission === 'granted'
@@ -455,19 +458,19 @@ const BrowserNotificationsRow = observer(function BrowserNotificationsRow({
                 type="button"
                 size="sm"
                 variant="outline"
-                className="mt-2"
+                className="shrink-0"
                 disabled={pending}
                 onClick={() => void grant()}
               >
                 Allow notifications
               </Button>
             )}
-            {error && (
-              <p className="mt-1 text-destructive" role="alert">
-                {error}
-              </p>
-            )}
           </div>
+          {error && (
+            <p className="mt-1 text-destructive" role="alert">
+              {error}
+            </p>
+          )}
         </div>
       )}
     </>
