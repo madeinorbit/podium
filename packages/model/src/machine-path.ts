@@ -125,6 +125,9 @@ export function isMachinePathWithinRoot(root: string, path: string): boolean {
   // Unlike resolving a file token, membership must never put a relative cwd under an absolute root.
   if (machinePathSeparator(root) === '/')
     return path === root || path.startsWith(root.endsWith('/') ? root : `${root}/`)
+  // A POSIX cwd is not a drive-root-relative Windows file token. Resolving it
+  // against the checkout's drive would make another machine's path match.
+  if (machinePathSeparator(path) === '/' && isAbsoluteMachinePath(path)) return false
   if (isAbsoluteMachinePath(root) && !isAbsoluteMachinePath(path)) return false
   return machinePathRelativeToRoot(root, path) !== null
 }
