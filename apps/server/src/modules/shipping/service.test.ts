@@ -712,7 +712,15 @@ describe('ShippingService durable recovery debt', () => {
       const row = rows[index]!
       const at = `2026-08-13T10:00:${row.at}.000Z`
       return table === 'ship_orders'
-        ? { destination: row.destination, approved_head_sha: row.head, state_changed_at: at }
+        ? {
+            destination: row.destination,
+            approved_head_sha: row.head,
+            state_changed_at: at,
+            current_integration_receipt: JSON.stringify({
+              ...order.currentIntegrationReceipt,
+              approvedHeadSha: row.head,
+            }),
+          }
         : table === 'delivery_receipts'
           ? { destination: row.destination, destination_sha: row.sha, completed_at: at }
           : {}
@@ -770,7 +778,14 @@ describe('ShippingService durable recovery debt', () => {
     cloneShippingHistory(store, order.id, 201, (table, index): Record<string, string> => {
       const at = new Date(Date.parse(order.stateChangedAt) + (index + 1) * 1_000).toISOString()
       return table === 'ship_orders'
-        ? { approved_head_sha: `source-${index}`, state_changed_at: at }
+        ? {
+            approved_head_sha: `source-${index}`,
+            state_changed_at: at,
+            current_integration_receipt: JSON.stringify({
+              ...order.currentIntegrationReceipt,
+              approvedHeadSha: `source-${index}`,
+            }),
+          }
         : table === 'delivery_receipts'
           ? { destination_sha: `receipt-${index}`, completed_at: at }
           : {}

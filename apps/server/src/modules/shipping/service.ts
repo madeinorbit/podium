@@ -2374,6 +2374,7 @@ export class ShippingService {
     const containedSpellings = new Map<string, Pick<ShipOrder, 'destination' | 'targetBranch'>>()
     const remember = (destination: string, targetBranch: string) => {
       for (const spelling of rawShippingDestinations(destination)) {
+        if (canonicalShippingDestination(spelling, targetBranch) !== destination) continue
         containedSpellings.set(JSON.stringify([spelling, targetBranch]), {
           destination: spelling,
           targetBranch,

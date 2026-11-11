@@ -83,6 +83,8 @@ describe('UpdatesService', () => {
       }
       await svc.setTarget(target)
       expect(transactions).toHaveBeenCalledTimes(1)
+      // The first tick creates the channel's rollout state; later ticks are unchanged.
+      await svc.tick()
       transactions.mockClear()
       expect(await svc.fleet()).toHaveLength(1)
       await svc.tick()

@@ -5,6 +5,7 @@ import { SessionRegistry } from '../../relay'
 import { appRouter } from '../../router'
 import { authoritySnapshot } from '../../test-support/authority-snapshot'
 import { OPERATOR } from '../../test-support/capabilities'
+import { openTestStore } from '../../test-support/open-test-store'
 
 const registries: SessionRegistry[] = []
 afterEach(async () => {
@@ -12,7 +13,9 @@ afterEach(async () => {
 })
 
 async function fixture() {
-  const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  const registry = await SessionRegistry.create(await openTestStore(':memory:'), undefined, {
+    instanceId: 'default',
+  })
   registries.push(registry)
   await registry.sessionStore.repos.addRepo('/report-fixture', registry.sessionStore.hostMachineId)
   const user = firstAdminMemberId()
@@ -175,7 +178,7 @@ it('joins an issue list once per request and never counts comments per issue', a
   }
 })
 
-it('reuses only own-row projections while labels, hierarchy, comments and personal state stay fresh', async () => {
+it('reuses only own-row projections while labels, hierarchy and comments stay fresh', async () => {
   const { registry, api } = await fixture()
   const parent = await api.create({
     repoPath: '/report-fixture',
@@ -184,7 +187,8 @@ it('reuses only own-row projections while labels, hierarchy, comments and person
   })
   const read = async () =>
     (await api.list({ repoPath: '/report-fixture' })).find((row) => row.id === parent.id)!
-  expect(await read()).toMatchObject({ labels: [], commentCount: 0, childCount: 0, pinned: false })
+  expect(await read()).toMatchObject({ labels: [], commentCount: 0, childCount: 0 })
+  expect(await read()).not.toHaveProperty('pinned')
   await registry.sessionStore.issues.setIssueLabels(parent.id, ['alpha'])
   expect(await read()).toMatchObject({ labels: ['alpha'] })
   await registry.sessionStore.issues.setIssueLabels(parent.id, ['beta'])

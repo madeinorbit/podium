@@ -288,22 +288,41 @@ describe('SessionRegistry metadata deltas', () => {
     expect((change as { value: IssueUserStateWire } | undefined)?.value.tuckedAt).toBeTruthy()
   })
 
-  it('a pre-hello client receives no entity world until it announces an eviction-capable wire', async () => {
+  it('withholds entity rows until the client announces an eviction-capable wire', async () => {
     const registry = await makeRegistry()
     const inbox: ServerMessage[] = []
-    attachTestClient(registry.clientGateway, (msg) => inbox.push(msg)) // no hello at all
-    // Attachment still sends its control-plane frames asynchronously.
-    await expect.poll(() => inbox.some((m) => m.type === 'welcome')).toBe(true)
-    flush(registry)
-    expect(inbox.some((message) => message.type === 'feedResume')).toBe(false)
-    const before = inbox.length
+    const id = attachTestClient(registry.clientGateway, (msg) => inbox.push(msg))
     await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/r',
-      title: 'x',
+      title: 'before hello',
       startNow: false,
     })
     flush(registry)
+    expect(
+      inbox.some((message) => message.type === 'feedResume' || message.type === 'feedDelta'),
+    ).toBe(false)
     expect(inbox.some((m) => m.type === 'metadataDelta')).toBe(false)
-    expect(inbox).toHaveLength(before)
+
+    await registry.clientGateway.routeClientFrame(id, {
+      type: 'hello',
+      clientId: '',
+      wireVersion: CLIENT_WIRE_VERSION,
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      caps: ['sync.http.v1'],
+    })
+    await expect.poll(() => inbox.some((m) => m.type === 'feedResume')).toBe(true)
+    const created = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'after hello',
+      startNow: false,
+    })
+    flush(registry)
+    await expect
+      .poll(() =>
+        deltas(inbox).some(
+          (change) => change.entity === 'issueProjection' && change.id === created.id,
+        ),
+      )
+      .toBe(true)
   })
 })
