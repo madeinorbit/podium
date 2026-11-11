@@ -1,4 +1,5 @@
 import type { IssueBodyField, IssueBodyWire } from '@podium/model/browser'
+import { autorun } from 'mobx'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BODY_BATCH_IDS, BODY_WINDOW_MS, IssueBodyStore } from './issue-bodies'
 import { LOADING } from './loading'
@@ -101,21 +102,135 @@ describe('IssueBodyStore', () => {
     expect(store.read('a', 'brief', 'd2')).toEqual({ value: 'New', current: true })
   })
 
-  it('asks again after a failed call', async () => {
+  it('backs off repeated failures without reads bypassing the delay, capped at 30 seconds', async () => {
     const store = new IssueBodyStore()
-    let fail = true
-    const fetch = vi.fn(async (ids: readonly string[]) => {
-      if (fail) throw new Error('offline')
-      return ids.map((id) => body(id, 'brief', 'd', `Brief ${id}`))
+    const fetch = vi.fn(async () => {
+      throw new Error('offline')
     })
     store.bind(fetch)
     store.read('a', 'brief', 'd')
     await settle()
-    expect(store.read('a', 'brief', 'd')).toBe(LOADING)
-    fail = false
+    let attempts = 1
+    for (const delay of [1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000]) {
+      for (let read = 0; read < 20; read++) store.read('a', 'brief', 'd')
+      await vi.advanceTimersByTimeAsync(delay - 1)
+      expect(fetch).toHaveBeenCalledTimes(attempts)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(fetch).toHaveBeenCalledTimes(++attempts)
+      expect(vi.getTimerCount()).toBe(1)
+    }
+  })
+
+  it('retries only failed batches and keeps the 50 issue request limit', async () => {
+    const store = new IssueBodyStore()
+    const fetch = vi.fn(async (ids: readonly string[]) =>
+      ids.map((id) => body(id, 'brief', 'd', id)),
+    )
+    fetch.mockRejectedValueOnce(new Error('offline'))
+    store.bind(fetch)
+    for (let i = 0; i < BODY_BATCH_IDS + 7; i++) store.read(`i${i}`, 'brief', 'd')
     await settle()
-    expect(store.read('a', 'brief', 'd')).toEqual({ value: 'Brief a', current: true })
+    expect(fetch.mock.calls.map(([ids]) => ids.length)).toEqual([BODY_BATCH_IDS, 7])
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(fetch.mock.calls.map(([ids]) => ids.length)).toEqual([BODY_BATCH_IDS, 7, BODY_BATCH_IDS])
+    expect(fetch.mock.calls[2]).toEqual(fetch.mock.calls[0])
+    expect(store.read('i0', 'brief', 'd')).toEqual({ value: 'i0', current: true })
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('retries pending text on reconnect once and releases the subscription on unbind', async () => {
+    const store = new IssueBodyStore()
+    let reconnect = () => {}
+    const stopReconnect = vi.fn()
+    const fetch = vi.fn(async () => [body('a', 'brief', 'd', 'Recovered')])
+    fetch.mockRejectedValueOnce(new Error('offline'))
+    const unbind = store.bind(fetch, (listener) => {
+      reconnect = listener
+      return stopReconnect
+    })
+    store.read('a', 'brief', 'd')
+    await settle()
+    for (let event = 0; event < 20; event++) reconnect()
+    await settle()
     expect(fetch).toHaveBeenCalledTimes(2)
+    expect(store.read('a', 'brief', 'd')).toEqual({ value: 'Recovered', current: true })
+    reconnect()
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(fetch).toHaveBeenCalledTimes(2)
+    unbind()
+    expect(stopReconnect).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('pauses failed requests on unbind and resumes them on bind without a new read', async () => {
+    const store = new IssueBodyStore()
+    const fetch = vi.fn(async () => [body('a', 'brief', 'd', 'Recovered')])
+    fetch.mockRejectedValueOnce(new Error('offline'))
+    const unbind = store.bind(fetch)
+    store.read('a', 'brief', 'd')
+    await settle()
+    unbind()
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(0)
+    store.bind(fetch)
+    await settle()
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(store.read('a', 'brief', 'd')).toEqual({ value: 'Recovered', current: true })
+  })
+
+  it('keeps retries serial when more readers arrive during a request', async () => {
+    const store = new IssueBodyStore()
+    let finish!: (bodies: readonly IssueBodyWire[]) => void
+    const fetch = vi.fn(
+      async (ids: readonly string[]): Promise<readonly IssueBodyWire[]> =>
+        ids.map((id) => body(id, 'brief', 'd', id)),
+    )
+    fetch.mockRejectedValueOnce(new Error('offline'))
+    fetch.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    store.bind(fetch)
+    store.read('a', 'brief', 'd')
+    await settle()
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(fetch).toHaveBeenCalledTimes(2)
+    store.read('b', 'brief', 'd')
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(fetch).toHaveBeenCalledTimes(2)
+    finish([body('a', 'brief', 'd', 'a')])
+    await settle()
+    expect(fetch.mock.calls.map(([ids]) => [...ids])).toEqual([['a'], ['a'], ['b']])
+    expect(store.read('b', 'brief', 'd')).toEqual({ value: 'b', current: true })
+  })
+
+  it('resumes in-flight requests on rebind and ignores the old binding response', async () => {
+    const store = new IssueBodyStore()
+    let finish!: (bodies: readonly IssueBodyWire[]) => void
+    const fetch = vi.fn(
+      async (): Promise<readonly IssueBodyWire[]> => [body('a', 'brief', 'd', 'New')],
+    )
+    fetch.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    const unbind = store.bind(fetch)
+    store.read('a', 'brief', 'd')
+    await settle()
+    unbind()
+    store.bind(fetch)
+    // The old cleanup must not unbind a newer attachment of the same fetch.
+    unbind()
+    await settle()
+    expect(fetch).toHaveBeenCalledTimes(2)
+    finish([body('a', 'brief', 'd', 'Old')])
+    await Promise.resolve()
+    expect(store.read('a', 'brief', 'd')).toEqual({ value: 'New', current: true })
   })
 
   it('holds reads made before the fetch is bound until it is', async () => {
@@ -203,5 +318,47 @@ describe('IssueModel bodies', () => {
     expect(issue.bodyLoading('brief')).toBe(false)
     await settle()
     expect(calls).toEqual([])
+  })
+
+  it('delivers brief and description after a failed fetch while the same reader stays open', async () => {
+    const pool = poolWith(
+      issueRow({
+        bodies: { brief: { digest: 'd1', size: 7 }, description: { digest: 'd2', size: 3 } },
+      }),
+    )
+    const fetch = vi.fn(async () => [
+      body('a', 'brief', 'd1', 'Brief A'),
+      body('a', 'description', 'd2', { value: 'Sum' }),
+    ])
+    fetch.mockRejectedValueOnce(new Error('offline'))
+    const unbind = pool.issueBodies.bind(fetch)
+    const issue = pool.issueObject('a')
+    const paints: unknown[] = []
+    const close = autorun(() => {
+      paints.push([
+        issue.brief,
+        issue.description,
+        issue.bodyLoading('brief'),
+        issue.bodyLoading('description'),
+      ])
+    })
+    try {
+      expect(paints).toEqual([[undefined, '', true, true]])
+      await settle()
+      expect(fetch).toHaveBeenCalledTimes(1)
+      expect(paints).toHaveLength(1)
+      // No read, redraw, header update or navigation triggers the retry.
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(fetch).toHaveBeenCalledTimes(2)
+      expect(paints).toEqual([
+        [undefined, '', true, true],
+        ['Brief A', 'Sum', false, false],
+      ])
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      close()
+      unbind()
+      pool.dispose()
+    }
   })
 })
