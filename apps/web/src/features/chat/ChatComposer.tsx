@@ -213,9 +213,7 @@ export const ChatComposer = observer(function ChatComposer({
   onOfferAction: (prompt: string, offerAt: string) => Promise<void>
   /** "None of these" — clears the offer without sending a turn. */
   onOfferDismiss: (offerAt: string) => Promise<void>
-  session:
-    | Pick<SessionView, 'sessionId' | 'issueId' | 'lastInputAt' | 'cwd' | 'machineId'>
-    | undefined
+  session: SessionModel | undefined
   turnError: string | null
   /** Whether the visible transcript is being checked, rendered, or remains saved-only. */
   transcriptFreshness: TranscriptFreshness

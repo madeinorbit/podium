@@ -1,6 +1,5 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import type { SessionView } from '@podium/client-core/session-values'
-import { MobxPool } from '@podium/client-graph'
+import { MobxPool, type SessionModel } from '@podium/client-graph'
 import { liveFixture } from '@podium/client-graph/live-fixture'
 import {
   type ArtifactId,
@@ -26,6 +25,11 @@ import { OfferBar } from './OfferBar'
 
 const openArtifact = vi.fn()
 const openFileInWorktree = vi.fn()
+vi.mock('@podium/client-core/react', async (original) => ({
+  ...(await original<typeof import('@podium/client-core/react')>()),
+  useHttpOrigin: () => 'http://h',
+  useUiValue: (key: string) => (key === 'openArtifact' ? openArtifact : openFileInWorktree),
+}))
 let issues: IssueViewModel[] = []
 let publication = 0
 const storeListeners = new Set<() => void>()
@@ -92,7 +96,7 @@ const makeIssue = (artifacts: IssuePanelArtifact[]): IssueViewModel =>
     sessions: [],
   }) as unknown as IssueViewModel
 
-const session = { sessionId: asSessionId('sess_1'), issueId: 'iss_1' } as unknown as SessionView
+const session = { sessionId: asSessionId('sess_1'), issueId: 'iss_1' } as unknown as SessionModel
 
 const offerWith = (artifacts: string[]): SessionOffer => ({
   message: 'm',

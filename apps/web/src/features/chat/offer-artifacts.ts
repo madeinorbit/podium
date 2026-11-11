@@ -18,7 +18,7 @@ import type { IssuePanelArtifact, SessionOffer } from '@podium/model/browser'
 export function resolveOfferArtifacts(args: {
   offer: SessionOffer
   issue: IssueWithBodies | undefined
-  /** ISO time of the session's last human input (SessionMeta.lastInputAt). */
+  /** ISO time of the session model's live last human input. */
   lastInputAt?: string
 }): IssuePanelArtifact[] {
   const published = args.issue?.panel?.artifacts ?? []

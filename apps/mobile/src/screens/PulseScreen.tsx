@@ -1,3 +1,4 @@
+import { agentDescriptors } from '@podium/client-core/agent-models'
 import {
   type AccountQuotaGroup,
   agentLabel,
@@ -28,9 +29,8 @@ import {
   visibleFleetOperations,
   windowElapsedPercent,
 } from '@podium/client-core/values'
-import type { HarnessDescriptorWire } from '@podium/protocol'
 import type { AgentKind, QuotaWindowWire } from '@podium/model'
-import { agentDescriptors } from '@podium/client-core/agent-models'
+import type { HarnessDescriptorWire } from '@podium/protocol'
 import { useCallback, useMemo, useState } from 'react'
 import { ScrollView, StyleSheet, Text, View } from 'react-native'
 import { BarTrace, Meter, type MeterTone, Readout, SubReadout } from '../components/instruments'
@@ -108,6 +108,7 @@ export function PulseScreen() {
         machines: feed.machines,
         hosts: grantedHosts,
         capacityReadings: feed.capacityReadings,
+        targetUnavailableReasons: feed.targetUnavailableReasons,
         loadPerCore: feed.loadPerCore,
         nowMs: feed.nowMs,
       }),
@@ -122,6 +123,7 @@ export function PulseScreen() {
     feed.hosts,
     feed.machines,
     feed.capacityReadings,
+    feed.targetUnavailableReasons,
     feed.loadPerCore,
     feed.nowMs,
   ])

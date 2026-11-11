@@ -758,7 +758,7 @@ function Composer() {
       offer={null}
       onOfferAction={async () => {}}
       onOfferDismiss={async () => {}}
-      session={f.fixture!.sessions[0]}
+      session={f.pool!.sessionObject(id)}
       turnError={null}
       transcriptFreshness="saved"
       offlineAsOf={null}
@@ -778,7 +778,10 @@ it('renders the saved draft and artifact and keeps artifact dispatch on its owne
   const Surface = () => (
     <>
       <Composer />
-      <OfferArtifactStrip session={f.fixture!.sessions[0]!} offer={offer} />
+      <OfferArtifactStrip
+        session={f.pool!.sessionObject(f.fixture!.sessions[0]!.sessionId)}
+        offer={offer}
+      />
     </>
   )
   const visible = (container: HTMLElement) => ({

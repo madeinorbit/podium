@@ -119,12 +119,13 @@ export interface TranscriptActivity {
   live: boolean
 }
 
-/** Trailing settle before a moved row re-reads: a working agent moves the row
- *  several times a second, and the point is to be current, not to re-read on
- *  every tick. */
+/** Trailing settle coalesces activity and phase changes before a re-read.
+ *  While the phase is unchanged, the activity rule advances lastActiveAt at
+ *  most once a minute. */
 export const TRANSCRIPT_ACTIVITY_SETTLE_MS = 400
 /** The floor under a live transcript: one newest-item probe, escalating to a
- *  full reconcile only when the tail differs [POD-701]. */
+ *  full reconcile only when the tail differs [POD-701]. This six-second probe
+ *  heals a dropped stream frame between the minute-spaced activity signals. */
 export const TRANSCRIPT_LIVE_HEARTBEAT_MS = 6_000
 
 /** The row fields that advance on exactly the activity a transcript records. */

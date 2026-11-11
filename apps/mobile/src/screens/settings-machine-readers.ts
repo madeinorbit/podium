@@ -1,15 +1,24 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import type { MobxPool } from '@podium/client-graph'
-import { keyedComputed } from '@podium/mobx-helpers'
+import type {
+  MachineOperationsView,
+  MachineTargetUnavailableReasons,
+} from '@podium/client-core/values'
 import { visibleFleetOperations } from '@podium/client-core/values'
-import type { MachineOperationsView } from '@podium/client-core/values'
-export type SettingsMachineStatus = Pick<MachineOperationsView, 'id' | 'name' | 'online' | 'statusLabel' | 'updateChannel' | 'updateLabel'>
+import type { MobxPool } from '@podium/client-graph'
+import { omitGone } from '@podium/client-graph/lookup'
+import { keyedComputed } from '@podium/mobx-helpers'
+export type SettingsMachineStatus = Pick<
+  MachineOperationsView,
+  'id' | 'name' | 'online' | 'statusLabel' | 'updateChannel' | 'updateLabel'
+>
 const EMPTY_IDS: readonly string[] = []
 const UPDATE_STATES = ['current', 'behind', 'ahead', 'unreported', 'unknown'] as const
 const loaded = <T extends object>(row: T | symbol | undefined): row is T =>
   typeof row === 'object' && row !== null
 
-export function createSettingsMachineReaders(pool: MobxPool) {
+export function createSettingsMachineReaders(
+  pool: MobxPool,
+  targetUnavailableReasons: () => MachineTargetUnavailableReasons | undefined = () => undefined,
+) {
   const ids = keyedComputed('phone.settings.machineIds', (_key: null) => {
     const catalog = omitGone(pool.row('settingsCatalog', 'catalog'))
     return loaded(catalog) ? catalog.machines : EMPTY_IDS
@@ -61,7 +70,11 @@ export function createSettingsMachineReaders(pool: MobxPool) {
     (id: string): SettingsMachineStatus | null => {
       const row = omitGone(pool.model('machine', id))
       if (!loaded(row)) return null
-      const view = visibleFleetOperations({ machines: [row], hosts: [] }).machines[0]!
+      const view = visibleFleetOperations({
+        machines: [row],
+        hosts: [],
+        targetUnavailableReasons: targetUnavailableReasons(),
+      }).machines[0]!
       const { name, online, statusLabel, updateChannel, updateLabel } = view
       return { id: view.id, name, online, statusLabel, updateChannel, updateLabel }
     },

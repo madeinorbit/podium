@@ -1,7 +1,7 @@
-import { useHttpOrigin } from '@podium/client-core/react'
-import { useUiValue } from '@podium/client-core/react'
-import type { SessionView } from '@podium/client-core/session-values'
+import { useHttpOrigin, useUiValue } from '@podium/client-core/react'
 import { artifactKind, artifactUrl, basename } from '@podium/client-core/values'
+import type { SessionModel } from '@podium/client-graph'
+import { observer } from '@podium/client-graph/react'
 import { resolveMachinePath } from '@podium/model'
 import type { IssuePanelArtifact, SessionOffer } from '@podium/model/browser'
 import { Code, FileText, Play } from 'lucide-react'
@@ -75,12 +75,12 @@ function useTileSlots(row: HTMLElement | null): number {
  * other kinds open the artifact file tab. Clicks never bubble, so a host that
  * makes its whole surface clickable still gets a preview, not a navigation.
  */
-export function OfferArtifactStrip({
+export const OfferArtifactStrip = observer(function OfferArtifactStrip({
   offer,
   session,
 }: {
   offer: SessionOffer
-  session: Pick<SessionView, 'sessionId' | 'issueId' | 'lastInputAt'>
+  session: SessionModel
 }): JSX.Element | null {
   const { httpOrigin, openArtifact, openFileInWorktree } = {
     httpOrigin: useHttpOrigin(),
@@ -237,4 +237,4 @@ export function OfferArtifactStrip({
       )}
     </>
   )
-}
+})

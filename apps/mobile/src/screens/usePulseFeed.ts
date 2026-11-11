@@ -1,17 +1,18 @@
+import type { MachineTargetUnavailableReasons } from '@podium/client-core/values'
 import { type MachineCapacityReadings, machineViewsFromWire } from '@podium/client-core/values'
 import { instancePreferences } from '@podium/client-graph/instance-preferences'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type {
   HostMetricsWire,
+  MachineFacts,
   MachineId,
   MachineQuotaWire,
-  MachineFacts,
   QuotaWindowHistoryWire,
   UsageBucketWire,
 } from '@podium/model'
 import type { HostMemoryBreakdown } from '@podium/protocol'
 import { useFocusEffect } from 'expo-router'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import {
   DEMO_HOST_METRICS,
   DEMO_MACHINES,
@@ -35,6 +36,7 @@ import {
   settleCapacityRefresh,
   settleWithConcurrency,
 } from './capacity-refresh'
+import { MachineUpdateReasons, useMachineUpdateReasons } from './machine-update-reasons'
 
 /**
  * The Pulse tab's readings [POD-662].
@@ -84,6 +86,8 @@ export interface PulseFeed {
   machines: readonly MachineFacts[]
   /** Answers only for machines whose live `use` gate admitted the daemon walk. */
   capacityReadings: MachineCapacityReadings
+  /** Transient update explanations read only while this tab is visible. */
+  targetUnavailableReasons: MachineTargetUnavailableReasons | undefined
   /** The auto-park threshold the load meter fills against; null = policy off. */
   loadPerCore: number | null
   /** When the quota and usage reading was taken — and the clock every figure
@@ -103,6 +107,11 @@ export function usePulseFeed(): PulseFeed {
   const { hosts: hostMetrics, machines, quota: quotaReading, usage: usageReading } = usePulseLive()
   const { profile } = useServerProfile()
   const profileKey = serverProfileRequestKey(profile)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each profile owns a separate transient request.
+  const targetReasons = useMemo(() => new MachineUpdateReasons(), [profileKey])
+  useMachineUpdateReasons(targetReasons)
+  const readTargetReasons = useCallback(() => targetReasons.answer, [targetReasons])
+  const targetUnavailableReasons = useMobilePoolProjection(readTargetReasons, undefined)
   const cached = cacheByProfile.get(profileKey)
   const demo = demoEnabled()
   const [answer, setAnswer] = useState<{
@@ -268,6 +277,7 @@ export function usePulseFeed(): PulseFeed {
       history: DEMO_QUOTA_HISTORY,
       hosts: DEMO_HOST_METRICS,
       machines: DEMO_MACHINES,
+      targetUnavailableReasons: undefined,
       capacityReadings: Object.fromEntries(
         Object.entries(DEMO_MEMORY_BREAKDOWNS).map(([machineId, value]) => [
           machineId,
@@ -307,6 +317,7 @@ export function usePulseFeed(): PulseFeed {
       history: null,
       hosts: hostMetrics,
       machines,
+      targetUnavailableReasons,
       capacityReadings: {},
       loadPerCore,
       nowMs: live.fetchedAt ?? Date.now(),
@@ -318,6 +329,7 @@ export function usePulseFeed(): PulseFeed {
   return {
     ...answer,
     ...live,
+    targetUnavailableReasons,
     loadPerCore,
     hosts: hostMetrics,
     machines,

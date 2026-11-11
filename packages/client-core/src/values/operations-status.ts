@@ -13,9 +13,9 @@
 import {
   type HostMetricsWire,
   isMachineOfflineForLiveTerminal,
+  type MachineFacts,
   type MachineId,
   type MachineQuotaWire,
-  type MachineFacts,
   type QuotaWindowHistoryWire,
   quotaAccountKey,
   type UpdateChannel,
@@ -39,6 +39,9 @@ export type MachineCapacityReading =
   | { state: 'unavailable'; value: null }
 
 export type MachineCapacityReadings = Readonly<Partial<Record<MachineId, MachineCapacityReading>>>
+
+/** Transient explanations from machines.list, owned by the open operations view. */
+export type MachineTargetUnavailableReasons = Readonly<Record<string, string | null>>
 
 export type CapacityDetailState = MachineCapacityReading['state'] | 'restricted' | 'offline'
 
@@ -159,6 +162,7 @@ function effectiveUpdateState(machine: MachineFacts): MachineOperationsView['upd
 function machineUpdateLabel(
   machine: MachineFacts,
   state: MachineOperationsView['updateState'],
+  targetUnavailableReason: string | null | undefined,
 ): string {
   const installed = machine.appVersion ?? 'version not reported'
   if (state === 'current') return `${installed} · current`
@@ -173,7 +177,7 @@ function machineUpdateLabel(
       : `${installed} · ahead`
   }
   if (state === 'unreported') return 'Build not reported'
-  if (machine.targetUnavailableReason) return `${installed} · target unavailable`
+  if (targetUnavailableReason) return `${installed} · target unavailable`
   return installed
 }
 
@@ -187,6 +191,7 @@ export function visibleFleetOperations(args: {
   machines: readonly MachineFacts[]
   hosts: readonly HostMetricsWire[]
   capacityReadings?: MachineCapacityReadings
+  targetUnavailableReasons?: MachineTargetUnavailableReasons | undefined
   loadPerCore?: number | null
   nowMs?: number
 }): VisibleFleetOperationsView {
@@ -273,7 +278,11 @@ export function visibleFleetOperations(args: {
       targetVersion: machine.targetVersion ?? null,
       updateChannel: machine.updateChannel ?? null,
       updateState,
-      updateLabel: machineUpdateLabel(machine, updateState),
+      updateLabel: machineUpdateLabel(
+        machine,
+        updateState,
+        args.targetUnavailableReasons?.[machine.id],
+      ),
     }
   })
 

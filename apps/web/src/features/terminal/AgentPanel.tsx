@@ -10,6 +10,7 @@ import {
 } from '@podium/client-core/react'
 import { effectivePanelMode, type PanelMode } from '@podium/client-core/ui-state'
 import type { MobxPool } from '@podium/client-graph'
+import { observer } from '@podium/client-graph/react'
 import { paneHandingOffTo } from '@podium/client-graph/session-pane'
 import { observe, reaction } from 'mobx'
 import { readSessions } from '@/app/command-launch-readers'
@@ -91,6 +92,7 @@ import { SessionWatchers } from './SessionWatchers'
 import { sessionAgeMs, startupOverlay } from './startup-overlay'
 import { usePanelSurface } from './use-panel-surface'
 import {
+  usePaneGeometry,
   usePaneIssueOutcome,
   usePaneMachines,
   usePaneReconnecting,
@@ -111,7 +113,7 @@ type DesktopSessionGlobals = {
   __PODIUM_TOGGLE_SESSION_VIEW__?: () => void
 }
 
-export function AgentPanel({
+export const AgentPanel = observer(function AgentPanel({
   sessionId,
   active = true,
   focused = active,
@@ -141,6 +143,7 @@ export function AgentPanel({
     navigateToSession: useUi().navigateToSession,
   }
   const session = usePaneSession(sessionId)
+  const geometry = usePaneGeometry(sessionId)
   const reconnecting = usePaneReconnecting(sessionId)
   // A session its issue's closing stopped ends with that outcome (POD-2151).
   const outcome = usePaneIssueOutcome(sessionId)
@@ -503,11 +506,11 @@ export function AgentPanel({
     // never retried, so `spawnConfirmed` holds the mount until the reconcile.
     enabled: gates.terminalMounted && terminalRuntimeRequestedRef.current,
     // BORN AT W (POD-3239 B1 / MODEL rule 2). The server has always published
-    // this session's grid on its row and nothing read it, so every terminal was
+    // this session's grid and nothing read it, so every terminal was
     // constructed at xterm's 80x24 and dragged to the real size afterwards —
     // which is the quadrant the operator saw. Read at mount time only; from then
     // on the attach snapshot and the daemon's reports are what move the buffer.
-    ...(session?.geometry ? { initialGeometry: session.geometry } : {}),
+    ...(geometry ? { initialGeometry: geometry } : {}),
     // THE BOX CLIPS (POD-3239 B3). The desktop pane hides what does not fit and
     // pads the rest with the terminal background; it never scrolls over the pty
     // and never scales it.
@@ -1299,7 +1302,7 @@ export function AgentPanel({
                     disabled={!nativeOffer}
                     onAction={sendOfferPrompt}
                     onDismiss={dismissOffer}
-                    {...(session ? { session } : {})}
+                    {...(session && testPool ? { session: testPool.sessionObject(sessionId) } : {})}
                   />
                 </div>
               </div>
@@ -1382,7 +1385,7 @@ export function AgentPanel({
       <OfferLiftContext.Provider value={offerLift}>{panel}</OfferLiftContext.Provider>
     </OfferDismissalContext.Provider>
   )
-}
+})
 
 /** Only this visible wait label observes time; the terminal panel stays still. */
 function TerminalStartupOverlay({
