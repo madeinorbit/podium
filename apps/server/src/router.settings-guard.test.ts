@@ -6,7 +6,7 @@
  * #352" — and its claim was that the surface was UNTOUCHED, including the claim
  * that no `*_CONTRACTS` table in `@podium/commands` named a `settings.*`
  * command. POD-420 is #352's command-contract child, so that last claim is now
- * false BY DESIGN: `SETTINGS_CONTRACTS` names four.
+ * false BY DESIGN: `SETTINGS_CONTRACTS` names the derived procedures.
  *
  * WHAT DID NOT CHANGE, AND MUST NOT: the guard still fails in BOTH DIRECTIONS
  * with no ratchet relief. POD-386's reasoning generalises past settings and is
@@ -59,9 +59,6 @@ const typeOf = (name: string): string | undefined => procedures[name]?._def?.typ
  * the reason each is still hand-written. Named individually, because "the rest"
  * is how an unaccounted-for write hides.
  *
- *  - `set` is the legacy blob write, still called by the sidebar, the
- *    auto-continue dialog and the engine — and it now refuses a SECRET change,
- *    which is what makes the contracted pair the only way to write material.
  *  - the two telegram procedures WERE here and are now CONTRACTED (POD-1080,
  *    ADR 3 Amendment 1 D22): the binding ceremony is an authentication surface,
  *    so they moved into `DERIVED` below under unchanged wire keys. They are the
@@ -168,14 +165,23 @@ describe('this guard can say NO', () => {
   it('the contract table is NOT empty — the derived half has content', () => {
     // Without this, "every contract declaring trpc is served" passes perfectly
     // against a table naming nothing, which is the emptiness POD-732 named.
-    expect(SETTINGS_COMMAND_NAMES.length).toBe(5)
+    expect(SETTINGS_COMMAND_NAMES.length).toBe(7)
     expect(Object.keys(DERIVED).sort()).toEqual([
       'settings.clearSecret',
       'settings.secretPresence',
       'settings.setSecret',
+      'settings.telegramBotPresence',
+      'settings.telegramDisconnect',
       'settings.telegramSetupPoll',
       'settings.telegramSetupStart',
     ])
+  })
+
+  it('mints and disconnects Telegram through mutations while presence and polling stay queries', () => {
+    expect(typeOf('settings.telegramSetupStart')).toBe('mutation')
+    expect(typeOf('settings.telegramDisconnect')).toBe('mutation')
+    expect(typeOf('settings.telegramSetupPoll')).toBe('query')
+    expect(typeOf('settings.telegramBotPresence')).toBe('query')
   })
 
   it('the verb check notices a READ served as a MUTATION', () => {
