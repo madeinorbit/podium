@@ -36,6 +36,13 @@ const accounts: AccountView[] = [
     status: 'connected',
   },
   {
+    id: 'native:claude-code',
+    provider: 'anthropic',
+    source: 'native',
+    harness: 'claude-code',
+    status: 'connected',
+  },
+  {
     id: 'managed:openai',
     provider: 'openai',
     source: 'managed',
@@ -201,6 +208,9 @@ it('shows subagent model only when the harness accepts it', () => {
     <AgentsSection settings={settings} accounts={accounts} patch={vi.fn()} />,
   )
   expect(screen.getByText('Subagent model')).toBeTruthy()
+  const section = screen.getByRole('heading', { name: 'New sessions' }).closest('section')
+  if (!section) throw new Error('Missing new sessions section')
+  expect(within(section).getByText(/usage counts against that subscription or account/i)).toBeTruthy()
   const next = normalizeSettings({ roles: { coding: { accountId: 'native:codex' } } })
   rerender(<AgentsSection settings={next} accounts={accounts} patch={vi.fn()} />)
   expect(screen.queryByText('Subagent model')).toBeNull()
@@ -248,6 +258,7 @@ it('shows the native background Auto model resolved exactly as the one-shot call
   if (!section) throw new Error('Missing background section')
   const head = bundledDescriptorFor('codex')?.catalog.models[0]?.label
   expect(within(section).getByRole('button', { name: 'Model' }).textContent).toBe(`Auto · ${head}`)
+  expect(within(section).getByText(/usage counts against that subscription/i)).toBeTruthy()
   expect(screen.queryByText('Status')).toBeNull()
 })
 
@@ -276,6 +287,7 @@ it('shows the server default account for an unset background role and lists conc
   const settings = normalizeSettings({})
   render(<AgentsSection settings={settings} accounts={accounts} patch={vi.fn()} />)
   expect(screen.getByRole('combobox', { name: 'Runs on' }).textContent).toContain('OpenRouter')
+  expect(screen.getByText(/billed per token to your key/i)).toBeTruthy()
   const model = screen.getByRole('combobox', { name: 'Model' })
   expect(model.textContent).toContain('Gemini 2.5 Flash')
   fireEvent.click(model)

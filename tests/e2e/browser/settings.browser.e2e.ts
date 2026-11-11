@@ -183,8 +183,7 @@ test('new sessions allows effort with automatic model selection', async ({ page 
   await expect(section.getByRole('button', { name: 'Model' }).first()).toContainText('Auto')
   const effort = section.locator('fieldset[aria-label="Effort"]')
   await expect(effort).toBeVisible()
-  await expect(section.getByText('Subagent model', { exact: true })).toBeVisible()
-  await expect(section.getByText('Model for the helpers Codex starts on its own.')).toBeVisible()
+  await expect(section.getByText('Subagent model', { exact: true })).toHaveCount(0)
   await effort.getByRole('button', { name: 'Extra high', exact: true }).click()
   await expect(page.getByText('Saved', { exact: true })).toBeVisible({ timeout: 10_000 })
 
