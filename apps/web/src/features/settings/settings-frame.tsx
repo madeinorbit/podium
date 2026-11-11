@@ -139,6 +139,7 @@ export function SettingsFrame({
       : definition.description
   const groups = visibleSettingsGroups(SETTINGS_GROUPS, viewer.sections)
   const pages = groups.flatMap((group) => group.tabs)
+  const pageOffered = pages.some((entry) => entry.key === page)
   const [query, setQuery] = useState('')
   const results = searchSettings(query, pages)
   const searching = query.trim().length > 0
@@ -156,7 +157,7 @@ export function SettingsFrame({
     if (selectedPage !== undefined) setPhonePage(selectedPage)
   }, [selectedPage, page])
   const [flow, setFlow] = useState<(Takeover & { page: SettingsPage }) | null>(null)
-  const takeover = flow?.page === page ? flow : null
+  const takeover = pageOffered && flow?.page === page ? flow : null
   const [actionSlot, setActionSlot] = useState<HTMLDivElement | null>(null)
   const [jump, setJump] = useState<SettingsSearchResult | null>(null)
   const filterRef = useRef<HTMLInputElement | null>(null)
@@ -418,32 +419,34 @@ export function SettingsFrame({
                     className="settings-page-content settings-section-enter"
                     key={page}
                   >
-                    <header className="settings-page-header">
-                      <div>
-                        <h3 ref={pageRef} tabIndex={-1} className="settings-page-title">
-                          {definition.label}
-                          {(definition.adminOnly || definition.group === 'workspace') && (
-                            <span
-                              className="settings-scope-tag"
-                              title={
-                                definition.adminOnly
-                                  ? 'Only admins see this page'
-                                  : 'Changes here apply to everyone in this workspace'
-                              }
-                            >
-                              {definition.adminOnly ? (
-                                <Lock size={11} aria-hidden="true" />
-                              ) : (
-                                <Users size={11} aria-hidden="true" />
-                              )}
-                              {definition.adminOnly ? 'Admins' : 'Everyone'}
-                            </span>
-                          )}
-                        </h3>
-                        <p className="settings-prose mt-1.5">{description}</p>
-                      </div>
-                      <div ref={setActionSlot} className="settings-page-actions" />
-                    </header>
+                    {pageOffered && (
+                      <header className="settings-page-header">
+                        <div>
+                          <h3 ref={pageRef} tabIndex={-1} className="settings-page-title">
+                            {definition.label}
+                            {(definition.adminOnly || definition.group === 'workspace') && (
+                              <span
+                                className="settings-scope-tag"
+                                title={
+                                  definition.adminOnly
+                                    ? 'Only admins see this page'
+                                    : 'Changes here apply to everyone in this workspace'
+                                }
+                              >
+                                {definition.adminOnly ? (
+                                  <Lock size={11} aria-hidden="true" />
+                                ) : (
+                                  <Users size={11} aria-hidden="true" />
+                                )}
+                                {definition.adminOnly ? 'Admins' : 'Everyone'}
+                              </span>
+                            )}
+                          </h3>
+                          <p className="settings-prose mt-1.5">{description}</p>
+                        </div>
+                        <div ref={setActionSlot} className="settings-page-actions" />
+                      </header>
+                    )}
                     {children}
                   </div>
                 </div>

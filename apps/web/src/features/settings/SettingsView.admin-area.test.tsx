@@ -7,9 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 /**
  * THE ADMIN AREA IN THE SETTINGS RAIL (POD-6299; design §2.6).
  *
- * The rail draws the Administration, Instance settings and Secrets groups only
- * for a viewer `/auth/admin/viewer` offers them to. A member keeps his
- * preferences, his own password and his own machines.
+ * The rail draws admin-only pages only when `/auth/admin/viewer` offers them.
+ * A member keeps their personal and shared workspace pages.
  */
 const storeState = {
   trpc: {} as import('@/app/trpc').Trpc,
