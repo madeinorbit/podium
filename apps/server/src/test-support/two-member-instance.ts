@@ -49,7 +49,6 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { HttpBootstrapSource } from '@podium/client-core/sync-stream'
 import { type IssueTrpc, makeRelayIssueClient } from '@podium/issue-client'
 import {
   asMachineId,
@@ -73,11 +72,14 @@ import { createTRPCClient, httpLink, type TRPCClient } from '@trpc/client'
 import WebSocket from 'ws'
 import { runIssueCli } from '../../../cli/src/issue-cli'
 import { createAgentRelayHub, startAgentRelayServer } from '../../../daemon/src/agent-relay'
+import { requestUserId } from '../auth-route'
+import { userCommandPrincipal } from '../command-principal'
 import { IssueToolProvider } from '../issue-mcp'
 import { noJanitorWorkerForTests } from '../janitor-host'
 import type { AppRouter } from '../router'
 import { startServer } from '../server'
-import { snapshotFromBootstrap, workerSnapshot } from './bootstrap-snapshot'
+import { syncFeedPrincipal } from '../sync/route-support'
+import { workerSnapshot } from './bootstrap-snapshot'
 import { attachDaemonWithInventory } from './daemon-inventory'
 
 export type MemberName = 'alice' | 'bob' | 'carol'
@@ -482,17 +484,15 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
             .filter((frame): frame is FeedDeltaMessage => frame.type === 'feedDelta')
             .flatMap((frame) => frame.changes),
         bootstrap: async () => {
-          const source = new HttpBootstrapSource({
-            origin,
-            streamingFetch: {
-              fetch: (url, init) =>
-                fetch(url, {
-                  ...init,
-                  headers: { ...init.headers, cookie },
-                }),
-            },
-          })
-          return await snapshotFromBootstrap(source.bootstrap())
+          // This host's no-janitor seam omits its normal sync worker. Resolve
+          // the real login cookie with production auth before the fixture worker
+          // builds/scopes the snapshot; never infer a member from the test name.
+          const userId = await requestUserId(store.auth, cookie)
+          const account = userId ? await store.users.get(userId) : undefined
+          if (!account || account.disabledAt) throw new Error('authenticated member required')
+          const principal = syncFeedPrincipal(userCommandPrincipal(account.id, account.role))
+          if (!principal) throw new Error('authenticated feed principal required')
+          return await workerSnapshot(registry, principal)
         },
         until: async (pred, ms) => await until(pred, ms),
         closed: () => closed,

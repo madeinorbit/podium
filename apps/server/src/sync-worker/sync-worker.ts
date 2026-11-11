@@ -23,9 +23,14 @@ interface Work {
 }
 if (parentPort) {
   const port = parentPort
-  const { dbPath, effectKinds = [] } = workerData as {
+  const {
+    dbPath,
+    effectKinds = [],
+    recordNow,
+  } = workerData as {
     dbPath: string
     effectKinds?: readonly string[]
+    recordNow?: number
   }
   const jobs = new Map<string, Work>()
   const queue: Work[] = []
@@ -84,7 +89,7 @@ if (parentPort) {
             transferId: work.job.transferId,
             metrics: { ...metrics, queueWaitMs },
           }),
-        { effectKinds },
+        { effectKinds, ...(recordNow === undefined ? {} : { now: () => recordNow }) },
       )) {
         for (let at = 0; at < bytes.byteLength; at += SYNC_CHUNK_BYTES) {
           await credit(work)

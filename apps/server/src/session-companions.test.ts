@@ -13,6 +13,7 @@ import { disposeOracles, makeOracle } from './modules/sessions/oracle-support'
 import { SESSION_QUERIES } from './modules/sessions/queries'
 import { buildSuperagentTools } from './modules/superagent/tools'
 import { privateResourceAccess } from './private-resources'
+import { workerSnapshot } from './test-support/bootstrap-snapshot'
 
 const NOW = Date.parse('2026-10-02T12:00:00.000Z')
 const B = asUserId('user:b')
@@ -60,7 +61,7 @@ async function fixture() {
   const a = await sessions.view.principalForTrustedUser(A)
   const b = await sessions.view.principalForTrustedUser(B)
   const stateRows = async (user: typeof A) => {
-    const snapshot = await sessions.syncChangesSince(null, wirePrincipal(user))
+    const snapshot = await workerSnapshot(o.reg, wirePrincipal(user), ['sessionUserState'])
     if (snapshot.kind !== 'snapshot') throw new Error('expected snapshot')
     return snapshot.sessionUserStates ?? []
   }
@@ -130,7 +131,7 @@ describe('S1 session companion records', () => {
       expect(markers.every((change) => change.id === sessionUserStateRowId(user, own))).toBe(true)
     }
     // Shared sessions are principal-independent; only the personal kind carries markers.
-    const shared = await sessions.syncChangesSince(null, wirePrincipal(B))
+    const shared = await workerSnapshot(f.reg, wirePrincipal(B), ['session'])
     if (shared.kind !== 'snapshot') throw new Error('expected snapshot')
     const row = shared.sessions.find((row) => row.sessionId === sessionId)
     expect(row).toBeDefined()
@@ -333,7 +334,7 @@ describe('S1 session companion records', () => {
     await f.reg.modules.machines.renameMachine(machine, 'Renamed')
     const changes = await f.reg.changeLedger.changesSince(cursor)
     expect(changes?.filter((change) => change.entity === 'machine')).toHaveLength(1)
-    const snapshot = await f.sessions.syncChangesSince(null, wirePrincipal(C))
+    const snapshot = await workerSnapshot(f.reg, wirePrincipal(C), ['machine'])
     if (snapshot.kind !== 'snapshot') throw new Error('expected snapshot')
     expect(snapshot.machines).toContainEqual(
       expect.objectContaining({

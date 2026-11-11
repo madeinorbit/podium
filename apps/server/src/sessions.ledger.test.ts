@@ -1,26 +1,23 @@
 import {
   asMachineId,
-  asRepoId,
   asSessionId,
   asUserId,
   firstAdminMemberId,
   type SessionMeta,
-  shipLaneId,
 } from '@podium/model'
 import {
   asCapabilityRef,
   asDeviceId,
   CLIENT_WIRE_VERSION,
   type MetadataChange,
-  type Principal,
   type ServerMessage,
 } from '@podium/protocol'
 import { CHANGE_LOG_OBSERVER, Ledger } from '@podium/sync'
 import { fixtureWriteScope, testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { SessionLifecycle } from './modules/sessions/lifecycle'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
+import { snapshotFromBootstrap } from './test-support/bootstrap-snapshot'
 import { attachTestClient } from './test-support/client-transport'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
@@ -33,49 +30,25 @@ type ProjectionEvent = {
   ledgerCursor: number
 }
 
-describe('shipping lane compatibility snapshots', () => {
-  it('includes lane rows from the caller-scoped snapshot and omits lanes hidden from another principal', async () => {
-    const repoId = asRepoId('repo-a')
-    const lane = {
-      id: shipLaneId(repoId, 'local:main'),
-      repoId,
-      destination: 'local:main',
-      trains: [{ orderIds: ['shared-order', 'private-order'] }],
-      blockedOrderIds: [],
-    }
-    const principal = (id: string): Principal => ({
-      kind: 'user',
-      user: asUserId(id),
-      device: asDeviceId(`device:${id}`),
-      capability: asCapabilityRef(`cap:${id}`),
-    })
-    const reader = principal('reader')
-    const stranger = principal('stranger')
-    const snapshot = vi.fn(async (viewer: Principal) =>
-      viewer === reader
-        ? [{ seq: 1, entity: 'shipLane', id: lane.id, op: 'upsert', value: lane }]
-        : [],
-    )
-    const context = {
-      funnel: {
-        cursor: async () => 1,
-        feedIdentity: async () => ({ feedId: 'feed-a', epoch: 'epoch-a' }),
-        minAvailableSeq: async () => 0,
-        changesSince: async () => null,
-        snapshot,
-      },
-    } as unknown as SessionLifecycle
-    const forReader = await SessionLifecycle.prototype.syncChangesSince.call(context, null, reader)
-    expect(forReader).toMatchObject({ kind: 'snapshot', shipLanes: [lane] })
-    const forStranger = await SessionLifecycle.prototype.syncChangesSince.call(
-      context,
-      null,
-      stranger,
-    )
-    expect(forStranger).toMatchObject({ kind: 'snapshot', shipLanes: [] })
-    expect(snapshot.mock.calls.map(([viewer]) => viewer)).toEqual([reader, stranger])
-  })
-})
+/** Internal write-seam fixtures need the named system observer, which is an
+ * in-process identity rather than an authenticated client principal. */
+async function authoritySnapshot(registry: SessionRegistry) {
+  const world = await registry.changeLedger.authority.bootstrap(CHANGE_LOG_OBSERVER)
+  const identity = await registry.syncDelta.serving.identity()
+  const snapshot = await snapshotFromBootstrap(
+    (async function* () {
+      yield {
+        ...identity,
+        snapshotSeq: world.throughSeq,
+        changes: world.changes.flatMap((change) =>
+          change.op === 'upsert' ? [{ ...change, payload: change.value }] : [],
+        ),
+        last: true,
+      }
+    })(),
+  )
+  return { ...snapshot, minAvailableSeq: await registry.syncDelta.serving.retentionFloor() }
+}
 
 /**
  * Session writes on the write-seam Ledger ([spec:SP-3fe2] #256): persist()
@@ -214,10 +187,8 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       .flatMap((b) => b.changes)
       .filter((c) => c.entity === 'session')
 
-  const cursorOf = async (registry: SessionRegistry): Promise<number> => {
-    const boot = await registry.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)
-    return boot.cursor
-  }
+  const cursorOf = async (registry: SessionRegistry): Promise<number> =>
+    await registry.changeLedger.cursor()
 
   it('(a) a throw between the row write and the change append rolls BOTH back', async () => {
     const store = await openTestStore(':memory:')
@@ -291,7 +262,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     )
     await registry.dispose()
     const restarted = await makeRegistry(registry.sessionStore)
-    const snapshot = await restarted.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)
+    const snapshot = await authoritySnapshot(restarted)
     expect(snapshot.kind).toBe('snapshot')
     if (snapshot.kind === 'snapshot')
       expect(snapshot.sessions.find((row) => row.sessionId === sessionId)?.agentState?.phase).toBe(
@@ -424,7 +395,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       cwd: '/w',
     })
     await first.dispose()
-    const cursor = (await first.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)).cursor
+    const cursor = (await authoritySnapshot(first)).cursor
     // Offline mutation: rename the row behind the server's back.
     const row = (await store.sessions.loadSessions()).find((r) => r.id === sessionId)
     if (!row) throw new Error('row missing')
@@ -436,7 +407,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(healed.kind).toBe('delta')
     if (healed.kind !== 'delta') return
     expect(healed.changes.filter((change) => change.entity === 'session')).toEqual([])
-    const snapshot = await second.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)
+    const snapshot = await authoritySnapshot(second)
     expect(snapshot.kind).toBe('snapshot')
     if (snapshot.kind === 'snapshot')
       expect(snapshot.sessions.find((session) => session.sessionId === sessionId)?.name).toBe(
@@ -703,9 +674,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     await first.clientGateway.routeClientFrame(clientId, { type: 'detach', sessionId })
     await first.modules.sessions.flushBroadcasts()
     const generationBeforeRestart = first.modules.sessions.sessionsGeneration()
-    const cursorBeforeRestart = (
-      await first.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)
-    ).cursor
+    const cursorBeforeRestart = (await authoritySnapshot(first)).cursor
     await first.dispose()
 
     const second = await makeRegistry(store)
@@ -724,9 +693,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     await second.modules.sessions.flushBroadcasts()
     const generationAfterRestart = second.modules.sessions.sessionsGeneration()
     expect(generationAfterRestart).toBeGreaterThan(0)
-    const cursorAfterRecovery = (
-      await second.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)
-    ).cursor
+    const cursorAfterRecovery = (await authoritySnapshot(second)).cursor
     expect(cursorAfterRecovery).toBeGreaterThan(cursorBeforeRestart)
     const recovered = await second.modules.sessions.syncChangesSince(
       cursorBeforeRestart,
@@ -771,9 +738,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(originalSession).toBeDefined()
     const original = originalSession?.name
     current.inbox.length = 0
-    const cursorBefore = (
-      await registry.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)
-    ).cursor
+    const cursorBefore = (await authoritySnapshot(registry)).cursor
 
     await registry.modules.sessions.renameSession(registry.modules.sessions.serverWriter, {
       sessionId,
@@ -1322,7 +1287,7 @@ describe('feed identity on the wire (ADR 2 D1/D5)', () => {
     // check would be asserting that the log is non-empty rather than that the
     // floor is published. Seeding makes the floor a real one.
     await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
-    const boot = await registry.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)
+    const boot = await authoritySnapshot(registry)
     expect(boot.kind).toBe('snapshot')
     expect(boot.feedId).toBeTruthy()
     expect(boot.epoch).toBeTruthy()
@@ -1334,7 +1299,7 @@ describe('feed identity on the wire (ADR 2 D1/D5)', () => {
     // One authority, one feed: a client that bootstraps and then catches up must
     // not see the identity change under it, or it would re-bootstrap forever.
     const registry = await makeRegistry()
-    const boot = await registry.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)
+    const boot = await authoritySnapshot(registry)
     await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     const catchUp = await registry.modules.sessions.syncChangesSince(
       boot.cursor,
@@ -1349,7 +1314,7 @@ describe('feed identity on the wire (ADR 2 D1/D5)', () => {
   it('publishes minAvailableSeq consistently with what it will actually serve', async () => {
     const registry = await makeRegistry()
     await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
-    const reply = await registry.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)
+    const reply = await authoritySnapshot(registry)
     const horizon = reply.minAvailableSeq as number
     // Nothing has been pruned, so the whole log is servable and the horizon is
     // the log's first seq — a replica at cursor 0 must NOT be told to re-bootstrap.
@@ -1386,7 +1351,7 @@ describe('feed identity on the wire (ADR 2 D1/D5)', () => {
         ])
       }
     })
-    const identity = await registry.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)
+    const identity = await authoritySnapshot(registry)
     expect(identity.feedId).toBeTruthy()
     expect(identity.epoch).toBeTruthy()
   })

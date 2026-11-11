@@ -10,6 +10,8 @@ export interface BootstrapVisibilityOptions {
   /** The effect kinds the server serves: an effect record's published input
    *  depends on them (`modules/effects/published-input.ts`). */
   readonly effectKinds?: readonly string[]
+  /** Test fixtures can preserve their record clock without changing deadlines. */
+  readonly now?: () => number
 }
 
 /**
@@ -26,6 +28,7 @@ export function bootstrapVisibility(
   const context = (async () => {
     const reads = recordReadsOf(executor.queries, {
       effectExecutors: effectPublication(options.effectKinds ?? []),
+      ...(options.now && { now: options.now }),
     })
     const { grants, sync } = reads.store
     // The start-up load streams these, and the sharing rules re-send current

@@ -78,7 +78,11 @@ export async function workerSnapshot(
     await physical.executor.exclusive(async () => {
       writeFileSync(path, serializeDatabase(physical.db))
     })
-    worker = new SyncWorkerClient({ dbPath: path })
+    worker = new SyncWorkerClient({
+      dbPath: path,
+      execArgv: ['--conditions=@podium/source'],
+      recordNow: () => (registry as unknown as { now(): number }).now(),
+    })
     const app = new Hono()
     registerSyncRoutes(app, {
       ...registry.syncDelta,
@@ -95,7 +99,10 @@ export async function workerSnapshot(
         },
       },
     })
-    return await snapshotFromBootstrap(source.bootstrap(undefined, kinds))
+    return {
+      ...(await snapshotFromBootstrap(source.bootstrap(undefined, kinds))),
+      minAvailableSeq: await registry.syncDelta.serving.retentionFloor(),
+    }
   } finally {
     await worker?.close()
     rmSync(dir, { recursive: true, force: true })

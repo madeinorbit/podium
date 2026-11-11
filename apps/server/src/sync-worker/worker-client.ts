@@ -58,6 +58,10 @@ export class SyncWorkerClient {
       /** The effect kinds the server serves, read at each spawn: the worker
        *  builds effect records and holds no executor (POD-6770). */
       effectKinds?: () => readonly string[]
+      /** Source fixtures run outside the caller's module runner. */
+      execArgv?: string[]
+      /** Fixture record time; admission and deadlines still use the real clock. */
+      recordNow?: () => number
       monitorMs?: number
       wedgedMs?: number
       onMetrics?: (metrics: BootstrapMetrics) => void
@@ -92,9 +96,11 @@ export class SyncWorkerClient {
       const worker = new Worker(
         typeof target === 'string' && target.startsWith('file://') ? new URL(target) : target,
         {
+          ...(this.options.execArgv && { execArgv: this.options.execArgv }),
           workerData: {
             dbPath: this.options.dbPath,
             effectKinds: [...(this.options.effectKinds?.() ?? [])],
+            ...(this.options.recordNow && { recordNow: this.options.recordNow() }),
           },
         },
       )
