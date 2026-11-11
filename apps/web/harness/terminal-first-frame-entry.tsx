@@ -37,6 +37,8 @@ const issue = makeIssue({
   repoId: 'fixture-repo',
   repoPath: '/workspace',
   worktreePath: '/workspace',
+  branch: 'issue/session-readings',
+  parentBranch: 'integrate/6253-sync-log',
   owner: userId,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
@@ -65,6 +67,7 @@ replica.applySnapshot('issuePanelDeferreds', [
     issueId,
     position: 0,
     text: 'Later work stays visible after reload',
+    addedAt: new Date().toISOString(),
   } as never,
 ])
 replica.applySnapshot('issuePanelStates', [
