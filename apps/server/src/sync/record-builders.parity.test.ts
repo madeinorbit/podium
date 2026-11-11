@@ -2,10 +2,10 @@
  * RECORDS FROM THE DATABASE EQUAL THE PUBLISHED RECORDS (POD-6763).
  *
  * A real in-process server on a file store writes records through its
- * production paths (boot seeds, issue writes, markers, a session, an
+ * production paths (issue writes, markers, a session, an
  * automation, a layout key, a read mark). Then, for every one of the 37
- * database-only kinds, `build(ids)` of every `change_latest` id must equal its
- * payload, and `streamAll()` must stream exactly the published ids, both
+ * database-only kinds, a model load followed by the change log must equal
+ * `build(ids)` and `streamAll()`, both
  * in process and on a read-only connection like the sync worker's.
  *
  * The same comparison runs on a real database copy with
@@ -26,6 +26,7 @@ import {
   type SessionId,
   type UserId,
 } from '@podium/model'
+import type { MetadataEntityKind } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
 import {
   type BuiltRecord,
@@ -45,7 +46,7 @@ import { openTestStore } from '../test-support/open-test-store'
 import { quietShipping } from '../test-support/statement-count'
 import type { WriteContexts } from '../write-contexts'
 import { DATABASE_ONLY_BUILDERS, type RecordReads, serverRecordBuilders } from './record-builders'
-import { atParity, type KindParity, kindParity } from './record-parity'
+import { atParity, type KindParity, kindParity, type PublishedRow } from './record-parity'
 
 /** Kinds this fixture writes, so their parity is not vacuous. */
 const POPULATED = [
@@ -125,15 +126,46 @@ async function chatTraffic(store: SessionStore, sessionId: SessionId, sender: Us
   await store.messages.markCancelled(fixtureWriteScope(), 'msg_gone')
 }
 
-async function parityOf(store: SessionStore, reads: RecordReads): Promise<KindParity[]> {
+interface LoadedRecords {
+  cursor: number
+  kinds: Map<MetadataEntityKind, Map<string, PublishedRow>>
+}
+
+/** A client loads model records once, then follows changes after that cursor. */
+async function loadRecords(reg: SessionRegistry, reads: RecordReads): Promise<LoadedRecords> {
+  return await reg.sessionStore.transact(async () => {
+    const kinds = new Map<MetadataEntityKind, Map<string, PublishedRow>>()
+    const builders = serverRecordBuilders()
+    for (const kind of builders.kinds()) {
+      const rows = new Map<string, PublishedRow>()
+      for await (const page of builders.streamAll(reads, kind)) {
+        for (const row of page)
+          rows.set(row.id, { entityId: row.id, payload: JSON.stringify(row.value) })
+      }
+      kinds.set(kind, rows)
+    }
+    return { cursor: await reg.changeLedger.cursor(), kinds }
+  })
+}
+
+async function parityOf(
+  store: SessionStore,
+  reads: RecordReads,
+  loaded?: LoadedRecords,
+): Promise<KindParity[]> {
   const registry = serverRecordBuilders()
   const out: KindParity[] = []
+  const changes = await store.sync.changesSince(loaded?.cursor ?? 0)
   for (const builder of DATABASE_ONLY_BUILDERS) {
-    const published = (await store.sync.installedStatesOf(builder.kind)).map((row) => ({
-      entityId: row.entityId,
-      payload: row.payload,
-    }))
-    out.push(await kindParity(registry, reads, builder.kind, published, { keepValues: true }))
+    const held = new Map(loaded?.kinds.get(builder.kind))
+    for (const row of changes) {
+      if (row.entity !== builder.kind) continue
+      if (row.op === 'remove') held.delete(row.entityId)
+      else held.set(row.entityId, { entityId: row.entityId, payload: row.payload })
+    }
+    out.push(
+      await kindParity(registry, reads, builder.kind, [...held.values()], { keepValues: true }),
+    )
   }
   return out
 }
@@ -192,16 +224,22 @@ describe('record builders (POD-6763)', () => {
     }
   })
 
-  it('builds every published record equal to its change_latest payload', async () => {
+  it('keeps a loaded client plus subsequent changes equal to database records', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pod-6763-parity-'))
     const path = join(dir, 'podium.db')
     const store = await openTestStore(path)
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     try {
+      const loaded = await loadRecords(reg, {
+        store,
+        effectExecutors: reg.modules.effects!.executors,
+        now: Date.now,
+      })
       await attachHostDaemon(reg, () => {}, { repos: [] })
       const issues = reg.issues.reports.store
-      await issues.commitRepoWrite(issues.serverWriter, async () =>
-        await store.repos.addRepo('/repo', store.hostMachineId),
+      await issues.commitRepoWrite(
+        issues.serverWriter,
+        async () => await store.repos.addRepo('/repo', store.hostMachineId),
       )
       await quietShipping(reg)
       const owner = await firstAdminMemberId(store)
@@ -270,11 +308,15 @@ describe('record builders (POD-6763)', () => {
       )
       await settle(reg)
 
-      const inProcess = await parityOf(store, {
+      const inProcess = await parityOf(
         store,
-        effectExecutors: reg.modules.effects!.executors,
-        now: Date.now,
-      })
+        {
+          store,
+          effectExecutors: reg.modules.effects!.executors,
+          now: Date.now,
+        },
+        loaded,
+      )
       const readOnly = openDatabase(path, { readOnly: true })
       readOnly.exec('BEGIN')
       const { reads, close } = recordReadsOver(readOnly, {
@@ -282,7 +324,7 @@ describe('record builders (POD-6763)', () => {
       })
       let onWorkerConnection: KindParity[]
       try {
-        onWorkerConnection = await parityOf(store, reads)
+        onWorkerConnection = await parityOf(store, reads, loaded)
       } finally {
         readOnly.exec('ROLLBACK')
         await close()
@@ -304,7 +346,7 @@ describe('record builders (POD-6763)', () => {
     }
   }, 60_000)
 
-  it('corrects at boot a feed that is out of step with the tables (the 2026-11-09 gaps)', async () => {
+  it('reloads current records from tables while leaving stale historical log rows alone', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pod-6766-boot-'))
     const path = join(dir, 'podium.db')
     let store = await openTestStore(path)
@@ -367,22 +409,29 @@ describe('record builders (POD-6763)', () => {
       reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
       await settle(reg)
 
-      const results = await parityOf(store, {
-        store,
-        effectExecutors: reg.modules.effects!.executors,
-        now: Date.now,
-      })
-      const failing = results.filter((result) => !atParity(result))
-      expect(failing, JSON.stringify(failing, null, 2)).toEqual([])
-      for (const kind of ['issueEvent', 'pendingInteraction', 'message'] as const) {
-        const result = results.find((r) => r.kind === kind)!
-        expect(result.published, `${kind} has published records`).toBeGreaterThan(0)
-        expect(result.byteEqual, `${kind} is byte-equal`).toBe(result.published)
-      }
-      const ids = async (kind: 'issueEvent' | 'pendingInteraction') =>
-        (await store.sync.installedStatesOf(kind)).map((row) => row.entityId)
-      expect(await ids('issueEvent')).not.toContain(prunedEvent)
-      expect(await ids('pendingInteraction')).not.toContain(closedAsk)
+      const reads = { store, effectExecutors: reg.modules.effects!.executors, now: Date.now }
+      const results = await parityOf(store, reads)
+      const windows = results.filter((result) =>
+        ['issueEvent', 'pendingInteraction', 'message'].includes(result.kind),
+      )
+      expect(
+        windows
+          .filter((result) => !atParity(result))
+          .map((result) => result.kind)
+          .sort(),
+      ).toEqual(['issueEvent', 'message', 'pendingInteraction'])
+      // A generation-triggered reload replaces records from the tables. It does
+      // not repair history or copy its stale values back into current state.
+      const loaded = await loadRecords(reg, reads)
+      const reloaded = await parityOf(store, reads, loaded)
+      expect(reloaded.filter((result) => !atParity(result))).toEqual([])
+      expect(loaded.kinds.get('issueEvent')?.has(prunedEvent)).toBe(false)
+      expect(loaded.kinds.get('pendingInteraction')?.has(closedAsk)).toBe(false)
+      expect(
+        JSON.parse(loaded.kinds.get('message')?.get(message)?.payload ?? '{}'),
+      ).not.toHaveProperty('legacy')
+      const logged = (await store.sync.installedStatesOf('issueEvent')).map((row) => row.entityId)
+      expect(logged).toContain(prunedEvent)
     } finally {
       await reg.dispose()
       await store.close()
