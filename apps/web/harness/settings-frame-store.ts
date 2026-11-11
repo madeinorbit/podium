@@ -177,11 +177,17 @@ function updatePreferences(
 ) {
   if (params.get('write') === 'error') throw new Error('This change could not be saved. Try again.')
   calls.push({ key: kind, input: patch })
-  const previous = pool.row(kind, id)
-  pool.apply({
-    type: 'update',
-    rows: [{ kind, id, value: { ...(previous as object), ...patch } as never }],
-  })
+  const next = { ...(pool.row(kind, id) as object) } as Record<string, unknown>
+  for (const [path, value] of Object.entries(patch)) {
+    const keys = path.split('.')
+    let target = next
+    for (const key of keys.slice(0, -1)) {
+      target[key] = { ...(target[key] as object) }
+      target = target[key] as Record<string, unknown>
+    }
+    target[keys.at(-1)!] = value
+  }
+  pool.apply({ type: 'update', rows: [{ kind, id, value: next as never }] })
 }
 const client = {
   trpc,
