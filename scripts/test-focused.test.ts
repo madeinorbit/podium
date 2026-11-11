@@ -1,15 +1,17 @@
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { SHARD_REPORT_DIR_ENV, shardReportPath } from '../apps/server/test-shard-report'
+import { shardIds } from '../apps/server/vitest.shard'
 import { executionErrors } from './test-focused'
 import { LANES, laneCommand, planFiles, repositoryRoot } from './test-lanes'
 
 const root = repositoryRoot()
-const run = (args: string[]) => {
+const run = (args: string[], env = process.env) => {
   const result = spawnSync('bun', ['run', ...args], {
     cwd: root,
-    env: process.env,
+    env,
     encoding: 'utf8',
     timeout: 30_000,
   })
@@ -22,17 +24,63 @@ describe('focused test execution', () => {
   let passing: string
   let excluded: string
   let empty: string
+  let sibling: string
+
+  const shardCommand = (shardId: string, files: string[], extra: string[] = []) => [
+    'bun',
+    '--bun',
+    join(root, 'node_modules/vitest/vitest.mjs'),
+    'run',
+    '--config',
+    join(directory, `${shardId}.config.ts`),
+    ...files,
+    ...extra,
+    '--passWithNoTests=false',
+  ]
+
+  const runFocusedShard = (shardId: string, files: string[], extra: string[] = []) =>
+    run([
+      'scripts/test-focused.ts',
+      JSON.stringify({
+        command: shardCommand(shardId, files, extra),
+        files,
+        label: `focused shard ${shardId}`,
+      }),
+    ])
 
   beforeAll(() => {
     directory = mkdtempSync(join(root, 'scripts/.focused-test-fixture-'))
     passing = join(directory, 'passing.test.ts')
     excluded = join(directory, 'excluded.bench.test.ts')
     empty = join(directory, 'empty.test.ts')
+    sibling = join(directory, 'sibling.test.ts')
     const source =
       "import { it, expect } from 'vitest'\nit('focused sentinel', () => expect(1).toBe(1))\n"
     writeFileSync(passing, source)
     writeFileSync(excluded, source)
     writeFileSync(empty, 'export {}\n')
+    writeFileSync(
+      sibling,
+      "import { it, expect } from 'vitest'\nit('sibling sentinel', () => expect(2).toBe(2))\n",
+    )
+    for (const shardId of shardIds()) {
+      // Exercise the real shard reporters with cheap files, keeping the probe outside
+      // the generated server manifest and its import-heavy product suites.
+      writeFileSync(
+        join(directory, `${shardId}.config.ts`),
+        `import { createServerShardConfig } from ${JSON.stringify(join(root, 'apps/server/vitest.shard.ts'))}
+const config = createServerShardConfig(${JSON.stringify(shardId)})
+export default {
+  ...config,
+  test: {
+    ...config.test,
+    include: ${JSON.stringify([passing, sibling])},
+    projects: undefined,
+  },
+}
+`,
+      )
+    }
   })
 
   afterAll(() => rmSync(directory, { recursive: true, force: true }))
@@ -70,6 +118,52 @@ describe('focused test execution', () => {
     const result = run(['test:file', '--', passing, '-t', '^focused sentinel$'])
     expect(result.code, result.output).toBe(0)
     expect(result.output).toMatch(/1 passed/)
+  }, 35_000)
+
+  it.each(
+    shardIds(),
+  )('%s keeps its aggregate receipt and honors the focused report path', (shardId) => {
+    const env = { ...process.env, [SHARD_REPORT_DIR_ENV]: join(directory, 'reports') }
+    const aggregate = run(
+      ['scripts/validation-admission.ts', 'focused', '--', ...shardCommand(shardId, [passing])],
+      env,
+    )
+    expect(aggregate.code, aggregate.output).toBe(0)
+    const report = JSON.parse(readFileSync(shardReportPath(root, shardId, env), 'utf8')) as {
+      numPassedTests: number
+      testResults: { name: string }[]
+    }
+    expect(report.numPassedTests).toBe(1)
+    expect(report.testResults.map(({ name }) => name)).toEqual([passing])
+
+    const focused = runFocusedShard(shardId, [passing], ['-t', '^focused sentinel$'])
+    expect(focused.code, focused.output).toBe(0)
+    expect(focused.output).toMatch(/1 passed/)
+    expect(focused.output).toMatch(
+      /JSON report written to .*podium-focused-tests-.*\/results\.json/,
+    )
+  }, 35_000)
+
+  it('a shard report with zero executed tests is rejected', () => {
+    const result = runFocusedShard(
+      'normalized-wire',
+      [passing],
+      ['-t', '^does not match any test$'],
+    )
+    expect(result.code, result.output).toBe(1)
+    expect(result.output).toContain(`zero tests executed for named file: ${passing}`)
+    expect(result.output).not.toContain('cannot verify test execution')
+  }, 35_000)
+
+  it('a passing shard file cannot hide a named file with zero executed tests', () => {
+    const result = runFocusedShard(
+      'normalized-wire',
+      [passing, sibling],
+      ['-t', '^focused sentinel$'],
+    )
+    expect(result.code, result.output).toBe(1)
+    expect(result.output).toContain(`zero tests executed for named file: ${sibling}`)
+    expect(result.output).not.toContain(`zero tests executed for named file: ${passing}`)
   }, 35_000)
 
   it.each([
