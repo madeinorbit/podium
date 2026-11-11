@@ -943,6 +943,35 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'opaque',
     why: 'The composition hook compares dependent session records around an issue source write; its callback body is supplied and analysed at the call site.',
   },
+  'apps/server/src/store/events.ts#EventsRepository.sessionPruneWrite': {
+    kind: 'opaque',
+    why: 'The injected retention wrapper compares dependent session records around the source delete; its body is supplied and analysed at the call site.',
+  },
+  'apps/server/src/store/events.ts#EventsRepository.write': {
+    kind: 'opaque',
+    why: 'The retention source write handed to its comparison wrapper; its body is supplied and analysed at the call site.',
+  },
+  'apps/server/src/store/repos.ts#ReposRepository.sessionRecordWrite': {
+    kind: 'opaque',
+    why: 'The injected repository-root wrapper compares dependent session records around the source write; its body is supplied and analysed at the call site.',
+  },
+  'apps/server/src/store/repos.ts#ReposRepository.write': {
+    kind: 'opaque',
+    why: 'The repository-root source write handed to its comparison wrapper; its body is supplied and analysed at the call site.',
+  },
+  'apps/server/src/store/conversations/registry.ts#ConversationRegistryRepository.sessionRecordWrite':
+    {
+      kind: 'opaque',
+      why: 'The injected native-conversation mapping wrapper compares dependent session records around the source write; its body is supplied and analysed at the call site.',
+    },
+  'apps/server/src/store/conversations/registry.ts#ConversationRegistryRepository.write': {
+    kind: 'opaque',
+    why: 'The native-conversation mapping source write handed to its comparison wrapper; its body is supplied and analysed at the call site.',
+  },
+  'apps/server/src/store/issues.ts#IssuesRepository.write': {
+    kind: 'opaque',
+    why: 'The issue source write handed to its dependent-session comparison wrapper; its body is supplied and analysed at the call site.',
+  },
   'packages/sync/src/adapters/sqlite/sync-repository.ts#SyncRepository.sessionRecordWrite': {
     kind: 'opaque',
     why: 'The injected queue-write wrapper compares its dependent session records in the source commit; its callback body is supplied and analysed at the call site.',
