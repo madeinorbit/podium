@@ -94,6 +94,7 @@ const issueEvent = (eventId: number, over: Partial<IssueEventWire> = {}): IssueE
 const uiStateMap = new Map<string, string>()
 const uiState = {
   get: (key: string): string | null => uiStateMap.get(key) ?? null,
+  subscribe: () => () => {},
   set: vi.fn((key: string, value: string) => {
     uiStateMap.set(key, value)
   }),
