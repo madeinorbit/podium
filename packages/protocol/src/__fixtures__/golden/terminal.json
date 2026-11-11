@@ -2616,12 +2616,13 @@
       "variant": "minimal",
       "wire": {
         "type": "welcome",
-        "clientId": "clientId"
+        "clientId": "clientId",
+        "kindTokens": {}
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"welcome\",\"clientId\":\"clientId\"}"
+      "encoded": "{\"type\":\"welcome\",\"clientId\":\"clientId\",\"kindTokens\":{}}"
     },
     {
       "schema": "WelcomeMessage",
@@ -2631,6 +2632,9 @@
         "wireVersion": 1,
         "clientId": "clientId",
         "caps": ["caps[0]"],
+        "kindTokens": {
+          "kindTokens.key": "kindTokens.kindTokens.key"
+        },
         "accountUser": "accountUser",
         "serverBuild": "serverBuild",
         "serverFeatures": {
@@ -2651,7 +2655,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"welcome\",\"wireVersion\":1,\"clientId\":\"clientId\",\"caps\":[\"caps[0]\"],\"accountUser\":\"accountUser\",\"serverBuild\":\"serverBuild\",\"serverFeatures\":{\"devMode\":true,\"developmentBuild\":true,\"channel\":\"stable\",\"flags\":[{\"id\":\"serverFeatures.flags[0].id\",\"name\":\"serverFeatures.flags[0].name\",\"description\":\"serverFeatures.flags[0].description\",\"visibility\":\"hidden\",\"config\":true}]}}"
+      "encoded": "{\"type\":\"welcome\",\"wireVersion\":1,\"clientId\":\"clientId\",\"caps\":[\"caps[0]\"],\"kindTokens\":{\"kindTokens.key\":\"kindTokens.kindTokens.key\"},\"accountUser\":\"accountUser\",\"serverBuild\":\"serverBuild\",\"serverFeatures\":{\"devMode\":true,\"developmentBuild\":true,\"channel\":\"stable\",\"flags\":[{\"id\":\"serverFeatures.flags[0].id\",\"name\":\"serverFeatures.flags[0].name\",\"description\":\"serverFeatures.flags[0].description\",\"visibility\":\"hidden\",\"config\":true}]}}"
     }
   ]
 }

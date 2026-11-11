@@ -567,8 +567,6 @@
               "projectPath": "changes[0].value.projectPath",
               "parentConversationId": "changes[0].value.parentConversationId",
               "createdAt": "changes[0].value.createdAt",
-              "updatedAt": "changes[0].value.updatedAt",
-              "messageCount": 7,
               "resume": {
                 "kind": "changes[0].value.resume.kind",
                 "value": "changes[0].value.resume.value"
@@ -589,7 +587,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":7,\"seq\":7,\"minAvailableSeq\":7,\"changes\":[{\"seq\":7,\"entity\":\"conversation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"podiumId\":\"changes[0].value.podiumId\",\"agentKind\":\"shell\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"summary\":\"changes[0].value.summary\",\"projectPath\":\"changes[0].value.projectPath\",\"parentConversationId\":\"changes[0].value.parentConversationId\",\"createdAt\":\"changes[0].value.createdAt\",\"updatedAt\":\"changes[0].value.updatedAt\",\"messageCount\":7,\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"providerId\":\"changes[0].value.providerId\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}],\"last\":true,\"totalRows\":7,\"countsByEntity\":{\"countsByEntity.key\":7}}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":7,\"seq\":7,\"minAvailableSeq\":7,\"changes\":[{\"seq\":7,\"entity\":\"conversation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"podiumId\":\"changes[0].value.podiumId\",\"agentKind\":\"shell\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"summary\":\"changes[0].value.summary\",\"projectPath\":\"changes[0].value.projectPath\",\"parentConversationId\":\"changes[0].value.parentConversationId\",\"createdAt\":\"changes[0].value.createdAt\",\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"providerId\":\"changes[0].value.providerId\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}],\"last\":true,\"totalRows\":7,\"countsByEntity\":{\"countsByEntity.key\":7}}"
     },
     {
       "schema": "FeedBootstrapMessage",
@@ -1592,8 +1590,6 @@
           "projectPath": "value.projectPath",
           "parentConversationId": "value.parentConversationId",
           "createdAt": "value.createdAt",
-          "updatedAt": "value.updatedAt",
-          "messageCount": 7,
           "resume": {
             "kind": "value.resume.kind",
             "value": "value.resume.value"
@@ -1607,7 +1603,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":7,\"entity\":\"conversation\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"podiumId\":\"value.podiumId\",\"agentKind\":\"shell\",\"title\":\"value.title\",\"name\":\"value.name\",\"summary\":\"value.summary\",\"projectPath\":\"value.projectPath\",\"parentConversationId\":\"value.parentConversationId\",\"createdAt\":\"value.createdAt\",\"updatedAt\":\"value.updatedAt\",\"messageCount\":7,\"resume\":{\"kind\":\"value.resume.kind\",\"value\":\"value.resume.value\"},\"providerId\":\"value.providerId\"},\"originId\":\"originId\",\"causationId\":\"causationId\",\"mutationId\":\"mutationId\"}"
+      "encoded": "{\"seq\":7,\"entity\":\"conversation\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"podiumId\":\"value.podiumId\",\"agentKind\":\"shell\",\"title\":\"value.title\",\"name\":\"value.name\",\"summary\":\"value.summary\",\"projectPath\":\"value.projectPath\",\"parentConversationId\":\"value.parentConversationId\",\"createdAt\":\"value.createdAt\",\"resume\":{\"kind\":\"value.resume.kind\",\"value\":\"value.resume.value\"},\"providerId\":\"value.providerId\"},\"originId\":\"originId\",\"causationId\":\"causationId\",\"mutationId\":\"mutationId\"}"
     },
     {
       "schema": "FeedChange",
@@ -2568,8 +2564,6 @@
               "projectPath": "changes[0].value.projectPath",
               "parentConversationId": "changes[0].value.parentConversationId",
               "createdAt": "changes[0].value.createdAt",
-              "updatedAt": "changes[0].value.updatedAt",
-              "messageCount": 7,
               "resume": {
                 "kind": "changes[0].value.resume.kind",
                 "value": "changes[0].value.resume.value"
@@ -2585,7 +2579,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":7,\"seq\":7,\"minAvailableSeq\":7,\"changes\":[{\"seq\":7,\"entity\":\"conversation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"podiumId\":\"changes[0].value.podiumId\",\"agentKind\":\"shell\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"summary\":\"changes[0].value.summary\",\"projectPath\":\"changes[0].value.projectPath\",\"parentConversationId\":\"changes[0].value.parentConversationId\",\"createdAt\":\"changes[0].value.createdAt\",\"updatedAt\":\"changes[0].value.updatedAt\",\"messageCount\":7,\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"providerId\":\"changes[0].value.providerId\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":7,\"seq\":7,\"minAvailableSeq\":7,\"changes\":[{\"seq\":7,\"entity\":\"conversation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"podiumId\":\"changes[0].value.podiumId\",\"agentKind\":\"shell\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"summary\":\"changes[0].value.summary\",\"projectPath\":\"changes[0].value.projectPath\",\"parentConversationId\":\"changes[0].value.parentConversationId\",\"createdAt\":\"changes[0].value.createdAt\",\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"providerId\":\"changes[0].value.providerId\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}]}"
     },
     {
       "schema": "FeedDeltaMessage",
@@ -3166,6 +3160,26 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"type\":\"feedResyncRequired\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"cause\":\"authority-shed-load\",\"reason\":\"reason\"}"
+    },
+    {
+      "schema": "SyncKindTokens",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{}"
+    },
+    {
+      "schema": "SyncKindTokens",
+      "variant": "full",
+      "wire": {
+        ".key": "..key"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\".key\":\"..key\"}"
     },
     {
       "schema": "UnknownFeedChange",

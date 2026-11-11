@@ -1821,6 +1821,43 @@
       "encoded": "\"\""
     },
     {
+      "schema": "ConversationRecordWire",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "agentKind": "claude-code",
+        "providerId": "providerId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"agentKind\":\"claude-code\",\"providerId\":\"providerId\"}"
+    },
+    {
+      "schema": "ConversationRecordWire",
+      "variant": "full",
+      "wire": {
+        "id": "id",
+        "podiumId": "podiumId",
+        "agentKind": "claude-code",
+        "title": "title",
+        "name": "name",
+        "summary": "summary",
+        "projectPath": "projectPath",
+        "parentConversationId": "parentConversationId",
+        "createdAt": "createdAt",
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "providerId": "providerId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"podiumId\":\"podiumId\",\"agentKind\":\"claude-code\",\"title\":\"title\",\"name\":\"name\",\"summary\":\"summary\",\"projectPath\":\"projectPath\",\"parentConversationId\":\"parentConversationId\",\"createdAt\":\"createdAt\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"providerId\":\"providerId\"}"
+    },
+    {
       "schema": "ConversationSummaryWire",
       "variant": "minimal",
       "wire": {
