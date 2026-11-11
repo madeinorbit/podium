@@ -18,6 +18,12 @@ async function fixture() {
   })
   registries.push(registry)
   await registry.sessionStore.repos.addRepo('/report-fixture', registry.sessionStore.hostMachineId)
+  // This report-only fixture has no daemon to answer automatic base-branch probes.
+  await registry.sessionStore.repos.setRepoDefaultParentBranch(
+    registry.sessionStore.hostMachineId,
+    '/report-fixture',
+    'main',
+  )
   const user = firstAdminMemberId()
   const capability = { ...OPERATOR, actorUser: user, onBehalfOf: user }
   const api = appRouter.createCaller({
