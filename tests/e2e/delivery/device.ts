@@ -24,21 +24,20 @@
 
 import { randomUUID } from 'node:crypto'
 import {
-  type ConversationBubbleState,
   Conversation,
+  type ConversationBubbleState,
   type ConversationPendingTurn,
   type ConversationRecords,
   DraftStore,
-  type Sends,
-  type TranscriptLog,
-} from '@podium/client-core/conversation'
-import {
   discardChatThroughOutbox,
   OutboxSettlements,
   outboxChatSends,
+  type Sends,
   sendChatThroughOutbox,
+  type TranscriptLog,
 } from '@podium/client-core/conversation'
 import { type EngineOutbox, openKernelEngineOutbox } from '@podium/client-core/runtime-root'
+import { HttpDeltaSource } from '@podium/client-core/sync-stream'
 import {
   asMutationId,
   type MessageRecordWire,
@@ -180,6 +179,8 @@ export class Device {
   private readonly conversations = new Map<SessionId, Conversation>()
   private drafts: DraftStore | undefined
   private records = new RecordsView()
+  private readonly deltaSource: HttpDeltaSource
+  private feedIdentity: { feedId: string; epoch: string } | undefined
   private socket: WebSocket | undefined
   private socketTimer: ReturnType<typeof setTimeout> | undefined
   private closed = false
@@ -217,6 +218,13 @@ export class Device {
           headers: { cookie: options.cookie },
         }),
       ],
+    })
+    this.deltaSource = new HttpDeltaSource({
+      origin: `http://127.0.0.1:${options.serverPort}`,
+      streamingFetch: {
+        fetch: gatedFetch,
+        headers: () => ({ cookie: options.cookie }),
+      },
     })
   }
 
@@ -323,13 +331,23 @@ export class Device {
     this.openSocket()
   }
 
-  /** The feed read a reconnecting client heals through (`sync.changesSince`):
+  /** The HTTP feed read a reconnecting client heals through:
    *  everything after this device's cursor, then the pushed frames carry on. */
   private async catchUp(): Promise<void> {
-    if (this.closed || !this.online) return
+    if (this.closed || !this.online || !this.feedIdentity) return
     try {
-      const result = await this.api.sync.changesSince.query({ cursor: this.records.cursor })
-      if (result.kind === 'delta') this.records.apply(result.changes, result.cursor)
+      const result = await this.deltaSource.changesRange({
+        ...this.feedIdentity,
+        seq: this.records.cursor,
+      })
+      if (!(Symbol.asyncIterator in result)) return
+      for await (const frame of result) {
+        if (frame.kind !== 'delta') continue
+        this.records.apply(
+          frame.changes.map((change) => ({ ...change, value: change.payload })),
+          frame.seq,
+        )
+      }
     } catch {
       // Offline or restarting: the next socket open reads again.
     }
@@ -373,6 +391,8 @@ export class Device {
         items?: TranscriptItem[]
         reset?: boolean
         seq?: number
+        feedId?: string
+        epoch?: string
         changes?: FeedRow[]
       }
       try {
@@ -381,6 +401,11 @@ export class Device {
         return
       }
       this.socketFrames.set(frame.type ?? '?', (this.socketFrames.get(frame.type ?? '?') ?? 0) + 1)
+      if (frame.type === 'feedResume' && frame.feedId && frame.epoch) {
+        this.feedIdentity = { feedId: frame.feedId, epoch: frame.epoch }
+        void this.catchUp()
+        return
+      }
       if (frame.type === 'feedDelta' && Array.isArray(frame.changes)) {
         this.records.apply(frame.changes, frame.seq ?? this.records.cursor)
         return

@@ -250,13 +250,8 @@ async function issueWorkForOneFieldSessionChange(
 
 describe('issueProjection is the only issue record', () => {
   const changesOf = async (registry: SessionRegistry, entity: string) => {
-    const boot = await workerSnapshot(registry, CHANGE_LOG_OBSERVER)
-    // A null cursor bootstraps to a snapshot; take a cursor from 0 to read the
-    // whole durable change log instead.
     const all = await feedDelta(registry, 0, CHANGE_LOG_OBSERVER)
-    return all.kind === 'delta'
-      ? all.changes.filter((c) => c.entity === entity)
-      : (boot.kind === 'delta' ? boot.changes : []).filter((c) => c.entity === entity)
+    return all.changes.filter((c) => c.entity === entity)
   }
 
   it('only normalized issue rows are appended', async () => {

@@ -1,16 +1,14 @@
 /** Worker-backed snapshots for test assertions, including in-memory stores. */
+import { execFile } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { HttpBootstrapSource } from '@podium/client-core/sync-stream'
+import { fileURLToPath } from 'node:url'
 import type * as Model from '@podium/model'
 import type { MetadataEntityKind, Principal } from '@podium/protocol'
 import { type SqlDatabase, serializeDatabase } from '@podium/runtime/sqlite'
 import type { BootstrapChunk } from '@podium/sync/replica'
-import { Hono } from 'hono'
 import type { SessionRegistry } from '../relay'
-import { registerSyncRoutes } from '../sync/routes'
-import { SyncWorkerClient } from '../sync-worker/worker-client'
 
 /** Test-only array view of the worker stream, independent of retired wire results. */
 type Snapshot = {
@@ -94,7 +92,6 @@ export async function workerSnapshot(
   kinds?: readonly MetadataEntityKind[],
 ): Promise<Snapshot> {
   const dir = mkdtempSync(join(tmpdir(), 'worker-test-snapshot-'))
-  let worker: SyncWorkerClient | undefined
   try {
     const path = join(dir, 'snapshot.db')
     // Test-only access to the fixture's physical image. The exclusive lane
@@ -106,39 +103,37 @@ export async function workerSnapshot(
     await physical.executor.exclusive(async () => {
       writeFileSync(path, serializeDatabase(physical.db))
     })
-    worker = new SyncWorkerClient({
+    const request = JSON.stringify({
       dbPath: path,
-      execArgv: ['--conditions=@podium/source'],
-      recordNow: () => (registry as unknown as { now(): number }).now(),
+      now: (registry as unknown as { now(): number }).now(),
+      principal,
+      kinds,
+      identity: await registry.syncDelta.serving.identity(),
+      floor: await registry.syncDelta.serving.retentionFloor(),
     })
-    const thread = (worker as unknown as { worker?: import('node:worker_threads').Worker }).worker
-    thread?.on('error', (error) => console.error('snapshot fixture worker error', error))
-    const app = new Hono()
-    registerSyncRoutes(app, {
-      ...registry.syncDelta,
-      principal: async () => principal,
-      worker: () => worker,
-    })
-    const source = new HttpBootstrapSource({
-      origin: 'https://example.test',
-      streamingFetch: {
-        fetch: async (url, init) => {
-          const headers = new Headers(init.headers)
-          headers.set('accept-encoding', 'identity')
-          const response = await app.fetch(new Request(url, { ...init, headers }))
-          if (!response.ok) {
-            throw new Error(`worker snapshot HTTP ${response.status}: ${await response.text()}`)
+    // The Bun CLI condition reaches its worker too; Vitest's resolver-only
+    // condition and Worker.execArgv do not select source exports there.
+    const snapshot = await new Promise<Snapshot>((resolve, reject) => {
+      execFile(
+        process.execPath,
+        [
+          '--conditions=@podium/source',
+          fileURLToPath(new URL('./bootstrap-snapshot-worker.ts', import.meta.url)),
+          request,
+        ],
+        { maxBuffer: 64 * 1024 * 1024 },
+        (error, stdout, stderr) => {
+          if (error) return reject(new Error(stderr || error.message, { cause: error }))
+          try {
+            resolve(JSON.parse(stdout) as Snapshot)
+          } catch (error) {
+            reject(error)
           }
-          return response
         },
-      },
+      )
     })
-    return {
-      ...(await snapshotFromBootstrap(source.bootstrap(undefined, kinds))),
-      minAvailableSeq: await registry.syncDelta.serving.retentionFloor(),
-    }
+    return { ...snapshot, minAvailableSeq: await registry.syncDelta.serving.retentionFloor() }
   } finally {
-    await worker?.close()
     rmSync(dir, { recursive: true, force: true })
   }
 }

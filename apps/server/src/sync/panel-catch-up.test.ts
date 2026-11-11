@@ -12,8 +12,6 @@ import {
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { expect, it } from 'vitest'
 import { makeFeedVisibility } from '../feed-visibility'
-import { EventBus } from '../modules/bus'
-import { WriteFunnel } from '../modules/funnel'
 import { produceBootstrap } from '../sync-worker/producer'
 import { issueRowFixture } from '../test-support/issue-row'
 import { openTestStore } from '../test-support/open-test-store'
@@ -24,7 +22,7 @@ const kinds = ['issuePanelArtifact', 'issuePanelTodo', 'issuePanelDeferred'] as 
 for (const kind of kinds) {
   for (const removal of ['item', 'issue'] as const) {
     it.each([
-      'funnel',
+      'authority',
       'worker',
     ] as const)(`%s catches up past ${kind} after removing its ${removal}`, async (path) => {
       const dir = mkdtempSync(join(tmpdir(), 'panel-catch-up-'))
@@ -60,17 +58,6 @@ for (const kind of kinds) {
           visibility: new GrantEdgeVisibilityPolicy(feed.state, new NoDelegationsGranted()),
           anchors: feed.anchors,
         })
-        const funnel = new WriteFunnel({
-          authority,
-          bus: new EventBus(),
-          serving: {
-            publish: () => {},
-            flushPending: () => {},
-            identity: () => ({ feedId: 'feed', epoch: 'epoch' }),
-            retentionFloor: () => 1,
-          },
-          onPublished: () => {},
-        })
         const id = asIssuePanelItemId(randomUUID())
         const value = {
           id,
@@ -90,9 +77,10 @@ for (const kind of kinds) {
         })
         const addedAt = await authority.cursor()
         expect(addedAt).toBeGreaterThan(from)
-        expect(await funnel.changesSince(from, principal)).toMatchObject([
-          { entity: kind, op: 'upsert' },
-        ])
+        expect(await authority.changesSince(from, principal)).toMatchObject({
+          kind: 'batch',
+          changes: [{ entity: kind, op: 'upsert' }],
+        })
         await authority.commit({
           affects,
           write: async () => {
@@ -103,11 +91,15 @@ for (const kind of kinds) {
         })
         const through = await authority.cursor()
         expect(through).toBeGreaterThan(addedAt)
-        if (path === 'funnel') {
-          expect(await funnel.changesSince(from, principal)).toMatchObject([
-            { entity: kind, op: 'remove' },
-          ])
-          expect(await funnel.changesSince(through, principal)).toEqual([])
+        if (path === 'authority') {
+          expect(await authority.changesSince(from, principal)).toMatchObject({
+            kind: 'batch',
+            changes: [{ entity: kind, op: 'remove' }],
+          })
+          expect(await authority.changesSince(through, principal)).toMatchObject({
+            kind: 'batch',
+            changes: [],
+          })
         } else {
           let output = ''
           for await (const bytes of produceBootstrap(
