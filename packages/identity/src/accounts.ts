@@ -10,6 +10,7 @@ import {
   type AccountRow,
   accountByEmail,
   accountById,
+  accountForAuthentication,
   insertPasswordMethod,
   passwordOfAccount,
   updatePassword,
@@ -79,6 +80,7 @@ export function accountOperations(runtime: Runtime): AccountOperations {
           name: user.name,
           email: user.email,
           image: user.image ?? null,
+          emailVerified: user.emailVerified,
         })
       })
     },
@@ -100,6 +102,11 @@ export function accountOperations(runtime: Runtime): AccountOperations {
       return Boolean(row?.password)
     },
 
+    async isEmailVerified(accountId) {
+      const [row] = await accountById(runtime.db()).run({ id: accountId })
+      return row?.emailVerified === true
+    },
+
     async verifyPassword(accountId, password) {
       const [row] = await passwordOfAccount(runtime.db()).run({ accountId })
       if (!row?.password) return false
@@ -118,11 +125,16 @@ export function accountOperations(runtime: Runtime): AccountOperations {
       await runtime.transaction(async () => {
         const [holder] = await accountByEmail(runtime.db()).run({ email })
         if (holder && holder.id !== accountId) throw new IdentityRefused('email-taken')
-        if ((await accountById(runtime.db()).run({ id: accountId })).length === 0) {
+        const [current] = await accountForAuthentication(runtime.db()).run({ id: accountId })
+        if (!current) {
           throw new IdentityRefused('unknown-account')
         }
         // Through the library, so its account hook tells the memberships.
-        await runtime.library.internalAdapter.updateUser(accountId, { email })
+        if (current.email !== email)
+          await runtime.library.internalAdapter.updateUser(accountId, {
+            email,
+            emailVerified: false,
+          })
       })
     },
 

@@ -112,6 +112,7 @@ export interface AccountRow {
   name: string
   email: string
   image: string | null
+  emailVerified: boolean
 }
 
 const accountColumns = (t: HandleFacts['tables']) => ({
@@ -119,6 +120,7 @@ const accountColumns = (t: HandleFacts['tables']) => ({
   name: t.user.name,
   email: t.user.email,
   image: t.user.image,
+  emailVerified: t.user.emailVerified,
 })
 
 export const accountById = prepared<{ id: string }, AccountRow>((db, t) =>
@@ -133,6 +135,48 @@ export const accountByEmail = prepared<{ email: string }, AccountRow>((db, t) =>
     .select(accountColumns(t))
     .from(t.user)
     .where(eq(t.user.email, p(t.user.email, 'email'))),
+)
+
+/** The account row locked through an authentication ceremony on Postgres. */
+export const accountForAuthentication = prepared<{ id: string }, AccountRow>((db, t) => {
+  const query = db
+    .select(accountColumns(t))
+    .from(t.user)
+    .where(eq(t.user.id, p(t.user.id, 'id')))
+  return typeof query.for === 'function' ? query.for('update') : query
+})
+
+/** Locks a password registration that has never proved ownership of its address. */
+export const unverifiedPasswordAccount = prepared<{ email: string }, { id: string }>((db, t) => {
+  const query = db
+    .select({ id: t.user.id })
+    .from(t.user)
+    .where(
+      and(
+        eq(t.user.email, p(t.user.email, 'email')),
+        eq(t.user.emailVerified, false),
+        inArray(
+          t.user.id,
+          db
+            .select({ id: t.account.userId })
+            .from(t.account)
+            .where(and(eq(t.account.providerId, 'credential'), isNotNull(t.account.password))),
+        ),
+      ),
+    )
+  // SQLite's transaction already serialises writers; Postgres locks the row.
+  return typeof query.for === 'function' ? query.for('update') : query
+})
+
+export const deletePasswordMethod = prepared<{ accountId: string }>((db, t) =>
+  db
+    .delete(t.account)
+    .where(
+      and(
+        eq(t.account.userId, p(t.account.userId, 'accountId')),
+        eq(t.account.providerId, 'credential'),
+      ),
+    ),
 )
 
 /** The password login method of an account, if it has one. */

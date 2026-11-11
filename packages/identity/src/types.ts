@@ -187,6 +187,8 @@ export interface ConnectionFacts {
 // ---------------------------------------------------------------------------
 
 export interface AccountOperations {
+  /** Whether the account has proved ownership of its current address. */
+  isEmailVerified(accountId: string): Promise<boolean>
   /** Server-side creation; self sign-up plays no part. Email absent: a generated identifier (section 7). */
   create(input: {
     name: string
@@ -634,6 +636,7 @@ export class MembershipRefused extends Error {
       | 'invitation-invalid'
       | 'already-a-member'
       | 'email-mismatch'
+      | 'email-unverified'
       | 'not-allowed',
     message?: string,
   ) {

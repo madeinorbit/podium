@@ -76,15 +76,66 @@ export async function buildIdentity(
       for (const name of FORWARDING_HEADERS) headers.delete(name)
       if (facts.clientAddress) headers.set(CLIENT_ADDRESS_HEADER, facts.clientAddress)
       const incoming = new URL(request.url)
+      const path = incoming.pathname.slice(configuration.basePath.length)
+      if (path === '/verify-email') {
+        if (request.method !== 'POST') return new Response(null, { status: 405 })
+        if (incoming.search) return new Response(null, { status: 400 })
+        const origin = request.headers.get('origin')
+        if (
+          origin !== configuration.origin &&
+          (config.hosts.kind !== 'fixed' || origin !== config.hosts.appOrigin)
+        ) {
+          return new Response(null, { status: 403 })
+        }
+        if (!headers.get('content-type')?.startsWith('application/json'))
+          return new Response(null, { status: 415 })
+        let body: unknown
+        try {
+          body = await request.json()
+        } catch {
+          return new Response(null, { status: 400 })
+        }
+        if (
+          !body ||
+          typeof body !== 'object' ||
+          !('token' in body) ||
+          typeof body.token !== 'string' ||
+          !body.token ||
+          body.token.length > 8192
+        ) {
+          return new Response(null, { status: 400 })
+        }
+        // Call the library API directly: the browser POST and its URL never
+        // carry a token or an invitation callback in their path or query.
+        return await configuration.auth.api.verifyEmail({
+          query: { token: body.token },
+          headers,
+          asResponse: true,
+        })
+      }
+      if (path.startsWith('/reset-password/') || (path === '/reset-password' && incoming.search)) {
+        return new Response(null, { status: 400 })
+      }
+      if (path === '/link-social') {
+        const resolution = await credentials.resolve(request, facts)
+        if (
+          resolution.kind === 'device-sign-in' &&
+          !(await accounts.isEmailVerified(resolution.accountId))
+        ) {
+          return Response.json(
+            { message: 'Verify your email before linking a sign-in provider.' },
+            { status: 403 },
+          )
+        }
+      }
       const url = `${configuration.origin}${incoming.pathname}${incoming.search}`
       const hasBody = request.method !== 'GET' && request.method !== 'HEAD'
-      return await configuration.auth.handler(
-        new Request(url, {
-          method: request.method,
-          headers,
-          ...(hasBody ? { body: await request.arrayBuffer() } : {}),
-        }),
-      )
+      const forwarded = new Request(url, {
+        method: request.method,
+        headers,
+        ...(hasBody ? { body: await request.arrayBuffer() } : {}),
+      })
+      return await runtime.transaction(() => configuration.auth.handler(forwarded))
     }
   }
   return { core, runtime }

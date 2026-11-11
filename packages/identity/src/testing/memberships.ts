@@ -12,6 +12,7 @@
  * in a hosted workspace.
  */
 import { buildIdentity } from '../core'
+import type { Runtime } from '../runtime'
 import { sha256Hex } from '../secrets'
 import {
   type AccountRef,
@@ -77,6 +78,7 @@ export function membershipCases(context: MembershipCasesContext): void {
   describe(`identity suite on ${harness.name}, ${edition} configuration: memberships`, () => {
     let opened: OpenedDatabase
     let core: IdentityCore
+    let runtime: Runtime
     let workspace: WorkspaceIdentity
     let alice: Person
     let aliceBefore: { view: MembershipView; row: MemberRowState | undefined }
@@ -165,17 +167,26 @@ export function membershipCases(context: MembershipCasesContext): void {
       const email = `${name.toLowerCase()}@example.test`
       if (local) return { kind: 'new', name, email, password }
       const account = await core.accounts.create({ name, email, password })
+      await runtime.library.internalAdapter.updateUser(account.id, { emailVerified: true })
       return { kind: 'existing', accountId: account.id }
     }
     const invite = (input: { role?: 'admin' | 'member'; email?: string; memberId?: string }) =>
-      workspace.memberships.invite({ actor: asAlice(), role: input.role ?? 'member', ...input })
+      workspace.memberships.invite({
+        actor: asAlice(),
+        role: input.role ?? 'member',
+        ...(!local ? { email: 'bob@example.test' } : {}),
+        ...input,
+      })
     /** Bob invited by Alice and accepted: an active member. */
     const join = async (
       name = 'Bob',
       password = BOB_PASSWORD,
       role: 'admin' | 'member' = 'member',
     ): Promise<Person> => {
-      const { invitation } = await invite({ role })
+      const { invitation } = await invite({
+        role,
+        ...(!local ? { email: `${name.toLowerCase()}@example.test` } : {}),
+      })
       return await workspace.memberships.accept({
         token: invitation.token,
         account: await accountFor(name, password),
@@ -215,6 +226,7 @@ export function membershipCases(context: MembershipCasesContext): void {
       opened = await harness.open()
       const built = await buildIdentity(configOf(opened.database))
       core = built.core
+      runtime = built.runtime
       workspace = bind(core, opened)
       const first = await workspace.memberships.adopt({
         by: 'setup',
@@ -228,6 +240,8 @@ export function membershipCases(context: MembershipCasesContext): void {
         },
       })
       alice = { memberId: first.memberId, accountId: first.account?.id as string }
+      if (!local)
+        await runtime.library.internalAdapter.updateUser(alice.accountId, { emailVerified: true })
       aliceBefore = { view: await viewOf(alice.memberId), row: await rowOf(alice.memberId) }
     })
     afterEach(async () => {
@@ -419,7 +433,7 @@ export function membershipCases(context: MembershipCasesContext): void {
       expect(await rowOf(first.membership.memberId)).toBe(undefined)
       // Looking at the invitation creates nobody either.
       const seen = await workspace.memberships.inspectInvitation(first.invitation.token)
-      expect(seen.email).toBe(null)
+      expect(seen.email).toBe(local ? null : 'bob@example.test')
       expect(await rowOf(first.membership.memberId)).toBe(undefined)
 
       // An invitation that is revoked, and one that expires, never made a member.
@@ -595,7 +609,7 @@ export function membershipCases(context: MembershipCasesContext): void {
       expect(await rowOf(spare.membership.memberId)).toBe(undefined)
       // The refusal consumed nothing: the invitation is still there.
       expect((await workspace.memberships.inspectInvitation(spare.invitation.token)).email).toBe(
-        null,
+        local ? null : 'bob@example.test',
       )
 
       // An invitation issued for an address is accepted only by that address.
@@ -687,7 +701,10 @@ export function membershipCases(context: MembershipCasesContext): void {
       }
       await opened.memberRows.write(moved)
       const before = (await rowOf(moved.memberId)) as MemberRowState
-      const binding = await invite({ memberId: moved.memberId })
+      const binding = await invite({
+        memberId: moved.memberId,
+        ...(!local ? { email: 'carol@example.test' } : {}),
+      })
       expect(binding.membership.memberId).toBe(moved.memberId)
       expect(await rowOf(moved.memberId)).toEqual(before)
       const carol = await workspace.memberships.accept({
@@ -714,7 +731,10 @@ export function membershipCases(context: MembershipCasesContext): void {
       })
       expect((await viewOf(retried.memberId)).status).toBe('removed')
       expect(((await rowOf(retried.memberId)) as MemberRowState).state === 'active').toBe(false)
-      const secondTry = await invite({ memberId: retried.memberId })
+      const secondTry = await invite({
+        memberId: retried.memberId,
+        ...(!local ? { email: 'dave@example.test' } : {}),
+      })
       expect(secondTry.membership.memberId).toBe(retried.memberId)
       const dave = await workspace.memberships.accept({
         token: secondTry.invitation.token,
@@ -741,7 +761,10 @@ export function membershipCases(context: MembershipCasesContext): void {
         ),
       ).toBe('invitation-invalid')
       expect(await rowOf(late.memberId)).toEqual(lateBefore)
-      const renewed = await invite({ memberId: late.memberId })
+      const renewed = await invite({
+        memberId: late.memberId,
+        ...(!local ? { email: 'frank@example.test' } : {}),
+      })
       const frank = await workspace.memberships.accept({
         token: renewed.invitation.token,
         account: await accountFor('Frank', 'frank password 123'),
@@ -857,6 +880,8 @@ export function membershipCases(context: MembershipCasesContext): void {
 
       // Signed in, with no membership here.
       const carol = await core.accounts.create({ name: 'Carol', email: 'carol@example.test' })
+      if (!local)
+        await runtime.library.internalAdapter.updateUser(carol.id, { emailVerified: true })
       const carolSignIn = await core.deviceSignIns.create(
         carol.id,
         { kind: 'browser' },

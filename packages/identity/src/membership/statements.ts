@@ -453,6 +453,7 @@ export const deleteAccount = prepared<{ accountId: string }>((db, t) =>
 
 export interface ResolutionRow extends SignInRow {
   accountEmail: string
+  accountEmailVerified: boolean
   memberId: string | null
   role: string | null
   status: string | null
@@ -481,6 +482,7 @@ export const signInWithMembership = prepared<
       expiresAt: t.session.expiresAt,
       fixedExpiry: t.session.fixedExpiry,
       accountEmail: t.user.email,
+      accountEmailVerified: t.user.emailVerified,
       memberId: t.membership.memberId,
       role: t.membership.role,
       status: t.membership.status,
@@ -528,11 +530,12 @@ export const invitedMembershipByEmail = prepared<
  */
 export const heldSignInStillValid = prepared<
   { id: string; now: Date; workspaceId: string; memberId: string; role: string },
-  { id: string }
+  { id: string; emailVerified: boolean }
 >((db, t) =>
   db
-    .select({ id: t.session.id })
+    .select({ id: t.session.id, emailVerified: t.user.emailVerified })
     .from(t.session)
+    .innerJoin(t.user, eq(t.user.id, t.session.userId))
     .innerJoin(t.membership, and(eq(t.membership.accountId, t.session.userId), ofWorkspace(t)))
     .where(
       and(

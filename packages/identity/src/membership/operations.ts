@@ -89,7 +89,10 @@ export function membershipOperations(
   async function requireActor(actor: Actor): Promise<void> {
     if ('system' in actor) return
     const row = await membership(actor.memberId)
-    if (row?.status !== 'active' || row.role !== 'admin') refuse('admin-required')
+    if (!row || row.status !== 'active' || row.role !== 'admin') return refuse('admin-required')
+    if (!localAccounts && (!row.accountId || !(await accounts.isEmailVerified(row.accountId)))) {
+      refuse('email-unverified')
+    }
   }
 
   /** Whether `row` is the only active admin of the workspace. */
@@ -442,6 +445,11 @@ export function membershipOperations(
           if (typed !== invitation.email) return refuse('email-mismatch')
         }
         const taken = await take(account)
+        if (!localAccounts) {
+          if (!(await accounts.isEmailVerified(taken.id))) return refuse('email-unverified')
+          if (invitation.email === null || taken.email !== invitation.email)
+            return refuse('email-mismatch')
+        }
         if (account.kind === 'existing') {
           if (invitation.email !== null && taken.email !== invitation.email) {
             return refuse('email-mismatch')

@@ -345,6 +345,8 @@ export function identitySuite(runner: SuiteRunner, harness: SuiteHarness): Ident
        * the host and accepted.
        */
       const admit = async (account: Account): Promise<void> => {
+        if (edition === 'cloud')
+          await runtime.library.internalAdapter.updateUser(account.id, { emailVerified: true })
         const ref = { kind: 'existing' as const, accountId: account.id }
         if ((await workspace.memberships.list()).length === 0) {
           await workspace.memberships.adopt({
@@ -358,6 +360,7 @@ export function identitySuite(runner: SuiteRunner, harness: SuiteHarness): Ident
         const { invitation } = await workspace.memberships.invite({
           actor: { system: 'host' },
           role: 'member',
+          ...(edition === 'cloud' ? { email: account.email! } : {}),
         })
         await workspace.memberships.accept({ token: invitation.token, account: ref })
       }
@@ -754,7 +757,10 @@ export function identitySuite(runner: SuiteRunner, harness: SuiteHarness): Ident
       // 7 -----------------------------------------------------------------
       test(6, async () => {
         // Carol has no login method at all.
-        const carol = await core.accounts.create({ name: 'Carol' })
+        const carol = await core.accounts.create({
+          name: 'Carol',
+          ...(edition === 'cloud' ? { email: 'carol@example.test' } : {}),
+        })
         await admit(carol)
         expect(await core.accounts.hasPassword(carol.id)).toBe(false)
         const first = await core.codes.issue({
@@ -992,19 +998,28 @@ export function identitySuite(runner: SuiteRunner, harness: SuiteHarness): Ident
         const code = `edition_${randomBytes(32).toString('base64url')}`
         const configured = await buildIdentity({ ...runtime.config, handOverCode: () => code })
         const source = await configured.core.deviceSignIns.create(
-          alice.id, { kind: 'browser' }, 'cookie', https(),
+          alice.id,
+          { kind: 'browser' },
+          'cookie',
+          https(),
         )
         const verifier = randomBytes(32).toString('base64url')
         const challenge = sha256Hex(verifier)
         await configured.core.codes.begin({ purpose: 'hand-over', challenge })
         const authorised = await configured.core.codes.authorise({
-          challenge, accountId: alice.id, sourceSignInId: source.deviceSignInId,
+          challenge,
+          accountId: alice.id,
+          sourceSignInId: source.deviceSignInId,
         })
         expect(authorised).toMatchObject({ code })
         expect(await opened.stored('oneTimeCode', 'code_hash')).toContain(sha256Hex(code))
-        const redeem = () => configured.core.codes.redeem(
-          { code, verifier, purpose: 'hand-over' }, { kind: 'desktop' }, 'bearer', https(),
-        )
+        const redeem = () =>
+          configured.core.codes.redeem(
+            { code, verifier, purpose: 'hand-over' },
+            { kind: 'desktop' },
+            'bearer',
+            https(),
+          )
         const signIn = issued(await redeem())
         expect(signIn.accountId).toBe(alice.id)
         expect(await redeem()).toBe(undefined)

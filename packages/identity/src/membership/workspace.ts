@@ -75,6 +75,9 @@ export function workspaceIdentity(
         workspaceId,
       })
       if (row) {
+        if (runtime.config.accounts === 'shared' && !row.accountEmailVerified) {
+          return { kind: 'not-a-member', accountId: row.accountId, membership: 'none' }
+        }
         if (!row.lastSeenAt || now.getTime() - row.lastSeenAt.getTime() >= LAST_SEEN_EVERY_MS) {
           await touchLastSeen(db()).run({
             id: row.id,
@@ -134,7 +137,9 @@ export function workspaceIdentity(
         memberId: held.memberId,
         role: held.role,
       })
-      return rows.length > 0
+      return (
+        rows.length > 0 && (runtime.config.accounts === 'local' || rows[0]?.emailVerified === true)
+      )
     },
 
     renew: (request, facts) => credentials.renew(request, facts),

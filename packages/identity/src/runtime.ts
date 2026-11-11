@@ -7,15 +7,26 @@
  */
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { runWithAdapter } from '@better-auth/core/context'
+import { APIError } from '@better-auth/core/error'
 import { drizzleAdapter } from '@better-auth/drizzle-adapter'
 import type { BetterAuthOptions } from 'better-auth'
 import { betterAuth } from 'better-auth/minimal'
 import { bearer } from 'better-auth/plugins/bearer'
 import { hashedSessionTokens, type LibraryAdapter } from './hashed-session-tokens'
+import { accountMailLink } from './mail-links'
 import { pgIdentityTables } from './schema/pg'
 import { sqliteIdentityTables } from './schema/sqlite'
 import { signToken } from './secrets'
-import { type IdentityTables, registerHandle } from './statements'
+import {
+  accountForAuthentication,
+  deletePasswordMethod,
+  deleteSignInsOfAccount,
+  type IdentityTables,
+  passwordOfAccount,
+  registerHandle,
+  signInById,
+  unverifiedPasswordAccount,
+} from './statements'
 import type { ConnectionFacts, DeviceDescription, IdentityConfig } from './types'
 
 const DAY_SECONDS = 86_400
@@ -146,7 +157,8 @@ export async function createRuntime(config: IdentityConfig): Promise<Runtime> {
         // The tables of the edition's extensions; the package's own win.
         ...Object.fromEntries(
           Object.entries(config.libraryRoutes?.tables ?? {}).filter(
-            ([model]) => !['user', 'account', 'session', 'verification', 'rateLimit'].includes(model),
+            ([model]) =>
+              !['user', 'account', 'session', 'verification', 'rateLimit'].includes(model),
           ),
         ),
       },
@@ -212,7 +224,16 @@ export async function createRuntime(config: IdentityConfig): Promise<Runtime> {
       secret: config.secret,
       database: (libraryOptions: BetterAuthOptions) => {
         adapterOptions ??= libraryOptions
-        return adapterFor(root, libraryOptions)
+        // The library installs its adapter scope inside its request handler.
+        // Follow our transaction at each call as well, so hooks and library
+        // writes stay on the same handle when a ceremony holds an account lock.
+        return new Proxy(adapterOfHandle(root, libraryOptions), {
+          get(_target, property) {
+            const adapter = adapterOfCurrentHandle(libraryOptions)
+            const value = adapter[property]
+            return typeof value === 'function' ? value.bind(adapter) : value
+          },
+        })
       },
       trustedOrigins: variant.trustedOrigins,
       emailAndPassword: {
@@ -222,11 +243,11 @@ export async function createRuntime(config: IdentityConfig): Promise<Runtime> {
         ...(config.passwordHashing ? { password: config.passwordHashing } : {}),
         ...(mail
           ? {
-              sendResetPassword: async ({ user, url }) =>
+              sendResetPassword: async ({ user, url, token }) =>
                 mail.send({
                   to: user.email,
                   subject: 'Reset your Podium password',
-                  text: `Reset your password: ${url}`,
+                  text: `Reset your password: ${accountMailLink(config.hosts.kind === 'fixed' ? config.hosts.appOrigin : variant.baseURL, 'reset-password', token, url)}`,
                 }),
             }
           : {}),
@@ -235,12 +256,12 @@ export async function createRuntime(config: IdentityConfig): Promise<Runtime> {
         ? {
             emailVerification: {
               sendOnSignUp: true,
-              autoSignInAfterVerification: true,
-              sendVerificationEmail: async ({ user, url }) =>
+              autoSignInAfterVerification: false,
+              sendVerificationEmail: async ({ user, url, token }) =>
                 mail.send({
                   to: user.email,
                   subject: 'Verify your Podium email',
-                  text: `Confirm your email: ${url}`,
+                  text: `Confirm your email: ${accountMailLink(config.hosts.kind === 'fixed' ? config.hosts.appOrigin : variant.baseURL, 'verify-email', token, url)}`,
                 }),
             },
           }
@@ -261,8 +282,12 @@ export async function createRuntime(config: IdentityConfig): Promise<Runtime> {
         },
       },
       account: {
-        // Linking only matters when a provider can assert an address.
-        accountLinking: { enabled: Object.keys(providers).length > 0 },
+        // The account-create gate below also requires local verification and
+        // refuses linking while a password remains on the account.
+        accountLinking: {
+          enabled: Object.keys(providers).length > 0,
+          requireLocalEmailVerified: true,
+        },
         encryptOAuthTokens: true,
       },
       verification: { storeIdentifier: 'hashed' },
@@ -285,12 +310,53 @@ export async function createRuntime(config: IdentityConfig): Promise<Runtime> {
         defaultCookieAttributes: { secure: variant.secure, httpOnly: true, sameSite: 'lax' },
       },
       databaseHooks: {
+        account: {
+          create: {
+            before: async (method) => {
+              if (method.providerId === 'credential') return
+              const db = scope.getStore()?.db ?? root
+              const [account] = await accountForAuthentication(db).run({ id: method.userId })
+              const [password] = await passwordOfAccount(db).run({ accountId: method.userId })
+              if (!account?.emailVerified || password?.password)
+                throw new APIError('FORBIDDEN', {
+                  code: password?.password
+                    ? 'password_account_linking_disabled'
+                    : 'email_not_verified',
+                  message:
+                    'This account cannot link a sign-in provider. Use its existing sign-in method.',
+                })
+            },
+          },
+          update: {
+            before: async (_method, context) => {
+              if (context?.path !== '/change-password') return
+              const session = context.context.session
+              if (!session) throw new APIError('UNAUTHORIZED', { message: 'Sign in again.' })
+              const db = scope.getStore()?.db ?? root
+              await accountForAuthentication(db).run({ id: session.user.id })
+              const [live] = await signInById(db).run({ id: session.session.id, now: now() })
+              if (!live || live.accountId !== session.user.id)
+                throw new APIError('UNAUTHORIZED', { message: 'Sign in again.' })
+            },
+          },
+        },
         session: {
           create: {
             // A sign-in the library makes during one of our calls carries the
             // device the caller described. One made by the library's own routes
             // (the cloud's provider sign-in) is a browser's.
-            before: async (session) => {
+            before: async (session, context) => {
+              if (
+                context?.path === '/sign-in/email' ||
+                context?.path === '/sign-up/email' ||
+                context?.path === '/change-password'
+              ) {
+                const db = scope.getStore()?.db ?? root
+                await accountForAuthentication(db).run({ id: session.userId })
+                const [password] = await passwordOfAccount(db).run({ accountId: session.userId })
+                if (!password?.password)
+                  throw new APIError('UNAUTHORIZED', { message: 'Sign in again.' })
+              }
               const device = deviceScope.getStore()?.device
               const given = session as Record<string, unknown>
               return {
@@ -339,6 +405,36 @@ export async function createRuntime(config: IdentityConfig): Promise<Runtime> {
   ): Promise<Configuration> {
     const auth = betterAuth(options(variant))
     const context = await auth.$context
+    if (config.accounts === 'shared') {
+      for (const provider of context.socialProviders) {
+        const getUserInfo = provider.getUserInfo.bind(provider)
+        provider.getUserInfo = async (input) => {
+          const profile = await getUserInfo(input)
+          if (profile?.user.emailVerified !== true) return null
+          // Only the provider's verified assertion can reclaim a pre-registration.
+          // Keep the account and its data; revoke the unproved password and all
+          // existing sessions before marking its address verified and linking.
+          if (profile?.user.email && profile.user.emailVerified === true) {
+            await transaction(async () => {
+              const db = scope.getStore()?.db ?? root
+              const [unverified] = await unverifiedPasswordAccount(db).run({
+                email: profile.user.email!.toLowerCase(),
+              })
+              if (unverified) {
+                await deletePasswordMethod(db).run({ accountId: unverified.id })
+                await deleteSignInsOfAccount(db).run({ accountId: unverified.id })
+                await context.internalAdapter.updateUser(unverified.id, {
+                  emailVerified: true,
+                  name: profile.user.name ?? 'Podium account',
+                  image: profile.user.image ?? null,
+                })
+              }
+            })
+          }
+          return profile
+        }
+      }
+    }
     return {
       name,
       auth,
@@ -412,7 +508,9 @@ export async function createRuntime(config: IdentityConfig): Promise<Runtime> {
         ...(call.body !== undefined ? { body: JSON.stringify(call.body) } : {}),
       })
       const store: DeviceScope = { device: call.device ?? { kind: 'browser' } }
-      const response = await deviceScope.run(store, () => configuration.auth.handler(request))
+      const response = await deviceScope.run(store, () =>
+        transaction(() => configuration.auth.handler(request)),
+      )
       return { response, created: store.created }
     },
     sessionCookie(configuration, token, expiresAt) {
