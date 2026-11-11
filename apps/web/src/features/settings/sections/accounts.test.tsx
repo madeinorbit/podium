@@ -1,6 +1,9 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import '@/test-support/mock-request-pool.test.fixture'
+import { MemberDirectory } from '@podium/client-graph/member-directory'
+import { memberRoster } from '@podium/client-graph/member-roster'
+import { MobxPool } from '@podium/client-graph/pool'
 import { asMachineId, SHARED_MACHINE_ACCOUNT_WARNING } from '@podium/model'
 import { Profiler, type ReactNode, useRef, useState, useSyncExternalStore } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -138,6 +141,7 @@ function Harness() {
 const flow = () => within(screen.getByTestId('flow'))
 
 const { AccountsSection } = await import('./accounts')
+const { KeySharing } = await import('./key-sharing')
 
 const NATIVE: AccountView = {
   id: 'native:claude-code',
@@ -302,6 +306,42 @@ describe('personal AI accounts', () => {
       }),
     )
     expect(flow().queryByRole('button', { name: 'Save' })).toBeNull()
+  })
+
+  it('offers re-enabled roster members while their admin disabled details await refresh', async () => {
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+    const directory = new MemberDirectory(pool)
+    const roster = memberRoster(pool)
+    try {
+      await directory.read(async () => ({
+        ...ADMIN_DIRECTORY,
+        members: ADMIN_DIRECTORY.members.map((member) => ({
+          ...member,
+          disabledAt: member.id === 'user:ana' ? '2026-01-01T00:00:00Z' : null,
+        })),
+      }))
+      await roster.read(async () => MEMBER_DIRECTORY)
+      expect(directory.members.find((member) => member.id === 'user:ana')?.disabledAt).toBe(
+        '2026-01-01T00:00:00Z',
+      )
+      render(
+        <KeySharing
+          accountId={OWN.id}
+          label="Anthropic API key"
+          sharing={OWN.sharing}
+          directory={roster}
+          currentMemberId="user:ben"
+          onChanged={() => {}}
+        />,
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Specific people' }))
+      expect(screen.getByRole('switch', { name: 'Ana' })).toBeTruthy()
+      expect(screen.queryByRole('switch', { name: 'Ben' })).toBeNull()
+    } finally {
+      cleanup()
+      directory.dispose()
+      pool.dispose()
+    }
   })
 
   it('lets a member choose named people and removes their last share immediately', async () => {

@@ -93,9 +93,7 @@ export const KeySharing = observer(function KeySharing({
   }, [sharing])
 
   const keyOwner = owner ?? currentMemberId
-  const known = (directory?.members ?? []).filter(
-    (member) => member.id !== keyOwner && !member.disabledAt,
-  )
+  const known = (directory?.members ?? []).filter((member) => member.id !== keyOwner)
   const knownIds = new Set(known.map((member) => member.id))
   const extra = picked.filter((id) => !knownIds.has(id))
   const canPick = known.length > 0 || extra.length > 0
