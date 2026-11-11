@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page, test } from '@playwright/test'
-import { RELAY } from './_harness'
+import { deferUpdateOffers, RELAY } from './_harness'
 
 /**
  * Runtime verification of the Podium-development gating of update controls
@@ -17,6 +17,7 @@ test.skip(({ isMobile }) => isMobile, 'desktop test (settings nav is desktop-ori
 // Same reason as experimental-settings.browser.e2e.ts: first boot on a loaded
 // harness box runs well past the default timeout.
 test.setTimeout(300_000)
+test.beforeEach(async ({ page }) => deferUpdateOffers(page))
 
 const SHOTS = process.env.PODIUM_UPDATE_CONTROLS_SHOTS
 

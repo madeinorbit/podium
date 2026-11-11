@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page, test } from '@playwright/test'
-import { gotoWorkspace, RELAY } from './_harness'
+import { deferUpdateOffers, gotoWorkspace, RELAY } from './_harness'
 
 /**
  * Runtime verification of Settings → Labs [spec:SP-f4b9] against the
@@ -13,6 +13,7 @@ test.skip(({ isMobile }) => isMobile, 'desktop test (settings nav is desktop-ori
 // The harness box can run under heavy memory pressure (dev server + builds);
 // first app boot then takes well over the 30s default test timeout.
 test.setTimeout(300_000)
+test.beforeEach(async ({ page }) => deferUpdateOffers(page))
 
 async function openLabs(page: Page): Promise<void> {
   // Load the shell at the root and wait for it to be READY (the <aside> work

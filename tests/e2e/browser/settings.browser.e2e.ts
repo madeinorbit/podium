@@ -2,7 +2,7 @@ import { expect, type Page, test } from '@playwright/test'
 import { makeTrpc } from '../../../apps/web/src/app/trpc'
 import { nativeAccountId } from '../../../packages/runtime/src/settings'
 import { E2E_LONG_IDENTITY_EMAIL } from '../account-identity-fixture'
-import { RELAY } from './_harness'
+import { deferUpdateOffers, RELAY } from './_harness'
 
 type Trpc = ReturnType<typeof makeTrpc>
 type Values = Readonly<Record<string, unknown>>
@@ -73,6 +73,7 @@ test.skip(
   'desktop test (the Settings nav button lives in the top bar; POD-318 moved it out of the <aside> Sidebar, and POD-420 repointed these locators)',
 )
 test.describe.configure({ timeout: 90_000 })
+test.beforeEach(async ({ page }) => deferUpdateOffers(page))
 
 async function seedStaleCodexWorkLlm(): Promise<void> {
   const trpc = makeTrpc('http://localhost:8799')
