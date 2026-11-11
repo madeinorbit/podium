@@ -48,6 +48,25 @@ try {
     await writeFile(join(output, 'first-frame.json'), JSON.stringify(evidence, null, 2))
     await page.screenshot({ path: join(output, 'first-frame.png') })
     console.log(JSON.stringify({ output, grid: evidence.grid, first: evidence.first }))
+    await page.goto(`http://127.0.0.1:${address.port}/harness/terminal-first-frame.html?view=issue`)
+    await page.getByText('Snapshot attachment', { exact: true }).waitFor()
+    await page.reload()
+    const artifact = page.getByTestId('issue-artifacts')
+    await artifact.getByText('Snapshot attachment', { exact: true }).waitFor()
+    await artifact.scrollIntoViewIfNeeded()
+    await page.screenshot({ path: join(output, 'issue-reload.png') })
+    await writeFile(
+      join(output, 'issue-reload.json'),
+      JSON.stringify(
+        {
+          reloaded: true,
+          artifacts: await artifact.innerText(),
+        },
+        null,
+        2,
+      ),
+    )
+    console.log('Reloaded issue page shows its snapshot attachment')
   } finally {
     await browser.close()
   }
