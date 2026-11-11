@@ -135,6 +135,7 @@ vi.mock('@/app/store', () => {
       pendingSpawnPrompts: new Map<string, string>(),
       repos: [],
       trpc: fakeTrpc,
+      httpOrigin: 'http://fixture.invalid',
       drafts: {},
       panelMode: storePanelMode,
       issues: storeIssues,
