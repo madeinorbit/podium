@@ -4,7 +4,6 @@ import {
   ContextMenu,
   HStack,
   Image,
-  List,
   Picker,
   ProgressView,
   Section,
@@ -62,7 +61,7 @@ import { issueDisplayRef } from '@podium/protocol'
 import { Stack } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { Fragment, type ReactNode, useCallback, useState } from 'react'
-import { StyleSheet, useWindowDimensions, View } from 'react-native'
+import { Text as RNText, StyleSheet, useWindowDimensions, View } from 'react-native'
 import { issueObserver as taskObserver } from '../client/issue-observer'
 import { useMobilePool } from '../client/mobile-pool'
 import { Filter, MoreHorizontal, Plus } from '../components/icons'
@@ -73,6 +72,7 @@ import { StorageNoticeAlert } from '../components/StorageNoticeAlert'
 import { MIN_REFRESH_CONFIRMATION_MS } from '../hooks/useRefreshableTab'
 import { useAgeNow } from '../lib/clock-hooks'
 import { workMenuActionIds } from '../lib/work-menu'
+import { RootTabList } from '../navigation/RootTabList.ios'
 import { color } from '../theme/theme'
 import { type TasksSurfaceProps, taskRowFigure, tasksSubtitle } from './TasksSurface.types'
 import { useStageFolds } from './tasks-folds'
@@ -113,8 +113,8 @@ const MARK_COLOR: Record<TaskRowMark, string> = {
 
 /**
  * THE TASKS TAB ON iOS — a real SwiftUI inset-grouped list. UIKit owns the
- * navigation bar, its large title, the search magnifier and the tab bar; SwiftUI
- * owns the rows, their swipe actions and their context menus, so iOS draws the
+ * navigation bar, search magnifier and tab bar. The shared header is the first
+ * list row; SwiftUI owns rows, swipe actions and menus, so iOS draws the
  * Liquid Glass and the gestures itself.
  *
  * Stage groups open in the board's order. Backlog, Proposed and Done start
@@ -150,14 +150,24 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
   ]
 
   return (
-    // The shell's Screen: large title, the subtitle in the native bar (iOS 26),
-    // trailing actions as system glass bar buttons. The native subtitle is not
-    // tappable; the project scope it names is the filter sheet's first row.
+    // The project scope opens the existing filter sheet, whose first row is
+    // the project picker. The same subtitle remains available in the inline bar.
     <Screen
       grouped
       large
       title="Tasks"
-      subtitle={subtitle.counts ? `${subtitle.project} · ${subtitle.counts}` : subtitle.project}
+      subtitle={
+        <>
+          <RNText
+            accessibilityRole="button"
+            accessibilityLabel={`Project: ${subtitle.project}`}
+            onPress={props.onFilters}
+          >
+            {subtitle.project} ▾
+          </RNText>
+          {subtitle.counts ? ` · ${subtitle.counts}` : ''}
+        </>
+      }
       // One native menu leaves room for the search button at accessibility sizes.
       actions={
         fontScale >= 1.6
@@ -187,7 +197,7 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
         <RefreshOffer />
       </View>
       <Host style={styles.host} seedColor={color.accentTint}>
-        <List
+        <RootTabList
           key={listRevision}
           modifiers={[
             listStyle('insetGrouped'),
@@ -293,7 +303,7 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
               </Text>
             </VStack>
           ) : null}
-        </List>
+        </RootTabList>
       </Host>
     </Screen>
   )

@@ -26,6 +26,7 @@ import { useRefreshableTab } from '../hooks/useRefreshableTab'
 import { type PoolWorkMenuData, resolvePoolWorkMenu } from '../lib/pool-work-menu'
 import { sessionHref } from '../lib/session-route'
 import type { WorkMenuActionId } from '../lib/work-menu'
+import { RootTabScrollView } from '../navigation/RootTabScrollView'
 import { WorkSurface } from './WorkSurface'
 import type { WorkMode } from './WorkSurface.types'
 import { readWorkNavigation, type WorkRouteParams, workFilterParams } from './work-navigation'
@@ -202,7 +203,9 @@ const PoolWorkScreen = observer(function PoolWorkScreen({ mode }: { mode: WorkMo
   if (!phone)
     return (
       <Screen large title="Work">
-        <WorkSkeleton />
+        <RootTabScrollView contentContainerStyle={{ paddingHorizontal: 20 }}>
+          <WorkSkeleton />
+        </RootTabScrollView>
       </Screen>
     )
   return (

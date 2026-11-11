@@ -2,7 +2,7 @@ import { HeaderHeightContext } from 'expo-router/react-navigation'
 import { Stack } from 'expo-router/stack'
 import type { SFSymbol } from 'expo-symbols'
 import { type ReactNode, use, useState } from 'react'
-import { type LayoutChangeEvent, StyleSheet, Text, View } from 'react-native'
+import { type LayoutChangeEvent, Platform, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { HeaderInsetContext } from '../navigation/header-inset'
 import {
@@ -10,6 +10,7 @@ import {
   nativeSubtitleAvailable,
   transparentDetailHeader,
 } from '../navigation/native-stack'
+import { RootTabScreen } from '../navigation/RootTabScreen'
 import { color, font, mono, sans, space } from '../theme/theme'
 import type { AppIcon } from './icons'
 import { PressableScale } from './PressableScale'
@@ -22,7 +23,12 @@ const noop = () => {}
 const sfName = (icon: AppIcon): SFSymbol =>
   (typeof icon === 'object' && icon && 'ios' in icon ? icon.ios : icon) as SFSymbol
 
-export function Screen({
+export function Screen(props: Parameters<typeof NativeScreen>[0]) {
+  if (Platform.OS === 'ios' && props.large && !props.noHeader) return <RootTabScreen {...props} />
+  return <NativeScreen {...props} />
+}
+
+function NativeScreen({
   title,
   grouped,
   subtitle,
@@ -42,7 +48,7 @@ export function Screen({
   title?: string
   /** Use the system grouped-list ground beneath content and navigation. */
   grouped?: boolean
-  /** A string rides the native navigation subtitle; other nodes use the context strip. */
+  /** Root titles carry the subtitle in both states; details use the native subtitle or context strip. */
   subtitle?: ReactNode
   onBack?: () => void
   backLabel?: string
@@ -53,7 +59,7 @@ export function Screen({
   /** Trailing native bar items (buttons or pull-down menus), drawn in system glass. */
   actions?: readonly ScreenAction[]
   children: ReactNode
-  /** Root tab screen: large title that collapses into the inline bar on scroll. */
+  /** Root tab: first content-row title cross-fades into the native inline bar on scroll. */
   large?: boolean
   noHeader?: boolean
   safeBottom?: boolean

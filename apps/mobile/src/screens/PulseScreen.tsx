@@ -13,11 +13,12 @@ import { useOpeningView } from '@podium/client-graph/react'
 import { router } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { useCallback, useMemo, useState } from 'react'
-import { Pressable, ScrollView, StyleSheet, Text } from 'react-native'
+import { Pressable, StyleSheet, Text } from 'react-native'
 import { DEMO_HOST_METRICS, DEMO_MACHINES, demoEnabled } from '../client/demoData'
 import { useMobilePool } from '../client/mobile-pool'
 import { usePulseLive } from '../client/use-inbox-data'
 import { NativePicker } from '../components/action-sheet-native'
+import { Glass } from '../components/Glass'
 import { Icon } from '../components/Icon'
 import { ChevronDown } from '../components/icons'
 import { SectionHeader } from '../components/instruments'
@@ -27,6 +28,7 @@ import { useContentBottomInset } from '../hooks/useContentBottomInset'
 import { useMinimizeTabBarOnScroll } from '../hooks/useMinimizeTabBarOnScroll'
 import { useRefreshableTab } from '../hooks/useRefreshableTab'
 import { useBuildStamp } from '../lib/build-stamp'
+import { RootTabScrollView } from '../navigation/RootTabScrollView'
 import { color, font, sans, space } from '../theme/theme'
 import { Machines, PulseBody } from './PulseBody'
 import {
@@ -123,13 +125,12 @@ export const PulseScreen = observer(function PulseScreen() {
       right={<RangeButton range={range} onChange={setRange} />}
     >
       <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
-        <ScrollView
+        <RootTabScrollView
           style={styles.scroll}
           ref={listRef as never}
           refreshControl={refreshControl}
-          // The native large-title header is translucent and floats over the
-          // content. Without this the first rows sat under the status bar and
-          // took its taps (POD-2347 "Pulse segments hidden under the status bar").
+          // RootTabScrollView pays only the status inset on iOS; its first row
+          // owns the large title and fades into the retained native bar.
           contentInsetAdjustmentBehavior="automatic"
           contentContainerStyle={[styles.content, { paddingBottom: bottomInset + space.lg }]}
           {...refreshAccessibilityProps}
@@ -158,7 +159,7 @@ export const PulseScreen = observer(function PulseScreen() {
             onOpenTask={onOpenTask}
             buildStamp={buildStamp.text}
           />
-        </ScrollView>
+        </RootTabScrollView>
       </PullToRefreshBoundary>
     </Screen>
   )
@@ -275,10 +276,11 @@ function RangeButton({
           accessibilityRole="button"
           accessibilityLabel={`Range: ${rangeLabel(range)}`}
           onPress={onPress}
-          style={styles.rangeButton}
         >
-          <Text style={styles.rangeText}>{rangeShort(range)}</Text>
-          <Icon as={ChevronDown} size={11} color={color.text} />
+          <Glass interactive style={styles.rangeButton}>
+            <Text style={styles.rangeText}>{rangeShort(range)}</Text>
+            <Icon as={ChevronDown} size={11} color={color.text} />
+          </Glass>
         </Pressable>
       )}
     </NativePicker>

@@ -34,6 +34,7 @@ import { useContentBottomInset } from '../hooks/useContentBottomInset'
 import { useBuildStamp } from '../lib/build-stamp'
 import { useAgeNow } from '../lib/clock-hooks'
 import { appVersion } from '../lib/logging'
+import { RootTabScrollView } from '../navigation/RootTabScrollView'
 import { color, font, grid, leading, radius, sans } from '../theme/theme'
 import {
   type SettingsMachineStatus,
@@ -252,7 +253,7 @@ const SettingsHome = observer(function SettingsHome() {
       backAs="text"
       backLabel="Done"
     >
-      <ScrollView
+      <RootTabScrollView
         style={styles.scroll}
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={[styles.content, { paddingBottom: bottomInset + grid(6) }]}
@@ -340,7 +341,7 @@ const SettingsHome = observer(function SettingsHome() {
             <LogoutRow account={account} />
           </Card>
         ) : null}
-      </ScrollView>
+      </RootTabScrollView>
     </Screen>
   )
 })
