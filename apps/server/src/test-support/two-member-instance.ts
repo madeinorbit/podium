@@ -31,7 +31,7 @@
  * - `as(member).trpc` is an HTTP tRPC client for `/trpc`; `as(member).fetch`
  *   any other HTTP route.
  * - `as(member).feed()` opens the real `/client` WebSocket. `bootstrap()` reads
- *   the member's snapshot over `sync.changesSince`; `deltas` collects the
+ *   the member's snapshot over HTTP `/sync/bootstrap`; `deltas` collects the
  *   `feedDelta` frames pushed afterwards.
  * - `agent(sessionId)` acts as that session's agent over the daemon relay:
  *   `cli([...])` runs `podium issue …`, `mcp(tool, input)` calls an MCP issue tool.
@@ -49,6 +49,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { HttpBootstrapSource } from '@podium/client-core/sync-stream'
 import { type IssueTrpc, makeRelayIssueClient } from '@podium/issue-client'
 import {
   asMachineId,
@@ -76,6 +77,7 @@ import { IssueToolProvider } from '../issue-mcp'
 import { noJanitorWorkerForTests } from '../janitor-host'
 import type { AppRouter } from '../router'
 import { startServer } from '../server'
+import { snapshotFromBootstrap, workerSnapshot } from './bootstrap-snapshot'
 import { attachDaemonWithInventory } from './daemon-inventory'
 
 export type MemberName = 'alice' | 'bob' | 'carol'
@@ -131,7 +133,7 @@ export interface FeedView {
   readonly frames: ServerMessage[]
   /** Every change carried by a `feedDelta` frame since the socket opened. */
   deltas(): FeedChange[]
-  /** The member's bootstrap snapshot over `sync.changesSince({ cursor: null })`. */
+  /** The member's bootstrap snapshot over HTTP `/sync/bootstrap`. */
   bootstrap(): Promise<FeedSnapshot>
   /** Wait until a frame satisfies `pred` (or throw after `ms`). */
   until(pred: () => boolean, ms?: number): Promise<void>
@@ -439,18 +441,13 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
             ...init,
             headers: { ...(init?.headers as Record<string, string> | undefined), cookie },
           }),
-        feed: async () => await openFeed(cookie, trpc),
+        feed: async () => await openFeed(cookie),
       }
       signedIn.set(name, session)
       return session
     }
 
-    const openFeed = async (
-      cookie: string,
-      trpc: TRPCClient<AppRouter> = createTRPCClient<AppRouter>({
-        links: [httpLink({ url: `${origin}/trpc`, headers: () => ({ cookie }) })],
-      }),
-    ): Promise<FeedView> => {
+    const openFeed = async (cookie: string): Promise<FeedView> => {
       const ws = new WebSocket(
         `ws://127.0.0.1:${handle.port}/client?v=${CLIENT_WIRE_VERSION}&cap=sync.http.v1`,
         { headers: { cookie } },
@@ -485,11 +482,17 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
             .filter((frame): frame is FeedDeltaMessage => frame.type === 'feedDelta')
             .flatMap((frame) => frame.changes),
         bootstrap: async () => {
-          const boot = (await trpc.sync.changesSince.query({
-            cursor: null,
-          })) as SyncChangesSinceResult
-          if (boot.kind !== 'snapshot') throw new Error(`expected a snapshot, got ${boot.kind}`)
-          return boot
+          const source = new HttpBootstrapSource({
+            origin,
+            streamingFetch: {
+              fetch: (url, init) =>
+                fetch(url, {
+                  ...init,
+                  headers: { ...init.headers, cookie },
+                }),
+            },
+          })
+          return await snapshotFromBootstrap(source.bootstrap())
         },
         until: async (pred, ms) => await until(pred, ms),
         closed: () => closed,
@@ -516,10 +519,7 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
     }
 
     const legacyDeviceFeed = async (): Promise<FeedSnapshot> => {
-      // The session module's feed read, as the device-grade principal.
-      const boot = await registry.modules.sessions.syncChangesSince(null, DEVICE_GRADE_PRINCIPAL)
-      if (boot.kind !== 'snapshot') throw new Error(`expected a snapshot, got ${boot.kind}`)
-      return boot
+      return await workerSnapshot(registry, DEVICE_GRADE_PRINCIPAL)
     }
 
     return {
