@@ -13,7 +13,7 @@
  * A kind not listed keeps the old compare. Kinds move one at a time.
  *
  * NOT YET MOVED (POD-6770's finding): `session`, `sessionUserState`,
- * `machine`, `machineAccess`, `issueEvent`, `pendingInteraction`, `message`.
+ * `machine`, `machineAccess`.
  * None of them is written by one write: each is republished after the fact,
  * from memory or from a hook that runs after the source write committed, and
  * relies on the compare with the stored copy to drop what did not change. To
@@ -84,6 +84,9 @@ export const COMPARE_AT_SAVE_KINDS: readonly MetadataEntityKind[] = [
   'issuePanelDeferred',
   'issuePanelState',
   'conversation',
+  'issueEvent',
+  'pendingInteraction',
+  'message',
 ]
 
 /**
@@ -103,6 +106,23 @@ export const COMPARE_AT_SAVE_KINDS: readonly MetadataEntityKind[] = [
  *    exactly the changed set. A write that changes nothing returns no row and
  *    logs nothing; each kind has a test for that (the scan bug of 2026-11-09
  *    was an effect row rewritten on every poll).
+ *  - An `issueEvent` insert allocates its event id, and retention returns
+ *    the ids it deleted. The window then identifies the arrivals and evictions.
+ *    Appends publish after the event's transaction. A crash in between leaves
+ *    the log behind until the boot reconcile. Retention captures its changes
+ *    inside the deletion's transaction.
+ *  - A `pendingInteraction` guarded insert or state transition determines
+ *    which ask changed, including a fingerprint collision that reuses an
+ *    existing id. The service announces only successful changes, after their
+ *    transaction. A crash in between leaves a missing or stale ask on clients.
+ *    The boot reconcile restores the open set. Announcements that overtake
+ *    each other can append repeated removes.
+ *  - The `message` repository's guarded statements RETURN only the rows
+ *    they changed, and a confirmation determines which older messages leave
+ *    its session's window. The capture and the row write share a transaction.
+ *    A write that returns no rows names nothing and logs nothing. Session
+ *    writes name their existing window before the write and compare it, so
+ *    an unchanged conversation appends nothing either.
  */
 export const NAMED_AFTER_WRITE_KINDS: readonly MetadataEntityKind[] = [
   'workflow',
@@ -111,6 +131,9 @@ export const NAMED_AFTER_WRITE_KINDS: readonly MetadataEntityKind[] = [
   'workflowRun',
   'effect',
   'superagentThread',
+  'issueEvent',
+  'pendingInteraction',
+  'message',
 ]
 
 /**

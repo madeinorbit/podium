@@ -354,6 +354,7 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
   // left with POD-6288: tasks are shared). No
   // change is appended: output counters live in the row, not in the session's
   // wire meta, so every change dedups away.
+  // POD-6790 adds one bounded read of the sessions' confirmed message tails.
   it('activity flush after output on every session', async () => {
     const counts = await expectConstantStatements(
       {
@@ -364,7 +365,7 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
           return f
         },
       },
-      3,
+      4,
     )
     expectGrantReads(counts, 0)
   })
@@ -454,7 +455,7 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
         ),
         setup: async (size) => await fixture(size, true),
       },
-      23,
+      25,
     )
     expectGrantReads(counts, 0)
   })

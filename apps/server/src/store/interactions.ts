@@ -369,8 +369,9 @@ export class InteractionsRepository {
     return retried
   }
 
-  async enrich(id: string, payload: unknown): Promise<void> {
-    await enrichInteraction(this.db).run({ id, payloadJson: JSON.stringify(payload) })
+  async enrich(id: string, payload: unknown): Promise<boolean> {
+    const result = await enrichInteraction(this.db).run({ id, payloadJson: JSON.stringify(payload) })
+    return result.changes > 0
   }
 
   async get(id: string): Promise<InteractionRow | null> {

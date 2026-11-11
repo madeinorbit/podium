@@ -232,11 +232,15 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
     sizes: [5, 150] as const,
   })
 
+  // POD-6790 builds changed message records and their windows at the write.
+  // Measured on c4a786c2a8, then this candidate, the held paths move 63 -> 71
+  // over tRPC and 55 -> 60 through the relay.
+
   it('over tRPC, to a running session whose issue holds mail', async () => {
     await expectConstantStatements(
       heldIssueMail('tRPC messages.send to a session, issue mail held', async (f) =>
         await f.call.messages.send({ to: f.target, body: 'counted' })),
-      79,
+      71,
     )
   })
 
@@ -244,7 +248,7 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
     await expectConstantStatements(
       heldIssueMail('relayed messages.send to a session, issue mail held', async (f) =>
         await relay(f, 'send', { to: f.target, body: 'counted' })),
-      74,
+      60,
     )
   })
 
@@ -290,11 +294,11 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
   )
 
   it('through the agent relay, to a running session', async () => {
-    await expectConstantStatements(relayToSession, 66)
+    await expectConstantStatements(relayToSession, 60)
   })
 
   it('relay pin is armed', async () => {
-    await expectArmed(relayToSession, 66, plantPerSession)
+    await expectArmed(relayToSession, 60, plantPerSession)
   })
 
   it('through the agent relay, to its own issue', async () => {

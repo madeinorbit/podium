@@ -1307,19 +1307,44 @@ const upsertDraftDoc = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/** Wrap a session-row write with its confirmed message window comparison. */
+export type SessionMessageWindowWrite = (
+  ids: readonly string[],
+  write: () => Promise<void>,
+) => Promise<void>
+
 export class SessionsRepository {
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
+  private messageWindowWrite: SessionMessageWindowWrite | undefined
+
+  /** Installed with the message feed. Every liveness-changing write below
+   *  compares its message window inside the same transaction. */
+  setMessageWindowWrite(write: SessionMessageWindowWrite): () => void {
+    this.messageWindowWrite = write
+    return () => {
+      if (this.messageWindowWrite === write) this.messageWindowWrite = undefined
+    }
+  }
+
+  private async writeSessionRows(
+    ids: readonly string[],
+    write: () => Promise<void>,
+  ): Promise<void> {
+    if (this.messageWindowWrite) await this.messageWindowWrite(ids, write)
+    else await write()
+  }
 
   /**
    * The capability is WIRING and is named here and nowhere else [spec rule 34].
-   * This aggregate opens no span today — `purgeSession` runs inside its caller —
-   * but both members are retained so adding one later does not change constructor
-   * arity or the composition root.
+   * The message-window hook supplies the write span after composition. Both
+   * query members retain the store's ambient transaction routing.
    */
   constructor(
     queries: StoreQueries,
-    private readonly purgeObservationCheckpoint: (sessionId: SessionId) => void = () => {},
+    private readonly purgeObservationCheckpoint: (
+      sessionId: SessionId,
+    ) => void | Promise<void> = () => {},
   ) {
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction
@@ -1689,16 +1714,18 @@ export class SessionsRepository {
   }
 
   async upsertSession(_scope: WriteScope, row: SessionRow): Promise<void> {
-    const values = sessionUpsertValues(row)
-    const groups = changedGroups(this.writtenColumns.get(values.id), values)
-    try {
-      await upsertSessionOfShape(this.db, `${groups}|${shapeOf(values)}`).run(values)
-    } catch (error) {
-      this.writtenColumns.forget(values.id)
-      throw error
-    }
-    this.writtenColumns.wrote(values.id, indexedColumnsOf(values))
-    this.rowsWritten()
+    await this.writeSessionRows([row.id], async () => {
+      const values = sessionUpsertValues(row)
+      const groups = changedGroups(this.writtenColumns.get(values.id), values)
+      try {
+        await upsertSessionOfShape(this.db, `${groups}|${shapeOf(values)}`).run(values)
+      } catch (error) {
+        this.writtenColumns.forget(values.id)
+        throw error
+      }
+      this.writtenColumns.wrote(values.id, indexedColumnsOf(values))
+      this.rowsWritten()
+    })
   }
 
   /** The indexed columns each session row holds as this store last wrote or
@@ -1721,31 +1748,38 @@ export class SessionsRepository {
       if (group) group.push(values)
       else byShape.set(shape, [values])
     }
-    for (const [shape, group] of byShape) {
-      const keys = shape === '' ? [] : shape.split(',')
-      for (let start = 0; start < group.length; start += UPSERT_ROWS_PER_STATEMENT) {
-        const chunk = group.slice(start, start + UPSERT_ROWS_PER_STATEMENT)
-        const size = inListSize(chunk.length)
-        let changed = 0
-        for (const values of chunk)
-          changed |= changedGroups(this.writtenColumns.get(values.id), values)
-        const params: Record<string, unknown> = {}
-        for (let index = 0; index < size; index++) {
-          const values = chunk[Math.min(index, chunk.length - 1)] as Record<string, unknown>
-          for (const key of keys) params[rowParam(index, key)] = values[key]
+    await this.writeSessionRows(
+      rows.map((row) => row.id),
+      async () => {
+        for (const [shape, group] of byShape) {
+          const keys = shape === '' ? [] : shape.split(',')
+          for (let start = 0; start < group.length; start += UPSERT_ROWS_PER_STATEMENT) {
+            const chunk = group.slice(start, start + UPSERT_ROWS_PER_STATEMENT)
+            const size = inListSize(chunk.length)
+            let changed = 0
+            for (const values of chunk)
+              changed |= changedGroups(this.writtenColumns.get(values.id), values)
+            const params: Record<string, unknown> = {}
+            for (let index = 0; index < size; index++) {
+              const values = chunk[Math.min(index, chunk.length - 1)] as Record<string, unknown>
+              for (const key of keys) params[rowParam(index, key)] = values[key]
+            }
+            try {
+              await upsertSessionsOfShape(
+                this.db,
+                `${size}|${manyRowGroups(changed)}|${shape}`,
+              ).run(params)
+            } catch (error) {
+              for (const values of chunk) this.writtenColumns.forget(values.id)
+              throw error
+            }
+            for (const values of chunk)
+              this.writtenColumns.wrote(values.id, indexedColumnsOf(values))
+          }
         }
-        try {
-          await upsertSessionsOfShape(this.db, `${size}|${manyRowGroups(changed)}|${shape}`).run(
-            params,
-          )
-        } catch (error) {
-          for (const values of chunk) this.writtenColumns.forget(values.id)
-          throw error
-        }
-        for (const values of chunk) this.writtenColumns.wrote(values.id, indexedColumnsOf(values))
-      }
-    }
-    this.rowsWritten()
+        this.rowsWritten()
+      },
+    )
   }
 
   /** Tombstone sessions without destroying their metadata or UI satellites.
@@ -1762,13 +1796,15 @@ export class SessionsRepository {
     source: SessionDeletionSource,
     deletedByIssueId: IssueId | null = null,
   ): Promise<void> {
-    await this.writtenColumns.aside(ids, async () => {
-      for (const id of ids) {
-        await stopRunningForTombstone(this.db).run({ id, deletedAt })
-        await tombstoneSession(this.db).run({ id, deletedAt, source, deletedByIssueId })
-      }
+    await this.writeSessionRows(ids, async () => {
+      await this.writtenColumns.aside(ids, async () => {
+        for (const id of ids) {
+          await stopRunningForTombstone(this.db).run({ id, deletedAt })
+          await tombstoneSession(this.db).run({ id, deletedAt, source, deletedByIssueId })
+        }
+      })
+      this.rowsWritten()
     })
-    this.rowsWritten()
   }
 
   /** Mark sessions as deleted by an issue so restoring that issue can recover them. */
@@ -1839,16 +1875,18 @@ export class SessionsRepository {
 
   /** Irreversibly remove a session and its satellites. Internal maintenance only. */
   async purgeSession(_scope: WriteScope, id: SessionId): Promise<void> {
-    await deleteCheckpointsOfSession(this.db).run({ id })
-    this.purgeObservationCheckpoint(id)
-    await this.writtenColumns.aside([id], () => deleteSessionRow(this.db).run({ id }))
-    this.rowsWritten()
-    await deletePanelPinsOf(this.db).run({ id })
-    await deleteDraftOf(this.db).run({ id })
-    await deleteSnoozesOf(this.db).run({ id })
-    await deleteUserStateOf(this.db).run({ id })
-    await deleteOfferOf(this.db).run({ id }) // [spec:SP-c7f1]
-    await this.scrubTabOrders(id)
+    await this.writeSessionRows([id], async () => {
+      await deleteCheckpointsOfSession(this.db).run({ id })
+      await this.purgeObservationCheckpoint(id)
+      await this.writtenColumns.aside([id], () => deleteSessionRow(this.db).run({ id }))
+      this.rowsWritten()
+      await deletePanelPinsOf(this.db).run({ id })
+      await deleteDraftOf(this.db).run({ id })
+      await deleteSnoozesOf(this.db).run({ id })
+      await deleteUserStateOf(this.db).run({ id })
+      await deleteOfferOf(this.db).run({ id }) // [spec:SP-c7f1]
+      await this.scrubTabOrders(id)
+    })
   }
 
   // ---- pins (PER-USER STATE, POD-380) ----

@@ -24,7 +24,7 @@
  *
  * THE WINDOW IS A QUERY ON THE TABLES (POD-6766, design POD-6253 §1), and the
  * publisher keeps no copy of it: the start-up load (`messageWindow`, which
- * the record builder streams too), every write and every session change
+ * the record builder streams too), every message write and every session write
  * decide what is carried from `messages` and `sessions` as they stand. So
  * what the feed carries is exactly what the builder builds.
  *
@@ -56,17 +56,11 @@
  * must be able to see and dismiss, and an ended session is exactly where one
  * is likely. Each leaves when it settles or is dismissed, as anywhere else.
  *
- * The trigger is the feed's own record of the session: every committed
- * `session` change passes {@link MessageFeedPublisher.watchSessions} (the
- * ledger's `onAppended`, after the outermost commit) and schedules a settle,
- * which re-reads the session and its newest confirmed messages in its own
- * transaction: carried while it is live, removed while it is not. Upserts the
- * feed already holds and removals of rows it never carried are dropped by the
- * log, so a settle of an unchanged session appends nothing. A crash before
- * the settle is healed by the next boot's reconcile. A device that held a
- * record a settle removes sees the removal; one that was still showing that
- * message's bubble settles it by id (`mail.records`) when it next starts or
- * reconnects.
+ * Session row writes pass {@link MessageFeedPublisher.writeSessions}. Before
+ * the write, it names the confirmed tail, and the Authority compares those
+ * records around the write. A liveness change and its window changes commit
+ * together. An unchanged conversation appends nothing. A device still showing
+ * a removed bubble settles it by id (`mail.records`) when it next reconnects.
  *
  * ---------------------------------------------------------------------------
  * IT RUNS INSIDE THE WRITE
@@ -91,16 +85,12 @@
  * behind) is corrected or removed.
  */
 
-import { createLogger } from '@podium/logger'
 import { type MessageRecordWire, messageRecordRowId } from '@podium/model'
-import type { MetadataChange } from '@podium/protocol'
-import type { EntityChangeSpec, Ledger, LedgerWriter } from '@podium/sync'
+import type { LedgerWriter } from '@podium/sync'
 import { spawnPromptMessageId } from '../../message-ids'
 import type { MessageFeedCapture, MessagesRepository } from '../../store/messages'
-import type { SessionsRepository } from '../../store/sessions'
+import type { SessionMessageWindowWrite } from '../../store/sessions'
 import type { MessageRow, SessionRow } from '../../store/types'
-
-const log = createLogger('server:message-feed')
 
 /** How many confirmed messages the feed keeps per session. Enough that every
  *  device connected when one is confirmed receives it, whatever else that
@@ -109,9 +99,7 @@ const log = createLogger('server:message-feed')
 export const CONFIRMED_PER_SESSION = 20
 
 export interface MessageFeedDeps {
-  readonly ledger: Pick<LedgerWriter, 'capture' | 'reconcile'> & Pick<Ledger, 'onAppended'>
-  /** Which sessions are still live conversations ({@link isLiveConversation}). */
-  readonly sessions: Pick<SessionsRepository, 'getSessions'>
+  readonly ledger: Pick<LedgerWriter, 'commit' | 'reconcile'>
   /** The window's reads ({@link messageWindow}, {@link MessagesRepository.confirmedChatTail}). */
   readonly messages: Pick<
     MessagesRepository,
@@ -226,38 +214,39 @@ function tailsBySession(rows: readonly MessageRow[]): Map<string, MessageRow[]> 
 }
 
 export class MessageFeedPublisher {
-  /** Retires and revivals run one after another, each in its own transaction. */
-  private settling: Promise<void> = Promise.resolve()
-  /** Sessions whose committed change is waiting for the next settle. */
-  private readonly pendingSessions = new Set<string>()
   private live = false
   private resolving: Promise<void> | undefined
   private readonly perSession: number
 
   constructor(private readonly deps: MessageFeedDeps) {
     this.perSession = deps.confirmedPerSession ?? CONFIRMED_PER_SESSION
-    deps.ledger.onAppended(this.watchSessions)
   }
 
   /** The repository's capture port. Runs inside the write's transaction. */
-  readonly capture: MessageFeedCapture = async (rows) => {
+  readonly capture: MessageFeedCapture = async (rows, confirms) => {
     // Before `resolve`, the reconcile's read of the table will carry it.
-    if (this.live) await this.publish(rows)
+    if (this.live) await this.publish(rows, confirms)
+  }
+
+  /** Session writes know their ids first. Compare their existing confirmed
+   *  tails around the row write, including tails a revival will admit. */
+  readonly writeSessions: SessionMessageWindowWrite = async (ids, write) => {
+    if (!this.live) return await write()
+    await this.deps.ledger.commit({
+      affects: async () =>
+        [
+          ...messageRecords(
+            await this.deps.messages.confirmedChatTail(this.perSession, ids, 'any'),
+          ),
+        ].map(([id]) => ({ entity: 'message' as const, id })),
+      write,
+    })
   }
 
   /** Reconcile the full truth once, then go live. */
   async resolve(): Promise<void> {
     this.resolving ??= this.reconcile()
     await this.resolving
-  }
-
-  /** Wait until every settle scheduled so far has run (tests, store close). */
-  async settled(): Promise<void> {
-    while (true) {
-      const current = this.settling
-      await current
-      if (current === this.settling && this.pendingSessions.size === 0) return
-    }
   }
 
   private async reconcile(): Promise<void> {
@@ -275,110 +264,57 @@ export class MessageFeedPublisher {
    * The changes one write makes to the feed, decided from the tables as the
    * write left them. Every row it wrote is carried if it is open or in its
    * session's window, and removed otherwise; and each session it confirmed
-   * into pushes out what now ranks just past the window. A removal of a row
-   * the feed never carried is dropped by the log, so nothing here has to
-   * remember what the feed holds.
+   * into pushes out the oldest previously confirmed records. Stamps preserve
+   * the window. The Authority builds every named value from the tables inside
+   * the source write's transaction.
    */
-  private async publish(rows: readonly MessageRow[]): Promise<void> {
+  private async publish(rows: readonly MessageRow[], confirms: boolean): Promise<void> {
     const written = new Map<string, { row: MessageRow; record: MessageRecordWire }>()
     for (const row of rows) {
       const record = messageRecordOf(row)
       if (record !== null) written.set(rowIdOf(record), { row, record })
     }
     if (written.size === 0) return
-    /** Per session: how many of its rows this write settled (not open). */
-    const settledIn = new Map<string, number>()
+    /** Per session, the confirmed rows this write returned. */
+    const confirmedIn = new Map<string, number>()
     for (const { row, record } of written.values()) {
-      if (isOpenChat(row)) continue
-      settledIn.set(record.sessionId, (settledIn.get(record.sessionId) ?? 0) + 1)
+      if (row.deliveryStatus !== 'confirmed') continue
+      confirmedIn.set(record.sessionId, (confirmedIn.get(record.sessionId) ?? 0) + 1)
     }
     const inWindow = new Set<string>()
     const pushedOut: MessageRecordWire[] = []
-    if (settledIn.size > 0) {
+    if (confirmedIn.size > 0) {
       // A row can only have been pushed out by a row this write confirmed
       // above it, so what left ranks at most that many places past the window.
-      const reach = this.perSession + Math.max(...settledIn.values())
+      const reach = this.perSession + (confirms ? Math.max(...confirmedIn.values()) : 0)
       const tails = tailsBySession(
-        await this.deps.messages.confirmedChatTail(reach, [...settledIn.keys()], 'live'),
+        await this.deps.messages.confirmedChatTail(reach, [...confirmedIn.keys()], 'live'),
       )
-      for (const [sessionId, tail] of tails) {
-        const extra = settledIn.get(sessionId) ?? 0
-        for (const [rank, row] of tail.entries()) {
-          if (rank >= this.perSession + extra) break
-          const record = messageRecordOf(row)
-          if (record === null) continue
-          if (rank < this.perSession) inWindow.add(rowIdOf(record))
-          else pushedOut.push(record)
+      const confirmedIds = new Set(rows.map((row) => row.id))
+      for (const tail of tails.values()) {
+        const current = messageRecords(tail.slice(0, this.perSession))
+        for (const id of current.keys()) inWindow.add(id)
+        if (!confirms) continue
+        // New confirmations were absent from the previous tail. A late
+        // confirmation below the window displaces no carried record.
+        const previous = messageRecords(
+          tail.filter((row) => !confirmedIds.has(row.id)).slice(0, this.perSession),
+        )
+        for (const [id, record] of previous) {
+          if (!current.has(id)) pushedOut.push(record)
         }
       }
     }
-    const specs: EntityChangeSpec[] = []
-    for (const [id, { row, record }] of written) {
-      specs.push(
-        isOpenChat(row) || inWindow.has(id)
-          ? { entity: 'message', id, op: 'upsert', value: record }
-          : { entity: 'message', id, op: 'remove' },
-      )
-    }
+    const named = [...written]
+      .filter(([id, { row }]) => row.deliveryStatus !== 'confirmed' || confirms || inWindow.has(id))
+      .map(([id]) => ({ entity: 'message' as const, id, removed: true }))
     for (const record of pushedOut) {
       const id = rowIdOf(record)
-      if (!written.has(id)) specs.push({ entity: 'message', id, op: 'remove' })
+      if (!written.has(id)) named.push({ entity: 'message', id, removed: true })
     }
-    await this.deps.ledger.capture(specs)
-  }
-
-  /**
-   * Every committed feed change passes here (the ledger's `onAppended`, after
-   * the outermost commit). A `session` change may have ended a conversation
-   * or brought one back, so the session's window is settled against the
-   * table; everything else is ignored, and nothing here writes.
-   */
-  private readonly watchSessions = (changes: readonly MetadataChange[]): void => {
-    if (!this.live) return
-    let added = false
-    for (const change of changes) {
-      if (change.entity !== 'session') continue
-      if (!this.pendingSessions.has(change.id)) added = true
-      this.pendingSessions.add(change.id)
-    }
-    if (!added) return
-    this.settling = this.settling
-      .then(async () => {
-        const sessionIds = [...this.pendingSessions]
-        this.pendingSessions.clear()
-        if (sessionIds.length > 0) await this.settleSessions(sessionIds)
-      })
-      .catch((err: unknown) => {
-        // The next boot's reconcile carries exactly the window again.
-        log.warn('could not settle the confirmed messages of changed sessions', { err })
-      })
-  }
-
-  /**
-   * Carry the confirmed window of each of these sessions that is a live
-   * conversation, and remove it from each that is not. Read in its own
-   * transaction, so a session that changed again in between is settled as
-   * the table now says. Upserts the feed already holds are dropped by the log.
-   */
-  private async settleSessions(sessionIds: readonly string[]): Promise<void> {
-    await this.deps.transact(async () => {
-      const tails = tailsBySession(
-        await this.deps.messages.confirmedChatTail(this.perSession, sessionIds, 'any'),
-      )
-      if (tails.size === 0) return
-      const sessions = await this.deps.sessions.getSessions([...tails.keys()])
-      const specs: EntityChangeSpec[] = []
-      for (const [sessionId, tail] of tails) {
-        const live = isLiveConversation(sessions.get(sessionId))
-        for (const [id, value] of messageRecords(tail)) {
-          specs.push(
-            live
-              ? { entity: 'message', id, op: 'upsert', value }
-              : { entity: 'message', id, op: 'remove' },
-          )
-        }
-      }
-      if (specs.length > 0) await this.deps.ledger.capture(specs)
+    await this.deps.ledger.commit({
+      write: async () => {},
+      wrote: () => named,
     })
   }
 }

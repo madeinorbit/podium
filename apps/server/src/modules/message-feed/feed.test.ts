@@ -34,6 +34,8 @@ import type { SessionStore } from '../../store'
 import { afterCommit, applyAfterCommit, spanOpen } from '../../store/executor/executor'
 import type { MessageRow, SessionRow } from '../../store/types'
 import { openTestStore } from '../../test-support/open-test-store'
+import { testStoreRecords } from '../../test-support/record-writer'
+import { expectConstantStatements } from '../../test-support/statement-count'
 import { isLiveConversation, MessageFeedPublisher } from './feed'
 
 const S1 = asSessionId('ses_one')
@@ -50,22 +52,27 @@ async function harness(
 ) {
   const store = await openTestStore(':memory:')
   stores.push(store)
-  const ledger = new Ledger({
-    repo: store.sync,
-    now: Date.now,
-    transact: async (fn) => await store.transact(fn),
-    // As relay.ts wires it: subscribers hear a change once it has committed.
-    postCommit: (step, label) => afterCommit(step, label),
-    applyCommit: { spanOpen, onCommit: applyAfterCommit },
-  })
+  const makeLedger = (window?: number) =>
+    new Ledger({
+      repo: store.sync,
+      // The message kind is named after the write and built from the tables
+      // (POD-6770), with the window this harness runs.
+      records: testStoreRecords(store, window === undefined ? {} : { confirmedPerSession: window }),
+      now: Date.now,
+      transact: async (fn) => await store.transact(fn),
+      // As relay.ts wires it: subscribers hear a change once it has committed.
+      postCommit: (step, label) => afterCommit(step, label),
+      applyCommit: { spanOpen, onCommit: applyAfterCommit },
+    })
+  const ledger = makeLedger(opts.window)
   const feed = new MessageFeedPublisher({
-    ledger: { ...testLedgerWriter(ledger), onAppended: (listener) => ledger.onAppended(listener) },
-    sessions: store.sessions,
+    ledger: testLedgerWriter(ledger),
     messages: store.messages,
     transact: async (fn) => await store.transact(fn),
     ...(opts.window === undefined ? {} : { confirmedPerSession: opts.window }),
   })
   store.messages.setFeedCapture(feed.capture)
+  store.sessions.setMessageWindowWrite(feed.writeSessions)
   // Each session is on the feed as it is in the server, so its removal is a change.
   for (const id of opts.sessions ?? [S1, S2]) {
     await store.sessions.upsertSession(fixtureWriteScope(), session(id))
@@ -74,24 +81,31 @@ async function harness(
     ])
   }
   if (opts.live !== false) await feed.resolve()
-  /** What a device bootstrapping now would receive, keyed by message id. */
-  const carried = async (): Promise<Map<string, MessageRecordWire>> =>
-    new Map(
-      ((await ledger.authority.snapshot('message')) as MessageRecordWire[]).map((r) => [r.id, r]),
-    )
+  /**
+   * What a device that followed the feed from the start holds, keyed by
+   * message id: the log's changes folded in order. (A device bootstrapping
+   * now is served from the tables, which says nothing about what the
+   * publisher appended.)
+   */
+  const carried = async (): Promise<Map<string, MessageRecordWire>> => {
+    const held = new Map<string, MessageRecordWire>()
+    for (const change of (await ledger.changesSince(0)) ?? []) {
+      if (change.entity !== 'message') continue
+      if (change.op === 'upsert') held.set(change.id, change.value as MessageRecordWire)
+      else held.delete(change.id)
+    }
+    return new Map([...held.values()].map((r) => [r.id, r]))
+  }
   /** A second publisher over the same table and log — the next boot. */
   const reboot = async (window?: number): Promise<MessageFeedPublisher> => {
     const next = new MessageFeedPublisher({
-      ledger: {
-        ...testLedgerWriter(ledger),
-        onAppended: (listener) => ledger.onAppended(listener),
-      },
-      sessions: store.sessions,
+      ledger: testLedgerWriter(makeLedger(window)),
       messages: store.messages,
       transact: async (fn) => await store.transact(fn),
       ...(window === undefined ? {} : { confirmedPerSession: window }),
     })
     store.messages.setFeedCapture(next.capture)
+    store.sessions.setMessageWindowWrite(next.writeSessions)
     await next.resolve()
     return next
   }
@@ -308,6 +322,60 @@ describe('the chat message feed', () => {
     expect((await store.messages.getMessage('msg_f'))?.deliveryStatus).toBe('failed')
   })
 
+  it('logs nothing for a write that changes nothing on a carried message', async () => {
+    const { store, ledger, carried } = await harness()
+    await store.messages.addMessage(fixtureWriteScope(), chat('msg_n'))
+    expect((await carried()).get('msg_n')?.status).toBe('stored')
+    const cursor = await ledger.cursor()
+    expect(await store.messages.addMessage(fixtureWriteScope(), chat('msg_n'))).toBe(false)
+    // No notice to dismiss: the statement returns no row, so the funnel names
+    // no record and the log does not move.
+    expect(await store.messages.dismissNotice(fixtureWriteScope(), 'msg_n', 't1')).toBe(false)
+    expect(await ledger.cursor()).toBe(cursor)
+    expect((await carried()).get('msg_n')?.status).toBe('stored')
+  })
+
+  it('a repeated status write logs nothing while the message remains on the feed', async () => {
+    const { store, ledger, carried } = await harness()
+    await store.messages.addMessage(fixtureWriteScope(), chat('msg_repeat'))
+    await store.messages.markDispatched(fixtureWriteScope(), 'msg_repeat', S1, 't1')
+    const cursor = await ledger.cursor()
+    expect(
+      await store.messages.markDispatched(fixtureWriteScope(), 'msg_repeat', S1, 't1'),
+    ).toMatchObject({ kind: 'already-there' })
+    expect(await ledger.cursor()).toBe(cursor)
+    expect((await carried()).get('msg_repeat')?.status).toBe('dispatched')
+  })
+
+  it('reads a large set of window message ids in bounded batches', async () => {
+    const { store } = await harness()
+    const kept = ['msg_0', 'msg_500', 'msg_32768']
+    for (const id of kept) await store.messages.addMessage(fixtureWriteScope(), chat(id))
+    const ids = Array.from({ length: 32_769 }, (_, index) => `msg_${index}`)
+    expect((await store.messages.getMessages(ids)).map((row) => row.id).sort()).toEqual(kept.sort())
+    expect(await store.messages.getMessages([])).toEqual([])
+  })
+
+  it('stamping a carried confirmation leaves older evictions alone', async () => {
+    const { store, ledger, carried } = await harness({ window: 1 })
+    await confirm(store, 'msg_old')
+    await confirm(store, 'msg_new')
+    const cursor = await ledger.cursor()
+    await store.messages.nameTranscriptItem(fixtureWriteScope(), 'msg_new', S1, { id: 'entry' })
+    const changes = (await ledger.changesSince(cursor))?.filter(
+      (change) => change.entity === 'message',
+    )
+    expect(changes?.map((change) => [change.op, change.id])).toEqual([
+      ['upsert', messageRecordRowId({ sessionId: S1, senderUserId: ALICE, messageId: 'msg_new' })],
+    ])
+    expect([...(await carried()).keys()]).toEqual(['msg_new'])
+    const stamped = await ledger.cursor()
+    expect(
+      await store.messages.nameTranscriptItem(fixtureWriteScope(), 'msg_new', S1, { id: 'entry' }),
+    ).toBe(false)
+    expect(await ledger.cursor()).toBe(stamped)
+  })
+
   it('refuses to dismiss a message that has no notice', async () => {
     const { store, carried } = await harness()
     await store.messages.addMessage(fixtureWriteScope(), chat('msg_p'))
@@ -385,7 +453,7 @@ describe('the chat message feed', () => {
   })
 
   it('corrects at boot a record the feed holds in an older shape', async () => {
-    const { store, ledger, carried, reboot } = await harness()
+    const { store, carried, reboot } = await harness()
     await store.messages.addMessage(fixtureWriteScope(), chat('msg_old_shape'))
     const id = messageRecordRowId({
       sessionId: S1,
@@ -395,9 +463,19 @@ describe('the chat message feed', () => {
     const current = (await carried()).get('msg_old_shape')
     // A release before this one published it with a field the mapping no
     // longer writes.
-    await testLedgerWriter(ledger).capture([
-      { entity: 'message', id, op: 'upsert', value: { ...current, legacy: true } },
-    ])
+    // Written straight onto the log, as that release's publisher left it: the
+    // kind's own writers name records now and cannot declare a value.
+    await store.sync.appendChanges(
+      [
+        {
+          entity: 'message',
+          entityId: id,
+          op: 'upsert',
+          payload: JSON.stringify({ ...current, legacy: true }),
+        },
+      ],
+      Date.now(),
+    )
     expect((await carried()).get('msg_old_shape')).toHaveProperty('legacy', true)
     await reboot()
     expect((await carried()).get('msg_old_shape')).toEqual(current)
@@ -417,6 +495,52 @@ describe('the chat message feed', () => {
 })
 
 describe('a session that ends takes its confirmed window off the feed (POD-4814)', () => {
+  it('logs nothing when a session write preserves its carried window', async () => {
+    const { store, ledger, carried } = await harness()
+    await confirm(store, 'msg_live')
+    const cursor = await ledger.cursor()
+    await store.sessions.upsertSession(fixtureWriteScope(), {
+      ...(await rowOf(store, S1)),
+      title: 'a new title',
+    })
+    expect(await ledger.cursor()).toBe(cursor)
+    expect((await carried()).get('msg_live')?.status).toBe('confirmed')
+  })
+
+  it('rolls a session liveness change and its window back together', async () => {
+    const { store, ledger, ids, move } = await harness()
+    await confirm(store, 'msg_live')
+    const cursor = await ledger.cursor()
+    await expect(
+      store.transact(async () => {
+        await move(S1, { status: 'exited' })
+        expect(await ids()).toEqual([])
+        throw new Error('the session write failed')
+      }),
+    ).rejects.toThrow('the session write failed')
+    expect((await rowOf(store, S1)).status).toBe('live')
+    expect(await ids()).toEqual(['msg_live'])
+    expect(await ledger.cursor()).toBe(cursor)
+  })
+
+  it('compares a session window with a fixed statement count as history grows', async () => {
+    await expectConstantStatements(
+      {
+        name: 'a session write with a carried message window',
+        setup: async (size) => {
+          const fixture = await harness({ window: 2, live: false })
+          for (let n = 0; n < size; n++) await confirm(fixture.store, `msg_${n}`)
+          await fixture.feed.resolve()
+          return { ...fixture, row: await rowOf(fixture.store, S1) }
+        },
+        target: ({ store }) => store,
+        run: async ({ store, row }) => await store.sessions.upsertSession(fixtureWriteScope(), row),
+        check: async (_, { ids }) => expect((await ids()).length).toBe(2),
+      },
+      6,
+    )
+  })
+
   it('counts a session as a live conversation until it exits, is archived, deleted or purged', () => {
     const live = { status: 'live', archived: false, deletedAt: null } as const
     expect(isLiveConversation(live)).toBe(true)
@@ -479,14 +603,14 @@ describe('a session that ends takes its confirmed window off the feed (POD-4814)
     await vi.waitFor(async () => expect(await ids()).toEqual([]))
   })
 
-  it('keeps the window of a session that pauses, and of one resumed before the retire ran', async () => {
+  it('keeps the window of a session that pauses or revives inside a transaction', async () => {
     const { store, move, ids } = await harness()
     await confirm(store, 'msg_a')
     await confirm(store, 'msg_other', S2)
     await move(S1, { status: 'hibernated' })
     await move(S1, { status: 'starting' })
     expect(await ids()).toEqual(['msg_a', 'msg_other'])
-    // The table says live again by the time the retire reads it.
+    // The final window follows the final session row in the transaction.
     await store.transact(async () => {
       await move(S1, { status: 'exited' })
       await store.sessions.upsertSession(fixtureWriteScope(), {
@@ -494,22 +618,19 @@ describe('a session that ends takes its confirmed window off the feed (POD-4814)
         status: 'live',
       })
     })
-    // Retires run in order: once a later one has, this one has too.
     await move(S2, { status: 'exited' })
     await vi.waitFor(async () => expect(await ids()).toEqual(['msg_a']))
   })
 
   it('opens no window for a confirmation in a session that has ended, and brings the window back with the session', async () => {
-    const { store, move, ids, feed } = await harness()
+    const { store, move, ids } = await harness()
     await store.messages.addMessage(fixtureWriteScope(), chat('msg_late'))
     await move(S1, { status: 'exited' })
-    await feed.settled()
     await store.messages.markDelivered(fixtureWriteScope(), 'msg_late', S1, 't')
     expect(await ids()).toEqual([])
     // The window is the session's newest confirmed while it is live, so a
     // session that comes back carries its window again.
     await move(S1, { status: 'live' })
-    await feed.settled()
     expect(await ids()).toEqual(['msg_late'])
     await confirm(store, 'msg_back')
     expect(await ids()).toEqual(['msg_back', 'msg_late'])
@@ -544,8 +665,8 @@ describe('a session that ends takes its confirmed window off the feed (POD-4814)
     await confirm(store, 'msg_live')
     await confirm(store, 'msg_gone', S2)
     await store.messages.addMessage(fixtureWriteScope(), chat('msg_open', { toId: S2 }))
-    // The session is archived with no feed change the running feed could see
-    // (a crash before its retire, a release before this one).
+    // Simulate an archive made by a release predating the transactional hook.
+    store.sessions.setMessageWindowWrite(async (_, write) => await write())
     await store.sessions.upsertSession(fixtureWriteScope(), {
       ...(await rowOf(store, S2)),
       archived: true,

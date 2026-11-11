@@ -23,7 +23,7 @@
  *
  * So the publisher owns a WINDOW of the most recent {@link FEED_WINDOW} events:
  * entering it is an `upsert`, leaving it is a `remove`. Both ops travel on the
- * same ordered pipe as one capture, so a replica can never observe the window's
+ * same ordered pipe as one commit, so a replica can never observe the window's
  * top without its bottom. The window is a fact about what the FEED carries, not
  * about what the log retains — `issues.events` still reads the full table, and
  * the log's own retention job is unaffected.
@@ -42,7 +42,7 @@
  */
 
 import { type IssueEventWire, isFeedEventKind, issueEventRowId } from '@podium/model'
-import type { EntityChangeSpec, LedgerWriter } from '@podium/sync'
+import type { LedgerWriter } from '@podium/sync'
 import type { EventsRepository, PodiumEventRecord } from '../../store/events'
 
 /**
@@ -77,7 +77,7 @@ export async function issueEventWindow(
 
 export interface IssueEventFeedDeps {
   /** Write-seam ledger. Rows ride entity kind `issueEvent`. */
-  readonly ledger: Pick<LedgerWriter, 'capture' | 'reconcile'>
+  readonly ledger: Pick<LedgerWriter, 'commit' | 'reconcile'>
   /** The window's reads. */
   readonly events: Pick<EventsRepository, 'feedWindow' | 'feedWindowIds'>
   /** One transaction on the store the events table lives in. */
@@ -131,23 +131,30 @@ export class IssueEventFeedPublisher {
           place === 0
             ? newest
             : await this.deps.events.feedWindowIds({ through: eventId, limit: reach })
-        const specs: EntityChangeSpec[] = []
+        // NAMED AFTER THE WRITE (POD-6770, `NAMED_AFTER_WRITE_KINDS`): the
+        // event is already in the table. The arrival, when it is inside the
+        // window, and the one it pushed out are named, and the Authority
+        // builds both from the window's query: the arrival is there (an
+        // upsert), the evicted one is not (a remove). An event is announced
+        // once, so neither is named twice.
+        const named: { entity: 'issueEvent'; id: string; removed?: boolean }[] = []
         if (place !== -1 && place < this.windowSize) {
-          const value = issueEventRecordOf({ id: eventId, ...record })
-          specs.push({ entity: 'issueEvent', id: value.id, op: 'upsert', value })
+          named.push({ entity: 'issueEvent', id: issueEventRowId(eventId, record.subject) })
         }
         const evicted = below[this.windowSize]
         if (evicted !== undefined) {
-          specs.push({
+          named.push({
             entity: 'issueEvent',
             id: issueEventRowId(evicted.id, evicted.subject),
-            op: 'remove',
+            removed: true,
           })
         }
-        // ONE capture: the arrival and the eviction it caused are the same
+        // ONE commit: the arrival and the eviction it caused are the same
         // observation, and a replica must never see the window grow past its
         // own bound because the two halves were separately ordered.
-        if (specs.length > 0) await this.deps.ledger.capture(specs)
+        if (named.length > 0) {
+          await this.deps.ledger.commit({ write: async () => {}, wrote: () => named })
+        }
       })
     } catch {
       // Publishing is best-effort by design (see the doc comment above).
@@ -155,34 +162,44 @@ export class IssueEventFeedPublisher {
   }
 
   /**
-   * Retention deleted these events. Those the feed carried leave it, and the
-   * window as the table now holds it is carried (an upsert the feed already
-   * holds is dropped by the log), so the feed is the window again. Never
+   * Retention deleted these events in the transaction this capture joins.
+   * Exactly the records that moved are named
+   * (POD-6770): the deleted events that were inside the window leave it, and
+   * the older events the window now reaches enter it. Which those are follows
+   * from the ids alone: before the deletion the window was the newest
+   * `windowSize` of what it holds now together with what was deleted. Never
    * throws: the next boot reconciles the window.
    */
   async pruned(deleted: readonly { id: number; subject: string }[]): Promise<void> {
     await this.resolve()
+    if (deleted.length === 0) return
     try {
       await this.deps.transact(async () => {
-        const window = await issueEventWindow(this.deps.events, this.windowSize)
-        const specs: EntityChangeSpec[] = [
-          ...deleted.map(
-            (row): EntityChangeSpec => ({
-              entity: 'issueEvent',
+        const now = await this.deps.events.feedWindowIds({ limit: this.windowSize })
+        const before = new Set(
+          [...now, ...deleted]
+            .sort((a, b) => b.id - a.id)
+            .slice(0, this.windowSize)
+            .map((row) => row.id),
+        )
+        const named = [
+          ...deleted
+            .filter((row) => before.has(row.id))
+            .map((row) => ({
+              entity: 'issueEvent' as const,
               id: issueEventRowId(row.id, row.subject),
-              op: 'remove',
-            }),
-          ),
-          ...window.map(
-            (value): EntityChangeSpec => ({
-              entity: 'issueEvent',
-              id: value.id,
-              op: 'upsert',
-              value,
-            }),
-          ),
+              removed: true,
+            })),
+          ...now
+            .filter((row) => !before.has(row.id))
+            .map((row) => ({
+              entity: 'issueEvent' as const,
+              id: issueEventRowId(row.id, row.subject),
+            })),
         ]
-        await this.deps.ledger.capture(specs)
+        if (named.length > 0) {
+          await this.deps.ledger.commit({ write: async () => {}, wrote: () => named })
+        }
       })
     } catch {
       // Best-effort, as publishing is.

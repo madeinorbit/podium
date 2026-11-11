@@ -151,6 +151,9 @@ export interface RecordReads {
   >
   readonly effectExecutors: Pick<EffectExecutorRegistry, 'get'>
   readonly now: () => number
+  /** Window sizes shared with a test's feed publishers. Production uses their defaults. */
+  readonly confirmedPerSession?: number
+  readonly eventWindow?: number
 }
 
 type Builder = RecordBuilder<RecordReads>
@@ -467,8 +470,11 @@ const subscription: Builder = {
 // ---------------------------------------------------------------------------
 
 /** The events the feed carries ({@link issueEventWindow}), as records. */
-async function issueEventRecords({ store }: RecordReads): Promise<BuiltRecord[]> {
-  return (await issueEventWindow(store.events)).map((value) => ({ id: value.id, value }))
+async function issueEventRecords({ store, eventWindow }: RecordReads): Promise<BuiltRecord[]> {
+  return (await issueEventWindow(store.events, eventWindow)).map((value) => ({
+    id: value.id,
+    value,
+  }))
 }
 
 const issueEvent: Builder = {
@@ -502,21 +508,21 @@ const pendingInteraction: Builder = {
 const message: Builder = {
   kind: 'message',
   shape: 'windowed',
-  async build({ store }, ids) {
+  async build({ store, confirmedPerSession = CONFIRMED_PER_SESSION }, ids) {
     const keys = parsed(ids, parseMessageRecordRowId)
     if (keys.length === 0) return []
     const open = (
       await store.messages.getMessages(unique(keys.map((key) => key.messageId)))
     ).filter(isOpenChat)
     const confirmed = await store.messages.confirmedChatTail(
-      CONFIRMED_PER_SESSION,
+      confirmedPerSession,
       unique(keys.map((key) => key.sessionId)),
       'live',
     )
     return [...messageRecords([...open, ...confirmed])].map(([id, value]) => ({ id, value }))
   },
-  async *streamAll({ store }) {
-    const window = await messageWindow(store.messages)
+  async *streamAll({ store, confirmedPerSession }) {
+    const window = await messageWindow(store.messages, confirmedPerSession)
     yield* pagesOf([...window].map(([id, value]) => ({ id, value })))
   },
 }

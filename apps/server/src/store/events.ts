@@ -816,8 +816,8 @@ export type EventAppendListener = (
   event: { ts: string; kind: string; subject: string; repoPath: string | null; payload: unknown },
 ) => void | Promise<void>
 
-/** The feed-kind events one retention batch deleted. Never throws. */
-export type EventPruneListener = (
+/** The feed-kind events one retention batch deleted, inside its transaction. */
+export type EventPruneFeedCapture = (
   deleted: readonly { id: number; subject: string }[],
 ) => void | Promise<void>
 
@@ -827,8 +827,8 @@ export class EventsRepository {
    *  between store construction and wiring — an event appended in that window is
    *  boot bookkeeping nobody is connected to see. */
   private appendListener: EventAppendListener | undefined
-  /** The feed publisher's hook on retention (POD-6766), installed with it. */
-  private pruneListener: EventPruneListener | undefined
+  /** The feed publisher's transactional retention hook, installed with it. */
+  private pruneFeedCapture: EventPruneFeedCapture | undefined
 
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
@@ -861,10 +861,9 @@ export class EventsRepository {
     this.appendListener = listener
   }
 
-  /** Install the post-prune announcement: the feed-kind events (with a
-   *  subject) one retention batch deleted, after its commit. */
-  async onPrune(listener: EventPruneListener): Promise<void> {
-    this.pruneListener = listener
+  /** Capture retention's window change before another write can overtake it. */
+  setPruneFeedCapture(capture: EventPruneFeedCapture): void {
+    this.pruneFeedCapture = capture
   }
 
   // ---- coarse runtime event log + restart head ----
@@ -1352,23 +1351,22 @@ export class EventsRepository {
     if (!Number.isInteger(batchSize) || batchSize <= 0) {
       throw new RangeError('batchSize must be a positive integer')
     }
-    // The projector's head fences runtime rows (see deletePruneBatch).
-    const deleted = await deletePruneBatch(this.db).all({
-      cutoff: plan.cutoff,
-      capThroughId: plan.capThroughId,
-      batchSize,
+    return await this.createOrJoinTransaction(async () => {
+      // The projector's head fences runtime rows (see deletePruneBatch).
+      const deleted = await deletePruneBatch(this.db).all({
+        cutoff: plan.cutoff,
+        capThroughId: plan.capThroughId,
+        batchSize,
+      })
+      // The feed's window is the newest feed-kind events that EXIST, so a prune
+      // that took some of them changes the feed. Capture while this transaction
+      // still owns the window, so concurrent appends cannot change its before set.
+      const feedRows = deleted.filter((row) => row.subject !== '' && isFeedEventKind(row.kind))
+      if (feedRows.length > 0) {
+        await this.pruneFeedCapture?.(feedRows.map(({ id, subject }) => ({ id, subject })))
+      }
+      return deleted.length
     })
-    // The feed's window is the newest feed-kind events that EXIST, so a prune
-    // that took some of them is a change to the feed (POD-6766): announced
-    // after the commit, as an append is.
-    const feedRows = deleted.filter((row) => row.subject !== '' && isFeedEventKind(row.kind))
-    if (feedRows.length > 0) {
-      afterCommit(
-        () => this.pruneListener?.(feedRows.map(({ id, subject }) => ({ id, subject }))),
-        'podium-event:prune',
-      )
-    }
-    return deleted.length
   }
 
   // ---- steward state ----

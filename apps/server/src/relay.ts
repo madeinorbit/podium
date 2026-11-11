@@ -1339,22 +1339,19 @@ export class SessionRegistry {
     this.store.events.onAppend(async (id, event) => await issueEventFeed.publish(id, event))
     // Retention is a change to the window too (POD-6766): the events it took
     // leave the feed.
-    this.store.events.onPrune(async (deleted) => await issueEventFeed.pruned(deleted))
+    this.store.events.setPruneFeedCapture(async (deleted) => await issueEventFeed.pruned(deleted))
     // ONE HOOK ON THE ONE WRITE FUNNEL (POD-4764): every write to the messages
     // table hands its rows to the chat message feed inside its own
     // transaction, so a person's messages and their delivery status reach every
     // device from the write path, whichever module moved them.
     const messageFeed = new MessageFeedPublisher({
-      ledger: {
-        ...writes.system('feed.messages'),
-        onAppended: (listener) => ledger.onAppended(listener),
-      },
-      sessions: this.store.sessions,
+      ledger: writes.system('feed.messages'),
       messages: this.store.messages,
       transact: async (fn) => await this.store.transact(fn),
     })
     this.messageFeed = messageFeed
     this.store.messages.setFeedCapture(messageFeed.capture)
+    this.store.sessions.setMessageWindowWrite(messageFeed.writeSessions)
     // ONE HOOK ON THE THREAD WRITE FUNNEL (POD-6675): every write to
     // `superagent_threads` publishes the thread's record to its owner's devices
     // inside its own transaction, whoever made it.

@@ -26,12 +26,21 @@ import type { RecordReads } from '../sync/record-builders'
  */
 export function testStoreRecords(
   store: RecordReads['store'],
-  opts: { now?: () => number; effectExecutors?: RecordReads['effectExecutors'] } = {},
+  opts: {
+    now?: () => number
+    effectExecutors?: RecordReads['effectExecutors']
+    confirmedPerSession?: number
+    eventWindow?: number
+  } = {},
 ): RecordSourcePort {
   return compareAtSaveRecords({
     store,
     effectExecutors: opts.effectExecutors ?? { get: () => undefined },
     now: opts.now ?? (() => Date.now()),
+    ...(opts.confirmedPerSession === undefined
+      ? {}
+      : { confirmedPerSession: opts.confirmedPerSession }),
+    ...(opts.eventWindow === undefined ? {} : { eventWindow: opts.eventWindow }),
   })
 }
 

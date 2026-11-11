@@ -190,7 +190,7 @@ export interface PendingMessageSummary {
 }
 
 /** Receives every message row a write touched, inside that write's transaction. */
-export type MessageFeedCapture = (rows: readonly MessageRow[]) => Promise<void>
+export type MessageFeedCapture = (rows: readonly MessageRow[], confirms: boolean) => Promise<void>
 
 /** One `messages` row as the schema types it, before mapping. */
 type MessageSelect = typeof messagesTable.$inferSelect
@@ -1401,11 +1401,12 @@ export class MessagesRepository {
     _scope: WriteScope,
     query: () => Promise<MessageSelect[]>,
     operation: 'upsert' | 'delete',
+    confirms = false,
   ): Promise<{ changes: number }> {
     return await this.committed.write(async () => {
       const rows = await query()
       const capture = this.feedCapture
-      if (capture !== undefined && rows.length > 0) await capture(rows.map(mapMessage))
+      if (capture !== undefined && rows.length > 0) await capture(rows.map(mapMessage), confirms)
       return rows
     }, operation)
   }
@@ -1493,12 +1494,20 @@ export class MessagesRepository {
   /** The rows with these ids, in one read; an id with no row is absent. The
    *  caller bounds how many it asks for. */
   async getMessages(ids: readonly string[]): Promise<MessageRow[]> {
-    if (ids.length === 0) return []
     const unique = [...new Set(ids)]
-    const size = inListSize(unique.length)
-    return (await messagesWithIds(this.db, size).all(inListValues(unique, size, 'ids'))).map(
-      mapMessage,
-    )
+    const rows: MessageRow[] = []
+    // A session batch can name many confirmed windows at once. Bound each
+    // statement's variables as the other id-set readers do.
+    for (let at = 0; at < unique.length; at += 500) {
+      const chunk = unique.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      rows.push(
+        ...(await messagesWithIds(this.db, size).all(inListValues(chunk, size, 'ids'))).map(
+          mapMessage,
+        ),
+      )
+    }
+    return rows
   }
 
   /** Saved attachment messages for a bounded transcript window, including
@@ -1857,6 +1866,7 @@ export class MessagesRepository {
             scope,
             async () => await write(this.db).all({ ...opts.values, id }),
             'upsert',
+            to === 'confirmed',
           )
         ).changes
       },

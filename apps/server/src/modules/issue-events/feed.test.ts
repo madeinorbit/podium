@@ -3,7 +3,7 @@
  * POD-6766). The publisher's claims:
  *   1. only the curated vocabulary with a subject reaches the feed,
  *   2. the window is BOUNDED, and an eviction travels with the arrival that
- *      caused it (one capture: a replica never sees the top without the
+ *      caused it (one commit: a replica never sees the top without the
  *      bottom),
  *   3. the window is a query on the events table: what the feed carries is
  *      exactly `issueEventWindow`, after appends, after retention, and after
@@ -17,6 +17,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../store'
 import { afterCommit, applyAfterCommit, spanOpen } from '../../store/executor/executor'
 import { openTestStore } from '../../test-support/open-test-store'
+import { testStoreRecords } from '../../test-support/record-writer'
 import { IssueEventFeedPublisher, issueEventWindow } from './feed'
 
 const stores: SessionStore[] = []
@@ -31,6 +32,12 @@ async function harness(opts: { windowSize?: number } = {}) {
   stores.push(store)
   const ledger = new Ledger({
     repo: store.sync,
+    // The event kind is named after the write and built from the table
+    // (POD-6770), with the window this harness runs.
+    records: testStoreRecords(
+      store,
+      opts.windowSize === undefined ? {} : { eventWindow: opts.windowSize },
+    ),
     now: Date.now,
     transact: async (fn) => await store.transact(fn),
     postCommit: (step, label) => afterCommit(step, label),
@@ -44,7 +51,7 @@ async function harness(opts: { windowSize?: number } = {}) {
       transact: async (fn) => await store.transact(fn),
       ...(opts.windowSize === undefined ? {} : { windowSize: opts.windowSize }),
     })
-    await store.events.onPrune(async (deleted) => await publisher.pruned(deleted))
+    store.events.setPruneFeedCapture(async (deleted) => await publisher.pruned(deleted))
     await publisher.resolve()
     return publisher
   }
@@ -57,11 +64,20 @@ async function harness(opts: { windowSize?: number } = {}) {
     await publisher.publish(id, event)
     return id
   }
-  /** What a device bootstrapping now would receive, by event id. */
-  const carried = async (): Promise<number[]> =>
-    ((await ledger.authority.snapshot('issueEvent')) as IssueEventWire[])
-      .map((row) => row.eventId)
-      .sort((a, b) => a - b)
+  /**
+   * What a device that followed the feed from the start holds, by event id:
+   * the log's changes folded in order. (A device bootstrapping now is served
+   * from the table, which says nothing about what the publisher appended.)
+   */
+  const carried = async (): Promise<number[]> => {
+    const held = new Map<string, IssueEventWire>()
+    for (const change of (await ledger.changesSince(0)) ?? []) {
+      if (change.entity !== 'issueEvent') continue
+      if (change.op === 'upsert') held.set(change.id, change.value as IssueEventWire)
+      else held.delete(change.id)
+    }
+    return [...held.values()].map((row) => row.eventId).sort((a, b) => a - b)
+  }
   /** What the query says the window is, by event id. */
   const window = async (): Promise<number[]> =>
     (await issueEventWindow(store.events, opts.windowSize)).map((row) => row.eventId)
@@ -151,7 +167,7 @@ describe('IssueEventFeedPublisher', () => {
   })
 
   it('reconciles the feed from the table at boot: pruned rows leave, missing rows arrive', async () => {
-    const { store, ledger, append, carried, window, reboot } = await harness({ windowSize: 3 })
+    const { store, append, carried, window, reboot } = await harness({ windowSize: 3 })
     const kept = await append()
     // An event the feed never heard of (a publish lost to a crash) ...
     await store.events.appendEvent(
@@ -159,14 +175,17 @@ describe('IssueEventFeedPublisher', () => {
       { announce: false },
     )
     // ... and a feed row whose event is gone (retention while it was down).
-    await testLedgerWriter(ledger).capture([
-      {
-        entity: 'issueEvent',
-        id: issueEventRowId(9_999, 'POD-13'),
-        op: 'upsert',
-        value: { id: issueEventRowId(9_999, 'POD-13'), eventId: 9_999 },
-      },
-    ])
+    await store.sync.appendChanges(
+      [
+        {
+          entity: 'issueEvent',
+          entityId: issueEventRowId(9_999, 'POD-13'),
+          op: 'upsert',
+          payload: JSON.stringify({ id: issueEventRowId(9_999, 'POD-13'), eventId: 9_999 }),
+        },
+      ],
+      Date.now(),
+    )
     expect(await carried()).not.toEqual(await window())
     await reboot()
     expect(await carried()).toEqual(await window())
@@ -179,7 +198,7 @@ describe('IssueEventFeedPublisher', () => {
     stores.push(store)
     const publisher = new IssueEventFeedPublisher({
       ledger: {
-        capture: () => {
+        commit: () => {
           throw new Error('the ledger is unavailable')
         },
         reconcile: async () => [],
@@ -191,5 +210,37 @@ describe('IssueEventFeedPublisher', () => {
     const id = await store.events.appendEvent(event, { announce: false })
     await expect(publisher.publish(id, event)).resolves.toBeUndefined()
     await expect(publisher.pruned([{ id, subject: 'POD-13' }])).resolves.toBeUndefined()
+  })
+
+  it('logs nothing when retention leaves the carried window unchanged', async () => {
+    const { store, ledger, append, carried } = await harness({ windowSize: 2 })
+    for (let n = 0; n < 4; n++) await append()
+    const before = await carried()
+    const cursor = await ledger.cursor()
+    const plan = await store.events.planEventPrune({ maxAgeDays: 3650, maxRows: 3 })
+    expect(await store.events.pruneEventBatch(plan)).toBe(1)
+    expect(await ledger.cursor()).toBe(cursor)
+    expect(await carried()).toEqual(before)
+    expect(await store.events.pruneEventBatch(plan)).toBe(0)
+    expect(await ledger.cursor()).toBe(cursor)
+  })
+
+  it('rolls retention and its window removals back together', async () => {
+    const { store, ledger, append, carried, window } = await harness({ windowSize: 2 })
+    await append()
+    await append()
+    const before = await carried()
+    const cursor = await ledger.cursor()
+    const plan = await store.events.planEventPrune({ maxAgeDays: 3650, maxRows: 1 })
+    await expect(
+      store.transact(async () => {
+        await store.events.pruneEventBatch(plan)
+        expect(await carried()).toEqual(await window())
+        throw new Error('the retention write failed')
+      }),
+    ).rejects.toThrow('the retention write failed')
+    expect(await carried()).toEqual(before)
+    expect(await ledger.cursor()).toBe(cursor)
+    expect((await store.events.feedWindow({ limit: 2 })).length).toBe(2)
   })
 })

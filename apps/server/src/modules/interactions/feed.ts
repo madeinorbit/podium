@@ -33,9 +33,8 @@
  * ---------------------------------------------------------------------------
  * What the feed carries is `status = 'asked'` in `pending_interactions`, the
  * same read the record builder streams. The publisher keeps no copy of it: a
- * row that is open publishes an `upsert`, any other publishes a `remove`, and
- * the log drops a removal of a row it never carried (an ask auto-answered in
- * the tick it was minted). At boot the open set is reconciled from the table,
+ * row that changed is named, and the Authority builds an open ask as an
+ * `upsert` and a closed ask as a `remove`. At boot the open set is reconciled from the table,
  * so an ask that closed while its publish was lost (a crash after the commit)
  * leaves the feed then. Before this, the publisher seeded an in-memory set
  * from the log with the record's own id where it later looked up the row id,
@@ -53,16 +52,16 @@
 import { createLogger } from '@podium/logger'
 import { interactionRowId } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
-import type { EntityChangeSpec, LedgerWriter } from '@podium/sync'
+import type { LedgerWriter } from '@podium/sync'
 import type { InteractionRow, InteractionsRepository } from '../../store/interactions'
 
 const log = createLogger('server:interactions:feed')
 
 export interface InteractionFeedDeps {
   /** Write-seam ledger. Rows ride entity kind `pendingInteraction`. */
-  readonly ledger: Pick<LedgerWriter, 'capture' | 'reconcile'>
-  /** Every open ask, and one row by id, from the table ({@link InteractionsRepository}). */
-  readonly store: Pick<InteractionsRepository, 'listOpen' | 'get'>
+  readonly ledger: Pick<LedgerWriter, 'commit' | 'reconcile'>
+  /** Every open ask from the table ({@link InteractionsRepository}). */
+  readonly store: Pick<InteractionsRepository, 'listOpen'>
   /** One transaction on the store the table lives in. */
   readonly transact: <T>(fn: () => Promise<T>) => Promise<T>
   /** The wire projection of a durable row (the service's, injected so the
@@ -98,24 +97,24 @@ export class InteractionFeedPublisher {
   }
 
   /**
-   * Publish one row's current state: an `upsert` while it is open, a `remove`
-   * once it is not (or once retention dropped it). The row is read again in
-   * the capture's transaction, so of two publishes of one row that overtake
-   * each other the later still carries what the table holds. A removal of a
-   * row the feed never carried is dropped by the log, so an ask resolved in
-   * the tick it was minted publishes nothing.
+   * Publish one row's current state. NAMED AFTER THE WRITE (POD-6770,
+   * `NAMED_AFTER_WRITE_KINDS`): the row is already written, and the Authority
+   * builds its record from the table in this publish's transaction: open is
+   * an `upsert`, anything else (answered, superseded, expired, or dropped by
+   * retention) a `remove`. So of two publishes of one row that overtake each
+   * other the later still carries what the table holds. The service announces
+   * changed rows. Announcements that overtake each other can each build the
+   * current closed state and append a remove.
    */
   async publish(row: Pick<InteractionRow, 'id' | 'sessionId'>): Promise<void> {
     await this.resolve()
     try {
       const id = interactionRowId(row.sessionId, row.id)
       await this.deps.transact(async () => {
-        const current = await this.deps.store.get(row.id)
-        const change: EntityChangeSpec =
-          current?.status === 'asked'
-            ? { entity: 'pendingInteraction', id, op: 'upsert', value: this.deps.toWire(current) }
-            : { entity: 'pendingInteraction', id, op: 'remove' }
-        await this.deps.ledger.capture([change])
+        await this.deps.ledger.commit({
+          write: async () => {},
+          wrote: () => [{ entity: 'pendingInteraction' as const, id, removed: true }],
+        })
       })
     } catch (err) {
       log.warn('interaction feed publish failed', { err, id: row.id })

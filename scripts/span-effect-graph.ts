@@ -306,6 +306,18 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
     label: 'Authority transact port',
   },
   {
+    file: 'apps/server/src/store/sessions.ts',
+    symbol: 'writeSessionRows',
+    body: 'arg1',
+    label: 'session write and message window',
+  },
+  {
+    file: 'apps/server/src/store/sessions.ts',
+    symbol: 'SessionMessageWindowWrite',
+    body: 'arg1',
+    label: 'message window write port',
+  },
+  {
     file: 'packages/sync/src/ledger.ts',
     symbol: 'commit',
     body: { props: ['write', 'changes'] },
@@ -660,7 +672,15 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   },
   'apps/server/src/store/messages.ts#MessageFeedCapture.MessageFeedCapture': {
     kind: 'contained',
-    why: "The chat message feed's capture [POD-4764]: it appends the rows' feed changes to the change log through Ledger.capture, which joins this same transaction, and defers both the subscriber delivery (the Authority's postCommit) and its own memory (applyAfterCommit) past the outermost commit. A rollback takes the appended changes with it and nothing outside the process saw them.",
+    why: 'The chat message feed capture names the changed records through Ledger.commit in the source transaction. Subscriber delivery follows the outermost commit, and a rollback discards the row writes and their log appends together.',
+  },
+  'apps/server/src/store/events.ts#EventPruneFeedCapture.EventPruneFeedCapture': {
+    kind: 'contained',
+    why: 'The retention capture reads the event window and names its changed records through Ledger.commit inside the deletion transaction. Subscriber delivery follows the outermost commit.',
+  },
+  'apps/server/src/store/sessions.ts#SessionsRepository.purgeObservationCheckpoint': {
+    kind: 'contained',
+    why: 'The awaited observation-checkpoint repository delete joins the session purge transaction and writes only database rows.',
   },
   'apps/server/src/modules/machines/records.ts#MachineRecordsDeps.facts': {
     kind: 'contained',

@@ -735,7 +735,7 @@ export class InteractionService {
             existing.status === 'asked' &&
             JSON.stringify(existing.payload) !== JSON.stringify(interaction.payload)
           ) {
-            await this.deps.store.enrich(existing.id, interaction.payload)
+            if (!(await this.deps.store.enrich(existing.id, interaction.payload))) return
             const row = await this.deps.store.get(existing.id)
             if (row) this.announce(row)
           }
