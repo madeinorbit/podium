@@ -117,6 +117,7 @@ describe('SessionStore repos', () => {
         originUrl,
         repoId: deriveRepoId({ originUrl, machineId: asMachineId(machineId), path }),
         prefix: expect.any(String),
+        defaultParentBranch: null,
       },
     ])
     await store.close()
