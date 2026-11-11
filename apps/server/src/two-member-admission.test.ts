@@ -445,13 +445,24 @@ it('removing Bob releases his machine with an audit row and keeps his history at
   )
   expect(removed.status, JSON.stringify(removed.body)).toBe(200)
 
-  // Custody released, one audit row per machine.
+  // One member removal, plus a distinct custody release per held machine.
   expect(await store(inst).machines.custodian(inst.machines.bob)).toBeNull()
   const audits = (await auditRows(inst, 'members.remove')).map((row) => ({
     actorId: row.actorId,
     ...(row.detail as Json),
   }))
   expect(audits).toEqual([
+    {
+      actorId: alice.id,
+      memberId: bob.id,
+    },
+  ])
+  expect(JSON.stringify(await auditRows(inst, 'members.remove'))).not.toContain(ALICE_PASSWORD)
+  const releases = (await auditRows(inst, 'machines.transferOwnership')).map((row) => ({
+    actorId: row.actorId,
+    ...(row.detail as Json),
+  }))
+  expect(releases).toEqual([
     {
       actorId: alice.id,
       memberId: bob.id,

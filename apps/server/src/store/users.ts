@@ -951,7 +951,7 @@ export class UsersRepository {
       await this.requireActiveAdmin(actor)
       if (userId === actor) throw new MemberChangeRefused('self', 'You cannot remove yourself')
       // Read the retained row: a disabled member can still hold custody, and
-      // retrying removal by member id must succeed without duplicate audits.
+      // retrying removal must not release or audit the same custody twice.
       const existing = await accountById(this.db).get({ id: userId })
       if (!existing) throw new MemberChangeRefused('unavailable', 'Member unavailable')
       if (await this.isLastActiveAdmin(existing)) throw lastAdmin('removed')
@@ -961,7 +961,7 @@ export class UsersRepository {
       for (const machine of held) {
         await this.machinesRepository.setMachineOwner(machine.id, null)
         await insertSettingsAudit(this.db).run({
-          command: 'members.remove',
+          command: 'machines.transferOwnership',
           outcome: 'applied',
           actorKind: 'user',
           actorId: actor,
@@ -983,6 +983,17 @@ export class UsersRepository {
       await deleteCredentialOf(this.db).run({ userId })
       await deleteInvitesOfMember(this.db).run({ memberId: userId })
       await this.bumpAuthorization(userId, 'removed')
+      // One member event per successful removal, even when no custody changed.
+      // Detail contains only the public id, never credentials or profile data.
+      await insertSettingsAudit(this.db).run({
+        command: 'members.remove',
+        outcome: 'applied',
+        actorKind: 'user',
+        actorId: actor,
+        onBehalfOf: actor,
+        detailJson: JSON.stringify({ memberId: userId }),
+        createdAt: at,
+      })
     })
   }
 

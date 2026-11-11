@@ -128,14 +128,26 @@ it('removes custody and incoming grants atomically, preserves shares and attribu
   expect(await store.users.inviteByHash('invite-hash')).toBeUndefined()
   const audit = (await store.settingsAudit.list()).filter((row) => row.command === 'members.remove')
   expect(audit).toHaveLength(2)
-  expect(audit).toEqual(
+  for (const row of audit)
+    expect(row).toMatchObject({
+      actorKind: 'user',
+      actorId: admin,
+      onBehalfOf: admin,
+      outcome: 'applied',
+      detail: { memberId: member },
+    })
+  const releases = (await store.settingsAudit.list()).filter(
+    (row) => row.command === 'machines.transferOwnership',
+  )
+  expect(releases).toHaveLength(2)
+  expect(releases).toEqual(
     expect.arrayContaining(
       ['owned', 'shared'].map((machineId) =>
         expect.objectContaining({ detail: expect.objectContaining({ machineId }) }),
       ),
     ),
   )
-  for (const row of audit)
+  for (const row of releases)
     expect(row).toMatchObject({
       actorId: admin,
       outcome: 'applied',
@@ -154,12 +166,66 @@ it('removes custody and incoming grants atomically, preserves shares and attribu
     expect(await store.machines.custodian('owned')).toBe(admin)
     expect(
       (await store.settingsAudit.list()).filter((row) => row.command === 'members.remove'),
+    ).toHaveLength(3)
+    expect(
+      (await store.settingsAudit.list()).filter(
+        (row) => row.command === 'machines.transferOwnership',
+      ),
     ).toHaveLength(2)
   } finally {
     svc.dispose()
   }
   await store.users.enable(member, at)
   expect(await store.users.credentialFor(member)).toBeUndefined()
+})
+
+it.each([
+  0, 1, 2,
+])('records one member removal independently of %i held machines', async (count) => {
+  const store = await setup()
+  const machines = ['owned', 'shared']
+  for (const id of machines.slice(count)) await store.machines.setMachineOwner(id, null)
+  await store.users.writeProfile(member, 'private member name', 'https://private.example/avatar')
+  await store.users.setPasswordHash(member, 'private-password-hash', at)
+
+  await store.users.removeMember(member, admin)
+
+  const events = await store.settingsAudit.securityEvents(100)
+  const removals = events.filter((row) => row.command === 'members.remove')
+  expect(removals).toHaveLength(1)
+  expect(removals[0]).toMatchObject({
+    outcome: 'applied',
+    actorKind: 'user',
+    actorId: admin,
+    onBehalfOf: admin,
+    detail: { memberId: member },
+    redactedPaths: [],
+  })
+  expect(removals[0]?.detail).toEqual({ memberId: member })
+  const releases = events.filter((row) => row.command === 'machines.transferOwnership')
+  expect(releases).toHaveLength(count)
+  expect(releases.map((row) => row.detail)).toEqual(
+    expect.arrayContaining(
+      machines.slice(0, count).map((machineId) => ({
+        memberId: member,
+        machineId,
+        previousOwnerUserId: member,
+        newOwnerUserId: null,
+      })),
+    ),
+  )
+  for (const release of releases) {
+    expect(release).toMatchObject({
+      outcome: 'applied',
+      actorKind: 'user',
+      actorId: admin,
+      onBehalfOf: admin,
+      createdAt: removals[0]?.createdAt,
+      redactedPaths: [],
+    })
+  }
+  expect(events.filter((row) => row.command === 'members.disable')).toHaveLength(1)
+  expect(JSON.stringify(events)).not.toContain('private')
 })
 
 it('removes an already-disabled member without implicitly transferring custody', async () => {
@@ -171,6 +237,11 @@ it('removes an already-disabled member without implicitly transferring custody',
   expect(
     (await store.settingsAudit.list()).filter((row) => row.command === 'members.disable'),
   ).toHaveLength(1)
+  const removals = (await store.settingsAudit.list()).filter(
+    (row) => row.command === 'members.remove',
+  )
+  expect(removals).toHaveLength(1)
+  expect(removals[0]?.detail).toEqual({ memberId: member })
 })
 
 it('rolls back custody, grants, credentials, invites, sessions, audits and live publication together', async () => {
