@@ -400,19 +400,13 @@ describe('current scoped attach paints session-free issue projections [POD-797]'
     ).toEqual([])
     const principal = registry.clientGateway.principalOf(id)
     if (!principal) throw new Error('missing authenticated principal')
-    const authority = registry.syncDelta.authority
     const rows = new Map<string, Record<string, unknown>>()
-    for await (const page of authority.changesRange(
-      feedPrincipalOf(principal),
-      0,
-      await authority.captureHead(),
-      100,
-    )) {
-      if (page.kind !== 'batch') throw new Error('fresh fixture unexpectedly requires recovery')
-      for (const change of page.changes) {
-        if (change.entity === 'issueProjection' && change.op === 'upsert')
-          rows.set(change.entityId, change.value as Record<string, unknown>)
-      }
+    // Initial load streams model records. The log contains later source writes;
+    // boot does not manufacture history for these pre-existing fixture rows.
+    const loaded = await registry.changeLedger.authority.bootstrap(feedPrincipalOf(principal))
+    for (const change of loaded.changes) {
+      if (change.entity === 'issueProjection' && change.op === 'upsert')
+        rows.set(change.entityId, change.value as Record<string, unknown>)
     }
     const issues = [...rows.values()]
     expect(issues).toHaveLength(3)
