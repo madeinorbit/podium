@@ -968,7 +968,10 @@ function headerTableRows(): string[] {
  * quarantining columns for exactly that reason. A rule that is wrong for one of
  * twenty-three is not a rule; this is the decision, spelled.
  */
+// POD-3961 (3b63a01258) later added authoritative delegation. Unreadable
+// authority must refuse the row rather than silently treating it as unscoped.
 const RETAINED_JSON_COLUMNS = [
+  'sessions.delegation',
   'ship_orders.validation_profile',
   'ship_steps.input_fence',
   'ship_train_manifests.provider_ref',
@@ -992,6 +995,25 @@ describe('the corrupt-blob oracle', () => {
     // The decision itself, pinned: a nineteenth `mode: 'json'` column — or one of
     // the five quietly demoted — fails here with its own name.
     expect(declaredJsonColumns()).toEqual(RETAINED_JSON_COLUMNS)
+  })
+
+  it('refuses unreadable authoritative delegation instead of dropping its scope', async () => {
+    const { store, sessionId } = await seed()
+    try {
+      rawDb(store)
+        .prepare(`INSERT INTO sessions
+        (id, owner_user_id, agent_kind, cwd, title, origin_kind, status, durable_label, created_at, last_active_at, machine_id)
+        VALUES (?, ?, 'shell', '/r', 'Oracle', 'spawn', 'exited', 'oracle', ?, ?, 'machine-1')
+      `)
+        .run(sessionId, firstAdminMemberId(), AT, AT)
+      expect((await store.sessions.getSession(sessionId))?.id).toBe(sessionId)
+      rawDb(store)
+        .prepare('UPDATE sessions SET delegation = ? WHERE id = ?')
+        .run(INVALID_JSON, sessionId)
+      await expect(store.sessions.getSession(sessionId)).rejects.toThrow()
+    } finally {
+      await store.close()
+    }
   })
 
   it('names each case exactly once', () => {
