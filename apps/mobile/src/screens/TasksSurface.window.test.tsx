@@ -111,16 +111,23 @@ vi.mock('@expo/ui/swift-ui/modifiers', () =>
 )
 vi.mock('@expo/ui/swift-ui', () => {
   type Props = { children?: ReactNode; modifiers?: { name: string; value: unknown }[] }
-  const Box = ({ children }: Props) => <div>{children}</div>
+  const Box = ({ children, modifiers }: Props) => (
+    <div data-modifiers={JSON.stringify(modifiers)}>{children}</div>
+  )
   const VStack = ({ children, modifiers }: Props) => {
     const appear = modifiers?.find((m) => m.name === 'onAppear')?.value as (() => void) | undefined
     const disappear = modifiers?.find((m) => m.name === 'onDisappear')?.value as
       | (() => void)
       | undefined
-    if (appear) state.slot()
+    if (appear) state.slot(modifiers)
     return (
       // biome-ignore lint/a11y/noStaticElementInteractions: mouse events stand in for native appearance callbacks in this test host.
-      <div data-testid={appear ? 'slot' : undefined} onMouseEnter={appear} onMouseLeave={disappear}>
+      <div
+        data-testid={appear ? 'slot' : undefined}
+        data-modifiers={JSON.stringify(modifiers)}
+        onMouseEnter={appear}
+        onMouseLeave={disappear}
+      >
         {children}
       </div>
     )
@@ -139,8 +146,8 @@ vi.mock('@expo/ui/swift-ui', () => {
     },
     Picker: Box,
     ProgressView: () => null,
-    Section: Box,
-    Spacer: () => null,
+    Section: ({ children }: Props) => <section>{children}</section>,
+    Spacer: Box,
     SwipeActions: Object.assign(Box, { Actions: () => null }),
     Text: Box,
     VStack,
@@ -160,6 +167,91 @@ afterEach(() => {
   state.toggleFold.mockClear()
   state.folded = false
   state.work = null
+})
+
+it('Tasks applies zero-inset cell traits outside slot observers and keeps 44pt content', async () => {
+  const stamp = '2026-10-03T12:00:00Z'
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
+  state.pool = pool
+  pool.apply({
+    type: 'replace',
+    rows: [
+      {
+        kind: 'issue',
+        id: 'task',
+        value: {
+          id: 'task',
+          seq: 1,
+          title: 'Single task',
+          stage: 'in_progress',
+          audience: 'human',
+          repoPath: '/fixture',
+          createdAt: stamp,
+          updatedAt: stamp,
+        },
+      },
+    ],
+  })
+  await attachMobileScreens(pool)
+  const board = new MobileTasksBoard(pool, {
+    showDone: true,
+    expanded: [],
+    filter: {},
+    ordering: 'priority',
+    showAgentTasks: false,
+  })
+  render(
+    <TasksSurface
+      {...({
+        board,
+        chips: [],
+        booting: false,
+        refresh: { onRefresh: () => {} },
+        minimizeOnScroll: {},
+        bottomInset: 0,
+      } as unknown as TasksSurfaceProps)}
+    />,
+  )
+  const slot = screen.getByTestId('slot')
+  const modifiers = (node: Element | null) => {
+    if (!node) throw new Error('Expected a native view')
+    return JSON.parse(node.getAttribute('data-modifiers') ?? '[]')
+  }
+  const cellTraits = modifiers(slot).slice(-4)
+  expect(slot.parentElement?.tagName).toBe('SECTION')
+  expect(cellTraits).toEqual([
+    { name: 'alignmentGuide', value: 'listRowSeparatorLeading' },
+    { name: 'listRowBackground', value: expect.any(String) },
+    { name: 'listRowSeparatorTint', value: expect.any(String) },
+    { name: 'listRowInsets', value: { leading: 12, trailing: 12, top: 0, bottom: 0 } },
+  ])
+  expect(modifiers(slot.firstElementChild)).toContainEqual({
+    name: 'frame',
+    value: { height: 44 },
+  })
+  act(() => fireEvent.mouseEnter(slot))
+  expect(modifiers(slot).slice(-4)).toEqual(cellTraits)
+  expect(modifiers(screen.getByText('Single task').parentElement)).toContainEqual({
+    name: 'frame',
+    value: expect.objectContaining({ minHeight: 44, alignment: 'leading' }),
+  })
+  // Cell traits belong to the outer slot, above swipe and context-menu wrappers.
+  for (const child of slot.querySelectorAll('[data-modifiers]')) {
+    expect(
+      modifiers(child).some((modifier: { name: string }) => modifier.name.startsWith('listRow')),
+    ).toBe(false)
+  }
+  // A taller measured row keeps its height when it leaves the active window.
+  const measured = state.slot.mock.lastCall?.[0].find(
+    (modifier: { name: string }) => modifier.name === 'onGeometryChange',
+  ).value
+  act(() => measured({ height: 60 }))
+  act(() => fireEvent.mouseLeave(slot))
+  expect(modifiers(slot.firstElementChild)).toContainEqual({
+    name: 'frame',
+    value: { height: 60 },
+  })
+  expect(modifiers(slot).slice(-4)).toEqual(cellTraits)
 })
 
 it('native placeholders activate a bounded window both ways; only age labels read the clock', async () => {

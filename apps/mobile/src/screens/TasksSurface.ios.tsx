@@ -259,21 +259,9 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
                   />
                 </Section>
                 {folded || !board || section.rows.length === 0 ? null : (
-                  <Section
-                    modifiers={[
-                      listSectionMargins({ edges: 'vertical', length: 0 }),
-                      // Set the row inset on the section too: the native list owns
-                      // its cells above the slot's measurement and swipe wrappers.
-                      listRowInsets({
-                        leading: CARD_INSET,
-                        trailing: CARD_INSET,
-                        top: 0,
-                        bottom: 0,
-                      }),
-                    ]}
-                  >
+                  <Section modifiers={[listSectionMargins({ edges: 'vertical', length: 0 })]}>
                     {section.rows.map((row) => (
-                      <TaskSlot key={row.id} id={row.id} lane={lane}>
+                      <TaskSlot key={row.id} id={row.id} depth={row.depth} lane={lane}>
                         <TaskRow row={row} board={board} props={props} />
                       </TaskSlot>
                     ))}
@@ -308,10 +296,12 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
 /** Placeholder height follows the last native measurement, including Dynamic Type. */
 const TaskSlot = observer(function TaskSlot({
   id,
+  depth,
   lane,
   children,
 }: {
   id: string
+  depth: number
   lane: MobileTasksBoard['lanes'][number] | undefined
   children: ReactNode
 }) {
@@ -321,13 +311,16 @@ const TaskSlot = observer(function TaskSlot({
     <VStack
       spacing={0}
       modifiers={[
-        ...cardRow,
         frame({ maxWidth: Infinity, alignment: 'leading' }),
         onAppear(() => lane?.window.appear(id)),
         onDisappear(() => lane?.window.disappear(id)),
         onGeometryChange((frame) => {
           if (active && frame.height > 0) setHeight(frame.height)
         }),
+        // Expo applies modifiers in order. Keep cell traits outside the frame
+        // and measurement wrappers, on the Section's direct row view.
+        alignmentGuide('listRowSeparatorLeading', ROW_AXIS + depth * 16),
+        ...cardRow,
       ]}
     >
       {active ? children : <Spacer modifiers={[frame({ height })]} />}
@@ -363,9 +356,7 @@ const TaskRow = taskObserver(function TaskRow({
   const progress = issue.childCount > 0 ? `${taskRowFigure(issue, null)} sub-tasks done` : ''
 
   return (
-    <SwipeActions
-      modifiers={[alignmentGuide('listRowSeparatorLeading', ROW_AXIS + row.depth * 16)]}
-    >
+    <SwipeActions>
       <ContextMenu>
         <ContextMenu.Trigger>
           <Button
@@ -382,9 +373,8 @@ const TaskRow = taskObserver(function TaskRow({
             <HStack
               spacing={8}
               modifiers={[
-                // Match Work's content height, allowing for the native wrappers
-                // around the label. Dynamic Type can still grow the row.
-                frame({ minHeight: 36, maxWidth: Infinity, alignment: 'leading' }),
+                // The cell has no vertical insets. Dynamic Type can grow the row.
+                frame({ minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
                 contentShape(shapes.rectangle()),
               ]}
             >
