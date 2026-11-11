@@ -242,7 +242,7 @@ export class SignInCarryOverRepository {
   }
 
   async record(record: CarryRecord): Promise<void> {
-    await insertCarryRecord(this.db).run(record)
+    await insertCarryRecord(this.db).run({ ...record })
   }
 
   /** The sealed answer of an unexpired carry record. */

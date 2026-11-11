@@ -217,7 +217,7 @@ describe('each kind of old sign-in (test 3)', () => {
     expect(
       i.rows<{ device_id: string }>(
         'SELECT device_id FROM identity_session WHERE id = ?',
-        bobs?.id,
+        bobs?.id ?? '',
       ),
     ).toEqual([{ device_id: 'fixture-phone-device-bob' }])
     // Bob's other old sign-in is still his to carry; Alice's browser too.

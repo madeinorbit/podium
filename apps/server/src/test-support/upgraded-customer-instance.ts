@@ -29,7 +29,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { SESSION_COOKIE } from '@podium/protocol'
 import { hashPassword } from '@podium/runtime/auth-store'
-import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
+import { openDatabase, type SqlDatabase, type SqlParam } from '@podium/runtime/sqlite'
 import { mintUpdateSigningKey } from '@podium/runtime/update-signing-key'
 import { vi } from 'vitest'
 import {
@@ -106,9 +106,9 @@ export interface UpgradedInstance {
   /** `GET /auth/status` with this cookie. */
   status(cookie?: string, headers?: Record<string, string>): Promise<Answer>
   /** Rows of the database, read on a connection of the test's own. */
-  rows<T = Record<string, unknown>>(sql: string, ...params: unknown[]): T[]
+  rows<T = Record<string, unknown>>(sql: string, ...params: SqlParam[]): T[]
   /** A write on a connection of the test's own, for a state the fixture lacks. */
-  write(sql: string, ...params: unknown[]): void
+  write(sql: string, ...params: SqlParam[]): void
   /** The old sign-ins still stored, as `label of member`, sorted. */
   oldSignIns(): string[]
   /** The device sign-ins of a member's account, unexpired. */
@@ -243,7 +243,7 @@ export async function startUpgradedInstance(
       db.close()
     }
   }
-  const rows = <T>(sql: string, ...params: unknown[]): T[] =>
+  const rows = <T>(sql: string, ...params: SqlParam[]): T[] =>
     withDb((db) => db.prepare(sql).all(...params) as T[])
 
   const request: UpgradedInstance['request'] = async (path, init = {}) => {
