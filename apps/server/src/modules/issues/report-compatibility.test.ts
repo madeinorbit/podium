@@ -1,10 +1,9 @@
 import { actorUser, firstAdminMemberId } from '@podium/model'
-import { CHANGE_LOG_OBSERVER } from '@podium/sync'
 import { afterEach, expect, it, vi } from 'vitest'
 import { resolvePrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
 import { appRouter } from '../../router'
-import { workerSnapshot } from '../../test-support/bootstrap-snapshot'
+import { authoritySnapshot } from '../../test-support/authority-snapshot'
 import { OPERATOR } from '../../test-support/capabilities'
 
 const registries: SessionRegistry[] = []
@@ -113,7 +112,7 @@ it('keeps requested issue JSON fields on create, update, get, list and tree', as
     omittedChildren: 0,
     children: [expect.objectContaining({ id: child.id, children: [] })],
   })
-  const snapshot = await workerSnapshot(registry, CHANGE_LOG_OBSERVER)
+  const snapshot = await authoritySnapshot(registry)
   expect(snapshot.kind).toBe('snapshot')
   if (snapshot.kind !== 'snapshot') throw new Error('expected snapshot')
   expect(snapshot.issues).toEqual([])
@@ -146,7 +145,7 @@ it('records the authenticated asking user without inventing a session delivery a
   expect(report.humanQuestionAskedBy).toBeUndefined()
   const row = await registry.sessionStore.issues.getIssue(issue.id)
   expect(row?.humanQuestionAttribution).toEqual({ actor: actorUser(user), onBehalfOf: user })
-  const snapshot = await workerSnapshot(registry, CHANGE_LOG_OBSERVER)
+  const snapshot = await authoritySnapshot(registry)
   if (snapshot.kind !== 'snapshot') throw new Error('expected snapshot')
   expect(snapshot.issueProjections?.find((row) => row.id === issue.id)?.asked).toMatchObject({
     question: 'Which option?',

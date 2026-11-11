@@ -27,7 +27,7 @@ try {
         throw new Error('snapshot fixture requested a delta')
       },
     },
-    serving: { identity: () => input.identity, retentionFloor: () => input.floor },
+    serving: { identity: async () => input.identity, retentionFloor: async () => input.floor },
     principal: async () => input.principal,
     worker: () => worker,
   })

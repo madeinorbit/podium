@@ -7,7 +7,7 @@ import { userCommandPrincipal } from './command-principal'
 import { feedPrincipalOf } from './gateway/client-principal'
 import { SessionRegistry } from './relay'
 import type { IssueRow, SessionStore } from './store'
-import { workerSnapshot } from './test-support/bootstrap-snapshot'
+import { authoritySnapshot } from './test-support/authority-snapshot'
 import { attachTestClient } from './test-support/client-transport'
 import { feedDelta } from './test-support/feed-delta'
 import { openTestStore } from './test-support/open-test-store'
@@ -237,7 +237,7 @@ async function issueWorkForOneFieldSessionChange(
   sessionId: string,
 ): Promise<number> {
   await registry.modules.sessions.flushBroadcasts()
-  const before = await workerSnapshot(registry, CHANGE_LOG_OBSERVER)
+  const before = await authoritySnapshot(registry)
   await registry.modules.sessions.setWorkState(registry.modules.sessions.serverWriter, {
     sessionId: asSessionId(sessionId),
     workState: 'testing',
@@ -290,7 +290,7 @@ describe('issueProjection is the only issue record', () => {
       'iss_1',
     )
 
-    const snapshot = await workerSnapshot(registry, CHANGE_LOG_OBSERVER)
+    const snapshot = await authoritySnapshot(registry)
     expect(snapshot.kind).toBe('snapshot')
     if (snapshot.kind !== 'snapshot') throw new Error('expected snapshot')
     expect(snapshot.issueProjections?.map((row) => row.id).sort()).toEqual(['iss_0', 'iss_1'])
@@ -310,7 +310,7 @@ describe('issueProjection is the only issue record', () => {
     expect((await store.sessions.loadSessions()).find((row) => row.id === sessionId)?.issueId).toBe(
       'iss_0',
     )
-    const snapshot = await workerSnapshot(registry, CHANGE_LOG_OBSERVER)
+    const snapshot = await authoritySnapshot(registry)
     expect(snapshot.kind).toBe('snapshot')
     if (snapshot.kind !== 'snapshot') throw new Error('expected snapshot')
     const projection = snapshot.issueProjections?.find((row) => row.id === 'iss_0')

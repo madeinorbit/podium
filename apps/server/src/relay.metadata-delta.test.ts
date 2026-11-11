@@ -10,6 +10,7 @@ import { CHANGE_LOG_OBSERVER } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { userClientPrincipal } from './gateway/client-principal'
 import { SessionRegistry } from './relay'
+import { authoritySnapshot } from './test-support/authority-snapshot'
 import { workerSnapshot } from './test-support/bootstrap-snapshot'
 import { attachTestClient } from './test-support/client-transport'
 import { feedDelta } from './test-support/feed-delta'
@@ -31,7 +32,7 @@ describe('SessionRegistry metadata deltas', () => {
     try {
       const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
       registries.push(registry)
-      const snapshot = await workerSnapshot(registry, CHANGE_LOG_OBSERVER)
+      const snapshot = await authoritySnapshot(registry)
       expect(snapshot.kind).toBe('snapshot')
       expect(attempts).not.toHaveBeenCalled()
     } finally {
@@ -228,7 +229,7 @@ describe('SessionRegistry metadata deltas', () => {
     }
   })
 
-  it('changesSince: snapshot on null cursor, delta after, snapshot-equivalent replay', async () => {
+  it('direct Authority catch-up replay equals a fresh snapshot', async () => {
     const registry = await makeRegistry()
     await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/r',
@@ -236,7 +237,7 @@ describe('SessionRegistry metadata deltas', () => {
       startNow: false,
     })
 
-    const boot = await workerSnapshot(registry, CHANGE_LOG_OBSERVER)
+    const boot = await authoritySnapshot(registry)
     expect(boot.kind).toBe('snapshot')
     if (boot.kind !== 'snapshot') return
     expect(boot.issues).toEqual([])
@@ -268,7 +269,7 @@ describe('SessionRegistry metadata deltas', () => {
       }
       return [...m.values()]
     }
-    const fresh = await workerSnapshot(registry, CHANGE_LOG_OBSERVER)
+    const fresh = await authoritySnapshot(registry)
     if (fresh.kind !== 'snapshot') throw new Error('expected snapshot')
     const byId = <T>(l: T[], key: (t: T) => string) =>
       [...l].sort((x, y) => key(x).localeCompare(key(y)))

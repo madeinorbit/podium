@@ -17,7 +17,7 @@ import { fixtureWriteScope, testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
-import { snapshotFromBootstrap } from './test-support/bootstrap-snapshot'
+import { authoritySnapshot } from './test-support/authority-snapshot'
 import { attachTestClient } from './test-support/client-transport'
 import { feedDelta } from './test-support/feed-delta'
 import { attachHostDaemon } from './test-support/host-daemon'
@@ -29,27 +29,6 @@ type ProjectionEvent = {
   generation: number
   changes: MetadataChange[]
   ledgerCursor: number
-}
-
-/** Internal write-seam fixtures need the named system observer, which is an
- * in-process identity rather than an authenticated client principal. */
-async function authoritySnapshot(registry: SessionRegistry) {
-  const world = await registry.changeLedger.authority.bootstrap(CHANGE_LOG_OBSERVER)
-  const identity = await registry.syncDelta.serving.identity()
-  const snapshot = await snapshotFromBootstrap(
-    (async function* () {
-      yield {
-        ...identity,
-        snapshotSeq: world.throughSeq,
-        kindTokens: {},
-        changes: world.changes.flatMap((change) =>
-          change.op === 'upsert' ? [{ ...change, payload: change.value }] : [],
-        ),
-        last: true,
-      }
-    })(),
-  )
-  return { ...snapshot, minAvailableSeq: await registry.syncDelta.serving.retentionFloor() }
 }
 
 /**
