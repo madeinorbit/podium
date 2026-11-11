@@ -30,14 +30,18 @@ pool.apply({
     },
   ],
 })
-const catalog = { machines: [], repositories: [] }
-pool.sources.register(['settingsWindow', 'settingsCatalog', 'settingsRepository'], {
-  read(entity) {
+const catalog: { machines: string[]; repositories: string[] } = { machines: [], repositories: [] }
+pool.sources.register(['settingsWindow', 'settingsCatalog', 'settingsRepository', 'preference'], {
+  read(entity, id) {
     return entity === 'settingsWindow'
       ? { settingsTab: selected.get('page') ?? null }
       : entity === 'settingsCatalog'
         ? catalog
-        : undefined
+        : entity === 'settingsRepository'
+          ? repositories.find((repo) => repo.path === id)
+          : entity === 'preference'
+            ? { value: deviceState.get(id) }
+            : undefined
   },
   dispose() {},
 })
@@ -61,6 +65,14 @@ export const deviceState = {
     }
   },
 }
+const repositories: {
+  path: string
+  repoId: string
+  name: string
+  prefix: string
+  defaultParentBranch: string
+  checkouts: unknown[]
+}[] = []
 const setupInfo = {
   configured: true,
   mode: 'server',
@@ -106,13 +118,28 @@ const answers: Record<string, unknown> = {
   },
   'telemetry.preview.query': { version: '0.3.1', os: 'linux', machines: 0 },
 }
+const calls: { key: string; input?: unknown }[] = []
+Object.assign(window, { settingsHarness: { calls, pool } })
 function endpoint(path: string[] = []): unknown {
   return new Proxy(() => {}, {
     get(_, key) {
       return key === 'then' ? undefined : endpoint([...path, String(key)])
     },
-    apply() {
+    apply(_, __, args) {
       const key = path.join('.')
+      calls.push({ key, input: args[0] })
+      if (params.get('write') === 'error' && path.at(-1) === 'mutate')
+        return Promise.reject(new Error('This change could not be saved. Try again.'))
+      if (key === 'auth.setDisplayName.mutate')
+        Object.assign(answers['auth.profile.query'] as object, args[0])
+      if (key === 'auth.setEmail.mutate')
+        Object.assign(answers['auth.profile.query'] as object, { email: args[0].email })
+      if (key === 'setup.setChannel.mutate')
+        answers['setup.channel.query'] = {
+          ...(answers['setup.channel.query'] as object),
+          ...args[0],
+        }
+      if (key === 'setup.setChannel.mutate') return Promise.resolve(answers['setup.channel.query'])
       return Promise.resolve(answers[key] ?? {})
     },
   })
@@ -127,13 +154,27 @@ const setSettingsTab = (page: string | null) => {
   )
 }
 const noop = () => {}
+function updatePreferences(
+  kind: 'userPreferences' | 'instancePreferences',
+  id: string,
+  patch: object,
+) {
+  if (params.get('write') === 'error') throw new Error('This change could not be saved. Try again.')
+  calls.push({ key: kind, input: patch })
+  const previous = pool.row(kind, id)
+  pool.apply({
+    type: 'update',
+    rows: [{ kind, id, value: { ...(previous as object), ...patch } as never }],
+  })
+}
 const client = {
   trpc,
   uiState: deviceState,
   owner: {},
   setSettingsTab,
-  setPreferences: async () => {},
-  setInstancePreferences: async () => {},
+  setPreferences: async (patch: object) => updatePreferences('userPreferences', 'demo', patch),
+  setInstancePreferences: async (patch: object) =>
+    updatePreferences('instancePreferences', INSTANCE_PREFERENCES_ROW_ID, patch),
   setView: noop,
   navigateToSession: noop,
 }
@@ -178,6 +219,150 @@ const members = [
   { id: 'demo', displayName: 'Alex Morgan', email: 'admin@example.com', role: 'admin' },
   { id: 'member', displayName: 'Sam Lee', email: 'member@example.com', role: 'member' },
 ]
+const populated = params.has('populated')
+const signIns = populated
+  ? [
+      {
+        id: 'session-browser',
+        memberId: 'demo',
+        memberName: 'Alex Morgan',
+        kind: 'login',
+        deviceName: 'Work browser',
+        platform: 'linux',
+        createdAt: '2026-11-11T08:00:00Z',
+        lastSeenAt: '2026-11-11T10:30:00Z',
+        expiresAt: '2099-01-01T00:00:00Z',
+      },
+      {
+        id: 'session-phone',
+        memberId: 'member',
+        memberName: 'Sam Lee',
+        kind: 'mobile',
+        deviceName: 'Sam’s phone',
+        platform: 'ios',
+        createdAt: '2026-11-10T08:00:00Z',
+        lastSeenAt: '2026-11-11T10:15:00Z',
+        expiresAt: '2099-01-01T00:00:00Z',
+      },
+    ]
+  : []
+if (populated) {
+  Object.assign(answers['auth.profile.query'] as object, members[member ? 1 : 0])
+  Object.assign(answers['auth.status.query'] as object, { hasOwnCredential: true })
+  answers['accounts.list.query'] = [
+    {
+      id: 'native:claude-code',
+      provider: 'anthropic',
+      source: 'native',
+      harness: 'claude-code',
+      status: 'connected',
+      identity: 'alex@example.com',
+      identityFingerprint: 'demo-claude',
+      machines: ['Studio'],
+      useOnMyMachines: true,
+      loginMachines: [{ id: 'studio', name: 'Studio' }],
+    },
+    {
+      id: 'native:codex',
+      provider: 'openai',
+      source: 'native',
+      harness: 'codex',
+      status: 'not-configured',
+      loginRequired: true,
+      loginMachines: [
+        { id: 'studio', name: 'Studio' },
+        { id: 'builder', name: 'Build machine' },
+      ],
+    },
+    ...['anthropic', 'openai', 'openrouter'].map((provider) => ({
+      id: `managed:${provider}`,
+      source: 'managed',
+      kind: 'api-key',
+      provider,
+      status: provider === 'openai' ? 'not-configured' : 'connected',
+      credentialSource: provider === 'anthropic' ? 'shared' : 'stored',
+      sharedBy: 'member',
+      identity: 'sk-…demo',
+      sharing: { everyone: false, users: [] },
+      sentTo: [],
+      sendableTo: [{ id: 'builder', name: 'Build machine' }],
+    })),
+    {
+      id: 'managed:claude-oauth',
+      source: 'managed',
+      kind: 'oauth',
+      provider: 'anthropic',
+      status: 'not-configured',
+    },
+  ]
+  const machines = [
+    {
+      id: 'studio',
+      name: 'Studio',
+      custodian: member ? 'member' : 'demo',
+      owned: true,
+      transferable: true,
+      hostsServer: true,
+      use: 'granted',
+      online: true,
+      appVersion: '0.3.1',
+    },
+    {
+      id: 'builder',
+      name: 'Build machine',
+      custodian: 'demo',
+      owned: !member,
+      transferable: !member,
+      use: 'granted',
+      online: true,
+      appVersion: '0.3.1',
+    },
+    {
+      id: 'laptop',
+      name: 'Travel laptop',
+      custodian: member ? 'member' : 'demo',
+      owned: true,
+      transferable: true,
+      use: 'granted',
+      online: false,
+      appVersion: '0.3.0',
+    },
+  ]
+  catalog.machines.push(...machines.map((m) => m.id))
+  repositories.push({
+    path: '/workspace/podium',
+    repoId: 'repo-podium',
+    name: 'Podium',
+    prefix: 'POD',
+    defaultParentBranch: 'main',
+    checkouts: [{ machineId: 'studio', path: '/workspace/podium', branch: 'main', worktrees: [] }],
+  })
+  catalog.repositories.push(...repositories.map((repo) => repo.path))
+  pool.apply({
+    type: 'update',
+    rows: machines.map((machine) => ({
+      kind: 'machine',
+      id: machine.id,
+      value: {
+        ...machine,
+        hostname: `${machine.id}.example.com`,
+        os: 'linux',
+        arch: 'x64',
+        loggedOutHarnesses: [],
+        grants: [],
+        services: {},
+        installedAgents: [],
+      } as never,
+    })),
+  })
+  updates.fleet.machines = machines.map((m) => ({
+    ...m,
+    version: m.appVersion,
+    state: 'current',
+    busy: false,
+  })) as never
+  updates.fleet.allMachines = updates.fleet.machines
+}
 window.fetch = (async (input: RequestInfo | URL) => {
   const path = new URL(String(input), location.href).pathname
   if (path === '/auth/admin/viewer') {
@@ -188,12 +373,38 @@ window.fetch = (async (input: RequestInfo | URL) => {
       sections: member ? [] : ['people', 'access', 'machines', 'instance', 'audit'],
     })
   }
+  if (path === '/auth/client-sessions')
+    return Response.json({
+      sessions: populated
+        ? [
+            {
+              sessionId: 'demo-browser',
+              kind: 'browser',
+              deviceName: 'This browser',
+              platform: 'linux',
+              createdAt: '2026-11-11T08:00:00Z',
+              lastSeenAt: '2026-11-11T10:30:00Z',
+              expiresAt: '2099-01-01T00:00:00Z',
+              current: true,
+            },
+          ]
+        : [],
+    })
   if (path === '/auth/members/directory')
     return Response.json({ members, currentMemberId: member ? 'member' : 'demo' })
   if (path === '/auth/members/list')
     return Response.json({
       members,
-      invites: [],
+      invites: populated
+        ? [
+            {
+              id: 'invite',
+              email: 'new-member@example.com',
+              role: 'member',
+              expiresAt: '2099-01-01T00:00:00Z',
+            },
+          ]
+        : [],
       currentMemberId: 'demo',
       mailAvailable: false,
       hasOwnCredential: true,
@@ -209,8 +420,33 @@ window.fetch = (async (input: RequestInfo | URL) => {
         activeMembers: 2,
         disabledMembers: 0,
       },
-      signIns: [],
+      signIns,
     })
-  if (path === '/auth/admin/audit') return Response.json({ events: [], nextBefore: null })
+  if (path === '/auth/admin/audit')
+    return Response.json({
+      events: populated
+        ? [
+            {
+              id: 2,
+              at: '2026-11-11T10:30:00Z',
+              command: 'members.setRole',
+              result: 'refused',
+              actor: { kind: 'member', id: 'demo', name: 'Alex Morgan' },
+              target: { kind: 'member', id: 'demo', name: 'Alex Morgan' },
+              facts: {},
+            },
+            {
+              id: 1,
+              at: '2026-11-11T09:30:00Z',
+              command: 'members.invite',
+              result: 'applied',
+              actor: { kind: 'member', id: 'demo', name: 'Alex Morgan' },
+              target: { kind: 'invite', id: 'invite', name: 'New member' },
+              facts: { role: 'member' },
+            },
+          ]
+        : [],
+      nextBefore: null,
+    })
   return Response.json({})
 }) as typeof fetch
