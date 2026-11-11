@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../store'
 import { afterCommit, applyAfterCommit, spanOpen } from '../../store/executor/executor'
 import { openTestStore } from '../../test-support/open-test-store'
+import { expectRecordLogParity } from '../../test-support/record-log-parity'
 import { testStoreRecords } from '../../test-support/record-writer'
 import { InteractionFeedPublisher } from './feed'
 import { InteractionService, interactionWireOf } from './service'
@@ -28,15 +29,11 @@ async function harness() {
   })
   const feed = new InteractionFeedPublisher({
     ledger: testLedgerWriter(ledger),
-    store: store.interactions,
-    transact: async (fn) => await store.transact(fn),
-    toWire: interactionWireOf,
   })
-  await feed.resolve()
+  store.interactions.setFeedCapture(feed.capture)
   const service = new InteractionService({
     store: store.interactions,
     now: () => '2026-11-11T00:00:00.000Z',
-    publish: async (row) => await feed.publish(row),
     deliver: async () => ({ ok: true, via: 'menu', choices: [] }),
     readTranscript: async () => ({ items: [] }),
     causalFailuresOwned: () => false,
@@ -78,6 +75,7 @@ describe('the pending interaction feed', () => {
         },
       ])
     })
+    await expectRecordLogParity(store, ledger, 'pendingInteraction')
     const asked = await ledger.cursor()
     expect((await ask()).inserted).toBe(false)
     expect(await ledger.cursor()).toBe(asked)
@@ -90,26 +88,59 @@ describe('the pending interaction feed', () => {
     const closed = await ledger.cursor()
     await service.onSessionExited(SESSION)
     expect(await ledger.cursor()).toBe(closed)
+    await expectRecordLogParity(store, ledger, 'pendingInteraction')
   })
 
-  it('repairs a source-row commit whose later log publication was lost', async () => {
+  it('captures closes in the source transaction without a later publication', async () => {
     const { store, ledger, ask } = await harness()
     await ask()
-    await vi.waitFor(async () => expect(await ledger.cursor()).toBeGreaterThan(0))
     const cursor = await ledger.cursor()
     expect(await store.interactions.close('ixn_feed', 'expired', '2026-11-11T00:01:00.000Z')).toBe(
       true,
     )
-    expect(await ledger.cursor()).toBe(cursor)
-    const reboot = new InteractionFeedPublisher({
-      ledger: testLedgerWriter(ledger),
-      store: store.interactions,
-      transact: async (fn) => await store.transact(fn),
-      toWire: interactionWireOf,
-    })
-    await reboot.resolve()
     expect(await ledger.changesSince(cursor)).toMatchObject([
       { entity: 'pendingInteraction', id: interactionRowId(SESSION, 'ixn_feed'), op: 'remove' },
     ])
+    const before = await ledger.cursor()
+    const reads = vi.spyOn(store.interactions, 'listOpen')
+    const reboot = new InteractionFeedPublisher({ ledger: testLedgerWriter(ledger) })
+    store.interactions.setFeedCapture(reboot.capture)
+    expect(reads).not.toHaveBeenCalled()
+    expect(await ledger.cursor()).toBe(before)
+  })
+
+  it('rolls a new ask and its log entry back together', async () => {
+    const { store, ledger, ask } = await harness()
+    const cursor = await ledger.cursor()
+    await expect(
+      store.transact(async () => {
+        await ask()
+        expect(await ledger.cursor()).toBeGreaterThan(cursor)
+        throw new Error('ask rollback')
+      }),
+    ).rejects.toThrow('ask rollback')
+    expect(await store.interactions.get('ixn_feed')).toBeNull()
+    expect(await ledger.cursor()).toBe(cursor)
+  })
+
+  it('rolls an ask or close back if its log append fails', async () => {
+    const { store, ledger, ask } = await harness()
+    const failed = vi
+      .spyOn(store.sync, 'appendChanges')
+      .mockRejectedValueOnce(new Error('log unavailable'))
+    await expect(ask()).rejects.toThrow('log unavailable')
+    expect(await store.interactions.get('ixn_feed')).toBeNull()
+    failed.mockRestore()
+    await ask()
+    const cursor = await ledger.cursor()
+    const closeFailed = vi
+      .spyOn(store.sync, 'appendChanges')
+      .mockRejectedValueOnce(new Error('log unavailable'))
+    await expect(
+      store.interactions.close('ixn_feed', 'expired', '2026-11-11T00:01:00.000Z'),
+    ).rejects.toThrow('log unavailable')
+    closeFailed.mockRestore()
+    expect((await store.interactions.get('ixn_feed'))?.status).toBe('asked')
+    expect(await ledger.cursor()).toBe(cursor)
   })
 })

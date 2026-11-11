@@ -140,12 +140,7 @@ function build() {
   })
   const service = new LayoutService({
     layout: repo as never,
-    boot: {
-      reconcile: async (entity, rows) => {
-        await authority.reconcile(entity, rows)
-        return []
-      },
-    },
+
   })
   // The command's writer: each commit goes through the Authority, which builds
   // the named records around the write (compare at save).

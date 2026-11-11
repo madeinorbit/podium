@@ -10,10 +10,9 @@ import {
   type SessionId,
   type SuperagentTurnFailureWire,
   type ThreadId,
-  USER_ROLES,
   type UserId,
 } from '@podium/model'
-import { and, asc, desc, eq, exists, inArray, isNull, ne, notExists, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, exists, isNull, notExists, sql } from 'drizzle-orm'
 import {
   superagentMessages,
   superagentPendingTurns,
@@ -242,18 +241,13 @@ const syncTurnRunning = prepared((db: StoreDrizzle) =>
   db
     .update(superagentThreads)
     .set({ turnRunning: exists(pendingTurnOfThread(db)) })
-    .where(ne(superagentThreads.turnRunning, exists(pendingTurnOfThread(db))))
+    .where(and(eq(superagentThreads.turnRunning, true), notExists(pendingTurnOfThread(db))))
     .returning()
     .prepare(),
 )
 
-/**
- * The global thread of every active member who has none (POD-6675, design §1.7:
- * the server creates it, no read does). The bare `global` id is the first
- * admin's (`seedGlobalThread`); everyone else's is `global:<member>`, which is
- * what `SuperagentService.personalThreadId` resolves for them.
- */
-const seedMemberGlobals = prepared((db: StoreDrizzle) =>
+/** A newly created member's global, in the account write's transaction. */
+const seedMemberGlobal = prepared((db: StoreDrizzle) =>
   db
     .insert(superagentThreads)
     .select(
@@ -268,8 +262,8 @@ const seedMemberGlobals = prepared((db: StoreDrizzle) =>
         .from(users)
         .where(
           and(
+            eq(users.id, param(users.id, 'ownerUserId')),
             isNull(users.disabledAt),
-            inArray(users.role, [...USER_ROLES]),
             notExists(
               db
                 .select({ one: sql`1` })
@@ -425,15 +419,10 @@ export class SuperagentRepository {
     await this.writeThreads(async () => await seedGlobal(this.db).all({ ownerUserId, now: saNow }))
   }
 
-  /**
-   * The global thread of every active member who has none (POD-6675): the boot
-   * back-fill, and the server's own creation once a member exists. One
-   * statement whatever the roster's size.
-   */
-  async seedMemberGlobalThreads(): Promise<void> {
+  async seedMemberGlobalThread(ownerUserId: UserId): Promise<void> {
     await this.seedGlobalThread()
     const now = new Date().toISOString()
-    await this.writeThreads(async () => await seedMemberGlobals(this.db).all({ now }))
+    await this.writeThreads(async () => await seedMemberGlobal(this.db).all({ ownerUserId, now }))
   }
 
   /** Every thread, archived ones included, as the boot reconcile publishes them. */

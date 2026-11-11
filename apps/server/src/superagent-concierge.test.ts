@@ -741,10 +741,8 @@ describe('thread ownership after administrator removal', () => {
       'scrypt:hash',
     )
     // The server makes each member's global thread (POD-6675); no read does.
-    await store.superagent.seedMemberGlobalThreads()
     const before = await sa.ensureConciergeThread({ ownerUserId: replacement, repoPath: '/r' })
     await store.users.removeMember(original, replacement)
-    await store.superagent.seedMemberGlobalThreads()
     const after = await sa.ensureConciergeThread({ ownerUserId: replacement, repoPath: '/r' })
     expect(after).toEqual({ threadId: before.threadId, isNew: false })
     expect((await store.superagent.getSuperagentThread(asThreadId('global')))?.ownerUserId).toBe(

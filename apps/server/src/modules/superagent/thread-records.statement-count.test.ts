@@ -26,7 +26,6 @@ import {
 } from '../../test-support/statement-count'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import { appliedReply, envelope, submit } from '../sync-write/outbox-test-support'
-import { reconcileSuperagentThreads } from './thread-records'
 
 afterEach(() => disposeOracles())
 
@@ -85,19 +84,19 @@ const turnStatus = {
   check: () => undefined,
 } satisfies StatementPin<Oracle>
 
-const reconcile = {
-  name: 'superagentThread boot reconcile',
-  setup: fixture,
-  target: (o) => o.store,
-  run: async (o) => {
-    const authority = o.reg.changeLedger.authority
-    await reconcileSuperagentThreads(
-      { reconcile: async (entity, rows) => await authority.reconcile(entity, rows) },
-      o.store,
-    )
-    return await o.reg.changeLedger.authority.cursor()
+const recover = {
+  name: 'interrupted thread preparation recovery',
+  setup: async (size: number) => {
+    const o = await fixture(size)
+    await o.store.superagent.setTurnRunning(asThreadId('global'), true)
+    return o
   },
-  check: (cursor) => expect(cursor as number).toBeGreaterThan(0),
+  target: (o: Oracle) => o.store,
+  run: async (o: Oracle) => {
+    await o.store.superagent.syncTurnRunningWithPendingTurns()
+    return (await o.store.superagent.getSuperagentThread('global'))?.turnRunning
+  },
+  check: (running: unknown) => expect(running).toBe(false),
 } satisfies StatementPin<Oracle>
 
 describe('statement counts of the superagent thread record', () => {
@@ -109,8 +108,8 @@ describe('statement counts of the superagent thread record', () => {
     await expectConstantStatements(turnStatus, 4)
   })
 
-  it('the boot reconcile reads the table once, whatever its size', async () => {
-    await expectConstantStatements(reconcile, 7)
+  it('interrupted preparation recovery ignores historical threads', async () => {
+    await expectConstantStatements(recover, 5)
   })
 
   it('is armed: a read per stored thread on the edit path fails it', async () => {

@@ -9,8 +9,7 @@
  *      leaves; a busy session never pushes out another session's,
  *   3. a failed one stays until its sender dismisses it; a cancelled one leaves,
  *   4. a rolled-back write never reaches the feed,
- *   5. boot reconciles the open set from the table and catches writes made
- *      before the feed went live,
+ *   5. publishing is active as soon as it is wired, with no boot pass,
  *   6. nobody else's traffic rides the feed,
  *   7. a session that ends (exits, is archived, deleted or purged) takes its
  *      confirmed window off the feed, and boot agrees (POD-4814).
@@ -34,6 +33,7 @@ import type { SessionStore } from '../../store'
 import { afterCommit, applyAfterCommit, spanOpen } from '../../store/executor/executor'
 import type { MessageRow, SessionRow } from '../../store/types'
 import { openTestStore } from '../../test-support/open-test-store'
+import { expectRecordLogParity } from '../../test-support/record-log-parity'
 import { testStoreRecords } from '../../test-support/record-writer'
 import { expectConstantStatements } from '../../test-support/statement-count'
 import { isLiveConversation, MessageFeedPublisher } from './feed'
@@ -80,7 +80,6 @@ async function harness(
       { entity: 'session', id, op: 'upsert', value: sessionValue(id, {}) },
     ])
   }
-  if (opts.live !== false) await feed.resolve()
   /**
    * What a device that followed the feed from the start holds, keyed by
    * message id: the log's changes folded in order. (A device bootstrapping
@@ -106,7 +105,6 @@ async function harness(
     })
     store.messages.setFeedCapture(next.capture)
     store.sessions.setMessageWindowWrite(next.writeSessions)
-    await next.resolve()
     return next
   }
   /**
@@ -286,16 +284,22 @@ describe('the chat message feed', () => {
     expect([...(await carried()).keys()].sort()).toEqual(['msg_b3', 'msg_b4', 'msg_q2', 'msg_q3'])
   })
 
-  it('rebuilds each session’s window at boot from the tables', async () => {
-    const { store, carried, reboot } = await harness({ window: 2 })
+  it('restarts without rebuilding the window and keeps publishing', async () => {
+    const { store, ledger, carried, reboot } = await harness({ window: 2 })
     await confirm(store, 'msg_a1')
     await confirm(store, 'msg_a2')
     await confirm(store, 'msg_z1', S2)
-    await reboot(1)
-    expect([...(await carried()).keys()].sort()).toEqual(['msg_a2', 'msg_z1'])
-    // The rebuilt windows are per session too.
+    const cursor = await ledger.cursor()
+    const reads = vi.spyOn(store.messages, 'confirmedChatWindow')
+    const open = vi.spyOn(store.messages, 'listOpenChat')
+    await reboot(2)
+    expect(reads).not.toHaveBeenCalled()
+    expect(open).not.toHaveBeenCalled()
+    expect(await ledger.cursor()).toBe(cursor)
     await confirm(store, 'msg_z2', S2)
-    expect([...(await carried()).keys()].sort()).toEqual(['msg_a2', 'msg_z2'])
+    await confirm(store, 'msg_z3', S2)
+    expect([...(await carried()).keys()].sort()).toEqual(['msg_a1', 'msg_a2', 'msg_z2', 'msg_z3'])
+    await expectRecordLogParity(store, ledger, 'message', { confirmedPerSession: 2 })
   })
 
   it('does not bring back a confirmed message a later stamp touches once it left', async () => {
@@ -432,69 +436,17 @@ describe('the chat message feed', () => {
     expect((await carried()).size).toBe(0)
   })
 
-  it('carries at boot the window the tables hold, whatever the feed saw (an upgrade)', async () => {
-    const { store, feed, carried } = await harness({ live: false })
-    // Written with no capture installed at all, as on the release before this.
-    const uninstall = store.messages.setFeedCapture(async () => {})
-    await store.messages.addMessage(fixtureWriteScope(), chat('msg_waiting'))
-    await store.messages.addMessage(fixtureWriteScope(), chat('msg_lost'))
-    await store.messages.markDispatched(fixtureWriteScope(), 'msg_lost', S1, 't1')
-    await store.messages.markUnknown(fixtureWriteScope(), 'msg_lost', S1)
-    await store.messages.addMessage(fixtureWriteScope(), chat('msg_done'))
-    await store.messages.markDelivered(fixtureWriteScope(), 'msg_done', S1, 't2')
-    await store.messages.addMessage(fixtureWriteScope(), chat('msg_dropped'))
-    await store.messages.markCancelled(fixtureWriteScope(), 'msg_dropped')
-    uninstall()
-    store.messages.setFeedCapture(feed.capture)
-    await feed.resolve()
-    // The confirmed one is in its live session's window, which is a query on
-    // the tables (POD-6766), not what a running feed happened to see confirm.
-    expect([...(await carried()).keys()].sort()).toEqual(['msg_done', 'msg_lost', 'msg_waiting'])
-  })
-
-  it('corrects at boot a record the feed holds in an older shape', async () => {
-    const { store, carried, reboot } = await harness()
-    await store.messages.addMessage(fixtureWriteScope(), chat('msg_old_shape'))
-    const id = messageRecordRowId({
-      sessionId: S1,
-      senderUserId: ALICE,
-      messageId: 'msg_old_shape',
-    })
-    const current = (await carried()).get('msg_old_shape')
-    // A release before this one published it with a field the mapping no
-    // longer writes.
-    // Written straight onto the log, as that release's publisher left it: the
-    // kind's own writers name records now and cannot declare a value.
-    await store.sync.appendChanges(
-      [
-        {
-          entity: 'message',
-          entityId: id,
-          op: 'upsert',
-          payload: JSON.stringify({ ...current, legacy: true }),
-        },
-      ],
-      Date.now(),
-    )
-    expect((await carried()).get('msg_old_shape')).toHaveProperty('legacy', true)
-    await reboot()
-    expect((await carried()).get('msg_old_shape')).toEqual(current)
-  })
-
-  it('reconciles the open set at boot and publishes what was written before it went live', async () => {
-    const { store, feed, carried } = await harness({ live: false })
+  it('publishes immediately after composition, before any bootstrap', async () => {
+    const { store, ledger, carried } = await harness()
     await store.messages.addMessage(fixtureWriteScope(), chat('msg_before'))
     await store.messages.addMessage(fixtureWriteScope(), chat('msg_gone'))
     await store.messages.markCancelled(fixtureWriteScope(), 'msg_gone')
-    expect((await carried()).size).toBe(0)
-    await feed.resolve()
     expect([...(await carried()).keys()]).toEqual(['msg_before'])
     await store.messages.markDispatched(fixtureWriteScope(), 'msg_before', S1, 't1')
     expect((await carried()).get('msg_before')?.status).toBe('dispatched')
+    await expectRecordLogParity(store, ledger, 'message')
   })
-})
 
-describe('a session that ends takes its confirmed window off the feed (POD-4814)', () => {
   it('logs nothing when a session write preserves its carried window', async () => {
     const { store, ledger, carried } = await harness()
     await confirm(store, 'msg_live')
@@ -530,7 +482,6 @@ describe('a session that ends takes its confirmed window off the feed (POD-4814)
         setup: async (size) => {
           const fixture = await harness({ window: 2, live: false })
           for (let n = 0; n < size; n++) await confirm(fixture.store, `msg_${n}`)
-          await fixture.feed.resolve()
           return { ...fixture, row: await rowOf(fixture.store, S1) }
         },
         target: ({ store }) => store,
@@ -660,7 +611,7 @@ describe('a session that ends takes its confirmed window off the feed (POD-4814)
     }
   })
 
-  it('keeps only live sessions’ windows at boot, whatever the feed held', async () => {
+  it('a source session write removes its window before restart', async () => {
     const { store, ids, reboot } = await harness()
     await confirm(store, 'msg_live')
     await confirm(store, 'msg_gone', S2)
@@ -671,7 +622,7 @@ describe('a session that ends takes its confirmed window off the feed (POD-4814)
       ...(await rowOf(store, S2)),
       archived: true,
     })
-    expect(await ids()).toEqual(['msg_gone', 'msg_live', 'msg_open'])
+    expect(await ids()).toEqual(['msg_live', 'msg_open'])
     await reboot()
     expect(await ids()).toEqual(['msg_live', 'msg_open'])
     // And the rebooted feed opens no window for it either.

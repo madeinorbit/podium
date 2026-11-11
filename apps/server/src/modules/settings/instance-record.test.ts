@@ -28,7 +28,6 @@ import { openTestStore } from '../../test-support/open-test-store'
 import { testStoreRecords } from '../../test-support/record-writer'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import { envelope, expectAppliedOnPath, submit } from '../sync-write/outbox-test-support'
-import { reconcileInstancePreferences } from './instance-record'
 
 afterEach(() => disposeOracles())
 
@@ -353,6 +352,7 @@ async function feedFixture() {
   })
   const authority = new Authority({
     store: store.sync,
+    records: testStoreRecords(store),
     now: () => 1_000,
     transact: async (fn) => await store.transact(fn),
     visibility: new GrantEdgeVisibilityPolicy(policy.state, new NoDelegationsGranted()),
@@ -361,22 +361,16 @@ async function feedFixture() {
   return { store, authority }
 }
 
-describe('the boot reconcile back-fills the stored instance settings', () => {
-  it('the stored blob becomes one log row every member holds, and a restart appends nothing', async () => {
+describe('bootstrap streams stored instance settings', () => {
+  it('every member loads the stored blob without appending to the log', async () => {
     const { store, authority } = await feedFixture()
     const stored = await store.settings.getSettings()
     await store.settings.setSettings({
       ...stored,
       hibernation: { ...stored.hibernation, memoryPct: 70 },
     })
-    const writer = {
-      reconcile: async (
-        entity: Parameters<Authority['reconcile']>[0],
-        rows: { id: string; value: unknown }[],
-      ) => await authority.reconcile(entity, rows),
-    }
 
-    await reconcileInstancePreferences(writer, store)
+
     for (const user of [ME, 'user:anyone-6677']) {
       const rows = (await authority.bootstrap(principal(user))).changes.filter(
         (c) => c.entity === 'instancePreferences',
@@ -388,8 +382,6 @@ describe('the boot reconcile back-fills the stored instance settings', () => {
       expect(values).toEqual([[ID, 70]])
     }
 
-    const head = await authority.cursor()
-    await reconcileInstancePreferences(writer, store)
-    expect(await authority.cursor()).toBe(head)
+    expect(await authority.cursor()).toBe(0)
   })
 })

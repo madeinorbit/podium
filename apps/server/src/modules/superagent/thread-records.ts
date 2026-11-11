@@ -20,9 +20,9 @@
  *    a turn is running (`turnRunning`) and whether the last one failed
  *    (`lastTurnFailure`), written by `SuperagentService` at turn start, failure
  *    and end.
- *  - BOOT TRUTH ({@link reconcileSuperagentThreads}): every active member gets
- *    a global thread (no read creates one any more), `turnRunning` is set from
- *    the pending-turn rows, and every stored thread is reconciled onto the log.
+ *  - Existing member globals are seeded by migration; a new account creates
+ *    its global in the account transaction. Boot recovers only interrupted
+ *    preparations through the running-thread index and the same write funnel.
  *
  * Rolling back needs no data step: the four status columns are additive, and an
  * older build parses this kind's log rows as unknown and advances its cursor.
@@ -92,30 +92,6 @@ export function makeThreadFeedCapture(
         })),
     })
   }
-}
-
-/** What the boot reconcile appends through: the boot's `server` writer. */
-export interface ThreadReconcileWriter {
-  reconcile(
-    entity: Parameters<LedgerWriter['reconcile']>[0],
-    rows: { id: string; value: unknown }[],
-  ): Promise<unknown>
-}
-
-export async function reconcileSuperagentThreads(
-  writer: ThreadReconcileWriter,
-  store: Pick<SessionStore, 'superagent'>,
-): Promise<void> {
-  await store.superagent.seedMemberGlobalThreads()
-  await store.superagent.syncTurnRunningWithPendingTurns()
-  const threads = await store.superagent.allThreadsForBootReconcile()
-  await writer.reconcile(
-    'superagentThread',
-    threads.map((row) => ({
-      id: superagentThreadRowId(row.ownerUserId, row.id),
-      value: superagentThreadWireOf(row),
-    })),
-  )
 }
 
 export interface ThreadRecordDeps {

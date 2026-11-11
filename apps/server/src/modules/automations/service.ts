@@ -48,11 +48,11 @@ export interface AutomationsDeps {
   store: AutomationsRepository
   /**
    * The scheduler's own writer, a `server` origin (`automations.schedule`): the
-   * runs it records, the re-arms, and the boot reconcile. Never a command's: the
+   * runs it records and the re-arms. Never a command's: the
    * four automation commands write through the writer of the command that asked
    * (ADR 12 D9, POD-6594), passed per call.
    */
-  ledger: Pick<LedgerWriter, 'commit' | 'reconcile'>
+  ledger: Pick<LedgerWriter, 'commit'>
   /** SessionLifecycle.createSession, narrowed to what a scheduled spawn needs.
    *  NOT the `sessions.create` tRPC procedure — that stamps spawnedBy 'user'. */
   createSession(input: {
@@ -158,27 +158,6 @@ class AutomationSpawnError extends Error {
 
 export class AutomationsService {
   constructor(private readonly deps: AutomationsDeps) {}
-
-  /**
-   * SEED THE LEDGER FROM DURABLE TRUTH — the service's one boot step.
-   *
-   * Full boot truth closes changes made while the server was down and seeds
-   * both new durable kinds before a client can ask for its cursor. It is a boot
-   * STEP rather than two lines in the constructor (POD-3256): the composition
-   * root runs it after the object exists, in the order the constructor
-   * established, so constructing an automations service never reads the store.
-   */
-  async reconcileFromStore(): Promise<void> {
-    const deps = this.deps
-    await deps.ledger.reconcile(
-      'automation',
-      (await deps.store.list()).map((automation) => ({ id: automation.id, value: automation })),
-    )
-    await deps.ledger.reconcile(
-      'automationRun',
-      (await deps.store.listAllRuns()).map((run) => ({ id: run.id, value: run })),
-    )
-  }
 
   private now(): Date {
     return this.deps.now()

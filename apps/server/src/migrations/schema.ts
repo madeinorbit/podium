@@ -879,8 +879,8 @@ export const superagentThreads = sqliteTable(
     /**
      * A turn is running on the thread (POD-6675): the synced `turnRunning`
      * status, set when a turn starts and cleared when it ends. The pending-turn
-     * rows remain the durable truth of a dispatched turn; the boot reconcile
-     * sets this from them, so a restart mid-turn never leaves it stuck.
+     * rows remain the durable truth of a dispatched turn; indexed startup
+     * recovery clears interrupted preparations through the write funnel.
      */
     turnRunning: integer('turn_running', { mode: 'boolean' }).default(sql`0`).notNull(),
     /**
@@ -896,6 +896,7 @@ export const superagentThreads = sqliteTable(
   // A user's open threads, most recently updated first (POD-6148).
   (table) => [
     index('idx_superagent_threads_owner').on(table.ownerUserId, table.archived, table.updatedAt),
+    index('idx_superagent_threads_running').on(table.turnRunning),
   ],
 )
 

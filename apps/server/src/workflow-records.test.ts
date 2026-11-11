@@ -1,3 +1,4 @@
+import { serverRecordBuilders } from './sync/record-builders'
 /**
  * AGENT PROFILES, WORKFLOWS AND TRIGGER SUBSCRIPTIONS AS SYNCED RECORDS
  * (POD-6676, ADR 12 D1; design POD-5620 §1.9-1.11), through the registry the
@@ -27,7 +28,6 @@ import {
   submit,
 } from './modules/sync-write/outbox-test-support'
 import {
-  reconcileWorkflowRecords,
   WORKFLOW_STORE_UNSYNCED_WRITES,
   WORKFLOW_STORE_WRITES,
 } from './modules/workflows/records'
@@ -318,14 +318,14 @@ describe('the boot back-fill', () => {
       now: AT,
     })
     const seen: Array<[string, string[]]> = []
-    await reconcileWorkflowRecords(
-      {
-        reconcile: async (entity, rows) => {
-          seen.push([entity, rows.map((row) => row.id)])
-        },
-      },
-      store,
-    )
+    const builders = serverRecordBuilders()
+    for (const kind of ['workflow', 'workflowRevision', 'workflowBinding', 'workflowRun'] as const) {
+      const ids: string[] = []
+      for await (const page of builders.streamAll({ store: o.store, now: Date.now, effectExecutors: { get: () => undefined } }, kind)) {
+        ids.push(...page.map((row) => row.id))
+      }
+      seen.push([kind, ids])
+    }
     expect(seen).toEqual([
       ['workflow', ['wf_old']],
       ['workflowRevision', ['wfr_old']],

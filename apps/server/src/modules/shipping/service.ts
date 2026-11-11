@@ -51,7 +51,7 @@ import {
 import type { ShippingIssueMutation } from '../issues/service/crud'
 import { LeaseProjection } from './lease-projection'
 import type { ShippingPolicyResolver } from './policy'
-import { scheduledShippingProjection, shipOrderProjectionRow } from './projection'
+import { shipOrderProjectionRow } from './projection'
 import {
   canonicalShippingDestination,
   GreenPrefixCache,
@@ -915,9 +915,6 @@ export class ShippingService {
    * order/attempt/step and daemon-journal truth; no originating session exists
    * in this API. */
   async reconcile(): Promise<void> {
-    const truth = await this.fullProjection()
-    await this.deps.ledger.reconcile('shipOrder', truth.orders)
-    await this.deps.ledger.reconcile('shipLane', truth.lanes)
     await this.recoverDescendantInvalidations()
     for (const order of await this.deps.repository.listOrders()) {
       await this.replayDaemonAcknowledgements(order)
@@ -4040,16 +4037,6 @@ export class ShippingService {
         },
       })),
       write,
-    )
-  }
-
-  /** Full truth for both order-plane kinds: boot, reconnect and recovery only. */
-  private async fullProjection(): Promise<ReturnType<typeof scheduledShippingProjection>> {
-    return scheduledShippingProjection(
-      await this.deps.repository.listOrders(),
-      await this.deps.repository.listHolds(),
-      await this.deps.repository.listReceipts(),
-      await this.deps.repository.listNativeStackEdges(),
     )
   }
 

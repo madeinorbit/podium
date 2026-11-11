@@ -7,7 +7,7 @@
  *      bottom),
  *   3. the window is a query on the events table: what the feed carries is
  *      exactly `issueEventWindow`, after appends, after retention, and after
- *      a boot that finds the feed out of step with the table.
+ *      a restart, without any boot repair.
  */
 
 import { type IssueEventWire, issueEventRowId } from '@podium/model'
@@ -17,6 +17,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../store'
 import { afterCommit, applyAfterCommit, spanOpen } from '../../store/executor/executor'
 import { openTestStore } from '../../test-support/open-test-store'
+import { expectRecordLogParity } from '../../test-support/record-log-parity'
 import { testStoreRecords } from '../../test-support/record-writer'
 import { IssueEventFeedPublisher, issueEventWindow } from './feed'
 
@@ -52,7 +53,7 @@ async function harness(opts: { windowSize?: number } = {}) {
       ...(opts.windowSize === undefined ? {} : { windowSize: opts.windowSize }),
     })
     store.events.setPruneFeedCapture(async (deleted) => await publisher.pruned(deleted))
-    await publisher.resolve()
+    store.events.setFeedCapture(async (id, event) => await publisher.publish(id, event))
     return publisher
   }
   let publisher = await boot()
@@ -60,9 +61,7 @@ async function harness(opts: { windowSize?: number } = {}) {
   const append = async (over: { kind?: string; subject?: string } = {}): Promise<number> => {
     const event = { ts: TS, kind: 'issue.closed', subject: 'POD-13', repoPath: null, payload: {} }
     Object.assign(event, over)
-    const id = await store.events.appendEvent(event, { announce: false })
-    await publisher.publish(id, event)
-    return id
+    return await store.events.appendEvent(event)
   }
   /**
    * What a device that followed the feed from the start holds, by event id:
@@ -131,31 +130,27 @@ describe('IssueEventFeedPublisher', () => {
   })
 
   it('keeps the window bounded, and equal to the query, across many events and kinds', async () => {
-    const { append, carried, window } = await harness({ windowSize: 3 })
+    const { store, ledger, append, carried, window } = await harness({ windowSize: 3 })
     for (let n = 0; n < 20; n++) {
       await append({ kind: n % 2 === 0 ? 'issue.closed' : 'issue.created' })
       await append({ kind: 'issue.mailSent' })
     }
     expect((await carried()).length).toBe(3)
     expect(await carried()).toEqual(await window())
+    await expectRecordLogParity(store, ledger, 'issueEvent', { eventWindow: 3 })
   })
 
-  it('carries what the table holds when two publishes overtake each other', async () => {
-    const { store, append, carried, window, publisher } = await harness({ windowSize: 2 })
+  it('serializes simultaneous appends with their window changes', async () => {
+    const { append, carried, window } = await harness({ windowSize: 2 })
     await append()
     await append()
-    // Two events land before either is published; the later one publishes first.
-    const event = { ts: TS, kind: 'issue.closed', subject: 'POD-13', repoPath: null, payload: {} }
-    const a = await store.events.appendEvent(event, { announce: false })
-    const b = await store.events.appendEvent(event, { announce: false })
-    await publisher().publish(b, event)
-    await publisher().publish(a, event)
+    const ids = await Promise.all([append(), append()])
     expect(await carried()).toEqual(await window())
-    expect(await window()).toEqual([a, b])
+    expect(await window()).toEqual(ids.sort((a, b) => a - b))
   })
 
   it('takes the events retention deleted off the feed, and carries the window that is left', async () => {
-    const { store, append, carried, window } = await harness({ windowSize: 3 })
+    const { store, ledger, append, carried, window } = await harness({ windowSize: 3 })
     for (let n = 0; n < 5; n++) await append()
     const newest = await carried()
     expect(newest.length).toBe(3)
@@ -164,52 +159,61 @@ describe('IssueEventFeedPublisher', () => {
     await store.events.pruneEventBatch(plan)
     await vi.waitFor(async () => expect(await carried()).toEqual(await window()))
     expect((await carried()).length).toBe(2)
+    await expectRecordLogParity(store, ledger, 'issueEvent', { eventWindow: 3 })
   })
 
-  it('reconciles the feed from the table at boot: pruned rows leave, missing rows arrive', async () => {
-    const { store, append, carried, window, reboot } = await harness({ windowSize: 3 })
-    const kept = await append()
-    // An event the feed never heard of (a publish lost to a crash) ...
-    await store.events.appendEvent(
-      { ts: TS, kind: 'issue.created', subject: 'POD-14' },
-      { announce: false },
-    )
-    // ... and a feed row whose event is gone (retention while it was down).
-    await store.sync.appendChanges(
-      [
-        {
-          entity: 'issueEvent',
-          entityId: issueEventRowId(9_999, 'POD-13'),
-          op: 'upsert',
-          payload: JSON.stringify({ id: issueEventRowId(9_999, 'POD-13'), eventId: 9_999 }),
-        },
-      ],
-      Date.now(),
-    )
-    expect(await carried()).not.toEqual(await window())
+  it('restarts without reading or rebuilding the window', async () => {
+    const { store, append, carried, window, reboot, ledger } = await harness({ windowSize: 3 })
+    for (let n = 0; n < 5; n++) await append()
+    const before = await carried()
+    const cursor = await ledger.cursor()
+    const reads = vi.spyOn(store.events, 'feedWindow')
+    const ids = vi.spyOn(store.events, 'feedWindowIds')
     await reboot()
+    expect(reads).not.toHaveBeenCalled()
+    expect(ids).not.toHaveBeenCalled()
+    expect(await ledger.cursor()).toBe(cursor)
+    expect(await carried()).toEqual(before)
+    await append()
     expect(await carried()).toEqual(await window())
-    expect(await carried()).toContain(kept)
-    expect(await carried()).not.toContain(9_999)
   })
 
-  it('never throws into the append path', async () => {
-    const store = await openTestStore(':memory:')
-    stores.push(store)
-    const publisher = new IssueEventFeedPublisher({
-      ledger: {
-        commit: () => {
-          throw new Error('the ledger is unavailable')
-        },
-        reconcile: async () => [],
-      },
-      events: store.events,
-      transact: async (fn) => await store.transact(fn),
-    })
-    const event = { ts: TS, kind: 'issue.closed', subject: 'POD-13', repoPath: null, payload: {} }
-    const id = await store.events.appendEvent(event, { announce: false })
-    await expect(publisher.publish(id, event)).resolves.toBeUndefined()
-    await expect(publisher.pruned([{ id, subject: 'POD-13' }])).resolves.toBeUndefined()
+  it('rolls the event insert back when its log append fails, even with announcements suppressed', async () => {
+    const { store, ledger, append, carried } = await harness({ windowSize: 2 })
+    await append()
+    const before = await carried()
+    const cursor = await ledger.cursor()
+    const failed = vi
+      .spyOn(store.sync, 'appendChanges')
+      .mockRejectedValueOnce(new Error('log unavailable'))
+    await expect(
+      store.events.appendEvent(
+        { ts: TS, kind: 'issue.closed', subject: 'POD-13' },
+        { announce: false },
+      ),
+    ).rejects.toThrow('log unavailable')
+    failed.mockRestore()
+    expect(await ledger.cursor()).toBe(cursor)
+    expect(await store.events.maxEventId()).toBe(before.at(-1))
+    expect(await carried()).toEqual(before)
+  })
+
+  it('rolls the event and log back with an enclosing transaction', async () => {
+    const { store, ledger, append, carried, window } = await harness({ windowSize: 2 })
+    await append()
+    await append()
+    const before = await carried()
+    const cursor = await ledger.cursor()
+    await expect(
+      store.transact(async () => {
+        await append()
+        expect(await carried()).toEqual(await window())
+        throw new Error('source rollback')
+      }),
+    ).rejects.toThrow('source rollback')
+    expect(await ledger.cursor()).toBe(cursor)
+    expect(await carried()).toEqual(before)
+    expect(await window()).toEqual(before)
   })
 
   it('logs nothing when retention leaves the carried window unchanged', async () => {

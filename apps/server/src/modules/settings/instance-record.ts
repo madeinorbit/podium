@@ -34,7 +34,6 @@ import { INSTANCE_PREFERENCES_RECORD } from '@podium/commands'
 import { describeError } from '@podium/logger'
 import {
   INSTANCE_PREFERENCES_ROW_ID,
-  instancePreferencesRecordOf,
   isAdminGrade,
   type UserId,
   type UserRole,
@@ -43,7 +42,6 @@ import type { LedgerWriter } from '@podium/sync'
 import { z } from 'zod'
 import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import { asSystemWrite } from '../../plain-command-scope'
-import type { SessionStore } from '../../store'
 import type { InstancePreferencesFeedCapture } from '../../store/settings'
 import { registerRecordKind } from '../records/generic'
 import { SyncWriteRefused } from '../sync-write/entry'
@@ -74,25 +72,6 @@ export function makeInstancePreferencesFeedCapture(
         }),
     )
   }
-}
-
-/** What the boot reconcile appends through: the boot's `server` writer. */
-export interface InstancePreferencesReconcileWriter {
-  reconcile(
-    entity: Parameters<LedgerWriter['reconcile']>[0],
-    rows: { id: string; value: unknown }[],
-  ): Promise<unknown>
-}
-
-/** The stored instance settings onto the log: the back-fill, and every boot's truth. */
-export async function reconcileInstancePreferences(
-  writer: InstancePreferencesReconcileWriter,
-  store: Pick<SessionStore, 'settings'>,
-): Promise<void> {
-  const settings = await store.settings.getSettings()
-  await writer.reconcile('instancePreferences', [
-    { id: INSTANCE_PREFERENCES_ROW_ID, value: instancePreferencesRecordOf(settings) },
-  ])
 }
 
 export interface InstancePreferencesRecordDeps {

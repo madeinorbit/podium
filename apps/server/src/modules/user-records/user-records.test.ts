@@ -26,7 +26,6 @@ import { openTestStore } from '../../test-support/open-test-store'
 import { testStoreRecords } from '../../test-support/record-writer'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import { envelope, expectAppliedOnPath, rowsOf, submit } from '../sync-write/outbox-test-support'
-import { reconcileUserRecords } from './reconcile'
 
 afterEach(() => disposeOracles())
 
@@ -397,6 +396,7 @@ async function feedFixture() {
   })
   const authority = new Authority({
     store: store.sync,
+    records: testStoreRecords(store),
     now: () => 1_000,
     transact: async (fn) => await store.transact(fn),
     visibility: new GrantEdgeVisibilityPolicy(policy.state, new NoDelegationsGranted()),
@@ -577,20 +577,14 @@ describe('the per-user records reach their owner only', () => {
 // The back-fill: rows stored before this build reach the log at boot
 // ---------------------------------------------------------------------------
 
-describe('the boot reconcile back-fills stored rows', () => {
-  it('every stored pin, order and preference becomes a log row, once', async () => {
+describe('bootstrap streams stored personal records', () => {
+  it('stored pins, orders and preferences need no log seed', async () => {
     const { store, authority } = await feedFixture()
     await store.sessions.addPin(ALICE, 'repo', '/r', '2026-01-01T00:00:00.000Z')
     await store.sessions.setTabOrder(ALICE, '/w', ['s1', 's2'])
     await store.settings.applyPreferencePatch(ALICE, { 'sidebar.repoSort': 'custom' }, 't')
-    const writer = {
-      reconcile: async (
-        entity: Parameters<Authority['reconcile']>[0],
-        rows: { id: string; value: unknown }[],
-      ) => await authority.reconcile(entity, rows),
-    }
 
-    await reconcileUserRecords(writer, store)
+
     const after = (await authority.bootstrap(principal(ALICE))).changes.filter((c) =>
       KINDS.has(c.entity),
     )
@@ -606,8 +600,6 @@ describe('the boot reconcile back-fills stored rows', () => {
     )
 
     // A restart appends nothing new.
-    const head = await authority.cursor()
-    await reconcileUserRecords(writer, store)
-    expect(await authority.cursor()).toBe(head)
+    expect(await authority.cursor()).toBe(0)
   })
 })

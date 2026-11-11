@@ -1351,7 +1351,10 @@ export class SessionRepository {
     })
     bootStage('sessions row recovery', rowsStarted)
     const baselineStarted = performance.now()
-    await this.backfillBirthRefs()
+    if (!(await this.store.settings.dataMigrationComplete('session-birth-refs-v1'))) {
+      await this.backfillBirthRefs()
+      await this.store.settings.completeDataMigration('session-birth-refs-v1')
+    }
     bootStage('sessions ref backfill', baselineStarted)
     const queuesStarted = performance.now()
     // Queued rows survive a restart (that's their point) and are counted from

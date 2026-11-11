@@ -3,7 +3,6 @@ import {
   asIssueId,
   type Instant,
   ISSUE_PANEL_KINDS,
-  type IssueDepProjection,
   type IssueGitState,
   type IssueId,
   type IssueJoinVia,
@@ -20,10 +19,8 @@ import {
   isSystemOwnedIssueStage,
   issueOverlayOf,
   issueUserStateRowId,
-  issueUserStateToWire,
   type MachineId,
   machinePathHasSuffix,
-  type RepoProjection,
   requireInstant,
   type SessionMeta,
   type UserId,
@@ -36,13 +33,10 @@ import { afterCommit } from '../../../store/executor/executor'
 import type { SessionFacts } from '../../sessions/facts'
 import { normalizeBlankIssueText } from '../blank-text'
 import {
-  issueBodiesOf,
-  issueDepProjectionRows,
   issueDepToProjection,
   issueProjectionRows,
   issueRowToProjection,
   repoProjectionRows,
-  slimIssueProjection,
 } from '../projection'
 import { IssueNotFound } from './not-found'
 import { IssueRefusal } from './refusal'
@@ -913,25 +907,6 @@ export class IssueStore {
     return await this.panelRecords(rows.filter((row) => row.deletedAt).map((row) => row.id))
   }
 
-  /** Rebuild companions from stored facts, including observations from before restart. */
-  async reconcileCompanions(): Promise<void> {
-    await this.deps.store.transact(async () => {
-      const gitRows: { id: string; value: unknown }[] = []
-      for await (const page of this.deps.store.issues.gitStates.pages()) {
-        gitRows.push(...page.map((value) => ({ id: value.id, value })))
-      }
-      await this.deps.ledger.reconcile('issueGitState', gitRows)
-    })
-    const states = await this.deps.store.issues.listIssueUserStateRows()
-    await this.deps.ledger.reconcile(
-      'issueUserState',
-      states.map((state) => ({
-        id: issueUserStateRowId(state.userId, state.entityId),
-        value: issueUserStateToWire(state),
-      })),
-    )
-  }
-
   /** Full LOCAL projection truth for a reconcile. `undefined` = do not reconcile
    *  this kind (a row that cannot be projected — see {@link issueProjectionRows}
    *  on why that is all-or-nothing). Flag off returns EMPTY, not undefined, and
@@ -953,35 +928,6 @@ export class IssueStore {
     return inRepositoryOrder(projected, (entry) => entry.row).map((entry) => entry.projection)
   }
 
-  /** Reconcile the issueProjection kind against the database's full truth,
-   *  read and diffed in one span, so no write commits between the read and the
-   *  diff it would undo. */
-  async reconcileProjections(): Promise<void> {
-    for (const entity of ISSUE_PANEL_KINDS) {
-      const rows: { id: string; value: unknown }[] = []
-      for await (const page of this.deps.store.issues.panel.pages(entity))
-        rows.push(...page.map((value) => ({ id: value.id, value })))
-      await this.deps.ledger.reconcile(entity, rows)
-    }
-
-    await this.deps.store.transact(async () => {
-      const projections = await this.allProjections()
-      if (!projections) return
-      // The slim record and its body headers, as every write commits them (POD-6767).
-      await this.deps.ledger.reconcile(
-        'issueProjection',
-        projections.map(({ id, value }) => ({ id, value: slimIssueProjection(value) })),
-      )
-      await this.deps.ledger.reconcile(
-        'issueBodies',
-        projections.flatMap(({ id, value }) => {
-          const bodies = issueBodiesOf(value)
-          return bodies ? [{ id, value: bodies }] : []
-        }),
-      )
-    })
-  }
-
   // ---- The two kinds the replica JOINS against [POD-822] ----
   //
   // `deps` and `prefix` are the two fields the replica's issue views READ that
@@ -998,55 +944,6 @@ export class IssueStore {
     deps: readonly { fromId: string; toId: string; type: string }[],
   ): AffectedRecordSpec[] {
     return deps.map((dep) => ({ entity: 'issueDep' as const, id: issueDepToProjection(dep).id }))
-  }
-
-  /** Full LOCAL dep-edge truth for a reconcile. Flag OFF returns
-`undefined` means only "cannot project, do not touch the
-   *  kind" (an edge that cannot be projected — all-or-nothing, see
-   *  {@link issueDepProjectionRows}).
-   *
-   *  O(edges), and it runs only on the full-truth paths (boot, write-less
-   *  rebroadcast) that are already O(issues) — never per dep change, which
-   *  names its one row through {@link depRecords} instead. This is also what
-   *  catches the removes no write declares: `issue_deps` has `ON DELETE CASCADE`
-   *  from `issues`, so deleting an issue silently vaporises its edges, and only a
-   *  full-truth diff can notice rows that left without anyone saying so. */
-  async allDepProjections(): Promise<{ id: string; value: IssueDepProjection }[] | undefined> {
-    return issueDepProjectionRows(await this.deps.store.issues.listAllIssueDeps())
-  }
-
-  /** Full LOCAL repo truth for a reconcile. O(repos) — a handful of
-   *  rows, deduped to the LOGICAL repo (several checkouts, one entity). */
-  async allRepoProjections(): Promise<{ id: string; value: RepoProjection }[] | undefined> {
-    return repoProjectionRows(await this.deps.store.repos.listRepos())
-  }
-
-  /**
-   * Publish the repo truth [POD-822] — called by the repo registry after a
-   * prefix write, which is the ONLY thing that moves this entity today.
-   *
-   * A prefix change has no issue write to ride along with, and without this the
-   * replica's `displayRef`s would not move until someone happened to touch an
-   * issue — a bug that would look like caching and would in fact be a missing
-   * emitter. Reconcile rather than a declared change because the registry writes
-   * through the store directly (no ledger commit to hang a declaration on), and
-   * because at O(repos) the full-truth diff is cheaper than the machinery to
-   * avoid it. The ledger's byte-equality dedup means a no-op prefix write
-   * appends nothing.
-   *
-   * NOT a D7.2 breach, and worth being precise about why: this is O(repos), not
-   * O(issues). Materializing `displayRef` onto issues instead — the D7.4 option
-   * this slice rejected — is what would make a prefix change O(repo's issues) on
-   * the write path. The whole point of the repo entity is that this stays one row.
-   */
-  async publishRepos(): Promise<void> {
-    const repos = await this.allRepoProjections()
-    if (!repos) return
-    try {
-      await this.deps.ledger.reconcile('repo', repos)
-    } catch (err) {
-      log.warn('repo projection publish failed', { err })
-    }
   }
 
   /**
@@ -1079,17 +976,6 @@ export class IssueStore {
     return result
   }
 
-  /** Reconcile own rows and companions at boot or after a hard delete. */
-  async reconcileAndPublish(): Promise<void> {
-    await this.reconcileProjections()
-    await this.reconcileCompanions()
-    // The edges reconcile on the same full-truth passes [POD-822], for the same
-    // reason the projections do: this path exists to catch what no write
-    // declared, and a CASCADE delete (an issue removed takes its edges with it)
-    // is exactly that.
-    const depProjections = await this.allDepProjections()
-    if (depProjections) await this.deps.ledger.reconcile('issueDep', depProjections)
-  }
   /** Append to the durable event log. Best-effort: a log failure must never
    *  break the mutation that triggered it. repoPath comes from the subject row. */
   async emitEvent(kind: string, subject: string, payload: Record<string, unknown>): Promise<void> {

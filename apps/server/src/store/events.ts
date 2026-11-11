@@ -816,6 +816,10 @@ export type EventAppendListener = (
   event: { ts: string; kind: string; subject: string; repoPath: string | null; payload: unknown },
 ) => void | Promise<void>
 
+/** The log append runs inside the event insert's transaction, even when its
+ * post-commit announcement is suppressed. A failure rolls both writes back. */
+export type EventFeedCapture = EventAppendListener
+
 /** The feed-kind events one retention batch deleted, inside its transaction. */
 export type EventPruneFeedCapture = (
   deleted: readonly { id: number; subject: string }[],
@@ -827,6 +831,7 @@ export class EventsRepository {
    *  between store construction and wiring — an event appended in that window is
    *  boot bookkeeping nobody is connected to see. */
   private appendListener: EventAppendListener | undefined
+  private feedCapture: EventFeedCapture | undefined
   /** The feed publisher's transactional retention hook, installed with it. */
   private pruneFeedCapture: EventPruneFeedCapture | undefined
 
@@ -859,6 +864,10 @@ export class EventsRepository {
    *  seam, not a general event bus (the orchestrator already has one). */
   async onAppend(listener: EventAppendListener): Promise<void> {
     this.appendListener = listener
+  }
+
+  setFeedCapture(capture: EventFeedCapture): void {
+    this.feedCapture = capture
   }
 
   /** Capture retention's window change before another write can overtake it. */
@@ -1031,41 +1040,50 @@ export class EventsRepository {
     },
     options: { announce?: boolean } = {},
   ): Promise<number> {
-    const r = await insertEvent(this.db).run({
-      ts: e.ts,
-      kind: e.kind,
-      subject: e.subject,
-      repoPath: e.repoPath ?? null,
-      payload: JSON.stringify(e.payload ?? {}),
-    })
-    const id = Number(r.lastInsertRowid)
-    // AFTER the insert, never before: the feed must not carry a row the log does
-    // not have. The listener is documented as non-throwing, and this call is not
-    // guarded here on purpose — a swallow at both ends hides a wiring fault
-    // behind a pane that simply never updates.
-    //
-    // AND AFTER THE COMMIT, when this append is inside one [POD-3260, spec §3.3
-    // mechanism 3]. Publication is an EXTERNAL EFFECT, and "after the insert" is
-    // not the same statement as "after the commit": a caller that appends inside
-    // a transaction was announcing a row that the enclosing span could still roll
-    // back, so a listener saw an event the log ended up not having — the exact
-    // direction this comment was written to prevent, one level up. The 22 call
-    // sites that reach this from a span body needed no change: the rule belongs
-    // at the one place the announcement happens, not on a list somebody has to
-    // keep complete. `persistManyWith` already did this by hand with
-    // `announce: false` plus `announceEvent`, and that convention still works
-    // unchanged — this makes it the default rather than the exception.
-    if (options.announce !== false) {
-      const announced = {
+    return await this.createOrJoinTransaction(async () => {
+      const r = await insertEvent(this.db).run({
+        ts: e.ts,
+        kind: e.kind,
+        subject: e.subject,
+        repoPath: e.repoPath ?? null,
+        payload: JSON.stringify(e.payload ?? {}),
+      })
+      const id = Number(r.lastInsertRowid)
+      await this.feedCapture?.(id, {
         ts: e.ts,
         kind: e.kind,
         subject: e.subject,
         repoPath: e.repoPath ?? null,
         payload: e.payload ?? {},
+      })
+      // AFTER the insert, never before: the feed must not carry a row the log does
+      // not have. The listener is documented as non-throwing, and this call is not
+      // guarded here on purpose — a swallow at both ends hides a wiring fault
+      // behind a pane that simply never updates.
+      //
+      // AND AFTER THE COMMIT, when this append is inside one [POD-3260, spec §3.3
+      // mechanism 3]. Publication is an EXTERNAL EFFECT, and "after the insert" is
+      // not the same statement as "after the commit": a caller that appends inside
+      // a transaction was announcing a row that the enclosing span could still roll
+      // back, so a listener saw an event the log ended up not having — the exact
+      // direction this comment was written to prevent, one level up. The 22 call
+      // sites that reach this from a span body needed no change: the rule belongs
+      // at the one place the announcement happens, not on a list somebody has to
+      // keep complete. `persistManyWith` already did this by hand with
+      // `announce: false` plus `announceEvent`, and that convention still works
+      // unchanged — this makes it the default rather than the exception.
+      if (options.announce !== false) {
+        const announced = {
+          ts: e.ts,
+          kind: e.kind,
+          subject: e.subject,
+          repoPath: e.repoPath ?? null,
+          payload: e.payload ?? {},
+        }
+        afterCommit(() => this.appendListener?.(id, announced), `podium-event:${e.kind}`)
       }
-      afterCommit(() => this.appendListener?.(id, announced), `podium-event:${e.kind}`)
-    }
-    return id
+      return id
+    })
   }
 
   /**
@@ -1124,7 +1142,9 @@ export class EventsRepository {
                 }),
             ),
           )
-          group.forEach((pending, i) => pending.resolve(ids[i]!))
+          group.forEach((pending, i) => {
+            pending.resolve(ids[i]!)
+          })
         } catch (error) {
           for (const pending of group) pending.reject(error)
         }

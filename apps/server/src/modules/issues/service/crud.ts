@@ -2400,6 +2400,22 @@ export class IssueCrudModule {
         ...(await this.store.issueRecords(id)),
         // And its panel items.
         ...(await this.store.panelRecords([id])),
+        // Both sides of dependency cascades, and children whose parent becomes
+        // null, change in this delete rather than in a later full-table diff.
+        ...this.store.depRecords([
+          ...(await this.store.deps.store.issues.listIssueDeps(purged.id)).map((dep) => ({
+            fromId: purged.id,
+            ...dep,
+          })),
+          ...(await this.store.deps.store.issues.listDependents(purged.id)).map((dep) => ({
+            toId: purged.id,
+            ...dep,
+          })),
+        ]),
+        ...(await this.store.deps.store.issues.liveChildrenOf([id])).map((child) => ({
+          entity: 'issueProjection' as const,
+          id: child.id,
+        })),
         ...(await this.store.deps.store.sessions.pinnersOf('issue', id)).map((userId) =>
           pinRecord(userId, 'issue', id),
         ),
@@ -2423,13 +2439,6 @@ export class IssueCrudModule {
         this.store.announceWorktreeMove(purged.id, worktreeOf(purged), null)
       },
     })
-    // The full-list tail reconciles BOTH kinds (POD-796), so the purge reaches
-    // the normalized feed as the remove reconcile derives from full truth. It
-    // stays INSIDE the span: `reconcileAndPublish` appends change ROWS through
-    // `ledger.reconcile`, a durable write that belongs where it rolls back with
-    // the transaction. It reads the database inside the span (POD-6158), so it
-    // sees the delete and its ON DELETE SET NULL cascade.
-    await this.store.reconcileAndPublish()
     // Hard delete: drop any artifact snapshots too ([spec:SP-0fc9], best-effort).
     // Awaited: a retry that reuses the client-minted id must not move files
     // into a directory this is still deleting (POD-2148).

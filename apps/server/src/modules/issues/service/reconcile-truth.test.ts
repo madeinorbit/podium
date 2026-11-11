@@ -83,8 +83,6 @@ describe('full-truth reconcile over the database', () => {
     expect(truth?.map((entry) => entry.id)).toEqual(['iss_1', 'iss_2', 'iss_3', 'iss_4', '', 'iss_b1', 'iss_b2'])
     // Both reconciles run over these rows, the empty id and the unknown
     // observation included.
-    await expect(issues.reconcileProjections()).resolves.toBeUndefined()
-    await expect(issues.reconcileCompanions()).resolves.toBeUndefined()
 
     // Pages end where they should, and the quarantined row costs only itself.
     const pages: string[][] = []

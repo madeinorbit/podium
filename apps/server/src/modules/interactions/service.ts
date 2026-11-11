@@ -151,16 +151,10 @@ export interface InteractionServiceDeps {
   readonly store: InteractionsRepository
   now(): string
   /**
-   * Publish the row onto the durable metadata feed. Every mutation calls it;
-   *  the publisher decides what a replica sees.
-   *
-   * PROMISE-TYPED BECAUSE IT WRITES THE STORE [POD-3820]. The composition root
-   * wires this to an `async` feed publish. Typed `=> void` that wiring was
-   * accepted anyway (TypeScript's void-return special case) and the promise had
-   * nowhere to go; the honest type makes {@link InteractionService.announce}'s
-   * `afterCommit` hand-off the only thing that compiles.
+   * Optional post-commit observer. The durable feed is captured by the
+   * repository in the source transaction; observers see committed changes only.
    */
-  publish(row: InteractionRow): Promise<void>
+  publish?(row: InteractionRow): Promise<void>
   /**
    * THE EXISTING DELIVERY GATE, injected rather than imported so a test can
    * drive the aggregate without a session. This is `deliverAnswerToSession`
@@ -275,7 +269,7 @@ export class InteractionService {
   /**
    * Announce a row AFTER the caller's span commits [POD-3806].
    *
-   * `deps.publish` is wired at the composition root to an `async` feed publish.
+   * `deps.publish` is an optional asynchronous observer.
    * It used to be typed `=> void`, so every call site here discarded a promise.
    * Under the async store executor that discarded transaction JOINS the span
    * this mutation is running inside, as a savepoint: the mutation's next
@@ -290,7 +284,7 @@ export class InteractionService {
    * span open `afterCommit` publishes now, exactly as before.
    */
   private announce(row: InteractionRow): void {
-    afterCommit(() => this.deps.publish(row), 'interaction-publish')
+    if (this.deps.publish) afterCommit(() => this.deps.publish?.(row), 'interaction-publish')
   }
 
   /**

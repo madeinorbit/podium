@@ -446,6 +446,7 @@ export class SessionStore {
       this.grants.machineRecordWrites,
     )
     this.users = new UsersRepository(this.queries, this.machines, this.grants)
+    this.users.setMemberCreated(async (userId) => await this.superagent.seedMemberGlobalThread(userId))
     this.telegramBindings = new TelegramBindingsRepository(this.queries)
     this.events = new EventsRepository(this.queries)
     this.notificationFacts = new NotificationFactsRepository(this.queries)
@@ -505,8 +506,9 @@ export class SessionStore {
     )
     await this.conversations.ensureFts(this.searchIndexEnabledValue)
     await this.superagent.seedGlobalThread()
-    await this.issues.renumberCollidingIssueSeqs()
-    await this.healDanglingIssueReferences()
+    // UNIQUE(repo_id, seq) is installed by the schema migrations. Historical
+    // dangling references are repaired once by sync-without-boot-reconcile,
+    // which also invalidates their synced records with generation changes.
   }
 
   /** Run-once historical migration; no receipt until the host is enrolled. */
@@ -516,19 +518,6 @@ export class SessionStore {
       log.warn(
         `pinned ${result.backfilled} legacy worktree issue(s) to ${result.hostMachineId}; ` +
           `left ${result.skipped} for manual recovery (a session on another machine contradicts this host)`,
-      )
-    }
-  }
-
-  /** Per-boot heal (idempotent): clear session pointers and letter counters whose
-   *  issue was hard-purged. Reports only when it actually found something. */
-  private async healDanglingIssueReferences(): Promise<void> {
-    const sessions = await this.sessions.detachDanglingIssueReferences()
-    const letters = await this.issues.pruneOrphanRefLetters()
-    if (sessions > 0 || letters > 0) {
-      log.warn(
-        `boot heal detached ${sessions} session(s) and dropped ` +
-          `${letters} ref-letter counter(s) pointing at deleted issues`,
       )
     }
   }

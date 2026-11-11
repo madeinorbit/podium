@@ -8,7 +8,7 @@
  * in its `write`, with the commit's scope. The commit names the layout rows it
  * may affect, and the Authority appends a change entry for each one the write
  * changed (compare at save, POD-6769). The writer comes from the sync handler,
- * per call; the service holds none of its own except the boot reconcile's.
+ * per call; the service holds none of its own.
  */
 
 import { createLogger } from '@podium/logger'
@@ -26,12 +26,6 @@ const PANEL_MODE_LAYOUT_KEY = 'panelMode'
 
 export interface LayoutServiceDeps {
   readonly layout: UserLayoutRepository
-  /**
-   * The boot reconcile's writer, a `server` origin (`boot.reconcile`): every
-   * durable layout row onto the log before the first bootstrap. Optional only
-   * for pure unit tests of storage; production always wires it.
-   */
-  readonly boot?: Pick<LedgerWriter, 'reconcile'>
 }
 
 export class LayoutService {
@@ -101,21 +95,6 @@ export class LayoutService {
     return changed
   }
 
-  /**
-   * Boot reconcile: every durable layout row becomes a positive upsert on the
-   * log so a reconnecting principal's bootstrap sees them without a second path.
-   */
-  async reconcileAllToLedger(): Promise<void> {
-    if (!this.deps.boot) return
-    // Reconcile needs the full entity truth: limiting this to migrated tip keys
-    // would remove every other layout entry from the feed. It also deduplicates
-    // unchanged rows, so restarting does not append a second set of seed events.
-    const rows = await this.deps.layout.allForBootReconcile()
-    await this.deps.boot.reconcile(
-      'userLayout',
-      rows.map((value) => ({ id: layoutRowId(value.userId, value.key), value })),
-    )
-  }
 }
 
 /** The layout rows of these keys: the records a set or a clear may affect. */

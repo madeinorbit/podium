@@ -99,7 +99,7 @@ import type { MessageRow, SessionRow } from '../../store/types'
 export const CONFIRMED_PER_SESSION = 20
 
 export interface MessageFeedDeps {
-  readonly ledger: Pick<LedgerWriter, 'commit' | 'reconcile'>
+  readonly ledger: Pick<LedgerWriter, 'commit'>
   /** The window's reads ({@link messageWindow}, {@link MessagesRepository.confirmedChatTail}). */
   readonly messages: Pick<
     MessagesRepository,
@@ -214,8 +214,6 @@ function tailsBySession(rows: readonly MessageRow[]): Map<string, MessageRow[]> 
 }
 
 export class MessageFeedPublisher {
-  private live = false
-  private resolving: Promise<void> | undefined
   private readonly perSession: number
 
   constructor(private readonly deps: MessageFeedDeps) {
@@ -224,14 +222,12 @@ export class MessageFeedPublisher {
 
   /** The repository's capture port. Runs inside the write's transaction. */
   readonly capture: MessageFeedCapture = async (rows, confirms) => {
-    // Before `resolve`, the reconcile's read of the table will carry it.
-    if (this.live) await this.publish(rows, confirms)
+    await this.publish(rows, confirms)
   }
 
   /** Session writes know their ids first. Compare their existing confirmed
    *  tails around the row write, including tails a revival will admit. */
   readonly writeSessions: SessionMessageWindowWrite = async (ids, write) => {
-    if (!this.live) return await write()
     await this.deps.ledger.commit({
       affects: async () =>
         [
@@ -240,23 +236,6 @@ export class MessageFeedPublisher {
           ),
         ].map(([id]) => ({ entity: 'message' as const, id })),
       write,
-    })
-  }
-
-  /** Reconcile the full truth once, then go live. */
-  async resolve(): Promise<void> {
-    this.resolving ??= this.reconcile()
-    await this.resolving
-  }
-
-  private async reconcile(): Promise<void> {
-    await this.deps.transact(async () => {
-      const truth = await messageWindow(this.deps.messages, this.perSession)
-      await this.deps.ledger.reconcile(
-        'message',
-        [...truth].map(([id, value]) => ({ id, value })),
-      )
-      this.live = true
     })
   }
 

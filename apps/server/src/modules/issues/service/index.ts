@@ -1,8 +1,3 @@
-import {
-  attributionOf,
-  type SystemCommandPrincipal,
-  systemPrincipal,
-} from '../../../command-principal'
 import { IssueAttentionModule } from './attention'
 import { IssueStore } from './core'
 import { IssueCrudModule } from './crud'
@@ -204,7 +199,6 @@ export { DEFAULT_ISSUE_REPORT_VISIBILITY, type IssueReportVisibilityPolicy } fro
  * module's state. Callers address the owning capability directly.
  */
 class IssueServiceRoot implements IssueTrackerCapabilities {
-  private readonly store: IssueStore
   readonly crud: IssueCrudModule
   readonly hierarchy: IssueHierarchyModule
   readonly commentsMail: IssueCommentsMailModule
@@ -213,10 +207,8 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
   readonly reports: IssueReportsModule
 
   /**
-   * Compose the tracker WITHOUT reading anything. The caller owns hydration and
-   * runs {@link IssueServiceRoot.boot} as its own boot step — this
-   * is the shape a composition root needs, because at the flip a constructor
-   * cannot await and `relay.ts` composes this object inside one.
+   * Compose the tracker without reading stored issues. Reads and bootstraps
+   * use the database directly; every write names its affected records.
    */
   static compose(deps: IssueDeps): IssueServiceRoot {
     return new IssueServiceRoot(deps)
@@ -233,7 +225,6 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
 
   private constructor(deps: IssueDeps) {
     const store = new IssueStore(deps)
-    this.store = store
 
     let crud: IssueCrudModule
     let hierarchy: IssueHierarchyModule
@@ -272,41 +263,25 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
     this.gitWorkflow = gitWorkflow
   }
 
+  /** Historical cwd-only memberships are written through the session funnel
+   * once. A later start checks one durable receipt instead of listing sessions. */
+  async recoverLegacyMembership(): Promise<void> {
+    const store = this.reports.store
+    const settings = store.deps.store.settings
+    const migration = 'session-issue-membership-v1'
+    if (await settings.dataMigrationComplete(migration)) return
+    const setSessionIssueId = store.deps.setSessionIssueId
+    if (!setSessionIssueId) return
+    for (const session of await store.deps.readSessionFacts()) {
+      if (session.issueId != null) continue
+      const issueId = await this.reports.soleOwnerForCwd(session.cwd)
+      if (issueId) await setSessionIssueId(store.serverWriter, session.sessionId, issueId)
+    }
+    await settings.completeDataMigration(migration)
+  }
+
   // Comment writes go through commentsMail.addComment, whose principal is
   // required. No operator/admin default is supplied by this root (POD-1315).
-
-  /** Boot membership totalization and ledger reconcile. Loads no issue rows
-   *  into memory (POD-6158): the reconcile reads them a page at a time. */
-  async boot(principal: SystemCommandPrincipal = systemPrincipal('boot-reconcile')): Promise<this> {
-    const store = this.store
-    const setSessionIssueId = store.deps.setSessionIssueId
-    if (setSessionIssueId) {
-      let totalized = 0
-      for (const session of await store.deps.readSessionFacts()) {
-        if (session.issueId != null) continue
-        const issueId = await this.reports.soleOwnerForCwd(session.cwd)
-        if (!issueId) continue
-        await setSessionIssueId(store.serverWriter, session.sessionId, issueId)
-        totalized += 1
-      }
-      if (totalized > 0) {
-        log.warn('boot attached legacy cwd-only sessions', { attached: totalized })
-      }
-    }
-    try {
-      await store.reconcileProjections()
-      await store.reconcileCompanions()
-      const depProjections = await store.allDepProjections()
-      if (depProjections) await store.deps.ledger.reconcile('issueDep', depProjections)
-      await store.publishRepos()
-      await store.emitEvent('issue.boot_reconciled', 'system', {
-        attribution: attributionOf(principal),
-      })
-    } catch (err) {
-      log.warn('boot reconciliation record failed', { err })
-    }
-    return this
-  }
 }
 
 export {
@@ -322,9 +297,5 @@ export {
   type IssueTreeSession,
   UNSNOOZE_BACKDATE_MS,
 } from './types'
-
-import { createLogger } from '@podium/logger'
-
-const log = createLogger('server:issues')
 
 export { IssueServiceRoot as IssueService }

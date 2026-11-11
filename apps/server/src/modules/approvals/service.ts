@@ -141,8 +141,6 @@ export const APPROVAL_EXEC_DEADLINE_MS = 7 * 60_000
 /** The most waiting requests one duplicate check reads. */
 const AWAITING_LIMIT = 500
 
-/** How many copied rows one boot write republishes. */
-const PUBLISH_BATCH = 100
 
 /**
  * The closed server catalog (POD-6415): the ops the SERVER runs after approval,
@@ -634,25 +632,6 @@ export class ApprovalService {
           })
         ).result,
     )
-  }
-
-  /**
-   * Put the approval rows the POD-6674 migration copied in on the feed: each is
-   * written again through the effects funnel, so every device receives it. Run
-   * once at boot; a second run finds nothing.
-   */
-  async publishCopiedRecords(): Promise<number> {
-    let total = 0
-    for (;;) {
-      const batch = (
-        await this.deps.writer.commit({
-          write: async (scope) => await this.deps.effects.publishCopied(scope, PUBLISH_BATCH),
-          changes: () => [],
-        })
-      ).result
-      total += batch.length
-      if (batch.length < PUBLISH_BATCH) return total
-    }
   }
 
   /** The `approval` effect kind: the record is the request (see the header). */

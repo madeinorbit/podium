@@ -42,8 +42,8 @@
  *  6. Re-pin the kind's statement-count tests: two builds replace one read of
  *     `change_latest`.
  *
- * The boot reconcile of a moved kind still compares against `change_latest`
- * (it has no write to build around); it goes with the boot re-check (POD-6221).
+ * Boot never reconciles a moved kind: migrations bump its sync_kind
+ * generation, and client reloads stream the current model tables (POD-6221).
  */
 
 import type { MetadataEntityKind } from '@podium/protocol'
@@ -109,15 +109,12 @@ export const COMPARE_AT_SAVE_KINDS: readonly MetadataEntityKind[] = [
  *    was an effect row rewritten on every poll).
  *  - An `issueEvent` insert allocates its event id, and retention returns
  *    the ids it deleted. The window then identifies the arrivals and evictions.
- *    Appends publish after the event's transaction. A crash in between leaves
- *    the log behind until the boot reconcile. Retention captures its changes
- *    inside the deletion's transaction.
+ *    Append and retention captures run inside their row transaction; any
+ *    log failure rolls the source write back.
  *  - A `pendingInteraction` guarded insert or state transition determines
  *    which ask changed, including a fingerprint collision that reuses an
- *    existing id. The service announces only successful changes, after their
- *    transaction. A crash in between leaves a missing or stale ask on clients.
- *    The boot reconcile restores the open set. Announcements that overtake
- *    each other can append repeated removes.
+ *    existing id. The repository captures successful changes inside the row
+ *    transaction, so there is no later publication a crash can lose.
  *  - The `message` repository's guarded statements RETURN only the rows
  *    they changed, and a confirmation determines which older messages leave
  *    its session's window. The capture and the row write share a transaction.

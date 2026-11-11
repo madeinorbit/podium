@@ -619,11 +619,11 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   ['apps/server/src/store/users.ts:activeRecordMembers', 'Enabled members id and role only, for each member machine-access record. The output necessarily covers the enabled membership; no credential or other account data is loaded.'],
   [
     'apps/server/src/store/messages.ts:confirmedChatWindow',
-    "The chat feed's confirmed window as a query (POD-6763, POD-6766): each live session's newest confirmed operator messages, ranked by a window function, which sorts each session's confirmed messages, after a read of `sessions` finds the live ones. Read by the message feed's boot reconcile and the record builder's `streamAll`, never per write (a write reads `confirmedChatTail`). Bounded by live sessions, not by history; the start-up load phase decides whether it stays.",
+    "The chat feed's confirmed window as a query (POD-6763, POD-6766): each live session's newest confirmed operator messages, ranked by a window function, which sorts each session's confirmed messages, after a read of `sessions` finds the live ones. Read by the record builder's `streamAll` during client bootstrap, never at server startup or per write (a write reads `confirmedChatTail`). Bounded by live sessions, not by history; the start-up load phase decides whether it stays.",
   ],
   [
     'apps/server/src/store/checkouts.ts:allCheckouts',
-    "Whole-table read (POD-6644): the boot reconcile puts every live checkout on the change log once per server start, the `checkout` kind's full truth; nothing at request time reads it.",
+    'The checkout record builder streams stored rows during client bootstrap. Server startup never reads them.',
   ],
   [
     'apps/server/src/store/issue-listings.ts:issueListing',
@@ -655,11 +655,11 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   ],
   [
     'apps/server/src/store/issues.ts:issueSeqRows',
-    'Whole-table read (POD-6172): the boot repair that renumbers colliding issue sequence numbers walks every issue once per boot (store.ts boot heal).',
+    'Explicit legacy collision-repair test oracle. Migrations enforce UNIQUE(repo_id, seq); server startup never runs this repair.',
   ],
   [
     'apps/server/src/store/issues.ts:allDeps',
-    'Whole-table read (POD-6172): every dependency edge, for the issueDep full-truth reconcile (boot, write-less rebroadcast: it is what notices edges an ON DELETE CASCADE removed) and for the deck (deck.ts), which joins the edges of the issues it shows.',
+    'Whole-table read (POD-6172): every dependency edge, for the issueDep record builder during client bootstrap and for the deck (deck.ts), which joins the edges of the issues it shows.',
   ],
   [
     'apps/server/src/store/issues.ts:commentCountsByIssue',
@@ -667,39 +667,31 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   ],
   [
     'apps/server/src/store/workflows.ts:everyRun',
-    'Whole-table read (POD-6676): every workflow run, with its revision’s workflow, for the `workflowRun` kind’s full-truth reconcile at boot (reconcileWorkflowRecords), once per boot.',
+    'The workflowRun record builder streams runs during client bootstrap. Server startup never reads stored workflow history.',
   ],
   [
     'apps/server/src/store/workflows.ts:everyRunStep',
-    'Whole-table read (POD-6676): every run step, read with the runs for the same boot reconcile, in the primary key’s run order; once per boot.',
+    'The workflowRun record builder joins run steps during client bootstrap. Server startup never reads them.',
   ],
   [
     'apps/server/src/store/sessions.ts:allPins',
-    "Whole-table read (POD-6673): every person's pins for the `pin` kind's full-truth reconcile at boot (reconcileUserRecords), once per boot.",
+    "The pin record builder streams each person's pins during client bootstrap; never at server startup.",
   ],
   [
     'apps/server/src/store/superagent.ts:allThreads',
-    "Whole-table read (POD-6675): every person's superagent threads for the `superagentThread` kind's full-truth reconcile at boot (reconcileSuperagentThreads), once per boot.",
-  ],
-  [
-    'apps/server/src/store/superagent.ts:syncTurnRunning',
-    "Whole-table update (POD-6675): the boot truth of every thread's `turn_running`, set from its pending-turn row (each probe on the pending table's unique thread index), once per boot before the reconcile.",
-  ],
-  [
-    'apps/server/src/store/superagent.ts:seedMemberGlobals',
-    'Whole-table read (POD-6675): every active member without a global superagent thread gets one, once per boot (the users table is the roster; each probe of superagent_threads is on its owner index).',
+    'The superagentThread record builder streams stored threads during client bootstrap; never at server startup.',
   ],
   [
     'apps/server/src/store/user-preferences.ts:allPreferenceRows',
-    "Whole-table read (POD-6673): every person's preference leaves for the `userPreferences` kind's full-truth reconcile at boot (reconcileUserRecords), once per boot.",
+    'The userPreferences record builder streams stored preferences during client bootstrap; never at server startup.',
   ],
   [
     'apps/server/src/store/issues.ts:allIssueUserStateRows',
-    "Whole-table read (POD-6172): every person's issue state for the issueUserState full-truth reconcile at boot (IssueService.reconcileCompanions).",
+    'The issueUserState record builder streams personal rows during client bootstrap; never at server startup.',
   ],
   [
     'apps/server/src/store/issues.ts:deleteOrphanRefLetters',
-    'Whole-table read (POD-6172): the per-boot heal (store.ts healDanglingIssueReferences) drops ref-letter counters whose issue was hard-purged; one sweep per boot, idempotent.',
+    'Explicit legacy repair test oracle. The historical data repair runs once in sync-without-boot-reconcile; server startup never runs it.',
   ],
   [
     'apps/server/src/store/sessions.ts:liveSessions',
@@ -715,7 +707,7 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   ],
   [
     'apps/server/src/store/sessions.ts:detachDanglingReferences',
-    'Whole-table read (POD-6172): the per-boot heal (store.ts healDanglingIssueReferences) clears session pointers to hard-purged issues; one sweep per boot, idempotent.',
+    'Explicit legacy repair test oracle. The historical data repair runs once in sync-without-boot-reconcile; server startup never runs it.',
   ],
   [
     'apps/server/src/store/sessions.ts:allUserStateRows',
@@ -743,11 +735,7 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   ],
   [
     'apps/server/src/store/automations.ts:allLiveRuns',
-    'Whole-table read (POD-6172): every live automation run for the automationRun full-truth reconcile at boot (AutomationsService.reconcileFromStore); nothing else reads it.',
-  ],
-  [
-    'apps/server/src/store/conversations/registry.ts:clearStraySubagentPaths',
-    'Whole-table read (POD-6172): one boot repair UPDATE (memory repairSubagentEvidence) clears subagent paths stored on conversation segments; a LIKE on a path built from the row, once per boot.',
+    'The automationRun record builder streams stored runs during client bootstrap; never at server startup.',
   ],
   [
     'apps/server/src/store/machines.ts:legacySentinelScan',
@@ -759,15 +747,15 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   ],
   [
     'apps/server/src/store/shipping.ts:allStackEdgesOrdered',
-    "Whole-table read (POD-6172): every recorded native-stack edge, for the order-plane full truth at boot (relay and ShippingService.fullProjection) only; a train claim reads its lane's edges.",
+    'The shipLane record builder streams stack edges during client bootstrap; never at server startup.',
   ],
   [
     'apps/server/src/store/shipping.ts:allHolds',
-    "Whole-table read (POD-6172): every ship hold, for the order-plane full truth at boot (relay and ShippingService.fullProjection) only; a new hold's generation is one order's MAX through its index.",
+    'The shipping record builders stream hold rows during client bootstrap; never at server startup.',
   ],
   [
     'apps/server/src/store/shipping.ts:allReceipts',
-    'Whole-table read (POD-6172): every delivery receipt, for the order-plane full truth at boot only (relay and ShippingService.fullProjection). The scheduler no longer reads it, and the unused queue listing that did is deleted (POD-6209).',
+    'The shipping record builders stream receipt rows during client bootstrap; never at server startup.',
   ],
   [
     'apps/server/src/store/transcript-costs.ts:attributedCosts',

@@ -195,7 +195,7 @@ async function bootOn(path: string) {
   return { store, registry }
 }
 
-test('the first boot puts the live copies on the change log, once', async () => {
+test('the migrated live copies are readable without boot log seeding', async () => {
   const { store, registry } = await bootOn(seededFile())
   try {
     const changed = async () =>
@@ -203,10 +203,8 @@ test('the first boot puts the live copies on the change log, once', async () => 
         .filter((row) => row.entity === 'effect')
         .map((row) => row.entityId)
         .sort()
-    expect(await changed()).toEqual(['apr_executing', 'apr_pending'])
+    expect(await changed()).toEqual([])
     expect((await store.effects.get('apr_pending'))?.revision).toBe(1)
-    // A later boot finds nothing to publish.
-    expect(await registry.modules.approvals.publishCopiedRecords()).toBe(0)
     // The agent's CLI still reads its request by the old id.
     expect(await registry.modules.approvals.get({ id: 'apr_pending' })).toMatchObject({
       id: 'apr_pending',

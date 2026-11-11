@@ -185,12 +185,10 @@ it('publishes upgraded tip rows before scoped bootstrap and keeps them through u
     expect(accountRows).toEqual({ ...seeded, dockTab: 'chat' })
     expect(accountRows['tips.enabled']).toBe('false')
     expect(rows.find((row) => row.userId === otherId && row.key === 'dockTab')?.value).toBe('files')
-    // Boot reconciliation is idempotent and includes removes, not just tips.
+    // Bootstrap reads current rows without rebuilding the log.
     const before = await ledger.cursor()
-    await registry.modules.layout.reconcileAllToLedger()
     expect(await ledger.cursor()).toBe(before)
     await store.layout.clear(fixtureWriteScope(), otherId, 'dockTab')
-    await registry.modules.layout.reconcileAllToLedger()
     expect(
       ((await ledger.authority.snapshot('userLayout')) as LayoutWire[]).some(
         (row) => row.userId === otherId && row.key === 'dockTab',

@@ -71,11 +71,10 @@ export class MemoryService {
   private readonly lake: TranscriptLake
 
   /** Whether the boot repair is permitted; a query-only recovery assembly opts out. */
-  private readonly repairsSubagentEvidence: boolean
 
   constructor(
     private readonly deps: MemoryServiceDeps,
-    options: { mirrorLakeDir?: string; repairSubagentSegmentPaths?: boolean } = {},
+    options: { mirrorLakeDir?: string } = {},
   ) {
     this.visibility = new MemoryVisibilityPolicy(deps.store)
     this.searcher = new MemorySearchService(deps.store, this.visibility)
@@ -96,25 +95,6 @@ export class MemoryService {
       },
       options,
     )
-    this.repairsSubagentEvidence = options.repairSubagentSegmentPaths !== false
-  }
-
-  /**
-   * THE ONE WRITE THIS SERVICE OWNS AT BOOT — the subagent evidence repair,
-   * memory-owned rather than a SessionStore boot side effect.
-   *
-   * It is a boot STEP rather than a line in the constructor (POD-3256): the
-   * composition root runs it after the object exists, so constructing a memory
-   * service never touches the database. The order the root calls it in is the
-   * order the constructor established.
-   *
-   * Recovery-only assembly holds a query-only connection, so its composition
-   * root explicitly disables this boot writer; every writable boot keeps the
-   * default and repairs before serving conversation reads.
-   */
-  async repairSubagentEvidence(): Promise<void> {
-    if (!this.repairsSubagentEvidence) return
-    await this.deps.store.conversations.registry.repairSubagentSegmentPaths()
   }
 
   forReader(reader: MemoryReader): MemoryReaderView {
@@ -234,17 +214,6 @@ export class MemoryService {
       },
     })
     await this.triggerLakeSweep(machineId)
-  }
-
-  async reconcileConversationList(): Promise<void> {
-    await this.deps.ledger.reconcile(
-      'conversation',
-      (await this.allConversations()).map((conversation) => ({
-        id: conversation.id,
-        value: conversation,
-      })),
-    )
-    this.broadcastDiagnostics()
   }
 
   private broadcastDiagnostics(): void {

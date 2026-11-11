@@ -157,7 +157,6 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
         merged: false,
       })
       const cursor = await ledger.cursor()
-      await svc.boot()
       expect(
         ((await ledger.changesSince(cursor)) ?? []).find((c) => c.entity === 'issueGitState'),
       ).toBeUndefined()
@@ -664,18 +663,10 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       now: () => '2026-07-02T00:00:00.000Z',
     })
     const cursorBefore = await ledger2.cursor()
-    await svc2.boot()
-    // WAS: `published2` was empty — "boot reconcile never fans out". There is no
-    // snapshot list to be empty any more, so the claim is made where it is now
-    // decidable: the reconcile appends its rows and a client learns of them the
-    // same way it learns of everything else.
-    const healed = (await ledger2.changesSince(cursorBefore)) ?? []
-    const change = healed.find(
-      (c) => c.id === wire.id && c.op === 'upsert' && c.entity === 'issueProjection',
-    ) as { value?: { title?: string } } | undefined
-    expect(change?.value?.title).toBe('changed offline')
+    expect(await ledger2.changesSince(cursorBefore)).toEqual([])
+    const loaded = await ledger2.authority.snapshot('issueProjection')
+    expect(loaded.find((row) => (row as { id: string }).id === wire.id)).toMatchObject({ title: 'changed offline' })
 
-    expect(healed.some((row) => String(row.entity) === 'issue')).toBe(false)
   })
 })
 

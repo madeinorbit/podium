@@ -270,6 +270,17 @@ export class SettingsRepository {
     await this.writeMeta(`setup_enrollment:${key}`, receipt)
   }
 
+  /** Receipt for a historical upgrade that must use the normal write funnel.
+   * Row writes are idempotent and commit before this receipt; an interrupted
+   * upgrade retries, while subsequent starts perform only this key lookup. */
+  async dataMigrationComplete(name: string): Promise<boolean> {
+    return (await metaValue(this.db).get({ key: `data_migration:${name}` })) !== undefined
+  }
+
+  async completeDataMigration(name: string): Promise<void> {
+    await this.writeMeta(`data_migration:${name}`, '1')
+  }
+
   async getSettings(): Promise<PodiumSettings> {
     const row = await metaValue(this.db).get({ key: 'settings' })
     if (!row) return normalizeSettings(undefined)

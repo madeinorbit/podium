@@ -488,6 +488,12 @@ export class UsersRepository {
   }
 
   private readonly accessListeners = new Set<MemberAccessListener>()
+  private memberCreated: ((userId: UserId) => Promise<void>) | undefined
+
+  /** Create member defaults in the account's source transaction. */
+  setMemberCreated(capture: (userId: UserId) => Promise<void>): void {
+    this.memberCreated = capture
+  }
 
   /**
    * Hear every committed change to a member's authority (POD-6293). The
@@ -885,6 +891,7 @@ export class UsersRepository {
             passwordHash,
             updatedAt: account.createdAt,
           })
+          await this.memberCreated?.(asUserId(account.id))
         })
       },
     )
@@ -916,6 +923,7 @@ export class UsersRepository {
     await this.machinesRepository.machineRecordWrites.compare(
       { member: asUserId(account.id) },
       async () => {
+        await this.createOrJoinTransaction(async () => {
         await insertUser(this.db).run({
           id: asUserId(account.id),
           displayName: account.displayName,
@@ -924,6 +932,8 @@ export class UsersRepository {
           createdAt: account.createdAt,
         })
         this.accountsWritten()
+        await this.memberCreated?.(asUserId(account.id))
+        })
       },
     )
   }

@@ -37,7 +37,7 @@ import {
 } from '@podium/protocol'
 import { and, asc, desc, eq, inArray, lt, sql } from 'drizzle-orm'
 import { pendingInteractions } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
@@ -158,12 +158,17 @@ const insertInteraction = prepared((db: StoreDrizzle) =>
     // is the PARTIAL unique index on (session_id, fingerprint) WHERE status =
     // 'asked', which is not a target drizzle can name.
     .onConflictDoNothing()
+    .returning()
     .prepare(),
 )
 
 const enrichInteraction = prepared((db: StoreDrizzle) =>
-  db.update(t).set({ payloadJson: sql.placeholder('payloadJson') })
-    .where(and(idIs(), eq(t.status, 'asked'))).prepare(),
+  db
+    .update(t)
+    .set({ payloadJson: sql.placeholder('payloadJson') })
+    .where(and(idIs(), eq(t.status, 'asked')))
+    .returning()
+    .prepare(),
 )
 
 const interactionById = prepared((db: StoreDrizzle) => db.select().from(t).where(idIs()).prepare())
@@ -233,6 +238,7 @@ const answerInteraction = prepared((db: StoreDrizzle) =>
       answeredAt: sql.placeholder('answeredAt'),
     })
     .where(and(idIs(), eq(t.status, 'asked')))
+    .returning()
     .prepare(),
 )
 
@@ -260,6 +266,7 @@ const reopenInteraction = prepared((db: StoreDrizzle) =>
       policyVerdict: 'escalated',
     })
     .where(and(idIs(), eq(t.status, 'answered'), answeredBy()))
+    .returning()
     .prepare(),
 )
 
@@ -276,6 +283,7 @@ const closeInteraction = prepared((db: StoreDrizzle) =>
     .update(t)
     .set({ status: sql.placeholder('status'), expiredAt: sql.placeholder('at') })
     .where(and(idIs(), eq(t.status, 'asked')))
+    .returning()
     .prepare(),
 )
 
@@ -284,6 +292,7 @@ const closeSessionInteractions = prepared((db: StoreDrizzle) =>
     .update(t)
     .set({ status: sql.placeholder('status'), expiredAt: sql.placeholder('at') })
     .where(and(eq(t.sessionId, param(t.sessionId, 'sessionId')), eq(t.status, 'asked')))
+    .returning()
     .prepare(),
 )
 
@@ -314,9 +323,13 @@ const pruneResolvedInteractions = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/** Successful writes of the open set, captured before their transaction commits. */
+export type InteractionFeedCapture = (rows: readonly InteractionRow[]) => Promise<void>
+
 export class InteractionsRepository {
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
+  private feedCapture: InteractionFeedCapture | undefined
 
   constructor(queries: StoreQueries) {
     this.rootDb = queries.rootDb
@@ -335,6 +348,18 @@ export class InteractionsRepository {
     return this.rootDb
   }
 
+  setFeedCapture(capture: InteractionFeedCapture): void {
+    this.feedCapture = capture
+  }
+
+  private async write(query: () => Promise<InteractionSelect[]>): Promise<InteractionRow[]> {
+    return await this.createOrJoinTransaction(async () => {
+      const rows = (await query()).map(toRow)
+      if (rows.length > 0) await this.feedCapture?.(rows)
+      return rows
+    })
+  }
+
   /**
    * Record an ask. Returns the row that is now open for this fingerprint —
    * either the freshly inserted one or the existing duplicate.
@@ -344,21 +369,21 @@ export class InteractionsRepository {
    * classified menu would ping every surface again.
    */
   async insert(row: InteractionInsert): Promise<{ row: InteractionRow; inserted: boolean }> {
-    const res = await insertInteraction(this.db).run({
-      id: row.id,
-      sessionId: row.sessionId,
-      kind: row.kind,
-      payloadJson: JSON.stringify(row.payload),
-      source: row.source,
-      answerable: row.answerable,
-      fingerprint: row.fingerprint,
-      askedAt: row.askedAt,
-      expiresAt: row.expiresAt ?? null,
-    })
-    if (res.changes > 0) {
-      const inserted = await this.get(row.id)
-      if (inserted) return { row: inserted, inserted: true }
-    }
+    const inserted = await this.write(
+      async () =>
+        await insertInteraction(this.db).all({
+          id: row.id,
+          sessionId: row.sessionId,
+          kind: row.kind,
+          payloadJson: JSON.stringify(row.payload),
+          source: row.source,
+          answerable: row.answerable,
+          fingerprint: row.fingerprint,
+          askedAt: row.askedAt,
+          expiresAt: row.expiresAt ?? null,
+        }),
+    )
+    if (inserted[0]) return { row: inserted[0], inserted: true }
     const existing = await this.get(row.id)
     if (existing) return { row: existing, inserted: false }
     const open = await this.openByFingerprint(row.sessionId, row.fingerprint)
@@ -370,8 +395,11 @@ export class InteractionsRepository {
   }
 
   async enrich(id: string, payload: unknown): Promise<boolean> {
-    const result = await enrichInteraction(this.db).run({ id, payloadJson: JSON.stringify(payload) })
-    return result.changes > 0
+    const rows = await this.write(
+      async () =>
+        await enrichInteraction(this.db).all({ id, payloadJson: JSON.stringify(payload) }),
+    )
+    return rows.length > 0
   }
 
   async get(id: string): Promise<InteractionRow | null> {
@@ -379,7 +407,10 @@ export class InteractionsRepository {
     return r ? toRow(r) : null
   }
 
-  async openByFingerprint(sessionId: SessionId, fingerprint: string): Promise<InteractionRow | null> {
+  async openByFingerprint(
+    sessionId: SessionId,
+    fingerprint: string,
+  ): Promise<InteractionRow | null> {
     const r = await openInteractionByFingerprint(this.db).get({ sessionId, fingerprint })
     return r ? toRow(r) : null
   }
@@ -423,14 +454,17 @@ export class InteractionsRepository {
     deliveredVia: NonNullable<PendingInteractionWire['deliveredVia']>
     at: string
   }): Promise<boolean> {
-    const res = await answerInteraction(this.db).run({
-      id: input.id,
-      answerJson: JSON.stringify(input.answer),
-      answeredBy: input.answeredBy,
-      deliveredVia: input.deliveredVia,
-      answeredAt: input.at,
-    })
-    return res.changes > 0
+    const rows = await this.write(
+      async () =>
+        await answerInteraction(this.db).all({
+          id: input.id,
+          answerJson: JSON.stringify(input.answer),
+          answeredBy: input.answeredBy,
+          deliveredVia: input.deliveredVia,
+          answeredAt: input.at,
+        }),
+    )
+    return rows.length > 0
   }
 
   /**
@@ -482,8 +516,10 @@ export class InteractionsRepository {
    * that somebody else settled it.
    */
   async reopen(id: string, answeredBy: InteractionAnsweredBy): Promise<boolean> {
-    const res = await reopenInteraction(this.db).run({ id, answeredBy })
-    return res.changes > 0
+    const rows = await this.write(
+      async () => await reopenInteraction(this.db).all({ id, answeredBy }),
+    )
+    return rows.length > 0
   }
 
   /**
@@ -521,16 +557,22 @@ export class InteractionsRepository {
    * to keep in step for nothing.
    */
   async close(id: string, status: 'expired' | 'superseded', at: string): Promise<boolean> {
-    const res = await closeInteraction(this.db).run({ id, status, at })
-    return res.changes > 0
+    const rows = await this.write(
+      async () => await closeInteraction(this.db).all({ id, status, at }),
+    )
+    return rows.length > 0
   }
 
   /** Every open ask on a session closes at once. Returns the ids that moved. */
-  async closeSession(sessionId: SessionId, status: 'expired' | 'superseded', at: string): Promise<string[]> {
-    const open = await this.listOpen(sessionId)
-    if (open.length === 0) return []
-    await closeSessionInteractions(this.db).run({ sessionId, status, at })
-    return open.map((r) => r.id)
+  async closeSession(
+    sessionId: SessionId,
+    status: 'expired' | 'superseded',
+    at: string,
+  ): Promise<string[]> {
+    const rows = await this.write(
+      async () => await closeSessionInteractions(this.db).all({ sessionId, status, at }),
+    )
+    return rows.map((r) => r.id)
   }
 
   /** Retention: drop RESOLVED rows older than the cutoff. Open asks are never

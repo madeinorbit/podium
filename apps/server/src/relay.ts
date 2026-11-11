@@ -33,7 +33,6 @@ import {
   spawnedByParentSessionId,
 } from '@podium/model'
 import type {
-  LiveServerMessage,
   LocalPortableStateControl,
   ServerMessage,
   UpdateKeyRotation,
@@ -152,14 +151,12 @@ import { issueGitEffectPort, registerIssueGitEffects } from './modules/issues/gi
 import { IssueGitWatch } from './modules/issues/git-watch'
 import { readIssue, readIssues } from './modules/issues/issue-reader'
 import { PENDING_UPLOAD_SWEEP_MS, PendingUploadStore } from './modules/issues/pending-uploads'
-import { repoProjectionRows } from './modules/issues/projection'
 import { type ReassignmentFacts, reassignmentNotices } from './modules/issues/reassign-notice'
 import { makeAgentRelayDispatch } from './modules/issues/relay-dispatch'
 import { AgentRelayGate } from './modules/issues/relay-gate'
 import { IssueService } from './modules/issues/service'
 import { seatText } from './modules/issues/service/seat'
 import { registerIssueStartEffect } from './modules/issues/start-effect'
-import { reconcileSubscriptionRecords } from './modules/issues/subscription-record'
 import {
   finishSelfStop,
   issueWorkEffectPort,
@@ -216,7 +213,6 @@ import { serverTransferRpcAdapter } from './modules/server-transfer/rpc-adapter'
 import type { ServerTransferTargetState } from './modules/server-transfer/service'
 import { ServerTransferService } from './modules/server-transfer/service'
 import { readPromotedTargetMetadata } from './modules/server-transfer/target-status'
-import { machinesForPrincipal } from './modules/sessions/command-ctx'
 import { QUEUED_INPUT_SWEEP_MS, SYSTEM_INBOX_PRINCIPAL } from './modules/sessions/inbox'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
 import { SessionLifecycle } from './modules/sessions/lifecycle'
@@ -241,7 +237,6 @@ import {
 import type { SnapshotTail } from './modules/sessions/session-lifecycle-types'
 import {
   makeInstancePreferencesFeedCapture,
-  reconcileInstancePreferences,
 } from './modules/settings/instance-record'
 import {
   bridgeConfigChanged,
@@ -255,7 +250,6 @@ import {
   ShippingService,
   shippingResourceHolderId,
 } from './modules/shipping'
-import { scheduledShippingProjection } from './modules/shipping/projection'
 import {
   ShippingEvidenceRegistry,
   ShipwrightService,
@@ -267,7 +261,6 @@ import type { HeadlessService } from './modules/superagent/headless'
 import type { SuperagentService } from './modules/superagent/service'
 import {
   makeThreadFeedCapture,
-  reconcileSuperagentThreads,
 } from './modules/superagent/thread-records'
 import { SyncWriteEntry } from './modules/sync-write/entry'
 import { registerFamilyCommands } from './modules/sync-write/family-commands'
@@ -286,9 +279,6 @@ import type { ServerPlacement } from './modules/updates/service'
 import { UpdatesService } from './modules/updates/service'
 import { registerUpdateEffect, type UpdateEffects } from './modules/updates/update-effect'
 import { readUsageSummary } from './modules/usage-summary'
-import { reconcileUserRecords } from './modules/user-records/reconcile'
-import { reconcileWorkflowRecords } from './modules/workflows/records'
-import { readKindTokens } from './sync/kind-tokens'
 import { WorkflowService } from './modules/workflows/service'
 import { asSystemWrite, syncedWriteProvenance } from './plain-command-scope'
 import { privateResourceAccess } from './private-resources'
@@ -301,6 +291,7 @@ import type { EffectRow, EffectsRepository } from './store/effects'
 import { afterCommit, applyAfterCommit, spanOpen } from './store/executor/executor'
 import { currentReadScope, readScopeSlot } from './store/executor/read-scope'
 import { compareAtSaveRecords } from './sync/compare-at-save'
+import { readKindTokens } from './sync/kind-tokens'
 import type { SyncDeltaPorts } from './sync/route-support'
 import { autoContinueSender, systemIssueNotice } from './system-notices'
 import { WriteContexts } from './write-contexts'
@@ -674,11 +665,8 @@ export class SessionRegistry {
   /** Each machine's checkouts as synced records (POD-6644). */
   private checkouts!: CheckoutsService
   /** Curated issue-event window, resolved during async registry hydration. */
-  private readonly issueEventFeed: IssueEventFeedPublisher
   /** Open interaction set, resolved during async registry hydration. */
-  private readonly interactionFeed: InteractionFeedPublisher
   /** People's chat messages on the feed, resolved during async registry hydration. */
-  private readonly messageFeed: MessageFeedPublisher
   /** Boot and inventory-triggered personal backend seeding. */
   private readonly superagentDefaults: SuperagentDefaultSeeder
   /** Message delivery slow sweep (#237) [spec:SP-34d7]. */
@@ -727,28 +715,8 @@ export class SessionRegistry {
     if (!this.recoveryOnly || rehearseBoot) await this.modules.sessions.loadFromStore()
     bootStage('sessions recovery', stageStarted)
     stageStarted = performance.now()
-    // Migration-seeded account state must be in the feed before the first bootstrap.
-    await this.modules.layout.reconcileAllToLedger()
-    // The per-user records (POD-6673): every stored pin, tab order and
-    // preference onto the log, so a device's first bootstrap holds them.
-    await reconcileUserRecords(this.writes.system('boot.reconcile'), this.store)
-    // Superagent threads (POD-6675): every member's global thread, the running
-    // flag from the pending turns, and every thread onto the log.
-    await reconcileSuperagentThreads(this.writes.system('boot.reconcile'), this.store)
-    // Agent profiles, workflows and trigger subscriptions (POD-6676): every
-    // stored row onto the log, the same back-fill.
-    {
-      const synced = this.writes.system('boot.reconcile')
-      await synced.reconcile(
-        'agentProfile',
-        (await this.store.agentProfiles.list()).map((value) => ({ id: value.id, value })),
-      )
-      await reconcileWorkflowRecords(synced, this.store.workflows)
-      await reconcileSubscriptionRecords(synced, this.store.events)
-    }
-    // The instance settings (POD-6677): the stored blob onto the log as the one
-    // `instancePreferences` record every member's first bootstrap holds.
-    await reconcileInstancePreferences(this.writes.system('boot.reconcile'), this.store)
+    // Bootstrap streams model tables. Migrations invalidate the kinds they
+    // rewrite with sync_kind generations; boot never rebuilds the log.
     await this.modules.machines.storeRecordChannel()
     // Every member's access rows (POD-6644): a member who joined or changed
     // role while the server was down sees the machines they now may.
@@ -759,37 +727,16 @@ export class SessionRegistry {
           this.writes.system('boot.reconcile'),
         ),
     )
-    // Every stored checkout onto the log (POD-6644): the migration's back-filled
-    // roots, and rows written while a device was away.
-    await this.writes.system('boot.reconcile').reconcile('checkout', await this.checkouts.allRows())
-    await this.issueEventFeed.resolve()
-    await this.interactionFeed.resolve()
-    await this.messageFeed.resolve()
     await this.superagentDefaults.seed()
-    // Full boot truth for the order plane, closing changes made while the server
-    // was down.
-    const orderPlane = scheduledShippingProjection(
-      await this.store.shipping.listOrders(),
-      await this.store.shipping.listHolds(),
-      await this.store.shipping.listReceipts(),
-      await this.store.shipping.listNativeStackEdges(),
-    )
-    const bootTruth = this.writes.system('boot.reconcile')
-    await bootTruth.reconcile('shipOrder', orderPlane.orders)
-    await bootTruth.reconcile('shipLane', orderPlane.lanes)
-    // The one boot WRITE, owned by the memory service rather than by the store.
-    await this.modules.memory.repairSubagentEvidence()
-    // Full boot truth for both automation kinds.
-    await this.modules.automations.reconcileFromStore()
-    // Approval rows the POD-6674 migration copied into `effects` reach the feed
-    // (once; a later boot finds none).
-    await this.modules.approvals.publishCopiedRecords()
+    // Only interrupted preparations need recovery; this uses the running
+    // index and captures changed thread rows in their own transaction.
+    await this.store.superagent.syncTurnRunningWithPendingTurns()
+    // Historical evidence and copied approvals are repaired by the
+    // sync-without-boot-reconcile migration, which bumps their kind generations.
     bootStage('feeds memory automations', stageStarted)
     stageStarted = performance.now()
     if (!this.recoveryOnly || rehearseBoot) {
-      await this.modules.issues.boot(systemPrincipal('boot-reconcile'))
-      // AFTER boot, never before: this lists issues, and the store refuses a
-      // read until the issue service has hydrated through its factory.
+      await this.modules.issues.recoverLegacyMembership()
       if (!this.recoveryOnly && !rehearseBoot)
         this.modules.issueSessionLifecycle.startClosedIssueSweep()
     }
@@ -1323,8 +1270,7 @@ export class SessionRegistry {
       events: this.store.events,
       transact: async (fn) => await this.store.transact(fn),
     })
-    this.issueEventFeed = issueEventFeed
-    this.store.events.onAppend(async (id, event) => await issueEventFeed.publish(id, event))
+    this.store.events.setFeedCapture(async (id, event) => await issueEventFeed.publish(id, event))
     // Retention is a change to the window too (POD-6766): the events it took
     // leave the feed.
     this.store.events.setPruneFeedCapture(async (deleted) => await issueEventFeed.pruned(deleted))
@@ -1337,7 +1283,6 @@ export class SessionRegistry {
       messages: this.store.messages,
       transact: async (fn) => await this.store.transact(fn),
     })
-    this.messageFeed = messageFeed
     this.store.messages.setFeedCapture(messageFeed.capture)
     this.store.sessions.setMessageWindowWrite(messageFeed.writeSessions)
     // ONE HOOK ON THE THREAD WRITE FUNNEL (POD-6675): every write to
@@ -1614,7 +1559,6 @@ export class SessionRegistry {
       },
       {
         ...(options.mirrorLakeDir ? { mirrorLakeDir: options.mirrorLakeDir } : {}),
-        repairSubagentSegmentPaths: !backgroundDisabled,
       },
     )
     const rpcLate: { rpc?: DaemonRpcService } = {}
@@ -4297,7 +4241,6 @@ export class SessionRegistry {
     // the transport only names familyState(ctx).modules.layout — router-triple-access.
     const layout = new LayoutService({
       layout: this.store.layout,
-      boot: writes.system('boot.reconcile'),
     })
     // THE SYNC WRITE ENTRY POINT (ADR 12 D2, POD-6273), over the one dedup ledger,
     // the one write-seam Ledger and the store's unit of work. It starts with no
@@ -4481,15 +4424,11 @@ export class SessionRegistry {
      */
     const interactionFeed = new InteractionFeedPublisher({
       ledger: writes.system('feed.interactions'),
-      store: this.store.interactions,
-      transact: async (fn) => await this.store.transact(fn),
-      toWire: (row) => interactions.wireOf(row),
     })
-    this.interactionFeed = interactionFeed
+    this.store.interactions.setFeedCapture(interactionFeed.capture)
     const interactions = new InteractionService({
       store: this.store.interactions,
       now: () => new Date(this.now()).toISOString(),
-      publish: async (row) => await interactionFeed.publish(row),
       /**
        * THE FAMILY IS ALREADY A SESSION PROJECTION. It is resolved from the
        * harness manifest when the session metadata is built; handing that

@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { asConversationId, type ConversationId, type MachineId } from '@podium/model'
-import { and, eq, isNotNull, isNull, like, max, sql } from 'drizzle-orm'
+import { and, eq, isNotNull, isNull, max, sql } from 'drizzle-orm'
 import { conversationIdentities, conversationSegments } from '../../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from '../executor/sync-drizzle'
+import type { StoreDrizzle, StoreQueries, TransactionRunner } from '../executor/sync-drizzle'
 import { inListOf, inListSize, inListValues, param, prepared, preparedFamily } from '../executor/sync-drizzle'
 
 // Every query this repository runs, prepared once per store [POD-6147].
@@ -13,22 +13,6 @@ const segmentKey = () =>
     eq(conversationSegments.machineId, param(conversationSegments.machineId, 'machineId')),
     eq(conversationSegments.nativeId, param(conversationSegments.nativeId, 'nativeId')),
   )
-
-const clearStraySubagentPaths = prepared((db: StoreDrizzle) =>
-  db
-    .update(conversationSegments)
-    .set({ path: null })
-    .where(
-      and(
-        like(conversationSegments.path, '%/subagents/%'),
-        // The comparison is against a value built FROM THE ROW, so it is a
-        // fragment rather than a bound parameter: a subagent path is repaired
-        // unless it ends in its own native id.
-        sql`${conversationSegments.path} NOT LIKE '%/' || ${conversationSegments.nativeId} || '.jsonl'`,
-      ),
-    )
-    .prepare(),
-)
 
 const podiumIdOfSegment = prepared((db: StoreDrizzle) =>
   db
@@ -335,10 +319,6 @@ export class ConversationRegistryRepository {
    */
   private get db(): StoreDrizzle {
     return this.rootDb
-  }
-
-  async repairSubagentSegmentPaths(): Promise<void> {
-    await clearStraySubagentPaths(this.db).run()
   }
 
   async podiumId(machineId: MachineId, nativeId: string): Promise<ConversationId | undefined> {

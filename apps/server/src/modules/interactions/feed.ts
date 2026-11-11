@@ -34,39 +34,27 @@
  * What the feed carries is `status = 'asked'` in `pending_interactions`, the
  * same read the record builder streams. The publisher keeps no copy of it: a
  * row that changed is named, and the Authority builds an open ask as an
- * `upsert` and a closed ask as a `remove`. At boot the open set is reconciled from the table,
- * so an ask that closed while its publish was lost (a crash after the commit)
- * leaves the feed then. Before this, the publisher seeded an in-memory set
+ * `upsert` and a closed ask as a `remove`. The repository captures every change
+ * to the open set in the row's transaction. Before this, the publisher seeded an in-memory set
  * from the log with the record's own id where it later looked up the row id,
  * so no ask carried across a restart was ever removed: 25 closed asks were
  * still on clients on 2026-11-09.
  *
  * ---------------------------------------------------------------------------
- * IT NEVER THROWS INTO A MUTATION
+ * THE ROW AND THE LOG COMMIT TOGETHER
  * ---------------------------------------------------------------------------
- * By the time `publish` runs the durable write has happened. A publisher fault
- * must not turn a recorded ask into a failed state-change, or a recorded answer
- * into an error the operator sees after the digits already landed.
+ * The capture is awaited before the source transaction commits. A log failure
+ * rolls the mutation back, so there is no missing entry for a later boot to repair.
  */
 
-import { createLogger } from '@podium/logger'
 import { interactionRowId } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
 import type { LedgerWriter } from '@podium/sync'
-import type { InteractionRow, InteractionsRepository } from '../../store/interactions'
-
-const log = createLogger('server:interactions:feed')
+import type { InteractionFeedCapture, InteractionRow } from '../../store/interactions'
 
 export interface InteractionFeedDeps {
   /** Write-seam ledger. Rows ride entity kind `pendingInteraction`. */
-  readonly ledger: Pick<LedgerWriter, 'commit' | 'reconcile'>
-  /** Every open ask from the table ({@link InteractionsRepository}). */
-  readonly store: Pick<InteractionsRepository, 'listOpen'>
-  /** One transaction on the store the table lives in. */
-  readonly transact: <T>(fn: () => Promise<T>) => Promise<T>
-  /** The wire projection of a durable row (the service's, injected so the
-   *  publisher does not own a second copy of it). */
-  readonly toWire: (row: InteractionRow) => PendingInteractionWire
+  readonly ledger: Pick<LedgerWriter, 'commit'>
 }
 
 /** The feed's records for these rows: the open ones, keyed by row id. */
@@ -80,44 +68,24 @@ export function openInteractionRecords(
 }
 
 export class InteractionFeedPublisher {
-  private resolving: Promise<void> | undefined
-
   constructor(private readonly deps: InteractionFeedDeps) {}
 
-  /** Reconcile the open set from the table once, after composition and
-   *  before serving. */
-  async resolve(): Promise<void> {
-    this.resolving ??= (async () => {
-      await this.deps.ledger.reconcile(
-        'pendingInteraction',
-        openInteractionRecords(await this.deps.store.listOpen(), this.deps.toWire),
-      )
-    })()
-    await this.resolving
-  }
-
   /**
-   * Publish one row's current state. NAMED AFTER THE WRITE (POD-6770,
+   * Capture successful row writes. NAMED AFTER THE WRITE (POD-6770,
    * `NAMED_AFTER_WRITE_KINDS`): the row is already written, and the Authority
    * builds its record from the table in this publish's transaction: open is
-   * an `upsert`, anything else (answered, superseded, expired, or dropped by
-   * retention) a `remove`. So of two publishes of one row that overtake each
-   * other the later still carries what the table holds. The service announces
-   * changed rows. Announcements that overtake each other can each build the
-   * current closed state and append a remove.
+   * an `upsert`, anything else a `remove`. The source transaction cannot be
+   * overtaken between its row change and this append.
    */
-  async publish(row: Pick<InteractionRow, 'id' | 'sessionId'>): Promise<void> {
-    await this.resolve()
-    try {
-      const id = interactionRowId(row.sessionId, row.id)
-      await this.deps.transact(async () => {
-        await this.deps.ledger.commit({
-          write: async () => {},
-          wrote: () => [{ entity: 'pendingInteraction' as const, id, removed: true }],
-        })
-      })
-    } catch (err) {
-      log.warn('interaction feed publish failed', { err, id: row.id })
-    }
+  readonly capture: InteractionFeedCapture = async (rows) => {
+    await this.deps.ledger.commit({
+      write: async () => {},
+      wrote: () =>
+        rows.map((row) => ({
+          entity: 'pendingInteraction' as const,
+          id: interactionRowId(row.sessionId, row.id),
+          removed: true,
+        })),
+    })
   }
 }

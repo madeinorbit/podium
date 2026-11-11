@@ -26,7 +26,6 @@ import { openTestStore } from '../../test-support/open-test-store'
 import { testStoreRecords } from '../../test-support/record-writer'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import { envelope, expectAppliedOnPath, submit } from '../sync-write/outbox-test-support'
-import { reconcileSuperagentThreads } from './thread-records'
 
 afterEach(() => disposeOracles())
 
@@ -238,18 +237,13 @@ async function feedFixture() {
   })
   const authority = new Authority({
     store: store.sync,
+    records: testStoreRecords(store),
     now: () => 1_000,
     transact: async (fn) => await store.transact(fn),
     visibility: new GrantEdgeVisibilityPolicy(policy.state, new NoDelegationsGranted()),
     anchors: policy.anchors,
   })
-  const writer = {
-    reconcile: async (
-      entity: Parameters<Authority['reconcile']>[0],
-      rows: { id: string; value: unknown }[],
-    ) => await authority.reconcile(entity, rows),
-  }
-  return { store, authority, writer }
+  return { store, authority }
 }
 
 const pendingTurn = (threadId: string): Omit<PendingSuperagentTurnRow, 'createdAt'> => ({
@@ -261,9 +255,9 @@ const pendingTurn = (threadId: string): Omit<PendingSuperagentTurnRow, 'createdA
   payload: { agent: 'codex', cwd: '/', prompt: 'p' } as PendingSuperagentTurnRow['payload'],
 })
 
-describe('the boot reconcile', () => {
+describe('interrupted turn preparation recovery', () => {
   it('a restart mid-turn clears turnRunning unless a pending turn still holds the thread', async () => {
-    const { store, authority, writer } = await feedFixture()
+    const { store, authority } = await feedFixture()
     for (const id of ['btw_preparing', 'btw_dispatched']) {
       await store.superagent.upsertSuperagentThread({ id, ownerUserId: ME, kind: 'btw' })
       await store.superagent.setTurnRunning(asThreadId(id), true)
@@ -271,7 +265,7 @@ describe('the boot reconcile', () => {
     // Only the dispatched turn reached its durable pending row before the stop.
     await store.superagent.putPendingTurn(pendingTurn('btw_dispatched'))
 
-    await reconcileSuperagentThreads(writer, store)
+    await store.superagent.syncTurnRunningWithPendingTurns()
     expect((await store.superagent.getSuperagentThread('btw_preparing'))?.turnRunning).toBe(false)
     expect((await store.superagent.getSuperagentThread('btw_dispatched'))?.turnRunning).toBe(true)
     const records = new Map(
@@ -286,7 +280,7 @@ describe('the boot reconcile', () => {
 
     // A restart appends nothing new.
     const head = await authority.cursor()
-    await reconcileSuperagentThreads(writer, store)
+    await store.superagent.syncTurnRunningWithPendingTurns()
     expect(await authority.cursor()).toBe(head)
   })
 })
@@ -299,13 +293,13 @@ describe('a thread write that changes nothing logs nothing (POD-6769)', () => {
     const o = await makeOracle()
     const threadRows = async () =>
       (await o.store.sync.changesSince(0)).filter((row) => row.entity === 'superagentThread')
-    await o.store.superagent.seedMemberGlobalThreads()
+    await o.store.superagent.seedMemberGlobalThread(ME)
     await o.store.superagent.syncTurnRunningWithPendingTurns()
     const before = await threadRows()
     const head = await o.reg.changeLedger.cursor()
 
     await o.store.superagent.seedGlobalThread()
-    await o.store.superagent.seedMemberGlobalThreads()
+    await o.store.superagent.seedMemberGlobalThread(ME)
     await o.store.superagent.syncTurnRunningWithPendingTurns()
 
     expect(await threadRows()).toEqual(before)

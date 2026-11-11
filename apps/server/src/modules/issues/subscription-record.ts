@@ -26,37 +26,13 @@ import {
   type SubscriberKind,
   type SubscriptionWire,
   subscriptionRowId,
-  subscriptionRowIdOf,
   type UserId,
 } from '@podium/model'
 import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import type { RegistryModules } from '../../relay'
-import type { SessionStore } from '../../store'
 import { registerRecordKind } from '../records/generic'
 import { SyncWriteRefused } from '../sync-write/entry'
 import { NO_TARGET, type SyncWriteRegistry } from '../sync-write/registry'
-
-/** What the boot reconcile appends through: the boot's `server` writer. */
-export interface SubscriptionReconcileWriter {
-  reconcile(entity: 'subscription', rows: { id: string; value: unknown }[]): Promise<unknown>
-}
-
-/**
- * THE BOOT BACK-FILL: subscriptions were stored long before they were synced,
- * so every stored row becomes an upsert on the log, and a logged row whose
- * storage is gone a removal. One read of the table. Rolling back needs no data
- * step: the table is unchanged, and an older build ignores the kind's rows.
- */
-export async function reconcileSubscriptionRecords(
-  writer: SubscriptionReconcileWriter,
-  store: Pick<SessionStore['events'], 'allSubscriptionsForBootReconcile'>,
-): Promise<void> {
-  const rows = await store.allSubscriptionsForBootReconcile()
-  await writer.reconcile(
-    'subscription',
-    rows.map((value) => ({ id: subscriptionRowIdOf(value), value })),
-  )
-}
 
 export interface SubscriptionRecordDeps {
   modules(): RegistryModules
