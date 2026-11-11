@@ -512,7 +512,11 @@ function preservedMemberData(root: string) {
       .all(),
     preferences: db.prepare('SELECT * FROM user_preferences ORDER BY user_id, key').all(),
     credentials: db.prepare('SELECT * FROM user_credentials ORDER BY user_id').all(),
-    logins: db.prepare('SELECT * FROM client_sessions ORDER BY token_hash').all(),
+    logins: db
+      .prepare(
+        'SELECT token_hash, user_id, created_at, expires_at, label, device_name, platform, last_seen_at FROM client_sessions ORDER BY token_hash',
+      )
+      .all(),
     sessions: db
       .prepare(
         'SELECT id, issue_id, machine_id, cwd, title, created_at, created_by_on_behalf_of, delegation FROM sessions ORDER BY id',
