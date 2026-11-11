@@ -52,7 +52,21 @@ try {
     await page.getByText('Snapshot attachment', { exact: true }).waitFor()
     await page.reload()
     const artifact = page.getByTestId('issue-artifacts')
-    await artifact.getByText('Snapshot attachment', { exact: true }).waitFor()
+    await artifact
+      .getByText('Snapshot attachment', { exact: true })
+      .waitFor({ timeout: 15_000 })
+      .catch(async (error) => {
+        await page.screenshot({ path: join(output, 'capture-failure.png') })
+        await writeFile(
+          join(output, 'capture-failure.json'),
+          JSON.stringify(
+            { url: page.url(), body: await page.locator('body').innerText() },
+            null,
+            2,
+          ),
+        )
+        throw error
+      })
     await artifact.scrollIntoViewIfNeeded()
     await page.screenshot({ path: join(output, 'issue-reload.png') })
     await writeFile(

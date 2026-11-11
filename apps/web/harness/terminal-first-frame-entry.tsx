@@ -5,6 +5,7 @@ import { knownReading } from '@podium/client-core/live'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
+import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { machineRecords } from '@podium/client-core/test-support/machine-records'
 import { createReplicaFixture } from '@podium/client-core/test-support/replica'
@@ -37,6 +38,8 @@ const issue = makeIssue({
   repoPath: '/workspace',
   worktreePath: '/workspace',
   owner: userId,
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
   description: 'This attachment was present in the snapshot before the page opened.',
 })
 replica.applySnapshot('repos', [
@@ -144,6 +147,7 @@ createRoot(root).render(
     config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }}
     api={api}
     createReplicaFn={() => replica}
+    routerWindow={createMemoryRouterWindow()}
     networkEnabled={false}
     attachRuntime={attach}
     onFatalError={(error) => {
