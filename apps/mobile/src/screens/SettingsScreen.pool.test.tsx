@@ -15,7 +15,10 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import { insideReader, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
 import { createHeaderFixture } from '../../../web/test/header-fixture'
+import type { AuthStatus } from '../client/auth'
+import { AuthStatusContext } from '../client/auth-context'
 import type { MobilePool } from '../client/mobile-pool'
+import { accountCapabilities } from '../test-support/auth-capabilities'
 
 const seams = vi.hoisted(() => ({
   host: undefined as MobilePool | undefined,
@@ -128,7 +131,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-async function mount(count = 8, scale?: number) {
+async function mount(count = 8, scale?: number, status: AuthStatus | null = null) {
   seams.host = createMobilePool(false)
   const data = createHeaderFixture(count, count),
     errors: string[] = [],
@@ -204,7 +207,9 @@ async function mount(count = 8, scale?: number) {
         return seams.host!.host.attach(owner, (error) => errors.push(error.message))
       }}
     >
-      <Surface />
+      <AuthStatusContext.Provider value={status}>
+        <Surface />
+      </AuthStatusContext.Provider>
     </StoreProvider>,
   )
   await waitFor(
@@ -421,5 +426,19 @@ it('keeps unsynced phone changes until sign-out is explicitly confirmed', async 
   await waitFor(() => expect(seams.erase).toHaveBeenCalledOnce())
   expect(seams.logout).toHaveBeenCalledOnce()
   expect(seams.credential).toHaveBeenLastCalledWith(null)
+  expect(current.errors).toEqual([])
+})
+
+it('account device management omits phone pairing instructions', async () => {
+  const current = await mount(8, undefined, {
+    needsAuth: true,
+    authed: true,
+    userId: asUserId('operator'),
+    prompt: 'email-password',
+    capabilities: accountCapabilities,
+  })
+  expect(current.view.getByRole('link', { name: 'Manage all account devices' })).toBeTruthy()
+  expect(current.view.container.textContent).not.toContain('Pairing')
+  expect(current.view.getByText(/Manage device sign-ins in your account/)).toBeTruthy()
   expect(current.errors).toEqual([])
 })

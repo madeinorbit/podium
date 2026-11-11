@@ -52,7 +52,23 @@ async function signIn(page: Page, email: string, password: string) {
   await page.goto(`${origin}/?desktop=1`)
   await page.getByLabel('Email', { exact: true }).fill(email)
   await page.getByLabel('Password', { exact: true }).fill(password)
-  await page.getByRole('button', { name: 'Log in', exact: true }).click()
+  // These isolated browsers share one loopback address and its real sign-in budget.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const pending = page.waitForResponse(
+      (response) =>
+        response.url() === `${origin}/auth/login` && response.request().method() === 'POST',
+    )
+    await page.getByRole('button', { name: 'Log in', exact: true }).click()
+    const response = await pending
+    if (response.status() !== 429) {
+      expect(response.status(), await response.text()).toBe(200)
+      break
+    }
+    expect(attempt, 'only retry a real address-limit response once').toBe(0)
+    await expect(page.getByRole('alert')).toContainText(/too many attempts/i)
+    const retryAfter = Number(response.headers()['retry-after'] ?? 10)
+    await page.waitForTimeout((retryAfter + 1) * 1_000)
+  }
   await expect
     .poll(async () => (await (await page.request.get(`${origin}/auth/status`)).json()).authed)
     .toBe(true)
@@ -135,7 +151,9 @@ test('real two-member invitations, reset links, and one-device sign-out', async 
     await bobRow.getByRole('button', { name: 'Recovery link', exact: true }).click()
     await bobRow.getByLabel('Your password').fill('alice-fixture-password')
     await bobRow.getByRole('button', { name: 'Create recovery link' }).click()
-    const reset = await bobRow.getByLabel('Recovery link', { exact: true }).inputValue()
+    const reset = await bobRow
+      .getByRole('textbox', { name: 'Recovery link', exact: true })
+      .inputValue()
     await shot('06-admin-reset-link')
     await bob.goto(reset)
     await expect(bob.getByRole('heading', { name: 'Reset your password' })).toBeVisible()
@@ -237,7 +255,7 @@ test('reported account capabilities show mail and providers without host-only co
     0,
   )
   await page.getByLabel('Email', { exact: true }).fill('mailed@example.com')
-  await page.getByLabel('Role', { exact: true }).selectOption('admin')
+  await page.getByLabel('Role').selectOption('admin')
   await page.getByLabel('Your password', { exact: true }).fill('alice-fixture-password')
   await page.getByRole('button', { name: 'Send invitation' }).click()
   await expect(page.getByText('Invitation emailed.')).toBeVisible()

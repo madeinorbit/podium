@@ -311,8 +311,10 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
           ) : null}
         </View>
         <Text style={styles.hintCompact}>
-          This list belongs to the signed-in account on {profile.name}. Pairing and revocation stay
-          in Settings → Account on the desktop.
+          This list belongs to the signed-in account on {profile.name}.{' '}
+          {capabilities?.accountUrl
+            ? 'Manage device sign-ins in your account.'
+            : 'Pairing and revocation stay in Settings → Account on the desktop.'}
         </Text>
 
         {Platform.OS !== 'web' ? (
