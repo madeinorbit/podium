@@ -217,8 +217,8 @@ describe('daemon update grant over the live server socket', () => {
         },
       }
       const updates = server.registry.modules.updates
-      server.registry.modules.machines.setUpdateChannel(machineId, 'dev')
-      updates.setTarget(target)
+      await server.registry.modules.machines.setUpdateChannel(machineId, 'dev')
+      await updates.setTarget(target)
       expect(await updates.tick()).toEqual([machineId])
 
       await waitFor(async () => readFileSync(join(installDir, 'VERSION'), 'utf8').trim() === toVersion)

@@ -149,7 +149,7 @@ try {
     'presence grace expires before offline approval',
     35_000,
   )
-  updates.setTarget('dev', target)
+  await updates.setTarget('dev', target)
   const offlineOperation = await start()
   assert.equal((await registry.sessionStore.operations.get(offlineOperation))?.state, 'done')
   assert.deepEqual(await registry.sessionStore.operations.approvedTarget('dev'), target)
@@ -224,7 +224,7 @@ try {
   assert.equal(machines.hasSupervisor(machineId), false)
 
   // A publication with different exact bytes has no standing authorization.
-  updates.setTarget('dev', { ...target, version: '3.0.0' })
+  await updates.setTarget('dev', { ...target, version: '3.0.0' })
   const unapproved = await connect()
   // The reconciler only reports drift since POD-4167; nothing queues a grant here.
   assert.equal(unapproved.grants().length, 0)

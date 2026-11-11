@@ -31,7 +31,10 @@ import { OperationKindRegistry } from '../../apps/server/src/modules/operations/
 import { syncQueriesOver } from '../../apps/server/src/store/executor/sync-drizzle'
 import { OperationStore } from '../../apps/server/src/modules/operations/store'
 import { LIFECYCLE_EXCLUSION_GROUP } from '../../apps/server/src/modules/operations/lifecycle'
-import { UpdateRecoveryStore } from '../../apps/server/src/modules/updates/recovery-store'
+import {
+  type UpdateRecoverySnapshot,
+  UpdateRecoveryStore,
+} from '../../apps/server/src/modules/updates/recovery-store'
 import {
   createUpdateFleetBridge,
   exclusiveUpdateVersion,
@@ -197,7 +200,10 @@ export async function runMachine(version: string, buildIdentity: string): Promis
       db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL')
       runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
     }
-    const store = db ? new OperationStore(syncQueriesOver(db)) : undefined
+    const queries = db ? syncQueriesOver(db) : undefined
+    const store = queries ? new OperationStore(queries) : undefined
+    const recoveryStore = queries ? new UpdateRecoveryStore(queries) : undefined
+    const savedRecovery = await recoveryStore?.read()
     let engine: OperationEngine | undefined
     let bridge: ReturnType<typeof createUpdateFleetBridge> | undefined
     const updates = new UpdatesService({
@@ -207,7 +213,15 @@ export async function runMachine(version: string, buildIdentity: string): Promis
           online: Date.now() - machine.seenAt < 1500,
         })),
       approvedTarget: async () => policy.approved,
-      ...(db ? { recovery: new UpdateRecoveryStore(db) } : {}),
+      ...(recoveryStore
+        ? {
+            recovery: {
+              read: () => savedRecovery,
+              write: async (snapshot: () => UpdateRecoverySnapshot) =>
+                await recoveryStore.write(snapshot),
+            },
+          }
+        : {}),
       exclusiveOperationActive: async () =>
         (await engine?.active(LIFECYCLE_EXCLUSION_GROUP)) !== undefined,
       exclusiveOperationVersion: async (channel) =>
@@ -224,7 +238,7 @@ export async function runMachine(version: string, buildIdentity: string): Promis
       concurrency: 3,
       fleetChannel: () => 'dev',
     })
-    if (policy.published) updates.setTarget('dev', policy.published)
+    if (policy.published) await updates.setTarget('dev', policy.published)
     const context = (): UpdateOperationContext => ({
       updates,
       channel: 'dev',
@@ -327,7 +341,7 @@ export async function runMachine(version: string, buildIdentity: string): Promis
             services: body.services,
           }
           for (const status of body.statuses ?? []) {
-            updates.onStatus(asMachineId(body.id), status)
+            await updates.onStatus(asMachineId(body.id), status)
             event('status', { machineId: body.id, status })
           }
           if (!wasOnline) {
@@ -361,7 +375,7 @@ export async function runMachine(version: string, buildIdentity: string): Promis
         }
         if (req.url === '/publish') {
           policy.published = body
-          updates.setTarget('dev', body)
+          await updates.setTarget('dev', body)
         } else if (req.url === '/approve') {
           if (policy.published?.version !== body.version)
             throw new Error('target changed before approval')
@@ -515,13 +529,14 @@ export async function runMachine(version: string, buildIdentity: string): Promis
       // Read another connection: an in-memory flag cannot prove the operation's receipt.
       const db = openDatabase(join(state, 'operations.db'), { readOnly: true })
       try {
-        const operation = (await new OperationStore(syncQueriesOver(db)).history(UPDATE_OPERATION_KIND))[0]
+        const queries = syncQueriesOver(db)
+        const operation = (await new OperationStore(queries).history(UPDATE_OPERATION_KIND))[0]
           ?.operation
         const details = operation?.details
         const grant = args[0]
-        const recovered = new UpdateRecoveryStore(db)
-          .read()
-          ?.grants.find(([machine]) => machine === id)?.[1].coordinatorGrant
+        const recovered = (await new UpdateRecoveryStore(queries).read())?.grants.find(
+          ([machine]) => machine === id,
+        )?.[1].coordinatorGrant
         if (
           !operation ||
           details?.coordinatorSnapshotGrantId !== grant.grantId ||

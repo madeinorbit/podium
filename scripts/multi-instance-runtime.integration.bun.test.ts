@@ -899,7 +899,7 @@ exec "$CANARY_REAL_CLI" "$@"
         concurrency: 3,
         fleetChannel: () => 'dev',
       })
-      updates.setTarget({
+      await updates.setTarget({
         version: '9.9.9',
         critical: false,
         artifacts: { headless: { delivery: 'feed', platforms: {} } },
