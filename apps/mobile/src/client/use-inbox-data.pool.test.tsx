@@ -36,6 +36,7 @@ import type { MobilePool } from './mobile-pool'
 const state = vi.hoisted(() => ({
   host: undefined as MobilePool | undefined,
   chartRenders: 0,
+  params: {} as { text?: string },
   router: { push: vi.fn(), replace: vi.fn(), canGoBack: () => true, back: vi.fn() },
   profile: {
     id: 'synthetic',
@@ -55,6 +56,7 @@ vi.mock('./mobile-pool', async (original) => {
 })
 vi.mock('expo-router', () => ({
   useRouter: () => state.router,
+  useLocalSearchParams: () => state.params,
   router: state.router,
   useFocusEffect: (effect: () => void | (() => void)) => useEffect(effect, [effect]),
 }))
@@ -126,23 +128,27 @@ vi.mock('../components/LaunchPlaceholders', () => ({
   WorkSkeleton: () => null,
 }))
 vi.mock('../components/ScreeningCard', () => ({
-  ScreeningCard: ({
-    issue,
-    parent,
-  }: {
-    issue: {
-      title: string
-      description: string
-      brief: string
-      blockedByNotes: unknown[]
-      childCount: number
-    }
-    parent?: { title: string }
-  }) => (
-    <article data-testid="screening-card">
-      {issue.title} · {issue.description} · {issue.brief} · {issue.blockedByNotes.length} blocked ·{' '}
-      {issue.childCount} children · {parent?.title}
-    </article>
+  // The native card is observed, so its export is a React memo object, not a
+  // callable render function. Keep that boundary in this presentation stub.
+  ScreeningCard: observer(
+    ({
+      issue,
+      parent,
+    }: {
+      issue: {
+        title: string
+        description: string
+        brief: string
+        blockedByNotes: unknown[]
+        childCount: number
+      }
+      parent?: { title: string }
+    }) => (
+      <article data-testid="screening-card">
+        {issue.title} · {issue.description} · {issue.brief} · {issue.blockedByNotes.length} blocked
+        · {issue.childCount} children · {parent?.title}
+      </article>
+    ),
   ),
 }))
 
@@ -206,6 +212,7 @@ beforeEach(() => {
   vi.spyOn(Date, 'now').mockReturnValue(NOW)
   state.router.push.mockClear()
   state.router.replace.mockClear()
+  state.params = {}
   resetPulseCache()
   storeStats.enable()
   storeStats.reset()
@@ -286,6 +293,16 @@ async function painted(app: Awaited<ReturnType<typeof mount>>) {
     expect(app.view.container.querySelector('[aria-label*="SYN-1018"]')).toBeTruthy(),
   )
 }
+it.each([
+  { text: undefined, summary: 'Summary 2' },
+  { text: 'Synthetic task 1', summary: 'Summary 1' },
+])('opens the observed proposal card with route search $text', async ({ text, summary }) => {
+  state.params = { text }
+  const app = await mount(<ProposalScreeningScreen />)
+  await waitFor(() => expect(app.view.getByTestId('screening-card').textContent).toContain(summary))
+  expect(app.errors).toEqual([])
+})
+
 it('preserves rendered phone inbox, proposal, pulse and reference values through real pool attachment', async () => {
   const on = await mount()
   await painted(on)

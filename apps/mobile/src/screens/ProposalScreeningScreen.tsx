@@ -8,7 +8,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useStoreActions, useTrpc } from '../client/hooks'
-import { issueObserver } from '../client/issue-observer'
 import { useMobilePool } from '../client/mobile-pool'
 import { Icon } from '../components/Icon'
 import { Check, Inbox, Play, RotateCcw, SkipForward, X } from '../components/icons'
@@ -28,8 +27,6 @@ interface Failure {
 
 const repoName = (issue: IssueViewModel) => issueRepoName(issue)
 const refOf = (issue: IssueViewModel) => issue.displayRef ?? `#${issue.seq}`
-const VisibleScreeningCard = issueObserver(ScreeningCard)
-
 /**
  * "Screen proposed" [POD-277] — one agent proposal at a time, decided in a
  * couple of seconds from the couch.
@@ -237,7 +234,7 @@ export const ProposalScreeningScreen = observer(function ProposalScreeningScreen
             {/* The card underneath, peeking as a rim — the deck has depth only
                 while something is actually behind it. */}
             {deck.nextId ? <View style={styles.behindCard} pointerEvents="none" /> : null}
-            <VisibleScreeningCard
+            <ScreeningCard
               key={current.id}
               issue={current}
               repoName={repoName(current)}

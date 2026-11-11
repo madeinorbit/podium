@@ -8,7 +8,7 @@ import { action, compareShallow, compareStructural, observable, observableRef } 
 import type { BoardListRow, BoardQuery } from './issue-board-schema'
 import { omitGone } from './lookup'
 import { MOBILE_TASK_STAGES, type MobileTasksOptions } from './mobile-screens-schema'
-import { screeningQueue } from './mobile-triage'
+import { ProposalQueue } from './mobile-triage'
 import type { IssueModel, ModelOf } from './models'
 import type { MobxPool } from './pool'
 import { RowWindow } from './row-window'
@@ -519,8 +519,11 @@ export class MobileTasksBoard {
   }
 
   /** The count and the opened deck share this selection, ignoring other board filters. */
+  @lazy private get screening() {
+    return new ProposalQueue(this.pool, this.searchFilter.text ?? '')
+  }
   @lazy({ equals: compareShallow }) get screeningIds() {
-    return screeningQueue(this.pool, this.searchFilter.text)
+    return this.screening.queue
   }
 
   @lazy get proposals(): number | typeof LOADING {

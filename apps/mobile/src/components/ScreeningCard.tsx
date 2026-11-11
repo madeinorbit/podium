@@ -17,6 +17,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 import { scheduleOnRN } from 'react-native-worklets'
+import { issueObserver } from '../client/issue-observer'
 import { useSettingsRecord } from '../client/use-settings-record'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import { useAgeNow } from '../lib/clock-hooks'
@@ -58,7 +59,7 @@ export type ScreeningGesture = 'accepted' | 'declined' | 'skipped'
  * reports the gesture. Every gesture has a button twin in the screen's action
  * row, so nothing here is reachable only by dragging.
  */
-export const ScreeningCard = observer(function ScreeningCard({
+export const ScreeningCard = issueObserver(function ScreeningCard({
   issue,
   repoName,
   parent,

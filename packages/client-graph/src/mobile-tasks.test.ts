@@ -482,6 +482,52 @@ it('opens exactly the advertised screening selection, including saved text filte
   expect(board.groups).toMatchObject([{ stage: 'proposed', total: 1, rows: [] }])
 })
 
+it('scopes screening eligibility and order reads before a nonmatching pending ancestor', async () => {
+  const { pool, load } = await setup([
+    issue('match', { title: 'iOS follow-up', stage: 'proposed' }),
+    issue('unrelated', { title: 'Something else', stage: 'proposed', parentId: 'pending' }),
+  ])
+  const row = pool.row.bind(pool)
+  const reads = vi
+    .spyOn(pool, 'row')
+    .mockImplementation((entity, id, mode) =>
+      entity === 'issue' && id === 'pending' ? LOADING : row(entity, id, mode),
+    )
+  const board = new MobileTasksBoard(pool, { ...options, filter: { text: 'iOS' } })
+  const deck = new ProposalScreening(pool, 'iOS')
+  disposals.push(autorun(() => [board.groups, deck.queue]))
+  expect(board.groups).toMatchObject([{ stage: 'proposed', total: 1 }])
+  expect(deck.queue).toEqual(['match'])
+  expect(
+    reads.mock.calls.filter(
+      ([kind, id]) => kind === 'issue' && ['unrelated', 'pending'].includes(id),
+    ),
+  ).toEqual([])
+  expect(pool.hydrate()).toBe(0)
+  expect(load).not.toHaveBeenCalled()
+
+  // A newly matching proposal starts its own ancestor demand, and only then
+  // can that pending ancestor put this search into loading.
+  pool.apply({
+    type: 'update',
+    rows: [
+      {
+        kind: 'issue',
+        id: 'unrelated',
+        value: issue('unrelated', {
+          title: 'iOS second proposal',
+          stage: 'proposed',
+          parentId: 'pending',
+        }),
+      },
+    ],
+  })
+  expect(deck.queue).toBe(LOADING)
+  expect(board.groups).toBe(LOADING)
+  expect(reads.mock.calls.some(([kind, id]) => kind === 'issue' && id === 'pending')).toBe(true)
+  reads.mockRestore()
+})
+
 it('holds search groups open and ignores header taps without changing saved folds', async () => {
   const { pool } = await setup([])
   const board = new MobileTasksBoard(pool, options)
