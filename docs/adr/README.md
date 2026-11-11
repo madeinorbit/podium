@@ -28,11 +28,9 @@ tip `2ddfec21`. Source proposal committed at
 | 11 | [0011-claude-stream-engine.md](0011-claude-stream-engine.md) | Claude stream engine under podium-host (POD-4499, 2026-09-21). One long-lived `claude` stream-json child per session under `--no-pty`, family speaks the wire directly, SDK dependency dropped; adopt-by-label with `--resume` fallback; production routing move left to POD-4497. |
 | 12 | [0012-one-home-per-write.md](0012-one-home-per-write.md) | One home for every write (POD-6241, 2026-11-04). Where each kind of data lives (synced records vs LiveStore vs streams); one server entry point `sync.submit` for every synced write; writes confirmed by covering truth (provenance on change rows plus a reply receipt); plain edits as generic edits, lifecycle actions as desired state, one-off actions as effect records; the Operations engine only for long multi-step jobs. |
 | 7 A2 | [0007-plane-inventory-amendment-2.md](0007-plane-inventory-amendment-2.md) | Topics on the stream plane (POD-5620, 2026-11-08). Every live datum is a declared topic on the one subscription registry: three styles (value, log, event), one producer start/stop rule for server and daemon, server-assigned positions `(epoch, seq)` for resume and gap detection, snapshot first, values unknown while disconnected; transcript, preview, terminal and draft designed now and moved last. |
+| 13 | [0013-tenant-sync-feeds.md](0013-tenant-sync-feeds.md) | Tenant sync feeds (POD-6775, 2026-11-11). Adopts the hosted shared-store target and triggers ADR 1 D5.3 for tenant keys, transactional numbering and per-tenant retention. |
 
 ## Amendments (2026-07-29 — multi-user)
-
-ADR 13: [Tenant sync feeds](0013-tenant-sync-feeds.md) adopts the hosted shared-store
-target and triggers ADR 1 D5.3 for tenant-keyed sync infrastructure (POD-6775).
 
 The **first five** encode the human decisions of 2026-07-28/29 recorded in
 `docs/multi-user-readiness.md`; the sixth (ADR 1 Amd 2) answers POD-645's instance-identity

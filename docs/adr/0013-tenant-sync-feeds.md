@@ -1,8 +1,9 @@
 # ADR 13 — Tenant sync feeds
 
 Status: accepted for POD-6253's hosting foundation, 2026-11-11. Implements
-[the chosen sync-log design, section 8](../design/POD-6253-sync-log-design.md)
-in POD-6775. Client wire version remains **5**.
+section 8 of `docs/design/POD-6253-sync-log-design.md` on the coordinator branch
+`issue/6253-p9-sync-log-and-bootstrap` (also attached to POD-6253), in POD-6775.
+Client wire version remains **5**.
 
 ## Shared-store decision
 

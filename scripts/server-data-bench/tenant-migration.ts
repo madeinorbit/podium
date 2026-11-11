@@ -28,7 +28,7 @@ function seed(path: string): void {
       for (let i = 0; i < rows; i++) insert.run(`session-${i % 1000}`, payload)
       db.exec('COMMIT')
     } finally {
-      insert.finalize()
+      insert.finalize?.()
     }
     db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
   } finally {
