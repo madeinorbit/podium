@@ -111,7 +111,7 @@ const pendingActivityPublication = sql`${sessionsTable.publishedLastActiveAt} < 
 // including stopped sessions left by a restart. History never enters the tick.
 const activityPublicationsDue = prepared((db: StoreDrizzle) =>
   db
-    .select({ id: sessionsTable.id })
+    .select({ id: sql<SessionId>`id` })
     .from(sql`${sessionsTable} INDEXED BY idx_sessions_pending_activity`)
     .where(
       and(

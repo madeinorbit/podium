@@ -382,6 +382,7 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
   // change is appended: output counters live in the row, not in the session's
   // wire meta, so every change dedups away.
   // POD-6790 adds one bounded read of the sessions' confirmed message tails.
+  // The trailing activity publisher adds one indexed pending read per tick (POD-6809).
   it('activity flush after output on every session', async () => {
     const counts = await expectConstantStatements(
       {
@@ -393,7 +394,7 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
           return f
         },
       },
-      16,
+      17,
     )
     expectGrantReads(counts, 0)
   })

@@ -21,7 +21,7 @@
 import { actorUser, asIssueId, asMachineId, asSessionId, asUserId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { fixtureWriteScope } from '@podium/sync/testing'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { createBunStoreExecutor, statementProbeHubFor } from './executor'
 import { SessionsRepository } from './sessions'
@@ -92,6 +92,8 @@ let upserts: string[]
 let detach: () => void
 
 beforeEach(() => {
+  // Both independent writes must use the same publication clock.
+  vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-18T00:00:00.000Z'))
   narrow = openSide(openMigratedTestDatabase(), true)
   full = openSide(openMigratedTestDatabase(), false)
   upserts = []
@@ -105,6 +107,7 @@ afterEach(() => {
   detach()
   narrow.db.close()
   full.db.close()
+  vi.restoreAllMocks()
 })
 
 /** One step on both sides, then the tables must match. Returns what the narrow side set. */

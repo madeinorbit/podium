@@ -4,9 +4,11 @@ import { join } from 'node:path'
 import { asSessionId, firstAdminMemberId } from '@podium/model'
 import type { SessionObservationCheckpointV1 } from '@podium/protocol'
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { Ledger } from '@podium/sync'
 import { fixtureWriteScope, testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { DRIZZLE_MIGRATIONS } from '../../migrations/drizzle-manifest.generated'
 import type { SessionStore } from '../../store'
 import { serverRecordBuilders } from '../../sync/record-builders'
 import { testClientPrincipal } from '../../test-support/client-principal'
@@ -91,6 +93,29 @@ async function fixture(count = 1, file = ':memory:') {
 }
 
 describe('session activity publication', () => {
+  it('seeds publication from the existing exact timestamp during migration', () => {
+    const db = openDatabase(':memory:')
+    try {
+      db.exec(
+        'CREATE TABLE sessions (id TEXT PRIMARY KEY, last_active_at TEXT NOT NULL, deleted_at TEXT)',
+      )
+      db.prepare('INSERT INTO sessions (id, last_active_at) VALUES (?, ?)').run('existing', iso(0))
+      const migration = DRIZZLE_MIGRATIONS.find((m) =>
+        m.name.endsWith('_session-activity-publication'),
+      )!
+      db.exec(migration.sql)
+      expect(
+        db
+          .prepare('SELECT published_last_active_at, last_active_publish_after FROM sessions')
+          .get(),
+      ).toEqual({
+        published_last_active_at: iso(0),
+        last_active_publish_after: 0,
+      })
+    } finally {
+      db.close()
+    }
+  })
   it('keeps server reads exact, publishes other fields immediately and trails the final activity', async () => {
     const f = await fixture()
     const cursor = await f.ledger.cursor()
