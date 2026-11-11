@@ -88,13 +88,13 @@
  */
 
 import type {
-  IssuePanelItemId,
   AccountId,
   AutomationId,
   AutomationRunId,
   ConversationId,
   DeliveryReceiptId,
   IssueId,
+  IssuePanelItemId,
   MachineId,
   MessageDeliveryStatus,
   MessageHeld,
@@ -222,6 +222,8 @@ export const sessions = sqliteTable(
      */
     draftSyncEngine: integer('draft_sync_engine', { mode: 'boolean' }).default(sql`0`).notNull(),
     agentColor: text('agent_color'),
+    // Last accepted unfenced report; durable checkpoints override it when read.
+    agentStateJson: text('agent_state_json'),
     observedModel: text('observed_model'),
     observedEffort: text('observed_effort'),
     handoffTargetMachineId: text('handoff_target_machine_id').$type<MachineId>(),
@@ -1927,7 +1929,8 @@ export const issues = sqliteTable(
 /** Last git facts observed on an issue event; the sync log is never their source. */
 export const issueGitStates = sqliteTable('issue_git_states', {
   issueId: brandedRef(text('issue_id').$type<IssueId>(), () => issues.id, { onDelete: 'cascade' })
-    .primaryKey().notNull(),
+    .primaryKey()
+    .notNull(),
   factsJson: text('facts_json').notNull(),
   updatedAt: text('updated_at').notNull(),
 })
@@ -1992,7 +1995,9 @@ export const shipOrders = sqliteTable(
     index('idx_ship_orders_repo_state_id').on(table.repoId, table.state, table.id),
     index('idx_ship_orders_recovery')
       .on(table.requestedAt, table.id)
-      .where(sql`state IN ('preflight', 'composing', 'validating', 'repairing', 'landing', 'publishing', 'verifying')`),
+      .where(
+        sql`state IN ('preflight', 'composing', 'validating', 'repairing', 'landing', 'publishing', 'verifying')`,
+      ),
     unique('idx_ship_orders_id_issue').on(table.id, table.issueId),
     index('idx_ship_orders_lane').on(table.repoId, table.destination, table.requestedAt, table.id),
     uniqueIndex('idx_ship_orders_one_active_issue')
@@ -2389,7 +2394,10 @@ export const shipRecoveryWork = sqliteTable(
   (table) => [
     index('idx_ship_recovery_work_kind_key').on(table.kind, table.key),
     index('idx_ship_recovery_work_order').on(table.orderId),
-    check('ship_recovery_work_kind_check', sql`kind IN ('daemon-ack', 'repair-ack', 'descendants')`),
+    check(
+      'ship_recovery_work_kind_check',
+      sql`kind IN ('daemon-ack', 'repair-ack', 'descendants')`,
+    ),
   ],
 )
 
@@ -3516,25 +3524,53 @@ export const userDockShell = sqliteTable(
 )
 
 // Each panel item is a record; list positions are labels, never identities.
-export const issuePanelTodos = sqliteTable('issue_panel_todos', {
-  /** Caller-minted stable panel item UUID. */
-  id: text().$type<IssuePanelItemId>().primaryKey(),
-  issueId: brandedRef(text('issue_id').$type<IssueId>().notNull(), () => issues.id, { onDelete: 'cascade' }),
-  position: integer().notNull(), text: text().notNull(), done: integer({ mode: 'boolean' }).notNull(),
-}, t => [index('idx_issue_panel_todos_order').on(t.issueId, t.position, t.id)])
-export const issuePanelArtifacts = sqliteTable('issue_panel_artifacts', {
-  /** Caller-minted stable item UUID, distinct from snapshot id. */
-  id: text().$type<IssuePanelItemId>().primaryKey(),
-  issueId: brandedRef(text('issue_id').$type<IssueId>().notNull(), () => issues.id, { onDelete: 'cascade' }),
-  position: integer().notNull(), path: text().notNull(), value: text().notNull(),
-}, t => [index('idx_issue_panel_artifacts_order').on(t.issueId, t.position, t.id), uniqueIndex('idx_issue_panel_artifacts_path').on(t.issueId, t.path)])
-export const issuePanelDeferred = sqliteTable('issue_panel_deferred', {
-  /** Caller-minted stable panel item UUID. */
-  id: text().$type<IssuePanelItemId>().primaryKey(),
-  issueId: brandedRef(text('issue_id').$type<IssueId>().notNull(), () => issues.id, { onDelete: 'cascade' }),
-  position: integer().notNull(), text: text().notNull(), addedAt: text('added_at').notNull(),
-}, t => [index('idx_issue_panel_deferred_order').on(t.issueId, t.position, t.id)])
+export const issuePanelTodos = sqliteTable(
+  'issue_panel_todos',
+  {
+    /** Caller-minted stable panel item UUID. */
+    id: text().$type<IssuePanelItemId>().primaryKey(),
+    issueId: brandedRef(text('issue_id').$type<IssueId>().notNull(), () => issues.id, {
+      onDelete: 'cascade',
+    }),
+    position: integer().notNull(),
+    text: text().notNull(),
+    done: integer({ mode: 'boolean' }).notNull(),
+  },
+  (t) => [index('idx_issue_panel_todos_order').on(t.issueId, t.position, t.id)],
+)
+export const issuePanelArtifacts = sqliteTable(
+  'issue_panel_artifacts',
+  {
+    /** Caller-minted stable item UUID, distinct from snapshot id. */
+    id: text().$type<IssuePanelItemId>().primaryKey(),
+    issueId: brandedRef(text('issue_id').$type<IssueId>().notNull(), () => issues.id, {
+      onDelete: 'cascade',
+    }),
+    position: integer().notNull(),
+    path: text().notNull(),
+    value: text().notNull(),
+  },
+  (t) => [
+    index('idx_issue_panel_artifacts_order').on(t.issueId, t.position, t.id),
+    uniqueIndex('idx_issue_panel_artifacts_path').on(t.issueId, t.path),
+  ],
+)
+export const issuePanelDeferred = sqliteTable(
+  'issue_panel_deferred',
+  {
+    /** Caller-minted stable panel item UUID. */
+    id: text().$type<IssuePanelItemId>().primaryKey(),
+    issueId: brandedRef(text('issue_id').$type<IssueId>().notNull(), () => issues.id, {
+      onDelete: 'cascade',
+    }),
+    position: integer().notNull(),
+    text: text().notNull(),
+    addedAt: text('added_at').notNull(),
+  },
+  (t) => [index('idx_issue_panel_deferred_order').on(t.issueId, t.position, t.id)],
+)
 export const issuePanelStates = sqliteTable('issue_panel_states', {
   id: brandedRef(text().$type<IssueId>().primaryKey(), () => issues.id, { onDelete: 'cascade' }),
-  text: text().notNull(), updatedAt: text('updated_at').notNull(),
+  text: text().notNull(),
+  updatedAt: text('updated_at').notNull(),
 })

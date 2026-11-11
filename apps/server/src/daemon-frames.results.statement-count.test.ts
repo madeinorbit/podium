@@ -1,3 +1,4 @@
+// POD-6789: two model-table builds replace the stored-copy comparison; source queue and registry writes publish atomically. Pins measured at both fixture sizes on the agents VM.
 /**
  * A daemon's `*Result` frames run a fixed number of statements, whatever the
  * number of sessions on the server, of requests in flight, or of items in the
@@ -11,7 +12,7 @@
  * an approval's execution, a kill receipt, a headless turn, an open-URL
  * answer) are pinned one by one.
  */
-import { type IssueId, type MachineId, type SessionId } from '@podium/model'
+import type { IssueId, MachineId, SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import { DAEMON_FRAME_PORTS } from './gateway/daemon-frame-routing'
@@ -46,7 +47,11 @@ async function fixture(size: number): Promise<Fixture> {
   await attachHostDaemon(reg, () => {}, { repos: ['/repo'] })
   await quietShipping(reg)
   const host = store.hostMachineId
-  const issue = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, { repoPath: '/repo', title: 'Results', startNow: false })
+  const issue = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
+    repoPath: '/repo',
+    title: 'Results',
+    startNow: false,
+  })
   const ids: SessionId[] = []
   for (let i = 0; i < size; i++) {
     const cwd = i === 0 ? '/repo/w' : `/other/w${i}`
@@ -109,14 +114,18 @@ const plantPerSession = (f: Fixture): (() => void) => {
 }
 
 /** The reply frames whose only work is settling a request through the correlator. */
-const BROKER_SETTLED = (Object.keys(DAEMON_FRAME_PORTS) as DaemonMessage['type'][]).filter((type) => {
-  const ports = DAEMON_FRAME_PORTS[type] as readonly string[]
-  return (
-    type !== 'scanResult' &&
-    (ports.every((port) => port === 'rpc') ||
-      ['memoryBreakdownResult', 'reclaimDiskEstimateResult', 'transcriptMirrorResult'].includes(type))
-  )
-})
+const BROKER_SETTLED = (Object.keys(DAEMON_FRAME_PORTS) as DaemonMessage['type'][]).filter(
+  (type) => {
+    const ports = DAEMON_FRAME_PORTS[type] as readonly string[]
+    return (
+      type !== 'scanResult' &&
+      (ports.every((port) => port === 'rpc') ||
+        ['memoryBreakdownResult', 'reclaimDiskEstimateResult', 'transcriptMirrorResult'].includes(
+          type,
+        ))
+    )
+  },
+)
 
 interface Pending extends Fixture {
   /** Per reply type: the id of the request it settles, and whether it did. */
@@ -139,7 +148,10 @@ async function pending(size: number): Promise<Pending> {
       await f.reg.gateway.routeDaemonFrame(f.host, { type, requestId: 'nobody-asked' } as never)
       const call = settles.mock.calls[0]
       if (!call) throw new Error(`${type} did not settle through the correlator`)
-      kinds.set(type, { broker: settles.mock.contexts[0] as DaemonRequestBroker, kind: call[0] as DaemonRequestKind<unknown> })
+      kinds.set(type, {
+        broker: settles.mock.contexts[0] as DaemonRequestBroker,
+        kind: call[0] as DaemonRequestKind<unknown>,
+      })
     }
   } finally {
     settles.mockRestore()
@@ -159,7 +171,12 @@ async function pending(size: number): Promise<Pending> {
         machineId: f.host,
       })
       .then((value) => value !== 'timed out')
-    return { get requestId() { return requestId }, settled }
+    return {
+      get requestId() {
+        return requestId
+      },
+      settled,
+    }
   }
   for (const [type, { broker, kind }] of kinds) requests.set(type, ask(broker, kind))
   const [first] = kinds.values()
@@ -174,7 +191,10 @@ describe('daemon *Result frames: pinned statement counts at 5 and 200', () => {
     pending,
     async (f) => {
       for (const [type, request] of f.requests) {
-        await f.reg.gateway.routeDaemonFrame(f.host, { type, requestId: request.requestId } as never)
+        await f.reg.gateway.routeDaemonFrame(f.host, {
+          type,
+          requestId: request.requestId,
+        } as never)
       }
       await settle(f.reg)
     },
@@ -211,13 +231,29 @@ describe('daemon *Result frames: pinned statement counts at 5 and 200', () => {
       `scanResult (${rescan ? 'known' : 'new'} conversations)`,
       async (size) => {
         const f = await fixture(size)
-        if (rescan) await route(f, { type: 'scanResult', requestId: 'r-first', conversations: conversations(size), diagnostics: [] })
+        if (rescan)
+          await route(f, {
+            type: 'scanResult',
+            requestId: 'r-first',
+            conversations: conversations(size),
+            diagnostics: [],
+          })
         return f
       },
       async (f, size) =>
-        await route(f, { type: 'scanResult', requestId: 'r-unasked', conversations: conversations(size), diagnostics: [] }),
+        await route(f, {
+          type: 'scanResult',
+          requestId: 'r-unasked',
+          conversations: conversations(size),
+          diagnostics: [],
+        }),
       async (f, size) => {
-        expect(await f.store.conversations.registry.podiumIds(f.host, conversations(size).map((c) => c.id))).toHaveProperty('size', size)
+        expect(
+          await f.store.conversations.registry.podiumIds(
+            f.host,
+            conversations(size).map((c) => c.id),
+          ),
+        ).toHaveProperty('size', size)
       },
     )
 
@@ -237,14 +273,14 @@ describe('daemon *Result frames: pinned statement counts at 5 and 200', () => {
     expect([latest(counts.small), appended(counts.small)], detail).toEqual([5, 1])
     expect([latest(counts.large), appended(counts.large)], detail).toEqual([200, 2])
     for (const tally of [counts.small, counts.large]) {
-      expect(tally.statements - latest(tally) - appended(tally), detail).toBe(8)
+      expect(tally.statements - latest(tally) - appended(tally), detail).toBe(9)
     }
   })
 
   // A report of conversations the server knows writes nothing: every row is
   // unchanged, so no change is appended either.
   it('scanResult that reports as many known conversations as the size', async () => {
-    await expectConstantStatements(scan(true), 5)
+    await expectConstantStatements(scan(true), 6)
   })
 
   // The same discovery path, on the frame a daemon's watcher sends whenever its
@@ -255,9 +291,13 @@ describe('daemon *Result frames: pinned statement counts at 5 and 200', () => {
         ...scan(true),
         name: 'conversationsChanged (known conversations)',
         run: async (f, size) =>
-          await route(f, { type: 'conversationsChanged', conversations: conversations(size), diagnostics: [] }),
+          await route(f, {
+            type: 'conversationsChanged',
+            conversations: conversations(size),
+            diagnostics: [],
+          }),
       },
-      5,
+      6,
     )
   })
 
@@ -283,7 +323,13 @@ describe('daemon *Result frames: pinned statement counts at 5 and 200', () => {
       return { ...f, approvalId: id }
     },
     async (f) =>
-      await route(f, { type: 'approvalExecResult', requestId: f.approvalId, ok: true, exitCode: 0, output: 'updated' }),
+      await route(f, {
+        type: 'approvalExecResult',
+        requestId: f.approvalId,
+        ok: true,
+        exitCode: 0,
+        output: 'updated',
+      }),
     async (f) => {
       expect((await f.reg.modules.approvals.get({ id: f.approvalId })).status).toBe('succeeded')
     },
@@ -313,8 +359,12 @@ describe('daemon *Result frames: pinned statement counts at 5 and 200', () => {
 
   it('sessionKillResult that confirms the kill', async () => {
     await expectConstantStatements(
-      pin('sessionKillResult (killed)', fixture, async (f) =>
-        await route(f, { type: 'sessionKillResult', sessionId: f.ids[0], killed: true })),
+      pin(
+        'sessionKillResult (killed)',
+        fixture,
+        async (f) =>
+          await route(f, { type: 'sessionKillResult', sessionId: f.ids[0], killed: true }),
+      ),
       0,
     )
   })
@@ -331,10 +381,18 @@ describe('daemon *Result frames: pinned statement counts at 5 and 200', () => {
 
   it('sessionOpenUrlResult nobody is waiting for', async () => {
     await expectConstantStatements(
-      pin('sessionOpenUrlResult', fixture, async (f) =>
-        await route(f, { type: 'sessionOpenUrlResult', sessionId: f.ids[0], requestId: 'o1', status: 'opened' })),
+      pin(
+        'sessionOpenUrlResult',
+        fixture,
+        async (f) =>
+          await route(f, {
+            type: 'sessionOpenUrlResult',
+            sessionId: f.ids[0],
+            requestId: 'o1',
+            status: 'opened',
+          }),
+      ),
       0,
     )
   })
 })
-

@@ -201,6 +201,7 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/issues.ts:issueClosureRowsOf', SIZES],
   ['apps/server/src/store/grants.ts:upsertGrant', ['set', 'keep']],
   ['apps/server/src/store/grants.ts:deleteGrantsOfResource', ['retain', 'all']],
+  ['apps/server/src/store/sessions.ts:personalRecordKeys', SIZES],
   ['apps/server/src/store/sessions.ts:bindingOwnersOfIds', SIZES],
   ['apps/server/src/store/sessions.ts:bindingFactsOfIds', SIZES],
   ['apps/server/src/store/sessions.ts:sessionsOfIds', SIZES],
@@ -522,6 +523,10 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
     'Walks the newest `cap` events by primary key to find where pruning starts; it reads the cap, not the table.',
   ],
   [
+    'apps/server/src/store/events.ts:pruneRuntimeSessions',
+    'The same retention candidate query as deletePruneBatch, limited to one batch before the source delete to name its dependent sessions.',
+  ],
+  [
     'apps/server/src/store/events.ts:deletePruneBatch',
     'Reads the oldest events in id order and stops at the batch limit.',
   ],
@@ -617,15 +622,42 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
  * shrink.
  */
 const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
-  ['apps/server/src/store/conversations/index.ts:recordPage', 'A keyset page of stored conversation records, bounded by the requested page size, for full truth and bootstrap. The first page walks the id index.'],
-  ['apps/server/src/store/issue-git-states.ts:pageOf', 'A keyset page of stored git observations joined to live issues, bounded by requested page size. The first page walks the observation primary key.'],
-  ['apps/server/src/store/issue-panel.ts:todoPage', 'Bounded keyset panel record page joined to its issue; the first page walks its primary key.'],
-  ['apps/server/src/store/issue-panel.ts:artifactPage', 'Bounded keyset panel record page joined to its issue; the first page walks its primary key.'],
-  ['apps/server/src/store/issue-panel.ts:deferredPage', 'Bounded keyset panel record page joined to its issue; the first page walks its primary key.'],
-  ['apps/server/src/store/issue-panel.ts:statePage', 'Bounded keyset panel record page joined to its issue; the first page walks its primary key.'],
-  ['apps/server/src/store/machines.ts:machineRecordIds', 'An id-only covering walk for a change that affects the entire fleet, including a member joining or leaving.'],
-  ['apps/server/src/store/machines.ts:machineRecordPage', 'A keyset page of stored machine records, bounded by requested page size. The first page walks the id index.'],
-  ['apps/server/src/store/users.ts:activeRecordMembers', 'Enabled members id and role only, for each member machine-access record. The output necessarily covers the enabled membership; no credential or other account data is loaded.'],
+  [
+    'apps/server/src/store/conversations/index.ts:recordPage',
+    'A keyset page of stored conversation records, bounded by the requested page size, for full truth and bootstrap. The first page walks the id index.',
+  ],
+  [
+    'apps/server/src/store/issue-git-states.ts:pageOf',
+    'A keyset page of stored git observations joined to live issues, bounded by requested page size. The first page walks the observation primary key.',
+  ],
+  [
+    'apps/server/src/store/issue-panel.ts:todoPage',
+    'Bounded keyset panel record page joined to its issue; the first page walks its primary key.',
+  ],
+  [
+    'apps/server/src/store/issue-panel.ts:artifactPage',
+    'Bounded keyset panel record page joined to its issue; the first page walks its primary key.',
+  ],
+  [
+    'apps/server/src/store/issue-panel.ts:deferredPage',
+    'Bounded keyset panel record page joined to its issue; the first page walks its primary key.',
+  ],
+  [
+    'apps/server/src/store/issue-panel.ts:statePage',
+    'Bounded keyset panel record page joined to its issue; the first page walks its primary key.',
+  ],
+  [
+    'apps/server/src/store/machines.ts:machineRecordIds',
+    'An id-only covering walk for a change that affects the entire fleet, including a member joining or leaving.',
+  ],
+  [
+    'apps/server/src/store/machines.ts:machineRecordPage',
+    'A keyset page of stored machine records, bounded by requested page size. The first page walks the id index.',
+  ],
+  [
+    'apps/server/src/store/users.ts:activeRecordMembers',
+    'Enabled members id and role only, for each member machine-access record. The output necessarily covers the enabled membership; no credential or other account data is loaded.',
+  ],
   [
     'apps/server/src/store/messages.ts:confirmedChatWindow',
     "The chat feed's confirmed window as a query (POD-6763, POD-6766): each live session's newest confirmed operator messages, ranked by a window function, which sorts each session's confirmed messages, after a read of `sessions` finds the live ones. Read by the record builder's `streamAll` during client bootstrap, never at server startup or per write (a write reads `confirmedChatTail`). Bounded by live sessions, not by history; the start-up load phase decides whether it stays.",
@@ -720,11 +752,11 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   ],
   [
     'apps/server/src/store/sessions.ts:allUserStateRows',
-    "Whole-table read (POD-6172): every person's session state for the sessionUserState full-truth reconcile at boot (modules/sessions/repository.ts), which diffs it against the replica's snapshot.",
+    "Whole-table read (POD-6172): every person's sparse session state for the record builder's current-table startup stream (sync/record-builders.ts).",
   ],
   [
     'apps/server/src/store/sessions.ts:allSnoozeRows',
-    'Whole-table read (POD-6172): every snooze, read with the session states for the same boot reconcile.',
+    'Whole-table read (POD-6172): every snooze, read with the session states for the current-table startup stream.',
   ],
   [
     'apps/server/src/store/sessions.ts:draftTexts',
@@ -804,7 +836,6 @@ const RAW_SQL_PLANNED: ReadonlyMap<string, string> = new Map([
     'apps/server/src/sync-worker/producer.ts:SELECT min(seq) AS seq FROM changes',
     "The sync worker's retention floor, read on the snapshot the first read fixed, before the visibility repositories exist.",
   ],
-
 ])
 
 const RAW_SQL_EXEMPT: ReadonlyMap<string, string> = new Map([

@@ -286,6 +286,17 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       (c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert',
     ) as { value?: SessionMeta } | undefined
     expect(change?.value?.agentState?.phase).toBe('working')
+    expect((await registry.sessionStore.sessions.getSession(sessionId))?.agentState?.phase).toBe(
+      'working',
+    )
+    await registry.dispose()
+    const restarted = await makeRegistry(registry.sessionStore)
+    const snapshot = await restarted.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)
+    expect(snapshot.kind).toBe('snapshot')
+    if (snapshot.kind === 'snapshot')
+      expect(snapshot.sessions.find((row) => row.sessionId === sessionId)?.agentState?.phase).toBe(
+        'working',
+      )
   })
 
   it('(b2) a title persist yields a durable ledger change', async () => {
@@ -590,7 +601,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     ).toMatchObject({ geometry: { cols: 100, rows: 40 } })
   })
 
-  it('emits ordered self-contained projection events for persist and every live-view seam', async () => {
+  it('emits ordered self-contained projection events for durable writes', async () => {
     const registry = await makeRegistry()
     const events: ProjectionEvent[] = []
     const off = registry.modules.sessions.onSessionProjection((event) => events.push(event))
@@ -649,11 +660,11 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
     expect(afterCreate).toBeGreaterThan(0)
     expect(afterPersist).toBeGreaterThan(afterCreate)
-    expect(afterAttach).toBeGreaterThan(afterPersist)
-    expect(afterResize).toBeGreaterThan(afterAttach)
-    expect(afterSecondAttach).toBeGreaterThan(afterResize)
-    expect(afterControl).toBeGreaterThan(afterSecondAttach)
-    expect(afterDetach).toBeGreaterThan(afterControl)
+    expect(afterAttach).toBe(afterPersist)
+    expect(afterResize).toBe(afterPersist)
+    expect(afterSecondAttach).toBe(afterPersist)
+    expect(afterControl).toBe(afterPersist)
+    expect(afterDetach).toBe(afterPersist)
     expect(events.map((event) => event.generation)).toEqual(
       events.map((event) => event.generation).sort((a, b) => a - b),
     )

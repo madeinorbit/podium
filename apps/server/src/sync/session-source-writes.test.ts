@@ -1,4 +1,4 @@
-import { asSessionId, firstAdminMemberId } from '@podium/model'
+import { asIssueId, asRepoId, asSessionId, firstAdminMemberId } from '@podium/model'
 import { Ledger } from '@podium/sync'
 import { fixtureWriteScope, testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -114,9 +114,24 @@ describe('session source writes compare before they write', () => {
     f.session.refIssueId = issue.id
     f.session.refLetter = 'A'
     await f.save()
+    const repoId = asRepoId('repo-upgraded')
+    await f.store.issues.upsertIssue(
+      fixtureWriteScope(),
+      issueRowFixture({
+        id: asIssueId('target-issue'),
+        repoPath: '/other',
+        repoId,
+        seq: 1,
+        parentId: null,
+        ownerUserId: f.session.ownerUserId,
+      }),
+    )
     const cursor = await f.ledger.cursor()
-    await f.store.issues.upsertIssue(fixtureWriteScope(), { ...issue, seq: 2 })
+    await f.store.issues.assignRepoIdToIssuesUnder(repoId, '/repo')
     expect(await f.changes(cursor)).toHaveLength(1)
+    expect(await f.ledger.authority.snapshot('session')).toContainEqual(
+      expect.objectContaining({ sessionId: f.session.sessionId, refSeq: 2, refRepoId: repoId }),
+    )
   })
 
   it('logs the loss of transcript evidence in the retention write', async () => {

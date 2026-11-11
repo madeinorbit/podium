@@ -7,6 +7,7 @@
 import {
   type ActorKind,
   AgentKind,
+  AgentRuntimeState,
   actorColumns,
   actorFromColumns,
   asSessionId,
@@ -526,6 +527,7 @@ function fullSessionUpsertSet(value: (key: SessionColumnKey) => Placeholder | SQ
     boundDriverId: value('boundDriverId'),
     boundDriverCapabilities: value('boundDriverCapabilities'),
     draftSyncEngine: value('draftSyncEngine'),
+    agentStateJson: value('agentStateJson'),
     agentColor: value('agentColor'),
     observedModel: value('observedModel'),
     observedEffort: value('observedEffort'),
@@ -702,6 +704,7 @@ function sessionUpsertValues(row: SessionRow) {
     boundDriverCapabilities:
       row.boundDriverCapabilities == null ? null : JSON.stringify(row.boundDriverCapabilities),
     draftSyncEngine: row.draftSyncEngine ?? false,
+    agentStateJson: row.agentState ? JSON.stringify(row.agentState) : null,
     agentColor: row.agentColor ?? null,
     observedModel: row.observedModel ?? null,
     observedEffort: row.observedEffort ?? null,
@@ -2589,6 +2592,7 @@ function mapSession(r: SessionSelect): SessionRow {
     boundDriverId: r.boundDriverId ?? null,
     boundDriverCapabilities: decodeDriverCapabilities(r.boundDriverCapabilities),
     draftSyncEngine: r.draftSyncEngine === true,
+    agentState: parseAgentState(r.agentStateJson),
     agentColor: r.agentColor ?? null,
     observedModel: r.observedModel ?? null,
     observedEffort: r.observedEffort ?? null,
@@ -2685,5 +2689,16 @@ function parseHistory(raw: string | null): string[] {
     return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
   } catch {
     return []
+  }
+}
+
+/** A corrupt legacy report is absent, as a corrupt runtime checkpoint is. */
+function parseAgentState(value: string | null): SessionRow['agentState'] {
+  if (value === null) return null
+  try {
+    const parsed = AgentRuntimeState.safeParse(JSON.parse(value))
+    return parsed.success ? parsed.data : null
+  } catch {
+    return null
   }
 }

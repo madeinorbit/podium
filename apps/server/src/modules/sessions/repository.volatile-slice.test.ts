@@ -1,7 +1,9 @@
 import { asMachineId, asSessionId, firstAdminMemberId } from '@podium/model'
+import { Ledger } from '@podium/sync'
+import { testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { openTestStore } from '../../test-support/open-test-store'
-import { recordTestWriter } from '../../test-support/record-writer'
+import { testStoreRecords } from '../../test-support/record-writer'
 import { SessionRepository } from './repository'
 import { Session } from './session'
 
@@ -30,8 +32,16 @@ async function fixture(count: number) {
   stores.push(store)
   const rows = Array.from({ length: count }, (_, index) => makeSession(index))
   const sessions = new Map(rows.map((session) => [session.sessionId, session]))
-  const { writer } = recordTestWriter(store, { transact: (fn) => store.transact(fn) })
+  const writer = testLedgerWriter(
+    new Ledger({
+      repo: store.sync,
+      records: testStoreRecords(store),
+      now: () => Date.now(),
+      transact: (fn) => store.transact(fn),
+    }),
+  )
   const commit = vi.fn(writer.commit)
+  const realUpsert = store.sessions.upsertSession.bind(store.sessions)
   const upsert = vi.spyOn(store.sessions, 'upsertSession')
   const upserts = vi.spyOn(store.sessions, 'upsertSessions')
   const runScheduledBroadcast = vi.fn()
@@ -46,7 +56,7 @@ async function fixture(count: number) {
     flushBroadcasts: vi.fn(),
     listSessions: vi.fn(async () => []),
   } as never)
-  return { repo, rows, sessions, store, commit, upsert, upserts, runScheduledBroadcast }
+  return { repo, rows, sessions, store, commit, upsert, realUpsert, upserts, runScheduledBroadcast }
 }
 
 afterEach(() => {
@@ -89,13 +99,12 @@ describe('SessionRepository volatile capture slices [POD-2322]', () => {
   })
 
   it('keeps a same-slice mutation pending and persists its newest value next', async () => {
-    const { repo, rows, store, upsert } = await fixture(1)
+    const { repo, rows, store, upsert, realUpsert } = await fixture(1)
     vi.useFakeTimers()
     const row = rows[0]!
     const first = asMachineId('first-target')
     const latest = asMachineId('latest-target')
     row.handoffTargetMachineId = first
-    const realUpsert = upsert.getMockImplementation()!
     upsert.mockImplementationOnce(async (scope, value) => {
       await realUpsert(scope, value)
       row.handoffTargetMachineId = latest

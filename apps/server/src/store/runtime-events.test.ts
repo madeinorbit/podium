@@ -1169,6 +1169,11 @@ describe('durable runtime observation gate', () => {
     await effectStarted
     expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(2)
     expect(await store.events.runtimeEventProjectionCursor('runtime.board.v1')).toBe(baselineCursor)
+    await store.events.appendEvent({
+      ts: '2026-01-01T00:00:00Z',
+      kind: 'retention.fixture',
+      subject: sessionId,
+    })
     const prune = await store.events.planEventPrune({ maxAgeDays: 0, maxRows: 0 })
     expect(await store.events.pruneEventBatch(prune)).toBeGreaterThan(0)
     // The pending effect's row survives retention. The bootstrap row before it
@@ -2107,18 +2112,18 @@ it('projects metadata after a closed turn, preserves recency, and deduplicates d
       kind: 'accepted',
     })
     await gateway.replayBoardProjection()
-    expect(await registry.modules.sessions.sessionById(sessionId)).toMatchObject({
-      contextUsagePercent: 42,
-      lastActiveAt: before,
-    })
+    expect(
+      await registry.modules.sessions.liveTopics.snapshot('session.condition', sessionId),
+    ).toMatchObject({ contextUsagePercent: 42 })
+    expect((await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt).toBe(before)
     expect(await gateway.record(store.hostMachineId, { sessionId, event })).toMatchObject({
       kind: 'duplicate',
     })
     await gateway.replayBoardProjection()
-    expect(await registry.modules.sessions.sessionById(sessionId)).toMatchObject({
-      contextUsagePercent: 42,
-      lastActiveAt: before,
-    })
+    expect(
+      await registry.modules.sessions.liveTopics.snapshot('session.condition', sessionId),
+    ).toMatchObject({ contextUsagePercent: 42 })
+    expect((await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt).toBe(before)
   } finally {
     await registry.dispose()
     await store.close()
@@ -2235,7 +2240,9 @@ it('restores metadata through the actual bind snapshot RPC on reconnect without 
       )
     })
     await vi.waitFor(async () =>
-      expect(await registry.modules.sessions.sessionById(sessionId)).toMatchObject({
+      expect(
+        await registry.modules.sessions.liveTopics.snapshot('session.condition', sessionId),
+      ).toMatchObject({
         contextUsagePercent: 33,
       }),
     )
@@ -2252,11 +2259,13 @@ it('restores metadata through the actual bind snapshot RPC on reconnect without 
       driverId: 'generic-pty',
     })
     await vi.waitFor(async () =>
-      expect(await registry.modules.sessions.sessionById(sessionId)).toMatchObject({
+      expect(
+        await registry.modules.sessions.liveTopics.snapshot('session.condition', sessionId),
+      ).toMatchObject({
         contextUsagePercent: 0,
-        lastActiveAt: before,
       }),
     )
+    expect((await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt).toBe(before)
   } finally {
     await Promise.all(replies)
     await registry.dispose()

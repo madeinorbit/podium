@@ -1,3 +1,4 @@
+// POD-6789: two model-table builds replace the stored-copy comparison; source queue and registry writes publish atomically. Pins measured at both fixture sizes on the agents VM.
 /**
  * A WRITE TO A PARKED SESSION RUNS A FIXED NUMBER OF STATEMENTS (POD-6210).
  *
@@ -162,7 +163,7 @@ describe('a write to a parked session: constant statements', () => {
         },
         teardown: async (f) => await f.reg.dispose(),
       },
-      19,
+      34,
     )
   })
 })

@@ -117,7 +117,10 @@ export function identityFromInit(init: StoredSessionInit): SessionIdentity {
 export const OOM_ATTRIBUTION_WINDOW_MS = 60_000
 
 /** Was a kernel OOM kill observed close enough to `exitedAtMs` to be its cause? */
-export function oomExplainsExit(exitedAtMs: number, d: Pick<SessionDurableFields, 'oomKilledAt'>): boolean {
+export function oomExplainsExit(
+  exitedAtMs: number,
+  d: Pick<SessionDurableFields, 'oomKilledAt'>,
+): boolean {
   if (!d.oomKilledAt) return false
   const killed = Date.parse(d.oomKilledAt)
   if (!Number.isFinite(killed) || !Number.isFinite(exitedAtMs)) return false
@@ -174,7 +177,9 @@ export function durableStateFromInit(init: StoredSessionInit): SessionDurableSta
     status,
     exitCode: init.exitCode,
     spawnFailure: init.spawnFailure,
-    agentState: undefined,
+    // The last unfenced report survives a restart; the satellites applied
+    // afterwards replace it with a causally fenced observation/runtime state.
+    agentState: init.agentState ? structuredClone(init.agentState) : undefined,
     workingMsTotal: init.workingMsTotal,
     incomingWorkingMsTotal: undefined,
     // Stored since POD-6764: a restart keeps what the transcript tail last
@@ -243,7 +248,6 @@ export function storedSessionInit(
     mode === 'boot' && !r.headless && (r.status === 'live' || r.status === 'starting')
   const exitCode = mode === 'restore' || r.status !== 'exited' ? null : r.exitCode
   return {
-
     sessionId: r.id,
     ownerUserId: r.ownerUserId ?? ownerFallback,
     agentKind: kind.data,
@@ -273,6 +277,7 @@ export function storedSessionInit(
     // Survives a restart — otherwise a reboot would forget that the USER named this
     // session and the next agent title would sail straight through (#490).
     ...(r.name && r.nameSource ? { nameSource: r.nameSource } : {}),
+    ...(r.agentState ? { agentState: r.agentState } : {}),
     ...(r.model ? { model: r.model } : {}),
     ...(r.effort ? { effort: r.effort } : {}),
     /**
@@ -308,9 +313,7 @@ export function storedSessionInit(
     stoppedAt: r.stoppedAt ?? null,
     stopReason: r.stopReason ?? null,
     ...(r.lifecycle ? { lifecycle: r.lifecycle } : {}),
-    ...(parseWorkState(r.workState)
-      ? { workState: parseWorkState(r.workState) }
-      : {}),
+    ...(parseWorkState(r.workState) ? { workState: parseWorkState(r.workState) } : {}),
     ...(r.resumeKind && r.resumeValue
       ? { resume: { kind: r.resumeKind, value: r.resumeValue } }
       : {}),
@@ -343,7 +346,9 @@ export function storedSessionInit(
 }
 
 /** Has this launch PROVABLY never had a native conversation (POD-2392)? */
-export function isNeverBound(d: Pick<SessionDurableFields, 'conversationBinding' | 'resume'>): boolean {
+export function isNeverBound(
+  d: Pick<SessionDurableFields, 'conversationBinding' | 'resume'>,
+): boolean {
   return d.conversationBinding === 'never' && d.resume === undefined
 }
 

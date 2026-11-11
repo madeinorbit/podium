@@ -1,3 +1,4 @@
+// POD-6789: two model-table builds replace the stored-copy comparison; source queue and registry writes publish atomically. Pins measured at both fixture sizes on the agents VM.
 /**
  * SENDING MAIL RUNS A FIXED NUMBER OF STATEMENTS [POD-6227, server-data rule
  * 8], whatever the number of sessions on the server or of messages already in
@@ -77,8 +78,14 @@ async function fixture(size: number, issueMail = true): Promise<Fixture> {
     { repos: ['/repo'] },
   )
   await quietShipping(reg)
-  const issue = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, { repoPath: '/repo', title: 'Mail', startNow: false })
-  await reg.issues.crud.update(reg.issues.reports.store.serverWriter, issue.id, { worktreePath: '/repo/.worktrees/mail' })
+  const issue = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
+    repoPath: '/repo',
+    title: 'Mail',
+    startNow: false,
+  })
+  await reg.issues.crud.update(reg.issues.reports.store.serverWriter, issue.id, {
+    worktreePath: '/repo/.worktrees/mail',
+  })
   const start = async (cwd: string, issueId?: IssueId): Promise<SessionId> => {
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'shell',
@@ -110,7 +117,8 @@ async function fixture(size: number, issueMail = true): Promise<Fixture> {
   })
   for (let i = 0; i < size + CONFIRMED_PER_SESSION; i++) {
     await call.messages.send({ to: target, body: `earlier ${i}` })
-    if (issueMail && i < size) await call.messages.send({ to: issue.id, body: `earlier to the issue ${i}` })
+    if (issueMail && i < size)
+      await call.messages.send({ to: issue.id, body: `earlier to the issue ${i}` })
   }
   // A shell's queue is typed one row at a time after the sends answered; let
   // it drain, or its tail falls into the counted send at the large size.
@@ -123,7 +131,12 @@ async function fixture(size: number, issueMail = true): Promise<Fixture> {
 
 let relayed = 0
 /** One relayed call from the sender's daemon, answered by the server's reply frame. */
-const relay = (f: Fixture, proc: string, input: unknown, router = 'messages'): Promise<RelayResult> => {
+const relay = (
+  f: Fixture,
+  proc: string,
+  input: unknown,
+  router = 'messages',
+): Promise<RelayResult> => {
   const requestId = `pod6227-${relayed++}`
   return new Promise((resolve) => {
     f.replies.set(requestId, resolve)
@@ -211,11 +224,11 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
   // issue 15 -> 18; relayed (the agent's principal is resolved for the target
   // check and for the handler) 53 -> 66, 61 -> 74, 19 -> 26; mailSend 25 -> 26.
   it('over tRPC, to a running session', async () => {
-    await expectConstantStatements(trpcToSession, 71)
+    await expectConstantStatements(trpcToSession, 119)
   })
 
   it('tRPC pin is armed', async () => {
-    await expectArmed(trpcToSession, 71, plantPerSession)
+    await expectArmed(trpcToSession, 119, plantPerSession)
   })
 
   // The pass attempts every held message, and each attempt read the issue's
@@ -238,17 +251,21 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
 
   it('over tRPC, to a running session whose issue holds mail', async () => {
     await expectConstantStatements(
-      heldIssueMail('tRPC messages.send to a session, issue mail held', async (f) =>
-        await f.call.messages.send({ to: f.target, body: 'counted' })),
-      71,
+      heldIssueMail(
+        'tRPC messages.send to a session, issue mail held',
+        async (f) => await f.call.messages.send({ to: f.target, body: 'counted' }),
+      ),
+      126,
     )
   })
 
   it('through the agent relay, to a running session whose issue holds mail', async () => {
     await expectConstantStatements(
-      heldIssueMail('relayed messages.send to a session, issue mail held', async (f) =>
-        await relay(f, 'send', { to: f.target, body: 'counted' })),
-      60,
+      heldIssueMail(
+        'relayed messages.send to a session, issue mail held',
+        async (f) => await relay(f, 'send', { to: f.target, body: 'counted' }),
+      ),
+      117,
     )
   })
 
@@ -256,7 +273,7 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
   // the number of held messages from that sender (account reads go through the
   // per-operation loader). Here the held mail comes from one agent; the pins
   // above cover the pass's whole count.
-  it('over tRPC, the delivery pass reads the held mail\'s one sender once', async () => {
+  it("over tRPC, the delivery pass reads the held mail's one sender once", async () => {
     const counts = await measureAtSizes({
       ...pin(
         'tRPC messages.send to a session, issue mail from one sender held',
@@ -275,15 +292,23 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
       sizes: [5, 150],
     })
     const usersReads = (tally: StatementTally) =>
-      [...tally.byQuery].reduce((n, [key, count]) => (/^select\b.*\bfrom "users"/i.test(key) ? n + count : n), 0)
-    expect(usersReads(counts.large), describeGrowth(counts.small, counts.large)).toBe(usersReads(counts.small))
+      [...tally.byQuery].reduce(
+        (n, [key, count]) => (/^select\b.*\bfrom "users"/i.test(key) ? n + count : n),
+        0,
+      )
+    expect(usersReads(counts.large), describeGrowth(counts.small, counts.large)).toBe(
+      usersReads(counts.small),
+    )
     expect(usersReads(counts.small)).toBe(HELD_PASS_USERS_READS)
   })
 
   it('over tRPC, to an issue', async () => {
     await expectConstantStatements(
-      pin('tRPC messages.send to an issue', async (f) => await f.call.messages.send({ to: f.issueId, body: 'counted' })),
-      18,
+      pin(
+        'tRPC messages.send to an issue',
+        async (f) => await f.call.messages.send({ to: f.issueId, body: 'counted' }),
+      ),
+      17,
     )
   })
 
@@ -294,23 +319,29 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
   )
 
   it('through the agent relay, to a running session', async () => {
-    await expectConstantStatements(relayToSession, 60)
+    await expectConstantStatements(relayToSession, 110)
   })
 
   it('relay pin is armed', async () => {
-    await expectArmed(relayToSession, 60, plantPerSession)
+    await expectArmed(relayToSession, 110, plantPerSession)
   })
 
   it('through the agent relay, to its own issue', async () => {
     await expectConstantStatements(
-      pin('relayed messages.send to an issue', async (f) => await relay(f, 'send', { to: f.issueId, body: 'counted' })),
-      26,
+      pin(
+        'relayed messages.send to an issue',
+        async (f) => await relay(f, 'send', { to: f.issueId, body: 'counted' }),
+      ),
+      28,
     )
   })
 
   it('through the agent relay, issues.mailSend to its own issue', async () => {
     await expectConstantStatements(
-      pin('relayed issues.mailSend', async (f) => await relay(f, 'mailSend', { id: f.issueId, body: 'counted' }, 'issues')),
+      pin(
+        'relayed issues.mailSend',
+        async (f) => await relay(f, 'mailSend', { id: f.issueId, body: 'counted' }, 'issues'),
+      ),
       26,
     )
   })

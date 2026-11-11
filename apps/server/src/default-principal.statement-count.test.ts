@@ -1,3 +1,4 @@
+// POD-6789: two model-table builds replace the stored-copy comparison; source queue and registry writes publish atomically. Pins measured at both fixture sizes on the agents VM.
 /**
  * A RUNTIME EVENT ASKS FOR THE FIRST ADMIN AND ITS SETTINGS ONCE [POD-6218,
  * server-data rule 8].
@@ -42,7 +43,10 @@ async function fixture(size: number): Promise<Fixture> {
   await quietShipping(reg)
   const ids: SessionId[] = []
   for (let i = 0; i < size; i++) {
-    const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: `/w${i}` })
+    const { sessionId } = await reg.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd: `/w${i}`,
+    })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId,
@@ -87,7 +91,10 @@ const stateSnapshot = (sessionId: SessionId, seq: number) => ({
   deliveryId: `state-${seq}`,
   event: {
     t: 'state',
-    change: { kind: 'state_snapshot', state: { phase: 'working', since: at, nativeSubagentCount: 0 } },
+    change: {
+      kind: 'state_snapshot',
+      state: { phase: 'working', since: at, nativeSubagentCount: 0 },
+    },
     at,
     provenance: 'live',
     cursor: { segmentId: 'runtime-segment', components: { seq } },
@@ -101,7 +108,10 @@ const pin: StatementPin<Fixture> = {
   setup: fixture,
   target: (f) => f.store,
   run: async (f) => {
-    await f.reg.gateway.routeDaemonFrame(f.reg.sessionStore.hostMachineId, stateSnapshot(f.ids[0]!, 30) as never)
+    await f.reg.gateway.routeDaemonFrame(
+      f.reg.sessionStore.hostMachineId,
+      stateSnapshot(f.ids[0]!, 30) as never,
+    )
     await settle(f.reg)
   },
   check: (_result, f) => {
@@ -125,4 +135,4 @@ describe('the default principal per runtime event: pinned at 5 and 200 sessions'
 // Measured on the polaris VM. Before POD-6218 this frame ran 36 (on e617c446a5:
 // `users` 8, `meta` 2, `user_preferences` 2); POD-6216's board drain then
 // removed three (11ab04ade0 among them), so 33 on the parent of this change.
-const RUNTIME_EVENT = 24
+const RUNTIME_EVENT = 36

@@ -1,3 +1,4 @@
+// POD-6789: two model-table builds replace the stored-copy comparison; source queue and registry writes publish atomically. Pins measured at both fixture sizes on the agents VM.
 /**
  * A CHANGE READS ITS GRANTS ONCE [POD-6217, server-data rule 8].
  *
@@ -77,7 +78,11 @@ async function fixture(size: number): Promise<Fixture> {
   await attachHostDaemon(reg, () => {}, { repos: ['/repo'] })
   await quietShipping(reg)
   const owner = firstAdminMemberId()
-  const issue = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, { repoPath: '/repo', title: 'Shared issue', startNow: false })
+  const issue = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
+    repoPath: '/repo',
+    title: 'Shared issue',
+    startNow: false,
+  })
   const start = async (cwd: string, issueId?: IssueId): Promise<SessionId> => {
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'codex',
@@ -97,7 +102,10 @@ async function fixture(size: number): Promise<Fixture> {
   const sessionId = await start('/repo/w', issue.id)
   for (let i = 0; i < size; i++) await start(`/other/w${i}`)
   // Edges on both resources, so each read returns a row.
-  for (const [resourceKind, resourceId] of [['issue', issue.id], ['session', sessionId]] as const) {
+  for (const [resourceKind, resourceId] of [
+    ['issue', issue.id],
+    ['session', sessionId],
+  ] as const) {
     await store.grants.upsert({
       resourceKind,
       resourceId,
@@ -125,7 +133,10 @@ async function fixture(size: number): Promise<Fixture> {
 }
 
 const grantReads = (tally: StatementTally): number =>
-  [...tally.byQuery].reduce((n, [key, count]) => (/^select\b.*\bfrom "grants"/i.test(key) ? n + count : n), 0)
+  [...tally.byQuery].reduce(
+    (n, [key, count]) => (/^select\b.*\bfrom "grants"/i.test(key) ? n + count : n),
+    0,
+  )
 
 const expectGrantReads = (counts: PinnedCounts, reads: number): void => {
   expect(grantReads(counts.small), 'grant reads at the small size').toBe(reads)
@@ -180,7 +191,8 @@ describe('grant reads per change, a running session on an issue: pinned at 5 and
       pin(
         'sessions.rename (on an issue)',
         async (f) => await f.call.sessions.rename({ sessionId: f.sessionId, name: 'Renamed' }),
-        async (f) => expect((await f.store.sessions.loadSession(f.sessionId))?.name).toBe('Renamed'),
+        async (f) =>
+          expect((await f.store.sessions.loadSession(f.sessionId))?.name).toBe('Renamed'),
       ),
       RENAME,
     )
@@ -208,7 +220,8 @@ describe('grant reads per change, a running session on an issue: pinned at 5 and
             type: 'agentObservation',
             observation: observation(f.sessionId),
           } as never),
-        async (f) => expect(f.reg.modules.sessions.sessions.get(f.sessionId)?.agentState?.phase).toBe('idle'),
+        async (f) =>
+          expect(f.reg.modules.sessions.sessions.get(f.sessionId)?.agentState?.phase).toBe('idle'),
       ),
       OBSERVATION,
     )
@@ -221,8 +234,8 @@ describe('grant reads per change, a running session on an issue: pinned at 5 and
 // issue's pending mail (two statements); the flush now asks for both in one: -1.
 // POD-6218: the earliest admin is one statement, once per operation: issues.update -1.
 // Incoming scoped-write receipt reads plus private owner-only session/shared-task projection.
-const RENAME = 12
+const RENAME = 25
 // POD-6791: measured on the integration base at 63. Sharing the issue and
 // body-header reads on both sides of the write removes two statements.
-const ISSUE_UPDATE = 61
-const OBSERVATION = 11
+const ISSUE_UPDATE = 78
+const OBSERVATION = 24

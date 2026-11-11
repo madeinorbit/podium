@@ -5,6 +5,7 @@
 
 import type {
   AccountId,
+  AgentRuntimeState,
   Attribution,
   Geometry,
   HarnessRefEntry,
@@ -35,7 +36,6 @@ import type { MessageFailedCause } from '@podium/protocol/daemon'
  *  a set of literals is exactly the kind of vocabulary that drifts silently when one
  *  copy gains a member. L0 owns it; this is the name the server reads it by. */
 export type PinKind = ModelPinKind
-
 
 /** sessionId → snooze deadline. `null` = until next message; ISO = timed. */
 export type SnoozeMap = Record<string, string | null>
@@ -205,6 +205,7 @@ export interface SessionRow {
   /** Stored session facts the record projects (POD-6764): the daemon's last
    *  bind report, the transcript tail's last sightings, a move in flight. */
   draftSyncEngine?: boolean
+  agentState?: AgentRuntimeState | null
   agentColor?: string | null
   observedModel?: string | null
   observedEffort?: string | null

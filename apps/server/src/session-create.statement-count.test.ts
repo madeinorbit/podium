@@ -1,3 +1,4 @@
+// POD-6789: two model-table builds replace the stored-copy comparison; source queue and registry writes publish atomically. Pins measured at both fixture sizes on the agents VM.
 /**
  * CREATING A SESSION RUNS A FIXED NUMBER OF STATEMENTS [POD-6227, server-data
  * rule 8], whatever the number of sessions, issues and machines already on
@@ -100,7 +101,9 @@ async function fixture(size: number): Promise<Fixture> {
   // the first issue, one feed event each: it starts in backlog, so each step
   // alternates planning and backlog and always changes the stage.
   for (let n = 0; n < FEED_WINDOW - size; n++) {
-    await reg.issues.crud.update(reg.issues.reports.store.serverWriter, issueId!, { stage: n % 2 === 0 ? 'planning' : 'backlog' })
+    await reg.issues.crud.update(reg.issues.reports.store.serverWriter, issueId!, {
+      stage: n % 2 === 0 ? 'planning' : 'backlog',
+    })
   }
   const repos = new RepoRegistry(reg, reg.sessionStore)
   const superagent = await SuperagentService.create(reg.modules, repos, reg.sessionStore)
@@ -181,11 +184,11 @@ describe('session create: pinned statement counts at 5 and 200', () => {
   // The combined tRPC pin carries both deltas (51 + 7 + 31 = 89);
   // this merge resolution does not remeasure it.
   it('in process, a draft session in a repo', async () => {
-    await expectConstantStatements(draft, 33)
+    await expectConstantStatements(draft, 40)
   })
 
   it('in-process pin is armed', async () => {
-    await expectArmed(draft, 33, plantPerSession)
+    await expectArmed(draft, 40, plantPerSession)
   })
 
   it('in process, a session on an issue', async () => {
@@ -199,7 +202,7 @@ describe('session create: pinned statement counts at 5 and 200', () => {
             issueId: f.issueId,
           }),
       ),
-      37,
+      45,
     )
   })
 
@@ -209,10 +212,10 @@ describe('session create: pinned statement counts at 5 and 200', () => {
   )
 
   it('over tRPC', async () => {
-    await expectConstantStatements(trpc, 89)
+    await expectConstantStatements(trpc, 103)
   })
 
   it('tRPC pin is armed', async () => {
-    await expectArmed(trpc, 89, plantPerSession)
+    await expectArmed(trpc, 103, plantPerSession)
   })
 })

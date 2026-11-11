@@ -1450,13 +1450,16 @@ export class IssuesRepository {
     operation: 'upsert' | 'delete',
     refIssueIds: readonly IssueId[] = [],
   ): Promise<{ changes: number }> {
-    const write = () => this.committed.write(query, operation)
-    const result =
-      refIssueIds.length > 0 && this.sessionRefWrite
-        ? await this.sessionRefWrite(refIssueIds, write)
-        : await write()
-    this.rowsWritten()
-    return result
+    const write = async () => {
+      const result = await this.committed.write(query, operation)
+      // The before-build may have memoized the old issue. Invalidate inside
+      // the source write, before its dependent session is built again.
+      this.rowsWritten()
+      return result
+    }
+    return refIssueIds.length > 0 && this.sessionRefWrite
+      ? await this.sessionRefWrite(refIssueIds, write)
+      : await write()
   }
 
   private rowsWritten(): void {
@@ -1673,10 +1676,7 @@ export class IssuesRepository {
           opts?.reassign ? `${REASSIGN_SHAPE_PREFIX}${shapeOf(values)}` : shapeOf(values),
         ).all(values),
       'upsert',
-      current &&
-        (current.seq !== row.seq ||
-          current.repoId !== row.repoId ||
-          current.repoPath !== row.repoPath)
+      current && (current.repoId !== row.repoId || current.repoPath !== row.repoPath)
         ? [row.id]
         : [],
     )

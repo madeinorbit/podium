@@ -1,21 +1,21 @@
 import { createLogger } from '@podium/logger'
-import {
-  type AccountId,
-  type AgentKind,
-  type AgentRuntimeState,
-  type Attribution,
-  type ConversationId,
-  type Geometry,
-  type HarnessAgent,
-  type IssueId,
-  type MachineId,
-  type ResumeRef,
-  type SessionId,
-  type SessionMeta,
-  type SessionOffer,
-  type SessionOrigin,
-  type UserId,
-  type WorkState,
+import type {
+  AccountId,
+  AgentKind,
+  AgentRuntimeState,
+  Attribution,
+  ConversationId,
+  Geometry,
+  HarnessAgent,
+  IssueId,
+  MachineId,
+  ResumeRef,
+  SessionId,
+  SessionMeta,
+  SessionOffer,
+  SessionOrigin,
+  UserId,
+  WorkState,
 } from '@podium/model'
 import type { DaemonPtyInputBatch, SessionObservationCheckpointV1 } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
@@ -42,7 +42,6 @@ import { SessionTerminal } from './terminal'
 import { turnPreviewEnabled } from './turn-preview-flag'
 
 const log = createLogger('server:sessions')
-
 
 export type Send<T> = (msg: T) => void
 
@@ -133,6 +132,7 @@ export interface SessionInit {
   /** Restored from the row (POD-6764): what a daemon last reported and the
    *  transcript tail last showed, and a move still in flight. */
   draftSyncEngine?: boolean
+  agentState?: AgentRuntimeState
   agentColor?: string
   observedModel?: string
   observedEffort?: string
@@ -594,12 +594,14 @@ export class Session {
     this.workState = d.workState
     this.lifecycle = d.lifecycle
     this.status = d.status
-    this.awaitingRebind = init.awaitingRebind === true && (d.status === 'live' || d.status === 'starting')
+    this.awaitingRebind =
+      init.awaitingRebind === true && (d.status === 'live' || d.status === 'starting')
     this.exitCode = d.exitCode
     this.spawnFailure = d.spawnFailure
     this.workingMsTotal = d.workingMsTotal
     this.requestedModel = d.requestedModel
     this.requestedEffort = d.requestedEffort
+    this.agentState = d.agentState
     this.agentColor = d.agentColor
     this.observedModel = d.observedModel
     this.observedEffort = d.observedEffort
@@ -1062,6 +1064,7 @@ export class Session {
       // last bind report, what the transcript tail last showed, and a move in
       // flight. A bind and the tail's seed window restate them after a restart.
       draftSyncEngine: d.draftSyncEngine,
+      agentState: d.agentState ?? null,
       agentColor: d.agentColor ?? null,
       observedModel: d.observedModel ?? null,
       observedEffort: d.observedEffort ?? null,

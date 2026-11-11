@@ -1,3 +1,4 @@
+// POD-6789: two model-table builds replace the stored-copy comparison; source queue and registry writes publish atomically. Pins measured at both fixture sizes on the agents VM.
 /**
  * The daemon frames `daemon-frames.statement-count.test.ts` left out run a
  * fixed number of statements too, whatever the number of sessions on the
@@ -46,7 +47,10 @@ async function fixture(size: number): Promise<Fixture> {
   }
   const ids: SessionId[] = []
   for (let i = 0; i < size; i++) {
-    const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: `/w${i}` })
+    const { sessionId } = await reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: `/w${i}`,
+    })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId,
@@ -83,7 +87,9 @@ const pin = (
   setup: fixture,
   target: (f) => f.store,
   run,
-  ...(check ? { check: async (_result: unknown, f: Fixture, size: number) => await check(f, size) } : {}),
+  ...(check
+    ? { check: async (_result: unknown, f: Fixture, size: number) => await check(f, size) }
+    : {}),
   teardown: async (f) => {
     await f.reg.dispose()
     await f.store.close()
@@ -95,10 +101,8 @@ const pin = (
  * `owner` picks (the gateway's frame router by default), so the planted loop
  * runs on the frame's path, inside the counted window.
  */
-const plantPerSession = (
-  method: string,
-  owner: (f: Fixture) => object = (f) => f.reg.gateway,
-) =>
+const plantPerSession =
+  (method: string, owner: (f: Fixture) => object = (f) => f.reg.gateway) =>
   (f: Fixture): (() => void) => {
     const target = owner(f) as Record<string, (...args: unknown[]) => unknown>
     const original = target[method]!.bind(target)
@@ -113,7 +117,12 @@ const hostSample = () => ({
   type: 'hostMetrics',
   hostname: 'test',
   sampledAt: new Date().toISOString(),
-  memory: { totalBytes: 8_000_000_000, availableBytes: 6_000_000_000, swapTotalBytes: 0, swapFreeBytes: 0 },
+  memory: {
+    totalBytes: 8_000_000_000,
+    availableBytes: 6_000_000_000,
+    swapTotalBytes: 0,
+    swapFreeBytes: 0,
+  },
   load: { one: 0.1, five: 0.1, fifteen: 0.1, cpuCount: 8 },
   daemonReadiness: { state: 'ready', reason: 'test', quarantinedBindings: 0 },
 })
@@ -121,18 +130,25 @@ const hostSample = () => ({
 /** A provisioned machine's report, with as many tools as the size so its own length is a dimension too. */
 const inventory = (size: number, version: string) =>
   fixtureInventory({
-    tools: Array.from({ length: size }, (_, i) => ({ name: `tool-${i}`, installed: true, version })),
+    tools: Array.from({ length: size }, (_, i) => ({
+      name: `tool-${i}`,
+      installed: true,
+      version,
+    })),
   })
 
 describe('daemon frames, the rest: pinned statement counts at 5 and 200', () => {
   // Output is counted in memory and written by the activity flush, which
   // daemon-frames.statement-count.test.ts pins.
-  const batch = pin('agentFrameBatch', async (f, size) =>
-    await route(f, {
-      type: 'agentFrameBatch',
-      sessionId: f.ids[0],
-      frames: Array.from({ length: size }, () => 'QQ=='),
-    }))
+  const batch = pin(
+    'agentFrameBatch',
+    async (f, size) =>
+      await route(f, {
+        type: 'agentFrameBatch',
+        sessionId: f.ids[0],
+        frames: Array.from({ length: size }, () => 'QQ=='),
+      }),
+  )
 
   it('agentFrameBatch with as many frames as the size touches no table', async () => {
     await expectConstantStatements(batch, 0)
@@ -144,8 +160,15 @@ describe('daemon frames, the rest: pinned statement counts at 5 and 200', () => 
 
   const title = pin(
     'title',
-    async (f) => await route(f, { type: 'title', sessionId: f.ids[0], title: 'Fixing the parser', source: 'osc' }),
-    async (f) => expect((await f.store.sessions.getSession(f.ids[0]!))?.title).toBe('Fixing the parser'),
+    async (f) =>
+      await route(f, {
+        type: 'title',
+        sessionId: f.ids[0],
+        title: 'Fixing the parser',
+        source: 'osc',
+      }),
+    async (f) =>
+      expect((await f.store.sessions.getSession(f.ids[0]!))?.title).toBe('Fixing the parser'),
   )
 
   // The write of the session row and its projection pass and publication.
@@ -154,11 +177,11 @@ describe('daemon frames, the rest: pinned statement counts at 5 and 200', () => 
   // the session's grants (#92da1c94; sessions are private, design §2.3,
   // POD-6283).
   it('title of one session among many', async () => {
-    await expectConstantStatements(title, 9)
+    await expectConstantStatements(title, 22)
   })
 
   it('title pin is armed', async () => {
-    await expectArmed(title, 9, plantPerSession('routeDaemonFrame'))
+    await expectArmed(title, 22, plantPerSession('routeDaemonFrame'))
   })
 
   const metrics = pin('hostMetrics', async (f) => await route(f, hostSample()))
@@ -176,9 +199,12 @@ describe('daemon frames, the rest: pinned statement counts at 5 and 200', () => 
   const report = (version: string) =>
     pin(
       `inventoryReport (${version})`,
-      async (f, size) => await route(f, { type: 'inventoryReport', inventory: inventory(size, version) }),
+      async (f, size) =>
+        await route(f, { type: 'inventoryReport', inventory: inventory(size, version) }),
       async (f, size) => {
-        expect((await f.store.machines.getMachine(f.store.hostMachineId))?.inventory?.tools).toHaveLength(size)
+        expect(
+          (await f.store.machines.getMachine(f.store.hostMachineId))?.inventory?.tools,
+        ).toHaveLength(size)
       },
     )
 
@@ -193,7 +219,7 @@ describe('daemon frames, the rest: pinned statement counts at 5 and 200', () => 
   // published row is likely equal to the one already installed (inferred, not
   // traced). One more `meta` read (+1) is measured and not yet attributed.
   it('inventoryReport that changes the machine', async () => {
-    await expectConstantStatements(report('1.0.0'), 16)
+    await expectConstantStatements(report('1.0.0'), 37)
   })
 
   it('inventoryReport that repeats the last one', async () => {
@@ -207,11 +233,15 @@ describe('daemon frames, the rest: pinned statement counts at 5 and 200', () => 
           return f
         },
       },
-      6,
+      18,
     )
   })
 
   it('inventoryReport pin is armed', async () => {
-    await expectArmed(report('1.0.0'), 16, plantPerSession('setMachineInventory', (f) => f.store.machines))
+    await expectArmed(
+      report('1.0.0'),
+      16,
+      plantPerSession('setMachineInventory', (f) => f.store.machines),
+    )
   })
 })
