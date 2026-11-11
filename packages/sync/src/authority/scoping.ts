@@ -101,6 +101,17 @@ export interface ScopingDeps {
 export const DEFAULT_RESCOPE_THRESHOLD = 32
 
 /**
+ * The bound a deployed authority serves with (POD-6834). {@link
+ * DEFAULT_RESCOPE_THRESHOLD} is the suite's number; serving with it made one
+ * machine report (its row anchors that machine's tasks, its access rows the
+ * member's checkouts: hundreds of rows) send every client back to a full
+ * bootstrap of the whole slice, tens of thousands of rows, after every such
+ * write. Enumerating a few thousand re-shaped rows in a delta costs a small
+ * fraction of that; past it, re-bootstrapping is the cheaper path again.
+ */
+export const FEED_RESCOPE_THRESHOLD = 2_000
+
+/**
  * ONE BATCH, EVALUATED ONCE, BEFORE ANY PRINCIPAL IS CONSIDERED [POD-3261].
  *
  * Two things in {@link scopeBatch} do not depend on the principal, and both were
@@ -145,7 +156,7 @@ export async function prepareBatch(
   changes: readonly SequencedChange[],
 ): Promise<PreparedBatch> {
   const edges = await deps.anchors.visibilityEdges(
-    changes.map(({ entity, entityId }) => ({ entity, entityId })),
+    changes.map(({ entity, entityId, seq }) => ({ entity, entityId, seq })),
   )
   const refs: EntityRef[] = changes.map(({ entity, entityId }) => ({ entity, entityId }))
   const subjects: EntityRef[] = []

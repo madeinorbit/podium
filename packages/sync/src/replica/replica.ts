@@ -403,8 +403,16 @@ export class Replica {
     // declared D7-4-EPOCH transition; the mismatch was then noticed much later,
     // in drainBuffer, or silently skipped at install. Rung 4 says discard and
     // re-bootstrap, and it must fire wherever a cursor exists to compare against.
+    //
+    // EXCEPT WHILE A BOOTSTRAP WALK RUNS (POD-6838). The walk is already replacing
+    // that cursor with the snapshot's identity, so a frame that disagrees with the
+    // OLD cursor says nothing the walk will not fix. Re-bootstrapping on it restarted
+    // the walk on every live frame: a replica whose saved cursor carried an old epoch
+    // never finished a bootstrap on a busy feed. The frame is buffered instead, and
+    // `drainBuffer` holds it to rung 4 against the identity the walk installs.
     if (
       this.cursorValue !== null &&
+      this.state !== 'bootstrapping' &&
       (frame.feedId !== this.cursorValue.feedId || frame.epoch !== this.cursorValue.epoch)
     ) {
       this.rebootstrap('epoch-mismatch')
@@ -876,6 +884,7 @@ export class Replica {
       const frame = this.buffer[0] as DeltaFrame
       const cursor = this.cursorValue as Cursor
       if (frame.feedId !== cursor.feedId || frame.epoch !== cursor.epoch) {
+        this.note('D7-4-EPOCH')
         this.rebootstrap('epoch-mismatch')
         return
       }
@@ -1097,9 +1106,16 @@ export class Replica {
     const emissions: { changes: readonly ChangeEnvelope[]; cursor: Cursor }[] = []
     let running = snapshotCursor
     let gapAt = -1
+    // The first buffered frame of ANOTHER identity than the snapshot. It and what
+    // follows stay buffered, so the drain after the install holds it to rung 4
+    // (POD-6838: a walk buffers frames whatever cursor they disagree with).
+    let foreignAt = -1
     for (let i = 0; i < buffered.length; i += 1) {
       const frame = buffered[i] as DeltaFrame
-      if (frame.feedId !== head.feedId || frame.epoch !== head.epoch) continue // not ours (D7-4)
+      if (frame.feedId !== head.feedId || frame.epoch !== head.epoch) {
+        foreignAt = i
+        break
+      }
       if (frame.seq <= running.seq) {
         this.note('D6-BUFFER-COVERED')
         continue
@@ -1149,7 +1165,7 @@ export class Replica {
         // Consume exactly the prefix this install included. Frames that arrived while
         // the transaction was open are LATER in feed order and stay buffered for the
         // drain below — clearing outright would drop them.
-        this.buffer = this.buffer.slice(buffered.length)
+        this.buffer = this.buffer.slice(foreignAt >= 0 ? foreignAt : buffered.length)
         this.note('D6-INSTALL')
         this.cursorValue = running
         this.exits.clear()

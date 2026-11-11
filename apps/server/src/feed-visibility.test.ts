@@ -756,4 +756,65 @@ describe('machine access and checkout rows', () => {
       { entity: 'checkout', entityId: checkoutRowId(asMachineId('m1'), '/home/u/podium') },
     ])
   })
+
+  // POD-6834: every machine report rewrote these rows, and each rewrite sent the
+  // member their machine's whole checkout set: past the rescope threshold, every
+  // client went back to a full bootstrap after a report that changed nothing.
+  it('a rewrite that keeps the reach or the custodian anchors nothing; a move still does', async () => {
+    const { store, policy } = await fixture()
+    const m1 = asMachineId('m1')
+    await store.checkouts.apply(
+      [
+        {
+          machineId: m1,
+          path: '/home/u/podium',
+          root: '/home/u/podium',
+          kind: 'repository',
+          repoId: null,
+          branch: 'main',
+          originUrl: null,
+          locked: false,
+          prunable: false,
+        },
+      ],
+      [],
+      '2026-11-09T00:00:00Z',
+    )
+    await store.checkouts.applyReach(
+      { reach: [{ userId: reader, machineId: m1, reach: 'all' }] },
+      '2026-11-09T00:00:00Z',
+    )
+    const accessId = machineAccessRowId(reader, m1)
+    const log = async (entity: 'machine' | 'machineAccess', entityId: string, value: object) =>
+      (
+        await store.sync.appendChanges(
+          [{ entity, entityId, op: 'upsert', payload: JSON.stringify(value) }],
+          Date.parse('2026-11-11T16:00:00Z'),
+        )
+      )[0] as number
+    const access = (seq?: number) =>
+      edgeOf(policy.anchors, {
+        entity: 'machineAccess',
+        entityId: accessId,
+        ...(seq === undefined ? {} : { seq }),
+      } as EntityRef)
+
+    const first = await log('machineAccess', accessId, { checkoutReach: 'all', state: 'a' })
+    const rewrite = await log('machineAccess', accessId, { checkoutReach: 'all', state: 'b' })
+    const shrink = await log('machineAccess', accessId, { checkoutReach: 'roots', state: 'b' })
+    const subjects = [{ entity: 'checkout', entityId: checkoutRowId(m1, '/home/u/podium') }]
+    // No earlier change to compare with, or no seq at all: anchored as before.
+    expect((await access(first))?.subjects).toEqual(subjects)
+    expect((await access())?.subjects).toEqual(subjects)
+    // Same reach, other fields moved: nothing anchored.
+    expect(await access(rewrite)).toBeNull()
+    // The reach moved: anchored.
+    expect((await access(shrink))?.subjects).toEqual(subjects)
+
+    const machine = (seq: number) =>
+      policy.anchors.visibilityEdges([{ entity: 'machine', entityId: 'm1', seq } as EntityRef])
+    await log('machine', 'm1', { id: 'm1', custodian: owner, loggedOutHarnesses: ['claude-code'] })
+    const quiet = await log('machine', 'm1', { id: 'm1', custodian: owner, loggedOutHarnesses: [] })
+    expect(await machine(quiet)).toEqual([null])
+  })
 })

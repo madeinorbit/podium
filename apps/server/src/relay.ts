@@ -73,6 +73,7 @@ import {
   NoDelegationsGranted,
   type WriteScope,
 } from '@podium/sync'
+import { FEED_RESCOPE_THRESHOLD } from '@podium/sync/bootstrap-worker'
 import { IssueAttachOrchestrator } from './application/issue-attach-orchestrator'
 import { hashToken } from './auth-route'
 import { bootStage } from './boot-timing'
@@ -1286,6 +1287,7 @@ export class SessionRegistry {
     const ledger = new Ledger({
       visibility,
       anchors: feedVisibility.anchors,
+      rescopeThreshold: FEED_RESCOPE_THRESHOLD,
       listenerPrincipal: CHANGE_LOG_OBSERVER,
       repo: this.store.sync,
       now: () => this.now(),

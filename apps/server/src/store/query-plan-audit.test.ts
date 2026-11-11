@@ -259,6 +259,7 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/messages.ts:pendingDeliveredToPage', ['start', 'after']],
   ['packages/sync/src/adapters/sqlite/sync-repository.ts:insertChangeRows', SIZES],
   ['packages/sync/src/adapters/sqlite/sync-repository.ts:installedRowsOfKeys', SIZES],
+  ['packages/sync/src/adapters/sqlite/sync-repository.ts:changesWithPrior', SIZES],
   ['packages/sync/src/adapters/sqlite/sync-repository.ts:installedIdsUnderPrefixes', SIZES],
   [
     'packages/sync/src/adapters/sqlite/sync-repository.ts:serverTableQueries.queuedCounts',

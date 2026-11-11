@@ -30,15 +30,15 @@ import {
   asIssueId,
   asUserId,
   canonicalShippingDestination,
+  checkoutRowId,
   type IssueExecutionFacts,
   type IssueId,
-  type MachineId,
   issueDepFromPrefix,
   issueExecutionAccess,
   issueExecutionSessionIds,
-  parseInteractionRowId,
-  checkoutRowId,
+  type MachineId,
   parseCheckoutRowId,
+  parseInteractionRowId,
   parseIssueDepId,
   parseIssueEventRowId,
   parseIssueUserStateRowId,
@@ -48,8 +48,8 @@ import {
   parsePinRowId,
   parseReadPositionRowId,
   parseSessionUserStateRowId,
-  parseSuperagentThreadRowId,
   parseSubscriptionRowId,
+  parseSuperagentThreadRowId,
   parseTabOrderRowId,
   parseUserPreferencesRowId,
   parseWorkflowBindingRowId,
@@ -61,13 +61,14 @@ import {
 } from '@podium/model'
 import type { Principal } from '@podium/protocol'
 import type {
+  AnchorRef,
   EntityRef,
   VisibilityAnchorPort,
   VisibilityEdge,
   VisibilityStatePort,
 } from '@podium/sync'
-import type { FeedVisibilityStore, GrantRow, IssueRow, SessionRow } from './hot-path-ports'
 import { type CheckoutReach, checkoutReaders, covers } from './checkout-reach'
+import type { FeedVisibilityStore, GrantRow, IssueRow, SessionRow } from './hot-path-ports'
 import { custodianFromEdges, executionPointersOf } from './modules/issues/execution-visibility'
 import { INSTANCE_EFFECT_KINDS } from './modules/operations/instance-effect-kinds'
 import { perfPrincipal } from './modules/perf/principal'
@@ -911,12 +912,13 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     const machineManagers = new Map<string, Set<string>>()
     // Roots are read only for a batch that carries checkouts: one grouped read,
     // plus the admins (who MANAGE every machine) when one of them is a root.
-    const checkoutRoots: ReadonlyMap<string, ReadonlySet<string>> =
-      checkoutMachineIds.size === 0
-        ? new Map()
-        : await measure('visibility.checkout.rootPaths', async () =>
+    const checkoutRoots: ReadonlyMap<string, ReadonlySet<string>> = checkoutMachineIds.size === 0
+      ? new Map()
+      : await measure(
+          'visibility.checkout.rootPaths',
+          async () =>
             await store.checkouts.rootPathsOfMachines([...checkoutMachineIds] as MachineId[]),
-          )
+        )
     const rootAsked = refs.some((ref) => {
       if (ref.entity !== 'checkout') return false
       try {
@@ -929,7 +931,10 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     const checkoutAdmins: ReadonlySet<string> = rootAsked
       ? adminIds.size > 0
         ? adminIds
-        : await measure('visibility.checkout.adminIds', async () => await store.users.activeAdminIds())
+        : await measure(
+            'visibility.checkout.adminIds',
+            async () => await store.users.activeAdminIds(),
+          )
       : new Set()
     for (const [machineId, edges] of found.get('machine') ?? []) {
       const custodian = custodianFromEdges(edges)
@@ -1215,6 +1220,41 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     return out
   }
 
+  /**
+   * Per ref, whether it is a `machine` or `machineAccess` upsert that left the
+   * visibility fact where the row's previous change had it: the custodian for a
+   * machine, the checkout reach for an access row (`recordReach` reads the
+   * same field, absent meaning `none`). Anything else counts as moved: a ref
+   * without a seq, a remove, a first write, or a previous change no longer in
+   * the log. One read for the batch, and none when it holds no such ref.
+   */
+  const unmovedMachineFacts = async (refs: readonly AnchorRef[]): Promise<boolean[]> => {
+    const seqs = refs.flatMap((ref) =>
+      (ref.entity === 'machine' || ref.entity === 'machineAccess') && ref.seq !== undefined
+        ? [ref.seq]
+        : [],
+    )
+    if (seqs.length === 0) return refs.map(() => false)
+    const logged = await store.sync.changesWithPrior(seqs)
+    return refs.map((ref) => {
+      if (ref.seq === undefined) return false
+      const fact =
+        ref.entity === 'machine'
+          ? (payload: unknown) => (payload as { custodian?: unknown } | null)?.custodian ?? null
+          : ref.entity === 'machineAccess'
+            ? (payload: unknown) =>
+                (payload as { checkoutReach?: unknown } | null)?.checkoutReach ?? 'none'
+            : undefined
+      const change = logged.get(ref.seq)
+      if (!fact || !change?.prior) return false
+      if (change.op !== 'upsert' || change.prior.op !== 'upsert') return false
+      const now = change.payload == null ? undefined : parsedPayload(change.payload)
+      const before = change.prior.payload == null ? undefined : parsedPayload(change.prior.payload)
+      if (now === undefined || before === undefined) return false
+      return fact(now) === fact(before)
+    })
+  }
+
   const anchors: VisibilityAnchorPort = {
     visibilityEdges: async (refs) => {
       // An issue write is the audience-change edge for its normalized companions;
@@ -1227,8 +1267,16 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       const orderIds = [
         ...new Set(refs.filter((ref) => ref.entity === 'shipOrder').map((ref) => ref.entityId)),
       ]
+      // A machine's row and its members' access rows are rewritten on every
+      // machine report (version, services, harness sign-in). Only a write that
+      // moved the custodian or the member's checkout reach moves anyone's view;
+      // anchoring every rewrite sent each reader the machine's whole task or
+      // checkout set and, past the rescope threshold, sent every client back to
+      // a full bootstrap (POD-6834).
+      const unmoved = await unmovedMachineFacts(refs)
+      const moved = refs.filter((ref, index) => !unmoved[index])
       const machineIds = [
-        ...new Set(refs.filter((ref) => ref.entity === 'machine').map((ref) => ref.entityId)),
+        ...new Set(moved.filter((ref) => ref.entity === 'machine').map((ref) => ref.entityId)),
       ]
       // A member's access row moving is the edge for that machine's checkouts
       // (POD-6644). Its subjects are what the member's recorded reach covers
@@ -1237,7 +1285,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       // would tell them its path.
       const accessMachines = [
         ...new Set(
-          refs.flatMap((ref) => {
+          moved.flatMap((ref) => {
             if (ref.entity !== 'machineAccess') return []
             try {
               return [parseMachineAccessRowId(ref.entityId).machineId]
@@ -1249,25 +1297,26 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       ]
       const [audiences, departures, custody, checkoutPaths, checkoutReach, checkoutLost] =
         await Promise.all([
-        issueIds.length === 0
-          ? new Map<string, readonly string[]>()
-          : deps.audiencesFor('issue', issueIds),
-        laneDepartureEdges(orderIds),
-        custodyEdges(machineIds),
-        accessMachines.length === 0
-          ? new Map<string, { path: string; root: boolean }[]>()
-          : store.checkouts.pathsOfMachines(accessMachines as MachineId[]),
-        accessMachines.length === 0
-          ? new Map<string, ReadonlyMap<string, { reach: CheckoutReach }>>()
-          : store.checkouts.reachOfMachines(accessMachines as MachineId[]),
-        accessMachines.length === 0
-          ? new Map<string, ReadonlyMap<string, readonly { path: string; root: boolean }[]>>()
-          : store.checkouts.lostOfMachines(accessMachines as MachineId[]),
-      ])
+          issueIds.length === 0
+            ? new Map<string, readonly string[]>()
+            : deps.audiencesFor('issue', issueIds),
+          laneDepartureEdges(orderIds),
+          custodyEdges(machineIds),
+          accessMachines.length === 0
+            ? new Map<string, { path: string; root: boolean }[]>()
+            : store.checkouts.pathsOfMachines(accessMachines as MachineId[]),
+          accessMachines.length === 0
+            ? new Map<string, ReadonlyMap<string, { reach: CheckoutReach }>>()
+            : store.checkouts.reachOfMachines(accessMachines as MachineId[]),
+          accessMachines.length === 0
+            ? new Map<string, ReadonlyMap<string, readonly { path: string; root: boolean }[]>>()
+            : store.checkouts.lostOfMachines(accessMachines as MachineId[]),
+        ])
       // Only an issue with an audience can produce an edge; read for those only.
       const anchored = issueIds.filter((id) => (audiences.get(id) ?? []).length > 0)
       const rows = await issueEdgeRows(anchored)
-      return refs.map((ref): VisibilityEdge | null => {
+      return refs.map((ref, index): VisibilityEdge | null => {
+        if (unmoved[index]) return null
         if (ref.entity === 'shipOrder') return departures.get(ref.entityId) ?? null
         if (ref.entity === 'machine') return custody.get(ref.entityId) ?? null
         if (ref.entity === 'machineAccess') {

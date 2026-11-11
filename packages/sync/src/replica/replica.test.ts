@@ -2231,12 +2231,14 @@ describe('every declared ADR route is driven, not merely declared', () => {
   const otherEpoch = (fromSeq: number, seq: number) =>
     deltaFrame(fromSeq, seq, [], { epoch: 'epoch-OTHER' })
 
-  it('rung 4 fires from stale and from bootstrapping', async () => {
+  it('rung 4 fires from stale, and against the identity a bootstrap walk installs', async () => {
     const a = harness()
     await bootstrapped(a, 10, [])
     a.replica.disconnect()
     expect((await a.replica.receive(otherEpoch(10, 11))).rowId).toBe('D7-4-EPOCH')
 
+    // During a walk the frame waits; the install it does not belong to sends the
+    // replica back to a bootstrap instead of dropping it (POD-6838).
     const b = harness()
     await bootstrapped(b, 10, [])
     const channel = b.authority.driveManually()
@@ -2244,7 +2246,39 @@ describe('every declared ADR route is driven, not merely declared', () => {
     channel.push(bootstrapChunk(20, [], false))
     await Promise.resolve()
     expect(b.replica.posture).toBe('bootstrapping')
-    expect((await b.replica.receive(otherEpoch(10, 11))).rowId).toBe('D7-4-EPOCH')
+    expect((await b.replica.receive(otherEpoch(10, 11))).rowId).toBe('D6-BUFFER')
+    channel.push(bootstrapChunk(20, [], true))
+    // Not `settled()`: rung 4 starts a new walk, which waits on this manual channel.
+    await vi.waitFor(() => {
+      expect(b.replica.trace).toContain('D6-INSTALL')
+      expect(b.replica.trace.slice(b.replica.trace.lastIndexOf('D6-INSTALL'))).toContain(
+        'D7-4-EPOCH',
+      )
+    })
+  })
+
+  // POD-6838: a saved cursor from an older epoch, a busy feed. Every live frame
+  // disagreed with the OLD cursor and restarted the walk, so it never finished.
+  it('a walk away from an old epoch finishes while frames of the new one arrive', async () => {
+    const h = harness()
+    const first = h.authority.driveManually()
+    h.replica.connect()
+    first.push(bootstrapChunk(10, [], true, { epoch: 'epoch-OLD' }))
+    await h.replica.settled()
+    expect(h.replica.cursor?.epoch).toBe('epoch-OLD')
+    const channel = h.authority.driveManually()
+    await h.replica.receive({ kind: 'resync-required', feedId: FEED_ID, epoch: EPOCH })
+    channel.push(bootstrapChunk(20, [], false))
+    await Promise.resolve()
+    expect(h.replica.posture).toBe('bootstrapping')
+    const walks = h.replica.trace.filter((row) => row.startsWith('D7-')).length
+    expect((await h.replica.receive(deltaFrame(20, 21, []))).rowId).toBe('D6-BUFFER')
+    expect((await h.replica.receive(deltaFrame(21, 22, []))).rowId).toBe('D6-BUFFER')
+    expect(h.replica.trace.filter((row) => row.startsWith('D7-')).length).toBe(walks)
+    channel.push(bootstrapChunk(20, [], true))
+    await h.replica.settled()
+    expect(h.replica.posture).toBe('live')
+    expect(h.replica.cursor).toMatchObject({ epoch: EPOCH, seq: 22 })
   })
 
   it('rung 3 fires from stale', async () => {

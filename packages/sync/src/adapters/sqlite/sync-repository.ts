@@ -43,7 +43,7 @@ import {
   or,
   sql,
 } from 'drizzle-orm'
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { alias, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import type { ChangeLogReadRow, ChangeLogWriteRow } from '../../authority/change-lifecycle'
 import type { ChangePrunePlan } from '../../change-log'
 import {
@@ -308,8 +308,50 @@ const installedRowsOfKind = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/**
+ * Each of `size` changes by seq, with the change of the same row just before it
+ * (POD-6834). The earlier change is one primary-key seek through a correlated
+ * `max(seq)` on `changes_entity (entity, entity_id, seq)`; a row with no earlier
+ * change in the log (first write, or pruned) comes back with a NULL prior.
+ */
+const priorChange = alias(changes, 'prior')
+const earlierChange = alias(changes, 'earlier')
+const changesWithPrior = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({
+      seq: changes.seq,
+      op: changes.op,
+      payload: changes.payload,
+      // Named apart: the row reader keys columns by name, so a second `op` and
+      // `payload` would overwrite the change's own.
+      priorOp: sql<string | null>`${priorChange.op}`.as('prior_op'),
+      priorPayload: sql<string | null>`${priorChange.payload}`.as('prior_payload'),
+    })
+    .from(changes)
+    .leftJoin(
+      priorChange,
+      eq(
+        priorChange.seq,
+        db
+          .select({ seq: max(earlierChange.seq) })
+          .from(earlierChange)
+          .where(
+            and(
+              eq(earlierChange.entity, changes.entity),
+              eq(earlierChange.entityId, changes.entityId),
+              lt(earlierChange.seq, changes.seq),
+            ),
+          ),
+      ),
+    )
+    .where(inListOf(changes.seq, size))
+    .prepare(),
+)
+
 /** Pairs per grouped key read: two parameters each, under SQLite's 999. */
 const KEY_CHUNK = 250
+/** Seqs per grouped prior-change read: one parameter each. */
+const SEQ_CHUNK = 500
 /** Prefixes per grouped range read: three parameters each. */
 const PREFIX_CHUNK = 160
 
@@ -829,6 +871,46 @@ export class SyncRepository {
       }
       const rows = await installedRowsOfKeys(this.db, size).all(values)
       for (const row of rows) out.push(mapChangeLogReadRow({ ...row, op: 'upsert' }))
+    }
+    return out
+  }
+
+  /**
+   * These changes by seq, each with the change of the same row just before it
+   * (POD-6834): what a visibility anchor compares to tell a write that MOVED a
+   * fact from one that rewrote it unchanged. One statement per
+   * {@link SEQ_CHUNK} seqs. A seq not in the log is absent; a change with no
+   * earlier change in the log has `prior` undefined.
+   */
+  async changesWithPrior(seqs: readonly number[]): Promise<
+    Map<
+      number,
+      {
+        readonly op: string
+        readonly payload: string | null
+        readonly prior?: { readonly op: string; readonly payload: string | null }
+      }
+    >
+  > {
+    const distinct = [...new Set(seqs)]
+    const out = new Map<
+      number,
+      {
+        op: string
+        payload: string | null
+        prior?: { op: string; payload: string | null }
+      }
+    >()
+    for (let start = 0; start < distinct.length; start += SEQ_CHUNK) {
+      const chunk = distinct.slice(start, start + SEQ_CHUNK)
+      const size = inListSize(chunk.length)
+      for (const row of await changesWithPrior(this.db, size).all(inListValues(chunk, size))) {
+        out.set(row.seq, {
+          op: row.op,
+          payload: row.payload,
+          ...(row.priorOp == null ? {} : { prior: { op: row.priorOp, payload: row.priorPayload } }),
+        })
+      }
     }
     return out
   }

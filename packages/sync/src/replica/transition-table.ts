@@ -272,10 +272,10 @@ export const REPLICA_TRANSITIONS: readonly TransitionRow[] = [
   },
   {
     id: 'D7-4-EPOCH',
-    from: ['live', 'healing', 'stale', 'bootstrapping'],
+    from: ['live', 'healing', 'stale'],
     input: 'delta frame or changesRange reply',
     condition:
-      'feedId or epoch differs from the held cursor — checked wherever a cursor exists, BEFORE any buffering branch',
+      'feedId or epoch differs from the held cursor — checked wherever a cursor exists, BEFORE any buffering branch; during a bootstrap walk the frame is buffered and held to the identity the walk installs (POD-6838)',
     effect:
       'Discard the replica entirely and re-bootstrap. Epoch is compared by EQUALITY only, never ordered.',
     to: ['bootstrapping'],

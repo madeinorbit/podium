@@ -13,7 +13,7 @@ import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import type { EntityRef } from '@podium/sync'
 import {
   ChangeRangeBootstrapRequired,
-  DEFAULT_RESCOPE_THRESHOLD,
+  FEED_RESCOPE_THRESHOLD,
   scopeChangesRange,
   shapedValue,
 } from '@podium/sync/bootstrap-worker'
@@ -121,7 +121,7 @@ async function* produceRecords(
       const { policy, anchors, sync } = await bundle.context
       const iterator = scopeChangesRange(
         sync,
-        { policy, anchors, rescopeThreshold: DEFAULT_RESCOPE_THRESHOLD },
+        { policy, anchors, rescopeThreshold: FEED_RESCOPE_THRESHOLD },
         job.principal,
         job.from,
         target,

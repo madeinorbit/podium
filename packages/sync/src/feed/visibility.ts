@@ -85,6 +85,12 @@ export interface EntityRef {
   readonly entityId: string
 }
 
+/** A changed row as the anchor port is asked about it: the row, and the seq of
+ *  the change when the caller has one (POD-6834). */
+export interface AnchorRef extends EntityRef {
+  readonly seq?: number
+}
+
 /** `entity:entityId` — the unit visibility is decided over. */
 export type EntityKey = string
 
@@ -306,8 +312,13 @@ export interface VisibilityAnchorPort {
    *
    * A WHOLE BATCH PER CALL [POD-6156]: the port reads what the batch needs in a
    * fixed number of grouped queries, never one per row (server-data rule 2).
+   *
+   * A ref carries its change's `seq` when the caller evaluates logged changes,
+   * so a port can compare the change with the row's previous one and answer
+   * `null` for a write that moved nothing (POD-6834). Without a seq the port
+   * answers as if the fact moved.
    */
-  visibilityEdges(refs: readonly EntityRef[]): Promise<readonly (VisibilityEdge | null)[]>
+  visibilityEdges(refs: readonly AnchorRef[]): Promise<readonly (VisibilityEdge | null)[]>
   /**
    * Each entity's CURRENT wire value, positionally, for a re-admitting `upsert`
    * (D14.2), or `undefined` when the entity no longer exists — in which case
@@ -460,8 +471,12 @@ export class GrantEdgeVisibilityPolicy implements FeedVisibilityPolicy {
       // compared by identity, and a system principal has no wire form. It sees
       // what the retired device-grade principal saw, and nothing more: every
       // shared and owned row, never a per-user row (no user is in its key).
-      if (declared === 'per-user-state') return { visible: false, reason: 'per-user-state-not-yours' }
-      return { visible: true, reason: declared === 'deployment-substrate' ? 'substrate' : 'granted' }
+      if (declared === 'per-user-state')
+        return { visible: false, reason: 'per-user-state-not-yours' }
+      return {
+        visible: true,
+        reason: declared === 'deployment-substrate' ? 'substrate' : 'granted',
+      }
     }
 
     const human = humanOf(principal)
