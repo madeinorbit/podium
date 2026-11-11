@@ -102,16 +102,52 @@ describe('IssueBodyStore', () => {
     expect(store.read('a', 'brief', 'd2')).toEqual({ value: 'Second', current: true })
   })
 
-  it('does not immediately fetch again when the response is ahead of the observed header', async () => {
+  it.each([
+    'brief',
+    'description',
+  ] as const)('does not refetch %s after a settled response ahead of the header', async (field) => {
     const store = new IssueBodyStore()
-    const { calls, fetch } = server(new Map([['a', [body('a', 'brief', 'd2', 'Newer')]]]))
+    const held = new Map([['a', [body('a', field, 'd2', 'Newer')]]])
+    const { calls, fetch } = server(held)
     store.bind(fetch)
-    watch(store, 'a', 'brief', 'd1')
+    expect(store.read('a', field, 'd1')).toBe(LOADING)
     await settle()
+    // Screens re-read in render after the fetch settles, outside put's action.
+    for (let render = 0; render < 3; render++) {
+      expect(store.read('a', field, 'd1')).toEqual({ value: 'Newer', current: false })
+      await settle()
+      expect(calls).toEqual([['a']])
+    }
     await vi.advanceTimersByTimeAsync(60_000)
     expect(calls).toEqual([['a']])
     expect(vi.getTimerCount()).toBe(0)
-    expect(store.read('a', 'brief', 'd2')).toEqual({ value: 'Newer', current: true })
+    expect(store.read('a', field, 'd2')).toEqual({ value: 'Newer', current: true })
+    // After catch-up, a return to the digest originally asked for can load again.
+    held.set('a', [body('a', field, 'd1', 'Reverted')])
+    expect(store.read('a', field, 'd1')).toEqual({ value: 'Newer', current: false })
+    await settle()
+    expect(calls).toEqual([['a'], ['a']])
+    expect(store.read('a', field, 'd1')).toEqual({ value: 'Reverted', current: true })
+  })
+
+  it.each([
+    'brief',
+    'description',
+  ] as const)('keeps %s request marks when another field is read current', async (field) => {
+    const store = new IssueBodyStore()
+    const other = field === 'brief' ? 'description' : 'brief'
+    const { calls, fetch } = server(
+      new Map([['a', [body('a', field, 'd2', 'Newer'), body('a', other, 'd2', 'Other')]]]),
+    )
+    store.bind(fetch)
+    store.read('a', field, 'd1')
+    store.read('a', other, 'd1')
+    await settle()
+    expect(store.read('a', other, 'd2')).toEqual({ value: 'Other', current: true })
+    expect(store.read('a', field, 'd1')).toEqual({ value: 'Newer', current: false })
+    await settle()
+    expect(calls).toEqual([['a']])
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it('shows the text a settled edit painted until its body arrives', async () => {

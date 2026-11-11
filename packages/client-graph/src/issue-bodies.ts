@@ -67,7 +67,7 @@ export class IssueBodyStore implements IssueBodyReader {
    *  shown until the body at the new digest arrives, so a saved edit never
    *  flashes the text it replaced. Dropped once a current body is read. */
   private readonly painted = new Map<string, unknown>()
-  /** Field/digest pairs asked for per issue, cleared when its fetch answers. */
+  /** Field/digest pairs asked for per issue, cleared when that field is read current. */
   private readonly asked = new Map<string, Set<string>>()
   private readonly readers = createDemandAtoms<string>((id) => `issueBody:${id}`, {
     onUnobserved: (id) => {
@@ -121,6 +121,16 @@ export class IssueBodyStore implements IssueBodyReader {
     const key = keyOf(issueId, field)
     const held = this.held.get(key)
     if (held !== undefined && held.digest === digest) {
+      // Retire this field's marks only once its header catches up. An answer
+      // ahead of the header must stay marked across later screen renders;
+      // once current, a return to an earlier digest must be able to ask again.
+      const asked = this.asked.get(issueId)
+      if (asked !== undefined) {
+        for (const ask of asked) {
+          if (ask.startsWith(`${field}\u0000`)) asked.delete(ask)
+        }
+        if (asked.size === 0) this.asked.delete(issueId)
+      }
       this.painted.delete(key)
       return { value: held.value, current: true }
     }
@@ -216,13 +226,8 @@ export class IssueBodyStore implements IssueBodyReader {
           continue
         }
         if (this.binding !== binding) return
-        // Publish before clearing marks: an answer ahead of its header must
-        // not immediately ask again from the reading derivation.
         this.put(bodies)
         for (const id of batch) {
-          // Only one body per field is held, so a later return to an earlier
-          // digest must be free to fetch that text again.
-          this.asked.delete(id)
           this.retryAt.delete(id)
           this.retryDelay.delete(id)
           flight.ids.delete(id)
