@@ -381,6 +381,13 @@ describe('validateFeedFrame refuses the claims a shape cannot check', () => {
     expect(validateFeedFrame(delta({ changes: [row(6), row(5)] }))).toContain('rows-unordered')
   })
 
+  // POD-6834: an edge's rows carry the seq of the change that moved them (D14.3).
+  it('passes rows that share the seq of the change that anchored them', () => {
+    expect(
+      validateFeedFrame(delta({ changes: [row(5), row(6), row(6, { entityId: 'iss_2' })] })),
+    ).toEqual([])
+  })
+
   it('catches an inverted range and an incoherent retention floor', () => {
     expect(validateFeedFrame(delta({ fromSeq: 9, seq: 4 }))).toContain('range-inverted')
     expect(validateFeedFrame(delta({ minAvailableSeq: 99 }))).toContain('floor-above-range')

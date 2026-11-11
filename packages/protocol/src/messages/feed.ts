@@ -404,7 +404,11 @@ export function validateFeedFrame(frame: {
     if (change.seq <= frame.fromSeq || change.seq > frame.seq) {
       if (!violations.includes('row-outside-range')) violations.push('row-outside-range')
     }
-    if (change.seq <= previous && !violations.includes('rows-unordered')) {
+    // Non-decreasing, not strictly increasing: rows an edge re-admits or evicts
+    // share the seq of the change that moved them (ADR 2 Amendment 1 D14.3). A
+    // strict rule refused every frame that carried them, so a catch-up across one
+    // machine report stopped sync and a live one forced a re-bootstrap (POD-6834).
+    if (change.seq < previous && !violations.includes('rows-unordered')) {
       violations.push('rows-unordered')
     }
     previous = Math.max(previous, change.seq)
