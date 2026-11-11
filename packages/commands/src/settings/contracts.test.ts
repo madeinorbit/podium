@@ -303,17 +303,19 @@ describe('a preference patch is gated on the classified path — and can say YES
 })
 
 describe('the derived path sets find something', () => {
-  it('the personal tier has its 27 leaves, including a deep one', () => {
+  it('the personal tier has its 26 leaves, including a deep one', () => {
     const personal = preferencePathsInTier('personal-preference')
-    expect(personal.length).toBe(27)
+    expect(personal.length).toBe(26)
+    expect(personal).not.toContain('sidebar.groupByRepo')
     expect(personal).toContain('roles.coding.model')
     expect(personal).toContain('roles.shipwright.model')
     expect(personal).toContain('autoContinue.promptDismissed')
   })
 
   it('the writable set is both preference tiers and NOTHING from the secret tier', () => {
-    // 50 = 27 personal + 23 instance. Secrets stay out.
-    expect(WRITABLE_PREFERENCE_PATHS.length).toBe(50)
+    // 48 = 26 personal + 22 instance after removing unused grouping/merge choices.
+    expect(WRITABLE_PREFERENCE_PATHS.length).toBe(48)
+    expect(WRITABLE_PREFERENCE_PATHS).not.toContain('gitWorkflow.mergeStyle')
     for (const key of SERVER_SECRET_KEYS) expect(WRITABLE_PREFERENCE_PATHS).not.toContain(key)
     // …and the exclusion is not an empty-set artefact.
     expect(WRITABLE_PREFERENCE_PATHS).toContain('experimental')
@@ -369,19 +371,11 @@ describe('redaction was reviewed, and the answers differ where the tiers differ'
   })
 
   it('no BLOB arm redacts an OUTPUT, because no output has a value key by construction', () => {
-    // Scoped to the four blob writes by their TIER membership rather than by a
-    // hand list, so a seventh blob contract inherits the claim and a seventh
-    // ceremony contract does not. The ceremony arms genuinely do carry material
-    // outwards and are asserted separately below — widening this loop over them
-    // would have meant either a false claim or a weakened one.
+    // Tier membership includes writes and presence projections. Ceremony outputs
+    // carry material and are asserted separately below.
     const blobArms = (NAMES as SettingsContractName[]).filter((n) => CONTRACT_TIER[n] !== undefined)
-    // THREE since POD-6677 (five since POD-421, less the personal write, now the
-    // `userPreferences` record, and the instance write, now the
-    // `instancePreferences` record): the presence read is a `server-secrets`-tier arm
-    // whose output is `SecretPresenceWire[]`, built independently of
-    // `ServerSecret` so that it has no value key to strip. It inherits the claim
-    // by tier membership exactly as the comment above intends.
-    expect(blobArms).toHaveLength(3)
+    // Set, clear, full secret presence and member bot availability expose no value key.
+    expect(blobArms).toHaveLength(4)
     for (const name of blobArms) {
       expect(SETTINGS_CONTRACTS[name].redaction.outputPaths).toEqual([])
       expect(SETTINGS_CONTRACTS[name].redaction.reviewed).toBe(true)
