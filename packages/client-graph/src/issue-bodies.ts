@@ -21,7 +21,7 @@ import { LOADING } from './loading'
  *   set grows with what a person looks at, not with the instance.
  * - Failed ids retry with exponential backoff from 1 to 30 seconds while a
  *   reader observes them. One timer and serial batches serve pending reads;
- *   reconnect resumes them promptly. The last reader drops queued requests
+ *   reconnect resumes them promptly. The last reader drops queued retries
  *   and their marks, so the next read can ask again.
  *
  * The fetch is bound by the app (`bind`), so the data layer names no
@@ -70,7 +70,9 @@ export class IssueBodyStore implements IssueBodyReader {
   /** Field/digest pairs asked for per issue, cleared when its fetch answers. */
   private readonly asked = new Map<string, Set<string>>()
   private readonly readers = createDemandAtoms<string>((id) => `issueBody:${id}`, {
-    onUnobserved: (id) => this.release(id),
+    onUnobserved: (id) => {
+      if (this.retryAt.has(id)) this.release(id)
+    },
   })
   /** Issues waiting for the next call. */
   private readonly queue = new Set<string>()
@@ -90,7 +92,9 @@ export class IssueBodyStore implements IssueBodyReader {
     this.binding = binding
     const resume = () => {
       if (this.binding !== binding) return
-      this.retryAt.clear()
+      // Keep retry membership until it settles or loses its readers, even
+      // when reconnect makes it immediately due.
+      for (const id of this.retryAt.keys()) this.retryAt.set(id, 0)
       this.retryDelay.clear()
       this.arm()
     }

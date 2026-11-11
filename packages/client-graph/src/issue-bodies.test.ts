@@ -271,6 +271,28 @@ describe('IssueBodyStore', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it('drops a queued retry when its reader closes just after reconnect', async () => {
+    const store = new IssueBodyStore()
+    let reconnect = () => {}
+    const fetch = vi.fn(async () => {
+      throw new Error('offline')
+    })
+    store.bind(fetch, (listener) => {
+      reconnect = listener
+      return () => {}
+    })
+    const close = watch(store, 'a')
+    await settle()
+    reconnect()
+    close()
+    expect(vi.getTimerCount()).toBe(0)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    watch(store, 'a')
+    await settle()
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
   it('pauses failed requests on unbind and resumes them on bind without a new read', async () => {
     const store = new IssueBodyStore()
     const fetch = vi.fn(async () => [body('a', 'brief', 'd', 'Recovered')])
