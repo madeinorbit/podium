@@ -428,11 +428,6 @@ export const UpdatesSection = observer(function UpdatesSection(): JSX.Element {
                   type="button"
                   size="sm"
                   variant="ghost"
-                  className={
-                    channel === option.value
-                      ? 'bg-secondary text-foreground'
-                      : 'text-muted-foreground'
-                  }
                   aria-pressed={channel === option.value}
                   disabled={envForced}
                   onClick={() => void choose(option.value)}

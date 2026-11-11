@@ -142,7 +142,7 @@ export const KeySharing = observer(function KeySharing({
         <fieldset
           aria-label={`Who can use ${label}`}
           disabled={busy}
-          className="m-0 flex min-w-0 rounded-lg border border-hairline-soft bg-muted/40 p-0.5"
+          className="settings-segmented"
         >
           {(
             [
@@ -158,7 +158,6 @@ export const KeySharing = observer(function KeySharing({
               variant="ghost"
               aria-pressed={mode === value}
               disabled={busy || (value === 'people' && !canPick)}
-              className={mode === value ? 'bg-secondary text-foreground' : 'text-muted-foreground'}
               onClick={() => void save(value, value === 'people' ? picked : [])}
             >
               {text}

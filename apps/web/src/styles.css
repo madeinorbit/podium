@@ -15939,15 +15939,31 @@ button.waterfall-fold:hover {
   padding: 2px;
   background: var(--well-floor);
   box-shadow:
-    inset 0 1px 0 var(--well-lip),
+    inset 0 1px 1px var(--well-lip),
+    inset 0 0 0 1px var(--well-rim),
     inset 0 -1px 0 var(--well-lit);
 }
-.settings-segmented > button[aria-pressed="true"] {
-  background: var(--cell-raised);
+.settings-segmented > button {
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+.settings-segmented > button:hover:not(:disabled) {
+  background: transparent;
+  color: var(--foreground);
+}
+/* THE SELECTED SEGMENT is a raised card cell in the sunken well, the same
+   mark as the open right-rail cell. It used to read --cell-raised/--cell-lit,
+   prototype names the app never defined: the background resolved to nothing
+   and the selection showed only as darker text. */
+.settings-segmented > button[aria-pressed="true"],
+.settings-segmented > button[aria-pressed="true"]:hover {
+  background: var(--card);
   color: var(--text-strong);
+  font-weight: 500;
   box-shadow:
-    inset 0 1px 0 var(--cell-lit),
-    0 0 0 1px var(--border);
+    0 1px 2px color-mix(in srgb, var(--carve-drop) 90%, transparent),
+    inset 0 0 0 1px
+    color-mix(in srgb, var(--neutral) calc(35 * var(--surface-line-scale, 1%)), transparent);
 }
 .settings-audit-filters {
   display: flex;

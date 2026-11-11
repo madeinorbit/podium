@@ -12,11 +12,7 @@ export function MemberRoleControl({
   disabled?: boolean
 }) {
   return (
-    <fieldset
-      aria-label="Role"
-      className="m-0 flex min-w-0 rounded-lg border border-hairline-soft bg-muted/40 p-0.5"
-      disabled={disabled}
-    >
+    <fieldset aria-label="Role" className="settings-segmented" disabled={disabled}>
       {MEMBER_ROLE_OPTIONS.map((option) => (
         <Button
           key={option.value}
@@ -24,9 +20,6 @@ export function MemberRoleControl({
           size="sm"
           variant="ghost"
           aria-pressed={value === option.value}
-          className={
-            value === option.value ? 'bg-secondary text-foreground' : 'text-muted-foreground'
-          }
           onClick={() => onChange(option.value)}
         >
           {option.label}

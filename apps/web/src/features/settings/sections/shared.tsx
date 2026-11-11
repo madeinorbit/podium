@@ -418,9 +418,6 @@ export function SegmentedRow<T extends string>({
             variant="ghost"
             aria-pressed={value === option.value}
             disabled={option.disabled || change.pending}
-            className={
-              value === option.value ? 'bg-secondary text-foreground' : 'text-muted-foreground'
-            }
             onClick={() => void change.run(option.value, value)}
           >
             {option.label}

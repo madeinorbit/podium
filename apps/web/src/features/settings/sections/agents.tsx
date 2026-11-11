@@ -239,28 +239,25 @@ export const AgentRoleFields = observer(function AgentRoleFields({
             : 'How long the model thinks before acting.'
         }
         readOnlyValue={effortLabel(resolved.harness, backend.effort)}
+        // Nothing to choose between: a one-segment control read as a broken selector.
+        readOnly={effortOptions.length ? undefined : true}
       >
-        <fieldset aria-label="Effort" className="settings-segmented">
-          {(effortOptions.length ? effortOptions : [{ value: AUTO, label: 'Auto' }]).map(
-            (option) => (
+        {effortOptions.length ? (
+          <fieldset aria-label="Effort" className="settings-segmented">
+            {effortOptions.map((option) => (
               <Button
                 key={option.value}
                 type="button"
                 variant="ghost"
                 size="sm"
                 aria-pressed={(backend.effort || AUTO) === option.value}
-                className={
-                  backend.effort === option.value
-                    ? 'bg-secondary text-foreground'
-                    : 'text-muted-foreground'
-                }
-                onClick={() => onChange({ ...backend, effort: option.value })}
+                onClick={() => void onChange({ ...backend, effort: option.value })}
               >
                 {option.label}
               </Button>
-            ),
-          )}
-        </fieldset>
+            ))}
+          </fieldset>
+        ) : null}
       </Row>
     </>
   )

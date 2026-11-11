@@ -188,9 +188,6 @@ const HostAccess = observer(function HostAccess({ network }: { network: NetworkS
                   variant="ghost"
                   size="sm"
                   aria-pressed={filter === value}
-                  className={
-                    filter === value ? 'bg-secondary text-foreground' : 'text-muted-foreground'
-                  }
                   onClick={() => setFilter(value)}
                 >
                   {value === 'everyone' ? 'Everyone' : 'Phones'}
