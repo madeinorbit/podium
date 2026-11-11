@@ -1,3 +1,4 @@
+import { memberFacts } from './store/fixtures/test-support'
 import { asMachineId, asUserId, type Capability, firstAdminMemberId } from '@podium/model'
 import { hashPassword } from '@podium/runtime/auth-store'
 import { TRPCError } from '@trpc/server'
@@ -111,7 +112,7 @@ describe('machines.pairingCode as a member', () => {
 
   async function memberCaller() {
     const store = await openTestStore(':memory:')
-    await store.users.create(
+    await memberFacts(store).create(
       {
         id: MEMBER,
         displayName: 'Member',

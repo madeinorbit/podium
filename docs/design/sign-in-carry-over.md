@@ -42,11 +42,11 @@ Read at `bdc733bd4e`.
 | `client_sessions` holds `token_hash` (primary key), `user_id` (the member id), `created_at`, `expires_at`, `label`, `session_id` (public id), `device_id`, `device_name`, `platform`, `last_seen_at` | `apps/server/src/migrations/schema.ts` (`clientSessions`) |
 | The token is never stored. The hash is `sha256(token)`, hex | `hashToken` in `apps/server/src/auth-route.ts` |
 | The cookie is `podium_session`, HttpOnly, SameSite=Lax, path `/`, no `Domain`, 30 days, `Secure` only when the sign-in happened over HTTPS | `setSessionCookie` |
-| `login` and `mobile` rows are renewed to 30 days at most once a day while used. `break-glass` rows keep the expiry chosen at mint | `maintainClientCredentialByHash` |
-| A bearer token is accepted only for a `mobile` row, only over HTTPS | `resolveClientCredential`, `clientAuthGuard` |
+| `login` and `mobile` rows are renewed to 30 days at most once a day while used. `break-glass` rows keep the expiry chosen at mint | the pre-upgrade renewal boundary |
+| A bearer token is accepted only for a `mobile` row, only over HTTPS | the pre-upgrade HTTP admission boundary |
 | Phone pairing can deliver a `mobile` sign-in as a cookie (`delivery: 'browser'`) or as a bearer (`'native'`) | `apps/server/src/mobile-pairing-route.ts` |
 | A browser row has `device_id = 'browser'`, the desktop app's has `device_id = 'desktop'` | `browserSignInMetadata` in `sign-in-device.ts` |
-| The `podium` command sends its cached token as the old cookie. The cache is `cli-session.json` in the state directory; `PODIUM_SESSION_TOKEN` overrides it | `packages/issue-client/src/client.ts`, `packages/runtime/src/session-mint.ts` |
+| The `podium` command sends its cached token as the old cookie. The cache is `cli-session.json` in the state directory; `PODIUM_SESSION_TOKEN` overrides it | `packages/issue-client/src/client.ts`, `packages/runtime/src/session-token.ts` |
 | The desktop shell copies the cookie named `podium_session` to a new origin when the window follows a moved server | `apps/desktop/src-tauri/src/main.rs` (`retarget_session_cookie`), `bootstrap.rs` (`session_cookie_for_target`) |
 | The web client asks `GET /auth/status` before anything else at start, and again whenever a sync request is refused with 401 | `apps/web/src/lib/use-kernel-replica.ts`, `apps/web/src/features/setup/LoginGate.tsx` (`SYNC_AUTH_EXPIRED_EVENT`) |
 | A page loaded before the upgrade reloads itself when it reconnects to a server of another version | `apps/web/src/features/setup/version-guard.ts` |
@@ -276,7 +276,7 @@ Must not: rewrite `expires_at`; delete expired rows of the three labels (harmles
 
 ### 8.2 POD-6746, POD-6747, POD-6748
 
-- **POD-6748 Devices and pairing** must leave: the table definition `clientSessions` in `apps/server/src/migrations/schema.ts`; the constant `SESSION_COOKIE` in `@podium/protocol`; an old-form `cli-session.json` unread and undeleted when the `podium` command finds one. It stops every write to `client_sessions` (sign-in, pairing, the host session, the server move), as the specification says. It may delete every method of `AuthRepository`, including `getClientSession` and `deleteClientSession` and the function `hashToken`: the carry-over brings its own statements (section 9). This is less than specification 8.5 keeps (section 12, row 1).
+- **POD-6748 Devices and pairing** must leave: the table definition `clientSessions` in `apps/server/src/migrations/schema.ts`; the constant `SESSION_COOKIE` in `@podium/protocol`; an old-form `cli-session.json` unread and undeleted when the `podium` command finds one. It stops every write to `client_sessions` (sign-in, pairing, the host session, the server move), as the specification says. The carry-over brings its own consume statements (section 9), so no general session repository is retained.
 - **POD-6746 Server sign-in path** must not read the old cookie anywhere. Its `GET /auth/status` and `POST /auth/logout` are the two places POD-6751 edits afterwards.
 - **POD-6747 People and invitations** and **POD-6745** (`MemberRows.write`) need no change. POD-6751 adds the calls of R16 into their files afterwards.
 - None of the three lists old sign-ins anywhere. The device list and the Access screen show device sign-ins only (section 13, question 4).
@@ -285,7 +285,10 @@ Must not: rewrite `expires_at`; delete expired rows of the three labels (harmles
 
 ### 8.3 POD-6752 Hand-written sign-in removal
 
-May drop in its own change, with no regard to the carry-over: `user_credentials`, `member_invites`, `POST /auth/users`, the unused handshake strategies, `packages/runtime/src/session-mint.ts` except what reads an old-form cache file, and everything else specification section 9 gives it.
+Credential and invitation source tables are retired only after the local import
+records completion for that database. Schema migrations run before the import, so
+a direct upgrade must leave those inputs readable until then. Rollback restores
+the pre-upgrade snapshot. New sign-ins and the CLI token cache use shared identity.
 
 Must **not** drop yet, and must schedule with one `LEGACY(remove-after: 2027-06)` line each:
 
@@ -444,7 +447,6 @@ All accepted by the coordinator on 2026-11-10 and recorded in the specification'
 
 | # | Specification or brief | This document | Why |
 |---|---|---|---|
-| 1 | Specification 8.5 and section 9: POD-6748 keeps `hashToken`, `getClientSession(tokenHash)` and `deleteClientSession(tokenHash)` | Not needed. The carry consumes with one `delete … returning`; a read followed by a delete would be a race. POD-6748 may delete all of `AuthRepository` and must keep only the table definition and `SESSION_COOKIE` | section 4.2 |
 | 2 | Specification 6: "`mobile` … If not [carried], the phone pairs again" | A `mobile` sign-in held as a cookie is carried; one held as a bearer is not | section 6.2 |
 | 3 | The package's operations as listed in specification 2.6 | One more read, `memberships.accountOfActiveMember(memberId)` | The carry needs the account of one member; `list()` reads every membership |
 | 4 | Files owned by POD-6745, POD-6746, POD-6747 and POD-6748 (specification 14) | POD-6751 adds one call each to `auth-route.ts`, `member-routes.ts`, `MemberRows.write` and `control-socket.ts`, after those tasks have landed | R16, R17, R18 |
@@ -471,7 +473,7 @@ State after the coordinator's review of 2026-11-10: questions 1 to 7 are **decid
 
 ## 14. What was read and what was run
 
-Read: the plan, the specification, the spike report, and at `bdc733bd4e` the files named in section 2, `apps/server/src/store/auth.ts`, `apps/server/src/store/users.ts` (the statements that delete old sign-ins), `packages/client-core/src/accounts/auth.ts`, `packages/client-core/src/replica-assembly/`, and the customer-upgrade fixtures.
+Read: the plan, the specification, the spike report, and at `bdc733bd4e` the files named in section 2, `apps/server/src/store/users.ts` (the statements that delete old sign-ins), `packages/client-core/src/accounts/auth.ts`, `packages/client-core/src/replica-assembly/`, and the customer-upgrade fixtures.
 
 Run: nothing. This task writes a document and no product code, so the lean gate was skipped; it cannot be affected.
 

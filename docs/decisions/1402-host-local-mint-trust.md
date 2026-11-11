@@ -52,7 +52,7 @@ arrives without rebinding mint.**
 
 | Piece | Location |
 |---|---|
-| Decision object | `HOST_LOCAL_MINT_TRUST` in `packages/runtime/src/session-mint.ts` |
+| Decision object | `HOST_LOCAL_MINT_TRUST` in `packages/runtime/src/session-token.ts` |
 | Coherence + schema tripwire | `packages/runtime/src/session-mint.test.ts` (schema read via relative path) |
 | ADR | ADR 3 D14 |
 | CLI help | `podium auth` usage (two-line trust note) |

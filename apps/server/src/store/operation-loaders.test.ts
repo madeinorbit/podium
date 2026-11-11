@@ -1,3 +1,4 @@
+import { memberFacts } from './fixtures/test-support'
 /**
  * The repository loaders [POD-6149] against a real store, counted at the driver:
  * several loads in one tick are one query, a loaded row is reused for the rest
@@ -434,24 +435,24 @@ describe('UsersRepository.earliestAdmin for a whole operation', () => {
   it('sees an earlier admin created and a disable made in the same operation', async () => {
     await withStore(async (store) => {
       const original = (await store.users.earliestAdmin())!.id
-      await store.users.create(
+      await memberFacts(store).create(
         later('mem_2BBBBBBBBBBBBBBBBBBBBBBBBBB', '2099-01-01T00:00:00.000Z'),
         'scrypt:hash',
       )
       await withOperation(async () => {
         expect((await store.users.earliestAdmin())?.id).toBe(original)
-        await store.users.create(
+        await memberFacts(store).create(
           later('mem_0AAAAAAAAAAAAAAAAAAAAAAAAAA', '2000-01-01T00:00:00.000Z'),
           'scrypt:hash',
         )
         expect((await store.users.earliestAdmin())?.id).toBe('mem_0AAAAAAAAAAAAAAAAAAAAAAAAAA')
-        await store.users.disable(
+        await memberFacts(store).disable(
           asUserId('mem_0AAAAAAAAAAAAAAAAAAAAAAAAAA'),
           '2026-10-17T00:00:00.000Z',
         )
         expect((await store.users.earliestAdmin())?.id).toBe(original)
         await store.transact(async () => {
-          await store.users.disable(asUserId(original), '2026-10-17T00:00:01.000Z')
+          await memberFacts(store).disable(asUserId(original), '2026-10-17T00:00:01.000Z')
           expect((await store.users.earliestAdmin())?.id).toBe('mem_2BBBBBBBBBBBBBBBBBBBBBBBBBB')
         })
         expect((await store.users.earliestAdmin())?.id).toBe('mem_2BBBBBBBBBBBBBBBBBBBBBBBBBB')
@@ -466,7 +467,7 @@ describe('UsersRepository.earliestAdmin for a whole operation', () => {
         expect((await store.users.earliestAdmin())?.id).toBe(original)
         await expect(
           store.transact(async () => {
-            await store.users.create(
+            await memberFacts(store).create(
               later('mem_0AAAAAAAAAAAAAAAAAAAAAAAAAA', '2000-01-01T00:00:00.000Z'),
               'scrypt:hash',
             )
@@ -503,7 +504,7 @@ describe('UsersRepository.get for a whole operation', () => {
   it('one read before, inside and after its write span; ids of a tick in one read; none shared with the next operation', async () => {
     await withStore(async (store) => {
       const admin = asUserId((await store.users.earliestAdmin())!.id)
-      await store.users.create(member('mem_1BBBBBBBBBBBBBBBBBBBBBBBBBB'), 'scrypt:hash')
+      await memberFacts(store).create(member('mem_1BBBBBBBBBBBBBBBBBBBBBBBBBB'), 'scrypt:hash')
       const other = asUserId('mem_1BBBBBBBBBBBBBBBBBBBBBBBBBB')
       const phases = async () => {
         const first = await Promise.all([
@@ -529,12 +530,12 @@ describe('UsersRepository.get for a whole operation', () => {
       const other = asUserId('mem_1BBBBBBBBBBBBBBBBBBBBBBBBBB')
       await withOperation(async () => {
         expect(await store.users.get(other)).toBeUndefined()
-        await store.users.create(member(other), 'scrypt:hash')
+        await memberFacts(store).create(member(other), 'scrypt:hash')
         expect((await store.users.get(other))?.displayName).toBe(other)
-        await store.users.writeProfile(other, 'Renamed', null)
+        await memberFacts(store).writeProfile(other, 'Renamed', null)
         expect((await store.users.get(other))?.displayName).toBe('Renamed')
         await store.transact(async () => {
-          await store.users.disable(other, '2026-10-17T00:00:00.000Z')
+          await memberFacts(store).disable(other, '2026-10-17T00:00:00.000Z')
           expect(await store.users.get(other)).toBeUndefined()
         })
         expect(await store.users.get(other)).toBeUndefined()
@@ -567,7 +568,7 @@ describe('UsersRepository.get for a whole operation', () => {
         expect(await store.users.get(other)).toBeUndefined()
         await expect(
           store.transact(async () => {
-            await store.users.create(member(other), 'scrypt:hash')
+            await memberFacts(store).create(member(other), 'scrypt:hash')
             expect((await store.users.get(other))?.id).toBe(other)
             throw new Error('roll the span back')
           }),

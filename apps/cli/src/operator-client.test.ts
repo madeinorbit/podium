@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { saveCachedSessionToken } from '@podium/runtime/session-mint'
+import { saveCachedSessionToken } from '@podium/runtime/session-token'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import {
   makeOperatorIssueClient,

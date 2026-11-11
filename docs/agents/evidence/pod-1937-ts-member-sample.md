@@ -30,7 +30,6 @@ Inspection exposed a necessary fourth bucket:
 |---|---|---:|---|
 | store | `store/accounts.ts:13 ManagedAccountRow.id` | B | Domain row identity; should be `AccountId`. |
 | store | `store/accounts.ts:25 Row.id` | D | Raw sqlite result before `toRow`. |
-| store | `store/auth.ts:86 user_id` | D | Raw sqlite result, converted to `UserId` in the returned shape. |
 | sessions | `sessions/account-env.ts:14 accountId` | B | Internal resolver input. |
 | sessions | `sessions/command-ctx.ts:178 FleetRepoRow.machineId` | B | Internal fleet projection member. |
 | sessions | `sessions/command-plane.ts:189 machineId` | B | Authorization service input. |

@@ -65,10 +65,9 @@ it.skipIf(!enabled)(
       applyLocalSetupDefault()
       coordinator = await startServer({ port: 0, janitorWorkerForTests: noJanitorWorkerForTests })
       const admin = await firstAdminMemberId(coordinator.registry.sessionStore)
-      await coordinator.registry.sessionStore.users.setPasswordHash(
-        admin,
+      await coordinator.identity.core.accounts.setPasswordHash(
+        (await coordinator.registry.sessionStore.users.get(admin))!.accountId!,
         await hashPassword('native-scratch-admin'),
-        new Date().toISOString(),
       )
       const local = loadSupervisorState(serverDir).setupEnrollment!
       confirmSetupEnrollment(local.requestId, local.publicKey, serverDir)

@@ -9,7 +9,7 @@ import {
   resolveSessionToken,
   saveCachedSessionToken,
   sessionTokenPath,
-} from './session-mint'
+} from './session-token'
 
 let dir: string
 beforeEach(() => {

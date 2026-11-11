@@ -31,7 +31,11 @@ describe('client registration member authority', () => {
   })
 
   it('enrolls for the current administrator rather than the earliest administrator, with client-only roles', async () => {
-    await store().users.setRole(MEMBERS.bob.id, 'admin', MEMBERS.alice.id)
+    await f.handle.identity.memberships.setRole({
+      memberId: MEMBERS.bob.id,
+      role: 'admin',
+      actor: { memberId: MEMBERS.alice.id },
+    })
     try {
       const bob = (await f.as('bob')).trpc
       const id = asMachineId('client-current-admin')
@@ -62,7 +66,11 @@ describe('client registration member authority', () => {
       })
       expect(await store().machines.custodian(f.machines.alice)).toBe(MEMBERS.alice.id)
     } finally {
-      await store().users.setRole(MEMBERS.bob.id, 'member', MEMBERS.alice.id)
+      await f.handle.identity.memberships.setRole({
+        memberId: MEMBERS.bob.id,
+        role: 'member',
+        actor: { memberId: MEMBERS.alice.id },
+      })
     }
   })
 

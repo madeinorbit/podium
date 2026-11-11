@@ -1,3 +1,4 @@
+import { memberFacts } from './store/fixtures/test-support'
 import {
   asIssueId,
   asMachineId,
@@ -129,7 +130,7 @@ describe('S4 server consumers', () => {
     const sessions = o.reg.modules.sessions
     const A = await firstAdminMemberId(o.store)
     const B = asUserId('user:b')
-    await o.store.users.create(
+    await memberFacts(o.store).create(
       {
         id: B,
         displayName: 'B',

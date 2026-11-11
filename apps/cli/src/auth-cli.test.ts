@@ -66,13 +66,13 @@ it('prints the minted token alone on stdout', async () => {
 
 it('caches the token so later podium calls carry it', async () => {
   await auth(['mint-session'])
-  const { resolveSessionToken } = await import('@podium/runtime/session-mint')
+  const { resolveSessionToken } = await import('@podium/runtime/session-token')
   expect(resolveSessionToken({}, dir)).toBe(stdout())
 })
 
 it('--print-only leaves no cached credential behind', async () => {
   await auth(['mint-session', '--print-only'])
-  const { resolveSessionToken } = await import('@podium/runtime/session-mint')
+  const { resolveSessionToken } = await import('@podium/runtime/session-token')
   expect(stdout()).not.toBe('')
   expect(resolveSessionToken({}, dir)).toBeUndefined()
 })

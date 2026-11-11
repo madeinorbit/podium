@@ -1,3 +1,4 @@
+import { memberFacts } from '../../store/fixtures/test-support'
 /**
  * AUTOMATION AND WORKFLOW WRITES ON THE SYNC WRITE ENTRY POINT (POD-6418).
  *
@@ -38,7 +39,7 @@ afterEach(() => disposeOracles())
 
 async function member(o: Oracle, id = 'usr_member_6418'): Promise<UserId> {
   const user = asUserId(id)
-  await o.store.users.createUnclaimed({
+  await memberFacts(o.store).create({
     id: user,
     displayName: 'Member',
     email: null,
@@ -158,7 +159,7 @@ describe('automations on the entry point', () => {
       await submitAs(o, principal, 'automations.setEnabled', { id, enabled: true }, 'mut_aut_m_on'),
     )
 
-    await o.store.users.disable(user, new Date().toISOString())
+    await memberFacts(o.store).disable(user, new Date().toISOString())
     const replay = await submitAs(
       o,
       principal,

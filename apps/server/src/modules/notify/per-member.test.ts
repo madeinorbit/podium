@@ -1,3 +1,4 @@
+import { memberFacts } from '../../store/fixtures/test-support'
 /**
  * NOTIFICATIONS REACH ONLY THEIR MEMBER (POD-6291, design gap 10).
  *
@@ -63,7 +64,7 @@ let sessionStates: Array<{
 beforeEach(async () => {
   const store = await openTestStore(':memory:')
   const alice = await firstAdminMemberId(store)
-  await store.users.create(
+  await memberFacts(store).create(
     {
       id: BOB,
       displayName: 'Bob',

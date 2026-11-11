@@ -21,6 +21,7 @@ import {
   serverRows,
   writeIdentityShape,
 } from '../packages/runtime/src/fixtures/customer-upgrade'
+import oldestServerReleaseMigrations from '../packages/runtime/src/fixtures/customer-upgrade/server-oldest-release-migrations.json'
 import { openDatabase, type SqlDatabase } from '../packages/runtime/src/sqlite'
 import { mintUpdateSigningKey } from '../packages/runtime/src/update-signing-key'
 import {
@@ -127,6 +128,81 @@ describe('upgrade rehearsal', () => {
     ).rejects.toThrow('timeout')
   })
 
+  it('upgrades Alice and Bob directly from the oldest supported server v0.1.0', async () => {
+    const source = join(root, 'oldest-source')
+    mkdirSync(source)
+    const sourcePath = join(source, 'podium.db')
+    const hashes = new Map(
+      await Promise.all(
+        ['Alice', 'Bob'].map(
+          async (name) => [name, await hashPassword(`${name}-oldest-fixture-password`)] as const,
+        ),
+      ),
+    )
+    const db = openDatabase(sourcePath)
+    try {
+      const shipped = new Set(oldestServerReleaseMigrations.migrations)
+      runDrizzleMigrations(
+        db,
+        DRIZZLE_MIGRATIONS.filter((m) => shipped.has(m.name)),
+      )
+      expect(db.prepare('SELECT id FROM users').all()).toEqual([{ id: 'user:sole' }])
+      db.prepare("UPDATE users SET display_name = 'Alice' WHERE id = 'user:sole'").run()
+      db.prepare(
+        "INSERT INTO users (id, display_name, role, created_at) VALUES ('mem_upgrade_bob', 'Bob', 'member', '2026-08-21T12:00:00.000Z')",
+      ).run()
+      for (const [id, name] of [
+        ['user:sole', 'Alice'],
+        ['mem_upgrade_bob', 'Bob'],
+      ] as const) {
+        const hash = hashes.get(name)
+        if (!hash) throw new Error('Missing fixture password hash')
+        db.prepare(`INSERT INTO user_credentials (user_id, source, password_hash, updated_at)
+          VALUES (?, 'per-user-scrypt', ?, '2026-08-21T12:00:00.000Z')
+          ON CONFLICT(user_id) DO UPDATE SET source = excluded.source, password_hash = excluded.password_hash`).run(
+          id,
+          hash,
+        )
+      }
+    } finally {
+      db.close()
+    }
+    const before = createHash('sha256').update(readFileSync(sourcePath)).digest('hex')
+    const output = await rehearse(source, join(root, 'oldest-copy'))
+    expect(createHash('sha256').update(readFileSync(sourcePath)).digest('hex')).toBe(before)
+    const upgraded = openDatabase(join(output, 'state', 'podium.db'), { readOnly: true })
+    try {
+      const members = upgraded
+        .prepare(`SELECT u.display_name AS name, m.status, a.password
+        FROM identity_membership m JOIN users u ON u.id = m.member_id
+        JOIN identity_account a ON a.user_id = m.account_id ORDER BY u.display_name`)
+        .all() as { name: string; status: string; password: string }[]
+      expect(members.map(({ name, status }) => ({ name, status }))).toEqual([
+        { name: 'Alice', status: 'active' },
+        { name: 'Bob', status: 'active' },
+      ])
+      for (const member of members) {
+        expect(member.password).toBe(hashes.get(member.name))
+        expect(
+          await verifyPasswordHash(`${member.name}-oldest-fixture-password`, member.password),
+        ).toBe(true)
+      }
+      expect(
+        upgraded
+          .prepare(
+            "SELECT name FROM sqlite_schema WHERE name IN ('user_credentials', 'member_invites')",
+          )
+          .all(),
+      ).toEqual([])
+      expect(upgraded.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get()).toEqual({
+        n: DRIZZLE_MIGRATIONS.length,
+      })
+      expect(upgraded.prepare('PRAGMA quick_check').get()).toEqual({ quick_check: 'ok' })
+    } finally {
+      upgraded.close()
+    }
+  }, 120_000)
+
   it('boots the candidate against a copy, fences session traffic and leaves the source untouched', async () => {
     const source = join(root, 'source')
     mkdirSync(source)
@@ -189,6 +265,18 @@ describe('upgrade rehearsal', () => {
       healthy: true,
       sessionTrafficDisabled: true,
     })
+    const upgraded = openDatabase(join(output, 'state', 'podium.db'), { readOnly: true })
+    try {
+      expect(
+        upgraded
+          .prepare(
+            "SELECT name FROM sqlite_schema WHERE name IN ('user_credentials', 'member_invites')",
+          )
+          .all(),
+      ).toEqual([])
+    } finally {
+      upgraded.close()
+    }
     const report = JSON.parse(readFileSync(join(output, 'rehearsal.json'), 'utf8'))
     expect(report).toMatchObject({
       healthy: true,
@@ -316,6 +404,14 @@ describe('upgrade rehearsal', () => {
           n: DRIZZLE_MIGRATIONS.length,
         })
         expect(upgraded.prepare('PRAGMA quick_check').get()).toEqual({ quick_check: 'ok' })
+        expect(
+          upgraded
+            .prepare(
+              "SELECT name FROM sqlite_schema WHERE name IN ('user_credentials', 'member_invites')",
+            )
+            .all(),
+        ).toEqual([])
+
         // The upgrade deletes the sign-ins of the two retired labels (POD-6750)
         // and leaves every other old sign-in exactly as it was.
         const kept = (logins: unknown[]) =>

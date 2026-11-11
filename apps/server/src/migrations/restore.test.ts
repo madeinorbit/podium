@@ -519,6 +519,7 @@ describe('restoring a backup from before feed identity existed', () => {
     const reopened = openDatabase(dbPath)
     expect(applyBaselineSchema(reopened)).toEqual(
       DRIZZLE_MIGRATIONS.slice(feedIdentityCut())
+        .filter(m => !m.sql.startsWith('-- after-local-identity-import'))
         .map((migration) => migration.name)
         .sort(),
     )

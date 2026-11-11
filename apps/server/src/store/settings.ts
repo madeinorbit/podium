@@ -284,7 +284,7 @@ export class SettingsRepository {
     await this.writeMeta(APPLIED_MEMBERSHIP_VERSION_KEY, String(version))
   }
 
-  /** The original links stay in the old table for rollback. Import them only once. */
+  /** Import receipt: prevents replay and permits retirement of the source storage. */
   async legacyIdentityLinksImported(): Promise<boolean> {
     return (await metaValue(this.db).get({ key: LEGACY_LINKS_IMPORTED_KEY }))?.value === '1'
   }

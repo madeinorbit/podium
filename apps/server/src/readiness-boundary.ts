@@ -57,9 +57,8 @@ export function isControlPlanePath(pathname: string): boolean {
  * The auth surface a blocked-but-reachable instance keeps open: the status read,
  * and the login/logout that let an operator BECOME the admin who can restart it.
  *
- * Deliberately not all of `/auth/*`. `POST /auth/users` mints an account in the
- * live database, which is work — it belongs to the data plane and stays shut
- * until the process is running the config it was asked to run.
+ * Membership changes remain in the data plane and stay shut until the
+ * process is running the configuration it was asked to run.
  */
 const CONTROL_PLANE_AUTH_PATHS = new Set(['/auth/status', '/auth/login', '/auth/logout'])
 

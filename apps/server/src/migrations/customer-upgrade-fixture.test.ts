@@ -437,7 +437,7 @@ describe('customer upgrade fixture: server', () => {
       sourceFeedId: 'feed-1',
       sourceFeedEpoch: epoch,
       sourceApplicationVersion: 'fixture',
-      sourceSchemaVersion: DRIZZLE_MIGRATIONS.at(-1)!.name,
+      sourceSchemaVersion: DRIZZLE_MIGRATIONS.filter(m => !m.sql.startsWith('-- after-local-identity-import')).at(-1)!.name,
       checkpoint: () => {},
     })
     const paths = snapshot.files.map((entry) => entry.path)
@@ -597,7 +597,7 @@ describe('MU-15: customer personal data across the complete multi-user migration
             .get(),
         ).toEqual({ joined_via: 'start' })
       expect(db.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get()).toEqual({
-        n: DRIZZLE_MIGRATIONS.length,
+        n: DRIZZLE_MIGRATIONS.filter(m => !m.sql.startsWith('-- after-local-identity-import')).length,
       })
       expect(db.prepare('PRAGMA quick_check').get()).toEqual({ quick_check: 'ok' })
     })

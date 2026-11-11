@@ -1,8 +1,8 @@
 import type { WorkspaceIdentity } from '@podium/identity'
 import { importLegacyLink } from '@podium/identity/upgrade'
 import { asUserId } from '@podium/model'
-import { DrizzleQueryError } from 'drizzle-orm'
 import type { SessionStore } from '../store'
+import { sanitizeDatabaseError } from '../store/executor/errors'
 
 /**
  * Install local memberships before serving requests. Existing member ids are
@@ -11,7 +11,7 @@ import type { SessionStore } from '../store'
 export async function ensureLocalIdentity(store: SessionStore, workspace: WorkspaceIdentity) {
   const { accounts } = workspace.core
   const { memberships } = workspace
-  return await store
+  const counts = await store
     .transact(async () => {
       const counts = {
         members: 0,
@@ -28,7 +28,7 @@ export async function ensureLocalIdentity(store: SessionStore, workspace: Worksp
       const importLinks = !(await store.settings.legacyIdentityLinksImported())
       if (missing.length === 0 && !importLinks) return counts
 
-      const passwords = await store.users.legacyPasswordHashes()
+      const passwords = importLinks ? await store.identityUpgrade.passwordHashes() : new Map()
       const enabledMembers = members.filter((member) => member.disabledAt === null).length
       for (const member of missing) {
         const passwordHash = passwords.get(asUserId(member.id))
@@ -62,7 +62,7 @@ export async function ensureLocalIdentity(store: SessionStore, workspace: Worksp
       if (!importLinks) return counts
       const now = Date.now()
       const membersById = new Map(members.map((member) => [member.id, member]))
-      for (const invite of await store.users.pendingInvites()) {
+      for (const invite of await store.identityUpgrade.pendingLinks()) {
         const expiresAt = new Date(invite.expiresAt)
         if (!(expiresAt.getTime() > now)) continue
         const storedLink = {
@@ -96,18 +96,15 @@ export async function ensureLocalIdentity(store: SessionStore, workspace: Worksp
           counts.skippedSoleMemberInvitations += 1
         }
       }
-      counts.retiredClientSessions = await store.users.deleteRetiredClientSessions()
-      // The old links stay on disk for rollback. This prevents resurrecting
-      // an imported link that is consumed or removed before the next boot.
+      counts.retiredClientSessions = await store.identityUpgrade.retireSessions()
+      // This receipt prevents replay after a link is consumed and permits the
+      // retirement migration. Rollback restores the pre-upgrade backup.
       await store.settings.recordLegacyIdentityLinksImported()
       return counts
     })
     .catch((error: unknown) => {
-      // Drizzle's error includes bound password and token hashes. Report the
-      // SQLite cause without including the query parameters in the boot log.
-      if (error instanceof DrizzleQueryError) {
-        throw new Error('Local identity upgrade database error', { cause: error.cause })
-      }
-      throw error
+      throw sanitizeDatabaseError(error, 'Local identity upgrade database error')
     })
+  await store.retireImportedIdentityStorage()
+  return counts
 }

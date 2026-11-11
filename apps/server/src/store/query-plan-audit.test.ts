@@ -349,10 +349,6 @@ const SMALL_TABLES: ReadonlyMap<string, string> = new Map([
  */
 const ALLOWLIST: ReadonlyMap<string, string> = new Map([
   [
-    'apps/server/src/store/auth.ts:clientSessionsOfUserNewestFirst',
-    "Sorts one person's sign-ins, found through idx_client_sessions_user: a row per signed-in device or login (POD-6172).",
-  ],
-  [
     'apps/server/src/store/automations.ts:lastSpawnedRuns',
     "Walks the automations (a small table: schedules people define by hand) and finds each one's newest spawned run through idx_automation_runs_automation, never the runs of the whole table (POD-6172).",
   ],

@@ -1,3 +1,4 @@
+import { memberFacts } from './store/fixtures/test-support'
 import {
   asRepoId,
   asThreadId,
@@ -32,7 +33,7 @@ async function fixture() {
   const o = await makeOracle({ now: () => NOW })
   const A = await firstAdminMemberId(o.store)
   for (const user of [B, C])
-    await o.store.users.create(
+    await memberFacts(o.store).create(
       {
         id: user,
         displayName: user,

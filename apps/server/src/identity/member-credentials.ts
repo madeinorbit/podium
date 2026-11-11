@@ -6,8 +6,7 @@
  * row. The server's own code still speaks about members: "the caller sets
  * their password", "setup gives the first admin one". This is the one place
  * that goes from the member to their account, so no caller writes a password
- * anywhere else. A password written to the old `user_credentials` table signs
- * nobody in.
+ * anywhere else.
  *
  * The account of a member is the account id on their member row, which only
  * apply-membership writes.

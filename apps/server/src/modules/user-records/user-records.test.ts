@@ -1,3 +1,4 @@
+import { memberFacts } from '../../store/fixtures/test-support'
 /**
  * PINS, TAB ORDERS AND PERSONAL PREFERENCES AS SYNCED PER-USER RECORDS
  * (POD-6673).
@@ -463,7 +464,7 @@ describe('records.userReadPosition', () => {
   it('a disabled account is refused by its live role, whatever its capability says', async () => {
     const o = await makeOracle()
     const user = asUserId('usr_disabled_6673')
-    await o.store.users.createUnclaimed({
+    await memberFacts(o.store).create({
       id: user,
       displayName: 'Member',
       email: null,
@@ -471,7 +472,7 @@ describe('records.userReadPosition', () => {
       createdAt: new Date().toISOString(),
       disabledAt: null,
     })
-    await o.store.users.disable(user, new Date().toISOString())
+    await memberFacts(o.store).disable(user, new Date().toISOString())
     const reply = await o.reg.modules.syncWrite.submit(
       envelope(
         'records.userReadPosition.edit',

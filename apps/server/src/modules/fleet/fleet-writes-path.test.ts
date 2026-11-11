@@ -1,3 +1,4 @@
+import { memberFacts } from '../../store/fixtures/test-support'
 /**
  * THE FLEET'S WRITES ON THE ONE WRITE PATH (POD-6417, plan Task 16).
  *
@@ -58,7 +59,7 @@ const oracle = async () => {
 /** A member account that exists, so its role is read live. */
 async function member(o: Oracle, id = 'usr_member_6417'): Promise<UserId> {
   const user = asUserId(id)
-  await o.store.users.createUnclaimed({
+  await memberFacts(o.store).create({
     id: user,
     displayName: 'Member',
     email: null,

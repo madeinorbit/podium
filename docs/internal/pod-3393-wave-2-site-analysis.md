@@ -1,6 +1,6 @@
 # POD-3393 — Wave 2 (identity and access), per-site conversion analysis
 
-Files: `store/users.ts`, `store/auth.ts`, `store/grants.ts`, `store/settings.ts`,
+Files: `store/users.ts`, `store/grants.ts`, `store/settings.ts`,
 `store/approvals.ts`, `store/user-layout.ts`.
 
 Base: integration branch at `57691d712`. Written BEFORE any conversion, against the synchronous code,
@@ -240,7 +240,6 @@ Constructors changed, and the six `store.ts` lines that build them:
 | --- | --- |
 | `UsersRepository` | `(db, transact)` |
 | `UserLayoutRepository` | `(db, transact)` |
-| `AuthRepository` | `(db)` |
 | `GrantsRepository` | `(db)` |
 | `ApprovalsRepository` | `(db)` |
 | `SettingsRepository` | `(db, legacy)` — `legacy` only composes wave 1's `UserPreferencesRepository` |

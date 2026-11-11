@@ -168,7 +168,7 @@ These are the places where "make it async" changes correctness, not just signatu
 | Who | Access | Consequence under Postgres |
 |---|---|---|
 | Janitor (`apps/janitor/src/janitor.ts:1250`, hosted in a worker thread of the server process since POD-2505, `apps/server/src/janitor-host.ts`) | second connection, read-only, `query_only` | becomes a client with its own role |
-| `podium auth mint-session` (`packages/runtime/src/session-mint.ts:116`) | second **writer** | must go through the server, not the DB |
+| `podium auth mint-session` (`packages/runtime/src/session-token.ts:116`) | second **writer** | must go through the server, not the DB |
 | Daemon transfer (`apps/daemon/src/server-transfer.ts:350`) | opens a staged candidate `podium.db` | file-level; no analogue |
 | Migration ledger guard (`packages/runtime/src/migration-ledger.ts:58`) | reads `__drizzle_migrations` | needs a client |
 | Backup, restore, snapshot verifier, `wal_checkpoint`, transfer fence, Litestream plan | copy the file, `PRAGMA quick_check` in a child | entire subsystem is per-backend |

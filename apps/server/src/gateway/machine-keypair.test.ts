@@ -1,3 +1,4 @@
+import { memberFacts } from '../store/fixtures/test-support'
 import { createHash } from 'node:crypto'
 import { asMachineId, asUserId } from '@podium/model'
 import { machineHelloTranscript, machineRotationTranscript, type MachineChallenge, DAEMON_WIRE_VERSION } from '@podium/protocol'
@@ -24,7 +25,7 @@ const proofHello = (challenge: MachineChallenge, signature = signWithMachine(key
   } })
 async function world(enrolled = true) {
   const store = await openTestStore(':memory:'); stores.push(store)
-  await store.users.create({ id: member, displayName: 'Pairer', role: 'member', createdAt: new Date().toISOString(), disabledAt: null }, 'unused')
+  await memberFacts(store).create({ id: member, displayName: 'Pairer', role: 'member', createdAt: new Date().toISOString(), disabledAt: null }, 'unused')
   const pairing = new PairingManager({ installationId: 'installation-a' })
   const machines = new MachinesService({ instanceId: 'test', installationId: 'installation-a',
     store, hostMachineId: store.hostMachineId, pairing,
@@ -116,7 +117,7 @@ describe('keypair enrollment', () => {
   it('rechecks member eligibility when redeeming a previously valid code', async () => {
     const { machines, acceptor, store } = await world(false)
     const code = machines.mintPairingCode({ ownerUserId: member })
-    await store.users.disable(member, new Date().toISOString())
+    await memberFacts(store).disable(member, new Date().toISOString())
     expect((await prepareDaemonFrame(acceptor(), hello({ kind: 'pairCode', code, publicKey }))).outcome.kind).toBe('rejected')
     expect(await store.machines.getMachine(machineId)).toBeUndefined()
   })

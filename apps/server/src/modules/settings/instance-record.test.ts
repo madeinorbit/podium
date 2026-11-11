@@ -1,3 +1,4 @@
+import { memberFacts } from '../../store/fixtures/test-support'
 /**
  * THE INSTANCE SETTINGS AS ONE SYNCED RECORD (POD-6677).
  *
@@ -48,7 +49,7 @@ const principal = (user: string): Principal => ({
 /** A second person on the instance, with this role. */
 async function member(o: Oracle, id: string, role: 'member' | 'admin' = 'member') {
   const user = asUserId(id)
-  await o.store.users.createUnclaimed({
+  await memberFacts(o.store).create({
     id: user,
     displayName: id,
     email: null,
@@ -159,7 +160,7 @@ describe('records.instancePreferences', () => {
     expect(memberReply).toEqual({ outcome: 'rejected', refusal: { kind: 'unauthorized' } })
 
     const formerAdmin = await member(o, 'user:former-admin-6677', 'admin')
-    await o.store.users.disable(formerAdmin, new Date().toISOString())
+    await memberFacts(o.store).disable(formerAdmin, new Date().toISOString())
     const disabledReply = await o.reg.modules.syncWrite.submit(
       envelope(
         'records.instancePreferences.edit',

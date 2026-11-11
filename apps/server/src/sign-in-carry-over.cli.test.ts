@@ -9,7 +9,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { makeIssueClient } from '@podium/issue-client'
-import { readCachedSessionToken, readOldFormSessionToken } from '@podium/runtime/session-mint'
+import { readCachedSessionToken, readOldFormSessionToken } from '@podium/runtime/session-token'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OLD_ENV_TOKEN_MESSAGE, operatorSessionToken } from '../../cli/src/operator-client'
 import { CARRY_REPEAT_MS } from './sign-in-carry-over'

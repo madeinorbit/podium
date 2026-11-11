@@ -20,7 +20,6 @@ import { bootStage } from './boot-timing'
  *                                                        → @podium/sync's SyncRepository
  *                                                          (query-only; schema DDL stays
  *                                                          here in src/migrations/)
- *  - auth (client_sessions)                              → store/auth.ts
  *  - superagent (threads/messages)                       → store/superagent.ts
  *  - settings/meta                                       → store/settings.ts
  *  - layout (user_layout — sidebar/tab chrome, POD-1350)  → store/user-layout.ts
@@ -47,41 +46,36 @@ import { createLogger } from '@podium/logger'
 import { asMachineId, type MachineId } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
+import { importUpdateSigningKey } from '@podium/runtime/update-signing-key'
 import { SyncRepository } from '@podium/sync'
+import { importEnrollmentLedger } from './enrollment-ledger-import'
 import { isFeatureEnabled } from './features'
 import { importFingerprintKey } from './fingerprint-key-import'
-import { importConfigSettings } from './settings-config-import'
 import { importInstallationIdentity } from './installation-identity-import'
+import { type BackupPreflight, backupSpaceShortfall, measureBackupSpace } from './migrations/backup'
 import { latestAppliedMigration } from './migrations/index'
-import {
-  type BackupPreflight,
-  backupSpaceShortfall,
-  measureBackupSpace,
-} from './migrations/backup'
-import {
-  SnapshotVerifier,
-  type SnapshotVerifierDeps,
-} from './migrations/snapshot-verifier'
+import { SnapshotVerifier, type SnapshotVerifierDeps } from './migrations/snapshot-verifier'
 import {
   checkpointStore,
   configureStoreConnection,
   migrateStoreConnection,
   PLANNER_STATISTICS_INTERVAL_MS,
   refreshPlannerStatistics,
+  retireImportedIdentityStorage,
   serveTrafficTempStore,
   setStoreTransferFence,
   withFileTempStore,
 } from './migrations/store-lifecycle'
 import { syncServerTables } from './migrations/sync-server-tables'
-import { importUpdateSigningKey } from '@podium/runtime/update-signing-key'
-import { importEnrollmentLedger } from './enrollment-ledger-import'
 import { OperationStore } from './modules/operations/store'
 import { UpdateRecoveryStore } from './modules/updates/recovery-store'
+import { importConfigSettings } from './settings-config-import'
 import { AccountsRepository } from './store/accounts'
-import { AuthRepository } from './store/auth'
+import { AgentProfilesRepository } from './store/agent-profiles'
 import { AutomationsRepository } from './store/automations'
-import { EffectsRepository } from './store/effects'
+import { CheckoutsRepository } from './store/checkouts'
 import { ConversationsRepository } from './store/conversations'
+import { EffectsRepository } from './store/effects'
 import { EventsRepository } from './store/events'
 import {
   createBunStoreExecutor,
@@ -91,6 +85,7 @@ import {
   type WatchdogOptions,
 } from './store/executor'
 import { GrantsRepository } from './store/grants'
+import { IdentityUpgradeRepository } from './store/identity-upgrade'
 import { InteractionsRepository } from './store/interactions'
 import { IssuesRepository } from './store/issues'
 import { LocksRepository } from './store/locks'
@@ -104,7 +99,6 @@ import { ObservationCheckpointsRepository } from './store/observation-checkpoint
 import { QuotaHistoryRepository } from './store/quota-history'
 import { ReadWatermarksRepository } from './store/read-watermarks'
 import { normalizeRepoPath, ReposRepository } from './store/repos'
-import { CheckoutsRepository } from './store/checkouts'
 import { ServerSecretsRepository } from './store/server-secrets'
 import { SessionsRepository } from './store/sessions'
 import { SettingsRepository } from './store/settings'
@@ -119,7 +113,6 @@ import { UserDockShellRepository, UserLayoutRepository } from './store/user-layo
 import { UserReadPositionRepository } from './store/user-read-position'
 import { UsersRepository } from './store/users'
 import { WorkflowsRepository } from './store/workflows'
-import { AgentProfilesRepository } from './store/agent-profiles'
 import { openStoreDatabase } from './store-database'
 
 const log = createLogger('server:store')
@@ -175,7 +168,7 @@ export class SessionStore {
   readonly issues: IssuesRepository
   readonly conversations: ConversationsRepository
   readonly sync: SyncRepository
-  readonly auth: AuthRepository
+  readonly identityUpgrade: IdentityUpgradeRepository
   readonly superagent: SuperagentRepository
   readonly settings: SettingsRepository
   /** Sidebar/tab layout rows keyed `(user_id, key)` (POD-1350) — the shell chrome
@@ -434,7 +427,7 @@ export class SessionStore {
     // and below passes; the seam's undefined-check is the one asserted above,
     // once, for the whole set (spec §6 rule 27b).
     this.sync = new SyncRepository(this.queries, syncServerTables)
-    this.auth = new AuthRepository(this.queries)
+    this.identityUpgrade = new IdentityUpgradeRepository(this.queries)
     this.superagent = new SuperagentRepository(this.queries)
     this.settings = new SettingsRepository(this.queries)
     this.layout = new UserLayoutRepository(this.queries)
@@ -687,6 +680,11 @@ export class SessionStore {
     return await this.executor.transact(async () => fn())
   }
 
+  /** Apply retirement DDL only after the local import committed its receipt. */
+  async retireImportedIdentityStorage(): Promise<void> {
+    await this.executor.exclusive(async () => retireImportedIdentityStorage(this.db))
+  }
+
   /**
    * The database port of the identity package (people and sign-in
    * specification, section 2.2): the store's one drizzle instance and its
@@ -731,7 +729,8 @@ export class SessionStore {
    */
   async refreshPlannerStatistics(when: 'open' | 'periodic'): Promise<void> {
     await this.executor.exclusive(
-      async (session) => await withFileTempStore(session, () => refreshPlannerStatistics(session, when)),
+      async (session) =>
+        await withFileTempStore(session, () => refreshPlannerStatistics(session, when)),
     )
   }
 

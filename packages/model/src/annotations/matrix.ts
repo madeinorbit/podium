@@ -2570,7 +2570,8 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
     idMinting: 'Composite key — `(target_kind, target_id)`, no minted id',
     writers: ['operator', 'agent-session'],
     replication: 'server-to-clients',
-    replicationNote: 'The synced `workflowBinding` kind since POD-6676, keyed `workflowBindingRowId`.',
+    replicationNote:
+      'The synced `workflowBinding` kind since POD-6676, keyed `workflowBindingRowId`.',
     conflict: 'field-LWW',
     conflictNote:
       'One binding per target, last writer wins by the Authority commit clock (design POD-5620 §1.10): each target is one group with one field, independent of every other target; `records.workflowBinding.edit` sets the revision it runs, whatever it ran before.',
@@ -3237,11 +3238,7 @@ const MULTI_USER_ROWS: readonly MatrixRow[] = [
     id: ROW.accountCredential,
     section: 'multi-user-classes',
     title: 'Account credential material',
-    sites: [
-      '`user_credentials`',
-      'POD-1075',
-      'packages/runtime/src/auth-store.ts (one password per instance today)',
-    ],
+    sites: ['`identity_account`', 'POD-1075', 'packages/identity (account login methods)'],
     home: 'server',
     idMinting: 'n/a',
     writers: ['operator', 'system'],
@@ -3273,7 +3270,7 @@ const MULTI_USER_ROWS: readonly MatrixRow[] = [
     id: ROW.perUserClientSession,
     section: 'multi-user-classes',
     title: 'Per-user `client_session` (a device that resolves to a user)',
-    sites: ['`client_sessions` — `(token_hash, created_at, expires_at)`, NO user column today'],
+    sites: ['`identity_session` — one hashed device sign-in per account device'],
     home: 'server',
     idMinting: 'Server-minted at login',
     writers: ['system'],

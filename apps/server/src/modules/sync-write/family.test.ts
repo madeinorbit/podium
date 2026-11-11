@@ -1,3 +1,4 @@
+import { memberFacts } from '../../store/fixtures/test-support'
 /**
  * THE SYNC FAMILY BUILDER AND ITS FIRST FAMILIES (POD-6412, plan Task 16).
  *
@@ -39,7 +40,7 @@ const profileCreate = (name: string) => ({
 /** A member account that exists, so its role is read live. */
 async function member(o: Oracle, id = 'usr_member_6412'): Promise<UserId> {
   const user = asUserId(id)
-  await o.store.users.createUnclaimed({
+  await memberFacts(o.store).create({
     id: user,
     displayName: 'Member',
     email: null,

@@ -175,12 +175,7 @@ test('members read active names and roles; only the admin list carries emails', 
   expect((await read(carol)).status).toBe(401)
 })
 
-test('local mailed reset routes are absent and capabilities offer the admin link', async () => {
-  const hono = app()
-  expect(
-    (await hono.request('https://workspace.example/auth/members/recovery-options')).status,
-  ).toBe(404)
-  expect((await post(hono, 'reset-request', { email: 'bob@example.com' })).status).toBe(404)
+test('capabilities offer admin links for local password reset', () => {
   expect(identity.workspace.core.capabilities()).toMatchObject({
     selfSignUp: false,
     passwordReset: 'admin-link',

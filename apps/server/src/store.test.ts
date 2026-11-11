@@ -62,7 +62,7 @@ async function tmpDbPath(): Promise<string> {
 describe('SessionStore repos', () => {
   it('reports the newest migration recorded by a real migrated store', async () => {
     const store = await openTestStore(':memory:')
-    const expected = [...DRIZZLE_MIGRATIONS]
+    const expected = DRIZZLE_MIGRATIONS.filter(m => !m.sql.startsWith('-- after-local-identity-import'))
       .map(({ name }) => name)
       .sort()
       .at(-1)

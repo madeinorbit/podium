@@ -691,17 +691,6 @@ function transferClaim(
   })
 }
 
-test('direct member creation is retired in favor of invite-and-claim', async () => {
-  const response = await post(makeApp(), '/auth/users', {
-    userId: 'chosen-id',
-    displayName: 'Chosen',
-    role: 'admin',
-    password: 'password123',
-  })
-  expect(response.status).toBe(410)
-  expect(await store.users.get(asUserId('chosen-id'))).toBeUndefined()
-})
-
 describe('clientAuthGuard', () => {
   function guarded(memberOfRequest = identity.memberOfRequest, renew = identity.workspace.renew) {
     const app = new Hono()

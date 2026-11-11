@@ -1,3 +1,4 @@
+import { memberFacts } from './store/fixtures/test-support'
 import { asUserId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { SessionStore } from './store'
@@ -97,7 +98,7 @@ describe('account scope read cache', () => {
     const store = await freshStore()
     await withReadScope(async () => {
       expect(await store.users.get(asUserId('user-minted'))).toBeUndefined()
-      await store.users.create(
+      await memberFacts(store).create(
         {
           id: 'user-minted',
           displayName: 'Minted',

@@ -1,3 +1,4 @@
+import { memberFacts } from './store/fixtures/test-support'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -1643,7 +1644,7 @@ describe('SessionRegistry', () => {
       onBehalfOf: colleague,
     })
     // The colleague is a member, so the server writes their access rows too.
-    await store.users.create(
+    await memberFacts(store).create(
       { id: colleague, displayName: 'Colleague', role: 'member', createdAt: '2026-08-02T00:00:00.000Z', disabledAt: null },
       'hash',
     )

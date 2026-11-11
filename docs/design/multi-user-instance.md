@@ -134,7 +134,7 @@ Personal settings remain per member.
 10. **Some notifications are not per member.** Inbox delivery is keyed, but push/ntfy fan-out and issue-event notifications need checking against two members.
 
 What already matches and only needs two-member proof:
-- invites, per-member passwords and sign-in sessions (`member-routes.ts`, `member-invites.ts`, `auth-route.ts`);
+- invites, per-member passwords and sign-in sessions (`member-routes.ts`, `member-links.ts`, `auth-route.ts`);
 - the disable and remove transactions (`store/users.ts:468-633`);
 - client storage namespaced by `[syncBoundaryId, memberId]` (`packages/client-core/src/replica/principal-storage.ts`);
 - the per-member feed machinery (`GrantEdgeVisibilityPolicy`, `grant_audiences`, authorization revision);

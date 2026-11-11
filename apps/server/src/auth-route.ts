@@ -94,6 +94,7 @@ export interface AuthRouteOptions {
    * The sign-in carry-over (POD-6751), on a server that built its own identity
    * core. Absent: a cookie from before shared sign-in is never read.
    */
+  // LEGACY(remove-after: 2027-06): exchange and end pre-upgrade cookies; removal requires older devices to sign in again.
   carryOver?: SignInCarryOver
   /**
    * A successful sign-in, for a composition root that publishes it. Fired
@@ -344,11 +345,6 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions): void {
     appendCookies(c, outcome.headers)
     return c.json({ ok: true, userId, memberId: userId, syncBoundaryId: opts.syncBoundaryId?.() })
   })
-
-  // Enrollment is invite-and-claim; callers can no longer choose member ids or passwords.
-  app.post('/auth/users', (c) =>
-    c.json({ error: 'Create an invite through /auth/members/invite instead' }, 410),
-  )
 
   app.post('/auth/logout', async (c) => {
     if (foreignOrigin(c)) return c.json({ error: 'Origin refused' }, 403)

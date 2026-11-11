@@ -125,11 +125,9 @@ describe('an authenticated tRPC request', () => {
     // the principal), and the procedure's own read of that member.
     const counts = await expectConstantStatements(pin, 3)
     for (const tally of [counts.small, counts.large]) {
-      // One resolution for the guard AND the context, and nothing of the
-      // removed hand-written sign-in.
+      // One resolution serves both the guard and the context.
       expect(reading(tally, 'identity_session')).toBe(1)
       expect(reading(tally, 'from "cli')).toBe(0)
-      expect(reading(tally, 'from "user_credentials"')).toBe(0)
     }
   }, 120_000)
 })

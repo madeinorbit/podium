@@ -3,7 +3,7 @@
  * redeem host recovery codes. The signed credential alone goes to stdout.
  */
 import { DeviceSignInKind, DeviceSignInsResponse } from '@podium/protocol'
-import { saveCachedSessionToken, sessionTokenPath } from '@podium/runtime/session-mint'
+import { saveCachedSessionToken, sessionTokenPath } from '@podium/runtime/session-token'
 import { declareFlags, flagTable, parseFlags, withUnknownFlagAs } from './argv'
 import { controlRequest } from './cli-doctor'
 

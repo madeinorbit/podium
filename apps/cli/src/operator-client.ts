@@ -24,7 +24,7 @@ import {
   readCachedSessionToken,
   readOldFormSessionToken,
   saveCachedSessionToken,
-} from '@podium/runtime/session-mint'
+} from '@podium/runtime/session-token'
 
 export function makeOperatorIssueClient(baseUrl: string): IssueTrpc {
   return makeIssueClient(baseUrl, {

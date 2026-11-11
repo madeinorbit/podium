@@ -16,30 +16,9 @@ function scrypt(
 }
 
 /**
- * THE CREDENTIAL FORMAT for every human login — and, until POD-1554, the home of the
- * instance's ONE shared password.
- *
- * What remains here is the KDF: `hashPassword` / `verifyPasswordHash` produce and check the
- * self-describing scrypt string stored in `user_credentials.password_hash`, one row per
- * account. Distinct from the daemon credentials (`daemon.secret` / pairing tokens), which
- * gate the machine↔server channel and are unchanged.
- *
- * We hash with **scrypt** (node:crypto) rather than argon2: it is portable across the Bun
- * runtime and the legacy node/tsx path, fully deterministic, and needs no native module.
- * The KDF strength is not the security-relevant factor here — the hash lives in the state
- * directory in the user's home, the same trust boundary as the agent OAuth creds, so anyone
- * who can read it already owns the machine. Online brute-force is handled by the login
- * throttle (see auth-route).
- *
- * WHAT LEFT, AND WHY (POD-1554). `hasPassword` / `setPassword` / `clearPassword` /
- * `verifyPassword` / `applyEnvPassword` are gone. They read and wrote ONE hash per instance
- * in `auth.json`, and "presence of the hash means auth required" was the whole authentication
- * policy of a single-operator product. Under real accounts that question is
- * `users.hasPerUserCredentials()`, and *whose* password a call is about is a question
- * `auth.json` could not even ask. The two functions below are the only readers left: they
- * exist so the one-shot boot migration can move the legacy hash into the first admin's row
- * and then delete the file. Nothing else may use them, and when no upgraded instance is left
- * in the wild they go too.
+ * Password hashing for the shared identity package. The edition supplies this
+ * scrypt format for existing passwords and new login methods alike.
+ * Staged passwords in auth.json are imported once at server boot.
  */
 
 const FILE = 'auth.json'
@@ -107,7 +86,7 @@ export async function verifyPasswordHash(password: string, stored: string): Prom
  *
  * Returns the scrypt string an upgraded instance still has in `auth.json`, or `undefined`
  * on a box that never had one. The string is the SAME encoding `hashPassword` produces and
- * `user_credentials.password_hash` stores, which is why the migration is a copy rather than
+ * the shared identity login method stores, which is why the migration is a copy rather than
  * a rehash — the operator's existing password keeps working, and at no point does the
  * plaintext need to exist.
  *

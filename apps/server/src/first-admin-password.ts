@@ -57,8 +57,8 @@
  * ---------------------------------------------------------------------------
  *
  * A password signs someone in only as the password of an account of the
- * identity package, so both functions write through `MemberCredentials` and
- * never to `user_credentials`. An admin whose row has no account yet (a
+ * identity package, so both functions write through `MemberCredentials`
+ * to the shared identity account. An admin whose row has no account yet (a
  * database from before shared sign-in that has not been upgraded) cannot take
  * one: the staged file stays where it is and the next boot retries.
  */

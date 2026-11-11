@@ -39,7 +39,7 @@ honest and green. **(b) is not available.**
 
 Not schema-only. Verified call sites:
 
-- `POST /auth/users` (`apps/server/src/auth-route.ts:284-325`) — an admin creates
+- The shared identity invitation ceremony — an admin creates
   further accounts, including further admins. Wired into the real server at
   `server.ts:428-435`; exercised by a browser e2e.
 - `UsersRepository.create()` (`apps/server/src/store/users.ts:118-131`) writes a
@@ -60,7 +60,7 @@ reconciliation, and ahead of D14's prerequisite.
 ## (a) is not available either — and ADR 3 D14 pre-rejected the mechanism
 
 The mint root is unchanged. `mintBreakGlassSession`
-(`packages/runtime/src/session-mint.ts:127-152`) checks only that `podium.db`
+(`packages/runtime/src/session-token.ts:127-152`) checks only that `podium.db`
 exists and is writable, then inserts `FIRST_ADMIN_USER_ID`. No credential is
 consulted; `MintOptions` has no principal field. **On a host that now models
 several humans, any local process that can write the state dir obtains the first

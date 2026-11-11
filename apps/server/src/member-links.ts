@@ -107,6 +107,7 @@ export function memberLinks(options: {
       if (!live) throw invalid()
       const holder = (await memberships.list()).find((m) => m.account?.id === live.accountId)
       if (!holder) throw invalid()
+      // LEGACY(remove-after: 2027-06): prevent a reset from reviving pre-upgrade sign-ins.
       await users.endOldSignIns(asUserId(holder.memberId))
       const reset = await core.codes.redeemPasswordReset({
         code: input.token,

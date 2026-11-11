@@ -23,13 +23,11 @@ import type { DelegationDirectory, DelegationLink } from './delegation-chain'
 import type { PeerHello } from './envelope'
 import type {
   CapabilityMinter,
-  ClientSessionDirectory,
   MachineDirectory,
   MachineGrant,
   PairedMachine,
   PairingRequest,
   PeerObservations,
-  ResolvedClientSession,
   ResolvedMachine,
   TransportFacts,
 } from './strategies/types'
@@ -57,22 +55,6 @@ export const createRecordingMinter = (): RecordingMinter => {
     },
   }
 }
-
-export const fakeClientSessions = (
-  sessions: Readonly<Record<string, ResolvedClientSession>>,
-): ClientSessionDirectory => ({
-  resolve: (token) => sessions[token] ?? null,
-})
-
-export const clientSession = (
-  user: string,
-  device: string,
-  userActive = true,
-): ResolvedClientSession => ({
-  user: asUserId(user),
-  device: asDeviceId(device),
-  userActive,
-})
 
 export interface FakeMachinesSeed {
   /** secret → machine record. */

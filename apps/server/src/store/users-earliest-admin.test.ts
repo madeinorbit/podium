@@ -1,3 +1,4 @@
+import { memberFacts } from './fixtures/test-support'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -42,7 +43,7 @@ describe('UsersRepository.earliestAdmin', () => {
   it('prefers the earliest admin over one created later', async () => {
     const store = await openTestStore(':memory:')
     const first = await store.users.earliestAdmin()
-    await store.users.create(
+    await memberFacts(store).create(
       {
         id: 'mem_2YYYYYYYYYYYYYYYYYYYYYYYYYY',
         displayName: 'Anna',
@@ -57,7 +58,7 @@ describe('UsersRepository.earliestAdmin', () => {
 
   it('does not answer with a member, however early, who is not an admin', async () => {
     const store = await openTestStore(':memory:')
-    await store.users.create(
+    await memberFacts(store).create(
       {
         id: 'mem_0AAAAAAAAAAAAAAAAAAAAAAAAAA',
         displayName: 'Anna',
@@ -77,14 +78,14 @@ describe('store scoped administrator identity', () => {
     const original = await firstAdminMemberId(a)
     const b = await openTestStore(':memory:')
     const other = MemberId.parse('mem_0ujzPyRiIAffKhBux4PvQdDqMHY')
-    await b.users.create({ id: other, displayName: 'Other installation', role: 'admin',
+    await memberFacts(b).create({ id: other, displayName: 'Other installation', role: 'admin',
       createdAt: '2000-01-01T00:00:00.000Z', disabledAt: null }, 'scrypt:hash')
     expect(await firstAdminMemberId(b)).toBe(other)
     expect(await firstAdminMemberId(a)).toBe(original)
     const replacement = asUserId('mem_2YYYYYYYYYYYYYYYYYYYYYYYYYY')
-    await a.users.create({ id: replacement, displayName: 'Next admin', role: 'admin',
+    await memberFacts(a).create({ id: replacement, displayName: 'Next admin', role: 'admin',
       createdAt: '2099-01-01T00:00:00.000Z', disabledAt: null }, 'scrypt:hash')
-    await a.users.removeMember(original, replacement)
+    await memberFacts(a).removeMember(original, replacement)
     expect(await a.users.get(original)).toBeUndefined()
     expect(await firstAdminMemberId(a)).toBe(replacement)
     expect((await a.users.earliestAdmin())?.id).toBe(replacement)
@@ -105,10 +106,10 @@ describe('UsersRepository.activeAdminIds (POD-6358)', () => {
       createdAt: '2099-01-01T00:00:00.000Z',
       disabledAt: null,
     })
-    await store.users.create(account('mem_2AAAAAAAAAAAAAAAAAAAAAAAAAA', 'admin'), 'scrypt:hash')
-    await store.users.create(account('mem_2BBBBBBBBBBBBBBBBBBBBBBBBBB', 'member'), 'scrypt:hash')
-    await store.users.create(account('mem_2CCCCCCCCCCCCCCCCCCCCCCCCCC', 'admin'), 'scrypt:hash')
-    await store.users.disable(asUserId('mem_2CCCCCCCCCCCCCCCCCCCCCCCCCC'), '2099-01-02T00:00:00.000Z')
+    await memberFacts(store).create(account('mem_2AAAAAAAAAAAAAAAAAAAAAAAAAA', 'admin'), 'scrypt:hash')
+    await memberFacts(store).create(account('mem_2BBBBBBBBBBBBBBBBBBBBBBBBBB', 'member'), 'scrypt:hash')
+    await memberFacts(store).create(account('mem_2CCCCCCCCCCCCCCCCCCCCCCCCCC', 'admin'), 'scrypt:hash')
+    await memberFacts(store).disable(asUserId('mem_2CCCCCCCCCCCCCCCCCCCCCCCCCC'), '2099-01-02T00:00:00.000Z')
     expect([...(await store.users.activeAdminIds())].sort()).toEqual(
       [first, 'mem_2AAAAAAAAAAAAAAAAAAAAAAAAAA'].sort(),
     )

@@ -1,3 +1,4 @@
+import { memberFacts } from '../../store/fixtures/test-support'
 /**
  * ANSWERING AN AGENT'S QUESTION IS A `session.answer` EFFECT RECORD (POD-6415).
  *
@@ -199,7 +200,7 @@ describe('sessions.answerAskUserQuestion is a session.answer record', () => {
     const o = await makeOracle()
     const sessionId = await liveAgent(o)
     const member = asUserId('usr_answer_member')
-    await o.store.users.create(
+    await memberFacts(o.store).create(
       {
         id: member,
         displayName: 'member',

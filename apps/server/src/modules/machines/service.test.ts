@@ -1,3 +1,4 @@
+import { memberFacts } from '../../store/fixtures/test-support'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -595,7 +596,7 @@ describe('pair/hello writes are visible to the next read (POD-1479)', () => {
 
   async function pairingService(): Promise<{ svc: MachinesService; store: SessionStore }> {
     const store = await openTestStore(':memory:')
-    if (!await store.users.get(firstAdminMemberId())) await store.users.create({ id: firstAdminMemberId(), displayName: 'Pairer', role: 'admin', createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
+    if (!await store.users.get(firstAdminMemberId())) await memberFacts(store).create({ id: firstAdminMemberId(), displayName: 'Pairer', role: 'admin', createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
     const codes = new Map<string, PairingGrant>()
     const svc = new MachinesService({
       instanceId: 'default', installationId: 'installation-test',
@@ -1538,7 +1539,7 @@ describe('retained revocation and explicit replacement', () => {
       },
       
     })
-    if (!await store.users.get(firstAdminMemberId())) await store.users.create({ id: firstAdminMemberId(), displayName: 'Pairer', role: 'admin', createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
+    if (!await store.users.get(firstAdminMemberId())) await memberFacts(store).create({ id: firstAdminMemberId(), displayName: 'Pairer', role: 'admin', createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
     const frame = { type: 'pair' as const, publicKey: publicKeyWire(mintSigningKeyPair()), machineId: MACHINE, hostname: 'revocation.test' }
     // Explicit stage-1 fixture: replacement moves this old bearer row to a keypair.
     const token = 'stage-1-token'
@@ -1786,7 +1787,7 @@ describe('administrator client registration recovery', () => {
         f.svc.mintClientRegistrationCode(f.request, asUserId('missing-login')),
       ).rejects.toThrow('administrator')
       const member = asUserId('not-an-admin')
-      await f.store.users.create(
+      await memberFacts(f.store).create(
         {
           id: member,
           displayName: 'Member',

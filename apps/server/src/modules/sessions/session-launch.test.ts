@@ -1,3 +1,4 @@
+import { memberFacts } from '../../store/fixtures/test-support'
 /**
  * STARTING A SESSION AS A `session.launch` EFFECT RECORD (POD-6398).
  *
@@ -175,7 +176,7 @@ describe('a session.launch effect', () => {
     )
 
     const other = asUserId('mem_launch_other')
-    await o.store.users.create(
+    await memberFacts(o.store).create(
       {
         id: other,
         displayName: 'Other',

@@ -1,3 +1,4 @@
+import { memberFacts } from './store/fixtures/test-support'
 import { createHash } from 'node:crypto'
 import { mintSigningKeyPair, publicKeyWire } from '@podium/runtime/signing'
 import { signWithMachine } from '@podium/runtime/machine-credential'
@@ -14,7 +15,7 @@ const queued = { type: 'kill' as const, sessionId: asSessionId('queued-session')
 async function fixture() {
   const store = await openTestStore(':memory:')
   for (const [id, role] of [[admin, 'admin'], [member, 'member']] as const) {
-    await store.users.create({ id, role, displayName: id, createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
+    await memberFacts(store).create({ id, role, displayName: id, createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
   }
   for (const id of [oldId, newId]) {
     await store.machines.upsertMachine({ id, name: 'same laptop', hostname: 'same.local',

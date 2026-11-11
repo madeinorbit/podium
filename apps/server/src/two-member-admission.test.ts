@@ -638,15 +638,6 @@ it('an admin-issued recovery link sets a new password once and signs the member 
   ).toBe(403)
 })
 
-it('without mail, the email reset is reported unavailable and sends nothing', async () => {
-  const inst = await boot()
-  expect((await get(inst, '/auth/members/recovery-options')).status).toBe(404)
-  expect(inst.handle.identity.core.capabilities().passwordReset).toBe('admin-link')
-  const requested = await post(inst, '/auth/members/reset-request', { email: MEMBERS.bob.email })
-  expect(requested.status).toBe(404)
-  expect(await store(inst).users.pendingInvites()).toEqual([])
-})
-
 it('the only admin, password forgotten, gets back in with a host-local recovery link', async () => {
   const inst = await boot()
   const { alice } = inst.members
@@ -719,7 +710,11 @@ it('Bob cannot change instance settings, roles or invites, or run server transfe
   }
   expect(await store(inst).users.roleOf(alice.id)).toBe('admin')
   expect(await store(inst).users.get(carol.id)).toBeUndefined()
-  expect(await store(inst).users.pendingInvites()).toEqual([])
+  expect(
+    (await inst.handle.identity.memberships.list()).filter(
+      (member) => member.pendingInvitation !== null,
+    ),
+  ).toEqual([])
 
   // Instance settings, login policy, telemetry and server transfer.
   // The instance settings are a synced record (POD-6677): a member's edit is

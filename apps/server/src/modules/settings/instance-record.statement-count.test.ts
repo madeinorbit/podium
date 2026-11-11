@@ -1,3 +1,4 @@
+import { memberFacts } from '../../store/fixtures/test-support'
 /**
  * The instance settings edit costs a constant number of statements (POD-6677,
  * rule 8 of docs/agents/server-data.md).
@@ -27,7 +28,7 @@ async function fixture(size: number): Promise<Oracle> {
   const o = await makeOracle()
   for (let i = 0; i < size; i++) {
     const other = asUserId(`user:member-${i}`)
-    await o.store.users.createUnclaimed({
+    await memberFacts(o.store).create({
       id: other,
       displayName: `member ${i}`,
       email: null,

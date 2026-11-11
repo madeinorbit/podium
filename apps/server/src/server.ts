@@ -120,7 +120,7 @@ import { type IdentitySeam, openServerIdentity } from './identity/server-identit
 import { IssueToolProvider } from './issue-mcp'
 import { registerLocateProofRoute } from './locate-proof-route'
 import { registerMcpRoute } from './mcp-route'
-import { memberLinks } from './member-invites'
+import { memberLinks } from './member-links'
 import { registerMemberRoutes } from './member-routes'
 import { registerMobilePairingRoutes } from './mobile-pairing-route'
 import { connectClient } from './modules/connect/client'
@@ -739,6 +739,7 @@ export async function startServer(
       : undefined
   // Expired invitations and one-time codes are deleted hourly (section 2.3).
   // Not on a store that cannot be written, and not in a boot rehearsal.
+  // LEGACY(remove-after: 2027-06): bootstrap and sweep pre-upgrade device sign-ins.
   // The sign-in carry-over (POD-6751) is built below, once the request
   // resolver exists; the same hourly timer sweeps its leftovers.
   let signInCarryOver: SignInCarryOver | undefined

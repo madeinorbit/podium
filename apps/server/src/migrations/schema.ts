@@ -1163,36 +1163,6 @@ export const users = sqliteTable(
   ],
 )
 
-/** Invite tokens are credentials: only their hash is persisted; no sync projection. */
-export const memberInvites = sqliteTable('member_invites', {
-  id: text().$type<import('@podium/model').InviteId>().primaryKey(),
-  tokenHash: text('token_hash').notNull().unique(),
-  memberId: text('member_id').$type<UserId>(),
-  email: text(),
-  role: text().$type<import('@podium/model').UserRole>().notNull(),
-  expiresAt: text('expires_at').notNull(),
-  createdBy: text('created_by').$type<UserId>().notNull(),
-  createdAt: text('created_at').notNull(),
-})
-
-// ACCOUNT CREDENTIAL MATERIAL (ADR 1 matrix row `account-credential`):
-// `secret-value`, never replicated, never enqueued (ADR 1 D6 unchanged).
-// A SEPARATE table from `users` on purpose — the account is `personal` and
-// reaches the wire; its credential is `secret` and has no wire projection to
-// be omitted from, because it is not on the aggregate at all.
-//
-// `source = 'instance-password'` with a NULL hash means "this account
-// authenticates with the shared instance password already in auth.json". That
-// is what the upgrade writes, because a SQL migration cannot read a file — see
-// the migration's own header. `per-user-scrypt` with a hash is Phase 3's
-// (POD-315) per-account credential.
-export const userCredentials = sqliteTable('user_credentials', {
-  userId: text('user_id').$type<UserId>().primaryKey(),
-  source: text().notNull(),
-  passwordHash: text('password_hash'),
-  updatedAt: text('updated_at').notNull(),
-})
-
 // GRANT EDGE (ADR 9 D2): `(entityRef, granteeUserId, verb)`. `owner` is the
 // GRANTER — the accountable party, since a grant may never exceed its granter's
 // own rights (D2 rule 4) — stored in the one place every owned class stores it
@@ -1249,19 +1219,7 @@ export const grants = sqliteTable(
   ],
 )
 
-// A client session is a DEVICE — and, from POD-1075, one that RESOLVES TO A
-// USER (ADR 9 D1.3). `user_id` is what makes "which device" and "who" two
-// answers instead of one.
-//
-// It does NOT yet make the transport able to tell two people apart: there is
-// still one shared password, so every row an upgraded instance has names the
-// first admin, and `CLIENT_PRINCIPAL_GRADE` stays `'device'`. Per-user login is
-// Phase 3 (POD-315).
-//
-// `label` records WHY a row exists (POD-1376): 'login' = a browser sign-in,
-// 'upstream' = a node⇄hub provisioning token, 'break-glass' = a session minted
-// from local state-dir access by `podium auth mint-session`. Without it the
-// three are indistinguishable and revoking one class signs every device out too.
+// LEGACY(remove-after: 2027-06): pre-upgrade sign-ins consumed once by carry-over; removing this table requires older devices to sign in again.
 export const clientSessions = sqliteTable(
   'client_sessions',
   {

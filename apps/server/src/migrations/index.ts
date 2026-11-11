@@ -224,7 +224,19 @@ export function runDrizzleMigrations(
   const semanticallyApplied = new Set(
     [...applied].map((name) => MIGRATION_NAME_ALIASES.get(name) ?? name),
   )
-  const pending = ordered.filter((m) => !semanticallyApplied.has(m.name))
+  // Retirement is a separate boot stage: an old binary upgrades its schema
+  // before the identity import can read its credentials and links. Never stamp
+  // the deferred migration until that import has committed for this database.
+  const imported =
+    hasTable(db, 'meta') &&
+    db
+      .prepare("SELECT 1 FROM meta WHERE key = 'identity.legacyLinksImported' AND value = '1'")
+      .get() !== undefined
+  const pending = ordered.filter(
+    (m) =>
+      !semanticallyApplied.has(m.name) &&
+      (!m.sql.startsWith('-- after-local-identity-import') || imported),
+  )
 
   // THE GUARD, before anything is applied — so the warning is in the log ABOVE
   // the damage rather than after it. It WARNS and proceeds; it does not refuse.
@@ -240,20 +252,23 @@ export function runDrizzleMigrations(
     )
   }
 
-  if (pending.length === 0) {
-    // Still repair: the POD-1621 database has EVERY migration applied and a
-    // wrong schema, so a boot with nothing pending is exactly the case that
-    // must heal itself.
-    if (opts.skipSchemaRepair !== true) reportRepairs(db)
-    return []
-  }
-
-  // #43: snapshot before applying anything, but only when the DB already holds
-  // real tables (a brand-new file is not worth backing up).
-  if (opts.dbPath !== undefined && opts.dbPath !== ':memory:' && hasAnyDataTable(db)) {
+  // Capture rollback state before either DDL or the following boot import.
+  const deferredImport = ordered.some(
+    (m) => !semanticallyApplied.has(m.name) && m.sql.startsWith('-- after-local-identity-import'),
+  )
+  if (
+    (pending.length > 0 || deferredImport) &&
+    opts.dbPath !== undefined &&
+    opts.dbPath !== ':memory:' &&
+    hasAnyDataTable(db)
+  ) {
     const backupStarted = performance.now()
     backupDatabase(db, opts.dbPath, `drizzle-${applied.size}`)
     bootStage('backup', backupStarted)
+  }
+  if (pending.length === 0) {
+    if (opts.skipSchemaRepair !== true) reportRepairs(db)
+    return []
   }
 
   const client = bunSqliteClient(db)

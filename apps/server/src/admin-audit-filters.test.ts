@@ -1,3 +1,4 @@
+import { memberFacts } from './store/fixtures/test-support'
 import { asUserId, firstAdminMemberId } from '@podium/model'
 import { Hono } from 'hono'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -40,7 +41,7 @@ beforeAll(async () => {
   store = await openTestStore(':memory:')
   alice = firstAdminMemberId()
   caller = alice
-  await store.users.create(
+  await memberFacts(store).create(
     {
       id: bob,
       displayName: 'Bob',

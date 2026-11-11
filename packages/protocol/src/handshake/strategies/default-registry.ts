@@ -7,20 +7,16 @@
  * that reads like an accident, and it is the shape in which a new credential kind
  * silently arrives unhandled. `registry.test.ts` pins the matrix.
  *
- * A port that is not wired yet produces an explicit REFUSING strategy naming the
- * missing port, not a gap. That is how the console cookie strategy behaves in
- * production until POD-1075 lands per-user client sessions: refused, loudly, in
- * the server log — never resolved to an ambient operator.
+ * Unwired transports refuse admission. Person-facing HTTP and sockets use
+ * the shared identity package at the server boundary.
  */
 
 import type { PeerCredential } from '../envelope'
 import { createAgentRelayStrategy } from './agent-relay-delegation'
-import { createConsoleCookieStrategy } from './console-cookie'
-import { createMachinePairCodeStrategy } from './machine-pair-code'
 import { createMachineKeyStrategy } from './machine-key'
+import { createMachinePairCodeStrategy } from './machine-pair-code'
 import { createMachineTokenStrategy } from './machine-token'
 import { createNodeReservedStrategy } from './node-reserved'
-import { createOperatorChannelStrategy } from './operator-channel'
 import { type AuthStrategyRegistry, createAuthStrategyRegistry } from './registry'
 import { createSystemStrategy } from './system'
 import type { AuthOutcome, PeerAuthStrategy, StrategyPorts } from './types'
@@ -46,10 +42,7 @@ export const unavailableStrategy = (
 
 export const createDefaultAuthRegistry = (ports: StrategyPorts): AuthStrategyRegistry =>
   createAuthStrategyRegistry([
-    // console — ADR 5 D5 row 1
-    ports.clientSessions === undefined
-      ? unavailableStrategy('console', 'sessionCookie', 'ClientSessionDirectory (POD-1075)')
-      : createConsoleCookieStrategy({ clientSessions: ports.clientSessions, mint: ports.mint }),
+    unavailableStrategy('console', 'sessionCookie', 'shared identity HTTP admission'),
     // machine — ADR 5 D5 rows 2 and 3
     // Retired wire kind: parsed only to return an explicit refusal to old clients.
     unavailableStrategy('machine', 'daemonSecret', 'retired local-secret authentication'),
@@ -68,14 +61,7 @@ export const createDefaultAuthRegistry = (ports: StrategyPorts): AuthStrategyReg
     ports.delegations === undefined
       ? unavailableStrategy('agent-relay', 'delegationRef', 'DelegationDirectory')
       : createAgentRelayStrategy({ delegations: ports.delegations, mint: ports.mint }),
-    // operator channel — ADR 3 Am.1 D14 row 2
-    ports.clientSessions === undefined
-      ? unavailableStrategy('operator-channel', 'operatorChannel', 'ClientSessionDirectory')
-      : createOperatorChannelStrategy({
-          clientSessions: ports.clientSessions,
-          mint: ports.mint,
-          ...(ports.boundUser === undefined ? {} : { boundUser: ports.boundUser }),
-        }),
+    unavailableStrategy('operator-channel', 'operatorChannel', 'shared identity HTTP admission'),
     // system — in-process only (D21.2); registered so the matrix is total
     createSystemStrategy(),
   ])

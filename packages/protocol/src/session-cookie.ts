@@ -1,4 +1,4 @@
-/** The old cookie name, retained for the sign-in carry-over. */
+// LEGACY(remove-after: 2027-06): old cookie name read only by carry-over; removing it requires older browsers to sign in again.
 export const SESSION_COOKIE = 'podium_session'
 
 /** Shared identity's signed, HttpOnly device sign-in cookies. */

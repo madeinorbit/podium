@@ -1,3 +1,4 @@
+import { memberFacts } from '../../store/fixtures/test-support'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { resolvePrincipal } from '../../command-principal'
 /**
@@ -764,7 +765,7 @@ describe('the derived fleet router actually calls the gate', () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-fleet-transfer-'))
     try {
       const { call, store } = await caller(firstAdminMemberId(), { stateDir: dir })
-      await store.users.create(
+      await memberFacts(store).create(
         {
           id: COLLEAGUE,
           displayName: 'Colleague',
@@ -843,7 +844,7 @@ describe('the derived fleet router actually calls the gate', () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-fleet-adopt-'))
     try {
       const { call, store, registry } = await caller(null, { stateDir: dir })
-      await store.users.create(
+      await memberFacts(store).create(
         {
           id: COLLEAGUE,
           displayName: 'Colleague',
@@ -1008,7 +1009,7 @@ describe('a paired machine belongs to whoever minted its code', () => {
   const pairer = asUserId('user:pairer')
   async function service() {
     const store = await openTestStore(':memory:')
-    await store.users.create(
+    await memberFacts(store).create(
       {
         id: pairer,
         displayName: 'Pairer',

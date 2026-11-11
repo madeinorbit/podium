@@ -1,3 +1,4 @@
+import { memberFacts } from './store/fixtures/test-support'
 /** Database-authoritative enrollment and legacy stage-1 bearer regressions (rules 2–4). */
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -38,7 +39,7 @@ async function makeWorld(stateDir: string) {
   const store = await openTestStore(':memory:')
   stores.push(store)
   for (const [id, role] of [[OWNER, 'admin'], [OTHER, 'member']] as const) {
-    await store.users.create({ id, displayName: id, role, createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
+    await memberFacts(store).create({ id, displayName: id, role, createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
   }
   // Historical disk data is fixture evidence only, never a runtime dependency.
   const enrollment = openEnrollmentLedger(stateDir)

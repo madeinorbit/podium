@@ -37,7 +37,10 @@ const bob = MEMBERS.bob.id
 beforeAll(async () => {
   f = await startTwoMemberInstance()
   // The fixture keeps the upgraded first admin's stored name; name her for the reader.
-  await f.handle.registry.sessionStore.users.writeProfile(alice, MEMBERS.alice.displayName, null)
+  await f.handle.identity.core.accounts.updateProfile(
+    (await f.handle.registry.sessionStore.users.get(alice))!.accountId!,
+    { name: MEMBERS.alice.displayName, image: null },
+  )
 }, 60_000)
 afterAll(async () => {
   await f?.close()

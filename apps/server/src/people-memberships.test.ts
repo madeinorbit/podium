@@ -248,7 +248,7 @@ it('the host command recovers the last admin and its socket routes are absent fr
 })
 
 it('People routes have no legacy member writers', () => {
-  for (const file of ['member-routes.ts', 'member-invites.ts']) {
+  for (const file of ['member-routes.ts', 'member-links.ts']) {
     const source = readFileSync(new URL(file, import.meta.url), 'utf8')
     expect(source, file).not.toMatch(
       /\busers\.(?:setRole|disable|enable|removeMember|createUnclaimed|attachAccount|writeProfile|setEmail|recoverPassword|signOutEverywhere)\s*\(/,

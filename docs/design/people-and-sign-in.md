@@ -1,6 +1,6 @@
 # People and sign-in: specification
 
-Status: reviewed and accepted by the coordinator of PDM-107 on 2026-11-10, with one change that is made in this text (section 16, row 19). Nothing in it is built.
+Status: reviewed and accepted by the coordinator of PDM-107 on 2026-11-10, with one change that is made in this text (section 16, row 19). The integration uses the shared identity package; retirement follows the import receipt (section 9).
 Amended the same day by the approved sign-in carry-over design, `docs/design/sign-in-carry-over.md` (section 16, rows 20 to 26); the changed places are sections 2.6, 6, 8.5, 9, 13.2 and 14.
 Amended by the memberships task, POD-6745, with what it built differently (section 16, rows 27 to 39, accepted by the coordinator on 2026-11-10).
 Amended by the cloud memberships task, PDM-495, with what it built differently (section 16, rows 41 to 50, for the coordinator).
@@ -185,7 +185,7 @@ Index on `expires_at` for the sweep. Section 2.8 gives the life of a code for ea
 | Passwords | | the edition's password hash | the edition's functions |
 | OAuth provider tokens (cloud) | | encrypted by the library (`account.encryptOAuthTokens: true`) | the library |
 
-Invitation tokens and one-time codes use the same format and hash as today's `member_invites` (`randomBytes(32).toString('base64url')`, SHA-256 hex). The upgrade can therefore copy pending rows and the links people already hold keep working (section 8.3).
+Invitation tokens and one-time codes use the same format and hash as pre-upgrade links (`randomBytes(32).toString('base64url')`, SHA-256 hex). The upgrade can therefore copy pending rows and the links people already hold keep working (section 8.3).
 
 **The device sign-in token.** The library stores it in clear and looks it up by equality (spike, "Session tokens: cleartext"). Today's `client_sessions` stores only a hash. The package keeps the stronger property with a hashing layer around the database adapter it hands to the library:
 
@@ -796,7 +796,6 @@ git grep -nE "req\.url ===" f92564c0d7 -- apps/server/src/control-socket.ts
 | `GET /auth/server-transfer-claim` | Stays (the page that posts the claim from the URL fragment) | POD-6748 |
 | `POST /auth/server-transfer-claim` | Stays. Redeems a `transfer-claim` code for a device sign-in and sets its cookie | POD-6748 |
 | `POST /auth/login` | Stays. Calls `signIn.password`. `delivery: 'native'` answers the signed bearer. The body's `userId` field is dropped | POD-6746 |
-| `POST /auth/users` | Deleted (it answers 410 today) | POD-6752 |
 | `POST /auth/logout` | Stays. Calls `signIn.signOut` and closes the sockets of that device sign-in | POD-6746 |
 
 ### 4.2 `member-routes.ts` (`/auth/members/…`)
@@ -812,8 +811,6 @@ git grep -nE "req\.url ===" f92564c0d7 -- apps/server/src/control-socket.ts
 | `POST /disable` | Stays. `memberships.disable` | POD-6747 |
 | `POST /enable` | Stays. `memberships.enable` | POD-6747 |
 | `POST /recovery` | Stays. Issues a `password-reset` code for the member's account and answers the link. Refused unless `passwordReset` is `admin-link` | POD-6747 |
-| `GET /recovery-options` | Deleted; the capability list says it | POD-6747 |
-| `POST /reset-request` | Deleted. A self-hosted server mails nothing; in the cloud the account pages use the library's mailed reset | POD-6747 |
 | `POST /sign-out-everywhere` | Stays. For oneself: `deviceSignIns.revokeAllForAccount`. For another member: admin only and only when `adminSignOutEverywhere`. Closes the sockets of the ended sign-ins. The authorization generation is not stepped | POD-6747 |
 | `POST /inspect` | Stays. Looks the token up as an invitation, then as a `password-reset` code, and answers `kind: 'invitation' \| 'password-reset'`, the address and the expiry. One link form stays: `#invite=<token>` | POD-6747 |
 | `POST /complete` | Stays. For an invitation: `memberships.accept` with a new account; it answers the member id and the person then signs in, as today. For a reset code: `codes.redeemPasswordReset` | POD-6747 |
@@ -847,7 +844,7 @@ The split keeps the two tasks that run side by side out of each other's files: P
 | `GET /auth/client-sessions` | Stays. The caller's device sign-ins from `deviceSignIns.listForAccount`. The answer becomes `{ signIns }` with `id`, `kind`, `deviceName`, `platform`, `createdAt`, `lastSeenAt`, `expiresAt`, `current`; `label` and `?include=all` go | POD-6748 |
 | `POST /auth/client-sessions/revoke` | Stays. `deviceSignIns.revoke(id, { byAccount })`; closes that sign-in's sockets | POD-6748 |
 
-`MobilePairingManager` and its in-memory grants are deleted; the state is the code row, so pairing works when a hosted workspace's requests reach different processes. The pairing failure throttle per client address stays in the route.
+Pairing state is the shared one-time code row, so pairing works when a hosted workspace's requests reach different processes. The pairing failure throttle per client address stays in the route.
 
 ### 4.5 Host control socket and host commands
 
@@ -856,7 +853,7 @@ The split keeps the two tasks that run side by side out of each other's files: P
 | `GET /v1/login-password` | Stays. True when the earliest admin's account has a password | POD-6747 |
 | `POST /v1/login-password` (`podium setup`) | Stays. `accounts.setPassword` for the earliest admin's account. This is the host command that recovers a last admin who has no email | POD-6747 |
 | `POST /v1/member-recovery` (`podium auth recovery-link <email>`) | Stays. Issues a `password-reset` code for the account with that email, created by `host`; audit `members.recoveryIssued` with `by: 'host'` | POD-6747 |
-| `podium auth mint-session` writes a `break-glass` row straight into `client_sessions` (`packages/runtime/src/session-mint.ts`) | New `POST /v1/host-sign-in {ttlMs?}`: issues a `host-sign-in` code; the command redeems it at once over loopback and caches the signed token as today. Refused when the workspace has more than one membership that is not `removed`, the rule `mintBreakGlassSession` has today. The server must be running | POD-6748 |
+| `podium auth mint-session` writes a `break-glass` row straight into `client_sessions` (`packages/runtime/src/session-token.ts`) | New `POST /v1/host-sign-in {ttlMs?}`: issues a `host-sign-in` code; the command redeems it at once over loopback and caches the signed token as today. Refused when the workspace has more than one membership that is not `removed`, the rule `mintBreakGlassSession` has today. The server must be running | POD-6748 |
 | `podium auth sessions`, `podium auth revoke-sessions [--label]` read and delete `client_sessions` directly | New `GET /v1/sign-ins` and `POST /v1/sign-ins/revoke {kind}` on the control socket; the default kind is `host` | POD-6748 |
 | `/v1/public-url`, `/v1/tunnel-health`, `/v1/connect-publish`, `/v1/diagnostics` | Not sign-in; unchanged | none |
 
@@ -864,7 +861,7 @@ The control socket is a user-only unix socket, so these are refused over the net
 
 ### 4.6 Other places that write or check a password today
 
-They are in none of the four files, and after POD-6746 a password written to `user_credentials` no longer signs anyone in. POD-6746 therefore moves all of them to `accounts.setPassword`, `accounts.verifyPassword` and `accounts.setEmail`:
+Password changes in each of these places use `accounts.setPassword`, `accounts.verifyPassword` and `accounts.setEmail`:
 
 | Place | What it does |
 |---|---|
@@ -945,7 +942,7 @@ git grep -nE "INSERT (OR REPLACE )?INTO client_sessions" f92564c0d7 -- apps pack
 |---|---|---|---|
 | `login` | `POST /auth/login` (cookie), `POST /auth/server-transfer-claim` | a device sign-in of kind `browser` or `desktop`, 30 days, renewing | left in place for the carry-over (section 8.5) |
 | `mobile` | `POST /auth/login` with native delivery, `POST /auth/mobile-pair/complete` | a device sign-in of kind `phone`, 30 days, renewing, bearer or cookie | left in place. One held as a cookie is carried over; one held as a bearer is not, so that phone pairs again and the app says so (`sign-in-carry-over.md`, section 6.2) |
-| `break-glass` | `podium auth mint-session`, by a direct insert from `packages/runtime/src/session-mint.ts` | a device sign-in of kind `host` with a fixed expiry, made by redeeming a `host-sign-in` code from the control socket | left in place for the carry-over |
+| `break-glass` | `podium auth mint-session`, by a direct insert from `packages/runtime/src/session-token.ts` | a device sign-in of kind `host` with a fixed expiry, made by redeeming a `host-sign-in` code from the control socket | left in place for the carry-over |
 | `upstream` | nothing. The node-to-hub link is retired (`upstream-retirement.ts`); no code writes or accepts this label | none | deleted by the upgrade (POD-6750): `delete from client_sessions where label = 'upstream'`, with the count in the boot log. The rows carry a member id and a ten-year expiry and must never be honoured by the carry-over |
 | `server-transfer-claim` | the server-move coordinator (`relay.ts`, `prepareClientRelocations`) | no device sign-in: a `transfer-claim` code, 10 minutes, redeemed on the moved server | deleted by the upgrade. A server move does not span an upgrade |
 | any other value | nothing | none | never honoured; dropped with the table |
@@ -997,14 +994,14 @@ On a one-person server's own machine, with no password or with sign-in waived, n
 
 Two parts, both rehearsed on the customer-upgrade fixtures with `scripts/rehearse-upgrade.ts`:
 
-1. **Schema migrations**, additive only, in the server's chain: the library tables and `identity_one_time_code` (POD-6744), then `identity_membership`, `identity_workspace_revision`, `identity_invitation` and `users.membership_version` (POD-6745). No existing table is changed or dropped before POD-6752.
+1. **Schema migrations**, additive only, in the server's chain: the library tables and `identity_one_time_code` (POD-6744), then `identity_membership`, `identity_workspace_revision`, `identity_invitation` and `users.membership_version` (POD-6745). Retirement DDL is deferred until the local import records completion for that database.
 2. **A data step at boot**, `ensureLocalIdentity` (POD-6750), in `apps/server`. It runs when the server built its own core (the seam of section 3 is absent), after the migrations and before the server listens, in one transaction. It is not SQL in a migration file, for three reasons: a hosted workspace database runs the same migrations and must not get local accounts; it needs the package's operations (identifiers, versions, apply-membership); and a fresh install is the same case as an upgrade, because the first admin's member row is inserted by an old migration (`20260730173834_user-accounts-first-admin`) and has no membership either.
 
 `ensureLocalIdentity` handles every member row that has no membership row, so running it twice changes nothing the second time. If it fails, the transaction rolls back and the server does not start; the next start tries again.
 
 ### 8.2 What each member becomes
 
-"Password" means a readable row in `user_credentials` with a hash. The hash string is copied unchanged into the login method; the edition's verify function is the one that made it, so old passwords keep working (spike row 3).
+"Password" means a readable password hash in the pre-upgrade database. The hash string is copied unchanged into the login method; the edition's verify function is the one that made it, so old passwords keep working (spike row 3).
 
 | Member row today | Membership | Account | Login method |
 |---|---|---|---|
@@ -1020,9 +1017,9 @@ The shared instance password of very old installs is not a special case here. It
 
 ### 8.3 Pending invitations and recovery links
 
-`member_invites` holds both. The token hash is copied, so links already sent keep working, once each.
+The pre-upgrade link table holds both. The token hash is copied, so links already sent keep working, once each.
 
-| Row in `member_invites` (not expired) | Becomes |
+| Pre-upgrade link (not expired) | Becomes |
 |---|---|
 | no member id | a new membership in status `invited` with a newly minted member id, the row's role and address, and an invitation with the same token hash and expiry |
 | a member id whose member has no password | an invitation, same token hash and expiry, for that member's `invited` membership |
@@ -1035,11 +1032,11 @@ Expired rows are not carried.
 - **One person.** One account, one active membership, the password carried. A server in open mode, one with a per-member password and no address, and one that got the shared instance password each behave as before, including no sign-in on the all-in-one app's own machine.
 - **A team.** An account and a membership per member from their address, password, role and disabled state. A disabled member still cannot sign in.
 - **Pending invitations.** As in section 8.3.
-- **Rollback.** The upgrade adds tables and one column, links existing members to their accounts and membership versions, and deletes the `client_sessions` rows of section 6. Rollback is the procedure POD-6302 proved (`docs/data-and-upgrades.md`): restore the database backup the migration took, together with the matching older binary. What is lost is what happened after the upgrade: new members, changed passwords and new sign-ins. The older binary finds its own tables as it left them, including the sign-ins that were live at the upgrade.
+- **Rollback.** The upgrade imports accounts and links, records completion, retires the source credential and invitation storage, and deletes the retired sign-in labels of section 6. Rollback is the procedure POD-6302 proved (`docs/data-and-upgrades.md`): restore the database backup the migration took, together with the matching older binary. What is lost is what happened after the upgrade: new members, changed passwords and new sign-ins. The older binary finds its own tables as it left them, including the sign-ins that were live at the upgrade.
 
 ### 8.5 What the sign-in carry-over needs left in place
 
-The carry-over is designed in `docs/design/sign-in-carry-over.md` (POD-6755, approved by the coordinator on 2026-11-10) and built by POD-6751. Its section 8 is the full list of what each task leaves and may drop; this table agrees with it. Until POD-6752 the following stays exactly as it is, and POD-6748 and POD-6750 must not remove or change it:
+The carry-over is designed in `docs/design/sign-in-carry-over.md` (POD-6755, approved by the coordinator on 2026-11-10) and built by POD-6751. Its section 8 is the full list of what each task leaves and may drop; this table agrees with it. Compatibility inputs are kept until the retirement point stated for each:
 
 | Kept | Why |
 |---|---|
@@ -1049,28 +1046,35 @@ The carry-over is designed in `docs/design/sign-in-carry-over.md` (POD-6755, app
 | An old-form `cli-session.json`, unread and undeleted when the `podium` command finds one | the host's cached session is carried over once |
 | The old cookie name `podium_session` (`SESSION_COOKIE` in `@podium/protocol`) as a constant | old browsers still send it. New sign-ins never use this name (section 2.3), so the two cannot be confused |
 | Member ids unchanged, and for every member with an old sign-in a membership that names an account | the carry-over turns "old sign-in of member M" into "device sign-in of M's account" |
-| `user_credentials` and `member_invites`, unchanged | rollback (section 8.4) |
+| Credential and invitation inputs | Read once by the local import, then retired; rollback restores the pre-upgrade backup (section 8.4) |
 
 What changes under the carry-over's feet, and is allowed: the upgrade deletes the `upstream` and `server-transfer-claim` rows; nothing writes `client_sessions` after POD-6748 (new sign-ins, pairing, the host session and the server move all create device sign-ins or codes); `podium auth mint-session` stops inserting rows.
 
-## 9. What is deleted, and when
+## 9. Retirement and compatibility
 
-| What | Task |
-|---|---|
-| `plugin-auth.ts`; `PodiumPluginHooks.auth`; `principalSource`, `maintainPrincipal`, `admission`, `sessionResponseHeaders`; the null-means-fall-through path in `credentialPrincipal`; `enabledProviderPrincipal` | POD-6746 |
-| Every `resolveAuthMode() === 'cloud'` branch; `resolveAuthMode`, `resolveAuthSignInUrl` and the two settings behind them (`PODIUM_AUTH_MODE`, `PODIUM_AUTH_SIGN_IN_URL`) | POD-6746 |
-| `clientAuthGuard`'s credential logic, `resolveClientCredential`, `maintainClientCredentialByHash`, `perRequestCredential`, `requestUserId`, `isRequestAuthed`, `resolveLoginIdentifier`, the login throttle map in `auth-route.ts` | POD-6746 (the guard and the routes stay, on the package) |
-| `startServer` options `sendMemberInviteMail`, `sendMemberRecoveryMail` | POD-6746 |
-| `MemberInvites` (`member-invites.ts`); `GET /auth/members/recovery-options`; `POST /auth/members/reset-request`; `UsersRepository.setRole`, `disable`, `enable`, `removeMember`, `signOutEverywhere`, `recoverPassword`, `createUnclaimed`, `attachAccount`, `writeProfile`, `setEmail` and the invite methods, replaced by the one `MemberRows.write` | POD-6747 (the store methods when their last caller goes; `MemberRows.write` itself is added by POD-6745) |
-| `MobilePairingManager` (`mobile-pairing.ts`); `UsersRepository.revokeSignIn`; the writes of `AuthRepository` (`createClientSession`, `extendClientSession`, `touchClientSession`, `deleteOwnedSignIn`, the list methods); the direct insert in `packages/runtime/src/session-mint.ts`; `ClientSessionLabel` | POD-6748. It keeps what section 8.5 names, and may delete every method of `AuthRepository` |
-| In clients: every branch on `mode === 'cloud'` and on `signInUrl`; `mailAvailable`; the label names in the Access screen | POD-6749 |
-| The `upstream` and `server-transfer-claim` rows of `client_sessions` | POD-6750 |
-| `POST /auth/users`; the rest of `store/auth.ts`; `packages/runtime/src/session-mint.ts` except what reads an old-form cache file; the tables `user_credentials` and `member_invites` | POD-6752 |
-| `client_sessions`, `carried_sign_ins`, `SESSION_COOKIE`, the carry-over module and its calls, the old-form cache reading of the `podium` command | not in this release. POD-6752 marks each with `LEGACY(remove-after: 2027-06)`; the removal after that date is one later change (`sign-in-carry-over.md`, section 8.3) |
-| podium-cloud: `packages/platform/src/auth.ts` as the owner of the sign-in configuration, `principal.ts`, `principal-store.ts`, `installWorkspaceAuth`, the table `workspace_invitation`, `createMemberForAccount` at request time, the cloud-mode assertion | PDM-495 |
-| podium-cloud: `packages/platform/src/handoff.ts`, the table `handoff`, the `desktop-handoff` rows in `verification`; the workspace-invitation controls on the organisation page | PDM-510 |
+The shared identity package owns sign-in, invitations, recovery and device sign-ins.
+The server's member rows are written only through apply-membership. Client screens
+read the capability list and use the same implementation in both editions.
 
-`packages/protocol` holds two handshake strategies that take a client-session directory (`console-cookie.ts`, `operator-channel.ts`). The server passes them no directory, so they are unused; POD-6752 removes them together with the type.
+The boot import is the only reader of pre-upgrade password hashes and invitation
+links. Its transaction records `identity.legacyLinksImported` only after all member
+accounts and live links are imported. The generated retirement migration runs after
+that receipt commits, before serving traffic. A direct upgrade from the oldest
+customer fixture follows this sequence without an intermediate binary. Hosted
+workspace composition imports no local accounts.
+
+Rollback restores the database snapshot captured before the schema and data steps,
+together with the matching older binary. Source credential and invitation tables
+are absent from an imported database.
+
+`client_sessions`, `carried_sign_ins`, `SESSION_COOKIE`, the carry-over module and
+its calls, and old-form CLI cache reading remain marked
+`LEGACY(remove-after: 2027-06)`. Their joint removal is scheduled for June 2027.
+Each server honours carry-over only for its own 30-day upgrade period; a server
+upgrading after removal signs in again once.
+
+The protocol registry refuses person credentials. Person-facing HTTP and sockets
+resolve through the shared identity boundary in the server.
 
 ## 10. The shared test suite
 
@@ -1245,7 +1249,7 @@ Each protection of today's hand-over, and where it is afterwards:
 
 The tests of `handoff.test.ts` move to the shared suite (cases 8 and 9) and to PDM-510's route tests; none is dropped.
 
-Phone pairing uses the same mechanism in the other order: the signed-in device issues the code, the phone claims it with the hash of its own secret, the signed-in device approves the phone by its three-word phrase, and the phone redeems with the secret. That is today's ceremony (`MobilePairingManager`), stored in a row instead of in memory.
+Phone pairing uses the same mechanism in the other order: the signed-in device issues the code, the phone claims it with the hash of its own secret, the signed-in device approves the phone by its three-word phrase, and the phone redeems with the secret. That is today's ceremony (process-local pairing), stored in a row instead of in memory.
 
 ## 13. Security notes
 
@@ -1305,12 +1309,12 @@ In the cloud the per-identifier counter is per process, so an attacker who reach
 | 1.2, 1.5 (one-time code), 1.6, 1.7; 2.1 to 2.5 without memberships; 2.7, 2.8, 2.9; 10 (cases 1 to 13, both legs) | POD-6744 Identity core package | `packages/identity/**` except `membership/`; the server migration for the library tables and the code table; `apps/server/src/identity/identity-suite.sqlite.test.ts`; in podium-cloud the test file, the alias and one platform migration |
 | 1.3, 1.4, 1.5 (invitation), 1.8; 2.5 (the membership part of `resolve`, `revalidate`, the same-machine statement); 2.6; 10 (cases 14 to 23) | POD-6745 Memberships and invitations | `packages/identity/src/membership/**`; the server migration for the membership tables and `users.membership_version`; `MemberRows.write` in `apps/server/src/store/users.ts`; in podium-cloud one platform migration |
 | 3 (open-source side); 4.1 except the transfer claim; 4.6; 5; 7; the signing secret at boot; the hourly `sweep` | POD-6746 Server sign-in path | `auth-route.ts`, `plugin-auth.ts`, `plugins.ts`, the credential resolution in `server.ts`, the gateway's client authentication, `first-admin-password.ts`, the `auth.*` and setup parts of `modules/instance/`, `test-support/two-member-instance.ts` |
-| 4.2; 4.3 except the sign-in routes; 4.5 rows 1 to 3 | POD-6747 People and invitations | `member-routes.ts`, `admin-routes.ts`, `member-invites.ts`, the three recovery routes of `control-socket.ts`, the `recovery-link` part of `apps/cli/src/auth-cli.ts` |
-| 4.1 transfer claim; 4.3 sign-in routes; 4.4; 4.5 rows 4 and 5; 6 | POD-6748 Devices and pairing | `mobile-pairing.ts`, `mobile-pairing-route.ts`, new `sign-in-routes.ts`, the client-session parts of `store/auth.ts`, the transfer-claim route and `prepareClientRelocations` in `relay.ts`, the host-session routes of `control-socket.ts`, `packages/runtime/src/session-mint.ts`, the rest of `apps/cli/src/auth-cli.ts`, `packages/protocol/src/pairing.ts`, the matching client code, and the desktop shell's copy of the sign-in cookie when the window follows a moved server (`retarget_session_cookie` in `apps/desktop/src-tauri/src/main.rs`, `session_cookie_for_target` in `bootstrap.rs`), which must copy the new cookie names |
+| 4.2; 4.3 except the sign-in routes; 4.5 rows 1 to 3 | POD-6747 People and invitations | `member-routes.ts`, `admin-routes.ts`, `member-links.ts`, the three recovery routes of `control-socket.ts`, the `recovery-link` part of `apps/cli/src/auth-cli.ts` |
+| 4.1 transfer claim; 4.3 sign-in routes; 4.4; 4.5 rows 4 and 5; 6 | POD-6748 Devices and pairing | `mobile-pairing-route.ts`, new `sign-in-routes.ts`, the device sign-in routes, the transfer-claim route and `prepareClientRelocations` in `relay.ts`, the host-session routes of `control-socket.ts`, `packages/runtime/src/session-token.ts`, the rest of `apps/cli/src/auth-cli.ts`, `packages/protocol/src/pairing.ts`, the matching client code, and the desktop shell's copy of the sign-in cookie when the window follows a moved server (`retarget_session_cookie` in `apps/desktop/src-tauri/src/main.rs`, `session_cookie_for_target` in `bootstrap.rs`), which must copy the new cookie names |
 | 2.9 as read by clients; 7.3 | POD-6749 Capability-driven screens | `apps/web` LoginGate, InviteView, settings People and Access, connected devices; the matching phone and desktop views; `packages/client-core/src/accounts/auth.ts` |
 | 8.1 to 8.4; the deletions of section 6 | POD-6750 Existing server upgrade | `ensureLocalIdentity` in `apps/server`, its fixtures and rehearsal |
 | 8.5 as a contract; its own document | POD-6755 Sign-in carry-over design, POD-6751 Sign-in carry-over | `docs/design/sign-in-carry-over.md`, then what its section 9 names: `apps/server/src/sign-in-carry-over.ts`, `apps/server/src/store/sign-in-carry-over.ts`, the migration for `carried_sign_ins`, `memberships.accountOfActiveMember` in the package, and one call each in `auth-route.ts`, `member-routes.ts`, `MemberRows.write` and `control-socket.ts` after their owners have landed |
-| 9 | POD-6752 Hand-written sign-in removal | what section 9 lists for it |
+| 9 | POD-6752 Hand-written sign-in removal | import retirement, compatibility cleanup, and documentation |
 | 3 (cloud side); the cloud configuration of 2.1; the Postgres leg from then on; memberships from existing cloud rows | PDM-495 Cloud memberships | podium-cloud `packages/platform`, `apps/hosted-server` |
 | 11 | PDM-509 Membership apply and revocation | podium-cloud, and the timer and cursor in `apps/server` behind the seam |
 | 12; the cloud capability list in use. A person ends their own device sign-ins on their account page; a hosted admin ends none | PDM-510 Hosted people screens | podium-cloud `packages/platform` routes, `apps/app` |
@@ -1417,6 +1421,8 @@ For the coordinator. None of these changes a goal; each changes who does somethi
 | 61 | Section 2.4: a profile edit steps each live membership version | On Postgres, the first read finds the workspaces. After taking each workspace revision lock, the profile hook re-reads the live membership and preserves its status, role and authorization revision | PDM-509 reproduced a concurrent disable being overwritten by the earlier active snapshot. The two-connection test holds the disable’s lock while the profile edit reaches it |
 | 62 | Section 8.3 gives the stored token and expiry but names no import operation | `@podium/identity/upgrade` exposes `importLegacyLink` for the server upgrade. It keeps the hash, original expiry and creator and uses the existing invitation and password-reset stores | The usual operations mint a new token. The upgrade has only the hash and the invitee may already have the original link |
 | 63 | Sections 8.2 and 8.3 conflict when a legacy invitation targets the sole enabled member without a password | The member keeps their active membership and open access. The old link is refused and startup logs that the admin sets a password from Settings | The coordinator gave the sole-member rule precedence on 2026-11-10 |
+
+| 64 | Section 9 retires source credential and invitation storage | The generated retirement migration waits for `identity.legacyLinksImported`; the local boot import records it only after member accounts and live links commit. Schema-only stores leave retirement pending. Rollback retains the initial pre-import backup | The direct-upgrade requirement from POD-6750, added to POD-6752’s brief on 2026-11-11: every supported older database must remain readable until its import completes |
 
 ## 17. Product questions this document could not settle
 

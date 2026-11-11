@@ -150,7 +150,7 @@ migrated through our real chain, and from the repro scripts in `repro/`. All wer
 | `AUTOINCREMENT` + `sqlite_sequence` | works, rollback included; adds 6 visible internal tables | `changes` and five other tables; `sync-repository.ts:309` (`maxChangeSeq`) |
 | savepoints (nested, `ROLLBACK TO`, `RELEASE`, outside a transaction) | works | `store/executor/executor.ts:876`; the batch boundary in the driver |
 | `INSERT OR IGNORE` (POD-3221 rule 31) | same suppression matrix: PK, UNIQUE, NOT NULL and CHECK suppressed; FK throws; `ON CONFLICT DO NOTHING` suppresses uniqueness only | the 25 `OR IGNORE` sites |
-| `INSERT OR REPLACE` across PK + a separate unique index (rule 31b) | same: both conflicting rows replaced | `store/auth.ts:102`, `packages/runtime/src/session-mint.ts:211`, `enrollment-ledger-import.ts:112,166`, `modules/updates/recovery-store.ts:80` |
+| `INSERT OR REPLACE` across PK + a separate unique index (rule 31b) | same: both conflicting rows replaced | `packages/runtime/src/session-token.ts:211`, `enrollment-ledger-import.ts:112,166`, `modules/updates/recovery-store.ts:80` |
 | `UPDATE OR IGNORE` | same | `store/repos.ts:432`, `:464` |
 | `RETURNING` (insert, update, delete) | same | `store/issues.ts:395,432,725,823`, `store/conversations/index.ts:198`, `store/notification-facts.ts` |
 | `ON CONFLICT DO UPDATE … excluded` | same | 52 `onConflictDoUpdate` sites |

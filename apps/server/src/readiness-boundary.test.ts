@@ -100,7 +100,7 @@ describe('server readiness boundary', () => {
     // NOT all of /auth/*. Minting an account writes the live database, which is
     // work, and work stays blocked until this process runs the config it was
     // asked to run.
-    expect((await app.request('/auth/users', { method: 'POST' })).status).toBe(503)
+    expect((await app.request('/auth/members/invite', { method: 'POST' })).status).toBe(503)
   })
 
   it('serves the restart over the control plane while the data plane stays shut [POD-2766]', async () => {

@@ -1,3 +1,4 @@
+import { memberFacts } from './store/fixtures/test-support'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -24,7 +25,7 @@ async function fixture(preauthorized = false, createActor = true) {
   dirs.push(dir)
   const store = await openTestStore(':memory:')
   stores.push(store)
-  if (createActor) await store.users.create({ id: actor, displayName: 'Setup admin', role: 'admin',
+  if (createActor) await memberFacts(store).create({ id: actor, displayName: 'Setup admin', role: 'admin',
     createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
   return { store, dir, request: prepareSetupEnrollment(true, preauthorized, dir) }
 }
@@ -107,7 +108,7 @@ describe('setup enrollment transaction', () => {
 
   it('records ambiguous first-boot membership as unowned and never re-infers it', async () => {
     const { store, request } = await fixture(true)
-    await store.users.create({ id: asUserId('another-admin'), displayName: 'Other', role: 'admin',
+    await memberFacts(store).create({ id: asUserId('another-admin'), displayName: 'Other', role: 'admin',
       createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
     const { credentials } = await openTestIdentity(store)
     const first = await completePreauthorizedSetup(store, credentials, 'installation-a', request)

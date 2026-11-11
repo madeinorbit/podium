@@ -1,3 +1,4 @@
+import { memberFacts } from '../../store/fixtures/test-support'
 import { asIssueId, asMachineId, asSessionId, asUserId } from '@podium/model'
 import { formatSessionRef } from '@podium/protocol'
 import { fixtureWriteScope } from '@podium/sync/testing'
@@ -256,7 +257,7 @@ describe('one projection pass', () => {
       // owner, issue owner (different from session owner), and unrelated reader.
       // Account status and actor kind are admission concerns: this API consumes
       // an admitted principal and historically consults neither user rows nor roles.
-      await f.store.users.create(
+      await memberFacts(f.store).create(
         {
           id: reader,
           displayName: 'Reader',

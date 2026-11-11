@@ -49,7 +49,7 @@
     "./connect-keys": "./src/connect-keys.ts",
     "./server-follow": "./src/server-follow.ts",
     "./auth-store": "./src/auth-store.ts",
-    "./session-mint": "./src/session-mint.ts",
+    "./session-token": "./src/session-token.ts",
     "./earliest-admin": "./src/earliest-admin.ts",
     "./logging": "./src/logging.ts",
     "./log-forward": "./src/log-forward.ts",

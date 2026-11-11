@@ -16,10 +16,11 @@ import {
   actorUser,
   agentIdentityFromSessionId,
   asSessionId,
+  machineAccessRowId,
+  parseMachineAccessRowId,
   type SessionId,
   type UserId,
 } from '@podium/model'
-import { machineAccessRowId, parseMachineAccessRowId } from '@podium/model'
 import { asDelegationRef } from '@podium/protocol'
 import { afterEach, expect, it } from 'vitest'
 import type { ClientConn } from './gateway/client-registry'
@@ -109,12 +110,19 @@ it('disabling Bob closes his live feed in the commit and refuses what he queued'
 it('demoting Alice rescopes her open connection and refuses what she queued as admin', async () => {
   const inst = await boot()
   const { alice, bob } = inst.members
-  const users = inst.handle.registry.sessionStore.users
   // The last admin cannot be demoted, so Bob becomes the second one first.
-  await expect(users.setRole(alice.id, 'member', alice.id)).rejects.toThrow(
-    'The last administrator cannot be demoted',
-  )
-  await users.setRole(bob.id, 'admin', alice.id)
+  await expect(
+    inst.handle.identity.memberships.setRole({
+      memberId: alice.id,
+      role: 'member',
+      actor: { memberId: alice.id },
+    }),
+  ).rejects.toThrow('The last administrator cannot be demoted')
+  await inst.handle.identity.memberships.setRole({
+    memberId: bob.id,
+    role: 'admin',
+    actor: { memberId: alice.id },
+  })
 
   const feed = await (await inst.as('alice')).feed()
   // The machines Alice may see are her `machineAccess` records (POD-6644).
@@ -136,7 +144,11 @@ it('demoting Alice rescopes her open connection and refuses what she queued as a
   const queuedAt = Date.now()
   await tick()
 
-  await users.setRole(alice.id, 'member', bob.id)
+  await inst.handle.identity.memberships.setRole({
+    memberId: alice.id,
+    role: 'member',
+    actor: { memberId: bob.id },
+  })
 
   // The same connection, still open, now carries Alice's member role.
   const [conn] = connectionsOf(inst, alice.id)
@@ -209,7 +221,9 @@ it("ending a delegation refuses its agent's calls and the work queued under it",
   })
 
   // Bob ends the session: its binding, and the delegation with it, retires.
-  await inst.handle.registry.modules.sessions.killSession(inst.handle.registry.issues.reports.store.serverWriter, { sessionId }).catch(() => {})
+  await inst.handle.registry.modules.sessions
+    .killSession(inst.handle.registry.issues.reports.store.serverWriter, { sessionId })
+    .catch(() => {})
 
   await expect(edit('after the delegation ended')).rejects.toThrow()
   expect(await dispatch(inst, inst.sessions.bobOnAliceTask, agentQueued, Date.now())).toMatchObject(
@@ -239,11 +253,10 @@ it("Bob's daemon reconnecting after Bob is disabled gets none of his queued work
       sessionId: asSessionId(inst.sessions.bob),
     })
     await tick()
-    await inst.handle.registry.sessionStore.users.disable(
-      bob.id,
-      new Date().toISOString(),
-      alice.id,
-    )
+    await inst.handle.identity.memberships.disable({
+      memberId: bob.id,
+      actor: { memberId: alice.id },
+    })
   })
 
   const sent = inst.daemonFrames(inst.machines.bob).slice(before)

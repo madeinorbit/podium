@@ -1,3 +1,4 @@
+import { memberFacts } from './store/fixtures/test-support'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -521,7 +522,7 @@ async function handoffRegistry(
 ) {
   const store = await openTestStore(':memory:')
   if (opts.secondMember) {
-    await store.users.create(
+    await memberFacts(store).create(
       {
         id: opts.secondMember,
         displayName: 'Bob',

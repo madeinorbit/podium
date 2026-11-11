@@ -8,7 +8,7 @@ import { asUserId, LoginEmail, type UserId } from '@podium/model'
 import { type Context, Hono } from 'hono'
 import { z } from 'zod'
 import { isAllowedHttpOrigin } from './http-cors'
-import { CreateMemberInvite, InvitePassword, memberLinks } from './member-invites'
+import { CreateMemberInvite, InvitePassword, memberLinks } from './member-links'
 import type { UsersRepository } from './store/users'
 
 export const REAUTH_REQUIRED = 'reauth_required'
@@ -37,8 +37,7 @@ export function memberActions(
       if (member.memberId === actor) {
         // Shared accounts manage their account-wide sign-out on the account page.
         if (!capabilities.accountUrl) actions.push('signOutEverywhere')
-      }
-      else if (member.status === 'disabled')
+      } else if (member.status === 'disabled')
         actions.push(
           ...(member.account ? ['enable' as const, 'remove' as const] : ['invite' as const]),
         )
@@ -253,6 +252,7 @@ export function registerMemberRoutes(
       if (!member?.account) throw new MembershipRefused('unavailable')
       const ids = await core.deviceSignIns.revokeAllForAccount(member.account.id)
       // Sign-ins from before shared sign-in end with them (POD-6751, R16).
+      // LEGACY(remove-after: 2027-06): end pre-upgrade sign-ins with account-wide sign-out.
       await users.endOldSignIns(asUserId(target))
       await users.audit('members.signOut', asUserId(actor.memberId), { memberId: target })
       return ids
