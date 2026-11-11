@@ -24,7 +24,7 @@ import {
   settingsPage,
   settingsSectionId,
 } from './page-definitions'
-import { visibleSettingsGroups } from './surfaces'
+import { adminSectionOf, visibleSettingsGroups } from './surfaces'
 
 interface Takeover {
   title: string
@@ -139,7 +139,8 @@ export function SettingsFrame({
       : definition.description
   const groups = visibleSettingsGroups(SETTINGS_GROUPS, viewer.sections)
   const pages = groups.flatMap((group) => group.tabs)
-  const pageOffered = pages.some((entry) => entry.key === page)
+  const requiredSection = adminSectionOf(page)
+  const pageOffered = requiredSection === undefined || viewer.sections.includes(requiredSection)
   const [query, setQuery] = useState('')
   const results = searchSettings(query, pages)
   const searching = query.trim().length > 0
