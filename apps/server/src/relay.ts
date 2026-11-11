@@ -708,14 +708,15 @@ export class SessionRegistry {
    */
   private async hydrate(rehearseBoot = false): Promise<void> {
     let stageStarted = performance.now()
-    // Session rows must be restored before any issue or message reconciliation
+    // Session rows must be restored before issue and message recovery
     // can inspect their targets. Recovery-only serves operations, history, action
     // and health, so it neither needs nor may run session restoration's writers.
     if (!this.recoveryOnly || rehearseBoot) await this.modules.sessions.loadFromStore()
     bootStage('sessions recovery', stageStarted)
     stageStarted = performance.now()
     // Bootstrap streams model tables. Migrations invalidate the kinds they
-    // rewrite with sync_kind generations; boot never rebuilds the log.
+    // rewrite with sync_kind generations. Only the session passes still rebuild
+    // log records; their source-write replacement belongs to POD-6789.
     await this.modules.machines.storeRecordChannel()
     await this.superagentDefaults.seed()
     // Only interrupted preparations need recovery; this uses the running
@@ -753,14 +754,9 @@ export class SessionRegistry {
    * BUILD THE SERVER — the entry point, because composing the graph is not the
    * whole of booting it (POD-3256).
    *
-   * The composition root reads the store in two places: the settings snapshot
-   * the feature gate closes over, which has to exist BEFORE the graph is built,
-   * and the ledger reconciles and the evidence repair, which need the built
-   * objects. So the read that must come first is done here and handed to the
-   * constructor, and the rest is {@link hydrate}, run after it. Both bodies are
-   * synchronous today and gain awaits at the flip; the order is the order the
-   * constructor established, and the store's own constructor establishes the
-   * order above that (POD-318: machine identity before any reader).
+   * The settings snapshot must exist before the graph is built. Recovery uses
+   * the constructed services, so {@link hydrate} runs afterward. The store
+   * establishes machine identity before either set of readers (POD-318).
    */
   static async create(
     store: SessionStore | undefined,
@@ -1507,11 +1503,8 @@ export class SessionRegistry {
       (await ledger.authority.installedValues('issueProjection', [issueId])).get(issueId) as
         | { id: string; parentId?: string | null }
         | undefined
-    // Spec factory only (POD-1576). The `publishIssueList` reconcile tail that
-    // used to be wired here — issue + issueProjection + issueDep full-truth
-    // reconciles for write-less republishes — had no trigger left once POD-1574
-    // deleted the never-bumped dirty gate that called it. Issue WRITES still
-    // reconcile those same kinds; they do it from IssueService's own tail.
+    // Specs only read repository paths. Issue writes capture their affected
+    // records in the source transaction.
     const specs = new SpecsService({
       repoRoots: async () => await this.store.repos.listRepoPaths(),
     })
@@ -1534,8 +1527,8 @@ export class SessionRegistry {
         store: this.store,
         now: () => this.now(),
         // Conversation writes commit through the write-seam ledger (#257):
-        // discovery/meta commits + list reconciles append durably at
-        // the write; the feed serves them (POD-1203 deleted the snapshot tail).
+        // discovery/meta commits name their records at the write; the feed
+        // serves them (POD-1203 deleted the snapshot tail).
         ledger: writes.system('conversations.discovery'),
         // Scan diagnostics are not feed content and the v1 wire carried them
         // inside `conversationsChanged`; the edge re-serves them to the wire
@@ -4854,15 +4847,9 @@ export class SessionRegistry {
         void sessionsSvc.finalizeDeferredStopKill(msg.sessionId).catch(() => {})
       },
     })
-    // Module boot hook: eager hydration (a corrupt row is quarantined by the
-    // store's row-level guard, so boot proceeds minus that row instead of
-    // crash-looping) and the issue ledger boot reconcile.
+    // Shipping retries its durable work and recovers unfinished acknowledgements.
+    // Its remaining history scans are tracked by POD-6797.
     if (!backgroundDisabled) {
-      // issues.boot AND the closed-issue sweep both run in `hydrate` now. They
-      // are ORDERED: the sweep lists issues, and the issue store refuses a read
-      // before its factory has hydrated it. dev/mw ran boot then sweep here;
-      // moving only boot left the sweep reading an uninitialised store and
-      // warning on every cold start (POD-3684).
       shipping.start()
       void shipping
         .reconcile()
