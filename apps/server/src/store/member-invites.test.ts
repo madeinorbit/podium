@@ -143,10 +143,13 @@ describe('member invitations', () => {
     ).toBe('acct_new')
   })
   test('remove disables access, deletes credentials sessions and pending invites, and protects self-removal', async () => {
-    const invite = await create()
-    const member = await invites.complete({ token: invite.token, identity: passwordIdentity })
-    const id = asUserId(member.id)
+    const id = asUserId('mem_remove')
+    await store.users.createUnclaimed({ id, displayName: 'Anna', email: null, role: 'member',
+      createdAt: new Date(now).toISOString(), disabledAt: null })
+    // Both invitations predate the password; an admitted member needs recovery.
+    const invite = await create({ memberId: id })
     const pending = await create({ memberId: id })
+    await invites.complete({ token: invite.token, identity: passwordIdentity })
     await store.auth.createClientSession('hash', id, '2099-01-01T00:00:00.000Z')
     await expect(
       store.users.removeMember(firstAdminMemberId(), firstAdminMemberId()),
@@ -154,6 +157,7 @@ describe('member invitations', () => {
     await expect(store.users.removeMember(firstAdminMemberId(), id)).rejects.toThrow()
     await store.users.removeMember(id, firstAdminMemberId())
     expect(await store.users.get(id)).toBeUndefined()
+    expect(await store.users.credentialFor(id)).toBeUndefined()
     expect(await store.auth.getClientSession('hash')).toBeUndefined()
     await expect(invites.inspect(pending.token)).rejects.toThrow()
   })
