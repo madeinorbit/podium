@@ -190,7 +190,9 @@ describe('upgrade rehearsal', () => {
         { name: 'Bob', status: 'active' },
       ])
       for (const member of members) {
-        expect(member.password).toBe(hashes.get(member.name))
+        const expectedHash = hashes.get(member.name)
+        if (!expectedHash) throw new Error('Missing fixture password hash')
+        expect(member.password).toBe(expectedHash)
         expect(
           await verifyPasswordHash(`${member.name}-oldest-fixture-password`, member.password),
         ).toBe(true)
