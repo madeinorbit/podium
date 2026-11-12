@@ -149,6 +149,8 @@ const DISPATCH: Dispatcher = {
 export interface ClientTransport {
   /** End a failed admission; omitted only by in-process peers. */
   terminate?: () => void
+  /** Close because the member's access ended, with a code the client reads (POD-6910). */
+  endSignIn?: ClientConn['endSignIn']
   /** Authenticated account stamped by the websocket upgrade. */
   userId?: UserId
   userRole?: UserRole
@@ -257,6 +259,7 @@ export class ClientMux {
       principal,
       send: transport.send,
       ...(transport.terminate ? { terminate: transport.terminate } : {}),
+      ...(transport.endSignIn ? { endSignIn: transport.endSignIn } : {}),
       ...(transport.sendBinary ? { sendBinary: transport.sendBinary } : {}),
       ...(transport.sendBinaryStream ? { sendBinaryStream: transport.sendBinaryStream } : {}),
       ...(transport.sendSequence ? { sendSequence: transport.sendSequence } : {}),
