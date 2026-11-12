@@ -34,6 +34,9 @@ const https = () => {
   } as const
 }
 
+/** Password hashes made and checked, so a test can compare the work of two refusals. */
+let hashingWork = 0
+
 /** A request as the HTTP app sees it: the peer header is the server's own. */
 const request = (url: string, headers: Record<string, string> = {}, peer = '203.0.113.7') =>
   new Request(url, { headers: { 'x-podium-peer-address': peer, ...headers } })
@@ -73,8 +76,14 @@ describe('memberOfRequest', () => {
       hosts: { kind: 'self-hosted' },
       sameMachine: { waived: () => false },
       passwordHashing: {
-        hash: hashPassword,
-        verify: ({ password, hash }) => verifyPasswordHash(password, hash),
+        hash: (password) => {
+          hashingWork += 1
+          return hashPassword(password)
+        },
+        verify: ({ password, hash }) => {
+          hashingWork += 1
+          return verifyPasswordHash(password, hash)
+        },
         isHash: isPasswordHash,
       },
       rateLimit: { storage: 'memory' },
@@ -390,6 +399,31 @@ describe('memberOfRequest', () => {
     expect(await workspace.core.codes.inspectPasswordReset(alicesReset.code)).toMatchObject({
       accountId: accountOf(alice),
     })
+  })
+
+  it('a refused sign-in costs the same password work for a member and anybody else', async () => {
+    // The answer is the same 401 either way; the work must be too, or the
+    // response time tells an active member's address from any other (POD-6754
+    // finding F4).
+    const workOf = async (email: string) => {
+      const before = hashingWork
+      const answer = await workspace.core.signIn.password(
+        { email, password: 'a wrong guess', device: { kind: 'browser' }, delivery: 'cookie' },
+        https(),
+      )
+      expect(answer).toEqual({ refused: 'invalid' })
+      return hashingWork - before
+    }
+    // The stand-in hash is made once, on first use.
+    await workOf('warm-up@example.test')
+    const member = await workOf('bob@example.test')
+    expect(member).toBeGreaterThan(0)
+    await workspace.memberships.disable({ actor: { memberId: alice }, memberId: bob })
+    expect({
+      unknown: await workOf('nobody@example.test'),
+      disabled: await workOf('bob@example.test'),
+      reserved: await workOf('someone@no-email.invalid'),
+    }).toEqual({ unknown: member, disabled: member, reserved: member })
   })
 
   it('a source churning made-up addresses is throttled alone; members elsewhere still sign in', async () => {

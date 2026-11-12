@@ -264,6 +264,22 @@ function signedValueOf(response: Response, configuration: Configuration): string
 export function signInOperations(runtime: Runtime, credentials: Credentials): SignInOperations {
   const throttle = new SignInThrottle()
 
+  /**
+   * A refusal made before the library is asked costs one password
+   * verification, as a wrong password for an active member does. Otherwise
+   * the response time would tell an active member's address from any other
+   * (POD-6754 finding F4). The hash is made once, on first use.
+   */
+  let equalWorkHash: Promise<string> | undefined
+  async function verifyAgainstNothing(password: string): Promise<void> {
+    equalWorkHash ??= runtime.hashPassword('podium: no account has this password')
+    try {
+      await runtime.verifyPassword(password, await equalWorkHash)
+    } catch {
+      // Only the time spent matters.
+    }
+  }
+
   /** Who a sign-in without an email means (section 7.2), or undefined. */
   async function identifierWithoutEmail(): Promise<string | undefined> {
     const withPassword = await firstPasswordAccounts(runtime.db()).run({})
@@ -294,14 +310,19 @@ export function signInOperations(runtime: Runtime, credentials: Credentials): Si
         throttle.failed(key, source, now)
         return { refused: 'invalid' }
       }
+      /** A refusal before the library, after the same work as a wrong password. */
+      const refuseEarly = async (): Promise<SignInRefusal> => {
+        await verifyAgainstNothing(input.password)
+        return refuse()
+      }
 
       // An address in the reserved domain is never accepted as input.
-      if (typed !== undefined && inGeneratedDomain(typed)) return refuse()
+      if (typed !== undefined && inGeneratedDomain(typed)) return refuseEarly()
       const email = typed ?? (await identifierWithoutEmail())
-      if (email === undefined) return refuse()
+      if (email === undefined) return refuseEarly()
       if (runtime.signInGate) {
         const [account] = await accountByEmail(runtime.db()).run({ email })
-        if (!account || !(await runtime.signInGate(account.id))) return refuse()
+        if (!account || !(await runtime.signInGate(account.id))) return refuseEarly()
       }
 
       // The library's own handler, so its limiter and its checks run. It
