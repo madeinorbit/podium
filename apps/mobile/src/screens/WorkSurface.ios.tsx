@@ -7,6 +7,7 @@ import {
   List,
   Picker,
   ProgressView,
+  RNHostView,
   Section,
   Spacer,
   SwipeActions,
@@ -76,6 +77,7 @@ import { useMobilePoolProjection } from '../client/mobile-pool'
 import { useWorkspaceRefreshSubtitle } from '../client/workspace-refresh'
 import { NativeGroupHeader } from '../components/NativeGroupHeader.ios'
 import { NewWorkButton } from '../components/NewWorkButton'
+import { WorkingMark } from '../components/WorkingMark'
 import { useAgeNow } from '../lib/clock-hooks'
 import { startupTiming } from '../lib/startup-timing'
 import { workMenuActionIds } from '../lib/work-menu'
@@ -93,11 +95,19 @@ const CARD_INSET = 12
 const COMPACT_SECTION = [listSectionMargins({ edges: 'vertical', length: 0 })]
 const MARK_WIDTH = 14
 const MARK_GAP = 8
-const cardRow = [
+/** A card's first and last rows keep this much more room against its rounded corners. */
+const CARD_EDGE = 8
+const cardRowAt = (first: boolean, last: boolean) => [
   listRowBackground(paper.card),
   listRowSeparatorTint(paper.separator),
-  listRowInsets({ leading: CARD_INSET, trailing: CARD_INSET, top: 8, bottom: 8 }),
+  listRowInsets({
+    leading: CARD_INSET,
+    trailing: CARD_INSET,
+    top: 8 + (first ? CARD_EDGE : 0),
+    bottom: 8 + (last ? CARD_EDGE : 0),
+  }),
 ]
+const loneCardRow = cardRowAt(true, true)
 /** Rows that sit on the ground rather than in a card (lane control, notes, empty state). */
 const quietRow = [
   listRowBackground(paper.ground),
@@ -258,8 +268,14 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
                 </Section>
                 {folded ? null : (
                   <Section modifiers={COMPACT_SECTION}>
-                    {section.ids.map((id) => (
-                      <NativeWorkSlot key={id} id={id} section={section}>
+                    {section.ids.map((id, index) => (
+                      <NativeWorkSlot
+                        key={id}
+                        id={id}
+                        section={section}
+                        first={index === 0}
+                        last={index === section.ids.length - 1}
+                      >
                         <NativeWorkRow
                           id={id}
                           lane={phone.lane}
@@ -276,7 +292,7 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
                     {section.ids.length ? null : (
                       <Text
                         modifiers={[
-                          ...cardRow,
+                          ...loneCardRow,
                           font({ textStyle: 'subheadline' }),
                           foregroundStyle(paper.tertiary),
                         ]}
@@ -347,10 +363,14 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
 const NativeWorkSlot = observer(function NativeWorkSlot({
   id,
   section,
+  first,
+  last,
   children,
 }: {
   id: string
   section: PhoneWorkSection
+  first: boolean
+  last: boolean
   children: React.ReactNode
 }) {
   const active = section.window.has(id)
@@ -368,7 +388,7 @@ const NativeWorkSlot = observer(function NativeWorkSlot({
         }),
         // Keep cell insets outside the measured content, as on Tasks. Otherwise
         // the placeholder can pay those insets twice during a fast fling.
-        ...cardRow,
+        ...cardRowAt(first, last),
       ]}
     >
       {active ? children : <Spacer modifiers={[frame({ height })]} />}
@@ -425,7 +445,7 @@ const WorkGroupHeader = observer(function WorkGroupHeader({
             <Image
               systemName="plus"
               modifiers={[
-                font({ textStyle: 'footnote', weight: 'semibold' }),
+                font({ textStyle: 'body', weight: 'semibold' }),
                 foregroundStyle(paper.tertiary),
                 frame({ width: 44, height: 44 }),
                 contentShape(shapes.rectangle()),
@@ -606,12 +626,23 @@ const NativeWorkRow = observer(function NativeWorkRow(props: RowProps) {
                 contentShape(shapes.rectangle()),
               ]}
             >
-              <Image
-                systemName={mark.symbol}
-                size={mark.size}
-                color={mark.signal ? toneColor(tone) : paper.tertiary}
-                modifiers={[frame({ width: MARK_WIDTH, height: 20 }), accessibilityHidden()]}
-              />
+              {tone === 'working' ? (
+                // The shared animated mark (UI-thread clock), as on desktop rows.
+                <HStack
+                  modifiers={[frame({ width: MARK_WIDTH, height: 20 }), accessibilityHidden()]}
+                >
+                  <RNHostView matchContents>
+                    <WorkingMark size={12} tint={color.workingText} />
+                  </RNHostView>
+                </HStack>
+              ) : (
+                <Image
+                  systemName={mark.symbol}
+                  size={mark.size}
+                  color={mark.signal ? toneColor(tone) : paper.tertiary}
+                  modifiers={[frame({ width: MARK_WIDTH, height: 20 }), accessibilityHidden()]}
+                />
+              )}
               <VStack
                 alignment="leading"
                 spacing={2}
@@ -742,11 +773,10 @@ const SWIPE_CLOSE = '#8e8e93'
 type Mark = { symbol: SFSymbol; size: number; signal: boolean }
 const IDLE_MARK: Mark = { symbol: 'circle', size: 9, signal: false }
 const MOON_MARK: Mark = { symbol: 'moon', size: 11, signal: false }
-/** The board's glyphs: dot needs you, dotted grid working, ring idle, check landed. */
+/** The board's glyphs: dot needs you, ring idle (working rows draw the animated mark), check landed. */
 const TONE_MARKS: Partial<Record<string, Mark>> = {
   needs: { symbol: 'circle.fill', size: 8, signal: true },
   error: { symbol: 'circle.fill', size: 8, signal: true },
-  working: { symbol: 'circle.grid.2x2.fill', size: 10, signal: true },
   active: { symbol: 'circle', size: 9, signal: true },
   done: { symbol: 'checkmark.circle', size: 12, signal: true },
   closed: { symbol: 'minus.circle', size: 12, signal: false },

@@ -86,10 +86,17 @@ import { workPaper as paper } from './work-paper'
 const ROW_AXIS = 34
 const CARD_INSET = 12
 /** Card rows on Work's grouped paper: the same ground, card and separator. */
-const cardRow = [
+/** A card's first and last rows keep this much more room against its rounded corners. */
+const CARD_EDGE = 8
+const cardRowAt = (first: boolean, last: boolean) => [
   listRowBackground(paper.card),
   listRowSeparatorTint(paper.separator),
-  listRowInsets({ leading: CARD_INSET, trailing: CARD_INSET, top: 0, bottom: 0 }),
+  listRowInsets({
+    leading: CARD_INSET,
+    trailing: CARD_INSET,
+    top: first ? CARD_EDGE : 0,
+    bottom: last ? CARD_EDGE : 0,
+  }),
 ]
 /** Rows that sit on the ground rather than in a card (headers, notes). */
 const quietRow = [
@@ -214,11 +221,14 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
           >
             {filtered ? (
               <Section>
-                {props.chips.map((chip) => (
+                {props.chips.map((chip, index) => (
                   <Button
                     key={chip.key}
                     onPress={() => props.onRemoveFilter(chip.key)}
-                    modifiers={[...cardRow, accessibilityHint('Removes this filter.')]}
+                    modifiers={[
+                      ...cardRowAt(index === 0, index === props.chips.length - 1),
+                      accessibilityHint('Removes this filter.'),
+                    ]}
                   >
                     <HStack spacing={8}>
                       <Text
@@ -269,7 +279,7 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
                           >
                             <Text
                               modifiers={[
-                                font({ textStyle: 'footnote', weight: 'medium' }),
+                                font({ textStyle: 'body' }),
                                 foregroundStyle(color.accentTint),
                               ]}
                             >
@@ -282,8 +292,15 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
                   </Section>
                   {folded || !board || section.rows.length === 0 ? null : (
                     <Section modifiers={[listSectionMargins({ edges: 'vertical', length: 0 })]}>
-                      {section.rows.map((row) => (
-                        <TaskSlot key={row.id} id={row.id} depth={row.depth} lane={lane}>
+                      {section.rows.map((row, index) => (
+                        <TaskSlot
+                          key={row.id}
+                          id={row.id}
+                          depth={row.depth}
+                          lane={lane}
+                          first={index === 0}
+                          last={index === section.rows.length - 1}
+                        >
                           <TaskRow row={row} board={board} props={props} />
                         </TaskSlot>
                       ))}
@@ -325,11 +342,15 @@ const TaskSlot = observer(function TaskSlot({
   id,
   depth,
   lane,
+  first,
+  last,
   children,
 }: {
   id: string
   depth: number
   lane: MobileTasksBoard['lanes'][number] | undefined
+  first: boolean
+  last: boolean
   children: ReactNode
 }) {
   const active = lane?.window.has(id) ?? false
@@ -348,7 +369,7 @@ const TaskSlot = observer(function TaskSlot({
         // and measurement wrappers, on the Section's direct row view.
         // The guide is relative to content that already starts after the card inset.
         alignmentGuide('listRowSeparatorLeading', ROW_AXIS - CARD_INSET + depth * 16),
-        ...cardRow,
+        ...cardRowAt(first, last),
       ]}
     >
       {active ? children : <Spacer modifiers={[frame({ height })]} />}
