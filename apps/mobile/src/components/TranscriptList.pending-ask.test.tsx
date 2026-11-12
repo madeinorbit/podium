@@ -595,7 +595,7 @@ describe('TranscriptList pending delivery captions', () => {
     expect(screen.queryByText('sending…')).toBeNull()
   })
 
-  it('offers "Send again" and Dismiss on a message the server says did not arrive', () => {
+  it('offers an inline failure mark and restores a server failure to the composer', () => {
     const onSendAgainPending = vi.fn()
     const onRetryPending = vi.fn()
     render(
@@ -610,12 +610,44 @@ describe('TranscriptList pending delivery captions', () => {
         pendingTurns={[turn({ failed: 'not delivered · session torn down', notice: 'failed' })]}
       />,
     )
-    expect(screen.getByText('not delivered')).toBeTruthy()
+    expect(screen.getByLabelText('Message not delivered')).toBeTruthy()
     expect(screen.queryByText('Try again')).toBeNull()
-    fireEvent.click(screen.getByLabelText('Send again'))
+    fireEvent.click(screen.getByRole('button', { name: 'Not Delivered — Tap to retry' }))
     expect(onSendAgainPending).toHaveBeenCalledTimes(1)
     expect(onRetryPending).not.toHaveBeenCalled()
     expect(screen.getByLabelText('Dismiss')).toBeTruthy()
+  })
+
+  it('retries a local failure through the existing retry handler and keeps refused sends disabled', () => {
+    const retry = vi.fn(),
+      sendAgain = vi.fn()
+    const view = render(
+      <TranscriptList
+        transcriptQuestion={null}
+        items={[]}
+        live
+        onAnswer={async () => {}}
+        onRetryPending={retry}
+        onSendAgainPending={sendAgain}
+        pendingTurns={[turn({ failed: 'Offline' })]}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Not Delivered — Tap to retry' }))
+    expect(retry).toHaveBeenCalledWith(expect.objectContaining({ id: 'msg_1' }))
+    expect(sendAgain).not.toHaveBeenCalled()
+    view.rerender(
+      <TranscriptList
+        transcriptQuestion={null}
+        items={[]}
+        live
+        onAnswer={async () => {}}
+        onRetryPending={retry}
+        onSendAgainPending={sendAgain}
+        pendingTurns={[turn({ failed: 'Refused', retryable: false })]}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: /Tap to retry/ })).toBeNull()
+    expect(screen.getByText('Not Delivered')).toBeTruthy()
   })
 
   it('says an unknown message may already have arrived before offering it again', () => {
@@ -629,8 +661,13 @@ describe('TranscriptList pending delivery captions', () => {
         pendingTurns={[turn({ delivery: 'unknown', notice: 'unknown' })]}
       />,
     )
-    expect(screen.getByText('not confirmed — it may or may not have arrived')).toBeTruthy()
-    expect(screen.getByLabelText('Send again — it may already have arrived')).toBeTruthy()
+    expect(
+      screen.getByText('It may already have arrived. Tap to review before sending again.'),
+    ).toBeTruthy()
+    expect(
+      screen.getByRole('button', { name: 'Not Confirmed — Tap to review before sending again' }),
+    ).toBeTruthy()
+    expect(screen.queryByText('Not Delivered — Tap to retry')).toBeNull()
   })
 })
 

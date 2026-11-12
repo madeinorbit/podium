@@ -79,6 +79,7 @@ import {
 } from '../theme/theme'
 import { ActionSheet, type SheetAction } from './ActionSheet'
 import { type AskQuestionAnswer, AskQuestionCard } from './AskQuestionCard'
+import { DeliveryFailureMark } from './DeliveryFailureMark'
 import { Icon } from './Icon'
 import {
   ChevronDown,
@@ -92,6 +93,7 @@ import {
   Users,
   X,
 } from './icons'
+import { PendingDeliveryFailure } from './PendingDeliveryFailure'
 import { PendingFiles } from './PendingFiles'
 import { PressableScale } from './PressableScale'
 import { pendingFailure, pendingMetaLine } from './pending-delivery'
@@ -881,86 +883,53 @@ const TranscriptFeedRow = memo(
         const failed = pendingFailure(turn)
         content = (
           <View style={styles.userWrap}>
-            <View
-              style={[styles.userCard, failed ? styles.userCardFailed : styles.userCardPending]}
-            >
-              <MessageText text={row.pendingText} style={styles.userText} onRefPress={onRefPress} />
-              <PendingFiles files={turn.files ?? []} context={assetContext} />
-              {failed ? (
-                <>
-                  <Text style={styles.pendingError}>{failed}</Text>
-                  {turn.notice !== undefined ? (
-                    // NOT A RESEND (POD-4764): the words go back into the
-                    // composer and the operator sends them as a new message.
-                    onSendAgainPending ? (
+            <View style={styles.pendingBubbleLine}>
+              <View style={[styles.userCard, !failed && styles.userCardPending]}>
+                <MessageText
+                  text={row.pendingText}
+                  style={styles.userText}
+                  onRefPress={onRefPress}
+                />
+                <PendingFiles files={turn.files ?? []} context={assetContext} />
+                {!failed ? (
+                  <>
+                    {turn.retractError ? (
+                      <Text
+                        style={styles.pendingError}
+                      >{`couldn't retract — ${turn.retractError}`}</Text>
+                    ) : null}
+                    {turn.retractable && onRetractPending ? (
                       <PressableScale
                         accessibilityRole="button"
-                        accessibilityLabel={
-                          turn.notice === 'unknown'
-                            ? 'Send again — it may already have arrived'
-                            : 'Send again'
-                        }
-                        onPress={() => onSendAgainPending(turn)}
+                        accessibilityLabel="Retract this message"
+                        onPress={() => onRetractPending(turn.id)}
                         hitSlop={8}
                         style={({ pressed }) => [styles.retry, pressed && styles.retryPressed]}
                       >
-                        <Text style={styles.retryText}>Send again</Text>
+                        <Text style={styles.retryText}>Retract</Text>
                       </PressableScale>
-                    ) : null
-                  ) : /* THE SAME MESSAGE AGAIN (POD-4762): "Try again" re-issues
-                      the entry the phone still holds, under its own id, so a
-                      first attempt that did arrive is not sent twice. */
-                  onRetryPending && turn.retryable !== false ? (
-                    <PressableScale
-                      accessibilityRole="button"
-                      accessibilityLabel="Send this message again"
-                      onPress={() => onRetryPending(turn)}
-                      hitSlop={8}
-                      style={({ pressed }) => [styles.retry, pressed && styles.retryPressed]}
-                    >
-                      <Text style={styles.retryText}>Try again</Text>
-                    </PressableScale>
-                  ) : null}
-                  {onDiscardPending ? (
-                    <PressableScale
-                      accessibilityRole="button"
-                      accessibilityLabel={
-                        turn.notice !== undefined ? 'Dismiss' : 'Discard this unsent message'
-                      }
-                      onPress={() => onDiscardPending(turn)}
-                      hitSlop={8}
-                      style={({ pressed }) => [styles.retry, pressed && styles.retryPressed]}
-                    >
-                      <Text style={styles.retryText}>
-                        {turn.notice !== undefined ? 'Dismiss' : 'Discard'}
-                      </Text>
-                    </PressableScale>
-                  ) : null}
-                </>
-              ) : (
-                <>
-                  {turn.retractError ? (
-                    <Text
-                      style={styles.pendingError}
-                    >{`couldn't retract — ${turn.retractError}`}</Text>
-                  ) : null}
-                  {turn.retractable && onRetractPending ? (
-                    <PressableScale
-                      accessibilityRole="button"
-                      accessibilityLabel="Retract this message"
-                      onPress={() => onRetractPending(turn.id)}
-                      hitSlop={8}
-                      style={({ pressed }) => [styles.retry, pressed && styles.retryPressed]}
-                    >
-                      <Text style={styles.retryText}>Retract</Text>
-                    </PressableScale>
-                  ) : null}
-                </>
-              )}
+                    ) : null}
+                  </>
+                ) : null}
+              </View>
+              {failed ? (
+                <DeliveryFailureMark
+                  label={
+                    turn.delivery === 'unknown' ? 'Message not confirmed' : 'Message not delivered'
+                  }
+                />
+              ) : null}
             </View>
-            <Text style={[styles.userMetaOutside, failed && styles.userTimeFailed]}>
-              {pendingMetaLine(turn)}
-            </Text>
+            {failed ? (
+              <PendingDeliveryFailure
+                turn={turn}
+                onRetry={onRetryPending}
+                onSendAgain={onSendAgainPending}
+                onDiscard={onDiscardPending}
+              />
+            ) : (
+              <Text style={styles.userMetaOutside}>{pendingMetaLine(turn)}</Text>
+            )}
           </View>
         )
         break
@@ -1882,8 +1851,11 @@ const styles = StyleSheet.create({
     opacity: 0.7,
     borderStyle: 'dashed',
   },
-  userCardFailed: {
-    borderColor: color.danger,
+  pendingBubbleLine: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: 8,
   },
   pendingError: {
     ...mono(400),
@@ -1914,10 +1886,6 @@ const styles = StyleSheet.create({
     paddingRight: 2,
     color: color.textMicro,
     fontSize: font.micro,
-  },
-  userTimeFailed: {
-    ...mono(700),
-    color: color.dangerText,
   },
   userText: {
     ...sans(500),

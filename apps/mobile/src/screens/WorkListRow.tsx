@@ -15,6 +15,7 @@ import { observer } from 'mobx-react-lite'
 import { memo, useCallback, useEffect, useId, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 import { useMobilePool } from '../client/mobile-pool'
+import { DeliveryFailureMark } from '../components/DeliveryFailureMark'
 import { NotSavedMark } from '../components/NotSavedMark'
 import { PressableScale } from '../components/PressableScale'
 import { WorkingMark } from '../components/WorkingMark'
@@ -90,7 +91,9 @@ export const WorkRow = observer(function WorkRow({
       {...workRowMenuEvents(onLongPress)}
       accessibilityRole="button"
       accessibilityLabel={`${ref} ${row.title}`}
-      accessibilityValue={{ text: `${word}${unread ? ' · Unread' : ''}` }}
+      accessibilityValue={{
+        text: `${word}${unread ? ' · Unread' : ''}${row.deliveryAttention === 'failed' ? ' · Message not delivered' : row.deliveryAttention === 'unknown' ? ' · Message not confirmed' : ''}`,
+      }}
       accessibilityHint="Open task. Long press for actions."
       onPress={onOpen}
       onLongPress={onLongPress}
@@ -113,6 +116,14 @@ export const WorkRow = observer(function WorkRow({
         >
           {row.title}
         </Text>
+        {row.deliveryAttention ? (
+          <DeliveryFailureMark
+            label={
+              row.deliveryAttention === 'failed' ? 'Message not delivered' : 'Message not confirmed'
+            }
+            size={16}
+          />
+        ) : null}
         {unread ? <View style={rowStyles.unreadDot} /> : null}
         {navLoader ? (
           <ActivityIndicator accessibilityLabel="Opening" size="small" color={color.textDim} />

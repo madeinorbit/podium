@@ -36371,6 +36371,26 @@
       "bound": "One pass over visible candidates and their window model folds; no all-time or ancestor pricing. The existing cost query still returns all-history task rows.",
       "reason": "POD-2396 replaces Pulse all-time cohort pricing with window-only pricing using the existing modelTotalCostUsd rule. The model pricing catalogue origin is the same as projectCostGroups/usd; this does not claim to repair catalogue cardinality or server all-history work.",
       "guard": "cost.test.ts compares window ranks with the existing sheet; task-cost-view.test.ts traps all-time model reads and verifies pool visibility before ranking."
+    },
+    {
+      "file": "packages/client-graph/src/notice-views.ts",
+      "holder": "noticeSessionDeliveryAttention",
+      "rule": "loop:for-of",
+      "tokens": "4b8c7a06413b8a3baccd886f7283c11394466bbf7dd932a5183f9e1f0a2ce223",
+      "gate": [
+        "exit:then:268e17ee26fc685c3b7abc6d8d1e34bd75ed166236aa704eac6838b0e12c388e"
+      ],
+      "origin": [
+        "c580ee33b0258062defe33a8104ddaed3f5ed72b1a70aab34b059d9061242e4a"
+      ],
+      "fingerprint": "c8a9d0f24ddd8c1faa6435fe2f10ee867cc4b7b8d08882888765c4a772612da6",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2412",
+      "trigger": "An observed WorklistIssue deliveryAttention reads one of its own session IDs.",
+      "bound": "Only message IDs from the existing noticeSession index for the addressed session. O(messages retained for that session), independent of other account sessions or messages; not a fixed message-count cap.",
+      "reason": "The row needs a scalar failure/unknown verdict without adding a store or index. The shared lazy row getter scopes reads to its session relations, exits at the first proven failure and releases when unobserved. No workspace message catalog is enumerated.",
+      "guard": "packages/client-graph/src/worklist/delivery-attention.test.ts proves selected-session status changes read exactly two models at 128/512 unrelated messages, foreign status changes read zero, and no collection is reread after source attachment. It also covers expiry, confirmation and dismissal."
     }
   ]
 }

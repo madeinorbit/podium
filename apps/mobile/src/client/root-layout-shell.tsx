@@ -6,7 +6,6 @@ import { Platform, StyleSheet, useColorScheme } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { AgentOutcomeHaptics } from '../components/AgentOutcomeHaptics'
 import { KeyboardRoot } from '../components/KeyboardRoot'
-import { MessageNoticeBanner } from '../components/MessageNoticeBanner'
 import { PodiumLinkHost } from '../components/PodiumLinkHost'
 import { VisualViewportRoot } from '../components/VisualViewportRoot'
 import { ReducedMotionProvider } from '../hooks/ReducedMotionProvider'
@@ -79,7 +78,6 @@ function ConnectedApp({ children }: { children: ReactNode }) {
         <LaunchReadyView>{children}</LaunchReadyView>
         {/* Over every route, where the router and the store both exist: a
             message that did not arrive is said on whatever screen is up. */}
-        {Platform.OS === 'web' ? <MessageNoticeBanner /> : null}
       </MobileClientProvider>
     </AuthGate>
   )

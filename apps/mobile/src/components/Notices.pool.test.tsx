@@ -1,4 +1,3 @@
-import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { Outbox, type OutboxEntry } from '@podium/client-core/outbox'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
@@ -6,12 +5,13 @@ import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import { messageNotices, pendingInteractionCards } from '@podium/client-core/values'
-import { noticeFixture } from '../../../../tests/worklist/diagnostics/notice-fixture'
 import { asMutationId, asSessionId, asUserId } from '@podium/model'
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { cloneElement } from 'react'
 import { Alert } from 'react-native'
 import { afterEach, expect, it, vi } from 'vitest'
+import { noticeFixture } from '../../../../tests/worklist/diagnostics/notice-fixture'
+import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import { createHeaderFixture } from '../../../web/test/header-fixture'
 import type { MobilePool } from '../client/mobile-pool'
 
@@ -46,7 +46,6 @@ vi.mock('../client/ServerProfileGate', () => ({
 }))
 
 const { createMobilePool } = await import('../client/mobile-pool')
-const { MessageNoticeBanner } = await import('./MessageNoticeBanner')
 const { PendingInteractionBand } = await import('./PendingInteractionBand')
 const { WorkspaceContinuityNotice } = await import('./WorkspaceContinuityNotice')
 const { OutboxRecoveryPanel } = await import('./OutboxRecoveryPanel')
@@ -136,7 +135,6 @@ async function mount() {
     seen.push(state.host!.host.usePool())
     return (
       <>
-        <MessageNoticeBanner />
         <PendingInteractionBand sessionId={sessionId} />
         <WorkspaceContinuityNotice />
         <OutboxRecoveryPanel />
@@ -185,13 +183,6 @@ async function mount() {
   const view = render(tree)
   await waitFor(
     () => {
-      expect(view.getByTestId('message-notice-banner').textContent).toContain(
-        'Synthetic unknown words',
-      )
-      expect(view.getByTestId('workspace-continuity-notice').textContent).toContain(
-        '5 changes need review',
-      )
-      expect(view.getAllByTestId('outbox-recovery-card')).toHaveLength(5)
       expect(view.getByText('Synthetic plan')).toBeTruthy()
     },
     { timeout: 5000 },
@@ -224,18 +215,19 @@ function expectPoolReadersOnly(runtime: ClientRuntime) {
   expect(pendingInteractionCards).not.toHaveBeenCalled()
 }
 
-it('preserves the accepted banners through pool attachment', async () => {
+it('preserves interaction and recovery notices without a floating message banner', async () => {
   const reactErrors = vi.spyOn(console, 'error')
   const enabled = await mount()
   expect(enabled.seen[0]).toBeNull()
   expect(enabled.seen.some((pool) => pool !== null)).toBe(true)
   expect(enabled.view.container.innerHTML).toMatchSnapshot('last green pilot-ON banners')
+  expect(enabled.view.queryByTestId('message-notice-banner')).toBeNull()
   expect(enabled.errors).toEqual([])
   expectPoolReadersOnly(enabled.runtime)
   expect(reactErrors.mock.calls).toEqual([])
 })
 
-it('reacts to message, session-label and ask updates without legacy work', async () => {
+it('reacts to ask updates without legacy work', async () => {
   const enabled = await mount()
   await act(async () => {
     enabled.fixture.patch('message', 'notice-message-2', { body: 'Updated synthetic message' })
@@ -244,9 +236,6 @@ it('reacts to message, session-label and ask updates without legacy work', async
     })
     enabled.fixture.activity(1)
   })
-  expect(enabled.view.getByTestId('message-notice-banner').textContent).toContain(
-    'Updated synthetic message',
-  )
   expect(enabled.view.getByText('Updated synthetic plan')).toBeTruthy()
   await act(async () =>
     enabled.fixture.patch('pendingInteraction', 'notice-ask-7', {
@@ -256,34 +245,14 @@ it('reacts to message, session-label and ask updates without legacy work', async
   expect(enabled.view.queryByText('Updated synthetic plan')).toBeNull()
   await act(async () => enabled.switchSession('synthetic-session-1'))
   expect(enabled.view.getByText('Updated synthetic plan')).toBeTruthy()
-  await act(async () => {
-    enabled.evict('message', 'notice-message-2')
-    enabled.fixture.patch('session', 'cold-notice-session', { title: 'Updated saved agent' })
-  })
-  expect(enabled.view.getByTestId('message-notice-banner').textContent).toContain(
-    'To Updated saved agent:',
-  )
   expectPoolReadersOnly(enabled.runtime)
   expect(enabled.errors).toEqual([])
 })
 
-it('keeps chat, settings, dismiss and typed-answer actions on the existing owner', async () => {
+it('keeps settings and typed-answer actions on the existing owner', async () => {
   const enabled = await mount()
-  fireEvent.click(enabled.view.getByRole('button', { name: 'Open the chat with a closed session' }))
-  expect(state.push).toHaveBeenCalledWith('/session/missing-session')
   fireEvent.click(enabled.view.getByTestId('workspace-continuity-notice'))
   expect(state.push).toHaveBeenCalledWith('/settings')
-
-  enabled.dismiss.mockRejectedValueOnce(new Error('Synthetic dismiss refusal'))
-  fireEvent.click(enabled.view.getByRole('button', { name: 'Dismiss this notice' }))
-  await waitFor(() => expect(enabled.view.getByText('Synthetic dismiss refusal')).toBeTruthy())
-  fireEvent.click(enabled.view.getByRole('button', { name: 'Dismiss this notice' }))
-  await waitFor(() =>
-    expect(enabled.view.getByTestId('message-notice-banner').textContent).toContain(
-      'To Saved agent:',
-    ),
-  )
-  expect(enabled.dismiss).toHaveBeenLastCalledWith({ id: 'notice-message-2' })
 
   enabled.answer.mockResolvedValueOnce({ ok: false, reason: 'Synthetic answer refusal' } as never)
   fireEvent.click(enabled.view.getByTestId('pending-interaction-action-approve'))

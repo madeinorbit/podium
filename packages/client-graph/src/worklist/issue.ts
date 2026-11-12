@@ -1,4 +1,5 @@
 import { omitGone } from '../lookup'
+import { noticeSessionDeliveryAttention } from '../notice-views'
 import { parseMs } from '../views'
 import { compareShallow, compareStructural, untracked } from 'mobx'
 import { lazy } from '@podium/mobx-helpers'
@@ -535,6 +536,17 @@ export class WorklistIssue implements HeldIssue, RowView {
   /** The data layer's maintained list, borrowed without a second computed. */
   get sessionIds(): readonly string[] {
     return sessionIdsPartOf(this.host.inputs, this.id)
+  }
+
+  /** The same delivery records the conversation uses, scoped to this task's sessions. */
+  @lazy get deliveryAttention(): 'failed' | 'unknown' | undefined {
+    let attention: 'unknown' | undefined
+    for (const sessionId of this.sessionIds) {
+      const next = noticeSessionDeliveryAttention(this.worklist.pool, sessionId)
+      if (next === 'failed') return next
+      if (next) attention = next
+    }
+    return attention
   }
 
   /** The own-row activity stamp, before the roll-up's latest seat raises it (`activityAt`). */
