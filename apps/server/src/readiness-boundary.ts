@@ -121,11 +121,27 @@ export function isHostLocalRequest(request: Request): boolean {
     }
   }
 
-  const forwardedHost = request.headers.get('x-forwarded-host')?.split(',')[0]?.trim()
-  if (forwardedHost && !isLoopbackHost(forwardedHost)) return false
-  const forwardedFor = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
-  if (forwardedFor && !isLoopbackAddress(forwardedFor)) return false
-  return true
+  return (
+    everyForwardedEntry(request, 'x-forwarded-host', isLoopbackHost) &&
+    everyForwardedEntry(request, 'x-forwarded-for', isLoopbackAddress)
+  )
+}
+
+/**
+ * Whether every entry of a forwarding header names this machine. A proxy on
+ * this machine connects from loopback and appends the real peer after whatever
+ * the client sent, so the first entry is the client's word (POD-6754 finding
+ * F2). Any non-loopback entry anywhere in the chain, or one that cannot be read,
+ * makes the request remote. An absent header says nothing.
+ */
+function everyForwardedEntry(
+  request: Request,
+  name: string,
+  isLocal: (value: string | undefined) => boolean,
+): boolean {
+  const value = request.headers.get(name)
+  if (value === null) return true
+  return value.split(',').every((entry) => isLocal(entry.trim() || undefined))
 }
 
 export function readinessBoundary(opts: {
