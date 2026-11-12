@@ -295,7 +295,11 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
     relay?.dispose()
     await assembly.dispose()
   }
-  const ownership = mobileAccountEraser.register(principal, { erasePrincipalData, dispose })
+  const ownership = mobileAccountEraser.register(principal, {
+    erasePrincipalData,
+    dispose,
+    sealPrincipalData: assembly.sealPrincipalData,
+  })
   return {
     replica: assembly.replica,
     createReplicaFn: assembly.createReplicaFn,

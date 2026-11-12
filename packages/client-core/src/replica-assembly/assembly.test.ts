@@ -1,4 +1,4 @@
-import { actorUser, asMutationId, asUserId, type MutationId } from '@podium/model'
+import { actorUser, asMutationId, asSessionId, asUserId, type MutationId } from '@podium/model'
 import { CLIENT_WIRE_VERSION, type FeedDeltaMessage, SYNC_CONTENT_TYPE } from '@podium/protocol'
 import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import { Outbox as KernelOutbox, type OutboxSubmitOutcome } from '@podium/sync/outbox'
@@ -7,6 +7,12 @@ import { describe, expect, it, vi } from 'vitest'
 import { principalKeyPrefix, type StorageApi } from '../replica'
 import { outboxCommandFor } from '../runtime-root/outbox/wiring'
 import { createMemoryTranscriptBackend } from '../transcript-store'
+import type { DeviceStorage } from '../ui/device-storage'
+import { openLegacyDeviceKeys } from '../ui/draft-storage'
+import { UiPersistence } from '../ui/persistence'
+import { UiStore } from '../ui/ui-store'
+import { createMemoryRouterWindow, createRouter } from '../ui-state'
+import { emptyWorkspace, openTab } from '../values'
 import { openReplicaAssembly } from './assembly'
 
 const principal = JSON.stringify(['installation-a', 'alice'])
@@ -491,6 +497,96 @@ describe('chat history database (POD-5801)', () => {
       await assembly.erasePrincipalData()
       expect(transcripts.opened.get(principal)!.erased).toBe(true)
     } finally {
+      await assembly.dispose()
+    }
+  })
+})
+
+/**
+ * SIGN-OUT WHILE THE SCREEN IS STILL MOUNTED (POD-6908). Web sign-out starts the
+ * erase before React has unmounted the app, so the app's own teardown runs while
+ * the erase awaits IndexedDB: an open session pane leaves the screen document
+ * dirty and the provider's unmount flushes it, and the drafts store writes its
+ * blob. Both write under the principal's root, between the namespace removal and
+ * the emptiness check — which then refused the sign-out ("principal settings
+ * could not be erased"), or, landing after the check, left the person's data
+ * behind.
+ */
+describe('sign-out with a live screen', () => {
+  function mountedScreen(device: DeviceStorage) {
+    const router = createRouter({ win: createMemoryRouterWindow() })
+    const ui = new UiStore({
+      api: {} as never,
+      hub: { reportTabRelease: () => {} } as never,
+      notices: { error: () => {}, info: () => {} },
+      keys: { get: () => null, set: () => {}, subscribe: () => () => {} },
+      router,
+      repositories: () => [],
+      isVisible: () => true,
+    })
+    const drafts = openLegacyDeviceKeys(device)
+    const persistence = new UiPersistence(ui, device, drafts, {
+      isVisible: () => true,
+      subscribe: () => () => {},
+    })
+    return {
+      ui,
+      drafts,
+      persistence,
+      close() {
+        persistence.stopSaving()
+        router.dispose()
+        ui.dispose()
+      },
+    }
+  }
+
+  it('erases everything although the unmounting screen writes during the erase', async () => {
+    const storage = device()
+    const store = await openStore()
+    const assembly = await openReplicaAssembly({
+      api: {} as never,
+      principal,
+      openStore: async () => store,
+      settings: { storage, enumerateKeys: storage.keys, basePrefix: prefix },
+      httpSync,
+    })
+    const root = principalKeyPrefix(prefix, principal)
+    const owned = () => storage.keys().filter((key) => key.startsWith(`${root}.`))
+    const session = asSessionId('alp-1')
+    const screen = mountedScreen(assembly.replica.deviceStorage())
+    try {
+      // The person's private session, open in a pane and persisted.
+      screen.persistence.start()
+      screen.ui.patch({
+        workspaces: {
+          'wt:/repo': openTab(emptyWorkspace('wt:/repo'), session, { permanent: true }),
+        },
+      })
+      screen.ui.setDockVisibleSession(session)
+      await screen.persistence.flush()
+      expect(storage.getItem(`${root}.ui.v1`)).toContain('alp-1')
+      // The app unmounts while IndexedDB is being erased: the pane lets go of
+      // its session, the provider flushes the screen, the drafts store saves.
+      const eraseRows = store.erasePrincipal.bind(store)
+      vi.spyOn(store, 'erasePrincipal').mockImplementation(async (who) => {
+        screen.ui.setDockVisibleSession(null)
+        screen.persistence.stopSaving()
+        screen.drafts.set('podium.drafts.v1', JSON.stringify({ [session]: { text: 'half' } }))
+        return eraseRows(who)
+      })
+
+      await expect(assembly.erasePrincipalData()).resolves.toBeUndefined()
+      expect(owned()).toEqual([])
+
+      // A writer that is later still finds the namespace closed.
+      screen.ui.setDockVisibleSession(session)
+      screen.persistence.start()
+      await screen.persistence.flush()
+      screen.drafts.set('podium.drafts.v1', JSON.stringify({ [session]: { text: 'later' } }))
+      expect(owned()).toEqual([])
+    } finally {
+      screen.close()
       await assembly.dispose()
     }
   })

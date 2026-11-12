@@ -34,12 +34,12 @@
       "file": "apps/mobile/src/client/test-replica.ts",
       "holder": "createMobileTestReplica/replica",
       "rule": "reader-summary",
-      "tokens": "cb929be46327b3208d19ffec1d477a93a3dbef1eaf9c2a679a3cf92cfffc57f0",
+      "tokens": "c86aefa29d2121873184bc71da71264c38653051e62b3ea0e6aa2acc52fbf915",
       "gate": [],
       "origin": [
         "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
       ],
-      "fingerprint": "288896aaba3b766a562fb8d774c0ebc81415533420f3087baa632de46b543d3c",
+      "fingerprint": "04478e78e271a9ed56a5df5e2a88e15b732afb168820688e0a0ac55d3da045b6",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
@@ -8383,14 +8383,14 @@
       "file": "apps/web/src/lib/kernelReplica.ts",
       "holder": "openKernelAssembly/assembly",
       "rule": "helper-consumer",
-      "tokens": "b55783151129affda07b0c360b04399443707f45734958af5e2043ced57fe113",
+      "tokens": "6c1a1cda2b1c68ae06c2d072fda78dd4d226012792bf2516ffd2f8097f8fc5b5",
       "gate": [
         "exit:then:5e2a14e1fded6dcf5bd2bbeb0a38680fd681e01937e3beb0794cbfbe6fbfbbad"
       ],
       "origin": [
         "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
       ],
-      "fingerprint": "26df8ae1edebf942c222516cf0207c59e453ee11b96c232938347f2435560966",
+      "fingerprint": "3127f6092df80d3687b423b391900faf23f2690c2de9cc9857478c07f25fb393",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
@@ -8403,14 +8403,14 @@
       "file": "apps/web/src/lib/kernelReplica.ts",
       "holder": "openKernelAssembly/assembly",
       "rule": "reader-summary",
-      "tokens": "7659bc099025646e87af0ae0e2c7db7351407324efb900ad0978da3cae38dd79",
+      "tokens": "6db93a43903c82b007c383126a057fc77871c02cdf4c80c22bb25905cd58534f",
       "gate": [
         "exit:then:5e2a14e1fded6dcf5bd2bbeb0a38680fd681e01937e3beb0794cbfbe6fbfbbad"
       ],
       "origin": [
         "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
       ],
-      "fingerprint": "d4794fb8778725fea41346187972aa864b612affded23c5a968cd19bb758a743",
+      "fingerprint": "9259cc5ee9fb9affb5fde0e57ef5a19a85324dbe727f5ac1d6ce6c91d4f7a856",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
@@ -11795,12 +11795,12 @@
       "file": "packages/client-core/src/demo/demo-replica.ts",
       "holder": "createDemoReplica",
       "rule": "reader-summary",
-      "tokens": "9e198fe684e28dadfd93b8d7d34df01ed331a3c5bf4aeff700def94e1eca15ec",
+      "tokens": "9a3e8f8e33cbfcc416dec5dcd9a8e0dbd59686304dfcffdda8c22008ea14d9b9",
       "gate": [],
       "origin": [
         "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
       ],
-      "fingerprint": "18534cc3496e2aaf08173b233abc1328a264a71c9baebbb89caa75430ada248d",
+      "fingerprint": "21a5f436fb2d211ab638103af88486eb8d683a0340a429c2efc0e3b41c8454da",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",

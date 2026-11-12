@@ -2,9 +2,12 @@
  * No screen state or record data is held here. UI values are owned by UiStore
  * and its persistence; transcript history has its own database. */
 
+import { createLogger } from '@podium/logger'
 import type { OutboxStorage } from '../../outbox'
 import { createOutboxStorage } from '../../runtime-root/outbox/storage'
 import type { StorageApi, StorageEventApi } from '../contract'
+
+const log = createLogger('client-core:side-cache')
 
 // The outbox's storage error, re-exported where the kernel replica's callers find it.
 export { OutboxNotDurableError } from '../../runtime-root/outbox/storage'
@@ -44,6 +47,14 @@ export interface SideCache {
   outboxDeadLetterStorage(): OutboxStorage
   /** Detach this principal's listeners before another principal opens. */
   dispose(): void
+  /**
+   * Refuse every later write through this cache: the principal's namespace is
+   * being erased (sign-out). Reads and removals still work. A writer that is
+   * still live when the erase starts (the screen document flushed by an
+   * unmounting pane, a draft, a queued write) would otherwise put the signed-out
+   * person's data back after it was removed (POD-6908).
+   */
+  seal(): void
 }
 
 /**
@@ -74,7 +85,22 @@ export function eraseLegacyTranscriptKeys(storage: StorageApi, keys: readonly st
 
 export function createSideCache(init: SideCacheInit): SideCache {
   const prefix = init.keyPrefix ?? 'podium.kernel-replica'
-  const { storage } = init
+  // Every writer of this principal's keys holds THIS object, never the raw
+  // storage, so one flag stops them all.
+  let sealed = false
+  const storage: StorageApi = {
+    getItem: (key) => init.storage.getItem(key),
+    setItem: (key, value) => {
+      if (sealed) {
+        log.debug('write refused after sign-out erase began', { key })
+        return
+      }
+      init.storage.setItem(key, value)
+    },
+    removeItem: (key) => init.storage.removeItem(key),
+  }
+  // Enumerate the real storage: the wrapper above has no keys of its own.
+  const enumerateKeys = init.enumerateKeys ?? (() => Object.keys(init.storage))
 
   // ---- outbox storage: the outbox service's (POD-6681) --------------------
   const outbox = createOutboxStorage({
@@ -89,12 +115,15 @@ export function createSideCache(init: SideCacheInit): SideCache {
     deviceStorage: () => ({
       storage,
       keyPrefix: prefix,
-      enumerateKeys: init.enumerateKeys,
+      enumerateKeys,
       flush: init.flush,
     }),
     outboxStorage: outbox.outboxStorage,
     outboxAwaitingStorage: outbox.outboxAwaitingStorage,
     outboxDeadLetterStorage: outbox.outboxDeadLetterStorage,
     dispose: () => {},
+    seal: () => {
+      sealed = true
+    },
   }
 }

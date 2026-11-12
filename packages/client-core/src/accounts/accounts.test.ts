@@ -539,4 +539,36 @@ describe('switching profiles and removing account data', () => {
     await Promise.all([disposal, erasure])
     expect(fallback).toHaveBeenCalledWith(ALICE)
   })
+
+  // POD-6908: sign-out, removal and a refused account all erase through here,
+  // while the screen may still be mounted and writing. The namespace closes the
+  // moment the erase is asked for, before it waits behind anything.
+  it('seals the principal storage as soon as an erase is requested, on every path', async () => {
+    const order: string[] = []
+    let closed!: () => void
+    const closing = new Promise<void>((resolve) => {
+      closed = resolve
+    })
+    const registry = createAccountEraser(async () => void order.push('erase closed'))
+    registry.register(ALICE, {
+      erasePrincipalData: async () => void order.push('erase live'),
+      dispose: async () => {},
+      sealPrincipalData: () => order.push('seal'),
+    })
+    await registry.erase(ALICE)
+    expect(order).toEqual(['seal', 'erase live'])
+
+    order.length = 0
+    const bob = registry.register(BOB, {
+      erasePrincipalData: async () => void order.push('erase live'),
+      dispose: () => closing,
+      sealPrincipalData: () => order.push('seal'),
+    })
+    const disposal = bob.dispose()
+    const erasure = registry.erase(BOB)
+    expect(order).toEqual(['seal'])
+    closed()
+    await Promise.all([disposal, erasure])
+    expect(order).toEqual(['seal', 'erase closed'])
+  })
 })

@@ -109,6 +109,12 @@ export interface ReplicaAssembly<T extends ReplicaDataStore = ReplicaDataStore> 
   /** This user's chat history store, when the host provides one. */
   readonly transcripts?: TranscriptStore
   settled(): Promise<void>
+  /**
+   * Refuse every later write to this principal's device storage (POD-6908).
+   * Synchronous, so the account eraser can close the namespace the moment an
+   * erase is requested, before the screen that still writes there unmounts.
+   */
+  sealPrincipalData(): void
   erasePrincipalData(): Promise<void>
   dispose(): Promise<void>
 }
@@ -404,8 +410,15 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
       progress,
       ...(transcriptStore ? { transcripts: transcriptStore } : {}),
       settled,
+      sealPrincipalData: () => side?.seal(),
       erasePrincipalData: async () => {
         erased = true
+        // Seal first. The app that wrote here may still be mounted while this
+        // runs (web sign-out starts the erase before the screen unmounts), and
+        // its teardown flushes screen state and drafts. Those writes land in
+        // the await below, so the emptiness check would fail; one that lands
+        // after the check would leave the person's data behind (POD-6908).
+        side?.seal()
         stop()
         await erasePrincipal(namespace, options.principal)
       },

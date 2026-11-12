@@ -109,6 +109,8 @@ export interface KernelAssembly {
   readonly store: IndexedDbSyncStore
   /** HTTP receive counts and durable replica events, observed by cold and warm UI. */
   readonly progress: SyncProgressStore
+  /** Refuse later writes to this principal's side cache (POD-6908). */
+  sealPrincipalData(): void
   /** Fail-closed sign-out: erase this principal's IDB and side-cache namespace. */
   erasePrincipalData(): Promise<void>
   dispose(): Promise<void>
