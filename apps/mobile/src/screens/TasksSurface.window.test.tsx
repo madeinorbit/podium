@@ -294,13 +294,10 @@ it('Tasks aligns nested separators, pads scalable content and keeps cell traits 
       offset: 22 + depth * 16,
     })
   }
-  // A freshly mounted row draws itself; the placeholder returns once the prime lapses.
+  // The row is there on first render, and stays once the prime lapses.
   expect(screen.getByText('Single task')).toBeTruthy()
   await lapsePrime()
-  expect(modifiers(slot.firstElementChild)).toContainEqual({
-    name: 'frame',
-    value: { height: 44 },
-  })
+  expect(screen.getByText('Single task')).toBeTruthy()
   act(() => fireEvent.mouseEnter(slot))
   expect(modifiers(slot).slice(-4)).toEqual(cellTraits)
   expect(modifiers(screen.getByText('Single task').parentElement).slice(0, 2)).toEqual([
@@ -333,7 +330,6 @@ it('Tasks aligns nested separators, pads scalable content and keeps cell traits 
   expect(newTask).toBeDefined()
   newTask?.onPress()
   expect(onNewTask).toHaveBeenCalledOnce()
-  // A taller measured row keeps its height when it leaves the active window.
   const rootModifiers = state.slot.mock.calls.findLast(([modifiers]) =>
     modifiers.some(
       (modifier: { name: string; offset?: number }) =>
@@ -344,11 +340,9 @@ it('Tasks aligns nested separators, pads scalable content and keeps cell traits 
     (modifier: { name: string }) => modifier.name === 'onGeometryChange',
   ).value
   act(() => measured({ height: 60 }))
+  // A short lane never leaves the window: the row stays, not a placeholder.
   act(() => fireEvent.mouseLeave(slot))
-  expect(modifiers(slot.firstElementChild)).toContainEqual({
-    name: 'frame',
-    value: { height: 60 },
-  })
+  expect(screen.getByText('Single task')).toBeTruthy()
   expect(modifiers(slot).slice(-4)).toEqual(cellTraits)
 })
 
@@ -400,11 +394,12 @@ it('native placeholders activate a bounded window both ways; only age labels rea
   )
   const slots = screen.getAllByTestId('slot')
   expect(slots).toHaveLength(199)
-  // The first window draws on mount, then hands over to the viewport window.
+  // Rows are there on first render, before any native cell reports appearing,
+  // and the window keeps them once the prime lapses.
   expect(screen.getAllByText(/^Task \d+$/)).toHaveLength(MOBILE_TASK_WINDOW_SIZE)
+  expect(screen.getByText('Task 0')).toBeTruthy()
   await lapsePrime()
-  expect(screen.queryAllByText(/^Task \d+$/)).toHaveLength(0)
-  state.age.mockClear()
+  expect(screen.getAllByText(/^Task \d+$/)).toHaveLength(MOBILE_TASK_WINDOW_SIZE)
   act(() => fireEvent.mouseEnter(slots[0]!))
   expect(screen.getAllByText(/^Task \d+$/)).toHaveLength(MOBILE_TASK_WINDOW_SIZE)
   // Task 0 has a progress label, so it must not subscribe to age.
@@ -429,8 +424,10 @@ it('native placeholders activate a bounded window both ways; only age labels rea
   })
   expect(screen.getByText('Task 0')).toBeTruthy()
   expect(screen.getAllByText(/^Task \d+$/)).toHaveLength(MOBILE_TASK_WINDOW_SIZE)
+  // Every cell leaving (a hidden tab) keeps the window mounted for the return.
   act(() => fireEvent.mouseLeave(slots[0]!))
-  expect(screen.queryAllByText(/^Task \d+$/)).toHaveLength(0)
+  expect(screen.getAllByText(/^Task \d+$/)).toHaveLength(MOBILE_TASK_WINDOW_SIZE)
+  expect(screen.getByText('Task 0')).toBeTruthy()
   // Search temporarily reveals hits in saved folded groups; clearing restores the fold.
   state.folded = true
   act(() => board.search('Task 150'))
@@ -529,5 +526,8 @@ it('Work keeps its native list and unchanged slots quiet during a one-row scroll
   view.unmount()
   expect(otherSlots[31]?.textContent).toBe(rowText)
   other.unmount()
-  expect(state.work.phone.activeSections[0]?.window.visibleRows).toHaveLength(0)
+  // Unmount drops appearances; a remount starts from the top window again.
+  expect(state.work.phone.activeSections[0]?.window.visibleRows).toHaveLength(
+    MOBILE_TASK_WINDOW_SIZE,
+  )
 })

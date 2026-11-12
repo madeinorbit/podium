@@ -75,8 +75,11 @@ export class RowWindow<T> {
     return Math.max(0, (this.positions.get(this.anchor) ?? -1) - ROW_WINDOW_SIZE / 2)
   }
 
+  /** Always a full window: the top rows before native cells report appearing (first
+   * render, so text is there on tab open), and the last anchor after they all leave
+   * (a hidden tab), so returning never shows placeholders. */
   @lazy get windowEnd(): number {
-    return this.appeared.size ? this.windowStart + ROW_WINDOW_SIZE : this.windowStart
+    return this.windowStart + ROW_WINDOW_SIZE
   }
 
   @lazy({ equals: compareShallow }) get visibleRows(): readonly T[] {

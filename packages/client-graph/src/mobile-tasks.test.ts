@@ -356,7 +356,8 @@ it('releases offscreen row observers while scrolling forward and back through a 
     }),
   )
   expect(lane.rows).toHaveLength(400)
-  expect(lane.window.visibleRows).toHaveLength(0)
+  // The top window renders before native cells report appearing.
+  expect(lane.window.visibleRows).toHaveLength(MOBILE_TASK_WINDOW_SIZE)
   lane.window.appear(lane.rows[0]!.id)
   expect(lane.window.visibleRows).toHaveLength(MOBILE_TASK_WINDOW_SIZE)
   for (let index = 1; index < 390; index++) {
@@ -381,8 +382,10 @@ it('releases offscreen row observers while scrolling forward and back through a 
   lane.window.disappear(lane.rows[389]!.id)
   expect(lane.window.visibleRows[0]!.id).toBe(lane.rows[0]!.id)
   expect(lane.window.visibleRows).toHaveLength(MOBILE_TASK_WINDOW_SIZE)
+  // A hidden tab keeps the last window mounted for its return.
   lane.window.disappear(lane.rows[0]!.id)
-  expect(lane.window.visibleRows).toHaveLength(0)
+  expect(lane.window.visibleRows[0]!.id).toBe(lane.rows[0]!.id)
+  expect(lane.window.visibleRows).toHaveLength(MOBILE_TASK_WINDOW_SIZE)
 })
 
 it('reads glyphs from cold session summaries without loading archived history', async () => {

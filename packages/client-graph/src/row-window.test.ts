@@ -2,9 +2,27 @@ import { autorun, observable, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { ROW_WINDOW_SIZE, RowWindow } from './row-window'
 
-it('keeps a row visible until every native presentation leaves it', () => {
+it('renders the top rows before any native cell reports appearing', () => {
+  const rows = Array.from({ length: 100 }, (_, i) => `row-${i}`)
   const window = new RowWindow(
-    () => ['working', 'timer'],
+    () => rows,
+    (id) => id,
+  )
+  const values = new Map<string, boolean>()
+  const stops = rows.map((id) => autorun(() => values.set(id, window.has(id))))
+  try {
+    expect(values.get('row-0')).toBe(true)
+    expect(values.get(`row-${ROW_WINDOW_SIZE - 1}`)).toBe(true)
+    expect(values.get(`row-${ROW_WINDOW_SIZE}`)).toBe(false)
+  } finally {
+    for (const stop of stops) stop()
+  }
+})
+
+it('keeps a row visible until every native presentation leaves it', () => {
+  const rows = ['working', ...Array.from({ length: 100 }, (_, i) => `row-${i}`)]
+  const window = new RowWindow(
+    () => rows,
     (id) => id,
   )
   const workSlot = {},
@@ -14,6 +32,8 @@ it('keeps a row visible until every native presentation leaves it', () => {
   try {
     window.appear('working', workSlot)
     window.appear('working', searchSlot)
+    // The viewport moves on; 'working' stays only while a cell still shows it.
+    window.appear('row-90', {})
     window.disappear('working', searchSlot)
     expect(values.at(-1)).toBe(true)
     window.disappear('working', searchSlot)
@@ -87,15 +107,17 @@ it.each([400, 1600])('notifies only entering/leaving slots among %i rows', (size
     for (const stop of stops) stop()
     stopList()
   }
-  // Unmount releases appearances as well as the source subscription.
-  expect(window.visibleRows).toHaveLength(0)
+  // Unmount releases appearances as well as the source subscription: back to the top window.
+  expect(window.visibleRows).toEqual(rows.slice(0, ROW_WINDOW_SIZE))
   identify.mockClear()
   runInAction(() => rows.reverse())
   expect(identify).not.toHaveBeenCalled()
   const stop = autorun(() => window.has(rows[0]!))
-  expect(window.has(rows[0]!)).toBe(false)
-  window.appear(rows[0]!)
+  // A remount shows the top rows at once, before any native appearance.
   expect(window.has(rows[0]!)).toBe(true)
+  expect(window.has(rows[ROW_WINDOW_SIZE]!)).toBe(false)
+  window.appear(rows[ROW_WINDOW_SIZE]!)
+  expect(window.has(rows[ROW_WINDOW_SIZE]!)).toBe(true)
   stop()
 })
 
@@ -123,8 +145,10 @@ it('reindexes on source edits and ignores appearance callbacks for removed rows'
     window.appear('row-50')
     window.disappear('row-50')
     expect(window.visibleRows).toEqual(before)
+    // Every cell leaving (a hidden tab) keeps the last window mounted for the return.
     window.disappear('row-80')
-    expect([...values.values()].some(Boolean)).toBe(false)
+    expect([...values.values()].filter(Boolean)).toHaveLength(ROW_WINDOW_SIZE)
+    expect(values.get('row-80')).toBe(true)
   } finally {
     for (const stop of stops) stop()
   }

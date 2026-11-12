@@ -327,7 +327,8 @@ it('uses the same bounded native viewport for Work project rows in both directio
   })
   const section = phone.sections.find((section) => section.ids.includes('many-0'))!
   const window = section.window
-  expect(window.visibleRows).toHaveLength(0)
+  // The top window renders before native cells report appearing.
+  expect(window.visibleRows).toEqual(section.ids.slice(0, 40))
   window.appear(section.ids[0]!)
   expect(window.visibleRows).toHaveLength(40)
   const first = section.ids[0]!
@@ -341,6 +342,8 @@ it('uses the same bounded native viewport for Work project rows in both directio
   window.disappear(later)
   expect(window.visibleRows).toContain(first)
   expect(window.visibleRows).not.toContain(later)
+  // A hidden tab keeps the last window mounted for its return.
   window.disappear(first)
-  expect(window.visibleRows).toHaveLength(0)
+  expect(window.visibleRows).toHaveLength(40)
+  expect(window.visibleRows).toContain(first)
 })
