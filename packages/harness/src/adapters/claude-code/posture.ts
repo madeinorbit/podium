@@ -128,9 +128,15 @@ const CLAUDE_STATE_FILE = claudeCredentials.files.find((file) => file.kind === '
  * That file sits in the home unless the context selects a config folder:
  * Claude reads `join(CLAUDE_CONFIG_DIR || homedir(), '.claude.json')`, and the
  * stream engine pins `CLAUDE_CONFIG_DIR` (read in the 2.1.323 bundle).
+ *
+ * A selected config folder is Podium's own agent home: its `.claude.json` does
+ * not exist until Claude's first start there, so the edit may create it, and
+ * the very first launch is trusted too. The person's own `~/.claude.json` is
+ * never created by Podium.
  */
 function trustEdit(request: PostureRequest): HomeEdit {
   if (!CLAUDE_STATE_FILE) throw new Error('Claude credentials declare no .claude.json layout')
+  const configDir = request.context.env.CLAUDE_CONFIG_DIR?.trim()
   const file = resolveCredentialFilePath(
     { ...CLAUDE_STATE_FILE, homeEnvVar: 'CLAUDE_CONFIG_DIR' },
     request.context.home,
@@ -142,5 +148,6 @@ function trustEdit(request: PostureRequest): HomeEdit {
     path: ['projects', request.repoRoot ?? request.workdir, 'hasTrustDialogAccepted'],
     value: true,
     serves: 'workspace-trust',
+    ...(configDir ? { createIfMissing: true as const } : {}),
   }
 }

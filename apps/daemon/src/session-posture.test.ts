@@ -93,6 +93,9 @@ describe('prepareLaunch', () => {
       writeFileAtomic: async () => {
         throw new Error('unreachable')
       },
+      createFileExclusive: async () => {
+        throw new Error('unreachable')
+      },
       log: () => {},
     }
     const file = { path: '/run/s/settings.json', contents: '{}' }
@@ -118,6 +121,7 @@ describe('prepareLaunch', () => {
       writeFileAtomic: async (_path, contents) => {
         body = contents
       },
+      createFileExclusive: async () => false,
       log: () => {},
     }
     const applied = await prepareLaunch({ files: [], terms: terms([trust]) }, ports(working).ports)

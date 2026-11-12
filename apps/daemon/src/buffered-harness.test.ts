@@ -48,6 +48,7 @@ describe('a buffered run without a working folder (POD-6858)', () => {
     const makeTempPath = vi.fn(() => '/tmp/never.json')
     const readFile = vi.fn(async () => undefined)
     const writeFileAtomic = vi.fn(async () => {})
+    const createFileExclusive = vi.fn(async () => true)
     const writeLaunchFile = vi.fn(async () => {})
     const { cwd: _cwd, ...noCwd } = req({ mcpConfig: JSON.stringify({ mcpServers: {} }) })
     const result = await executeBufferedHarnessTurn(
@@ -59,7 +60,7 @@ describe('a buffered run without a working folder (POD-6858)', () => {
         makeTempPath,
         prepareLaunchPorts: {
           writeLaunchFile,
-          homeEdits: { readFile, writeFileAtomic, log: () => {} },
+          homeEdits: { readFile, writeFileAtomic, createFileExclusive, log: () => {} },
           log: () => {},
         },
       },
@@ -71,6 +72,7 @@ describe('a buffered run without a working folder (POD-6858)', () => {
     expect(runChild).not.toHaveBeenCalled()
     expect(readFile).not.toHaveBeenCalled()
     expect(writeFileAtomic).not.toHaveBeenCalled()
+    expect(createFileExclusive).not.toHaveBeenCalled()
     expect(writeLaunchFile).not.toHaveBeenCalled()
   })
 })

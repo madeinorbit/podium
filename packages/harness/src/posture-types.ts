@@ -91,6 +91,14 @@ export type HomeEdit =
       path: readonly string[]
       value: JsonValue
       serves: PostureRequirement
+      /**
+       * Create the file, holding only this key, when it does not exist yet.
+       * Only for a file in a home Podium owns (an agent home whose config
+       * folder Podium selects), never for the person's own file: the harness
+       * would create it on its first start anyway, and until then the edit
+       * would otherwise go unmet.
+       */
+      createIfMissing?: true
     }
 
 /** A requirement this harness cannot meet in this launch mode, and why. */

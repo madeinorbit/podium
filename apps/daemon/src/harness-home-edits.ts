@@ -19,7 +19,17 @@
  * There is no ledger and no undo: the edits are re-derived at every launch.
  */
 import { randomBytes } from 'node:crypto'
-import { chmod, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
+import {
+  chmod,
+  link,
+  mkdir,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import type { HomeEdit } from '@podium/harness'
 
@@ -32,6 +42,12 @@ export interface HomeEditPorts {
   readFile(path: string): Promise<string | undefined>
   /** Write beside the file and rename over it, creating its folder when missing. */
   writeFileAtomic(path: string, contents: string): Promise<void>
+  /**
+   * Create the file with `contents`, private to its owner, only if nothing is
+   * at the path: `false` when something already is, which is left untouched.
+   * Creates its folder when missing.
+   */
+  createFileExclusive(path: string, contents: string): Promise<boolean>
   log(message: string, fields: Record<string, unknown>): void
 }
 
@@ -112,11 +128,26 @@ async function applyJsonKey(edit: JsonKeyEdit, ports: HomeEditPorts): Promise<Ho
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
     const body = await ports.readFile(edit.file)
     if (body === undefined) {
-      return {
-        edit,
-        status: 'failed',
-        reason: `the harness has not created this file yet: ${edit.file}`,
+      if (!edit.createIfMissing) {
+        return {
+          edit,
+          status: 'failed',
+          reason: `the harness has not created this file yet: ${edit.file}`,
+        }
       }
+      // A file in a home Podium owns: start it from an empty object. Created
+      // exclusively, so a file the harness wrote in the meantime is never
+      // replaced; the next attempt edits that file instead.
+      const created = planJsonKey('{}', edit)
+      if ('reason' in created || created.next === undefined) {
+        return { edit, status: 'failed', reason: `could not plan a new ${edit.file}` }
+      }
+      if (await ports.createFileExclusive(edit.file, created.next)) {
+        wrote = true
+        const after = await ports.readFile(edit.file)
+        if (after !== undefined && holdsValue(after, edit)) return { edit, status: 'applied' }
+      }
+      continue
     }
     const planned = planJsonKey(body, edit)
     if ('reason' in planned) return { edit, status: 'failed', reason: planned.reason }
@@ -262,6 +293,28 @@ export function nodeHomeEditPorts(log: HomeEditPorts['log']): HomeEditPorts {
       } catch (err) {
         await rm(temp, { force: true })
         throw err
+      }
+    },
+    async createFileExclusive(path, contents) {
+      // Written in full beside the target, then hard-linked into place: the
+      // link fails when anything is already at the path, so a file another
+      // program created first is never replaced, and no reader ever sees a
+      // half-written one.
+      const folder = dirname(path)
+      await mkdir(folder, { recursive: true })
+      const temp = join(
+        folder,
+        `.${basename(path)}.podium-${process.pid}-${randomBytes(4).toString('hex')}.tmp`,
+      )
+      try {
+        await writeFile(temp, contents, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
+        await link(temp, path)
+        return true
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'EEXIST') return false
+        throw err
+      } finally {
+        await rm(temp, { force: true })
       }
     },
     log,

@@ -276,6 +276,7 @@ describe('the claude stream engine host', () => {
           path: ['projects', '/project', 'hasTrustDialogAccepted'],
           value: true,
           serves: 'workspace-trust',
+          createIfMissing: true,
         },
       ],
       requestedMode: 'auto',

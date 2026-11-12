@@ -22,6 +22,13 @@ function memoryPorts() {
       writes.push({ path, contents })
       fs.set(path, contents)
     },
+    async createFileExclusive(path, contents) {
+      await Promise.resolve()
+      if (fs.has(path)) return false
+      writes.push({ path, contents })
+      fs.set(path, contents)
+      return true
+    },
     log(message, fields) {
       logs.push({ message, fields })
     },
@@ -157,6 +164,30 @@ describe('applyHomeEdits', () => {
     expect(fs.has(F)).toBe(false)
   })
 
+  it('creates a missing file holding only the key when the edit allows it', async () => {
+    const { get, writes, ports } = memoryPorts()
+    const out = await applyHomeEdits([{ ...trust('/r'), createIfMissing: true }], ports)
+    expect(out[0]?.status).toBe('applied')
+    expect(JSON.parse(get(F))).toEqual({ projects: { '/r': { hasTrustDialogAccepted: true } } })
+    expect(writes).toHaveLength(1)
+  })
+
+  it('never replaces a file another program created first; it edits that file instead', async () => {
+    const { fs, get, ports } = memoryPorts()
+    // The harness creates its file between Podium's read and Podium's create.
+    const create = ports.createFileExclusive
+    ports.createFileExclusive = async (path, contents) => {
+      fs.set(path, '{"userID":"abc","projects":{"/x":{"k":1}}}')
+      return create(path, contents)
+    }
+    const out = await applyHomeEdits([{ ...trust('/r'), createIfMissing: true }], ports)
+    expect(out[0]?.status).toBe('applied')
+    expect(JSON.parse(get(F))).toEqual({
+      userID: 'abc',
+      projects: { '/x': { k: 1 }, '/r': { hasTrustDialogAccepted: true } },
+    })
+  })
+
   it('fails on a file that is not JSON and leaves it untouched', async () => {
     const { fs, get, writes, ports } = memoryPorts()
     fs.set(F, '{"projects": {')
@@ -282,6 +313,19 @@ describe('nodeHomeEditPorts', () => {
     expect(await ports.readFile(file)).toBeUndefined()
     await ports.writeFileAtomic(file, 'x')
     expect(await readFile(file, 'utf8')).toBe('x')
+  })
+
+  it('creates a file exclusively, private to its owner, and never over an existing one', async () => {
+    const ports = nodeHomeEditPorts(() => {})
+    const file = join(dir, 'home', '.claude', '.claude.json')
+    expect(await ports.createFileExclusive(file, '{"a":1}')).toBe(true)
+    expect(await readFile(file, 'utf8')).toBe('{"a":1}')
+    if (process.platform !== 'win32') expect((await stat(file)).mode & 0o777).toBe(0o600)
+    expect(await ports.createFileExclusive(file, '{"b":2}')).toBe(false)
+    expect(await readFile(file, 'utf8')).toBe('{"a":1}')
+    // No temporary file is left beside it.
+    const { readdir } = await import('node:fs/promises')
+    expect(await readdir(join(dir, 'home', '.claude'))).toEqual(['.claude.json'])
   })
 
   it.skipIf(process.platform === 'win32')(

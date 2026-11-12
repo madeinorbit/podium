@@ -165,7 +165,18 @@ describe('claudeCodePosture', () => {
       resumeLaunch,
       request('engine', { mode: 'autonomous' }, { context: selected }),
     )
-    expect(out.homeEdits).toEqual([{ ...TRUST_EDIT, file: `${HOME}/.claude/.claude.json` }])
+    // Podium's own agent home: the file may be created on the first launch.
+    expect(out.homeEdits).toStrictEqual([
+      { ...TRUST_EDIT, file: `${HOME}/.claude/.claude.json`, createIfMissing: true },
+    ])
+  })
+
+  it("never creates the person's own ~/.claude.json", () => {
+    for (const mode of LAUNCH_MODES) {
+      const out = claudeCodePosture(resumeLaunch, request(mode, { mode: 'autonomous' }))
+      expect(out.homeEdits).toStrictEqual([TRUST_EDIT])
+      expect(out.homeEdits[0]).not.toHaveProperty('createIfMissing')
+    }
   })
 
   it('keeps a folder path with a space, a quote and non-ASCII as one argv token per rule', () => {
