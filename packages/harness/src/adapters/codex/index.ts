@@ -29,6 +29,7 @@ import { createCodexConversationProvider } from './discovery.js'
 import { codexInstall } from './install.js'
 import { codexInstrumentation } from './instrumentation.js'
 import { createOwnedCodexRolloutResolver, hostProcessInspection } from './owned-rollout.js'
+import { codexPosture } from './posture.js'
 import { codexRoots } from './roots.js'
 import {
   codexStateProvider,
@@ -318,6 +319,7 @@ export const codexManifest: AgentManifest = {
   usage: supported(codexUsage),
   install: supported(codexInstall),
 
+  posture: codexPosture,
   launch(opts) {
     // [spec:SP-fccf] Session identity never enters model-visible instructions.
     // Official hooks bind the stable Podium pane id to Codex's native thread id.

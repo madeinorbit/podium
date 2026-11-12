@@ -31,6 +31,7 @@ import {
   claudeCodeInstrumentation,
   configureClaudeTranscriptClassifier,
 } from './instrumentation.js'
+import { claudeCodePosture } from './posture.js'
 import { claudeRoots } from './roots.js'
 import { claudeProjectSlug, locateClaudeSessionFile } from './state-locate.js'
 import { claudeCodeStateProvider } from './state-provider.js'
@@ -184,6 +185,7 @@ export const claudeCodeManifest: AgentManifest = {
   usage: supported(claudeUsage),
   install: supported(claudeCodeInstall),
 
+  posture: claudeCodePosture,
   launch(opts) {
     const instructions = composeAgentInstructions(opts.instructions)
     return {

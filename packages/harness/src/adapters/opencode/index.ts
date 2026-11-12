@@ -19,6 +19,7 @@ import { opencodeDescriptor } from './descriptor.js'
 import { createOpencodeConversationProvider } from './discovery.js'
 import { opencodeInstall } from './install.js'
 import { opencodeDataRoot, opencodeDbPathForSession } from './paths.js'
+import { opencodePosture } from './posture.js'
 import { observeOpencodeState, opencodeStateProvider } from './state.js'
 import { opencodePromptTextMatches, opencodeTranscript } from './transcript.js'
 import { opencodeUsage } from './usage.js'
@@ -114,6 +115,7 @@ export const opencodeManifest: AgentManifest = {
   usage: opencodeUsage,
   install: opencodeInstall,
 
+  posture: opencodePosture,
   launch(opts) {
     const databasePath = opencodeDbPathForSession({
       homeDir: opts.harnessContext.home,

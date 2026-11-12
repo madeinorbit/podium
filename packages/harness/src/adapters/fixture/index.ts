@@ -14,6 +14,7 @@ import {
 import { fixtureCatalog } from './catalog.js'
 import { fixtureDescriptor } from './descriptor.js'
 import { createFixtureConversationProvider } from './discovery.js'
+import { fixturePosture } from './posture.js'
 import { fixtureStateProvider } from './state.js'
 import { fixtureChainPaths, fixtureHandoffTranscript, fixtureTranscript } from './transcript.js'
 
@@ -123,6 +124,7 @@ export const fixtureManifest: AgentManifest = {
     'The fixture CLI is not distributed — tests point PATH at a double, there is no installer to run',
   ),
 
+  posture: fixturePosture,
   launch(opts) {
     const instructions = composeAgentInstructions(opts.instructions)
     return {

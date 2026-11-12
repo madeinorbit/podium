@@ -26,6 +26,7 @@ import { grokDescriptor } from './descriptor.js'
 import { createGrokConversationProvider } from './discovery.js'
 import { grokInstall } from './install.js'
 import { grokInstrumentation, grokSessionPaths } from './instrumentation.js'
+import { grokPosture } from './posture.js'
 import { locateGrokTranscript } from './state-locate.js'
 import { grokStateProvider, observeGrokState } from './state-provider.js'
 import { grokTranscript } from './transcript.js'
@@ -165,6 +166,7 @@ export const grokManifest: AgentManifest = {
   usage: supported(grokUsage),
   install: supported(grokInstall),
 
+  posture: grokPosture,
   launch(opts) {
     const instructions = composeAgentInstructions(opts.instructions)
     return {

@@ -20,6 +20,7 @@ import { piCredentials } from './credentials.js'
 import { piDescriptor } from './descriptor.js'
 import { createPiConversationProvider } from './discovery.js'
 import { piInstall } from './install.js'
+import { piPosture } from './posture.js'
 import { observePiState, piStateProvider } from './state.js'
 import { piTranscript } from './transcript.js'
 import { piUsage } from './usage.js'
@@ -225,6 +226,7 @@ export const piManifest: AgentManifest = {
   usage: piUsage,
   install: piInstall,
 
+  posture: piPosture,
   launch(opts) {
     const instructions = composeAgentInstructions(opts.instructions)
     return {
