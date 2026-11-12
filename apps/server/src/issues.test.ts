@@ -423,7 +423,7 @@ describe('IssueService single-issue publish', () => {
       .filter((row) => row.entity === undefined || row.entity === 'issueProjection')
 
   it('a self-contained update serializes ONE wire and publishes ONE row', async () => {
-    const { svc, deps } = await harness()
+    const { svc, store, deps } = await harness()
     const a = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'A',
@@ -439,7 +439,9 @@ describe('IssueService single-issue publish', () => {
     const published = rows(deps)
     expect(published).toHaveLength(1)
     expect(published[0]).toMatchObject({ id: a.id, op: 'upsert' })
-    expect((published[0]?.value as { brief?: string }).brief).toBe('note')
+    // The brief is a body: the slim record omits it, and the row stores it.
+    expect(published[0]?.value).not.toHaveProperty('brief')
+    expect((await store.issues.getIssue(a.id))?.brief).toBe('note')
     // B is untouched — the bystander a full-list rebuild would have re-sent.
     expect(published.some((row) => row.id !== a.id)).toBe(false)
   })
@@ -967,7 +969,7 @@ describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {
     expect((await h.svc.reports.get(withLive.id))?.archived).toBe(false)
     expect((await h.svc.reports.get(done.id))?.archived).toBe(true)
     // The open child's agent keeps its session — the cascade never touched it.
-    expect(h.setSessionArchived).not.toHaveBeenCalledWith('/r/wt-live', true)
+    expect(h.setSessionArchived).not.toHaveBeenCalledWith(expect.anything(), '/r/wt-live', true)
   })
 })
 
@@ -1110,9 +1112,9 @@ describe('IssueService close retires session offers (POD-290)', () => {
     await svc.crud.close(svc.reports.store.serverWriter, w.id)
 
     expect(clearSessionOffer).toHaveBeenCalledTimes(2)
-    expect(clearSessionOffer).toHaveBeenCalledWith('/r/wt/delegate')
-    expect(clearSessionOffer).toHaveBeenCalledWith('/r/wt/coord')
-    expect(clearSessionOffer).not.toHaveBeenCalledWith('/elsewhere')
+    expect(clearSessionOffer).toHaveBeenCalledWith(expect.anything(), '/r/wt/delegate')
+    expect(clearSessionOffer).toHaveBeenCalledWith(expect.anything(), '/r/wt/coord')
+    expect(clearSessionOffer).not.toHaveBeenCalledWith(expect.anything(), '/elsewhere')
   })
 
   it('board drag / CLI update({ stage: done }) retires offers the same way', async () => {
@@ -1129,7 +1131,7 @@ describe('IssueService close retires session offers (POD-290)', () => {
     await svc.crud.update(svc.reports.store.serverWriter, w.id, { stage: 'done' })
 
     expect(clearSessionOffer).toHaveBeenCalledTimes(1)
-    expect(clearSessionOffer).toHaveBeenCalledWith('/r/wt')
+    expect(clearSessionOffer).toHaveBeenCalledWith(expect.anything(), '/r/wt')
   })
 
   it('skips sessions without an offer and is a no-op on re-close', async () => {
@@ -1146,7 +1148,7 @@ describe('IssueService close retires session offers (POD-290)', () => {
 
     await svc.crud.close(svc.reports.store.serverWriter, w.id)
     expect(clearSessionOffer).toHaveBeenCalledTimes(1)
-    expect(clearSessionOffer).toHaveBeenCalledWith('/r/wt/offer')
+    expect(clearSessionOffer).toHaveBeenCalledWith(expect.anything(), '/r/wt/offer')
 
     clearSessionOffer.mockClear()
     await svc.crud.close(svc.reports.store.serverWriter, w.id)
@@ -1172,7 +1174,7 @@ describe('IssueService close retires session offers (POD-290)', () => {
 
     await svc.crud.close(svc.reports.store.serverWriter, w.id)
 
-    expect(clearSessionOffer).toHaveBeenCalledWith('attached')
+    expect(clearSessionOffer).toHaveBeenCalledWith(expect.anything(), 'attached')
   })
 })
 
@@ -1193,9 +1195,9 @@ describe('IssueService archive cascade to sessions (#133)', () => {
     await svc.attention.archive(svc.reports.store.serverWriter, w.id)
     // Both member sessions (cwd inside the worktree) are archived; the outsider is not.
     expect(setSessionArchived).toHaveBeenCalledTimes(2)
-    expect(setSessionArchived).toHaveBeenCalledWith('/r/wt', true)
-    expect(setSessionArchived).toHaveBeenCalledWith('/r/wt/pkg', true)
-    expect(setSessionArchived).not.toHaveBeenCalledWith('/elsewhere', true)
+    expect(setSessionArchived).toHaveBeenCalledWith(expect.anything(), '/r/wt', true)
+    expect(setSessionArchived).toHaveBeenCalledWith(expect.anything(), '/r/wt/pkg', true)
+    expect(setSessionArchived).not.toHaveBeenCalledWith(expect.anything(), '/elsewhere', true)
   })
 
   it('a context-menu / CLI update({ archived: true }) cascades the same way', async () => {
@@ -1208,7 +1210,7 @@ describe('IssueService archive cascade to sessions (#133)', () => {
     await svc.crud.update(svc.reports.store.serverWriter, w.id, { worktreePath: '/r/wt' })
     setSessionArchived.mockClear()
     await svc.crud.update(svc.reports.store.serverWriter, w.id, { archived: true })
-    expect(setSessionArchived).toHaveBeenCalledWith('/r/wt', true)
+    expect(setSessionArchived).toHaveBeenCalledWith(expect.anything(), '/r/wt', true)
   })
 
   it('the S5 auto-archive sweep also archives member sessions so the worktree row disappears', async () => {
@@ -1226,7 +1228,7 @@ describe('IssueService archive cascade to sessions (#133)', () => {
     const nowMs = Date.parse('2026-06-30T00:00:00.000Z')
     const archived = await svc.attention.sweepAutoArchive(nowMs + 8 * 24 * 3600_000)
     expect(archived.map((a) => a.id)).toEqual([w.id])
-    expect(setSessionArchived).toHaveBeenCalledWith('/r/wt', true)
+    expect(setSessionArchived).toHaveBeenCalledWith(expect.anything(), '/r/wt', true)
   })
 
   it('un-archiving an issue does NOT cascade (sessions stay archived unless restored explicitly)', async () => {
@@ -1280,7 +1282,7 @@ describe('IssueService archive cascade to sessions (#133)', () => {
     expect((await svc.reports.get(open.id))?.archived).toBe(true)
     expect((await svc.reports.get(unread.id))?.archived).toBe(true)
     expect((await svc.reports.get(grandchild.id))?.archived).toBe(true)
-    expect(setSessionArchived).toHaveBeenCalledWith('/r/wt-live', true)
+    expect(setSessionArchived).toHaveBeenCalledWith(expect.anything(), '/r/wt-live', true)
   })
 
   it('context-menu update({ archived: true }) takes the same descendant walk', async () => {
@@ -1354,8 +1356,8 @@ describe('IssueService archive cascade to sessions (#133)', () => {
     setSessionArchived.mockClear()
     await svc.attention.archive(svc.reports.store.serverWriter, w.id)
     expect(setSessionArchived).toHaveBeenCalledTimes(1)
-    expect(setSessionArchived).toHaveBeenCalledWith('/r/wt/live', true)
-    expect(setSessionArchived).not.toHaveBeenCalledWith('/r/wt/gone', true)
+    expect(setSessionArchived).toHaveBeenCalledWith(expect.anything(), '/r/wt/live', true)
+    expect(setSessionArchived).not.toHaveBeenCalledWith(expect.anything(), '/r/wt/gone', true)
   })
 })
 
@@ -1498,7 +1500,7 @@ describe('archive frees the worktree, keeping the branch (POD-567)', () => {
     // Not even inspected: the guard runs before any git op on the path.
     expect(ops.some((o) => o.op === 'worktreeRemove')).toBe(false)
     expect((await h.svc.reports.get(id))!.worktreePath).toBe('/r/.worktrees/issue-x')
-    expect(h.setSessionArchived).not.toHaveBeenCalledWith('/r/.worktrees/issue-x', true)
+    expect(h.setSessionArchived).not.toHaveBeenCalledWith(expect.anything(), '/r/.worktrees/issue-x', true)
     expect(
       (await h.store.events.listEventsSince(0, { kinds: ['issue.worktree_free_refused'] })).length,
     ).toBe(1)
@@ -3402,9 +3404,11 @@ describe('IssueService assistant', () => {
       branch: 'issue/1-x',
       stage: 'planning',
     })
-    const wire = await svc.gitWorkflow.refreshAssistant(c.id)
-    expect(wire.activityNotes).toBe('making progress')
-    expect(wire.suggestedStage).toBe('in_progress')
+    await svc.gitWorkflow.refreshAssistant(c.id)
+    // Activity notes are a body, not part of the slim record: read the row.
+    const row = await svc.reports.store.deps.store.issues.getIssue(c.id)
+    expect(row?.activityNotes).toBe('making progress')
+    expect(row?.suggestedStage).toBe('in_progress')
   })
 
   it('a refused server-AI call stays non-throwing but records the actionable error (POD-4805)', async () => {
@@ -6616,7 +6620,7 @@ describe('IssueService panelApply (agent-published human panel)', () => {
           index: 1,
         })
       ).panel?.todos,
-    ).toEqual([{ text: 'second', done: false }])
+    ).toMatchObject([{ text: 'second', done: false }])
     await expect(
       svc.crud.panelApply(svc.reports.store.serverWriter, w.id, { op: 'todo-done', index: 9 }),
     ).rejects.toThrow(/no item 9/)
@@ -6657,7 +6661,9 @@ describe('IssueService panelApply (agent-published human panel)', () => {
     // reload from the same store: panel round-trips through the DB
     const svc2 = await IssueService.create(deps)
     expect((await svc2.reports.get(w.id))?.panel?.artifacts[0]?.title).toBe('v2')
-    expect((await store.issues.getIssue(w.id))?.panel).toContain('a.png')
+    expect((await store.issues.panel.read(w.id)).artifacts).toMatchObject([
+      { path: 'shots/a.png', title: 'v2' },
+    ])
   })
 
   it('no panel published → wire has no panel field', async () => {

@@ -217,7 +217,8 @@ describe('statement counts of the machine record writes', () => {
 
   it('a grant write does not grow with the members or the fleet', async () => {
     // Observed at both sizes on the supplied epic base, before reach batching.
-    await expectConstantStatements(grantWrite, 25)
+    // POD-6864: re-measured on integrate/6253-sync-log 964ad37114: 25 -> 24.
+    await expectConstantStatements(grantWrite, 24)
   })
 
   it('a member role comparison reads a fixed number of times across the fleet', async () => {

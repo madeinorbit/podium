@@ -223,12 +223,14 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
   // commit. tRPC to a session 62 -> 71, its issue holding mail 70 -> 79, to an
   // issue 15 -> 18; relayed (the agent's principal is resolved for the target
   // check and for the handler) 53 -> 66, 61 -> 74, 19 -> 26; mailSend 25 -> 26.
+  // POD-6864: re-measured on integrate/6253-sync-log 964ad37114 at both
+  // sizes: to a session 119 -> 118, its issue holding mail 126 -> 125.
   it('over tRPC, to a running session', async () => {
-    await expectConstantStatements(trpcToSession, 119)
+    await expectConstantStatements(trpcToSession, 118)
   })
 
   it('tRPC pin is armed', async () => {
-    await expectArmed(trpcToSession, 119, plantPerSession)
+    await expectArmed(trpcToSession, 118, plantPerSession)
   })
 
   // The pass attempts every held message, and each attempt read the issue's
@@ -255,7 +257,7 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
         'tRPC messages.send to a session, issue mail held',
         async (f) => await f.call.messages.send({ to: f.target, body: 'counted' }),
       ),
-      126,
+      125,
     )
   })
 

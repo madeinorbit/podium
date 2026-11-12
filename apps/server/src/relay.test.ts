@@ -1571,7 +1571,14 @@ describe('SessionRegistry', () => {
     })
     const c = sink()
     const id = await attachCurrent(reg, c.send)
-    expect(c.sent).toContainEqual({ type: 'welcome', kindTokens: {}, clientId: id })
+    // The welcome names a shape token for every synced kind.
+    expect(c.sent).toContainEqual(
+      expect.objectContaining({
+        type: 'welcome',
+        clientId: id,
+        kindTokens: expect.objectContaining({ session: expect.any(String) }),
+      }),
+    )
     const principal = reg.clientGateway.principalOf(id)
     if (!principal) throw new Error('missing authenticated principal')
     const authority = reg.syncDelta.authority

@@ -352,8 +352,8 @@ describe('characterization: issue lifecycle equivalence across entry points (con
         // The assignee is the owner (POD-6287): the operator's claim keeps it theirs.
         assignee: firstAdminMemberId(),
       })
+      // Boot no longer reconciles the log (POD-6221), so it records no event.
       expect((obsA.events as { kind: string }[]).map((e) => e.kind)).toEqual([
-        'issue.boot_reconciled',
         'issue.created',
         'issue.stage_changed',
         'issue.closed',

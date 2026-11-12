@@ -1016,7 +1016,8 @@ describe('the side cache', () => {
     expect(storage.getItem('podium.view')).toBeNull()
     // …except the theme, which index.html's anti-flash script reads before React.
     expect(storage.getItem('podium.theme.mode')).toBe('dark')
-    expect(ui.get('podium.theme.mode')).toBe('dark')
+    // The theme routes to that pre-auth storage, never to the device store.
+    expect(ui.get('podium.theme.mode')).toBeNull()
   })
 
   it('deletes the old chat-history keys of every principal on first start, unread', () => {

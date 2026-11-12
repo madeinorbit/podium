@@ -237,5 +237,6 @@ describe('grant reads per change, a running session on an issue: pinned at 5 and
 const RENAME = 25
 // POD-6791: measured on the integration base at 63. Sharing the issue and
 // body-header reads on both sides of the write removes two statements.
-const ISSUE_UPDATE = 78
+// POD-6864: re-measured on integrate/6253-sync-log 964ad37114 at both sizes: 78 -> 79.
+const ISSUE_UPDATE = 79
 const OBSERVATION = 24
