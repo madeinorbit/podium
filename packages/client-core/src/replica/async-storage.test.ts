@@ -106,3 +106,51 @@ describe('AsyncStorage replica bridge', () => {
     expect(calls).toEqual(['hot', 'ordered'])
   })
 })
+
+it('hydrates the same filtered side cache through one native batch or the scalar fallback', async () => {
+  const persisted = new Map<string, string | null>([
+    ['podium.a', 'first'],
+    ['podium.b', ''],
+    ['podium.removed', null],
+    ['unrelated', 'private'],
+  ])
+  const getItem = vi.fn(async (key: string) => persisted.get(key) ?? null)
+  const base = backingStorage({ getAllKeys: async () => [...persisted.keys()], getItem })
+  const scalar = await createAsyncStorageReplicaStorage(base, ['podium.'])
+  expect(getItem).toHaveBeenCalledTimes(3)
+  getItem.mockClear()
+  const multiGet = vi.fn(async (keys: readonly string[]) =>
+    keys.map((key) => [key, persisted.get(key) ?? null] as const),
+  )
+  const batch = await createAsyncStorageReplicaStorage({ ...base, multiGet }, ['podium.'])
+  expect(multiGet).toHaveBeenCalledExactlyOnceWith(['podium.a', 'podium.b', 'podium.removed'])
+  expect(getItem).not.toHaveBeenCalled()
+  expect(batch.keys()).toEqual(scalar.keys())
+  for (const key of persisted.keys())
+    expect(batch.storage.getItem(key)).toBe(scalar.storage.getItem(key))
+  expect(batch.storage.getItem('unrelated')).toBeNull()
+})
+
+it('keeps a failed native batch behind the existing durable boot fence', async () => {
+  const error = new Error('native read failed')
+  const bridge = await createAsyncStorageReplicaStorage(
+    backingStorage({
+      getAllKeys: async () => ['podium.a'],
+      multiGet: async () => {
+        throw error
+      },
+    }),
+    ['podium.'],
+  )
+  expect(bridge.keys()).toEqual([])
+  await expect(bridge.flushDurable()).rejects.toMatchObject({
+    message: 'Small-settings storage is unavailable',
+    cause: error,
+  })
+})
+
+it('does not send an empty native batch', async () => {
+  const multiGet = vi.fn(async () => [])
+  await createAsyncStorageReplicaStorage(backingStorage({ multiGet }))
+  expect(multiGet).not.toHaveBeenCalled()
+})

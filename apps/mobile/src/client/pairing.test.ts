@@ -1,8 +1,8 @@
 import {
+  CLIENT_WIRE_VERSION,
   encodePairingEnvelope,
   MIN_CLIENT_WIRE_VERSION,
   type MobilePairingEnvelope,
-  CLIENT_WIRE_VERSION,
 } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -188,11 +188,16 @@ describe('server preflight', () => {
     }
   })
 
-  it('rejects a pre-HTTP-sync wire-2 LAN server before probing authentication', async () => {
+  it('rejects a pre-HTTP-sync wire-2 LAN server despite a successful public auth probe', async () => {
     vi.stubGlobal('__DEV__', true)
-    const fetchMock = vi.fn().mockResolvedValueOnce(
-      new Response(JSON.stringify({ wireVersion: 2, minSupportedVersion: 1, instanceId: 'old' })),
-    )
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ wireVersion: 2, minSupportedVersion: 1, instanceId: 'old' })),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ needsAuth: false, authed: true, userId: 'user:admin' })),
+      )
     vi.stubGlobal('fetch', fetchMock)
     await expect(preflightServer('http://localhost:18790')).resolves.toMatchObject({
       ok: false,
@@ -200,8 +205,12 @@ describe('server preflight', () => {
       title: 'Update the server',
       transport: 'insecure-lan',
     })
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(fetchMock.mock.calls[0]?.[0]).toBe('http://localhost:18790/version')
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(init.credentials).toBe('omit')
+      expect(new Headers(init.headers).has('Authorization')).toBe(false)
+    }
   })
 
   it('allows an open HTTP origin only when web-mobile is already in the browser policy', async () => {

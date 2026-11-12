@@ -1,13 +1,13 @@
-import { parseServerOrigin, workspaceRequestInit } from '../transport'
 import {
+  CLIENT_WIRE_VERSION,
   decodePairingEnvelope,
   MobilePairClaimResponse,
   MobilePairCompleteResponse,
   type MobilePairingEnvelope,
   mobilePairingUrl,
   parseMobilePairingUrl,
-  CLIENT_WIRE_VERSION,
 } from '@podium/protocol'
+import { parseServerOrigin, workspaceRequestInit } from '../transport'
 import { classifyServerTransport, type ServerTransport } from './server-profiles'
 
 const MAX_ENVELOPE_LENGTH = 8_192
@@ -237,7 +237,7 @@ export async function preflightServer(
     return transportFailure(origin, new Error('cleartext'))
   }
   try {
-    const versionResponse = await fetch(
+    const versionRequest = fetch(
       `${origin}/version`,
       workspaceRequestInit(
         `${origin}/version`,
@@ -249,6 +249,24 @@ export async function preflightServer(
         workspaceSelector,
       ),
     )
+    // Both probes are credential-free and independent. Start them together,
+    // but keep version/identity validation ahead of accepting auth mode. Capture
+    // rejection now because an invalid version can return without awaiting auth.
+    const authRequest = fetch(
+      `${origin}/auth/status`,
+      workspaceRequestInit(
+        `${origin}/auth/status`,
+        {
+          credentials: 'omit',
+          signal: timeoutSignal(),
+        },
+        workspaceSelector,
+      ),
+    ).then(
+      (response) => ({ response }),
+      (error: unknown) => ({ error }),
+    )
+    const versionResponse = await versionRequest
     if (!versionResponse.ok) {
       return {
         ok: false,
@@ -309,17 +327,9 @@ export async function preflightServer(
         transport,
       }
     }
-    const authResponse = await fetch(
-      `${origin}/auth/status`,
-      workspaceRequestInit(
-        `${origin}/auth/status`,
-        {
-          credentials: 'omit',
-          signal: timeoutSignal(),
-        },
-        workspaceSelector,
-      ),
-    )
+    const authResult = await authRequest
+    if ('error' in authResult) throw authResult.error
+    const authResponse = authResult.response
     if (!authResponse.ok) throw new Error(`auth status failed: ${authResponse.status}`)
     const auth = (await authResponse.json().catch(() => null)) as Record<string, unknown> | null
     if (
