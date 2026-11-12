@@ -73,9 +73,9 @@ import { type ComponentProps, Fragment, useCallback, useEffect, useRef, useState
 import { StyleSheet, useWindowDimensions, View } from 'react-native'
 import type { SearchBarCommands } from 'react-native-screens'
 import { useMobilePoolProjection } from '../client/mobile-pool'
+import { useWorkspaceRefreshSubtitle } from '../client/workspace-refresh'
 import { NativeGroupHeader } from '../components/NativeGroupHeader.ios'
 import { NewWorkButton } from '../components/NewWorkButton'
-import { MIN_REFRESH_CONFIRMATION_MS } from '../hooks/useRefreshableTab'
 import { useAgeNow } from '../lib/clock-hooks'
 import { workMenuActionIds } from '../lib/work-menu'
 import { quietProjectsLabel, workLaneTitle, workMenuItem, workSubtitle } from '../lib/work-row-copy'
@@ -130,10 +130,6 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
   const sections = (
     phone.quietExpanded && quiet.length ? [...phone.activeSections, ...quiet] : phone.activeSections
   ).map((section) => ({ section, folded: !phone.needle && props.collapsed.has(section.key) }))
-  const onRefresh = useCallback(async () => {
-    props.refresh.onRefresh()
-    await new Promise((resolve) => setTimeout(resolve, MIN_REFRESH_CONFIRMATION_MS))
-  }, [props.refresh.onRefresh])
   const { onAction, onStatus } = props
   const onSwipe = useCallback(
     (id: string, action: WorkSwipeAction) => {
@@ -146,7 +142,9 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
   // W3: two existing shared counts, joined for the title's subtitle.
   const needYou = useMobilePoolProjection(readNeedYouCount, 0)
   const working = useMobilePoolProjection(readWorkingCount, 0)
-  const subtitle = props.mode === 'tab' ? workSubtitle(needYou, working) : undefined
+  const refreshSubtitle = useWorkspaceRefreshSubtitle()
+  const subtitle =
+    props.mode === 'tab' ? (refreshSubtitle ?? workSubtitle(needYou, working)) : undefined
   // W8: one launcher for every project header's +, opened with that project picked.
   const [projectRepo, setProjectRepo] = useState<string | null>(null)
   const openProjectWork = useRef<(() => void) | null>(null)
@@ -220,7 +218,7 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
             listSectionSpacing(0),
             scrollContentBackground('hidden'),
             background(paper.ground),
-            refreshable(onRefresh),
+            refreshable(props.refresh.onRefresh),
             accessibilityIdentifier('work-list'),
           ]}
         >

@@ -65,7 +65,7 @@ import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { Stack } from 'expo-router'
 import { observer } from 'mobx-react-lite'
-import { Fragment, type ReactNode, useCallback, useState } from 'react'
+import { Fragment, type ReactNode, useState } from 'react'
 import { StyleSheet, useWindowDimensions, View } from 'react-native'
 import { issueObserver as taskObserver } from '../client/issue-observer'
 import { useMobilePool } from '../client/mobile-pool'
@@ -75,7 +75,6 @@ import { RefreshOffer } from '../components/RefreshOffer'
 import { Screen } from '../components/Screen'
 import { StorageNoticeAlert } from '../components/StorageNoticeAlert'
 import { ANY, useProjectFacet } from '../components/task-filter-facets'
-import { MIN_REFRESH_CONFIRMATION_MS } from '../hooks/useRefreshableTab'
 import { useAgeNow } from '../lib/clock-hooks'
 import { workMenuActionIds } from '../lib/work-menu'
 import { color } from '../theme/theme'
@@ -141,11 +140,6 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
   const screenable = proposals !== LOADING && proposals > 0
   const counts = board?.stageCounts ?? LOADING
   const subtitle = tasksSubtitle(board?.filter.projectPaths, counts === LOADING ? null : counts)
-  const { onRefresh: refresh } = props.refresh
-  const onRefresh = useCallback(async () => {
-    refresh()
-    await new Promise((resolve) => setTimeout(resolve, MIN_REFRESH_CONFIRMATION_MS))
-  }, [refresh])
   const project = useProjectFacet({
     filter: board?.filter ?? NO_FILTER,
     onFilter: (filter) => board?.setFilter(filter),
@@ -216,7 +210,7 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
             listSectionSpacing(0),
             scrollContentBackground('hidden'),
             background(paper.ground),
-            refreshable(onRefresh),
+            refreshable(props.refresh.onRefresh),
             accessibilityIdentifier('tasks-list'),
           ]}
         >

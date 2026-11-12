@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useWorkspaceRefreshSubtitle } from '../client/workspace-refresh'
 import { color, font, mono, radius, sans, space, tracking } from '../theme/theme'
 import { Icon } from './Icon'
 import { ChevronLeft } from './icons'
@@ -19,7 +20,7 @@ export type { ScreenAction, ScreenMenuItem } from './screen-actions'
 export function Screen({
   title,
   grouped,
-  subtitle,
+  subtitle: normalSubtitle,
   onBack,
   backLabel,
   backAs = 'chevron',
@@ -67,6 +68,8 @@ export function Screen({
   /** Native only: content runs under the transparent iOS bar (see Screen.native). */
   underHeader?: boolean
 }) {
+  const refreshSubtitle = useWorkspaceRefreshSubtitle()
+  const subtitle = large ? (refreshSubtitle ?? normalSubtitle) : normalSubtitle
   const insets = useSafeAreaInsets()
   const right =
     customRight ??

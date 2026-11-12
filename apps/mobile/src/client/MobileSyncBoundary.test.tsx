@@ -1,8 +1,13 @@
-import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { Text } from 'react-native'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MobileSyncBoundary } from './MobileSyncBoundary'
 import { MobileSyncProgressStore } from './mobile-sync-progress'
+import { useWorkspaceRefreshSubtitle } from './workspace-refresh'
+
+function Subtitle() {
+  return <Text>{useWorkspaceRefreshSubtitle() ?? '11 need you'}</Text>
+}
 
 afterEach(cleanup)
 
@@ -20,28 +25,27 @@ describe('MobileSyncBoundary', () => {
     expect(view.queryByTestId('sync-content')).toBeNull()
   })
 
-  it('keeps warm content painted and makes a sustained status non-intercepting', async () => {
+  it('keeps warm content interactive and puts status in the subtitle without an overlay', () => {
     const store = new MobileSyncProgressStore()
     store.begin('stale')
+    const clicked = vi.fn()
     const view = render(
       <MobileSyncBoundary store={store}>
-        <Text>cached workspace</Text>
+        <Subtitle />
+        <Text onPress={clicked}>cached workspace</Text>
       </MobileSyncBoundary>,
     )
 
     expect(view.getByText('cached workspace')).toBeTruthy()
-    expect(view.queryByText('Reconnecting')).toBeNull()
-    expect(view.getByRole('status').textContent).toBe('')
-    await waitFor(() => expect(view.getByText('Reconnecting')).toBeTruthy())
-    expect(view.getByRole('status').textContent).toBe('Reconnecting.')
-    expect(window.getComputedStyle(view.getByTestId('warm-sync-status-host')).pointerEvents).toBe(
-      'none',
-    )
+    expect(view.getByText('Updating…')).toBeTruthy()
+    expect(view.queryByTestId('warm-sync-status-host')).toBeNull()
+    fireEvent.click(view.getByText('cached workspace'))
+    expect(clicked).toHaveBeenCalledOnce()
 
     act(() => {
       store.noteEvent({ type: 'posture', posture: 'live', previous: 'healing' })
     })
-    expect(view.queryByTestId('warm-sync-status')).toBeNull()
+    expect(view.getByText('Updated just now')).toBeTruthy()
     expect(view.getByText('cached workspace')).toBeTruthy()
   })
 
@@ -89,9 +93,11 @@ describe('MobileSyncBoundary', () => {
   it('keeps cached content usable after a warm bootstrap exhausts its retries', async () => {
     const store = new MobileSyncProgressStore()
     store.begin('stale')
+    const clicked = vi.fn()
     const view = render(
       <MobileSyncBoundary store={store}>
-        <Text>cached workspace</Text>
+        <Subtitle />
+        <Text onPress={clicked}>cached workspace</Text>
       </MobileSyncBoundary>,
     )
 
@@ -105,7 +111,7 @@ describe('MobileSyncBoundary', () => {
     })
 
     expect(view.getByText('cached workspace')).toBeTruthy()
-    expect(await view.findByText('Offline — showing saved data')).toBeTruthy()
-    expect(view.getByRole('status').textContent).toBe('Offline — showing saved data.')
+    expect(await view.findByText('Offline · Showing saved data')).toBeTruthy()
+    expect(view.queryByTestId('warm-sync-status-host')).toBeNull()
   })
 })

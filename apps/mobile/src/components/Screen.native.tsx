@@ -4,6 +4,7 @@ import type { SFSymbol } from 'expo-symbols'
 import { type ReactNode, use, useState } from 'react'
 import { type LayoutChangeEvent, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useWorkspaceRefreshSubtitle } from '../client/workspace-refresh'
 import { HeaderInsetContext } from '../navigation/header-inset'
 import {
   headerSubtitleOptions,
@@ -25,7 +26,7 @@ const sfName = (icon: AppIcon): SFSymbol =>
 export function Screen({
   title,
   grouped,
-  subtitle,
+  subtitle: normalSubtitle,
   onBack,
   backLabel,
   backAs = 'chevron',
@@ -71,6 +72,8 @@ export function Screen({
    */
   underHeader?: boolean
 }) {
+  const refreshSubtitle = useWorkspaceRefreshSubtitle()
+  const subtitle = large ? (refreshSubtitle ?? normalSubtitle) : normalSubtitle
   const insets = useSafeAreaInsets()
   // Root tabs already float a transparent bar (the large title path); pushed
   // screens get the same on iOS so no opaque band sits over the content.
@@ -79,7 +82,10 @@ export function Screen({
   const barInset = transparentBar ? headerHeight : 0
 
   const subtitleText = typeof subtitle === 'string' && subtitle ? subtitle : undefined
-  const subtitleInBar = nativeSubtitleAvailable && subtitleText != null && !monoSubtitle
+  const subtitleInBar =
+    nativeSubtitleAvailable &&
+    subtitleText != null &&
+    (!monoSubtitle || !!(large && refreshSubtitle))
   const stripSubtitle = subtitleInBar ? null : subtitle
   const hasContext = !noHeader && (leading != null || stripSubtitle != null)
   const [contextHeight, setContextHeight] = useState(hasContext ? 44 : 0)
