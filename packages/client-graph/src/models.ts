@@ -88,6 +88,8 @@ export interface ModelHost {
   readonly sessionDrafts?: SessionDrafts
   /** This user's conditions (POD-5798): machine online, since and load. */
   readonly live?: LiveStore
+  /** TRACKED: the sessions painted as spawn placeholders (`MobxPool.spawnPlaceholders`). */
+  spawnPlaceholders(): ReadonlyMap<string, string | null> | null
 
   readonly issueSessionFact: IssueSessionFactReader
   /** The pool's one row reader (`MobxPool.row`): pending edits overlaid, `LOADING` when not in memory. */
@@ -1066,26 +1068,37 @@ export class SessionModel extends EntityModel {
   // stored fields. A tracked read holds the session's topic while it is
   // watched. Before the first reading each is unknown (undefined), and a
   // reading that went stale keeps its last value for the next frame.
+  /**
+   * Where this session's live readings come from: none while it is a spawn
+   * placeholder (POD-6854). The server has no row for a placeholder's id yet,
+   * so it refuses the session's topics, and a refused key is asked again only
+   * after a reconnect. Holding nothing until the row lands sends the first
+   * subscribe when the server can answer it, which is also when the terminal
+   * mount is released (`paneSpawnConfirmed` reads the same set).
+   */
+  @lazy private get liveReadings(): LiveStore | undefined {
+    return this.host.spawnPlaceholders()?.has(this.id) ? undefined : this.host.live
+  }
   /** Writing to its terminal now. Only a running session is asked: a stopped
    *  one is not busy, so a list of finished sessions holds no topic. */
   @lazy get busy(): boolean | undefined {
     const status = this.status
     if (status !== 'live' && status !== 'starting') return false
-    const reading = this.host.live?.sessionConditionOf(this.id)
+    const reading = this.liveReadings?.sessionConditionOf(this.id)
     return reading?.known ? reading.value.busy : undefined
   }
   /** The last human input into the session (ISO 8601). */
   @lazy get lastInputAt(): string | undefined {
-    return lastValue(this.host.live?.sessionConditionOf(this.id))?.lastInputAt
+    return lastValue(this.liveReadings?.sessionConditionOf(this.id))?.lastInputAt
   }
   /** The harness's latest exact context-window use. */
   @lazy get contextUsagePercent(): number | undefined {
-    return lastValue(this.host.live?.sessionConditionOf(this.id))?.contextUsagePercent
+    return lastValue(this.liveReadings?.sessionConditionOf(this.id))?.contextUsagePercent
   }
   /** The terminal's size: the server's stored size while nothing runs it, so a
    *  cached terminal view opens at the right size with the daemon offline. */
   @lazy({ equals: compareStructural }) get geometry(): SessionView['geometry'] {
-    return lastValue(this.host.live?.sessionTerminalStateOf(this.id))?.geometry
+    return lastValue(this.liveReadings?.sessionTerminalStateOf(this.id))?.geometry
   }
 
   // Stored fields: declared summaries can answer a field without promoting it.

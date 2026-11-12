@@ -104,23 +104,34 @@ const CONFIG = { httpOrigin: 'http://127.0.0.1:0', wsClientUrl: 'ws://127.0.0.1:
  * exact `hub.connected` reader existed, the coarse initial health label made
  * that same assumption implicitly even though this socket never opened.
  */
-class SilentSocket {
+export class SilentSocket {
   static readonly CONNECTING = 0
   static readonly OPEN = 1
   static readonly CLOSING = 2
   static readonly CLOSED = 3
+  /** Every socket the hub opened in this worker, newest last: a second one is a reconnect. */
+  static readonly opened: SilentSocket[] = []
   readyState = 0
   onopen: (() => void) | null = null
-  onmessage: (() => void) | null = null
+  onmessage: ((ev: { data: unknown }) => void) | null = null
   onerror: (() => void) | null = null
   onclose: (() => void) | null = null
+  /** A test playing the server hears each frame the hub sends. */
+  onSend: ((data: string) => void) | null = null
   constructor() {
+    SilentSocket.opened.push(this)
     queueMicrotask(() => {
       this.readyState = SilentSocket.OPEN
       this.onopen?.()
     })
   }
-  send(): void {}
+  send(data: string): void {
+    this.onSend?.(data)
+  }
+  /** Deliver one server frame, as the network would. */
+  recv(data: string): void {
+    this.onmessage?.({ data })
+  }
   close(): void {}
   addEventListener(): void {}
   removeEventListener(): void {}
@@ -310,6 +321,8 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
     replica,
     api,
     runtime: runtimeHandle!,
+    /** The pool the screens read, for a test that watches a model as a screen would. */
+    pool: pool as MobxPool | null,
     emit: (event: string, ...payload: unknown[]) => hub?.emit(event, ...payload),
     /** Machine samples arrive as per-machine LiveStore readings. */
     setHostMetrics(samples: readonly HostMetricsWire[]) {

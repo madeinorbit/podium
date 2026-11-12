@@ -2,14 +2,16 @@ import { knownReading } from '@podium/client-core/live'
 import { useCommands } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { ClientRuntime } from '@podium/client-core/runtime-root'
+import { here } from '@podium/client-graph/lookup'
 import { asIssueId, asSessionId, asUserId, type SessionId, type SessionMeta } from '@podium/model'
+import { encode, parseTopicKey, type TopicKey } from '@podium/protocol'
 import type { MountSessionOptions } from '@podium/terminal-client/session-mount'
-import { cleanup } from '@testing-library/react'
-import { runInAction } from 'mobx'
+import { cleanup, waitFor } from '@testing-library/react'
+import { autorun, runInAction } from 'mobx'
 import { act, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { seedIssueFixtures } from '../client/issue-fixtures'
-import { renderWithMobileStore } from '../client/test-support'
+import { renderWithMobileStore, SilentSocket } from '../client/test-support'
 import type { TerminalControlState } from './terminal-control'
 
 /**
@@ -225,6 +227,97 @@ describe('TerminalPane on the create path (POD-1613)', () => {
     })
     // A scrolling crop selects the phone's spectator policy in mountSession.
     expect(lastMountOpts?.crop).toBe('scroll')
+  })
+})
+
+/**
+ * A SESSION STARTED HERE GETS ITS LIVE READINGS WITHOUT A RECONNECT (POD-6854).
+ *
+ * The live readings travel through the REAL hub here; only the socket is fake,
+ * and the test plays the server on it. Like the real one, this server refuses
+ * a session topic for a session it has no row for, and a refused key is asked
+ * again only after a reconnect. The placeholder a start paints must therefore
+ * hold no live topic: the first subscribe goes out when the server's row lands,
+ * which is also when the terminal mount is released.
+ */
+describe('TerminalPane live readings on the create path (POD-6854)', () => {
+  it('asks for a started session’s readings once its row lands, and builds the terminal at the real size', async () => {
+    const view = await renderWithMobileStore(<CreateThenAttach />)
+    const ctl = control
+    const socket = SilentSocket.opened.at(-1)
+    if (!ctl || !socket || !view.pool) throw new Error('harness did not render')
+    const socketsBefore = SilentSocket.opened.length
+
+    // The server: sessions it has a row for, and what it answered.
+    const rows = new Set<string>()
+    const refused: string[] = []
+    socket.onSend = (data) => {
+      const frame = JSON.parse(data) as { type?: string; key?: TopicKey }
+      if (frame.type !== 'topicSubscribe' || frame.key === undefined) return
+      const ref = parseTopicKey(frame.key)
+      if (ref?.kind !== 'session.terminalState' && ref?.kind !== 'session.condition') return
+      const key = frame.key
+      queueMicrotask(() => {
+        if (!rows.has(ref.id)) {
+          refused.push(key)
+          socket.recv(encode({ type: 'topicClosed', key, reason: 'refused' }))
+          return
+        }
+        const payload =
+          ref.kind === 'session.terminalState'
+            ? { controller: null, geometry: { cols: 103, rows: 28 } }
+            : { busy: true, requestsGated: 0, contextUsagePercent: 42 }
+        socket.recv(
+          encode({ type: 'topicSnapshot', key, position: { epoch: 'e1', seq: 0 }, payload }),
+        )
+      })
+    }
+
+    let spawned: SessionId | undefined
+    await act(async () => {
+      spawned = ctl.spawn()
+      ctl.show(spawned)
+      await Promise.resolve()
+    })
+    if (!spawned) throw new Error('spawn produced no session id')
+    const id = spawned
+
+    // A list row watching the session's condition, as the sidebar and offer strip do.
+    const pool = view.pool
+    const context: (number | undefined)[] = []
+    const stop = autorun(() => {
+      const model = here(pool.model('session', id)) as
+        | { contextUsagePercent: number | undefined }
+        | undefined
+      context.push(model?.contextUsagePercent)
+    })
+    try {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+      // The placeholder asked the server for nothing it would refuse.
+      expect(mountSessionMock).not.toHaveBeenCalled()
+
+      // The server creates the session; its row reaches the device.
+      rows.add(id)
+      await act(async () => {
+        view.replica.applySnapshot('sessions', [confirmedRow(id)])
+        await Promise.resolve()
+      })
+
+      // Both readings arrive on this connection, and the terminal is born at
+      // the server's size, well inside the 500 ms the mount waits for it.
+      await waitFor(() => expect(mountSessionMock).toHaveBeenCalledTimes(1), { timeout: 400 })
+      expect(mountSessionMock.mock.calls[0]?.[1]).toMatchObject({
+        initialGeometry: { cols: 103, rows: 28 },
+      })
+      await waitFor(() => expect(context.at(-1)).toBe(42), { timeout: 400 })
+      expect(refused).toEqual([])
+      expect(SilentSocket.opened.length).toBe(socketsBefore)
+    } finally {
+      stop()
+      socket.onSend = null
+    }
   })
 })
 
