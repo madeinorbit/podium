@@ -85,3 +85,19 @@ index a80d9fef0c0ab5ce8221c5e0c7fae65162bc6164..38660fa7e0f41b91568760b525b221a6
    titleFontFamily?: string | undefined;
    titleFontSize?: CT.Int32 | undefined;
    titleFontWeight?: string | undefined;
+diff --git a/ios/UIScrollView+RNScreens.mm b/ios/UIScrollView+RNScreens.mm
+--- a/ios/UIScrollView+RNScreens.mm
++++ b/ios/UIScrollView+RNScreens.mm
+@@ -5,5 +5,12 @@
+ - (BOOL)rnscreens_scrollToTop
+ {
++  // Private UIKit SPI re-expands large titles; fall back to the animated inset offset when unavailable.
++  SEL uikitScrollToTop = NSSelectorFromString(@"_scrollToTopIfPossible:");
++  if ([self respondsToSelector:uikitScrollToTop]) {
++    BOOL (*scrollToTop)(id, SEL, BOOL) = (BOOL (*)(id, SEL, BOOL))[self methodForSelector:uikitScrollToTop];
++    return scrollToTop(self, uikitScrollToTop, YES);
++  }
++
+   if ([self contentOffset].y != -self.adjustedContentInset.top) {
+     [self setContentOffset:CGPointMake(0, -self.adjustedContentInset.top) animated:YES];
+     return YES;
