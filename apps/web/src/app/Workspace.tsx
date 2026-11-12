@@ -44,6 +44,7 @@ import { isArtifactsTab, useArtifactCount } from '@/features/files/artifacts-tab
 import { FileTypeIcon } from '@/features/files/file-icon'
 import { FIRST_ARTIFACT_NEW_PANEL_ANCHOR } from '@/features/issues/first-artifact-tip'
 import { readFirstTaskDraft } from '@/features/setup/first-task-draft'
+import { MemberMachineStep, useNeedsMemberMachine } from '@/features/setup/MemberMachineStep'
 import { AgentPanelBoundary } from '@/features/terminal/AgentPanelBoundary'
 import { useWarmSet } from '@/features/terminal/use-warm-set'
 import { useNewTaskOverlayOpen } from '@/features/worklist/new-task-overlay'
@@ -922,6 +923,10 @@ export function Workspace({
    * resolves as a mission from the click rather than from the broadcast.
    */
   const workspaceLoading = useUiValue('workspaceLoading')
+  // A member who joined someone else's server and has no machine gets the
+  // machine step where the composer would be (POD-6882): with nothing to run
+  // on, the composer could only refuse to launch.
+  const needsMemberMachine = useNeedsMemberMachine()
   const partialLaunchNeedsRecovery =
     activationDraft.pendingIssueId !== '' &&
     activationDraft.pendingIssueId === selectedIssueId &&
@@ -949,9 +954,13 @@ export function Workspace({
     return (
       <section className="native-agents-pane relative" data-testid="workspace-cold-deck">
         <div className="workspace-sheet relative flex min-h-0 flex-1">
-          <Suspense fallback={null}>
-            <ColdStartComposer first={!hasAnyTask} />
-          </Suspense>
+          {needsMemberMachine ? (
+            <MemberMachineStep />
+          ) : (
+            <Suspense fallback={null}>
+              <ColdStartComposer first={!hasAnyTask} />
+            </Suspense>
+          )}
         </div>
       </section>
     )

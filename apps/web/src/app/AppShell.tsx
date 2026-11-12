@@ -13,6 +13,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { WaitingForServer } from '@/components/WaitingForServer'
 import { chordLabel } from '@/features/chat/use-composer-chord'
 import { DockIssueProvider } from '@/features/issues/dock-issue'
+import { AdminViewerContext, useAdminSections } from '@/features/settings/admin-viewer'
 import {
   hasActivationState,
   hasStaleActivation,
@@ -507,11 +508,19 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
   } = useActivationRoute()
   const vpsActivation = useConfirmedVpsActivation(trpc)
   const hasActivationCheckpoint = hasActivationState(window.location.search)
+  // WHO SETS THIS SERVER UP is the server's answer (POD-6882), not a reading of
+  // this member's own repo list: a member who joined an existing workspace sees
+  // nothing of anyone else's, and that emptiness sent them into the installer's
+  // wizard with no way out. Undefined until the server has answered.
+  const adminViewer = useAdminSections()
+  const setsUpServer =
+    adminViewer.status === 'loading' ? undefined : (adminViewer.capabilities?.setUpServer ?? true)
   const shouldContinueRemoteActivation =
     vpsActivation.ready &&
     shouldStartRemoteClientAtHandoff({
       launchMode: nativeDesktopBridge()?.launchMode,
       loaded: reposLoaded,
+      setsUpServer: setsUpServer === true,
       repoCount,
       sessionCount,
       route: activationState.route,
@@ -523,20 +532,29 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     shouldStartBrowserAtProjectIntake({
       nativeShell: nativeDesktopBridge() !== undefined,
       loaded: reposLoaded,
+      setsUpServer: setsUpServer === true,
       repoCount,
       sessionCount,
       route: activationState.route,
       hasActivationCheckpoint,
       hasVpsCheckpoint: vpsActivation.state !== null,
     })
-  const activationEligible = isActivationEligible({
+  const activationFacts = {
     loaded: reposLoaded,
     repoCount,
     sessionCount,
     setupInProgress,
     hasActivationCheckpoint,
     hasVpsCheckpoint: vpsActivation.state !== null,
+  }
+  const activationEligible = isActivationEligible({
+    ...activationFacts,
+    setsUpServer: setsUpServer === true,
   })
+  // Only a window that WOULD open setup waits for the server's answer; one with
+  // work in it never asks, so a warm start costs nothing extra.
+  const awaitingSetupViewer =
+    setsUpServer === undefined && isActivationEligible({ ...activationFacts, setsUpServer: true })
   // Setup owns the window outright (POD-1174). There is no exploring mode and no
   // other view to be in: while this is true the shell below simply does not
   // render, so nothing else can be reached until setup finishes.
@@ -610,7 +628,8 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
   // A setup flag or URL step left on an instance that already has sessions is
   // stale (see isActivationEligible): retire it, so the device heals itself.
   const staleActivation = hasStaleActivation({
-    loaded: reposLoaded,
+    loaded: reposLoaded && setsUpServer !== undefined,
+    setsUpServer: setsUpServer !== false,
     sessionCount,
     setupInProgress,
     hasActivationCheckpoint,
@@ -901,7 +920,7 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
   // INSTALL, and shows the detailed sync screen instead of the splash. The
   // repositories are records in that bootstrap (POD-6644), so there is no
   // separate repository read to wait for.
-  if (!reposLoaded) {
+  if (!reposLoaded || awaitingSetupViewer) {
     return (
       <>
         {menuHost}
@@ -1107,7 +1126,20 @@ const ObservedAppBody = observer(AppBodyView)
 export function AppBody(props: { syncProgress: SyncProgressStore }): JSX.Element {
   return (
     <TipHost>
-      <ObservedAppBody {...props} />
+      <SharedAdminViewer>
+        <ObservedAppBody {...props} />
+      </SharedAdminViewer>
     </TipHost>
   )
+}
+
+/**
+ * ONE `/auth/admin/viewer` READ FOR THE WHOLE SHELL (POD-6882). Setup reads
+ * from it who sets this server up; the command palette and Settings read the
+ * admin sections. Below this provider they share one answer instead of each
+ * asking the server.
+ */
+function SharedAdminViewer({ children }: { children: JSX.Element }): JSX.Element {
+  const viewer = useAdminSections()
+  return <AdminViewerContext.Provider value={viewer}>{children}</AdminViewerContext.Provider>
 }
