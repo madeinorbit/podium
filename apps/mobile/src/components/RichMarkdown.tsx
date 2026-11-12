@@ -37,11 +37,16 @@ interface RichMarkdownProps {
   text: string
   textStyle?: StyleProp<TextStyle>
   onRefPress?: (ref: string) => void
+  /** Native text selection on the prose (default true). The iOS transcript
+   *  turns it off: its message context menu owns copy and Select Text, and a
+   *  selectable Text raises a second system edit menu on long-press. */
+  selectable?: boolean
 }
 
 interface RenderContext {
   textStyle?: StyleProp<TextStyle>
   onRefPress?: (ref: string) => void
+  selectable: boolean
 }
 
 function plainText(token: MarkdownToken): string {
@@ -182,7 +187,7 @@ function Inline({
   style?: StyleProp<TextStyle>
 }) {
   return (
-    <Text selectable style={[styles.body, ctx.textStyle, style]}>
+    <Text selectable={ctx.selectable} style={[styles.body, ctx.textStyle, style]}>
       {renderInline(tokens, ctx, 'inline')}
     </Text>
   )
@@ -283,7 +288,7 @@ function standaloneImages(
   return images.length > 0 ? images : null
 }
 
-function CodeBlock({ token }: { token: MarkdownToken }) {
+function CodeBlock({ token, selectable }: { token: MarkdownToken; selectable: boolean }) {
   const language = token.lang?.trim().split(/\s+/)[0]
   const source = plainText(token).replace(/\n$/, '')
   const lines = source.split('\n')
@@ -296,7 +301,7 @@ function CodeBlock({ token }: { token: MarkdownToken }) {
         <CopyCodeButton source={source} />
       </View>
       <ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator>
-        <Text selectable style={styles.codeText}>
+        <Text selectable={selectable} style={styles.codeText}>
           {diff ? (
             lines.map((line, index) => {
               const lineStyle =
@@ -456,7 +461,7 @@ function Blocks({
         )
       }
       case 'code':
-        return <CodeBlock key={key} token={token} />
+        return <CodeBlock key={key} token={token} selectable={ctx.selectable} />
       case 'blockquote':
         return (
           <View key={key} style={styles.blockquote}>
@@ -495,7 +500,7 @@ function Blocks({
       default:
         return plainText(token) ? (
           <View key={key} style={compact ? undefined : styles.paragraph}>
-            <Text selectable style={[styles.body, ctx.textStyle]}>
+            <Text selectable={ctx.selectable} style={[styles.body, ctx.textStyle]}>
               {renderText(plainText(token), ctx, key)}
             </Text>
           </View>
@@ -505,13 +510,21 @@ function Blocks({
 }
 
 /** Native GFM transcript renderer. The native shell retains scrolling and interactions. */
-export function RichMarkdown({ text, textStyle, onRefPress }: RichMarkdownProps) {
+export function RichMarkdown({
+  text,
+  textStyle,
+  onRefPress,
+  selectable = true,
+}: RichMarkdownProps) {
   const tokens = useMemo(() => parseMarkdown(text), [text])
-  const ctx = useMemo(() => ({ textStyle, onRefPress }), [onRefPress, textStyle])
+  const ctx = useMemo(
+    () => ({ textStyle, onRefPress, selectable }),
+    [onRefPress, selectable, textStyle],
+  )
   // The web shell disables selection app-wide so long-pressing a card cannot
   // raise iOS's magnifier; agent prose opts back in [POD-366, patch-web-html].
   return (
-    <View style={styles.root} {...selectableProps}>
+    <View style={styles.root} {...(selectable ? selectableProps : undefined)}>
       <Blocks tokens={tokens} ctx={ctx} />
     </View>
   )

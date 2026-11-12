@@ -61,3 +61,18 @@ it('unwraps a backticked sole ref into a chip, as desktop does', () => {
   expect(leaves.some((el) => el.textContent === 'podium issue show POD-13')).toBe(true)
   expect(leaves.some((el) => el.textContent === 'UTF-8')).toBe(true)
 })
+
+it('turns native selection off on every prose and code Text when asked', () => {
+  const text = 'Prose with POD-13.\n\n- a list item\n\n```ts\nconst x = 1\n```'
+  const on = render(<RichMarkdown text={text} />)
+  const selectableOn = Array.from(on.container.querySelectorAll('div[dir="auto"]')).filter(
+    (el) => getComputedStyle(el).userSelect === 'text',
+  ).length
+  on.unmount()
+  const off = render(<RichMarkdown text={text} selectable={false} />)
+  const selectableOff = Array.from(off.container.querySelectorAll('div[dir="auto"]')).filter(
+    (el) => getComputedStyle(el).userSelect === 'text',
+  ).length
+  expect(selectableOn).toBeGreaterThan(0)
+  expect(selectableOff).toBe(0)
+})
