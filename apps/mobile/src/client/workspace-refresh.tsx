@@ -10,11 +10,26 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react'
+import type { NativeConnectivity } from './native-connectivity'
 
 /** The existing shared lifecycle, passed through without a second store. */
 export const WorkspaceSyncContext = createContext<SyncProgressStore | null>(null)
 const subscribeIdle = () => () => {}
 const ready = (): SyncPhase => 'ready'
+const foreground = () => true
+const WorkspaceVisibilityContext = createContext<NativeConnectivity['visibility'] | undefined>(
+  undefined,
+)
+
+/** Runs before the visibility source dials, so hello latency cannot hide catch-up. */
+export function watchWorkspaceResume(
+  store: SyncProgressStore,
+  connectivity: Pick<NativeConnectivity, 'visibility' | 'isOnline'>,
+): () => void {
+  return connectivity.visibility.subscribe(() => {
+    if (connectivity.visibility.isVisible() && connectivity.isOnline()) store.noteReconnecting()
+  })
+}
 
 export function useWorkspaceSyncPhase(): SyncPhase {
   const store = useContext(WorkspaceSyncContext)
@@ -57,9 +72,11 @@ const WorkspacePullContext = createContext<WorkspacePull | null>(null)
  */
 export function WorkspaceRefreshProvider({
   store,
+  visibility,
   children,
 }: {
   store: SyncProgressStore
+  visibility?: NativeConnectivity['visibility'] | undefined
   children: ReactNode
 }) {
   const [status, setStatus] = useState<WorkspacePullStatus>('idle')
@@ -82,7 +99,9 @@ export function WorkspaceRefreshProvider({
   const pull = useMemo(() => ({ status, begin, settle, cancel }), [status, begin, settle, cancel])
   return (
     <WorkspaceSyncContext value={store}>
-      <WorkspacePullContext value={pull}>{children}</WorkspacePullContext>
+      <WorkspaceVisibilityContext value={visibility}>
+        <WorkspacePullContext value={pull}>{children}</WorkspacePullContext>
+      </WorkspaceVisibilityContext>
     </WorkspaceSyncContext>
   )
 }
@@ -95,19 +114,32 @@ export function useWorkspacePull(): WorkspacePull | null {
 /** Only the brief completion label is local UI state; sync facts stay shared. */
 export function useWorkspaceRefreshSubtitle(): string | undefined {
   const phase = useWorkspaceSyncPhase()
+  const visibility = useContext(WorkspaceVisibilityContext)
+  const visible = useSyncExternalStore(
+    visibility?.subscribe ?? subscribeIdle,
+    visibility?.isVisible ?? foreground,
+  )
   const pullStatus = useContext(WorkspacePullContext)?.status ?? 'idle'
   const previous = useRef(phase)
+  const wasVisible = useRef(visible)
   const [showResult, setShowResult] = useState(false)
 
   useEffect(() => {
-    const completed = isSettled(phase) && phase !== previous.current
+    const completed =
+      visible && isSettled(phase) && (phase !== previous.current || !wasVisible.current)
     previous.current = phase
+    wasVisible.current = visible
     setShowResult(completed)
     if (completed) {
       const timer = setTimeout(() => setShowResult(false), UPDATED_SUBTITLE_MS)
       return () => clearTimeout(timer)
     }
-  }, [phase])
+  }, [phase, visible])
+
+  // Prime the native subtitle before suspension, including the switcher snapshot
+  // shown before JS wakes. The socket closes by design while we are away.
+  if (!visible) return UPDATING_SUBTITLE
+  if (!isSettled(phase)) return UPDATING_SUBTITLE
 
   // A user pull is acknowledged regardless of whether the shared phase moved.
   if (pullStatus === 'running') return UPDATING_SUBTITLE

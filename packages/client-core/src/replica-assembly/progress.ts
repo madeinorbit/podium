@@ -72,6 +72,15 @@ export class SyncProgressStore {
   beginFirstSync(): void {
     this.publish({ firstSync: true, blocking: true })
   }
+  /** The transport is dialing, before hello can start a heal or full download. */
+  noteReconnecting(): void {
+    if (this.snapshot.error === 'auth' || this.snapshot.error === 'format') return
+    this.publish({
+      phase: this.snapshot.blocking ? 'connecting' : 'reconnecting',
+      error: null,
+      failure: null,
+    })
+  }
   beginAttempt(): void {
     this.walkSeq = null
     this.publish({

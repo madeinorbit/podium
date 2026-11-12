@@ -18,6 +18,7 @@ import type {
   MobileSyncProgressStore,
   MobileSyncSnapshot,
 } from './mobile-sync-progress'
+import type { NativeConnectivity } from './native-connectivity'
 import { WorkspaceRefreshProvider } from './workspace-refresh'
 
 function coldLabel(phase: MobileSyncPhase): string {
@@ -77,11 +78,13 @@ function coldStatusSource(store: MobileSyncProgressStore): LaunchSplashStatusSou
  */
 export function MobileSyncBoundary({
   store,
+  visibility,
   children,
   onRetry,
   stallAfterMs = COLD_SYNC_STALL_MS,
 }: {
   store: MobileSyncProgressStore
+  visibility?: NativeConnectivity['visibility'] | undefined
   children: ReactNode
   /** Reopens the principal-scoped replica after a terminal or stalled cold sync. */
   onRetry?: (() => void) | undefined
@@ -131,7 +134,7 @@ export function MobileSyncBoundary({
   startupTiming.mark('sync.boundary-open')
 
   return (
-    <WorkspaceRefreshProvider store={store.shared}>
+    <WorkspaceRefreshProvider store={store.shared} visibility={visibility}>
       <View style={styles.root} testID="sync-content">
         {children}
       </View>

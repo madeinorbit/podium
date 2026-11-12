@@ -119,6 +119,7 @@ import {
 } from './server-profiles'
 import type { MobileShell, NoticeTone } from './shell'
 import { MobileShellSurface, useShellErrorChannel } from './shell-surface'
+import { watchWorkspaceResume } from './workspace-refresh'
 
 const log = createLogger('mobile:replica')
 const followLog = createLogger('mobile:server-follow')
@@ -475,6 +476,7 @@ function demoTrpc(): MobileTrpc {
 /** The same connection observers as web, with the phone's platform plugs. */
 function MobileHubAttach({
   connectivity,
+  syncProgress,
   networkEnabled,
   onDisconnected,
   httpOrigin,
@@ -483,6 +485,7 @@ function MobileHubAttach({
   follow,
 }: {
   connectivity: NativeConnectivity | undefined
+  syncProgress: MobileSyncProgressStore
   networkEnabled: boolean
   onDisconnected: () => void
   httpOrigin: string
@@ -512,6 +515,7 @@ function MobileHubAttach({
       },
       report: onVersionNotice,
     })
+    const stopResume = connectivity && watchWorkspaceResume(syncProgress.shared, connectivity)
     const stop = observeLiveConnection(hub, {
       connectivity,
       wakeSource: Platform.OS === 'web' ? browserWakeSource() : undefined,
@@ -521,9 +525,19 @@ function MobileHubAttach({
     })
     return () => {
       stop()
+      stopResume?.()
       version.dispose()
     }
-  }, [connectivity, hub, networkEnabled, onDisconnected, httpOrigin, bearer, onVersionNotice])
+  }, [
+    connectivity,
+    hub,
+    networkEnabled,
+    onDisconnected,
+    httpOrigin,
+    bearer,
+    onVersionNotice,
+    syncProgress,
+  ])
   return null
 }
 
@@ -906,6 +920,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
     >
       <MobileHubAttach
         connectivity={connectivity}
+        syncProgress={openedReplica.syncProgress}
         networkEnabled={networkEnabled}
         onDisconnected={verifyLiveCredential}
         httpOrigin={config.httpOrigin}
@@ -916,6 +931,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
       <MobileShellSurface value={shell}>
         <MobileSyncBoundary
           store={openedReplica.syncProgress}
+          visibility={connectivity?.visibility}
           onRetry={openedReplica.syncProgress.retry}
         >
           {children}
