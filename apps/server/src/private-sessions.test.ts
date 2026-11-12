@@ -19,10 +19,10 @@
  * The paths run least destructive first; the kill and stop refusals run last.
  */
 
-import { runSessionCli } from '../../cli/src/session-cli'
 import { asSessionId, type SessionId } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { runSessionCli } from '../../cli/src/session-cli'
 import { userCommandPrincipal } from './command-principal'
 import { inboxPrincipalFromCommand } from './modules/sessions/inbox'
 import { attachTestClient } from './test-support/client-transport'
@@ -344,7 +344,12 @@ describe('MU-07: an agent acting for Alice cannot read, send to or drive Bob’s
       )
       expect(await client.issues.get.query({ id: f.tasks.bob })).toMatchObject({ id: f.tasks.bob })
     } finally {
-      await f.handle.registry.sessionStore.grants.remove('session', target(), MEMBERS.alice.id, 'read')
+      await f.handle.registry.sessionStore.grants.remove(
+        'session',
+        target(),
+        MEMBERS.alice.id,
+        'read',
+      )
     }
   })
 

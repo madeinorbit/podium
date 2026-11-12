@@ -47,7 +47,6 @@
  * code until the flip). Where a property is bounded by that, it says so.
  */
 
-import { type Principal } from '@podium/protocol'
 import {
   placementDecision,
   resolveAddress,
@@ -55,8 +54,8 @@ import {
   UNADDRESSABLE,
 } from '@podium/commands'
 import {
-  asMachineId,
   asIssueId,
+  asMachineId,
   asSessionId,
   asUserId,
   authorize,
@@ -535,7 +534,9 @@ describe('D19.2 — reads are scope-gated, with denial covered on trpc, cli, mcp
     expect(authorize(cap, 'read', someoneElsesSession, { override: true })).toBe('forbidden')
     expect(authorize(cap, 'read', mySession)).toBe('allow')
     expect(authorize(cap, 'read', { ...someoneElsesSession, grants: [OWNER] })).toBe('allow')
-    expect(authorize(cap, 'read', { kind: 'private', id: 'private', owner: OTHER })).toBe('forbidden')
+    expect(authorize(cap, 'read', { kind: 'private', id: 'private', owner: OTHER })).toBe(
+      'forbidden',
+    )
     expect(authorize(cap, 'read', { kind: 'per-user-row', userId: OTHER })).toBe('forbidden')
     expect(authorize(cap, 'read', { id: 'iss:unrelated' })).toBe('allow')
   })
@@ -576,9 +577,9 @@ describe('D2 — the four outcomes: allow / deny / confirm / apply-time-revoked'
   }
 
   it('ALLOW — inside the subtree', async () => {
-    expect(await outcome(() => checkIssueAccess(caller(), issues, 'close', 'write', 'iss:child'))).toBe(
-      'allow',
-    )
+    expect(
+      await outcome(() => checkIssueAccess(caller(), issues, 'close', 'write', 'iss:child')),
+    ).toBe('allow')
   })
 
   it('CONFIRM — outside the subtree, and --outside-scope lifts it (the shape D19.1 preserves)', async () => {
@@ -586,15 +587,17 @@ describe('D2 — the four outcomes: allow / deny / confirm / apply-time-revoked'
       await outcome(() => checkIssueAccess(caller(), issues, 'close', 'write', 'iss:elsewhere')),
     ).toBe('PRECONDITION_FAILED')
     expect(
-      await outcome(() => checkIssueAccess(caller(true), issues, 'close', 'write', 'iss:elsewhere')),
+      await outcome(() =>
+        checkIssueAccess(caller(true), issues, 'close', 'write', 'iss:elsewhere'),
+      ),
     ).toBe('allow')
   })
 
   it('DENY — a role that cannot perform the action at all, and override does not lift it', async () => {
     const viewer = { capability: { role: 'viewer', scope: { kind: 'all' } } as Capability }
-    expect(await outcome(() => checkIssueAccess(viewer, issues, 'close', 'write', 'iss:child'))).toBe(
-      'FORBIDDEN',
-    )
+    expect(
+      await outcome(() => checkIssueAccess(viewer, issues, 'close', 'write', 'iss:child')),
+    ).toBe('FORBIDDEN')
     expect(
       await outcome(() =>
         checkIssueAccess({ ...viewer, overrideScope: true }, issues, 'close', 'write', 'iss:child'),
@@ -610,13 +613,13 @@ describe('D2 — the four outcomes: allow / deny / confirm / apply-time-revoked'
       has: (id) => ['iss:root', 'iss:child'].includes(id),
       ancestorIds: (id) => ancestry.get(id) ?? [],
     }
-    expect(await outcome(() => checkIssueAccess(caller(), moving, 'close', 'write', 'iss:child'))).toBe(
-      'allow',
-    )
+    expect(
+      await outcome(() => checkIssueAccess(caller(), moving, 'close', 'write', 'iss:child')),
+    ).toBe('allow')
     ancestry.set('iss:child', ['iss:somewhere-else'])
-    expect(await outcome(() => checkIssueAccess(caller(), moving, 'close', 'write', 'iss:child'))).toBe(
-      'PRECONDITION_FAILED',
-    )
+    expect(
+      await outcome(() => checkIssueAccess(caller(), moving, 'close', 'write', 'iss:child')),
+    ).toBe('PRECONDITION_FAILED')
   })
 })
 
@@ -633,10 +636,18 @@ function machineWorld(opts: {
   const row = (): MachineOwnershipRow => ({
     machine: 'm1' as MachineOwnershipRow['machine'],
     owner: opts.owner,
-    grants: [...(opts.owner ? [{ subject: opts.owner, verb: 'use' as const }, { subject: opts.owner, verb: 'manage' as const, custody: true }] : []), ...grants.map((g) => ({
-      subject: g.grantee as UserId,
-      verb: g.verb as 'see' | 'use' | 'manage',
-    }))],
+    grants: [
+      ...(opts.owner
+        ? [
+            { subject: opts.owner, verb: 'use' as const },
+            { subject: opts.owner, verb: 'manage' as const, custody: true },
+          ]
+        : []),
+      ...grants.map((g) => ({
+        subject: g.grantee as UserId,
+        verb: g.verb as 'see' | 'use' | 'manage',
+      })),
+    ],
     name: 'workshop',
     daemonAssigned: true,
     daemonAvailable: true,
