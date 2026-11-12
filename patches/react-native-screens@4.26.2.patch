@@ -20,6 +20,83 @@ index fa1b77317f609983ae2434764174072e51130550..79a9f22f08289e329043633e034177f4
      override fun setTitleFontFamily(
          config: ScreenStackHeaderConfig,
          titleFontFamily: String?,
+diff --git a/ios/RNSScreenStack.mm b/ios/RNSScreenStack.mm
+index 192f5d2c77192f323844b0d11ee179081891e7a4..1c2bda1cf7a51b06c9c7d5ecd8eb59a5bfd761dc 100644
+--- a/ios/RNSScreenStack.mm
++++ b/ios/RNSScreenStack.mm
+@@ -38,7 +38,15 @@ namespace react = facebook::react;
+ 
+ @end
+ 
+-@implementation RNSNavigationController
++@implementation RNSNavigationController {
++#if !TARGET_OS_TV
++  __weak UINavigationItem *_scrollToTopNavigationItem;
++  CGFloat _scrollToTopLayoutWidth;
++  UIContentSizeCategory _scrollToTopContentSizeCategory;
++  UIUserInterfaceSizeClass _scrollToTopVerticalSizeClass;
++  CGFloat _scrollToTopExpandedBarHeight;
++#endif
++}
+ 
+ #if !TARGET_OS_TV
+ - (UIViewController *)childViewControllerForStatusBarStyle
+@@ -76,6 +84,43 @@ namespace react = facebook::react;
+ 
+     [self maybeUpdateHeaderLayoutInfoInShadowTree:screenController];
+   }
++
++  UIScrollView *scrollView =
++      [RNSScrollViewFinder findScrollViewInFirstDescendantChainFrom:self.topViewController.view];
++  [self rnscreens_scrollToTopInsetForScrollView:scrollView];
++}
++
++- (CGFloat)rnscreens_scrollToTopInsetForScrollView:(UIScrollView *)scrollView
++{
++  CGFloat topInset = scrollView.adjustedContentInset.top;
++  UINavigationItem *navigationItem = self.topViewController.navigationItem;
++  if (self.viewControllers.count != 1 || self.isNavigationBarHidden || !self.navigationBar.prefersLargeTitles ||
++      navigationItem.largeTitleDisplayMode == UINavigationItemLargeTitleDisplayModeNever) {
++    return topInset;
++  }
++
++  // UIKit reduces adjustedContentInset along with a collapsed large title. Remember
++  // the expanded bar during layout, before a re-tap needs to restore that height.
++  // Reset measurements when the root, orientation or Dynamic Type size changes.
++  CGFloat layoutWidth = self.view.bounds.size.width;
++  UIContentSizeCategory contentSizeCategory = self.traitCollection.preferredContentSizeCategory;
++  if (_scrollToTopNavigationItem != navigationItem || _scrollToTopLayoutWidth != layoutWidth ||
++      ![_scrollToTopContentSizeCategory isEqualToString:contentSizeCategory] ||
++      _scrollToTopVerticalSizeClass != self.traitCollection.verticalSizeClass) {
++    _scrollToTopNavigationItem = navigationItem;
++    _scrollToTopLayoutWidth = layoutWidth;
++    _scrollToTopContentSizeCategory = contentSizeCategory;
++    _scrollToTopVerticalSizeClass = self.traitCollection.verticalSizeClass;
++    _scrollToTopExpandedBarHeight = 0;
++  }
++
++  CGFloat barHeight = self.navigationBar.bounds.size.height;
++  if (!scrollView.isDragging && !scrollView.isDecelerating) {
++    _scrollToTopExpandedBarHeight = MAX(_scrollToTopExpandedBarHeight, barHeight);
++  }
++
++  // Use today's safe area and content inset; only the measured title delta is cached.
++  return topInset + MAX(0, _scrollToTopExpandedBarHeight - barHeight);
+ }
+ 
+ - (UIInterfaceOrientationMask)supportedInterfaceOrientations
+@@ -145,7 +190,11 @@ namespace react = facebook::react;
+   } else if (tabScreenController.tabScreenComponentView.shouldUseRepeatedTabSelectionScrollToTopSpecialEffect) {
+     UIScrollView *scrollView =
+         [RNSScrollViewFinder findScrollViewInFirstDescendantChainFrom:[[self topViewController] view]];
++#if !TARGET_OS_TV
++    return [scrollView rnscreens_scrollToTopWithTopInset:[self rnscreens_scrollToTopInsetForScrollView:scrollView]];
++#else
+     return [scrollView rnscreens_scrollToTop];
++#endif
+   }
+ 
+   return false;
 diff --git a/ios/RNSScreenStackHeaderConfig.h b/ios/RNSScreenStackHeaderConfig.h
 index 8a41697223f6c4b5cb2dd6d450fc58cbb3b27536..41896f499a192ec8c205a09704326f09399a94bb 100644
 --- a/ios/RNSScreenStackHeaderConfig.h
@@ -59,6 +136,40 @@ index 1c844846a5c66e31cfa530ca462774d2fb6bbea1..81177e3daa4d2a09242b31e0aaf22464
    if (newScreenProps.titleFontFamily != oldScreenProps.titleFontFamily) {
      _titleFontFamily = RCTNSStringFromStringNilIfEmpty(newScreenProps.titleFontFamily);
    }
+diff --git a/ios/UIScrollView+RNScreens.h b/ios/UIScrollView+RNScreens.h
+index 6a481fb4e17b2fa0d29775f9c857ca776e57a2af..96bbe07097a18a629cb8f9d97f5bb6437ac684af 100644
+--- a/ios/UIScrollView+RNScreens.h
++++ b/ios/UIScrollView+RNScreens.h
+@@ -11,6 +11,9 @@ NS_ASSUME_NONNULL_BEGIN
+  */
+ - (BOOL)rnscreens_scrollToTop;
+ 
++/** Scrolls to a measured top inset, including the expanded navigation title. */
++- (BOOL)rnscreens_scrollToTopWithTopInset:(CGFloat)topInset;
++
+ @end
+ 
+ NS_ASSUME_NONNULL_END
+diff --git a/ios/UIScrollView+RNScreens.mm b/ios/UIScrollView+RNScreens.mm
+index c877d5c2e2ad37032736172d38651c7561805989..9dabed5383a148b5aa7188b18960a0cd7f0d1d19 100644
+--- a/ios/UIScrollView+RNScreens.mm
++++ b/ios/UIScrollView+RNScreens.mm
+@@ -4,8 +4,13 @@
+ 
+ - (BOOL)rnscreens_scrollToTop
+ {
+-  if ([self contentOffset].y != -self.adjustedContentInset.top) {
+-    [self setContentOffset:CGPointMake(0, -self.adjustedContentInset.top) animated:YES];
++  return [self rnscreens_scrollToTopWithTopInset:self.adjustedContentInset.top];
++}
++
++- (BOOL)rnscreens_scrollToTopWithTopInset:(CGFloat)topInset
++{
++  if ([self contentOffset].y != -topInset) {
++    [self setContentOffset:CGPointMake(self.contentOffset.x, -topInset) animated:YES];
+     return YES;
+   }
+ 
 diff --git a/lib/typescript/fabric/ScreenStackHeaderConfigNativeComponent.d.ts b/lib/typescript/fabric/ScreenStackHeaderConfigNativeComponent.d.ts
 index a51d8648567cff29cd2be0d5262bd15c6fc69c61..7eb4179e6acf42e13fbe2458cd041a3216d93cbf 100644
 --- a/lib/typescript/fabric/ScreenStackHeaderConfigNativeComponent.d.ts
@@ -85,19 +196,3 @@ index a80d9fef0c0ab5ce8221c5e0c7fae65162bc6164..38660fa7e0f41b91568760b525b221a6
    titleFontFamily?: string | undefined;
    titleFontSize?: CT.Int32 | undefined;
    titleFontWeight?: string | undefined;
-diff --git a/ios/UIScrollView+RNScreens.mm b/ios/UIScrollView+RNScreens.mm
---- a/ios/UIScrollView+RNScreens.mm
-+++ b/ios/UIScrollView+RNScreens.mm
-@@ -5,5 +5,12 @@
- - (BOOL)rnscreens_scrollToTop
- {
-+  // Private UIKit SPI re-expands large titles; fall back to the animated inset offset when unavailable.
-+  SEL uikitScrollToTop = NSSelectorFromString(@"_scrollToTopIfPossible:");
-+  if ([self respondsToSelector:uikitScrollToTop]) {
-+    BOOL (*scrollToTop)(id, SEL, BOOL) = (BOOL (*)(id, SEL, BOOL))[self methodForSelector:uikitScrollToTop];
-+    return scrollToTop(self, uikitScrollToTop, YES);
-+  }
-+
-   if ([self contentOffset].y != -self.adjustedContentInset.top) {
-     [self setContentOffset:CGPointMake(0, -self.adjustedContentInset.top) animated:YES];
-     return YES;
