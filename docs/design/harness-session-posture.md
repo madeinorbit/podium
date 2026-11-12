@@ -95,7 +95,7 @@ record, with every run, is `harness-posture-measurements.md`.
 | OpenCode | No (**live** oc). | Nothing needed. |
 | Grok | No, when signed in (**live** gk). Folder trust gates project permission rules, hooks and instructions; headless startup with such project sources needs `--trust` or a prior grant (**doc**). | Nothing needed for the prompt. |
 | Pi | Yes with a fresh home, in every folder, even an empty one: "Trust project folder? → Trust" (**live** pi). | `--approve` removes it (**live** pi). |
-| Cursor | Yes in the terminal (**ref**). | Headless: `--trust`. Terminal: a marker file `~/.cursor/projects/<slug>/.workspace-trusted`, which is vendor-private state (**ref**, marker seen on disk). Whether `--trust` also applies to the terminal UI: not measured (no signed-in Cursor account was available to the spike). |
+| Cursor | Yes in the terminal (**ref**); the screen itself is **unmeasured**. | Headless: `--trust`. Terminal: a marker file `~/.cursor/projects/<slug>/.workspace-trusted`, which is vendor-private state (**ref**, marker seen on disk). Whether `--trust` also applies to the terminal UI: **unmeasured** (no signed-in Cursor account was available to the spike). |
 
 ### Running the Podium CLI without a prompt
 
@@ -117,7 +117,7 @@ record, with every run, is `harness-posture-measurements.md`.
 | OpenCode | None in a fresh home: one tip line (**live** oc). | Nothing needed. |
 | Grok | None in a fresh signed-in home: a "New /learn skill!" line in the welcome box (**live** gk). | Nothing needed. |
 | Pi | "Update Available" transcript notice, not modal; a first start also downloads `fd` (**live** pi). | Nothing needed. `PI_SKIP_VERSION_CHECK=1` removes the notice (**live** pi). |
-| Cursor | Not measured: the test host's Cursor account was signed out ("Press any key to log in"), and a browser login was not approved in time. | Unknown. |
+| Cursor | **Unmeasured**: the test host's Cursor account was signed out ("Press any key to log in"), and no login was completed. | Unknown. |
 
 ### Other facts that shaped the design
 
@@ -387,7 +387,9 @@ the managed-installs phase, where its second user appears.
 
 This is the target. Every cell comes from the posture spike (section 2,
 `harness-posture-measurements.md`); a cell is a mechanism or `unmet: <reason>`.
-The Cursor row is from `--help` and the installed bundle only.
+The Cursor row is from `--help` and the installed bundle only; its screen cells
+(the terminal trust prompt, quiet start, reads outside the folder) are marked
+**unmeasured**.
 
 | | R1 trust | R2 Podium CLI | R3 mode: supervised / autonomous | R4 quiet start | R5 Podium material |
 |---|---|---|---|---|---|
@@ -396,7 +398,7 @@ The Cursor row is from `--help` and the installed bundle only.
 | **OpenCode** | met by default | `{"bash":{"*":<mode's rule>,"podium *":"allow"}}` in the inline config's `permission` | `bash` and `edit` ask rules / `--auto` (terminal); engine: asks reach chat | met by default | `{"external_directory":{"<uploads>/*":"allow"}}` in the inline config (asks by default); MCP tools allowed by default |
 | **Grok** | met by default (no folder prompt) | terminal, turn: `--allow 'Bash(podium *)'`; engine: `unmet: podium-cli`, "`grok agent stdio` takes no allow rule per launch; in default mode it asks before running podium, and under auto mode its classifier decides" | terminal, turn: `default` / `auto`; engine: `_meta.autoMode` on `session/new` | met by default | reads: met by default (read-only tools never ask); MCP: `--allow 'MCPTool(<server>__*)'` in terminal and turn, engine asks reach chat |
 | **Pi** | `--approve` (asks in every folder with a fresh home) | met by default | `unmet: autonomy` / met by default | met: the update notice is not modal (`PI_SKIP_VERSION_CHECK=1` hides it) | met by default |
-| **Cursor** | turn: `--trust`; terminal: `unmet: workspace-trust`, "Cursor keeps interactive folder trust in private state that Podium does not write" | `unmet: podium-cli`, "Cursor takes allow rules only from a settings file shared with every Cursor session, which Podium does not edit" | turn: nothing / `--auto-review` | `unmet: quiet-start`, "not measured: no signed-in Cursor account was available to the spike" | `--approve-mcps` for Podium's MCP servers; reads outside the folder: `unmet: podium-material`, "not measured" |
+| **Cursor** | turn: `--trust`; terminal: `unmet: workspace-trust`, "Cursor keeps interactive folder trust in private state that Podium does not write" (screen **unmeasured**: whether `--trust` also covers the terminal) | `unmet: podium-cli`, "Cursor takes allow rules only from a settings file shared with every Cursor session, which Podium does not edit" | turn: nothing / `--auto-review` | `unmet: quiet-start`, "unmeasured: no signed-in Cursor account was available to the spike" | `--approve-mcps` for Podium's MCP servers; reads outside the folder: `unmet: podium-material`, "unmeasured" |
 
 - **Claude needs no settings merge.** Its rules and mode have flags. Nothing is
   needed for the auto-mode notices: they are transcript lines, and
@@ -417,8 +419,10 @@ The Cursor row is from `--help` and the installed bundle only.
   `[permission] allow` in `~/.grok/config.toml` would, as a third home edit
   (4.7); this phase reports `unmet` instead and leaves that choice open.
 - **Cursor is documented, not measured.** Its row comes from `--help`
-  (2026.07.23) and its installed bundle. The acceptance run measures it once a
-  signed-in account is available; a cell that turns out met changes then.
+  (2026.07.23) and its installed bundle; the cells that depend on what Cursor
+  draws once signed in are marked **unmeasured**. It can be measured later, once
+  a signed-in Cursor login is in place on a test host (the steps are in
+  `harness-posture-measurements.md`); a cell that turns out met changes then.
 - **Pi cannot be supervised.** It has no approval gate. The adapter reports that
   as unmet and the UI says so.
 - **Windows.** Claude Code there runs commands through a PowerShell tool with
