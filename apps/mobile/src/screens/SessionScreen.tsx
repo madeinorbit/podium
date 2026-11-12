@@ -9,7 +9,17 @@ import { asSessionId, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/mode
 import { isShortSessionIdentifier, issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
-import { type ComponentProps, type ReactNode, useCallback, useEffect, useState } from 'react'
+import {
+  type ComponentProps,
+  forwardRef,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { useStoreActions } from '../client/hooks'
 import type { MobileTrpc } from '../client/trpc'
 import {
@@ -69,9 +79,6 @@ export function SessionScreen() {
   const backTarget = sessionBackTarget(params.backTo)
   const hasBackTarget = hasSessionBackTarget(params.backTo)
   const router = useRouter()
-  // Actions + replica are identity-stable statics: this subscription never
-  // re-renders the screen on store publishes.
-  const store = useStoreActions()
   const exitKind = useSessionContextExit(sessionId)
   const readNextSession = useSessionContextNextSession()
   const session = useSession(sessionId)
@@ -92,10 +99,32 @@ export function SessionScreen() {
     }
   }, [backTarget, resolvedSessionId, router, sessionId])
 
-  const [menuOpen, setMenuOpen] = useState(false)
-  const [workMenuOpen, setWorkMenuOpen] = useState(false)
-  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
+  // The session menus own their open state (SessionMenus): tapping ••• must
+  // not re-render this screen, because every render re-sends the header's
+  // options to the native bar, and that churn moved the transcript.
+  const menus = useRef<SessionMenusHandle>(null)
+  const openMenu = useCallback(() => menus.current?.open(), [])
   const [findRequest, setFindRequest] = useState(0)
+  const find = useCallback(() => setFindRequest((request) => request + 1), [])
+  const headerRight = useMemo(
+    () => (
+      <>
+        <HeaderButton
+          label="Open terminal"
+          size={32}
+          onPress={() => {
+            if (sessionId) router.push(`/session/${encodeURIComponent(sessionId)}/terminal`)
+          }}
+        >
+          <Icon as={SquareTerminal} size={17} color={color.textDim} />
+        </HeaderButton>
+        <HeaderButton label="Session actions" onPress={openMenu} size={32} bare>
+          <Icon as={MoreVertical} size={17} color={color.textDim} />
+        </HeaderButton>
+      </>
+    ),
+    [openMenu, router, sessionId],
+  )
   // Replica confirmation retires the engine-owned prompt in the same update
   // that replaces the provisional session. Keep the text until the transcript
   // itself proves the first turn landed.
@@ -128,11 +157,6 @@ export function SessionScreen() {
     const next = readNextSession(sessionId)
     if (next && next !== sessionId) router.replace(sessionHref(next, backTarget))
   }, [backTarget, readNextSession, router, sessionId])
-
-  // How many agents the draft-delete confirm names. Task scope, counted live:
-  // the vessel can hold more than the one session this sheet opened from, and
-  // the sentence must say so before anything is removed.
-  const draftAgentCount = useSessionContextIssueAgentCount(issue?.id, confirmDeleteOpen)
 
   if (!sessionId || !session) {
     // A SESSION THAT IS NOT HERE IS THREE DIFFERENT FACTS (doc §3.1 ¶2).
@@ -179,20 +203,7 @@ export function SessionScreen() {
       // No `safeBottom`: the floating composer is the bottom-most thing on this
       // screen and pays that inset itself, so it can drop it when the keyboard
       // takes the bottom edge [POD-502].
-      right={
-        <>
-          <HeaderButton
-            label="Open terminal"
-            size={32}
-            onPress={() => router.push(`/session/${encodeURIComponent(sessionId)}/terminal`)}
-          >
-            <Icon as={SquareTerminal} size={17} color={color.textDim} />
-          </HeaderButton>
-          <HeaderButton label="Session actions" onPress={() => setMenuOpen(true)} size={32} bare>
-            <Icon as={MoreVertical} size={17} color={color.textDim} />
-          </HeaderButton>
-        </>
-      }
+      right={headerRight}
     >
       <HeaderInsetConversation
         session={session}
@@ -202,42 +213,13 @@ export function SessionScreen() {
         onInitialPendingSettled={settleOptimisticFirstPrompt}
         deferInitialTranscript={spawnPending}
       />
-      <SessionActionMenu
+      <SessionMenus
+        ref={menus}
         session={session}
         issue={issue}
-        open={menuOpen}
-        onClose={() => setMenuOpen(false)}
         nextSession={nextSession}
-        onFind={() => setFindRequest((request) => request + 1)}
-        onDelete={() => setConfirmDeleteOpen(true)}
-        onWorkState={() => setWorkMenuOpen(true)}
-      />
-      <ActionSheet
-        visible={confirmDeleteOpen && draftAgentCount !== undefined}
-        title={DELETE_TASK_TITLE}
-        subtitle={deleteTaskSubtitle(draftAgentCount ?? 0)}
-        actions={[
-          {
-            label: 'Delete',
-            destructive: true,
-            onPress: () => {
-              if (issue) {
-                void store.deleteIssue(issue.id).catch(() => {})
-                goBack()
-              }
-            },
-          },
-        ]}
-        onClose={() => setConfirmDeleteOpen(false)}
-      />
-      <ActionSheet
-        visible={workMenuOpen}
-        title="Work state"
-        actions={WORK_STATES.map((ws) => ({
-          label: ws ? ws[0].toUpperCase() + ws.slice(1) : 'Unsorted',
-          onPress: () => void store.setWorkState(sessionId, ws),
-        }))}
-        onClose={() => setWorkMenuOpen(false)}
+        onFind={find}
+        onDeleted={goBack}
       />
     </SessionChrome>
   )
@@ -252,6 +234,73 @@ export function SessionScreen() {
 function HeaderInsetConversation(props: ComponentProps<typeof SessionConversation>) {
   return <SessionConversation {...props} topInset={useHeaderInset()} />
 }
+
+interface SessionMenusHandle {
+  open(): void
+}
+
+/** The ••• menu and the sheets it opens, holding their own open state. */
+const SessionMenus = forwardRef<
+  SessionMenusHandle,
+  {
+    session: SessionView
+    issue: IssueViewModel | undefined
+    nextSession: () => void
+    onFind: () => void
+    onDeleted: () => void
+  }
+>(function SessionMenus({ session, issue, nextSession, onFind, onDeleted }, ref) {
+  const store = useStoreActions()
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [workMenuOpen, setWorkMenuOpen] = useState(false)
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
+  useImperativeHandle(ref, () => ({ open: () => setMenuOpen(true) }), [])
+  // How many agents the draft-delete confirm names. Task scope, counted live:
+  // the vessel can hold more than the one session this sheet opened from, and
+  // the sentence must say so before anything is removed.
+  const draftAgentCount = useSessionContextIssueAgentCount(issue?.id, confirmDeleteOpen)
+  return (
+    <>
+      <SessionActionMenu
+        session={session}
+        issue={issue}
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        nextSession={nextSession}
+        onFind={onFind}
+        onDelete={() => setConfirmDeleteOpen(true)}
+        onWorkState={() => setWorkMenuOpen(true)}
+      />
+      <ActionSheet
+        visible={confirmDeleteOpen && draftAgentCount !== undefined}
+        title={DELETE_TASK_TITLE}
+        subtitle={deleteTaskSubtitle(draftAgentCount ?? 0)}
+        actions={[
+          {
+            label: 'Delete',
+            destructive: true,
+            onPress: () => {
+              if (issue) {
+                void store.deleteIssue(issue.id).catch(() => {})
+                onDeleted()
+              }
+            },
+          },
+        ]}
+        onClose={() => setConfirmDeleteOpen(false)}
+      />
+      <ActionSheet
+        visible={workMenuOpen}
+        title="Work state"
+        actions={WORK_STATES.map((ws) => ({
+          label: ws ? ws[0].toUpperCase() + ws.slice(1) : 'Unsorted',
+          onPress: () => void store.setWorkState(session.sessionId, ws),
+        }))}
+        onClose={() => setWorkMenuOpen(false)}
+      />
+    </>
+  )
+})
 
 const SessionChrome = observer(function SessionChrome({
   issue,
