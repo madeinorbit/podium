@@ -1500,7 +1500,11 @@ describe('archive frees the worktree, keeping the branch (POD-567)', () => {
     // Not even inspected: the guard runs before any git op on the path.
     expect(ops.some((o) => o.op === 'worktreeRemove')).toBe(false)
     expect((await h.svc.reports.get(id))!.worktreePath).toBe('/r/.worktrees/issue-x')
-    expect(h.setSessionArchived).not.toHaveBeenCalledWith(expect.anything(), '/r/.worktrees/issue-x', true)
+    expect(h.setSessionArchived).not.toHaveBeenCalledWith(
+      expect.anything(),
+      '/r/.worktrees/issue-x',
+      true,
+    )
     expect(
       (await h.store.events.listEventsSince(0, { kinds: ['issue.worktree_free_refused'] })).length,
     ).toBe(1)

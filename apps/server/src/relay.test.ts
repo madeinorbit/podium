@@ -6774,7 +6774,12 @@ describe('SessionRegistry boot over model rows at feed head 0', () => {
       archived: false,
       workState: null,
     })
-    await store.sessions.setSnooze(fixtureWriteScope(), firstAdminMemberId(), asSessionId('s1'), null)
+    await store.sessions.setSnooze(
+      fixtureWriteScope(),
+      firstAdminMemberId(),
+      asSessionId('s1'),
+      null,
+    )
     expect((await store.sync.readFeedState()).headSeq).toBe(0)
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     expect(await store.sync.readFeedState()).toEqual({ headSeq: 1, floorSeq: 1 })
