@@ -666,6 +666,7 @@ describe('pairing supersedes handoff intent', () => {
       captureMobileHandoffUrl(handoffLink('https://a.example', 'instance-a'))
     })
     const handoffId = pendingMobileHandoffSnapshot().id
+    seams.router.replace.mockClear()
 
     act(() => {
       seams.linkListener?.({ url: PAIRING_LINK })
@@ -677,11 +678,10 @@ describe('pairing supersedes handoff intent', () => {
       profileSelected: false,
     })
     expect(pendingMobileHandoffSnapshot().id).toBeGreaterThan(handoffId)
-    expect(seams.router.replace).toHaveBeenCalledWith('/')
+    // The router never held the pairing link (app/+native-intent.ts), and a
+    // root replace would remount this gate and lose the pairing (POD-6913).
+    expect(seams.router.replace).not.toHaveBeenCalled()
     expect(seams.parsePairing).toHaveBeenCalledWith(PAIRING_LINK)
-    expect(seams.router.replace.mock.invocationCallOrder.at(-1)).toBeLessThan(
-      seams.parsePairing.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
-    )
     expect(JSON.stringify(pendingMobileHandoffSnapshot())).not.toContain(PAIRING_SECRET)
   })
 
@@ -1609,4 +1609,35 @@ it('ignores duplicate OS delivery after a hosted callback succeeds', async () =>
   expect(seams.hostedRedeem).toHaveBeenCalledTimes(1)
   expect(seams.activeContext?.bearer).toBe('cloud-token')
   expect(screen.queryByText('Welcome to Podium')).toBeNull()
+})
+
+/**
+ * A replace at the root remounts the root layout, this gate included: on the
+ * Android emulator a cold pairing link opened setup and lost it 50 ms later,
+ * and no pairing request reached the server (POD-6913). The router never holds
+ * a pairing link (app/+native-intent.ts), so the gate must not move it.
+ */
+describe('a pairing link leaves the router alone (POD-6913)', () => {
+  it('opens setup from a cold pairing link without a router replace', async () => {
+    seams.router.replace.mockClear()
+    seams.getInitialUrl.mockResolvedValue(PAIRING_LINK)
+    render(
+      <ServerProfileGate>
+        <ProfileProbe />
+      </ServerProfileGate>,
+    )
+    await screen.findByLabelText('Cancel server setup')
+    expect(seams.parsePairing).toHaveBeenCalledWith(PAIRING_LINK)
+    expect(seams.router.replace).not.toHaveBeenCalled()
+  })
+
+  it('opens setup from a warm pairing link without a router replace', async () => {
+    await mountActiveProfileA()
+    seams.router.replace.mockClear()
+    act(() => {
+      seams.linkListener?.({ url: PAIRING_LINK })
+    })
+    await screen.findByLabelText('Cancel server setup')
+    expect(seams.router.replace).not.toHaveBeenCalled()
+  })
 })

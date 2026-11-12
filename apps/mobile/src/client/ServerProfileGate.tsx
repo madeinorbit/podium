@@ -92,6 +92,7 @@ import {
   preflightServer,
   type ServerPreflight,
 } from './pairing'
+import { isPairingSystemPath } from './pairing-intent'
 import { PairingWelcome } from './pairing-welcome'
 import {
   deleteProfileCredential,
@@ -384,12 +385,19 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
     // that route before parsing, rendering, logging, or awaiting network I/O.
     // Best-effort: on a cold launch the router may not be mounted yet, and a
     // throw here silently swallowed the whole pairing link (found 2026-08-27).
-    // The app/pair route also redirects itself, so a failed replace is safe.
+    //
+    // NOT FOR A PAIRING LINK (POD-6913). The router never holds one:
+    // app/+native-intent.ts keeps it out. And a replace at the root remounts
+    // the root layout, this gate included, so the pairing state set below was
+    // wiped as soon as it was set, and the phone stayed where it was with no
+    // pairing request sent.
     if (Platform.OS !== 'web') {
-      try {
-        router.replace('/')
-      } catch {
-        // not mounted yet — the pair route's own <Redirect> covers it
+      if (!isPairingSystemPath(raw)) {
+        try {
+          router.replace('/')
+        } catch {
+          // not mounted yet
+        }
       }
       setupOwnsStartup.current = false
     }
