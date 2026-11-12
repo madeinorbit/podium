@@ -1,35 +1,30 @@
-import { memo, useCallback, useRef } from 'react'
 import { useFocusEffect } from 'expo-router'
+import { useIsFocused } from 'expo-router/react-navigation'
+import { memo, useCallback } from 'react'
+import Animated, { useAnimatedProps } from 'react-native-reanimated'
 import Svg, { Ellipse } from 'react-native-svg'
-import type NativeEllipse from 'react-native-svg/lib/typescript/elements/Ellipse'
-import { restingPicture } from '@podium/working-mark/frames'
-import { tetra } from '@podium/working-mark/designs'
-import type { Picture } from '@podium/working-mark'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import { color } from '../theme/theme'
 import type { WorkingMarkProps } from './WorkingMark.shared'
-import { subscribeWorkingMark } from './working-mark-motion.native'
+import { workingMarkDot, workingMarkRest } from './working-mark-frames'
+import { subscribeWorkingMark, workingMarkProgress } from './working-mark-motion.native'
 
-const rest = restingPicture(tetra)
+const AnimatedEllipse = Animated.createAnimatedComponent(Ellipse)
 
-/** Native SVG uses the package's tetra pictures, without loading its DOM renderer. */
+/** Four SVG dots driven by one UI-runtime clock, with no JS work per frame. */
 export const WorkingMark = memo(function WorkingMark({
   size = 12,
   tint = color.workingText,
 }: WorkingMarkProps) {
-  // moduleSuffixes selects SVG's web declarations even for this native file.
-  // Native Shape.setNativeProps accepts ellipse props directly (web uses style).
-  const dots = useRef<(NativeEllipse | null)[]>([])
   const reduceMotion = useReduceMotion()
-  const paint = useCallback((picture: Picture) => {
-    picture.forEach(([cx, cy, rx, ry, opacity], index) => {
-      dots.current[index]?.setNativeProps({ cx, cy, rx, ry, opacity })
-    })
-  }, [])
-  useFocusEffect(useCallback(() => {
-    paint(rest)
-    if (!reduceMotion) return subscribeWorkingMark(paint)
-  }, [paint, reduceMotion]))
+  // Focus state also chooses static dots on covered screens, even if another screen keeps the clock alive.
+  const focused = useIsFocused()
+  useFocusEffect(
+    useCallback(() => {
+      const stop = reduceMotion ? undefined : subscribeWorkingMark()
+      return stop
+    }, [reduceMotion]),
+  )
 
   return (
     <Svg
@@ -41,13 +36,26 @@ export const WorkingMark = memo(function WorkingMark({
       width={Math.round(size * 0.66)}
       height={size}
     >
-      {rest.map(([cx, cy, rx, ry, opacity], index) => (
-        <Ellipse
-          key={index}
-          ref={dot => { dots.current[index] = dot as unknown as NativeEllipse | null }}
-          cx={cx} cy={cy} rx={rx} ry={ry} opacity={opacity} fill={tint}
-        />
-      ))}
+      {workingMarkRest.map(([cx, cy, rx, ry, opacity], index) =>
+        focused && !reduceMotion ? (
+          <MovingDot key={`${cx}:${cy}`} index={index} tint={tint} />
+        ) : (
+          <Ellipse
+            key={`${cx}:${cy}`}
+            cx={cx}
+            cy={cy}
+            rx={rx}
+            ry={ry}
+            opacity={opacity}
+            fill={tint}
+          />
+        ),
+      )}
     </Svg>
   )
 })
+
+function MovingDot({ index, tint }: { index: number; tint: string }) {
+  const animatedProps = useAnimatedProps(() => workingMarkDot(index, workingMarkProgress.get()))
+  return <AnimatedEllipse animatedProps={animatedProps} fill={tint} />
+}

@@ -1,26 +1,52 @@
+import { tetra } from '@podium/working-mark/designs'
 import { AppState } from 'react-native'
-import type { Picture } from '@podium/working-mark'
-import { createWorkingMarkClock } from './working-mark-clock'
+import {
+  cancelAnimation,
+  Easing,
+  makeMutable,
+  ReduceMotion,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated'
 
-let clock: ReturnType<typeof createWorkingMarkClock> | undefined
+// All focused, motion-enabled marks share this UI-runtime clock.
+export const workingMarkProgress = makeMutable(0)
 let users = 0
+let running = false
 let subscription: { remove(): void } | undefined
 
-/** Screen focus and reduced motion gate subscriptions in WorkingMark.native; only the background stops the clock. */
-export function subscribeWorkingMark(paint: (picture: Picture) => void): () => void {
-  if (!clock) {
-    clock = createWorkingMarkClock()
-    clock.setActive(AppState.currentState !== 'background')
-    subscription = AppState.addEventListener('change', state => clock?.setActive(state !== 'background'))
+function reconcile() {
+  const active = users > 0 && AppState.currentState !== 'background'
+  if (active === running) return
+  running = active
+  cancelAnimation(workingMarkProgress)
+  workingMarkProgress.set(tetra.rest ?? 0)
+  if (active) {
+    workingMarkProgress.set(
+      withRepeat(
+        withTiming(1, {
+          duration: tetra.loop,
+          easing: Easing.linear,
+          reduceMotion: ReduceMotion.System,
+        }),
+        -1,
+        false,
+        undefined,
+        ReduceMotion.System,
+      ),
+    )
   }
-  users++
-  const stop = clock.subscribe(paint)
+}
+
+/** Called only by focused marks that have not opted out of motion. */
+export function subscribeWorkingMark(): () => void {
+  if (++users === 1) subscription = AppState.addEventListener('change', reconcile)
+  reconcile()
   return () => {
-    stop()
     if (--users === 0) {
       subscription?.remove()
       subscription = undefined
-      clock = undefined
+      reconcile()
     }
   }
 }
