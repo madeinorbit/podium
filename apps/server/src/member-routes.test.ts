@@ -69,7 +69,11 @@ test('admin creates a copyable link; unauthenticated invitee completes and canno
 test('the socket hook hears which membership change it was, so a removal can say access ended (POD-6910)', async () => {
   const changes: [string, string][] = []
   const hono = app({ admin: true, onMembershipChanged: (id, change) => changes.push([id, change]) })
-  const bob = await identity.addMember({ name: 'Bob', email: 'bob@example.com', password: 'bob-pass-123' })
+  const bob = await identity.addMember({
+    name: 'Bob',
+    email: 'bob@example.com',
+    password: 'bob-pass-123',
+  })
   const carol = await identity.addMember({
     name: 'Carol',
     email: 'carol@example.com',

@@ -11,7 +11,11 @@
  * dialling. A network drop must keep the workspace and keep reconnecting.
  */
 import { parseReplicaNamespaceKey } from '@podium/client-core/replica'
-import { type FeedSinkPort, SocketHub, type WebSocketLike } from '@podium/client-core/socket-transport'
+import {
+  type FeedSinkPort,
+  SocketHub,
+  type WebSocketLike,
+} from '@podium/client-core/socket-transport'
 import { SIGN_IN_ENDED_CLOSE } from '@podium/protocol'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { useEffect } from 'react'

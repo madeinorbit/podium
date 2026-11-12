@@ -73,7 +73,6 @@ import { MainViewOutlet } from './routes'
 import { StatusStrip } from './StatusStrip'
 import { SyncLoader } from './SyncLoader'
 import { useShellActions, useShellChrome } from './shell-data'
-import { startSignInEndedWatch } from './sign-in-ended'
 import {
   CLOSE_RIGHT_PANEL,
   isOverlayView,
@@ -86,6 +85,7 @@ import {
   rightPanelAllowed,
   SUPERAGENT_MODE_KEY,
 } from './shell-state'
+import { startSignInEndedWatch } from './sign-in-ended'
 import { describeWireSkew, reportSkew } from './skew-notice'
 import { type MainView, StoreProvider, useLive } from './store'
 import { ToolbarSlotProvider } from './ToolbarSlot'

@@ -60,7 +60,9 @@ export interface SignInWatchOptions {
 const DEFAULT_CHECK_TIMEOUT_MS = 10_000
 
 /** The wording the server's close code asks for, if it sent one. */
-export function signedOutReasonOfClose(cause: SocketCloseCause | undefined): SignedOutReason | undefined {
+export function signedOutReasonOfClose(
+  cause: SocketCloseCause | undefined,
+): SignedOutReason | undefined {
   if (cause?.cause !== 'close-event') return undefined
   if (cause.code === SIGN_IN_ENDED_CLOSE.accessEnded.code) return 'access-ended'
   if (cause.code === SIGN_IN_ENDED_CLOSE.signedOut.code) return 'signed-out'
@@ -128,7 +130,8 @@ export function watchSignIn(hub: SignInWatchHub, options: SignInWatchOptions): (
     void ask().then((result) => {
       checking = false
       if (stopped) return
-      const reason = asked === epoch ? signedOutReasonOf(result, options.memberId, closeHint) : undefined
+      const reason =
+        asked === epoch ? signedOutReasonOf(result, options.memberId, closeHint) : undefined
       if (reason !== undefined) {
         stop()
         options.onSignedOut(reason)
