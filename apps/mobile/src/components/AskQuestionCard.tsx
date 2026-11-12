@@ -5,12 +5,12 @@ import {
   parseAskQuestions,
 } from '@podium/client-core/values'
 import type { TranscriptItem } from '@podium/model'
-import { Pencil } from './icons'
 import { useEffect, useState } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
 import { alpha } from '../theme/mix'
 import { color, font, leading, mono, monoLabel, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
+import { Pencil } from './icons'
 import { PressableScale } from './PressableScale'
 
 /**
@@ -19,7 +19,10 @@ import { PressableScale } from './PressableScale'
  * Other entry, or skip. Who answered is never on the payload; the authority
  * stamps it.
  */
-export type AskQuestionAnswer = ({ skip: true } | { choices: AskAnswerChoice[] }) & { interactionId?: string; question?: string }
+export type AskQuestionAnswer = ({ skip: true } | { choices: AskAnswerChoice[] }) & {
+  interactionId?: string
+  question?: string
+}
 
 /**
  * The agent asking the human — options rendered as big tap targets. Live cards
@@ -101,7 +104,10 @@ export function AskQuestionCard({
     if (!choices) return
     setState('sending')
     try {
-      await onAnswer({ choices, ...(interactionId ? { interactionId, question: item.toolInputJson } : {}) })
+      await onAnswer({
+        choices,
+        ...(interactionId ? { interactionId, question: item.toolInputJson } : {}),
+      })
       setState('sent')
     } catch {
       setState('failed')
@@ -112,7 +118,10 @@ export function AskQuestionCard({
     if (!onAnswer || locked) return
     setState('sending')
     try {
-      await onAnswer({ skip: true, ...(interactionId ? { interactionId, question: item.toolInputJson } : {}) })
+      await onAnswer({
+        skip: true,
+        ...(interactionId ? { interactionId, question: item.toolInputJson } : {}),
+      })
       setState('sent')
     } catch {
       setState('failed')
@@ -308,11 +317,11 @@ function AskedAge({ at }: { at: string | undefined }) {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#1c1817',
+    backgroundColor: color.card,
     borderColor: color.needsYouBorder,
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.md,
-    padding: space.lg,
+    borderRadius: radius.card,
+    padding: space.md,
     gap: space.md,
   },
   band: {
@@ -392,7 +401,7 @@ const styles = StyleSheet.create({
     backgroundColor: color.surfaceHigh,
     borderColor: color.border,
     borderWidth: 1,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
     paddingHorizontal: space.lg,
     paddingVertical: space.md + 1,
     gap: 3,
@@ -456,7 +465,7 @@ const styles = StyleSheet.create({
   input: {
     borderColor: color.border,
     borderWidth: 1,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
     paddingHorizontal: space.lg,
     paddingVertical: space.md,
     ...sans(400),
@@ -479,7 +488,7 @@ const styles = StyleSheet.create({
     backgroundColor: color.accentSoft,
     borderWidth: 1,
     borderColor: color.accentBorder,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
     alignItems: 'center',
     paddingVertical: space.md,
   },
@@ -496,7 +505,7 @@ const styles = StyleSheet.create({
   skip: {
     borderColor: color.border,
     borderWidth: 1,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
     alignItems: 'center',
     paddingHorizontal: space.lg,
     paddingVertical: space.md,
