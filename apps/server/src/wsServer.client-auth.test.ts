@@ -6,6 +6,7 @@ import {
   CLIENT_WIRE_VERSION,
   decodeBinaryEnvelope,
   type ServerMessage,
+  SIGN_IN_ENDED_CLOSE,
 } from '@podium/protocol'
 import { afterEach, describe, expect, test } from 'vitest'
 import { WebSocket } from 'ws'
@@ -229,16 +230,21 @@ describe('/client WS auth gate', () => {
     expect(await attempt(url, { authorization: 'Bearer wrong' })).toBe('rejected')
   })
 
-  test('remote revocation terminates sockets carrying that one credential', async () => {
+  test('remote revocation closes sockets carrying that one credential, saying why (POD-6910)', async () => {
     const url = await start(() => true, 'mobile-session-hash')
     const socket = new WebSocket(url)
     await new Promise<void>((resolve, reject) => {
       socket.once('open', resolve)
       socket.once('error', reject)
     })
-    const closed = new Promise<void>((resolve) => socket.once('close', () => resolve()))
+    const closed = new Promise<{ code: number; reason: string }>((resolve) =>
+      socket.once('close', (code: number, reason: Buffer) =>
+        resolve({ code, reason: reason.toString() }),
+      ),
+    )
     handle?.revokeClientCredential('mobile-session-hash')
-    await closed
+    // The client reads the code to tell a sign-out from a network drop.
+    expect(await closed).toEqual(SIGN_IN_ENDED_CLOSE.signedOut)
     expect(socket.readyState).toBe(WebSocket.CLOSED)
   })
 

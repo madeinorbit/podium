@@ -4,6 +4,7 @@ import {
   accountPageUrl,
   type SignInPrompt,
 } from '@podium/client-core/accounts'
+import { SIGNED_OUT_COPY, type SignedOutReason } from '@podium/client-core/live-connection'
 import { httpsRequiredRefusal } from '@podium/protocol'
 import {
   type CSSProperties,
@@ -17,7 +18,12 @@ import { clientRegistration } from '@/app/client-registration'
 import { HttpsRequiredScreen } from '@/app/HttpsRequiredScreen'
 import { LoadingScreen } from '@/app/LoadingScreen'
 import { serverConfig } from '@/app/trpc'
-import { AccountContext, expiredPrincipalOf, SYNC_AUTH_EXPIRED_EVENT } from '@/lib/account-context'
+import {
+  AccountContext,
+  expiredPrincipalOf,
+  expiredReasonOf,
+  SYNC_AUTH_EXPIRED_EVENT,
+} from '@/lib/account-context'
 import { webAccounts, webAuth } from '@/lib/accounts'
 import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
@@ -153,6 +159,7 @@ export function LoginView({
   capabilities,
   prompt,
   membershipError,
+  signedOutNotice,
 }: {
   httpOrigin: string
   onLoggedIn: (principal: string) => void | Promise<void>
@@ -160,6 +167,8 @@ export function LoginView({
   capabilities: AuthCapabilities
   prompt: SignInPrompt
   membershipError?: string
+  /** Why the server ended this device's previous sign-in (POD-6910). */
+  signedOutNotice?: string
 }): ReactNode {
   const withEmail = prompt === 'email-password'
   const [email, setEmail] = useState('')
@@ -311,6 +320,7 @@ export function LoginView({
         {host ? `Sign in to ${host}` : 'Sign in'}
       </div>
 
+      {signedOutNotice && !ok && <p role="alert">{signedOutNotice}</p>}
       {membershipError && <p role="alert">{membershipError}</p>}
       {!ok && new URLSearchParams(window.location.search).get('handoff') === 'failed' && (
         <p role="alert">That sign-in link expired or was already used. Please try again.</p>
@@ -541,6 +551,7 @@ export function LoginGate({
   }, [])
   const [status, setStatus] = useState<AuthStatus>()
   const [membershipError, setMembershipError] = useState<string>()
+  const [signedOutReason, setSignedOutReason] = useState<SignedOutReason>()
   const [phase, setPhase] = useState<GatePhase>('loading')
   const [auth, setAuth] = useState<AuthBootstrap>()
   // Sign-out is offered only where a login is required: in open mode a sign-out
@@ -562,6 +573,7 @@ export function LoginGate({
       if (named !== undefined && mounted.kind === 'principal' && mounted.principal !== named) return
       clientRegistration.invalidateLogin()
       authGeneration.current += 1
+      setSignedOutReason(expiredReasonOf(event))
       setAuth(undefined)
       setPhase('loading')
       // The server refused this account: disabled, removed or signed out
@@ -633,6 +645,7 @@ export function LoginGate({
   }
   const account = {
     signOut: async () => {
+      setSignedOutReason(undefined)
       await webAuth.logout(httpOrigin)
       await removeLocalAccount()
     },
@@ -707,6 +720,7 @@ export function LoginGate({
         capabilities={status.capabilities}
         prompt={status.prompt}
         membershipError={membershipError}
+        {...(signedOutReason ? { signedOutNotice: SIGNED_OUT_COPY[signedOutReason] } : {})}
         leaving={phase === 'reveal'}
         onLoggedIn={async (principal) => {
           if (credentialOwner !== authGeneration.current) return
@@ -716,6 +730,7 @@ export function LoginGate({
           )
           if (credentialOwner !== authGeneration.current) return
           clientRegistration.retryAfterSignIn()
+          setSignedOutReason(undefined)
           setLoginRequired(true)
           setAuth({ kind: 'principal', principal })
           setPhase('success')

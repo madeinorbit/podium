@@ -8,7 +8,7 @@
  */
 
 import type { ServerReadiness, UserId, UserRole } from '@podium/model'
-import { CAP_SYNC_HTTP_V1, fencedMemberOf, memberFenceRefuses, WireVersionOffer, negotiateVersion, CLIENT_WIRE_VERSION, MIN_CLIENT_WIRE_VERSION, DAEMON_WIRE_VERSION, MIN_DAEMON_WIRE_VERSION } from '@podium/protocol'
+import { CAP_SYNC_HTTP_V1, fencedMemberOf, memberFenceRefuses, WireVersionOffer, negotiateVersion, CLIENT_WIRE_VERSION, MIN_CLIENT_WIRE_VERSION, DAEMON_WIRE_VERSION, MIN_DAEMON_WIRE_VERSION, SIGN_IN_ENDED_CLOSE } from '@podium/protocol'
 import { measureTask } from '@podium/runtime/task-attribution'
 
 export interface NativeServer<T> {
@@ -27,6 +27,7 @@ interface NativeServerWebSocket<T> {
   sendBinary(data: Uint8Array, compress?: boolean): number
   ping(): number
   terminate(): void
+  close(code?: number, reason?: string): void
 }
 
 export interface NativeWebSocketHandler<T> {
@@ -243,6 +244,8 @@ type SocketListener = (...args: never[]) => void
  */
 export class NativeGatewaySocket implements GatewaySocket {
   private readonly listeners = new Map<SocketEvent, SocketListener[]>()
+  /** Set by {@link end}: nothing the client sends after it is handled. */
+  private ended = false
 
   constructor(private readonly native: NativeServerWebSocket<SocketData>) {}
 
@@ -281,6 +284,16 @@ export class NativeGatewaySocket implements GatewaySocket {
     this.native.terminate()
   }
 
+  /**
+   * A closing handshake with a code the client can read, instead of a dropped
+   * connection (POD-6910). Bun shuts the socket down after sending the close
+   * frame; a frame the client sends meanwhile is not handled.
+   */
+  end(code: number, reason: string): void {
+    this.ended = true
+    this.native.close(code, reason)
+  }
+
   on(event: 'message', listener: (raw: string | Buffer) => void): this
   on(event: 'close', listener: () => void): this
   on(event: 'pong', listener: () => void): this
@@ -293,6 +306,7 @@ export class NativeGatewaySocket implements GatewaySocket {
   }
 
   emit(event: SocketEvent, ...args: unknown[]): void {
+    if (this.ended && event === 'message') return
     for (const listener of this.listeners.get(event) ?? []) listener(...(args as never[]))
   }
 }
@@ -547,7 +561,9 @@ export function attachWebSockets(
     revokeClientCredential(credentialId) {
       const sockets = clientsByCredential.get(credentialId)
       if (!sockets) return
-      for (const socket of sockets) socket.terminate()
+      // The client reads the code to say "signed out on this device".
+      const { code, reason } = SIGN_IN_ENDED_CLOSE.signedOut
+      for (const socket of sockets) socket.end(code, reason)
       clientsByCredential.delete(credentialId)
     },
     async close() {

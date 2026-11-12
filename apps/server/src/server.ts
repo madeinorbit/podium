@@ -17,6 +17,7 @@ import {
   type MobileWebIdentity,
   PeerHelloReply,
   type ServedWebIdentity,
+  SIGN_IN_ENDED_CLOSE,
   type UpdateTarget,
   wireSchemaDigest,
 } from '@podium/protocol'
@@ -1740,11 +1741,16 @@ export async function startServer(
     onDeviceSignInEnded: (id) => revokeConnectedDeviceSignIn(id),
   })
   registerMemberRoutes(app, {
-    onMembershipChanged: (memberId) => {
+    onMembershipChanged: (memberId, change) => {
       // Role changes rescope the member's authority at commit; the People
       // ceremony also ends their old socket so the client reconnects with it.
+      // A removed or disabled member's sockets close with a code that tells
+      // the client its access ended, not that the network dropped (POD-6910).
+      const ended = change === 'remove' || change === 'disable'
       for (const conn of registry.clientGateway.registry.values()) {
-        if (conn.principal.user === memberId) conn.terminate?.()
+        if (conn.principal.user !== memberId) continue
+        if (ended && conn.endSignIn) conn.endSignIn(SIGN_IN_ENDED_CLOSE.accessEnded)
+        else conn.terminate?.()
       }
     },
     users: store.users,

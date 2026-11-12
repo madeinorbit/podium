@@ -1,5 +1,6 @@
 import { cookieCredentials, watchAccountSwitch } from '@podium/client-core/accounts'
 import { createSocketLogin, observeLiveConnection } from '@podium/client-core/live-connection'
+import type { ClientPrincipal } from '@podium/client-core/principal'
 import { useSocketHub } from '@podium/client-core/react'
 import { parseReplicaNamespaceKey, replicaNamespaceKey } from '@podium/client-core/replica'
 import { observer } from '@podium/client-graph/react'
@@ -72,6 +73,7 @@ import { MainViewOutlet } from './routes'
 import { StatusStrip } from './StatusStrip'
 import { SyncLoader } from './SyncLoader'
 import { useShellActions, useShellChrome } from './shell-data'
+import { startSignInEndedWatch } from './sign-in-ended'
 import {
   CLOSE_RIGHT_PANEL,
   isOverlayView,
@@ -208,6 +210,27 @@ function KernelWireSkewObserver({ httpOrigin }: { httpOrigin: string }): null {
         },
       }),
     [hub, httpOrigin],
+  )
+  return null
+}
+
+/** Ends the runtime when the server says this device's sign-in is gone (POD-6910). */
+function SignInEndedObserver({
+  httpOrigin,
+  principal,
+}: {
+  httpOrigin: string
+  principal: ClientPrincipal
+}): null {
+  const hub = useSocketHub()
+  const { userId, syncBoundaryId } = principal
+  useEffect(
+    () =>
+      startSignInEndedWatch(hub, {
+        httpOrigin,
+        principal: syncBoundaryId === undefined ? { userId } : { userId, syncBoundaryId },
+      }),
+    [hub, httpOrigin, userId, syncBoundaryId],
   )
   return null
 }
@@ -399,6 +422,7 @@ export function AppShell({
               >
                 <KernelWireSkewObserver httpOrigin={config.httpOrigin} />
                 <ServerFollowObserver />
+                <SignInEndedObserver httpOrigin={config.httpOrigin} principal={kernel.principal} />
                 <UpdateEffectsObserver />
                 <ReplicaReadyPodiumLinkHost
                   syncProgress={kernel.assembly.progress}

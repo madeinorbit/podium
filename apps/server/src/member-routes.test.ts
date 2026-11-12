@@ -19,13 +19,20 @@ beforeEach(async () => {
 afterEach(async () => {
   await store.close()
 })
-function app(options: { admin?: boolean; workspace?: WorkspaceIdentity } = {}) {
+function app(
+  options: {
+    admin?: boolean
+    workspace?: WorkspaceIdentity
+    onMembershipChanged?: (memberId: string, change: string) => void
+  } = {},
+) {
   const hono = new Hono()
   registerMemberRoutes(hono, {
     users: store.users,
     identity: options.workspace ?? identity.workspace,
     resolveUserId: async () => (options.admin ? firstAdminMemberId() : undefined),
     appUrl: () => 'https://workspace.example/',
+    ...(options.onMembershipChanged ? { onMembershipChanged: options.onMembershipChanged } : {}),
   })
   return hono
 }
@@ -57,6 +64,25 @@ test('admin creates a copyable link; unauthenticated invitee completes and canno
   expect((await post(app(), 'complete', body)).status).toBe(400)
   expect((await post(hono, 'remove', { id: userId })).status).toBe(200)
   expect(await store.users.get(asUserId(userId))).toBeUndefined()
+})
+
+test('the socket hook hears which membership change it was, so a removal can say access ended (POD-6910)', async () => {
+  const changes: [string, string][] = []
+  const hono = app({ admin: true, onMembershipChanged: (id, change) => changes.push([id, change]) })
+  const bob = await identity.addMember({ name: 'Bob', email: 'bob@example.com', password: 'bob-pass-123' })
+  const carol = await identity.addMember({
+    name: 'Carol',
+    email: 'carol@example.com',
+    password: 'carol-pass-123',
+  })
+  expect((await post(hono, 'role', { id: carol, role: 'admin' })).status).toBe(200)
+  expect((await post(hono, 'disable', { id: carol })).status).toBe(200)
+  expect((await post(hono, 'remove', { id: bob })).status).toBe(200)
+  expect(changes).toEqual([
+    [carol, 'role'],
+    [carol, 'disable'],
+    [bob, 'remove'],
+  ])
 })
 
 test('management requires admin and refuses cross-origin mutations', async () => {

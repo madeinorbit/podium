@@ -63,7 +63,10 @@ export function registerMemberRoutes(
     appUrl: () => string | undefined
     allowedOrigins?: ReadonlySet<string>
     onDeviceSignInEnded?: (id: string) => void
-    onMembershipChanged?: (memberId: string) => void
+    onMembershipChanged?: (
+      memberId: string,
+      change: 'remove' | 'disable' | 'enable' | 'role',
+    ) => void
   },
 ) {
   const { users, identity } = options
@@ -213,7 +216,7 @@ export function registerMemberRoutes(
       const change = await confirmedAdmin(c)
       if ('refusal' in change) return change.refusal
       await memberships[action]({ actor: change.actor, memberId: change.target })
-      options.onMembershipChanged?.(change.target)
+      options.onMembershipChanged?.(change.target, action)
       return c.json({ ok: true })
     })
   routes.post('/role', async (c) => {
@@ -221,7 +224,7 @@ export function registerMemberRoutes(
     if ('refusal' in change) return change.refusal
     const { role } = z.object({ role: z.enum(['admin', 'member']) }).parse(change.body)
     await memberships.setRole({ actor: change.actor, memberId: change.target, role })
-    options.onMembershipChanged?.(change.target)
+    options.onMembershipChanged?.(change.target, 'role')
     return c.json({ ok: true })
   })
   routes.post('/recovery', async (c) => {
