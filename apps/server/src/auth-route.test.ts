@@ -809,3 +809,19 @@ describe('clientAuthGuard', () => {
     expect(renew).not.toHaveBeenCalled()
   })
 })
+
+describe('cacheability of the status answer', () => {
+  test('every status answer carries no-store so an intermediary cannot replay it', async () => {
+    // The answer depends on who asks (POD-6754 finding F5).
+    await identity.credentials.setPassword(admin, PASSWORD)
+    const app = makeApp()
+    const login = await post(app, '/auth/login', { password: PASSWORD })
+    const cookie = cookieOf(login)
+    const signedIn = await get(app, '/auth/status', { cookie: cookie ?? '' })
+    expect(await signedIn.json()).toMatchObject({ authed: true, userId: admin })
+    expect(signedIn.headers.get('cache-control')).toBe('no-store')
+    const anonymous = await get(app, '/auth/status')
+    expect(await anonymous.json()).toMatchObject({ authed: false })
+    expect(anonymous.headers.get('cache-control')).toBe('no-store')
+  })
+})

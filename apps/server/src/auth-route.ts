@@ -160,6 +160,9 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions): void {
   }
 
   app.get('/auth/status', async (c) => {
+    // The answer depends on who asks, so no cache may keep it for anybody else
+    // (POD-6754 finding F5).
+    c.header('cache-control', 'no-store')
     const controlPlane = opts.controlPlaneAvailable?.() ?? true
     const [needsAuth, prompt, resolved] = await Promise.all([
       identity.signInRequired(),
@@ -178,7 +181,6 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions): void {
     const resolution = carried?.resolution ?? resolved
     if (carried) {
       for (const cookie of carried.setCookies) c.header('set-cookie', cookie, { append: true })
-      c.header('cache-control', 'no-store')
     }
     const member = resolution.kind === 'member' ? resolution : undefined
     return c.json({
