@@ -24,7 +24,11 @@ for (const shot of shots) {
   const page = await browser.newPage({ viewport: { width: 760, height: 720 } })
   page.on('pageerror', (error) => errors.push(`${shot.name}: ${error.message}`))
   await page.goto(`http://localhost:55661/harness/repo-picker.html?${shot.query}`)
-  await page.getByText('Podium tells each agent the folder is trusted', { exact: false }).waitFor()
+  // The GitHub source keeps the hidden local footer mounted, so match the shown notice.
+  await page
+    .getByText('Podium tells each agent the folder is trusted', { exact: false })
+    .filter({ visible: true })
+    .waitFor()
   await page.screenshot({ path: `${out}/repo-picker-${shot.name}.png` })
   await page.close()
 }
