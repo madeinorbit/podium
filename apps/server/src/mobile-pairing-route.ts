@@ -52,7 +52,8 @@ export class PairingFailureThrottle {
     return this.buckets.size
   }
 
-  retryAfter(key: string, nowMs: number): number | undefined {
+  retryAfter(key: string | null, nowMs: number): number | undefined {
+    if (key === null) return undefined
     this.maybeSweep(nowMs)
     const bucket = this.buckets.get(key)
     if (!bucket) return undefined
@@ -64,12 +65,13 @@ export class PairingFailureThrottle {
     return Math.ceil((bucket.lockedUntil - nowMs) / 1000)
   }
 
-  fail(key: string, nowMs: number): void {
+  fail(key: string | null, nowMs: number): void {
+    if (key === null) return
     this.maybeSweep(nowMs)
     const current = this.buckets.get(key)
     const failures = (current && nowMs < current.expiresAt ? current.failures : 0) + 1
     const lockedUntil = failures >= this.opts.maxFailures ? nowMs + this.opts.lockoutMs : 0
-    if (!current && this.buckets.size >= this.opts.maxEntries) this.evictOldest()
+    if (!current && this.buckets.size >= this.opts.maxEntries && !this.makeRoom(nowMs)) return
     this.buckets.set(key, {
       failures: lockedUntil ? 0 : failures,
       lockedUntil,
@@ -77,8 +79,8 @@ export class PairingFailureThrottle {
     })
   }
 
-  clear(key: string): void {
-    this.buckets.delete(key)
+  clear(key: string | null): void {
+    if (key !== null) this.buckets.delete(key)
   }
 
   private maybeSweep(nowMs: number): void {
@@ -89,9 +91,20 @@ export class PairingFailureThrottle {
     }
   }
 
-  private evictOldest(): void {
-    const oldestKey = this.buckets.keys().next().value as string | undefined
-    if (oldestKey !== undefined) this.buckets.delete(oldestKey)
+  /**
+   * Drops the oldest bucket that is not a live lockout. A live lockout is never
+   * evicted, or failures from enough other peers would lift it early. When
+   * every bucket is a live lockout, a new peer is not tracked until one ends:
+   * it is never refused for that, so filling the table denies nobody else.
+   */
+  private makeRoom(nowMs: number): boolean {
+    for (const [key, bucket] of this.buckets) {
+      if (nowMs >= bucket.expiresAt || nowMs >= bucket.lockedUntil) {
+        this.buckets.delete(key)
+        return true
+      }
+    }
+    return false
   }
 }
 
@@ -174,7 +187,8 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
     maxFailures,
     lockoutMs,
     retentionMs: opts.throttle?.retentionMs ?? Math.max(lockoutMs, 60_000),
-    maxEntries: opts.throttle?.maxEntries ?? 4_096,
+    // Buckets are small; room for many lockouts keeps the untracked case rare.
+    maxEntries: opts.throttle?.maxEntries ?? 16_384,
   })
   const { identity, memberOfRequest } = opts
   const { codes, deviceSignIns } = identity.core
@@ -263,8 +277,9 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
   app.post('/auth/mobile-pair/claim', async (c) => {
     if (!secure(c)) return c.json({ error: 'secure HTTPS is required' }, 400)
     const at = now()
+    // No known client (a nearby proxy no hop is trusted for): no per-peer budget,
+    // since that one address would be every client's. The codes carry 256 bits.
     const key = factsOf(c).clientAddress
-    if (!key) return c.json(PAIRING_UNAVAILABLE, 503)
     const retryAfter = pairingFailures.retryAfter(key, at)
     if (retryAfter !== undefined) {
       return c.json({ error: 'too many attempts' }, 429, {
@@ -331,8 +346,9 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
   app.post('/auth/mobile-pair/complete', async (c) => {
     if (!secure(c)) return c.json({ error: 'secure HTTPS is required' }, 400)
     const at = now()
+    // No known client (a nearby proxy no hop is trusted for): no per-peer budget,
+    // since that one address would be every client's. The codes carry 256 bits.
     const key = factsOf(c).clientAddress
-    if (!key) return c.json(PAIRING_UNAVAILABLE, 503)
     const retryAfter = pairingFailures.retryAfter(key, at)
     if (retryAfter !== undefined) {
       return c.json({ error: 'too many attempts' }, 429, {

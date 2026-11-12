@@ -350,51 +350,26 @@ describe('mobile pairing routes', () => {
     ).toBe(200)
   })
 
-  it('keys failures on the socket peer unless proxy trust is explicitly configured', async () => {
+  it('keys failures on the socket peer, whatever forwarding headers it sends', async () => {
     mount({ trustedProxyHops: 0, maxFailures: 1 })
-    const headers = {
-      'content-type': 'application/json',
-      'x-forwarded-for': '203.0.113.1',
+    const claim = (headers: Record<string, string>) =>
+      app.request('https://podium.example/auth/mobile-pair/claim', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...headers },
+        body: '{}',
+      })
+    // Podium ends TLS and no hop is trusted: forwarding headers are the client's
+    // own word and cannot buy it a fresh budget (POD-6754 F1, review).
+    const spoofing = (forwardedFor: string) => ({
+      'x-forwarded-for': forwardedFor,
       'x-forwarded-proto': 'https',
-      'x-real-ip': '203.0.113.2',
-    }
-    expect(
-      (
-        await app.request('https://podium.example/auth/mobile-pair/claim', {
-          method: 'POST',
-          headers: { ...headers, 'x-podium-peer-address': peerAddress },
-          body: '{}',
-        })
-      ).status,
-    ).toBe(400)
-    peerAddress = '198.51.100.11'
-    expect(
-      (
-        await app.request('https://podium.example/auth/mobile-pair/claim', {
-          method: 'POST',
-          headers: {
-            ...headers,
-            'x-real-ip': '203.0.113.99',
-            'x-podium-peer-address': peerAddress,
-          },
-          body: '{}',
-        })
-      ).status,
-    ).toBe(400)
-    peerAddress = '198.51.100.10'
-    expect(
-      (
-        await app.request('https://podium.example/auth/mobile-pair/claim', {
-          method: 'POST',
-          headers: {
-            ...headers,
-            'x-forwarded-for': '203.0.113.200',
-            'x-podium-peer-address': peerAddress,
-          },
-          body: '{}',
-        })
-      ).status,
-    ).toBe(429)
+      'x-real-ip': forwardedFor,
+      'x-podium-peer-address': '198.51.100.10',
+    })
+    expect((await claim(spoofing('203.0.113.1'))).status).toBe(400)
+    expect((await claim(spoofing('203.0.113.200'))).status).toBe(429)
+    // Another peer is another client.
+    expect((await claim({ 'x-podium-peer-address': '198.51.100.11' })).status).toBe(400)
   })
 
   it('does not charge unavailable completion polls against the peer throttle', async () => {
@@ -516,5 +491,27 @@ describe('pairing throttle primitives', () => {
     expect(throttle.size).toBe(0)
     throttle.fail('fresh', 100)
     expect(throttle.size).toBe(1)
+  })
+
+  it('never evicts a live lockout, and a full table denies no other peer', () => {
+    const throttle = new PairingFailureThrottle({
+      maxFailures: 1,
+      lockoutMs: 60_000,
+      retentionMs: 60_000,
+      maxEntries: 2,
+    })
+    throttle.fail('victim', 0)
+    expect(throttle.retryAfter('victim', 0)).toBe(60)
+    throttle.fail('peer-1', 1_000)
+    // Every bucket is a live lockout. Another peer is not refused for that...
+    expect(throttle.retryAfter('peer-2', 1_000)).toBeUndefined()
+    // ...and its failure cannot evict a lockout to make room.
+    throttle.fail('peer-2', 1_000)
+    expect(throttle.retryAfter('victim', 1_000)).toBe(59)
+    expect(throttle.retryAfter('peer-1', 1_000)).toBe(60)
+    expect(throttle.size).toBe(2)
+    // When the first lockout ends, its slot takes the next failure.
+    throttle.fail('peer-2', 60_000)
+    expect(throttle.retryAfter('peer-2', 60_000)).toBe(60)
   })
 })
