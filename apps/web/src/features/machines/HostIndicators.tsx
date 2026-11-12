@@ -18,9 +18,11 @@ import {
   usePoolMetric,
   usePoolMetricIds,
   usePoolOfflineMachines,
+  useThisComputer,
 } from '@/app/header-data'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { throughRestarts } from '@/lib/chunk-recovery'
+import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { cn } from '@/lib/utils'
 import { machineNeedsUpdate, useServerAppVersion } from '@/lib/version-skew'
 import { connectionSeverity, useStableConnection } from './ConnectionIndicator'
@@ -346,9 +348,47 @@ const PoolMachineReadout = memo(function PoolMachineReadout({
   )
 })
 
+/**
+ * This computer runs a machine in another member's custody. I cannot see that
+ * machine, so the header says only that much: no name, no owner, no readings.
+ */
+function AnotherMembersComputer(): JSX.Element {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            className="header-machine-chip"
+            role="note"
+            aria-label="This computer is another member's machine"
+            data-testid="this-computer-other-member"
+          >
+            <span
+              className="size-1.5 flex-none rounded-full bg-muted-foreground"
+              aria-hidden="true"
+            />
+            <span className="header-machine-name">This computer</span>
+            <span className="header-readout">
+              <span className="header-value">another member's</span>
+            </span>
+          </span>
+        }
+      />
+      <TooltipContent className="max-w-60 flex-col items-start gap-0.5">
+        <strong>This computer is another member's machine</strong>
+        <span className="text-background/70">
+          It is not one of your machines, so its status is not shown here.
+        </span>
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
 function PoolHeaderHostIndicators(): JSX.Element {
   const ids = usePoolMetricIds()
   const offline = usePoolOfflineMachines()
+  // The desktop shell's own machine, when it is not one I may see (POD-6908).
+  const thisComputer = useThisComputer(nativeDesktopBridge()?.machineId)
   const { trpc } = useHeaderActions()
   const lifecycle = useHostLifecycleSettings()
   const serverAppVersion = useServerAppVersion(trpc)
@@ -356,6 +396,7 @@ function PoolHeaderHostIndicators(): JSX.Element {
   const [info, setInfo] = useState<{ tab: HostInfoTab; machineId?: MachineId } | null>(null)
   return (
     <div className="topbar-well header-host-indicators">
+      {thisComputer === 'another-member' && <AnotherMembersComputer />}
       {ids.length === 0 && offline.length === 0 && (
         <button
           data-pressable

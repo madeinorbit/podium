@@ -33699,13 +33699,13 @@
       "file": "packages/client-graph/src/header-entities.ts",
       "holder": "headerEntities",
       "rule": "reader-summary",
-      "tokens": "d4c88559c5e9f7e36370d1cb6806aecdb6605a1da4c9aa6bac84faab2e5a3409",
+      "tokens": "1de59c1ddd514bf3ce882703432a8a04470e91eaa64a91fef5309aa3d9e47c67",
       "gate": [],
       "origin": [
         "476a4c6ba0b104e23dcfaa9ca70c159377836a1c7d4e54db7c120e98f72f6d89",
         "cadc566af21b67f23d0f5de0834255cdda8495bf99c77bd863dfe1f5f7ed76d3"
       ],
-      "fingerprint": "50b9105cbb7664311ddc88a2c170214c3fe7338e776e8bcd4a859ef72c9a0e76",
+      "fingerprint": "36ce6de20ec7dddece42fc0cf906ab8dd14acdeed6a0a57734fec838a435d1bf",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
@@ -33718,13 +33718,13 @@
       "file": "packages/client-graph/src/header-entities.ts",
       "holder": "headerEntities/view:callback/view",
       "rule": "reader-summary",
-      "tokens": "22375b530ca059615849fb4646b6263a00aa12813d2cf1f4b3f0046246071fba",
+      "tokens": "916ccbfedea995c2659a13b80e0a8048b48bd5802e8cfa3baae86d3050b7bbc5",
       "gate": [],
       "origin": [
         "476a4c6ba0b104e23dcfaa9ca70c159377836a1c7d4e54db7c120e98f72f6d89",
         "cadc566af21b67f23d0f5de0834255cdda8495bf99c77bd863dfe1f5f7ed76d3"
       ],
-      "fingerprint": "527f4e27470e79dc895449906e592bfcb5c32d25bba3a1a24d9f9b517ce29e89",
+      "fingerprint": "046ab91f643cea83f1d6fc1851a1feed95b35438b4e21b14663359184848bdda",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
@@ -34184,6 +34184,27 @@
       "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
       "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
       "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
+    },
+    {
+      "file": "packages/client-graph/src/header-views.ts",
+      "holder": "createHeaderViews/thisComputer/callback",
+      "rule": "reader-summary",
+      "tokens": "daa25f6c75ea99fa2cc78527d9cd4e267cc70814e07c85a62fdcd21874e6dc22",
+      "gate": [
+        "exit:then:8503813140e4458f07f5d8baad70cb4591bfd415d90d9196fa34547c9857f3b5"
+      ],
+      "origin": [
+        "476a4c6ba0b104e23dcfaa9ca70c159377836a1c7d4e54db7c120e98f72f6d89",
+        "cadc566af21b67f23d0f5de0834255cdda8495bf99c77bd863dfe1f5f7ed76d3"
+      ],
+      "fingerprint": "a517652993347d28b3e7af83d34c5464326976e4c896157418c4f92d3c69c2e6",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6908",
+      "trigger": "The desktop header asking whose machine this computer is",
+      "bound": "Two point reads for one machine id: my fleet membership (a set lookup) and that machine's record. No collection is read.",
+      "reason": "headerEntities is the shared header view; thisComputer reads inFleet(id) and get('machine', id) only, never a table or list.",
+      "guard": "header-offline-machines.work.test.ts, multimachine-indicators.test.tsx"
     },
     {
       "file": "packages/client-graph/src/header-views.ts",
