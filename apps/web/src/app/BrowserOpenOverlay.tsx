@@ -1,9 +1,10 @@
 import { observer } from '@podium/client-graph/react'
 import type { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from '@podium/protocol'
-import { ExternalLink, X } from 'lucide-react'
+import { Copy, ExternalLink, X } from 'lucide-react'
 import { type JSX, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { copyToClipboard } from '@/lib/clipboard'
 import { useShellActions, useShellSessionResolver } from './shell-data'
 
 interface PendingOpen {
@@ -95,7 +96,27 @@ export const BrowserOpenOverlay = observer(function BrowserOpenOverlay(): JSX.El
         id: `browser-open-${key}`,
         duration: Number.POSITIVE_INFINITY,
         description: 'Review the destination before opening it in your browser.',
-        action: { label: 'Open', onClick: () => open(request) },
+        // A node, not `{ label, onClick }`, so the copy icon can sit beside Open.
+        // `data-button` keeps sonner's (and `.cn-toast`'s) button styling; copy
+        // leaves the toast up, Open dismisses it through `open`.
+        action: (
+          <span className="flex shrink-0 items-center gap-1 self-center">
+            <button
+              data-button
+              data-cancel
+              type="button"
+              aria-label="Copy link"
+              title="Copy link"
+              style={{ paddingInline: 6 }}
+              onClick={() => copyToClipboard(request.url, 'Link copied')}
+            >
+              <Copy size={13} aria-hidden="true" />
+            </button>
+            <button data-button type="button" onClick={() => open(request)}>
+              Open
+            </button>
+          </span>
+        ),
         cancel: { label: 'Dismiss', onClick: () => dismiss(request) },
       })
     })
@@ -162,15 +183,27 @@ export const BrowserOpenOverlay = observer(function BrowserOpenOverlay(): JSX.El
               </button>
             </div>
 
-            <Button
-              type="button"
-              size="sm"
-              className="mt-3 w-full"
-              onClick={() => openNewTab(item.request.url)}
-            >
-              <ExternalLink size={14} aria-hidden="true" />
-              Open login page
-            </Button>
+            <div className="mt-3 flex gap-1.5">
+              <Button
+                type="button"
+                size="sm"
+                className="flex-1"
+                onClick={() => openNewTab(item.request.url)}
+              >
+                <ExternalLink size={14} aria-hidden="true" />
+                Open login page
+              </Button>
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="outline"
+                aria-label="Copy sign-in link"
+                title="Copy sign-in link"
+                onClick={() => copyToClipboard(item.request.url, 'Sign-in link copied')}
+              >
+                <Copy size={14} aria-hidden="true" />
+              </Button>
+            </div>
 
             {target ? (
               <form
