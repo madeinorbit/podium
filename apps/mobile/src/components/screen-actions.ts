@@ -18,6 +18,8 @@ export interface ScreenMenuItem {
 export interface ScreenAction {
   label: string
   icon: AppIcon
+  /** Visible text (a scope or range picker such as "All projects"); `label` stays the spoken name. */
+  title?: string
   onPress?: () => void
   items?: readonly ScreenMenuItem[]
 }

@@ -2,7 +2,7 @@ import { HeaderHeightContext } from 'expo-router/react-navigation'
 import { Stack } from 'expo-router/stack'
 import type { SFSymbol } from 'expo-symbols'
 import { type ReactNode, use, useState } from 'react'
-import { type LayoutChangeEvent, Platform, StyleSheet, Text, View } from 'react-native'
+import { type LayoutChangeEvent, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { HeaderInsetContext } from '../navigation/header-inset'
 import {
@@ -10,7 +10,6 @@ import {
   nativeSubtitleAvailable,
   transparentDetailHeader,
 } from '../navigation/native-stack'
-import { RootTabScreen } from '../navigation/RootTabScreen'
 import { color, font, mono, sans, space } from '../theme/theme'
 import type { AppIcon } from './icons'
 import { PressableScale } from './PressableScale'
@@ -23,12 +22,7 @@ const noop = () => {}
 const sfName = (icon: AppIcon): SFSymbol =>
   (typeof icon === 'object' && icon && 'ios' in icon ? icon.ios : icon) as SFSymbol
 
-export function Screen(props: Parameters<typeof NativeScreen>[0]) {
-  if (Platform.OS === 'ios' && props.large && !props.noHeader) return <RootTabScreen {...props} />
-  return <NativeScreen {...props} />
-}
-
-function NativeScreen({
+export function Screen({
   title,
   grouped,
   subtitle,
@@ -38,6 +32,7 @@ function NativeScreen({
   leading,
   right,
   actions,
+  leadingActions,
   children,
   large,
   noHeader,
@@ -48,7 +43,7 @@ function NativeScreen({
   title?: string
   /** Use the system grouped-list ground beneath content and navigation. */
   grouped?: boolean
-  /** Root titles carry the subtitle in both states; details use the native subtitle or context strip. */
+  /** A string rides the native navigation subtitle; other nodes use the context strip. */
   subtitle?: ReactNode
   onBack?: () => void
   backLabel?: string
@@ -58,8 +53,10 @@ function NativeScreen({
   right?: ReactNode
   /** Trailing native bar items (buttons or pull-down menus), drawn in system glass. */
   actions?: readonly ScreenAction[]
+  /** Leading native bar items, such as a root tab's scope picker (Mail's mailbox pattern). */
+  leadingActions?: readonly ScreenAction[]
   children: ReactNode
-  /** Root tab: first content-row title cross-fades into the native inline bar on scroll. */
+  /** Root tab screen: large title that collapses into the inline bar on scroll. */
   large?: boolean
   noHeader?: boolean
   safeBottom?: boolean
@@ -130,38 +127,10 @@ function NativeScreen({
             : {}),
         }}
       />
-      {actions?.length && !right ? (
-        <Stack.Toolbar placement="right">
-          {actions.map((action) =>
-            action.items ? (
-              <Stack.Toolbar.Menu
-                key={action.label}
-                icon={sfName(action.icon)}
-                accessibilityLabel={action.label}
-              >
-                {action.items.map((item) => (
-                  <Stack.Toolbar.MenuAction
-                    key={item.label}
-                    icon={item.icon ? sfName(item.icon) : undefined}
-                    isOn={item.selected}
-                    destructive={item.destructive}
-                    onPress={item.onPress}
-                  >
-                    {item.label}
-                  </Stack.Toolbar.MenuAction>
-                ))}
-              </Stack.Toolbar.Menu>
-            ) : (
-              <Stack.Toolbar.Button
-                key={action.label}
-                icon={sfName(action.icon)}
-                accessibilityLabel={action.label}
-                onPress={action.onPress ?? noop}
-              />
-            ),
-          )}
-        </Stack.Toolbar>
+      {leadingActions?.length && !(onBack && backAs === 'text') ? (
+        <ToolbarItems placement="left" actions={leadingActions} />
       ) : null}
+      {actions?.length && !right ? <ToolbarItems placement="right" actions={actions} /> : null}
       <View
         style={[
           styles.body,
@@ -190,6 +159,55 @@ function NativeScreen({
         </View>
       ) : null}
     </View>
+  )
+}
+
+/**
+ * Native bar items: a button, or with `items` a pull-down menu. A `title`
+ * draws as text with the icon trailing (a scope or range picker); otherwise
+ * the item is the icon alone.
+ */
+function ToolbarItems({
+  placement,
+  actions,
+}: {
+  placement: 'left' | 'right'
+  actions: readonly ScreenAction[]
+}) {
+  return (
+    <Stack.Toolbar placement={placement}>
+      {actions.map((action) =>
+        action.items ? (
+          <Stack.Toolbar.Menu
+            key={action.label}
+            icon={action.title ? undefined : sfName(action.icon)}
+            accessibilityLabel={action.label}
+          >
+            {action.title ? <Stack.Toolbar.Label>{action.title}</Stack.Toolbar.Label> : null}
+            {action.items.map((item) => (
+              <Stack.Toolbar.MenuAction
+                key={item.label}
+                icon={item.icon ? sfName(item.icon) : undefined}
+                isOn={item.selected}
+                destructive={item.destructive}
+                onPress={item.onPress}
+              >
+                {item.label}
+              </Stack.Toolbar.MenuAction>
+            ))}
+          </Stack.Toolbar.Menu>
+        ) : (
+          <Stack.Toolbar.Button
+            key={action.label}
+            icon={action.title ? undefined : sfName(action.icon)}
+            accessibilityLabel={action.label}
+            onPress={action.onPress ?? noop}
+          >
+            {action.title}
+          </Stack.Toolbar.Button>
+        ),
+      )}
+    </Stack.Toolbar>
   )
 }
 

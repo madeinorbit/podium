@@ -4,6 +4,7 @@ import {
   ContextMenu,
   HStack,
   Image,
+  List,
   Picker,
   ProgressView,
   Section,
@@ -46,7 +47,11 @@ import {
   tint,
 } from '@expo/ui/swift-ui/modifiers'
 import { relativeTime } from '@podium/client-core/focus'
-import { discoveredPlacement, type IssueNavigationModel } from '@podium/client-core/values'
+import {
+  type BoardFilter,
+  discoveredPlacement,
+  type IssueNavigationModel,
+} from '@podium/client-core/values'
 import type { BoardListRow } from '@podium/client-graph/issue-board-schema'
 import { here } from '@podium/client-graph/lookup'
 import type {
@@ -61,19 +66,18 @@ import { issueDisplayRef } from '@podium/protocol'
 import { Stack } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { Fragment, type ReactNode, useCallback, useState } from 'react'
-import { Text as RNText, StyleSheet, useWindowDimensions, View } from 'react-native'
+import { StyleSheet, useWindowDimensions, View } from 'react-native'
 import { issueObserver as taskObserver } from '../client/issue-observer'
 import { useMobilePool } from '../client/mobile-pool'
-import { Filter, MoreHorizontal, Plus, Search } from '../components/icons'
+import { ChevronDown, Filter, MoreHorizontal, Plus } from '../components/icons'
 import { NativeGroupHeader } from '../components/NativeGroupHeader.ios'
 import { RefreshOffer } from '../components/RefreshOffer'
 import { Screen } from '../components/Screen'
 import { StorageNoticeAlert } from '../components/StorageNoticeAlert'
+import { ANY, useProjectFacet } from '../components/task-filter-facets'
 import { MIN_REFRESH_CONFIRMATION_MS } from '../hooks/useRefreshableTab'
 import { useAgeNow } from '../lib/clock-hooks'
 import { workMenuActionIds } from '../lib/work-menu'
-import { RootTabList } from '../navigation/RootTabList.ios'
-import { useRootTabSearch } from '../navigation/useRootTabSearch'
 import { color } from '../theme/theme'
 import { type TasksSurfaceProps, taskRowFigure, tasksSubtitle } from './TasksSurface.types'
 import { useStageFolds } from './tasks-folds'
@@ -105,6 +109,8 @@ const MARK_SYMBOL: Record<TaskRowMark, string> = {
   resting: 'circle',
   done: 'checkmark.circle',
 }
+const NO_FILTER: BoardFilter = {}
+
 const MARK_COLOR: Record<TaskRowMark, string> = {
   needs: color.needsYouText,
   working: color.workingText,
@@ -114,8 +120,8 @@ const MARK_COLOR: Record<TaskRowMark, string> = {
 
 /**
  * THE TASKS TAB ON iOS — a real SwiftUI inset-grouped list. UIKit owns the
- * navigation bar, search magnifier and tab bar. The shared header is the first
- * list row; SwiftUI owns rows, swipe actions and menus, so iOS draws the
+ * navigation bar, its large title, the search magnifier and the tab bar; SwiftUI
+ * owns the rows, their swipe actions and their context menus, so iOS draws the
  * Liquid Glass and the gestures itself.
  *
  * Stage groups open in the board's order. Backlog, Proposed and Done start
@@ -124,7 +130,6 @@ const MARK_COLOR: Record<TaskRowMark, string> = {
  */
 export const TasksSurface = observer(function TasksSurface(props: TasksSurfaceProps) {
   const { board } = props
-  const search = useRootTabSearch(board?.searchFilter.text ?? '')
   const { fontScale } = useWindowDimensions()
   const [listRevision, setListRevision] = useState(0)
   const folds = useStageFolds()
@@ -141,9 +146,12 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
     refresh()
     await new Promise((resolve) => setTimeout(resolve, MIN_REFRESH_CONFIRMATION_MS))
   }, [refresh])
+  const project = useProjectFacet({
+    filter: board?.filter ?? NO_FILTER,
+    onFilter: (filter) => board?.setFilter(filter),
+  })
   const filtered = props.chips.length > 0
   const actions = [
-    { label: 'Search tasks', icon: Search, onPress: search.open },
     {
       label: filtered ? `Filter and display, ${props.chips.length} active` : 'Filter and display',
       icon: Filter,
@@ -153,55 +161,55 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
   ]
 
   return (
-    // The project scope opens the existing filter sheet, whose first row is
-    // the project picker. The same subtitle remains available in the inline bar.
+    // Mail's layout: the project scope is the leading bar picker, filter and
+    // new task trail, and the stock large title carries the counts beneath.
     <Screen
       grouped
       large
       title="Tasks"
-      subtitle={
-        <>
-          <RNText
-            accessibilityRole="button"
-            accessibilityLabel={`Project: ${subtitle.project}`}
-            onPress={props.onFilters}
-          >
-            {subtitle.project} ▾
-          </RNText>
-          {subtitle.counts ? ` · ${subtitle.counts}` : ''}
-        </>
-      }
-      // Fold the three title-row actions into one menu at accessibility sizes.
+      subtitle={subtitle.counts || undefined}
+      leadingActions={[
+        {
+          label: `Project: ${subtitle.project}`,
+          title: subtitle.project,
+          icon: ChevronDown,
+          items: project.options.map((option) => ({
+            label: option.value === ANY ? 'All projects' : option.label,
+            selected: option.value === project.value,
+            onPress: () => project.apply(option.value),
+          })),
+        },
+      ]}
+      // One native menu leaves room for the search button at accessibility sizes.
       actions={
         fontScale >= 1.6
           ? [{ label: 'Task actions', icon: MoreHorizontal, items: actions }]
           : actions
       }
     >
-      {/* No idle field or duplicate native magnifier above the title row.
-          The title-row action mounts and focuses the existing native search. */}
-      {search.visible ? (
-        <Stack.SearchBar
-          ref={search.searchRef}
-          placement="integratedButton"
-          placeholder="Search tasks or ID"
-          autoCapitalize="none"
-          onChangeText={(event) => board?.search(event.nativeEvent.text)}
-          onCancelButtonPress={() => {
-            board?.search('')
-            search.close()
-            // Restoring the groups also restores their first title row.
-            setListRevision((revision) => revision + 1)
-          }}
-        />
-      ) : null}
+      {/* Search the whole board (BoardFilter.text, backlog, done and proposals
+          included) from the native magnifier. Not the stacked field: a SwiftUI
+          List is not a scroll view UIKit's bar can track, so that field would
+          sit open under the title instead of hiding until pulled down. */}
+      <Stack.SearchBar
+        placement="integratedButton"
+        placeholder="Search tasks or ID"
+        autoCapitalize="none"
+        onChangeText={(event) => board?.search(event.nativeEvent.text)}
+        onCancelButtonPress={() => {
+          board?.search('')
+          // SwiftUI otherwise anchors the restored groups to the last search
+          // result. A fresh List returns to the top, including an empty search.
+          setListRevision((revision) => revision + 1)
+        }}
+      />
       {/* React Native notices cannot sit inside a SwiftUI List. */}
       <View>
         <StorageNoticeAlert />
         <RefreshOffer />
       </View>
       <Host style={styles.host} seedColor={color.accentTint}>
-        <RootTabList
+        <List
           key={listRevision}
           modifiers={[
             listStyle('insetGrouped'),
@@ -307,7 +315,7 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
               </Text>
             </VStack>
           ) : null}
-        </RootTabList>
+        </List>
       </Host>
     </Screen>
   )

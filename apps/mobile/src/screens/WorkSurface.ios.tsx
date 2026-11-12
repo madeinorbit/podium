@@ -4,6 +4,7 @@ import {
   ContextMenu,
   HStack,
   Image,
+  List,
   Picker,
   ProgressView,
   Section,
@@ -74,13 +75,12 @@ import type { SearchBarCommands } from 'react-native-screens'
 import { useMobilePoolProjection } from '../client/mobile-pool'
 import { NativeGroupHeader } from '../components/NativeGroupHeader.ios'
 import { NewWorkButton } from '../components/NewWorkButton'
-import { Screen } from '../components/Screen'
 import { MIN_REFRESH_CONFIRMATION_MS } from '../hooks/useRefreshableTab'
 import { useAgeNow } from '../lib/clock-hooks'
 import { workMenuActionIds } from '../lib/work-menu'
 import { quietProjectsLabel, workLaneTitle, workMenuItem, workSubtitle } from '../lib/work-row-copy'
 import { mobileRowStamp } from '../lib/work-sections'
-import { RootTabList } from '../navigation/RootTabList.ios'
+import { headerSubtitleOptions, nativeSubtitleAvailable } from '../navigation/native-stack'
 import { color } from '../theme/theme'
 import { NAV_LOADER_DELAY_MS, useDelayedFlag } from './WorkListRow'
 import { WORK_LANE_LABELS, WORK_LANES, type WorkSurfaceProps } from './WorkSurface.types'
@@ -150,30 +150,42 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
   // W8: one launcher for every project header's +, opened with that project picked.
   const [projectRepo, setProjectRepo] = useState<string | null>(null)
   const openProjectWork = useRef<(() => void) | null>(null)
-  const openTabWork = useRef<(() => void) | null>(null)
   const onNewInProject = useCallback((repoPath: string) => {
     setProjectRepo(repoPath)
     openProjectWork.current?.()
   }, [])
 
-  const content = (
+  return (
     <View collapsable={false} style={styles.root}>
-      {props.mode === 'search' ? (
-        <Stack.Screen
-          options={{
-            title: 'Search',
-            headerLargeTitleEnabled: true,
-            headerLargeTitleShadowVisible: false,
-            headerShadowVisible: false,
-            contentStyle: { backgroundColor: paper.ground },
-            headerTintColor: color.accentTint,
-            // The tint is for bar buttons; titles keep the system label colour.
-            headerTitleStyle: { color: color.text },
-            headerLargeTitleStyle: { color: color.text },
-          }}
+      <Stack.Screen
+        options={{
+          title: props.mode === 'search' ? 'Search' : 'Work',
+          headerLargeTitleEnabled: true,
+          headerLargeTitleShadowVisible: false,
+          headerShadowVisible: false,
+          contentStyle: { backgroundColor: paper.ground },
+          headerTintColor: color.accentTint,
+          // The tint is for bar buttons; titles keep the system label colour.
+          headerTitleStyle: { color: color.text },
+          headerLargeTitleStyle: { color: color.text },
+          ...headerSubtitleOptions(nativeSubtitleAvailable ? subtitle : undefined, { large: true }),
+        }}
+      />
+      {props.mode === 'tab' ? (
+        <NewWorkButton
+          renderTrigger={(open) => (
+            <Stack.Toolbar placement="right">
+              <Stack.Toolbar.Button
+                icon="square.and.pencil"
+                accessibilityLabel="New work"
+                onPress={open}
+              >
+                New work
+              </Stack.Toolbar.Button>
+            </Stack.Toolbar>
+          )}
         />
-      ) : null}
-      {props.mode === 'search' ? (
+      ) : (
         <Stack.SearchBar
           ref={searchRef}
           placeholder="Search tasks or ID"
@@ -188,7 +200,7 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
             phone.setQuery('')
           }}
         />
-      ) : null}
+      )}
       {props.mode === 'tab' ? (
         <NewWorkButton
           repoPath={projectRepo}
@@ -201,7 +213,7 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
       ) : null}
       <View>{props.notices}</View>
       <Host style={styles.host} seedColor={color.accentTint}>
-        <RootTabList
+        <List
           key={phone.lane}
           modifiers={[
             listStyle('insetGrouped'),
@@ -213,6 +225,17 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
           ]}
         >
           <Section>
+            {subtitle && !nativeSubtitleAvailable ? (
+              <Text
+                modifiers={[
+                  ...noteRow,
+                  font({ textStyle: 'subheadline' }),
+                  foregroundStyle(paper.secondary),
+                ]}
+              >
+                {subtitle}
+              </Text>
+            ) : null}
             <WorkLanePicker phone={phone} />
           </Section>
           {props.loading && !sections.length ? <ProgressView modifiers={noteRow} /> : null}
@@ -305,36 +328,9 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
               modifiers={noteRow}
             />
           ))}
-        </RootTabList>
+        </List>
       </Host>
     </View>
-  )
-  return props.mode === 'tab' ? (
-    <>
-      <NewWorkButton
-        renderTrigger={(open) => {
-          openTabWork.current = open
-          return null
-        }}
-      />
-      <Screen
-        large
-        grouped
-        title="Work"
-        subtitle={subtitle}
-        actions={[
-          {
-            label: 'New work',
-            icon: { ios: 'square.and.pencil', android: 'edit_square', web: 'edit_square' },
-            onPress: () => openTabWork.current?.(),
-          },
-        ]}
-      >
-        {content}
-      </Screen>
-    </>
-  ) : (
-    content
   )
 })
 

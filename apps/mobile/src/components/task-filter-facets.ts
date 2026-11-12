@@ -52,34 +52,54 @@ export const FILTER_FACETS: readonly Facet[] = ['project', 'stage', 'priority']
 export const DISPLAY_FACETS: readonly Facet[] = ['ordering']
 export const MORE_FACETS: readonly Facet[] = ['status']
 
+function withFilter<K extends keyof BoardFilter>(
+  filter: BoardFilter,
+  key: K,
+  value: BoardFilter[K] | undefined,
+): BoardFilter {
+  const next: BoardFilter = { ...filter }
+  if (value === undefined) delete next[key]
+  else Object.assign(next, { [key]: value })
+  return next
+}
+
+/**
+ * The project scope: the sheet's first row and the Tasks tab's leading bar
+ * picker on iOS, so both offer the same choices.
+ */
+export function useProjectFacet({
+  filter,
+  onFilter,
+}: Pick<TaskFiltersSheetProps, 'filter' | 'onFilter'>): FacetConfig {
+  const repositoryPaths = useLaunchRepositoryPaths()
+  const repos = repositoryPaths === LOADING || isGone(repositoryPaths) ? [] : repositoryPaths
+  const project = filter.projectPaths?.length === 1 ? filter.projectPaths[0]! : ANY
+  return {
+    label: 'Project',
+    value: project,
+    options: [
+      { value: ANY, label: 'All' },
+      ...(project !== ANY && !repos.includes(project) ? [project] : []).map((value) => ({
+        value,
+        label: machinePathBasename(value),
+      })),
+      ...repos.map((value) => ({ value, label: machinePathBasename(value) })),
+    ],
+    apply: (value) =>
+      onFilter(withFilter(filter, 'projectPaths', value === ANY ? undefined : [value])),
+  }
+}
+
 /** One filter-and-display sheet, two renderers: the facets are built here. */
 export function useTaskFilterFacets(
   props: Pick<TaskFiltersSheetProps, 'filter' | 'ordering' | 'onFilter' | 'onOrdering'>,
 ) {
   const { filter, ordering, onFilter, onOrdering } = props
-  const repositoryPaths = useLaunchRepositoryPaths()
-  const repos = repositoryPaths === LOADING || isGone(repositoryPaths) ? [] : repositoryPaths
-  const set = <K extends keyof BoardFilter>(key: K, value: BoardFilter[K] | undefined) => {
-    const next: BoardFilter = { ...filter }
-    if (value === undefined) delete next[key]
-    else Object.assign(next, { [key]: value })
-    onFilter(next)
-  }
-  const project = filter.projectPaths?.length === 1 ? filter.projectPaths[0]! : ANY
+  const set = <K extends keyof BoardFilter>(key: K, value: BoardFilter[K] | undefined) =>
+    onFilter(withFilter(filter, key, value))
+  const project = useProjectFacet({ filter, onFilter })
   const configs: Record<Facet, FacetConfig> = {
-    project: {
-      label: 'Project',
-      value: project,
-      options: [
-        { value: ANY, label: 'All' },
-        ...(project !== ANY && !repos.includes(project) ? [project] : []).map((value) => ({
-          value,
-          label: machinePathBasename(value),
-        })),
-        ...repos.map((value) => ({ value, label: machinePathBasename(value) })),
-      ],
-      apply: (value) => set('projectPaths', value === ANY ? undefined : [value]),
-    },
+    project,
     priority: {
       label: 'Priority',
       value: filter.priority == null ? ANY : String(filter.priority),

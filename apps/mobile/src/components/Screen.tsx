@@ -53,6 +53,8 @@ export function Screen({
    * a header button per plain action and leaves pull-down menus to native.
    */
   actions?: readonly ScreenAction[]
+  /** Native leading bar items (iOS); this fallback leaves them to native. */
+  leadingActions?: readonly ScreenAction[]
   children: ReactNode
   large?: boolean
   noHeader?: boolean
