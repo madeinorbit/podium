@@ -53,8 +53,8 @@ export function OfferArtifactStrip({
         )
       : OFFER_STRIP_MAX
 
-  // The panel the paths resolve against is a body (POD-6767): the pool's
-  // issue model answers it; the session header's summary row carries none.
+  // The panel the paths resolve against is its own records (POD-6778): the
+  // pool's issue model answers it; the session header's summary row carries none.
   const model = useIssueModel(issue?.id)
   const { rows, extra } = offerArtifactRows({
     offer,

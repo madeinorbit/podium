@@ -1,7 +1,7 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionPhaseChange } from '@podium/client-core/sound'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
-import { asUserId, type IssueId, layoutRowId } from '@podium/model'
+import { asUserId, layoutRowId } from '@podium/model'
 import { Reaction, runInAction, untracked } from 'mobx'
 import { _observerFinalizationRegistry } from 'mobx-react-lite'
 import { DeadlineClock } from './clock'
@@ -233,8 +233,6 @@ export type WorklistRuntime = RowSourceRuntime &
     readonly layout?: import('@podium/client-core/ui').LayoutAccess
     /** This user's LiveStore (POD-5798); machine models read their live fields from it. */
     attachSessionPhases?(read: () => readonly SessionPhaseChange[]): () => void
-    /** The request client; its `issues.bodies` loads issue bodies (POD-6767). */
-    readonly api?: { readonly issues?: Pick<NonNullable<import('@podium/client-core/api').PodiumClientApi['issues']>, 'bodies'> }
   }
 
 /** What the transaction log needs from the runtime beyond the row feed. */
@@ -377,14 +375,6 @@ export function createRuntimeWorklistPool(
     )
     if (runtime.live) handle.pool.bindLive(runtime.live)
     const pool = handle.pool
-    // Issue bodies load through the runtime's request client (POD-6767).
-    const bodies = runtime.api?.issues?.bodies
-    const unbindBodies = bodies
-      ? pool.issueBodies.bind(
-          async (ids) => await bodies.query({ ids: ids as IssueId[] }),
-          (retry) => runtime.services.connection.onReconnected(retry),
-        )
-      : () => {}
     const principal = runtime.principal
     let stopLayout: () => void = () => {}
     if (runtime.layout && principal) {
@@ -405,7 +395,6 @@ export function createRuntimeWorklistPool(
     const disposePool = handle.dispose.bind(handle)
     handle.dispose = () => {
       stopLayout()
-      unbindBodies()
       disposePool()
     }
     handle.pool.bindUi(runtime.ui)

@@ -177,8 +177,8 @@ export function chatItemMessage(
 export function chatItemAttachments(pool: MobxPool, sessionId: string, itemId: string) {
   return chatItemMessage(pool, sessionId, itemId)?.attachments
 }
-/** The session's issue as its model, which answers the panel body
- *  (POD-6767): the row carries only the panel's header. */
+/** The session's issue as its model, which answers the panel from its
+ *  records (POD-6778): the row carries none. */
 export function chatArtifactIssue(
   pool: MobxPool,
   session: Pick<SessionView, 'issueId' | 'sessionId'>,

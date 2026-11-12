@@ -13,7 +13,6 @@ import {
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import { makeFeedVisibility } from '../feed-visibility'
-import { issueBodiesOfRow } from '../modules/issues/projection'
 import { openTestStore } from '../test-support/open-test-store'
 import { testStoreRecords } from '../test-support/record-writer'
 import { produceBootstrap } from './producer'
@@ -96,7 +95,6 @@ describe('snapshot bootstrap producer', () => {
         description: 'Issue body',
         brief: 'Issue brief',
       })
-      const headers = issueBodiesOfRow((await store.issues.getIssue('private'))!)
       await store.grants.upsert({
         resourceKind: 'issue',
         resourceId: 'shared',
@@ -145,8 +143,12 @@ describe('snapshot bootstrap producer', () => {
         )
         const rows = output.filter((r) => r.type === 'feedBootstrap').flatMap((r) => r.changes)
         expect(rows).toEqual(expected.changes)
-        expect(rows.filter((r) => r.entity === 'issueBodies').map((r) => r.value)).toEqual([
-          headers,
+        // The brief and description load at start as records of their own (POD-6921).
+        expect(rows.filter((r) => r.entity === 'issueBrief').map((r) => r.value)).toEqual([
+          { id: 'private', text: 'Issue brief' },
+        ])
+        expect(rows.filter((r) => r.entity === 'issueDescription').map((r) => r.value)).toEqual([
+          { id: 'private', text: 'Issue body' },
         ])
         // Built from the issue rows, each stamped with the head number.
         if (user === 'owner') {

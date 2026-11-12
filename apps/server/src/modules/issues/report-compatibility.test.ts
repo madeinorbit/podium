@@ -122,12 +122,13 @@ it('keeps requested issue JSON fields on create, update, get, list and tree', as
     children: [expect.objectContaining({ id: child.id, children: [] })],
   })
   const snapshot = await authoritySnapshot(registry)
-  // The synced record carries the description's header only (POD-6767).
+  // The description is a record of its own, off the issue record (POD-6921).
   expect(snapshot.issueProjections?.find((row) => row.id === created.id)).not.toHaveProperty(
     'description',
   )
-  expect(snapshot.issueBodies?.find((row) => row.id === created.id)?.description).toMatchObject({
-    size: 'Plain text body'.length,
+  expect(snapshot.issueDescriptions?.find((row) => row.id === created.id)).toEqual({
+    id: created.id,
+    text: 'Plain text body',
   })
 })
 

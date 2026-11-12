@@ -6,7 +6,6 @@ export type {
   IssueViewModel,
   IssueWithBodies,
 } from '../values/issue-type'
-export { issueBodyLoading } from '../values/issue-type'
 export * from './async-storage'
 export * from './contract'
 /**

@@ -882,8 +882,9 @@ export class IssueStore {
     const states = await this.deps.store.issues.listIssueUserStateRows(issueId as IssueId)
     return [
       { entity: 'issueProjection', id: issueId },
-      // Its body headers are a record of their own (POD-6767).
-      { entity: 'issueBodies', id: issueId },
+      // Its brief and description are records of their own (POD-6921).
+      { entity: 'issueBrief', id: issueId },
+      { entity: 'issueDescription', id: issueId },
       // Its git observation: a record only while the issue is not deleted, so
       // a delete removes it and a restore brings it back (POD-6770).
       { entity: 'issueGitState', id: issueId },

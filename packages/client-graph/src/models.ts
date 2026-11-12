@@ -1,4 +1,4 @@
-import type { IssuePanelTodoWire, IssuePanelArtifactWire, IssuePanelDeferredWire, IssuePanelStateWire } from '@podium/model'
+import type { IssueBriefWire, IssueDescriptionWire, IssuePanelTodoWire, IssuePanelArtifactWire, IssuePanelDeferredWire, IssuePanelStateWire } from '@podium/model'
 import type { LayoutWire } from '@podium/model'
 import { type IssueNavigationModel, issuePendingDecision, missionTaskBucket, type MissionTaskBucket } from '@podium/client-core/values'
 import { type LiveStore, lastValue } from '@podium/client-core/live'
@@ -32,7 +32,7 @@ import type {
 import { attentionGroup, effectiveRecency } from '@podium/client-core/focus'
 import type { SessionLiveFields, SessionView } from '@podium/client-core/session-values'
 import { groupRelations, type IssueCloseMemberCounts, type IssueCloseScalarSubject, type ReferentExit, motionPhase as sessionMotion, type TaskProgress } from '@podium/client-core/values'
-import { APPROVAL_EFFECT_KIND, ISSUE_BODY_FIELDS, type IssueBodyField, type IssueBodyHeaders, isTurnOpen, readEffectStatus, SESSION_INTERRUPT_KIND } from '@podium/model/browser'
+import { APPROVAL_EFFECT_KIND, isTurnOpen, readEffectStatus, SESSION_INTERRUPT_KIND } from '@podium/model/browser'
 import {
   ISSUE_ADD_SESSION_KIND,
   ISSUE_BEGIN_KIND,
@@ -44,7 +44,6 @@ import {
 } from '@podium/client-core/spawn-agent'
 import { asSessionId, type CoordinatedSeat, coordinatedSeat, isSessionReconnecting, sessionWorkingFact, inPersonalSet, isExcluded, isFinished, NO_INTERACTIONS, type SeatInteractions, type SeatRole, type SeatSessionFacts, type SessionWord, type SessionWordFacts, sessionWord, wordWantsAttention } from '@podium/model/browser'
 import type { ReaderQueries } from './reader-queries'
-import type { HeldIssueBody, IssueBodyReader } from './issue-bodies'
 import type { IssueSessionFactReader } from './shared/issue-session-facts'
 
 /** One shared object per server record. Schema fields and relations are installed
@@ -96,8 +95,6 @@ export interface ModelHost {
   row(entity: EntityName, id: string, absent?: 'mark' | 'summary' | 'summary-fields'): Lookup<object>
   /** Did I pin this thing? My `pin` record of that kind (POD-6692). */
   isPinned(kind: PinKind, entityId: string): boolean
-  /** Issue bodies by digest (POD-6767): `LOADING` while one is fetched. */
-  readonly issueBodies: IssueBodyReader
   /** The pool's shared session object, including an addressed cold session. */
   sessionObject(id: string): SessionModel
   issueObject(id: string): IssueModel
@@ -412,43 +409,15 @@ export class IssueModel extends EntityModel {
     })
   }
 
-  // The bodies (POD-6767): the record carries a header per field with content,
-  // and the body is fetched by id the first time something reads it. A body
-  // answers three ways: its value, `undefined` (the field has none: no
-  // header), or `LOADING` (on its way, nothing held yet). A painted row (an
-  // edit the log has not settled, a launch, a fixture) holds its own text,
-  // which wins. When a header moves, the copy held so far keeps showing
-  // until the new body arrives; only `bodyLoading` says it is not current.
-  private heldBody(field: IssueBodyField): HeldIssueBody | typeof LOADING | undefined {
-    const painted = this.storedField(field)
-    if (painted !== undefined) {
-      this.host.issueBodies.remember(this.id, field, painted)
-      return { value: painted, current: true }
-    }
-    const header = (this.storedField('bodies') as IssueBodyHeaders | undefined)?.[field]
-    if (header === undefined) return undefined
-    return this.host.issueBodies.read(this.id, field, header.digest)
-  }
-  /** One body: its value, `undefined` when the field has none, `LOADING` while
-   *  it is fetched and no earlier copy is held. */
-  body(field: IssueBodyField): unknown {
-    const held = this.heldBody(field)
-    return held === undefined || held === LOADING ? held : held.value
-  }
-  /** Whether the body a field has is not here yet, or is an earlier copy: an
-   *  edit form waits for it, so it never starts from a stale text. */
-  bodyLoading(field: IssueBodyField): boolean {
-    const held = this.heldBody(field)
-    return held === LOADING || (held !== undefined && !held.current)
-  }
-  /** Is any of the issue's bodies still on its way? */
-  @lazy get bodiesLoading(): boolean {
-    return ISSUE_BODY_FIELDS.some((field) => this.bodyLoading(field))
-  }
-  /** The agent brief; absent while it first loads (see {@link bodyLoading}). */
+  // The bodies (POD-6921): the brief and the description are synced records
+  // of their own, keyed by the issue id and loaded at start with everything
+  // else; a field with no text has no record. A painted row (an edit the log
+  // has not settled, a launch, a fixture) holds its own text, which wins.
+  /** The agent brief; absent when the issue has none. */
   @lazy get brief(): string | undefined {
-    const value = this.body('brief')
-    return value === LOADING ? undefined : (value as string | undefined)
+    const painted = this.storedField('brief')
+    if (painted !== undefined) return painted as string
+    return this.briefRecords.ready[0]?.text
   }
   @lazy({ equals: compareShallow }) get panelTodos(): IssuePanelTodoModel[] {
     return this.panelTodoRecords.ready.slice().sort(panelOrder)
@@ -477,9 +446,11 @@ export class IssueModel extends EntityModel {
       if (artifact.chatUploadId && artifact.artifactId) out.set(artifact.chatUploadId, artifact)
     return out
   }
+  /** The human summary's text; empty when there is none. */
   @lazy get description(): string {
-    const value = this.body('description')
-    return value === LOADING ? '' : documentText(value)
+    const painted = this.storedField('description')
+    if (painted !== undefined) return documentText(painted)
+    return this.descriptionRecords.ready[0]?.text ?? ''
   }
 
   // The issue's own work (POD-6526): start, stop, cleanup, ship and the
@@ -1605,8 +1576,22 @@ export class IssuePanelStateModel extends EntityModel {
   constructor(id: string, host: ModelHost) { super('issuePanelState', id, host) }
 }
 export interface IssuePanelStateModel extends Readonly<Omit<IssuePanelStateWire, 'id'>>, RelationGetters<'issuePanelState'> {}
+/** An issue's brief, its own synced record keyed by the issue id (POD-6921). */
+export class IssueBriefModel extends EntityModel {
+  declare readonly id: import('@podium/model').IssueId
+  constructor(id: string, host: ModelHost) { super('issueBrief', id, host) }
+}
+export interface IssueBriefModel extends Readonly<Omit<IssueBriefWire, 'id'>>, RelationGetters<'issueBrief'> {}
+/** An issue's description, its own synced record keyed by the issue id (POD-6921). */
+export class IssueDescriptionModel extends EntityModel {
+  declare readonly id: import('@podium/model').IssueId
+  constructor(id: string, host: ModelHost) { super('issueDescription', id, host) }
+}
+export interface IssueDescriptionModel extends Readonly<Omit<IssueDescriptionWire, 'id'>>, RelationGetters<'issueDescription'> {}
 
 export type ModelOf = {
+  issueBrief: IssueBriefModel
+  issueDescription: IssueDescriptionModel
   issuePanelTodo: IssuePanelTodoModel
   issuePanelArtifact: IssuePanelArtifactModel
   issuePanelDeferred: IssuePanelDeferredModel
@@ -1652,6 +1637,8 @@ export type ModelClass = (new (id: string, host: ModelHost) => EntityModel) & Pi
 export const MODEL_CLASSES: Readonly<Partial<Record<EntityName, ModelClass>>> = {
   issue: IssueModel, session: SessionModel, worktree: WorktreeModel, repo: RepoModel,
   effect: EffectModel,
+  issueBrief: IssueBriefModel,
+  issueDescription: IssueDescriptionModel,
   issuePanelTodo: IssuePanelTodoModel,
   issuePanelArtifact: IssuePanelArtifactModel,
   issuePanelDeferred: IssuePanelDeferredModel,

@@ -23,8 +23,8 @@ import type { HostMemoryBreakdown, MobileClientSession } from '@podium/protocol'
 import type { IssueProjection } from '@podium/model'
 import type { IssueViewModel } from '../replica'
 
-/** A demo issue: the pool row plus its bodies, which the demo serves as
- *  `issueBodies` headers and an `issues.bodies` answer (POD-6767). */
+/** A demo issue: the pool row plus its bodies, which the demo seeds as
+ *  `issueBrief` and `issueDescription` records and panel records (POD-6921). */
 export type DemoIssue = IssueViewModel &
   Partial<Pick<IssueProjection, 'brief' | 'panel' | 'activityNotes'>> & { description: string }
 

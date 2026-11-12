@@ -76,8 +76,6 @@ export interface SliceIssue {
   branch?: string | null
   parentBranch?: string | null
   gitState?: { shared?: boolean; merged?: boolean; ahead?: number; [key: string]: unknown } | null
-  /** The headers of the issue's bodies (POD-6767); absent = none has content. */
-  bodies?: import('@podium/model').IssueBodyHeaders
   intentOrigin?: 'human' | 'agent'
   asked?: { question?: string; options?: readonly string[]; at?: string; by?: string }
   supersededBy?: string | null

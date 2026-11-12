@@ -40155,24 +40155,6 @@
       "bound": "No new caller-list or per-issue session-cardinality bound is claimed.",
       "reason": "Replacing Parameters<Store[focusIssueSession]> with an explicit SessionId[] tuple makes the existing exclusion Set and issue-session find visible to the scanner. The body and its collection operations are unchanged. POD-6724 owns proving their bounds or replacing unnecessary enumeration.",
       "guard": "Exact fingerprint and multiplicity only; this is newly exposed debt, not a scan fix. packages/client-core/src/commands/navigation.test.ts covers timeout, excluded sessions and selection changes."
-    },
-    {
-      "file": "packages/client-graph/src/issue-bodies.ts",
-      "holder": "IssueBodyStore/put",
-      "rule": "loop:for-of",
-      "tokens": "143b72c64ec160c91625425283635e936ac1670e99ea0925c6593106e5efa0f4",
-      "gate": [],
-      "origin": [
-        "65c2733cbd611abf878043828919c7406daca92a8f967e1f70c9bd4159497ab8"
-      ],
-      "fingerprint": "3ed90506f2d673d575d8e9c58cdd440f8519bfe4011d4edd824b92d428a5e23d",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-6767",
-      "trigger": "An issues.bodies answer arriving for a screen's body reads.",
-      "bound": "One answer holds the bodies of at most 50 issues (the request's batch), at most four fields each: at most 200 entries per call.",
-      "reason": "The loop stores one fetched answer by issue field; it never enumerates the pool or a replica collection.",
-      "guard": "issue-bodies.test.ts splits a window into calls of at most 50 issues."
     }
   ]
 }

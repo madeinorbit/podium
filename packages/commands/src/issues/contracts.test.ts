@@ -42,9 +42,10 @@ describe('the issue contract table', () => {
   it('is populated, is keyed by its own names, and every name is dotted `issues.*`', () => {
     // 88 less `subscriptionRemove` and `subscriptionSetEnabled`, which became
     // the subscription record's generic edits (POD-6676).
-    // POD-6767 added `bodies`: 87.
-    expect(ISSUE_CONTRACT_LIST).toHaveLength(87)
-    expect(ISSUE_COMMAND_NAMES).toHaveLength(87)
+    // POD-6767 added `bodies`: 87. POD-6921 removed it again (the bodies are
+    // synced records): 86.
+    expect(ISSUE_CONTRACT_LIST).toHaveLength(86)
+    expect(ISSUE_COMMAND_NAMES).toHaveLength(86)
     expect([...ISSUE_COMMAND_NAMES]).toEqual([...ISSUE_COMMAND_NAMES].sort())
     // The name list IS the table's keys: a restated list is a second place a command
     // name can live (moved from the deleted issue audit's
@@ -151,8 +152,6 @@ describe('sibling move input', () => {
 describe('transport exposure', () => {
   const NOT_ON_CLI_OR_MCP = [
     'applySuggestion',
-    // POD-6767: the client's batched body read, no CLI verb.
-    'bodies',
     'closeEligibleEpics',
     'collaborators',
     'dismissAssignment',

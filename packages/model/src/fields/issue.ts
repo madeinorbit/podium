@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { IssueBodyHeaders } from './issue-body'
 // The shared vocabulary layer (POD-1141). Imported from the LEAF module, never
 // from `../entities/issue`: that import is what made the two files mutually
 // dependent, and because these are zod schema VALUES evaluated at module load it
@@ -308,8 +307,5 @@ export const IssueDerived = z.object({
   repoPath: z.string().optional(),
   /** From the READER's per-user `readAt` — per-principal, like the session's. */
   unread: z.boolean().optional(),
-  /** The headers of the issue's bodies, joined from its `issueBodies` row
-   *  without the issue id (POD-6767). Absent = no field has content. */
-  bodies: IssueBodyHeaders.optional(),
 })
 export type IssueDerived = z.infer<typeof IssueDerived>

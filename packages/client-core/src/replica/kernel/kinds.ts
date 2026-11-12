@@ -49,8 +49,9 @@ const ENTITY_TO_KIND = {
   issueProjection: 'issueProjections',
   issueUserState: 'issueUserStates',
   issueGitState: 'issueGitStates',
-  // POD-6767: an issue's body headers, keyed by the issue id.
-  issueBodies: 'issueBodies',
+  // POD-6921: an issue's brief and description, keyed by the issue id.
+  issueBrief: 'issueBriefs',
+  issueDescription: 'issueDescriptions',
   issuePanelTodo: 'issuePanelTodos',
   issuePanelArtifact: 'issuePanelArtifacts',
   issuePanelDeferred: 'issuePanelDeferreds',

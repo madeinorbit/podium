@@ -152,8 +152,8 @@ export function InlineEditable({
   onCommit: (value: string) => void
   render?: (text: string) => ReactNode
   textStyle?: object
-  /** The value is a body still on its way (POD-6767): shown, not edited, so no
-   *  edit starts from a stale or empty text. */
+  /** The value is still on its way: shown, not edited, so no edit starts
+   *  from a stale or empty text. */
   loading?: boolean
 }) {
   const [editing, setEditing] = useState(false)

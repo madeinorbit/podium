@@ -7,8 +7,9 @@ import {
   EffectRecordWire,
   GlobalChangeOpField,
   InstancePreferencesWire,
-  IssueBodiesWire,
+  IssueBriefWire,
   IssueDepProjection,
+  IssueDescriptionWire,
   IssueEventWire,
   IssueGitStateProjection,
   IssuePanelArtifactWire,
@@ -158,8 +159,9 @@ export const MetadataChange = z.discriminatedUnion('entity', [
   metadataChangeArm(z.literal('session'), SessionMeta),
 
   /** The issue record without its body fields (`brief`, `panel`,
-   *  `description`, `activityNotes`): they arrive as the `issueBodies` headers
-   *  below and are fetched by id (POD-6767). */
+   *  `description`, `activityNotes`): the brief and description are the
+   *  `issueBrief` and `issueDescription` records below, the panel and notes
+   *  the panel records (POD-6921). */
   metadataChangeArm(z.literal('issueProjection'), SlimIssueProjection),
   /** An issue dependency EDGE [POD-822, ADR 4 D7.1] — `issue_deps` rows as
    *  first-class entities, keyed by their own primary key (`issueDepId`).
@@ -311,10 +313,11 @@ export const MetadataChange = z.discriminatedUnion('entity', [
    *  these rows as {@link UnknownMetadataChange} and advances. */
   metadataChangeArm(z.literal('machineAccess'), MachineAccessWire),
   metadataChangeArm(z.literal('checkout'), CheckoutWire),
-  /** The headers of an issue's bodies (POD-6767, design POD-6253 §2), keyed by
-   *  the issue id: a digest and a size per field with content. The body is
-   *  fetched by id (`issues.bodies`). Readable by the issue's readers. */
-  metadataChangeArm(z.literal('issueBodies'), IssueBodiesWire),
+  /** An issue's brief and description (POD-6921, design POD-6253 §2), each
+   *  keyed by the issue id and holding the whole text; absent when the field
+   *  has none. Readable by the issue's readers. */
+  metadataChangeArm(z.literal('issueBrief'), IssueBriefWire),
+  metadataChangeArm(z.literal('issueDescription'), IssueDescriptionWire),
   metadataChangeArm(z.literal('issuePanelTodo'), IssuePanelTodoWire),
   metadataChangeArm(z.literal('issuePanelArtifact'), IssuePanelArtifactWire),
   metadataChangeArm(z.literal('issuePanelDeferred'), IssuePanelDeferredWire),
@@ -354,7 +357,8 @@ export const MetadataEntityKind = z.enum([
   'instancePreferences',
   'machineAccess',
   'checkout',
-  'issueBodies',
+  'issueBrief',
+  'issueDescription',
   'issuePanelTodo',
   'issuePanelArtifact',
   'issuePanelDeferred',

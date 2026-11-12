@@ -16,6 +16,5 @@ export {
   buildDemoEntityRecords,
   createDemoReplica,
   DEMO_PRINCIPAL,
-  demoIssueBodies,
   publishDemoSlice,
 } from './demo-replica'

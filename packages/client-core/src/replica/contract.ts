@@ -8,8 +8,9 @@ import type {
   ConversationRecordWire,
   EffectRecordWire,
   InstancePreferencesWire,
-  IssueBodiesWire,
+  IssueBriefWire,
   IssueDepProjection,
+  IssueDescriptionWire,
   IssueEventWire,
   IssueGitStateProjection,
   IssuePanelArtifactWire,
@@ -71,9 +72,10 @@ export interface ReplicaRows {
   issueUserStates: IssueUserStateWire
   /** Server git observations, keyed by issue. Missing means not probed yet. */
   issueGitStates: IssueGitStateProjection
-  /** POD-6767: an issue's body headers (digest and size per field with
-   *  content), keyed by the issue id; the bodies are fetched by id. */
-  issueBodies: IssueBodiesWire
+  /** POD-6921: an issue's brief and description, each keyed by the issue id
+   *  and holding the whole text; absent when the field has none. */
+  issueBriefs: IssueBriefWire
+  issueDescriptions: IssueDescriptionWire
   issuePanelTodos: IssuePanelTodoWire
   issuePanelArtifacts: IssuePanelArtifactWire
   issuePanelDeferreds: IssuePanelDeferredWire
@@ -171,7 +173,8 @@ export interface ReplicaHydrateResult {
   issueProjections: SlimIssueProjection[]
   issueUserStates: IssueUserStateWire[]
   issueGitStates: IssueGitStateProjection[]
-  issueBodies: IssueBodiesWire[]
+  issueBriefs: IssueBriefWire[]
+  issueDescriptions: IssueDescriptionWire[]
   issuePanelTodos: IssuePanelTodoWire[]
   issuePanelArtifacts: IssuePanelArtifactWire[]
   issuePanelDeferreds: IssuePanelDeferredWire[]

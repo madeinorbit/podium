@@ -26,8 +26,6 @@ import type {
   ArtifactId,
   GitDiscoveryDiagnosticWire,
   HarnessAgent,
-  IssueBodyField,
-  IssueBodyWire,
   IssueId,
   IssueReport,
   LayoutSnapshot,
@@ -239,10 +237,6 @@ export interface PodiumClientApi {
   issues: {
     /** Identity only. The pool loads the row through its existing reader. */
     resolveRefs: ApiQuery<{ refs: string[] }, Array<{ ref: string; id: IssueId | null }>>
-    /** The bodies whose headers the synced issue record carries (POD-6767),
-     *  with the digests they were read at. Optional in this mirror only:
-     *  structural test clients often omit it, and bodies then never load. */
-    bodies?: ApiQuery<{ ids: IssueId[]; fields?: IssueBodyField[] }, IssueBodyWire[]>
     /** Insert-shaped optimistic create: both ids are minted by the client and
      * reused by the authority so task/session rows reconcile without a swap. */
     create: ApiMutation<

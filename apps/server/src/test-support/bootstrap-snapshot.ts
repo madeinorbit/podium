@@ -22,7 +22,8 @@ type Snapshot = {
   machines: Model.MachineProjection[]
   issues: never[]
   issueProjections: Model.SlimIssueProjection[]
-  issueBodies: Model.IssueBodiesWire[]
+  issueBriefs: Model.IssueBriefWire[]
+  issueDescriptions: Model.IssueDescriptionWire[]
   issuePanelTodos: Model.IssuePanelTodoWire[]
   issuePanelArtifacts: Model.IssuePanelArtifactWire[]
   issuePanelDeferreds: Model.IssuePanelDeferredWire[]
@@ -68,7 +69,8 @@ export async function snapshotFromBootstrap(
     machines: values('machine'),
     issues: [],
     issueProjections: values('issueProjection'),
-    issueBodies: values('issueBodies'),
+    issueBriefs: values('issueBrief'),
+    issueDescriptions: values('issueDescription'),
     issuePanelTodos: values('issuePanelTodo'),
     issuePanelArtifacts: values('issuePanelArtifact'),
     issuePanelDeferreds: values('issuePanelDeferred'),

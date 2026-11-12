@@ -12,8 +12,8 @@ const field = (type: FieldSpec['type'], optional = true): FieldSpec => ({
  * stay on the full row; menus need only the explicitly declared small summary. */
 export const ISSUE_PAGE_FIELDS = {
   type: field('string', false), labels: field('object', false),
-  // A body (POD-6767): `IssueModel.brief` reads it from the body store.
-  brief: { type: 'string', optional: true, source: { schema: 'IssueProjection', arrivesOn: 'request:issues.bodies' } },
+  // Its own synced record (POD-6921): `IssueModel.brief` reads the `issueBrief` record.
+  brief: { type: 'string', optional: true, source: { schema: 'IssueBriefWire', arrivesOn: 'replica:issueBriefs', property: 'text' } },
   acceptance: field('string'),
   dependencyNote: field('string'),
   suggestedStage: field('string'), suggestedReason: field('string'),

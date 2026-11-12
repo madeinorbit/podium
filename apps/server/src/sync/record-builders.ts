@@ -44,6 +44,8 @@ import {
   checkoutRowId,
   INSTANCE_PREFERENCES_ROW_ID,
   ISSUE_PANEL_KINDS,
+  type IssueBodyKind,
+  type IssueProjection,
   instancePreferencesRecordOf,
   issueUserStateRowId,
   issueUserStateToWire,
@@ -77,6 +79,7 @@ import {
   userPreferencesRowId,
   workflowBindingRowId,
 } from '@podium/model'
+import type { MetadataEntityKind } from '@podium/protocol'
 import {
   type BuiltRecord,
   pagesOf,
@@ -92,9 +95,9 @@ import { openInteractionRecords } from '../modules/interactions/feed'
 import { interactionWireOf } from '../modules/interactions/service'
 import { FEED_WINDOW, issueEventRecordOf, issueEventWindow } from '../modules/issue-events/feed'
 import {
-  issueBodiesOf,
-  issueBodiesOfRow,
+  issueBriefOf,
   issueDepToProjection,
+  issueDescriptionOf,
   issueRowToProjection,
   repoProjectionRows,
   slimIssueProjection,
@@ -324,69 +327,80 @@ const issueProjection: Builder = {
   },
 }
 
-/** The `issueBodies` header row of each issue row (POD-6767); an issue with
- *  no body content, or one that cannot be projected, has none. */
-function issueBodyRecords(rows: Iterable<IssueRow>): BuiltRecord[] {
-  return [...rows].flatMap((row) => {
-    try {
-      const value = issueBodiesOfRow(row)
-      return value ? [{ id: row.id, value }] : []
-    } catch {
-      return []
-    }
-  })
+/** One body kind of each issue row (POD-6921): its record, or none when the
+ *  field is empty or the row cannot be projected. */
+function issueBodyBuilder(
+  kind: IssueBodyKind,
+  of: (projection: IssueProjection) => { id: string } | undefined,
+): Builder {
+  const records = (rows: Iterable<IssueRow>): BuiltRecord[] =>
+    [...rows].flatMap((row) => {
+      try {
+        const value = of(issueRowToProjection(row, []))
+        return value ? [{ id: row.id, value }] : []
+      } catch {
+        return []
+      }
+    })
+  return {
+    kind,
+    shape: 'row',
+    build: async ({ store }, ids) => records((await store.issues.getIssues(ids)).values()),
+    async *streamAll({ store }) {
+      for await (const page of store.issues.issueRowPages(RECORD_PAGE_SIZE)) yield records(page)
+    },
+  }
 }
 
-const issueBodies: Builder = {
-  kind: 'issueBodies',
-  shape: 'row',
-  build: async ({ store }, ids) => issueBodyRecords((await store.issues.getIssues(ids)).values()),
-  async *streamAll({ store }) {
-    for await (const page of store.issues.issueRowPages(RECORD_PAGE_SIZE)) {
-      yield issueBodyRecords(page)
-    }
-  },
-}
+const issueBrief = issueBodyBuilder('issueBrief', issueBriefOf)
+const issueDescription = issueBodyBuilder('issueDescription', issueDescriptionOf)
 
-/** Map each stored row once and use its projection for both records. */
+/** The kinds built from one issue row, in their registry order. */
+const ISSUE_ROW_KINDS = ['issueProjection', 'issueBrief', 'issueDescription'] as const
+
+/** Map each stored row once and use its projection for every record built
+ *  from it: the slim issue record and its two bodies. */
 async function issueRecordPages(
   store: RecordReads['store'],
   rows: readonly IssueRow[],
-  projectionIds?: ReadonlySet<string>,
-  bodyIds?: ReadonlySet<string>,
+  asked?: ReadonlyMap<MetadataEntityKind, ReadonlySet<string>>,
 ): Promise<readonly RecordPage[]> {
-  const projectionRows = projectionIds ? rows.filter(({ id }) => projectionIds.has(id)) : rows
+  const wants = (kind: MetadataEntityKind, id: string) => !asked || asked.get(kind)?.has(id) === true
+  const projectionRows = rows.filter(({ id }) => wants('issueProjection', id))
   const labels = await store.issues.labelsOfIssues(projectionRows.map(({ id }) => id))
   const projections: BuiltRecord[] = []
-  const bodies: BuiltRecord[] = []
+  const briefs: BuiltRecord[] = []
+  const descriptions: BuiltRecord[] = []
   for (const row of rows) {
     try {
       const { id } = row
       const projection = issueRowToProjection(row, labels.get(id) ?? [])
-      if (!projectionIds || projectionIds.has(id)) {
+      if (wants('issueProjection', id)) {
         projections.push({ id, value: slimIssueProjection(projection) })
       }
-      if (!bodyIds || bodyIds.has(id)) {
-        const value = issueBodiesOf(projection)
-        if (value) bodies.push({ id, value })
-      }
+      const brief = wants('issueBrief', id) ? issueBriefOf(projection) : undefined
+      if (brief) briefs.push({ id, value: brief })
+      const description = wants('issueDescription', id) ? issueDescriptionOf(projection) : undefined
+      if (description) descriptions.push({ id, value: description })
     } catch {
       // A row that cannot be projected has no records.
     }
   }
   return [
     { entity: 'issueProjection', records: projections },
-    { entity: 'issueBodies', records: bodies },
+    { entity: 'issueBrief', records: briefs },
+    { entity: 'issueDescription', records: descriptions },
   ]
 }
 
 const issueRecordGroup: RecordBuilderGroup<RecordReads> = {
-  kinds: ['issueProjection', 'issueBodies'],
+  kinds: ISSUE_ROW_KINDS,
   async build({ store }, idsByKind) {
-    const projectionIds = new Set(idsByKind.get('issueProjection'))
-    const bodyIds = new Set(idsByKind.get('issueBodies'))
-    const rows = await store.issues.getIssues([...projectionIds, ...bodyIds])
-    const pages = await issueRecordPages(store, [...rows.values()], projectionIds, bodyIds)
+    const asked = new Map(
+      ISSUE_ROW_KINDS.map((kind) => [kind as MetadataEntityKind, new Set(idsByKind.get(kind))]),
+    )
+    const rows = await store.issues.getIssues([...asked.values()].flatMap((ids) => [...ids]))
+    const pages = await issueRecordPages(store, [...rows.values()], asked)
     return new Map(pages.map(({ entity, records }) => [entity, records]))
   },
   async *streamAll({ store }) {
@@ -1047,7 +1061,7 @@ const session: Builder = {
   },
 }
 
-/** The kinds built from the database: the stored-row kinds (POD-6765), `repo`, the audit's 24 in its order with the joined `shipLane` and `userPreferences` (POD-6769), then `session` (POD-6764), and the issue body headers split out of the issue record (POD-6767). */
+/** The kinds built from the database: the stored-row kinds (POD-6765), `repo`, the audit's 24 in its order with the joined `shipLane` and `userPreferences` (POD-6769), then `session` (POD-6764), and the issue's brief and description split out of the issue record (POD-6921). */
 export const DATABASE_ONLY_BUILDERS: readonly Builder[] = [
   conversation,
   issueGitState,
@@ -1055,7 +1069,8 @@ export const DATABASE_ONLY_BUILDERS: readonly Builder[] = [
   machineAccess,
   repo,
   issueProjection,
-  issueBodies,
+  issueBrief,
+  issueDescription,
   ...ISSUE_PANEL_KINDS.map(
     (kind): Builder => ({
       kind,

@@ -240,7 +240,7 @@ export class MissionScreen {
   private get rootIssue(): IssueNavigationModel { return requireLoaded(this.reader.issue(this.rootId))! }
   @lazy get rootDraftVessel(): boolean { return Boolean(this.rootIssue.isDraftVessel) }
   @lazy get rootLeadSessionId(): string | undefined { return this.rootRow?.crewIds[0] }
-  /** The root's bodies (POD-6767) come from its pool model, which fetches them. */
+  /** The root's bodies (POD-6921) come from its pool model, which reads their records. */
   private get rootModel() { return this.pool.issueObject(this.rootId) }
   @lazy get rootAuthoredBrief(): string {
     const root = this.rootModel

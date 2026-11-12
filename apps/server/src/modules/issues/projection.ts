@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import { createLogger } from '@podium/logger'
 import {
   actorAgent,
@@ -6,19 +5,17 @@ import {
   actorUser,
   asAgentIdentityId,
   asUserId,
-  ISSUE_BODY_FIELDS,
-  type IssueBodiesWire,
-  type IssueBodyField,
-  type IssueBodyHeader,
+  type IssueBriefWire,
   IssueDep,
   type IssueDepId,
   type IssueDepProjection,
+  type IssueDescriptionWire,
   type IssueId,
   type IssueProjection,
-  issueBodySize,
-  issueBodyText,
+  issueBriefText,
   issueDepId,
   issueDepToWire,
+  issueDescriptionText,
   machinePathBasename,
   Repo,
   type RepoId,
@@ -74,36 +71,25 @@ export function issueRowToProjection(row: IssueRow, labels: string[]): IssueProj
   })
 }
 
-// ---- The fat fields, split into header and body [POD-6767] ----
+// ---- The fat fields, as records of their own [POD-6921] ----
 //
 // The synced issue record leaves out `brief`, `panel`, `description` and
-// `activityNotes`; the `issueBodies` row carries a header per field with
-// content, and `issues.bodies` serves the body by id. Every one of them is a
-// pure function of the issue's projection, so any process builds the same
-// record, the same headers and a body whose digest matches its header.
-//
-// The builders the sync registry calls (POD-6763) are the two `…OfRow`
-// functions: the slim record and the header row of one stored issue.
+// `activityNotes`. The brief and the description are the `issueBrief` and
+// `issueDescription` records, keyed by the issue id and holding the whole
+// text; the panel and notes are the panel records. Each is a pure function of
+// the issue's projection, so any process builds the same records.
 
-/** The digest a body's header names: a sha-256 prefix of its text. */
-export function issueBodyDigest(text: string): string {
-  return createHash('sha256').update(text).digest('base64url').slice(0, 22)
+/** The `issueBrief` record of one issue, or `undefined` when it has no brief. */
+export function issueBriefOf(projection: IssueProjection): IssueBriefWire | undefined {
+  const text = issueBriefText(projection.brief)
+  return text === undefined ? undefined : { id: projection.id, text }
 }
 
-/** One field's header, or `undefined` when the field holds nothing. */
-export function issueBodyHeaderOf(field: IssueBodyField, value: unknown): IssueBodyHeader | undefined {
-  const text = issueBodyText(field, value)
-  return text === undefined ? undefined : { digest: issueBodyDigest(text), size: issueBodySize(text) }
-}
-
-/** The `issueBodies` row of one issue, or `undefined` when no field has content. */
-export function issueBodiesOf(projection: IssueProjection): IssueBodiesWire | undefined {
-  let out: IssueBodiesWire | undefined
-  for (const field of ISSUE_BODY_FIELDS) {
-    const header = issueBodyHeaderOf(field, projection[field])
-    if (header) out = { ...(out ?? { id: projection.id }), [field]: header }
-  }
-  return out
+/** The `issueDescription` record of one issue, or `undefined` when its
+ *  description is empty. */
+export function issueDescriptionOf(projection: IssueProjection): IssueDescriptionWire | undefined {
+  const text = issueDescriptionText(projection.description)
+  return text === undefined ? undefined : { id: projection.id, text }
 }
 
 /** The synced issue record: the projection without its body fields. */
@@ -114,22 +100,6 @@ export function slimIssueProjection(projection: IssueProjection): SlimIssueProje
 /** BUILDER: the synced issue record of one stored issue. */
 export function slimIssueProjectionOfRow(row: IssueRow, labels: string[]): SlimIssueProjection {
   return slimIssueProjection(issueRowToProjection(row, labels))
-}
-
-/** BUILDER: the `issueBodies` row of one stored issue; `undefined` = no row. */
-export function issueBodiesOfRow(row: IssueRow): IssueBodiesWire | undefined {
-  return issueBodiesOf(issueRowToProjection(row, []))
-}
-
-/** The body fields of one stored issue in their wire shape (the description
- *  as its `{ value }` document, the panel decoded), read through the same
- *  projection the headers are built from, so a body's digest is its header's. */
-export function issueBodyValuesOfRow(row: IssueRow): Pick<IssueProjection, IssueBodyField> {
-  const projection = issueRowToProjection(row, [])
-  return {
-    brief: projection.brief,
-    description: projection.description,
-  }
 }
 
 /**

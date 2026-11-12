@@ -1,5 +1,5 @@
 import { autorun, runInAction } from 'mobx'
-import { expect, it, vi } from 'vitest'
+import { expect, it } from 'vitest'
 import { requireHere } from './lookup'
 import { MobxPool } from './pool'
 
@@ -23,10 +23,8 @@ const todo = (id: string, position: number, done = false) => ({
   id,
   value: { id, issueId: 'issue', position, text: 'Same', done },
 })
-it('holds one model per item, keeps lists stable on a tick and follows membership and ordering without fetching a panel body', () => {
+it('holds one model per item, keeps lists stable on a tick and follows membership and ordering', () => {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
-  const fetch = vi.fn(async () => [])
-  pool.issueBodies.bind(fetch)
   pool.apply({ type: 'replace', rows: [task, todo('b', 4), todo('a', 0)] })
   const issue = requireHere(pool.model('issue', 'issue'))
   let list = issue.panelTodos,
@@ -60,7 +58,6 @@ it('holds one model per item, keeps lists stable on a tick and follows membershi
     expect(list[0]).toBe(first[1])
     runInAction(() => pool.apply({ type: 'update', rows: [todo('c', 1)] }))
     expect(list.map((r) => r.id)).toEqual(['c', 'b'])
-    expect(fetch).not.toHaveBeenCalled()
   } finally {
     stopList()
     stopDone()

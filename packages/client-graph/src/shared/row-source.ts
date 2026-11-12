@@ -183,8 +183,9 @@ const SLICE_KINDS: ReadonlySet<ReplicaKind> = new Set([
   'effects',
   'issueUserStates',
   'issueGitStates',
-  // POD-6767: an issue's body headers, joined onto the issue.
-  'issueBodies',
+  // POD-6921: an issue's brief and description, records of their own.
+  'issueBriefs',
+  'issueDescriptions',
   'issuePanelTodos',
   'issuePanelArtifacts',
   'issuePanelDeferreds',
@@ -241,6 +242,8 @@ const OVERLAID: readonly OverlayTarget[] = [
  * (`subscriptionRowId`; its stored `sub_…` id is `subscriptionId`).
  */
 const RECORD_COMPANIONS = {
+  issueBrief: 'issueBriefs',
+  issueDescription: 'issueDescriptions',
   issuePanelTodo: 'issuePanelTodos',
   issuePanelArtifact: 'issuePanelArtifacts',
   issuePanelDeferred: 'issuePanelDeferreds',
@@ -681,12 +684,11 @@ export function createRowSource(
       pending?.issueUserStates.get(id) ?? NO_OVERLAYS,
     )
     const gitState = authority('issueGitStates', id)
-    const bodies = authority('issueBodies', id)
     const deps = outgoing.get(id) ?? EMPTY
     const blocked = deps.some(
       (edge) => edge.type === 'blocked-by' && closedInput(edge.id) === false,
     )
-    return issueInput(projection, userState, gitState, deps, blocked, bodies)
+    return issueInput(projection, userState, gitState, deps, blocked)
   }
 
   function laneFor(
@@ -1223,7 +1225,7 @@ export function createRowSource(
         addressed.set(`issue:${owner}`, { kind: 'issue', id: owner })
         continue
       }
-      if (address.kind === 'issueGitStates' || address.kind === 'issueBodies') {
+      if (address.kind === 'issueGitStates') {
         addressed.set(`issue:${address.id}`, { kind: 'issue', id: address.id })
         continue
       }

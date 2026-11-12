@@ -244,7 +244,8 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
             expect(edges[0]?.audience).toEqual([reader])
             expect(edges[0]?.subjects).toEqual([
               { entity: 'issueProjection', entityId: 'iss_0' },
-              { entity: 'issueBodies', entityId: 'iss_0' },
+              { entity: 'issueBrief', entityId: 'iss_0' },
+              { entity: 'issueDescription', entityId: 'iss_0' },
               { entity: 'issueGitState', entityId: 'iss_0' },
               { entity: 'issueDep', entityId: issueDepId('iss_0', 'shared_0', 'blocked-by') },
               { entity: 'shipOrder', entityId: 'order-0' },
@@ -259,8 +260,11 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
             // The subjects' records as the tables hold them; the issue has no
             // git observation, so that subject has no record.
             expect(values[0]).toMatchObject({ id: 'iss_0' })
-            expect(values[2]).toBeUndefined()
-            expect(values[3]).toMatchObject({
+            // No brief, so no brief record; the description is its own record.
+            expect(values[1]).toBeUndefined()
+            expect(values[2]).toEqual({ id: 'iss_0', text: 'desc' })
+            expect(values[3]).toBeUndefined()
+            expect(values[4]).toMatchObject({
               id: issueDepId('iss_0', 'shared_0', 'blocked-by'),
               fromId: 'iss_0',
               toId: 'shared_0',

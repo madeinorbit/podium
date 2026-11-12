@@ -3,8 +3,8 @@ import type { UnbrandIds } from '@podium/model/browser'
 import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import type { IssueBodyValues, IssueViewModel } from '@podium/client-core/replica'
 
-/** A row with its bodies painted on (POD-6767): what the pool fixtures install
- *  and what `IssueModel` answers from before any fetch. */
+/** A row with its bodies painted on: what the pool fixtures install. A painted
+ *  text wins over the issue's `issueBrief` / `issueDescription` records (POD-6921). */
 type TestIssue = IssueViewModel & IssueBodyValues & { description: string; sessions?: SessionView[] }
 
 /**

@@ -176,8 +176,8 @@ async function parityOf(
 describe('record builders (POD-6763)', () => {
   it('registers every record kind once', () => {
     const kinds = serverRecordBuilders().kinds()
-    expect(kinds).toHaveLength(37)
-    expect(new Set(kinds).size).toBe(37)
+    expect(kinds).toHaveLength(38)
+    expect(new Set(kinds).size).toBe(38)
     expect(
       () => new RecordBuilderRegistry([...DATABASE_ONLY_BUILDERS, DATABASE_ONLY_BUILDERS[0]!]),
     ).toThrow(/already registered/)
@@ -194,14 +194,15 @@ describe('record builders (POD-6763)', () => {
             seq: index + 1,
             parentId: null,
             description: id === 'empty' ? '' : `Body of ${id}`,
-            brief: null,
+            brief: id === 'b' ? 'Brief of b' : null,
           }),
         )
       }
       const reads: RecordReads = { store, effectExecutors: { get: () => undefined }, now: Date.now }
       const registry = serverRecordBuilders()
       const asked: RecordIdsByKind = new Map([
-        ['issueBodies', ['b', 'a', 'empty', 'missing', 'b']],
+        ['issueDescription', ['b', 'a', 'empty', 'missing', 'b']],
+        ['issueBrief', ['a', 'b', 'empty']],
         ['issueProjection', ['c', 'a', 'missing', 'c']],
       ])
       const expected = new Map<string, readonly BuiltRecord[]>()
@@ -214,7 +215,14 @@ describe('record builders (POD-6763)', () => {
         }
         expect(built).toEqual(expected)
         expect(built.get('issueProjection')?.map(({ id }) => id)).toEqual(['c', 'a'])
-        expect(built.get('issueBodies')?.map(({ id }) => id)).toEqual(['b', 'a'])
+        expect(built.get('issueDescription')).toEqual([
+          { id: 'b', value: { id: 'b', text: 'Body of b' } },
+          { id: 'a', value: { id: 'a', text: 'Body of a' } },
+        ])
+        // Only `b` has a brief; an empty field has no record.
+        expect(built.get('issueBrief')).toEqual([
+          { id: 'b', value: { id: 'b', text: 'Brief of b' } },
+        ])
         expect(getIssues).toHaveBeenCalledTimes(1)
         expect(new Set(getIssues.mock.calls[0]![0])).toEqual(
           new Set(['a', 'b', 'c', 'empty', 'missing']),

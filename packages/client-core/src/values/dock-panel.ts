@@ -99,8 +99,8 @@ type IssuePanelLike = Pick<
   IssueViewModel,
   'id' | 'worktreePath' | 'archived' | 'deletedAt' | 'seq' | 'parentId'
 > & {
-  /** The issue's panel, a body (POD-6767): `IssueModel.panel` answers it once
-   *  fetched; a plain row carries none. */
+  /** The issue's panel, its own records (POD-6778): `IssueModel.panel`
+   *  answers it; a plain row carries none. */
   readonly panel?: IssuePanel | undefined
 }
 

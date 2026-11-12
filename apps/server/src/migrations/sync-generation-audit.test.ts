@@ -7,7 +7,8 @@ import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 const kindsByTable: Record<string, readonly string[]> = {
   issues: [
     'issueProjection',
-    'issueBodies',
+    'issueBrief',
+    'issueDescription',
     'issueDep',
     'issueUserState',
     'issueGitState',

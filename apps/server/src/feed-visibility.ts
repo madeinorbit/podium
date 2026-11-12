@@ -30,9 +30,11 @@ import {
   asIssueId,
   canonicalShippingDestination,
   checkoutRowId,
+  ISSUE_BODY_KINDS,
   ISSUE_PANEL_KINDS,
   type IssueExecutionFacts,
   type IssueId,
+  isIssueBodyKind,
   isIssuePanelKind,
   issueDepId,
   issueEventRowId,
@@ -375,8 +377,8 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         if (
           entity === 'session' ||
           entity === 'issueProjection' ||
-          // An issue's body headers (POD-6767): the issue's readers, like its record.
-          entity === 'issueBodies' ||
+          // An issue's brief and description (POD-6921): the issue's readers.
+          isIssueBodyKind(entity) ||
           isIssuePanelKind(entity) ||
           entity === 'issueGitState' ||
           entity === 'issueDep' ||
@@ -436,7 +438,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         }
         if (
           ref.entity === 'issueProjection' ||
-          ref.entity === 'issueBodies' ||
+          isIssueBodyKind(ref.entity) ||
           ref.entity === 'issueGitState'
         ) {
           return mayReadIssueFromSnapshot(userId, ref.entityId, prefetch)
@@ -723,7 +725,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     for (const ref of refs) {
       if (
         ref.entity === 'issueProjection' ||
-        ref.entity === 'issueBodies' ||
+        isIssueBodyKind(ref.entity) ||
         ref.entity === 'issueGitState'
       ) {
         issueIds.add(ref.entityId)
@@ -1376,7 +1378,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           audience,
           subjects: [
             { entity: 'issueProjection' as const, entityId: ref.entityId },
-            { entity: 'issueBodies' as const, entityId: ref.entityId },
+            ...ISSUE_BODY_KINDS.map((entity) => ({ entity, entityId: ref.entityId })),
             ...(panelSubjects.get(ref.entityId) ?? []),
             { entity: 'issueGitState' as const, entityId: ref.entityId },
             ...issueSessions.map((session) => ({

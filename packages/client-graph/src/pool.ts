@@ -14,7 +14,6 @@ import {
 } from '@podium/model'
 import type { MobileClientSession, PendingInteractionWire } from '@podium/protocol'
 import type { MessagePoolRow } from './message-models'
-import { IssueBodyStore } from './issue-bodies'
 import { isPinned } from './per-user-records'
 import { SETUP_SESSION_SUMMARY_FIELDS, type SetupSession } from './settings-schema'
 import { readSetupSession } from './settings-views'
@@ -85,10 +84,12 @@ import type {
   AutomationWire,
   EffectRecordWire,
   InstancePreferences,
-  IssuePanelTodoWire,
+  IssueBriefWire,
+  IssueDescriptionWire,
   IssuePanelArtifactWire,
   IssuePanelDeferredWire,
   IssuePanelStateWire,
+  IssuePanelTodoWire,
   MachineAccessWire,
   MachineProjection,
   PersonalPreferences,
@@ -282,6 +283,8 @@ export type AbsentRead = 'load' | 'mark' | 'peek' | 'summary' | 'summary-fields'
 export type Residence = 'resident' | 'loading' | 'absent'
 
 export interface PoolRows {
+  issueBrief: Readonly<IssueBriefWire> & Readonly<Record<string, unknown>>
+  issueDescription: Readonly<IssueDescriptionWire> & Readonly<Record<string, unknown>>
   issuePanelTodo: Readonly<IssuePanelTodoWire> & Readonly<Record<string, unknown>>
   issuePanelArtifact: Readonly<IssuePanelArtifactWire> & Readonly<Record<string, unknown>>
   issuePanelDeferred: Readonly<IssuePanelDeferredWire> & Readonly<Record<string, unknown>>
@@ -421,9 +424,6 @@ export class MobxPool {
   /** Each summarised issue's explicit seats, judged per seat change (POD-5423). */
   private readonly seatVerdicts: SeatVerdicts
   readonly sources = new PoolSources(this)
-  /** Issue bodies fetched by id and kept by digest (POD-6767); the app binds
-   *  the fetch (`issueBodies.bind`). Models read them through their headers. */
-  readonly issueBodies = new IssueBodyStore()
   /** The index's `positionVersion` the settings rows last saw. */
   private positionsSeen = -1
   /** Only demanded positions are retained; the cold index owns the values. */

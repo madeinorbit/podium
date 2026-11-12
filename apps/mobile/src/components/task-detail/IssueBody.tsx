@@ -3,7 +3,7 @@ import { issueObserver as observer } from '../../client/issue-observer'
 import { isClosed } from '@podium/model/browser'
 import { relativeTime } from '@podium/client-core/focus'
 import { useAgeNow } from '../../lib/clock-hooks'
-import { issueBodyLoading, type IssueWithBodies } from '@podium/client-core/replica'
+import type { IssueWithBodies } from '@podium/client-core/replica'
 import { isPendingSync, isUpstreamStale, isViaHub } from '@podium/model'
 import { useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
@@ -118,7 +118,6 @@ export const IssueDescription = observer(function IssueDescription({
     <View style={styles.section}>
       <InlineEditable
         value={issue.description}
-        loading={issueBodyLoading(issue, 'description')}
         placeholder="Add a description…"
         ariaLabel="Task description"
         busy={busy}

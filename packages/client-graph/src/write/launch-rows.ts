@@ -2,7 +2,7 @@ import type { IssueViewModel } from '@podium/client-core/replica'
 
 /** A launch's optimistic issue: the row plus the texts it was created with,
  *  which `IssueModel` reads off the painted row until the record and its body
- *  headers arrive (POD-6767). */
+ *  records arrive (POD-6921). */
 export type LaunchIssueRow = IssueViewModel & { description: string; brief?: string }
 import type { SessionValues, SessionView } from '@podium/client-core/session-values'
 import {

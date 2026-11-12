@@ -49,7 +49,7 @@
  * lane in it stays on 5 and clients update with the server, with no capability
  * gate or fallback. Against version 4 it takes the live plane off the session
  * record (POD-6764), the issue bodies (brief, panel, description, activity notes)
- * off the issue record (POD-6767), stores issue panel items as records of their
+ * off the issue record (POD-6767; as records of their own, POD-6921), stores issue panel items as records of their
  * own (POD-6778), builds the start-up load from the model tables so every row
  * carries the head number (POD-6770), requires per-kind shape tokens at connect
  * and in HTTP transfer headers (POD-6772), and slims the conversation record

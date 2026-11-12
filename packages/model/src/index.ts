@@ -116,7 +116,7 @@ export * from './fields/attribution-legacy'
 // of one field list. See the file header for why collapsing them is the wrong fix.
 export * from './fields/change'
 export * from './fields/issue'
-// POD-6767: an issue's body fields as synced headers plus bodies fetched by id.
+// POD-6921: an issue's brief and description as synced records of their own.
 export * from './fields/issue-body'
 // The two vocabularies the POD-822 entities compose from — the dep edge's
 // `(id, fromId, toId, type)` and the logical repo's `(id, prefix)`.

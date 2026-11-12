@@ -22,13 +22,9 @@ import {
   asSessionId,
   asThreadId,
   asUserId,
-  ISSUE_BODY_FIELDS,
-  type IssueBodiesWire,
-  type IssueBodyField,
-  type IssueBodyWire,
-  issueBodySize,
-  issueBodyText,
+  issueBriefText,
   issueDepId,
+  issueDescriptionText,
   SlimIssueProjection,
   issueUserStateRowId,
   pinRowId,
@@ -86,9 +82,11 @@ export function buildDemoEntityRecords(userId: UserId = DEMO_PRINCIPAL): EntityR
     row.intentOrigin = issue.intentOrigin
     row.isDraftVessel = issue.isDraftVessel
     put(records, 'issueProjection', issue.id, row)
-    // The bodies' headers (POD-6767); `demoIssueBodies` answers the bodies.
-    const headers = demoBodyHeaders(issue.id)
-    if (headers) put(records, 'issueBodies', issue.id, headers)
+    // The brief and description are records of their own (POD-6921).
+    const brief = issueBriefText((issue as { brief?: unknown }).brief)
+    if (brief) put(records, 'issueBrief', issue.id, { id: issue.id, text: brief })
+    const description = issueDescriptionText(issue.description)
+    if (description) put(records, 'issueDescription', issue.id, { id: issue.id, text: description })
     for (const [collection, kind] of [['todos', 'issuePanelTodo'], ['artifacts', 'issuePanelArtifact'], ['deferred', 'issuePanelDeferred']] as const)
       for (const [position, item] of (issue.panel?.[collection] ?? []).entries()) {
         const id = `00000000-0000-4000-8000-${String(++panelId).padStart(12, '0')}`
@@ -148,51 +146,6 @@ export function buildDemoEntityRecords(userId: UserId = DEMO_PRINCIPAL): EntityR
   return [...records.values()]
 }
 
-/** A demo issue's bodies in their projection shape (POD-6767). */
-function demoBodyValues(issueId: string): Partial<Record<IssueBodyField, unknown>> {
-  const issue = DEMO_ISSUES.find((candidate) => candidate.id === issueId)
-  if (!issue) return {}
-  const source = issue as unknown as Record<string, unknown>
-  return {
-    brief: source.brief,
-    description: { value: issue.description ?? '' },
-  }
-}
-
-/** The demo's digest: any stable function of the text serves a cache key. */
-function demoDigest(text: string): string {
-  let hash = 0x811c9dc5
-  for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193)
-  return `demo-${(hash >>> 0).toString(36)}-${text.length}`
-}
-
-function demoBodyHeaders(issueId: string): IssueBodiesWire | undefined {
-  const values = demoBodyValues(issueId)
-  let out: IssueBodiesWire | undefined
-  for (const field of ISSUE_BODY_FIELDS) {
-    const text = issueBodyText(field, values[field])
-    if (text === undefined) continue
-    out = {
-      ...(out ?? { id: issueId as IssueBodiesWire['id'] }),
-      [field]: { digest: demoDigest(text), size: issueBodySize(text) },
-    }
-  }
-  return out
-}
-
-/** The demo's `issues.bodies` answer: the fixtures' bodies at their headers' digests. */
-export function demoIssueBodies(ids: readonly string[]): IssueBodyWire[] {
-  return ids.flatMap((issueId) => {
-    const values = demoBodyValues(issueId)
-    return ISSUE_BODY_FIELDS.flatMap((field) => {
-      const text = issueBodyText(field, values[field])
-      return text === undefined
-        ? []
-        : [{ issueId: issueId as IssueBodyWire['issueId'], field, digest: demoDigest(text), value: values[field] }]
-    })
-  })
-}
-
 /**
  * A fresh in-memory kernel-backed replica seeded with the demo fixtures. One
  * per provider mount (never shared across mounts): the facade memoises
@@ -226,7 +179,8 @@ const DEMO_SLICE_KINDS = [
   'issueProjections',
   'issueUserStates',
   'issueGitStates',
-  'issueBodies',
+  'issueBriefs',
+  'issueDescriptions',
   'issuePanelTodos',
   'issuePanelArtifacts',
   'issuePanelDeferreds',

@@ -1,5 +1,5 @@
 import type {
-  IssueBodiesWire,
+  IssueBriefWire,
   IssueProjection,
   IssueUserStateWire,
   SessionMeta,
@@ -124,21 +124,19 @@ describe('SessionRegistry metadata deltas', () => {
     })
     flush(registry)
 
-    // The record and its body headers: the brief itself is fetched by id.
+    // The record and its brief, a record of its own (POD-6921).
     await expect.poll(() => deltas(subscriber.inbox.slice(before)).length).toBe(2)
     const published = subscriber.inbox.slice(before)
     expect(published.map((m) => m.type)).toEqual(['feedDelta'])
     const changes = deltas(published)
-    expect(changes.map((change) => change.entity).sort()).toEqual([
-      'issueBodies',
-      'issueProjection',
-    ])
+    expect(changes.map((change) => change.entity).sort()).toEqual(['issueBrief', 'issueProjection'])
     expect(changes.every((change) => change.id === w.id && change.op === 'upsert')).toBe(true)
     const residue = changes.find((change) => change.entity === 'issueProjection')
     expect(residue?.value).not.toHaveProperty('brief')
-    const headers = changes.find((change) => change.entity === 'issueBodies')
-    expect((headers as { value: IssueBodiesWire }).value.brief).toMatchObject({
-      size: 'self-contained edit'.length,
+    const brief = changes.find((change) => change.entity === 'issueBrief')
+    expect((brief as { value: IssueBriefWire }).value).toEqual({
+      id: w.id,
+      text: 'self-contained edit',
     })
   })
 

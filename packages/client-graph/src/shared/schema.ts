@@ -70,7 +70,8 @@ import { ISSUE_PAGE_FIELDS, ISSUE_PAGE_SESSION_FIELDS } from '../issue-page-sche
 export type ModelSchemaName =
   | 'IssueProjection'
   | 'SlimIssueProjection'
-  | 'IssueBodiesWire'
+  | 'IssueBriefWire'
+  | 'IssueDescriptionWire'
   | 'IssuePanelTodoWire'
   | 'IssuePanelArtifactWire'
   | 'IssuePanelDeferredWire'
@@ -131,7 +132,8 @@ export type ModelSchemaName =
 export type RowArrival =
   | 'replica:issueUserStates'
   | 'replica:issueGitStates'
-  | 'replica:issueBodies'
+  | 'replica:issueBriefs'
+  | 'replica:issueDescriptions'
   | 'replica:issuePanelTodos'
   | 'replica:issuePanelArtifacts'
   | 'replica:issuePanelDeferreds'
@@ -163,7 +165,6 @@ export type RowArrival =
   | 'replica:subscriptions'
   | 'replica:instancePreferences'
   | 'request:messages.ledger'
-  | 'request:issues.bodies'
   | 'request:accounts.list'
   | 'request:members.list'
   | 'request:auth.mobileSessions'
@@ -221,7 +222,7 @@ export interface FieldSpec {
 // Relations
 // ---------------------------------------------------------------------------
 
-export type EntityName = 'issuePanelTodo' | 'issuePanelArtifact' | 'issuePanelDeferred' | 'issuePanelState' | 'account' | 'member' | 'device' | 'repository' | 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun' | 'messageRecord' | 'pendingInteraction' | 'effect' | 'pin' | 'userLayout' | 'tabOrder' | 'userPreferences' | 'userReadPosition' | 'superagentThread' | 'agentProfile' | 'workflow' | 'workflowRevision' | 'workflowBinding' | 'workflowRun' | 'subscription' | 'instancePreferences'
+export type EntityName = 'issueBrief' | 'issueDescription' | 'issuePanelTodo' | 'issuePanelArtifact' | 'issuePanelDeferred' | 'issuePanelState' | 'account' | 'member' | 'device' | 'repository' | 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun' | 'messageRecord' | 'pendingInteraction' | 'effect' | 'pin' | 'userLayout' | 'tabOrder' | 'userPreferences' | 'userReadPosition' | 'superagentThread' | 'agentProfile' | 'workflow' | 'workflowRevision' | 'workflowBinding' | 'workflowRun' | 'subscription' | 'instancePreferences'
 
 /**
  * Four kinds, and no more.
@@ -478,9 +479,6 @@ const projection = (property?: string): FieldSource => ({
   arrivesOn: 'replica:issueProjections',
   ...(property === undefined ? {} : { property }),
 })
-/** An issue body (POD-6767): the field's projection shape, fetched by id
- *  through `issues.bodies` and cached by its header's digest. */
-const issueBody = (): FieldSource => ({ schema: 'IssueProjection', arrivesOn: 'request:issues.bodies' })
 const sessionValue = (property: string): FieldSource => ({ schema: 'SessionUserStateWire', arrivesOn: 'replica:sessionUserStates', property })
 
 const meta = (property?: string): FieldSource => ({
@@ -581,7 +579,7 @@ const DECLARED = defineSchema({
         arrivesOn: 'replica:issueProjections',
         joinKey: 'id',
         precedence: 0,
-        why: 'The normalized durable row owns issue facts and keeps its asked, intentOrigin and isDraftVessel spellings. It carries no body fields (POD-6767).',
+        why: 'The normalized durable row owns issue facts and keeps its asked, intentOrigin and isDraftVessel spellings. It carries no body fields: they are records of their own (POD-6921).',
       },
     },
     fields: {
@@ -641,14 +639,8 @@ const DECLARED = defineSchema({
       // The one open reference card, through the same normalized row reader.
       priority: { type: 'number', source: projection() },
       assignee: { type: 'id', optional: true, source: projection() },
-      description: { type: 'object', optional: true, source: issueBody(), note: 'The materialized document value is rendered by the reference card. A body: `IssueModel.description` reads it from the body store (POD-6767).' },
+      description: { type: 'string', optional: true, source: { schema: 'IssueDescriptionWire', arrivesOn: 'replica:issueDescriptions', property: 'text' }, note: 'Its own synced record (POD-6921): `IssueModel.description` reads the `issueDescription` record; a painted row (launch, fixture) holds its own document.' },
       blockedByNotes: { type: 'object', source: projection() },
-      bodies: {
-        type: 'object',
-        optional: true,
-        source: { ...derived(), arrivesOn: 'replica:issueBodies' },
-        note: 'The headers of the issue bodies, one per field with content: a digest and a size. Joined from the issueBodies row without its issue id (POD-6767).',
-      },
       defaultAgent: { type: 'string', source: projection() },
       defaultModel: { type: 'string', source: projection() },
       defaultEffort: { type: 'string', source: projection() },
@@ -657,6 +649,8 @@ const DECLARED = defineSchema({
       ...ISSUE_PAGE_FIELDS,
     },
     relations: {
+      briefRecords: hasMany({ to: 'issueBrief', inverse: 'issue', lazy: false, why: 'The brief is its own record, keyed by the issue id (POD-6921).' }),
+      descriptionRecords: hasMany({ to: 'issueDescription', inverse: 'issue', lazy: false, why: 'The description is its own record, keyed by the issue id (POD-6921).' }),
       panelTodoRecords: hasMany({ to: 'issuePanelTodo', inverse: 'issue', lazy: false, why: 'Each panel item belongs to its issue.' }),
       panelArtifactRecords: hasMany({ to: 'issuePanelArtifact', inverse: 'issue', lazy: false, why: 'Each panel item belongs to its issue.' }),
       panelDeferredRecords: hasMany({ to: 'issuePanelDeferred', inverse: 'issue', lazy: false, why: 'Each panel item belongs to its issue.' }),
@@ -1305,6 +1299,16 @@ const DECLARED = defineSchema({
       text: { type: 'string', source: { schema: 'IssuePanelStateWire', arrivesOn: 'replica:issuePanelStates' } },
       updatedAt: { type: 'isoDate', source: { schema: 'IssuePanelStateWire', arrivesOn: 'replica:issuePanelStates' } },
     }, relations: { issue: belongsTo({ to: 'issue', foreignKey: 'id', targetKey: 'id', inverse: 'panelStateRecords', lazy: true, why: 'The parent issue.' }) } },
+  issueBrief: { key: 'id', why: 'An issue brief, its own synced record (POD-6921).', components: {}, cold: { kind: 'never', why: 'Body records load at start with everything else.' },
+    fields: {
+      id: { type: 'id', source: { schema: 'IssueBriefWire', arrivesOn: 'replica:issueBriefs' } },
+      text: { type: 'string', source: { schema: 'IssueBriefWire', arrivesOn: 'replica:issueBriefs' } },
+    }, relations: { issue: belongsTo({ to: 'issue', foreignKey: 'id', targetKey: 'id', inverse: 'briefRecords', lazy: true, why: 'The parent issue.' }) } },
+  issueDescription: { key: 'id', why: 'An issue description, its own synced record (POD-6921).', components: {}, cold: { kind: 'never', why: 'Body records load at start with everything else.' },
+    fields: {
+      id: { type: 'id', source: { schema: 'IssueDescriptionWire', arrivesOn: 'replica:issueDescriptions' } },
+      text: { type: 'string', source: { schema: 'IssueDescriptionWire', arrivesOn: 'replica:issueDescriptions' } },
+    }, relations: { issue: belongsTo({ to: 'issue', foreignKey: 'id', targetKey: 'id', inverse: 'descriptionRecords', lazy: true, why: 'The parent issue.' }) } },
   subscription: syncedIdentity('SubscriptionWire', 'replica:subscriptions'),
 })
 

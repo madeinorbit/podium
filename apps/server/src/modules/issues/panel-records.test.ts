@@ -52,7 +52,8 @@ it('ticks just its stable todo record; position selectors resolve the current or
     (row) =>
       row.entity.startsWith('issuePanel') ||
       row.entity === 'issueProjection' ||
-      row.entity === 'issueBodies',
+      row.entity === 'issueBrief' ||
+      row.entity === 'issueDescription',
   )
   expect(changes).toHaveLength(1)
   expect(changes[0]).toMatchObject({ entity: 'issuePanelTodo', entityId: ids[1], op: 'upsert' })
@@ -86,7 +87,8 @@ it('ticks just its stable todo record; position selectors resolve the current or
     (row) =>
       row.entity.startsWith('issuePanel') ||
       row.entity === 'issueProjection' ||
-      row.entity === 'issueBodies',
+      row.entity === 'issueBrief' ||
+      row.entity === 'issueDescription',
   )
   expect(stateRows).toMatchObject([{ entity: 'issuePanelState', entityId: issue.id }])
   expect((await o.reg.issues.reports.get(issue.id))?.activityNotes).toBe('Ready')

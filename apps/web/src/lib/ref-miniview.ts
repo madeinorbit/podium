@@ -59,7 +59,7 @@ export type RefIssueLike = Pick<IssueViewModel, 'id' | 'seq' | 'title'> &
       | 'deletedAt'
     >
   > &
-  // The human summary, a body (POD-6767): the pool's issue answers it.
+  // The human summary, its own record (POD-6921): the pool's issue answers it.
   Partial<Pick<IssueWithBodies, 'description'>>
 
 /** The minimal session shape the resolver needs (a structural subset of SessionMeta). */

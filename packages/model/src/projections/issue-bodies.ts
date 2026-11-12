@@ -3,7 +3,8 @@ import { IssueProjection } from './issue-projection'
 
 /**
  * The issue record as the feed carries it: the projection without its body
- * fields, which arrive as `issueBodies` headers and are fetched by id. Command
+ * fields: `brief` and `description` are records of their own (`issueBrief`,
+ * `issueDescription`), the panel and notes are the panel records. Command
  * results and the CLI still carry the whole {@link IssueProjection}.
  */
 export const SlimIssueProjection = IssueProjection.omit({
