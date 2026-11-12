@@ -12,6 +12,7 @@ import {
   orphanSessionFor,
   pickPaneSession,
   planWorktreeMoves,
+  taskOpenSeat,
 } from './terminal'
 
 // ---------------------------------------------------------------------------
@@ -229,5 +230,48 @@ describe('planWorktreeMoves', () => {
       visiblePanes: ['s1'],
     })
     expect(plan).toEqual({ follow: null, moved: [] })
+  })
+})
+
+describe('taskOpenSeat — opening a task, desktop sidebar and phone alike (POD-2432)', () => {
+  const lead = session('lead', { lastActiveAt: '2026-07-01T00:00:00.000Z' })
+  const taskLead = session('task-lead', { lastActiveAt: '2026-07-02T00:00:00.000Z' })
+  const worker = session('worker', { lastActiveAt: '2026-07-09T00:00:00.000Z' })
+  const members = [lead, taskLead, worker]
+  const seat = (remembered: string | null, task: string | null, root: string | null) =>
+    taskOpenSeat({
+      members,
+      remembered,
+      taskCoordinatorSessionId: task,
+      rootCoordinatorSessionId: root,
+    })
+
+  it('opens the session last shown on this task first', () => {
+    expect(seat('worker', 'task-lead', 'lead')).toBe('worker')
+  })
+
+  it('then the tapped task coordinator, then the mission root coordinator', () => {
+    expect(seat(null, 'task-lead', 'lead')).toBe('task-lead')
+    expect(seat(null, null, 'lead')).toBe('lead')
+    expect(seat(null, 'gone', 'lead')).toBe('lead')
+  })
+
+  it('then the most recently active member', () => {
+    expect(seat(null, null, null)).toBe('worker')
+  })
+
+  it('forgets a remembered session that is no longer a member', () => {
+    expect(seat('archived-since', null, 'lead')).toBe('lead')
+  })
+
+  it('opens nothing on a task with no sessions', () => {
+    expect(
+      taskOpenSeat({
+        members: [],
+        remembered: 'worker',
+        taskCoordinatorSessionId: 'lead',
+        rootCoordinatorSessionId: null,
+      }),
+    ).toBeNull()
   })
 })

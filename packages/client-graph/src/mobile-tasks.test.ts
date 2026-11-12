@@ -325,6 +325,23 @@ it('uses shared attention for offers, archived seats, review and closed tasks', 
   expect(marks.at(-1)).toBe('done')
 })
 
+it('is seated while the task has an unarchived session, so a tap opens its chat (POD-2432)', async () => {
+  const { pool } = await setup(
+    [issue('root'), issue('child', { parentId: 'root' })],
+    [seat('agent')],
+  )
+  const board = new MobileTasksBoard(pool, options)
+  const seated: boolean[] = []
+  disposals.push(autorun(() => seated.push(board.task('root').seated)))
+  expect(seated.at(-1)).toBe(true)
+  expect(runInAction(() => board.task('child').seated)).toBe(false)
+  pool.apply({
+    type: 'update',
+    rows: [{ kind: 'session', id: 'agent', value: seat('agent', { archived: true }) }],
+  })
+  expect(seated.at(-1)).toBe(false)
+})
+
 it('releases offscreen row observers while scrolling forward and back through a large lane', async () => {
   const { pool } = await setup(
     Array.from({ length: 400 }, (_, index) => issue(`task-${index}`, { seq: index })),

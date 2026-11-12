@@ -124,6 +124,13 @@ export function focusedPane(ws: WorkspaceLayout): Pane {
   return orderedPanes(ws)[0] as Pane
 }
 
+/** The tab this workspace was last showing — its focused pane's active tab —
+ *  or null for a workspace never opened on this device. What "the session you
+ *  had open last time on this task" means, on desktop and phone alike. */
+export function rememberedTab(ws: WorkspaceLayout | undefined): TabId | null {
+  return ws ? (ws.panes[ws.focusedPaneId]?.activeTabId ?? null) : null
+}
+
 /** Every tab id open in this workspace, in pane order. */
 export function allTabIds(ws: WorkspaceLayout): TabId[] {
   return orderedPanes(ws).flatMap((pane) => pane.tabs)

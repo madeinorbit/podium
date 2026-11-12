@@ -1,14 +1,15 @@
-import { omitGone } from '@podium/client-graph/lookup'
 /** Phone reads use the shared pool; actions and transport handles retain
  * their existing owner and API. Missing pool facts retain loading values. */
 import type { Store } from '@podium/client-core/engine'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
+import { rememberedTab, workspaceKeyFor } from '@podium/client-core/values'
+import { omitGone } from '@podium/client-graph/lookup'
 import { MissionScreen, missionRootId } from '@podium/client-graph/mission-screen'
 import { settled } from '@podium/client-graph/mission-view'
-import { LOADING } from '@podium/client-graph/worklist/rollup'
 import type { MobxPool } from '@podium/client-graph/pool'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import type { SessionId } from '@podium/model'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { demoEnabled } from './demoData'
@@ -62,6 +63,28 @@ export type StoreActions = ReturnType<typeof pickActions>
 export function useStoreActions(): StoreActions {
   const owner = useStoreHandle<MobileTrpc>()
   return useMemo(() => pickActions(owner.access), [owner])
+}
+
+/**
+ * THE LAST SESSION SHOWN ON A TASK, on this phone (POD-2432). The desktop's own
+ * memory, not a copy: the device-local `podium.workspaces` layouts keyed by
+ * mission root. The phone never makes a workspace current, so it reads the
+ * mission's focused tab and records its seat without moving a pane.
+ */
+export function useTaskSeatMemory(): {
+  recall: (rootId: string) => string | null
+  remember: (rootId: string, sessionId: SessionId) => void
+} {
+  const owner = useStoreHandle<MobileTrpc>()
+  return useMemo(
+    () => ({
+      recall: (rootId) =>
+        rememberedTab(owner.access.workspaces[workspaceKeyFor({ missionRootId: rootId })]),
+      remember: (rootId, sessionId) =>
+        owner.access.rememberWorkspaceTab(workspaceKeyFor({ missionRootId: rootId }), sessionId),
+    }),
+    [owner],
+  )
 }
 
 /** The existing replica handle, acquired without a snapshot subscription. */
@@ -130,18 +153,26 @@ function poolBooting(pool: MobxPool): boolean {
  * `resolved` keeps the old contract: a root has settled, or the pool is past
  * its boot and the mission is simply not there.
  */
-export function useMissionOpening(selectedId: string): { screen: MissionScreen | null; resolved: boolean } {
+export function useMissionOpening(selectedId: string): {
+  screen: MissionScreen | null
+  resolved: boolean
+} {
   const pool = useMobilePool()
   const uiState = useUiState()
   const uiRef = useRef(uiState)
   uiRef.current = uiState
-  const readRoot = useCallback((pool: MobxPool) => missionRootId(pool, selectedId, true), [selectedId])
+  const readRoot = useCallback(
+    (pool: MobxPool) => missionRootId(pool, selectedId, true),
+    [selectedId],
+  )
   const rootId = useMobilePoolProjection(readRoot, LOADING)
   const booting = useMobilePoolProjection(poolBooting, true)
   const screen = useMemo(
     () =>
       pool && typeof rootId === 'string'
-        ? new MissionScreen(pool, rootId, { setPreference: (key, raw) => uiRef.current.set(key, raw) })
+        ? new MissionScreen(pool, rootId, {
+            setPreference: (key, raw) => uiRef.current.set(key, raw),
+          })
         : null,
     [pool, rootId],
   )

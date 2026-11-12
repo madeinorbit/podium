@@ -36391,6 +36391,134 @@
       "bound": "Only message IDs from the existing noticeSession index for the addressed session. O(messages retained for that session), independent of other account sessions or messages; not a fixed message-count cap.",
       "reason": "The row needs a scalar failure/unknown verdict without adding a store or index. The shared lazy row getter scopes reads to its session relations, exits at the first proven failure and releases when unobserved. No workspace message catalog is enumerated.",
       "guard": "packages/client-graph/src/worklist/delivery-attention.test.ts proves selected-session status changes read exactly two models at 128/512 unrelated messages, foreign status changes read zero, and no collection is reread after source attachment. It also covers expiry, confirmation and dismissal."
+    },
+    {
+      "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
+      "holder": "createPoolWorkActions/selectIssue/callback/remembered",
+      "rule": "reader-summary",
+      "tokens": "9ef2472ee2060b0a247e24c8fe1711beb45da13ce3a7443ebd308d85d53e6c85",
+      "gate": [
+        "exit:then:f29179a7c8a940bd92d9e6a387ceadc1785ff834756e7cfa567d181fc43436c1",
+        "exit:then:a3bceb8f05d18723105bc3d9455f8cb526ed83e9ebe3494b370706bb67790d11",
+        "exit:then:ca117cd6cc76b7e7e9208de279628faac1c4a3b89e8d9616bc2a0a2b0efdae5b"
+      ],
+      "origin": [
+        "f8684447c173def87df8fbe53bb8d26b431fb7ca55434a1398ee3a30380b2ef1"
+      ],
+      "fingerprint": "255d8a8cd9ee9aeffe9ea155e4cacd38867e3fbcc4b94c93b9cda1867354a283",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2432",
+      "trigger": "One task-selection gesture restoring its saved workspace.",
+      "bound": "Only the destination workspace obtained by its mission key; reads its focused pane once.",
+      "reason": "rememberedTab replaces the inline focused-tab read of the same single layout (shared with the phone).",
+      "guard": "workspace-layout.test.ts rememberedTab cases; SidebarUnified.pool-actions.test.tsx covers saved split focus."
+    },
+    {
+      "file": "packages/client-core/src/engine/actions.ts",
+      "holder": "createEngineActions/rememberWorkspaceTab/callback",
+      "rule": "reader-summary",
+      "tokens": "64b3ccec8f56b590d4ccbc3937feb8150e699f0b57cc0a6ca05ba535474e00ec",
+      "gate": [
+        "exit:then:b0b1367d4aa59aa47ff9179c508ed8fd4a99ee12075b4e59765799b8703d3f4b",
+        "exit:then:231ee155d5508cc92bf01ce487a6d058e58e2304ada5efa7b8ffa2062f098e00",
+        "then:d6a1f1c53fd5e993b072517d1a8f94882db5a67ede42666fad4998e5a35dece8"
+      ],
+      "origin": [
+        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
+      ],
+      "fingerprint": "dba86f7751e901e2e84dfb1e4e79225164eda151fd646b23b9f0f2f1708dcb4c",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2432",
+      "trigger": "The phone mission screen showing or switching a seat.",
+      "bound": "Only the panes and tabs of the one workspace named by its mission key; no enumeration of other workspaces.",
+      "reason": "Records the shown session in one named device-local workspace layout without navigating.",
+      "guard": "actions.test.ts rememberWorkspaceTab cases cover the named write, re-activation and the no-op."
+    },
+    {
+      "file": "packages/client-core/src/engine/actions.ts",
+      "holder": "createEngineActions/rememberWorkspaceTab/callback",
+      "rule": "helper-consumer",
+      "tokens": "cc313c2c23760ece02bc17d12d99fd68c4c8e10c9584ecd3d47e2a402744bf14",
+      "gate": [
+        "exit:then:b0b1367d4aa59aa47ff9179c508ed8fd4a99ee12075b4e59765799b8703d3f4b",
+        "exit:then:231ee155d5508cc92bf01ce487a6d058e58e2304ada5efa7b8ffa2062f098e00",
+        "then:d6a1f1c53fd5e993b072517d1a8f94882db5a67ede42666fad4998e5a35dece8"
+      ],
+      "origin": [
+        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
+      ],
+      "fingerprint": "f7cb5ad819d841bbe90f8e579ac563ed233814c58222179d1fbcdc351cb45670",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2432",
+      "trigger": "The phone mission screen showing or switching a seat.",
+      "bound": "Only the panes and tabs of the one workspace named by its mission key; no enumeration of other workspaces.",
+      "reason": "Records the shown session in one named device-local workspace layout without navigating.",
+      "guard": "actions.test.ts rememberWorkspaceTab cases cover the named write, re-activation and the no-op."
+    },
+    {
+      "file": "packages/client-core/src/engine/actions.ts",
+      "holder": "createEngineActions/rememberWorkspaceTab/callback/next",
+      "rule": "reader-summary",
+      "tokens": "8ab7c536a0bd9c51bba365d77a439ab1665d68f9628c2785f361083c7ad33b8c",
+      "gate": [
+        "exit:then:231ee155d5508cc92bf01ce487a6d058e58e2304ada5efa7b8ffa2062f098e00"
+      ],
+      "origin": [
+        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
+      ],
+      "fingerprint": "3db1426c5d7d27283daff247b10867c632578ddb1741b0edb60e5ddd2bd72a37",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2432",
+      "trigger": "The phone mission screen showing or switching a seat.",
+      "bound": "Only the panes and tabs of the one workspace named by its mission key; no enumeration of other workspaces.",
+      "reason": "Records the shown session in one named device-local workspace layout without navigating.",
+      "guard": "actions.test.ts rememberWorkspaceTab cases cover the named write, re-activation and the no-op."
+    },
+    {
+      "file": "packages/client-core/src/values/compose/terminal.ts",
+      "holder": "taskOpenSeat",
+      "rule": "reader-summary",
+      "tokens": "27ee0c8876cfe0c9a4ca9ae21aa297cc41f3e804fe3c64d6c4af71de37ebb1af",
+      "gate": [],
+      "origin": [
+        "7681336f1f3e497c15fdad6510e73bfaae93d17ffcbd744431461ebec054c8d5"
+      ],
+      "fingerprint": "5cfffee4ff61bbbc35d1aab60abcd2d5d7be461baabf46a6343a7eac4cc843f5",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of taskOpenSeat",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries the members taint of pickPaneSession, which taskOpenSeat forwards to unchanged (POD-2432); a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/values/compose/terminal.ts",
+      "holder": "taskOpenSeat",
+      "rule": "helper-consumer",
+      "tokens": "27a93a4f67f6bda5f70af5a573152ab4e815914d6a4893290e1d39d9e7e8d061",
+      "gate": [],
+      "origin": [
+        "7681336f1f3e497c15fdad6510e73bfaae93d17ffcbd744431461ebec054c8d5"
+      ],
+      "fingerprint": "fb77b12b7d9b672a9b020c029590c49fab1f963f604bfc8a93e30490d9bdf0f4",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of taskOpenSeat",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "helper-consumer carries the members taint of pickPaneSession, which taskOpenSeat forwards to unchanged (POD-2432); a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     }
   ]
 }

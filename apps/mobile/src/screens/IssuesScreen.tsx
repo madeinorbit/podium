@@ -6,6 +6,7 @@ import {
   writeSharedIssuesDisplay as writeMobileTaskDisplay,
 } from '@podium/client-core/values'
 import { MobileTasksBoard } from '@podium/client-graph/mobile-tasks'
+import { allowImperativeRead } from '@podium/mobx-helpers'
 import { useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -102,7 +103,12 @@ export const IssuesScreen = observer(function IssuesScreen() {
         refresh={refresh}
         minimizeOnScroll={minimizeOnScroll}
         bottomInset={bottomInset}
-        onOpen={(id) => router.push(`/issue/${encodeURIComponent(id)}`)}
+        onOpen={(id) => {
+          // A task with a conversation opens it, on the seat the desktop would
+          // pick (POD-2432); one with no session yet opens its details.
+          const seated = board ? allowImperativeRead(() => board.task(id).seated) : false
+          router.push(`/${seated ? 'mission' : 'issue'}/${encodeURIComponent(id)}`)
+        }}
         onScreenProposals={() =>
           router.push({
             pathname: '/screen-proposed',

@@ -18,12 +18,14 @@ import type {
   MutationId,
   SessionId,
   ThreadId,
-  WorkState} from '@podium/model'
+  WorkState,
+} from '@podium/model'
 import { asIssueId, asThreadId } from '@podium/model'
 import {
   isSessionIdPrefix,
   resolveSessionIdentifier,
-  type SessionIdentifierResolution} from '@podium/protocol'
+  type SessionIdentifierResolution,
+} from '@podium/protocol'
 import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
 import type { PodiumClientApi } from '../api'
 import type { SocketHub } from '../socket-transport'
@@ -39,7 +41,8 @@ import type {
   RecentFileEntry,
   TabId,
   WorkspaceLayout,
-  WorkspaceMap} from '../values'
+  WorkspaceMap,
+} from '../values'
 import {
   activateTab,
   closePane,
@@ -53,18 +56,21 @@ import {
   resizeSplit,
   splitPane,
   tabIdFor,
-  workspaceKeyFor} from '../values'
+  workspaceKeyFor,
+} from '../values'
 import type { SuperThreadView } from '../values/compose/superagent'
 import {
   discardChatThroughOutbox,
   newChatMessageId,
   type OutboxSettlements,
   outboxChatSends,
-  sendChatThroughOutbox} from './chat-send'
+  sendChatThroughOutbox,
+} from './chat-send'
 import type { NavigationIntent } from './navigation'
 import {
   createReplicatedLayoutController,
-  type ReplicatedLayoutController} from './replicated-layout'
+  type ReplicatedLayoutController,
+} from './replicated-layout'
 import { sessionLinkProblem, sessionLinkSelection } from './session-link'
 import {
   currentWorkspace,
@@ -77,7 +83,8 @@ import {
   workspaceFor,
   workspaceKeyForState,
   workspacesPatch,
-  workspaceWritePatch} from './state'
+  workspaceWritePatch,
+} from './state'
 import type { Store, StoreNotices } from './types'
 import type { EngineOutbox, OutboxKinds } from './wiring'
 
@@ -102,6 +109,7 @@ export const UI_LOCAL_ACTIONS = [
   'openSessionAtTranscript',
   'clearTranscriptReveal',
   'openTabInWorkspace',
+  'rememberWorkspaceTab',
   'promoteWorkspaceTab',
   'activateWorkspaceTab',
   'closeWorkspaceTab',
@@ -282,10 +290,7 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
    * promise that means something. Voiding it here made every issue action resolve
    * a couple of frames before the row moved.
    */
-  write<K extends keyof OutboxKinds & string>(
-    kind: K,
-    input: OutboxKinds[K],
-  ): Promise<void>
+  write<K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]): Promise<void>
   revealFileTab(args: {
     tabId: string
     worktreePath?: string
@@ -674,6 +679,16 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       if (rt.state().transcriptReveal?.nonce === nonce) rt.apply({ transcriptReveal: null })
     },
     openTabInWorkspace: (tabId, opts) => openInWorkspace(tabId, opts),
+    rememberWorkspaceTab: (key, tabId) => {
+      if (!tabId) return
+      const st = rt.state()
+      const next = openTab(workspaceFor(st, key), tabId, { permanent: true })
+      if (st.workspaces[key] === next) return
+      // The workspace on screen takes the ordinary write, mirrors included; any
+      // other keeps its layout only, so recording a seat never moves a pane.
+      if (resolvedWorkspaceKey(st) === key) rt.apply(workspaceWritePatch(st, key, next))
+      else rt.apply({ workspaces: { ...st.workspaces, [key]: next } })
+    },
     promoteWorkspaceTab: (tabId) => editWorkspace((ws) => promoteTab(ws, tabId)),
     activateWorkspaceTab: (tabId) => editWorkspace((ws) => activateTab(ws, tabId)),
     // Closing a tab closes a VIEW: the session is untouched (it lives in the
@@ -736,7 +751,10 @@ export function createEngineActions<TApi extends PodiumClientApi>(
           const arm = () => {
             stopRows?.()
             const navigation = rt.state().navigation
-            stopRows = navigation.watch?.(() => [navigation.issue(issueId), navigation.issueSessions?.(issueId)], listener)
+            stopRows = navigation.watch?.(
+              () => [navigation.issue(issueId), navigation.issueSessions?.(issueId)],
+              listener,
+            )
           }
           arm()
           const stopLocal = rt.onLocals(['selectedIssueId', 'navigation'], () => {
@@ -753,7 +771,8 @@ export function createEngineActions<TApi extends PodiumClientApi>(
           const issue = st.navigation.issue(issueId)
           if (!issue || issue === NAVIGATION_LOADING) return undefined
           const rows = st.navigation.issueSessions?.(issueId)
-          if (!rows || rows === NAVIGATION_LOADING || st.selectedIssueId !== issueId) return undefined
+          if (!rows || rows === NAVIGATION_LOADING || st.selectedIssueId !== issueId)
+            return undefined
           return rows.find(
             (candidate) =>
               candidate.issueId === issueId &&

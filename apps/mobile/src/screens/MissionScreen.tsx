@@ -1,8 +1,7 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { sessionTitle } from '@podium/client-core/values'
+import { sessionTitle, taskOpenSeat } from '@podium/client-core/values'
 import type { FullDeck } from '@podium/client-graph/mission-full-deck'
-import { defaultSeat } from '@podium/client-graph/mission-seat'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asIssueId, type SessionId } from '@podium/model'
 import { isFinished } from '@podium/model/browser'
@@ -12,7 +11,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { type LayoutChangeEvent, StyleSheet, View } from 'react-native'
-import { useMissionOpening, useStoreActions } from '../client/hooks'
+import { useMissionOpening, useStoreActions, useTaskSeatMemory } from '../client/hooks'
 import { useMobilePool } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
 import { useIssueCloseGuard } from '../client/use-issue-close'
@@ -84,11 +83,31 @@ export const MissionScreen = observer(function MissionScreen() {
   // An explicit pick from the deck outranks the automatic one, but only while it
   // still names a session on THIS mission — a mission you return to hours later
   // must not open on an agent that has since been archived. The automatic one
-  // is the desktop's (coordinator, lone member, most recently active), and it
-  // is pinned the moment it is shown: the seat changes only when the operator
-  // picks another, never because a sibling spoke last while they read.
+  // is the desktop sidebar's (`taskOpenSeat`: the session this phone last showed
+  // on the mission, else the tapped task's coordinator, the root's, the most
+  // recently active), and it is pinned the moment it is shown: the seat changes
+  // only when the operator picks another, never because a sibling spoke last
+  // while they read.
+  const seatMemory = useTaskSeatMemory()
+  const rootId = root?.id
+  // Read once per mission: the seat written below must not feed back into it.
+  const remembered = useMemo(
+    () => (rootId ? seatMemory.recall(rootId) : null),
+    [rootId, seatMemory],
+  )
+  const selectedValue = ready ? screen.reader.issue(selectedId) : undefined
+  const selected = selectedValue && selectedValue !== LOADING ? selectedValue : undefined
   const pinned = missionSessions.find((s) => s.sessionId === pinnedSessionId)
-  const auto = pinned ? undefined : defaultSeat(missionSessions, root?.coordinatorSessionId)
+  const autoSeat =
+    pinned || !root
+      ? null
+      : taskOpenSeat({
+          members: missionSessions,
+          remembered,
+          taskCoordinatorSessionId: selected?.coordinatorSessionId,
+          rootCoordinatorSessionId: root.coordinatorSessionId,
+        })
+  const auto = autoSeat ? missionSessions.find((s) => s.sessionId === autoSeat) : undefined
   const current = pinned ?? auto
   const autoId = auto?.sessionId
   useEffect(() => {
@@ -98,6 +117,11 @@ export const MissionScreen = observer(function MissionScreen() {
   useEffect(() => {
     if (requestedSessionId) setPinnedSessionId(requestedSessionId as SessionId)
   }, [requestedSessionId])
+  // Whatever the screen shows is what reopening this task lands on next time.
+  const currentId = current?.sessionId
+  useEffect(() => {
+    if (rootId && currentId) seatMemory.remember(rootId, currentId as SessionId)
+  }, [rootId, currentId, seatMemory])
   // The header names the task the shown session works on, when it is one of
   // this mission's members; otherwise the mission itself.
   const currentValue =

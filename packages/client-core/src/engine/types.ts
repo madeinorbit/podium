@@ -242,6 +242,11 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   clearTranscriptReveal: (nonce: number) => void
   /** The same, for any tab id (a session, or a `file:…` editor tab). */
   openTabInWorkspace: (tabId: TabId, opts?: { permanent?: boolean; paneId?: PaneId }) => void
+  /** Record `tabId` as the tab `key`'s workspace was last showing, without
+   *  navigating there (POD-2432): the phone's mission screen writes the seat it
+   *  shows, so reopening the task lands on it again. Device-local, like every
+   *  workspace layout. */
+  rememberWorkspaceTab: (key: WorkspaceKey, tabId: TabId) => void
   /** Preview → permanent, with no reorder (typing into the panel, or a
    *  double-click in the flight deck). */
   promoteWorkspaceTab: (tabId: TabId) => void

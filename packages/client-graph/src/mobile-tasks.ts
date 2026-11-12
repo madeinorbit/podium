@@ -82,6 +82,13 @@ class BoardTask {
     return ids
   }
 
+  /** The task has a conversation to open: an unarchived session on its
+   *  roster. A tap on a seated task opens the chat, any other its details
+   *  (POD-2432). */
+  @lazy get seated(): boolean {
+    return this.board.pool.graph.subsetSize('issue', this.id, 'missionSessions', 'unarchived') > 0
+  }
+
   /** The board glyph follows the same attention rule as Work and the deck. */
   @lazy get mark(): TaskRowMark {
     if (this.finished) return 'done'

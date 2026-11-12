@@ -2,8 +2,9 @@ import type { SessionView } from '@podium/client-core/session-values'
 import type { SessionModel } from './models'
 
 /**
- * WHICH SESSION A TASK OPENS ON, shared by the desktop flight deck and the
- * phone mission screen.
+ * WHICH SESSION A FLIGHT DECK ROW OPENS ON (desktop flight deck). Opening a
+ * task from the sidebar or the phone follows `taskOpenSeat` in client-core,
+ * which also honours the session last shown on that task (POD-2432).
  *
  * Contract order: coordinator → lone member → most recently active member →
  * no session. Only open sessions qualify. The pane you happen to be looking at

@@ -7,7 +7,14 @@ import type { OutboxEntry } from '../outbox'
 import type { SessionView } from '../session-values'
 import type { SocketHub } from '../socket-transport'
 import type { Router } from '../ui-state'
-import { allTabIds, emptyWorkspace, openTab, splitPane, type WorkspaceLayout } from '../values'
+import {
+  allTabIds,
+  emptyWorkspace,
+  openTab,
+  rememberedTab,
+  splitPane,
+  type WorkspaceLayout,
+} from '../values'
 import {
   COMMAND_ACTIONS,
   createEngineActions,
@@ -598,7 +605,10 @@ describe('pane scalars follow the layout', () => {
 
 describe('tucking the task on screen leaves it (POD-2293)', () => {
   const issue = (id: string, parentId?: string) =>
-    ({ id: asIssueId(id), ...(parentId ? { parentId: asIssueId(parentId) } : {}) }) as unknown as IssueProjection
+    ({
+      id: asIssueId(id),
+      ...(parentId ? { parentId: asIssueId(parentId) } : {}),
+    }) as unknown as IssueProjection
   const seeded = (selected = 'root') => {
     const h = harness()
     h.seed({
@@ -617,7 +627,10 @@ describe('tucking the task on screen leaves it (POD-2293)', () => {
 
     await h.actions.setIssueTucked('root', true)
 
-    expect(h.queued.at(-1)).toMatchObject({ kind: 'issueSetTucked', input: { id: 'root', tucked: true } })
+    expect(h.queued.at(-1)).toMatchObject({
+      kind: 'issueSetTucked',
+      input: { id: 'root', tucked: true },
+    })
     expect(h.state().selectedIssueId).toBeNull()
     // The worktree stays: clearing it would hand over to the worktree fallback.
     expect(h.state().selectedWorktree).toBe('/wt')
@@ -843,5 +856,35 @@ describe('S5 gesture batch', () => {
     })
     expect(order).toEqual(['inside'])
     expect(h.navigated).toHaveLength(1)
+  })
+})
+
+describe('rememberWorkspaceTab records a seat without navigating (POD-2432)', () => {
+  const layouts = (h: ReturnType<typeof harness>) =>
+    h.state().workspaces as Record<string, WorkspaceLayout>
+  it('writes the named workspace only, leaving the one on screen and its panes alone', () => {
+    const h = harness()
+    const onScreen = openTab(emptyWorkspace('none'), 's-a', { permanent: true })
+    h.seed({ workspaces: { none: onScreen }, paneA: asSessionId('s-a') })
+
+    h.actions.rememberWorkspaceTab('mission:root-1', 'sess-b')
+    h.actions.rememberWorkspaceTab('mission:root-1', 'sess-c')
+    expect(rememberedTab(layouts(h)['mission:root-1'])).toBe('sess-c')
+
+    // Back to a seat already in the strip: it is re-activated, not duplicated.
+    h.actions.rememberWorkspaceTab('mission:root-1', 'sess-b')
+    const ws = layouts(h)
+    expect(rememberedTab(ws['mission:root-1'])).toBe('sess-b')
+    expect(allTabIds(ws['mission:root-1']!)).toEqual(['sess-b', 'sess-c'])
+    expect(ws.none).toBe(onScreen)
+    expect(h.state().paneA).toBe('s-a')
+  })
+
+  it('publishes nothing when the seat is already the remembered one', () => {
+    const h = harness()
+    h.actions.rememberWorkspaceTab('mission:root-1', 'sess-b')
+    const before = h.state().workspaces
+    h.actions.rememberWorkspaceTab('mission:root-1', 'sess-b')
+    expect(h.state().workspaces).toBe(before)
   })
 })

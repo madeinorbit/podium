@@ -119,6 +119,33 @@ export function pickPaneSession(
   return best?.sessionId ?? null
 }
 
+/**
+ * WHICH SESSION OPENING A TASK SHOWS — the desktop sidebar's rule, shared with
+ * the phone's mission screen (POD-2432) so the two can never disagree:
+ *
+ *   1. the session last shown for this task on THIS device (`remembered`, the
+ *      focused tab of the mission's saved workspace — see `rememberedTab`),
+ *      while it is still one of `members`;
+ *   2. the clicked task's coordinator, then the mission root's (POD-2034);
+ *   3. the most recently active member.
+ *
+ * `members` are the mission's openable sessions (no archived, headless or dock
+ * shell rows). Null = nothing to open.
+ */
+export function taskOpenSeat(input: {
+  members: readonly SessionView[]
+  remembered: string | null | undefined
+  taskCoordinatorSessionId: string | null | undefined
+  rootCoordinatorSessionId: string | null | undefined
+}): SessionId | null {
+  return pickPaneSession(
+    input.members as SessionView[],
+    (input.remembered ?? null) as SessionId | null,
+    [],
+    [input.taskCoordinatorSessionId, input.rootCoordinatorSessionId],
+  )
+}
+
 /** When the selected path no longer resolves to a live worktree but still has
  *  sessions pinned to it (its worktree was removed out from under them), pick
  *  which orphan to surface in the workspace: the one already in pane A if it's
