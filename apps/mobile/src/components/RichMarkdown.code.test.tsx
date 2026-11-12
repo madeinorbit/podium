@@ -62,3 +62,27 @@ it('distinguishes inline symbols from bold prose without a chip', () => {
   expect(['', '0px']).toContain(getComputedStyle(code).borderWidth)
   expect(['', '0px']).toContain(getComputedStyle(code).borderRadius)
 })
+
+it('gives a code block a Copy button instead of window dots', async () => {
+  const clipboard = await import('expo-clipboard')
+  const copy = vi.spyOn(clipboard, 'setStringAsync').mockResolvedValue(true)
+  const { getByLabelText } = render(<RichMarkdown text={'```sh\nbun run test\n```'} />)
+  act(() => {
+    getByLabelText('Copy code').click()
+  })
+  expect(copy).toHaveBeenCalledWith('bun run test')
+  expect(getByLabelText('Copied')).toBeTruthy()
+})
+
+it('draws an image on its own line inline and keeps a link for one inside prose', () => {
+  const { container, getByLabelText } = render(
+    <RichMarkdown
+      text={
+        '![login screen](https://example.com/shot.png)\n\nSee ![chart](https://example.com/c.png) here.'
+      }
+    />,
+  )
+  expect(getByLabelText('Open login screen')).toBeTruthy()
+  expect(container.textContent).not.toContain('[image: login screen]')
+  expect(container.textContent).toContain('[image: chart]')
+})

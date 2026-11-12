@@ -30,6 +30,7 @@ export const ChevronsUpDown = symbol('arrow.up.and.line.horizontal.and.arrow.dow
 export const Circle = symbol('circle', 'circle')
 export const CircleDot = symbol('smallcircle.circle', 'radio_button_checked')
 export const ClipboardPaste = symbol('document.on.clipboard', 'content_paste')
+export const Copy = symbol('doc.on.doc', 'content_copy')
 export const Cpu = symbol('cpu', 'memory')
 export const Eraser = symbol('eraser', 'ink_eraser')
 export const ExternalLink = symbol('arrow.up.right.square', 'open_in_new')

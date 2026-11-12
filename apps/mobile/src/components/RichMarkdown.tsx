@@ -1,7 +1,17 @@
 import { codeBlockIdentity } from '@podium/client-core/code-highlight'
+import * as Clipboard from 'expo-clipboard'
+import * as Haptics from 'expo-haptics'
 import { LinearGradient } from 'expo-linear-gradient'
-import { type ReactNode, useId, useMemo, useRef, useState } from 'react'
-import { ScrollView, type StyleProp, StyleSheet, Text, type TextStyle, View } from 'react-native'
+import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react'
+import {
+  Image,
+  ScrollView,
+  type StyleProp,
+  StyleSheet,
+  Text,
+  type TextStyle,
+  View,
+} from 'react-native'
 import { useCodeHighlight } from '../hooks/useCodeHighlight'
 import {
   type MarkdownTableCell,
@@ -16,6 +26,10 @@ import { selectableProps } from '../lib/selectable'
 import { proseColor } from '../theme/syntax'
 import { color, font, leading, mono, radius, sans, space } from '../theme/theme'
 import { HighlightedCode } from './HighlightedCode'
+import { Icon } from './Icon'
+import { ImageLightbox } from './ImageLightbox'
+import { Check, Copy } from './icons'
+import { PressableScale } from './PressableScale'
 import { RefChip } from './RefChip'
 
 interface RichMarkdownProps {
@@ -154,6 +168,101 @@ function Inline({
   )
 }
 
+/** Copy for a code block (desktop `code-copy`): the glyph turns into a check
+ *  for a moment so the tap reads as done, with a success haptic. */
+function CopyCodeButton({ source }: { source: string }) {
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (!copied) return
+    const timer = setTimeout(() => setCopied(false), 1500)
+    return () => clearTimeout(timer)
+  }, [copied])
+  return (
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel={copied ? 'Copied' : 'Copy code'}
+      hitSlop={8}
+      onPress={() => {
+        void Clipboard.setStringAsync(source)
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {})
+        setCopied(true)
+      }}
+      style={styles.codeCopy}
+    >
+      <Icon as={copied ? Check : Copy} size={14} color={color.textMicro} />
+    </PressableScale>
+  )
+}
+
+/** A Markdown image the agent linked, drawn inline at the column's width (the
+ *  desktop shows it in place too). Tap opens it full screen; an image that
+ *  fails to load falls back to its text link. */
+function MarkdownImage({ url, alt }: { url: string; alt: string }) {
+  const [aspect, setAspect] = useState(4 / 3)
+  const [failed, setFailed] = useState(false)
+  const [open, setOpen] = useState(false)
+  const label = alt || 'Image'
+  if (failed) {
+    return (
+      <Text
+        accessibilityRole="link"
+        accessibilityLabel={alt || 'Open image'}
+        style={[styles.body, styles.link]}
+        onPress={() => followLink(url)}
+      >
+        {alt ? `[image: ${alt}]` : '[open image]'}
+      </Text>
+    )
+  }
+  return (
+    <>
+      <PressableScale
+        accessibilityRole="imagebutton"
+        accessibilityLabel={`Open ${label}`}
+        onPress={() => setOpen(true)}
+        scaleTo={0.99}
+        style={styles.imageFrame}
+      >
+        <Image
+          source={{ uri: url }}
+          accessibilityLabel={label}
+          resizeMode="cover"
+          style={[styles.image, { aspectRatio: aspect }]}
+          onLoad={(event) => {
+            const { width, height } = event.nativeEvent.source ?? {}
+            if (width && height) setAspect(Math.max(0.5, Math.min(3, width / height)))
+          }}
+          onError={() => setFailed(true)}
+        />
+      </PressableScale>
+      <ImageLightbox
+        visible={open}
+        source={{ uri: url }}
+        label={label}
+        onClose={() => setOpen(false)}
+      />
+    </>
+  )
+}
+
+/** The images of a paragraph that holds nothing else (`![alt](url)` on its own
+ *  line, the way agents share a screenshot), or null when it has prose too or
+ *  any image is not a safe external URL. Those keep the inline text link. */
+function standaloneImages(
+  tokens: readonly MarkdownToken[] | undefined,
+): { url: string; alt: string }[] | null {
+  if (!tokens?.length) return null
+  const images: { url: string; alt: string }[] = []
+  for (const token of tokens) {
+    const blank = token.type === 'br' || (token.type === 'text' && !plainText(token).trim())
+    if (blank) continue
+    const url = token.type === 'image' ? safeExternalUrl(token.href) : undefined
+    if (!url) return null
+    images.push({ url, alt: token.text ?? '' })
+  }
+  return images.length > 0 ? images : null
+}
+
 function CodeBlock({ token }: { token: MarkdownToken }) {
   const language = token.lang?.trim().split(/\s+/)[0]
   const source = plainText(token).replace(/\n$/, '')
@@ -163,10 +272,8 @@ function CodeBlock({ token }: { token: MarkdownToken }) {
   return (
     <View style={styles.codeFrame}>
       <View style={styles.codeBar}>
-        <View style={styles.codeDot} />
-        <View style={styles.codeDot} />
-        <View style={styles.codeDot} />
         {language ? <Text style={styles.codeLanguage}>{language}</Text> : null}
+        <CopyCodeButton source={source} />
       </View>
       <ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator>
         <Text selectable style={styles.codeText}>
@@ -310,12 +417,24 @@ function Blocks({
         )
       }
       case 'paragraph':
-      case 'text':
+      case 'text': {
+        const images = standaloneImages(token.tokens)
+        if (images) {
+          return (
+            <View key={key} style={[styles.images, !compact && styles.paragraph]}>
+              {images.map((image, imageIndex) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: parsed markdown is immutable and positional
+                <MarkdownImage key={`${imageIndex}:${image.url}`} url={image.url} alt={image.alt} />
+              ))}
+            </View>
+          )
+        }
         return (
           <View key={key} style={compact ? undefined : styles.paragraph}>
             <Inline tokens={token.tokens ?? []} ctx={ctx} />
           </View>
         )
+      }
       case 'code':
         return <CodeBlock key={key} token={token} />
       case 'blockquote':
@@ -431,26 +550,42 @@ const styles = StyleSheet.create({
     backgroundColor: color.surface,
     borderColor: color.border,
     borderWidth: 1,
-    borderRadius: radius.md,
+    borderRadius: radius.card,
     marginVertical: space.sm,
     overflow: 'hidden',
   },
+  // Language leading, Copy trailing — no fake window chrome (iOS draws none).
   codeBar: {
-    height: 27,
+    height: 28,
     paddingHorizontal: space.md,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: space.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: color.border,
   },
-  codeDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: color.borderStrong },
   codeLanguage: {
     ...mono(400),
     color: color.textMicro,
     fontSize: font.micro,
-    marginLeft: 'auto',
   },
+  codeCopy: {
+    marginLeft: 'auto',
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  images: { gap: space.sm },
+  imageFrame: {
+    alignSelf: 'stretch',
+    borderRadius: radius.card,
+    overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.border,
+    backgroundColor: color.surface,
+  },
+  image: { width: '100%', maxHeight: 360 },
   codeText: {
     ...mono(400),
     color: color.body,
