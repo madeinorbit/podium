@@ -20,6 +20,7 @@ import {
 } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
+import { memberFacts } from './store/fixtures/test-support'
 import { attachDaemonWithInventory, fixtureInventory } from './test-support/daemon-inventory'
 import { assignHostMachine, attachHostDaemon } from './test-support/host-daemon'
 import { clientSessionViews } from './test-support/session-views'
@@ -226,7 +227,7 @@ describe('start_agent tool wiring (issue #60)', () => {
     // colleague's own connection, sent to it, never the admin's native login
     // (design §2.4, §2.5; 26568b8f5f).
     const store = registry.sessionStore
-    await store.users.create(
+    await memberFacts(store).create(
       {
         id: colleague,
         displayName: 'Colleague',

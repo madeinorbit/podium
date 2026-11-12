@@ -737,22 +737,22 @@ export const SignedInDevicesSection = observer(function SignedInDevicesSection({
             </div>
           ))}
           {accountWide && (
-          <div className="settings-list-note flex flex-wrap items-center justify-between gap-3">
-            <p className="settings-prose flex items-center gap-2">
-              <LogOut size={15} aria-hidden="true" />
-              Lost a device? Sign out of all of them at once.
-            </p>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              id={allRowId}
-              disabled={checkingChanges || revoking !== null}
-              onClick={() => changeConfirmation('all')}
-            >
-              Sign out everywhere
-            </Button>
-          </div>
+            <div className="settings-list-note flex flex-wrap items-center justify-between gap-3">
+              <p className="settings-prose flex items-center gap-2">
+                <LogOut size={15} aria-hidden="true" />
+                Lost a device? Sign out of all of them at once.
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                id={allRowId}
+                disabled={checkingChanges || revoking !== null}
+                onClick={() => changeConfirmation('all')}
+              >
+                Sign out everywhere
+              </Button>
+            </div>
           )}
           {accountWide && confirming === 'all' && (
             <div className="px-4">

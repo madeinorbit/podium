@@ -148,7 +148,8 @@ export const InviteMember = observer(function InviteMember({
           onConfirm={async (password) => {
             if (data.needsEmailBeforeInvite)
               throw new Error('Add your email address before inviting another person.')
-            if (mail && !email.trim()) throw new Error('Enter an email address to send the invitation.')
+            if (mail && !email.trim())
+              throw new Error('Enter an email address to send the invitation.')
             await invite(password)
           }}
           onCancel={closeTakeover}

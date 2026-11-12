@@ -90,37 +90,37 @@ function mockApi(
                 capabilities,
                 prompt: 'email-password',
               }
-          : url.endsWith('/list')
-            ? data
-            : url.endsWith('/directory')
-              ? {
-                  currentMemberId: data.currentMemberId,
-                  members: data.members
-                    .filter((member) => !member.disabledAt)
-                    .map(({ id, displayName, role }) => ({ id, displayName, role })),
-                }
-              : url.endsWith('/admin/sign-ins')
+            : url.endsWith('/list')
+              ? data
+              : url.endsWith('/directory')
                 ? {
-                    signInsTotal: 1,
-                    signIns: [
-                      {
-                        id: 'device-anna',
-                        current: false,
-                        memberId: 'anna',
-                        deviceName: 'Anna’s phone',
-                        platform: 'iOS',
-                        kind: 'phone',
-                        createdAt: '2026-01-01',
-                        lastSeenAt: '2026-01-02',
-                        expiresAt: '2099-01-01',
-                      },
-                    ],
+                    currentMemberId: data.currentMemberId,
+                    members: data.members
+                      .filter((member) => !member.disabledAt)
+                      .map(({ id, displayName, role }) => ({ id, displayName, role })),
                   }
-                : url.endsWith('/invite')
-                  ? { url: 'https://workspace.example/#invite=new-secret', mailSent: true }
-                  : url.endsWith('/recovery')
-                    ? { url: 'https://workspace.example/#invite=reset-secret' }
-                    : { ok: true },
+                : url.endsWith('/admin/sign-ins')
+                  ? {
+                      signInsTotal: 1,
+                      signIns: [
+                        {
+                          id: 'device-anna',
+                          current: false,
+                          memberId: 'anna',
+                          deviceName: 'Anna’s phone',
+                          platform: 'iOS',
+                          kind: 'phone',
+                          createdAt: '2026-01-01',
+                          lastSeenAt: '2026-01-02',
+                          expiresAt: '2099-01-01',
+                        },
+                      ],
+                    }
+                  : url.endsWith('/invite')
+                    ? { url: 'https://workspace.example/#invite=new-secret', mailSent: true }
+                    : url.endsWith('/recovery')
+                      ? { url: 'https://workspace.example/#invite=reset-secret' }
+                      : { ok: true },
     }
   })
   vi.stubGlobal('fetch', fetchMock)

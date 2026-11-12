@@ -429,9 +429,7 @@ describe('ConnectedDevicesSection', () => {
     expect(screen.getByText('This device')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
     await waitFor(() =>
-      expect(api.auth.revokeMobileSession.mutate).toHaveBeenCalledWith({
-        sessionId: 'a'.repeat(24),
-      }),
+      expect(api.auth.revokeMobileSession.mutate).toHaveBeenCalledWith({ id: 'a'.repeat(24) }),
     )
   })
 

@@ -7238,6 +7238,26 @@
       "guard": "scripts/check-interaction-scans.ts"
     },
     {
+      "file": "apps/web/src/features/settings/sections/members-invite.tsx",
+      "holder": "InviteMember/InviteMember",
+      "rule": "reader-summary",
+      "tokens": "f9dcf407cc692160de2a93cb226f7c6795fc077220a21d9409e4252475fd7dad",
+      "gate": [],
+      "origin": [
+        "0d87ba9538f272cae87540a92d643621c3788a910b28a3a42ff59392720a7519",
+        "0db0c383eae3a50331c37fbb3828050b89ce7080d95ca1da167c95fe36179c75",
+        "99f5b4139a6534aa3dd3a2dce73dc4f04abd04fd3466137e687cb054b81374fd"
+      ],
+      "fingerprint": "134229c02adcdcf29b68badbf7c508861b85bdfa0b9cf3b0265ad6503c19238f",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6749",
+      "trigger": "Opening the Invite takeover on Members",
+      "bound": "Reads the already-loaded member directory answer (its capabilities, the caller's own row and credential fact); no request and no scan beyond the directory's member list.",
+      "reason": "The invite form follows the server's reported invitation delivery and whether the inviting admin still needs an email address.",
+      "guard": "Exact fingerprint and multiplicity; members and members.capabilities tests cover link and mail delivery and the missing-email block."
+    },
+    {
       "file": "apps/web/src/features/settings/sections/privacy.tsx",
       "holder": "TranscriptMirrorRow/callback/transcripts",
       "rule": "spread",
@@ -40235,10 +40255,10 @@
       "file": "apps/web/src/features/settings/sections/connected-devices.tsx",
       "holder": "SignedInDevicesSection/SignedInDevicesSection",
       "rule": "consume:map",
-      "tokens": "90e69162c1625efaba250feadb1e1ac635bda0c24b33e1a44e8e61102cd37936",
+      "tokens": "19331962de470d6784053fc792ab60ec6e6057668dc9f5dd06dcbfeba8fb0c3a",
       "gate": [],
       "origin": ["1697c7c2ecc3cb2f64e11ba046360ad607bdadeedc552863784fd745e4ed23ec"],
-      "fingerprint": "06793b70fcde10d6e7f8fdd2c201521f4ae46233f8dd73a103aeaa5ccd3824ac",
+      "fingerprint": "7ff3b982bfbf5c8402ed8490265940ac40f32468ed2680d6a037571ef5e8d79b",
       "count": 1,
       "classification": "visible output",
       "owner": "POD-6667",

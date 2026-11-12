@@ -190,101 +190,101 @@ export const AccountProfileSection = observer(function AccountProfileSection({
         </Row>
       ) : (
         <>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault()
-            submitEmail()
-          }}
-        >
-          <Row
-            label="Email"
-            description={
-              status.hasOwnCredential
-                ? 'You sign in with it. Changing it asks for your password.'
-                : 'You sign in with it.'
-            }
-            pending={emailBusy}
-            error={emailError}
+          <form
+            onSubmit={(event) => {
+              event.preventDefault()
+              submitEmail()
+            }}
           >
-            <Input
-              ref={emailField}
-              aria-label="Email"
-              type="email"
-              autoComplete="username"
-              required
-              maxLength={254}
-              value={emailDraft ?? profile.email ?? ''}
-              onChange={(event) => {
-                setEmailDraft(event.target.value)
+            <Row
+              label="Email"
+              description={
+                status.hasOwnCredential
+                  ? 'You sign in with it. Changing it asks for your password.'
+                  : 'You sign in with it.'
+              }
+              pending={emailBusy}
+              error={emailError}
+            >
+              <Input
+                ref={emailField}
+                aria-label="Email"
+                type="email"
+                autoComplete="username"
+                required
+                maxLength={254}
+                value={emailDraft ?? profile.email ?? ''}
+                onChange={(event) => {
+                  setEmailDraft(event.target.value)
+                  setEmailChange(null)
+                  setEmailError(null)
+                }}
+                onBlur={submitEmail}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    setEmailDraft(null)
+                    setEmailChange(null)
+                    setEmailError(null)
+                  }
+                }}
+              />
+            </Row>
+          </form>
+          {emailChange !== null && (
+            <ConfirmInline
+              key={emailChange}
+              sentence={
+                <>
+                  Change your email to <strong>{emailChange}</strong>?
+                </>
+              }
+              hasPassword
+              actionLabel="Save email"
+              pending={emailBusy}
+              onCancel={() => {
+                setEmailDraft(null)
                 setEmailChange(null)
                 setEmailError(null)
               }}
-              onBlur={submitEmail}
-              onKeyDown={(event) => {
-                if (event.key === 'Escape') {
-                  event.preventDefault()
-                  event.stopPropagation()
-                  setEmailDraft(null)
-                  setEmailChange(null)
-                  setEmailError(null)
-                }
-              }}
+              onConfirm={(password) => saveEmail(emailChange, password)}
             />
-          </Row>
-        </form>
-        {emailChange !== null && (
-          <ConfirmInline
-            key={emailChange}
-            sentence={
-              <>
-                Change your email to <strong>{emailChange}</strong>?
-              </>
-            }
-            hasPassword
-            actionLabel="Save email"
-            pending={emailBusy}
-            onCancel={() => {
-              setEmailDraft(null)
-              setEmailChange(null)
-              setEmailError(null)
-            }}
-            onConfirm={(password) => saveEmail(emailChange, password)}
-          />
-        )}
-        <Row
-          label="Password"
-          description={
-            status.hasOwnCredential
-              ? 'Your password signs you in to this Podium.'
-              : 'You don’t have a password yet.'
-          }
-        >
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              frame.openTakeover({
-                title: status.hasOwnCredential ? 'Change password' : 'Set password',
-                content: (
-                  <PasswordTakeover
-                    trpc={trpc}
-                    email={profile.email ?? null}
-                    hasOwnCredential={status.hasOwnCredential}
-                    onCancel={frame.closeTakeover}
-                    onSaved={(active) => {
-                      loadStatus()
-                      if (active) frame.closeTakeover()
-                      toast.success('Password saved.')
-                    }}
-                  />
-                ),
-              })
+          )}
+          <Row
+            label="Password"
+            description={
+              status.hasOwnCredential
+                ? 'Your password signs you in to this Podium.'
+                : 'You don’t have a password yet.'
             }
           >
-            {status.hasOwnCredential ? 'Change password' : 'Set password'}
-          </Button>
-        </Row>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                frame.openTakeover({
+                  title: status.hasOwnCredential ? 'Change password' : 'Set password',
+                  content: (
+                    <PasswordTakeover
+                      trpc={trpc}
+                      email={profile.email ?? null}
+                      hasOwnCredential={status.hasOwnCredential}
+                      onCancel={frame.closeTakeover}
+                      onSaved={(active) => {
+                        loadStatus()
+                        if (active) frame.closeTakeover()
+                        toast.success('Password saved.')
+                      }}
+                    />
+                  ),
+                })
+              }
+            >
+              {status.hasOwnCredential ? 'Change password' : 'Set password'}
+            </Button>
+          </Row>
         </>
       )}
       <Row

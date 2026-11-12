@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { SettingsRepository } from '../../store/settings'
 import type { UserAccountRow } from '../../store/users'
+
 /**
  * THE INSTANCE SERVICE — one L3 seam over the deployment's own configuration.
  *
@@ -22,6 +23,7 @@ import type { UserAccountRow } from '../../store/users'
  * shipped function; there is no logic in this file, deliberately.
  */
 
+import { IdentityRefused } from '@podium/identity'
 import type { ServerReadiness, UserId } from '@podium/model'
 import { LoginEmail } from '@podium/model'
 import { hashPassword } from '@podium/runtime/auth-store'
@@ -51,7 +53,6 @@ import {
 import type { TelemetryEmitter } from '@podium/telemetry'
 import { readTelemetryState, shouldAskForConsent } from '@podium/telemetry'
 import { TRPCError } from '@trpc/server'
-import { IdentityRefused } from '@podium/identity'
 import { serverBuildVersion } from '../../build-version'
 import { type MemberCredentials, MemberHasNoAccount } from '../../identity/member-credentials'
 

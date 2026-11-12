@@ -179,7 +179,9 @@ export const InstanceLoginSection = observer(function InstanceLoginSection({
         }
       >
         <span className="settings-prose">
-          {capabilities?.invitationDelivery === 'mail' ? 'With an emailed invitation' : 'With an invite link'}
+          {capabilities?.invitationDelivery === 'mail'
+            ? 'With an emailed invitation'
+            : 'With an invite link'}
         </span>
         <Button
           type="button"

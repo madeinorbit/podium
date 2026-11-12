@@ -7,6 +7,7 @@ import { machineVerbsFor, ownershipSnapshotFromMachines } from './machine-access
 import { MachinesService } from './modules/machines/service'
 import { openTestStore } from './test-support/open-test-store'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { memberFacts } from './store/fixtures/test-support'
 
 const combinations: MachineServiceAssignment[] = [
   { server: false, agentExecution: false }, { server: true, agentExecution: false },
@@ -57,7 +58,7 @@ describe('desired assignment and observed availability', () => {
     it(`supervisor enrollment preserves ${JSON.stringify(assignment)} without offering a task target`, async () => {
       const store = await openTestStore(':memory:')
       const ownerUserId = asUserId('component-owner')
-      await store.users.create({ id: ownerUserId, displayName: 'Component owner', role: 'admin',
+      await memberFacts(store).create({ id: ownerUserId, displayName: 'Component owner', role: 'admin',
         createdAt: '2026-01-01T00:00:00Z', disabledAt: null }, 'fixture-hash')
       const installationId = 'component-installation'
       const publicKey = publicKeyWire(mintSigningKeyPair())

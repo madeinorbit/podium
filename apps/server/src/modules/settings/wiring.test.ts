@@ -41,6 +41,7 @@ import { PairingManager } from '../../hub/pairing'
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
+import { memberFacts } from '../../store/fixtures/test-support'
 import { OPERATOR } from '../../test-support/capabilities'
 import { openTestStore } from '../../test-support/open-test-store'
 import { SuperagentService } from '../superagent'
@@ -212,7 +213,7 @@ describe('member Telegram disconnect', () => {
     const h = await harness('member')
     const alice = firstAdminMemberId()
     const bob = asUserId('mem_telegram_other')
-    await h.store.users.create(
+    await memberFacts(h.store).create(
       {
         id: bob,
         displayName: 'Bob',

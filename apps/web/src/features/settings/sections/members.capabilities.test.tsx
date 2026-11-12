@@ -15,7 +15,9 @@ vi.mock('../admin-viewer', () => ({
   useAdminSections: () => ({ status: 'ready', sections: ['people'], retry: vi.fn() }),
 }))
 vi.mock('../stable-access', () => {
-  const trpc = { accounts: { keys: { query: async () => [] }, share: { mutate: async () => ({}) } } }
+  const trpc = {
+    accounts: { keys: { query: async () => [] }, share: { mutate: async () => ({}) } },
+  }
   return { useSettingsTrpc: () => trpc, useSettingsClient: () => client }
 })
 

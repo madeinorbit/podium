@@ -28,7 +28,7 @@ const signIn = (id: string, kind: 'browser' | 'desktop' | 'phone' | 'host') => (
   memberName: id,
   kind,
   deviceName: `${id} device`,
-  platform: 'unknown',
+  platform: '',
   createdAt: '2026-11-01T00:00:00.000Z',
   lastSeenAt: null,
   expiresAt: '2026-12-01T00:00:00.000Z',
