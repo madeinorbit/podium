@@ -666,8 +666,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
   const signedInMember = serverProfile?.profile.memberId
   const signInWatch = useMemo<SignInWatchOptions | undefined>(
     () =>
-      activation === 'offline-cache' ||
-      (!bearer && mobileAccountCredentials.delivery !== 'browser')
+      activation === 'offline-cache' || (!bearer && mobileAccountCredentials.delivery !== 'browser')
         ? undefined
         : {
             check: () => checkLiveAuth(config.httpOrigin, bearer, config.workspaceId),
