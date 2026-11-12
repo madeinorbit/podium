@@ -57,6 +57,17 @@ describe('mobile transcript feed', () => {
     expect(model.latestAssistantKey).toBe('a2')
   })
 
+  it('gives an ask with no structured input its own row instead of a tool fold', () => {
+    const model = buildMobileTranscript([
+      item('a1', 'assistant', 'Checking.'),
+      item('t1', 'tool', '', { toolName: 'mcp__codex__ask_user', toolTitle: 'Which branch?' }),
+      item('t2', 'tool', '', { toolName: 'ExitPlanMode', toolResult: 'approved' }),
+      item('t3', 'tool', '', { toolName: 'Read', toolInput: 'a.ts', toolResult: 'ok' }),
+    ])
+
+    expect(model.rows.map((row) => row.kind)).toEqual(['prose', 'asked', 'asked', 'tools'])
+  })
+
   it('publishes the last rendered assistant key while skipping blank and interrupt rows', () => {
     const items = [
       item('a1', 'assistant', 'Prose'),

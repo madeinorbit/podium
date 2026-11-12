@@ -8,6 +8,7 @@ import {
   formatChurn,
   isAskUserQuestion,
   isChosenOption,
+  isInteractiveTool,
   MACHINE_CONTEXT_RE,
   machineContextLabel,
   type ParsedEnvelope,
@@ -32,6 +33,7 @@ export interface MobileTranscriptRow {
     | 'answer'
     | 'tools'
     | 'question'
+    | 'asked'
     | 'receipt'
     | 'quiet'
     | 'envelope'
@@ -130,6 +132,20 @@ export function shapeMobileChatRow(
       key: transcriptItemKey(item),
       kind: 'shared',
       item,
+      blockIndices,
+      turn: 'beat',
+    })
+    return rows
+  }
+  // A call that addressed the operator but carries no structured input to
+  // build a card from (Codex / MCP interviews, plan approvals). It must not
+  // read as a file read: desktop gives it a "Needs your input" block (POD-376).
+  if (item.role === 'tool' && isInteractiveTool(item)) {
+    append({
+      key: transcriptItemKey(item),
+      kind: 'asked',
+      item,
+      blocks: [chatRow.block],
       blockIndices,
       turn: 'beat',
     })

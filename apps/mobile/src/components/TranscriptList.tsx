@@ -6,9 +6,11 @@ import {
   failLine,
   formatClock,
   isOperatorQuestion,
+  mcpLabel,
   type ParsedEnvelope,
   pointerFallbackBody,
   principalShortName,
+  resolveToolEdit,
   toolBatchTitles,
   toolCallPhrase,
   toolRunElapsedMs,
@@ -16,7 +18,7 @@ import {
   toolVerdict,
 } from '@podium/client-core/values'
 import type { MailReply } from '@podium/client-graph/mail-reply'
-import type { TranscriptItem } from '@podium/model'
+import { machinePathBasename, type TranscriptItem } from '@podium/model'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
 import { untracked } from 'mobx'
@@ -87,8 +89,11 @@ import {
   ChevronUp,
   FileText,
   Globe,
+  Layers,
   Mail,
+  MessageCircleQuestion,
   Search,
+  Square,
   SquareTerminal,
   Users,
   X,
@@ -109,8 +114,8 @@ import { WorkingMark } from './WorkingMark'
  * lies flat on the chassis; the operator's turns are the only elevated surface.
  * They do NOT stick to the top (POD-338) — a phone viewport is too short to
  * spend a permanent band on a message you already read. Tool runs are muted mono
- * one-liners with per-call ✓/✕ verdicts; the final answer gets the page's only
- * accent (a keyline, not a box); an answered ask collapses to a one-line receipt.
+ * one-liners with per-call ✓/✕ verdicts; the final answer stands out by ink
+ * alone (POD-2076); an answered ask collapses to a one-line receipt.
  */
 interface PendingRow {
   key: string
@@ -307,6 +312,113 @@ const disclosureGlyph = (expanded: boolean) => (
 )
 
 /**
+ * AN ASK WITH NO STRUCTURED INPUT (desktop "Needs your input", POD-376): a
+ * Codex / MCP interview or a plan approval. A signal-tinted murmur names the
+ * tool and its title; the well holds what came back.
+ */
+function AskedMurmur({ item, result }: { item: TranscriptItem; result: string | undefined }) {
+  const [open, setOpen] = useState(false)
+  const plan = /(?:exit.*plan|plan.*approval|approve.*plan)/i.test(
+    `${item.toolName ?? ''} ${item.toolTitle ?? ''}`,
+  )
+  const lead = plan ? 'Plan ready · needs you' : 'Needs your input'
+  const tool = item.toolName ? (mcpLabel(item.toolName) ?? item.toolName) : 'a question'
+  const title = item.toolTitle ?? item.toolInput
+  const label = title ? `${lead} · ${title}` : `${lead} · ${tool}`
+  const body = result?.trim()
+  return (
+    <MurmurLine
+      glyph={
+        body ? (
+          <Icon as={open ? ChevronDown : ChevronRight} size={14} color={color.needsYouText} />
+        ) : (
+          <Icon as={MessageCircleQuestion} size={14} color={color.needsYouText} />
+        )
+      }
+      label={<Text style={styles.murmurAsked}>{label}</Text>}
+      clock={shortTime(item.ts)}
+      expanded={open}
+      accessibilityLabel={`${label}, ${tool}`}
+      onPress={body ? () => setOpen((value) => !value) : undefined}
+    >
+      {open && body ? (
+        <Text selectable style={styles.wellResult}>
+          {body}
+        </Text>
+      ) : null}
+    </MurmurLine>
+  )
+}
+
+/**
+ * SYSTEM ROWS AS MURMURS (desktop ChatBlockView): a compaction is one
+ * "Context compacted" line that opens its summary, an interrupt says who
+ * stopped the turn and when, and a file changed on disk names the file. Churn
+ * and anything else stay a quiet mono line (the board draws none of them).
+ */
+function SystemMurmur({
+  item,
+  quietText,
+  onRefPress,
+}: {
+  item: TranscriptItem
+  quietText: string
+  onRefPress?: ((ref: string) => void) | undefined
+}) {
+  const [open, setOpen] = useState(false)
+  const clock = shortTime(item.ts)
+  if (item.event === 'interrupt') {
+    return (
+      <MurmurLine
+        glyph={<Icon as={Square} size={14} color={color.textMicro} />}
+        label="Interrupted by you"
+        clock={clock}
+        accessibilityLabel={`Interrupted by you${clock ? ` at ${clock}` : ''}`}
+      />
+    )
+  }
+  if (item.role === 'system' && item.systemKind === 'compaction') {
+    const summary = item.text.trim()
+    const label = summary
+      ? `Context compacted · ${open ? 'Hide' : 'Show'} summary`
+      : 'Context compacted'
+    return (
+      <MurmurLine
+        glyph={
+          summary ? disclosureGlyph(open) : <Icon as={Layers} size={14} color={color.textMicro} />
+        }
+        label={label}
+        clock={clock}
+        expanded={open}
+        accessibilityLabel={label}
+        onPress={summary ? () => setOpen((value) => !value) : undefined}
+      >
+        {open ? (
+          <RichMarkdown text={summary} textStyle={styles.wellProse} onRefPress={onRefPress} />
+        ) : null}
+      </MurmurLine>
+    )
+  }
+  if (item.role === 'system' && item.systemKind === 'file-changed') {
+    const path = item.toolPaths?.[0]
+    const label = `Changed on disk · ${path ? machinePathBasename(path) : 'a file'}`
+    return (
+      <MurmurLine
+        glyph={<Icon as={FileText} size={14} color={color.textMicro} />}
+        label={label}
+        clock={clock}
+        accessibilityLabel={label}
+      />
+    )
+  }
+  return (
+    <Text style={styles.quiet} numberOfLines={2}>
+      {quietText}
+    </Text>
+  )
+}
+
+/**
  * A NOTE FROM ANOTHER AGENT, as a murmur (board Chat / ChatReply): who sent it
  * and its first line, opened into the full note. A question addressed to the
  * operator says so and opens with Reply and Quote; Reply turns the composer
@@ -364,6 +476,7 @@ const EnvelopeRow = observer(function EnvelopeRow({
               <EnvelopePrincipalLabel label={envelope.from} onRefPress={onRefPress} />
               {' → '}
               <EnvelopePrincipalLabel label={envelope.to} onRefPress={onRefPress} />
+              {envelope.expectsReply ? ' · reply requested' : null}
             </Text>
           ) : null}
           {ask && (mailReply || onQuote) ? (
@@ -536,6 +649,7 @@ const ToolsRun = observer(function ToolsRun({
                 ? (item.toolInput ?? item.toolTitle ?? '')
                 : (item.toolTitle ?? item.toolInput ?? '')
             const files = item.toolPaths?.length ?? 0
+            const edit = resolveToolEdit(item)
             const time = murmurClock(item.durationMs)
             return (
               <View key={item.id}>
@@ -548,6 +662,12 @@ const ToolsRun = observer(function ToolsRun({
                   <View style={styles.wellRowBody}>
                     <ToolDescription toolName={item.toolName} command={desc} />
                   </View>
+                  {edit && edit.added > 0 ? (
+                    <Text style={[styles.murmurClock, styles.editAdded]}>+{edit.added}</Text>
+                  ) : null}
+                  {edit && edit.removed > 0 ? (
+                    <Text style={[styles.murmurClock, styles.editRemoved]}>−{edit.removed}</Text>
+                  ) : null}
                   {files > 1 ? <Text style={styles.murmurClock}>{files} files</Text> : null}
                   {time ? <Text style={styles.murmurClock}>{time}</Text> : null}
                 </View>
@@ -983,7 +1103,7 @@ const TranscriptFeedRow = memo(
         const time = shortTime(row.item.ts)
         content = message(
           row.item.text,
-          <View style={styles.recap}>
+          <View>
             <View style={styles.answerLabelRow}>
               <Text style={styles.answerLabel}>Recap</Text>
               {time ? <Text style={styles.answerMeta}>{time}</Text> : null}
@@ -997,23 +1117,23 @@ const TranscriptFeedRow = memo(
         )
         break
       }
+      case 'asked':
+        content = (
+          <AskedMurmur item={row.item} result={row.blocks?.[0]?.result ?? row.item.toolResult} />
+        )
+        break
       case 'quiet':
         content = (
-          <Text style={styles.quiet} numberOfLines={2}>
-            {row.quietText}
-          </Text>
+          <SystemMurmur item={row.item} quietText={row.quietText ?? ''} onRefPress={onRefPress} />
         )
         break
       case 'answer': {
-        const time = shortTime(row.item.ts)
         content = message(
           row.item.text,
           <>
-            <View style={styles.answer}>
-              <View style={styles.answerLabelRow}>
-                <Text style={styles.answerLabel}>Answer</Text>
-                {time ? <Text style={styles.answerMeta}>{time}</Text> : null}
-              </View>
+            {/* The answer stands out by ink alone: no eyebrow, no keyline
+                (desktop POD-2076; the board draws plain prose). */}
+            <View>
               <MessageText
                 text={row.item.text.trim()}
                 style={styles.proseText}
@@ -1772,16 +1892,17 @@ const styles = StyleSheet.create({
   feedRow: {
     minWidth: 0,
   },
+  // Board Chat rhythm: one 12pt gap between every feed item, murmurs
+  // included; an operator turn opens with one extra 12 above its bubble.
   turnOpen: {
-    marginTop: space.lg,
+    marginTop: space.md,
     marginBottom: space.md,
   },
   turnBeat: {
-    marginBottom: space.lg,
+    marginBottom: space.md,
   },
   turnBind: {
-    marginTop: -space.xs,
-    marginBottom: space.sm,
+    marginBottom: space.md,
   },
   searchHit: {
     borderRadius: radius.md,
@@ -1888,7 +2009,7 @@ const styles = StyleSheet.create({
     fontSize: font.micro,
   },
   userText: {
-    ...sans(500),
+    ...sans(400),
     color: color.text,
     fontSize: font.body,
     lineHeight: leading(font.body, 'prose'),
@@ -1905,17 +2026,6 @@ const styles = StyleSheet.create({
     ...mono(400),
     color: color.textMicro,
     fontSize: font.tiny,
-  },
-  recap: {
-    borderTopWidth: 2,
-    borderTopColor: color.accentBorder,
-    paddingTop: space.md,
-  },
-  // Final answer — flat, marked by the page's only accent: a keyline.
-  answer: {
-    borderTopWidth: 2,
-    borderTopColor: color.accentBorder,
-    paddingTop: space.md,
   },
   answerLabelRow: {
     flexDirection: 'row',
@@ -2089,6 +2199,13 @@ const styles = StyleSheet.create({
   },
   murmurStrong: { ...sans(600), color: color.textDim },
   murmurLive: { color: color.workingText },
+  murmurAsked: { color: color.needsYouText },
+  wellResult: {
+    ...mono(400),
+    fontSize: font.micro,
+    lineHeight: 16,
+    color: color.textFaint,
+  },
   murmurFailed: { color: color.dangerText },
   murmurClock: {
     ...mono(),
@@ -2096,6 +2213,13 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     color: color.textMicro,
     fontVariant: ['tabular-nums'],
+  },
+  // Board ChatAsk: "Edited X.tsx +18 −6" — the edit's size beside its row.
+  editAdded: {
+    color: color.workingText,
+  },
+  editRemoved: {
+    color: color.dangerText,
   },
   // The opened fold: a quaternary-fill well, card radius 8, 8/12 inset.
   well: {
