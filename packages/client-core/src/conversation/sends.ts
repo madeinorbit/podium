@@ -404,12 +404,22 @@ export class Sends {
     }
   }
 
-  @action async interrupt(draft = this.draft): Promise<boolean> {
+  /**
+   * Stop the running turn. With an empty draft the last prompt comes back into
+   * the composer to edit, as Esc does in the terminal, unless `restore` is
+   * false. The phone passes false (POD-2423): there a Stop tapped right after a
+   * send refilled the field with words that had already reached the agent, and
+   * that read as "not sent", so the operator sent them again.
+   */
+  @action async interrupt(
+    draft = this.draft,
+    options: { restore?: boolean } = {},
+  ): Promise<boolean> {
     if (this.disposed) return false
     if (!this.context.canInterrupt || !this.options.interrupt) return false
     this.patch({ interruptError: null })
     const prompt = this.context.latestOperatorPrompt ?? this.options.transcript.latestOperatorPrompt
-    if (draft === '' && prompt) this.setDraft(prompt)
+    if (options.restore !== false && draft === '' && prompt) this.setDraft(prompt)
     try {
       const messageId = this.interruptMessageId
       await this.options.interrupt(messageId ?? undefined)

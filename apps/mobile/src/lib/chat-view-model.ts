@@ -93,7 +93,7 @@ export class MobileChatViewModel {
   retract(id: string) { return this.service.sends.retract(id) }
   sendOffer(prompt: string, at: string) { return this.service.sends.sendOffer(prompt, at) }
   dismissOffer(at: string) { return this.service.sends.dismissOffer(at) }
-  interrupt(draft = this.draft) { return this.service.sends.interrupt(draft) }
+  interrupt(draft = this.draft, options?: { restore?: boolean }) { return this.service.sends.interrupt(draft, options) }
   finishTurn(): void { this.service.finishTurn() }
   clear(): void { this.service.clear() }
   setTurnError(error: string): void { this.service.setTurnError(error) }

@@ -687,6 +687,29 @@ describe('MobX sends contract', () => {
     controller.dispose()
   })
 
+  it('leaves the draft empty when the caller asks for no recall (POD-2423)', async () => {
+    const feed = transcript()
+    const interrupt = vi.fn(async (_messageId?: string) => {})
+    const controller = createSendsFixture({
+      sessionId: asSessionId('s1'),
+      transcript: feed.port,
+      createDeliveryId: () => 'msg-1',
+      deliver: vi.fn(),
+      interrupt,
+    })
+    controller.start()
+    controller.updateContext({
+      canInterrupt: true,
+      latestOperatorPrompt: 'the long prompt that already arrived',
+      agentPhase: 'working',
+      agentSince: 't1',
+    })
+    expect(await controller.interrupt('', { restore: false })).toBe(true)
+    expect(interrupt).toHaveBeenCalledTimes(1)
+    expect(controller.getSnapshot().draft).toBe('')
+    controller.dispose()
+  })
+
   it('correlates a successful interrupt to the open delivery and keeps its bubble', async () => {
     const feed = transcript()
     const interrupt = vi.fn(async (_messageId?: string) => {})

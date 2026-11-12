@@ -141,8 +141,11 @@ const SessionComposer = observer(function SessionComposer({
     },
     [conversation],
   )
+  // Stop leaves the composer as it is (POD-2423). The words already reached
+  // the agent, and the bubble says "interrupted"; putting them back in the
+  // field made a delivered prompt look unsent and invited a second copy.
   const handleStop = useCallback(() => {
-    void conversation.interrupt(conversation.draft)
+    void conversation.interrupt(conversation.draft, { restore: false })
   }, [conversation])
   const onStop = turnActive && canInterrupt ? handleStop : undefined
   // REPLY TO THE ASKER (C3, board ChatReply): while a reply is open the words
