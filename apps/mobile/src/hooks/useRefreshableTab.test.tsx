@@ -1,8 +1,16 @@
 import { SyncProgressStore } from '@podium/client-core/replica-assembly'
-import { act, cleanup, renderHook } from '@testing-library/react'
+import { act, cleanup, render, renderHook } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { WorkspaceSyncContext } from '../client/workspace-refresh'
+import {
+  OFFLINE_SUBTITLE,
+  UPDATED_SUBTITLE,
+  UPDATED_SUBTITLE_MS,
+  UPDATING_SUBTITLE,
+  useWorkspaceRefreshSubtitle,
+  WorkspaceRefreshProvider,
+  WorkspaceSyncContext,
+} from '../client/workspace-refresh'
 
 const connection = vi.hoisted(() => ({ connected: false, connect: vi.fn() }))
 
@@ -102,4 +110,91 @@ it('returns one pending completion for SwiftUI and releases it on unmount', asyn
   unmount()
   await completion
   expect(finished).toHaveBeenCalledOnce()
+})
+
+function renderPulledTab(store: SyncProgressStore) {
+  return renderHook(
+    () => ({ list: useRefreshableList(), subtitle: useWorkspaceRefreshSubtitle() }),
+    {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <WorkspaceRefreshProvider store={store}>{children}</WorkspaceRefreshProvider>
+      ),
+    },
+  )
+}
+
+it('acknowledges a fast pull that changes nothing in the shared sync phase', async () => {
+  vi.useFakeTimers()
+  connection.connected = true
+  const store = new SyncProgressStore()
+  store.begin('stale')
+  store.noteReady()
+  const { result } = renderPulledTab(store)
+  expect(store.getSnapshot().phase).toBe('ready')
+  expect(result.current.subtitle).toBeUndefined()
+
+  let completion!: Promise<void>
+  act(() => {
+    completion = result.current.list.onRefresh()
+  })
+  expect(result.current.subtitle).toBe(UPDATING_SUBTITLE)
+
+  act(() => vi.advanceTimersByTime(MIN_REFRESH_CONFIRMATION_MS))
+  await completion
+  expect(result.current.list.refreshing).toBe(false)
+  expect(store.getSnapshot().phase).toBe('ready')
+  expect(result.current.subtitle).toBe(UPDATED_SUBTITLE)
+
+  act(() => vi.advanceTimersByTime(UPDATED_SUBTITLE_MS - 1))
+  expect(result.current.subtitle).toBe(UPDATED_SUBTITLE)
+  act(() => vi.advanceTimersByTime(1))
+  expect(result.current.subtitle).toBeUndefined()
+})
+
+it('briefly shows the offline text when a pull ends without a live replica', () => {
+  vi.useFakeTimers()
+  const store = new SyncProgressStore()
+  store.begin('stale')
+  store.noteReady()
+  const { result } = renderPulledTab(store)
+
+  act(() => {
+    void result.current.list.onRefresh()
+  })
+  act(() => store.noteError('network'))
+  expect(result.current.subtitle).toBe(UPDATING_SUBTITLE)
+  act(() => vi.advanceTimersByTime(MIN_REFRESH_CONFIRMATION_MS))
+  expect(result.current.subtitle).toBe(OFFLINE_SUBTITLE)
+  act(() => vi.advanceTimersByTime(UPDATED_SUBTITLE_MS))
+  expect(result.current.subtitle).toBeUndefined()
+})
+
+it('clears the pull status when the pulling list unmounts mid-refresh', () => {
+  vi.useFakeTimers()
+  const store = new SyncProgressStore()
+  store.begin('stale')
+  store.noteReady()
+  let pullNow = (): Promise<void> => Promise.resolve()
+  function PullingList() {
+    pullNow = useRefreshableList().onRefresh
+    return null
+  }
+  const subtitle: { current: string | undefined } = { current: undefined }
+  function Subtitle() {
+    subtitle.current = useWorkspaceRefreshSubtitle()
+    return null
+  }
+  const tree = (mounted: boolean) => (
+    <WorkspaceRefreshProvider store={store}>
+      {mounted ? <PullingList /> : null}
+      <Subtitle />
+    </WorkspaceRefreshProvider>
+  )
+  const view = render(tree(true))
+  act(() => {
+    void pullNow()
+  })
+  expect(subtitle.current).toBe(UPDATING_SUBTITLE)
+  view.rerender(tree(false))
+  expect(subtitle.current).toBeUndefined()
 })

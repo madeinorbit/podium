@@ -6,7 +6,7 @@ import {
   type ScrollViewProps,
 } from 'react-native'
 import { useConnected, useHub } from '../client/hooks'
-import { useWorkspaceSyncPhase } from '../client/workspace-refresh'
+import { useWorkspacePull, useWorkspaceSyncPhase } from '../client/workspace-refresh'
 import { onTabReselect } from '../lib/tab-reselect'
 import { color } from '../theme/theme'
 
@@ -44,6 +44,11 @@ export function useRefreshableList(onPull?: () => void) {
   const hub = useHub()
   const connected = useConnected()
   const syncPhase = useWorkspaceSyncPhase()
+  const pull = useWorkspacePull()
+  // Kept in a ref so the lifecycle callbacks below stay stable while the
+  // pull's status (and therefore the context value) changes.
+  const pullRef = useRef(pull)
+  pullRef.current = pull
   const pending = useRef<{ promise: Promise<void>; resolve: () => void } | null>(null)
   const confirmationTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [refreshing, setRefreshing] = useState(false)
@@ -51,15 +56,18 @@ export function useRefreshableList(onPull?: () => void) {
 
   useEffect(() => {
     if (confirmationElapsed && ['ready', 'offline', 'error'].includes(syncPhase)) {
-      pending.current?.resolve()
+      if (!pending.current) return
+      pending.current.resolve()
       pending.current = null
       setRefreshing(false)
+      pullRef.current?.settle(syncPhase)
     }
   }, [confirmationElapsed, syncPhase])
 
   useEffect(
     () => () => {
       if (confirmationTimer.current) clearTimeout(confirmationTimer.current)
+      if (pending.current) pullRef.current?.cancel()
       pending.current?.resolve()
       pending.current = null
     },
@@ -76,6 +84,7 @@ export function useRefreshableList(onPull?: () => void) {
     pending.current = completion
     setConfirmationElapsed(false)
     setRefreshing(true)
+    pullRef.current?.begin()
     if (!connected) hub.connect()
     onPull?.()
     confirmationTimer.current = setTimeout(() => {

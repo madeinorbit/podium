@@ -18,7 +18,7 @@ import type {
   MobileSyncProgressStore,
   MobileSyncSnapshot,
 } from './mobile-sync-progress'
-import { WorkspaceSyncContext } from './workspace-refresh'
+import { WorkspaceRefreshProvider } from './workspace-refresh'
 
 function coldLabel(phase: MobileSyncPhase): string {
   switch (phase) {
@@ -131,11 +131,11 @@ export function MobileSyncBoundary({
   startupTiming.mark('sync.boundary-open')
 
   return (
-    <WorkspaceSyncContext value={store.shared}>
+    <WorkspaceRefreshProvider store={store.shared}>
       <View style={styles.root} testID="sync-content">
         {children}
       </View>
-    </WorkspaceSyncContext>
+    </WorkspaceRefreshProvider>
   )
 }
 
