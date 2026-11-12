@@ -79,9 +79,12 @@ A machine without an owner runs nothing until an admin adopts it.
 - **API keys and Claude setup tokens** stored in Podium (Settings → AI accounts) now
   belong to one person each. On upgrade, every existing key goes to the earliest admin,
   usually the person who installed the server, and is **shared with everyone on the
-  server**, so agents keep working as before. Their use is billed to that admin's key.
-  The owner or an admin can change this under **Share with** next to the key. New
-  keys are private to the person who adds them until they share them.
+  server**, so everyone's agents keep working as before. Their use is billed to that
+  admin's key. **To stop sharing a key**, open Settings → AI accounts and set **Share
+  with** next to the key to **Only you**, or to **Specific people**. An admin can do the
+  same for another person's key on that person's page under Settings → Members. Once a
+  key is no longer shared with them, other members' agents need their own key. New keys
+  are private to the person who adds them until they share them.
 - **Claude and Codex logins on a machine** (logins made with the tool itself) belong to
   the machine's owner. Being allowed to use someone's machine does not let you use their
   login.
