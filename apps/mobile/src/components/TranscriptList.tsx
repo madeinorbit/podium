@@ -37,7 +37,6 @@ import {
 import {
   Animated,
   Platform,
-  Pressable,
   type RefreshControlProps,
   ScrollView,
   StyleSheet,
@@ -98,11 +97,14 @@ import {
   Users,
   X,
 } from './icons'
+import { MessageMenu } from './MessageMenu'
+import type { MessageAction } from './message-menu.types'
 import { PendingDeliveryFailure } from './PendingDeliveryFailure'
 import { PendingFiles } from './PendingFiles'
 import { PressableScale } from './PressableScale'
 import { pendingFailure, pendingMetaLine } from './pending-delivery'
 import { RichMarkdown } from './RichMarkdown'
+import { SelectTextSheet } from './SelectTextSheet'
 import { SharedFiles } from './SharedFiles'
 import { ToolDescription } from './ToolDescription'
 import { TranscriptViewport } from './TranscriptViewport'
@@ -803,33 +805,6 @@ function FeedRowFrame({
   )
 }
 
-function HoldableMessage({
-  text,
-  onHold,
-  children,
-}: {
-  text: string
-  onHold: (text: string) => void
-  children: React.ReactNode
-}) {
-  return (
-    <Pressable
-      accessibilityActions={[
-        { name: 'copy', label: 'Copy message' },
-        { name: 'quote', label: 'Quote in reply' },
-      ]}
-      onAccessibilityAction={() => onHold(text)}
-      onLongPress={() => {
-        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
-        onHold(text)
-      }}
-      delayLongPress={350}
-    >
-      {children}
-    </Pressable>
-  )
-}
-
 function StreamingCaret({ reduceMotion }: { reduceMotion: boolean }) {
   const opacity = useRef(new Animated.Value(1)).current
   useEffect(() => {
@@ -871,7 +846,8 @@ interface TranscriptFeedRowProps {
   onDiscardPending?: (turn: PendingTurn) => void
   onSendAgainPending?: (turn: PendingTurn) => void
   onRetractPending?: (id: string) => void
-  onHold: (text: string) => void
+  /** Long-press menu result; no action opens the host's message sheet. */
+  onHold: (text: string, action?: MessageAction) => void
 }
 
 function sameAssetContext(
@@ -973,9 +949,9 @@ const TranscriptFeedRow = memo(
     onHold,
   }: TranscriptFeedRowProps) {
     const message = (text: string, child: ReactNode) => (
-      <HoldableMessage text={text} onHold={onHold}>
+      <MessageMenu text={text} canQuote={onQuoteText !== undefined} onAction={onHold}>
         {child}
-      </HoldableMessage>
+      </MessageMenu>
     )
 
     let content: ReactNode
@@ -1679,25 +1655,40 @@ export const TranscriptList = observer(function TranscriptList({
     onLoadOlder?.()
   }, [findOpen, itemCount, onLoadOlder, query])
 
+  const quoteRef = useRef(onQuote)
+  useLayoutEffect(() => {
+    quoteRef.current = onQuote
+  }, [onQuote])
+  const [selectText, setSelectText] = useState<string | null>(null)
+  const copyText = useCallback((text: string) => {
+    void Clipboard.setStringAsync(text)
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {})
+  }, [])
+  const quoteText = useCallback((text: string) => {
+    quoteRef.current?.(quoteTranscriptText(text))
+  }, [])
+  const holdMessage = useCallback(
+    (text: string, action?: MessageAction) => {
+      if (action === undefined) setActionText(text)
+      else if (action === 'copy') copyText(text)
+      else if (action === 'quote') quoteText(text)
+      else setSelectText(text)
+    },
+    [copyText, quoteText],
+  )
+
   const messageActions = useMemo<SheetAction[]>(() => {
     if (!actionText) return []
-    const actions: SheetAction[] = [
-      {
-        label: 'Copy text',
-        onPress: () => {
-          void Clipboard.setStringAsync(actionText)
-          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {})
-        },
-      },
-    ]
+    const actions: SheetAction[] = [{ label: 'Copy text', onPress: () => copyText(actionText) }]
     if (onQuote) {
-      actions.push({
-        label: 'Quote in reply',
-        onPress: () => onQuote(quoteTranscriptText(actionText)),
-      })
+      actions.push({ label: 'Quote in reply', onPress: () => quoteText(actionText) })
+    }
+    // The web feed is selectable in place; native needs the text view.
+    if (Platform.OS !== 'web') {
+      actions.push({ label: 'Select text', onPress: () => setSelectText(actionText) })
     }
     return actions
-  }, [actionText, onQuote])
+  }, [actionText, copyText, onQuote, quoteText])
 
   return (
     <View style={styles.listFrame}>
@@ -1761,7 +1752,7 @@ export const TranscriptList = observer(function TranscriptList({
                 onDiscardPending={onDiscardPending ? discardPendingRow : undefined}
                 onSendAgainPending={onSendAgainPending ? sendAgainPendingRow : undefined}
                 onRetractPending={onRetractPending ? retractPendingRow : undefined}
-                onHold={setActionText}
+                onHold={holdMessage}
               />
             ))}
             <TranscriptTail state={liveRunKey === undefined ? tail : undefined} />
@@ -1789,7 +1780,7 @@ export const TranscriptList = observer(function TranscriptList({
             onDiscardPending: onDiscardPending ? discardPendingRow : undefined,
             onSendAgainPending: onSendAgainPending ? sendAgainPendingRow : undefined,
             onRetractPending: onRetractPending ? retractPendingRow : undefined,
-            onHold: setActionText,
+            onHold: holdMessage,
           }
           return presentation && typeof entry === 'string' ? (
             <RetainedTranscriptRow presentation={presentation} rowKey={entry} {...props} />
@@ -1869,6 +1860,12 @@ export const TranscriptList = observer(function TranscriptList({
         title="Message"
         actions={messageActions}
         onClose={() => setActionText(null)}
+      />
+      <SelectTextSheet
+        text={selectText}
+        onClose={() => setSelectText(null)}
+        onCopy={copyText}
+        onQuote={onQuote ? quoteText : undefined}
       />
     </View>
   )
