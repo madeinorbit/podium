@@ -138,8 +138,8 @@ describe('the scope set is CLOSED, with compiler-enforced totality (POD-299)', (
     // capability names, and this one names none, so another person's entity
     // is refused.
     all: 'forbidden',
-    none: 'allow',
-    subtree: 'allow',
+    none: 'forbidden',
+    subtree: 'forbidden',
     // The two scopes that name a person: gated by ownership, exactly as writes are.
     owned: 'forbidden',
     self: 'forbidden',
@@ -365,6 +365,34 @@ describe('a legacy persisted `all` is the member rule, not a bypass', () => {
           authorize(member, action, target),
         )
       }
+    }
+  })
+})
+
+
+describe('agent reads intersect the delegating member’s rights', () => {
+  const alice = asUserId('alice')
+  const bob = asUserId('bob')
+  it.each(['none', 'subtree'] as const)('%s never widens ownership or per-user access', (kind) => {
+    const agent: Capability = {
+      role: 'worker',
+      scope: kind === 'none' ? { kind } : { kind, rootId: asIssueId('root') },
+      actorSessionId: asSessionId('alice-agent'),
+      onBehalfOf: alice,
+    }
+    const owned = { kind: 'owned', id: 'owned', owner: bob } as const
+    for (const opts of [undefined, { override: true }]) {
+      expect(authorize(agent, 'read', owned, opts)).toBe('forbidden')
+      expect(authorize(agent, 'read', { ...owned, owner: alice }, opts)).toBe('allow')
+      expect(authorize(agent, 'read', { ...owned, grants: [alice] }, opts)).toBe('allow')
+      expect(authorize(agent, 'read', { ...owned, grants: ['alice-agent'] }, opts)).toBe('forbidden')
+      expect(authorize(agent, 'read', { ...owned, owner: null, grants: [alice] }, opts)).toBe('forbidden')
+      expect(authorize({ ...agent, onBehalfOf: undefined }, 'read', owned, opts)).toBe('forbidden')
+      expect(authorize(agent, 'read', { kind: 'private', id: 'private', owner: bob }, opts)).toBe('forbidden')
+      expect(authorize(agent, 'read', { kind: 'private', id: 'private', owner: alice }, opts)).toBe('allow')
+      expect(authorize(agent, 'read', { kind: 'per-user-row', userId: bob }, opts)).toBe('forbidden')
+      expect(authorize(agent, 'read', { kind: 'per-user-row', userId: alice }, opts)).toBe('allow')
+      expect(authorize(agent, 'read', { id: 'outside-subtree' }, opts)).toBe('allow')
     }
   })
 })

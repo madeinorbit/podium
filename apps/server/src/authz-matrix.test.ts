@@ -527,6 +527,19 @@ describe('D19.2 — reads are scope-gated, with denial covered on trpc, cli, mcp
     }
   })
 
+  it.each(
+    AGENT_TRANSPORTS.map((t) => [t.tag, t] as const),
+  )('%s — an agent’s shipped capability reads only its member’s owned data', (_tag, transport) => {
+    const cap = transport.capabilityFor(AGENT_OF_OWNER)
+    expect(authorize(cap, 'read', someoneElsesSession)).toBe('forbidden')
+    expect(authorize(cap, 'read', someoneElsesSession, { override: true })).toBe('forbidden')
+    expect(authorize(cap, 'read', mySession)).toBe('allow')
+    expect(authorize(cap, 'read', { ...someoneElsesSession, grants: [OWNER] })).toBe('allow')
+    expect(authorize(cap, 'read', { kind: 'private', id: 'private', owner: OTHER })).toBe('forbidden')
+    expect(authorize(cap, 'read', { kind: 'per-user-row', userId: OTHER })).toBe('forbidden')
+    expect(authorize(cap, 'read', { id: 'iss:unrelated' })).toBe('allow')
+  })
+
   it('a person’s shipped capability no longer reads another person’s private row (POD-6288)', () => {
     // The admin's old scope `all` read everything; the member scope it carries
     // now refuses what belongs to someone else, admin role or not.

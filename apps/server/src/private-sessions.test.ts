@@ -19,6 +19,7 @@
  * The paths run least destructive first; the kill and stop refusals run last.
  */
 
+import { runSessionCli } from '../../cli/src/session-cli'
 import { asSessionId, type SessionId } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -316,6 +317,35 @@ describe('MU-07: an agent acting for Alice cannot read, send to or drive Bob’s
     await expect(aliceAgent().sessions.status.query({ ref: target() } as never)).rejects.toThrow(
       `no session found for ${target()}`,
     )
+  })
+
+  it('CLI transcript reads refuse Bob, including with a legacy grant; own reads and shared tasks work', async () => {
+    const client = aliceAgent()
+    // The CLI uses the same real daemon relay as the agent above. A session
+    // grant is intentionally inert for the private class (design §2.3).
+    await f.handle.registry.sessionStore.grants.upsert({
+      resourceKind: 'session',
+      resourceId: target(),
+      grantee: MEMBERS.alice.id,
+      verb: 'read',
+      owner: MEMBERS.bob.id,
+      visibility: 'personal',
+      createdAt: new Date().toISOString(),
+      actorKind: 'user',
+      actorId: MEMBERS.bob.id,
+      onBehalfOf: MEMBERS.bob.id,
+    })
+    try {
+      await expect(runSessionCli(['read', target()], client, { hasRelay: true })).rejects.toThrow(
+        `no session found for ${target()}`,
+      )
+      expect(await runSessionCli(['read', f.sessions.alice], client, { hasRelay: true })).toContain(
+        `fixture transcript of ${f.sessions.alice}`,
+      )
+      expect(await client.issues.get.query({ id: f.tasks.bob })).toMatchObject({ id: f.tasks.bob })
+    } finally {
+      await f.handle.registry.sessionStore.grants.remove('session', target(), MEMBERS.alice.id, 'read')
+    }
   })
 
   it('session send and mail never reach it', async () => {
