@@ -348,7 +348,8 @@ describe('redaction', () => {
     const mutations = ISSUE_COMMAND_NAMES.filter((k) => classOf(k) !== 'n/a')
     const nonMutating = ISSUE_COMMAND_NAMES.filter((k) => classOf(k) === 'n/a')
     expect(mutations.length).toBe(53)
-    expect(nonMutating.length).toBe(34)
+    // 34 less `bodies`, which POD-6921 removed: the bodies are synced records.
+    expect(nonMutating.length).toBe(33)
     // The named case, kept from the original: write-grade authority, no row.
     expect(classOf('linearSearch')).toBe('n/a')
   })

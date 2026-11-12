@@ -36,10 +36,10 @@ const strictArms = MetadataChange.options as unknown as {
 }[]
 
 describe('the wire change row composes the model vocabulary', () => {
-  it('has all thirty-seven entity arms, so the loops below are not vacuous', () => {
+  it('has all thirty-eight entity arms, so the loops below are not vacuous', () => {
     // Count every current entity arm so the shared-field assertions cannot
     // silently narrow to a subset of the record vocabulary.
-    expect(strictArms).toHaveLength(37)
+    expect(strictArms).toHaveLength(38)
   })
 
   it('takes `seq` from the shared field schema INSTANCE in every arm', () => {
