@@ -39,6 +39,7 @@ import {
   machineOptionLabel,
   useMachineChoices,
 } from '../machines/machine-choices'
+import { FolderTrustNotice } from './folder-trust-notice'
 import { GitHubProjectIntake } from './GitHubProjectIntake'
 import { SetupBusyOverlay, SetupError } from './SetupFeedback'
 
@@ -891,6 +892,7 @@ export function RepoPickerModal({
                   <Input
                     id="repo-machine-path"
                     aria-label={machinePathLabel}
+                    aria-describedby="repo-machine-path-trust"
                     className={cn(
                       'h-[38px] rounded-[9px] border-0 bg-background px-[13px] font-mono text-[13px] text-foreground inset-ring inset-ring-border placeholder:text-muted-foreground',
                       // The offered path is what the button will act on, so it reads as
@@ -914,6 +916,7 @@ export function RepoPickerModal({
                     Use repository
                   </Button>
                 </div>
+                <FolderTrustNotice id="repo-machine-path-trust" />
               </div>
             </div>
             {rowMenu && (
