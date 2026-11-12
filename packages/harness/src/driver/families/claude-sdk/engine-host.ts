@@ -30,7 +30,10 @@
 import { readFile } from 'node:fs/promises'
 import { createLogger } from '@podium/logger'
 import type { HarnessAgent, SessionId } from '@podium/model'
+import { harnessRoots } from '../../../harness-context.js'
 import type { HarnessContext } from '../../../harness-context-types.js'
+import { agentTermsFor, type LaunchFolders, launchPosture } from '../../../launch-terms.js'
+import type { PodiumGrants } from '../../../posture-types.js'
 import type { ProcessIdentity } from '../../binding.js'
 import { type BoundaryContextSource, createBoundaryContext } from '../../boundary-context.js'
 import type { ScopeResources } from '../../capabilities.js'
@@ -47,7 +50,6 @@ import {
   type SessionEngineOwner,
 } from '../engine-supervision.js'
 import { HeadlessTurnFailure } from '../turn-error.js'
-import { agentTermsFor, type LaunchFolders, launchPosture } from '../../../launch-terms.js'
 import { type ClaudeEngineFacts, claudeEngineProcessKey } from './engine-facts.js'
 import {
   buildClaudeStreamInvocation,
@@ -64,9 +66,37 @@ import type {
   ClaudeSdkStreamPosition,
   ClaudeSdkTurnHandle,
 } from './runtime.js'
-import type { PodiumGrants } from '../../../posture-types.js'
 
 const log = createLogger('harness:claude-engine-host')
+
+/**
+ * The instance-owned overlay every engine child runs under (see `startTurn`):
+ * the instance agent home, and that home's own `.claude` as the config root.
+ */
+export function claudeEngineInstanceEnv(homeDir: string): Record<string, string> {
+  return { HOME: homeDir, CLAUDE_CONFIG_DIR: `${homeDir}/.claude` }
+}
+
+/**
+ * The context the engine's launch terms are stated against: the session's,
+ * with the instance overlay the child actually runs under. The overlay moves
+ * Claude's `.claude.json` to `<home>/.claude/.claude.json` (Claude reads it
+ * from `CLAUDE_CONFIG_DIR` when set), so the posture section's trust key must
+ * be written there, not in `<home>/.claude.json`, or the engine never sees it.
+ */
+export function engineChildContext(
+  context: HarnessContext,
+  homeDir: string | undefined,
+): HarnessContext {
+  if (!homeDir) return context
+  const env = { ...context.env, ...claudeEngineInstanceEnv(homeDir) }
+  return {
+    ...context,
+    home: homeDir,
+    env,
+    roots: harnessRoots(context.installation.kind, homeDir, env),
+  }
+}
 
 /**
  * ONE TURN'S USER LINE (POD-6093): images as base64 blocks the model sees as
@@ -603,7 +633,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
     // is the owner's job, never this family's. The engine runs on the
     // harness's `engine` terms (POD-6858); what they add to the env is wiring.
     const posture = launchPosture(
-      { ...sessionSpec, context },
+      { ...sessionSpec, context: engineChildContext(context, deps.homeDir) },
       await deps.launchFoldersFor(sessionId, workdir),
     )
     const command = buildClaudeStreamInvocation(spec, context, {
@@ -683,9 +713,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
        * inherited from the daemon's environment from re-opening the
        * reader/child home split (POD-3057).
        */
-      const instanceEnv = deps.homeDir
-        ? { HOME: deps.homeDir, CLAUDE_CONFIG_DIR: `${deps.homeDir}/.claude` }
-        : undefined
+      const instanceEnv = deps.homeDir ? claudeEngineInstanceEnv(deps.homeDir) : undefined
       const sessionEnv = { ...input.spec.env, ...instanceEnv }
       // The launch terms' env is wiring: it is known only once the engine's
       // command is built, so the child env is composed there.

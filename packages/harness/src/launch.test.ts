@@ -77,20 +77,55 @@ function codexPlain(spec: LaunchSpec): Record<string, unknown> {
   expect(files).toEqual([])
   return rest
 }
+
+/**
+ * What Claude's posture section adds to every terminal launch under the
+ * default posture (POD-6858 §4.8), ahead of any `--` prompt boundary. Moved
+ * to posture: these used to be absent from the terminal launch.
+ */
+const CLAUDE_POSTURE_ARGS = [
+  '--permission-mode',
+  'auto',
+  '--allowedTools=Bash(podium *)',
+  '--allowedTools=PowerShell(podium *)',
+  '--allowedTools=Read(//var/podium-test/uploads/session/**)',
+]
+
+/** A Claude terminal launch with its terms checked, shaped like {@link plain}. */
+function claudePlain(spec: LaunchSpec): Record<string, unknown> {
+  if (!('terms' in spec)) throw new Error('a Claude launch always carries terms')
+  const { env, files, terms, ...rest } = spec
+  expect(terms).toEqual({
+    homeEdits: [
+      {
+        kind: 'json-key',
+        file: '/home/podium-test/.claude.json',
+        path: ['projects', '/work/podium-test', 'hasTrustDialogAccepted'],
+        value: true,
+        serves: 'workspace-trust',
+      },
+    ],
+    requestedMode: 'auto',
+    unmet: [],
+  })
+  expect(env).toEqual({ CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY: '1' })
+  expect(files).toEqual([])
+  return rest
+}
 describe('agentLaunchCommand', () => {
   it('spawns claude fresh', () => {
     expect(
-      plain(agentLaunchCommand('claude-code', { ...ctx('claude-code'), cwd: '/proj' })),
+      claudePlain(agentLaunchCommand('claude-code', { ...ctx('claude-code'), cwd: '/proj' })),
     ).toEqual({
       cmd: exe('claude-code'),
-      args: [],
+      args: CLAUDE_POSTURE_ARGS,
       cwd: '/proj',
     })
   })
 
   it('resumes claude by session id', () => {
     expect(
-      plain(
+      claudePlain(
         agentLaunchCommand('claude-code', {
           ...ctx('claude-code'),
           cwd: '/proj',
@@ -99,7 +134,7 @@ describe('agentLaunchCommand', () => {
       ),
     ).toEqual({
       cmd: exe('claude-code'),
-      args: ['--resume', 'abc'],
+      args: ['--resume', 'abc', ...CLAUDE_POSTURE_ARGS],
       cwd: '/proj',
     })
   })
@@ -296,7 +331,7 @@ describe('agentLaunchCommand', () => {
   describe('initialPrompt (argv injection — the robust, race-free first prompt)', () => {
     it('appends the prompt as a trailing positional arg for claude-code', () => {
       expect(
-        plain(
+        claudePlain(
           agentLaunchCommand('claude-code', {
             ...ctx('claude-code'),
             cwd: '/w',
@@ -305,14 +340,14 @@ describe('agentLaunchCommand', () => {
         ),
       ).toEqual({
         cmd: exe('claude-code'),
-        args: ['--', 'do the thing'],
+        args: [...CLAUDE_POSTURE_ARGS, '--', 'do the thing'],
         cwd: '/w',
       })
     })
 
     it('places the prompt LAST, after model/option args (claude-code)', () => {
       expect(
-        plain(
+        claudePlain(
           agentLaunchCommand('claude-code', {
             ...ctx('claude-code'),
             cwd: '/w',
@@ -322,7 +357,7 @@ describe('agentLaunchCommand', () => {
         ),
       ).toEqual({
         cmd: exe('claude-code'),
-        args: ['--model', 'opus', '--', 'fix login'],
+        args: ['--model', 'opus', ...CLAUDE_POSTURE_ARGS, '--', 'fix login'],
         cwd: '/w',
       })
     })
@@ -354,7 +389,7 @@ describe('agentLaunchCommand', () => {
           cwd: '/w',
           initialPrompt: prompt,
         }).args,
-      ).toEqual(['--', prompt])
+      ).toEqual([...CLAUDE_POSTURE_ARGS, '--', prompt])
     })
 
     it('ignores a blank/whitespace-only prompt (no empty arg)', () => {
@@ -364,11 +399,11 @@ describe('agentLaunchCommand', () => {
           cwd: '/w',
           initialPrompt: '   ',
         }).args,
-      ).toEqual([])
+      ).toEqual(CLAUDE_POSTURE_ARGS)
       expect(
         agentLaunchCommand('claude-code', { ...ctx('claude-code'), cwd: '/w', initialPrompt: '' })
           .args,
-      ).toEqual([])
+      ).toEqual(CLAUDE_POSTURE_ARGS)
     })
 
     it('uses the OpenCode startup prompt rather than typing during TUI initialization', () => {
@@ -443,6 +478,7 @@ describe('agentLaunchCommand', () => {
           'high',
           '--append-system-prompt',
           'Follow the pinned workflow.',
+          ...CLAUDE_POSTURE_ARGS,
           '--',
           '- remove the dead code path',
         ])
@@ -465,7 +501,7 @@ describe('agentLaunchCommand', () => {
             cwd: '/w',
             initialPrompt: prompt,
           }).args,
-        ).toEqual(['--', prompt])
+        ).toEqual([...CLAUDE_POSTURE_ARGS, '--', prompt])
       })
     })
 
@@ -484,7 +520,7 @@ describe('agentLaunchCommand', () => {
 
     it('uses Claude system prompt without changing the user prompt token', () => {
       expect(
-        plain(
+        claudePlain(
           agentLaunchCommand('claude-code', {
             ...ctx('claude-code'),
             cwd: '/w',
@@ -494,7 +530,13 @@ describe('agentLaunchCommand', () => {
         ),
       ).toEqual({
         cmd: exe('claude-code'),
-        args: ['--append-system-prompt', 'Follow the pinned workflow.', '--', 'fix it'],
+        args: [
+          '--append-system-prompt',
+          'Follow the pinned workflow.',
+          ...CLAUDE_POSTURE_ARGS,
+          '--',
+          'fix it',
+        ],
         cwd: '/w',
       })
     })
@@ -572,7 +614,7 @@ describe('agentLaunchCommand', () => {
           model: 'opus',
           effort: 'high',
         }).args,
-      ).toEqual(['--model', 'opus', '--effort', 'high'])
+      ).toEqual(['--model', 'opus', '--effort', 'high', ...CLAUDE_POSTURE_ARGS])
     })
 
     it('grok takes --effort', () => {
@@ -646,7 +688,7 @@ describe('agentLaunchCommand', () => {
           model: 'auto',
           effort: 'auto',
         }).args,
-      ).toEqual([])
+      ).toEqual(CLAUDE_POSTURE_ARGS)
       expect(
         agentLaunchCommand('codex', { ...ctx('codex'), cwd: '/w', model: 'auto', effort: 'auto' })
           .args,

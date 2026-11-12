@@ -60,6 +60,13 @@ describe('final daemon launch arguments', () => {
     })
 
     expect(instrumentedLaunchArgs(launch.args, instrumentationArgs('claude-code'))).toEqual([
+      // Moved to posture (POD-6858): Claude's terminal launch now states its
+      // mode and allow rules, ahead of the boundary like the settings.
+      '--permission-mode',
+      'auto',
+      '--allowedTools=Bash(podium *)',
+      '--allowedTools=PowerShell(podium *)',
+      '--allowedTools=Read(//var/podium-test/uploads/session/**)',
       '--settings',
       '/tmp/podium/s1.json',
       '--',

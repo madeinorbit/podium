@@ -15,7 +15,11 @@ import {
   type MemoryBindingRecords,
   type TestEngineSpawn,
 } from '../../testing/binding-records.js'
-import { testEngineTerms, testHarnessContext } from '../../testing/harness-context.js'
+import {
+  testEngineTerms,
+  testHarnessContext,
+  testSessionTerms,
+} from '../../testing/harness-context.js'
 import type { AttachmentRef } from '../../turns.js'
 import type {
   EngineAttachment,
@@ -163,6 +167,7 @@ function turnInput(text = 'hello', resumeValue = 'resume-1', fresh = true) {
     sessionId: SESSION_ID,
     spec: {
       harnessContext: CONTEXT,
+      ...testSessionTerms(),
       workdir: '/project',
       model: {},
       instructions: { supported: false as const, reason: 'fixture' },
@@ -217,6 +222,7 @@ describe('the claude stream engine host', () => {
     expect(spawned[0]?.args).toContain('--input-format')
     expect(spawned[0]?.args).toContain('--session-id')
     const args = spawned[0]!.args
+    // The default posture's mode, from the Claude posture section (POD-6858).
     expect(args[args.indexOf('--permission-mode') + 1]).toBe('auto')
     expect(args[args.indexOf('--permission-prompt-tool') + 1]).toBe('stdio')
     expect(spawned[0]?.env).toMatchObject({
@@ -240,6 +246,43 @@ describe('the claude stream engine host', () => {
       claudeSessionId: 'claude-native-1',
       workdir: '/project',
       process: { key: 'podium-cl-claude-engine-session', pid: 4242 },
+    })
+  })
+
+  it('writes the trust key in the .claude.json the engine child reads (POD-6858)', async () => {
+    // The instance overlay pins CLAUDE_CONFIG_DIR to <home>/.claude, and Claude
+    // reads .claude.json from there: a key in <home>/.claude.json would never
+    // reach the engine.
+    const attachment = fakeAttachment({ childPid: 4243 })
+    const ports = fakePorts({ spawn: attachment })
+    const terms: unknown[] = []
+    const engines = {
+      ...ports.engines,
+      startEngine: async (req: Parameters<typeof ports.engines.startEngine>[0]) => {
+        terms.push(req.command.terms)
+        return ports.engines.startEngine(req)
+      },
+    }
+    const host = createClaudeEngineHost(
+      hostDeps({ supervision: ports.supervision, engines }, journalStore()),
+    )
+    host.startTurn(turnInput())
+    await vi.waitFor(() => expect(terms).toHaveLength(1))
+    expect(terms[0]).toMatchObject({
+      homeEdits: [
+        {
+          kind: 'json-key',
+          file: '/state/agent-home/.claude/.claude.json',
+          path: ['projects', '/project', 'hasTrustDialogAccepted'],
+          value: true,
+          serves: 'workspace-trust',
+        },
+      ],
+      requestedMode: 'auto',
+      unmet: [],
+    })
+    expect(ports.spawned[0]?.env).toMatchObject({
+      CLAUDE_CONFIG_DIR: '/state/agent-home/.claude',
     })
   })
 

@@ -37,7 +37,7 @@
 // interop is verified by a live run, recorded in VERIFY.
 
 import { randomUUID } from 'node:crypto'
-import type { HeadlessTurnEvent } from '@podium/protocol'
+import type { HeadlessTurnEvent, SessionPosture } from '@podium/protocol'
 import { type BoundCommand, harnessCommand } from '../../../bound-command.js'
 import type { HarnessContext } from '../../../harness-context-types.js'
 import { type AgentTermsInput, agentLaunchTerms } from '../../../launch-terms.js'
@@ -58,14 +58,16 @@ export { HeadlessTurnFailure }
 export const CLAUDE_STREAM_INTERRUPT_ACK_MS = 5_000
 
 const EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'max'])
-const PERMISSION_MODES = new Set([
-  'default',
-  'acceptEdits',
-  'auto',
-  'bypassPermissions',
-  'plan',
-  'dontAsk',
-])
+
+/**
+ * The person picked Claude's own `bypassPermissions` mode. The posture section
+ * asks for the mode (`--permission-mode`); the CLI also needs
+ * `--allow-dangerously-skip-permissions` to make it selectable, and as root
+ * `IS_SANDBOX=1` ({@link claudeStreamEnvOverlay}).
+ */
+export function asksBypassPermissions(posture: SessionPosture): boolean {
+  return typeof posture.mode === 'object' && posture.mode.native === 'bypassPermissions'
+}
 
 /**
  * THE TURN, as this family reads it: prompt facts plus supervisor facts. The
@@ -80,9 +82,6 @@ export interface ClaudeStreamTurnSpec {
   contextPrompt?: string
   /** The raw MCP config JSON ({ mcpServers: { name: { url, headers } } }). */
   mcpConfig?: string
-  /** Tools pre-approved so they run headlessly without a permission prompt. */
-  allowedTools?: string[]
-  permissionMode?: string
   /** Fail-closed capability request. `none` means the adapter must remove every tool. */
   toolPolicy?: 'none'
   /** Harness session id to resume; absent = first turn. */
@@ -104,7 +103,11 @@ export interface ClaudeStreamTurnSpec {
  *
  * Mirrors what the SDK itself passes when it spawns the CLI (bundle-read):
  * `--output-format stream-json --verbose --input-format stream-json`, then
- * model/effort/permission/tool flags. The system prompt is NOT argv — the SDK
+ * model/effort flags. The permission mode and the allow rules are the posture
+ * section's (POD-6858): this builder adds neither. It keeps
+ * `--permission-prompt-tool stdio`, because routing asks through the protocol
+ * is what an engine is, and the bypass companion flag for a native
+ * `bypassPermissions` pick. The system prompt is NOT argv — the SDK
  * carries it in the `initialize` control payload (see `initializePayload`),
  * and so do we. MCP servers ride `--mcp-config` as INLINE JSON (the SDK's
  * shape, not the `-p` path's staged file). `toolPolicy: 'none'` removes tools
@@ -119,8 +122,7 @@ export function buildClaudeStreamInvocation(
   context: Pick<HarnessContext, 'installation'>,
   terms: AgentTermsInput & { readonly mode: LaunchMode },
 ): BoundCommand {
-  const mode: string =
-    spec.permissionMode && PERMISSION_MODES.has(spec.permissionMode) ? spec.permissionMode : 'auto'
+  const toolless = spec.toolPolicy === 'none'
   const args = [
     '--output-format',
     'stream-json',
@@ -132,16 +134,13 @@ export function buildClaudeStreamInvocation(
     // the only sign that the session already held a line and skipped it
     // (POD-4836); see `ClaudeStreamTurnAcceptance`.
     '--replay-user-messages',
-    '--permission-mode',
-    mode,
-    ...(mode === 'bypassPermissions' ? ['--allow-dangerously-skip-permissions'] : []),
+    ...(!toolless && asksBypassPermissions(terms.posture.posture)
+      ? ['--allow-dangerously-skip-permissions']
+      : []),
     ...(spec.model && spec.model !== 'auto' ? ['--model', spec.model] : []),
     ...(spec.effort && EFFORT_LEVELS.has(spec.effort) ? ['--effort', spec.effort] : []),
     ...(spec.structuredPermissions ? ['--permission-prompt-tool', 'stdio'] : []),
-    ...(spec.allowedTools && spec.allowedTools.length > 0 && spec.toolPolicy !== 'none'
-      ? ['--allowedTools', spec.allowedTools.join(',')]
-      : []),
-    ...(spec.toolPolicy === 'none' ? ['--tools', ''] : []),
+    ...(toolless ? ['--tools', ''] : []),
     ...(spec.mcpConfig && spec.toolPolicy !== 'none'
       ? ['--mcp-config', mcpConfigInline(spec.mcpConfig)]
       : []),

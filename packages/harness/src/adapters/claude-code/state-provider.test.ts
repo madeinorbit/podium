@@ -53,6 +53,23 @@ describe('claude-code instrumentation', () => {
     expect(parse(true).hooks).toEqual(parse(false).hooks)
   })
 
+  it('carries the launch terms that are settings keys, with or without the theme seed (POD-6858, POD-6884)', () => {
+    for (const seedTheme of [true, false, undefined]) {
+      const settings = JSON.parse(
+        claudeCodeStateProvider.instrumentation({
+          endpointUrl: URL,
+          settingsPath: '/x.json',
+          ...(seedTheme === undefined ? {} : { seedTheme }),
+        }).file?.contents ?? '',
+      ) as Record<string, unknown>
+      expect(settings).toMatchObject({
+        skipAutoPermissionPrompt: true,
+        skipDangerousModePermissionPrompt: true,
+        enableAllProjectMcpServers: true,
+      })
+    }
+  })
+
   it('settings file is valid JSON wiring every lifecycle event to the http endpoint', () => {
     const instr = claudeCodeStateProvider.instrumentation({
       endpointUrl: URL,
