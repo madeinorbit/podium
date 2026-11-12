@@ -15,7 +15,12 @@ import { hashPassword, isPasswordHash, verifyPasswordHash } from '@podium/runtim
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
-import { createMemberOfRequest, type MemberRefusal, refusalAnswer } from './member-of-request'
+import {
+  createMemberOfRequest,
+  isNearbyProxyAddress,
+  type MemberRefusal,
+  refusalAnswer,
+} from './member-of-request'
 
 /** Each sign-in comes from an address of its own: the library limits sign-ins per address. */
 let addresses = 0
@@ -265,6 +270,131 @@ describe('memberOfRequest', () => {
     ).toEqual({ kind: 'https_required' })
   })
 
+  it('a source churning made-up addresses is throttled alone; members elsewhere still sign in', async () => {
+    // Without a source budget, made-up addresses fill the lock table; a full
+    // table must deny nobody else (POD-6754 finding F1, review).
+    const from = (clientAddress: string) =>
+      ({ scheme: 'https', sameMachine: false, clientAddress }) as const
+    const attempt = (email: string, password: string, clientAddress: string) =>
+      workspace.core.signIn.password(
+        { email, password, device: { kind: 'browser' }, delivery: 'cookie' },
+        from(clientAddress),
+      )
+    const answers = []
+    for (let n = 0; n < 40; n += 1) {
+      answers.push(await attempt(`made-up-${n}@example.test`, 'guess', '198.51.100.77'))
+    }
+    expect(
+      answers.slice(0, 30).every((answer) => 'refused' in answer && answer.refused === 'invalid'),
+    ).toBe(true)
+    expect(
+      answers.slice(30).every((answer) => 'refused' in answer && answer.refused === 'throttled'),
+    ).toBe(true)
+    // The attacking source is refused even with the right password...
+    expect(await attempt('bob@example.test', 'bob pw 22', '198.51.100.77')).toMatchObject({
+      refused: 'throttled',
+    })
+    // ...and Bob, from his own address, is not.
+    expect('refused' in (await attempt('bob@example.test', 'bob pw 22', '198.51.100.78'))).toBe(
+      false,
+    )
+  })
+
+  it('a spoofed X-Forwarded-For does not opt a client out of its source budget', async () => {
+    // Podium ends TLS itself and the peer is public: forwarding headers are the
+    // client's own word, so the peer is budgeted (POD-6754 finding F1, review).
+    const { factsOf } = resolver()
+    const attempt = (email: string, password: string, peer: string, spoofed: string) =>
+      workspace.core.signIn.password(
+        { email, password, device: { kind: 'browser' }, delivery: 'cookie' },
+        factsOf(
+          request(
+            'https://podium.example/auth/login',
+            { 'x-forwarded-for': spoofed, 'x-real-ip': spoofed },
+            peer,
+          ),
+        ),
+      )
+    const answers = []
+    for (let n = 0; n < 31; n += 1) {
+      answers.push(
+        await attempt(`made-up-${n}@example.test`, 'guess', '203.0.113.66', `10.0.0.${n}`),
+      )
+    }
+    expect(
+      answers.slice(0, 30).every((answer) => 'refused' in answer && answer.refused === 'invalid'),
+    ).toBe(true)
+    expect(answers[30]).toMatchObject({ refused: 'throttled' })
+    // Another client is not affected.
+    expect(
+      'refused' in (await attempt('bob@example.test', 'bob pw 22', '198.51.100.20', '10.0.0.1')),
+    ).toBe(false)
+  })
+
+  it('an unknown source keeps the per-identifier budget and no shared library bucket', async () => {
+    // A source is unknown behind a nearby proxy no hop is trusted for. Its
+    // failures charge no source, and the library must not fall back to one
+    // bucket shared by every caller (POD-6754 finding F1, review).
+    const attempt = (email: string, password: string) =>
+      workspace.core.signIn.password(
+        { email, password, device: { kind: 'browser' }, delivery: 'cookie' },
+        { scheme: 'https', sameMachine: false, clientAddress: null },
+      )
+    const answers = []
+    for (let n = 0; n < 40; n += 1)
+      answers.push(await attempt(`made-up-${n}@example.test`, 'guess'))
+    expect(answers.every((answer) => 'refused' in answer && answer.refused === 'invalid')).toBe(
+      true,
+    )
+    for (let n = 0; n < 4; n += 1) {
+      expect(await attempt('alice@example.test', 'not alice')).toEqual({ refused: 'invalid' })
+    }
+    expect('refused' in (await attempt('bob@example.test', 'bob pw 22'))).toBe(false)
+    // The per-identifier layer still holds on its own.
+    for (let n = 0; n < 4; n += 1) await attempt('alice@example.test', 'not alice')
+    expect(await attempt('alice@example.test', 'alice pw 1')).toMatchObject({
+      refused: 'throttled',
+    })
+  })
+
+  it('knows which peers can only be a nearby proxy', () => {
+    const nearby = [
+      '10.1.2.3',
+      '127.0.0.1',
+      '172.16.0.1',
+      '172.31.255.255',
+      '192.168.1.20',
+      '100.64.0.1',
+      '100.127.255.254',
+      '169.254.1.1',
+      '::ffff:10.0.0.1',
+      '::1',
+      'fd12:3456::1',
+      'fc00::1',
+      'fe80::1',
+      '[fe80::1%eth0]',
+      'febf::1',
+    ]
+    const other = [
+      '172.15.0.1',
+      '172.32.0.1',
+      '100.63.255.255',
+      '100.128.0.1',
+      '203.0.113.5',
+      '8.8.8.8',
+      '::ffff:203.0.113.5',
+      '2001:db8::1',
+      'fc::1',
+      'fe7f::1',
+      'fec0::1',
+      '',
+      'not an address',
+    ]
+    expect(nearby.filter((address) => !isNearbyProxyAddress(address))).toEqual([])
+    expect(other.filter((address) => isNearbyProxyAddress(address))).toEqual([])
+    expect(isNearbyProxyAddress(undefined)).toBe(false)
+  })
+
   it('works out the connection facts at the server boundary', () => {
     const { factsOf } = resolver()
     expect(factsOf(request('http://127.0.0.1:18787/x', {}, '127.0.0.1'))).toEqual({
@@ -272,10 +402,33 @@ describe('memberOfRequest', () => {
       sameMachine: true,
       clientAddress: '127.0.0.1',
     })
-    // No trusted hop: a forwarded scheme is not read, and it marks the request as proxied.
+    // No trusted hop: a forwarded scheme is not read, and it marks the request as
+    // proxied. Over plain HTTP from a nearby proxy's address, the peer is shared
+    // by every client behind it, so the source is unknown.
     expect(
       factsOf(request('http://127.0.0.1:18787/x', { 'x-forwarded-proto': 'https' }, '127.0.0.1')),
-    ).toEqual({ scheme: 'http', sameMachine: false, clientAddress: '127.0.0.1' })
+    ).toEqual({ scheme: 'http', sameMachine: false, clientAddress: null })
+    expect(
+      factsOf(
+        request('http://podium.example/x', { 'x-forwarded-for': '203.0.113.5' }, '172.18.0.2'),
+      ),
+    ).toEqual({ scheme: 'http', sameMachine: false, clientAddress: null })
+    // A public peer is budgeted by itself, whatever it sends.
+    expect(
+      factsOf(request('http://podium.example/x', { 'x-forwarded-for': '10.0.0.1' }, '203.0.113.5')),
+    ).toEqual({ scheme: 'http', sameMachine: false, clientAddress: '203.0.113.5' })
+    // Podium ended TLS itself: the peer is budgeted, even a nearby one.
+    expect(
+      factsOf(
+        request('https://podium.example/x', { 'x-forwarded-for': '203.0.113.5' }, '172.18.0.2'),
+      ),
+    ).toEqual({ scheme: 'https', sameMachine: false, clientAddress: '172.18.0.2' })
+    // A direct client keeps its own address.
+    expect(factsOf(request('https://podium.example/x', {}, '203.0.113.5'))).toEqual({
+      scheme: 'https',
+      sameMachine: false,
+      clientAddress: '203.0.113.5',
+    })
     const trusting = createMemberOfRequest({
       identity: workspace,
       users: store.users,

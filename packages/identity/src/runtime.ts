@@ -323,7 +323,15 @@ export async function createRuntime(config: IdentityConfig): Promise<Runtime> {
       rateLimit: {
         enabled: true,
         storage: config.rateLimit.storage,
-        customRules: { '/verify-email': { window: 10, max: 3 } },
+        customRules: {
+          '/verify-email': { window: 10, max: 3 },
+          // With no client address the library would put every caller in one
+          // shared bucket: three sign-ins per ten seconds for the whole server.
+          // An unknown source is not limited here; the sign-in budget's
+          // per-identifier layer still is (POD-6754 finding F1, review).
+          '/sign-in/email': (request, current) =>
+            request.headers.get(CLIENT_ADDRESS_HEADER) ? current : false,
+        },
       },
       disabledPaths: DISABLED_LIBRARY_PATHS,
       advanced: {

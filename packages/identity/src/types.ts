@@ -178,7 +178,11 @@ export interface ConnectionFacts {
   scheme: 'https' | 'http'
   /** The peer is this machine: loopback peer address, loopback host, no proxy hop. */
   sameMachine: boolean
-  /** The client's address for throttling: the peer, or the trusted hop's value. null: unknown. */
+  /**
+   * The client's address for throttling: the peer, or the trusted hop's value.
+   * null: unknown, e.g. behind a proxy no hop is trusted for, where the peer is
+   * shared by every client. An unknown source has no per-source budget.
+   */
   clientAddress: string | null
 }
 

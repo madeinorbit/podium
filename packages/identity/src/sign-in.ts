@@ -1,7 +1,7 @@
 /** Password sign-in and sign-out (specification, sections 2.4, 7.2 and 13.4). */
 import type { Credentials } from './credentials'
 import type { Configuration, Runtime } from './runtime'
-import { inGeneratedDomain, normaliseEmail } from './secrets'
+import { inGeneratedDomain, normaliseEmail, sha256Hex } from './secrets'
 import {
   accountByEmail,
   deleteEarlierSignInsOfDevice,
@@ -10,52 +10,243 @@ import {
 } from './statements'
 import type { ConnectionFacts, IssuedSignIn, SignInOperations, SignInRefusal } from './types'
 
-const MAX_FAILURES = 8
-const LOCK_MS = 5 * 60_000
-const MAX_TRACKED = 10_000
-/** The key of a sign-in that sent no email. No address can equal it. */
+/** The key of a sign-in that sent no email. No address's key can equal it. */
 const NO_EMAIL_KEY = '\u0000no-email'
 
-/**
- * The per-identifier budget: eight failures lock the identifier for five
- * minutes. In memory, per process; at most 10,000 identifiers are tracked.
- */
-export class SignInThrottle {
-  private readonly entries = new Map<string, { failures: number; lockedUntil: number }>()
+/** What one lockout layer allows before it locks a key, and how much it keeps. */
+export interface LockoutLimits {
+  /** Failures that lock the key. */
+  maxFailures: number
+  /** How long a lock lasts. */
+  lockMs: number
+  /** Failures older than this no longer count; Infinity: they count until cleared. */
+  windowMs: number
+  /** Keys with failures but no lock. The oldest makes room for a new one. */
+  maxCounts: number
+  /** Live locks. A live lock is never evicted. */
+  maxLocks: number
+}
 
-  /** Seconds until the identifier may try again, or 0. */
+/**
+ * Eight failures lock an identifier for five minutes. Every typed address
+ * counts the same way, whether or not it belongs to anybody, so the throttle
+ * says nothing about who is a member.
+ *
+ * This layer must hold alone: a source can be unknown, or shared by every
+ * client behind a proxy. Each failure it counts has cost one password
+ * verification (finding F4), so filling 100,000 locks and then 20,000 holds
+ * takes nearly a million verifications inside five minutes, far beyond what a
+ * server's hashing can do. Only past that is a new identifier left uncounted
+ * until a lock ends; no other identifier is ever refused for it.
+ */
+export const IDENTIFIER_LIMITS: LockoutLimits = {
+  maxFailures: 8,
+  lockMs: 5 * 60_000,
+  windowMs: Number.POSITIVE_INFINITY,
+  maxCounts: 20_000,
+  maxLocks: 100_000,
+}
+
+/**
+ * Thirty failures in five minutes lock a known source address for five
+ * minutes, so one source can lock at most three identifiers per window and
+ * cannot spend the server's hashing on thousands of addresses. It needs a
+ * source that is one client: an unknown source (null) is not budgeted.
+ */
+export const SOURCE_LIMITS: LockoutLimits = {
+  maxFailures: 30,
+  lockMs: 5 * 60_000,
+  windowMs: 5 * 60_000,
+  maxCounts: 10_000,
+  maxLocks: 50_000,
+}
+
+interface Count {
+  failures: number
+  since: number
+  /** A lock kept in the count while the lock table is full; 0: none. */
+  heldUntil: number
+}
+
+/**
+ * One in-memory lockout layer: failures per key, and locks that end on their
+ * own. Locks are kept apart from the failure counts.
+ *
+ * - A live lock is never evicted, so churn through other keys cannot lift it
+ *   (POD-6754 finding F1). Only failure counts make room for new keys.
+ * - A full layer never refuses a key it has not locked, so filling it denies
+ *   nobody else. When the lock table is full, a key that reaches its limit is
+ *   held in its count instead: refused itself, and not evicted while held.
+ * - Memory is bounded by `maxCounts` and `maxLocks`. When every count is a live
+ *   hold too, a new key is not counted until one ends.
+ */
+export class Lockouts {
+  /** Failures of keys without a lock, oldest first. */
+  private readonly counts = new Map<string, Count>()
+  /** When each locked key may try again. */
+  private readonly locks = new Map<string, number>()
+
+  constructor(private readonly limits: LockoutLimits) {}
+
+  /** Seconds until the key may try again, or 0. */
   lockedFor(key: string, now: number): number {
-    const entry = this.entries.get(key)
-    if (!entry) return 0
-    if (entry.lockedUntil > now) return Math.ceil((entry.lockedUntil - now) / 1000)
-    if (entry.lockedUntil !== 0) this.entries.delete(key)
-    return 0
+    const lockedUntil = this.locks.get(key)
+    if (lockedUntil !== undefined) {
+      if (lockedUntil > now) return secondsUntil(lockedUntil, now)
+      this.locks.delete(key)
+      return 0
+    }
+    const heldUntil = this.counts.get(key)?.heldUntil ?? 0
+    return heldUntil > now ? secondsUntil(heldUntil, now) : 0
   }
 
   failed(key: string, now: number): void {
-    let entry = this.entries.get(key)
-    if (!entry) {
-      if (this.entries.size >= MAX_TRACKED) this.evict(now)
-      entry = { failures: 0, lockedUntil: 0 }
-      this.entries.set(key, entry)
+    if (this.lockedFor(key, now) > 0) return
+    const current = this.counts.get(key)
+    // A hold that ended, like an ended lock, leaves a fresh budget.
+    const counted =
+      current && current.heldUntil === 0 && now - current.since < this.limits.windowMs
+        ? current
+        : undefined
+    const failures = (counted?.failures ?? 0) + 1
+    let heldUntil = 0
+    if (failures >= this.limits.maxFailures) {
+      this.endLocks(now)
+      if (this.locks.size < this.limits.maxLocks) {
+        this.counts.delete(key)
+        this.locks.set(key, now + this.limits.lockMs)
+        return
+      }
+      heldUntil = now + this.limits.lockMs
     }
-    entry.failures += 1
-    if (entry.failures >= MAX_FAILURES) entry.lockedUntil = now + LOCK_MS
+    if (!current && this.counts.size >= this.limits.maxCounts && !this.makeRoom(now)) return
+    this.counts.set(key, { failures, since: counted?.since ?? now, heldUntil })
   }
 
-  succeeded(key: string): void {
-    this.entries.delete(key)
+  cleared(key: string): void {
+    this.counts.delete(key)
+    this.locks.delete(key)
   }
 
-  /** Drops locks that ended, then the oldest entry, so the map never grows past its bound. */
-  private evict(now: number): void {
-    for (const [key, entry] of this.entries) {
-      if (entry.lockedUntil !== 0 && entry.lockedUntil <= now) this.entries.delete(key)
-    }
-    if (this.entries.size < MAX_TRACKED) return
-    const oldest = this.entries.keys().next().value
-    if (oldest !== undefined) this.entries.delete(oldest)
+  get size(): { counts: number; locks: number } {
+    return { counts: this.counts.size, locks: this.locks.size }
   }
+
+  /** Drops the oldest count that is not a live hold. False when every count is one. */
+  private makeRoom(now: number): boolean {
+    for (const [key, count] of this.counts) {
+      if (count.heldUntil > now) continue
+      this.counts.delete(key)
+      return true
+    }
+    return false
+  }
+
+  /** Drops the locks that ended. Locks are set in time order, so the scan stops at a live one. */
+  private endLocks(now: number): void {
+    for (const [key, lockedUntil] of this.locks) {
+      if (lockedUntil > now) return
+      this.locks.delete(key)
+    }
+  }
+}
+
+function secondsUntil(until: number, now: number): number {
+  return Math.ceil((until - now) / 1000)
+}
+
+/**
+ * The key of a source address. An IPv6 client is free to use any address in
+ * its /64, so the /64 is the source; IPv4 and anything unreadable count whole.
+ */
+export function sourceKeyOf(address: string): string {
+  const bare = address
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+    .replace(/%.*$/, '')
+  if (!bare.includes(':') || bare.includes('.')) return bare.slice(0, 64)
+  const halves = bare.split('::')
+  if (halves.length > 2) return bare.slice(0, 64)
+  const head = halves[0] ? halves[0].split(':') : []
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(':') : []
+  const missing = 8 - head.length - tail.length
+  if (missing < 0 || (halves.length === 1 && missing !== 0)) return bare.slice(0, 64)
+  const groups = [...head, ...Array<string>(missing).fill('0'), ...tail]
+  if (!groups.every((group) => /^[0-9a-f]{1,4}$/.test(group))) return bare.slice(0, 64)
+  return `${groups
+    .slice(0, 4)
+    .map((group) => group.replace(/^0+(?=.)/, ''))
+    .join(':')}::/64`
+}
+
+/**
+ * The sign-in budget, two layers deep. Each identifier has eight failures,
+ * then five minutes' lock. Each known source address has thirty failures in
+ * five minutes, which caps how many identifier locks one source can make. A
+ * refusal for either layer names only the identifier or source that earned it.
+ * In memory, per process.
+ */
+export class SignInThrottle {
+  private readonly identifiers: Lockouts
+  private readonly sources: Lockouts
+
+  constructor(
+    limits: { identifier?: Partial<LockoutLimits>; source?: Partial<LockoutLimits> } = {},
+  ) {
+    this.identifiers = new Lockouts({ ...IDENTIFIER_LIMITS, ...limits.identifier })
+    this.sources = new Lockouts({ ...SOURCE_LIMITS, ...limits.source })
+  }
+
+  /** Seconds until this identifier from this source may try again, or 0. */
+  lockedFor(identifier: string, source: string | null, now: number): number {
+    const sourceKey = budgetedSource(source)
+    const fromSource = sourceKey === undefined ? 0 : this.sources.lockedFor(sourceKey, now)
+    return Math.max(fromSource, this.identifiers.lockedFor(identifierKeyOf(identifier), now))
+  }
+
+  failed(identifier: string, source: string | null, now: number): void {
+    const sourceKey = budgetedSource(source)
+    if (sourceKey !== undefined) this.sources.failed(sourceKey, now)
+    this.identifiers.failed(identifierKeyOf(identifier), now)
+  }
+
+  /** A success clears the identifier, never the source: one good sign-in buys no guesses. */
+  succeeded(identifier: string): void {
+    this.identifiers.cleared(identifierKeyOf(identifier))
+  }
+
+  get size(): {
+    identifiers: { counts: number; locks: number }
+    sources: { counts: number; locks: number }
+  } {
+    return { identifiers: this.identifiers.size, sources: this.sources.size }
+  }
+}
+
+/**
+ * The source key a failure is charged to, or undefined for none. A loopback
+ * source is not budgeted: behind a reverse proxy on this machine with no
+ * trusted hop configured, every client arrives from loopback, and locking that
+ * one source would lock everybody out.
+ */
+function budgetedSource(source: string | null): string | undefined {
+  if (source === null) return undefined
+  const bare = source
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+  const loopback =
+    bare.startsWith('127.') ||
+    bare.startsWith('::ffff:127.') ||
+    bare === '::1' ||
+    bare === '0:0:0:0:0:0:0:1'
+  return loopback ? undefined : sourceKeyOf(source)
+}
+
+/** A fixed-size key (128 bits of a hash), so a long typed address costs no more memory than a short one. */
+function identifierKeyOf(identifier: string): string {
+  return identifier === NO_EMAIL_KEY ? identifier : sha256Hex(identifier).slice(0, 32)
 }
 
 /** The session cookie the library set on a response, as the signed value. */
@@ -96,10 +287,11 @@ export function signInOperations(runtime: Runtime, credentials: Credentials): Si
       const typed = input.email === undefined ? undefined : normaliseEmail(input.email)
       const key = typed ?? NO_EMAIL_KEY
       const now = runtime.now().getTime()
-      const locked = throttle.lockedFor(key, now)
+      const source = facts.clientAddress
+      const locked = throttle.lockedFor(key, source, now)
       if (locked > 0) return { refused: 'throttled', retryAfterSeconds: locked }
       const refuse = (): SignInRefusal => {
-        throttle.failed(key, now)
+        throttle.failed(key, source, now)
         return { refused: 'invalid' }
       }
 

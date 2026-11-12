@@ -20,11 +20,87 @@
  * everything behind it on the same request reads the same answer.
  */
 import type { ConnectionFacts, DeviceKind, WorkspaceIdentity } from '@podium/identity'
+import { createLogger } from '@podium/logger'
 import { asUserId, type UserId, type UserRole } from '@podium/model'
 import { type HttpsRequiredRefusal, httpsRequiredRefusal, signInHttpsUrl } from '@podium/protocol'
 import { type UserCommandPrincipal, userCommandPrincipal } from '../command-principal'
 import { isHostLocalRequest } from '../readiness-boundary'
 import { clientAddressForRequest, isSecureRequest } from '../request-scheme'
+
+const log = createLogger('server:identity')
+
+/** Headers a reverse proxy adds when it forwards a request for somebody else. */
+const FORWARDING_HEADERS = [
+  'forwarded',
+  'x-forwarded-for',
+  'x-forwarded-host',
+  'x-forwarded-proto',
+  'x-real-ip',
+] as const
+
+/**
+ * The client's address for throttling, or null when it cannot be known.
+ *
+ * Forwarding headers are the client's own word unless a proxy wrote them, so
+ * they change the answer only where a proxy is the likely writer (POD-6754
+ * finding F1, review):
+ * - Podium ended TLS itself (the URL is https): the peer is budgeted, headers
+ *   or not. Behind a re-encrypting proxy with no trusted hop, every client then
+ *   shares the proxy's budget; the operator is told to set the hops.
+ * - Plain HTTP, no trusted hop, forwarding headers and a peer that can only be
+ *   a nearby proxy (private, unique-local, link-local, carrier-grade NAT or
+ *   loopback): the peer is shared by every client, so the source is unknown and
+ *   only the per-identifier budget applies.
+ * - A public peer is budgeted by itself, whatever headers it sends.
+ */
+function throttlingAddress(
+  request: Request,
+  trustedProxyHops: number,
+  sameMachine: boolean,
+  warnUntrustedProxy: () => void,
+): string | null {
+  const peer = request.headers.get('x-podium-peer-address') ?? undefined
+  if (
+    trustedProxyHops <= 0 &&
+    !sameMachine &&
+    FORWARDING_HEADERS.some((name) => request.headers.has(name)) &&
+    isNearbyProxyAddress(peer)
+  ) {
+    warnUntrustedProxy()
+    if (!request.url.startsWith('https:')) return null
+  }
+  return clientAddressForRequest(request, peer, trustedProxyHops) ?? null
+}
+
+/**
+ * An address only a proxy near this server would connect from: loopback,
+ * RFC 1918, carrier-grade NAT (100.64/10), link-local, or IPv6 unique-local
+ * (fc00::/7) and link-local (fe80::/10).
+ */
+export function isNearbyProxyAddress(address: string | undefined): boolean {
+  if (!address) return false
+  const bare = address
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+    .replace(/%.*$/, '')
+  const v4 = /^(?:::ffff:)?(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(bare)
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])]
+    return (
+      a === 10 ||
+      a === 127 ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 100 && b >= 64 && b <= 127) ||
+      (a === 169 && b === 254)
+    )
+  }
+  if (!bare.includes(':')) return false
+  if (bare === '::1' || bare === '0:0:0:0:0:0:0:1') return true
+  // The first group, written in full: fc00-fdff, or fe80-febf.
+  return /^f[cd][0-9a-f]{2}:/.test(bare) || /^fe[89ab][0-9a-f]:/.test(bare)
+}
 
 export type MemberResolution =
   | {
@@ -79,22 +155,36 @@ export function createMemberOfRequest(deps: {
    * `request` is the request as the HTTP app sees it: `x-podium-peer-address`
    * is the peer the native server reported, never a value the client sent.
    */
-  const factsOf = (request: Request): ConnectionFacts => ({
-    scheme: isSecureRequest(
-      request.url,
-      request.headers.get('x-forwarded-proto') ?? undefined,
-      deps.trustedProxyHops,
+  let warnedUntrustedProxy = false
+  const warnUntrustedProxy = () => {
+    if (warnedUntrustedProxy) return
+    warnedUntrustedProxy = true
+    log.warn(
+      'A request came through a reverse proxy, but PODIUM_TRUSTED_PROXY_HOPS is 0, so ' +
+        'Podium cannot tell the clients behind it apart: they share one sign-in limit ' +
+        'per address, or have none. Per-account limits still apply. Set ' +
+        'PODIUM_TRUSTED_PROXY_HOPS to the number of proxies in front of Podium.',
     )
-      ? 'https'
-      : 'http',
-    sameMachine: isHostLocalRequest(request),
-    clientAddress:
-      clientAddressForRequest(
-        request,
-        request.headers.get('x-podium-peer-address') ?? undefined,
+  }
+  const factsOf = (request: Request): ConnectionFacts => {
+    const sameMachine = isHostLocalRequest(request)
+    return {
+      scheme: isSecureRequest(
+        request.url,
+        request.headers.get('x-forwarded-proto') ?? undefined,
         deps.trustedProxyHops,
-      ) ?? null,
-  })
+      )
+        ? 'https'
+        : 'http',
+      sameMachine,
+      clientAddress: throttlingAddress(
+        request,
+        deps.trustedProxyHops,
+        sameMachine,
+        warnUntrustedProxy,
+      ),
+    }
+  }
 
   const resolve = async (request: Request): Promise<MemberResolution> => {
     const httpsRequired = (): MemberResolution => {

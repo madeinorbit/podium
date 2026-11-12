@@ -451,7 +451,7 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
   },
   {
     file: 'packages/identity/src/types.ts',
-    line: 427,
+    line: 431,
     why: 'AppliedCursor.transaction is the hosted applied-cursor port (PDM-509), bound by the server to SessionStore.transact, already classified above. The forwarding port does not introduce an independent span.',
   },
 ]
