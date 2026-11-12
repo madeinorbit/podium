@@ -4822,135 +4822,28 @@
       "encoded": "\"proposed\""
     },
     {
-      "schema": "IssueBodiesWire",
+      "schema": "IssueBriefWire",
       "variant": "minimal",
       "wire": {
-        "id": "id"
+        "id": "id",
+        "text": "text"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\"}"
+      "encoded": "{\"id\":\"id\",\"text\":\"text\"}"
     },
     {
-      "schema": "IssueBodiesWire",
+      "schema": "IssueBriefWire",
       "variant": "full",
       "wire": {
         "id": "id",
-        "brief": {
-          "digest": "brief.digest",
-          "size": 1
-        },
-        "description": {
-          "digest": "description.digest",
-          "size": 1
-        }
+        "text": "text"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"brief\":{\"digest\":\"brief.digest\",\"size\":1},\"description\":{\"digest\":\"description.digest\",\"size\":1}}"
-    },
-    {
-      "schema": "IssueBodyFieldName",
-      "variant": "minimal",
-      "wire": "brief",
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "\"brief\""
-    },
-    {
-      "schema": "IssueBodyFieldName",
-      "variant": "full",
-      "wire": "brief",
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "\"brief\""
-    },
-    {
-      "schema": "IssueBodyHeader",
-      "variant": "minimal",
-      "wire": {
-        "digest": "digest",
-        "size": 1
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"digest\":\"digest\",\"size\":1}"
-    },
-    {
-      "schema": "IssueBodyHeader",
-      "variant": "full",
-      "wire": {
-        "digest": "digest",
-        "size": 1
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"digest\":\"digest\",\"size\":1}"
-    },
-    {
-      "schema": "IssueBodyHeaders",
-      "variant": "minimal",
-      "wire": {},
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{}"
-    },
-    {
-      "schema": "IssueBodyHeaders",
-      "variant": "full",
-      "wire": {
-        "brief": {
-          "digest": "brief.digest",
-          "size": 1
-        },
-        "description": {
-          "digest": "description.digest",
-          "size": 1
-        }
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"brief\":{\"digest\":\"brief.digest\",\"size\":1},\"description\":{\"digest\":\"description.digest\",\"size\":1}}"
-    },
-    {
-      "schema": "IssueBodyWire",
-      "variant": "minimal",
-      "wire": {
-        "issueId": "issueId",
-        "field": "brief",
-        "digest": "digest",
-        "value": {
-          "unknownFixture": "value"
-        }
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"issueId\":\"issueId\",\"field\":\"brief\",\"digest\":\"digest\",\"value\":{\"unknownFixture\":\"value\"}}"
-    },
-    {
-      "schema": "IssueBodyWire",
-      "variant": "full",
-      "wire": {
-        "issueId": "issueId",
-        "field": "brief",
-        "digest": "digest",
-        "value": {
-          "unknownFixture": "value"
-        }
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"issueId\":\"issueId\",\"field\":\"brief\",\"digest\":\"digest\",\"value\":{\"unknownFixture\":\"value\"}}"
+      "encoded": "{\"id\":\"id\",\"text\":\"text\"}"
     },
     {
       "schema": "IssueCloseReason",
@@ -5347,22 +5240,36 @@
         "displayRef": "displayRef",
         "prefix": "prefix",
         "repoPath": "repoPath",
-        "unread": true,
-        "bodies": {
-          "brief": {
-            "digest": "bodies.brief.digest",
-            "size": 1
-          },
-          "description": {
-            "digest": "bodies.description.digest",
-            "size": 1
-          }
-        }
+        "unread": true
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"ready\":true,\"blocked\":true,\"deferred\":true,\"childCount\":1,\"childDoneCount\":1,\"commentCount\":1,\"sessionSummary\":{\"total\":1,\"byPhase\":{\"sessionSummary.byPhase.key\":1}},\"gitState\":{\"updatedAt\":\"gitState.updatedAt\",\"computing\":true,\"branch\":\"gitState.branch\",\"shared\":true,\"ahead\":1,\"dirtyFiles\":1,\"dirtyOwn\":1,\"commits\":[\"gitState.commits[0]\"],\"lastCommitAt\":\"gitState.lastCommitAt\",\"unpushed\":1,\"merged\":true,\"fallback\":true},\"displayRef\":\"displayRef\",\"prefix\":\"prefix\",\"repoPath\":\"repoPath\",\"unread\":true,\"bodies\":{\"brief\":{\"digest\":\"bodies.brief.digest\",\"size\":1},\"description\":{\"digest\":\"bodies.description.digest\",\"size\":1}}}"
+      "encoded": "{\"ready\":true,\"blocked\":true,\"deferred\":true,\"childCount\":1,\"childDoneCount\":1,\"commentCount\":1,\"sessionSummary\":{\"total\":1,\"byPhase\":{\"sessionSummary.byPhase.key\":1}},\"gitState\":{\"updatedAt\":\"gitState.updatedAt\",\"computing\":true,\"branch\":\"gitState.branch\",\"shared\":true,\"ahead\":1,\"dirtyFiles\":1,\"dirtyOwn\":1,\"commits\":[\"gitState.commits[0]\"],\"lastCommitAt\":\"gitState.lastCommitAt\",\"unpushed\":1,\"merged\":true,\"fallback\":true},\"displayRef\":\"displayRef\",\"prefix\":\"prefix\",\"repoPath\":\"repoPath\",\"unread\":true}"
+    },
+    {
+      "schema": "IssueDescriptionWire",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "text": "text"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"text\":\"text\"}"
+    },
+    {
+      "schema": "IssueDescriptionWire",
+      "variant": "full",
+      "wire": {
+        "id": "id",
+        "text": "text"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"text\":\"text\"}"
     },
     {
       "schema": "IssueDocuments",
