@@ -122,10 +122,16 @@ On a one-person server you are the earliest admin, so all keys and logins stay y
   both screens show the same three words, then approve the phone on the computer. The
   phone gets its own sign-in, which appears in the device list.
 
-What has been tested on phones: signing in, pairing by link and switching between
-members work in the phone web app (`/mobile` on your server) and in the Android app on
-an Android emulator. The final check of this release is still running. The iPhone app
-has not been tested with this release.
+What has been tested on phones, in the phone web app (`/mobile` on your server) and in
+the Android app on an Android emulator:
+
+- Signing in with email and password.
+- Pairing by opening the pairing link on the phone. Scanning the code with the Android
+  app's camera was not tested, because the emulator has no camera.
+- Switching between two members on one phone. Each person sees only their own work.
+  The phone keeps both people signed in.
+
+The iPhone app has not been tested with this release.
 
 ## Removing a member
 
