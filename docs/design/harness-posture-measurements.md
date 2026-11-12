@@ -64,3 +64,40 @@ Raw probe output is attached to POD-6879 as `posture-probe-raw`.
 | `--approve-for-me` and `approvals_reviewer` at the minimum version 0.147 | **Both exist.** 0.147.0 `--help` lists `--approve-for-me` ("Route approval requests through automatic review using the workspace-write sandbox"); `codex exec --approve-for-me` runs a turn. `--strict-config -c approvals_reviewer="auto_review"` is accepted, where `--strict-config -c bogus_posture_key=1` is refused. |
 | Does `git commit` succeed in a worktree under `workspace-write`? | **No.** `codex exec -s workspace-write` in a linked worktree: `fatal: Unable to create '<main>/.git/worktrees/wt/index.lock': Read-only file system`. The same happens in the main checkout itself (`<main>/.git/index.lock`): Codex mounts `.git` read-only inside writable roots. Under `codex sandbox -P :workspace`, adding `<main>/.git` through `-c sandbox_workspace_write.writable_roots=[…]` did not lift it (a permission profile may not read that key; not pursued). A commit needs an escalation (an ask under `on-request`, the reviewer under `--approve-for-me`) or a rule. |
 | Shared background server | 0.167 TUI connects to a shared background app-server unless `--no-daemon`; the daemon is per Codex home. Noted, not measured further. |
+
+## OpenCode 1.18.35
+
+All turns used the default free model (OpenCode Zen, "Big Pickle"), so no
+sign-in was needed. Config was passed inline with `OPENCODE_CONFIG_CONTENT`.
+
+| Question | Result |
+|---|---|
+| Fresh home, fresh folder | Straight to the prompt. No trust prompt, no update or first-run menu; one tip line ("Run /connect to add an AI provider"). The binary was not upgraded by any run (still 1.18.35 afterwards). |
+| Default policy for a shell command | `podium --version` ran with no prompt. |
+| `{"permission":{"bash":"ask"}}` | "△ Permission required … Allow once / Allow always / Reject". |
+| Allow-rule syntax the inline config accepts | **`{"permission":{"bash":{"*":"ask","podium *":"allow"}}}`**: the object form with glob keys. With it, `podium --version` ran with no prompt while every other command still asks. |
+| What `--auto` changes | Every rule that would ask is approved (deny rules still hold). With `bash: "ask"` and `--auto`, `podium --version` ran with no prompt. The footer shows `Build auto`; without it, `Build`. |
+| Reading a file outside the folder | **Asks by default**: "← Access external directory <dir> … Allow once / Allow always / Reject". So R5 (attachments) is not met by default. |
+| Rule for the uploads folder | **`{"permission":{"external_directory":{"<abs dir>/*":"allow"}}}`** (`/**` works too). With it the read ran with no prompt. |
+
+## Grok 1.0.70
+
+| Question | Result |
+|---|---|
+| Fresh home, not signed in | Device-code sign-in screen. |
+| Signed in, fresh folder | Straight to the prompt. **No folder prompt.** A "New /learn skill!" line inside the welcome box; nothing modal. |
+| `--allow` grammar | Claude-style rules: `--allow 'Bash(podium *)'`. Measured in the TUI under `--permission-mode default`: `podium --version` ran with no prompt; without the flag it showed a five-row approval menu. Docs (bundled user guide, `14-headless-mode.md`, `22-permissions-and-safety.md`): `Bash(...)` `*` matches any characters including spaces; `Bash(cmd:*)` is prefix matching; path rules `Read(...)` use `*` and `**`; one value may hold several rules separated by commas or by a space after `)`; repeatable; aliases `--allowedTools`, `--allowed-tools`. |
+| Does `grok agent stdio` accept `--allow`? | **No.** `grok agent --allow … stdio` → "error: unexpected argument '--allow' found"; `grok agent stdio` has no permission options. The ACP `session/new` `_meta` options are `rules` (system prompt text), `systemPromptOverride`, `agentProfile`, `yoloMode`, `autoMode`. `GROK_CONFIG` is an overlay limited to soft settings: with `{"permission":{"allow":["Bash(podium *)"]}}` in it, the engine still asked. |
+| Does its engine ask before running `podium`? | **Yes, in default mode**: `session/request_permission` (kind `execute`, "Execute `podium --version`") reaches the ACP client. With `_meta.autoMode: true` the classifier let `podium --version` run with no request (one run; the docs say a call the classifier will not allow becomes a permission request, or a failure in a non-interactive session). |
+| Per-launch allow channel for the engine | **None.** The documented places for an allow rule outside the command line are `~/.grok/config.toml` `[permission] allow = [...]`, a project `.grok/config.toml`, and `.claude/settings.json` (user or project). Grok also reads the user's `~/.claude/settings.json` permission rules. |
+| Reading outside the folder | `read_file`, `list_dir` and `grep` are read-only tools that "run without prompting, in every mode" unless a deny rule or hook blocks them (docs). Not measured. |
+
+## Pi 1.5.0
+
+| Question | Result |
+|---|---|
+| Fresh home, fresh folder (signed in or not) | **"Trust project folder?"** with "→ Trust" selected, in an empty `git init` folder and in a plain empty folder. (Section 2 of the design saw no prompt in an empty folder on 1.5.2 with an existing home; with a fresh home, 1.5.0 asks every time.) |
+| `--approve` | **Removes it**: straight to the prompt. |
+| First-run behaviour | Downloads `fd` into `~/.pi/agent/bin/` on first start (a network fetch, not a menu). |
+| Update notice | "Update Available: New version 1.5.2 is available. Run pi update". A transcript notice, not modal. `PI_SKIP_VERSION_CHECK=1` removes it. `--offline` (`PI_OFFLINE=1`) also removes it but skips the `fd` download too. |
+| Approval gate | None to measure: Pi has no permission prompts (adapter note, unchanged). |
