@@ -147,7 +147,7 @@ export function SettingsFrame({
   const results = searchSettings(query, pages).filter((result) => {
     if (result.page.key === 'members' && result.section) return viewer.sections.includes('people')
     if (result.page.key === 'machines' && result.label === 'Add a machine')
-      return viewer.sections.includes('machines')
+      return viewer.capabilities?.addMachine === true
     return true
   })
   const searching = query.trim().length > 0

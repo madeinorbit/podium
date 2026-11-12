@@ -23,6 +23,7 @@ export const MachinesPanel = observer(function MachinesPanel() {
   const { openTakeover } = useSettingsFrame()
   const viewer = useAdminSections()
   const admin = viewer.status === 'ready' && viewer.sections.includes('machines')
+  const canAdd = viewer.status === 'ready' && viewer.capabilities?.addMachine === true
   const view = useMemo(() => new MachinesSettings(machines, admin), [machines, admin])
   useMemberRoster(true)
   const hosting = useEnableHosting(trpc)
@@ -31,7 +32,7 @@ export const MachinesPanel = observer(function MachinesPanel() {
 
   return (
     <>
-      {admin && (
+      {canAdd && (
         <SettingsPageActions>
           <Button
             type="button"
@@ -70,9 +71,9 @@ export const MachinesPanel = observer(function MachinesPanel() {
           <div className="settings-list-note">
             <p className="settings-label">No machines yet</p>
             <p className="settings-prose mt-1">
-              {admin
+              {canAdd
                 ? 'Add a machine to run agents in this workspace.'
-                : 'Ask an admin to let you run agents on one, or to add yours.'}
+                : 'Ask an admin to let you run agents on one.'}
             </p>
           </div>
         )}

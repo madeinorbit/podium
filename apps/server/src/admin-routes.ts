@@ -8,7 +8,9 @@
  * - `GET /auth/admin/viewer`: which sections the caller may open. Any
  *   signed-in member asks; a member who is not an admin gets none, and the
  *   client draws no admin area from that answer. It also says whether the
- *   caller is the one who sets this server up (POD-6882).
+ *   caller is the one who sets this server up (POD-6882), and answers the
+ *   caller's other {@link ViewerCapabilities}, such as adding a machine of
+ *   their own (POD-6883).
  * - `GET /auth/admin/access`: admission facts from the shared memberships.
  *   The device sign-in routes live in sign-in-routes.ts.
  * - `GET /auth/admin/audit`: the security events, newest first, as actor,
@@ -35,6 +37,21 @@ import type { UsersRepository } from './store/users'
 /** The admin area's sections, in the order the client shows them. */
 export const ADMIN_SECTIONS = ['people', 'access', 'machines', 'instance', 'audit'] as const
 export type AdminSection = (typeof ADMIN_SECTIONS)[number]
+
+/**
+ * What the signed-in viewer may do beyond the admin sections, so the client
+ * offers a control by capability rather than by role or mode. A rendering hint
+ * with no authority: each command refuses on its own.
+ *
+ * - `addMachine`: mint an enrollment code for a new machine of their own
+ *   (`machines.pairingCode`). Every enabled member may, admin or not (POD-6883).
+ * - `setUpServer`: run first-run setup; only the workspace's earliest enabled
+ *   admin, who installed it (POD-6882).
+ */
+export interface ViewerCapabilities {
+  addMachine: boolean
+  setUpServer: boolean
+}
 
 /** How many sign-ins and events one answer carries at most. */
 export const ADMIN_PAGE_LIMIT = 200
@@ -205,7 +222,11 @@ export function registerAdminRoutes(
     const firstAdmin = who.role === 'admin' ? await users.earliestAdmin() : undefined
     return c.json({
       sections: who.role === 'admin' ? [...ADMIN_SECTIONS] : [],
-      capabilities: { setUpServer: firstAdmin?.id === who.id },
+      capabilities: {
+        // Every enabled member may bring a machine of their own (POD-6883).
+        addMachine: true,
+        setUpServer: firstAdmin?.id === who.id,
+      } satisfies ViewerCapabilities,
     })
   })
 

@@ -9,7 +9,12 @@ import { AccessSection, filterSignIns } from './access'
 
 const fixture = vi.hoisted(() => ({
   trpc: {} as Trpc,
-  viewer: { status: 'ready', sections: ['access'], retry: vi.fn() } as AdminViewer,
+  viewer: {
+    status: 'ready',
+    sections: ['access'],
+    capabilities: { addMachine: true },
+    retry: vi.fn(),
+  } as AdminViewer,
   setSettingsTab: vi.fn(),
   openTakeover: vi.fn(),
   closeTakeover: vi.fn(),
@@ -112,7 +117,12 @@ function serve({
 }
 
 beforeEach(() => {
-  fixture.viewer = { status: 'ready', sections: ['access'], retry: vi.fn() }
+  fixture.viewer = {
+    status: 'ready',
+    sections: ['access'],
+    capabilities: { addMachine: true },
+    retry: vi.fn(),
+  }
 })
 afterEach(() => {
   cleanup()
@@ -291,6 +301,7 @@ describe('Access', () => {
     fixture.viewer = {
       status: state === 'member' ? 'ready' : (state as 'loading' | 'error'),
       sections: [],
+      capabilities: { addMachine: state === 'member' },
       retry: vi.fn(),
     }
     render(<AccessSection />)

@@ -10,6 +10,7 @@ import { SettingsFrame, SettingsPageActions, useSettingsFrame } from './settings
 const admin = {
   status: 'ready' as const,
   sections: ['people', 'access', 'machines', 'instance', 'audit'],
+  capabilities: { addMachine: true },
   retry: vi.fn(),
 }
 afterEach(cleanup)
@@ -76,8 +77,9 @@ describe('settings frame', () => {
     expect(screen.queryByText(/Open someone to change their role/)).toBeNull()
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'pending invites' } })
     expect(screen.queryByRole('button', { name: 'Pending invites Members' })).toBeNull()
+    // Adding a machine of one's own is a member capability (POD-6883), not an admin action.
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'add a machine' } })
-    expect(screen.queryByRole('button', { name: 'Add a machine Machines' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Add a machine Machines' })).toBeTruthy()
   })
 
   it('searches row help and keywords across pages, then focuses and highlights the row once', async () => {

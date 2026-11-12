@@ -42,10 +42,15 @@ import { SettingsFrame } from './settings-frame'
 const admin = {
   status: 'ready' as const,
   sections: ['machines', 'access', 'people', 'instance', 'audit'],
+  capabilities: { addMachine: true },
   retry: vi.fn(),
 }
-function frame(ui: ReactElement, isAdmin = true) {
-  const viewer = isAdmin ? admin : { ...admin, sections: [] }
+type Viewer = 'admin' | 'member' | 'no-add'
+function frame(ui: ReactElement, who: Viewer = 'admin') {
+  const viewer =
+    who === 'admin'
+      ? admin
+      : { ...admin, sections: [], capabilities: { addMachine: who === 'member' } }
   return (
     <SettingsOpening>
       <AdminViewerContext.Provider value={viewer}>
@@ -61,9 +66,9 @@ function frame(ui: ReactElement, isAdmin = true) {
     </SettingsOpening>
   )
 }
-function render(isAdmin = true) {
-  const view = renderSettingsPool(frame(<MachinesPanel />, isAdmin))
-  return { ...view, refresh: () => view.rerender(frame(<MachinesPanel />, isAdmin)) }
+function render(who: Viewer = 'admin') {
+  const view = renderSettingsPool(frame(<MachinesPanel />, who))
+  return { ...view, refresh: () => view.rerender(frame(<MachinesPanel />, who)) }
 }
 function machine(over: Partial<MachineWire> & { custodian?: string | null } = {}): MachineWire {
   return {
@@ -171,10 +176,11 @@ describe('machine list and detail routing', () => {
         use: 'denied',
       }),
     ]
-    render(false)
+    render('member')
     expect(screen.getByText('The computers you look after or may run agents on.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Visibility only' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Add machine' })).toBeNull()
+    // A member may bring their own machine (POD-6883): offered by capability, not role.
+    expect(screen.getByRole('button', { name: 'Add machine' })).toBeTruthy()
     open('Shared')
     expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull()
@@ -192,6 +198,24 @@ describe('machine list and detail routing', () => {
 })
 
 describe('add machine choices', () => {
+  it('offers Add machine by the viewer capability alone', () => {
+    client()
+    render('member')
+    expect(screen.getByRole('button', { name: 'Add machine' })).toBeTruthy()
+    cleanup()
+    client()
+    render('no-add')
+    expect(screen.queryByRole('button', { name: 'Add machine' })).toBeNull()
+    expect(screen.getByText('Ask an admin to let you run agents on one.')).toBeTruthy()
+  })
+  it('a member mints a code for a machine of their own', async () => {
+    client()
+    render('member')
+    fireEvent.click(screen.getByRole('button', { name: 'Add machine' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create command' }))
+    await waitFor(() => expect(state.trpc.machines.pairingCode.mutate).toHaveBeenCalledTimes(1))
+    expect(await screen.findByText('podium join ABCD-EFGH')).toBeTruthy()
+  })
   it('mints only after the login choice, which stays fixed while the command is shown', async () => {
     client()
     render()

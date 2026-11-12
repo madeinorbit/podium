@@ -75,13 +75,14 @@ describe('who is offered the admin area', () => {
       status: 200,
       body: {
         sections: ['people', 'access', 'machines', 'instance', 'audit'],
-        capabilities: { setUpServer: true },
+        capabilities: { addMachine: true, setUpServer: true },
       },
     })
-    // Bob joined a workspace Alice set up: first-run setup is never his (POD-6882).
+    // Bob joined a workspace Alice set up: first-run setup is never his (POD-6882),
+    // yet he may add a machine of his own (POD-6883).
     expect(await get('bob', '/auth/admin/viewer')).toEqual({
       status: 200,
-      body: { sections: [], capabilities: { setUpServer: false } },
+      body: { sections: [], capabilities: { addMachine: true, setUpServer: false } },
     })
     expect((await get(null, '/auth/admin/viewer')).status).toBe(401)
   })
@@ -132,7 +133,12 @@ describe('People: the allowed actions come from the server', () => {
     const { status, body } = await get('alice', '/auth/members/list')
     expect(status).toBe(200)
     const members = await f.handle.identity.memberships.list()
-    const hosted = memberActions(members, MEMBERS.alice.id, { ...f.handle.identity.core.capabilities(), accountUrl: 'https://account.example/account', adminSignOutEverywhere: false, passwordReset: 'mail' })
+    const hosted = memberActions(members, MEMBERS.alice.id, {
+      ...f.handle.identity.core.capabilities(),
+      accountUrl: 'https://account.example/account',
+      adminSignOutEverywhere: false,
+      passwordReset: 'mail',
+    })
     expect(hosted[MEMBERS.alice.id]).toEqual([])
     expect(hosted[MEMBERS.bob.id]).not.toContain('signOutEverywhere')
     expect(body.actions).toEqual({
