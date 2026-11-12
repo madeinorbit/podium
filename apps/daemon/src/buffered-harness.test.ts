@@ -33,9 +33,47 @@ function req(overrides: Partial<BufferedHarnessRequest> = {}): BufferedHarnessRe
     requestId: 'hx-1',
     agent: 'claude-code',
     prompt: 'summarize',
+    // Every run names its folder (POD-6858); the refusal test drops it.
+    cwd: '/work/podium-test-repo',
     ...overrides,
   } as BufferedHarnessRequest
 }
+
+describe('a buffered run without a working folder (POD-6858)', () => {
+  it('is refused before anything is staged, edited or run', async () => {
+    // Its terms would otherwise trust the daemon's own working folder, and
+    // Claude's trust covers every folder below a trusted one.
+    const snapshot = vi.fn(async () => fakeSnapshot('claude-code', '/usr/bin/claude'))
+    const runChild = vi.fn(async () => ({ stdout: 'ran' }))
+    const makeTempPath = vi.fn(() => '/tmp/never.json')
+    const readFile = vi.fn(async () => undefined)
+    const writeFileAtomic = vi.fn(async () => {})
+    const writeLaunchFile = vi.fn(async () => {})
+    const { cwd: _cwd, ...noCwd } = req({ mcpConfig: JSON.stringify({ mcpServers: {} }) })
+    const result = await executeBufferedHarnessTurn(
+      { homeDir: '/home/op', harnessRuntime: undefined },
+      noCwd as BufferedHarnessRequest,
+      {
+        snapshot,
+        runChild,
+        makeTempPath,
+        prepareLaunchPorts: {
+          writeLaunchFile,
+          homeEdits: { readFile, writeFileAtomic, log: () => {} },
+          log: () => {},
+        },
+      },
+    )
+    expect(result.ok).toBe(false)
+    expect(result.output).toMatch(/no working folder \(cwd\)/)
+    expect(snapshot).not.toHaveBeenCalled()
+    expect(makeTempPath).not.toHaveBeenCalled()
+    expect(runChild).not.toHaveBeenCalled()
+    expect(readFile).not.toHaveBeenCalled()
+    expect(writeFileAtomic).not.toHaveBeenCalled()
+    expect(writeLaunchFile).not.toHaveBeenCalled()
+  })
+})
 
 describe('buffered harness compatibility (POD-4304 F09)', () => {
   it('keeps the wire frame registered with old-peer result shape', () => {

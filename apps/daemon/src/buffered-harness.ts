@@ -159,13 +159,24 @@ export async function executeBufferedHarnessTurn(
   msg: BufferedHarnessRequest,
   io?: BufferedHarnessIo,
 ): Promise<BufferedHarnessResult> {
+  // THE RUN'S FOLDER IS REQUIRED (POD-6858). A run states its launch terms
+  // against its working folder, and an agent's terms trust that folder (for
+  // Claude, every folder below it too). Without a `cwd` the only folder at
+  // hand is the daemon's own, which nobody chose: refuse before anything is
+  // staged, edited or run.
+  const workdir = msg.cwd
+  if (!workdir) {
+    return {
+      ok: false,
+      output: `harness run refused: the request names no working folder (cwd); a ${msg.agent} run states its terms against the folder it runs in`,
+    }
+  }
   const snapshotFor = io?.snapshot ?? (() => defaultSnapshot(ctx))
   const runChild = io?.runChild ?? defaultRunChild
   const writeTemp = io?.writeTemp ?? ((path: string, data: string) => writeFileSync(path, data))
   const removeTemp = io?.removeTemp ?? ((path: string) => rmSync(path, { force: true }))
   const makeTempPath = io?.makeTempPath ?? (() => join(tmpdir(), `podium-mcp-${randomUUID()}.json`))
-  const makeRuntimeDir =
-    io?.makeRuntimeDir ?? (() => join(tmpdir(), `podium-exec-${randomUUID()}`))
+  const makeRuntimeDir = io?.makeRuntimeDir ?? (() => join(tmpdir(), `podium-exec-${randomUUID()}`))
   // A buffered run has no session: its generated launch files live in a
   // folder of its own, removed with the MCP temp file below.
   const runtimeDir = makeRuntimeDir()
@@ -211,7 +222,6 @@ export async function executeBufferedHarnessTurn(
     // posture (the frame states none). A buffered run has no session, so its
     // grants name a request-scoped uploads folder, `uploads/exec-<requestId>`,
     // which holds nothing: never the parent folder and never a session's.
-    const workdir = msg.cwd ?? process.cwd()
     const repoRoot = await (io?.repoRootOf ?? repoRootOf)(workdir)
     const manifest = harnessAdapterFor(msg.agent)
     if (!manifest) throw new Error(`no harness adapter for '${msg.agent}'`)
@@ -254,7 +264,7 @@ export async function executeBufferedHarnessTurn(
       {
         timeout: msg.timeoutMs ?? BUFFERED_HARNESS_DEFAULT_TIMEOUT_MS,
         maxBuffer: BUFFERED_HARNESS_MAX_BUFFER_BYTES,
-        ...(msg.cwd ? { cwd: msg.cwd } : {}),
+        cwd: workdir,
         env: childEnv,
       },
       stdin ?? '',

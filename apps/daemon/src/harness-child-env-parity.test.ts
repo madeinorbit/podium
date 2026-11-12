@@ -183,6 +183,7 @@ async function bufferedEnv() {
       requestId: 'parity',
       agent: 'codex',
       prompt: 'p',
+      cwd: '/repo',
     } as BufferedHarnessRequest,
     {
       snapshot: async () => snapshot(),
