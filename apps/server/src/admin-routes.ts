@@ -7,7 +7,8 @@
  *
  * - `GET /auth/admin/viewer`: which sections the caller may open. Any
  *   signed-in member asks; a member who is not an admin gets none, and the
- *   client draws no admin area from that answer.
+ *   client draws no admin area from that answer. It also says whether the
+ *   caller is the one who sets this server up (POD-6882).
  * - `GET /auth/admin/access`: admission facts from the shared memberships.
  *   The device sign-in routes live in sign-in-routes.ts.
  * - `GET /auth/admin/audit`: the security events, newest first, as actor,
@@ -196,7 +197,16 @@ export function registerAdminRoutes(
   routes.get('/viewer', async (c) => {
     const who = await caller(c)
     if (!who) return c.json({ error: 'Sign in required' }, 401)
-    return c.json({ sections: who.role === 'admin' ? [...ADMIN_SECTIONS] : [] })
+    // WHO SETS UP THIS SERVER (POD-6882). First-run setup (where the server
+    // runs, its first machine and project) belongs to the workspace's earliest
+    // enabled admin: the person who installed it. Everyone else joined a
+    // workspace that already exists, admins invited later included, and is
+    // never captured by that wizard, whatever their own repo list shows.
+    const firstAdmin = who.role === 'admin' ? await users.earliestAdmin() : undefined
+    return c.json({
+      sections: who.role === 'admin' ? [...ADMIN_SECTIONS] : [],
+      capabilities: { setUpServer: firstAdmin?.id === who.id },
+    })
   })
 
   routes.get('/access', async (c) => {

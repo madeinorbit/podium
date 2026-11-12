@@ -73,10 +73,32 @@ describe('who is offered the admin area', () => {
   it('Alice is offered every section; Bob none', async () => {
     expect(await get('alice', '/auth/admin/viewer')).toEqual({
       status: 200,
-      body: { sections: ['people', 'access', 'machines', 'instance', 'audit'] },
+      body: {
+        sections: ['people', 'access', 'machines', 'instance', 'audit'],
+        capabilities: { setUpServer: true },
+      },
     })
-    expect(await get('bob', '/auth/admin/viewer')).toEqual({ status: 200, body: { sections: [] } })
+    // Bob joined a workspace Alice set up: first-run setup is never his (POD-6882).
+    expect(await get('bob', '/auth/admin/viewer')).toEqual({
+      status: 200,
+      body: { sections: [], capabilities: { setUpServer: false } },
+    })
     expect((await get(null, '/auth/admin/viewer')).status).toBe(401)
+  })
+
+  it('an admin who joined later does not set the server up either', async () => {
+    const role = { id: MEMBERS.bob.id, current: MEMBERS.alice.password }
+    expect((await post('alice', '/auth/members/role', { ...role, role: 'admin' })).status).toBe(200)
+    try {
+      const bob = await get('bob', '/auth/admin/viewer')
+      expect(bob.status).toBe(200)
+      expect(bob.body.sections).toContain('machines')
+      expect(bob.body.capabilities).toMatchObject({ setUpServer: false })
+    } finally {
+      expect((await post('alice', '/auth/members/role', { ...role, role: 'member' })).status).toBe(
+        200,
+      )
+    }
   })
 
   it('Bob’s requests to the admin endpoints are refused', async () => {
