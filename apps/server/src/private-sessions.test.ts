@@ -353,6 +353,36 @@ describe('MU-07: an agent acting for Alice cannot read, send to or drive Bob’s
     }
   })
 
+  it('workspace fetch refuses another member’s private cwd on the same shared machine', async () => {
+    // A use grant permits Bob to run on Alice's machine, never Alice to read
+    // Bob's session. Same-machine fetch returns the cwd without daemon RPCs,
+    // so this exercises the real read without a mocked export or a timeout.
+    await f.handle.registry.modules.machines.shareMachine(f.machines.alice, MEMBERS.bob.id, 'use', {
+      actor: MEMBERS.alice.id,
+      onBehalfOf: MEMBERS.alice.id,
+    })
+    const privateCwd = '/wt/bob-private-peer'
+    const peer = await (await trpc('bob')).sessions.create.mutate({
+      agentKind: 'shell',
+      cwd: privateCwd,
+      machineId: f.machines.alice,
+      issueId: f.tasks.alice,
+    })
+    expect((await sessions().sessionOwner(peer.sessionId))?.owner).toBe(MEMBERS.bob.id)
+    // Bob's source is on Alice's own task, so the task scope gate permits it.
+    for (const outsideScope of [false, true]) {
+      // biome-ignore lint/suspicious/noExplicitAny: relay client types only issues
+      const client = f.agent(f.sessions.alice, { outsideScope }).client as any
+      await expect(client.workspace.fetch.mutate({ ref: peer.sessionId })).rejects.toThrow(
+        `no session found for ${peer.sessionId}`,
+      )
+      // Counterfactual: her own source still reaches the real fetch handler.
+      expect(await client.workspace.fetch.mutate({ ref: f.sessions.alice })).toMatchObject({
+        sameMachine: true,
+      })
+    }
+  })
+
   it('session send and mail never reach it', async () => {
     await expect(
       aliceAgent().sessions.sendText.mutate({ sessionId: target(), text: 'x' } as never),
