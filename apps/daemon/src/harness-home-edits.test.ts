@@ -34,7 +34,7 @@ function memoryPorts() {
   return { fs, get, writes, logs, ports }
 }
 
-const trust = (root: string): HomeEdit => ({
+const trust = (root: string): Extract<HomeEdit, { kind: 'json-key' }> => ({
   kind: 'json-key',
   file: F,
   path: ['projects', root, 'hasTrustDialogAccepted'],
