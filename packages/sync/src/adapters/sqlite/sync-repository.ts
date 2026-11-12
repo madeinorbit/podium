@@ -64,6 +64,21 @@ const currentFeedState = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/** An empty feed's head 0 -> 1, floor 1 -> 2 (still "nothing retained"). Seq 0
+ * is the reserved cold-start cursor and a row at seq 0 is malformed (ADR 2 D12),
+ * so a start-up load stamped at head 0 cannot carry the model rows a fresh
+ * install may already hold (setup, migrations, backfills). Head 1 with no row
+ * at 1 is an ordinary empty range. Only a head of 0 moves; it never renumbers. */
+const raiseEmptyHead = prepared((db: StoreDrizzle) =>
+  db
+    .update(syncFeed)
+    .set({ headSeq: 1, floorSeq: 2 })
+    .where(
+      and(eq(syncFeed.tenantId, param(syncFeed.tenantId, 'tenantId')), eq(syncFeed.headSeq, 0)),
+    )
+    .prepare(),
+)
+
 const advanceFloor = prepared((db: StoreDrizzle) =>
   db
     .update(syncFeed)
@@ -239,14 +254,18 @@ const initialFeedValues = {
   floorSeq: 1,
 }
 
+/** Created inside an append, whose reservation moves the head past 0 in the
+ *  same transaction, so this row is never observed at head 0. */
 const ensureFeedIdentity = prepared((db: StoreDrizzle) =>
   db.insert(syncFeed).values(initialFeedValues).onConflictDoNothing().prepare(),
 )
 
+/** An identity minted before any append creates the feed at head 1, never 0:
+ *  see `raiseEmptyHead` (ADR 2 D12). An existing row keeps its counters. */
 const upsertFeedIdentity = prepared((db: StoreDrizzle) =>
   db
     .insert(syncFeed)
-    .values(initialFeedValues)
+    .values({ ...initialFeedValues, headSeq: 1, floorSeq: 2 })
     .onConflictDoUpdate({
       target: syncFeed.tenantId,
       set: {
@@ -578,6 +597,12 @@ export class SyncRepository {
       for (let i = 0; i < rows.length; i++) seqs.push(first + i)
     })
     return seqs
+  }
+
+  /** Raise this tenant's head from 0 to 1 at writable boot, after migrations, so
+   *  every start-up load is stamped at a positive seq (ADR 2 D12). No-op otherwise. */
+  async raiseEmptyHead(): Promise<void> {
+    await raiseEmptyHead(this.db).run({ tenantId: this.tenantId })
   }
 
   /** One snapshot read of this tenant's durable cursor bounds. */

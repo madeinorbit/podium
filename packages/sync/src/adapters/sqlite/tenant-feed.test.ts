@@ -33,14 +33,15 @@ describe('tenant feed isolation', () => {
     await a.writeFeedIdentity({ feedId: 'feed-a', epoch: 'epoch-a' }, 1)
     await b.writeFeedIdentity({ feedId: 'feed-b', epoch: 'epoch-b' }, 2)
     db.exec("INSERT INTO sync_kind VALUES ('a', 'issueProjection', 7), ('b', 'issueProjection', 9)")
-    expect(await a.appendChanges(rows(2), 1)).toEqual([1, 2])
-    expect(await b.appendChanges(rows(1), 2)).toEqual([1])
+    // An identity minted before any append starts the feed at head 1 (ADR 2 D12).
+    expect(await a.appendChanges(rows(2), 1)).toEqual([2, 3])
+    expect(await b.appendChanges(rows(1), 2)).toEqual([2])
     expect(await a.readKindGenerations()).toEqual([{ kind: 'issueProjection', generation: 7 }])
     expect(await b.readKindGenerations()).toEqual([{ kind: 'issueProjection', generation: 9 }])
     expect(await b.readFeedIdentity()).toEqual({ feedId: 'feed-b', epoch: 'epoch-b' })
-    expect((await a.changesSince(0)).map((r) => r.seq)).toEqual([1, 2])
-    expect((await b.changesInRange(0, 2, 10)).map((r) => r.seq)).toEqual([1])
-    expect(await b.readFeedState()).toEqual({ headSeq: 1, floorSeq: 1 })
+    expect((await a.changesSince(0)).map((r) => r.seq)).toEqual([2, 3])
+    expect((await b.changesInRange(0, 2, 10)).map((r) => r.seq)).toEqual([2])
+    expect(await b.readFeedState()).toEqual({ headSeq: 2, floorSeq: 2 })
   })
 
   it('prunes only its tenant, persists the empty floor and never reuses a committed number', async () => {
@@ -90,6 +91,26 @@ describe('tenant feed isolation', () => {
     await expect(a.appendChanges(invalid, 1)).rejects.toThrow()
     expect(await a.changesSince(0)).toEqual([])
     expect(await a.appendChanges(rows(2), 2)).toEqual([1, 2])
+  })
+
+  it('raises only an empty head, per tenant, so no start-up load is stamped at 0', async () => {
+    const { db, tenant } = fixture()
+    // The fresh-install row the tenant-feed migration writes: head 0, floor 1.
+    db.exec(
+      "INSERT INTO sync_feed (tenant_id, feed_id, epoch, minted_at, head_seq, floor_seq) VALUES ('a', 'fa', 'ea', 0, 0, 1), ('b', 'fb', 'eb', 0, 0, 1)",
+    )
+    const a = tenant('a'),
+      b = tenant('b')
+    await a.raiseEmptyHead()
+    expect(await a.readFeedState()).toEqual({ headSeq: 1, floorSeq: 2 })
+    expect(await a.minChangeSeq()).toBeNull()
+    expect(await b.readFeedState()).toEqual({ headSeq: 0, floorSeq: 1 })
+    expect(await a.appendChanges(rows(1), 1)).toEqual([2])
+    await a.raiseEmptyHead()
+    expect(await a.readFeedState()).toEqual({ headSeq: 2, floorSeq: 2 })
+    // A feed whose identity is minted before any append is created at head 1.
+    await tenant('c').writeFeedIdentity({ feedId: 'fc', epoch: 'ec' }, 1)
+    expect(await tenant('c').readFeedState()).toEqual({ headSeq: 1, floorSeq: 2 })
   })
 
   it('identity bumps preserve counters and empty appends reserve nothing', async () => {

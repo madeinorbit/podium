@@ -738,6 +738,9 @@ export class SessionRegistry {
       }
     }
     bootStage('queued messages recovery', stageStarted)
+    // A fresh install can hold model rows before its first append; a load at
+    // head 0 cannot carry them (seq 0 is the cold-start cursor, ADR 2 D12).
+    if (!this.recoveryOnly && !rehearseBoot) await this.store.sync.raiseEmptyHead()
     // The effect trigger and its recovery sweep (POD-6357): the boot sweep
     // expires, re-dispatches and recovers what a stop left behind.
     if (!this.recoveryOnly && !rehearseBoot) this.effectsRunner.start()

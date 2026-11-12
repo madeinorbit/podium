@@ -6747,6 +6747,44 @@ describe('SessionRegistry snooze', () => {
   })
 })
 
+describe('SessionRegistry boot over model rows at feed head 0', () => {
+  it('raises the head to 1 so the start-up load carries the rows (ADR 2 D12)', async () => {
+    const store = await openTestStore(':memory:', TEST_MACHINE)
+    // Written without an append, as setup, migrations and backfills may: head stays 0.
+    await store.sessions.upsertSession(fixtureWriteScope(), {
+      id: asSessionId('s1'),
+      ownerUserId: firstAdminMemberId(),
+      agentKind: 'claude-code',
+      cwd: '/p',
+      title: 't',
+      name: null,
+      machineId: TEST_MACHINE,
+      originKind: 'spawn',
+      conversationId: null,
+      resumeKind: null,
+      resumeValue: null,
+      status: 'hibernated',
+      exitCode: null,
+      durableLabel: 'd',
+      createdAt: '2026-06-19T00:00:00.000Z',
+      lastActiveAt: '2026-06-19T00:00:00.000Z',
+      lastOutputAt: null,
+      lastInputAt: null,
+      lastResumedAt: null,
+      archived: false,
+      workState: null,
+    })
+    await store.sessions.setSnooze(fixtureWriteScope(), firstAdminMemberId(), asSessionId('s1'), null)
+    expect((await store.sync.readFeedState()).headSeq).toBe(0)
+    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    expect(await store.sync.readFeedState()).toEqual({ headSeq: 1, floorSeq: 2 })
+    // The load is stamped at head 1 and the client accepts it.
+    expect(await clientSessionViews(reg)).toEqual([
+      expect.objectContaining({ sessionId: 's1', snoozedUntil: null }),
+    ])
+  })
+})
+
 describe('SessionRegistry — auto-continue', () => {
   const erroredState: AgentRuntimeState = {
     phase: 'errored',
