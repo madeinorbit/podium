@@ -4,6 +4,7 @@ import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import { Outbox as KernelOutbox, type OutboxSubmitOutcome } from '@podium/sync/outbox'
 import { IDBFactory } from 'fake-indexeddb'
 import { describe, expect, it, vi } from 'vitest'
+import { createAccountEraser, createSingleServerAccounts } from '../accounts'
 import { principalKeyPrefix, type StorageApi } from '../replica'
 import { outboxCommandFor } from '../runtime-root/outbox/wiring'
 import { createMemoryTranscriptBackend } from '../transcript-store'
@@ -585,6 +586,70 @@ describe('sign-out with a live screen', () => {
       await screen.persistence.flush()
       screen.drafts.set('podium.drafts.v1', JSON.stringify({ [session]: { text: 'later' } }))
       expect(owned()).toEqual([])
+    } finally {
+      screen.close()
+      await assembly.dispose()
+    }
+  })
+
+  // POD-6910: the server ended this person's sign-in (they were removed, or this
+  // device was signed out from elsewhere) while one of their sessions is open in
+  // a pane. The client takes the refused-account route: the accounts layer
+  // removes that principal through the account eraser, which seals the
+  // namespace before the unmounting screen's last writes can land.
+  it('a removal while a session pane is open erases cleanly through the refused-account route', async () => {
+    const storage = device()
+    const store = await openStore()
+    const assembly = await openReplicaAssembly({
+      api: {} as never,
+      principal,
+      openStore: async () => store,
+      settings: { storage, enumerateKeys: storage.keys, basePrefix: prefix },
+      httpSync,
+    })
+    const eraser = createAccountEraser(async () => {
+      throw new Error('the mounted replica must erase its own data')
+    })
+    eraser.register(principal, assembly)
+    const metadata = new Map<string, string>()
+    const accounts = createSingleServerAccounts({
+      httpOrigin: 'https://team.example',
+      metadataPrefix: 'browser',
+      storage: {
+        getItem: async (key) => metadata.get(key) ?? null,
+        setItem: async (key, value) => void metadata.set(key, value),
+      },
+      erasePrincipal: eraser.erase,
+    })
+    await accounts.recordPrincipal(principal)
+    const root = principalKeyPrefix(prefix, principal)
+    const owned = () => storage.keys().filter((key) => key.startsWith(`${root}.`))
+    const session = asSessionId('alp-1')
+    const screen = mountedScreen(assembly.replica.deviceStorage())
+    try {
+      screen.persistence.start()
+      screen.ui.patch({
+        workspaces: {
+          'wt:/repo': openTab(emptyWorkspace('wt:/repo'), session, { permanent: true }),
+        },
+      })
+      screen.ui.setDockVisibleSession(session)
+      await screen.persistence.flush()
+      expect(storage.getItem(`${root}.ui.v1`)).toContain('alp-1')
+      // The sign-in screen replaces the app while the rows are being erased:
+      // the pane lets go, the provider flushes the screen, the drafts store saves.
+      const eraseRows = store.erasePrincipal.bind(store)
+      vi.spyOn(store, 'erasePrincipal').mockImplementation(async (who) => {
+        screen.ui.setDockVisibleSession(null)
+        screen.persistence.stopSaving()
+        screen.drafts.set('podium.drafts.v1', JSON.stringify({ [session]: { text: 'half' } }))
+        return eraseRows(who)
+      })
+
+      await expect(accounts.removePrincipal(principal)).resolves.toBeUndefined()
+      expect(owned()).toEqual([])
+      expect((await accounts.profiles.loadServerProfiles()).profiles).toEqual([])
+      expect(await accounts.profiles.loadPendingProfileCleanups()).toEqual([])
     } finally {
       screen.close()
       await assembly.dispose()
