@@ -325,7 +325,10 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
       // issue and its labels, its bodies, its git state, its edges, the order
       // with its holds and receipt, the lane's plan, the effect), where one
       // grouped read of the stored copy answered them all.
-      28,
+      // RE-PINNED 28 -> 29 FOR POD-6921: the bodies are two kinds now
+      // (`issueBrief`, `issueDescription`), each built by its own `build`, so
+      // the issue rows are read once more. Still one read per kind, at any size.
+      29,
     )
   })
 
