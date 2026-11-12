@@ -333,7 +333,11 @@ export function makeAgentRelayDispatch(
         const raw = (input ?? {}) as Record<string, unknown>
         if (typeof raw.ref !== 'string' || !raw.ref) throw new Error('ref is required')
         const target = await readToolkit.resolveTarget(raw.ref)
-        if (!target) throw new Error(`no session found for ${raw.ref}`)
+        // Fetch exposes private session paths and dirty worktree bytes. Shared
+        // task access and --outside-scope never grant another member's session.
+        if (!target || !(await sessionsSvc.mayReachSession(capability, target.sessionId))) {
+          throw new Error(`no session found for ${raw.ref}`)
+        }
         const targetIssueId = target.issueId ?? (await issues.reports.issueForCwd(target.cwd))
         if (targetIssueId) {
           await checkIssueAccess(
