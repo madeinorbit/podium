@@ -248,6 +248,25 @@ describe('/client WS auth gate', () => {
     expect(socket.readyState).toBe(WebSocket.CLOSED)
   })
 
+  test('a removed member’s socket closes with access_ended through its connection (POD-6910)', async () => {
+    const url = await start(() => true, 'member-session-hash')
+    const socket = new WebSocket(url)
+    await new Promise<void>((resolve, reject) => {
+      socket.once('open', resolve)
+      socket.once('error', reject)
+    })
+    const closed = new Promise<{ code: number; reason: string }>((resolve) =>
+      socket.once('close', (code: number, reason: Buffer) =>
+        resolve({ code, reason: reason.toString() }),
+      ),
+    )
+    // What the member routes' removal hook does for each of the member's connections.
+    const conns = [...(registry?.clientGateway.registry.values() ?? [])]
+    expect(conns).toHaveLength(1)
+    conns[0]?.endSignIn?.(SIGN_IN_ENDED_CLOSE.accessEnded)
+    expect(await closed).toEqual(SIGN_IN_ENDED_CLOSE.accessEnded)
+  })
+
   test.each([
     'revoked',
     'error',
