@@ -410,3 +410,34 @@ describe('Composer return key', () => {
     expect(onSend).not.toHaveBeenCalled()
   })
 })
+
+describe('Composer send guard (POD-2423)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('sends a prompt once when the same words are pressed twice in a row', () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: true,
+      media: query,
+      addEventListener() {},
+      removeEventListener() {},
+    }))
+    const onSend = vi.fn()
+    // A parent that refills the field (or has not re-rendered yet) leaves the
+    // same words under the second press.
+    const { container } = render(
+      <Composer
+        placeholder="Message…"
+        onSend={onSend}
+        value="a long prompt"
+        onChangeText={() => {}}
+      />,
+    )
+    const input = container.querySelector('textarea') as HTMLTextAreaElement
+    fireEvent.keyDown(input, { key: 'Enter' })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onSend).toHaveBeenCalledTimes(1)
+    expect(onSend).toHaveBeenCalledWith('a long prompt', undefined)
+  })
+})

@@ -523,6 +523,9 @@ const SessionConversationBody = observer(function SessionConversationBody({
   // growing the field does not relayout the transcript under the operator.
   const [composerHeight, setComposerHeight] = useState(0)
   const [askHeight, setAskHeight] = useState(0)
+  /** Bumped by a send so the feed lands on the new bubble, the same request
+   *  the Superagent thread makes; the list owns how it gets there. */
+  const [pinRequest, setPinRequest] = useState(0)
   // biome-ignore lint/correctness/useExhaustiveDependencies: each rendered item count acknowledges a new transcript batch.
   useEffect(() => {
     transcript.markRendered()
@@ -558,6 +561,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
       const paths = attached.flatMap((file) => (file.path ? [file.path] : []))
       const refs = attached.flatMap((file) => (!file.path && file.ref ? [file.ref] : []))
       const wire = paths.length > 0 ? `${paths.join('\n')}\n${trimmed}` : trimmed
+      setPinRequest((count) => count + 1)
       void conversation.submit({
         text: trimmed,
         wire,
@@ -581,6 +585,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
 
   const retry = useCallback(
     (turn: PendingTurn) => {
+      setPinRequest((count) => count + 1)
       void conversation.retry(turn.id)
     },
     [conversation],
@@ -818,6 +823,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
               live={session.status === 'live'}
               assetContext={assetContext}
               pendingTurns={pendingTurns}
+              pinRequest={pinRequest}
               hidePendingQuestion
               findRequest={findRequest}
               onRetryPending={retry}

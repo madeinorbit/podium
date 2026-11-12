@@ -1,4 +1,3 @@
-import { ArrowUp, ClipboardPaste, Mic, MicOff, Plus, Square } from './icons'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import type {
   LayoutChangeEvent,
@@ -15,6 +14,13 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native'
+import Reanimated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useKeyboardVisible } from '../hooks/useKeyboardVisible'
 import { useReduceMotion } from '../hooks/useReduceMotion'
@@ -34,7 +40,9 @@ import {
 } from './composer-height'
 import { composerKeyAction, hasHardwareKeyboard } from './composer-keys'
 import { useComposerMeasure } from './composer-measure'
+import { createSendGuard } from './composer-send-guard'
 import { Icon } from './Icon'
+import { ArrowUp, ClipboardPaste, Mic, MicOff, Plus, Square } from './icons'
 import { PressableScale } from './PressableScale'
 import type { ComposerAttachmentsApi, SentAttachment } from './useComposerAttachments'
 
@@ -58,6 +66,14 @@ const TEXT_INSET = space.xs
 const COMPOSER_RADIUS = 14
 /** A control's corner on the 4pt grid's 8. */
 const SEND_RADIUS = 8
+/**
+ * How long a grown field takes to fold back to one line after a send. About
+ * the time the keyboard takes to move: long enough to read as one motion with
+ * the new bubble rising into the feed, short enough to be done before the
+ * operator's thumb is back on the keys.
+ */
+const COLLAPSE_MS = 280
+const COLLAPSE_EASING = Easing.bezier(0.25, 1, 0.5, 1)
 
 export function appendDictation(current: string, phrase: string): string {
   const finalized = phrase.trim()
@@ -208,6 +224,18 @@ export function Composer({
   const [measured, setMeasured] = useState<number | null>(null)
   const [line, setLine] = useState(COMPOSER_LINE)
   const inputRef = useRef<TextInput>(null)
+  const sendGuard = useRef(createSendGuard()).current
+  /**
+   * THE FOLD BACK TO ONE LINE (POD-2423). Sending empties the field, and on its
+   * own the capsule would jump from six lines to one in a frame, the feed
+   * jumping with it. Instead the field keeps a floor at its last height and
+   * that floor glides down to one line on the UI thread. It is a MIN height,
+   * so whatever is typed next can still grow past it, and 0 means no floor.
+   */
+  const collapseFloor = useSharedValue(0)
+  const collapseStyle = useAnimatedStyle(() => ({ minHeight: collapseFloor.value }))
+  const collapsingUntil = useRef(0)
+  const lastDockHeight = useRef<number | null>(null)
   const voice = useVoiceInput()
   const committedText = appendDictation(text, voice.session?.finalText ?? '')
   const composedText = appendDictation(committedText, voice.session?.interimText ?? '')
@@ -285,11 +313,40 @@ export function Composer({
     const trimmed = committedText.trim()
     const files = attachments?.ready() ?? []
     if (!trimmed && files.length === 0) return
+    if (
+      !sendGuard.admit(
+        trimmed,
+        files.map((file) => file.ref?.id ?? file.path ?? file.name),
+      )
+    )
+      return
     voice.clear()
     onSend(trimmed, files.length > 0 ? files : undefined)
     attachments?.clear()
+    foldToOneLine()
     writeText('')
     setMeasured(null)
+  }
+
+  const foldToOneLine = () => {
+    const from = height
+    const to = composerFieldHeight(null, line)
+    // Web sizes the field itself from the measurement (CONTROLLED_HEIGHT).
+    if (CONTROLLED_HEIGHT || reduceMotion || from <= to) return
+    collapsingUntil.current = Date.now() + COLLAPSE_MS
+    // Set and animate in one assignment, so the first frame after the clear
+    // already holds the old height and nothing jumps before the glide.
+    collapseFloor.value = withSequence(
+      withTiming(from, { duration: 0 }),
+      withTiming(to, { duration: COLLAPSE_MS, easing: COLLAPSE_EASING }, (finished) => {
+        if (finished) collapseFloor.value = 0
+      }),
+    )
+    // The feed underneath pays for the composer's RESTING height. Mid-fold it
+    // is neither grown nor at rest, so report once the fold has landed.
+    setTimeout(() => {
+      if (lastDockHeight.current !== null) onRestingHeight?.(lastDockHeight.current)
+    }, COLLAPSE_MS + 16)
   }
 
   // ENTER MAKES A NEWLINE ON A PHONE. See ./composer-keys.ts for why, and for
@@ -312,6 +369,8 @@ export function Composer({
   }
 
   const onLayout = (e: LayoutChangeEvent) => {
+    lastDockHeight.current = e.nativeEvent.layout.height
+    if (Date.now() < collapsingUntil.current) return
     if (atRest) onRestingHeight?.(e.nativeEvent.layout.height)
   }
 
@@ -389,7 +448,7 @@ export function Composer({
             sight (2026-08-29, device). Native grows from its own content and is
             capped by `maxHeight`; react-native-web's <textarea> cannot do that,
             so it keeps the measured height (see ./composer-measure.web). */}
-        <View style={[styles.fieldWrap, CONTROLLED_HEIGHT ? { height } : null]}>
+        <Reanimated.View style={[styles.fieldWrap, CONTROLLED_HEIGHT ? { height } : collapseStyle]}>
           <TextInput
             ref={inputRef}
             {...composerFieldProps}
@@ -412,7 +471,7 @@ export function Composer({
             // handled in `onKeyPress` instead, where the modifiers are legible.
             submitBehavior="newline"
           />
-        </View>
+        </Reanimated.View>
         {/* Leading cluster, then the gap, then the trailing cluster. The
             spacer is a flexing view rather than `justifyContent: space-between`
             so the row keeps its shape when one end is empty — a composer with
