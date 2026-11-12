@@ -284,18 +284,21 @@ describe('nodeHomeEditPorts', () => {
     expect(await readFile(file, 'utf8')).toBe('x')
   })
 
-  it('keeps the file mode and writes through a symlink to its target', async () => {
-    const ports = nodeHomeEditPorts(() => {})
-    const target = join(dir, 'real.json')
-    const link = join(dir, 'link.json')
-    await writeFile(target, '{}')
-    await chmod(target, 0o600)
-    await symlink(target, link)
-    await ports.writeFileAtomic(link, '{"a":1}')
-    expect(await readFile(target, 'utf8')).toBe('{"a":1}')
-    expect((await stat(target)).mode & 0o777).toBe(0o600)
-    // The link is still a link.
-    expect(await ports.readFile(link)).toBe('{"a":1}')
-    expect((await lstat(link)).isSymbolicLink()).toBe(true)
-  })
+  it.skipIf(process.platform === 'win32')(
+    'keeps the file mode and writes through a symlink to its target',
+    async () => {
+      const ports = nodeHomeEditPorts(() => {})
+      const target = join(dir, 'real.json')
+      const link = join(dir, 'link.json')
+      await writeFile(target, '{}')
+      await chmod(target, 0o600)
+      await symlink(target, link)
+      await ports.writeFileAtomic(link, '{"a":1}')
+      expect(await readFile(target, 'utf8')).toBe('{"a":1}')
+      expect((await stat(target)).mode & 0o777).toBe(0o600)
+      // The link is still a link.
+      expect(await ports.readFile(link)).toBe('{"a":1}')
+      expect((await lstat(link)).isSymbolicLink()).toBe(true)
+    },
+  )
 })
