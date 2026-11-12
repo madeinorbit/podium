@@ -20,6 +20,7 @@ import {
   decideCode,
   deleteRedeemedCode,
   deleteSignInsOfAccount,
+  deleteUnusedCodesOfAccount,
   discardTransferClaim,
   insertCode,
   insertPasswordMethod,
@@ -349,6 +350,9 @@ export function oneTimeCodeOperations(
         }
         // Every device sign-in of the account ends, the one using the link included.
         const ended = await deleteSignInsOfAccount(runtime.db()).run({ accountId })
+        // So does every code that could still mint one: other reset links and
+        // pairing codes, approved or not (POD-6754 finding F3).
+        await deleteUnusedCodesOfAccount(runtime.db()).run({ accountId })
         return { accountId, endedSignInIds: ended.map((row) => row.id) }
       })
     },

@@ -378,6 +378,24 @@ export const deleteSignInsOfAccount = prepared<{ accountId: string }, { id: stri
     .returning({ id: t.session.id }),
 )
 
+/**
+ * Every code of the account that is not yet used: other reset links, pairing
+ * codes waiting for or holding an approval, host sign-ins, hand-overs and
+ * transfer claims. A password reset ends them with the device sign-ins, so none
+ * can mint a new sign-in afterwards. Used codes stay as the record of their use.
+ */
+export const deleteUnusedCodesOfAccount = prepared<{ accountId: string }, { id: string }>((db, t) =>
+  db
+    .delete(t.oneTimeCode)
+    .where(
+      and(
+        eq(t.oneTimeCode.accountId, p(t.oneTimeCode.accountId, 'accountId')),
+        isNull(t.oneTimeCode.consumedAt),
+      ),
+    )
+    .returning({ id: t.oneTimeCode.id }),
+)
+
 export const deleteSignInsOfAccountExcept = prepared<
   { accountId: string; except: string },
   { id: string }

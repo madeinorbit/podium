@@ -5,6 +5,7 @@
  * The server's real store and a real identity core on it: Alice is the admin,
  * Bob a member, each signed in through the package.
  */
+import { createHash } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -268,6 +269,127 @@ describe('memberOfRequest', () => {
         ),
       ),
     ).toEqual({ kind: 'https_required' })
+  })
+
+  it('a password reset ends every other live reset code of the account', async () => {
+    // Two recovery links exist for Bob. Redeeming the first after a presumed
+    // compromise must end the second, or whoever still holds it could replace
+    // the password again after Bob recovers (POD-6754 finding F3).
+    const bobAccount = (await workspace.memberships.list()).find(
+      (member) => member.memberId === bob,
+    )?.account?.id
+    expect(bobAccount).toBeDefined()
+    const first = await workspace.core.codes.issue({
+      purpose: 'password-reset',
+      accountId: bobAccount as string,
+      createdBy: 'reset-test',
+    })
+    const second = await workspace.core.codes.issue({
+      purpose: 'password-reset',
+      accountId: bobAccount as string,
+      createdBy: 'reset-test',
+    })
+    expect(
+      await workspace.core.codes.redeemPasswordReset({
+        code: first.code,
+        password: 'recovered password one',
+      }),
+    ).toBeDefined()
+    expect(
+      await workspace.core.codes.redeemPasswordReset({
+        code: second.code,
+        password: 'recovered password two',
+      }),
+    ).toBeUndefined()
+  })
+
+  it('a password reset ends an approved pairing before it signs in', async () => {
+    // A phone pairing is approved, then Bob resets his password to recover from
+    // a compromise. The approved pairing is not a device sign-in yet; the reset
+    // must still end it, or completing it afterwards mints a fresh 30-day phone
+    // sign-in (POD-6754 finding F3).
+    const bobAccount = (await workspace.memberships.list()).find(
+      (member) => member.memberId === bob,
+    )?.account?.id
+    expect(bobAccount).toBeDefined()
+    const verifier = 'phone-verifier-for-the-reset'
+    const challenge = createHash('sha256').update(verifier).digest('hex')
+    const pairing = await workspace.core.codes.issue({
+      purpose: 'pair-device',
+      accountId: bobAccount as string,
+      createdBy: 'reset-test',
+    })
+    const claimed = await workspace.core.codes.claim({
+      code: pairing.code,
+      challenge,
+      device: { kind: 'phone', deviceId: 'reset-phone', name: 'Reset phone' },
+      delivery: 'bearer',
+    })
+    expect(claimed).toBeDefined()
+    expect(await workspace.core.codes.decide(pairing.id, bobAccount as string, 'approved')).toBe(
+      true,
+    )
+    const reset = await workspace.core.codes.issue({
+      purpose: 'password-reset',
+      accountId: bobAccount as string,
+      createdBy: 'reset-test',
+    })
+    expect(
+      await workspace.core.codes.redeemPasswordReset({
+        code: reset.code,
+        password: 'recovered password',
+      }),
+    ).toBeDefined()
+    expect(
+      await workspace.core.codes.redeem(
+        { claimId: claimed?.claimId as string, verifier },
+        { kind: 'phone' },
+        'bearer',
+        { scheme: 'https', sameMachine: false, clientAddress: '198.51.100.9' },
+      ),
+    ).toBeUndefined()
+  })
+
+  it("a password reset ends the account's unclaimed codes and leaves other accounts' codes", async () => {
+    const members = await workspace.memberships.list()
+    const accountOf = (memberId: string) =>
+      members.find((member) => member.memberId === memberId)?.account?.id as string
+    const pairing = await workspace.core.codes.issue({
+      purpose: 'pair-device',
+      accountId: accountOf(bob),
+      createdBy: 'reset-test',
+    })
+    const hostSignIn = await workspace.core.codes.issue({
+      purpose: 'host-sign-in',
+      accountId: accountOf(bob),
+      createdBy: 'reset-test',
+    })
+    const alicesReset = await workspace.core.codes.issue({
+      purpose: 'password-reset',
+      accountId: accountOf(alice),
+      createdBy: 'reset-test',
+    })
+    const reset = await workspace.core.codes.issue({
+      purpose: 'password-reset',
+      accountId: accountOf(bob),
+      createdBy: 'reset-test',
+    })
+    expect(
+      await workspace.core.codes.redeemPasswordReset({ code: reset.code, password: 'recovered' }),
+    ).toBeDefined()
+    const afterReset = {
+      pairing: await workspace.core.codes.status(pairing.id, accountOf(bob)),
+      hostSignIn: await workspace.core.codes.redeem(
+        { code: hostSignIn.code, purpose: 'host-sign-in' },
+        { kind: 'browser' },
+        'cookie',
+        { scheme: 'https', sameMachine: true, clientAddress: '127.0.0.1' },
+      ),
+    }
+    expect(afterReset).toEqual({ pairing: { state: 'expired' }, hostSignIn: undefined })
+    expect(await workspace.core.codes.inspectPasswordReset(alicesReset.code)).toMatchObject({
+      accountId: accountOf(alice),
+    })
   })
 
   it('a source churning made-up addresses is throttled alone; members elsewhere still sign in', async () => {
