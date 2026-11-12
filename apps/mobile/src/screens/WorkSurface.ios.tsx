@@ -159,6 +159,9 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
         options={{
           title: props.mode === 'search' ? 'Search' : 'Work',
           headerLargeTitleEnabled: true,
+          // Match Tasks: UIKit must not resize the hosting view as the large
+          // title stretches/collapses. SwiftUI owns the list's safe-area inset.
+          headerTransparent: true,
           headerLargeTitleShadowVisible: false,
           headerShadowVisible: false,
           contentStyle: { backgroundColor: paper.ground },
@@ -209,125 +212,129 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
           }}
         />
       ) : null}
-      <View>{props.notices}</View>
-      <Host style={styles.host} seedColor={color.accentTint}>
-        <List
-          key={phone.lane}
-          modifiers={[
-            listStyle('insetGrouped'),
-            listSectionSpacing(0),
-            scrollContentBackground('hidden'),
-            background(paper.ground),
-            refreshable(props.refresh.onRefresh),
-            accessibilityIdentifier('work-list'),
-          ]}
-        >
-          <Section>
-            {subtitle && !nativeSubtitleAvailable ? (
+      {/* UIKit follows the first native child to find the scroll view. The
+          reversed column keeps notices above it without blocking that path. */}
+      <View style={styles.listContainer}>
+        <Host style={styles.host} seedColor={color.accentTint}>
+          <List
+            key={phone.lane}
+            modifiers={[
+              listStyle('insetGrouped'),
+              listSectionSpacing(0),
+              scrollContentBackground('hidden'),
+              background(paper.ground),
+              refreshable(props.refresh.onRefresh),
+              accessibilityIdentifier('work-list'),
+            ]}
+          >
+            <Section>
+              {subtitle && !nativeSubtitleAvailable ? (
+                <Text
+                  modifiers={[
+                    ...noteRow,
+                    font({ textStyle: 'subheadline' }),
+                    foregroundStyle(paper.secondary),
+                  ]}
+                >
+                  {subtitle}
+                </Text>
+              ) : null}
+              <WorkLanePicker phone={phone} />
+            </Section>
+            {props.loading && !sections.length ? <ProgressView modifiers={noteRow} /> : null}
+            {sections.map(({ section, folded }) => (
+              <Fragment key={section.key}>
+                {/* The project name is its own quiet row: SwiftUI uppercases grouped headers. */}
+                <Section modifiers={COMPACT_SECTION}>
+                  <WorkGroupHeader
+                    section={section}
+                    folded={folded}
+                    onToggle={props.onToggle}
+                    onNew={props.mode === 'tab' ? onNewInProject : undefined}
+                  />
+                </Section>
+                {folded ? null : (
+                  <Section modifiers={COMPACT_SECTION}>
+                    {section.ids.map((id) => (
+                      <NativeWorkSlot key={id} id={id} section={section}>
+                        <NativeWorkRow
+                          id={id}
+                          lane={phone.lane}
+                          pending={props.pendingNav === id}
+                          onOpenIssue={props.onOpenIssue}
+                          onOpenSession={props.onOpenSession}
+                          onAction={props.onAction}
+                          onStatus={props.onStatus}
+                          onSwipe={onSwipe}
+                          phone={phone}
+                        />
+                      </NativeWorkSlot>
+                    ))}
+                    {section.ids.length ? null : (
+                      <Text
+                        modifiers={[
+                          ...cardRow,
+                          font({ textStyle: 'subheadline' }),
+                          foregroundStyle(paper.tertiary),
+                        ]}
+                      >
+                        No open tasks
+                      </Text>
+                    )}
+                  </Section>
+                )}
+              </Fragment>
+            ))}
+            {quiet.length ? (
+              <Section modifiers={COMPACT_SECTION}>
+                <NativeQuietRow phone={phone} />
+              </Section>
+            ) : null}
+            {!props.loading && !sections.length ? (
+              <VStack alignment="leading" spacing={8} modifiers={noteRow}>
+                <Text modifiers={[font({ textStyle: 'headline' }), foregroundStyle(paper.ink)]}>
+                  {phone.needle
+                    ? 'No matching tasks'
+                    : phone.lane === 'open'
+                      ? 'No work yet'
+                      : `No ${phone.lane} tasks`}
+                </Text>
+                <Text
+                  modifiers={[font({ textStyle: 'subheadline' }), foregroundStyle(paper.secondary)]}
+                >
+                  {phone.needle
+                    ? 'Try a title, reference or status.'
+                    : phone.lane === 'closed'
+                      ? 'Tasks closed in the last 7 days appear here.'
+                      : phone.lane === 'snoozed'
+                        ? 'Snoozed tasks will appear here until they return to Open.'
+                        : 'Your tasks will appear here, grouped by project.'}
+                </Text>
+              </VStack>
+            ) : null}
+            {phone.lane === 'closed' && sections.length ? (
               <Text
                 modifiers={[
                   ...noteRow,
-                  font({ textStyle: 'subheadline' }),
+                  font({ textStyle: 'footnote' }),
                   foregroundStyle(paper.secondary),
                 ]}
               >
-                {subtitle}
+                Closed in the last 7 days
               </Text>
             ) : null}
-            <WorkLanePicker phone={phone} />
-          </Section>
-          {props.loading && !sections.length ? <ProgressView modifiers={noteRow} /> : null}
-          {sections.map(({ section, folded }) => (
-            <Fragment key={section.key}>
-              {/* The project name is its own quiet row: SwiftUI uppercases grouped headers. */}
-              <Section modifiers={COMPACT_SECTION}>
-                <WorkGroupHeader
-                  section={section}
-                  folded={folded}
-                  onToggle={props.onToggle}
-                  onNew={props.mode === 'tab' ? onNewInProject : undefined}
-                />
-              </Section>
-              {folded ? null : (
-                <Section modifiers={COMPACT_SECTION}>
-                  {section.ids.map((id) => (
-                    <NativeWorkSlot key={id} id={id} section={section}>
-                      <NativeWorkRow
-                        id={id}
-                        lane={phone.lane}
-                        pending={props.pendingNav === id}
-                        onOpenIssue={props.onOpenIssue}
-                        onOpenSession={props.onOpenSession}
-                        onAction={props.onAction}
-                        onStatus={props.onStatus}
-                        onSwipe={onSwipe}
-                        phone={phone}
-                      />
-                    </NativeWorkSlot>
-                  ))}
-                  {section.ids.length ? null : (
-                    <Text
-                      modifiers={[
-                        ...cardRow,
-                        font({ textStyle: 'subheadline' }),
-                        foregroundStyle(paper.tertiary),
-                      ]}
-                    >
-                      No open tasks
-                    </Text>
-                  )}
-                </Section>
-              )}
-            </Fragment>
-          ))}
-          {quiet.length ? (
-            <Section modifiers={COMPACT_SECTION}>
-              <NativeQuietRow phone={phone} />
-            </Section>
-          ) : null}
-          {!props.loading && !sections.length ? (
-            <VStack alignment="leading" spacing={8} modifiers={noteRow}>
-              <Text modifiers={[font({ textStyle: 'headline' }), foregroundStyle(paper.ink)]}>
-                {phone.needle
-                  ? 'No matching tasks'
-                  : phone.lane === 'open'
-                    ? 'No work yet'
-                    : `No ${phone.lane} tasks`}
-              </Text>
-              <Text
-                modifiers={[font({ textStyle: 'subheadline' }), foregroundStyle(paper.secondary)]}
-              >
-                {phone.needle
-                  ? 'Try a title, reference or status.'
-                  : phone.lane === 'closed'
-                    ? 'Tasks closed in the last 7 days appear here.'
-                    : phone.lane === 'snoozed'
-                      ? 'Snoozed tasks will appear here until they return to Open.'
-                      : 'Your tasks will appear here, grouped by project.'}
-              </Text>
-            </VStack>
-          ) : null}
-          {phone.lane === 'closed' && sections.length ? (
-            <Text
-              modifiers={[
-                ...noteRow,
-                font({ textStyle: 'footnote' }),
-                foregroundStyle(paper.secondary),
-              ]}
-            >
-              Closed in the last 7 days
-            </Text>
-          ) : null}
-          {WORK_LANES.filter((lane) => phone.otherLaneHits[lane] > 0).map((lane) => (
-            <Button
-              key={lane}
-              label={`${phone.otherLaneHits[lane]} in ${WORK_LANE_LABELS[lane]}`}
-              onPress={() => phone.setLane(lane)}
-              modifiers={noteRow}
-            />
-          ))}
-        </List>
-      </Host>
+            {WORK_LANES.filter((lane) => phone.otherLaneHits[lane] > 0).map((lane) => (
+              <Button
+                key={lane}
+                label={`${phone.otherLaneHits[lane]} in ${WORK_LANE_LABELS[lane]}`}
+                onPress={() => phone.setLane(lane)}
+                modifiers={noteRow}
+              />
+            ))}
+          </List>
+        </Host>
+        <View>{props.notices}</View>
+      </View>
     </View>
   )
 })
@@ -344,16 +351,21 @@ const NativeWorkSlot = observer(function NativeWorkSlot({
   children: React.ReactNode
 }) {
   const active = section.window.has(id)
+  const [owner] = useState(() => ({}))
+  useEffect(() => () => section.window.disappear(id, owner), [section, id, owner])
   const [height, setHeight] = useState(36)
   return (
     <VStack
+      spacing={0}
       modifiers={[
-        ...cardRow,
-        onAppear(() => section.window.appear(id)),
-        onDisappear(() => section.window.disappear(id)),
+        onAppear(() => section.window.appear(id, owner)),
+        onDisappear(() => section.window.disappear(id, owner)),
         onGeometryChange((frame) => {
           if (active && frame.height > 0) setHeight(frame.height)
         }),
+        // Keep cell insets outside the measured content, as on Tasks. Otherwise
+        // the placeholder can pay those insets twice during a fast fling.
+        ...cardRow,
       ]}
     >
       {active ? children : <Spacer modifiers={[frame({ height })]} />}
@@ -828,4 +840,5 @@ const NativeRowActions = observer(function NativeRowActions({
 const styles = StyleSheet.create({
   root: { flex: 1, minHeight: 0, backgroundColor: paper.ground },
   host: { flex: 1 },
+  listContainer: { flex: 1, minHeight: 0, flexDirection: 'column-reverse' },
 })

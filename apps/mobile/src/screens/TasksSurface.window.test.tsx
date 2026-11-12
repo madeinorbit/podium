@@ -13,6 +13,7 @@ import type { WorkSurfaceProps } from './WorkSurface.types'
 const state = vi.hoisted(() => ({
   pool: null as MobxPool | null,
   fontScale: 1,
+  header: {} as { headerTransparent?: boolean },
   actions: [] as readonly ScreenAction[],
   slot: vi.fn(),
   list: vi.fn(),
@@ -44,7 +45,10 @@ vi.mock('../lib/clock-hooks', () => ({ useAgeNow: state.age }))
 vi.mock('../hooks/useRefreshableTab', () => ({ MIN_REFRESH_CONFIRMATION_MS: 0 }))
 vi.mock('expo-router', () => ({
   Stack: {
-    Screen: () => null,
+    Screen: ({ options }: { options: typeof state.header }) => {
+      state.header = options
+      return null
+    },
     SearchBar: (props: NonNullable<typeof state.search>) => {
       state.search = props
       return null
@@ -84,7 +88,7 @@ vi.mock('./tasks-folds', () => ({
     ),
 }))
 vi.mock('@expo/ui', () => ({
-  Host: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  Host: ({ children }: { children: ReactNode }) => <div data-testid="native-host">{children}</div>,
 }))
 vi.mock('@expo/ui/swift-ui/modifiers', () =>
   Object.fromEntries(
@@ -257,6 +261,8 @@ it('Tasks aligns nested separators, pads scalable content and keeps cell traits 
   const slot = slots[0]
   if (!slot) throw new Error('Expected a task slot')
   expect(slots).toHaveLength(3)
+  const host = screen.getByTestId('native-host')
+  expect(host.parentElement?.firstElementChild).toBe(host)
   const modifiers = (node: Element | null) => {
     if (!node) throw new Error('Expected a native view')
     return JSON.parse(node.getAttribute('data-modifiers') ?? '[]')
@@ -458,20 +464,20 @@ it('Work keeps its native list and unchanged slots quiet during a one-row scroll
   })
   await attachMobileScreens(pool)
   state.work = worklistView(pool)
-  render(
-    <WorkSurface
-      {...({
-        mode: 'search',
-        phone: state.work.phone,
-        collapsed: new Set(),
-        refresh: { onRefresh: () => {} },
-        loading: false,
-        pendingNav: null,
-      } as unknown as WorkSurfaceProps)}
-    />,
-  )
+  const props = {
+    mode: 'search',
+    phone: state.work.phone,
+    collapsed: new Set(),
+    refresh: { onRefresh: () => {} },
+    loading: false,
+    pendingNav: null,
+  } as unknown as WorkSurfaceProps
+  const view = render(<WorkSurface {...props} />)
   const slots = screen.getAllByTestId('slot')
   expect(slots).toHaveLength(200)
+  expect(state.header.headerTransparent).toBe(true)
+  const host = screen.getByTestId('native-host')
+  expect(host.parentElement?.firstElementChild).toBe(host)
   act(() => fireEvent.mouseEnter(slots[30]!))
   expect(screen.getAllByText(/^Work \d+$/)).toHaveLength(MOBILE_TASK_WINDOW_SIZE)
   state.slot.mockClear()
@@ -483,4 +489,25 @@ it('Work keeps its native list and unchanged slots quiet during a one-row scroll
   expect(state.slot).toHaveBeenCalledTimes(2)
   expect(state.list).not.toHaveBeenCalled()
   expect(screen.getAllByText(/^Work \d+$/)).toHaveLength(MOBILE_TASK_WINDOW_SIZE)
+
+  // Measured content precedes outer cell insets, so a placeholder never
+  // grows by another 16pt on each disappearance/reappearance.
+  const mods = JSON.parse(slots[31]!.getAttribute('data-modifiers')!)
+  expect(mods.findIndex((m: { name: string }) => m.name === 'onGeometryChange')).toBeLessThan(
+    mods.findIndex((m: { name: string }) => m.name === 'listRowInsets'),
+  )
+
+  // Search and Work share the phone model. Late disappearance from one
+  // presentation must not blank the other presentation's on-screen rows.
+  const rowText = slots[31]!.textContent
+  expect(rowText).toMatch(/^Work \d/)
+  const other = render(<WorkSurface {...props} mode="tab" />)
+  const otherSlots = other.container.querySelectorAll('[data-testid="slot"]')
+  act(() => fireEvent.mouseEnter(otherSlots[31]!))
+  act(() => fireEvent.mouseLeave(slots[31]!))
+  expect(otherSlots[31]?.textContent).toBe(rowText)
+  view.unmount()
+  expect(otherSlots[31]?.textContent).toBe(rowText)
+  other.unmount()
+  expect(state.work.phone.activeSections[0]?.window.visibleRows).toHaveLength(0)
 })

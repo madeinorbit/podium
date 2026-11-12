@@ -2,6 +2,48 @@ import { autorun, observable, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { ROW_WINDOW_SIZE, RowWindow } from './row-window'
 
+it('keeps a row visible until every native presentation leaves it', () => {
+  const window = new RowWindow(
+    () => ['working', 'timer'],
+    (id) => id,
+  )
+  const workSlot = {},
+    searchSlot = {}
+  const values: boolean[] = []
+  const stop = autorun(() => values.push(window.has('working')))
+  try {
+    window.appear('working', workSlot)
+    window.appear('working', searchSlot)
+    window.disappear('working', searchSlot)
+    expect(values.at(-1)).toBe(true)
+    window.disappear('working', searchSlot)
+    expect(values.at(-1)).toBe(true)
+    window.disappear('working', workSlot)
+    expect(values.at(-1)).toBe(false)
+  } finally {
+    stop()
+  }
+})
+
+it('never replaces a still-visible row with a placeholder when appearances arrive out of order', () => {
+  const rows = Array.from({ length: 200 }, (_, i) => `row-${i}`)
+  const window = new RowWindow(
+    () => rows,
+    (id) => id,
+  )
+  const visible: boolean[] = []
+  const stop = autorun(() => visible.push(window.has('row-0')))
+  try {
+    window.appear('row-0')
+    window.appear('row-150')
+    expect(visible.at(-1)).toBe(true)
+    window.disappear('row-0')
+    expect(visible.at(-1)).toBe(false)
+  } finally {
+    stop()
+  }
+})
+
 it.each([400, 1600])('notifies only entering/leaving slots among %i rows', (size) => {
   const rows = observable.array(Array.from({ length: size }, (_, i) => `row-${i}`))
   const identify = vi.fn((id: string) => id)
@@ -35,7 +77,11 @@ it.each([400, 1600])('notifies only entering/leaving slots among %i rows', (size
     window.appear('row-30')
     expect(reads.flatMap((read, i) => (read.mock.calls.length ? [i] : []))).toEqual([10, 50])
     for (const read of reads) read.mockClear()
-    window.appear(`row-${size - 30}`)
+    runInAction(() => {
+      window.disappear('row-30')
+      window.disappear('row-31')
+      window.appear(`row-${size - 30}`)
+    })
     expect(reads.reduce((n, read) => n + read.mock.calls.length, 0)).toBe(2 * ROW_WINDOW_SIZE)
   } finally {
     for (const stop of stops) stop()

@@ -197,120 +197,125 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
           setListRevision((revision) => revision + 1)
         }}
       />
-      {/* React Native notices cannot sit inside a SwiftUI List. */}
-      <View>
-        <StorageNoticeAlert />
-        <RefreshOffer />
-      </View>
-      <Host style={styles.host} seedColor={color.accentTint}>
-        <List
-          key={listRevision}
-          modifiers={[
-            listStyle('insetGrouped'),
-            listSectionSpacing(0),
-            scrollContentBackground('hidden'),
-            background(paper.ground),
-            refreshable(props.refresh.onRefresh),
-            accessibilityIdentifier('tasks-list'),
-          ]}
-        >
-          {filtered ? (
-            <Section>
-              {props.chips.map((chip) => (
-                <Button
-                  key={chip.key}
-                  onPress={() => props.onRemoveFilter(chip.key)}
-                  modifiers={[...cardRow, accessibilityHint('Removes this filter.')]}
-                >
-                  <HStack spacing={8}>
-                    <Text modifiers={[foregroundStyle({ type: 'hierarchical', style: 'primary' })]}>
-                      {chip.label}
-                    </Text>
-                    <Spacer />
-                    <Image
-                      systemName="xmark.circle.fill"
-                      modifiers={[
-                        foregroundStyle({ type: 'hierarchical', style: 'tertiary' }),
-                        accessibilityHidden(),
-                      ]}
-                    />
-                  </HStack>
-                </Button>
-              ))}
-            </Section>
-          ) : null}
-          {pending ? <ProgressView modifiers={quietRow} /> : null}
-          {ordered.map((section) => {
-            const [savedFold, toggle] = folds[section.stage]
-            const folded = board?.isFolded(savedFold) ?? savedFold
-            const lane = board?.lanes.find((lane) => lane.stage === section.stage)
-            const proposed = section.stage === 'proposed'
-            return (
-              <Fragment key={section.stage}>
-                {/* The header is its own quiet row (SwiftUI uppercases grouped
+      {/* Keep the Host first for native tab reselect scroll discovery. The
+          reversed column still places React Native notices above the list. */}
+      <View style={styles.listContainer}>
+        <Host style={styles.host} seedColor={color.accentTint}>
+          <List
+            key={listRevision}
+            modifiers={[
+              listStyle('insetGrouped'),
+              listSectionSpacing(0),
+              scrollContentBackground('hidden'),
+              background(paper.ground),
+              refreshable(props.refresh.onRefresh),
+              accessibilityIdentifier('tasks-list'),
+            ]}
+          >
+            {filtered ? (
+              <Section>
+                {props.chips.map((chip) => (
+                  <Button
+                    key={chip.key}
+                    onPress={() => props.onRemoveFilter(chip.key)}
+                    modifiers={[...cardRow, accessibilityHint('Removes this filter.')]}
+                  >
+                    <HStack spacing={8}>
+                      <Text
+                        modifiers={[foregroundStyle({ type: 'hierarchical', style: 'primary' })]}
+                      >
+                        {chip.label}
+                      </Text>
+                      <Spacer />
+                      <Image
+                        systemName="xmark.circle.fill"
+                        modifiers={[
+                          foregroundStyle({ type: 'hierarchical', style: 'tertiary' }),
+                          accessibilityHidden(),
+                        ]}
+                      />
+                    </HStack>
+                  </Button>
+                ))}
+              </Section>
+            ) : null}
+            {pending ? <ProgressView modifiers={quietRow} /> : null}
+            {ordered.map((section) => {
+              const [savedFold, toggle] = folds[section.stage]
+              const folded = board?.isFolded(savedFold) ?? savedFold
+              const lane = board?.lanes.find((lane) => lane.stage === section.stage)
+              const proposed = section.stage === 'proposed'
+              return (
+                <Fragment key={section.stage}>
+                  {/* The header is its own quiet row (SwiftUI uppercases grouped
                     headers and pads them), with Work's compact 44pt hit target. */}
-                <Section modifiers={[listSectionMargins({ edges: 'vertical', length: 0 })]}>
-                  <NativeGroupHeader
-                    title={section.title}
-                    count={section.total}
-                    folded={folded}
-                    onToggle={() => board?.toggleFold(toggle)}
-                    trailing={
-                      proposed && screenable ? (
-                        <Button
-                          onPress={props.onScreenProposals}
-                          modifiers={[
-                            buttonStyle('borderless'),
-                            accessibilityLabel('Screen proposals'),
-                            accessibilityHint(
-                              `Decide on ${section.total} proposals one at a time.`,
-                            ),
-                          ]}
-                        >
-                          <Text
+                  <Section modifiers={[listSectionMargins({ edges: 'vertical', length: 0 })]}>
+                    <NativeGroupHeader
+                      title={section.title}
+                      count={section.total}
+                      folded={folded}
+                      onToggle={() => board?.toggleFold(toggle)}
+                      trailing={
+                        proposed && screenable ? (
+                          <Button
+                            onPress={props.onScreenProposals}
                             modifiers={[
-                              font({ textStyle: 'footnote', weight: 'medium' }),
-                              foregroundStyle(color.accentTint),
+                              buttonStyle('borderless'),
+                              accessibilityLabel('Screen proposals'),
+                              accessibilityHint(
+                                `Decide on ${section.total} proposals one at a time.`,
+                              ),
                             ]}
                           >
-                            Screen
-                          </Text>
-                        </Button>
-                      ) : undefined
-                    }
-                  />
-                </Section>
-                {folded || !board || section.rows.length === 0 ? null : (
-                  <Section modifiers={[listSectionMargins({ edges: 'vertical', length: 0 })]}>
-                    {section.rows.map((row) => (
-                      <TaskSlot key={row.id} id={row.id} depth={row.depth} lane={lane}>
-                        <TaskRow row={row} board={board} props={props} />
-                      </TaskSlot>
-                    ))}
+                            <Text
+                              modifiers={[
+                                font({ textStyle: 'footnote', weight: 'medium' }),
+                                foregroundStyle(color.accentTint),
+                              ]}
+                            >
+                              Screen
+                            </Text>
+                          </Button>
+                        ) : undefined
+                      }
+                    />
                   </Section>
-                )}
-              </Fragment>
-            )
-          })}
-          {!pending && ordered.length === 0 ? (
-            <VStack alignment="leading" spacing={4} modifiers={noteRow}>
-              <Text modifiers={[font({ textStyle: 'headline' })]}>
-                {board?.query.trim() || filtered ? 'No matching tasks' : 'No tasks'}
-              </Text>
-              <Text
-                modifiers={[
-                  font({ textStyle: 'subheadline' }),
-                  foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
-                ]}
-              >
-                {board?.query.trim() || filtered
-                  ? 'Try another title or ID, or clear a filter.'
-                  : 'Tasks filed in your repos show up here.'}
-              </Text>
-            </VStack>
-          ) : null}
-        </List>
-      </Host>
+                  {folded || !board || section.rows.length === 0 ? null : (
+                    <Section modifiers={[listSectionMargins({ edges: 'vertical', length: 0 })]}>
+                      {section.rows.map((row) => (
+                        <TaskSlot key={row.id} id={row.id} depth={row.depth} lane={lane}>
+                          <TaskRow row={row} board={board} props={props} />
+                        </TaskSlot>
+                      ))}
+                    </Section>
+                  )}
+                </Fragment>
+              )
+            })}
+            {!pending && ordered.length === 0 ? (
+              <VStack alignment="leading" spacing={4} modifiers={noteRow}>
+                <Text modifiers={[font({ textStyle: 'headline' })]}>
+                  {board?.query.trim() || filtered ? 'No matching tasks' : 'No tasks'}
+                </Text>
+                <Text
+                  modifiers={[
+                    font({ textStyle: 'subheadline' }),
+                    foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
+                  ]}
+                >
+                  {board?.query.trim() || filtered
+                    ? 'Try another title or ID, or clear a filter.'
+                    : 'Tasks filed in your repos show up here.'}
+                </Text>
+              </VStack>
+            ) : null}
+          </List>
+        </Host>
+        <View>
+          <StorageNoticeAlert />
+          <RefreshOffer />
+        </View>
+      </View>
     </Screen>
   )
 })
@@ -574,4 +579,5 @@ const TaskAge = observer(function TaskAge({
 const styles = StyleSheet.create({
   root: { flex: 1, minHeight: 0 },
   host: { flex: 1 },
+  listContainer: { flex: 1, minHeight: 0, flexDirection: 'column-reverse' },
 })

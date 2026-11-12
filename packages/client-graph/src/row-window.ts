@@ -10,7 +10,9 @@ export class RowWindow<T> {
     private readonly id: (row: T) => string,
   ) {}
   /** Native appearance events describe the viewport; rich row observers stay bounded. */
-  private readonly appeared = observable.set<string>()
+  // Work and Search can present the same section at once during a tab transition.
+  // One cell disappearing must not deactivate another cell for the same row.
+  private readonly appeared = observable.map<unknown, string>()
   @observable private accessor anchor = ''
 
   /** Index only row identities. Scrolling reuses it until the source changes. */
@@ -49,19 +51,24 @@ export class RowWindow<T> {
   has(id: string): boolean {
     if (this.slots.reportObserved()) return this.active.has(id)
     const index = this.positions.get(id) ?? -1
-    return index >= this.windowStart && index < this.windowEnd
+    return (
+      index >= 0 &&
+      ((index >= this.windowStart && index < this.windowEnd) ||
+        [...this.appeared.values()].includes(id))
+    )
   }
 
-  @action appear(id: string) {
+  @action appear(id: string, owner: unknown = id) {
     // Native callbacks can arrive after filtering or deleting their row.
     if (!this.positions.has(id)) return
-    this.appeared.add(id)
+    this.appeared.set(owner, id)
     this.anchor = id
   }
 
-  @action disappear(id: string) {
-    this.appeared.delete(id)
-    if (id === this.anchor && this.appeared.size) this.anchor = [...this.appeared].at(-1)!
+  @action disappear(id: string, owner: unknown = id) {
+    if (this.appeared.get(owner) !== id) return
+    this.appeared.delete(owner)
+    if (id === this.anchor && this.appeared.size) this.anchor = [...this.appeared.values()].at(-1)!
   }
 
   @lazy get windowStart(): number {
@@ -73,6 +80,15 @@ export class RowWindow<T> {
   }
 
   @lazy({ equals: compareShallow }) get visibleRows(): readonly T[] {
-    return this.source().slice(this.windowStart, this.windowEnd)
+    const rows = this.source()
+    const visible = rows.slice(this.windowStart, this.windowEnd)
+    // Native prefetch and tab transitions need not report appearances in order.
+    // The window bounds prefetch, never rows the native list still displays.
+    for (const id of new Set(this.appeared.values())) {
+      const index = this.positions.get(id)
+      if (index !== undefined && (index < this.windowStart || index >= this.windowEnd))
+        visible.push(rows[index]!)
+    }
+    return visible
   }
 }
