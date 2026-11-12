@@ -110,7 +110,6 @@ describe('client lifecycle ownership (§5: the session summons, the relay render
   it('a relay with no session owner refuses instead of summoning', () => {
     expect(() =>
       createOpencodeClientTerminals({
-        launchPosture: async (_sessionId, _target, context) => testLaunchPosture(context),
         sessions: new SessionRegistry(),
         frames: () => {},
       } as unknown as Parameters<typeof createOpencodeClientTerminals>[0]),
