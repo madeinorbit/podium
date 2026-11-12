@@ -22,6 +22,8 @@ export interface SyncProgressSnapshot {
   readonly framesCommitted: number
   readonly committedSeq: number | null
   readonly targetSeq: number | null
+  /** Where the running catch-up started; with `targetSeq` it makes progress a measured fraction. */
+  readonly healFromSeq: number | null
   readonly totalRows: number | null
   readonly seenByEntity: Readonly<Record<string, number>>
   readonly totalsByEntity: Readonly<Record<string, number>> | null
@@ -49,6 +51,7 @@ export class SyncProgressStore {
       framesCommitted: 0,
       committedSeq: null,
       targetSeq: null,
+      healFromSeq: null,
       totalRows: null,
       seenByEntity: {},
       totalsByEntity: null,
@@ -83,6 +86,7 @@ export class SyncProgressStore {
       framesCommitted: 0,
       committedSeq: null,
       targetSeq: null,
+      healFromSeq: null,
       totalRows: null,
       seenByEntity: {},
       totalsByEntity: null,
@@ -104,12 +108,13 @@ export class SyncProgressStore {
   noteSaving(): void {
     this.publish({ phase: 'saving' })
   }
-  noteCommitted(frames: number, seq: number, target: number | undefined): void {
+  noteCommitted(frames: number, seq: number, target: number | undefined, fromSeq?: number): void {
     this.publish({
       phase: 'saving',
       framesCommitted: frames,
       committedSeq: seq,
       targetSeq: target ?? null,
+      healFromSeq: fromSeq ?? this.snapshot.healFromSeq,
     })
   }
   noteInstalled(rows = this.snapshot.rowsSeen): void {
@@ -156,7 +161,7 @@ export class SyncProgressStore {
   noteEvent(event: ReplicaEvent): void {
     if (event.type === 'bootstrap-installed') this.noteInstalled(event.entityCount)
     else if (event.type === 'heal-progress')
-      this.noteCommitted(event.framesCommitted, event.seq, event.targetSeq)
+      this.noteCommitted(event.framesCommitted, event.seq, event.targetSeq, event.fromSeq)
     else if (event.type === 'bootstrap-failed') {
       // The terminal event must not overwrite an earlier auth/format cause.
       this.noteError(this.snapshot.error ?? 'network', this.snapshot.failure ?? event.error)

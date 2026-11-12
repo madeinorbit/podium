@@ -28,8 +28,8 @@ vi.mock('../src/features/updates/updates-panel-context', () => ({
   useUpdates: () => ({ indicator: 'none' }),
 }))
 vi.mock('../src/features/machines/ConnectionIndicator', () => ({
-  ConnectionIndicator: () => null,
-  useStableConnection: () => ({ visible: false }),
+  useStableConnection: () => ({ health: { state: 'online', since: 0 }, visible: false }),
+  useConnectionHealth: () => ({ state: 'online', since: 0 }),
   connectionSeverity: () => 'ok',
   describeHealth: () => ({ headline: '', detail: '' }),
 }))

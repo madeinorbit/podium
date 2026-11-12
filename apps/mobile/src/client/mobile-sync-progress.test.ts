@@ -144,7 +144,7 @@ it('resets HTTP counters on every attempt and waits for committed events', () =>
   store.beginAttempt()
   store.noteMeta(undefined)
   store.noteReceived(2)
-  store.noteEvent({ type: 'heal-progress', framesCommitted: 1, seq: 2, targetSeq: 3 })
+  store.noteEvent({ type: 'heal-progress', framesCommitted: 1, seq: 2, targetSeq: 3, fromSeq: 1 })
   expect(store.getSnapshot()).toMatchObject({
     blocking: false,
     phase: 'saving',

@@ -69,7 +69,7 @@ import { RightDock } from './RightDock'
 import { RightRail } from './RightRail'
 import { MainViewOutlet } from './routes'
 import { StatusStrip } from './StatusStrip'
-import { SyncLoader, WarmSyncStatus } from './SyncLoader'
+import { SyncLoader } from './SyncLoader'
 import { useShellActions, useShellChrome } from './shell-data'
 import {
   CLOSE_RIGHT_PANEL,
@@ -962,7 +962,6 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
         <DockShellLifecycle />
         <div className="desktop-shell">
           <TopBar revealing={revealingChrome} />
-          <WarmSyncStatus store={syncProgress} />
           <div className="desktop-shell-row">
             <ResizableAside>
               <SidebarUnified />
@@ -1051,7 +1050,7 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
               <RightRail rightPanel={visibleRightPanel} onPanelChange={setRightPanel} />
             )}
           </div>
-          <StatusStrip />
+          <StatusStrip syncProgress={syncProgress} />
         </div>
         {/* The utility tier (POD-365): an inset sheet over a live shell. The mode
           underneath stays mounted, so closing is instant and the chrome never

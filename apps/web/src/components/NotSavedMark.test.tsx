@@ -7,7 +7,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { refusalFixture } from '../../../../tests/worklist/harness/src/refusal-fixture'
-import { OutboxRecoveryIndicator } from '../features/machines/OutboxRecovery'
+import { OutboxRecoveryList } from '../features/machines/OutboxRecovery'
 import { WorklistIssueRow } from '../features/worklist/UnifiedIssueRow'
 
 const state = vi.hoisted(() => ({
@@ -61,7 +61,7 @@ it('refuses a real pool change, rolls back its row, marks it, copies its input, 
   render(
     <>
       <Row />
-      <OutboxRecoveryIndicator />
+      <OutboxRecoveryList />
     </>,
   )
   const row = () => document.querySelector(`[data-issue-row="${f.id}"]`)!
@@ -78,7 +78,6 @@ it('refuses a real pool change, rolls back its row, marks it, copies its input, 
   expect(row().textContent).toContain(f.original)
   expect(row().textContent).not.toContain('my refused words')
   expect(f.outbox.pending()).toHaveLength(0)
-  fireEvent.click(screen.getByTestId('outbox-recovery-chip'))
   await waitFor(() => expect(screen.getByTestId('outbox-copy')).toBeTruthy())
   expect(screen.getByText('my refused words verbatim', { exact: false })).toBeTruthy()
   fireEvent.click(screen.getByTestId('outbox-copy'))

@@ -55,4 +55,14 @@ describe('HTTP sync progress', () => {
       targetSeq: 10,
     })
   })
+  it('keeps where a catch-up started, and forgets it on the next attempt', () => {
+    const store = new SyncProgressStore()
+    store.begin('live')
+    store.beginAttempt()
+    store.noteCommitted(1, 6, 10, 4)
+    store.noteCommitted(2, 8, 10)
+    expect(store.getSnapshot()).toMatchObject({ healFromSeq: 4, committedSeq: 8, targetSeq: 10 })
+    store.beginAttempt()
+    expect(store.getSnapshot().healFromSeq).toBeNull()
+  })
 })

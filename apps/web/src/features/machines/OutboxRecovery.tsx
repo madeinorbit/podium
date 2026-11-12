@@ -44,24 +44,16 @@ import { useOutboxRecovery } from '@podium/client-core/react'
 import { outboxCommandFor } from '@podium/client-core/runtime-root'
 import type { ConfirmationRule } from '@podium/commands'
 import { recoveryPlanFor } from '@podium/sync/outbox'
-import { AlertTriangle, Copy, Pencil, RotateCcw, Trash2 } from 'lucide-react'
+import { Copy, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import type { JSX } from 'react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { usePoolRecovery } from '@/features/chat/use-pool-notices'
 import { copyToClipboard } from '@/lib/clipboard'
 import { cn } from '@/lib/utils'
 
-function DeadLetterRow({
+export function DeadLetterRow({
   parked,
   lone,
 }: {
@@ -260,72 +252,26 @@ function confirmationRuleFor(kind: string): ConfirmationRule {
 }
 
 /**
- * The header chip plus its dialog. Appears ONLY when something is parked: a
- * permanent "0 needing attention" is noise, and this has to read as an
- * interruption when it is real.
+ * The refused changes, in the sync panel's "Needs review" section (POD-6852;
+ * it used to sit behind its own header chip and dialog). Renders nothing while
+ * nothing is parked. Every word comes from the parked entries themselves; see
+ * the two rules at the top of this file.
  */
-export function OutboxRecoveryIndicator({ compact }: { compact?: boolean }): JSX.Element | null {
+export function OutboxRecoveryList(): JSX.Element | null {
   const deadLetters = usePoolRecovery()
-  return <RecoveryIndicatorBody deadLetters={deadLetters} compact={compact} />
-}
-function RecoveryIndicatorBody({
-  deadLetters,
-  compact,
-}: {
-  deadLetters: readonly OutboxDeadLetterEntry[]
-  compact?: boolean
-}): JSX.Element | null {
-  const [open, setOpen] = useState(false)
-  useEffect(() => {
-    if (deadLetters.length === 0) setOpen(false)
-  }, [deadLetters.length])
   if (deadLetters.length === 0) return null
-
-  const count = deadLetters.length
-  const header = recoveryDialogCopy(count)
-  const chipLabel = `${count} ${count === 1 ? 'change didn’t sync' : 'changes didn’t sync'}`
+  const header = recoveryDialogCopy(deadLetters.length)
   return (
-    <>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <button
-              type="button"
-              data-pressable
-              onClick={() => setOpen(true)}
-              data-testid="outbox-recovery-chip"
-              className={cn(
-                'inline-flex items-center gap-1 whitespace-nowrap text-[11px] text-destructive',
-                compact && 'min-w-[30px] justify-center px-1',
-              )}
-              aria-label={chipLabel}
-            >
-              <AlertTriangle size={14} aria-hidden="true" />
-              {!compact && <span>{count} didn’t sync</span>}
-            </button>
-          }
-        />
-        <TooltipContent className="max-w-60 flex-col items-start gap-0.5">
-          <strong>{chipLabel}</strong>
-          <span className="text-background/70">Review or discard each one</span>
-        </TooltipContent>
-      </Tooltip>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent
-          aria-label={header.title}
-          className="max-w-md gap-0 overflow-hidden p-0 sm:max-w-md"
-        >
-          <DialogHeader className="gap-1.5 px-5 pt-5 pr-12">
-            <DialogTitle>{header.title}</DialogTitle>
-            <DialogDescription>{header.detail}</DialogDescription>
-          </DialogHeader>
-          <ul className={cn('flex max-h-[60vh] flex-col overflow-auto', count > 1 && 'mt-2')}>
-            {deadLetters.map((parked) => (
-              <DeadLetterRow key={parked.entry.mutationId} parked={parked} lone={count === 1} />
-            ))}
-          </ul>
-        </DialogContent>
-      </Dialog>
-    </>
+    <section data-testid="outbox-recovery-list" aria-label={header.title}>
+      <div className="sync-panel-lead">
+        <p className="sync-panel-lead-title">{header.title}</p>
+        <p>{header.detail}</p>
+      </div>
+      <ul className="flex flex-col">
+        {deadLetters.map((parked) => (
+          <DeadLetterRow key={parked.entry.mutationId} parked={parked} lone={false} />
+        ))}
+      </ul>
+    </section>
   )
 }

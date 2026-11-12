@@ -1742,6 +1742,294 @@ html .header-host-indicators .header-quota-chip .header-value:is([data-tone="cri
   outline: 1px solid var(--live);
   outline-offset: 2px;
 }
+/* THE SYNC ITEM (POD-6852): one slot for every sync signal. It lives in the
+   right-hand group, which grows leftward into the spacer, so nothing else in
+   the strip or above it moves when it appears. */
+.sync-status {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+.sync-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  margin: 0 -6px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+  animation: sync-item-in 0.18s ease-out;
+}
+button.sync-item:hover,
+button.sync-item[data-popup-open] {
+  background: var(--accent);
+  color: var(--text-strong);
+}
+button.sync-item:focus-visible,
+.sync-retry:focus-visible {
+  outline: 1px solid var(--live);
+  outline-offset: 1px;
+}
+.sync-item[data-tone="done"] {
+  color: var(--text-dim);
+  cursor: default;
+  animation:
+    sync-item-in 0.18s ease-out,
+    sync-item-out 0.4s ease-in 1.2s forwards;
+}
+.sync-check {
+  color: var(--live);
+}
+@keyframes sync-item-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
+@keyframes sync-item-out {
+  to {
+    opacity: 0;
+  }
+}
+.sync-ring {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  animation: hp-refresh-spin 1s linear infinite;
+}
+.sync-track {
+  display: block;
+  flex: none;
+  width: 28px;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--border-strong);
+}
+.sync-track > span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--live);
+  transition: width 0.3s ease;
+}
+.sync-pct {
+  min-width: 4ch;
+  text-align: right;
+}
+.sync-sub {
+  color: var(--text-dim);
+}
+.sync-warn,
+.sync-bad,
+.sync-review {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.sync-warn {
+  color: var(--warning);
+}
+.sync-bad,
+.sync-review {
+  color: var(--destructive);
+}
+.sync-pulse {
+  animation: sync-pulse 1.6s ease-in-out infinite;
+}
+@keyframes sync-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+.sync-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--destructive);
+  color: var(--background);
+  font-size: 9.5px;
+  font-weight: 600;
+}
+.sync-retry {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-strong);
+  font: inherit;
+  letter-spacing: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.sync-panel {
+  width: min(360px, calc(100vw - 16px));
+  max-height: min(520px, calc(100vh - 80px));
+  overflow: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--popover);
+  box-shadow: var(--shadow-popover);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  line-height: 1.5;
+  letter-spacing: 0;
+  white-space: normal;
+}
+.sync-panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 20px 9px;
+  border-bottom: 1px solid var(--hairline-soft);
+}
+.sync-panel-head h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 600;
+}
+.sync-panel-head span {
+  color: var(--text-dim);
+  font-size: 11.5px;
+  text-align: right;
+}
+.sync-panel-sec {
+  display: grid;
+  gap: 8px;
+  padding: 10px 20px 12px;
+  border-bottom: 1px solid var(--hairline-soft);
+}
+.sync-panel-sec:last-child {
+  border-bottom: 0;
+}
+.sync-panel-sec[data-kind="review"] {
+  gap: 4px;
+  padding-inline: 0;
+}
+.sync-panel-sec[data-kind="review"] > .sync-panel-lab {
+  padding-inline: 20px;
+}
+.sync-panel-sec p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.sync-panel-sec p strong {
+  color: var(--text-strong);
+  font-weight: 500;
+}
+.sync-panel-lead {
+  display: grid;
+  gap: 2px;
+  padding: 6px 20px 2px;
+}
+.sync-panel-sec .sync-panel-lead-title {
+  color: var(--text-strong);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.sync-panel-lab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.sync-panel-lab[data-tone="bad"] {
+  color: var(--destructive);
+}
+.sync-panel-lab[data-tone="warn"] {
+  color: var(--warning);
+}
+.sync-panel-bar {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--hairline-soft);
+}
+.sync-panel-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--live);
+  transition: width 0.3s ease;
+}
+.sync-panel-bar[data-indeterminate] > span {
+  width: 30%;
+  animation: sync-indeterminate 1.4s ease-in-out infinite;
+}
+@keyframes sync-indeterminate {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}
+.sync-panel-meta {
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.sync-panel-btn {
+  padding: 5px 9px;
+  border: 1px solid var(--text-strong);
+  border-radius: 6px;
+  background: var(--text-strong);
+  color: var(--background);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.sync-panel-link {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--live);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.sync-panel-btn:focus-visible,
+.sync-panel-link:focus-visible {
+  outline: 2px solid var(--live);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sync-item,
+  .sync-ring,
+  .sync-pulse,
+  .sync-panel-bar[data-indeterminate] > span {
+    animation: none;
+  }
+  .sync-item[data-tone="done"] {
+    animation: none;
+  }
+  .sync-track > span,
+  .sync-panel-bar > span {
+    transition: none;
+  }
+}
 .status-strip-roster {
   width: max-content;
   min-width: 220px;

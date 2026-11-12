@@ -3,13 +3,14 @@ import { asIssueId, type IssueStage } from '@podium/model/browser'
 import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { IssueReference } from '@/components/IssueReference'
-import { ConnectionIndicator, useStableConnection } from '@/features/machines/ConnectionIndicator'
 import { MobileHandoffChip } from '@/features/mobile-handoff/MobileHandoffChip'
 import { PHONE_APP_IN_STORES } from '@/features/mobile-handoff/mobile-handoff'
+import { SyncStatusItem } from '@/features/sync/SyncStatusItem'
 import { UpdateIndicator } from '@/features/updates/UpdateIndicator'
 import { useUpdates } from '@/features/updates/updates-panel-context'
+import type { SyncProgressStore } from '@/lib/sync-progress'
 import { AgentConcurrencyHistory } from './AgentConcurrencyHistory'
-import { useHeaderActions, useHeaderSelectedIssue, useHeaderWorkingCount } from './header-data'
+import { useHeaderSelectedIssue, useHeaderWorkingCount } from './header-data'
 import { StatusPerformanceStats } from './StatusPerformanceStats'
 
 /**
@@ -28,7 +29,8 @@ import { StatusPerformanceStats } from './StatusPerformanceStats'
  *     this WINDOW is about,
  *   · the fleet's recent API-equivalent token burn, whose trace makes sudden
  *     changes visible without opening analytics,
- *   · whether the link is healthy, and only while it is not.
+ *   · sync, and only while it has something to say: one item for the link,
+ *     catch-up, queued and refused changes and undelivered messages (POD-6852).
  *
  * The "⌘K commands" hint is gone with it. It failed the same test: a keycap is
  * not a window-scoped FACT, it is instruction, and instruction shown all day to
@@ -42,8 +44,11 @@ import { StatusPerformanceStats } from './StatusPerformanceStats'
  * shown unconditionally, against POD-279's "two counters for one fact read as
  * two problems".
  */
-export function StatusStrip(): JSX.Element {
-  const { health, visible: connVisible } = useStableConnection()
+export function StatusStrip({
+  syncProgress,
+}: {
+  syncProgress?: SyncProgressStore
+} = {}): JSX.Element {
   // The update affordance (POD-2102). It passes the same test as the rest of
   // the strip: window-scoped, stated nowhere else, and present only while it is
   // a FACT — there is an update, or one is running, or one failed.
@@ -59,9 +64,8 @@ export function StatusStrip(): JSX.Element {
           unhealthy, the update offer, the phone offer, and — at the far end —
           which task the window is pointed at (calm redesign, design 4a). */}
       <span className="status-strip-spacer" aria-hidden="true" />
-      {/* Only while degraded or down — a permanent "linked" is noise, the same
-          reason the header's connection glyph hides itself when healthy. */}
-      {connVisible && <ConnectionIndicator health={health} />}
+      {/* Nothing while sync is healthy — a permanent "synced" is noise. */}
+      <SyncStatusItem progress={syncProgress} />
       {updates.indicator !== 'none' && (
         <UpdateIndicator
           state={updates.indicator}

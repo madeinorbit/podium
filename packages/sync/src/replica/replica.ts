@@ -748,6 +748,7 @@ export class Replica {
       }
       let targetSeq: number | undefined
       let framesCommitted = 0
+      const fromSeq = cursor.seq
       // Catch only source failures. A refused durable commit must still be
       // surfaced through settled(), rather than mistaken for a network outage.
       const sourceFailed = (): void => {
@@ -816,7 +817,7 @@ export class Replica {
           framesCommitted += 1
           this.note('D7-1-PARTIAL-HEAL-COMMITTED')
           this.sealTransitions()
-          this.emit({ type: 'heal-progress', framesCommitted, seq: frame.seq, targetSeq })
+          this.emit({ type: 'heal-progress', framesCommitted, seq: frame.seq, targetSeq, fromSeq })
         }
       } finally {
         if (!completed) {

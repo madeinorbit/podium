@@ -2473,8 +2473,8 @@ describe('incremental range healing', () => {
       'tail',
     ])
     expect(h.events.filter((e) => e.type === 'heal-progress')).toEqual([
-      { type: 'heal-progress', framesCommitted: 1, seq: 11, targetSeq: 12 },
-      { type: 'heal-progress', framesCommitted: 2, seq: 12, targetSeq: 12 },
+      { type: 'heal-progress', framesCommitted: 1, seq: 11, targetSeq: 12, fromSeq: 10 },
+      { type: 'heal-progress', framesCommitted: 2, seq: 12, targetSeq: 12, fromSeq: 10 },
     ])
   })
 

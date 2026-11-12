@@ -119,10 +119,7 @@ vi.mock('./ConnectionIndicator', () => ({
   useConnectionHealth: () => ({ state: 'online', pingMs: 10, since: 0 }),
   connectionSeverity: () => 'ok',
   describeHealth: () => ({ headline: 'Connected', detail: '' }),
-  ConnectionIndicator: () => null,
 }))
-vi.mock('../chat/MessageNotices', () => ({ MessageNoticeIndicator: () => null }))
-vi.mock('./OutboxRecovery', () => ({ OutboxRecoveryIndicator: () => null }))
 vi.mock('./QuotaIndicator', () => ({ QuotaIndicator: () => null }))
 
 function fixture(scale: 1 | 4) {
