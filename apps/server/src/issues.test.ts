@@ -3405,10 +3405,10 @@ describe('IssueService assistant', () => {
       stage: 'planning',
     })
     await svc.gitWorkflow.refreshAssistant(c.id)
-    // Activity notes are a body, not part of the slim record: read the row.
-    const row = await svc.reports.store.deps.store.issues.getIssue(c.id)
-    expect(row?.activityNotes).toBe('making progress')
-    expect(row?.suggestedStage).toBe('in_progress')
+    // Activity notes are the panel state record now, not part of the slim record.
+    const issues = svc.reports.store.deps.store.issues
+    expect((await issues.panel.state(c.id))?.text).toBe('making progress')
+    expect((await issues.getIssue(c.id))?.suggestedStage).toBe('in_progress')
   })
 
   it('a refused server-AI call stays non-throwing but records the actionable error (POD-4805)', async () => {
