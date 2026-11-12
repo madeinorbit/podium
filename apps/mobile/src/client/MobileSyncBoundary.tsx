@@ -1,4 +1,5 @@
 import { COLD_SYNC_STALL_MS, watchReplicaBoot } from '@podium/client-core/replica-assembly'
+import { startupTiming } from '../lib/startup-timing'
 
 export { COLD_SYNC_STALL_MS } from '@podium/client-core/replica-assembly'
 
@@ -127,6 +128,7 @@ export function MobileSyncBoundary({
   // parent LaunchBoundary consequently retains its one splash and its input
   // shield; no duplicate wordmark is mounted underneath it.
   if (sync.blocking) return null
+  startupTiming.mark('sync.boundary-open')
 
   return (
     <WorkspaceSyncContext value={store.shared}>

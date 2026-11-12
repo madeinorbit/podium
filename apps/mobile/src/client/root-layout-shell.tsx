@@ -12,6 +12,7 @@ import { ReducedMotionProvider } from '../hooks/ReducedMotionProvider'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import { installBlurOnNavigate } from '../lib/blur-on-navigate'
 import { startMobileLogging } from '../lib/logging'
+import { startupTiming } from '../lib/startup-timing'
 import { color } from '../theme/theme'
 import { AuthGate } from './AuthGate'
 import { useLaunchFontsReady } from './font-startup'
@@ -84,7 +85,9 @@ function ConnectedApp({ children }: { children: ReactNode }) {
 }
 
 function RootLayoutContent({ Navigation }: { Navigation: ComponentType<RootNavigationProps> }) {
+  startupTiming.mark('root.render')
   const fontsReady = useLaunchFontsReady()
+  if (fontsReady) startupTiming.mark('fonts.ready')
   const reduceMotion = useReduceMotion()
   const colorScheme = useColorScheme()
   return (

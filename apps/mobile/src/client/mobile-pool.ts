@@ -1,5 +1,6 @@
 /** The phone uses one shared pool over its existing runtime, replica and outbox.
  * Screens read only that pool; actions keep the existing store API and owner. */
+
 import { COMMAND_ENTITIES, COMMAND_SUMMARIES } from '@podium/client-graph/command-launch-schema'
 import { createPoolHost, type PoolHost } from '@podium/client-graph/host'
 import {
@@ -19,6 +20,7 @@ import {
   SUPERAGENT_SOURCE_KEY,
   SUPERAGENT_SUMMARIES,
 } from '@podium/client-graph/superagent'
+import { startupTiming } from '../lib/startup-timing'
 import { useProjectionFocus } from './projection-focus'
 
 export interface MobilePool {
@@ -28,18 +30,23 @@ export interface MobilePool {
 /** One host per app load; a principal rebuild retains its normal teardown. */
 export function createMobilePool(dev: boolean): MobilePool {
   const host = createPoolHost({
+    start: () => {
+      startupTiming.mark('pool.attach.start')
+    },
     screens: [
       navigationPoolScreen,
       {
         id: 'mobile-screens',
         options: () => ({ summaries: MOBILE_SCREEN_SUMMARIES }),
         async attach(runtime, pool) {
+          startupTiming.mark('pool.created')
           const [{ attachMobileScreens }, { attachIssuePageSource }] = await Promise.all([
             import('@podium/client-graph/mobile-screens'),
             import('@podium/client-graph/issue-page-source'),
           ])
           await attachMobileScreens(pool, runtime)
           attachIssuePageSource(pool, runtime)
+          startupTiming.mark('pool.screens.attached')
         },
       },
       {
@@ -48,7 +55,9 @@ export function createMobilePool(dev: boolean): MobilePool {
         async attach(runtime, pool) {
           // POD-5423: the Work screen draws the worklist's lanes; hold them
           // filed from the attachment, before the lazy imports below.
+          startupTiming.mark('pool.worklist.start')
           const release = pool.worklist.retain()
+          startupTiming.mark('pool.worklist.end')
           try {
             const [{ CommandLaunchSource }, { commandLaunchViews }] = await Promise.all([
               import('@podium/client-graph/command-launch-source'),

@@ -6,6 +6,7 @@ import {
   demoEnabled,
   publishDemoSlice,
 } from '@podium/client-core/demo'
+import { startupTiming } from '../lib/startup-timing'
 
 /**
  * THE MOBILE COMPOSITION ROOT — bootstrap, and nothing else (POD-332).
@@ -35,28 +36,20 @@ import {
  * degradation notice, and this principal's local erase. They live in `./shell`,
  * which says why each one cannot come from a snapshot.
  *
-  * Demo mode (`?demo=1`) is now a REAL store over a kernel-backed facade seeded
-  * with the fixtures (POD-5277), rather than a second hand-written value object: the design
-  * surface therefore exercises the same pool readers as the product.
+ * Demo mode (`?demo=1`) is now a REAL store over a kernel-backed facade seeded
+ * with the fixtures (POD-5277), rather than a second hand-written value object: the design
+ * surface therefore exercises the same pool readers as the product.
  */
 
+import { profileServerIdentity } from '@podium/client-core/accounts'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { type CreateEngineOutbox, OUTBOX_COMMANDS } from '@podium/client-core/engine'
-import { profileServerIdentity } from '@podium/client-core/accounts'
 import {
   browserWakeSource,
   createFeedRelay,
   type FeedBroadcastChannelFactory,
   observeLiveConnection,
 } from '@podium/client-core/live-connection'
-import {
-  browserFollowAdopt,
-  type FollowEvent,
-  type FollowPorts,
-  followHub,
-  type ServerIdentity,
-} from '@podium/client-core/server-follow'
-import { CONNECT_DEFAULT_BASE_URL } from '@podium/protocol/server-locate'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import {
@@ -67,6 +60,7 @@ import {
   type Replica,
   type StorageApi,
 } from '@podium/client-core/replica'
+import type { LegacyIdentityEvidence } from '@podium/client-core/replica-assembly'
 import {
   classifyAuthStatus,
   openReplicaAssembly,
@@ -77,24 +71,31 @@ import {
   startReplicaBoot,
 } from '@podium/client-core/replica-assembly'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
+import {
+  browserFollowAdopt,
+  type FollowEvent,
+  type FollowPorts,
+  followHub,
+  type ServerIdentity,
+} from '@podium/client-core/server-follow'
 import type { FeedSinkPort } from '@podium/client-core/socket-transport'
 import type { HttpSyncSourceDeps } from '@podium/client-core/sync-stream'
 import { createLogger } from '@podium/logger'
 import { asUserId, type SessionId } from '@podium/model'
-import type { LegacyIdentityEvidence } from '@podium/client-core/replica-assembly'
+import { CONNECT_DEFAULT_BASE_URL } from '@podium/protocol/server-locate'
 
 export { BOOT_STALL_MS, STORE_REFRESH_NOTICE } from '@podium/client-core/replica-assembly'
 
+import { setClockWakeSource } from '@podium/mobx-helpers'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Platform } from 'react-native'
-import { setClockWakeSource } from '@podium/mobx-helpers'
-import { platformClockWakeSource } from './clock-wake-source'
 import { BootSplash } from '../components/BootSplash'
 import { BootTroubleScreen } from '../components/BootTroubleScreen'
 import { mobileAccountCredentials } from './account-credentials'
 import { checkLiveAuth, fetchAuthStatus } from './auth'
 import { useAuthStatus } from './auth-context'
+import { platformClockWakeSource } from './clock-wake-source'
 // From `./launch-ready`, not `./launch`: the boundary itself imports
 // expo-router's SplashScreen, and the composition root has no business pulling
 // the router in just to report that its boot failed.
@@ -125,9 +126,12 @@ const followLog = createLogger('mobile:server-follow')
 /** Why the phone is or is not following, for whoever reads the log (POD-5921). */
 function logFollowEvent(event: FollowEvent): void {
   if (event.kind === 'miss') followLog.info('server not found elsewhere yet', { ...event.miss })
-  else if (event.kind === 'found') followLog.info('server found at a new address', { origin: event.origin })
-  else if (event.kind === 'adopted') followLog.info('followed the server', { ...event.move, claimToken: undefined })
-  else if (event.kind === 'adopt-failed') followLog.warn('could not follow the server', { err: event.error })
+  else if (event.kind === 'found')
+    followLog.info('server found at a new address', { origin: event.origin })
+  else if (event.kind === 'adopted')
+    followLog.info('followed the server', { ...event.move, claimToken: undefined })
+  else if (event.kind === 'adopt-failed')
+    followLog.warn('could not follow the server', { err: event.error })
 }
 
 import { type MobileTrpc, makeMobileTrpc, readServerConfig } from './trpc'
@@ -248,6 +252,7 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
   const principal = deps.principal ?? MOBILE_REPLICA_PRINCIPAL
   const clientPrincipal =
     deps.clientPrincipal ?? parseReplicaNamespaceKey(principal)?.memberId ?? principal
+  startupTiming.mark('replica.assembly.start')
   const assembly = await openReplicaAssembly({
     ...deps,
     principal,
@@ -265,6 +270,15 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
     },
     onAuthExpired: deps.onAuthExpired,
   })
+  startupTiming.mark('replica.assembly.end')
+  const noteProgress = () => {
+    const snapshot = assembly.progress.getSnapshot()
+    startupTiming.mark(`sync.${snapshot.phase}`)
+    if (snapshot.rowsSeen > 0) startupTiming.mark('sync.first-rows')
+    if (!snapshot.blocking) startupTiming.mark('sync.usable')
+  }
+  noteProgress()
+  const stopTiming = assembly.progress.subscribe(noteProgress)
   let relay: ReturnType<typeof createFeedRelay> | undefined
   try {
     if (deps.broadcastChannelFactory)
@@ -274,6 +288,7 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
         createChannel: deps.broadcastChannelFactory,
       })
   } catch (error) {
+    stopTiming()
     await assembly.dispose()
     throw error
   }
@@ -282,6 +297,7 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
     await assembly.erasePrincipalData()
   }
   const dispose = async () => {
+    stopTiming()
     relay?.dispose()
     await assembly.dispose()
   }
@@ -319,14 +335,14 @@ export function MobileClientProvider({ children }: { children: ReactNode }) {
  * the slice in production and from the fixture object in demo, and only one of
  * them was ever looked at.
  *
-  * Now the fixtures are ROWS in the kernel's own vocabulary. A kernel-backed
-  * facade (`createDemoReplica` — the same `createKernelReplica` the product
-  * assembly hands the pool) is seeded with them and the ordinary
-  * `StoreProvider` runs over it, so every screen exercises the same
-  * pool readers and the same store actions it does in the
-  * product. What is stubbed is only the network: a tRPC surface that answers the
-  * handful of reads the fixture flows make and resolves mutations without
-  * changing the world.
+ * Now the fixtures are ROWS in the kernel's own vocabulary. A kernel-backed
+ * facade (`createDemoReplica` — the same `createKernelReplica` the product
+ * assembly hands the pool) is seeded with them and the ordinary
+ * `StoreProvider` runs over it, so every screen exercises the same
+ * pool readers and the same store actions it does in the
+ * product. What is stubbed is only the network: a tRPC surface that answers the
+ * handful of reads the fixture flows make and resolves mutations without
+ * changing the world.
  *
  * The boot enrichments (repos, pins, tab orders, superagent threads) fail
  * harmlessly against that stub — the engine already runs every one of them
@@ -683,6 +699,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
     if (Platform.OS === 'web') window.addEventListener('pagehide', onPageHide)
     const stopBoot = startReplicaBoot({
       open: async () => {
+        startupTiming.mark('replica.boot.start')
         if (Platform.OS === 'web')
           await mobileBrowserAccounts(
             config.httpOrigin,
@@ -690,9 +707,11 @@ function LiveProvider({ children }: { children: ReactNode }) {
             config.workspaceSlug,
           ).drain()
         const [bridge, status, pendingCleanups] = await Promise.all([
-          createAsyncStorageReplicaStorage(AsyncStorage, [REPLICA_KEY_PREFIX], {
-            coalesce: isTranscriptWindowStorageKey,
-          }),
+          startupTiming.measure('replica.side-cache', () =>
+            createAsyncStorageReplicaStorage(AsyncStorage, [REPLICA_KEY_PREFIX], {
+              coalesce: isTranscriptWindowStorageKey,
+            }),
+          ),
           inheritedAuthStatus ?? fetchAuthStatus(config.httpOrigin, bearer, config.workspaceId),
           Platform.OS === 'web' ? Promise.resolve([]) : loadPendingProfileCleanups(),
         ])
@@ -716,11 +735,13 @@ function LiveProvider({ children }: { children: ReactNode }) {
           // to async open/delete; keeping that experiment outside this
           // composition root also keeps each shipped bundle on one engine.
           openStore: () =>
-            openMobileEntityStore(MOBILE_REPLICA_DB, (cause) =>
-              setNotice({
-                message: `Offline changes may not survive a restart on this device (${cause}).`,
-                tone: 'warning',
-              }),
+            startupTiming.measure('replica.sqlite', () =>
+              openMobileEntityStore(MOBILE_REPLICA_DB, (cause) =>
+                setNotice({
+                  message: `Offline changes may not survive a restart on this device (${cause}).`,
+                  tone: 'warning',
+                }),
+              ),
             ),
           // The same client the store gets, so the queue sends through the
           // transport the rest of the app is authenticated on (POD-2073).
@@ -766,6 +787,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
       onCleanupError: (cause) => log.warn('replica cleanup failed', { cause }),
       onState: (state) => {
         if (state.status === 'ready') {
+          startupTiming.mark('replica.boot.end')
           replicaForCleanup = state.value
           setOpenedReplica(state.value)
           setBootFailure(null)

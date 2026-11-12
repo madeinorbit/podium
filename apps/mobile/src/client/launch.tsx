@@ -11,6 +11,7 @@ import {
 import { Animated, Easing, Platform, StyleSheet, View } from 'react-native'
 import { BootSplash } from '../components/BootSplash'
 import { useReduceMotion } from '../hooks/useReduceMotion'
+import { startupTiming } from '../lib/startup-timing'
 import { color } from '../theme/theme'
 import {
   LaunchReadyProvider,
@@ -54,7 +55,10 @@ export function LaunchBoundary({
   const [statusSource, setStatusSource] = useState<LaunchSplashStatusSource | null>(null)
   const splashOpacity = useRef(new Animated.Value(1)).current
   const ready = fontsReady && routeReady
-  const markRouteReady = useCallback(() => setRouteReady(true), [])
+  const markRouteReady = useCallback(() => {
+    startupTiming.mark('launch.route-layout')
+    setRouteReady(true)
+  }, [])
 
   useEffect(() => {
     if (!ready) return
@@ -80,6 +84,10 @@ export function LaunchBoundary({
       alive = false
     }
   }, [ready, reduceMotion, splashOpacity])
+
+  useEffect(() => {
+    if (!showSplash) startupTiming.mark('launch.overlay-hidden')
+  }, [showSplash])
 
   const context = useMemo(() => markRouteReady, [markRouteReady])
   return (

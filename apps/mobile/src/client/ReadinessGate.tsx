@@ -1,6 +1,7 @@
 import type { ServerReadiness } from '@podium/model'
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import { type ReadinessDisplayState, ReadinessScreen } from '../components/ReadinessScreen'
+import { startupTiming } from '../lib/startup-timing'
 import { demoEnabled } from './demoData'
 import { LaunchReadyView } from './launch-ready'
 import { fetchServerReadiness, readinessRecheckDelayMs } from './readiness'
@@ -35,14 +36,16 @@ export function ReadinessGate({ children }: { children: ReactNode }) {
     let alive = true
     setState('checking')
     setAcceptedDegraded(false)
-    fetchServerReadiness(config.httpOrigin).then(
-      (readiness) => {
-        if (alive) setState(readiness)
-      },
-      () => {
-        if (alive) setState('unreachable')
-      },
-    )
+    startupTiming
+      .measure('server.readiness', () => fetchServerReadiness(config.httpOrigin))
+      .then(
+        (readiness) => {
+          if (alive) setState(readiness)
+        },
+        () => {
+          if (alive) setState('unreachable')
+        },
+      )
     return () => {
       alive = false
     }

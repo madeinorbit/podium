@@ -77,6 +77,7 @@ import { useWorkspaceRefreshSubtitle } from '../client/workspace-refresh'
 import { NativeGroupHeader } from '../components/NativeGroupHeader.ios'
 import { NewWorkButton } from '../components/NewWorkButton'
 import { useAgeNow } from '../lib/clock-hooks'
+import { startupTiming } from '../lib/startup-timing'
 import { workMenuActionIds } from '../lib/work-menu'
 import { quietProjectsLabel, workLaneTitle, workMenuItem, workSubtitle } from '../lib/work-row-copy'
 import { mobileRowStamp } from '../lib/work-sections'
@@ -110,6 +111,7 @@ const noteRow = [
 
 /** A real SwiftUI plain list. UIKit owns the stack, search, toolbar and tab bar. */
 export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps) {
+  startupTiming.mark('work.surface-render')
   const { phone } = props
   const searchRef = useRef<SearchBarCommands | null>(null)
   const nativeQuery = useRef<string | undefined>(undefined)
@@ -225,6 +227,7 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
               background(paper.ground),
               refreshable(props.refresh.onRefresh),
               accessibilityIdentifier('work-list'),
+              onAppear(() => startupTiming.mark('work.native-list-appear')),
             ]}
           >
             <Section>

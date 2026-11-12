@@ -1,5 +1,6 @@
 // FIRST, before any module that might touch `crypto` at import time.
 import '../src/lib/crypto-polyfill'
+import '../src/lib/startup-timing'
 import { Stack } from 'expo-router/stack'
 import { LogBox } from 'react-native'
 import { enableFreeze } from 'react-native-screens'

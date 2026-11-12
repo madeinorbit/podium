@@ -46,6 +46,7 @@ import { MembershipDeniedView } from '../components/MembershipDeniedView'
 import { PairingScanner } from '../components/PairingScanner'
 import { PressableScale } from '../components/PressableScale'
 import { setKnownPodiumOrigins } from '../lib/podium-link'
+import { startupTiming } from '../lib/startup-timing'
 import { color, font, radius, sans, space } from '../theme/theme'
 import { mobileAccountCredentials } from './account-credentials'
 import { mobileAccountEraser } from './account-data'
@@ -65,7 +66,6 @@ import {
 } from './hosted-sign-in'
 import { hostedSignIn } from './hosted-sign-in-runtime'
 import { LaunchReadyView } from './launch-ready'
-import { PairingWelcome } from './pairing-welcome'
 import {
   captureMobileHandoffUrl,
   consumePendingMobileHandoff,
@@ -92,6 +92,7 @@ import {
   preflightServer,
   type ServerPreflight,
 } from './pairing'
+import { PairingWelcome } from './pairing-welcome'
 import {
   deleteProfileCredential,
   getProfileCredential,
@@ -461,11 +462,13 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
     setupOwnsStartup.current = false
     let alive = true
     void (async () => {
+      startupTiming.mark('profile.restore.start')
       const shouldReadInitialUrl =
         !initialNativePairingConsumed && !initialNativeUrlConsumed.current
       initialNativeUrlConsumed.current = true
       const initialUrlGeneration = startupLinkGeneration.current
       const resolvedInitialUrl = shouldReadInitialUrl ? await Linking.getInitialURL() : null
+      startupTiming.mark('profile.initial-url.end')
       if (!alive) return
       // A live Linking event that arrived while the cold URL was pending is
       // newer intent. The delayed cold result must never reclaim startup.
@@ -532,7 +535,9 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           erasePrincipal: mobileAccountEraser.erase,
         }),
       )
+      startupTiming.mark('profile.cleanup.end')
       const stored = await profileWrites.run(() => loadServerProfiles())
+      startupTiming.mark('profile.storage.end')
       // Pairing can finish while cold startup is still draining. Keep orphan
       // cleanup in the same order as every credential read/write so a purge
       // based on the older profile snapshot cannot erase the newly paired
@@ -540,6 +545,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       await credentialWrites.run(() =>
         purgeOrphanedProfileCredentials(stored.profiles.map((row) => row.id)),
       )
+      startupTiming.mark('profile.credentials-purge.end')
       if (!alive || setupOwnsStartup.current) return
       while (alive && !setupOwnsStartup.current) {
         const generation = startupLinkGeneration.current
@@ -672,6 +678,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         if (!alive || setupOwnsStartup.current) return
         if (generation !== startupLinkGeneration.current) continue
         setProfileState(next)
+        startupTiming.mark('profile.restore.end')
         setBearer(credential)
         setActivation('verified')
         setActivationFailure(null)

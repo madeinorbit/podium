@@ -25,6 +25,7 @@ import { useContentBottomInset } from '../hooks/useContentBottomInset'
 import { useRefreshableTab } from '../hooks/useRefreshableTab'
 import { type PoolWorkMenuData, resolvePoolWorkMenu } from '../lib/pool-work-menu'
 import { sessionHref } from '../lib/session-route'
+import { startupTiming } from '../lib/startup-timing'
 import type { WorkMenuActionId } from '../lib/work-menu'
 import { WorkSurface } from './WorkSurface'
 import type { WorkMode } from './WorkSurface.types'
@@ -51,7 +52,9 @@ const foldKey = (key: string) =>
 
 /** Both phone presentations borrow desktop membership and the same per-task companions. */
 export function WorkScreen({ mode = 'tab' }: { mode?: WorkMode } = {}) {
+  startupTiming.mark('work.render')
   const pool = useMobilePool()
+  if (pool) startupTiming.mark('work.pool-ready')
   return (
     <WorklistProvider model={pool ? worklistView(pool) : null}>
       <PoolWorkScreen mode={mode} />

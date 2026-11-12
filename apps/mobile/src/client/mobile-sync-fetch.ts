@@ -2,6 +2,7 @@ import { type StreamingFetchPort, SyncFormatError } from '@podium/client-core/sy
 import type { WorkspaceSelector } from '@podium/client-core/transport'
 import { fetch as expoFetch } from 'expo/fetch'
 import { Platform } from 'react-native'
+import { startupTiming } from '../lib/startup-timing'
 import { MobileAuthExpiredError } from './auth'
 import { bearerHeaders } from './trpc'
 
@@ -53,11 +54,13 @@ export function createMobileSyncFetch(
   return {
     async fetch(input, init) {
       const fetchImpl = Platform.OS === 'web' ? globalThis.fetch : expoFetch
+      startupTiming.mark('sync.http.start')
       const response = await fetchImpl(input, {
         ...init,
         credentials: Platform.OS === 'web' ? 'include' : 'omit',
         headers: bearerHeaders(bearer, init.headers, selector),
       })
+      startupTiming.mark('sync.http.headers')
       // Preserve status so the shared source maps the refusal to SyncAuthExpiredError.
       if (response.status === 401) onAuthExpired?.(new MobileAuthExpiredError())
       if (!response.ok && response.status !== 409) return response

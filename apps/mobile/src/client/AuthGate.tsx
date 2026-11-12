@@ -1,9 +1,10 @@
-import { offlineProfileStatus, type AuthBootstrap } from '@podium/client-core/accounts'
+import { type AuthBootstrap, offlineProfileStatus } from '@podium/client-core/accounts'
 import { type ReactNode, useEffect, useState } from 'react'
 import { BootTroubleScreen } from '../components/BootTroubleScreen'
 import { MembershipDeniedView } from '../components/MembershipDeniedView'
+import { startupTiming } from '../lib/startup-timing'
 import { LoginScreen } from '../screens/LoginScreen'
-import { type AuthStatus, probeAuth, logout } from './auth'
+import { type AuthStatus, logout, probeAuth } from './auth'
 import { AuthStatusContext } from './auth-context'
 import { demoEnabled } from './demoData'
 import { LaunchReadyView } from './launch-ready'
@@ -34,7 +35,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
       return
     }
     let alive = true
-    probeAuth(config.httpOrigin, bearer, profile.workspaceId)
+    startupTiming
+      .measure('auth.probe', () => probeAuth(config.httpOrigin, bearer, profile.workspaceId))
       .then((decision) => {
         if (!alive) return
         setAuthStatus(decision.status ?? null)
