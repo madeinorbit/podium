@@ -31,9 +31,43 @@ import { and, asc, count, eq, gt, inArray, isNull, lt, lte, max, sql } from 'dri
 import type { ChangeLogReadRow, ChangeLogWriteRow } from '../../authority/change-lifecycle'
 import type { ChangePrunePlan } from '../../change-log'
 import { inListOf, inListSize, inListValues, param, prepared, preparedFamily } from './prepared'
-import { appliedMutations, changes, SELF_HOSTED_TENANT_ID, syncFeed, syncKind } from './schema'
+import {
+  appliedMutations,
+  changes,
+  SELF_HOSTED_TENANT_ID,
+  syncCapture,
+  syncFeed,
+  syncKind,
+} from './schema'
 import type { QueuedMessagesTable, SyncServerTables, UpstreamOutboxTable } from './server-tables'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './store-queries'
+
+/** Take the current transaction's captured rows (POD-6920). The table holds
+ *  only what this transaction wrote since its last drain. */
+const drainCaptureRows = prepared((db: StoreDrizzle) =>
+  db
+    .delete(syncCapture)
+    .returning({
+      id: syncCapture.id,
+      kind: syncCapture.kind,
+      source: syncCapture.source,
+      op: syncCapture.op,
+      oldKey: syncCapture.oldKey,
+      newKey: syncCapture.newKey,
+    })
+    .prepare(),
+)
+
+/** One captured change: the model row a kind's source table lost, gained or
+ *  changed, as the old and new values of the source's key columns. */
+export interface CapturedRow {
+  readonly id: number
+  readonly kind: string
+  readonly source: number
+  readonly op: 'i' | 'u' | 'd'
+  readonly oldKey: readonly unknown[] | null
+  readonly newKey: readonly unknown[] | null
+}
 
 // One row per registered kind in this tenant, independent of record count.
 const kindGenerations = prepared((db: StoreDrizzle) =>
@@ -553,7 +587,7 @@ export class SyncRepository {
   /**
    * Append a batch of change rows in one transaction and return their assigned seqs
    * (contiguous — reservation and append commit together under the tenant row lock).
-   * The compare-at-save funnel sends only real changes.
+   * The Authority sends one row per record the drained capture reached.
    *
    * Row type is {@link ChangeLogWriteRow} — composed from the lifecycle shape,
    * not restated here (POD-1251).
@@ -599,6 +633,26 @@ export class SyncRepository {
       for (let i = 0; i < rows.length; i++) seqs.push(first + i)
     })
     return seqs
+  }
+
+  /**
+   * DERIVED CHANGE CAPTURE (POD-6920): every row the capture triggers wrote
+   * in the current transaction since its last drain, oldest first, and the
+   * table left empty, so the transaction may commit. One statement.
+   */
+  async drainCapture(): Promise<CapturedRow[]> {
+    const rows = await drainCaptureRows(this.db).all()
+    if (rows.length === 0) return []
+    return rows
+      .sort((a, b) => a.id - b.id)
+      .map((row) => ({
+        id: row.id,
+        kind: row.kind,
+        source: row.source,
+        op: row.op as CapturedRow['op'],
+        oldKey: row.oldKey === null ? null : (JSON.parse(row.oldKey) as unknown[]),
+        newKey: row.newKey === null ? null : (JSON.parse(row.newKey) as unknown[]),
+      }))
   }
 
   /** Raise this tenant's head from 0 to 1 at writable boot, after migrations, so

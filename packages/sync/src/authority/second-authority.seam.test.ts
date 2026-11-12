@@ -143,7 +143,6 @@ async function commit(
   id: string,
 ): Promise<readonly number[] | undefined> {
   const outcome = await world.authority.commit({
-    affects: [upsert(id)],
     write: async () => world.authority.models.set([upsert(id)]),
   })
   return outcome.outcome === 'committed' ? outcome.changes.map((c) => c.seq) : undefined

@@ -26,7 +26,6 @@ function fixture() {
   const writer = testLedgerWriter(ledger)
   const save = async (rows: EntityChangeSpec[]) =>
     await writer.commit({
-      affects: rows,
       write: async () => records.set(rows.map(({ id, ...row }) => ({ ...row, entityId: id }))),
     })
   return { repo, records, ledger, writer, save }
@@ -43,7 +42,6 @@ describe('ledger facade', () => {
   it('returns the write result and whole records, skipping unchanged values', async () => {
     const f = fixture()
     const first = await f.writer.commit({
-      affects: [spec('a', 1)],
       write: async () => {
         f.records.set([{ entity: 'issueProjection', entityId: 'a', op: 'upsert', value: 1 }])
         return 42
@@ -138,7 +136,6 @@ describe('source write and append atomicity', () => {
       const writer = testLedgerWriter(ledger)
       const commit = () =>
         writer.commit({
-          affects: [spec('a', 1)],
           write: async () => {
             db.prepare('INSERT INTO test_models VALUES (?, ?)').run('a', '1')
           },

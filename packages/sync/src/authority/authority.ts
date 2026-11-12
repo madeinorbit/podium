@@ -43,9 +43,9 @@
  * 3. WRITE + APPEND, in ONE transact span (ADR 2 D10). "The entity row changed"
  *    and "the change log says so" commit or roll back together, which is why the
  *    feed can never disagree with the tables.
- *    Writers name the model records a write may affect. The Authority builds
- *    them before and after the write and appends whole records that differ.
- *    Every kind uses this path; no published copy is read by a write.
+ *    Writers name no records: the database captures which model rows the
+ *    write changed, and the Authority builds the records those rows reach and
+ *    appends each whole (POD-6920). No published copy is read by a write.
  * 4. BROADCAST. After the span, never inside it: a subscriber must not be able to
  *    observe — or worse, act on — a change that a later throw rolls back.
  *
@@ -94,9 +94,9 @@ import type {
   VisibilityAnchorPort,
 } from '../feed/visibility'
 import { arbitrate } from './arbitration'
+import type { RecordIdsByKind } from '../record-builders'
 import type { ScopedChange, SequencedChange, StagedChangeSpec } from './change-lifecycle'
 import type {
-  AffectedRecord,
   AuthorityClock,
   AuthorityCommit,
   AuthorityCommitOutcome,
@@ -165,29 +165,11 @@ export interface AuthorityDeps {
    */
   provenance?: ProvenancePort
   /**
-   * Current records built from model tables, for compare at save, bootstrap
-   * and access checks. Required: a log cannot answer current-state reads.
+   * Current records built from model tables, and which of them a write
+   * changed (the drained capture, POD-6920), for the append, bootstrap and
+   * access checks. Required: a log cannot answer current-state reads.
    */
   records: RecordSourcePort
-}
-
-/**
- * A writer named a kind with no builder or used after-write naming for a
- * kind outside its closed list. A programming error, refused before writing
- * when possible and otherwise rolled back with the write.
- */
-export class ChangeDetectionPathMismatch extends Error {
-  constructor(
-    readonly entity: MetadataEntityKind,
-    readonly used: 'affects' | 'wrote',
-  ) {
-    super(
-      used === 'affects'
-        ? `kind ${entity} has no record builder for compare at save`
-        : `kind ${entity} is not one whose records may be named after the write: name them before it, in the commit's affects`,
-    )
-    this.name = 'ChangeDetectionPathMismatch'
-  }
 }
 
 /**
@@ -285,10 +267,6 @@ export class Authority implements AuthorityPort {
     // The causing command, read ONCE and before the first await, so the answer
     // is the caller's even if the write awaits into another context.
     const ambient = this.ambientProvenance()
-    // A wrong-path record name is a programming error: a list is refused
-    // before anything runs, the authorization included. Records the writer
-    // must read to name are named inside the span, below.
-    const listed = typeof op.affects === 'function' ? undefined : this.namedRecords(op.affects)
 
     // 1. AUTHORIZE. Before anything reads state, and a throw ends the call.
     await op.authorize?.()
@@ -316,37 +294,13 @@ export class Authority implements AuthorityPort {
         }
       }
 
-      // COMPARE AT SAVE (POD-6769): the named records as the database holds
-      // them now, then the write, then the same records again. Both builds run
-      // in this span, so nothing else can write between them and the append.
-      const named =
-        listed ?? this.namedRecords(typeof op.affects === 'function' ? await op.affects() : [])
-      const before = await this.buildRecords(named)
+      // DERIVED CHANGE CAPTURE (POD-6253 design §3, POD-6920): the write
+      // names nothing. The database captured every model row the transaction
+      // changed so far; draining it answers the records those rows reach, and
+      // each is built as it is now, in this span, so nothing else can write
+      // between the build and the append.
       const result = await op.write()
-      // Records the write created: named now, and absent from `before` by the
-      // writer's word, so each is appended when the second build finds it.
-      const namedKeys = new Set(named.map((r) => entityOverlayKey(r.entity, r.entityId)))
-      const created =
-        op.creates === undefined
-          ? []
-          : this.namedRecords(await op.creates(result)).filter(
-              (r) => !namedKeys.has(entityOverlayKey(r.entity, r.entityId)),
-            )
-      // Records of the closed list of kinds whose writer names them after the
-      // write: no before-build, so each is appended as it is now.
-      for (const r of created) namedKeys.add(entityOverlayKey(r.entity, r.entityId))
-      const wrote =
-        op.wrote === undefined
-          ? []
-          : this.namedRecords(await op.wrote(result), 'wrote').filter(
-              (r) => !namedKeys.has(entityOverlayKey(r.entity, r.entityId)),
-            )
-      const rows = await this.compareAtSave(
-        [...named, ...created, ...wrote.map(({ removed: _removed, ...record }) => record)],
-        before,
-        ambient,
-        new Map(wrote.map((r) => [entityOverlayKey(r.entity, r.entityId), r.removed === true])),
-      )
+      const rows = await this.stageTouched(await this.deps.records.drainCapture(), ambient)
       const seqs = rows.length > 0 ? await this.append(rows, eventTime) : []
       const changes = await this.finalize(rows, seqs)
       return { outcome: 'committed', result, changes } as const
@@ -510,46 +464,22 @@ export class Authority implements AuthorityPort {
   }
 
   // -------------------------------------------------------------------------
-  // Compare at save (POD-6253 design §3, POD-6769)
+  // Derived change capture (POD-6253 design §3, POD-6920)
   // -------------------------------------------------------------------------
 
-  /** The named records, once each in the order first named. Refuses a kind
-   *  that has not moved, and a record named after the write (`wrote`) of a
-   *  kind outside the closed list. */
-  private namedRecords<R extends AffectedRecord>(
-    affects: readonly R[] | undefined,
-    how: 'affects' | 'wrote' = 'affects',
-  ): R[] {
-    if (affects === undefined || affects.length === 0) return []
-    const named = new Map<string, R>()
-    for (const record of affects) {
-      if (this.deps.records?.comparesAtSave(record.entity) !== true) {
-        throw new ChangeDetectionPathMismatch(record.entity, 'affects')
-      }
-      if (how === 'wrote' && this.deps.records.namedAfterWrite(record.entity) !== true) {
-        throw new ChangeDetectionPathMismatch(record.entity, 'wrote')
-      }
-      const key = entityOverlayKey(record.entity, record.entityId)
-      if (!named.has(key)) named.set(key, record)
-    }
-    return [...named.values()]
-  }
-
   /**
-   * The named records as the database holds them now. Kinds backed by the
-   * same rows can share a read. A named id with no record is absent.
+   * One row per touched record, in the order the capture reached them: an
+   * upsert of the record as the database holds it now, or a remove when it
+   * is gone. There is no build before the write and no compare: a record the
+   * capture reached is appended whole.
    */
-  private async buildRecords(named: readonly AffectedRecord[]): Promise<Map<string, BuiltState>> {
+  private async stageTouched(
+    touched: RecordIdsByKind,
+    ambient: ChangeProvenanceFields | undefined,
+  ): Promise<StagedRow[]> {
+    if (touched.size === 0) return []
     const built = new Map<string, BuiltState>()
-    const records = this.deps.records
-    if (named.length === 0) return built
-    const idsByKind = new Map<MetadataEntityKind, string[]>()
-    for (const record of named) {
-      const ids = idsByKind.get(record.entity)
-      if (ids === undefined) idsByKind.set(record.entity, [record.entityId])
-      else ids.push(record.entityId)
-    }
-    for await (const { entity, records: page } of records.buildMany(idsByKind)) {
+    for await (const { entity, records: page } of this.deps.records.buildMany(touched)) {
       for (const record of page) {
         built.set(entityOverlayKey(entity, record.id), {
           value: record.value,
@@ -557,46 +487,24 @@ export class Authority implements AuthorityPort {
         })
       }
     }
-    return built
-  }
-
-  /**
-   * Build the named records again and stage one row per record the write
-   * changed, in the order named: an upsert of the record as it is now when it
-   * is new or differs, a remove when it is gone. Compare the whole serialized
-   * record from each build without reading the last published copy.
-   */
-  private async compareAtSave(
-    named: readonly AffectedRecord[],
-    before: ReadonlyMap<string, BuiltState>,
-    ambient: ChangeProvenanceFields | undefined,
-    /** Keys named after the write: appended as built now, with no compare.
-     *  The value is the writer's word that the write removed the record. */
-    uncompared: ReadonlyMap<string, boolean> = new Map(),
-  ): Promise<StagedRow[]> {
-    if (named.length === 0) return []
-    const after = await this.buildRecords(named)
-    const rows: StagedRow[] = []
-    for (const record of named) {
-      const key = entityOverlayKey(record.entity, record.entityId)
-      const was = before.get(key)
-      const now = after.get(key)
-      if (now === undefined) {
-        // Gone: a remove, when it was there before the write, or when a writer
-        // that named it after the write says the write removed it.
-        const removed = uncompared.has(key) ? uncompared.get(key) === true : was !== undefined
-        if (!removed) continue
-        const [spec] = stampProvenance([{ ...record, op: 'remove' }], ambient)
-        rows.push({ spec: spec as StagedChangeSpec, payload: null })
-        continue
+    const specs: StagedChangeSpec[] = []
+    const payloads: (string | null)[] = []
+    for (const [entity, ids] of touched) {
+      for (const entityId of ids) {
+        const now = built.get(entityOverlayKey(entity, entityId))
+        if (now === undefined) {
+          specs.push({ entity, entityId, op: 'remove' })
+          payloads.push(null)
+        } else {
+          specs.push({ entity, entityId, op: 'upsert', value: now.value })
+          payloads.push(now.json)
+        }
       }
-      if (!uncompared.has(key) && was?.json === now.json) {
-        continue
-      }
-      const [spec] = stampProvenance([{ ...record, op: 'upsert', value: now.value }], ambient)
-      rows.push({ spec: spec as StagedChangeSpec, payload: now.json })
     }
-    return rows
+    return stampProvenance(specs, ambient).map((spec, i) => ({
+      spec,
+      payload: payloads[i] as string | null,
+    }))
   }
 
   /** The ambient command's provenance, with undefined fields dropped. */

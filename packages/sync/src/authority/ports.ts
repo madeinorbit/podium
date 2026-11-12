@@ -109,50 +109,32 @@ export interface ProvenancePort {
 }
 
 /**
- * One record a write may affect, named BEFORE the write runs (POD-6253 design
- * §3, POD-6769). The target, plus the same optional provenance group a staged
- * spec carries; there is no op and no value, because the Authority reads both
- * from the database.
- */
-export type AffectedRecord = Pick<StagedChangeSpec, 'entity' | 'entityId'> & ChangeProvenanceFields
-
-/**
- * One record a write says it wrote, named AFTER the write
- * ({@link AuthorityCommit.wrote}). `removed` is the writer's word that this
- * write took the record away (a tombstone): when the build then finds no
- * record, a remove is appended. Without it a missing record appends nothing.
- */
-export type WrittenRecord = AffectedRecord & { readonly removed?: boolean }
-
-/**
- * RECORDS AS THE DATABASE HOLDS THEM NOW, for compare at save (POD-6253 design
- * §3, POD-6769).
+ * RECORDS AS THE DATABASE HOLDS THEM NOW, AND WHICH ONES A WRITE CHANGED
+ * (POD-6253 design §3, POD-6920).
  *
- * Every registered kind compares at save: its changes are found by building the
- * named records before and after the write, never by comparing a declared value
- * with the stored copy of the last one. The composition root registers every synced kind.
+ * Writers name no records. The database layer captures which model rows each
+ * write transaction changed (generated triggers over every table a kind
+ * reads), and {@link drainCapture} turns the rows captured so far in the
+ * caller's transaction into the ids of the records they can have changed. A
+ * transaction that changed a model row and was not drained before it commits
+ * is refused by the database, so no write reaches the tables without its log
+ * entry.
  *
  * `build` runs inside the commit's span, so it sees the span's own writes, and
  * answers exactly the asked ids that have a record, once each.
  */
 export interface RecordSourcePort {
-  /** Is this kind's change detection compare at save? */
-  comparesAtSave(kind: MetadataEntityKind): boolean
   /**
-   * May a writer of this kind name its records AFTER the write
-   * ({@link AuthorityCommit.wrote})? A closed list the composition root keeps,
-   * for kinds whose operations learn what they wrote while they run. Only a
-   * kind that also {@link comparesAtSave}.
+   * Take every change captured so far in the caller's transaction, and answer
+   * the records those changes can have changed, by kind, each id once, in the
+   * order first captured. An id may name a record the write removed or never
+   * had: the caller builds it to find out.
    */
-  namedAfterWrite(kind: MetadataEntityKind): boolean
+  drainCapture(): Promise<RecordIdsByKind>
   build(kind: MetadataEntityKind, ids: readonly string[]): Promise<readonly BuiltRecord[]>
-  /** Build one side of a commit's comparison, sharing reads across kinds. */
+  /** Build several kinds at once, sharing reads across kinds. */
   buildMany(idsByKind: RecordIdsByKind): AsyncIterable<RecordPage>
-  /**
-   * Every kind this source builds, in the order a start-up load streams them
-   * (POD-6770). A superset of the kinds that {@link comparesAtSave}: a record
-   * can be read from the database before its writers have moved.
-   */
+  /** Every kind this source builds, in the order a start-up load streams them (POD-6770). */
   kinds(): readonly MetadataEntityKind[]
   /** Every record of a kind as the database holds it now, a page at a time. */
   streamAll(kind: MetadataEntityKind): AsyncIterable<readonly BuiltRecord[]>
@@ -347,51 +329,19 @@ export interface AuthorityCommit<T> {
     readonly current?: () => Promise<ArbitrationRequest['current']>
   }
   /**
-   * COMPARE AT SAVE (POD-6769): the records this write may affect, named up
-   * front. The Authority builds each from the database immediately before the
-   * write and again after it, in the write's own transaction, and appends an
-   * upsert for one that is new or differs and a remove for one that is gone. A
-   * named record the write left alone appends nothing, so a writer names
-   * generously. Only kinds the {@link RecordSourcePort} answers for; any other
-   * kind here is refused.
-   *
-   * A list when the writer knows the records from its input. A function when
-   * it must read to know them (whose pins of this issue go with it): it runs
-   * inside the transaction, immediately before the first build.
+   * The entity write, awaited inside the same transaction as the change
+   * append. The Authority drains the capture right after it and appends one
+   * row for every record the captured changes reach: an upsert of the record
+   * as it is now, or a remove when it is gone (POD-6920).
    */
-  affects?: readonly AffectedRecord[] | (() => Promise<readonly AffectedRecord[]>)
-  /** The entity write, awaited inside the same transaction as the change append. */
   write: () => Promise<T>
-  /**
-   * COMPARE AT SAVE, for records the write CREATED and could not name before
-   * it ran (a row whose id the write decided): each had no record before the
-   * write, so it is built once, after it, and appended when it is there. A
-   * record also named in {@link affects} is compared as named there. Naming an
-   * existing record here costs one redundant row and never loses a change, so
-   * a writer that listed every record of a set before the write may name the
-   * whole set again here: the ones that are new are exactly the ones not
-   * named before.
-   */
-  creates?: (result: T) => readonly AffectedRecord[] | Promise<readonly AffectedRecord[]>
-  /**
-   * NAMED AFTER THE WRITE, for the closed list of kinds the
-   * {@link RecordSourcePort} allows it for: the records the write says it
-   * wrote. There is no build before the write, so nothing is compared: each is
-   * built once, after it, and appended as it is now. A write that changed
-   * nothing therefore costs one redundant row, which is why the list is closed
-   * and short. A record that is not there appends nothing, unless the writer
-   * says it removed it ({@link WrittenRecord.removed}): then its remove is
-   * appended. A record also named in {@link affects} or {@link creates} is
-   * handled as named there. Any other kind here is refused.
-   */
-  wrote?: (result: T) => readonly WrittenRecord[] | Promise<readonly WrittenRecord[]>
 }
 
 export type AuthorityCommitOutcome<T> =
   | {
       readonly outcome: 'committed'
       readonly result: T
-      /** The appended rows. Empty when no named record changed. */
+      /** The appended rows. Empty when the write changed no column a record reads. */
       readonly changes: readonly SequencedChange[]
     }
   /** Arbitration refused. Nothing was written — the entity write never ran. */

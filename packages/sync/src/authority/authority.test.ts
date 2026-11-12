@@ -74,7 +74,6 @@ describe('authority write funnel', () => {
           return { revision: 1 }
         },
       },
-      affects: [spec],
       write: async () => {
         order.push('write')
         authority.models.set([spec])
@@ -127,7 +126,6 @@ describe('authority write funnel', () => {
     const spec = upsert('s', 1)
     await expect(
       authority.commit({
-        affects: [spec],
         write: async () => {
           authority.models.set([spec])
           await Promise.resolve()
@@ -176,7 +174,6 @@ describe('authority write funnel', () => {
     const authority = build({ store, provenance: { current } })
     const spec = upsert('s', 1)
     await authority.commit({
-      affects: [spec],
       write: async () => {
         mutationId = asMutationId('later')
         authority.models.set([spec])

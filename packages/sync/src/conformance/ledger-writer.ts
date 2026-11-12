@@ -13,7 +13,6 @@ import {
   type LedgerCommitOp,
   type LedgerCommitResult,
   type LedgerWriter,
-  toKernelAffects,
 } from '../ledger'
 import { type WriteScope, WriteScopeIssuer, type WriteScopeMint } from '../write-scope'
 
@@ -68,11 +67,11 @@ export function fixtureCommitWriter(
 
 /**
  * A commit-only writer straight over an Authority, for a SERVICE test with no
- * Ledger whose kind compares at save (POD-6769): the commit's named records,
- * its write (run with {@link fixtureWriteScope}) and its declared changes go to
- * `authority.commit`, so the Authority builds the records around the write as
- * production does. The test gives that Authority its `records`. The appended
- * changes go to `onAppended`, in this facade's `id` spelling.
+ * Ledger: the commit's write (run with {@link fixtureWriteScope}) goes to
+ * `authority.commit`, so the Authority drains the capture and builds the
+ * records the write reached as production does (POD-6920). The test gives that
+ * Authority its `records`. The appended changes go to `onAppended`, in this
+ * facade's `id` spelling.
  */
 export function authorityCommitWriter(
   authority: Pick<Authority, 'commit'>,
@@ -80,22 +79,7 @@ export function authorityCommitWriter(
 ): Pick<LedgerWriter, 'commit'> {
   return {
     commit: async <T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>> => {
-      const creates = op.creates
-      const wrote = op.wrote
       const outcome = await authority.commit<T>({
-        ...(wrote === undefined
-          ? {}
-          : {
-              wrote: async (result: T) =>
-                (await wrote(result)).map(({ id, ...rest }) => ({ ...rest, entityId: id })),
-            }),
-        ...(creates === undefined
-          ? {}
-          : {
-              creates: async (result: T) =>
-                (await creates(result)).map(({ id, ...rest }) => ({ ...rest, entityId: id })),
-            }),
-        ...(op.affects === undefined ? {} : { affects: toKernelAffects(op.affects) }),
         write: async () => await op.write(fixtureWriteScope()),
       })
       if (outcome.outcome !== 'committed') throw new Error(`rejected: ${outcome.reason}`)

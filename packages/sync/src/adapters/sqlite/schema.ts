@@ -190,6 +190,42 @@ export const syncKind = sqliteTable(
   (table) => [primaryKey({ columns: [table.tenantId, table.kind] })],
 )
 
+/**
+ * DERIVED CHANGE CAPTURE (POD-6253 design §3, POD-6920).
+ *
+ * Which model rows the current write transaction changed. Triggers generated
+ * from the record kinds' declarations (`apps/server/src/sync/record-sources.ts`)
+ * add one row per changed row a kind reads: the kind, which of its sources,
+ * the operation, and the old and new values of the source's key columns as
+ * JSON arrays. The Authority drains the table inside the same transaction
+ * (`SyncRepository.drainCapture`), so outside a write it is empty, and a
+ * transaction only ever sees its own rows (Postgres included).
+ *
+ * FAIL CLOSED: every row references {@link syncCaptureGuard}, which is always
+ * empty, through a DEFERRED foreign key (written by hand in the migration, as
+ * drizzle has no spelling for it). A transaction may hold undrained rows while
+ * it runs; its COMMIT is refused while any remain, and a write outside a
+ * transaction is refused at once. So a model write that was not drained into
+ * the log cannot commit.
+ */
+export const syncCaptureGuard = sqliteTable('sync_capture_guard', {
+  id: integer().primaryKey(),
+})
+
+export const syncCapture = sqliteTable('sync_capture', {
+  id: integer().primaryKey(),
+  kind: text().notNull(),
+  source: integer().notNull(),
+  /** `i`, `u` or `d`. */
+  op: text().notNull(),
+  oldKey: text('old_key'),
+  newKey: text('new_key'),
+  undrained: integer()
+    .notNull()
+    .default(0)
+    .references(() => syncCaptureGuard.id),
+})
+
 export const appliedMutations = sqliteTable(
   'applied_mutations',
   {

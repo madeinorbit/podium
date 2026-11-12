@@ -65,9 +65,10 @@ const log = createLogger('sync:ledger')
  * change append inside ONE injected `transact()` span, so "the entity row
  * changed" and "the change log says so" commit or roll back together.
  *
- * Each commit names model records, builds them before and after its write,
- * and appends whole records that differ. Source writes and appends share the
- * transaction, and the outermost commit owns subscriber delivery.
+ * A commit names no records: the database captures which model rows its
+ * write changed, and the Authority appends the whole records those rows reach
+ * (POD-6920). Source writes and appends share the transaction, and the
+ * outermost commit owns subscriber delivery.
  */
 
 /**
@@ -75,29 +76,6 @@ const log = createLogger('sync:ledger')
  * the kernel change shape; provenance passes through unchanged.
  */
 export type EntityChangeSpec = Omit<KernelChangeSpec, 'entityId'> & { id: string }
-
-/** One record a write may affect, in this facade's `id` spelling: see
- *  `AffectedRecord` (POD-6769). */
-export type AffectedRecordSpec = Omit<EntityChangeSpec, 'op' | 'value'>
-
-/** One record a write says it wrote, named after the write; `removed` is the
- *  writer's word that the write took it away: see `WrittenRecord`. */
-export type WrittenRecordSpec = AffectedRecordSpec & { readonly removed?: boolean }
-
-/** A commit's named records: a list, or a read run inside the transaction
- *  before the first build, when the writer must read to know them. */
-export type AffectedRecordsOf =
-  | readonly AffectedRecordSpec[]
-  | (() => Promise<readonly AffectedRecordSpec[]>)
-
-/** This facade's `id` spelling of named records → the kernel's `entityId`. */
-export function toKernelAffects(
-  affects: AffectedRecordsOf,
-): NonNullable<AuthorityCommit<unknown>['affects']> {
-  const rename = (records: readonly AffectedRecordSpec[]) =>
-    records.map(({ id, ...rest }) => ({ ...rest, entityId: id }))
-  return typeof affects === 'function' ? async () => rename(await affects()) : rename(affects)
-}
 
 /**
  * The composite overlay key. RE-EXPORTED from the Authority rather than declared
@@ -137,8 +115,8 @@ export interface LedgerDeps {
   /** The command now appending, passed straight to the Authority — see
    *  `AuthorityDeps.provenance` (POD-6272). Unset stamps nothing. */
   provenance?: ProvenancePort
-  /** The kinds whose change detection is compare at save, and their records,
-   *  passed straight to the Authority: see `AuthorityDeps.records` (POD-6769).
+  /** The records built from the model tables and the drained change capture,
+   *  passed straight to the Authority: see `AuthorityDeps.records` (POD-6920).
    */
   records: RecordSourcePort
 }
@@ -201,18 +179,6 @@ export interface LedgerCommitOp<T> {
    * appends its change entry, never beside it.
    */
   write: (scope: WriteScope) => Promise<T>
-  /**
-   * COMPARE AT SAVE (POD-6769): the records this write may affect, named up
-   * front, for kinds that have moved. The Authority builds each before and
-   * after `write` and appends what differs: see `AuthorityCommit.affects`.
-   */
-  affects?: AffectedRecordsOf
-  /** Records the write created and could not name before it ran: see
-   *  `AuthorityCommit.creates`. */
-  creates?: (result: T) => readonly AffectedRecordSpec[] | Promise<readonly AffectedRecordSpec[]>
-  /** Records named after the write, for the closed list of kinds that allows
-   *  it: see `AuthorityCommit.wrote`. */
-  wrote?: (result: T) => readonly WrittenRecordSpec[] | Promise<readonly WrittenRecordSpec[]>
   /** Post-commit work, run on the OUTERMOST commit. See {@link Ledger.commit}. */
   apply?: (result: T, changes: MetadataChange[]) => void
   arbitrate?: AuthorityCommit<T>['arbitrate']
@@ -356,23 +322,8 @@ export class Ledger {
    */
   async commit<T>(scope: WriteScope, op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>> {
     this.scopes.check(scope)
-    const creates = op.creates
-    const wrote = op.wrote
     const outcome = await this.authority.commit({
-      ...(wrote === undefined
-        ? {}
-        : {
-            wrote: async (result: T) =>
-              (await wrote(result)).map(({ id, ...rest }) => ({ ...rest, entityId: id })),
-          }),
-      ...(creates === undefined
-        ? {}
-        : {
-            creates: async (result: T) =>
-              (await creates(result)).map(({ id, ...rest }) => ({ ...rest, entityId: id })),
-          }),
       ...(op.arbitrate === undefined ? {} : { arbitrate: op.arbitrate }),
-      ...(op.affects === undefined ? {} : { affects: toKernelAffects(op.affects) }),
       write: async () => await op.write(scope),
     })
     if (outcome.outcome !== 'committed') {

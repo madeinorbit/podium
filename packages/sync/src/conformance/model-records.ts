@@ -3,26 +3,55 @@ import { MetadataEntityKind } from '@podium/protocol'
 import { Authority, type AuthorityDeps, entityOverlayKey } from '../authority/authority'
 import type { SequencedChange, StagedChangeSpec } from '../authority/change-lifecycle'
 import type { RecordSourcePort } from '../authority/ports'
-import type { BuiltRecord } from '../record-builders'
+import type { BuiltRecord, RecordIdsByKind } from '../record-builders'
 
+/**
+ * Model rows in memory, with the change capture a database keeps (POD-6920):
+ * every {@link set} of a row whose value changes is captured, and
+ * {@link drainCapture} hands the captured records to the Authority. A set
+ * that leaves a row as it was captures nothing, like a trigger whose columns
+ * did not change.
+ */
 export class ModelRecords implements RecordSourcePort {
   private rows = new Map<string, BuiltRecord & { entity: MetadataEntityKind }>()
-  comparesAtSave = () => true
-  namedAfterWrite = () => true
+  private captured = new Map<MetadataEntityKind, string[]>()
   kinds = () => MetadataEntityKind.options
 
   set(specs: readonly StagedChangeSpec[]): void {
     for (const spec of specs) {
       const key = entityOverlayKey(spec.entity, spec.entityId)
-      if (spec.op === 'remove') this.rows.delete(key)
-      else this.rows.set(key, { entity: spec.entity, id: spec.entityId, value: spec.value })
+      const was = this.rows.get(key)
+      if (spec.op === 'remove') {
+        if (was === undefined) continue
+        this.rows.delete(key)
+      } else {
+        if (was !== undefined && JSON.stringify(was.value) === JSON.stringify(spec.value)) continue
+        this.rows.set(key, { entity: spec.entity, id: spec.entityId, value: spec.value })
+      }
+      this.capture(spec.entity, spec.entityId)
     }
+  }
+
+  /** Capture a record as changed without changing its row (a fixture's
+   *  stand-in for a row a kind reads that is not the record's own). */
+  capture(entity: MetadataEntityKind, id: string): void {
+    const ids = this.captured.get(entity)
+    if (ids === undefined) this.captured.set(entity, [id])
+    else if (!ids.includes(id)) ids.push(id)
+  }
+
+  async drainCapture(): Promise<RecordIdsByKind> {
+    const drained = this.captured
+    this.captured = new Map()
+    return drained
   }
 
   checkpoint(): () => void {
     const rows = new Map(this.rows)
+    const captured = new Map([...this.captured].map(([kind, ids]) => [kind, [...ids]] as const))
     return () => {
       this.rows = rows
+      this.captured = captured
     }
   }
 
@@ -48,7 +77,7 @@ export class ModelRecords implements RecordSourcePort {
   }
 }
 
-/** Kernel tests save model rows through the real compare-at-save funnel. */
+/** Kernel tests save model rows through the real commit funnel. */
 export class ModelAuthority extends Authority {
   readonly models: ModelRecords
 
@@ -71,10 +100,7 @@ export class ModelAuthority extends Authority {
   }
 
   async save(specs: readonly StagedChangeSpec[]): Promise<readonly SequencedChange[]> {
-    const outcome = await this.commit({
-      affects: specs,
-      write: async () => this.models.set(specs),
-    })
+    const outcome = await this.commit({ write: async () => this.models.set(specs) })
     if (outcome.outcome !== 'committed') throw new Error('fixture save rejected')
     return outcome.changes
   }
@@ -94,7 +120,6 @@ export class ModelLedger extends Ledger {
 
   rowWrite(specs: readonly EntityChangeSpec[]): LedgerCommitOp<void> {
     return {
-      affects: specs,
       write: async () => this.models.set(specs.map(({ id, ...row }) => ({ ...row, entityId: id }))),
     }
   }
