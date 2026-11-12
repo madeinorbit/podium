@@ -23,7 +23,7 @@ import { workPaper as paper } from '../screens/work-paper'
 const CARD_INSET = 12
 
 /**
- * A stage group's header: chevron, name, count. The whole row folds; the
+ * A stage group's header: chevron, bold Title 3 name, count. The whole row folds; the
  * Proposed group adds a trailing "Screen" that opens the screening deck.
  */
 export function NativeGroupHeader({
@@ -45,7 +45,8 @@ export function NativeGroupHeader({
       modifiers={[
         listRowBackground(paper.ground),
         listRowSeparator('hidden'),
-        listRowInsets({ leading: CARD_INSET, trailing: CARD_INSET, top: 0, bottom: 0 }),
+        // The top inset parts the larger title from the card above it.
+        listRowInsets({ leading: CARD_INSET, trailing: CARD_INSET, top: 8, bottom: 0 }),
         frame({ minHeight: 44, maxWidth: Infinity }),
       ]}
     >
@@ -69,7 +70,7 @@ export function NativeGroupHeader({
           <Image
             systemName={folded ? 'chevron.right' : 'chevron.down'}
             modifiers={[
-              font({ textStyle: 'caption2', weight: 'semibold' }),
+              font({ textStyle: 'footnote', weight: 'semibold' }),
               foregroundStyle(paper.tertiary),
               frame({ width: 14 }),
               accessibilityHidden(),
@@ -77,8 +78,10 @@ export function NativeGroupHeader({
           />
           <Text
             modifiers={[
-              font({ textStyle: 'footnote', weight: 'semibold' }),
-              foregroundStyle(paper.secondary),
+              // First-party section titles (Mail, Settings): bold Title 3 in the
+              // label colour, well above the rows' Body text, scaling with Dynamic Type.
+              font({ textStyle: 'title3', weight: 'bold' }),
+              foregroundStyle(paper.ink),
               lineLimit(1),
             ]}
           >
@@ -86,7 +89,7 @@ export function NativeGroupHeader({
           </Text>
           <Text
             modifiers={[
-              font({ textStyle: 'caption', design: 'monospaced' }),
+              font({ textStyle: 'subheadline', design: 'monospaced' }),
               foregroundStyle(paper.tertiary),
               monospacedDigit(),
             ]}
