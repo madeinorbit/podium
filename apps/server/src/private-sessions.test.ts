@@ -342,6 +342,9 @@ describe('MU-07: an agent acting for Alice cannot read, send to or drive Bob’s
       expect(await runSessionCli(['read', f.sessions.alice], client, { hasRelay: true })).toContain(
         `fixture transcript of ${f.sessions.alice}`,
       )
+      expect(await client.issues.get.query({ id: f.tasks.alice })).toMatchObject({
+        id: f.tasks.alice,
+      })
       expect(await client.issues.get.query({ id: f.tasks.bob })).toMatchObject({ id: f.tasks.bob })
     } finally {
       await f.handle.registry.sessionStore.grants.remove(

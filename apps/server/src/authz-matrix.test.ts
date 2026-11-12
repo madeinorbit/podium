@@ -538,6 +538,7 @@ describe('D19.2 — reads are scope-gated, with denial covered on trpc, cli, mcp
       'forbidden',
     )
     expect(authorize(cap, 'read', { kind: 'per-user-row', userId: OTHER })).toBe('forbidden')
+    expect(authorize(cap, 'read', { id: ROOT_ISSUE })).toBe('allow')
     expect(authorize(cap, 'read', { id: 'iss:unrelated' })).toBe('allow')
   })
 
