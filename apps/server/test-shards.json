@@ -2836,6 +2836,7 @@
         "apps/server/src/two-member-instance.test.ts",
         "apps/server/src/two-member-machine-grants.test.ts",
         "apps/server/src/two-member-machines.test.ts",
+        "apps/server/src/two-member-own-machine.test.ts",
         "apps/server/src/two-member-owned-machine-credentials.test.ts",
         "apps/server/src/two-member-personal-records.test.ts",
         "apps/server/src/two-member-private-resources.test.ts",
@@ -3740,6 +3741,7 @@
         "src/two-member-instance.test.ts",
         "src/two-member-machine-grants.test.ts",
         "src/two-member-machines.test.ts",
+        "src/two-member-own-machine.test.ts",
         "src/two-member-owned-machine-credentials.test.ts",
         "src/two-member-personal-records.test.ts",
         "src/two-member-private-resources.test.ts",
@@ -3778,7 +3780,9 @@
     {
       "id": "normalized-wire",
       "title": "normalized-wire and load guards",
-      "testFiles": ["apps/server/src/issues.normalized-wire.test.ts"],
+      "testFiles": [
+        "apps/server/src/issues.normalized-wire.test.ts"
+      ],
       "inputs": [
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",

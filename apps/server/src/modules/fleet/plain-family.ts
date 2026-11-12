@@ -7,8 +7,9 @@
  * a replay. Its route stays: the shipped mobile app calls it.
  *
  * `machines.pairingCode` mints a one-time enrollment code, in memory: nothing
- * synced. Who may mint which code is the derived gate's: an administrator for a
- * new enrollment, a retained machine's grantee for its replacement.
+ * synced. Who may mint which code is the derived gate's: any signed-in member
+ * for a new enrollment into their own custody (POD-6883), an administrator or a
+ * retained machine's grantee for its replacement.
  *
  * The derived fleet gate (`authz.ts`) runs after the parse, in the handler, as
  * it did on the route.

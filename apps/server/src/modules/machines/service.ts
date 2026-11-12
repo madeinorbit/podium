@@ -254,6 +254,12 @@ export interface PairingGrant {
    * visible and fixable, rather than one everybody can.
    */
   ownerUserId?: UserId
+  /**
+   * The owner's authorization generation when the code was minted (POD-6883).
+   * Redeem refuses the code once it differs, so disabling, removing or
+   * re-roling the minter ends their unused codes, even across a re-enable.
+   */
+  ownerAuthzGeneration?: number
   copyAgentCredentials?: boolean
   podiumManaged?: boolean
 }
@@ -1131,6 +1137,11 @@ export class MachinesService {
   mintPairingCode(grant: PairingGrant = {}): string {
     if (!this.deps.pairing) throw new Error('inbound pairing is disabled on this server')
     return this.deps.pairing.mint(grant)
+  }
+
+  /** The minter's authorization generation, which a pairing code is bound to. */
+  async ownerAuthzGeneration(owner: UserId): Promise<number | undefined> {
+    return await this.deps.store.users.authzGenerationOf(owner)
   }
 
   async mintClientRegistrationCode(request: { machineId: MachineId; publicKey?: string }, actor: UserId): Promise<string> {

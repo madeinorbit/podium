@@ -207,11 +207,22 @@ export async function fleetAuthzFailure(
   const contract = FLEET_CONTRACTS[name]
   const { policy } = contract
 
-  // New enrollment is admin-only. A retained identity's personal grantee may
-  // explicitly replace that identity; the handler also checks its revoked state.
-  if (name === 'machines.pairingCode' && deps.role !== 'admin') {
-    const target = (input as { replaceMachineId?: string } | undefined)?.replaceMachineId
-    if (!target || !isMachineOwner(deps.principal, asMachineId(target), deps.ownership)) {
+  // New enrollment is any signed-in member's, for their own custody (POD-6883):
+  // the code carries the minter, so it can only ever enroll into theirs. The
+  // member floor below still requires an enabled account. An agent never mints
+  // a new machine. Client recovery stays an administrator's, and replacing a
+  // retained identity its admin's or its personal grantee's; the handler also
+  // checks the revoked state.
+  if (name === 'machines.pairingCode') {
+    const { replaceMachineId: target, clientRegistration } =
+      (input as { replaceMachineId?: string; clientRegistration?: unknown } | undefined) ?? {}
+    if (clientRegistration !== undefined && deps.role !== 'admin') {
+      return new TRPCError({ code: 'FORBIDDEN', message: 'machines.pairingCode client registration requires an admin account' })
+    }
+    if (!target && deps.principal.kind !== 'user') {
+      return new TRPCError({ code: 'FORBIDDEN', message: 'new enrollment requires a signed-in member' })
+    }
+    if (target && deps.role !== 'admin' && !isMachineOwner(deps.principal, asMachineId(target), deps.ownership)) {
       return new TRPCError({ code: 'FORBIDDEN', message: 'machines.pairingCode requires an admin account or the replacement machine grantee' })
     }
   }

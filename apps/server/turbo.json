@@ -1,6 +1,8 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "extends": ["//"],
+  "extends": [
+    "//"
+  ],
   "tasks": {
     "test": {
       "dependsOn": [
@@ -291,7 +293,9 @@
         "vitest.config.ts",
         "vitest.shard.ts"
       ],
-      "outputs": [".test-shard-reports/contracts.json"]
+      "outputs": [
+        ".test-shard-reports/contracts.json"
+      ]
     },
     "test:store": {
       "dependsOn": [],
@@ -1265,7 +1269,9 @@
         "vitest.config.ts",
         "vitest.shard.ts"
       ],
-      "outputs": [".test-shard-reports/store.json"]
+      "outputs": [
+        ".test-shard-reports/store.json"
+      ]
     },
     "test:services": {
       "dependsOn": [],
@@ -2083,7 +2089,9 @@
         "vitest.config.ts",
         "vitest.shard.ts"
       ],
-      "outputs": [".test-shard-reports/services.json"]
+      "outputs": [
+        ".test-shard-reports/services.json"
+      ]
     },
     "test:boundary": {
       "dependsOn": [],
@@ -2970,6 +2978,7 @@
         "src/two-member-instance.test.ts",
         "src/two-member-machine-grants.test.ts",
         "src/two-member-machines.test.ts",
+        "src/two-member-own-machine.test.ts",
         "src/two-member-owned-machine-credentials.test.ts",
         "src/two-member-personal-records.test.ts",
         "src/two-member-private-resources.test.ts",
@@ -3004,7 +3013,9 @@
         "vitest.config.ts",
         "vitest.shard.ts"
       ],
-      "outputs": [".test-shard-reports/boundary.json"]
+      "outputs": [
+        ".test-shard-reports/boundary.json"
+      ]
     },
     "test:normalized-wire": {
       "dependsOn": [],
@@ -3565,7 +3576,9 @@
         "vitest.config.ts",
         "vitest.shard.ts"
       ],
-      "outputs": [".test-shard-reports/normalized-wire.json"]
+      "outputs": [
+        ".test-shard-reports/normalized-wire.json"
+      ]
     }
   }
 }

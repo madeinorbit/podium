@@ -150,18 +150,46 @@ describe('the target table covers the contract table, in both directions', () =>
 })
 
 describe('the role floor is read from the contract', () => {
-  it('a member may not attempt an `admin`-floor command, and an admin may', async () => {
-    // `machines.pairingCode` is the only admin floor in the family (POD-384).
-    const asMember = await fleetAuthzFailure(
-      'machines.pairingCode',
-      {},
-      deps(user(OWNER), { role: 'member' }),
-    )
-    expect(asMember?.code).toBe('FORBIDDEN')
-
+  it('any member may mint a NEW enrollment for their own custody; an agent may not', async () => {
+    // POD-6883: a member brings their own machine. The code carries the minter,
+    // so it can only ever enroll into the minter's custody.
+    expect(
+      await fleetAuthzFailure(
+        'machines.pairingCode',
+        {},
+        deps(user(COLLEAGUE), { role: 'member' }),
+      ),
+    ).toBeUndefined()
     expect(
       await fleetAuthzFailure('machines.pairingCode', {}, deps(user(OWNER), { role: 'admin' })),
     ).toBeUndefined()
+    // No account: the member floor refuses (a disabled or unknown member).
+    const noAccount = { ...deps(user(COLLEAGUE), { role: 'member' }), role: undefined }
+    expect(await fleetAuthzFailure('machines.pairingCode', {}, noAccount)).toMatchObject({
+      code: 'FORBIDDEN',
+    })
+    // An agent never mints a new machine, even for an admin.
+    const agent: CommandPrincipal = {
+      kind: 'agent',
+      agentSessionId: asSessionId('leaf'),
+      chain: [],
+      onBehalfOf: OWNER,
+      capability: { role: 'admin', scope: { kind: 'all' }, actorSessionId: asSessionId('leaf') },
+    }
+    const asAgent = { ...deps(user(OWNER), { role: 'admin' }), principal: agent }
+    expect(await fleetAuthzFailure('machines.pairingCode', {}, asAgent)).toMatchObject({
+      code: 'FORBIDDEN',
+      message: 'new enrollment requires a signed-in member',
+    })
+    // Client recovery stays an administrator's.
+    const client = { clientRegistration: { machineId: 'laptop' } }
+    expect(
+      await fleetAuthzFailure(
+        'machines.pairingCode',
+        client,
+        deps(user(OWNER), { role: 'member' }),
+      ),
+    ).toMatchObject({ code: 'FORBIDDEN' })
   })
 
   it('a member DOES clear the `member` floor — the floor admits, and the row gate refuses', async () => {
@@ -1085,9 +1113,10 @@ describe('explicit replacement pairing authority', () => {
         deps(user(COLLEAGUE), { role: 'member' }),
       ),
     ).toMatchObject({ code: 'FORBIDDEN' })
+    // A new enrollment is any member's own (POD-6883).
     expect(
       await fleetAuthzFailure('machines.pairingCode', {}, deps(user(OWNER), { role: 'member' })),
-    ).toMatchObject({ code: 'FORBIDDEN' })
+    ).toBeUndefined()
   })
 })
 

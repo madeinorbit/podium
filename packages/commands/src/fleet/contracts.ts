@@ -166,7 +166,6 @@ export interface FleetCommandContract<In extends z.ZodTypeAny = z.ZodTypeAny, Ou
  *  shipped procedures resolve it (`machines.defaultMachine()`). */
 const machineSelector = MachineIdField.optional()
 
-
 export const machineApplyUpdateInput = z.object({ id: z.string() })
 export const machineUnshareInput = z.object({
   id: z.string(),
@@ -465,7 +464,6 @@ const MACHINE_ROW_EDIT = {
   conflictRule:
     'Owner-or-admin edit of the name field alone; no precondition, and two concurrent renames resolve to the later Authority commit',
 } as const
-
 
 const machineSetAssignmentInput = z.object({
   id: MachineIdField,
@@ -819,7 +817,9 @@ export const machinePairingCodeContract = {
     resource: 'secret',
     confirmation: 'confirm',
     rationale:
-      'New enrollment requires an administrator at the fleet gate and handler. An explicit ' +
+      'New enrollment is any signed-in member’s, never an agent’s, at the fleet gate and handler; ' +
+      'the code is bound to the minter, whose custody and `use` the machine gets, and redeem refuses it ' +
+      'once the minter is disabled, removed or re-roled (POD-6883). An explicit ' +
       'replacement may also be authorized by the retained machine personal grantee; the code ' +
       'is scoped to that machine id, and active-id collisions are refused before redemption. ' +
       'Client recovery requires a current administrator login and binds authority to the retained public identity.',

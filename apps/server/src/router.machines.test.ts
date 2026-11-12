@@ -97,8 +97,9 @@ describe('machines router', () => {
 /**
  * `machines.pairingCode` is a plain registration (POD-6593): its contract's
  * action is `write`, so the front door admits a member, and the fleet gate
- * decides who may mint which code. An administrator mints a new enrollment; a
- * retained (revoked) machine's grantee mints only its replacement.
+ * decides who may mint which code. Any member mints a new enrollment into their
+ * own custody (POD-6883); a retained (revoked) machine's grantee mints only its
+ * replacement.
  */
 describe('machines.pairingCode as a member', () => {
   const MEMBER = asUserId('user:pairing-member')
@@ -176,10 +177,11 @@ describe('machines.pairingCode as a member', () => {
     expect(refusal.code).toBe('FORBIDDEN')
   })
 
-  it('refuses a member a new enrollment', async () => {
+  it("mints a member's new enrollment, bound to the member (POD-6883)", async () => {
     const call = await memberCaller()
-    const refusal = await refusalOf(call.machines.pairingCode())
-    expect(refusal.code).toBe('FORBIDDEN')
+    const result = await call.machines.pairingCode()
+    expect(typeof result.code).toBe('string')
+    expect(result.code.length).toBeGreaterThan(0)
   })
 })
 
