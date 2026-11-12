@@ -47,6 +47,8 @@ import {
   createFeedRelay,
   type FeedBroadcastChannelFactory,
   observeLiveConnection,
+  type SignInWatchOptions,
+  watchSignIn,
 } from '@podium/client-core/live-connection'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider } from '@podium/client-core/react'
@@ -153,6 +155,7 @@ import { mobileAccountEraser } from './account-data'
 import { mobileBrowserAccounts } from './browser-accounts'
 import { discardRefusedMember, refusedPrincipal } from './refused-member'
 import { MOBILE_REPLICA_DB } from './replica-storage-constants'
+import { noteSignedOut } from './signed-out-notice'
 
 /** Test-only/legacy fallback. Production passes AuthStatus.userId explicitly; an
  * unattributed pre-identity store is accepted only through the injected gate. */
@@ -483,6 +486,7 @@ function MobileHubAttach({
   bearer,
   onVersionNotice,
   follow,
+  signIn,
 }: {
   connectivity: NativeConnectivity | undefined
   networkEnabled: boolean
@@ -492,8 +496,11 @@ function MobileHubAttach({
   onVersionNotice: (message: string) => void
   /** How this client follows a moved server (POD-5921); absent in demo mode. */
   follow: FollowPorts | undefined
+  /** Asks the server after every lost link whether this sign-in still holds (POD-6910). */
+  signIn: SignInWatchOptions | undefined
 }): null {
   const hub = useSocketHub()
+  useEffect(() => (signIn ? watchSignIn(hub, signIn) : undefined), [hub, signIn])
   useEffect(() => {
     if (!follow) return
     return followHub(hub, follow, {
@@ -642,28 +649,44 @@ function LiveProvider({ children }: { children: ReactNode }) {
   )
   const expireLiveCredential = useCallback(() => endLiveCredential(true), [endLiveCredential])
   const endSwitchedCredential = useCallback(() => endLiveCredential(false), [endLiveCredential])
-  // biome-ignore lint/correctness/useExhaustiveDependencies: profile identity changes must replace the verification callback
+  // An offline-cache profile is revalidated when the link drops. A live
+  // sign-in is checked by the sign-in watch below, on every lost link, so it
+  // can say why it ended (POD-6910).
   const verifyLiveCredential = useCallback(() => {
-    if (activation === 'offline-cache') {
-      void revalidateOfflineProfile?.().catch((cause: unknown) => {
-        reportError(cause instanceof Error ? cause.message : String(cause))
-      })
-      return
-    }
-    if (!bearer || authExpiryHandled.current) return
-    void checkLiveAuth(config.httpOrigin, bearer, config.workspaceId).then((result) => {
-      if (result.kind === 'expired') expireLiveCredential()
+    if (activation !== 'offline-cache') return
+    void revalidateOfflineProfile?.().catch((cause: unknown) => {
+      reportError(cause instanceof Error ? cause.message : String(cause))
     })
-  }, [
-    activation,
-    bearer,
-    config.httpOrigin,
-    config.workspaceId,
-    config.workspaceSlug,
-    expireLiveCredential,
-    reportError,
-    revalidateOfflineProfile,
-  ])
+  }, [activation, reportError, revalidateOfflineProfile])
+  // THE SERVER ENDED THIS SIGN-IN (POD-6910): this member was removed, or this
+  // phone was signed out from the device list. The server closes the socket,
+  // refuses the next one and answers /auth/status with "not signed in"; the
+  // same erase a refused request takes runs, and the sign-in screen says why.
+  // No answer is an outage: the hub keeps reconnecting and the data stays.
+  const signedInMember = serverProfile?.profile.memberId
+  const signInWatch = useMemo<SignInWatchOptions | undefined>(
+    () =>
+      activation === 'offline-cache' ||
+      (!bearer && mobileAccountCredentials.delivery !== 'browser')
+        ? undefined
+        : {
+            check: () => checkLiveAuth(config.httpOrigin, bearer, config.workspaceId),
+            ...(signedInMember ? { memberId: signedInMember } : {}),
+            onSignedOut: (reason) => {
+              noteSignedOut(profileId, reason)
+              expireLiveCredential()
+            },
+          },
+    [
+      activation,
+      bearer,
+      config.httpOrigin,
+      config.workspaceId,
+      expireLiveCredential,
+      profileId,
+      signedInMember,
+    ],
+  )
   const trpc = useMemo(
     () =>
       makeMobileTrpc(config.httpOrigin, bearer, expireLiveCredential, workspaceSelectorOf(config)),
@@ -1007,6 +1030,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
         bearer={bearer}
         onVersionNotice={reportVersionNotice}
         follow={followPorts}
+        signIn={signInWatch}
       />
       <MobileShellSurface value={shell}>
         <MobileSyncBoundary

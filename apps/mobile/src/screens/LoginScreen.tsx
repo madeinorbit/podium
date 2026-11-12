@@ -53,12 +53,15 @@ export function LoginScreen({
   capabilities,
   prompt,
   repairNeeded = false,
+  notice,
   onAuthed,
 }: {
   httpOrigin: string
   capabilities: AuthCapabilities
   prompt: SignInPrompt
   repairNeeded?: boolean
+  /** Why the server ended this phone's previous sign-in (POD-6910). */
+  notice?: string | undefined
   onAuthed: (bearer: string | null) => void | Promise<void>
 }) {
   const { profile } = useServerProfile()
@@ -156,6 +159,11 @@ export function LoginScreen({
     >
       <AsciiWordmark color={ok ? C.success : C.text} fontSize={3.9} />
       <Text style={styles.host}>{`Sign in to ${originHost(httpOrigin)}`.toUpperCase()}</Text>
+      {notice && !ok && (
+        <Text accessibilityRole="alert" style={[styles.status, { color: C.textDim }]}>
+          {notice}
+        </Text>
+      )}
       {repairNeeded && (
         <Text accessibilityRole="alert" style={[styles.status, { color: C.textDim }]}>
           This phone needs to pair again after the server upgrade. On a signed-in computer, open

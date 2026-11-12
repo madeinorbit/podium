@@ -9,6 +9,7 @@ import { AuthStatusContext } from './auth-context'
 import { demoEnabled } from './demoData'
 import { LaunchReadyView } from './launch-ready'
 import { useServerProfile } from './server-profile-context'
+import { clearSignedOutNotice, signedOutNotice } from './signed-out-notice'
 
 type GateState = 'checking' | 'open' | 'login' | 'membership-denied' | 'failed'
 
@@ -122,9 +123,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
         <LoginScreen
           httpOrigin={config.httpOrigin}
           repairNeeded={bearer !== null && /^[A-Za-z0-9_-]{43}$/.test(bearer)}
+          notice={signedOutNotice(profile.id)}
           capabilities={authStatus.capabilities}
           prompt={authStatus.prompt}
           onAuthed={async (token) => {
+            clearSignedOutNotice()
             await updateCredential(token)
             // Updating the credential increments the profile runtime key. The
             // fresh AuthGate then re-reads status and names the authenticated

@@ -14,7 +14,11 @@ vi.mock('./server-profile-context', () => ({
 }))
 vi.mock('./demoData', () => ({ demoEnabled: () => false }))
 vi.mock('./launch-ready', () => ({ LaunchReadyView: ({ children }: any) => children }))
-vi.mock('../screens/LoginScreen', () => ({ LoginScreen: () => <div>SIGN IN</div> }))
+vi.mock('../screens/LoginScreen', () => ({
+  LoginScreen: ({ notice }: { notice?: string }) => (
+    <div>{notice ? `SIGN IN · ${notice}` : 'SIGN IN'}</div>
+  ),
+}))
 vi.mock('../components/PressableScale', () => ({
   PressableScale: ({ children, onPress }: any) => (
     <button type="button" onClick={onPress}>
@@ -23,11 +27,14 @@ vi.mock('../components/PressableScale', () => ({
   ),
 }))
 
+import { passwordCapabilities } from '../test-support/auth-capabilities'
 import { AuthGate } from './AuthGate'
+import { clearSignedOutNotice, noteSignedOut } from './signed-out-notice'
 
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+  clearSignedOutNotice()
 })
 
 it('shows the server HTTPS guidance and next step on a phone instead of sign-in', async () => {
@@ -105,4 +112,38 @@ it('admits a verified mobile account with the same identity used by the web gate
     </AuthGate>,
   )
   await screen.findByText('WORKSPACE')
+})
+
+it('says on the sign-in screen why the server ended this phone’s sign-in (POD-6910)', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () =>
+      Response.json({
+        needsAuth: true,
+        authed: false,
+        userId: null,
+        capabilities: passwordCapabilities,
+        prompt: 'password',
+      }),
+    ),
+  )
+  // Another profile's ended sign-in is not this one's.
+  noteSignedOut('another-profile', 'signed-out')
+  const { unmount } = render(
+    <AuthGate>
+      <div>WORKSPACE</div>
+    </AuthGate>,
+  )
+  expect(await screen.findByText('SIGN IN')).toBeTruthy()
+  unmount()
+  noteSignedOut('single-server', 'access-ended')
+  render(
+    <AuthGate>
+      <div>WORKSPACE</div>
+    </AuthGate>,
+  )
+  expect(
+    await screen.findByText('SIGN IN · You no longer have access to this server.'),
+  ).toBeTruthy()
+  expect(screen.queryByText('WORKSPACE')).toBeNull()
 })
