@@ -75,6 +75,7 @@ export * from './opencode/db.js'
 export * from './pi/paths.js'
 export * from './posture.js'
 export * from './posture-types.js'
+export * from './launch-terms.js'
 export * from './registry.js'
 // Host-only sqlite source surface (POD-4520): the opencode cursor stamper the
 // daemon supplies to the opencode observer as an injected port, so the adapter

@@ -109,18 +109,22 @@
  */
 
 import {
+  agentLaunchTerms,
   CLIENT_TERMINAL_HARNESSES,
   type ClientTerminalEndpoint,
   clientTerminalFor,
   type HarnessContext,
+  harnessAdapterFor,
   harnessChildEnv,
   harnessCommand,
+  type LaunchPosture,
 } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import type { Geometry, SessionId } from '@podium/model'
 import type { AgentPicture } from '@podium/process/screen'
 import type { BuiltinHarnessKind } from '@podium/protocol'
 import { ATTACH_TUI_WARM_TTL_MS } from '@podium/protocol'
+import { nodePrepareLaunchPorts, type PrepareLaunchPorts, prepareLaunch } from '../session-posture'
 import type { ClientProcessOwner } from '../session/clients.js'
 import type { ClientTerminalPolicy } from '../session/daemon-session.js'
 import type { SessionRegistry } from '../session/registry.js'
@@ -345,6 +349,19 @@ export interface OpencodeClientTerminalPorts {
    */
   harnessContext(sessionId: SessionId, target: ClientTerminalTarget): Promise<HarnessContext>
   /**
+   * WHAT THE CLIENT STATES ITS LAUNCH TERMS FROM (POD-6858): the session's
+   * posture, Podium's grants and the launch folders, over `context`. The
+   * client runs on its harness's `client` terms.
+   */
+  launchPosture(
+    sessionId: SessionId,
+    target: ClientTerminalTarget,
+    context: HarnessContext,
+  ): Promise<Omit<LaunchPosture, 'context'>>
+  /** Where a client start writes its launch files and applies its home
+   *  edits. Defaults to the real filesystem. */
+  prepareLaunchPorts?: (context: Record<string, unknown>) => PrepareLaunchPorts
+  /**
    * THE SESSION LAYER'S CLIENT HOLD (spec §5). Spawn, reclaim and the master
    * probe all go through IT — the relay never names a process verb itself, so
    * a client terminal under any backend is created, found and reclaimed where
@@ -470,8 +487,23 @@ export function createOpencodeClientTerminals(
     // THE SESSION'S INSTALLATION RUNS, NOT THE DECLARATION'S NAME (POD-6546).
     // The manifest says how its stock TUI is pointed at a session (args, env);
     // which binary is the session's pinned executable, never `codex`/`grok`
-    // looked up on a GUI-launched daemon's PATH.
-    const launch = harnessCommand(harnessContext, declared)
+    // looked up on a GUI-launched daemon's PATH. It runs on the harness's
+    // `client` terms (POD-6858); what they add to the env is wiring.
+    const manifest = harnessAdapterFor(kind)
+    if (!manifest) throw new Error(`${kind} has no harness manifest to state launch terms`)
+    const launch = harnessCommand(
+      harnessContext,
+      declared,
+      agentLaunchTerms(manifest, 'client', {
+        ...(await ports.launchPosture(sessionId, target, harnessContext)),
+        context: harnessContext,
+      }),
+    )
+    // Its files, home edits and unmet terms, once, before the process exists.
+    await prepareLaunch(
+      launch,
+      (ports.prepareLaunchPorts ?? nodePrepareLaunchPorts)({ sessionId, launch: 'client' }),
+    )
     // THE ONE RECIPE (POD-6535), over the session's context (POD-6546): the
     // recovered command env for this account, so the client gets the same
     // PATH, HOME and instance selector as its engine rather than the daemon's
@@ -482,7 +514,7 @@ export function createOpencodeClientTerminals(
         // Whatever the harness's own declaration put there — for opencode that
         // is the per-session server credentials, which stay in the ENV and out
         // of argv exactly as its server half requires.
-        ...(launch.env ?? {}),
+        ...launch.env,
         ...(target.env ?? {}),
       },
       podiumEnv: {

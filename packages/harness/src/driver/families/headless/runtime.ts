@@ -87,9 +87,11 @@ import {
   type SessionId,
 } from '@podium/model'
 import {
+  DEFAULT_SESSION_POSTURE,
   type HeadlessTurnEvent,
   type ObservationProvenance,
   PermissionAnswer,
+  type SessionPosture,
 } from '@podium/protocol'
 import type {
   DaemonMessage,
@@ -99,6 +101,7 @@ import type {
 import { isRuntimeFineEvent } from '@podium/protocol/daemon'
 import type { AgentStateEvent } from '../../../agent-state/types.js'
 import type { ResolvedHarnessInventory } from '../../../inventory/build-inventory.js'
+import type { LaunchPosture } from '../../../launch-terms.js'
 import { declaredValue, supported, unsupported } from '../../../manifest.js'
 import { reduceAgentState } from '../../../observer.js'
 import { harnessAdapterFor } from '../../../registry.js'
@@ -126,6 +129,7 @@ import {
   type SessionLease,
   type SessionSnapshot,
   type SessionSpec,
+  sessionPostureOf,
   type TurnDelivery,
   type TurnInput,
   type TurnReceipt,
@@ -217,6 +221,21 @@ export interface HeadlessDriverHost {
     toolPolicyNone: boolean
     snapshot: ResolvedHarnessInventory
   }): Record<string, string>
+  /**
+   * What one turn's launch terms are stated from (POD-6858): the session's
+   * posture, Podium's grants for the session, the turn's account context over
+   * this snapshot (the same one `turnChildEnv` composes from) and the launch
+   * folders. Built on this machine; the turn's mode is the family's.
+   */
+  turnLaunchPosture(input: {
+    sessionId: SessionId
+    agent: HarnessAgent
+    cwd: string
+    posture: SessionPosture
+    /** The turn's MCP config JSON: Podium's MCP servers it mounts. */
+    mcpConfig?: string
+    snapshot: ResolvedHarnessInventory
+  }): Promise<LaunchPosture>
   /** The exact durable host label for a session (stable across restarts — it is
    *  the process identity `adopt()` matches on). */
   durableLabel(sessionId: SessionId): string
@@ -361,6 +380,9 @@ interface HeadlessDriverSession {
     executablePath?: string
     structuredPermissions?: true
   }
+  /** The session's posture (POD-6858): the spec's, or the default for an
+   *  adopted session, whose spec is not in hand. */
+  posture: SessionPosture
   ended: boolean
   disposed: boolean
 }
@@ -845,6 +867,7 @@ export function createHeadlessRuntime(
     input: TurnInput,
     identity: { accountId: AccountId; toolPolicy: 'none' | undefined },
     snapshot: ResolvedHarnessInventory,
+    launchPosture: LaunchPosture,
   ): HeadlessTurnSpec {
     const agent = session.agentKind as HarnessAgent
     const overridesModel =
@@ -896,6 +919,7 @@ export function createHeadlessRuntime(
         snapshot,
       }),
       durableLabel: session.label,
+      launchPosture,
     }
   }
 
@@ -949,8 +973,21 @@ export function createHeadlessRuntime(
     // below — the check cannot pass on a login the launch does not see, and a
     // refused send pays no inventory read at all (digest first, snapshot after).
     let snapshot: ResolvedHarnessInventory
+    let launchPosture: LaunchPosture
     try {
       snapshot = await host.snapshot()
+      // Until the turn frame carries a posture (POD-6858), a native mode the
+      // turn or the session names is the posture; otherwise the session's.
+      const permissionMode = input.permissionMode ?? session.sticky.permissionMode
+      const mcpConfig = input.mcpConfig ?? session.sticky.mcpConfig
+      launchPosture = await host.turnLaunchPosture({
+        sessionId: session.sessionId,
+        agent,
+        cwd: session.cwd,
+        posture: permissionMode ? { mode: { native: permissionMode } } : session.posture,
+        ...(mcpConfig !== undefined ? { mcpConfig } : {}),
+        snapshot,
+      })
     } catch (error) {
       return {
         outcome: 'refused',
@@ -1054,6 +1091,7 @@ export function createHeadlessRuntime(
         toolPolicy,
       },
       snapshot,
+      launchPosture,
     )
     let handle: HeadlessTurnHandle
     try {
@@ -1568,6 +1606,7 @@ export function createHeadlessRuntime(
           ? { structuredPermissions: spec.structuredPermissions }
           : {}),
       },
+      posture: sessionPostureOf(spec),
       ended: false,
       disposed: false,
     }
@@ -1700,6 +1739,8 @@ export function createHeadlessRuntime(
         idle: { kind: 'done' },
       },
       sticky: {},
+      // An adopted session's spec is not in hand: its turns run on the default.
+      posture: DEFAULT_SESSION_POSTURE,
       ended: false,
       disposed: false,
     }

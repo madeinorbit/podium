@@ -12,6 +12,7 @@
 
 import { type BoundCommand, harnessCommand } from '../../../bound-command.js'
 import type { HarnessContext } from '../../../harness-context-types.js'
+import { type AgentTermsInput, agentLaunchTerms } from '../../../launch-terms.js'
 
 /** The turn, as this family reads it: prompt facts plus supervisor facts. */
 export interface ClaudeDurableTurnSpec {
@@ -39,12 +40,14 @@ export interface ClaudeDurableTurnSpec {
  * continues, `--session-id` mints; `toolPolicy: 'none'` removes tools, MCP
  * and every setting source rather than merely declining to mount them.
  * `knownSessionId` is the conversation this turn belongs to, for the durable
- * journal to record. argv[0] is the installation `context` pinned.
+ * journal to record. argv[0] is the installation `context` pinned. The turn
+ * runs on the harness's `turn` terms, or on no-agent terms when tool-less.
  */
 export function buildClaudeDurableTurn(
   spec: ClaudeDurableTurnSpec,
   paths: { mcp: string },
   context: Pick<HarnessContext, 'installation'>,
+  terms: AgentTermsInput,
 ): {
   command: BoundCommand
   stdin: string
@@ -81,7 +84,11 @@ export function buildClaudeDurableTurn(
   ]
   const knownSessionId = spec.resumeValue ?? spec.sessionUuid
   return {
-    command: harnessCommand(context, { args }),
+    command: harnessCommand(
+      context,
+      { args },
+      agentLaunchTerms(terms.manifest, 'turn', terms.posture, spec.toolPolicy),
+    ),
     stdin: spec.prompt,
     ...(knownSessionId ? { knownSessionId } : {}),
   }

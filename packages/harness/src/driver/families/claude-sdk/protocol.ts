@@ -40,6 +40,8 @@ import { randomUUID } from 'node:crypto'
 import type { HeadlessTurnEvent } from '@podium/protocol'
 import { type BoundCommand, harnessCommand } from '../../../bound-command.js'
 import type { HarnessContext } from '../../../harness-context-types.js'
+import { type AgentTermsInput, agentLaunchTerms } from '../../../launch-terms.js'
+import type { LaunchMode } from '../../../posture-types.js'
 import type { BoundaryContextOperation } from '../../boundary-context.js'
 import { markNeverSent } from '../../errors.js'
 import { BOUNDARY_HOOK_EVENTS, boundaryHookAnswer } from '../boundary-hook.js'
@@ -106,11 +108,16 @@ export interface ClaudeStreamTurnSpec {
  * carries it in the `initialize` control payload (see `initializePayload`),
  * and so do we. MCP servers ride `--mcp-config` as INLINE JSON (the SDK's
  * shape, not the `-p` path's staged file). `toolPolicy: 'none'` removes tools
- * and setting sources rather than merely declining to mount them.
+ * and setting sources rather than merely declining to mount them, and runs on
+ * no-agent terms: a tool-less turn must not gain a tool flag from the
+ * harness's posture section. Otherwise the invocation runs on the section's
+ * terms for `terms.mode`: the long-lived engine (`engine`) or one structured
+ * headless turn (`turn`).
  */
 export function buildClaudeStreamInvocation(
   spec: ClaudeStreamTurnSpec,
   context: Pick<HarnessContext, 'installation'>,
+  terms: AgentTermsInput & { readonly mode: LaunchMode },
 ): BoundCommand {
   const mode: string =
     spec.permissionMode && PERMISSION_MODES.has(spec.permissionMode) ? spec.permissionMode : 'auto'
@@ -147,7 +154,11 @@ export function buildClaudeStreamInvocation(
         ? ['--session-id', spec.sessionUuid]
         : []),
   ]
-  return harnessCommand(context, { args })
+  return harnessCommand(
+    context,
+    { args },
+    agentLaunchTerms(terms.manifest, terms.mode, terms.posture, spec.toolPolicy),
+  )
 }
 
 /**

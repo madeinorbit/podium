@@ -9,6 +9,7 @@
 
 import type { AccountId, HarnessAgent, SessionId } from '@podium/model'
 import type { HeadlessTurnEvent } from '@podium/protocol'
+import type { LaunchPosture } from '../../../launch-terms.js'
 import { HeadlessTurnFailure } from '../turn-error.js'
 
 export interface HeadlessTurnSpec {
@@ -42,6 +43,13 @@ export interface HeadlessTurnSpec {
   executablePath?: string
   /** Route tool authorization through structured RuntimeDriver interactions. */
   structuredPermissions?: true
+  /**
+   * What the turn's launch terms are stated from (POD-6858): the session's
+   * posture, Podium's grants, the turn's account context and folders, built
+   * by the daemon on this machine. A tool-less turn ignores it and runs on
+   * no-agent terms.
+   */
+  launchPosture: LaunchPosture
 }
 
 export interface HeadlessTurnOutcome {

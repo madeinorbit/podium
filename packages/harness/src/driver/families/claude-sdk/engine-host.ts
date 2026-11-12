@@ -47,6 +47,7 @@ import {
   type SessionEngineOwner,
 } from '../engine-supervision.js'
 import { HeadlessTurnFailure } from '../turn-error.js'
+import { agentTermsFor, type LaunchFolders, launchPosture } from '../../../launch-terms.js'
 import { type ClaudeEngineFacts, claudeEngineProcessKey } from './engine-facts.js'
 import {
   buildClaudeStreamInvocation,
@@ -183,6 +184,12 @@ export interface ClaudeEngineHostDeps {
   /** The context an adopted session runs under: see
    *  `ClaudeEngineHost.harnessContextFor`. */
   harnessContextFor(sessionId: SessionId): Promise<HarnessContext>
+  /**
+   * The session's launch folders (POD-6858): its runtime folder for generated
+   * config and, for a worktree, the main checkout. The engine states its
+   * terms from these, the spec's posture and the spec's grants.
+   */
+  launchFoldersFor(sessionId: SessionId, workdir: string): Promise<LaunchFolders>
   /** Immutable supervisor ownership stamp for orphan attribution. */
   instanceUuid?: string
   /**
@@ -531,10 +538,11 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
   async function ensureEngine(
     sessionId: SessionId,
     spec: ClaudeStreamTurnSpec,
-    workdir: string,
-    env: Record<string, string>,
-    context: HarnessContext,
+    sessionSpec: StartTurnInput['spec'],
+    envFor: (wiringEnv: Readonly<Record<string, string>>) => Record<string, string>,
   ): Promise<HeldEngine> {
+    const workdir = sessionSpec.workdir
+    const context = sessionSpec.harnessContext
     const held = engines.get(sessionId)
     if (held && held.exit === undefined) return held
     if (held) engines.delete(sessionId)
@@ -585,8 +593,17 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
 
     // FRESH: the session owner starts the streaming child under the host and
     // this family binds the attachment it gets back; summoning the process
-    // is the owner's job, never this family's.
-    const command = buildClaudeStreamInvocation(spec, context)
+    // is the owner's job, never this family's. The engine runs on the
+    // harness's `engine` terms (POD-6858); what they add to the env is wiring.
+    const posture = launchPosture(
+      { ...sessionSpec, context },
+      await deps.launchFoldersFor(sessionId, workdir),
+    )
+    const command = buildClaudeStreamInvocation(spec, context, {
+      ...agentTermsFor(deps.facts.harnessKind, posture),
+      mode: 'engine',
+    })
+    const env = envFor(command.env)
     const spawned = await claimEngine(
       sessionId,
       label,
@@ -662,7 +679,9 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
         ? { HOME: deps.homeDir, CLAUDE_CONFIG_DIR: `${deps.homeDir}/.claude` }
         : undefined
       const sessionEnv = { ...input.spec.env, ...instanceEnv }
-      const env = {
+      // The launch terms' env is wiring: it is known only once the engine's
+      // command is built, so the child env is composed there.
+      const envFor = (wiringEnv: Readonly<Record<string, string>>) => ({
         ...deps.buildEnv({
           ...(deps.instanceUuid ? { instanceUuid: deps.instanceUuid } : {}),
           sessionId,
@@ -670,14 +689,15 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
           harnessContext: input.spec.harnessContext,
           ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
           ...(Object.keys(sessionEnv).length > 0 ? { sessionEnv } : {}),
+          ...(Object.keys(wiringEnv).length > 0 ? { harnessEnv: wiringEnv } : {}),
         }),
         ...claudeStreamEnvOverlay({
           isRoot: process.getuid?.() === 0,
           toolSummaries: true,
         }),
-      }
+      })
 
-      return startTurnAsync(sessionId, input, spec, env, sessionEnv)
+      return startTurnAsync(sessionId, input, spec, envFor, sessionEnv)
     },
 
     async stopEngine(sessionId, retire) {
@@ -704,7 +724,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
     sessionId: SessionId,
     input: StartTurnInput,
     spec: ClaudeStreamTurnSpec,
-    env: Record<string, string>,
+    envFor: (wiringEnv: Readonly<Record<string, string>>) => Record<string, string>,
     sessionEnv: Record<string, string>,
   ): ClaudeSdkTurnHandle {
     let resolveDone!: (value: {
@@ -766,13 +786,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
       let held: HeldEngine
       try {
         // argv[0] is the session's pinned installation (POD-6546).
-        held = await ensureEngine(
-          sessionId,
-          spec,
-          input.spec.workdir,
-          env,
-          input.spec.harnessContext,
-        )
+        held = await ensureEngine(sessionId, spec, input.spec, envFor)
       } catch (error) {
         failBeforeLine(error instanceof Error ? error : new Error(String(error)))
         return

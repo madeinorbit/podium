@@ -28,6 +28,13 @@ import { grokTranscript } from '../../../adapters/grok/transcript.js'
 import { harnessCommand } from '../../../bound-command.js'
 import type { HarnessContext, HarnessInstallation } from '../../../harness-context-types.js'
 import {
+  agentLaunchTerms,
+  agentTermsFor,
+  type LaunchFolders,
+  launchPosture,
+} from '../../../launch-terms.js'
+import type { PodiumGrants } from '../../../posture-types.js'
+import {
   GROK_ACP_VERSION_POLICY,
   gateHarnessVersion,
   harnessVersionDiagnostic,
@@ -136,11 +143,19 @@ export interface GrokEngineHostDeps {
     harnessContext: HarnessContext
     homeDir?: string
     sessionEnv?: Readonly<Record<string, string>>
+    /** The launch terms' env (POD-6858): wiring. */
+    harnessEnv?: Readonly<Record<string, string>>
     instanceUuid?: string
   }): Record<string, string>
   /** The context a session runs under when a launch has no spec in hand
    *  (adopt): see `GrokAcpRuntimeHost.harnessContextFor`. */
   harnessContextFor(sessionId: SessionId): Promise<HarnessContext>
+  /** Podium's grants for a session with no spec in hand (POD-6858): see
+   *  `GrokAcpRuntimeHost.podiumGrantsFor`. */
+  podiumGrantsFor(sessionId: SessionId): Promise<PodiumGrants>
+  /** The session's launch folders (POD-6858): its runtime folder for
+   *  generated config and, for a worktree, the main checkout. */
+  launchFoldersFor(sessionId: SessionId, workdir: string): Promise<LaunchFolders>
   /** How long a SIGTERM stop waits for the child to take its stdin EOF. Shared
    *  with the reap that has to outlast it — arrives as a value rather than
    *  living here twice. */
@@ -358,6 +373,7 @@ export function createGrokEngineHost(
         : undefined,
 
     harnessContextFor: (sessionId) => deps.harnessContextFor(sessionId),
+    podiumGrantsFor: (sessionId) => deps.podiumGrantsFor(sessionId),
 
     async launch(input) {
       const verdict = await deps.checkVersion(input.harnessContext.installation)
@@ -371,8 +387,25 @@ export function createGrokEngineHost(
       // --worktree would create a second nested worktree; no SessionSpec sandbox
       // field exists, so GROK_SANDBOX/config remains authoritative.
       // argv[0] is the session's pinned installation (POD-6546), never the
-      // adapter's bare command name.
-      const command = harnessCommand(input.harnessContext, { args: [...deps.facts.serverArgs] })
+      // adapter's bare command name. The engine runs on the harness's `engine`
+      // terms (POD-6858); what they add to the env is wiring.
+      const terms = agentTermsFor(
+        deps.facts.harnessKind,
+        launchPosture(
+          {
+            posture: input.posture,
+            grants: input.grants,
+            workdir: input.workdir,
+            context: input.harnessContext,
+          },
+          await deps.launchFoldersFor(input.sessionId, input.workdir),
+        ),
+      )
+      const command = harnessCommand(
+        input.harnessContext,
+        { args: [...deps.facts.serverArgs] },
+        agentLaunchTerms(terms.manifest, 'engine', terms.posture),
+      )
       const env = deps.buildEnv({
         ...(deps.instanceUuid ? { instanceUuid: deps.instanceUuid } : {}),
         sessionId: input.sessionId,
@@ -380,6 +413,7 @@ export function createGrokEngineHost(
         harnessContext: input.harnessContext,
         ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
         ...(input.env ? { sessionEnv: input.env } : {}),
+        ...(Object.keys(command.env).length > 0 ? { harnessEnv: command.env } : {}),
       })
 
       /**

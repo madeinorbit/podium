@@ -3,7 +3,8 @@
 
 import type { Declared, SelectionContext } from '../manifest.js'
 import type { HarnessContext } from '../harness-context-types.js'
-import type { AgentInstruction } from '@podium/protocol'
+import { type AgentInstruction, DEFAULT_SESSION_POSTURE, type SessionPosture } from '@podium/protocol'
+import type { PodiumGrants } from '../posture-types.js'
 import type { InteractionKind } from './interactions.js'
 
 // ---------------------------------------------------------------------------
@@ -74,6 +75,21 @@ export interface SessionSpec {
    * those itself) and carries none.
    */
   harnessContext: HarnessContext
+  /**
+   * HOW FAR THE AGENT GOES WITHOUT ASKING (POD-6858, docs/design/
+   * harness-session-posture.md §4.3), in Podium's words. Every launch of this
+   * session states its terms from it. Stored with the spec: a stored spec
+   * written before this field existed reads as `DEFAULT_SESSION_POSTURE`
+   * ({@link sessionPostureOf}).
+   */
+  posture: SessionPosture
+  /**
+   * PODIUM'S STANDING FACTS FOR THIS SESSION (§4.4): the Podium CLI, the
+   * session's own uploads folder, Podium's MCP servers. Built once by the
+   * daemon on the harness's machine, like the context. Not stored: a launch
+   * with no spec in hand asks its host's `podiumGrantsFor`.
+   */
+  grants: PodiumGrants
   /** Chooses the harness-native login to spawn under; recorded on the binding.
    *  Absent = whichever account the harness itself defaults to.
    *
@@ -130,7 +146,8 @@ export interface SessionSpec {
 
 /**
  * WHAT A SERVER FAMILY'S OWN SESSION RECORDS HOLD (POD-6533): the spec without
- * the pinned harness context.
+ * the pinned harness context or the daemon's grants (POD-6858), both of which
+ * a launch with no spec in hand asks its host for.
  *
  * A server family adopts a surviving engine by rebuilding its spec from its own
  * binding journal, and the journal records no context. Engines read the context
@@ -138,7 +155,15 @@ export interface SessionSpec {
  * (adopt, wake) asks its host's `harnessContextFor`, so a family can keep this
  * narrower shape for the specs it stores while no engine launches without one.
  */
-export type EngineSessionSpec = Omit<SessionSpec, 'harnessContext'>
+export type EngineSessionSpec = Omit<SessionSpec, 'harnessContext' | 'grants'>
+
+/**
+ * A stored spec's posture: the one it was stored with, or
+ * `DEFAULT_SESSION_POSTURE` for a spec written before posture existed.
+ */
+export function sessionPostureOf(spec: { posture?: SessionPosture | undefined }): SessionPosture {
+  return spec.posture ?? DEFAULT_SESSION_POSTURE
+}
 
 /**
  * The per-session interaction policy's shape at the contract boundary. The

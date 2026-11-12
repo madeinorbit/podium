@@ -5,18 +5,28 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import {
+  agentLaunchTerms,
   type BoundCommand,
   buildResolvedInventory,
+  harnessAdapterFor,
   harnessChildEnv,
   harnessCommand,
   harnessContext,
   harnessMcpConfigTransport,
   type ResolvedHarnessInventory,
 } from '@podium/harness'
-import type { BuiltinHarnessKind } from '@podium/protocol'
+import { type BuiltinHarnessKind, DEFAULT_SESSION_POSTURE } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { stateDir } from '@podium/runtime/config'
 import { buildHarnessExec } from './harness-exec.js'
 import type { DaemonHarnessRuntime } from './harness-runtime.js'
+import {
+  nodePrepareLaunchPorts,
+  type PrepareLaunchPorts,
+  podiumGrantsFor,
+  prepareLaunch,
+  repoRootOf,
+} from './session-posture.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -100,6 +110,14 @@ export interface BufferedHarnessIo {
   writeTemp?: (path: string, data: string) => void
   removeTemp?: (path: string) => void
   makeTempPath?: () => string
+  /** Where the run's launch files are written and home edits applied (POD-6858). */
+  prepareLaunchPorts?: PrepareLaunchPorts
+  /** The state root whose `uploads` the run's grants name. */
+  stateRoot?: string
+  /** A fresh folder for the run's generated launch files; removed after. */
+  makeRuntimeDir?: () => string
+  /** The main checkout of a worktree `cwd` (POD-6858). */
+  repoRootOf?: (workdir: string) => Promise<string | undefined>
 }
 
 async function defaultSnapshot(ctx: BufferedHarnessContext): Promise<ResolvedHarnessInventory> {
@@ -146,6 +164,11 @@ export async function executeBufferedHarnessTurn(
   const writeTemp = io?.writeTemp ?? ((path: string, data: string) => writeFileSync(path, data))
   const removeTemp = io?.removeTemp ?? ((path: string) => rmSync(path, { force: true }))
   const makeTempPath = io?.makeTempPath ?? (() => join(tmpdir(), `podium-mcp-${randomUUID()}.json`))
+  const makeRuntimeDir =
+    io?.makeRuntimeDir ?? (() => join(tmpdir(), `podium-exec-${randomUUID()}`))
+  // A buffered run has no session: its generated launch files live in a
+  // folder of its own, removed with the MCP temp file below.
+  const runtimeDir = makeRuntimeDir()
 
   // Claude's --mcp-config must be a file path: stage the JSON per run. Codex
   // takes inline `-c` overrides (translated in buildHarnessExec) — no file.
@@ -184,13 +207,47 @@ export async function executeBufferedHarnessTurn(
       msg.agent as BuiltinHarnessKind,
       ctx.homeDir ?? snapshot.commandEnvironment.machineHome,
     )
-    const { stdin, env: execEnv, ...command } = harnessCommand(context, exec)
+    // THE RUN'S TERMS (POD-6858): the harness's `turn` terms on the default
+    // posture (the frame states none). A buffered run has no session, so its
+    // grants name an uploads folder of its own, which holds nothing: never
+    // the parent folder and never a session's.
+    const workdir = msg.cwd ?? process.cwd()
+    const repoRoot = await (io?.repoRootOf ?? repoRootOf)(workdir)
+    const manifest = harnessAdapterFor(msg.agent)
+    if (!manifest) throw new Error(`no harness adapter for '${msg.agent}'`)
+    const { stdin, ...command } = harnessCommand(
+      context,
+      exec,
+      agentLaunchTerms(manifest, 'turn', {
+        posture: DEFAULT_SESSION_POSTURE,
+        grants: podiumGrantsFor({
+          stateRoot: io?.stateRoot ?? stateDir(),
+          sessionId: `exec-${randomUUID()}`,
+          spec: {
+            mcpServers: msg.mcpConfig
+              ? { supported: true, value: { transport: 'inline', config: msg.mcpConfig } }
+              : { supported: false, reason: 'the run mounts no MCP' },
+          },
+          context,
+        }),
+        workdir,
+        ...(repoRoot !== undefined ? { repoRoot } : {}),
+        runtimeDir,
+        context,
+      }),
+    )
+    // Logged until Task 11 puts it on the wire.
+    await prepareLaunch(
+      command,
+      io?.prepareLaunchPorts ?? nodePrepareLaunchPorts({ launch: 'buffered-exec' }),
+    )
     // ONE RECIPE (POD-6535). The frame carries no session env, so nothing on
     // it was chosen: every credential the command env carries is inherited
-    // and stripped (F10). codex's MCP bearer token rides `execEnv` (POD-1021)
-    // as wiring. `execFile` replaces the child env outright, so this is all of it.
+    // and stripped (F10). codex's MCP bearer token rides the command's env
+    // (POD-1021) as wiring, with whatever the terms added. `execFile` replaces
+    // the child env outright, so this is all of it.
     const { env: childEnv } = harnessChildEnv(context, {
-      ...(execEnv ? { wiringEnv: execEnv } : {}),
+      ...(Object.keys(command.env).length > 0 ? { wiringEnv: command.env } : {}),
     })
     const { stdout } = await runChild(
       command,
@@ -212,6 +269,11 @@ export async function executeBufferedHarnessTurn(
       } catch {
         // best-effort temp cleanup
       }
+    }
+    try {
+      rmSync(runtimeDir, { recursive: true, force: true })
+    } catch {
+      // best-effort temp cleanup
     }
   }
 }

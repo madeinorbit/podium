@@ -69,7 +69,14 @@ import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/d
 import { opencodeTranscript } from '../../../adapters/opencode/transcript.js'
 import { harnessCommand } from '../../../bound-command.js'
 import type { HarnessContext, HarnessInstallation } from '../../../harness-context-types.js'
+import {
+  agentLaunchTerms,
+  agentTermsFor,
+  type LaunchFolders,
+  launchPosture,
+} from '../../../launch-terms.js'
 import { opencodeDbPath } from '../../../opencode/db.js'
+import type { PodiumGrants } from '../../../posture-types.js'
 import { readOpencodePromptHistory } from '../../../store/sources/sqlite.js'
 import {
   gateHarnessVersion,
@@ -369,11 +376,19 @@ export interface OpencodeEngineHostDeps {
     harnessContext: HarnessContext
     homeDir?: string
     sessionEnv?: Readonly<Record<string, string>>
+    /** The launch terms' env (POD-6858): wiring. */
+    harnessEnv?: Readonly<Record<string, string>>
     instanceUuid?: string
   }): Record<string, string>
   /** The context a session runs under when a launch has no spec in hand
    *  (wake): see `OpencodeRuntimeHost.harnessContextFor`. */
   harnessContextFor(sessionId: SessionId): Promise<HarnessContext>
+  /** Podium's grants for a session with no spec in hand (POD-6858): see
+   *  `OpencodeRuntimeHost.podiumGrantsFor`. */
+  podiumGrantsFor(sessionId: SessionId): Promise<PodiumGrants>
+  /** The session's launch folders (POD-6858): its runtime folder for
+   *  generated config and, for a worktree, the main checkout. */
+  launchFoldersFor(sessionId: SessionId, workdir: string): Promise<LaunchFolders>
   /** How long a SIGTERM stop waits for the child to wind down. Shared with
    *  the reap that has to outlast it — arrives as a value rather than living
    *  here twice. */
@@ -675,6 +690,7 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
     mintSessionId: () => asSessionId(crypto.randomUUID()),
 
     harnessContextFor: (sessionId) => deps.harnessContextFor(sessionId),
+    podiumGrantsFor: (sessionId) => deps.podiumGrantsFor(sessionId),
 
     async launch(input) {
       // The session's pinned installation (POD-6546), never a bare name.
@@ -745,6 +761,26 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
 
       // LOOPBACK, NOT A SETTING. The host is fixed and not configurable.
       const serveArgv = flavor.serveArgs(executable, port)
+      // The server runs on the harness's `engine` terms (POD-6858); what they
+      // add to the env is wiring, under the flavor's and the server's own keys.
+      const terms = agentTermsFor(
+        flavor.harnessKind,
+        launchPosture(
+          {
+            posture: input.posture,
+            grants: input.grants,
+            workdir: input.workdir,
+            context: input.harnessContext,
+          },
+          await deps.launchFoldersFor(input.sessionId, input.workdir),
+        ),
+      )
+      const [, ...args] = serveArgv
+      const command = harnessCommand(
+        input.harnessContext,
+        { args },
+        agentLaunchTerms(terms.manifest, 'engine', terms.posture),
+      )
 
       const env: Record<string, string> = deps.buildEnv({
         ...(deps.instanceUuid ? { instanceUuid: deps.instanceUuid } : {}),
@@ -753,6 +789,7 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
         harnessContext: input.harnessContext,
         ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
         ...(input.env ? { sessionEnv: input.env } : {}),
+        ...(Object.keys(command.env).length > 0 ? { harnessEnv: command.env } : {}),
       })
       Object.assign(env, flavor.extraEnv(), deps.flavorEnv)
       env.OPENCODE_SERVER_USERNAME = username
@@ -785,8 +822,6 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
        * its composed spec and binds the attachment it gets back; summoning the
        * process is the owner's job, never this family's.
        */
-      const [, ...args] = serveArgv
-      const command = harnessCommand(input.harnessContext, { args })
       let held: HeldEngine | undefined
       try {
         held = await claimEngine(

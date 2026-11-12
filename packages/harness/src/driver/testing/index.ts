@@ -65,5 +65,10 @@ export {
   defaultAskFor,
   resetFakeRuntime,
 } from './fake-driver.js'
-export { testAccount, testBoundCommand, testHarnessContext } from './harness-context.js'
+export {
+  testAccount,
+  testBoundCommand,
+  testHarnessContext,
+  testLaunchPosture,
+} from './harness-context.js'
 export { serverFamilyLaunch } from './server-launch.js'

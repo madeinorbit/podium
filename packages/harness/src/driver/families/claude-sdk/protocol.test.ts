@@ -1,8 +1,12 @@
 // The stream-json wire, hermetically: argv, handshake, turns, permissions,
 // interrupts and death — over a fake line transport, no CLI, no SDK.
 
+import { DEFAULT_SESSION_POSTURE } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { claudeRecordToItems } from '../../../adapters/claude-code/transcript.js'
+import { optionArgs, unchangedPosture } from '../../../posture.js'
+import type { PostureLaunch } from '../../../posture-types.js'
+import { manifestFor } from '../../../registry.js'
 import { testHarnessContext } from '../../testing/harness-context.js'
 import ack from './__fixtures__/user-message-ack.json' with { type: 'json' }
 import {
@@ -85,12 +89,39 @@ function completeTurn(
 }
 
 const CLAUDE = testHarnessContext({ kind: 'claude-code' })
+/** The engine's launch posture (POD-6858), built inline from the contract. */
+const POSTURE = {
+  posture: DEFAULT_SESSION_POSTURE,
+  grants: {
+    podiumCli: { name: 'podium', path: '/opt/podium-test/bin/podium' },
+    uploadsDir: '/var/podium-test/uploads/session',
+    mcpServers: [],
+  },
+  workdir: '/work',
+  runtimeDir: '/run/podium-test/session',
+  context: CLAUDE,
+}
+const CLAUDE_MANIFEST = manifestFor('claude-code')
+if (!CLAUDE_MANIFEST) throw new Error('claude-code manifest missing')
+/** The Claude adapter's own posture section, for the engine. */
+const TERMS = { manifest: CLAUDE_MANIFEST, posture: POSTURE, mode: 'engine' as const }
+/** A posture section that adds a flag every agent launch would carry. */
+const MARKER_TERMS = {
+  manifest: {
+    posture: (launch: PostureLaunch) => ({
+      ...unchangedPosture(launch),
+      launch: { ...launch, args: optionArgs(launch.args, ['--marker']) },
+    }),
+  },
+  posture: POSTURE,
+  mode: 'engine' as const,
+}
 
 describe('the stream-json invocation', () => {
   const base = { prompt: 'hello', cwd: '/work' }
 
   it('speaks streaming stdio with partial messages', () => {
-    const { cmd, args } = buildClaudeStreamInvocation(base, CLAUDE)
+    const { cmd, args } = buildClaudeStreamInvocation(base, CLAUDE, TERMS)
     expect(cmd).toBe('/opt/podium-test/bin/claude-code')
     expect(args.slice(0, 6)).toEqual([
       '--output-format',
@@ -105,7 +136,7 @@ describe('the stream-json invocation', () => {
   it('asks the CLI to echo each user line back (POD-4836)', () => {
     // The echo is how a line the CLI already holds is told apart from a new
     // one: without the flag a repeated uuid is skipped in silence.
-    const { args } = buildClaudeStreamInvocation(base, CLAUDE)
+    const { args } = buildClaudeStreamInvocation(base, CLAUDE, TERMS)
     expect(args).toContain('--replay-user-messages')
   })
 
@@ -113,7 +144,7 @@ describe('the stream-json invocation', () => {
     undefined,
     true,
   ] as const)('defaults the permission mode to auto with structuredPermissions=%s', (structuredPermissions) => {
-    const { args } = buildClaudeStreamInvocation({ ...base, structuredPermissions }, CLAUDE)
+    const { args } = buildClaudeStreamInvocation({ ...base, structuredPermissions }, CLAUDE, TERMS)
     expect(args[args.indexOf('--permission-mode') + 1]).toBe('auto')
     if (structuredPermissions) {
       expect(args[args.indexOf('--permission-prompt-tool') + 1]).toBe('stdio')
@@ -133,6 +164,7 @@ describe('the stream-json invocation', () => {
     const { args } = buildClaudeStreamInvocation(
       { ...base, permissionMode, structuredPermissions: true },
       CLAUDE,
+      TERMS,
     )
     expect(args[args.indexOf('--permission-mode') + 1]).toBe(permissionMode)
     expect(args[args.indexOf('--permission-prompt-tool') + 1]).toBe('stdio')
@@ -145,6 +177,7 @@ describe('the stream-json invocation', () => {
     const { args } = buildClaudeStreamInvocation(
       { ...base, permissionMode: 'invalid', structuredPermissions: true },
       CLAUDE,
+      TERMS,
     )
     expect(args[args.indexOf('--permission-mode') + 1]).toBe('auto')
     expect(args[args.indexOf('--permission-prompt-tool') + 1]).toBe('stdio')
@@ -160,19 +193,28 @@ describe('the stream-json invocation', () => {
         allowedTools: ['Read', 'Bash'],
       },
       CLAUDE,
+      TERMS,
     )
     expect(args).toContain('--model')
     expect(args).toContain('claude-opus-5')
     expect(args).toContain('--effort')
     expect(args).toContain('--resume')
     expect(args).toContain('--allowedTools')
-    const mint = buildClaudeStreamInvocation({ ...base, sessionUuid: 'uuid-1' }, CLAUDE)
+    const mint = buildClaudeStreamInvocation({ ...base, sessionUuid: 'uuid-1' }, CLAUDE, TERMS)
     expect(mint.args).toContain('--session-id')
     expect(mint.args).not.toContain('--resume')
   })
 
+  it('runs a tool-less turn on no-agent terms: the posture section adds no tool flag', () => {
+    // Control: on a turn with tools, the section's flag is there.
+    expect(buildClaudeStreamInvocation(base, CLAUDE, MARKER_TERMS).args).toContain('--marker')
+    const toolless = buildClaudeStreamInvocation({ ...base, toolPolicy: 'none' }, CLAUDE, MARKER_TERMS)
+    expect(toolless.args).not.toContain('--marker')
+    expect(toolless.terms).toEqual({ homeEdits: [], requestedMode: null, unmet: [] })
+  })
+
   it('removes tools and setting sources fail-closed, and refuses malformed MCP', () => {
-    const { args } = buildClaudeStreamInvocation({ ...base, toolPolicy: 'none' }, CLAUDE)
+    const { args } = buildClaudeStreamInvocation({ ...base, toolPolicy: 'none' }, CLAUDE, TERMS)
     expect(args).toContain('--tools')
     expect(args).toContain('--setting-sources')
     expect(() => mcpConfigInline('not json')).toThrow(/malformed MCP config/)
@@ -188,6 +230,7 @@ describe('the stream-json invocation', () => {
     const { args } = buildClaudeStreamInvocation(
       { ...base, mcpConfig: JSON.stringify({ mcpServers: { docs: { url: 'https://mcp/x' } } }) },
       CLAUDE,
+      TERMS,
     )
     expect(args).toContain('--mcp-config')
   })
@@ -215,7 +258,7 @@ describe('the stream-json invocation', () => {
       appendSystemPrompt: 'sys\n\nctx',
     })
     expect(initializePayload({})).toEqual({ subtype: 'initialize' })
-    const { args } = buildClaudeStreamInvocation({ ...base, systemPrompt: 'sys' }, CLAUDE)
+    const { args } = buildClaudeStreamInvocation({ ...base, systemPrompt: 'sys' }, CLAUDE, TERMS)
     expect(args).not.toContain('--append-system-prompt')
     expect(args).not.toContain('--system-prompt')
   })

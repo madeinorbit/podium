@@ -21,7 +21,12 @@ import type {
   SessionId,
   TranscriptItem,
 } from '@podium/model'
-import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
+import {
+  DEFAULT_SESSION_POSTURE,
+  type ObservationProvenance,
+  type ProviderCursor,
+  type SessionPosture,
+} from '@podium/protocol'
 import type { HarnessContext } from '../../../harness-context-types.js'
 import type {
   QueueDrainAbandonedReason,
@@ -59,7 +64,13 @@ import type {
   PermissionAnswer,
 } from '../../interactions.js'
 import type { OnQueueAbandoned } from '../../queue-abandonment.js'
-import { type EngineSessionSpec, instructionsText, type SessionSpec } from '../../session-spec.js'
+import {
+  type EngineSessionSpec,
+  instructionsText,
+  type SessionSpec,
+  sessionPostureOf,
+} from '../../session-spec.js'
+import type { PodiumGrants } from '../../../posture-types.js'
 import {
   type AnswerOptions,
   type AttachmentStager,
@@ -135,6 +146,11 @@ export interface GrokAcpRuntimeHost {
     /** The session's pinned harness context (POD-6546): the engine runs its
      *  installation and starts from its environment. */
     harnessContext: HarnessContext
+    /** The session's posture (POD-6858); an adopted spec's is the default. */
+    posture: SessionPosture
+    /** Podium's grants: the spec's on create and resume, from
+     *  {@link podiumGrantsFor} on adopt. */
+    grants: PodiumGrants
     env?: Readonly<Record<string, string>>
   }): Promise<GrokAcpEndpoint>
   /**
@@ -144,6 +160,9 @@ export interface GrokAcpRuntimeHost {
    * rebuilt from the current inventory (design §3.3).
    */
   harnessContextFor(sessionId: SessionId): Promise<HarnessContext>
+  /** Podium's standing facts for a session with no spec in hand (POD-6858),
+   *  beside {@link harnessContextFor}. */
+  podiumGrantsFor(sessionId: SessionId): Promise<PodiumGrants>
   readArchive?(input: {
     sessionId: SessionId
     grokSessionId: string
@@ -2421,6 +2440,8 @@ export function createGrokAcpRuntime(
       sessionId,
       workdir: spec.workdir,
       harnessContext: spec.harnessContext,
+      posture: spec.posture,
+      grants: spec.grants,
       ...(spec.env ? { env: spec.env } : {}),
     })
     const connection = await initializedConnection(endpoint, sessionId)
@@ -2452,6 +2473,7 @@ export function createGrokAcpRuntime(
     sessionId: SessionId
     spec: EngineSessionSpec
     harnessContext: HarnessContext
+    grants: PodiumGrants
     grokSessionId: string
     bindingVersion: number
     observerGeneration: number
@@ -2459,11 +2481,13 @@ export function createGrokAcpRuntime(
     seq?: number
     turnEpoch?: number
   }): Promise<AgentSessionHandle> {
-    const { harnessContext, ...attach } = input
+    const { harnessContext, grants, ...attach } = input
     const endpoint = await host.launch({
       sessionId: input.sessionId,
       workdir: input.spec.workdir,
       harnessContext,
+      posture: sessionPostureOf(input.spec),
+      grants,
       ...(input.spec.env ? { env: input.spec.env } : {}),
     })
     const connection = await initializedConnection(endpoint, input.sessionId)
@@ -2513,6 +2537,8 @@ export function createGrokAcpRuntime(
     harness: 'grok',
     selection: { auth: 'subscription', platform: 'linux', available: [GROK_ACP_DRIVER_ID] },
     workdir,
+    // An adopted session's posture is not journalled: it runs on the default.
+    posture: DEFAULT_SESSION_POSTURE,
     model: {},
     instructions: { supported: false, reason: 'adopted session carries its own context' },
     mcpServers: { supported: false, reason: 'adopted session carries its own config' },
@@ -2529,6 +2555,7 @@ export function createGrokAcpRuntime(
         sessionId: host.mintSessionId(),
         spec,
         harnessContext: spec.harnessContext,
+        grants: spec.grants,
         grokSessionId: ref.value,
         bindingVersion: 1,
         observerGeneration: 1,
@@ -2549,6 +2576,7 @@ export function createGrokAcpRuntime(
         sessionId: binding.sessionId,
         spec: adoptedSpec(entry.workdir),
         harnessContext: await host.harnessContextFor(binding.sessionId),
+        grants: await host.podiumGrantsFor(binding.sessionId),
         grokSessionId: entry.grokSessionId,
         bindingVersion: binding.bindingVersion + 1,
         observerGeneration: binding.bindingVersion + 1,

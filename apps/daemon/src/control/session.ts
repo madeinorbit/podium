@@ -14,6 +14,7 @@ import {
   harnessTranscriptStorage,
   type LaunchFile,
   type LaunchSpec,
+  noAgentTerms,
   parseHarnessVersion,
   withArgs,
 } from '@podium/harness'
@@ -49,7 +50,9 @@ import {
   WriterLeaseRefusedError,
 } from '@podium/process/durable'
 import type { AgentPicture } from '@podium/process/screen'
+import { DEFAULT_SESSION_POSTURE } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { stateDir } from '@podium/runtime/config'
 import { measureTask } from '@podium/runtime/task-attribution'
 import type { SessionBindingTransitionOutcome } from '../binding-store'
 import { noDurableBackendRefusal } from '../durable-backend'
@@ -97,6 +100,14 @@ import {
   trackSessionSize,
 } from '../session-screens'
 import { removeSessionUploads } from '../session-uploads'
+import {
+  launchFoldersFor,
+  launchPosturePart,
+  nodePrepareLaunchPorts,
+  podiumGrantsFor,
+  prepareLaunch,
+  sessionRuntimeDir,
+} from '../session-posture'
 import { Terminal } from '../terminal/terminal.js'
 import { type BindFacts, bindFrame, reportSize } from './applied-geometry'
 import type { ControlHandlers, DaemonContext } from './context'
@@ -472,7 +483,7 @@ export function instrumentedLaunchArgs(
 }
 
 function instructionRuntimeDir(ctx: DaemonContext, sessionId: SessionId): string {
-  return join(ctx.settingsDir, 'session-instructions', sessionId)
+  return sessionRuntimeDir(ctx.settingsDir, sessionId)
 }
 
 function removeSessionInstructions(ctx: DaemonContext, sessionId: SessionId): void {
@@ -778,6 +789,16 @@ export async function launchTerminalProcess(
       ...(instructions?.length ? { instructions: [...instructions] } : {}),
       runtimeDir,
       ...(spec.env ? { env: spec.env } : {}),
+      // THE LAUNCH'S TERMS (POD-6858): an agent's spec carries its posture and
+      // grants; a shell's or login pane's carries none and runs no agent.
+      ...('posture' in spec && 'grants' in spec
+        ? {
+            posture: launchPosturePart(
+              spec,
+              await launchFoldersFor({ settingsDir: ctx.settingsDir, sessionId, workdir: spec.workdir }),
+            ),
+          }
+        : {}),
     }
     // loginCommand is intentionally a static argv declaration: the production
     // branch below binds it to a harness context built from the current
@@ -798,14 +819,25 @@ export async function launchTerminalProcess(
     const childContext = loginContext ?? harnessContext
     const cmd: LaunchSpec =
       loginCommand && loginContext
-        ? harnessCommand(loginContext, { args: [...loginCommand.args], cwd: spec.workdir })
+        ? harnessCommand(
+            loginContext,
+            { args: [...loginCommand.args], cwd: spec.workdir },
+            noAgentTerms('native login pane: runs no agent'),
+          )
         : ctx.harnessRuntime
           ? await ctx.harnessRuntime.launch(harnessContext ?? 'shell', launchOptions)
           : ctx.launch(agentKind, {
               ...launchOptions,
               ...(harnessContext ? { harnessContext } : {}),
             })
-    materializeLaunchFiles(cmd.files)
+    // The launch's files, home edits and unmet terms (POD-6858): a harness
+    // command carries its applied terms; the operator's shell has none.
+    // Task 11 puts the result on the wire; until then it is logged.
+    if ('terms' in cmd) {
+      await prepareLaunch(cmd, nodePrepareLaunchPorts({ sessionId, launch: 'terminal' }))
+    } else {
+      materializeLaunchFiles(cmd.files)
+    }
     // SQLite-backed harnesses create their store parent lazily. Create the
     // Podium-owned directory before the PTY starts so two fresh sessions
     // cannot race on a missing per-session store directory. Keyed on the
@@ -1286,13 +1318,30 @@ async function withOrder(
  * (POD-1761 W6): the spawn frame has never carried one, because interactive
  * sessions mount MCP through the CLI's own config file, and passing an empty
  * one would make a driver report a tool mount it did not make.
+ *
+ * POSTURE AND GRANTS (POD-6858). The spawn frame carries no posture yet, nor
+ * a permission mode, so every spawned session runs on the default posture
+ * until the frame carries one. The grants are Podium's standing facts for
+ * this session, built here on its machine like the context.
  */
 export function sessionSpecForSpawn(
   msg: SpawnControl,
   selection: SpawnSelection,
   harnessContext: HarnessContext,
+  stateRoot: string = stateDir(),
 ): SessionSpec {
-  return { ...plainSpecForSpawn(msg, selection), harnessContext }
+  const plain = plainSpecForSpawn(msg, selection)
+  return {
+    ...plain,
+    harnessContext,
+    posture: DEFAULT_SESSION_POSTURE,
+    grants: podiumGrantsFor({
+      stateRoot,
+      sessionId: msg.sessionId,
+      spec: plain,
+      context: harnessContext,
+    }),
+  }
 }
 
 /** How a spawn frame selects its driver, for {@link sessionSpecForSpawn}. */
@@ -1308,7 +1357,7 @@ interface SpawnSelection {
  * harness context. No driver runs a plain terminal, so it never reaches the
  * driver boundary where {@link SessionSpec} requires one (POD-6533).
  */
-export type PlainTerminalSpec = Omit<SessionSpec, 'harnessContext'>
+export type PlainTerminalSpec = Omit<SessionSpec, 'harnessContext' | 'posture' | 'grants'>
 
 /** The spawn frame's fields as a spec, before any harness context. */
 function plainSpecForSpawn(msg: SpawnControl, selection: SpawnSelection): PlainTerminalSpec {
@@ -1647,9 +1696,25 @@ async function adoptHeadlessSession(ctx: DaemonContext, msg: ReattachControl): P
       return fail(adoptionError instanceof Error ? adoptionError.message : String(adoptionError))
     }
     try {
+      const harnessContext = await buildSessionHarnessContext(
+        ctx,
+        msg.agentKind as BuiltinHarnessKind,
+      )
+      const mcpServers: SessionSpec['mcpServers'] = {
+        supported: false,
+        reason: 'headless reattach carries no MCP mount',
+      }
       const spec: SessionSpec = {
         harness: msg.agentKind,
-        harnessContext: await buildSessionHarnessContext(ctx, msg.agentKind as BuiltinHarnessKind),
+        harnessContext,
+        // No frame here states a posture: the reattached session runs on the default.
+        posture: DEFAULT_SESSION_POSTURE,
+        grants: podiumGrantsFor({
+          stateRoot: stateDir(),
+          sessionId: msg.sessionId,
+          spec: { mcpServers },
+          context: harnessContext,
+        }),
         selection: {
           auth: 'unknown',
           platform: process.platform,
@@ -1663,10 +1728,7 @@ async function adoptHeadlessSession(ctx: DaemonContext, msg: ReattachControl): P
           supported: false,
           reason: 'headless reattach carries no sticky instructions',
         },
-        mcpServers: {
-          supported: false,
-          reason: 'headless reattach carries no MCP mount',
-        },
+        mcpServers,
       }
       const handle = await runtime.resume(msg.resume, spec, msg.sessionId)
       sendBind(ctx, {

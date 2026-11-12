@@ -66,13 +66,19 @@ import type {
   TranscriptItemRef,
 } from '@podium/model'
 import { mergeHarnessRefs, transcriptItemRefOf } from '@podium/model'
-import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
+import {
+  DEFAULT_SESSION_POSTURE,
+  type ObservationProvenance,
+  type ProviderCursor,
+  type SessionPosture,
+} from '@podium/protocol'
 import type {
   QueueDrainAbandonedReason,
   RuntimeHistoryPage,
   RuntimeHistoryRange,
 } from '@podium/protocol/daemon'
 import type { HarnessContext } from '../../../harness-context-types.js'
+import type { PodiumGrants } from '../../../posture-types.js'
 import type { AttachEndpoint, AttachRequest, SessionLease } from '../../attach.js'
 import type {
   ProcessIdentity,
@@ -109,6 +115,7 @@ import {
   instructionsText,
   type ModelPolicy,
   type SessionSpec,
+  sessionPostureOf,
 } from '../../session-spec.js'
 import {
   type AnswerOptions,
@@ -229,6 +236,13 @@ export interface CodexRuntimeHost {
      * and resume, from {@link harnessContextFor} where a launch has no spec.
      */
     harnessContext: HarnessContext
+    /** The session's posture (POD-6858): the engine states its launch terms
+     *  from it. From the spec; an adopted spec's is the default. */
+    posture: SessionPosture
+    /** Podium's standing facts for the session (POD-6858). From the spec on
+     *  create and resume, from {@link podiumGrantsFor} where a launch has no
+     *  spec. */
+    grants: PodiumGrants
     env?: Readonly<Record<string, string>>
     /**
      * Podium's MCP configuration, forwarded VERBATIM from `SessionSpec`.
@@ -355,6 +369,9 @@ export interface CodexRuntimeHost {
    * rebuilt from the current inventory (design §3.3).
    */
   harnessContextFor(sessionId: SessionId): Promise<HarnessContext>
+  /** Podium's standing facts for a session with no spec in hand (POD-6858),
+   *  beside {@link harnessContextFor}. */
+  podiumGrantsFor(sessionId: SessionId): Promise<PodiumGrants>
 
   /**
    * TURNS THIS DRIVER ACCEPTED AND WILL NEVER DELIVER (POD-2297).
@@ -2778,6 +2795,8 @@ export function createCodexRuntime(
       sessionId,
       workdir: spec.workdir,
       harnessContext: spec.harnessContext,
+      posture: spec.posture,
+      grants: spec.grants,
       ...(spec.env ? { env: spec.env } : {}),
       ...mcpOf(spec),
       ...instructionsOf(spec),
@@ -2831,6 +2850,9 @@ export function createCodexRuntime(
     /** The context a fresh engine runs under; read only when no survivor
      *  endpoint is supplied. */
     harnessContext: () => Promise<HarnessContext>
+    /** Podium's grants for a fresh engine; read only when no survivor
+     *  endpoint is supplied. */
+    grants: () => Promise<PodiumGrants>
     rolloutPath?: string
   }): Promise<AgentSessionHandle> {
     const endpoint =
@@ -2839,6 +2861,8 @@ export function createCodexRuntime(
         sessionId: input.sessionId,
         workdir: input.spec.workdir,
         harnessContext: await input.harnessContext(),
+        posture: sessionPostureOf(input.spec),
+        grants: await input.grants(),
         ...(input.spec.env ? { env: input.spec.env } : {}),
         ...mcpOf(input.spec),
         ...instructionsOf(input.spec),
@@ -2891,6 +2915,8 @@ export function createCodexRuntime(
       available: [CODEX_APP_SERVER_DRIVER_ID],
     },
     workdir,
+    // An adopted session's posture is not journalled: it runs on the default.
+    posture: DEFAULT_SESSION_POSTURE,
     // NOT `{}` — see {@link CodexJournalEntry.model}. Instructions and MCP
     // below stay unsupported because the resumed thread genuinely carries its
     // own; the model does not, it is sent per turn.
@@ -2916,6 +2942,7 @@ export function createCodexRuntime(
         sessionId,
         spec,
         harnessContext: async () => spec.harnessContext,
+        grants: async () => spec.grants,
         threadId: ref.value,
         bindingVersion: previous + 1,
         observerGeneration: previous + 1,
@@ -2953,6 +2980,7 @@ export function createCodexRuntime(
         sessionId: binding.sessionId,
         spec: adoptedSpec(journalled.workdir, journalled.model),
         harnessContext: () => host.harnessContextFor(binding.sessionId),
+        grants: () => host.podiumGrantsFor(binding.sessionId),
         threadId: journalled.threadId,
         rolloutPath: journalled.rolloutPath,
         endpoint,
