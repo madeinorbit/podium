@@ -829,9 +829,21 @@ export class Replica {
         }
       }
       this.counters.pendingGap = false
+      // Stay healing while the live tail commits. New socket frames must join
+      // the buffer behind that tail, and consumers publish the whole catch-up
+      // only when the final live posture arrives.
+      try {
+        do {
+          await this.drainBuffer(generation)
+          if (generation !== this.walkGeneration) return
+        } while (this.buffer.length > 0)
+      } catch (error) {
+        if (generation !== this.walkGeneration) return
+        if (!(error instanceof ReplicaStoreCorruptError)) this.setPosture('stale')
+        throw error
+      }
       this.note('D7-1-HEALED')
       this.setPosture('live')
-      await this.drainBuffer()
     })
   }
 
@@ -844,7 +856,7 @@ export class Replica {
    * from it and nothing to lose by discarding it. That is not the acceptance of
    * an overlapping frame — nothing from it reaches the store.
    */
-  private async drainBuffer(): Promise<void> {
+  private async drainBuffer(generation = this.walkGeneration): Promise<void> {
     // A FRAME IS CONSUMED ONLY AFTER ITS COMMIT IS DURABLE (POD-1161). This used to
     // take the whole buffer and empty it up front, so a commit that aborted part-way
     // dropped every remaining frame — and with them the retirements they were the only
@@ -862,6 +874,7 @@ export class Replica {
     // frames can grow, so it needs a bound that is not "until it is empty". An
     // unbounded drain here is the shape that once produced zero bytes and hung forever.
     for (let guard = 0; this.buffer.length > 0; guard += 1) {
+      if (generation !== this.walkGeneration) return
       if (guard > DRAIN_BUFFER_LIMIT) {
         throw new Error(
           `replica buffer drain did not terminate after ${DRAIN_BUFFER_LIMIT} frames (${this.buffer.length} still buffered)`,
@@ -886,10 +899,11 @@ export class Replica {
         this.startHeal()
         return
       }
-      const applied = this.commitChanges(frame.changes, { ...cursor, seq: frame.seq })
+      const applied = this.commitChanges(frame.changes, { ...cursor, seq: frame.seq }, generation)
       // A rejection leaves the frame at the head of the buffer, so the heal or the
       // re-bootstrap that follows still has it — and still has its retirements.
       await applied.done
+      if (generation !== this.walkGeneration) return
       this.buffer.shift()
       this.note(applied.row)
     }

@@ -2208,7 +2208,7 @@ describe('every declared ADR route is driven, not merely declared', () => {
     expect(b.replica.trace).toContain('D6-EXHAUSTED')
   })
 
-  it('D6-BUFFER fires from healing, and the drain drops the covered frame from live', async () => {
+  it('D6-BUFFER and covered-frame drops stay healing until the drain completes', async () => {
     const h = harness()
     await bootstrapped(h, 10, [])
     // Heal reply lands at 20, so both buffered frames are wholly covered by it.
@@ -2231,7 +2231,7 @@ describe('every declared ADR route is driven, not merely declared', () => {
     // Both were at or below the healed cursor, so both are dropped rather than
     // applied — nothing from either frame reaches the store.
     const covered = h.replica.transitions.filter((t) => t.rowId === 'D6-BUFFER-COVERED')
-    expect(covered.map((t) => t.from)).toEqual(['live', 'live'])
+    expect(covered.map((t) => t.from)).toEqual(['healing', 'healing'])
     expect(h.replica.cursor?.seq).toBe(20)
     expect(h.replica.view('session', 'x')).toBeUndefined()
   })
@@ -2281,6 +2281,61 @@ describe('incremental range healing', () => {
     })
     return { ...h, entered, commit }
   }
+
+  it.each([
+    'continue',
+    'disconnect',
+  ] as const)('keeps new live events behind an asynchronous tail commit on %s', async (action) => {
+    const h = delayedRetirement()
+    await bootstrapped(h, 10, [])
+    h.events.length = 0
+    h.store.outbox.enqueue({
+      mutationId: asMutationId('tail-mutation'),
+      entity: 'session',
+      entityId: 'tail',
+      command: {},
+    })
+    h.authority.changesRangeQueue = [deltaFrame(10, 11, [session(11, 'prefix', 'prefix')])]
+    const releaseHeal = holdHeal(h.authority)
+    h.replica.disconnect()
+    h.replica.connect()
+    const tail = deltaFrame(11, 12, [
+      session(12, 'tail', 'tail', {
+        mutationId: asMutationId('tail-mutation'),
+      }),
+    ])
+    await h.replica.receive(tail)
+    releaseHeal()
+    await h.entered.promise
+    expect(h.replica.posture).toBe('healing')
+    expect(h.replica.cursor?.seq).toBe(11)
+    const later = deltaFrame(12, 13, [session(13, 'tail', 'latest')])
+    expect((await h.replica.receive(later)).rowId).toBe('D6-BUFFER')
+    if (action === 'disconnect') h.replica.disconnect()
+    h.commit.release()
+    await h.replica.settled()
+    if (action === 'disconnect') {
+      expect(h.replica.posture).toBe('stale')
+      expect(h.replica.cursor?.seq).toBe(11)
+      expect(h.store.outbox.list()).toHaveLength(1)
+      expect(h.replica.view('session', 'tail')).toBeUndefined()
+      expect(
+        h.events.filter((event) => event.type === 'posture' && event.posture === 'live'),
+      ).toEqual([])
+      h.authority.changesRangeQueue = [
+        (async function* () {
+          yield tail
+          yield later
+        })(),
+      ]
+      h.replica.connect()
+      await h.replica.settled()
+    }
+    expect(h.replica.cursor?.seq).toBe(13)
+    expect(h.replica.view('session', 'tail')).toEqual({ name: 'latest' })
+    expect(h.store.outbox.list()).toHaveLength(0)
+    expect(h.events.at(-1)).toMatchObject({ type: 'posture', posture: 'live' })
+  })
 
   it('commits before pulling again, buffers live overlap, and stays healing through completion', async () => {
     const h = delayedRetirement()
@@ -2548,12 +2603,20 @@ describe('incremental range healing', () => {
     channel.push(bootstrapChunk(10, [], true))
     await h.entered.promise
     expect(h.replica.posture).toBe('bootstrapping')
+    // Arrives after the install copied its buffer. The snapshot already covers
+    // it, so the subsequent live drain must discard it without another heal.
+    await h.replica.receive(deltaFrame(5, 7, []))
     await h.replica.receive(deltaFrame(11, 12, [session(12, 'during', 'during')]))
     h.commit.release()
     await h.replica.settled()
     expect(h.replica.cursor).toEqual(cursorAt(12))
     expect(h.replica.view('session', 'during')).toEqual({ name: 'during' })
     expect(h.replica.stats().bufferedFrames).toBe(0)
+    expect(h.replica.transitions).toContainEqual({
+      rowId: 'D6-BUFFER-COVERED',
+      from: 'live',
+      to: 'live',
+    })
     expect(h.events.filter((e) => e.type === 'upserted').map((e) => e.record.entityId)).toEqual([
       'included',
       'during',

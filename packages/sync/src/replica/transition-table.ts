@@ -170,7 +170,7 @@ export const REPLICA_TRANSITIONS: readonly TransitionRow[] = [
     from: ['healing'],
     input: 'normal range completion',
     condition: 'every frame committed and source completed normally',
-    effect: 'Leave healing, then drain buffered frames while they stay contiguous.',
+    effect: 'Drain buffered frames while contiguous, then leave healing and publish the catch-up.',
     to: ['live'],
     rung: 1,
     adr: 'ADR 2 D7 rung 1',
@@ -318,16 +318,14 @@ export const REPLICA_TRANSITIONS: readonly TransitionRow[] = [
   },
   {
     id: 'D6-BUFFER-COVERED',
-    // Two postures, not three. The drop happens either inside a bootstrap install
-    // ('bootstrapping') or at the drain that follows a completed heal — and the
-    // drain runs only AFTER the heal has set 'live', so no path drops a covered
-    // frame while still healing. 'healing' was declared here and never reachable.
-    from: ['bootstrapping', 'live'],
+    // A heal stays healing until its buffered live tail has also committed.
+    // Bootstrap still folds its initial buffer at install, then drains live.
+    from: ['bootstrapping', 'live', 'healing'],
     input: 'buffered frame, at install or at drain',
     condition: 'frame.seq <= cursor.seq (the snapshot or the heal already covers it)',
     effect:
       'DROP it. Not applied and not healed: our own cursor already certifies that range, so there is nothing to learn from it. Nothing from the frame reaches the store, so this is not acceptance of an overlapping frame.',
-    to: ['bootstrapping', 'live'],
+    to: ['bootstrapping', 'live', 'healing'],
     rung: null,
     adr: 'ADR 2 D6.3',
   },

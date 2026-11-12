@@ -143,7 +143,17 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
   let replacement: 'bootstrap' | 'rescope' | undefined
   const batchListeners = new Set<(changed: ReadonlySet<ReplicaKind>) => void>()
   const cursorListeners = new Set<() => void>()
+  // Pages remain durable independently. Only publication waits for a certified
+  // range, using the existing pending addresses rather than copying row data.
+  // Keep the hold through an interrupted range: the next heal starts after its
+  // durable prefix, and must still publish those earlier addresses.
+  let publicationHeld = false
+  let pendingCursor = false
   const cursorMoved = (): void => {
+    if (publicationHeld) {
+      pendingCursor = true
+      return
+    }
     for (const cb of [...cursorListeners]) {
       try {
         cb()
@@ -242,7 +252,11 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
   }
 
   function drain(): void {
-    if (pending.size === 0) return
+    if (publicationHeld) return
+    if (pending.size === 0) {
+      drainCursor()
+      return
+    }
     const kinds = [...pending]
     pending.clear()
     // Nobody listening for addressed batches (the default app): build nothing.
@@ -289,6 +303,13 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
           // Same observer isolation as legacy rows.
         }
       }
+    drainCursor()
+  }
+
+  function drainCursor(): void {
+    if (!pendingCursor) return
+    pendingCursor = false
+    cursorMoved()
   }
 
   function project<K extends ReplicaKind>(kind: K): ReplicaRows[K][] {
@@ -300,7 +321,9 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
       reconcile(kind, state)
     }
     if (state.rows === null) {
-      state.rows = [...state.byId.values()].sort((a, b) => keyOf(kind, a as never).localeCompare(keyOf(kind, b as never)))
+      state.rows = [...state.byId.values()].sort((a, b) =>
+        keyOf(kind, a as never).localeCompare(keyOf(kind, b as never)),
+      )
     }
     return state.rows as ReplicaRows[K][]
   }
@@ -429,7 +452,11 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
     dirtyRows.delete(kind)
     for (const id of dirty) {
       let next: unknown
-      try { next = cache.read(entityForKind(kind), id)?.value } catch { next = undefined }
+      try {
+        next = cache.read(entityForKind(kind), id)?.value
+      } catch {
+        next = undefined
+      }
       if (next === null || typeof next !== 'object') next = undefined
       const previous = state.byId.get(id)
       if (previous === next) continue
@@ -680,10 +707,18 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
           cursorMoved()
           return
         case 'posture':
+          if (event.posture === 'healing' || event.posture === 'bootstrapping') {
+            publicationHeld = true
+          }
           if (event.posture === 'bootstrapping') revisitSessionMarkers(false)
           // Legacy caches revisit absence once; certified warm caches are
           // already final at attach and do no work on the first live event.
-          if (event.posture === 'live') revisitSessionMarkers(true)
+          if (event.posture === 'live') {
+            facade.batch(() => {
+              publicationHeld = false
+              revisitSessionMarkers(true)
+            })
+          }
           return
         default:
           // `cursor`, `heal`, `bootstrap-failed` do not change the
