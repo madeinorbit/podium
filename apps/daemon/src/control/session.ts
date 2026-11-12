@@ -1335,12 +1335,7 @@ export function sessionSpecForSpawn(
     ...plain,
     harnessContext,
     posture: DEFAULT_SESSION_POSTURE,
-    grants: podiumGrantsFor({
-      stateRoot,
-      sessionId: msg.sessionId,
-      spec: plain,
-      context: harnessContext,
-    }),
+    grants: podiumGrantsFor({ stateRoot }, msg.sessionId, plain, harnessContext),
   }
 }
 
@@ -1709,12 +1704,12 @@ async function adoptHeadlessSession(ctx: DaemonContext, msg: ReattachControl): P
         harnessContext,
         // No frame here states a posture: the reattached session runs on the default.
         posture: DEFAULT_SESSION_POSTURE,
-        grants: podiumGrantsFor({
-          stateRoot: stateDir(),
-          sessionId: msg.sessionId,
-          spec: { mcpServers },
-          context: harnessContext,
-        }),
+        grants: podiumGrantsFor(
+          { stateRoot: stateDir() },
+          msg.sessionId,
+          { mcpServers },
+          harnessContext,
+        ),
         selection: {
           auth: 'unknown',
           platform: process.platform,

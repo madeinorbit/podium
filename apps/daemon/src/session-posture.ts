@@ -42,7 +42,9 @@ const log = createLogger('daemon:session-posture')
 export const PODIUM_CLI_NAME = 'podium'
 
 /**
- * Podium's standing facts for one session (§4.4).
+ * Podium's standing facts for one session (§4.4), over the session's harness
+ * context (`where.stateRoot` is the state root whose `uploads` folder holds
+ * staged attachments).
  *
  * - `podiumCli`: the CLI `harnessChildEnv` puts first on the child's PATH,
  *   the context's `PODIUM_CLI_PATH`. Without one, the child resolves `podium`
@@ -52,18 +54,17 @@ export const PODIUM_CLI_NAME = 'podium'
  *   never another session's.
  * - `mcpServers`: the server names the spec's MCP configuration declares.
  */
-export function podiumGrantsFor(input: {
-  /** The state root whose `uploads` folder holds staged attachments. */
-  stateRoot: string
-  sessionId: SessionId | string
-  spec: Pick<SessionSpec, 'mcpServers'>
-  context: Pick<HarnessContext, 'env'>
-}): PodiumGrants {
-  const cliPath = input.context.env.PODIUM_CLI_PATH?.trim()
+export function podiumGrantsFor(
+  where: { readonly stateRoot: string },
+  sessionId: SessionId | string,
+  spec: Pick<SessionSpec, 'mcpServers'>,
+  context: Pick<HarnessContext, 'env'>,
+): PodiumGrants {
+  const cliPath = context.env.PODIUM_CLI_PATH?.trim()
   return {
     podiumCli: { name: PODIUM_CLI_NAME, path: cliPath || PODIUM_CLI_NAME },
-    uploadsDir: sessionUploadsDir(input.sessionId, input.stateRoot),
-    mcpServers: mcpServerNames(input.spec.mcpServers),
+    uploadsDir: sessionUploadsDir(sessionId, where.stateRoot),
+    mcpServers: mcpServerNames(spec.mcpServers),
   }
 }
 

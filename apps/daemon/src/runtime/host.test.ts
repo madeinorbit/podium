@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { discoveryRoots, type HarnessContext, harnessContext } from '@podium/harness'
 import type { SessionSpec } from '@podium/harness/driver/host'
+import { testSessionTerms } from '@podium/harness/driver/testing'
 import { asSessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
@@ -40,6 +41,7 @@ describe('daemonRuntimeHost', () => {
       const host = daemonRuntimeHost(ctx, () => {})
       const specFor = (harnessContext: HarnessContext): SessionSpec => ({
         harness: 'codex',
+        ...testSessionTerms(),
         harnessContext,
         workdir: '/repo',
         model: {},

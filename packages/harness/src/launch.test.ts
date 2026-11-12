@@ -3,22 +3,48 @@ import type { AgentKind } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { opencodeSessionDbPath } from './adapters/opencode/paths.js'
-import { testHarnessContext } from './driver/testing/harness-context.js'
-import { agentLaunchCommand, agentSupportsInitialPrompt, windowsDefaultShell } from './launch'
+import { testHarnessContext, testLaunchPosture } from './driver/testing/harness-context.js'
+import {
+  agentLaunchCommand,
+  agentSupportsInitialPrompt,
+  type LaunchSpec,
+  windowsDefaultShell,
+} from './launch'
 
 /** The installation every harness launch below is bound to (POD-6536): argv[0]
  *  is the context's executable, never the CLI's bare name. */
 const exe = (kind: string): string => `/opt/podium-test/bin/${kind}`
 /** The session context a harness launch takes; the shell takes none. */
-const ctx = (kind: AgentKind, home?: string) =>
-  kind === 'shell'
-    ? {}
-    : { harnessContext: testHarnessContext({ kind, ...(home ? { home } : {}) }) }
+const ctx = (kind: AgentKind, home?: string) => {
+  if (kind === 'shell') return {}
+  const harnessContext = testHarnessContext({ kind, ...(home ? { home } : {}) })
+  const { context: _context, ...posture } = testLaunchPosture(harnessContext)
+  return { harnessContext, posture }
+}
+
+/**
+ * A launch as the argv suites below pin it: its terms are the identity (every
+ * posture section is `unchangedPosture` until its harness's task), so the
+ * empty env, files and terms `harnessCommand` always carries are checked here
+ * and left out of the expected shapes.
+ */
+function plain(spec: LaunchSpec): Record<string, unknown> {
+  if (!('terms' in spec)) return spec
+  const { env, files, terms, ...rest } = spec
+  expect(terms).toEqual({ homeEdits: [], requestedMode: null, unmet: [] })
+  return {
+    ...rest,
+    ...(Object.keys(env).length > 0 ? { env } : {}),
+    ...(files.length > 0 ? { files } : {}),
+  }
+}
 
 const CODEX_NETWORK_ARGS = ['-c', 'sandbox_workspace_write.network_access=true']
 describe('agentLaunchCommand', () => {
   it('spawns claude fresh', () => {
-    expect(agentLaunchCommand('claude-code', { ...ctx('claude-code'), cwd: '/proj' })).toEqual({
+    expect(
+      plain(agentLaunchCommand('claude-code', { ...ctx('claude-code'), cwd: '/proj' })),
+    ).toEqual({
       cmd: exe('claude-code'),
       args: [],
       cwd: '/proj',
@@ -27,11 +53,13 @@ describe('agentLaunchCommand', () => {
 
   it('resumes claude by session id', () => {
     expect(
-      agentLaunchCommand('claude-code', {
-        ...ctx('claude-code'),
-        cwd: '/proj',
-        resume: { kind: 'claude-session', value: 'abc' },
-      }),
+      plain(
+        agentLaunchCommand('claude-code', {
+          ...ctx('claude-code'),
+          cwd: '/proj',
+          resume: { kind: 'claude-session', value: 'abc' },
+        }),
+      ),
     ).toEqual({
       cmd: exe('claude-code'),
       args: ['--resume', 'abc'],
@@ -40,7 +68,7 @@ describe('agentLaunchCommand', () => {
   })
 
   it('spawns codex fresh', () => {
-    expect(agentLaunchCommand('codex', { ...ctx('codex'), cwd: '/w' })).toEqual({
+    expect(plain(agentLaunchCommand('codex', { ...ctx('codex'), cwd: '/w' }))).toEqual({
       cmd: exe('codex'),
       args: CODEX_NETWORK_ARGS,
       cwd: '/w',
@@ -49,11 +77,13 @@ describe('agentLaunchCommand', () => {
 
   it('resumes codex by thread id', () => {
     expect(
-      agentLaunchCommand('codex', {
-        ...ctx('codex'),
-        cwd: '/w',
-        resume: { kind: 'codex-thread', value: 't9' },
-      }),
+      plain(
+        agentLaunchCommand('codex', {
+          ...ctx('codex'),
+          cwd: '/w',
+          resume: { kind: 'codex-thread', value: 't9' },
+        }),
+      ),
     ).toEqual({
       cmd: exe('codex'),
       args: ['resume', '-C', '/w', 't9', ...CODEX_NETWORK_ARGS],
@@ -62,7 +92,7 @@ describe('agentLaunchCommand', () => {
   })
 
   it('spawns grok fresh', () => {
-    expect(agentLaunchCommand('grok', { ...ctx('grok'), cwd: '/w' })).toEqual({
+    expect(plain(agentLaunchCommand('grok', { ...ctx('grok'), cwd: '/w' }))).toEqual({
       cmd: exe('grok'),
       args: [],
       cwd: '/w',
@@ -84,11 +114,13 @@ describe('agentLaunchCommand', () => {
 
   it('resumes grok by session id', () => {
     expect(
-      agentLaunchCommand('grok', {
-        ...ctx('grok'),
-        cwd: '/w',
-        resume: { kind: 'grok-session', value: 'g9' },
-      }),
+      plain(
+        agentLaunchCommand('grok', {
+          ...ctx('grok'),
+          cwd: '/w',
+          resume: { kind: 'grok-session', value: 'g9' },
+        }),
+      ),
     ).toEqual({ cmd: exe('grok'), args: ['--resume', 'g9'], cwd: '/w' })
   })
 
@@ -117,7 +149,7 @@ describe('agentLaunchCommand', () => {
     'grok-4.5',
     'grok-composer-2.5-fast',
   ])('passes the supported Grok model override %s', (model) => {
-    expect(agentLaunchCommand('grok', { ...ctx('grok'), cwd: '/w', model })).toEqual({
+    expect(plain(agentLaunchCommand('grok', { ...ctx('grok'), cwd: '/w', model }))).toEqual({
       cmd: exe('grok'),
       args: ['--model', model],
       cwd: '/w',
@@ -125,7 +157,7 @@ describe('agentLaunchCommand', () => {
   })
 
   it('spawns opencode fresh with its provider command', () => {
-    expect(agentLaunchCommand('opencode', { ...ctx('opencode'), cwd: '/w' })).toEqual({
+    expect(plain(agentLaunchCommand('opencode', { ...ctx('opencode'), cwd: '/w' }))).toEqual({
       cmd: exe('opencode'),
       args: ['--auto'],
       cwd: '/w',
@@ -166,17 +198,21 @@ describe('agentLaunchCommand', () => {
 
   it('resumes opencode by session id', () => {
     expect(
-      agentLaunchCommand('opencode', {
-        ...ctx('opencode'),
-        cwd: '/w',
-        resume: { kind: 'opencode-session', value: 'ses_abc' },
-      }),
+      plain(
+        agentLaunchCommand('opencode', {
+          ...ctx('opencode'),
+          cwd: '/w',
+          resume: { kind: 'opencode-session', value: 'ses_abc' },
+        }),
+      ),
     ).toEqual({ cmd: exe('opencode'), args: ['--auto', '--session', 'ses_abc'], cwd: '/w' })
   })
 
   it('passes model override to opencode', () => {
     expect(
-      agentLaunchCommand('opencode', { ...ctx('opencode'), cwd: '/w', model: 'openai/gpt-5.5' }),
+      plain(
+        agentLaunchCommand('opencode', { ...ctx('opencode'), cwd: '/w', model: 'openai/gpt-5.5' }),
+      ),
     ).toEqual({
       cmd: exe('opencode'),
       args: ['--auto', '-m', 'openai/gpt-5.5'],
@@ -185,7 +221,7 @@ describe('agentLaunchCommand', () => {
   })
 
   it('spawns cursor fresh with its provider command', () => {
-    expect(agentLaunchCommand('cursor', { ...ctx('cursor'), cwd: '/w' })).toEqual({
+    expect(plain(agentLaunchCommand('cursor', { ...ctx('cursor'), cwd: '/w' }))).toEqual({
       cmd: exe('cursor'),
       args: [],
       cwd: '/w',
@@ -194,17 +230,19 @@ describe('agentLaunchCommand', () => {
 
   it('resumes cursor by chat id', () => {
     expect(
-      agentLaunchCommand('cursor', {
-        ...ctx('cursor'),
-        cwd: '/w',
-        resume: { kind: 'cursor-chat', value: 'chat-9' },
-      }),
+      plain(
+        agentLaunchCommand('cursor', {
+          ...ctx('cursor'),
+          cwd: '/w',
+          resume: { kind: 'cursor-chat', value: 'chat-9' },
+        }),
+      ),
     ).toEqual({ cmd: exe('cursor'), args: ['--resume', 'chat-9'], cwd: '/w' })
   })
 
   it('passes model override to cursor', () => {
     expect(
-      agentLaunchCommand('cursor', { ...ctx('cursor'), cwd: '/w', model: 'composer-2.5' }),
+      plain(agentLaunchCommand('cursor', { ...ctx('cursor'), cwd: '/w', model: 'composer-2.5' })),
     ).toEqual({
       cmd: exe('cursor'),
       args: ['--model', 'composer-2.5'],
@@ -221,11 +259,13 @@ describe('agentLaunchCommand', () => {
   describe('initialPrompt (argv injection — the robust, race-free first prompt)', () => {
     it('appends the prompt as a trailing positional arg for claude-code', () => {
       expect(
-        agentLaunchCommand('claude-code', {
-          ...ctx('claude-code'),
-          cwd: '/w',
-          initialPrompt: 'do the thing',
-        }),
+        plain(
+          agentLaunchCommand('claude-code', {
+            ...ctx('claude-code'),
+            cwd: '/w',
+            initialPrompt: 'do the thing',
+          }),
+        ),
       ).toEqual({
         cmd: exe('claude-code'),
         args: ['--', 'do the thing'],
@@ -235,12 +275,14 @@ describe('agentLaunchCommand', () => {
 
     it('places the prompt LAST, after model/option args (claude-code)', () => {
       expect(
-        agentLaunchCommand('claude-code', {
-          ...ctx('claude-code'),
-          cwd: '/w',
-          model: 'opus',
-          initialPrompt: 'fix login',
-        }),
+        plain(
+          agentLaunchCommand('claude-code', {
+            ...ctx('claude-code'),
+            cwd: '/w',
+            model: 'opus',
+            initialPrompt: 'fix login',
+          }),
+        ),
       ).toEqual({
         cmd: exe('claude-code'),
         args: ['--model', 'opus', '--', 'fix login'],
@@ -250,14 +292,14 @@ describe('agentLaunchCommand', () => {
 
     it('appends the prompt as a positional arg for codex and grok', () => {
       expect(
-        agentLaunchCommand('codex', { ...ctx('codex'), cwd: '/w', initialPrompt: 'do X' }),
+        plain(agentLaunchCommand('codex', { ...ctx('codex'), cwd: '/w', initialPrompt: 'do X' })),
       ).toEqual({
         cmd: exe('codex'),
         args: [...CODEX_NETWORK_ARGS, '--', 'do X'],
         cwd: '/w',
       })
       expect(
-        agentLaunchCommand('grok', { ...ctx('grok'), cwd: '/w', initialPrompt: 'do X' }),
+        plain(agentLaunchCommand('grok', { ...ctx('grok'), cwd: '/w', initialPrompt: 'do X' })),
       ).toEqual({
         cmd: exe('grok'),
         args: ['--', 'do X'],
@@ -403,12 +445,14 @@ describe('agentLaunchCommand', () => {
 
     it('uses Claude system prompt without changing the user prompt token', () => {
       expect(
-        agentLaunchCommand('claude-code', {
-          ...ctx('claude-code'),
-          cwd: '/w',
-          instructions,
-          initialPrompt: 'fix it',
-        }),
+        plain(
+          agentLaunchCommand('claude-code', {
+            ...ctx('claude-code'),
+            cwd: '/w',
+            instructions,
+            initialPrompt: 'fix it',
+          }),
+        ),
       ).toEqual({
         cmd: exe('claude-code'),
         args: ['--append-system-prompt', 'Follow the pinned workflow.', '--', 'fix it'],
@@ -541,7 +585,7 @@ describe('agentLaunchCommand', () => {
 
     it('leaves native defaults alone when OpenCode effort is auto', () => {
       expect(
-        agentLaunchCommand('opencode', { ...ctx('opencode'), cwd: '/w', effort: 'auto' }),
+        plain(agentLaunchCommand('opencode', { ...ctx('opencode'), cwd: '/w', effort: 'auto' })),
       ).toEqual({
         cmd: exe('opencode'),
         args: ['--auto'],
@@ -572,7 +616,7 @@ describe('agentLaunchCommand', () => {
   })
 
   it('spawns an interactive shell in the worktree cwd', () => {
-    expect(agentLaunchCommand('shell', { cwd: '/w', env: { SHELL: '/bin/zsh' } })).toEqual({
+    expect(plain(agentLaunchCommand('shell', { cwd: '/w', env: { SHELL: '/bin/zsh' } }))).toEqual({
       cmd: '/bin/zsh',
       args: [],
       cwd: '/w',

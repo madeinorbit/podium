@@ -25,7 +25,11 @@ import type {
   GrokAcpRuntimeHost,
   GrokAcpTransport,
 } from '@podium/harness/driver/host'
-import { createMemoryAttachmentStager, testHarnessContext } from '@podium/harness/driver/testing'
+import {
+  createMemoryAttachmentStager,
+  testEngineTerms,
+  testHarnessContext,
+} from '@podium/harness/driver/testing'
 import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
 import {
   asAgentIdentityId,
@@ -1175,6 +1179,7 @@ function defaultCodexRuntime(sent: DaemonMessage[], sessions = testSessions()) {
     },
     now: () => 1_786_700_000_000,
     mintSessionId: () => asSessionId('fixture-codex-session'),
+    ...testEngineTerms(),
     harnessContextFor: async () => testHarnessContext({ kind: 'codex' }),
     readHistory: async () => ({ items: [], hasMore: false }),
     async launch(input) {
@@ -1212,6 +1217,7 @@ function defaultGrokRuntime(sent: DaemonMessage[]) {
     },
     now: () => 1_786_700_000_000,
     mintSessionId: () => asSessionId('fixture-grok-session'),
+    ...testEngineTerms(),
     harnessContextFor: async () => testHarnessContext({ kind: 'grok' }),
     readHistory: async () => ({ items: [], hasMore: false }),
     async launch(input) {

@@ -5,10 +5,13 @@
 
 import { randomUUID } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import { testHarnessContext } from '../../testing/harness-context.js'
+import { manifestFor } from '../../../registry.js'
+import { testHarnessContext, testTurnPosture } from '../../testing/harness-context.js'
 import { buildClaudeDurableTurn } from './exec.js'
 
 const claudeAt = (executable: string) => testHarnessContext({ kind: 'claude-code', executable })
+/** The Claude adapter's own posture section and a test launch posture. */
+const TERMS = { manifest: manifestFor('claude-code')!, posture: testTurnPosture() }
 
 describe('buildClaudeDurableTurn', () => {
   it('uses Claude native auto mode and keeps machine context out of stdin', () => {
@@ -22,6 +25,7 @@ describe('buildClaudeDurableTurn', () => {
       },
       { mcp: '/tmp/mcp.json' },
       claudeAt('/opt/claude'),
+      TERMS,
     )
     expect(turn.command.cmd).toBe('/opt/claude')
     expect(turn.stdin).toBe('human text')
@@ -42,6 +46,7 @@ describe('buildClaudeDurableTurn', () => {
       },
       { mcp: '/tmp/mcp.json' },
       claudeAt('/opt/claude'),
+      TERMS,
     )
 
     expect(turn.stdin).toBe('Why?')
@@ -66,6 +71,7 @@ describe('buildClaudeDurableTurn', () => {
       },
       { mcp: '/tmp/mcp.json' },
       claudeAt('/opt/claude'),
+      TERMS,
     )
     expect(
       turn.command.args.slice(

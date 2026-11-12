@@ -36,7 +36,9 @@ import {
   createMemoryBindingRecords,
   createTestEngineOwner,
   type MemoryBindingRecords,
+  testEngineTerms,
   testHarnessContext,
+  testLaunchPosture,
 } from '@podium/harness/driver/testing'
 import { asSessionId, type SessionId } from '@podium/model'
 import { createDurableProcess, hostSocketPath, scopeUnitName } from '@podium/process/durable'
@@ -271,6 +273,7 @@ function harness(opts: HarnessOptions = {}) {
     hasClientMaster: opts.hasMaster ?? (() => false),
   }
   const terminals = createOpencodeClientTerminals({
+    launchPosture: async (_sessionId, _target, context) => testLaunchPosture(context),
     harnessContext: testClientContext,
     sessions,
     clients,
@@ -424,6 +427,7 @@ describe('the client terminal a server-family attach produces', () => {
       failSpawn = reject
     })
     const terminals = createOpencodeClientTerminals({
+      launchPosture: async (_sessionId, _target, context) => testLaunchPosture(context),
       harnessContext: testClientContext,
       sessions: testSessions(),
       frames: () => {},
@@ -686,6 +690,7 @@ describe('the client terminal a server-family attach produces', () => {
     })
     const client = fakeClient()
     const terminals = createOpencodeClientTerminals({
+      launchPosture: async (_sessionId, _target, context) => testLaunchPosture(context),
       harnessContext: testClientContext,
       sessions: testSessions(),
       frames: () => {},
@@ -716,6 +721,7 @@ describe('the client terminal a server-family attach produces', () => {
     })
     const client = fakeClient()
     const terminals = createOpencodeClientTerminals({
+      launchPosture: async (_sessionId, _target, context) => testLaunchPosture(context),
       harnessContext: testClientContext,
       sessions: testSessions(),
       frames: () => {},
@@ -743,6 +749,7 @@ describe('the client terminal a server-family attach produces', () => {
     })
     const client = fakeClient()
     const terminals = createOpencodeClientTerminals({
+      launchPosture: async (_sessionId, _target, context) => testLaunchPosture(context),
       harnessContext: testClientContext,
       sessions: testSessions(),
       frames: () => {},
@@ -771,6 +778,7 @@ describe('the client terminal a server-family attach produces', () => {
     })
     const client = fakeClient()
     const terminals = createOpencodeClientTerminals({
+      launchPosture: async (_sessionId, _target, context) => testLaunchPosture(context),
       harnessContext: testClientContext,
       sessions: testSessions(),
       frames: () => {},
@@ -967,6 +975,7 @@ describe('warm-parking', () => {
     const clients: ReturnType<typeof fakeClient>[] = []
     const reclaimed: string[] = []
     const terminals = createOpencodeClientTerminals({
+      launchPosture: async (_sessionId, _target, context) => testLaunchPosture(context),
       harnessContext: testClientContext,
       sessions: testSessions(),
       frames: () => {},
@@ -1001,6 +1010,7 @@ describe('warm-parking', () => {
     const resolvers: Array<(client: DurableAttachment) => void> = []
     const clients = [fakeClient(), fakeClient()]
     const terminals = createOpencodeClientTerminals({
+      launchPosture: async (_sessionId, _target, context) => testLaunchPosture(context),
       harnessContext: testClientContext,
       sessions: testSessions(),
       frames: () => {},
@@ -1088,6 +1098,7 @@ describe('warm-parking', () => {
     const clients: ReturnType<typeof fakeClient>[] = []
     const frames: { streamId: string; data: Uint8Array }[] = []
     const terminals = createOpencodeClientTerminals({
+      launchPosture: async (_sessionId, _target, context) => testLaunchPosture(context),
       harnessContext: testClientContext,
       sessions: testSessions(),
       frames: (streamId, data) => frames.push({ streamId, data }),
@@ -1171,6 +1182,7 @@ describe('warm-parking', () => {
     })
     const clients: ReturnType<typeof fakeClient>[] = []
     const terminals = createOpencodeClientTerminals({
+      launchPosture: async (_sessionId, _target, context) => testLaunchPosture(context),
       harnessContext: testClientContext,
       sessions: testSessions(),
       frames: () => {},
@@ -1208,6 +1220,7 @@ describe('warm-parking', () => {
     const frames: { streamId: string; data: Uint8Array }[] = []
     let spawnCount = 0
     const terminals = createOpencodeClientTerminals({
+      launchPosture: async (_sessionId, _target, context) => testLaunchPosture(context),
       harnessContext: testClientContext,
       sessions: testSessions(),
       frames: (streamId, data) => frames.push({ streamId, data }),
@@ -1364,6 +1377,7 @@ describe('warm-parking', () => {
         hasClientMaster: (label) => scope.hasClientMaster(label),
       }
       const terminals = createOpencodeClientTerminals({
+        launchPosture: async (_sessionId, _target, context) => testLaunchPosture(context),
         harnessContext: testClientContext,
         sessions: testSessions(),
         clients,
@@ -1475,6 +1489,7 @@ describe('warm-parking', () => {
         hasClientMaster: (label) => scope.hasClientMaster(label),
       }
       const terminals = createOpencodeClientTerminals({
+        launchPosture: async (_sessionId, _target, context) => testLaunchPosture(context),
         harnessContext: testClientContext,
         sessions: testSessions(),
         clients,
@@ -1659,6 +1674,7 @@ function engineHost(
     buildEnv: () => ({}),
     gracefulExitMs: 1,
     checkVersion: async () => null,
+    ...testEngineTerms(),
     harnessContextFor: async () => testHarnessContext({ kind: 'opencode' }),
     // Production always holds the engine under podium-host; the default owner
     // hands back the attachment built above, so adopt exercises the adopt →
@@ -1964,6 +1980,7 @@ describe('the client terminal lives in the host, reached through the session-own
       hasMasterSync: hostAdapter.hasMasterSync,
     }
     const terminals = createOpencodeClientTerminals({
+      launchPosture: async (_sessionId, _target, context) => testLaunchPosture(context),
       harnessContext: testClientContext,
       sessions: testSessions(),
       // The relay reaches the host only through the session-owned scope: the
@@ -2000,6 +2017,7 @@ describe('without a session client scope there are no client terminals (POD-3917
         frames: () => {},
         sessions: testSessions(),
         harnessContext: testClientContext,
+        launchPosture: async (_sessionId, _target, context) => testLaunchPosture(context),
       }),
     ).toBeUndefined()
   })
@@ -2013,6 +2031,7 @@ describe('without a session client scope there are no client terminals (POD-3917
       },
       {
         harnessContext: testClientContext,
+        launchPosture: async (_sessionId, _target, context) => testLaunchPosture(context),
         sessions: testSessions(),
         frames: () => {},
       },

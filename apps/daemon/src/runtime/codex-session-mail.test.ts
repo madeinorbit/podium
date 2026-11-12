@@ -15,7 +15,7 @@ import { startFakeAppServer } from '../../../../packages/harness/src/driver/fami
 import { codexEngineFacts } from '@podium/harness/driver/host'
 import { manifestFor } from '@podium/harness'
 import { createCodexSessionRuntime } from '@podium/harness/driver/host'
-import { serverFamilyLaunch, testHarnessContext } from '@podium/harness/driver/testing'
+import { serverFamilyLaunch, testHarnessContext, testEngineTerms } from '@podium/harness/driver/testing'
 import { composeMailContext, createAckReminderInjector, createMailInjector } from '../mail-injector'
 import { createMailContinuation } from '@podium/harness/driver/host'
 import { driverTiming } from './driver-timing'
@@ -71,6 +71,7 @@ function world(options: { sendThrows?: boolean } = {}) {
   const resumed: string[] = []
   let launches = 0
   const host: CodexRuntimeHost = {
+    ...testEngineTerms(),
     harnessContextFor: async () => testHarnessContext({ kind: 'codex' }),
     stageAttachment: async ({ source }) => ({
       id: 'test-attachment',

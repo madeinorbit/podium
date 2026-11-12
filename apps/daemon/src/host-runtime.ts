@@ -1196,12 +1196,12 @@ export async function createDaemonHostRuntime(args: {
       // it does too. A client mounts no MCP of its own.
       launchPosture: async (sessionId, target, context) => ({
         posture: DEFAULT_SESSION_POSTURE,
-        grants: podiumGrantsFor({
-          stateRoot: stateDir(),
+        grants: podiumGrantsFor(
+          { stateRoot: stateDir() },
           sessionId,
-          spec: { mcpServers: { supported: false, reason: 'a client terminal mounts no MCP' } },
+          { mcpServers: { supported: false, reason: 'a client terminal mounts no MCP' } },
           context,
-        }),
+        ),
         workdir: target.workdir,
         ...(await launchFoldersFor({
           settingsDir: ctx.settingsDir,
@@ -1330,12 +1330,12 @@ export async function createDaemonHostRuntime(args: {
    * the main checkout.
    */
   const engineGrantsFor = (kind: AgentKind, driverId: string) => async (sessionId: SessionId) =>
-    podiumGrantsFor({
-      stateRoot: stateDir(),
+    podiumGrantsFor(
+      { stateRoot: stateDir() },
       sessionId,
-      spec: { mcpServers: { supported: false, reason: 'a launch with no spec in hand' } },
-      context: await engineContextFor(kind, driverId)(sessionId),
-    })
+      { mcpServers: { supported: false, reason: 'a launch with no spec in hand' } },
+      await engineContextFor(kind, driverId)(sessionId),
+    )
   const launchFolders = (sessionId: SessionId, workdir: string) =>
     launchFoldersFor({ settingsDir: ctx.settingsDir, sessionId, workdir })
   const machineCommandEnv = async (): Promise<Readonly<Record<string, string>>> =>
@@ -1384,6 +1384,7 @@ export async function createDaemonHostRuntime(args: {
     // JSONL where sessions.read looks for it (POD-3057).
     ...(homeDir ? { homeDir } : {}),
     harnessContextFor: engineContextFor(claudeSdkHarnessKind, CLAUDE_SDK_DRIVER_ID),
+    podiumGrantsFor: engineGrantsFor(claudeSdkHarnessKind, CLAUDE_SDK_DRIVER_ID),
     launchFoldersFor: launchFolders,
     instanceUuid: instance.instanceUuid,
     // The issue prime, from the same source the terminal family primes from,
@@ -1646,7 +1647,7 @@ export async function createDaemonHostRuntime(args: {
       // WHAT ONE TURN STATES ITS LAUNCH TERMS FROM (POD-6858): the same account
       // context `turnChildEnv` composes over, the session's own grants with
       // the turn's MCP servers, and its launch folders.
-      turnLaunchPosture: async ({ sessionId, agent, cwd, posture, mcpConfig, snapshot }) => {
+      turnPosture: async ({ sessionId, agent, cwd, posture, mcpConfig, snapshot }) => {
         const context = driverHarnessContextFrom(
           ctx,
           snapshot,
@@ -1656,16 +1657,16 @@ export async function createDaemonHostRuntime(args: {
         return launchPosture(
           {
             posture,
-            grants: podiumGrantsFor({
-              stateRoot: stateDir(),
+            grants: podiumGrantsFor(
+              { stateRoot: stateDir() },
               sessionId,
-              spec: {
+              {
                 mcpServers: mcpConfig
                   ? { supported: true, value: { transport: 'inline', config: mcpConfig } }
                   : { supported: false, reason: 'the turn mounts no MCP' },
               },
               context,
-            }),
+            ),
             workdir: cwd,
             context,
           },

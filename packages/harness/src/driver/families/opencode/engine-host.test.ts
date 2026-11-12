@@ -21,7 +21,11 @@ import { manifestFor } from '../../../registry.js'
 import { isDriverRefusal } from '../../errors.js'
 import type { TestEngineSpawn } from '../../testing/binding-records.js'
 import { createMemoryBindingRecords, createTestEngineOwner } from '../../testing/binding-records.js'
-import { testHarnessContext } from '../../testing/harness-context.js'
+import {
+  testEngineTerms,
+  testHarnessContext,
+  testSessionTerms,
+} from '../../testing/harness-context.js'
 import type {
   EngineAttachment,
   EngineProcessOwner,
@@ -85,6 +89,7 @@ function engineHost(extra: Partial<OpencodeEngineHostDeps> = {}) {
     freePort: async () => 41234,
     // The session's context names the account home its database lives under
     // (POD-6536): a host built over `homeDir` pins a context for that home.
+    ...testEngineTerms(),
     harnessContextFor: async () =>
       extra.homeDir
         ? testHarnessContext({
@@ -221,6 +226,7 @@ it('spawns the resolved executable headless under the session label', async () =
       workdir: '/tmp',
       secret: 'secret',
       username: 'podium',
+      ...testSessionTerms(),
       harnessContext: testHarnessContext({ kind: 'opencode', executable }),
     }),
   ).rejects.toBe(stopped)
@@ -266,6 +272,7 @@ it('passes the isolated database path to the OpenCode 2 server process', async (
       workdir: '/tmp',
       secret: 'secret',
       username: 'opencode',
+      ...testSessionTerms(),
       harnessContext: OPENCODE2_CONTEXT,
     }),
   ).rejects.toBe(stopped)
@@ -352,6 +359,7 @@ describe('headless adopt (POD-4433)', () => {
         workdir: '/tmp',
         secret: 'fresh-secret',
         username: 'podium',
+        ...testSessionTerms(),
         harnessContext: CONTEXT,
       })
       expect(endpoint.baseUrl).toBe(journalled.baseUrl)
@@ -401,6 +409,7 @@ describe('headless adopt (POD-4433)', () => {
           workdir: '/tmp',
           secret: 'fresh-secret',
           username: 'podium',
+          ...testSessionTerms(),
           harnessContext: CONTEXT,
         }),
       ).rejects.toBeInstanceOf(OpencodeEngineLeaseRefused)
@@ -433,6 +442,7 @@ describe('headless adopt (POD-4433)', () => {
         workdir: directory,
         secret: 'secret',
         username: 'podium',
+        ...testSessionTerms(),
         harnessContext: CONTEXT,
       })
       expect(endpoint.engineExit?.()).toBeUndefined()
@@ -519,6 +529,7 @@ describe('§4.8 failure ownership — bind failure keeps the engine', () => {
         workdir: '/tmp',
         secret: 's3cret',
         username: 'podium',
+        ...testSessionTerms(),
         harnessContext: CONTEXT,
       })
       .then(

@@ -10,6 +10,7 @@ import {
   type HeadlessTurnSpec,
   runHostedHeadlessTurn,
 } from '@podium/harness/driver/host'
+import { testTurnPosture } from '@podium/harness/driver/testing'
 import { asAccountId, asSessionId, type HarnessAgent } from '@podium/model'
 import { createDurableProcess } from '@podium/process/durable'
 import type { BuiltinHarnessKind, HeadlessTurnEvent } from '@podium/protocol'
@@ -110,6 +111,7 @@ const snapshot = testHarnessSnapshot({
   pi: 'pi',
 })
 const identity = (agent: HarnessAgent) => ({
+  launchPosture: testTurnPosture(agent as BuiltinHarnessKind),
   accountId: asAccountId(`native:${agent}:smoke`),
   requestDigest: 'a'.repeat(64),
 })

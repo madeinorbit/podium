@@ -64,6 +64,7 @@ import type {
   ClaudeSdkStreamPosition,
   ClaudeSdkTurnHandle,
 } from './runtime.js'
+import type { PodiumGrants } from '../../../posture-types.js'
 
 const log = createLogger('harness:claude-engine-host')
 
@@ -184,6 +185,9 @@ export interface ClaudeEngineHostDeps {
   /** The context an adopted session runs under: see
    *  `ClaudeEngineHost.harnessContextFor`. */
   harnessContextFor(sessionId: SessionId): Promise<HarnessContext>
+  /** Podium's grants for a session with no spec in hand (POD-6858): see
+   *  `ClaudeEngineHost.podiumGrantsFor`. */
+  podiumGrantsFor(sessionId: SessionId): Promise<PodiumGrants>
   /**
    * The session's launch folders (POD-6858): its runtime folder for generated
    * config and, for a worktree, the main checkout. The engine states its
@@ -323,6 +327,9 @@ export interface ClaudeEngineHost {
    * supervisor restart, one rebuilt from the current inventory (design §3.3).
    */
   harnessContextFor(sessionId: SessionId): Promise<HarnessContext>
+  /** Podium's standing facts for a session with no spec in hand (POD-6858),
+   *  beside {@link harnessContextFor}. */
+  podiumGrantsFor(sessionId: SessionId): Promise<PodiumGrants>
   stopEngine(sessionId: SessionId, retire: boolean): Promise<void>
   releaseEngines(): void
   /**
@@ -652,6 +659,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
     bindings: records,
 
     harnessContextFor: (sessionId) => deps.harnessContextFor(sessionId),
+    podiumGrantsFor: (sessionId) => deps.podiumGrantsFor(sessionId),
 
     processFor(sessionId) {
       const key = claudeEngineProcessKey(deps.facts, sessionId)

@@ -13,7 +13,11 @@ import {
   assertAttachHonoursOneControlLease,
   expectTypedRefusal,
 } from '../../testing/conformance/suite.js'
-import { testHarnessContext } from '../../testing/harness-context.js'
+import {
+  testEngineTerms,
+  testHarnessContext,
+  testSessionTerms,
+} from '../../testing/harness-context.js'
 import type { ConformanceControl, ConformanceTarget } from '../../testing/index.js'
 import { runConformance, createMemoryAttachmentStager } from '../../testing/index.js'
 import { createGrokAcpClient } from './client.js'
@@ -314,6 +318,7 @@ function makeWorld(options: WorldOptions = {}): {
   }
   const processKey = (id: SessionId): string => `podium-gk-${id}`
   const host: GrokAcpRuntimeHost = {
+    ...testEngineTerms(),
     harnessContextFor: async () => testHarnessContext({ kind: 'grok' }),
     stageAttachment: createMemoryAttachmentStager(),
     bindings,
@@ -608,6 +613,7 @@ function makeWorld(options: WorldOptions = {}): {
       },
       spec: () => ({
         harness: 'grok',
+        ...testSessionTerms(),
         harnessContext: testHarnessContext({ kind: 'grok' }),
         selection: {
           auth: 'subscription',

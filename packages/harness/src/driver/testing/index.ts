@@ -68,7 +68,12 @@ export {
 export {
   testAccount,
   testBoundCommand,
+  testEngineTerms,
   testHarnessContext,
   testLaunchPosture,
+  testPodiumGrants,
+  testSessionTerms,
+  testTurnPosture,
+  testTurnPosturePort,
 } from './harness-context.js'
 export { serverFamilyLaunch } from './server-launch.js'

@@ -209,8 +209,8 @@ export async function executeBufferedHarnessTurn(
     )
     // THE RUN'S TERMS (POD-6858): the harness's `turn` terms on the default
     // posture (the frame states none). A buffered run has no session, so its
-    // grants name an uploads folder of its own, which holds nothing: never
-    // the parent folder and never a session's.
+    // grants name a request-scoped uploads folder, `uploads/exec-<requestId>`,
+    // which holds nothing: never the parent folder and never a session's.
     const workdir = msg.cwd ?? process.cwd()
     const repoRoot = await (io?.repoRootOf ?? repoRootOf)(workdir)
     const manifest = harnessAdapterFor(msg.agent)
@@ -220,16 +220,16 @@ export async function executeBufferedHarnessTurn(
       exec,
       agentLaunchTerms(manifest, 'turn', {
         posture: DEFAULT_SESSION_POSTURE,
-        grants: podiumGrantsFor({
-          stateRoot: io?.stateRoot ?? stateDir(),
-          sessionId: `exec-${randomUUID()}`,
-          spec: {
+        grants: podiumGrantsFor(
+          { stateRoot: io?.stateRoot ?? stateDir() },
+          execUploadsKey(msg.requestId),
+          {
             mcpServers: msg.mcpConfig
               ? { supported: true, value: { transport: 'inline', config: msg.mcpConfig } }
               : { supported: false, reason: 'the run mounts no MCP' },
           },
           context,
-        }),
+        ),
         workdir,
         ...(repoRoot !== undefined ? { repoRoot } : {}),
         runtimeDir,
@@ -276,4 +276,14 @@ export async function executeBufferedHarnessTurn(
       // best-effort temp cleanup
     }
   }
+}
+
+/**
+ * The uploads key of one buffered run: `exec-<requestId>`. A request id that
+ * is not a plain file name (a separator, a dot path) gets a fresh random key
+ * instead, so the grant can never name the parent folder or another's.
+ */
+export function execUploadsKey(requestId: string): string {
+  const plain = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(requestId)
+  return `exec-${plain ? requestId : randomUUID()}`
 }

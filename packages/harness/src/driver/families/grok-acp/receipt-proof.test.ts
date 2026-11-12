@@ -5,7 +5,11 @@ import { describe, expect, it } from 'vitest'
 import type { AgentSessionHandle } from '../../driver.js'
 import type { RuntimeEvent } from '../../host.js'
 import type { SessionSpec } from '../../session-spec.js'
-import { testHarnessContext } from '../../testing/harness-context.js'
+import {
+  testEngineTerms,
+  testHarnessContext,
+  testSessionTerms,
+} from '../../testing/harness-context.js'
 import { createMemoryAttachmentStager, createMemoryDriverSlots } from '../../testing/index.js'
 import promptAck from './__fixtures__/prompt-ack.json' with { type: 'json' }
 import type { GrokAcpTransport } from './client.js'
@@ -34,6 +38,7 @@ const updateKind = (frame: Frame): string | undefined =>
 
 const spec: SessionSpec = {
   harness: 'grok',
+  ...testSessionTerms(),
   harnessContext: testHarnessContext({ kind: 'grok' }),
   selection: {
     auth: 'subscription',
@@ -62,6 +67,7 @@ function world(grokSessionId: string) {
     handler?.line(JSON.stringify({ ...inbound, jsonrpc: '2.0' }))
   }
   const host: GrokAcpRuntimeHost = {
+    ...testEngineTerms(),
     harnessContextFor: async () => testHarnessContext({ kind: 'grok' }),
     stageAttachment: createMemoryAttachmentStager(),
     now: () => Date.now(),

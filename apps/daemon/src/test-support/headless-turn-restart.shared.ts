@@ -12,6 +12,7 @@ import {
   type HostedTurnIdentity,
   runHostedHeadlessTurn,
 } from '@podium/harness/driver/host'
+import { testTurnPosture } from '@podium/harness/driver/testing'
 import { asAccountId, asSessionId, type HarnessAgent } from '@podium/model'
 import type { BuiltinHarnessKind, HeadlessTurnEvent } from '@podium/protocol'
 import { headlessTurnChildEnv } from '../control/session-env.js'
@@ -74,6 +75,7 @@ export function restartTurn(input: {
     agentHome: input.agentHome,
     spec: {
       agent: FIXTURE_AGENT,
+      launchPosture: testTurnPosture(),
       accountId: identity.accountId,
       requestDigest: identity.requestDigest,
       cwd: input.cwd,

@@ -17,6 +17,7 @@ import {
   codexEngineFacts,
   createCodexEngineHost,
 } from '@podium/harness/driver/host'
+import { testEngineTerms, testSessionTerms } from '@podium/harness/driver/testing'
 import type { SessionId } from '@podium/model'
 import { createDurableProcess } from '@podium/process/durable'
 import { stageRuntimeAttachment } from '../runtime/attachment-staging.js'
@@ -45,10 +46,16 @@ const host = createCodexEngineHost({
   buildEnv: engineEnvBuilder(() => ({})),
   gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
   checkVersion: async () => ({ drivable: true as const }),
+  ...testEngineTerms(),
   harnessContextFor: async () => context,
   dialSocket: sessionEngines.dialerFor(dialEngineSocket),
 })
-const endpoint = await host.launch({ sessionId, workdir, harnessContext: context })
+const endpoint = await host.launch({
+  sessionId,
+  workdir,
+  ...testSessionTerms(),
+  harnessContext: context,
+})
 process.stdout.write(
   `READY ${JSON.stringify({ address: endpoint.clientAddress, pid: endpoint.process.pid, key: endpoint.process.key })}\n`,
 )

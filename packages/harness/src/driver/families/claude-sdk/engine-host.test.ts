@@ -15,7 +15,7 @@ import {
   type MemoryBindingRecords,
   type TestEngineSpawn,
 } from '../../testing/binding-records.js'
-import { testHarnessContext } from '../../testing/harness-context.js'
+import { testEngineTerms, testHarnessContext } from '../../testing/harness-context.js'
 import type { AttachmentRef } from '../../turns.js'
 import type {
   EngineAttachment,
@@ -152,6 +152,7 @@ function hostDeps(
     buildEnv: ({ sessionEnv }) => ({ ...(sessionEnv ?? {}) }),
     gracefulExitMs: 50,
     homeDir: '/state/agent-home',
+    ...testEngineTerms(),
     harnessContextFor: async () => CONTEXT,
     ...extra,
   }

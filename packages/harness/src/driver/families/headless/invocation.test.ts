@@ -6,6 +6,7 @@
 import { asAccountId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { harnessInstallation } from '../../../harness-context.js'
+import { testTurnPosture } from '../../testing/harness-context.js'
 import {
   assertHeadlessToolPolicy,
   buildHeadlessExec,
@@ -14,7 +15,9 @@ import {
 import { testHarnessSnapshot } from './test-support.js'
 
 const snapshot = testHarnessSnapshot()
+const POSTURE = testTurnPosture()
 const identity = {
+  launchPosture: POSTURE,
   accountId: asAccountId('native:claude-code:test'),
   requestDigest: 'a'.repeat(64),
 }
@@ -36,6 +39,7 @@ describe('buildHeadlessExec argv shapes', () => {
       'codex',
       { prompt: 'hi there' },
       harnessInstallation(snapshot, 'codex'),
+      POSTURE,
     )
     expect(cmd).toBe('/opt/codex')
     expect(args).toEqual(['exec', '--json', '--skip-git-repo-check', 'hi there'])
@@ -46,6 +50,7 @@ describe('buildHeadlessExec argv shapes', () => {
       'codex',
       { prompt: 'go on', resumeValue: '019f-abc', model: 'gpt-5.2-codex' },
       harnessInstallation(snapshot, 'codex'),
+      POSTURE,
     )
     expect(args).toEqual([
       'exec',
@@ -64,6 +69,7 @@ describe('buildHeadlessExec argv shapes', () => {
       'codex',
       { prompt: 'p', effort: 'low' },
       harnessInstallation(snapshot, 'codex'),
+      POSTURE,
     )
     expect(args).toContain('-c')
     expect(args[args.indexOf('-c') + 1]).toBe('model_reasoning_effort="low"')
@@ -77,6 +83,7 @@ describe('buildHeadlessExec argv shapes', () => {
       'codex',
       { prompt: 'p', mcpConfig },
       harnessInstallation(snapshot, 'codex'),
+      POSTURE,
     )
     expect(args).toContain('mcp_servers."podium".url="http://127.0.0.1:1/mcp"')
     expect(args).toContain('mcp_servers."podium".http_headers={"x-a"="b"}')
@@ -85,6 +92,7 @@ describe('buildHeadlessExec argv shapes', () => {
         'codex',
         { prompt: 'p', mcpConfig: '{oops' },
         harnessInstallation(snapshot, 'codex'),
+        POSTURE,
       ),
     ).toThrow(/malformed MCP config/)
   })
@@ -102,6 +110,7 @@ describe('buildHeadlessExec argv shapes', () => {
       'codex',
       { prompt: 'p', mcpConfig },
       harnessInstallation(snapshot, 'codex'),
+      POSTURE,
     )
     expect(args).toContain('mcp_servers."podium".bearer_token_env_var="PODIUM_MCP_BEARER_PODIUM"')
     expect(env).toMatchObject({ PODIUM_MCP_BEARER_PODIUM: 'sekret' })
@@ -115,6 +124,7 @@ describe('buildHeadlessExec argv shapes', () => {
       'grok',
       { prompt: 'hello', sessionId: 'uuid-1', model: 'grok-4' },
       harnessInstallation(snapshot, 'grok'),
+      POSTURE,
     )
     expect(cmd).toBe('/opt/grok')
     expect(args).toEqual(['--session-id', 'uuid-1', '--model', 'grok-4', '--single', 'hello'])
@@ -122,6 +132,7 @@ describe('buildHeadlessExec argv shapes', () => {
       'grok',
       { prompt: 'again', resumeValue: 'uuid-1' },
       harnessInstallation(snapshot, 'grok'),
+      POSTURE,
     )
     expect(resumed.args).toEqual(['--resume', 'uuid-1', '--single', 'again'])
   })
@@ -141,6 +152,7 @@ describe('buildHeadlessExec argv shapes', () => {
       'pi',
       { prompt: 'hello', sessionId: 'uuid-1', model: 'openai/gpt-5.5', effort: 'high' },
       harnessInstallation(snapshot, 'pi'),
+      POSTURE,
     )
     expect(first.cmd).toBe('/opt/pi')
     expect(first.args).toEqual([
@@ -160,6 +172,7 @@ describe('buildHeadlessExec argv shapes', () => {
       'pi',
       { prompt: 'again', resumeValue: 'uuid-1' },
       harnessInstallation(snapshot, 'pi'),
+      POSTURE,
     )
     expect(resumed.args).toEqual(['-p', '--mode', 'json', '--session-id', 'uuid-1', '--no-approve'])
   })
@@ -169,6 +182,7 @@ describe('buildHeadlessExec argv shapes', () => {
       'pi',
       { prompt: 'repair', sessionId: 'uuid-1', toolPolicy: 'none' },
       harnessInstallation(snapshot, 'pi'),
+      POSTURE,
     )
     expect(args).toContain('--no-tools')
     expect(args).toContain('--no-extensions')
@@ -179,6 +193,7 @@ describe('buildHeadlessExec argv shapes', () => {
       'opencode',
       { prompt: 'hi', model: 'opencode/deepseek-v4-flash-free', effort: 'high' },
       harnessInstallation(snapshot, 'opencode'),
+      POSTURE,
     )
     expect(first.cmd).toBe('/opt/opencode')
     expect(first.args).toEqual([
@@ -195,6 +210,7 @@ describe('buildHeadlessExec argv shapes', () => {
       'opencode',
       { prompt: 'go on', resumeValue: 'ses_1', effort: 'max' },
       harnessInstallation(snapshot, 'opencode'),
+      POSTURE,
     )
     expect(resumed.args).toEqual([
       'run',
@@ -213,6 +229,7 @@ describe('buildHeadlessExec argv shapes', () => {
       'cursor',
       { prompt: 'hi', sessionId: 'chat-1' },
       harnessInstallation(snapshot, 'cursor'),
+      POSTURE,
     )
     expect(cmd).toBe('/opt/cursor-agent')
     expect(args).toEqual(['-p', '--resume', 'chat-1', '--model', 'auto', 'hi'])
@@ -220,6 +237,7 @@ describe('buildHeadlessExec argv shapes', () => {
       'cursor',
       { prompt: 'hi', sessionId: 'chat-1', model: 'composer-2.5' },
       harnessInstallation(snapshot, 'cursor'),
+      POSTURE,
     )
     expect(named.args).toContain('composer-2.5')
     expect(named.args).not.toContain('auto')
@@ -236,6 +254,7 @@ describe('buildHeadlessExec argv shapes', () => {
         sessionId: 'u',
       },
       harnessInstallation(snapshot, 'grok'),
+      POSTURE,
     )
     expect(args).toContain('--rules')
     expect(args[args.indexOf('--rules') + 1]).toBe('orchestrate\n\nrepo context')
@@ -248,6 +267,7 @@ describe('buildHeadlessExec argv shapes', () => {
       'codex',
       { prompt: 'task', systemPrompt: 'orchestrate', contextPrompt: 'repo context' },
       harnessInstallation(snapshot, 'codex'),
+      POSTURE,
     )
     expect(args).toContain('developer_instructions="orchestrate\\n\\nrepo context"')
     expect(args.at(-1)).toBe('task')
@@ -258,6 +278,7 @@ describe('buildHeadlessExec argv shapes', () => {
       'grok',
       { prompt: 'p', sessionId: 'u', model: 'auto' },
       harnessInstallation(snapshot, 'grok'),
+      POSTURE,
     )
     expect(args).not.toContain('--model')
   })

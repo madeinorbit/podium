@@ -18,7 +18,11 @@ import { declaredValue, supported } from '../../manifest.js'
 import { manifestFor } from '../../registry.js'
 import type { TestEngineSpawn } from '../testing/binding-records.js'
 import { createTestEngineOwner } from '../testing/binding-records.js'
-import { testHarnessContext } from '../testing/harness-context.js'
+import {
+  testEngineTerms,
+  testHarnessContext,
+  testSessionTerms,
+} from '../testing/harness-context.js'
 import { codexEngineFacts } from './codex/engine-facts.js'
 import { createCodexEngineHost } from './codex/engine-host.js'
 import type { EngineAttachment, SessionEngineOwner } from './engine-supervision.js'
@@ -213,12 +217,18 @@ describe('engine facts come from handed sections', () => {
       gracefulExitMs: 1,
       checkVersion: async () => ({ drivable: true as const }),
       dialSocket: () => Promise.reject(new Error('no listener in this test')),
+      ...testEngineTerms(),
       harnessContextFor: async () => CODEX_CONTEXT,
       supervision: { scopeUnitFor: () => undefined },
       engines: capturingOwner(captured, marker),
     })
     await expect(
-      host.launch({ sessionId, workdir: '/tmp', harnessContext: CODEX_CONTEXT }),
+      host.launch({
+        sessionId,
+        workdir: '/tmp',
+        ...testSessionTerms(),
+        harnessContext: CODEX_CONTEXT,
+      }),
     ).rejects.toBe(marker)
     expect(captured).toHaveLength(1)
     expect(captured[0]?.cmd).toBe(CODEX_CONTEXT.installation.executable)
@@ -245,6 +255,7 @@ describe('engine facts come from handed sections', () => {
       buildEnv: () => ({}),
       gracefulExitMs: 1,
       checkVersion: async () => ({ drivable: true as const }),
+      ...testEngineTerms(),
       harnessContextFor: async () => GROK_CONTEXT,
       supervision: { scopeUnitFor: () => undefined },
       engines: createTestEngineOwner({
@@ -254,7 +265,12 @@ describe('engine facts come from handed sections', () => {
         },
       }),
     })
-    const endpoint = await host.launch({ sessionId, workdir: '/tmp', harnessContext: GROK_CONTEXT })
+    const endpoint = await host.launch({
+      sessionId,
+      workdir: '/tmp',
+      ...testSessionTerms(),
+      harnessContext: GROK_CONTEXT,
+    })
     expect(captured).toHaveLength(1)
     expect(captured[0]?.cmd).toBe(GROK_CONTEXT.installation.executable)
     expect(captured[0]?.args).toEqual(['agent', 'stdio', '--fixture'])
@@ -284,6 +300,7 @@ describe('engine facts come from handed sections', () => {
       gracefulExitMs: 1,
       checkVersion: async () => null,
       freePort: async () => 41234,
+      ...testEngineTerms(),
       harnessContextFor: async () => OPENCODE_CONTEXT,
       supervision: { scopeUnitFor: () => undefined },
       engines: capturingOwner(captured, marker),
@@ -294,6 +311,7 @@ describe('engine facts come from handed sections', () => {
         workdir: '/tmp',
         secret: 'secret',
         username: 'podium',
+        ...testSessionTerms(),
         harnessContext: OPENCODE_CONTEXT,
       }),
     ).rejects.toBe(marker)
@@ -325,6 +343,7 @@ describe('engine facts come from handed sections', () => {
       gracefulExitMs: 1,
       checkVersion: async () => null,
       freePort: async () => 49999,
+      ...testEngineTerms(),
       harnessContextFor: async () => OPENCODE2_CONTEXT,
       supervision: { scopeUnitFor: () => undefined },
       engines: capturingOwner(captured, marker),
@@ -335,6 +354,7 @@ describe('engine facts come from handed sections', () => {
         workdir: '/tmp',
         secret: 'secret',
         username: 'opencode',
+        ...testSessionTerms(),
         harnessContext: OPENCODE2_CONTEXT,
       }),
     ).rejects.toBe(marker)

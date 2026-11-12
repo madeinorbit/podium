@@ -20,6 +20,7 @@ import {
   createMemoryAttachmentStager,
   createMemoryDriverSlots,
   serverFamilyLaunch,
+  testEngineTerms,
   testHarnessContext,
 } from '../../testing/index.js'
 
@@ -108,6 +109,7 @@ function fakeEngine(
   }),
 ): ClaudeEngineHost & { startTurn: ReturnType<typeof vi.fn> } {
   return {
+    ...testEngineTerms(),
     harnessContextFor: async () => testHarnessContext({ kind: 'claude-code' }),
     bindings: { recorded: () => undefined, bound: vi.fn(), released: vi.fn() },
     startTurn: vi.fn(impl),
@@ -691,6 +693,7 @@ describe('Claude SDK daemon host adapter', () => {
       },
       buildEnv: ({ sessionEnv }) => ({ ...(sessionEnv ?? {}) }),
       gracefulExitMs: 50,
+      ...testEngineTerms(),
       harnessContextFor: async () => testHarnessContext({ kind: 'claude-code' }),
     })
 

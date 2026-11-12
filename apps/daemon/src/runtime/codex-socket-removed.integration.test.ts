@@ -50,6 +50,7 @@ import { stubHarnessContext } from '../test-support/stub-harness-context'
 import { SERVER_GRACEFUL_EXIT_MS } from './server-teardown-budget'
 import { createSessionEngineScope, engineSocketFile } from '../session/engines.js'
 import { SessionRegistry } from '../session/registry.js'
+import { testEngineTerms, testSessionTerms } from '@podium/harness/driver/testing'
 
 const GEN1 = fileURLToPath(new URL('../test-support/codex-socket-removed.gen1.ts', import.meta.url))
 const SESSION = asSessionId('46110000-0000-4000-8000-00000000b0b0')
@@ -238,13 +239,19 @@ describe('a live codex engine whose listener file was removed (POD-4611)', () =>
         buildEnv: engineEnvBuilder(() => ({})),
         gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
         checkVersion: async () => ({ drivable: true as const }),
+        ...testEngineTerms(),
         harnessContextFor: async () => context,
         dialSocket: sessionEngines.dialerFor(dialEngineSocket),
       })
       // The session's pinned installation: the rig's stub (POD-6546).
       const context = stubHarnessContext('codex', join(root, 'bin', 'codex'))
       const error = await host
-        .launch({ sessionId: SESSION, workdir: join(root, 'work'), harnessContext: context })
+        .launch({
+          sessionId: SESSION,
+          workdir: join(root, 'work'),
+          ...testSessionTerms(),
+          harnessContext: context,
+        })
         .then(
           () => undefined,
           (err: unknown) => err,

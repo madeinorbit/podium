@@ -14,6 +14,8 @@ import {
   createMemoryAttachmentStager,
   createMemoryDriverSlots,
   testHarnessContext,
+  testSessionTerms,
+  testTurnPosturePort,
 } from '../../../../packages/harness/src/driver/testing/index.js'
 import {
   createHeadlessRuntime,
@@ -87,6 +89,7 @@ async function fixture() {
     acknowledge: async () => {},
   }
   const host: HeadlessDriverHost = {
+    ...testTurnPosturePort(),
     stageAttachment: createMemoryAttachmentStager(),
     send: (frame) => { sent.push(frame) },
     snapshot: async () => testHarnessSnapshot(),
@@ -106,6 +109,7 @@ async function fixture() {
   cleanups.push(async () => { runtime.dispose(); await registry.dispose() })
   const spec: SessionSpec = {
     harness: 'claude-code', workdir: '/fixture', model: {},
+    ...testSessionTerms(),
     harnessContext: testHarnessContext({ kind: 'claude-code' }),
     selection: { auth: 'unknown' as const, platform: 'linux', available: [] },
     instructions: { supported: false as const, reason: 'fixture' },

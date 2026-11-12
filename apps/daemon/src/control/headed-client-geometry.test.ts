@@ -21,7 +21,7 @@
 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { testHarnessContext } from '@podium/harness/driver/testing'
+import { testHarnessContext, testLaunchPosture } from '@podium/harness/driver/testing'
 import type { BuiltinHarnessKind } from '@podium/protocol'
 import { asSessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
@@ -130,6 +130,7 @@ function harness(over: { reportGeometry?: boolean; refuse?: boolean } = {}): Har
   // injected, and it is wired to the daemon exactly as `host-runtime.ts`
   // wires it.
   const clientTerminals = createOpencodeClientTerminals({
+    launchPosture: async (_sessionId, _target, context) => testLaunchPosture(context),
     harnessContext: testClientContext,
     clients: {
       spawnClient: async (o) => {

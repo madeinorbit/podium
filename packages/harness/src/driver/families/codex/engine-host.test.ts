@@ -22,7 +22,11 @@ import {
   flattenEngineSpawn,
   type TestEngineSpawn,
 } from '../../testing/binding-records.js'
-import { testHarnessContext } from '../../testing/harness-context.js'
+import {
+  testEngineTerms,
+  testHarnessContext,
+  testSessionTerms,
+} from '../../testing/harness-context.js'
 import type {
   EngineAttachment,
   EngineProcessOwner,
@@ -59,6 +63,7 @@ function engineHost(extra: Partial<CodexEngineHostDeps> = {}) {
     gracefulExitMs: 1,
     checkVersion: async () => ({ drivable: true as const }),
     dialSocket: () => Promise.reject(new Error('no listener in this test')),
+    ...testEngineTerms(),
     harnessContextFor: async () => CONTEXT,
     ...extra,
   })
@@ -451,6 +456,7 @@ describe('headless engine lifecycle (POD-4433)', () => {
       const endpoint = await host.launch({
         sessionId: SESSION,
         workdir: '/tmp',
+        ...testSessionTerms(),
         harnessContext: CONTEXT,
       })
       expect(launched).toHaveLength(1)
@@ -592,7 +598,12 @@ describe('headless engine lifecycle (POD-4433)', () => {
           }),
         })
         const error = await host
-          .launch({ sessionId: SESSION48, workdir: '/tmp', harnessContext: CONTEXT })
+          .launch({
+            sessionId: SESSION48,
+            workdir: '/tmp',
+            ...testSessionTerms(),
+            harnessContext: CONTEXT,
+          })
           .then(
             () => null,
             (err: unknown) => err,

@@ -11,11 +11,13 @@ import { describe, expect, it } from 'vitest'
 import { harnessInstallation } from '../../../harness-context.js'
 import type { ResolvedHarnessInventory } from '../../../inventory/build-inventory.js'
 import { manifestFor } from '../../../registry.js'
+import { testTurnPosture } from '../../testing/harness-context.js'
 import { buildCodexExecTurn } from './exec-turn.js'
 
 /** The real headless section, handed in (tests may read the registry). */
 function headlessSections() {
-  return { headless: manifestFor('codex')!.headless }
+  const manifest = manifestFor('codex')!
+  return { headless: manifest.headless, posture: manifest.posture }
 }
 
 function snapshot(): ResolvedHarnessInventory {
@@ -39,6 +41,7 @@ describe('buildCodexExecTurn argv shapes', () => {
       { prompt: 'hi there' },
       harnessInstallation(snapshot(), 'codex'),
       headlessSections(),
+      testTurnPosture('codex'),
     )
     expect(cmd).toBe('/opt/codex')
     expect(args).toEqual(['exec', '--json', '--skip-git-repo-check', 'hi there'])
@@ -49,6 +52,7 @@ describe('buildCodexExecTurn argv shapes', () => {
       { prompt: 'go on', resumeValue: '019f-abc', model: 'gpt-5.2-codex' },
       harnessInstallation(snapshot(), 'codex'),
       headlessSections(),
+      testTurnPosture('codex'),
     )
     expect(args.slice(0, 3)).toEqual(['exec', 'resume', '019f-abc'])
   })

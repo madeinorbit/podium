@@ -227,7 +227,7 @@ export interface HeadlessDriverHost {
    * this snapshot (the same one `turnChildEnv` composes from) and the launch
    * folders. Built on this machine; the turn's mode is the family's.
    */
-  turnLaunchPosture(input: {
+  turnPosture(input: {
     sessionId: SessionId
     agent: HarnessAgent
     cwd: string
@@ -980,7 +980,7 @@ export function createHeadlessRuntime(
       // turn or the session names is the posture; otherwise the session's.
       const permissionMode = input.permissionMode ?? session.sticky.permissionMode
       const mcpConfig = input.mcpConfig ?? session.sticky.mcpConfig
-      launchPosture = await host.turnLaunchPosture({
+      launchPosture = await host.turnPosture({
         sessionId: session.sessionId,
         agent,
         cwd: session.cwd,

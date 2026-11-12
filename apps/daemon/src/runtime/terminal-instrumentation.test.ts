@@ -8,7 +8,7 @@ import {
   prepareTerminalInstrumentation,
   reportInstrumentationDegradation,
 } from '@podium/harness/driver/host'
-import { testHarnessContext } from '@podium/harness/driver/testing'
+import { testHarnessContext, testSessionTerms } from '@podium/harness/driver/testing'
 import { asSessionId, type BuiltinHarnessKind } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { terminalInstrumentationSectionsFor, terminalProfileFor } from './registry'
@@ -31,6 +31,7 @@ function spec(
 ): SessionSpec {
   return {
     harness,
+    ...testSessionTerms(),
     harnessContext: testHarnessContext({ kind: harness, ...context }),
     selection: { auth: 'unknown', platform: 'linux', available: [] },
     workdir: '/project',

@@ -28,7 +28,11 @@ import {
 } from '../../contract.js'
 import { createMemoryAttachmentStager } from '../../testing/attachment-stager.js'
 import { createMemoryDriverSlots } from '../../testing/driver-slots.js'
-import { testHarnessContext } from '../../testing/harness-context.js'
+import {
+  testHarnessContext,
+  testSessionTerms,
+  testTurnPosturePort,
+} from '../../testing/harness-context.js'
 import type { AttachmentRef } from '../../turns.js'
 import type { EngineProcessOwner } from '../engine-supervision.js'
 import {
@@ -187,6 +191,7 @@ function makeRuntime(overrides: Partial<Pick<FakeHost, 'nativeAccount'>> = {}): 
   const runners = makeRunners()
   const now = 1_000_000
   const host: FakeHost = {
+    ...testTurnPosturePort(),
     stageAttachment: createMemoryAttachmentStager(),
     binds: [],
     sent: [],
@@ -232,6 +237,7 @@ function makeRuntime(overrides: Partial<Pick<FakeHost, 'nativeAccount'>> = {}): 
 function makeSpec(harness = 'claude-code', extra: Partial<SessionSpec> = {}): SessionSpec {
   return {
     harness,
+    ...testSessionTerms(),
     harnessContext: testHarnessContext({ kind: 'claude-code' }),
     selection: { auth: 'unknown', platform: 'linux', available: [] },
     workdir: '/repo',
@@ -561,6 +567,7 @@ describe('headless dispatch', () => {
     }
     const now = 1_000_000
     const host: FakeHost = {
+      ...testTurnPosturePort(),
       stageAttachment: createMemoryAttachmentStager(),
       binds: [],
       sent: [],

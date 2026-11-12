@@ -53,7 +53,9 @@ import {
 import {
   createMemoryBindingRecords,
   testBoundCommand,
+  testEngineTerms,
   testHarnessContext,
+  testSessionTerms,
 } from '@podium/harness/driver/testing'
 import { asSessionId, type SessionId } from '@podium/model'
 import type { DurableProcess } from '@podium/process/durable'
@@ -119,6 +121,7 @@ function familyDeps(supervision: EngineSupervisor, engines: unknown) {
     buildEnv: () => ({}),
     gracefulExitMs: 1,
     checkVersion: async () => ({ drivable: true as const }),
+    ...testEngineTerms(),
     harnessContextFor: async () => GROK_CONTEXT,
     supervision,
     engines,
@@ -142,6 +145,7 @@ describe('engine lifecycle ownership (§4.8: the session layer summons, the fami
     const endpoint = await host.launch({
       sessionId: SESSION,
       workdir: '/tmp',
+      ...testSessionTerms(),
       harnessContext: GROK_CONTEXT,
     })
     expect(endpoint.process.key).toBe(grokAcpProcessKey(FACTS, SESSION))
@@ -160,7 +164,12 @@ describe('engine lifecycle ownership (§4.8: the session layer summons, the fami
     }
     const host = createGrokEngineHost(familyDeps(supervision, undefined))
     await expect(
-      host.launch({ sessionId: SESSION, workdir: '/tmp', harnessContext: GROK_CONTEXT }),
+      host.launch({
+        sessionId: SESSION,
+        workdir: '/tmp',
+        ...testSessionTerms(),
+        harnessContext: GROK_CONTEXT,
+      }),
     ).rejects.toThrow(/requires the session engine owner/)
   })
 })
@@ -268,6 +277,7 @@ describe('the family is handed its address and reports its binding (POD-4611)', 
       buildEnv: () => ({}),
       gracefulExitMs: 1,
       checkVersion: async () => ({ drivable: true as const }),
+      ...testEngineTerms(),
       harnessContextFor: async () => testHarnessContext({ kind: 'codex' }),
       dialSocket: async (address) => {
         dialled.push(address)
@@ -277,6 +287,7 @@ describe('the family is handed its address and reports its binding (POD-4611)', 
     const runtime = createCodexRuntime(host, driverSlotsOver(new SessionRegistry()))
     const handle = await runtime.driver.create({
       harness: 'codex',
+      ...testSessionTerms(),
       harnessContext: testHarnessContext({ kind: 'codex' }),
       selection: { auth: 'subscription', platform: 'linux', available: ['codex-app-server'] },
       workdir: '/tmp/codex-ownership',

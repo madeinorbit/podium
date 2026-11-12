@@ -11,6 +11,7 @@ import type { AgentInstruction } from '@podium/protocol'
 import type { HarnessContext } from '../../harness-context.js'
 import type { ServerFamilyLaunch } from '../families/server-family.js'
 import type { AcceptedDriverId } from '../families.js'
+import { testSessionTerms } from './harness-context.js'
 
 export function serverFamilyLaunch(input: {
   sessionId: SessionId
@@ -32,6 +33,7 @@ export function serverFamilyLaunch(input: {
     spec: {
       harness: input.harness ?? 'test-harness',
       harnessContext: input.harnessContext,
+      ...testSessionTerms(),
       selection: {
         auth: 'unknown',
         platform: process.platform,

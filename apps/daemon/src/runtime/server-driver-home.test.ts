@@ -59,6 +59,7 @@ import {
   opencodeVersionProbe,
 } from './version-probe'
 import { SessionRegistry } from '../session/registry.js'
+import { testEngineTerms, testSessionTerms } from '@podium/harness/driver/testing'
 
 // UNSCOPED, before anything asks: with a live systemd user manager the launch
 // would ride `systemd-run` into a transient scope — correct in production,
@@ -309,6 +310,7 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
         opencodeVersionProbe(installation, { env: {} }).then((v) =>
           v.drivable ? null : v.diagnostic,
         ),
+      ...testEngineTerms(),
       harnessContextFor: async () => context,
     })
     const endpoint = await host.launch({
@@ -316,6 +318,7 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
       workdir,
       secret: 'test-secret',
       username: 'podium',
+      ...testSessionTerms(),
       harnessContext: context,
       env: { PODIUM_TEST_LANDING: landing, PODIUM_TEST_MANAGED: 'rides-through' },
     })
@@ -349,12 +352,14 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
       buildEnv: engineEnvBuilder(() => ({})),
       gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
       checkVersion: (installation) => codexAppServerVersionProbe(installation, { env: {} }),
+      ...testEngineTerms(),
       harnessContextFor: async () => context,
       dialSocket: engines.dialerFor(dialEngineSocket),
     })
     const endpoint = await host.launch({
       sessionId: asSessionId(crypto.randomUUID()),
       workdir,
+      ...testSessionTerms(),
       harnessContext: context,
       env: {
         PODIUM_TEST_LANDING: landing,
@@ -395,11 +400,13 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
       buildEnv: engineEnvBuilder(() => ({})),
       gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
       checkVersion: (installation) => grokAcpVersionProbe(installation, { env: {} }),
+      ...testEngineTerms(),
       harnessContextFor: async () => context,
     })
     const endpoint = await host.launch({
       sessionId,
       workdir,
+      ...testSessionTerms(),
       harnessContext: context,
       env: {
         PODIUM_TEST_LANDING: landing,
@@ -441,6 +448,7 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
       buildEnv: engineEnvBuilder(() => ({})),
       gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
       checkVersion: (installation) => grokAcpVersionProbe(installation, { env: {} }),
+      ...testEngineTerms(),
       harnessContextFor: async () => sessionContext('grok'),
     })
     const tail = await host.readNativeUpdates?.({

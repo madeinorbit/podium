@@ -7,12 +7,17 @@
  * read them reads what production would for that home.
  */
 
-import { type BuiltinHarnessKind, DEFAULT_SESSION_POSTURE } from '@podium/protocol'
+import {
+  type BuiltinHarnessKind,
+  DEFAULT_SESSION_POSTURE,
+  type SessionPosture,
+} from '@podium/protocol'
 import { type BoundCommand, harnessCommand } from '../../bound-command.js'
 import { type HarnessContext, harnessAccount, harnessRoots } from '../../harness-context.js'
-import type { LaunchPosture } from '../../launch-terms.js'
+import type { LaunchPosture, LaunchFolders } from '../../launch-terms.js'
 import { noAgentTerms } from '../../posture.js'
 import type { HarnessAccountScope, HarnessRoots } from '../../manifest.js'
+import type { PodiumGrants } from '../../posture-types.js'
 
 export function testHarnessContext(input: {
   kind: BuiltinHarnessKind
@@ -83,14 +88,55 @@ export function testLaunchPosture(
 ): LaunchPosture {
   return {
     posture: DEFAULT_SESSION_POSTURE,
-    grants: {
-      podiumCli: { name: 'podium', path: '/opt/podium-test/bin/podium' },
-      uploadsDir: '/var/podium-test/uploads/session',
-      mcpServers: [],
-    },
+    grants: testPodiumGrants(),
     workdir: '/work/podium-test',
     runtimeDir: '/run/podium-test/session',
     ...overrides,
     context,
+  }
+}
+
+/** Plain grants for a test session (POD-6858): what a daemon would build. */
+export function testPodiumGrants(): PodiumGrants {
+  return {
+    podiumCli: { name: 'podium', path: '/opt/podium-test/bin/podium' },
+    uploadsDir: '/var/podium-test/uploads/session',
+    mcpServers: [],
+  }
+}
+
+/** The posture and grants a test session spec carries (POD-6858). */
+export function testSessionTerms(): { posture: SessionPosture; grants: PodiumGrants } {
+  return { posture: DEFAULT_SESSION_POSTURE, grants: testPodiumGrants() }
+}
+
+/**
+ * The two ports an engine host states its launch terms from (POD-6858), for a
+ * test host: plain grants for a session with no spec in hand, and a runtime
+ * folder per session (identity sections write nothing into it).
+ */
+export function testEngineTerms(): {
+  podiumGrantsFor: (sessionId: string) => Promise<PodiumGrants>
+  launchFoldersFor: (sessionId: string, workdir: string) => Promise<LaunchFolders>
+} {
+  return {
+    podiumGrantsFor: async () => testPodiumGrants(),
+    launchFoldersFor: async (sessionId) => ({ runtimeDir: `/run/podium-test/${sessionId}` }),
+  }
+}
+
+/** A turn's launch posture for a test turn spec (POD-6858), over a context
+ *  of harness `kind`. */
+export function testTurnPosture(kind: BuiltinHarnessKind = 'claude-code'): LaunchPosture {
+  return testLaunchPosture(testHarnessContext({ kind }))
+}
+
+/** The headless host's `turnPosture` port for a test host (POD-6858). */
+export function testTurnPosturePort(): {
+  turnPosture: (input: { agent: string }) => Promise<LaunchPosture>
+} {
+  return {
+    turnPosture: async ({ agent }) =>
+      testLaunchPosture(testHarnessContext({ kind: agent as BuiltinHarnessKind })),
   }
 }
