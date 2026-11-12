@@ -101,6 +101,7 @@ vi.mock('@expo/ui/swift-ui/modifiers', () =>
       'accessibilityValue',
       'disabled',
       'alignmentGuide',
+      'animation',
       'background',
       'buttonStyle',
       'contentShape',
@@ -134,7 +135,10 @@ vi.mock('@expo/ui/swift-ui/modifiers', () =>
           ...(offset === undefined ? {} : { offset }),
         }),
       ])
-      .concat([['shapes', { rectangle: () => ({}) }] as never]),
+      .concat([
+        ['shapes', { rectangle: () => ({}) }] as never,
+        ['Animation', { default: 'default' }] as never,
+      ]),
   ),
 )
 vi.mock('@expo/ui/swift-ui', () => {

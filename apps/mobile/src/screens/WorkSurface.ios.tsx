@@ -15,6 +15,7 @@ import {
   VStack,
 } from '@expo/ui/swift-ui'
 import {
+  Animation,
   accessibilityElement,
   accessibilityHidden,
   accessibilityHint,
@@ -22,6 +23,7 @@ import {
   accessibilityLabel,
   accessibilityValue,
   alignmentGuide,
+  animation,
   background,
   buttonStyle,
   contentShape,
@@ -79,6 +81,7 @@ import { NativeGroupHeader } from '../components/NativeGroupHeader.ios'
 import { NewWorkButton } from '../components/NewWorkButton'
 import { WorkingMark } from '../components/WorkingMark'
 import { useAgeNow } from '../lib/clock-hooks'
+import { listOrderRevision } from '../lib/list-order-revision'
 import { startupTiming } from '../lib/startup-timing'
 import { workMenuActionIds } from '../lib/work-menu'
 import { quietProjectsLabel, workLaneTitle, workMenuItem, workSubtitle } from '../lib/work-row-copy'
@@ -142,6 +145,9 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
   const sections = (
     phone.quietExpanded && quiet.length ? [...phone.activeSections, ...quiet] : phone.activeSections
   ).map((section) => ({ section, folded: !phone.needle && props.collapsed.has(section.key) }))
+  const orderRevision = listOrderRevision(
+    sections.map(({ section, folded }) => ({ key: section.key, folded, ids: section.ids })),
+  )
   const { onAction, onStatus } = props
   const onSwipe = useCallback(
     (id: string, action: WorkSwipeAction) => {
@@ -235,6 +241,8 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
               listSectionSpacing(0),
               scrollContentBackground('hidden'),
               background(paper.ground),
+              // One pool update (resume catch-up, live re-sort) moves rows natively.
+              animation(Animation.default, orderRevision),
               refreshable(props.refresh.onRefresh),
               accessibilityIdentifier('work-list'),
               onAppear(() => startupTiming.mark('work.native-list-appear')),
