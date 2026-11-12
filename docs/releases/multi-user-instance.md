@@ -146,9 +146,14 @@ You can invite the same person again later. They come back as a new member.
 Podium now refuses plain HTTP from other computers: the browser, desktop app or phone
 shows that HTTPS is required, and nobody can sign in or use the server that way. **If you
 reach your server as `http://192.168.…` or another plain HTTP address, set up HTTPS
-before you upgrade.** `podium setup` offers Tailscale Serve and your own reverse proxy.
-Podium can also serve HTTPS itself with `PODIUM_TLS_CERT_FILE` and `PODIUM_TLS_KEY_FILE`
-(see [adding a machine](../adding-a-machine.md)).
+before you upgrade.** Being signed in already does not help: a browser or app that was
+signed in over plain HTTP is refused too.
+
+Run `podium setup` on the server to set up Tailscale Serve, a tunnel, or your own
+reverse proxy with a trusted certificate. Podium can also serve HTTPS itself with
+`PODIUM_TLS_CERT_FILE` and `PODIUM_TLS_KEY_FILE`. Then reconnect every browser, desktop
+app, phone and `podium` command on other computers using the new HTTPS address. The
+steps are in [HTTPS for sign-in](../adding-a-machine.md#https-for-sign-in).
 
 Plain HTTP on the server machine itself still works, for example `http://localhost` in a
 browser on that machine, the desktop app's own server and `podium` commands.
@@ -169,9 +174,11 @@ of Podium, usually `1`. Without it:
   behind the proxy together or not at all. The limit per account still applies. The
   server log warns about this.
 
-Only set it when a proxy really is in front of Podium: Podium then trusts the visitor
-address and protocol that proxy reports. See [separate app host](../separate-app-host.md)
-and [adding a machine](../adding-a-machine.md).
+Only set it when a proxy really is in front of Podium, and make sure only that proxy can
+reach Podium's port: Podium then trusts the visitor address and protocol the proxy
+reports. Restart Podium after changing the setting. See [HTTPS for
+sign-in](../adding-a-machine.md#https-for-sign-in) and [separate app
+host](../separate-app-host.md).
 
 ## Phones after the upgrade
 
