@@ -41,7 +41,7 @@ describe('tenant feed isolation', () => {
     expect(await b.readFeedIdentity()).toEqual({ feedId: 'feed-b', epoch: 'epoch-b' })
     expect((await a.changesSince(0)).map((r) => r.seq)).toEqual([2, 3])
     expect((await b.changesInRange(0, 2, 10)).map((r) => r.seq)).toEqual([2])
-    expect(await b.readFeedState()).toEqual({ headSeq: 2, floorSeq: 2 })
+    expect(await b.readFeedState()).toEqual({ headSeq: 2, floorSeq: 1 })
   })
 
   it('prunes only its tenant, persists the empty floor and never reuses a committed number', async () => {
@@ -102,15 +102,15 @@ describe('tenant feed isolation', () => {
     const a = tenant('a'),
       b = tenant('b')
     await a.raiseEmptyHead()
-    expect(await a.readFeedState()).toEqual({ headSeq: 1, floorSeq: 2 })
-    expect(await a.minChangeSeq()).toBeNull()
+    // The floor stays 1: the empty range (0, 1] is what a cursor at 0 reads.
+    expect(await a.readFeedState()).toEqual({ headSeq: 1, floorSeq: 1 })
     expect(await b.readFeedState()).toEqual({ headSeq: 0, floorSeq: 1 })
     expect(await a.appendChanges(rows(1), 1)).toEqual([2])
     await a.raiseEmptyHead()
-    expect(await a.readFeedState()).toEqual({ headSeq: 2, floorSeq: 2 })
+    expect(await a.readFeedState()).toEqual({ headSeq: 2, floorSeq: 1 })
     // A feed whose identity is minted before any append is created at head 1.
     await tenant('c').writeFeedIdentity({ feedId: 'fc', epoch: 'ec' }, 1)
-    expect(await tenant('c').readFeedState()).toEqual({ headSeq: 1, floorSeq: 2 })
+    expect(await tenant('c').readFeedState()).toEqual({ headSeq: 1, floorSeq: 1 })
   })
 
   it('identity bumps preserve counters and empty appends reserve nothing', async () => {

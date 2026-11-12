@@ -64,15 +64,17 @@ const currentFeedState = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-/** An empty feed's head 0 -> 1, floor 1 -> 2 (still "nothing retained"). Seq 0
+/** An empty feed's head 0 -> 1; the floor stays 1. Seq 0
  * is the reserved cold-start cursor and a row at seq 0 is malformed (ADR 2 D12),
  * so a start-up load stamped at head 0 cannot carry the model rows a fresh
  * install may already hold (setup, migrations, backfills). Head 1 with no row
- * at 1 is an ordinary empty range. Only a head of 0 moves; it never renumbers. */
+ * at 1 is an ordinary empty range (0, 1]; a floor of 2 would sit above the
+ * load's head and refuse both the load and a delta from 0. Only a head of 0
+ * moves; it never renumbers. */
 const raiseEmptyHead = prepared((db: StoreDrizzle) =>
   db
     .update(syncFeed)
-    .set({ headSeq: 1, floorSeq: 2 })
+    .set({ headSeq: 1 })
     .where(
       and(eq(syncFeed.tenantId, param(syncFeed.tenantId, 'tenantId')), eq(syncFeed.headSeq, 0)),
     )
@@ -265,7 +267,7 @@ const ensureFeedIdentity = prepared((db: StoreDrizzle) =>
 const upsertFeedIdentity = prepared((db: StoreDrizzle) =>
   db
     .insert(syncFeed)
-    .values({ ...initialFeedValues, headSeq: 1, floorSeq: 2 })
+    .values({ ...initialFeedValues, headSeq: 1 })
     .onConflictDoUpdate({
       target: syncFeed.tenantId,
       set: {
