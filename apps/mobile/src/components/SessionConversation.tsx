@@ -529,6 +529,11 @@ const SessionConversationBody = observer(function SessionConversationBody({
   /** Bumped by a send so the feed lands on the new bubble, the same request
    *  the Superagent thread makes; the list owns how it gets there. */
   const [pinRequest, setPinRequest] = useState(0)
+  // What actually floats over the feed's bottom edge right now: the band, the
+  // ask card and the composer at its CURRENT (grown) height. Only the Newest
+  // button rides on it, so a growing draft lifts the button without moving
+  // the transcript.
+  const [floatingHeight, setFloatingHeight] = useState(0)
   // biome-ignore lint/correctness/useExhaustiveDependencies: each rendered item count acknowledges a new transcript batch.
   useEffect(() => {
     transcript.markRendered()
@@ -836,6 +841,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
               onQuote={quoteIntoDraft}
               mailReply={model.reply}
               bottomInset={composerHeight + askHeight + keyboardLift}
+              overlayInset={floatingHeight > 0 ? floatingHeight + keyboardLift : undefined}
               topInset={topInset}
               streaming={streamingActive}
               tail={tailState}
@@ -859,7 +865,11 @@ const SessionConversationBody = observer(function SessionConversationBody({
       {/* The composer floats OVER the feed rather than ending it [POD-502]. The
           feed pays for it with the composer's own resting height. */}
       {readOnly && !hasTranscript ? null : (
-        <View style={[styles.composerLayer, { bottom: keyboardLift }]} pointerEvents="box-none">
+        <View
+          style={[styles.composerLayer, { bottom: keyboardLift }]}
+          pointerEvents="box-none"
+          onLayout={(event) => setFloatingHeight(event.nativeEvent.layout.height)}
+        >
           {/* THE BLOCKED-SESSION BAND (POD-2414) — above the ask card, because
               the kinds it renders are the ones nothing else on this screen can
               show, and a session blocked on one of them has nothing else to

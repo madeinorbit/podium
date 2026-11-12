@@ -1312,6 +1312,7 @@ export const TranscriptList = observer(function TranscriptList({
   emptyComponent,
   footer,
   bottomInset = 0,
+  overlayInset,
   topInset = 0,
   hidePendingQuestion = false,
   findRequest = 0,
@@ -1379,6 +1380,13 @@ export const TranscriptList = observer(function TranscriptList({
    * composer. Without it the last row rests under the capsule forever.
    */
   bottomInset?: number
+  /**
+   * Height of the chrome over the feed's bottom edge RIGHT NOW (the composer
+   * at its grown height, plus any band above it). The Newest button rides
+   * above it; the feed's padding keeps using the resting `bottomInset`.
+   * Defaults to `bottomInset`.
+   */
+  overlayInset?: number
   /**
    * Room at the top for chrome the feed scrolls UNDER — the mission's deck bar
    * (POD-2381). The first row rests below it; scrolled rows pass beneath it.
@@ -1851,7 +1859,7 @@ export const TranscriptList = observer(function TranscriptList({
       <JumpToNewest
         visible={!atTail}
         unread={unread}
-        lift={bottomInset + space.md}
+        lift={(overlayInset ?? bottomInset) + space.md}
         reduceMotion={reduceMotion}
         onPress={pinToNewest}
       />
