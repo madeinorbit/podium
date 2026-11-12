@@ -101,3 +101,22 @@ sign-in was needed. Config was passed inline with `OPENCODE_CONFIG_CONTENT`.
 | First-run behaviour | Downloads `fd` into `~/.pi/agent/bin/` on first start (a network fetch, not a menu). |
 | Update notice | "Update Available: New version 1.5.2 is available. Run pi update". A transcript notice, not modal. `PI_SKIP_VERSION_CHECK=1` removes it. `--offline` (`PI_OFFLINE=1`) also removes it but skips the `fd` download too. |
 | Approval gate | None to measure: Pi has no permission prompts (adapter note, unchanged). |
+
+## Cursor Agent 2026.07.23-e383d2b
+
+**Not measured past sign-in.** The test host's Cursor account was signed out:
+the TUI showed "Press any key to log in...", and `cursor-agent --print --trust`
+answered "Authentication required" in the real home as well as in a fresh one.
+A login started in a scratch home was not approved before the deadline.
+
+What is known without a session:
+
+| Question | Result |
+|---|---|
+| Fresh home, fresh folder | "Cursor Agent … Press any key to log in..." |
+| `--trust` | Listed by `--help`: "Trust the current workspace without prompting". Whether it also applies to the terminal UI: not measured. |
+| Terminal trust state | A marker file `~/.cursor/projects/<slug>/.workspace-trusted`, seen on disk in the real home. Vendor-private. |
+| Allow rule for one launch | None in `--help`. Rules live in `~/.cursor/cli-config.json` (`permissions.allow`, e.g. `Shell(ls)`) or a project `.cursor/cli.json`. The bundle reads `CURSOR_CONFIG_DIR` (else `$XDG_CONFIG_HOME/cursor`, else `~/.cursor`) as the config folder; pointing it at a session folder would replace the user's whole config rather than add a rule. Not measured. |
+| `--approve-mcps` | Listed by `--help`: "Automatically approve all MCP servers". |
+| Modes | `--auto-review` (server classifier), `-f`/`--force`/`--yolo` (run everything), `--mode plan|ask`, `--sandbox enabled|disabled`. Default `approvalMode` is `allowlist`. |
+| First-run menus | Not measured. |

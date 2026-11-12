@@ -77,55 +77,86 @@ It does not answer "on what terms does the process run". That is this design.
 
 Evidence tags: **live** = run on this machine in a never-seen folder;
 **doc** = vendor documentation; **ref** = Podium's own notes in
-`docs/agent-harness-reference/`, not re-checked; **?** = to be measured.
+`docs/agent-harness-reference/`, not re-checked.
+
+The posture spike (POD-6879, 2026-11-12) re-measured every open cell in a fresh
+home and a fresh `git init` folder, with `scripts/posture-probe.ts`. Its tags
+read **live** with the version measured: Claude Code 2.1.322 (`cc`), Codex
+0.167.1 (`cx`, minimum-version checks on 0.147.0), OpenCode 1.18.35 (`oc`),
+Grok 1.0.70 (`gk`), Pi 1.5.0 (`pi`), Cursor Agent 2026.07.23 (`cu`). The full
+record, with every run, is `harness-posture-measurements.md`.
 
 ### Folder trust
 
 | Harness | Is there a prompt? | How to pre-answer it |
 |---|---|---|
-| Claude Code | Yes, in the terminal only. The selected row is "No, exit", so a stray Enter ends the session (**live**). `-p` and stream sessions never show it, but an untrusted folder's own allow rules are then ignored (**doc**). | Only one way: set `projects["<repo root>"].hasTrustDialogAccepted = true` in `~/.claude.json`. The vendor documents this as "trust it by hand". No flag, no environment variable, and `--settings` cannot set it (**doc**). Trust is keyed on the main checkout's root, so one entry covers every worktree (**doc**). |
-| Codex | Yes (**live**). | Per launch, nothing written: `-c 'projects={"<root>"={trust_level="trusted"}}'` (**live**). The obvious dotted form `-c 'projects."<root>".trust_level="trusted"'` is accepted and silently does nothing (**live**). Whether a `resume --remote` client accepts it: **?** |
-| OpenCode | No (**live**). | Nothing needed. |
-| Grok | No folder prompt known. Project trust gates only project hooks and plugins (**ref**). Not observable here: this home is signed out. | Nothing known. **?** |
-| Pi | Only when the folder has project-local Pi files (**live**: none in an empty folder). | `--approve` for this run (**live** in `--help`). |
-| Cursor | Yes in the terminal (**ref**). | Headless: `--trust`. Terminal: a marker file `~/.cursor/projects/<slug>/.workspace-trusted`, which is vendor-private state (**ref**). |
+| Claude Code | Yes, in the terminal only. The selected row is "No, exit", so a stray Enter ends the session (**live** cc). `-p` and stream sessions never show it, but an untrusted folder's own allow rules are then ignored (**doc**). | Only one way: set `projects["<repo root>"].hasTrustDialogAccepted = true` in `~/.claude.json`. The vendor documents this as "trust it by hand". No flag, no environment variable, and `--settings` cannot set it (**doc**). It works in a fresh home, and the key on the main checkout's root covers a linked worktree elsewhere on disk (**live** cc). A Claude session already running in another folder does not undo it: Claude re-reads the file before each write, and both its own keys and Podium's survived (**live** cc). |
+| Codex | Yes: "Trust this folder? › 1. Trust and continue" (**live** cx). | Per launch, nothing written: `-c 'projects={"<root>"={trust_level="trusted"}}'` (**live** cx). The obvious dotted form `-c 'projects."<root>".trust_level="trusted"'` is accepted and silently does nothing (**live**). A `resume --remote` client accepts the flag but ignores it: trust is decided by the app-server it attaches to, so the engine's flag covers the client (**live** cx). |
+| OpenCode | No (**live** oc). | Nothing needed. |
+| Grok | No, when signed in (**live** gk). Folder trust gates project permission rules, hooks and instructions; headless startup with such project sources needs `--trust` or a prior grant (**doc**). | Nothing needed for the prompt. |
+| Pi | Yes with a fresh home, in every folder, even an empty one: "Trust project folder? → Trust" (**live** pi). | `--approve` removes it (**live** pi). |
+| Cursor | Yes in the terminal (**ref**). | Headless: `--trust`. Terminal: a marker file `~/.cursor/projects/<slug>/.workspace-trusted`, which is vendor-private state (**ref**, marker seen on disk). Whether `--trust` also applies to the terminal UI: not measured (no signed-in Cursor account was available to the spike). |
 
 ### Running the Podium CLI without a prompt
 
 | Harness | Mechanism | Per-launch channel? |
 |---|---|---|
-| Claude Code | An allow rule `Bash(podium *)`. Allow rules merge across sources, so this adds to the user's rules and replaces none. Narrow rules stay in force in auto mode (**doc**). | Yes: `--allowedTools`. |
-| Codex | A rules file: `prefix_rule(pattern=["podium"], decision="allow")`. Evaluates to allow (**live**, `codex execpolicy check`). An allowed command runs outside the sandbox with no prompt (**doc**), which also gives it the loopback access it needs. | No. Rules load from a `rules/` folder beside a config layer, such as `~/.codex/rules/` (**doc**). |
-| OpenCode | A shell allow rule in config. The default policy already allows shell (**doc**). Rule syntax differs between 1.x and current docs (**?**). | Yes: `OPENCODE_CONFIG_CONTENT`, already used for instructions. |
-| Grok | `--allow <rule>`; rule grammar **?**. | Yes for the terminal. ACP engine: **?** |
+| Claude Code | An allow rule `Bash(podium *)`. Allow rules merge across sources, so this adds to the user's rules and replaces none. Narrow rules stay in force in auto mode (**doc**). | Yes: `--allowedTools`, which works in an interactive session too (**live** cc). The option is variadic: `--allowedTools 'Bash(podium *)' "<prompt>"` swallows the prompt as a rule. Use `--allowedTools=<rule>`, one per rule, or keep the `--` prompt boundary (**live** cc). |
+| Codex | A rules file: `prefix_rule(pattern=["podium"], decision="allow")`. In `$CODEX_HOME/rules/podium.rules` it is loaded by the TUI and by the app-server; an allowed command runs outside the sandbox with no prompt and no automatic review, and reaches the network (**live** cx). Without it, an escalation asks under `on-request` and goes to the reviewer under `--approve-for-me` (**live** cx). | No. `-c rules…` is ignored with a warning, and `-p` profiles share the home's `rules/` (**live** cx). A project layer, `<folder>/.codex/rules/*.rules` in a trusted folder, is loaded too (**live** cx), but it is repository-scoped and lives in the user's tree. |
+| OpenCode | `{"permission":{"bash":{"*":"ask","podium *":"allow"}}}`: the object form with glob keys (**live** oc). The default policy already runs shell commands without asking (**live** oc). | Yes: `OPENCODE_CONFIG_CONTENT`, already used for instructions. |
+| Grok | `--allow 'Bash(podium *)'`, Claude-style rules: in `Bash(...)` `*` matches anything including spaces, `Bash(cmd:*)` is a prefix match, repeatable (**live** gk in the TUI, **doc** for the grammar). | Terminal and `-p`: yes. ACP engine: **no**. `grok agent stdio` refuses `--allow`; the `session/new` `_meta` options carry no rules; `GROK_CONFIG` cannot carry permission rules (**live** gk). The engine asks the client before running `podium` in default mode; with `_meta.autoMode` its classifier let `podium --version` run (one run) (**live** gk). Outside the command line, rules live only in `~/.grok/config.toml`, a project `.grok/config.toml` or `.claude/settings.json` (**doc**). |
 | Pi | Pi has no approval gate (adapter note). | Nothing needed. |
-| Cursor | `permissions.allow: ["Shell(podium)"]` in `~/.cursor/cli-config.json` (**doc**). | No. |
+| Cursor | `permissions.allow: ["Shell(podium)"]` in `~/.cursor/cli-config.json` (**doc**). | None known. Allow rules come from `~/.cursor/cli-config.json` or a project `.cursor/cli.json` (**doc**; both names appear in the installed bundle). The bundle also honours `CURSOR_CONFIG_DIR`, which moves the whole config folder rather than adding one rule; not measured. |
 
 ### Startup menus that can swallow input
 
 | Harness | Found | Suppression |
 |---|---|---|
-| Codex | "Update available" menu. The selected row runs the updater on Enter (**live**). | `-c check_for_update_on_startup=false` (**live**). |
-| Claude Code | One-time auto-mode notice; bypass-mode confirmation; "How is Claude doing?" survey; theme picker; `/auto-mode-setup` wizard seen on 2.1.231. | `skipAutoPermissionPrompt`, `skipDangerousModePermissionPrompt` (settings keys), `CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1` (**doc**). Theme is already seeded. Wizard: **?** |
-| Others | None observed in a fresh folder with an existing home. A fresh home was not tested. | **?** |
+| Codex | Two forms of update notice. A banner on first start; on later starts in the same home a **modal** menu "› 1. Update now (runs `bun install -g @openai/codex`)", whose selected row runs the updater on Enter. The menu is drawn by `resume --remote` clients too (**live** cx). | `-c check_for_update_on_startup=false`, which a `resume --remote` client accepts and honours (**live** cx). |
+| Claude Code | In a home that never finished onboarding, the theme picker, even with `--settings '{"theme":"auto"}'` (**live** cc); Podium's credential transfer seeds `hasCompletedOnboarding`. The auto-mode notice and the "auto is now the default" notice are transcript lines, not modal: a prompt given at launch runs (**live** cc). `/auto-mode-setup` did not appear after a first turn under auto mode (**live** cc; it was seen on 2.1.231). Bypass-mode confirmation and the "How is Claude doing?" survey (**doc**). | Nothing needed for the auto-mode notices; `skipAutoPermissionPrompt` does not remove the transcript notice (**live** cc). `skipDangerousModePermissionPrompt` (settings key) and `CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1` (**doc**). |
+| OpenCode | None in a fresh home: one tip line (**live** oc). | Nothing needed. |
+| Grok | None in a fresh signed-in home: a "New /learn skill!" line in the welcome box (**live** gk). | Nothing needed. |
+| Pi | "Update Available" transcript notice, not modal; a first start also downloads `fd` (**live** pi). | Nothing needed. `PI_SKIP_VERSION_CHECK=1` removes the notice (**live** pi). |
+| Cursor | Not measured: the test host's Cursor account was signed out ("Press any key to log in"), and a browser login was not approved in time. | Unknown. |
 
 ### Other facts that shaped the design
 
 - Claude Code accepts `--permission-mode default` on every version; `manual` is
   a newer alias for it (**doc**). When auto mode is not available to a session,
-  Claude Code starts it in Manual without an error (**doc**), so the mode Podium
-  asks for is not always the mode in force.
+  Claude Code starts it in Manual without an error: the footer reads
+  `⏸ manual mode on` and a stream session's `system/init` event reports
+  `"permissionMode": "default"` (**live** cc, auto mode made unavailable with
+  `disableAutoMode: "disable"`). So the mode Podium asks for is not always the
+  mode in force, and the init event is where to read it.
+- A Claude Code rule that allows reading one absolute folder is
+  `Read(//<abs path>/**)`, with two slashes; `Read(/<abs path>/**)` does not
+  match it (**live** cc).
 - A non-interactive Claude Code session connects a repository's declared MCP
   servers without asking; an interactive one asks first, in a dialog (**doc**).
-- Codex removed `approval_policy="untrusted"` in 0.149 and added `--approve-for-me`.
-  Mode names are not stable across releases.
+- Codex has `--approve-for-me` and the `approvals_reviewer` key at the minimum
+  version 0.147.0 (**live**: 0.147.0 `--help`, and `--strict-config` accepts
+  `approvals_reviewer="auto_review"`). `approval_policy="untrusted"` is gone
+  in 0.149. Mode names are not stable across releases.
+- Codex asks before every tool of an MCP server it mounts (an
+  `mcpServer/elicitation/request` of kind `mcp_tool_call`), and
+  `-c mcp_servers.<name>.default_tools_approval_mode="approve"` removes the ask
+  (**live** cx; the key is present in 0.147.0).
 - Codex changed version from 0.167.1 to 0.167.2 on this machine while this
   research ran. Harness versions move under running sessions.
 - Podium stages attachments outside the working folder
   (`apps/daemon/src/session-uploads.ts`). A harness that confines reads to the
-  folder will prompt for them.
-- An issue worktree's git metadata lives in the main checkout's `.git`. A sandbox
-  that confines writes to the working folder may block `git commit`. **?**
+  folder will prompt for them. OpenCode does: "Access external directory"
+  asks by default, and `{"permission":{"external_directory":{"<abs dir>/*":"allow"}}}`
+  removes it (**live** oc).
+- `git commit` fails under Codex `workspace-write`, in a linked worktree and in
+  the main checkout alike: Codex mounts `.git` read-only inside writable roots
+  ("Unable to create '…/.git/worktrees/wt/index.lock': Read-only file system")
+  (**live** cx 0.167.2). Committing needs an escalation, which asks under
+  `on-request` and is reviewed under `--approve-for-me`.
+- Codex's Linux sandbox needs unprivileged user namespaces. On a host without
+  them every sandboxed command fails (`bwrap: loopback: Failed RTM_NEWADDR`),
+  while a command allowed by a rule still runs (**live** cx). A host fact, not
+  a posture fact, but it shows up as Podium sessions that cannot run anything.
 
 ## 3. What "set up right" means
 
@@ -354,24 +385,40 @@ the managed-installs phase, where its second user appears.
 
 ### 4.8 How each harness realises it
 
-This is the target. Cells marked **?** are filled by the spike.
+This is the target. Every cell comes from the posture spike (section 2,
+`harness-posture-measurements.md`); a cell is a mechanism or `unmet: <reason>`.
+The Cursor row is from `--help` and the installed bundle only.
 
 | | R1 trust | R2 Podium CLI | R3 mode: supervised / autonomous | R4 quiet start | R5 Podium material |
 |---|---|---|---|---|---|
-| **Claude Code** | `json-key` edit on the repo root, all modes | allow rules `Bash(podium *)` and `PowerShell(podium *)` by flag | `default` / `auto` | static keys in the adapter's own session settings file, survey env | allow rule `Read(<uploads>/**)`, `mcp__<server>` |
-| **Codex** | `-c projects={…}`; client: **?** | `owned-file` `rules/podium.rules`; loopback open in the sandbox in every mode | terminal: `-a on-request` / `--approve-for-me`; engine: asks reach chat / automatic review; turn: unmet / `--approve-for-me` | `-c check_for_update_on_startup=false` | reads are unrestricted by default; MCP: **?** |
-| **OpenCode** | met by default | allow rule in inline config | ask rules / `--auto` | **?** | allowed by default |
-| **Grok** | **?** | `--allow`; engine: **?** | `default` / `auto` | **?** | **?** |
-| **Pi** | `--approve` | met by default | unmet / met by default | **?** | met by default |
-| **Cursor** | turn: `--trust`; terminal: unmet (private state) | **?**, unmet until measured | nothing / `--auto-review` | **?** | `--approve-mcps` |
+| **Claude Code** | `json-key` edit on the repo root, all modes | allow rules `Bash(podium *)` and `PowerShell(podium *)` by flag, spelled `--allowedTools=<rule>` | `default` / `auto`; the mode in force is the `permissionMode` of the init event (`default` when auto is unavailable) | met in an onboarded home: the auto-mode notices are not modal. Survey env; `skipDangerousModePermissionPrompt` only matters for a native bypass pick | allow rules `Read(//<uploads>/**)` (two slashes) and `mcp__<server>` |
+| **Codex** | `-c projects={…}` in terminal, engine and turn; client: met by the engine's flag (the client ignores its own) | `owned-file` `rules/podium.rules`, loaded by the TUI and the app-server; an allowed command runs outside the sandbox, unreviewed. Loopback open in the sandbox in every mode | terminal: `-a on-request` / `--approve-for-me`; engine: asks reach chat / `approvals_reviewer="auto_review"`; turn: `unmet: autonomy` (nobody to ask) / `--approve-for-me`; client: nothing (refused on `resume --remote`). All exist at 0.147 | `-c check_for_update_on_startup=false` in terminal and client | reads are unrestricted by default; MCP: `-c mcp_servers.<name>.default_tools_approval_mode="approve"` per Podium server wherever it is mounted |
+| **OpenCode** | met by default | `{"bash":{"*":<mode's rule>,"podium *":"allow"}}` in the inline config's `permission` | `bash` and `edit` ask rules / `--auto` (terminal); engine: asks reach chat | met by default | `{"external_directory":{"<uploads>/*":"allow"}}` in the inline config (asks by default); MCP tools allowed by default |
+| **Grok** | met by default (no folder prompt) | terminal, turn: `--allow 'Bash(podium *)'`; engine: `unmet: podium-cli`, "`grok agent stdio` takes no allow rule per launch; in default mode it asks before running podium, and under auto mode its classifier decides" | terminal, turn: `default` / `auto`; engine: `_meta.autoMode` on `session/new` | met by default | reads: met by default (read-only tools never ask); MCP: `--allow 'MCPTool(<server>__*)'` in terminal and turn, engine asks reach chat |
+| **Pi** | `--approve` (asks in every folder with a fresh home) | met by default | `unmet: autonomy` / met by default | met: the update notice is not modal (`PI_SKIP_VERSION_CHECK=1` hides it) | met by default |
+| **Cursor** | turn: `--trust`; terminal: `unmet: workspace-trust`, "Cursor keeps interactive folder trust in private state that Podium does not write" | `unmet: podium-cli`, "Cursor takes allow rules only from a settings file shared with every Cursor session, which Podium does not edit" | turn: nothing / `--auto-review` | `unmet: quiet-start`, "not measured: no signed-in Cursor account was available to the spike" | `--approve-mcps` for Podium's MCP servers; reads outside the folder: `unmet: podium-material`, "not measured" |
 
-- **Claude needs no settings merge.** Its rules and mode have flags. The two
-  notice-skipping keys are static, so they sit in the session settings file the
-  Claude adapter already writes for hooks, beside the theme seed.
+- **Claude needs no settings merge.** Its rules and mode have flags. Nothing is
+  needed for the auto-mode notices: they are transcript lines, and
+  `skipAutoPermissionPrompt` does not remove them anyway.
 - **Claude trust is applied in every mode.** Without it a chat-view session
   ignores the repository's own allow rules and a terminal session honours them.
+  A running Claude session does not undo the edit.
 - **Codex keeps loopback open in every mode.** Today the app-server only opens
-  it when an MCP server is mounted.
+  it when an MCP server is mounted. With the rule in place the Podium CLI does
+  not depend on it, but other loopback tools still do.
+- **Codex cannot commit under `workspace-write` without asking.** `.git` is
+  read-only in its sandbox, in a worktree and in the main checkout. Supervised
+  sessions get an ask, autonomous ones a review. Not a posture requirement
+  today; recorded for the acceptance run.
+- **No per-session Codex rule exists.** The home rule (4.7) stays. The only
+  other loading place is the repository's own `.codex/rules/`.
+- **Grok's engine cannot pre-approve the CLI per launch.** The documented key
+  `[permission] allow` in `~/.grok/config.toml` would, as a third home edit
+  (4.7); this phase reports `unmet` instead and leaves that choice open.
+- **Cursor is documented, not measured.** Its row comes from `--help`
+  (2026.07.23) and its installed bundle. The acceptance run measures it once a
+  signed-in account is available; a cell that turns out met changes then.
 - **Pi cannot be supervised.** It has no approval gate. The adapter reports that
   as unmet and the UI says so.
 - **Windows.** Claude Code there runs commands through a PowerShell tool with
