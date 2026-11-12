@@ -122,10 +122,10 @@ On a one-person server you are the earliest admin, so all keys and logins stay y
   both screens show the same three words, then approve the phone on the computer. The
   phone gets its own sign-in, which appears in the device list.
 
-> TODO (coordinator): pairing and signing in were proved in the phone web app
-> (`/mobile`). The native phone app currently crashes right after signing in (POD-6913,
-> being fixed). Before release, state whether the native app works, or tell phone users
-> to use the phone web app until an updated app is available.
+What has been tested on phones: signing in, pairing by link and switching between
+members work in the phone web app (`/mobile` on your server) and in the Android app on
+an Android emulator. The final check of this release is still running. The iPhone app
+has not been tested with this release.
 
 ## Removing a member
 
