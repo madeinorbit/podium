@@ -54,6 +54,10 @@ export const TranscriptViewport = forwardRef(function NativeViewport<Item>(
       {...listWindow}
       ref={listRef}
       maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+      // A status-bar tap (or a ••• tap that lands in the status-bar band)
+      // must not fling a chat to its oldest loaded page; Newest and Find are
+      // how the transcript moves on request.
+      scrollsToTop={false}
       onScroll={scroll.onScroll}
       onScrollBeginDrag={scroll.release}
       onScrollEndDrag={scroll.onScrollSettle}
