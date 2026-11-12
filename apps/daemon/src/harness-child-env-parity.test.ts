@@ -22,6 +22,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { harnessContext, type ResolvedHarnessInventory } from '@podium/harness'
+import { testLaunchPosture } from '@podium/harness/driver/testing'
 import { asSessionId, type SessionId } from '@podium/model'
 import type { SpawnOptions } from '@podium/process/screen'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -220,6 +221,18 @@ async function attachEnv() {
     clients,
     frames: () => {},
     harnessContext: async () => context,
+    // The client's launch terms (POD-6858): without this port the attach threw
+    // before it spawned, and the swallowed error read as a missing spawn.
+    launchPosture: async (
+      _sessionId: SessionId,
+      _target: unknown,
+      launchContext: typeof context,
+    ) => {
+      const { context: _context, ...posture } = testLaunchPosture(launchContext, {
+        workdir: '/work',
+      })
+      return posture
+    },
     homeDir: ACCOUNT_HOME,
     instanceUuid: daemonFacts.instanceUuid,
   } as never)
