@@ -166,6 +166,9 @@ describe('mobile boot failure surface', () => {
     // passed and `window.addEventListener('pagehide', …)` was the app's last
     // act. Native's hide/show answers come from the AppState/NetInfo
     // controller instead, so the boot must not touch DOM listeners at all.
+    // Native HTTP failures intentionally show HTTPS guidance. Use a secure
+    // origin so the network rejection exercises the ordinary boot-failure path.
+    window.history.replaceState({}, '', '/?server=https://podium.example')
     withUnreachableServer()
     const win = window as unknown as Record<string, unknown>
     const originalOS = Platform.OS
@@ -183,6 +186,9 @@ describe('mobile boot failure surface', () => {
       // The mount survives, and the unreachable server surfaces as the ordinary
       // boot failure — not as an unhandled TypeError before the boot even ran.
       expect(await screen.findByText('CANNOT START')).toBeTruthy()
+      expect(screen.getByText(/Load failed/)).toBeTruthy()
+      expect(fetchCalls).toBeGreaterThan(0)
+      expect(screen.queryByText('app')).toBeNull()
     } finally {
       win.addEventListener = originalAdd
       win.removeEventListener = originalRemove
