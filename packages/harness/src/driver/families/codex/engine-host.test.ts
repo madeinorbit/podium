@@ -121,7 +121,6 @@ describe('the spawn config', () => {
     // requests this driver handles, so no approval policy is generated at all.
     const { args } = codexAppServerConfigArgs({})
     expect(args.join(' ')).not.toContain('approval_policy')
-    expect(args.join(' ')).toContain('sandbox_mode="workspace-write"')
   })
 
   it("hands a session's instructions to Codex as developer instructions (POD-5814)", () => {
@@ -135,11 +134,11 @@ describe('the spawn config', () => {
     ])
   })
 
-  it('opens network access only when an MCP server is actually mounted', () => {
-    // A Podium MCP server is on loopback and is unreachable from a sandbox with
-    // no network, so mounting one without this is mounting nothing. Opening it
-    // for a session with no MCP would widen the sandbox for no reason.
-    expect(codexAppServerConfigArgs({}).args.join(' ')).not.toContain('network_access')
+  it('leaves the sandbox to the posture section, mounted or not', () => {
+    // Moved to posture (POD-6858): `sandbox_mode="workspace-write"` and the
+    // loopback override are the adapter's `engine` terms now, in every mode,
+    // so the config args name neither, with or without an MCP mount.
+    const bare = codexAppServerConfigArgs({}).args.join(' ')
     const mounted = codexAppServerConfigArgs({
       mcpServers: {
         transport: 'inline',
@@ -147,8 +146,11 @@ describe('the spawn config', () => {
           mcpServers: { podium: { url: 'http://127.0.0.1:7777/mcp' } },
         }),
       },
-    })
-    expect(mounted.args.join(' ')).toContain('sandbox_workspace_write.network_access=true')
+    }).args.join(' ')
+    for (const flat of [bare, mounted]) {
+      expect(flat).not.toContain('sandbox_mode')
+      expect(flat).not.toContain('network_access')
+    }
   })
 
   it('mounts MCP servers through the manifest own verified mechanism', () => {

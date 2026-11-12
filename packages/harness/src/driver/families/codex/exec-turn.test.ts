@@ -35,6 +35,20 @@ function snapshot(): ResolvedHarnessInventory {
   } as unknown as ResolvedHarnessInventory
 }
 
+/**
+ * What Codex's posture section puts right after `exec` on a turn under the
+ * default posture (POD-6858 §4.8). Moved to posture: a turn used to carry
+ * none of these. `exec resume` takes no `--approve-for-me`, so they sit before
+ * the subcommand, where `exec` takes them.
+ */
+const TURN_POSTURE_ARGS = [
+  '-c',
+  'projects={"/work/podium-test"={trust_level="trusted"}}',
+  '-c',
+  'sandbox_workspace_write.network_access=true',
+  '--approve-for-me',
+]
+
 describe('buildCodexExecTurn argv shapes', () => {
   it('first turn: exec --json with positional prompt, no resume subcommand', () => {
     const { cmd, args } = buildCodexExecTurn(
@@ -44,16 +58,27 @@ describe('buildCodexExecTurn argv shapes', () => {
       testTurnPosture('codex'),
     )
     expect(cmd).toBe('/opt/codex')
-    expect(args).toEqual(['exec', '--json', '--skip-git-repo-check', 'hi there'])
+    expect(args).toEqual([
+      'exec',
+      ...TURN_POSTURE_ARGS,
+      '--json',
+      '--skip-git-repo-check',
+      'hi there',
+    ])
   })
 
-  it('resume turn: exec resume <id> subcommand before flags', () => {
+  it('resume turn: exec resume <id> subcommand before its flags, posture before the subcommand', () => {
     const { args } = buildCodexExecTurn(
       { prompt: 'go on', resumeValue: '019f-abc', model: 'gpt-5.2-codex' },
       harnessInstallation(snapshot(), 'codex'),
       headlessSections(),
       testTurnPosture('codex'),
     )
-    expect(args.slice(0, 3)).toEqual(['exec', 'resume', '019f-abc'])
+    expect(args.slice(0, 3 + TURN_POSTURE_ARGS.length)).toEqual([
+      'exec',
+      ...TURN_POSTURE_ARGS,
+      'resume',
+      '019f-abc',
+    ])
   })
 })

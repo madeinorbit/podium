@@ -39,7 +39,44 @@ function plain(spec: LaunchSpec): Record<string, unknown> {
   }
 }
 
-const CODEX_NETWORK_ARGS = ['-c', 'sandbox_workspace_write.network_access=true']
+/**
+ * What Codex's posture section adds to every terminal launch under the default
+ * posture (POD-6858 §4.8), ahead of any `--` prompt boundary. Moved to
+ * posture: the loopback override used to be the builder's own; trust, the
+ * update switch and the mode used to be absent.
+ */
+const CODEX_POSTURE_ARGS = [
+  '-c',
+  'projects={"/work/podium-test"={trust_level="trusted"}}',
+  '-c',
+  'check_for_update_on_startup=false',
+  '-c',
+  'sandbox_workspace_write.network_access=true',
+  '--approve-for-me',
+]
+
+/** A Codex terminal launch with its terms checked, shaped like {@link plain}. */
+function codexPlain(spec: LaunchSpec): Record<string, unknown> {
+  if (!('terms' in spec)) throw new Error('a Codex launch always carries terms')
+  const { env, files, terms, ...rest } = spec
+  expect(terms).toEqual({
+    homeEdits: [
+      {
+        kind: 'owned-file',
+        file: '/home/podium-test/.codex/rules/podium.rules',
+        contents:
+          '# Written by Podium. Lets agents run the Podium CLI without asking.\n' +
+          'prefix_rule(pattern = ["podium"], decision = "allow", justification = "Podium CLI: required for an agent to work inside Podium")\n',
+        serves: 'podium-cli',
+      },
+    ],
+    requestedMode: 'auto-review',
+    unmet: [],
+  })
+  expect(env).toEqual({})
+  expect(files).toEqual([])
+  return rest
+}
 describe('agentLaunchCommand', () => {
   it('spawns claude fresh', () => {
     expect(
@@ -68,16 +105,16 @@ describe('agentLaunchCommand', () => {
   })
 
   it('spawns codex fresh', () => {
-    expect(plain(agentLaunchCommand('codex', { ...ctx('codex'), cwd: '/w' }))).toEqual({
+    expect(codexPlain(agentLaunchCommand('codex', { ...ctx('codex'), cwd: '/w' }))).toEqual({
       cmd: exe('codex'),
-      args: CODEX_NETWORK_ARGS,
+      args: CODEX_POSTURE_ARGS,
       cwd: '/w',
     })
   })
 
   it('resumes codex by thread id', () => {
     expect(
-      plain(
+      codexPlain(
         agentLaunchCommand('codex', {
           ...ctx('codex'),
           cwd: '/w',
@@ -86,7 +123,7 @@ describe('agentLaunchCommand', () => {
       ),
     ).toEqual({
       cmd: exe('codex'),
-      args: ['resume', '-C', '/w', 't9', ...CODEX_NETWORK_ARGS],
+      args: ['resume', '-C', '/w', 't9', ...CODEX_POSTURE_ARGS],
       cwd: '/w',
     })
   })
@@ -292,10 +329,12 @@ describe('agentLaunchCommand', () => {
 
     it('appends the prompt as a positional arg for codex and grok', () => {
       expect(
-        plain(agentLaunchCommand('codex', { ...ctx('codex'), cwd: '/w', initialPrompt: 'do X' })),
+        codexPlain(
+          agentLaunchCommand('codex', { ...ctx('codex'), cwd: '/w', initialPrompt: 'do X' }),
+        ),
       ).toEqual({
         cmd: exe('codex'),
-        args: [...CODEX_NETWORK_ARGS, '--', 'do X'],
+        args: [...CODEX_POSTURE_ARGS, '--', 'do X'],
         cwd: '/w',
       })
       expect(
@@ -466,7 +505,7 @@ describe('agentLaunchCommand', () => {
       ).toEqual([
         '-c',
         'developer_instructions="Follow the pinned workflow."',
-        ...CODEX_NETWORK_ARGS,
+        ...CODEX_POSTURE_ARGS,
       ])
     })
 
@@ -478,7 +517,7 @@ describe('agentLaunchCommand', () => {
           cwd: '/w',
           podiumSessionId: asSessionId(sessionId),
         }).args,
-      ).toEqual(CODEX_NETWORK_ARGS)
+      ).toEqual(CODEX_POSTURE_ARGS)
     })
 
     it('uses Grok rules', () => {
@@ -545,7 +584,7 @@ describe('agentLaunchCommand', () => {
     it('codex maps effort to a reasoning-effort config override', () => {
       expect(
         agentLaunchCommand('codex', { ...ctx('codex'), cwd: '/w', effort: 'high' }).args,
-      ).toEqual(['-c', 'model_reasoning_effort=high', ...CODEX_NETWORK_ARGS])
+      ).toEqual(['-c', 'model_reasoning_effort=high', ...CODEX_POSTURE_ARGS])
     })
 
     it.each([
@@ -611,7 +650,7 @@ describe('agentLaunchCommand', () => {
       expect(
         agentLaunchCommand('codex', { ...ctx('codex'), cwd: '/w', model: 'auto', effort: 'auto' })
           .args,
-      ).toEqual(CODEX_NETWORK_ARGS)
+      ).toEqual(CODEX_POSTURE_ARGS)
     })
   })
 

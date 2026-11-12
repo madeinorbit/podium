@@ -34,8 +34,15 @@ describe('final daemon launch arguments', () => {
       'gpt-5.6-sol',
       '-c',
       'model_reasoning_effort=xhigh',
+      // Moved to posture (POD-6858): the loopback override, with trust, the
+      // update switch and the default posture's mode beside it.
+      '-c',
+      'projects={"/work/podium-test"={trust_level="trusted"}}',
+      '-c',
+      'check_for_update_on_startup=false',
       '-c',
       'sandbox_workspace_write.network_access=true',
+      '--approve-for-me',
       '-c',
       'tui.theme=ansi',
       '--',

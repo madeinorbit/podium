@@ -16,6 +16,19 @@ import { testHarnessSnapshot } from './test-support.js'
 
 const snapshot = testHarnessSnapshot()
 const POSTURE = testTurnPosture()
+
+/**
+ * What Codex's posture section puts right after `exec` on a turn under the
+ * default posture (POD-6858 §4.8). Moved to posture: a turn used to carry
+ * none of these.
+ */
+const CODEX_TURN_POSTURE_ARGS = [
+  '-c',
+  'projects={"/work/podium-test"={trust_level="trusted"}}',
+  '-c',
+  'sandbox_workspace_write.network_access=true',
+  '--approve-for-me',
+]
 const identity = {
   launchPosture: POSTURE,
   accountId: asAccountId('native:claude-code:test'),
@@ -42,7 +55,13 @@ describe('buildHeadlessExec argv shapes', () => {
       POSTURE,
     )
     expect(cmd).toBe('/opt/codex')
-    expect(args).toEqual(['exec', '--json', '--skip-git-repo-check', 'hi there'])
+    expect(args).toEqual([
+      'exec',
+      ...CODEX_TURN_POSTURE_ARGS,
+      '--json',
+      '--skip-git-repo-check',
+      'hi there',
+    ])
   })
 
   it('codex resume turn: `exec resume <id>` subcommand before flags', () => {
@@ -54,6 +73,7 @@ describe('buildHeadlessExec argv shapes', () => {
     )
     expect(args).toEqual([
       'exec',
+      ...CODEX_TURN_POSTURE_ARGS,
       'resume',
       '019f-abc',
       '--json',
@@ -71,8 +91,7 @@ describe('buildHeadlessExec argv shapes', () => {
       harnessInstallation(snapshot, 'codex'),
       POSTURE,
     )
-    expect(args).toContain('-c')
-    expect(args[args.indexOf('-c') + 1]).toBe('model_reasoning_effort="low"')
+    expect(args[args.indexOf('model_reasoning_effort="low"') - 1]).toBe('-c')
   })
 
   it('codex MCP config becomes -c TOML overrides and a bad config throws', () => {

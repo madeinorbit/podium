@@ -153,11 +153,14 @@ export function evaluateCodexVersionProbe(output: string, ok: boolean): CodexPro
  * present. The app-server's current default routes approval requests through
  * server→client JSON-RPC, which is the behaviour this driver consumes; pinning
  * a retired policy both duplicates the harness default and kills every session
- * before that protocol can open.
+ * before that protocol can open. An autonomous session's posture adds only
+ * `approvals_reviewer="auto_review"`, which sends those requests to Codex's
+ * reviewer instead.
  *
- * `sandbox_mode=workspace-write` matches what a Podium session is for — an agent
- * that may edit the worktree it was pointed at — and keeps the network closed
- * unless the MCP mount opens it below.
+ * THE SANDBOX IS THE POSTURE SECTION'S (adapters/codex/posture.ts, POD-6858):
+ * `sandbox_mode="workspace-write"`, loopback open in it in every mode, folder
+ * trust and the approval reviewer are added by the adapter's `engine` terms
+ * when the command is bound, so the engine and the terminal state them once.
  */
 export function codexAppServerConfigArgs(input: {
   /** The session's MCP declaration, forwarded by the driver from `SessionSpec`. */
@@ -186,14 +189,6 @@ export function codexAppServerConfigArgs(input: {
   const mcp = config ? codexMcpArgs(config, 'app-server') : { args: [], env: {} }
   return {
     args: [
-      '-c',
-      'sandbox_mode="workspace-write"',
-      ...(mcp.args.length > 0
-        ? // The terminal launch already does this for the loopback CLI; an MCP
-          // server Podium hosts on loopback is unreachable from a sandbox with
-          // no network, so mounting one without this is mounting nothing.
-          ['-c', 'sandbox_workspace_write.network_access=true']
-        : []),
       ...mcp.args,
       // The terminal adapter's own override, so a session's instructions reach
       // Codex the same way whichever driver runs it (POD-5814).
