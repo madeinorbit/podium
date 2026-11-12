@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useRef } from 'react'
 import type { LayoutChangeEvent, NativeScrollEvent, NativeSyntheticEvent } from 'react-native'
-import { measureAtTail, tailOffset } from '../lib/transcript-tail'
+import { FOLLOW_REARM_SLACK, measureAtTail, tailOffset } from '../lib/transcript-tail'
 
 interface Options {
   identity: string
@@ -14,6 +14,9 @@ interface Options {
 /** Native maintains row geometry through maintainVisibleContentPosition. This
  * hook owns intent only: a real drag releases before content-size callbacks,
  * and a layout-induced scroll can never rearm following. */
+/** Points the spring-back may land short of the computed end (fractional layout). */
+const TAIL_SETTLE = 2
+
 export function useNativeTranscriptScroll({
   identity,
   scrollToOffset,
@@ -51,12 +54,7 @@ export function useNativeTranscriptScroll({
     setFollowing(false)
     // With a collapsed page that fits in the viewport, dragging cannot move
     // the offset. Reader intent must still be able to request older history.
-    if (
-      height.current <= viewport.current &&
-      offset.current <= 0 &&
-      moreAbove &&
-      !loadingOlder
-    )
+    if (height.current <= viewport.current && offset.current <= 0 && moreAbove && !loadingOlder)
       onLoadOlder?.()
   }, [loadingOlder, moreAbove, onLoadOlder, setFollowing])
   const readAtTarget = useCallback(() => {
@@ -68,6 +66,7 @@ export function useNativeTranscriptScroll({
     setFollowing(true)
     followLayout()
   }, [followLayout, setFollowing])
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new conversation identity reopens at the bottom
   useLayoutEffect(() => {
     userMoving.current = false
     writtenOffset.current = null
@@ -88,13 +87,47 @@ export function useNativeTranscriptScroll({
       observedGeometry.current = { height: contentSize.height, viewport: layoutMeasurement.height }
       offset.current = top
       if (userMoving.current && !ownWrite && !resized) {
-        if (top < previous) setFollowing(false)
-        else if (top > previous && measureAtTail(top, layoutMeasurement.height, contentSize.height))
+        const end = tailOffset(contentSize.height, layoutMeasurement.height)
+        // iOS rubber-bands past the end and springs back: the spring-back moves
+        // UP, but it is the reader arriving at the bottom, not leaving it.
+        const pastEnd = top > end + 0.5
+        const settlingFromPastEnd = previous > end + 0.5 && top >= end - TAIL_SETTLE
+        if (
+          pastEnd ||
+          settlingFromPastEnd ||
+          (top > previous &&
+            measureAtTail(top, layoutMeasurement.height, contentSize.height, FOLLOW_REARM_SLACK))
+        )
           setFollowing(true)
-        if (top < previous && top < Math.max(120, layoutMeasurement.height * 2) && moreAbove && !loadingOlder) onLoadOlder?.()
+        else if (top < previous) setFollowing(false)
+        if (
+          top < previous &&
+          top < Math.max(120, layoutMeasurement.height * 2) &&
+          moreAbove &&
+          !loadingOlder
+        )
+          onLoadOlder?.()
       }
     },
     [loadingOlder, moreAbove, onLoadOlder, setFollowing],
+  )
+  /** A gesture or its momentum came to rest: a reader who stops within reach
+   * of the bottom has arrived there, however slowly they got there. */
+  const onScrollSettle = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (!userMoving.current) return
+      const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
+      if (
+        measureAtTail(
+          contentOffset.y,
+          layoutMeasurement.height,
+          contentSize.height,
+          FOLLOW_REARM_SLACK,
+        )
+      )
+        setFollowing(true)
+    },
+    [setFollowing],
   )
   const onLayout = useCallback(
     (event: LayoutChangeEvent) => {
@@ -110,5 +143,13 @@ export function useNativeTranscriptScroll({
     },
     [followLayout],
   )
-  return { release, readAtTarget, jumpToBottom, onScroll, onLayout, onContentSizeChange }
+  return {
+    release,
+    readAtTarget,
+    jumpToBottom,
+    onScroll,
+    onScrollSettle,
+    onLayout,
+    onContentSizeChange,
+  }
 }
