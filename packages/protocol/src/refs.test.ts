@@ -4,6 +4,7 @@ import {
   anyRefMatcher,
   bareSelfRefCount,
   derivePrefix,
+  FALLBACK_ISSUE_PREFIX,
   formatIssueRef,
   formatLong,
   formatSessionRef,
@@ -13,16 +14,16 @@ import {
   isShortSessionIdentifier,
   isValidPrefix,
   letterForIndex,
+  OTHER_REF_RULE,
+  otherRefRule,
   parseAnyRef,
   parseIssueRef,
   parseSessionRef,
   resolveSessionIdentifier,
-  FALLBACK_ISSUE_PREFIX,
-  OTHER_REF_RULE,
-  otherRefRule,
   SELF_REF_RULE,
   selfRefNudge,
   selfRefRule,
+  soleRefToken,
   truncateTitle,
 } from './refs'
 
@@ -272,7 +273,15 @@ describe('SELF_REF_RULE', () => {
 
 describe('isShortSessionIdentifier (POD-4637)', () => {
   it('is true for a proper prefix of a uuid and for birth refs', () => {
-    for (const v of ['2', '214a', '214a3887', '214a3887-', '214a3887-6146', 'POD-12-A', 'POD-DRAFT-3']) {
+    for (const v of [
+      '2',
+      '214a',
+      '214a3887',
+      '214a3887-',
+      '214a3887-6146',
+      'POD-12-A',
+      'POD-DRAFT-3',
+    ]) {
       expect(isShortSessionIdentifier(v), v).toBe(true)
     }
   })
@@ -296,5 +305,16 @@ describe('isSessionIdPrefix (POD-4637)', () => {
     expect(isSessionIdPrefix('214a3887')).toBe(true)
     expect(isSessionIdPrefix('POD-12-A')).toBe(false)
     expect(isSessionIdPrefix('214a3887-6146-4a1d-9c3e-0123456789ab')).toBe(false)
+  })
+})
+
+describe('soleRefToken', () => {
+  it('returns the token only when the text is exactly one ref', () => {
+    expect(soleRefToken(' POD-13 ')).toBe('POD-13')
+    expect(soleRefToken('POD-13-A')).toBe('POD-13-A')
+    expect(soleRefToken('POD-DRAFT-3')).toBe('POD-DRAFT-3')
+    expect(soleRefToken('podium issue show POD-13')).toBeNull()
+    expect(soleRefToken('POD-13 POD-14')).toBeNull()
+    expect(soleRefToken('')).toBeNull()
   })
 })

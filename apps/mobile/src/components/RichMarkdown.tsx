@@ -1,4 +1,5 @@
 import { codeBlockIdentity } from '@podium/client-core/code-highlight'
+import { parseAnyRef, soleRefToken } from '@podium/protocol'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
 import { LinearGradient } from 'expo-linear-gradient'
@@ -63,10 +64,10 @@ function renderText(text: string, ctx: RenderContext, key: string): ReactNode[] 
         token={part.ref}
         refKind={part.refKind}
         prefix={part.prefix}
-        // Only issue refs peek: the handler resolves a task, and a session ref
-        // that opened nothing would be a tap that looks answered and is not
-        // (POD-724). It still reads as a ref — muted, glyph-less, underlined.
-        onPress={part.refKind === 'issue' ? ctx.onRefPress : undefined}
+        onPress={ctx.onRefPress}
+        // An issue ref peeks through the caller's handler when there is one;
+        // a session ref (and an issue ref with no handler) opens through the
+        // shared link activator inside the chip (POD-2444).
       />
     ) : (
       part.text
@@ -100,12 +101,31 @@ function renderInline(
             {renderInline(token.tokens ?? [], ctx, tokenKey)}
           </Text>
         )
-      case 'codespan':
-        return (
+      case 'codespan': {
+        // `POD-13` in backticks is how agents write refs, so a span holding
+        // ONLY a ref is the chip, as on desktop; a ref quoted inside a longer
+        // span (a command, a path) stays literal code (POD-2444).
+        const code = plainText(token)
+        const literal = (
           <Text key={tokenKey} style={styles.inlineCode}>
-            {plainText(token)}
+            {code}
           </Text>
         )
+        const ref = soleRefToken(code)
+        const parsed = ref ? parseAnyRef(ref) : null
+        if (!ref || !parsed) return literal
+        // An unregistered prefix (`UTF-8`) keeps its code face.
+        return (
+          <RefChip
+            key={tokenKey}
+            token={ref}
+            refKind={parsed.kind}
+            prefix={parsed.prefix}
+            onPress={ctx.onRefPress}
+            fallback={literal}
+          />
+        )
+      }
       case 'link': {
         const safe = safeLinkUrl(token.href)
         return (
