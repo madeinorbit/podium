@@ -3,7 +3,7 @@ import { GrantEdgeVisibilityPolicy, NoDelegationsGranted } from '@podium/sync/bo
 import { makeFeedVisibility } from '../feed-visibility'
 import { effectPublication } from '../modules/effects/published-input'
 import { createBunStoreExecutor } from '../store/executor/bun-driver'
-import { compareAtSaveRecords } from '../sync/compare-at-save'
+import { databaseRecords } from '../sync/record-source'
 import { recordReadsOf } from './record-reads'
 
 export interface BootstrapVisibilityOptions {
@@ -33,7 +33,7 @@ export function bootstrapVisibility(
     const { grants, sync } = reads.store
     // The start-up load streams these, and the sharing rules re-send current
     // values from them (POD-6770): every kind, built from the model tables.
-    const records = compareAtSaveRecords(reads)
+    const records = databaseRecords(reads)
     const visibility = makeFeedVisibility({
       store: reads.store,
       audiencesFor: (kind, ids) => grants.visibilityAudiencesFor(kind, ids),

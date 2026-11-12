@@ -606,7 +606,6 @@ export class IssueAttentionModule {
     // The row and its change entry commit together (POD-6676): the Authority
     // builds the named record before and after the write (POD-6769).
     await writer.commit({
-      affects: [subscriptionRecord(sub)],
       write: async () => await this.store.deps.store.events.addSubscription(sub),
     })
     return sub
@@ -617,7 +616,6 @@ export class IssueAttentionModule {
     const existing = await this.store.deps.store.events.getSubscription(id)
     if (existing === undefined) return { removed: false }
     await writer.commit({
-      affects: [subscriptionRecord(existing)],
       write: async () => await this.store.deps.store.events.removeSubscription(id),
     })
     return { removed: true }

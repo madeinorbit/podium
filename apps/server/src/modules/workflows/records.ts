@@ -4,24 +4,17 @@
  * Four kinds reach the feed: `workflow`, `workflowRevision`, `workflowBinding`
  * and `workflowRun`. Every one of them is written by the workflow service, from
  * many sites (a library write, a run advance, a run the server starts after a
- * spawn), so the change entries are not restated at each site. Instead:
+ * spawn), so the change entries are not restated at each site:
  *
- *  - THE REPOSITORY RECORDS WHAT A WRITE TOUCHED. {@link recordedWorkflowStore}
- *    wraps `WorkflowsRepository`: each mutating method notes the record it
- *    changed (a run step names its run, a new revision its workflow) in the
- *    operation's {@link WorkflowTouched}, held in async context for the length
- *    of one operation.
  *  - ONE COMMIT PER OPERATION. {@link committedWorkflowWrite} runs the operation
  *    inside the writer's `commit`: the rows and their change entries commit
- *    together (ADR 2 D10). The operation names the records it touched after it
- *    ran, and the Authority builds each from the stored rows, so a record on
- *    the feed is always the stored one (POD-6769). An
- *    operation started inside another (an adoption starting its new run) joins
- *    the outer commit.
- *  - STRICT IN PRODUCTION. A service wired with a writer refuses a workflow write
- *    outside any operation: a write the feed would never hear of is a bug, and
- *    it fails where it is made. A service built without one (the engine's unit
- *    tests) writes as before and publishes nothing.
+ *    together (ADR 2 D10). The database captures every row the operation
+ *    changed, and the Authority builds the records those rows reach from the
+ *    stored rows (POD-6920), so a record on the feed is always the stored one.
+ *    An operation started inside another (an adoption starting its new run)
+ *    joins the outer commit.
+ *  - A WRITE OUTSIDE AN OPERATION CANNOT COMMIT: its capture is never drained,
+ *    and the database refuses the transaction (POD-6920).
  *
  * A run carries its revision by id and no history (`WorkflowRunRecord`); the
  * history stays the `workflows.status` answer, because it grows.
@@ -31,84 +24,12 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks'
-import {
-  type WorkflowBindingTarget,
-  type WorkflowRunRecord,
-  type WorkflowRunStepWire,
-  workflowBindingRowId,
-} from '@podium/model'
-import type { AffectedRecordSpec, LedgerCommitOp } from '@podium/sync'
-import type { WorkflowRunRow, WorkflowsRepository } from '../../store/workflows'
+import type { WorkflowRunRecord, WorkflowRunStepWire } from '@podium/model'
+import type { LedgerCommitOp } from '@podium/sync'
+import type { WorkflowRunRow } from '../../store/workflows'
 
-/** The records one workflow operation changed. */
-export class WorkflowTouched {
-  readonly workflows = new Set<string>()
-  readonly revisions = new Set<string>()
-  /** Binding row ids (`workflowBindingRowId`). */
-  readonly bindings = new Set<string>()
-  readonly runs = new Set<string>()
-}
-
-const touchedScope = new AsyncLocalStorage<WorkflowTouched>()
-
-/** What one mutating repository method changed, from its arguments and answer. */
-type Touch = (touched: WorkflowTouched, args: readonly unknown[], result: unknown) => void
-
-const arg = <T>(args: readonly unknown[]): T => args[0] as T
-
-/** Every mutating method of the repository. A method missing here is a write
- *  the feed would not hear of; `records.test.ts` holds the list to the class. */
-export const WORKFLOW_STORE_WRITES: Readonly<Record<string, Touch>> = {
-  insertWorkflow: (t, args) => t.workflows.add(arg<{ id: string }>(args).id),
-  insertRevision: (t, args, result) => {
-    t.revisions.add((result as { id: string }).id)
-    // A revision moves its workflow's latest pointers.
-    t.workflows.add(arg<{ workflowId: string }>(args).workflowId)
-  },
-  // The revision's workflow is read back with it (its pointers may move).
-  publishRevision: (t, args) => t.revisions.add(arg<string>(args)),
-  setBinding: (t, args) => {
-    const input = arg<{ targetKind: WorkflowBindingTarget; targetId: string }>(args)
-    t.bindings.add(workflowBindingRowId(input.targetKind, input.targetId))
-  },
-  insertRun: (t, args) => t.runs.add(arg<{ run: { id: string } }>(args).run.id),
-  updateRunStatus: (t, args) => t.runs.add(arg<string>(args)),
-  updateStep: (t, args) => t.runs.add(arg<{ runId: string }>(args).runId),
-  assignStep: (t, args) => t.runs.add(arg<string>(args)),
-  resetStep: (t, args) => t.runs.add(arg<string>(args)),
-}
-
-/** Methods that write rows no record carries: the run history (a request
- *  answer, design §1.10). Listed so the method check stays total. */
-export const WORKFLOW_STORE_UNSYNCED_WRITES: readonly string[] = ['appendEvent']
-
-/**
- * The repository as the service holds it: every mutating method records what
- * it touched in the current operation. `strict` refuses a write outside one.
- */
-export function recordedWorkflowStore(
-  store: WorkflowsRepository,
-  opts: { strict: boolean },
-): WorkflowsRepository {
-  return new Proxy(store, {
-    get(target, prop, receiver) {
-      const value = Reflect.get(target, prop, receiver) as unknown
-      if (typeof value !== 'function' || typeof prop !== 'string') return value
-      const touch = WORKFLOW_STORE_WRITES[prop]
-      const method = value as (...args: unknown[]) => Promise<unknown>
-      if (touch === undefined) return method.bind(target)
-      return async (...args: unknown[]) => {
-        const touched = touchedScope.getStore()
-        if (touched === undefined && opts.strict) {
-          throw new Error(`workflows: ${prop} ran outside a change-log commit`)
-        }
-        const result = await method.apply(target, args)
-        if (touched !== undefined) touch(touched, args, result)
-        return result
-      }
-    },
-  })
-}
+/** Set while a workflow operation's commit is open, so a nested one joins it. */
+const operationScope = new AsyncLocalStorage<true>()
 
 /** What a workflow operation commits through: a command's writer or the
  *  service's own server origin. */
@@ -122,15 +43,12 @@ export interface WorkflowChangeWriter {
  * Without a writer (unit tests), it runs as it is.
  */
 export async function committedWorkflowWrite<T>(
-  store: WorkflowsRepository,
   writer: WorkflowChangeWriter | undefined,
   operation: () => Promise<T>,
 ): Promise<T> {
-  if (touchedScope.getStore() !== undefined || writer === undefined) return await operation()
-  const touched = new WorkflowTouched()
+  if (operationScope.getStore() !== undefined || writer === undefined) return await operation()
   const { result } = await writer.commit({
-    write: async () => await touchedScope.run(touched, operation),
-    wrote: async () => await workflowRecordsWritten(store, touched),
+    write: async () => await operationScope.run(true, operation),
   })
   return result
 }
@@ -155,35 +73,3 @@ export function workflowRunRecordOf(
     completedAt: run.completedAt,
   }
 }
-
-/**
- * The records one operation wrote, named after it ran (POD-6769): the
- * operation learns them while it runs, so they cannot be named before it. The
- * workflow kinds are the closed list the Authority allows this for
- * (`NAMED_AFTER_WRITE_KINDS`): it builds each from the stored rows and appends
- * it as it is now, with no compare. Workflows, revisions and bindings are
- * never deleted (a workflow archives), so every entry is an upsert.
- *
- * A touched revision names its workflow too, as before: one read per touched
- * revision, and an operation touches a few.
- */
-export async function workflowRecordsWritten(
-  store: Pick<WorkflowsRepository, 'getRevision'>,
-  touched: WorkflowTouched,
-): Promise<AffectedRecordSpec[]> {
-  const workflowIds = new Set(touched.workflows)
-  const revisions: AffectedRecordSpec[] = []
-  for (const id of touched.revisions) {
-    const revision = await store.getRevision(id)
-    if (revision === null) continue
-    workflowIds.add(revision.workflowId)
-    revisions.push({ entity: 'workflowRevision', id })
-  }
-  return [
-    ...revisions,
-    ...[...workflowIds].map((id) => ({ entity: 'workflow' as const, id })),
-    ...[...touched.bindings].map((id) => ({ entity: 'workflowBinding' as const, id })),
-    ...[...touched.runs].map((id) => ({ entity: 'workflowRun' as const, id })),
-  ]
-}
-

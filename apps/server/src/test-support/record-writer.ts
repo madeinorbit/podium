@@ -1,9 +1,9 @@
 /**
- * A commit writer for a SERVICE test whose kind compares at save (POD-6769):
- * an Authority over an in-memory change log, with the server's record builders
- * over the test's own store, so a commit's named records are built around its
- * write as production builds them. `appended` holds every change the commits
- * appended, in order.
+ * A commit writer for a SERVICE test: an Authority over an in-memory change
+ * log, with the server's record source over the test's own store, so a
+ * commit drains the store's change capture and builds the records its write
+ * reached as production does (POD-6920). `appended` holds every change the
+ * commits appended, in order.
  */
 
 import type { MetadataEntityKind } from '@podium/protocol'
@@ -16,13 +16,13 @@ import {
   type RecordSourcePort,
 } from '@podium/sync'
 import { authorityCommitWriter, memoryChangeLog } from '@podium/sync/testing'
-import { COMPARE_AT_SAVE_KINDS, compareAtSaveRecords } from '../sync/compare-at-save'
+import { databaseRecords } from '../sync/record-source'
 import type { RecordReads } from '../sync/record-builders'
 
 /**
  * The record source of a test's own Ledger over a real store: what
- * `relay.ts` gives the production Ledger, so a service under test that names
- * records (a moved kind) is built around its write the same way.
+ * `relay.ts` gives the production Ledger, so a service under test has its
+ * writes captured and built the same way.
  */
 export function testStoreRecords(
   store: RecordReads['store'],
@@ -33,7 +33,7 @@ export function testStoreRecords(
     eventWindow?: number
   } = {},
 ): RecordSourcePort {
-  return compareAtSaveRecords({
+  return databaseRecords({
     store,
     effectExecutors: opts.effectExecutors ?? { get: () => undefined },
     now: opts.now ?? (() => Date.now()),
@@ -50,9 +50,10 @@ export interface RecordTestWriter {
 }
 
 /**
- * `store` holds only the repositories the test's kinds read; `transact` is the
- * store's unit of work when the test has one (the default runs the commit with
- * no rollback).
+ * `store` holds the repositories the test's kinds read and `sync` (the
+ * capture's drain); `transact` is the store's unit of work when the test has
+ * one (the default runs the commit with no rollback). `kinds` limits the
+ * records appended to a subset.
  */
 export function recordTestWriter(
   store: Partial<RecordReads['store']>,
@@ -70,13 +71,13 @@ export function recordTestWriter(
     transact: opts.transact ?? ((fn) => fn()),
     visibility: new DeviceGradeUnscopedPolicy(),
     anchors: new DeviceGradeNoAnchors(),
-    records: compareAtSaveRecords(
+    records: databaseRecords(
       {
         store: store as RecordReads['store'],
         effectExecutors: opts.effectExecutors ?? { get: () => undefined },
         now: opts.now ?? (() => 1_000),
       },
-      opts.kinds ?? COMPARE_AT_SAVE_KINDS,
+      opts.kinds,
     ),
   })
   return {

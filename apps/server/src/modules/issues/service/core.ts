@@ -221,7 +221,6 @@ export class IssueStore {
   ): Promise<void> {
     const owner = user
     await this.arbitrated(writer).commit({
-      affects: [issueUserStateRecord(owner, issueId)],
       write: async (scope) => {
         await this.deps.store.issues.setIssueUserState(scope, owner, issueId, patch)
       },
@@ -272,7 +271,6 @@ export class IssueStore {
     ) => Partial<StoredIssueUserState> | undefined,
   ): Promise<boolean> {
     const { result } = await this.arbitrated(writer).commit({
-      affects: [issueUserStateRecord(user, issueId)],
       write: async (scope) => {
         const current = await this.deps.store.issues.getIssueUserState(user, issueId)
         const patch = decide(current)
@@ -374,7 +372,6 @@ export class IssueStore {
   ): Promise<boolean> {
     const committed = await this.arbitrated(this.serverWriter).commit({
       // The observation's own record, built around the write (POD-6770).
-      affects: [{ entity: 'issueGitState', id }],
       write: async (scope) => {
         const row = await this.row(id)
         if (
@@ -970,9 +967,7 @@ export class IssueStore {
         id: r.id,
       }))
     const { result } = await this.arbitrated(writer).commit({
-      affects: repoRecords,
       write: async () => await write(),
-      creates: repoRecords,
     })
     return result
   }

@@ -246,7 +246,19 @@ function session(
       live()
       if (!open) return
       open = false
-      db.exec('COMMIT')
+      try {
+        db.exec('COMMIT')
+      } catch (error) {
+        // A refused COMMIT (a deferred constraint: an undrained change
+        // capture, POD-6920) leaves SQLite's transaction open. Roll it back so
+        // the connection is clean and nothing of it is kept.
+        try {
+          db.exec('ROLLBACK')
+        } catch {
+          // Already rolled back by SQLite (a non-deferred failure).
+        }
+        throw error
+      }
     },
     async rollback() {
       live()

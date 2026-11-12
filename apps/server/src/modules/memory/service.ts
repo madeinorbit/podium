@@ -247,7 +247,6 @@ export class MemoryService {
       throw new ConversationNotFound()
     }
     await writer.commit({
-      affects: [{ entity: 'conversation', id: input.id }],
       write: async (scope) => {
         await this.deps.store.conversations.index.setMeta(scope, input.id, input)
       },

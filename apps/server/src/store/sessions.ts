@@ -24,7 +24,7 @@ import {
   type TabOrderWire,
   type UserId,
 } from '@podium/model'
-import type { AffectedRecordSpec, WriteScope } from '@podium/sync'
+import type { WriteScope } from '@podium/sync'
 import {
   and,
   asc,
@@ -1036,6 +1036,21 @@ const personalRecordKeys = preparedFamily((db: StoreDrizzle, size: number) =>
     .prepare(),
 )
 
+/** The same keys for these people (POD-6920: a disabled person's markers leave). */
+const personalRecordKeysOfUsers = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({ userId: sessionUserState.userId, sessionId: sessionUserState.sessionId })
+    .from(sessionUserState)
+    .where(inListOf(sessionUserState.userId, size))
+    .unionAll(
+      db
+        .select({ userId: snoozesTable.userId, sessionId: snoozesTable.sessionId })
+        .from(snoozesTable)
+        .where(inListOf(snoozesTable.userId, size)),
+    )
+    .prepare(),
+)
+
 const userStateRowsOfSession = prepared((db: StoreDrizzle) =>
   db
     .select()
@@ -1384,11 +1399,10 @@ const upsertDraftDoc = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-/** Wrap a session-row write with its confirmed message window comparison. */
-export type SessionMessageWindowWrite = (
-  ids: readonly string[],
-  write: () => Promise<void>,
-) => Promise<void>
+/** Run a session-row write as a change-log commit: a liveness change moves
+ *  the session's confirmed message window, and the commit drains the
+ *  database's change capture in the same transaction (POD-6920). */
+export type SessionMessageWindowWrite = (write: () => Promise<void>) => Promise<void>
 
 export class SessionsRepository {
   private readonly rootDb: StoreDrizzle
@@ -1396,7 +1410,7 @@ export class SessionsRepository {
   private messageWindowWrite: SessionMessageWindowWrite | undefined
 
   /** Installed with the message feed. Every liveness-changing write below
-   *  compares its message window inside the same transaction. */
+   *  runs as a change-log commit inside the same transaction. */
   setMessageWindowWrite(write: SessionMessageWindowWrite): () => void {
     this.messageWindowWrite = write
     return () => {
@@ -1404,11 +1418,8 @@ export class SessionsRepository {
     }
   }
 
-  private async writeSessionRows(
-    ids: readonly string[],
-    write: () => Promise<void>,
-  ): Promise<void> {
-    if (this.messageWindowWrite) await this.messageWindowWrite(ids, write)
+  private async writeSessionRows(write: () => Promise<void>): Promise<void> {
+    if (this.messageWindowWrite) await this.messageWindowWrite(write)
     else await write()
   }
 
@@ -1438,18 +1449,23 @@ export class SessionsRepository {
   }
 
   // ---- sessions ----
-  /** Records whose existence follows these sessions, including sparse personal rows. */
-  async recordIds(ids: readonly SessionId[]): Promise<AffectedRecordSpec[]> {
-    const records: AffectedRecordSpec[] = ids.map((id) => ({ entity: 'session', id }))
+  /**
+   * The `sessionUserState` record ids of the stored read and snooze rows of
+   * these sessions, or of these people (POD-6920: a deleted session's and a
+   * disabled person's markers leave the feed).
+   */
+  async sessionUserStateIdsOf(
+    by: { sessionIds: readonly string[] } | { userIds: readonly string[] },
+  ): Promise<string[]> {
+    const ids = 'sessionIds' in by ? by.sessionIds : by.userIds
+    const query = 'sessionIds' in by ? personalRecordKeys : personalRecordKeysOfUsers
+    const out = new Set<string>()
     for (const chunk of chunked(ids)) {
       const size = inListSize(chunk.length)
-      for (const row of await personalRecordKeys(this.db, size).all(inListValues(chunk, size)))
-        records.push({
-          entity: 'sessionUserState',
-          id: sessionUserStateRowId(row.userId, row.sessionId),
-        })
+      for (const row of await query(this.db, size).all(inListValues(chunk, size)))
+        out.add(sessionUserStateRowId(row.userId as UserId, row.sessionId as SessionId))
     }
-    return records
+    return [...out]
   }
 
   /** The owners of the sessions placed on one machine (a peer that sends no
@@ -1805,7 +1821,7 @@ export class SessionsRepository {
   }
 
   async upsertSession(_scope: WriteScope, row: SessionRow): Promise<void> {
-    await this.writeSessionRows([row.id], async () => {
+    await this.writeSessionRows(async () => {
       const values = sessionUpsertValues(row)
       const groups = changedGroups(this.writtenColumns.get(values.id), values)
       try {
@@ -1860,7 +1876,6 @@ export class SessionsRepository {
       else byShape.set(shape, [values])
     }
     await this.writeSessionRows(
-      rows.map((row) => row.id),
       async () => {
         for (const [shape, group] of byShape) {
           const keys = shape === '' ? [] : shape.split(',')
@@ -1907,7 +1922,7 @@ export class SessionsRepository {
     source: SessionDeletionSource,
     deletedByIssueId: IssueId | null = null,
   ): Promise<void> {
-    await this.writeSessionRows(ids, async () => {
+    await this.writeSessionRows(async () => {
       await this.writtenColumns.aside(ids, async () => {
         for (const id of ids) {
           await stopRunningForTombstone(this.db).run({ id, deletedAt })
@@ -1986,7 +2001,7 @@ export class SessionsRepository {
 
   /** Irreversibly remove a session and its satellites. Internal maintenance only. */
   async purgeSession(_scope: WriteScope, id: SessionId): Promise<void> {
-    await this.writeSessionRows([id], async () => {
+    await this.writeSessionRows(async () => {
       await deleteCheckpointsOfSession(this.db).run({ id })
       await this.purgeObservationCheckpoint(id)
       await this.writtenColumns.aside([id], () => deleteSessionRow(this.db).run({ id }))

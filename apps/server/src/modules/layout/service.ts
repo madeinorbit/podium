@@ -52,7 +52,6 @@ export class LayoutService {
       ...(panelModeDiff ? { panelModeChanged: panelModeDiff } : {}),
     })
     await writer.commit({
-      affects: layoutRecords(userId, Object.keys(values)),
       write: async (scope) => await this.deps.layout.setMany(scope, userId, values, now),
     })
     return await this.deps.layout.getSnapshot(userId)
@@ -64,7 +63,6 @@ export class LayoutService {
     keys: readonly string[],
   ): Promise<LayoutSnapshot> {
     await writer.commit({
-      affects: layoutRecords(userId, keys),
       write: async (scope) => await this.deps.layout.clearMany(scope, userId, keys),
     })
     return await this.deps.layout.getSnapshot(userId)

@@ -58,8 +58,7 @@ export interface CheckoutsDeps {
   writer(): Pick<LedgerWriter, 'commit'>
   /**
    * Run a write of the repo registry (scanned origins that moved, POD-6246) in
-   * one commit with the logical repo records it changes: the records are built
-   * before and after the write (compare at save, POD-6769).
+   * one commit, so the logical repo records it changes are appended with it.
    */
   commitRepoWrite(write: () => Promise<void>): Promise<void>
   now(): string
@@ -314,13 +313,8 @@ export class CheckoutsService {
       const stored = await this.deps.store.checkouts.ofMachine(machineId)
       const { upserts, removes } = checkoutDiff(machineId, registered, stored, scanned)
       if (upserts.length === 0 && removes.length === 0) return
-      // The rows this diff writes or removes are named, and the Authority
-      // builds each before and after the write (compare at save, POD-6769).
+      // The Authority appends the checkout records the rows reach (POD-6920).
       await this.deps.writer().commit({
-        affects: [...upserts, ...removes].map((row) => ({
-          entity: 'checkout' as const,
-          id: checkoutRowId(machineId, row.path),
-        })),
         write: async () =>
           await this.deps.store.checkouts.apply(upserts, removes, this.deps.now()),
       })

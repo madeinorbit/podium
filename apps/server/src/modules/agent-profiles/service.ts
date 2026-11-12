@@ -168,7 +168,6 @@ export class AgentProfileService {
     }
     const machineId = await this.machineIdFor(fields.machineId ?? null)
     const { result } = await writer.commit({
-      affects: [agentProfileRecord(id)],
       write: async () =>
         await this.deps.store.insert({
           id,
@@ -208,7 +207,6 @@ export class AgentProfileService {
         ? (current.machineId as MachineId | null)
         : await this.machineIdFor(patch.machineId)
     const { result } = await writer.commit({
-      affects: [agentProfileRecord(id)],
       write: async () => {
         await this.deps.store.update({
           id,
@@ -238,7 +236,6 @@ export class AgentProfileService {
     if (!current) throw new AgentProfileRefusal(`no agent profile '${id}'`)
     await this.refuseWhileUsed(current)
     await writer.commit({
-      affects: [agentProfileRecord(id)],
       write: async () => await this.deps.store.delete(id),
     })
   }

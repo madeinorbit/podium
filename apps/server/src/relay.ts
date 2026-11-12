@@ -136,7 +136,6 @@ import { registerSessionAnswerEffect } from './modules/interactions/answer-effec
 import { InteractionFeedPublisher } from './modules/interactions/feed'
 import { deliverToNativeMenu } from './modules/interactions/native-menu-delivery'
 import { InteractionService } from './modules/interactions/service'
-import { IssueEventFeedPublisher } from './modules/issue-events/feed'
 import { IssueSessionLifecycle } from './modules/issue-session-lifecycle'
 import { DurableIssueAccessIndex } from './modules/issues/access-index'
 import {
@@ -281,7 +280,7 @@ import { SessionStore } from './store'
 import type { EffectRow, EffectsRepository } from './store/effects'
 import { afterCommit, applyAfterCommit, spanOpen } from './store/executor/executor'
 import { currentReadScope, readScopeSlot } from './store/executor/read-scope'
-import { compareAtSaveRecords } from './sync/compare-at-save'
+import { databaseRecords } from './sync/record-source'
 import { readKindTokens } from './sync/kind-tokens'
 import type { SyncDeltaPorts } from './sync/route-support'
 import { installSessionSourceWrites } from './sync/session-source-writes'
@@ -1180,10 +1179,10 @@ export class SessionRegistry {
     // record's builder reads it; the kinds register on it further down.
     const effectExecutors = new EffectExecutorRegistry()
     // EVERY RECORD, BUILT FROM THE MODEL TABLES (design POD-6253 §1). The
-    // Authority compares a write's named records through it (POD-6769), and
-    // the start-up load and the sharing rules read current values from it
-    // (POD-6770). `sync/compare-at-save.ts` lists the kinds: all of them.
-    const records = compareAtSaveRecords({ store: this.store, effectExecutors, now: this.now })
+    // Authority drains the database's change capture through it and builds
+    // the records a write reached (POD-6920), and the start-up load and the
+    // sharing rules read current values from it (POD-6770).
+    const records = databaseRecords({ store: this.store, effectExecutors, now: this.now })
     const feedVisibility = makeFeedVisibility({
       store: this.store,
       audiencesFor: (kind, ids) => this.store.grants.visibilityAudiencesFor(kind, ids),
@@ -1220,9 +1219,8 @@ export class SessionRegistry {
       // plain command (ADR 12 D8, POD-6360) it refuses: a plain handler has no
       // access to the Authority, so it cannot write synced data by accident.
       provenance: syncedWriteProvenance,
-      // COMPARE AT SAVE (POD-6769, design POD-6253 §3): a commit names its
-      // records and the Authority builds them from the model tables before
-      // and after the write.
+      // DERIVED CHANGE CAPTURE (POD-6920, design POD-6253 §3): a commit
+      // names nothing; the Authority drains what the write changed.
       records,
     })
     this.ledger = ledger
@@ -1240,18 +1238,15 @@ export class SessionRegistry {
       await asSystemWrite(async () => await compareMachineRecords(scope, write, writer))
     installSessionSourceWrites(this.store, writes.system('sessions.live'))
     // ONE HOOK ON THE ONE APPEND (POD-1772): every orchestrator event write in
-    // the server goes through `store.events.appendEvent`, so the curated
-    // feed-kind subset reaches the metadata feed from the write path rather than
-    // from a list of call sites somebody has to keep complete.
-    const issueEventFeed = new IssueEventFeedPublisher({
-      ledger: writes.system('feed.issueEvents'),
-      events: this.store.events,
-      transact: async (fn) => await this.store.transact(fn),
+    // the server goes through `store.events.appendEvent`, and every retention
+    // batch through `pruneEventBatch`. Each runs this commit in its own
+    // transaction, which drains the change capture, so the issue-event window
+    // and a session's transcript flag reach the feed from the write path
+    // (POD-6920).
+    const eventLog = writes.system('feed.issueEvents')
+    this.store.events.setLogCommit(async () => {
+      await eventLog.commit({ write: async () => {} })
     })
-    this.store.events.setFeedCapture(async (id, event) => await issueEventFeed.publish(id, event))
-    // Retention is a change to the window too (POD-6766): the events it took
-    // leave the feed.
-    this.store.events.setPruneFeedCapture(async (deleted) => await issueEventFeed.pruned(deleted))
     // ONE HOOK ON THE ONE WRITE FUNNEL (POD-4764): every write to the messages
     // table hands its rows to the chat message feed inside its own
     // transaction, so a person's messages and their delivery status reach every

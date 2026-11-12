@@ -321,7 +321,6 @@ export class AutomationsService {
     await this.assertOwnTarget(ownerUserId, row.targetSessionId)
     const created = (
       await writer.commit({
-        affects: [automationRecord(row.id)],
         write: async (scope) => {
           await this.deps.store.insert(scope, row)
           return row
@@ -393,7 +392,6 @@ export class AutomationsService {
     }
     const updated = (
       await writer.commit({
-        affects: [automationRecord(next.id)],
         write: async (scope) => {
           await this.deps.store.update(scope, next)
           return next
@@ -429,7 +427,6 @@ export class AutomationsService {
     const removed = (
       await writer.commit({
         // The automation's live runs go with it, before it.
-        affects: [...runIds.map(automationRunRecord), automationRecord(id)],
         write: async (scope) => await this.deps.store.remove(scope, id, deletedAt),
       })
     ).result
@@ -492,7 +489,6 @@ export class AutomationsService {
     if (decision.kind !== 'spawn') {
       const outcome: AutomationRunOutcome = decision.kind
       await this.deps.ledger.commit({
-        affects: [automationRunRecord(runId), automationRecord(automation.id)],
         write: async (scope) => {
           if (!existing) {
             await this.deps.store.addRun(scope, {
@@ -522,7 +518,6 @@ export class AutomationsService {
     // Reserve occurrence ONLY — do not re-arm nextRunAt until side effects finish.
     if (!existing) {
       await this.deps.ledger.commit({
-        affects: [automationRunRecord(runId)],
         write: async (scope) => {
           await this.deps.store.addRun(scope, {
             id: runId,
@@ -555,7 +550,6 @@ export class AutomationsService {
 
     // Finalize run + re-arm only after the side-effect attempt (success or terminal error).
     await this.deps.ledger.commit({
-      affects: [automationRunRecord(runId), automationRecord(automation.id)],
       write: async (scope) => {
         await this.deps.store.updateRun(scope, runId, { sessionId, outcome, detail })
         await this.deps.store.update(scope, rearmed)

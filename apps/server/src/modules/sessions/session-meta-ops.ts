@@ -124,7 +124,6 @@ export class SessionMetaOps {
       // A parked session is still a record: compare its offer from the tables
       // around the source write, just as for a resident session.
       await writer.commit({
-        affects: [{ entity: 'session', id: sessionId }],
         write: async (scope) => await this.ports.store.sessions.setOffer(scope, sessionId, offer),
       })
       return
@@ -172,7 +171,6 @@ export class SessionMetaOps {
       return
     if (!session) {
       await writer.commit({
-        affects: [{ entity: 'session', id: sessionId }],
         write: async (scope) => await this.ports.store.sessions.clearOffer(scope, sessionId),
       })
       return
@@ -582,7 +580,6 @@ export class SessionMetaOps {
         for (const sessionId of sessionIds)
           await this.ports.store.sync.deleteQueuedMessagesForSession(sessionId)
       },
-      affects: async () => await this.ports.store.sessions.recordIds(sessionIds),
       apply: (changes, ledgerCursor) => {
         for (const remove of removals) remove()
         this.ports.repository.publishSessionProjection(changes, ledgerCursor)

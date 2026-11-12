@@ -1110,7 +1110,6 @@ export class SessionRepository {
     // Only a stale offer is written: the boot's own account, in one commit.
     if (install.writes) {
       await this.ports.writers.boot.commit({
-        affects: [{ entity: 'session', id: session.sessionId }],
         write: async (scope) => await install.write(scope),
       })
     }

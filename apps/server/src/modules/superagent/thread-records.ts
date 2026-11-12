@@ -67,30 +67,18 @@ export function superagentThreadWireOf(row: SuperagentThreadRow): SuperagentThre
 }
 
 /**
- * The capture installed on the repository: it names the rows a write returned.
- *
- * NAMED AFTER THE WRITE (POD-6769). Every thread write is one statement that
- * RETURNS the rows it wrote (a seed inserts only the missing threads, a turn
- * sync returns only the threads whose state moved), so the ids are known only
- * once it ran. `superagentThread` is on the closed list of kinds whose writer
- * names its records after the write (`NAMED_AFTER_WRITE_KINDS`): the Authority
- * builds each from the stored row and appends it as it is. A write that
- * changes nothing returns no row, so the repository does not call this and
- * nothing is logged.
+ * The capture installed on the repository: run inside a thread write's
+ * transaction once the write returned rows, it commits through the Ledger,
+ * which drains the database's change capture and appends the thread records
+ * the write changed (POD-6920). A write that changes nothing returns no row,
+ * so the repository does not call this and nothing is logged.
  */
 export function makeThreadFeedCapture(
   ledger: Pick<LedgerWriter, 'commit'>,
 ): SuperagentThreadFeedCapture {
-  return async (rows) => {
-    await ledger.commit({
-      // The rows are already written, in this same transaction.
-      write: async () => {},
-      wrote: () =>
-        rows.map((row) => ({
-          entity: 'superagentThread' as const,
-          id: superagentThreadRowId(row.ownerUserId, row.id),
-        })),
-    })
+  return async () => {
+    // The rows are already written, in this same transaction.
+    await ledger.commit({ write: async () => {} })
   }
 }
 

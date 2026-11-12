@@ -2380,7 +2380,6 @@ export class IssueCrudModule {
         ...(await this.store.issueRecords(row.id)),
         ...(await this.store.panelRecords([row.id])),
       ],
-      creates: async () => [],
       publish: async () => {},
     }
   }
@@ -2487,10 +2486,8 @@ export class IssueCrudModule {
         })
         committed = await this.store.projection(row)
       },
-      affects: async () => await this.store.issueRecords(row.id),
       // Its panel items are records again once it is restored: a deleted
       // issue has none to name before the write (POD-6770).
-      creates: async () => await this.store.panelRecords([row.id]),
       publish: async () => {},
     }
   }

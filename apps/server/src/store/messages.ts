@@ -190,7 +190,9 @@ export interface PendingMessageSummary {
 }
 
 /** Receives every message row a write touched, inside that write's transaction. */
-export type MessageFeedCapture = (rows: readonly MessageRow[], confirms: boolean) => Promise<void>
+/** The change-log commit a message write runs in its own transaction once it
+ *  changed rows: it drains the database's change capture (POD-6920). */
+export type MessageFeedCapture = () => Promise<void>
 
 /** One `messages` row as the schema types it, before mapping. */
 type MessageSelect = typeof messagesTable.$inferSelect
@@ -1401,12 +1403,11 @@ export class MessagesRepository {
     _scope: WriteScope,
     query: () => Promise<MessageSelect[]>,
     operation: 'upsert' | 'delete',
-    confirms = false,
   ): Promise<{ changes: number }> {
     return await this.committed.write(async () => {
       const rows = await query()
       const capture = this.feedCapture
-      if (capture !== undefined && rows.length > 0) await capture(rows.map(mapMessage), confirms)
+      if (capture !== undefined && rows.length > 0) await capture()
       return rows
     }, operation)
   }
@@ -1866,7 +1867,6 @@ export class MessagesRepository {
             scope,
             async () => await write(this.db).all({ ...opts.values, id }),
             'upsert',
-            to === 'confirmed',
           )
         ).changes
       },

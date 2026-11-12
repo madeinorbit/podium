@@ -2997,6 +2997,9 @@ export const workflowRuns = sqliteTable(
     index('workflow_runs_subject').on(table.subjectKind, table.subjectId, table.startedAt),
     // The run history, one keyset page at a time, newest first (POD-6209).
     index('workflow_runs_started').on(table.startedAt, table.id),
+    // The runs of a revision: a revision's change reaches their records
+    // (derived change capture, POD-6920).
+    index('workflow_runs_revision').on(table.revisionId),
     check('workflow_runs_check_23', sql`subject_kind IN ('issue', 'session')`),
     check('workflow_runs_check_24', sql`status IN ('active', 'blocked', 'complete', 'superseded')`),
   ],

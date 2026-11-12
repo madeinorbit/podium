@@ -40,7 +40,7 @@ import {
   WorkflowRefusal,
 } from './handlers/context'
 import { assignHandler } from './handlers/library'
-import { committedWorkflowWrite, recordedWorkflowStore, type WorkflowChangeWriter } from './records'
+import { committedWorkflowWrite, type WorkflowChangeWriter } from './records'
 import { dispatchWorkflowCommand, type WORKFLOW_COMMANDS, type WorkflowProcName } from './registry'
 
 /**
@@ -212,18 +212,13 @@ export interface WorkflowEngine {
 }
 
 export class WorkflowService implements WorkflowEngine {
-  /** The deps with the repository recording what each write touched, so every
-   *  operation's records reach the feed (`records.ts`). */
   private readonly deps: WorkflowServiceDeps
 
   constructor(
     deps: WorkflowServiceDeps,
     ports?: WorkflowPolicyPorts & { ledger?: AdvanceIdempotencyPort },
   ) {
-    this.deps = {
-      ...deps,
-      store: recordedWorkflowStore(deps.store, { strict: deps.changes !== undefined }),
-    }
+    this.deps = deps
     this.access = new WorkflowAccess(this.deps, ports)
     this.ledger = ports?.ledger
   }
@@ -233,7 +228,7 @@ export class WorkflowService implements WorkflowEngine {
     writer: WorkflowChangeWriter | undefined,
     operation: () => Promise<T>,
   ): Promise<T> {
-    return await committedWorkflowWrite(this.deps.store, writer ?? this.deps.changes, operation)
+    return await committedWorkflowWrite(writer ?? this.deps.changes, operation)
   }
 
   /**

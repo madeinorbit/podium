@@ -652,6 +652,15 @@ const labelsOf = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/** The issues carrying these labels (POD-6920: a label's rename reaches them). */
+const issuesOfLabels = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .selectDistinct({ issueId: issueLabels.issueId })
+    .from(issueLabels)
+    .where(inListOf(issueLabels.labelId, size, 'ids'))
+    .prepare(),
+)
+
 const insertDep = prepared((db: StoreDrizzle) =>
   db
     .insert(issueDeps)
@@ -1949,6 +1958,19 @@ export class IssuesRepository {
       else out.set(r.issueId, [r.label])
     }
     return out
+  }
+
+  /** The ids of the issues carrying these labels (POD-6920). */
+  async issueIdsOfLabels(labelIds: readonly number[]): Promise<string[]> {
+    const ids = [...new Set(labelIds)]
+    const out = new Set<string>()
+    for (let at = 0; at < ids.length; at += 500) {
+      const chunk = ids.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      for (const row of await issuesOfLabels(this.db, size).all(inListValues(chunk, size, 'ids')))
+        out.add(row.issueId)
+    }
+    return [...out]
   }
 
   /** The dependency edges FROM these issues, in (from, to, type) order. */

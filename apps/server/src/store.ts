@@ -119,6 +119,7 @@ import { UsersRepository } from './store/users'
 import { WorkflowsRepository } from './store/workflows'
 import { AgentProfilesRepository } from './store/agent-profiles'
 import { openStoreDatabase } from './store-database'
+import { dropChangeCapture, installChangeCapture } from './sync/capture-triggers'
 
 const log = createLogger('server:store')
 
@@ -322,7 +323,11 @@ export class SessionStore {
     bootStage('store open', openStarted)
     let executor = createBunStoreExecutor({ database, startOpen: true, ...sinks })
     try {
-      const applied = await executor.exclusive(async () => {
+      const applied = await executor.exclusive(async (session) => {
+        // The change capture triggers come off before anything migrates or
+        // repairs: those writes bump `sync_kind` rather than reach the log, and
+        // a trigger left by the last boot would refuse them (POD-6920).
+        if (!options.queryOnly) await dropChangeCapture(session)
         const migrationStarted = performance.now()
         const result = migrateStoreConnection(database, path)
         bootStage('migrations', migrationStarted)
@@ -351,6 +356,14 @@ export class SessionStore {
       const backfillStarted = performance.now()
       await store.initialize()
       bootStage('backfill', backfillStarted)
+      // DERIVED CHANGE CAPTURE (POD-6920): from here every write of a row a
+      // synced record reads is captured, and a transaction that does not drain
+      // its capture into the log cannot commit.
+      if (!options.queryOnly) {
+        const captureStarted = performance.now()
+        await executor.exclusive(async (session) => await installChangeCapture(session))
+        bootStage('change capture', captureStarted)
+      }
       // After the migrations and the boot repairs, so the statistics describe
       // the tables as the server will read them. An in-memory store is a test
       // fixture whose tables are empty; statistics would describe nothing.

@@ -1061,7 +1061,6 @@ export class SessionStateService {
   private async writeDraftDoc(doc: DraftDoc): Promise<void> {
     try {
       await this.ports.liveWriter.commit({
-        affects: [{ entity: 'session', id: doc.sessionId }],
         write: async () =>
           await this.ports.store.sessions.setDraftDoc(doc.sessionId, {
             text: doc.text,

@@ -71,21 +71,13 @@ export class InteractionFeedPublisher {
   constructor(private readonly deps: InteractionFeedDeps) {}
 
   /**
-   * Capture successful row writes. NAMED AFTER THE WRITE (POD-6770,
-   * `NAMED_AFTER_WRITE_KINDS`): the row is already written, and the Authority
-   * builds its record from the table in this publish's transaction: open is
-   * an `upsert`, anything else a `remove`. The source transaction cannot be
+   * Capture successful row writes: the row is already written, and this
+   * commit, in the same transaction, drains the database's change capture,
+   * so the Authority builds the record from the table: open is an `upsert`,
+   * anything else a `remove` (POD-6920). The source transaction cannot be
    * overtaken between its row change and this append.
    */
-  readonly capture: InteractionFeedCapture = async (rows) => {
-    await this.deps.ledger.commit({
-      write: async () => {},
-      wrote: () =>
-        rows.map((row) => ({
-          entity: 'pendingInteraction' as const,
-          id: interactionRowId(row.sessionId, row.id),
-          removed: true,
-        })),
-    })
+  readonly capture: InteractionFeedCapture = async () => {
+    await this.deps.ledger.commit({ write: async () => {} })
   }
 }

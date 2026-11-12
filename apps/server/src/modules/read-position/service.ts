@@ -41,7 +41,6 @@ export class ReadPositionService {
     // proposal at or behind the stored position moves nothing and appends
     // nothing.
     await writer.commit({
-      affects: [{ entity: 'userReadPosition', id: readPositionRowId(userId, streamId) }],
       write: async (scope) =>
         await this.deps.cursors.advance(scope, userId, streamId, proposed, now),
     })

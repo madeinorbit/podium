@@ -1,4 +1,3 @@
-import { asSessionId } from '@podium/model'
 /**
  * Events/steward aggregate — owns the durable orchestrator event log
  * (`podium_events`), the steward's KV state (`steward_state`) and the
@@ -568,15 +567,6 @@ const pruneCandidates = (db: StoreDrizzle) => {
     .limit(sql.placeholder('batchSize'))
 }
 
-const pruneRuntimeSessions = prepared((db: StoreDrizzle) => {
-  const victims = pruneCandidates(db).as('victims')
-  return db
-    .select({ sessionId: victims.subject })
-    .from(victims)
-    .where(eq(victims.kind, RUNTIME_EVENT_LOG_KIND))
-    .prepare()
-})
-
 const deletePruneBatch = prepared((db: StoreDrizzle) => {
   const victims = pruneCandidates(db).as('victims')
   return db
@@ -846,30 +836,18 @@ export type EventAppendListener = (
   event: { ts: string; kind: string; subject: string; repoPath: string | null; payload: unknown },
 ) => void | Promise<void>
 
-/** The log append runs inside the event insert's transaction, even when its
- * post-commit announcement is suppressed. A failure rolls both writes back. */
-export type EventFeedCapture = (
-  id: number,
-  event: Omit<PodiumEventRecord, 'id'>,
-) => void | Promise<void>
-
-/** The feed-kind events one retention batch deleted, inside its transaction. */
-export type EventPruneFeedCapture = (
-  deleted: readonly { id: number; subject: string }[],
-) => void | Promise<void>
+/**
+ * The change-log commit an event write runs inside its own transaction: it
+ * drains the database's change capture, so the records the insert or the
+ * retention batch changed (the issue-event window, a session's transcript
+ * flag) are appended with it (POD-6920). A failure rolls both back.
+ */
+export type EventLogCommit = () => Promise<void>
 
 export class EventsRepository {
-  /** Retention can remove the transcript evidence a session record reads. */
-  sessionPruneWrite?: <T>(
-    ids: () => Promise<readonly SessionId[]>,
-    write: () => Promise<T>,
-  ) => Promise<T>
-
-  /** Optional post-commit observer, separate from the transactional log capture. */
+  /** Optional post-commit observer, separate from the transactional log commit. */
   private appendListener: EventAppendListener | undefined
-  private feedCapture: EventFeedCapture | undefined
-  /** The feed publisher's transactional retention hook, installed with it. */
-  private pruneFeedCapture: EventPruneFeedCapture | undefined
+  private logCommit: EventLogCommit | undefined
 
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
@@ -902,13 +880,9 @@ export class EventsRepository {
     this.appendListener = listener
   }
 
-  setFeedCapture(capture: EventFeedCapture): void {
-    this.feedCapture = capture
-  }
-
-  /** Capture retention's window change before another write can overtake it. */
-  setPruneFeedCapture(capture: EventPruneFeedCapture): void {
-    this.pruneFeedCapture = capture
+  /** Install the change-log commit every captured event write runs. */
+  setLogCommit(commit: EventLogCommit): void {
+    this.logCommit = commit
   }
 
   // ---- coarse runtime event log + restart head ----
@@ -1085,13 +1059,12 @@ export class EventsRepository {
         payload: JSON.stringify(e.payload ?? {}),
       })
       const id = Number(r.lastInsertRowid)
-      await this.feedCapture?.(id, {
-        ts: e.ts,
-        kind: e.kind,
-        subject: e.subject,
-        repoPath: e.repoPath ?? null,
-        payload: e.payload ?? {},
-      })
+      // A feed-kind event moves the issue-event window, and a runtime event
+      // may change its session's transcript flag: both are captured, and the
+      // capture is drained into the log in this transaction (POD-6920).
+      if ((e.subject !== '' && isFeedEventKind(e.kind)) || e.kind === RUNTIME_EVENT_LOG_KIND) {
+        await this.logCommit?.()
+      }
       // AFTER the insert, never before: the feed must not carry a row the log does
       // not have. The listener is documented as non-throwing, and this call is not
       // guarded here on purpose — a swallow at both ends hides a wiring fault
@@ -1429,23 +1402,11 @@ export class EventsRepository {
     return await this.createOrJoinTransaction(async () => {
       // The projector's head fences runtime rows (see deletePruneBatch).
       const params = { cutoff: plan.cutoff, capThroughId: plan.capThroughId, batchSize }
-      const write = async () => await deletePruneBatch(this.db).all(params)
-      const deleted = this.sessionPruneWrite
-        ? await this.sessionPruneWrite(
-            async () =>
-              (await pruneRuntimeSessions(this.db).all(params)).map((row) =>
-                asSessionId(row.sessionId),
-              ),
-            write,
-          )
-        : await write()
-      // The feed's window is the newest feed-kind events that EXIST, so a prune
-      // that took some of them changes the feed. Capture while this transaction
-      // still owns the window, so concurrent appends cannot change its before set.
-      const feedRows = deleted.filter((row) => row.subject !== '' && isFeedEventKind(row.kind))
-      if (feedRows.length > 0) {
-        await this.pruneFeedCapture?.(feedRows.map(({ id, subject }) => ({ id, subject })))
-      }
+      const deleted = await deletePruneBatch(this.db).all(params)
+      // Retention can take events of the feed window and a session's
+      // transcript evidence: the capture names what moved, and it is drained
+      // into the log while this transaction still owns the window (POD-6920).
+      if (deleted.length > 0) await this.logCommit?.()
       return deleted.length
     })
   }

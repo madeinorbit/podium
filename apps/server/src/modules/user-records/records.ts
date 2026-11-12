@@ -137,7 +137,6 @@ export function registerUserRecords(registry: SyncWriteRegistry, deps: UserRecor
       }
       const at = now()
       const { result } = await ctx.ledger.commit({
-        affects: [pinRecord(key.userId, key.kind, key.entityId)],
         write: async () =>
           await deps.sessions().addPin(key.userId, key.kind as PinKind, key.entityId, at),
       })
@@ -150,7 +149,6 @@ export function registerUserRecords(registry: SyncWriteRegistry, deps: UserRecor
       const key = pinOrGone(id, ctx.principal)
       // Unpinning what is not pinned changes nothing, and appends nothing.
       const { result: removed } = await ctx.ledger.commit({
-        affects: [pinRecord(key.userId, key.kind, key.entityId)],
         write: async () => await deps.sessions().removePin(key.userId, key.kind, key.entityId),
       })
       if (key.kind === 'issue' && removed)
@@ -174,7 +172,6 @@ export function registerUserRecords(registry: SyncWriteRegistry, deps: UserRecor
     // An empty order is no record: clearing one that was never set changes
     // nothing, and appends nothing.
     await ctx.ledger.commit({
-      affects: [tabOrderRecord(userId, worktree)],
       write: async () => await deps.sessions().setTabOrder(userId, worktree, [...sessionIds]),
     })
     return { ok: true }

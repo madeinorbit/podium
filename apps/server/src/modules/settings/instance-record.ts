@@ -67,7 +67,6 @@ export function makeInstancePreferencesFeedCapture(
     await asSystemWrite(
       async () =>
         await ledger.commit({
-          affects: [{ entity: 'instancePreferences', id: INSTANCE_PREFERENCES_ROW_ID }],
           write: async () => await write(),
         }),
     )

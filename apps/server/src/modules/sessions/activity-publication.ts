@@ -30,7 +30,6 @@ export class SessionActivityPublication {
     const ids = await this.ports.store.sessions.activityPublicationsDue(now)
     if (ids.length === 0) return
     await this.ports.writer.commit({
-      affects: ids.map((id) => ({ entity: 'session', id })),
       write: async (scope) =>
         await this.ports.store.sessions.publishActivity(scope, ids, this.ports.now()),
     })

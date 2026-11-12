@@ -721,6 +721,15 @@ const runsOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
     .prepare(),
 )
 
+/** The runs of these revisions (POD-6920: a revision's change reaches them). */
+const runIdsOfRevisions = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({ id: workflowRuns.id })
+    .from(workflowRuns)
+    .where(inListOf(workflowRuns.revisionId, size, 'ids'))
+    .prepare(),
+)
+
 const stepsOfRuns = preparedFamily((db: StoreDrizzle, size: number) =>
   db
     .select()
@@ -932,6 +941,13 @@ export class WorkflowsRepository {
       const { workflowId, ...run } = row
       return { run: toRun(run), workflowId, steps: steps.get(row.id) ?? [] }
     })
+  }
+
+  /** The ids of the runs of these revisions (POD-6920). */
+  async runIdsOfRevisions(revisionIds: readonly string[]): Promise<string[]> {
+    return (
+      await this.byIds(revisionIds, (size, values) => runIdsOfRevisions(this.db, size).all(values))
+    ).map((row) => row.id)
   }
 
   private async byIds<T>(

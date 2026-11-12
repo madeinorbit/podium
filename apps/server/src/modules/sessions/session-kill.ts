@@ -167,7 +167,6 @@ export class SessionKill {
     // signalled — and propagates to the caller, instead of tearing down live
     // state for a row the rolled-back transaction still holds.
     await writer.commit({
-      affects: async () => await this.ports.store.sessions.recordIds([input.sessionId]),
       write: async (scope) => {
         // Before the tombstone: each sender's notice names the session's issue
         // as the way on, read from the session while it still stands.
