@@ -4,10 +4,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // This lane does not run testing-library's auto-cleanup, so an earlier render
 // would otherwise still be in the document when the next test queries it.
-afterEach(cleanup)
+const dimensions = vi.hoisted(() => ({ fontScale: 1 }))
+afterEach(() => {
+  cleanup()
+  dimensions.fontScale = 1
+})
 vi.mock('react-native', async (original) => ({
   ...(await original<object>()),
-  useWindowDimensions: () => ({ width: 402, height: 874, scale: 1, fontScale: 1 }),
+  useWindowDimensions: () => ({ width: 402, height: 874, scale: 1, ...dimensions }),
 }))
 
 vi.mock('expo-haptics', () => ({
@@ -29,6 +33,43 @@ const single = ask([
 ])
 
 describe('AskQuestionCard', () => {
+  it('focuses the custom answer on Pencil and keeps it outside the native options scroller', () => {
+    render(<AskQuestionCard item={single} live presentation="band" />)
+    fireEvent.click(screen.getByLabelText('Write a different answer'))
+    const input = screen.getByLabelText('Type your own answer')
+    expect(document.activeElement).toBe(input)
+    expect(screen.getByTestId('ask-question-scroll').contains(input)).toBe(false)
+    fireEvent.change(input, { target: { value: 'DuckDB' } })
+    expect(
+      screen.getByTestId('ask-question-scroll').contains(screen.getByLabelText('Send answer')),
+    ).toBe(false)
+  })
+
+  it('stacks full question options at accessibility sizes without fixed text line boxes', () => {
+    dimensions.fontScale = 2
+    const label = 'Staged 10% rollout with an extended observation period'
+    render(
+      <AskQuestionCard
+        item={ask([
+          {
+            question: 'Which rollout plan should we use for the new offer card?',
+            options: [{ label }],
+          },
+        ])}
+        live
+        presentation="band"
+      />,
+    )
+    const option = screen.getByLabelText(label)
+    if (!option.parentElement) throw new Error('Missing options column')
+    expect(getComputedStyle(option.parentElement).flexDirection).toBe('column')
+    expect(option.textContent).toBe(label)
+    expect((option.firstElementChild as HTMLElement).style.lineHeight).toBe('')
+    expect(
+      getComputedStyle(screen.getByText('Which rollout plan should we use for the new offer card?'))
+        .maxWidth,
+    ).toBe('100%')
+  })
   it('retires a recorded failure as read-only history after an earlier request acknowledgement', async () => {
     const onAnswer = vi.fn(async () => {})
     const view = render(<AskQuestionCard item={single} live onAnswer={onAnswer} />)

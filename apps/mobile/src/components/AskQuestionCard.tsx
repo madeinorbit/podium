@@ -65,7 +65,8 @@ export function AskQuestionCard({
     outcome === 'failed' || outcome === 'unknown'
       ? item.toolResult?.trim() || 'No answer was recorded.'
       : undefined
-  const { height: screenHeight } = useWindowDimensions()
+  const { height: screenHeight, fontScale } = useWindowDimensions()
+  const largeText = fontScale > 1.3
   // `picks[qi]` is the set of chosen 0-based option indices; `custom[qi]` is the
   // typed answer. The two are mutually exclusive per question — the native menu
   // cannot hold an option and an Other answer at once.
@@ -75,6 +76,7 @@ export function AskQuestionCard({
   const [editing, setEditing] = useState<Record<number, boolean>>({})
   const [expanded, setExpanded] = useState(false)
   const [answerFocused, setAnswerFocused] = useState(false)
+  const [controlsHeight, setControlsHeight] = useState(0)
   useEffect(() => {
     if (!compact) setExpanded(false)
   }, [compact])
@@ -195,13 +197,22 @@ export function AskQuestionCard({
   const allAnswered =
     questions.length > 0 &&
     questions.every((_, qi) => (picks[qi]?.size ?? 0) > 0 || typed(custom, qi) !== '')
+  const editors = live && !answerSent ? questions.filter((_, qi) => !band || editing[qi]).length : 0
+  const actionsVisible = showActions && (!band || needsConfirm)
+  const controlsVisible = editors > 0 || actionsVisible
+  const optionsHeight = Math.max(
+    80,
+    Math.min(420, screenHeight * 0.4) -
+      space.md * 2 -
+      (controlsVisible ? controlsHeight + space.sm : 0),
+  )
 
   if (resultDetail) {
     return (
       <View testID="ask-question-history" style={styles.history}>
         <Text style={styles.meta}>Not answered</Text>
         {questions.map((question) => (
-          <Text key={question.question} style={styles.question}>
+          <Text key={question.question} style={[styles.question, !largeText && styles.regularText]}>
             {question.question}
           </Text>
         ))}
@@ -213,7 +224,7 @@ export function AskQuestionCard({
   if (questions.length === 0) {
     return (
       <View testID="ask-question-tile" style={[styles.card, band && styles.band]}>
-        <Text style={styles.question}>
+        <Text style={[styles.question, !largeText && styles.regularText]}>
           {item.toolInput || 'AskUserQuestion (unparseable input)'}
         </Text>
       </View>
@@ -226,7 +237,10 @@ export function AskQuestionCard({
         testID="ask-question-compact"
         style={[styles.card, band && styles.band, styles.compact]}
       >
-        <Text style={[styles.question, styles.compactTitle]} numberOfLines={1}>
+        <Text
+          style={[styles.question, !largeText && styles.regularText, styles.compactTitle]}
+          numberOfLines={1}
+        >
           {resultDetail ?? questions[0]?.question}
         </Text>
         <PressableScale
@@ -246,7 +260,9 @@ export function AskQuestionCard({
         testID="ask-question-scroll"
         nestedScrollEnabled
         keyboardShouldPersistTaps="handled"
-        style={{ maxHeight: Math.min(420, screenHeight * 0.4) - space.md * 2 }}
+        automaticallyAdjustContentInsets={false}
+        contentInsetAdjustmentBehavior="never"
+        style={{ width: '100%', maxHeight: optionsHeight }}
         contentContainerStyle={styles.scrollContent}
       >
         {resultDetail ? (
@@ -268,8 +284,18 @@ export function AskQuestionCard({
         ) : null}
         {questions.map((q, qi) => (
           <View key={q.question} style={[styles.questionBlock, band && styles.questionBlockBand]}>
-            <Text style={[styles.question, band && styles.questionBand]}>{q.question}</Text>
-            <View style={[styles.options, band && styles.optionsBand]}>
+            <Text
+              style={[
+                styles.question,
+                !largeText && styles.regularText,
+                band && styles.questionBand,
+              ]}
+            >
+              {q.question}
+            </Text>
+            <View
+              style={[styles.options, band && styles.optionsBand, largeText && styles.optionsLarge]}
+            >
               {q.options.map((opt, oi) => {
                 const picked = picks[qi]?.has(oi) ?? false
                 const chosen = !pending && isChosenOption(item.toolResult ?? '', opt.label)
@@ -285,11 +311,18 @@ export function AskQuestionCard({
                     style={({ pressed }) => [
                       styles.option,
                       band && styles.optionBand,
+                      largeText && styles.optionLarge,
                       highlighted && styles.optionPicked,
                       pressed && !locked && styles.optionPressed,
                     ]}
                   >
-                    <Text style={[styles.optionLabel, highlighted && styles.optionLabelPicked]}>
+                    <Text
+                      style={[
+                        styles.optionLabel,
+                        highlighted && styles.optionLabelPicked,
+                        !largeText && styles.regularText,
+                      ]}
+                    >
                       {opt.label}
                     </Text>
                     {opt.description && !band ? (
@@ -316,65 +349,83 @@ export function AskQuestionCard({
                 </PressableScale>
               ) : null}
             </View>
-            {/* The free-text escape rides the native Other entry. Live only —
-              a read-only card is a record, not a control. */}
-            {live && !answerSent && (!band || editing[qi]) ? (
-              <TextInput
-                testID={`ask-free-text-${qi}`}
-                accessibilityLabel="Type your own answer"
-                value={custom[qi] ?? ''}
-                onFocus={() => {
-                  setAnswerFocused(true)
-                  setExpanded(true)
-                }}
-                onBlur={() => setAnswerFocused(false)}
-                onChangeText={(text) => onCustomChange(qi, text)}
-                onSubmitEditing={() => {
-                  if (!locked && allAnswered) void submit(picks)
-                }}
-                placeholder="Or type your own answer…"
-                placeholderTextColor={color.textFaint}
-                editable={!locked}
-                returnKeyType="send"
-                style={[styles.input, locked && styles.inputLocked]}
-              />
-            ) : null}
           </View>
         ))}
-        {showActions && (!band || needsConfirm) ? (
-          <View style={styles.actions}>
-            {needsConfirm ? (
-              <PressableScale
-                accessibilityRole="button"
-                accessibilityLabel="Send answer"
-                disabled={locked || !allAnswered}
-                onPress={() => void submit(picks)}
-                style={[styles.confirm, (locked || !allAnswered) && styles.confirmDisabled]}
-              >
-                <Text style={styles.confirmText}>Send answer</Text>
-              </PressableScale>
-            ) : null}
-            {!band && !codex ? (
-              <PressableScale
-                testID="ask-skip"
-                accessibilityRole="button"
-                accessibilityLabel="Skip question"
-                disabled={locked}
-                onPress={() => void skip()}
-                style={[styles.skip, locked && styles.confirmDisabled]}
-              >
-                <Text style={styles.skipText}>Skip</Text>
-              </PressableScale>
-            ) : null}
-          </View>
-        ) : null}
       </ScrollView>
+      {/* Keep editors outside the options scroller: its native content offset
+          must not displace the input's touch/accessibility frame. */}
+      {controlsVisible ? (
+        <View
+          testID="ask-question-controls"
+          style={styles.controls}
+          onLayout={(event) => setControlsHeight(event.nativeEvent.layout.height)}
+        >
+          {live && !answerSent
+            ? questions.map((q, qi) =>
+                !band || editing[qi] ? (
+                  <View key={q.question} style={styles.editor}>
+                    {questions.length > 1 ? <Text style={styles.meta}>{q.question}</Text> : null}
+                    <TextInput
+                      testID={`ask-free-text-${qi}`}
+                      accessibilityLabel="Type your own answer"
+                      autoFocus={band}
+                      value={custom[qi] ?? ''}
+                      onFocus={() => {
+                        setAnswerFocused(true)
+                        setExpanded(true)
+                      }}
+                      onBlur={() => setAnswerFocused(false)}
+                      onChangeText={(text) => onCustomChange(qi, text)}
+                      onSubmitEditing={() => {
+                        if (!locked && allAnswered) void submit(picks)
+                      }}
+                      placeholder="Or type your own answer…"
+                      placeholderTextColor={color.textFaint}
+                      editable={!locked}
+                      returnKeyType="send"
+                      style={[styles.input, locked && styles.inputLocked]}
+                    />
+                  </View>
+                ) : null,
+              )
+            : null}
+          {actionsVisible ? (
+            <View style={styles.actions}>
+              {needsConfirm ? (
+                <PressableScale
+                  accessibilityRole="button"
+                  accessibilityLabel="Send answer"
+                  disabled={locked || !allAnswered}
+                  onPress={() => void submit(picks)}
+                  style={[styles.confirm, (locked || !allAnswered) && styles.confirmDisabled]}
+                >
+                  <Text style={styles.confirmText}>Send answer</Text>
+                </PressableScale>
+              ) : null}
+              {!band && !codex ? (
+                <PressableScale
+                  testID="ask-skip"
+                  accessibilityRole="button"
+                  accessibilityLabel="Skip question"
+                  disabled={locked}
+                  onPress={() => void skip()}
+                  style={[styles.skip, locked && styles.confirmDisabled]}
+                >
+                  <Text style={styles.skipText}>Skip</Text>
+                </PressableScale>
+              ) : null}
+            </View>
+          ) : null}
+        </View>
+      ) : null}
     </View>
   )
 }
 
 const styles = StyleSheet.create({
-  scrollContent: { gap: space.sm },
+  scrollContent: { gap: space.sm, width: '100%' },
+  controls: { gap: space.sm, flexShrink: 0 },
+  editor: { gap: space.sm, flexShrink: 0 },
   compact: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingVertical: 0 },
   compactTitle: { flex: 1, minWidth: 0 },
   compactButton: { minHeight: 44, justifyContent: 'center', paddingHorizontal: space.sm },
@@ -399,6 +450,7 @@ const styles = StyleSheet.create({
   questionBlock: {
     flexShrink: 0,
     minWidth: 0,
+    width: '100%',
     gap: space.sm + 2,
   },
   questionBlockBand: {
@@ -406,10 +458,11 @@ const styles = StyleSheet.create({
   },
   question: {
     flexShrink: 0,
+    minWidth: 0,
+    maxWidth: '100%',
     ...sans(600),
     color: color.text,
     fontSize: 15,
-    lineHeight: 20,
   },
   questionBand: {
     fontSize: font.small,
@@ -421,6 +474,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
   },
+  optionsLarge: { flexDirection: 'column', alignItems: 'stretch' },
+  optionLarge: { flexShrink: 0, alignItems: 'flex-start' },
+  // Let the font supply its full ascender/descender at accessibility sizes.
+  regularText: { lineHeight: 20 },
   option: {
     backgroundColor: color.surfaceHigh,
     borderColor: color.border,
@@ -454,7 +511,6 @@ const styles = StyleSheet.create({
     ...sans(500),
     color: color.text,
     fontSize: 14,
-    lineHeight: 20,
   },
   optionLabelPicked: {
     color: color.accentTint,
@@ -466,6 +522,7 @@ const styles = StyleSheet.create({
     lineHeight: leading(font.small, 'prose'),
   },
   input: {
+    minHeight: 44,
     borderColor: color.border,
     borderWidth: 1,
     borderRadius: radius.control,
