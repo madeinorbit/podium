@@ -18,6 +18,9 @@ export interface ConversationPendingTurn {
   /** Exact payload delivered to the agent. Retry never reconstructs it from `text`. */
   wire: string
   at: number
+  /** Transcript tail when this device sent it. Null means an empty transcript;
+   * undefined is an older/restored send whose position was not captured. */
+  afterTranscriptId?: string | null
   state: 'sending' | 'queued' | 'sent' | 'failed' | 'interrupted' | 'retracted'
   kind: 'message' | 'offer'
   error?: string
@@ -67,6 +70,9 @@ export type ConversationBubbleState =
 /** One bubble below the transcript. */
 export interface ConversationBubble extends Omit<ConversationPendingTurn, 'state'> {
   state: ConversationBubbleState
+  /** A later server record's exact echo, used for restored notices with no
+   * local anchor. Only server record times are compared to derive it. */
+  beforeTranscriptId?: string
   /** The server's record of the message, once the feed carries it. */
   record?: ConversationMessage
   /** The sender may still take it back: its status still allows a retract to
@@ -272,6 +278,9 @@ export function projectConversation(input: ConversationProjectionInput): Convers
             text: turn.text,
             wire: turn.wire,
             at: turn.at,
+            ...(turn.afterTranscriptId !== undefined
+              ? { afterTranscriptId: turn.afterTranscriptId }
+              : {}),
             kind: turn.kind,
             ...(turn.tags ? { tags: turn.tags } : {}),
             ...(turn.files ? { files: turn.files } : {}),
@@ -288,5 +297,45 @@ export function projectConversation(input: ConversationProjectionInput): Convers
       continue
     bubbles.push(withLocalRetract(fromRecord(record)))
   }
+  // A restored notice may predate messages already confirmed in the transcript.
+  // Its server record and the confirmed record share a clock; the phone's send
+  // time and the agent transcript timestamps do not.
+  const restored = bubbles.filter(
+    (bubble) => bubble.afterTranscriptId === undefined && bubble.record,
+  )
+  if (restored.length) {
+    const echoes = input.records
+      .filter(
+        (record) =>
+          record.status === 'confirmed' &&
+          record.transcriptItem &&
+          onScreen.has(record.transcriptItem.id),
+      )
+      .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
+    for (const bubble of restored) {
+      const createdAt = Date.parse(bubble.record?.createdAt ?? '')
+      const next = echoes.find((record) => Date.parse(record.createdAt) > createdAt)
+      if (next?.transcriptItem) bubble.beforeTranscriptId = next.transcriptItem.id
+    }
+  }
   return bubbles.sort((left, right) => left.at - right.at || left.id.localeCompare(right.id))
+}
+
+/** Address an unresolved send in a transcript without sorting transcript rows
+ * or comparing timestamps from different machines. The viewport keeps its
+ * settled row indices; it draws the bubble just before the returned slot. */
+export function conversationBubblePosition(
+  bubble: Pick<ConversationBubble, 'afterTranscriptId' | 'beforeTranscriptId'>,
+  positionOfItem: (id: string) => number | undefined,
+): number | undefined {
+  if (bubble.beforeTranscriptId !== undefined) {
+    const before = positionOfItem(bubble.beforeTranscriptId)
+    if (before !== undefined) return before
+  }
+  if (bubble.afterTranscriptId === null) return 0
+  if (bubble.afterTranscriptId !== undefined) {
+    const after = positionOfItem(bubble.afterTranscriptId)
+    if (after !== undefined) return after + 1
+  }
+  return undefined
 }

@@ -13373,6 +13373,66 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
+      "file": "packages/client-core/src/conversation/projection.ts",
+      "holder": "projectConversation/echoes",
+      "rule": "consume:filter",
+      "tokens": "0afe6d57e76998a9aeac349f60cb9e82297afb634fdbd66cbefb632272d03da2",
+      "gate": [
+        "then:e4314e9d230b1afd069d4c423b7da1df1e54b501e6fef666858f72388fbc21fe"
+      ],
+      "origin": [
+        "75d26209e73b699b8ef934029beec6d428aea3fbd1ccc227e048711e93bee4c7"
+      ],
+      "fingerprint": "7db81a03ab5d7bfcdb62311838475d147f3e7c0e136854964ad27ab43dcf3698",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2475",
+      "trigger": "A visible conversation has a restored unresolved send without a local transcript anchor.",
+      "bound": "Sends.currentRecords supplies one addressed session feed plus lookups for locally held sends. MessageFeedPublisher caps confirmed feed records at CONFIRMED_PER_SESSION=20; open records correspond to unresolved output. The echo list includes only confirmed records with an addressed on-screen transcript ID. No retained transcript or unrelated session is enumerated.",
+      "reason": "Place an older restored notice before the next confirmed echo using server record timestamps only. Local sends use their captured transcript ID and skip this path. These scans traverse the existing session record working set and its bounded confirmation window; they create no retained copy or store.",
+      "guard": "projection-order.test.ts proves correct placement and exactly 40 addressed membership probes at 1x/4x retained transcript history with 20 confirmations. sends.work.test.ts keeps context, draft, record update and retract work flat at 1x/4x. apps/server/src/modules/message-feed/feed.ts defines the production confirmation cap."
+    },
+    {
+      "file": "packages/client-core/src/conversation/projection.ts",
+      "holder": "projectConversation/echoes",
+      "rule": "consume:sort",
+      "tokens": "1561fe55505806819873174544e4900afa62c946e6e56a4f30a16aad1fbcecec",
+      "gate": [
+        "then:e4314e9d230b1afd069d4c423b7da1df1e54b501e6fef666858f72388fbc21fe"
+      ],
+      "origin": [
+        "75d26209e73b699b8ef934029beec6d428aea3fbd1ccc227e048711e93bee4c7"
+      ],
+      "fingerprint": "bedea28fc20f3603ff418bd8ccb9322061e6814cc65f11adad125a4eb8d6e57b",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2475",
+      "trigger": "A visible conversation has a restored unresolved send without a local transcript anchor.",
+      "bound": "Sends.currentRecords supplies one addressed session feed plus lookups for locally held sends. MessageFeedPublisher caps confirmed feed records at CONFIRMED_PER_SESSION=20; open records correspond to unresolved output. The echo list includes only confirmed records with an addressed on-screen transcript ID. No retained transcript or unrelated session is enumerated.",
+      "reason": "Place an older restored notice before the next confirmed echo using server record timestamps only. Local sends use their captured transcript ID and skip this path. These scans traverse the existing session record working set and its bounded confirmation window; they create no retained copy or store.",
+      "guard": "projection-order.test.ts proves correct placement and exactly 40 addressed membership probes at 1x/4x retained transcript history with 20 confirmations. sends.work.test.ts keeps context, draft, record update and retract work flat at 1x/4x. apps/server/src/modules/message-feed/feed.ts defines the production confirmation cap."
+    },
+    {
+      "file": "packages/client-core/src/conversation/projection.ts",
+      "holder": "projectConversation/next",
+      "rule": "consume:find",
+      "tokens": "181764f5daa85ed037af696f5ae4dc08d08a04a561b6d3790c01acf839ad33d2",
+      "gate": [
+        "then:e4314e9d230b1afd069d4c423b7da1df1e54b501e6fef666858f72388fbc21fe"
+      ],
+      "origin": [
+        "75d26209e73b699b8ef934029beec6d428aea3fbd1ccc227e048711e93bee4c7"
+      ],
+      "fingerprint": "90cb088fff1424a1b0a03ef79f77d64ced3a5ee5ffe36f8d93a1804b3edd8bca",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2475",
+      "trigger": "A visible conversation has a restored unresolved send without a local transcript anchor.",
+      "bound": "Sends.currentRecords supplies one addressed session feed plus lookups for locally held sends. MessageFeedPublisher caps confirmed feed records at CONFIRMED_PER_SESSION=20; open records correspond to unresolved output. The echo list includes only confirmed records with an addressed on-screen transcript ID. No retained transcript or unrelated session is enumerated.",
+      "reason": "Place an older restored notice before the next confirmed echo using server record timestamps only. Local sends use their captured transcript ID and skip this path. These scans traverse the existing session record working set and its bounded confirmation window; they create no retained copy or store.",
+      "guard": "projection-order.test.ts proves correct placement and exactly 40 addressed membership probes at 1x/4x retained transcript history with 20 confirmations. sends.work.test.ts keeps context, draft, record update and retract work flat at 1x/4x. apps/server/src/modules/message-feed/feed.ts defines the production confirmation cap."
+    },
+    {
       "file": "packages/client-core/src/conversation/sends.ts",
       "holder": "Sends/catchUp/carried",
       "rule": "consume:map",

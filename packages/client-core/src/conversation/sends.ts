@@ -564,6 +564,7 @@ export class Sends {
       text,
       wire,
       at: this.clock.now(),
+      afterTranscriptId: this.options.transcript.ids.at(-1) ?? null,
       state: 'sending',
       kind,
       ...(input.backend ? { backend: input.backend } : {}),
