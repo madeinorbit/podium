@@ -177,7 +177,6 @@ describe('POD-1509 — a removal reaches the principal who owned the row', () =>
     await writesOf(reg)
       .system('automations.schedule')
       .commit({
-        affects: [{ entity: 'automationRun', id: run.id }],
         write: async (scope) => {
           await store.automations.addRun(scope, run)
           return undefined

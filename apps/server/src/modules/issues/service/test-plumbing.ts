@@ -40,10 +40,10 @@ export function issueTestPlumbing(
   opts: {
     transact?: LedgerDeps['transact']
     /**
-     * The test's store, for the kinds that compare at save (POD-6769): the
-     * service names the records a write may affect, and the Ledger builds them
-     * from this store before and after it. A test whose writes name records
-     * must pass it; without it such a write is refused.
+     * The test's store (POD-6920): each commit drains the store's change
+     * capture and builds the records it reaches from this store. A test whose
+     * writes reach a store must pass it; without it nothing drains the
+     * capture and the store refuses the transaction.
      */
     store?: SessionStore
   } = {},
@@ -52,7 +52,6 @@ export function issueTestPlumbing(
   readonly changeLog: Ledger
 } {
   const emptyRecords = new ModelRecords()
-  emptyRecords.comparesAtSave = () => false
   const ledger = new Ledger({
     repo: memoryChangeLogStore(),
     now: Date.now,

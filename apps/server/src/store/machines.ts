@@ -533,11 +533,7 @@ export class MachinesRepository {
     private readonly grantRepository = new GrantsRepository(queries),
     readonly machineRecordWrites = grantRepository.machineRecordWrites,
   ) {
-    this.recordContext = new MachineRecordContextRepository(
-      queries,
-      this.machineRecordWrites,
-      async () => await this.recordIds(),
-    )
+    this.recordContext = new MachineRecordContextRepository(queries, this.machineRecordWrites)
     this.committed = new CommittedRows(queries.createOrJoinTransaction, 'machines')
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction

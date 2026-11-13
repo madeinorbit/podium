@@ -4030,41 +4030,6 @@ describe('POD-4974 O2 ship lanes', () => {
       service.dispose()
     }
   })
-
-  it('O2 a shipping batch names its order-plane records once, over every entry', async () => {
-    const { store, issues, service, deps } = await harness(undefined, { checkOrderPlane: false })
-    try {
-      const orders = [
-        await seedOrder(issues, store, { title: 'one', minute: 1 }),
-        await seedOrder(issues, store, { title: 'two', minute: 2 }),
-        await seedOrder(issues, store, { title: 'three', minute: 3, repoPath: '/other' }),
-      ]
-      const many = vi.spyOn(deps.issues, 'shippingCommitMany')
-      await service['commitMany'](
-        laneWriter(service),
-        orders.map((order) => ({
-          order,
-          mutation: { expectedStage: ['review', 'shipping'] as const },
-        })),
-        async () => undefined,
-      )
-      // The first entry names the whole batch's ship records; the others none.
-      const entries = many.mock.calls[0]![1]
-      expect(entries.map((entry) => entry.mutation.shipRecords !== undefined)).toEqual([
-        true,
-        false,
-        false,
-      ])
-      const named = (await entries[0]!.mutation.shipRecords!.affects()).filter(
-        (record) => record.entity === 'shipOrder',
-      )
-      expect(new Set(named.map((record) => record.id))).toEqual(
-        new Set(orders.map((order) => order.id)),
-      )
-    } finally {
-      service.dispose()
-    }
-  })
 })
 
 describe('ship rows are written only inside their commit (ADR 12 D9)', () => {

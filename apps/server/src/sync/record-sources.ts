@@ -482,6 +482,17 @@ async function lanesOfUpperOrders(
 /** The fleet's update channel and published targets (`machine-record-context.ts`). */
 const MACHINE_CONTEXT_ROWS = `{row}.${meta.key.name} IN ('machines.fleet-channel.v1', 'updates.execution.v1')`
 
+/**
+ * What a machine record reads of those rows: the channel's whole value, and
+ * of the update checkpoint only each channel's published version, so a
+ * checkpoint write that moved no version leaves no trace.
+ */
+const MACHINE_CONTEXT_VALUE = `CASE WHEN {row}.${meta.key.name} = 'updates.execution.v1' AND json_valid({row}.${meta.value.name}) THEN (SELECT group_concat(json_extract(target.value, '$[0]') || '=' || coalesce(json_extract(target.value, '$[1].version'), ''), ',') FROM json_each({row}.${meta.value.name}, '$.targets') AS target) ELSE {row}.${meta.value.name} END`
+
+/** The machine context rows, captured by key and by {@link MACHINE_CONTEXT_VALUE}. */
+const machineContext = (ids: RecordSource['ids']): RecordSource =>
+  via(meta, [meta.key], [], ids, { rows: MACHINE_CONTEXT_ROWS, derived: [MACHINE_CONTEXT_VALUE] })
+
 /** The feed event kinds, as an SQL list. */
 const FEED_KINDS_SQL = FEED_EVENT_KINDS.map((kind) => `'${kind.replaceAll("'", "''")}'`).join(', ')
 
@@ -511,7 +522,7 @@ const panelSources = Object.fromEntries(
       ],
     ]
   }),
-) as Record<(typeof ISSUE_PANEL_KINDS)[number], readonly RecordSource[]>
+) as unknown as Record<(typeof ISSUE_PANEL_KINDS)[number], readonly RecordSource[]>
 
 export const RECORD_SOURCES: RecordSources = {
   conversation: [byId(conversations, conversations.id)],
@@ -527,9 +538,8 @@ export const RECORD_SOURCES: RecordSources = {
       { rows: `{row}.${grants.resourceKind.name} = 'machine'` },
     ),
     // The fleet's update channel and published targets reach every machine.
-    via(meta, [meta.key], 'all', async (_changes, reads) =>
+    machineContext(async (_changes, reads) =>
       (await reads.store.machines.listMachines()).map((machine) => machine.id),
-      { rows: MACHINE_CONTEXT_ROWS },
     ),
   ],
   machineAccess: [
@@ -543,9 +553,7 @@ export const RECORD_SOURCES: RecordSources = {
       { rows: `{row}.${grants.resourceKind.name} = 'machine'` },
     ),
     via(users, [users.id], 'all', (changes, reads) => accessIds('all', firstKeys(changes), reads)),
-    via(meta, [meta.key], 'all', (_changes, reads) => accessIds('all', 'all', reads), {
-      rows: MACHINE_CONTEXT_ROWS,
-    }),
+    machineContext((_changes, reads) => accessIds('all', 'all', reads)),
   ],
   // A repo is a fold of its registrations: a change to one reaches the
   // logical repo it belongs to, before and after.

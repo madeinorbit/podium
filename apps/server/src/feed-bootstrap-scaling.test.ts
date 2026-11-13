@@ -84,7 +84,6 @@ async function seedConversations(reg: SessionRegistry, count: number): Promise<n
     machineId: store.hostMachineId,
   }))
   const committed = await writes.system('conversations.discovery').commit({
-    affects: rows.map(({ id }) => ({ entity: 'conversation' as const, id })),
     write: async (scope) => {
       await store.conversations.index.upsert(scope, rows)
     },
@@ -527,7 +526,6 @@ describe('POD-6155 — feed passes read grants in one grouped query', () => {
           await internals(reg)
             .writes.system('conversations.discovery')
             .commit({
-              affects: ids.map((id) => ({ entity: 'session', id })),
               write: async (scope) =>
                 await store.sessions.upsertSessions(
                   scope,

@@ -188,12 +188,10 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
           await store.conversations.index.delete(fixtureWriteScope(), store.hostMachineId, [
             'c-old',
           ])
-        },
-        creates: () => {
-          throw new Error('record naming failed')
+          throw new Error('write failed after the store writes')
         },
       }),
-    ).rejects.toThrow('record naming failed')
+    ).rejects.toThrow('write failed after the store writes')
     const ids = (await store.conversations.index.search({})).map((r) => r.id)
     expect(ids).toContain('c-old') // delete rolled back
     expect(ids).not.toContain('c-new') // upsert rolled back
@@ -212,12 +210,6 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
         ])
         await store.conversations.index.delete(fixtureWriteScope(), store.hostMachineId, ['c-old'])
       },
-      // The conversation kind compares at save (POD-6770): the write names
-      // its records and the Authority builds them around it.
-      affects: [
-        { entity: 'conversation', id: 'c-new' },
-        { entity: 'conversation', id: 'c-old' },
-      ],
     })
     const after = (await store.conversations.index.search({})).map((r) => r.id)
     expect(after).toContain('c-new')

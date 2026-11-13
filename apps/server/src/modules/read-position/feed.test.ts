@@ -26,6 +26,7 @@ import {
 import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
 import {
   Authority,
+  type CapturedRow,
   DeviceGradeNoAnchors,
   GrantEdgeVisibilityPolicy,
   NoDelegationsGranted,
@@ -34,7 +35,7 @@ import {
 import { authorityCommitWriter } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import type { StoredReadPosition } from '../../store/user-read-position'
-import { compareAtSaveRecords } from '../../sync/compare-at-save'
+import { databaseRecords } from '../../sync/record-source'
 import { ReadPositionService } from './service'
 
 const ALICE: UserId = asUserId('user:alice')
@@ -90,7 +91,14 @@ function memoryStore(): AuthorityStore {
 /** Minimal cursor store — only what ReadPositionService calls, monotonic like the real one. */
 function memoryCursorRepo() {
   const byUser = new Map<string, Map<string, StoredReadPosition>>()
+  // The change capture the table's triggers keep (POD-6920).
+  let captured: CapturedRow[] = []
   return {
+    async drainCapture(): Promise<CapturedRow[]> {
+      const out = captured
+      captured = []
+      return out
+    },
     async *allPositionPages(pageSize: number) {
       const rows = [...byUser].flatMap(([user, positions]) =>
         [...positions].map(([streamId, value]) => ({ userId: asUserId(user), streamId, ...value })),
@@ -117,6 +125,14 @@ function memoryCursorRepo() {
       const current = m.get(streamId)
       if (current !== undefined && proposed.lastEventId <= current.lastEventId) return null
       m.set(streamId, proposed)
+      captured.push({
+        id: captured.length + 1,
+        kind: 'userReadPosition',
+        source: 0,
+        op: current === undefined ? 'i' : 'u',
+        oldKey: current === undefined ? null : [userId, streamId],
+        newKey: [userId, streamId],
+      })
       return proposed
     },
   }
@@ -143,7 +159,9 @@ function build() {
     visibility: new GrantEdgeVisibilityPolicy(visibilityPort, new NoDelegationsGranted()),
     anchors: new DeviceGradeNoAnchors(),
     records: {
-      ...compareAtSaveRecords({ store: { readPositions: repo } } as never, ['userReadPosition']),
+      ...databaseRecords({ store: { readPositions: repo, sync: repo } } as never, [
+        'userReadPosition',
+      ]),
       async *streamAllKinds() {
         for await (const records of this.streamAll('userReadPosition'))
           yield { entity: 'userReadPosition' as const, records }

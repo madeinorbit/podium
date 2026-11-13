@@ -1,6 +1,7 @@
 /**
  * THE ISSUE-EVENT FEED, AGAINST THE REAL EVENTS TABLE AND LEDGER (POD-1772,
- * POD-6766). The publisher's claims:
+ * POD-6766, POD-6920). Every event write runs the log commit relay.ts
+ * installs, which drains the change capture. The feed's claims:
  *   1. only the curated vocabulary with a subject reaches the feed,
  *   2. the window is BOUNDED, and an eviction travels with the arrival that
  *      caused it (one commit: a replica never sees the top without the
@@ -25,7 +26,7 @@ import { serverRecordBuilders } from '../../sync/record-builders'
 import { openTestStore } from '../../test-support/open-test-store'
 import { expectRecordLogParity } from '../../test-support/record-log-parity'
 import { testStoreRecords } from '../../test-support/record-writer'
-import { IssueEventFeedPublisher, issueEventWindow } from './feed'
+import { issueEventWindow } from './feed'
 
 const stores: SessionStore[] = []
 afterEach(async () => {
@@ -39,8 +40,8 @@ async function harness(opts: { windowSize?: number } = {}) {
   stores.push(store)
   const ledger = new Ledger({
     repo: store.sync,
-    // The event kind is named after the write and built from the table
-    // (POD-6770), with the window this harness runs.
+    // The capture names the window's changes and they are built from the
+    // table (POD-6920), with the window this harness runs.
     records: testStoreRecords(
       store,
       opts.windowSize === undefined ? {} : { eventWindow: opts.windowSize },
@@ -50,19 +51,14 @@ async function harness(opts: { windowSize?: number } = {}) {
     postCommit: (step, label) => afterCommit(step, label),
     applyCommit: { spanOpen, onCommit: applyAfterCommit },
   })
-  /** A publisher over this table and log, wired as relay.ts wires it. */
-  const boot = async (): Promise<IssueEventFeedPublisher> => {
-    const publisher = new IssueEventFeedPublisher({
-      ledger: testLedgerWriter(ledger),
-      events: store.events,
-      transact: async (fn) => await store.transact(fn),
-      ...(opts.windowSize === undefined ? {} : { windowSize: opts.windowSize }),
+  /** The event log commit, installed as relay.ts installs it. */
+  const boot = async (): Promise<void> => {
+    const writer = testLedgerWriter(ledger)
+    store.events.setLogCommit(async () => {
+      await writer.commit({ write: async () => {} })
     })
-    store.events.setPruneFeedCapture(async (deleted) => await publisher.pruned(deleted))
-    store.events.setFeedCapture(async (id, event) => await publisher.publish(id, event))
-    return publisher
   }
-  let publisher = await boot()
+  await boot()
   /** Append an event and publish it, as the append listener does. */
   const append = async (over: { kind?: string; subject?: string } = {}): Promise<number> => {
     const event = { ts: TS, kind: 'issue.closed', subject: 'POD-13', repoPath: null, payload: {} }
@@ -87,12 +83,12 @@ async function harness(opts: { windowSize?: number } = {}) {
   const window = async (): Promise<number[]> =>
     (await issueEventWindow(store.events, opts.windowSize)).map((row) => row.eventId)
   const reboot = async (): Promise<void> => {
-    publisher = await boot()
+    await boot()
   }
-  return { store, ledger, append, carried, window, reboot, publisher: () => publisher }
+  return { store, ledger, append, carried, window, reboot }
 }
 
-describe('IssueEventFeedPublisher', () => {
+describe('the issue-event feed', () => {
   it.each([
     5, 200,
   ])('reads only the named event payload in a full %i-event window', async (windowSize) => {

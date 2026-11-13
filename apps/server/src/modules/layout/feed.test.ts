@@ -18,6 +18,7 @@ import {
 import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
 import {
   Authority,
+  type CapturedRow,
   DeviceGradeNoAnchors,
   GrantEdgeVisibilityPolicy,
   NoDelegationsGranted,
@@ -25,7 +26,7 @@ import {
 } from '@podium/sync'
 import { authorityCommitWriter } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
-import { compareAtSaveRecords } from '../../sync/compare-at-save'
+import { databaseRecords } from '../../sync/record-source'
 import { LayoutService } from './service'
 
 const ALICE: UserId = asUserId('user:alice')
@@ -78,10 +79,27 @@ function memoryStore(): AuthorityStore {
   } as AuthorityStore
 }
 
-/** Minimal layout store — only the methods LayoutService uses. */
+/** Minimal layout store — only the methods LayoutService uses, with the
+ *  change capture the table's triggers keep (POD-6920): a row whose value
+ *  changes is captured under its key, and a drain takes the captured rows. */
 function memoryLayoutRepo() {
   const byUser = new Map<string, Map<string, unknown>>()
+  let captured: CapturedRow[] = []
+  const capture = (op: CapturedRow['op'], userId: UserId, key: string) =>
+    captured.push({
+      id: captured.length + 1,
+      kind: 'userLayout',
+      source: 0,
+      op,
+      oldKey: op === 'i' ? null : [userId, key],
+      newKey: op === 'd' ? null : [userId, key],
+    })
   return {
+    async drainCapture(): Promise<CapturedRow[]> {
+      const out = captured
+      captured = []
+      return out
+    },
     async allForBootReconcile() {
       return [...byUser].flatMap(([user, values]) =>
         [...values].map(([key, value]) => ({ userId: asUserId(user), key, value })),
@@ -97,7 +115,10 @@ function memoryLayoutRepo() {
         m = new Map()
         byUser.set(userId, m)
       }
+      const had = m.has(key)
+      if (had && JSON.stringify(m.get(key)) === JSON.stringify(value)) return
       m.set(key, value)
+      capture(had ? 'u' : 'i', userId, key)
     },
     setMany(
       _scope: unknown,
@@ -108,7 +129,7 @@ function memoryLayoutRepo() {
       for (const [k, v] of Object.entries(values)) this.set(userId, k, v, updatedAt)
     },
     clear(userId: UserId, key: string): void {
-      byUser.get(userId)?.delete(key)
+      if (byUser.get(userId)?.delete(key)) capture('d', userId, key)
     },
     clearMany(_scope: unknown, userId: UserId, keys: readonly string[]): void {
       for (const k of keys) this.clear(userId, k)
@@ -137,7 +158,7 @@ function build() {
     visibility: new GrantEdgeVisibilityPolicy(visibilityPort, new NoDelegationsGranted()),
     anchors: new DeviceGradeNoAnchors(),
     records: {
-      ...compareAtSaveRecords({ store: { layout: repo } } as never, ['userLayout']),
+      ...databaseRecords({ store: { layout: repo, sync: repo } } as never, ['userLayout']),
       async *streamAllKinds() {
         for await (const records of this.streamAll('userLayout'))
           yield { entity: 'userLayout' as const, records }
@@ -147,8 +168,8 @@ function build() {
   const service = new LayoutService({
     layout: repo as never,
   })
-  // The command's writer: each commit goes through the Authority, which builds
-  // the named records around the write (compare at save).
+  // The command's writer: each commit goes through the Authority, which drains
+  // the repo's capture and builds the records it reached (POD-6920).
   const writer = authorityCommitWriter(authority)
   return { authority, service, repo, writer }
 }

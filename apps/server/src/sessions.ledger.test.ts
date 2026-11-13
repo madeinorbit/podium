@@ -182,7 +182,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const cursorBefore = await ledger.cursor()
     await expect(
       testLedgerWriter(ledger).commit({
-        write: async () =>
+        write: async () => {
           await store.sessions.upsertSession(fixtureWriteScope(), {
             id: asSessionId('s-atomic'),
             ownerUserId: firstAdminMemberId(),
@@ -208,12 +208,11 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
             machineId: asMachineId('m1'),
             headless: false,
             issueId: null,
-          }),
-        creates: () => {
-          throw new Error('record naming failed')
+          })
+          throw new Error('write failed after the row write')
         },
       }),
-    ).rejects.toThrow('record naming failed')
+    ).rejects.toThrow('write failed after the row write')
     // The session row write inside the same transact span rolled back too.
     expect((await store.sessions.loadSessions()).find((r) => r.id === 's-atomic')).toBeUndefined()
     expect(await ledger.cursor()).toBe(cursorBefore)

@@ -94,7 +94,6 @@ async function ledgerOver(db: SqlDatabase): Promise<LedgerWithIdentity> {
 async function write(ledger: Ledger, ids: string[]): Promise<number> {
   for (const id of ids) {
     await ledger.authority.commit({
-      affects: [{ entity: 'issueProjection', entityId: id }],
       write: async () =>
         fixtureRecords
           .get(ledger)!

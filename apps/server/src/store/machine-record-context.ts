@@ -42,7 +42,6 @@ export class MachineRecordContextRepository {
   constructor(
     private readonly queries: StoreQueries,
     private readonly records = new MachineRecordWrites(),
-    private readonly machineIds: () => Promise<readonly string[]> = async () => [],
   ) {
     this.db = queries.rootDb
   }
@@ -62,7 +61,7 @@ export class MachineRecordContextRepository {
         (await channelRow(this.db).get())?.value ?? DEFAULT_FLEET_UPDATE_CHANNEL,
       )
       if (current === selected) return { result: await write(), changed: false }
-      return await this.records.compare({ display: this.machineIds }, async () => {
+      return await this.records.compare(async () => {
         const result = await write()
         const changed = (await setChannel(this.db).get({ channel: selected })) !== undefined
         return { result, changed }

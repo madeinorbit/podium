@@ -89,7 +89,6 @@ export class UpdateRecoveryStore {
   constructor(
     private readonly queries: StoreQueries,
     private readonly records = new MachineRecordWrites(),
-    private readonly machineIds: () => Promise<readonly string[]> = async () => [],
   ) {}
 
   async read(): Promise<UpdateRecoverySnapshot | undefined> {
@@ -109,19 +108,12 @@ export class UpdateRecoveryStore {
       const next = snapshot()
       const value = JSON.stringify(next)
       if (row?.value === value) return
-      const previous = row ? RecoverySnapshot.parse(JSON.parse(row.value)) : undefined
-      const before = new Map(
-        previous?.targets.map(([channel, target]) => [channel, target.version]),
-      )
-      const after = new Map(next.targets.map(([channel, target]) => [channel, target.version]))
-      const moved =
-        before.size !== after.size ||
-        [...after].some(([channel, version]) => before.get(channel) !== version)
-      const write = async () => {
+      // One change-log commit: the capture fires only when a published
+      // target version moved, and the machine records it reaches are
+      // appended with the checkpoint (POD-6920).
+      await this.records.compare(async () => {
         await saveCheckpoint(this.queries.rootDb).run({ value })
-      }
-      if (moved) await this.records.compare({ display: this.machineIds }, write)
-      else await write()
+      })
     })
   }
 }

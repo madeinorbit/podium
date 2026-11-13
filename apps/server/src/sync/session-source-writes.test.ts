@@ -41,7 +41,6 @@ async function fixture() {
   })
   const save = async () =>
     await writer.commit({
-      affects: [{ entity: 'session', id: session.sessionId }],
       write: async (scope) => await store.sessions.upsertSession(scope, session.toRow()),
     })
   await save()

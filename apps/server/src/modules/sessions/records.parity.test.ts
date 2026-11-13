@@ -136,7 +136,6 @@ describe('measured driver facts across session publication paths', () => {
         expect(driverFacts(subjectMeta(record))).toEqual(facts)
         return (
           await sessions.serverWriter.commit({
-            affects: [{ entity: 'session', id: sessionId }],
             write: async () => {},
           })
         ).changes

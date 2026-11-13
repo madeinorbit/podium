@@ -192,7 +192,6 @@ describe('async offer persistence', () => {
     expect(listOffers).toHaveBeenCalledOnce()
     expect(sessions.size).toBe(0)
     await plan.write(fixtureWriteScope())
-    expect(await plan.affects()).toContainEqual({ entity: 'session', id: sessionId })
     expect(plan.apply([], 0)).toBeUndefined()
     expect(listOffers).toHaveBeenCalledOnce()
     expect(repository.prepareStoredSessionInstall).toHaveBeenCalledWith(session, {

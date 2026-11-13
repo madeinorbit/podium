@@ -11,14 +11,15 @@ import {
 import { ModelRecords } from '@podium/sync/testing'
 import type { SessionStore } from '../store'
 
+const PREFIX = 'sidebar.section.test-model:'
+
 export class StoreModelLedger extends Ledger {
   private readonly modelStore: SessionStore
 
   constructor(store: SessionStore, deps: Omit<LedgerDeps, 'records'>) {
     const records = new ModelRecords()
     const user = firstAdminMemberId()
-    const key = (entity: string, id: string) =>
-      `sidebar.section.test-model:${JSON.stringify([entity, id])}`
+    const key = (entity: string, id: string) => `${PREFIX}${JSON.stringify([entity, id])}`
     records.build = async (entity, ids) => {
       const snapshot = await store.layout.getSnapshot(user)
       return ids.flatMap((id) => {
@@ -26,11 +27,29 @@ export class StoreModelLedger extends Ledger {
         return value === undefined ? [] : [{ id, value }]
       })
     }
+    // The fixture rows are layout rows, so the store's change capture sees
+    // them: a drain maps each captured fixture key back to its record, and
+    // takes (and drops) whatever else the transaction captured.
+    records.drainCapture = async () => {
+      const out = new Map<MetadataEntityKind, string[]>()
+      for (const row of await store.sync.drainCapture()) {
+        if (row.kind !== 'userLayout') continue
+        for (const captured of [row.oldKey, row.newKey]) {
+          const name = captured?.[1]
+          if (typeof name !== 'string' || !name.startsWith(PREFIX)) continue
+          const [kind, id] = JSON.parse(name.slice(PREFIX.length)) as [MetadataEntityKind, string]
+          const ids = out.get(kind) ?? []
+          if (!ids.includes(id)) ids.push(id)
+          out.set(kind, ids)
+        }
+      }
+      return out
+    }
     records.streamAll = async function* (entity: MetadataEntityKind) {
       const snapshot = await store.layout.getSnapshot(user)
       yield Object.entries(snapshot).flatMap(([name, value]) => {
-        if (!name.startsWith('sidebar.section.test-model:')) return []
-        const [kind, id] = JSON.parse(name.slice('sidebar.section.test-model:'.length)) as [
+        if (!name.startsWith(PREFIX)) return []
+        const [kind, id] = JSON.parse(name.slice(PREFIX.length)) as [
           string,
           string,
         ]
@@ -44,32 +63,30 @@ export class StoreModelLedger extends Ledger {
   private async put(scope: WriteScope, rows: readonly EntityChangeSpec[]): Promise<void> {
     const user = firstAdminMemberId()
     for (const row of rows) {
-      const key = `sidebar.section.test-model:${JSON.stringify([row.entity, row.id])}`
+      const key = `${PREFIX}${JSON.stringify([row.entity, row.id])}`
       if (row.op === 'remove') await this.modelStore.layout.clear(scope, user, key)
       else await this.modelStore.layout.set(scope, user, key, row.value, '2026-11-11T00:00:00.000Z')
     }
   }
 
   rowWrite(rows: readonly EntityChangeSpec[]): LedgerCommitOp<void> {
-    return { affects: rows, write: async (scope) => await this.put(scope, rows) }
+    return { write: async (scope) => await this.put(scope, rows) }
   }
 
-  /** Name fixture rows before the source write; persist them in that same commit. */
+  /** Persist fixture rows in the same commit as the source write. */
   modelOperation<T>(
-    op: Omit<LedgerCommitOp<T>, 'affects'> & {
+    op: LedgerCommitOp<T> & {
       rows: () => readonly EntityChangeSpec[] | Promise<readonly EntityChangeSpec[]>
     },
   ): LedgerCommitOp<T> {
-    let rows: readonly EntityChangeSpec[] = []
+    const { rows, ...rest } = op
     return {
-      ...op,
-      affects: async () => {
-        rows = await op.rows()
-        return rows
-      },
+      ...rest,
+      // The rows are read before the source write, as the fixture always did.
       write: async (scope) => {
+        const specs = await rows()
         const result = await op.write(scope)
-        await this.put(scope, rows)
+        await this.put(scope, specs)
         return result
       },
     }

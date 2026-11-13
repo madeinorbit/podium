@@ -48,7 +48,9 @@ export class ModelRecords implements RecordSourcePort {
 
   checkpoint(): () => void {
     const rows = new Map(this.rows)
-    const captured = new Map([...this.captured].map(([kind, ids]) => [kind, [...ids]] as const))
+    const captured = new Map<MetadataEntityKind, string[]>(
+      [...this.captured].map(([kind, ids]) => [kind, [...ids]]),
+    )
     return () => {
       this.rows = rows
       this.captured = captured

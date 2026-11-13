@@ -245,9 +245,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       const deleting = await svc.crud.prepareSoftDelete(issue.id)
       appended.length = 0
       await testLedgerWriter(ledger).commit({
-        affects: deleting.affects,
         write: deleting.write,
-        creates: deleting.creates,
       })
       expect(appended).toHaveLength(1)
       // The issue's own record and its git observation changed. The member's
@@ -267,9 +265,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       const restoring = await svc.crud.prepareRestore(issue.id)
       appended.length = 0
       await testLedgerWriter(ledger).commit({
-        affects: restoring.affects,
         write: restoring.write,
-        creates: restoring.creates,
       })
       expect(appended).toHaveLength(1)
       expect(appended[0]?.map((c) => c.entity).sort()).toEqual(['issueGitState', 'issueProjection'])
@@ -404,22 +400,19 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     if (!row) throw new Error('row missing')
     await expect(
       testLedgerWriter(ledger).commit({
-        write: async () =>
-          await store.issues.upsertIssue(fixtureWriteScope(), { ...row, title: 'mutated' }),
-        creates: () => {
-          throw new Error('record naming failed')
+        write: async () => {
+          await store.issues.upsertIssue(fixtureWriteScope(), { ...row, title: 'mutated' })
+          throw new Error('write failed after the row write')
         },
       }),
-    ).rejects.toThrow('record naming failed')
+    ).rejects.toThrow('write failed after the row write')
     // The entity write inside the same transact span rolled back with the append.
     expect((await store.issues.listIssueRows()).find((r) => r.id === wire.id)?.title).toBe(
       'original',
     )
     expect(await ledger.cursor()).toBe(cursorBefore)
-    // Nothing is left behind: a commit that names the issue and writes nothing
-    // finds it as it was.
+    // Nothing is left behind: a commit that writes nothing appends nothing.
     const redo = await testLedgerWriter(ledger).commit({
-      affects: [{ entity: 'issueProjection', id: wire.id }],
       write: async () => {},
     })
     expect(redo.changes).toEqual([])
@@ -751,13 +744,12 @@ describe('per-entity revision (ADR 2 D3)', () => {
     if (!row) throw new Error('row missing')
     await expect(
       testLedgerWriter(ledger).commit({
-        write: async () =>
-          await store.issues.upsertIssue(fixtureWriteScope(), { ...row, title: 'mutated' }),
-        creates: () => {
-          throw new Error('record naming failed')
+        write: async () => {
+          await store.issues.upsertIssue(fixtureWriteScope(), { ...row, title: 'mutated' })
+          throw new Error('write failed after the row write')
         },
       }),
-    ).rejects.toThrow('record naming failed')
+    ).rejects.toThrow('write failed after the row write')
     // upsertIssue assigned revision 2 inside the span; the throw rolled the row
     // back, so the token must have gone with it — a burned revision would leave
     // the authority claiming a write that never landed, and the next real write

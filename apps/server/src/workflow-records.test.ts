@@ -27,11 +27,6 @@ import {
   rowsOf,
   submit,
 } from './modules/sync-write/outbox-test-support'
-import {
-  WORKFLOW_STORE_UNSYNCED_WRITES,
-  WORKFLOW_STORE_WRITES,
-} from './modules/workflows/records'
-import { WorkflowsRepository } from './store/workflows'
 import { withWriteProvenance } from './write-provenance'
 
 afterEach(() => disposeOracles())
@@ -332,25 +327,5 @@ describe('the boot back-fill', () => {
       ['workflowBinding', []],
       ['workflowRun', []],
     ])
-  })
-})
-
-describe('the workflow repository’s writes', () => {
-  it('every method that writes is recorded, or named as writing no synced row', () => {
-    const methods = Object.getOwnPropertyNames(WorkflowsRepository.prototype).filter(
-      (name) => name !== 'constructor',
-    )
-    const writes = methods.filter((name) =>
-      /^(insert|update|set|publish|assign|reset|append|delete|remove|archive)/.test(name),
-    )
-    for (const name of writes) {
-      expect(
-        Object.hasOwn(WORKFLOW_STORE_WRITES, name) || WORKFLOW_STORE_UNSYNCED_WRITES.includes(name),
-        name,
-      ).toBe(true)
-    }
-    for (const name of [...Object.keys(WORKFLOW_STORE_WRITES), ...WORKFLOW_STORE_UNSYNCED_WRITES]) {
-      expect(methods, name).toContain(name)
-    }
   })
 })

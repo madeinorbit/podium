@@ -474,11 +474,7 @@ export class SessionStore {
     this.automations = new AutomationsRepository(this.queries)
     this.effects = new EffectsRepository(this.queries)
     this.shipping = new ShippingRepository(this.queries)
-    this.updateRecovery = new UpdateRecoveryStore(
-      this.queries,
-      this.grants.machineRecordWrites,
-      async () => await this.machines.recordIds(),
-    )
+    this.updateRecovery = new UpdateRecoveryStore(this.queries, this.grants.machineRecordWrites)
     this.operations = new OperationStore(this.queries)
     this.messagingTopics = new MessagingTopicsRepository(this.queries)
     this.messagingSessionAttachments = new MessagingSessionAttachmentsRepository(this.queries)

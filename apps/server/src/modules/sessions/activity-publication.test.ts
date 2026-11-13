@@ -74,7 +74,6 @@ async function fixture(count = 1, file = ':memory:') {
   const p = publication(store)
   const save = async (session = sessions[0]!) =>
     await p.writer.commit({
-      affects: [{ entity: 'session', id: session.sessionId }],
       write: async (scope) => await store.sessions.upsertSession(scope, session.toRow()),
     })
   for (const session of sessions) await save(session)
@@ -198,7 +197,6 @@ describe('session activity publication', () => {
     now = BASE + 61_000
     for (const session of f.sessions) session.lastActiveAt = iso(61_000)
     await f.writer.commit({
-      affects: f.sessions.map((session) => ({ entity: 'session', id: session.sessionId })),
       write: async (scope) =>
         await f.store.sessions.upsertSessions(
           scope,
@@ -245,7 +243,6 @@ describe('session activity publication', () => {
     await f.save()
     const cursor = await f.ledger.cursor()
     await f.writer.commit({
-      affects: ids.map((id) => ({ entity: 'session', id })),
       write: async (scope) => await f.store.sessions.publishActivity(scope, ids, now),
     })
     expect(await f.changes(cursor)).toEqual([])
@@ -311,7 +308,6 @@ describe('session activity publication', () => {
     now = BASE + 10_000
     f.session.lastActiveAt = iso(10_000)
     await f.writer.commit({
-      affects: [{ entity: 'session', id: f.session.sessionId }],
       write: async (scope) => {
         await f.store.observationCheckpoints.save(checkpoint)
         await f.store.sessions.upsertSession(scope, f.session.toRow())

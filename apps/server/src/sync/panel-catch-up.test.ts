@@ -69,10 +69,8 @@ for (const kind of kinds) {
               ? { text: 'Task', done: false }
               : { text: 'Later', addedAt: 't' }),
         }
-        const affects = [{ entity: kind, entityId: id }]
         const from = await authority.cursor()
         await authority.commit({
-          affects,
           write: () => store.issues.panel.save(fixtureWriteScope(), kind, value),
         })
         const addedAt = await authority.cursor()
@@ -82,7 +80,6 @@ for (const kind of kinds) {
           changes: [{ entity: kind, op: 'upsert' }],
         })
         await authority.commit({
-          affects,
           write: async () => {
             if (removal === 'item')
               await store.issues.panel.remove(fixtureWriteScope(), kind, issueId, id)

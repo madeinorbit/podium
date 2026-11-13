@@ -65,17 +65,12 @@ async function harness(
       applyCommit: { spanOpen, onCommit: applyAfterCommit },
     })
   const ledger = makeLedger(opts.window)
-  const feed = new MessageFeedPublisher({
-    ledger: testLedgerWriter(ledger),
-    messages: store.messages,
-    ...(opts.window === undefined ? {} : { confirmedPerSession: opts.window }),
-  })
+  const feed = new MessageFeedPublisher({ ledger: testLedgerWriter(ledger) })
   store.messages.setFeedCapture(feed.capture)
   store.sessions.setMessageWindowWrite(feed.writeSessions)
   // Each session is on the feed as it is in the server, so its removal is a change.
   for (const id of opts.sessions ?? [S1, S2]) {
     await testLedgerWriter(ledger).commit({
-      affects: [{ entity: 'session', id }],
       write: async (scope) => await store.sessions.upsertSession(scope, session(id)),
     })
   }
@@ -96,11 +91,7 @@ async function harness(
   }
   /** A second publisher over the same table and log — the next boot. */
   const reboot = async (window?: number): Promise<MessageFeedPublisher> => {
-    const next = new MessageFeedPublisher({
-      ledger: testLedgerWriter(makeLedger(window)),
-      messages: store.messages,
-      ...(window === undefined ? {} : { confirmedPerSession: window }),
-    })
+    const next = new MessageFeedPublisher({ ledger: testLedgerWriter(makeLedger(window)) })
     store.messages.setFeedCapture(next.capture)
     store.sessions.setMessageWindowWrite(next.writeSessions)
     return next
@@ -123,7 +114,6 @@ async function harness(
             ...patch,
           })
       },
-      affects: [{ entity: 'session', id }],
     })
   }
   /** The ids a device bootstrapping now would receive, sorted. */
