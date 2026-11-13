@@ -90,6 +90,7 @@
 import { type MessageRecordWire, messageRecordRowId } from '@podium/model'
 import type { LedgerWriter } from '@podium/sync'
 import { spawnPromptMessageId } from '../../message-ids'
+import { changeLogCommit } from '../../store/change-log-commit'
 import type { MessageFeedCapture, MessagesRepository } from '../../store/messages'
 import type { SessionMessageWindowWrite } from '../../store/sessions'
 import type { MessageRow, SessionRow } from '../../store/types'
@@ -206,11 +207,11 @@ export class MessageFeedPublisher {
    * (POD-6920).
    */
   readonly capture: MessageFeedCapture = async (write) =>
-    (await this.deps.ledger.commit({ write: async () => await write() })).result
+    await changeLogCommit(this.deps.ledger)(write)
 
   /** Session writes run as one commit: a liveness change moves the session's
    *  confirmed window, and the capture names its records (POD-6920). */
   readonly writeSessions: SessionMessageWindowWrite = async (write) => {
-    await this.deps.ledger.commit({ write })
+    await changeLogCommit(this.deps.ledger)(write)
   }
 }

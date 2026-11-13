@@ -282,7 +282,7 @@ export class Authority implements AuthorityPort {
     // Where this commit starts in the capture: what an enclosing write
     // captured before it is that write's to drain, not this commit's.
     const mark = (await this.deps.records.captureMark?.()) ?? 0
-    const committed = await this.deps.transact(async () => {
+    const body = async () => {
       if (op.arbitrate !== undefined) {
         const { current, ...request } = op.arbitrate
         const verdict = arbitrate({
@@ -299,7 +299,8 @@ export class Authority implements AuthorityPort {
 
       // DERIVED CHANGE CAPTURE (POD-6253 design §3, POD-6920): the write
       // names nothing. The database captured every model row the transaction
-      // changed so far; draining it answers the records those rows reach, and
+      // changed since this commit started; draining it answers the records
+      // those rows reach, and
       // each is built as it is now, in this span, so nothing else can write
       // between the build and the append.
       const result = await op.write()
@@ -307,7 +308,11 @@ export class Authority implements AuthorityPort {
       const seqs = rows.length > 0 ? await this.append(rows, eventTime) : []
       const changes = await this.finalize(rows, seqs)
       return { outcome: 'committed', result, changes } as const
-    })
+    }
+    const records = this.deps.records
+    const committed = await this.deps.transact(async () =>
+      records.inCommit === undefined ? await body() : await records.inCommit(body),
+    )
 
     if (committed.outcome === 'rejected') return committed
 

@@ -50,6 +50,7 @@
 import { interactionRowId } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
 import type { LedgerWriter } from '@podium/sync'
+import { changeLogCommit } from '../../store/change-log-commit'
 import type { InteractionFeedCapture, InteractionRow } from '../../store/interactions'
 
 export interface InteractionFeedDeps {
@@ -78,5 +79,5 @@ export class InteractionFeedPublisher {
    * overtaken between its row change and this append.
    */
   readonly capture: InteractionFeedCapture = async (write) =>
-    (await this.deps.ledger.commit({ write: async () => await write() })).result
+    await changeLogCommit(this.deps.ledger)(write)
 }

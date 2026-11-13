@@ -139,6 +139,13 @@ export interface RecordSourcePort {
    * leaves the enclosing write's to the enclosing commit. Absent: 0.
    */
   captureMark?(): Promise<number>
+  /**
+   * Runs a commit's body (the write, the drain, the append) inside its span,
+   * so the source can tell a write inside a commit from one outside any: a
+   * repository hook that commits its own writes joins an open commit instead
+   * (POD-6920). Absent: the body runs as is.
+   */
+  inCommit?<T>(body: () => Promise<T>): Promise<T>
   build(kind: MetadataEntityKind, ids: readonly string[]): Promise<readonly BuiltRecord[]>
   /** Build several kinds at once, sharing reads across kinds. */
   buildMany(idsByKind: RecordIdsByKind): AsyncIterable<RecordPage>

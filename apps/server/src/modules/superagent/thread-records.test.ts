@@ -19,12 +19,14 @@ import {
 } from '@podium/model'
 import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
 import { Authority, GrantEdgeVisibilityPolicy, NoDelegationsGranted } from '@podium/sync'
+import { authorityCommitWriter } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import { makeFeedVisibility } from '../../feed-visibility'
 import type { PendingSuperagentTurnRow, SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
 import { logStoreRecords, testStoreRecords } from '../../test-support/record-writer'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
+import { makeThreadFeedCapture } from './thread-records'
 import { envelope, expectAppliedOnPath, submit } from '../sync-write/outbox-test-support'
 
 afterEach(() => disposeOracles())
@@ -243,6 +245,8 @@ async function feedFixture() {
     visibility: new GrantEdgeVisibilityPolicy(policy.state, new NoDelegationsGranted()),
     anchors: policy.anchors,
   })
+  // As relay.ts wires it: every thread write is a change-log commit (POD-6920).
+  store.superagent.setThreadFeedCapture(makeThreadFeedCapture(authorityCommitWriter(authority)))
   return { store, authority }
 }
 
