@@ -39,6 +39,7 @@ import { openTestStore } from './test-support/open-test-store'
 import { seedMailboxRow } from './test-support/seed-issue-mail'
 import { seedMessage } from './test-support/seed-message'
 import { metasAsFacts, sessionReadPorts } from './test-support/session-facts'
+import { seedRows } from './test-support/seed-rows'
 
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */
@@ -50,7 +51,7 @@ async function harness(sessions: SessionMeta[] = [], opts: { originUrl?: string 
   // implicit placement), so the fixture's repo is reported by the host machine.
   // Without an origin its identity is derived from the host and path; a test
   // that moves an issue between checkouts BY IDENTITY passes `originUrl`.
-  await store.repos.addRepo('/r', store.hostMachineId, opts.originUrl)
+  await seedRows(store, async () => await store.repos.addRepo('/r', store.hostMachineId, opts.originUrl))
   const setSessionArchived = vi.fn()
   const clearSessionOffer = vi.fn()
   const onWorktreesChanged = vi.fn()
@@ -162,8 +163,8 @@ describe('IssueService repo_id scoping (#140)', () => {
   it('unifies one origin checked out at two paths into a single #N sequence', async () => {
     const { store, deps } = await harness()
     const origin = 'git@github.com:acme/app.git'
-    await store.repos.addRepo('/home/alice/app', asMachineId('m-alice'), origin)
-    await store.repos.addRepo('/home/bob/app', asMachineId('m-bob'), origin) // same origin ⇒ same repo_id
+    await seedRows(store, async () => await store.repos.addRepo('/home/alice/app', asMachineId('m-alice'), origin))
+    await seedRows(store, async () => await store.repos.addRepo('/home/bob/app', asMachineId('m-bob'), origin)) // same origin ⇒ same repo_id
     const svc = await IssueService.create(deps)
     const a = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/home/alice/app',
@@ -188,8 +189,8 @@ describe('IssueService repo_id scoping (#140)', () => {
 
   it('resolveRef scopes a shared #N to the caller repo; unscoped stays ambiguous', async () => {
     const { store, deps } = await harness()
-    await store.repos.addRepo('/repoA', asMachineId('mA'), 'git@github.com:o/a.git')
-    await store.repos.addRepo('/repoB', asMachineId('mB'), 'git@github.com:o/b.git') // distinct origins
+    await seedRows(store, async () => await store.repos.addRepo('/repoA', asMachineId('mA'), 'git@github.com:o/a.git'))
+    await seedRows(store, async () => await store.repos.addRepo('/repoB', asMachineId('mB'), 'git@github.com:o/b.git')) // distinct origins
     const svc = await IssueService.create(deps)
     const a = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/repoA',
@@ -521,10 +522,10 @@ describe('IssueService unread (#124)', () => {
     // the same way it already had to for `readAt`, and reads the surviving
     // observation point. Same three cases, same rule.
     const withReadAt = async (readAt: string, updatedAt: string) => {
-      await store.issues.upsertIssue(fixtureWriteScope(), { ...row, updatedAt })
-      await store.issues.setIssueUserState(fixtureWriteScope(), firstAdminMemberId(), w.id, {
+      await seedRows(store, async () => await store.issues.upsertIssue(fixtureWriteScope(), { ...row, updatedAt }))
+      await seedRows(store, async () => await store.issues.setIssueUserState(fixtureWriteScope(), firstAdminMemberId(), w.id, {
         readAt,
-      })
+      }))
       return svc.reports.unreadFor(w.id)
     }
     // readAt AFTER all activity → read.
@@ -565,7 +566,7 @@ describe('IssueService unread (#124)', () => {
     // (computeUnread uses lastActivity > readAt, not >=).
     let clock = '2026-06-30T00:00:00.000Z'
     const store = await openTestStore(':memory:')
-    await store.repos.addRepo('/r', store.hostMachineId)
+    await seedRows(store, async () => await store.repos.addRepo('/r', store.hostMachineId))
     /** Every change row the service published — see `issueTestPlumbing`. */
     const broadcast = vi.fn()
     const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
@@ -679,7 +680,7 @@ describe('IssueService tuck-away (POD-333)', () => {
     // Mutable clock so a repeated tuck could visibly move the stamp if it did.
     let clock = '2026-06-30T00:00:00.000Z'
     const store = await openTestStore(':memory:')
-    await store.repos.addRepo('/r', store.hostMachineId)
+    await seedRows(store, async () => await store.repos.addRepo('/r', store.hostMachineId))
     /** Every change row the service published — see `issueTestPlumbing`. */
     const broadcast = vi.fn()
     const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
@@ -1830,7 +1831,7 @@ describe('IssueService.start', () => {
     const { svc, deps, store } = await harness()
     const selected = asMachineId('repo-affine-remote')
     // The remote the resolver selects is the machine that reported the repo.
-    await store.repos.addRepo('/remote/repo', selected)
+    await seedRows(store, async () => await store.repos.addRepo('/remote/repo', selected))
     deps.resolveMachine = vi.fn(async () => selected)
     const created = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/remote/repo',
@@ -2029,11 +2030,11 @@ describe('IssueService.start', () => {
     // issue that identity.
     const { svc, deps, store } = await harness([], { originUrl: 'https://example.test/podium.git' })
     const order: string[] = []
-    await store.repos.addRepo(
+    await seedRows(store, async () => await store.repos.addRepo(
       '/home/till/src/podium',
       asMachineId('mach-b'),
       'https://example.test/podium.git',
-    )
+    ))
     deps.requireMachineForRepo = vi.fn()
     deps.prepareMachineStart = vi.fn(async ({ repoPath, machineId, startPoint }) => {
       order.push(`prepare:${repoPath}:${machineId}:${startPoint}`)
@@ -2081,11 +2082,11 @@ describe('IssueService.start', () => {
     // resolve to one repoId and the guard lets the move through. The source is the
     // harness's '/r', reported with the origin (see the test above).
     const { svc, deps, store } = await harness([], { originUrl: 'https://example.test/podium.git' })
-    await store.repos.addRepo(
+    await seedRows(store, async () => await store.repos.addRepo(
       '/home/till/src/podium',
       asMachineId('mach-b'),
       'https://example.test/podium.git',
-    )
+    ))
     deps.requireMachineForRepo = vi.fn()
     deps.prepareMachineStart = vi.fn(async () => ({ repoPath: '/home/till/src/podium' }))
     const created = await svc.crud.create(svc.reports.store.serverWriter, {
@@ -2110,11 +2111,11 @@ describe('IssueService.start', () => {
     // must start from whatever the TARGET can resolve, which prepareMachineStart returns.
     // The source is the harness's '/r', reported with the origin (see above).
     const { svc, deps, store } = await harness([], { originUrl: 'https://example.test/podium.git' })
-    await store.repos.addRepo(
+    await seedRows(store, async () => await store.repos.addRepo(
       '/home/till/src/podium',
       asMachineId('mach-b'),
       'https://example.test/podium.git',
-    )
+    ))
     deps.requireMachineForRepo = vi.fn()
     const sha = 'e348cfe3b3bc5a1af2712b1614ea25c1b320fe03'
     deps.prepareMachineStart = vi.fn(async () => ({
@@ -2142,7 +2143,7 @@ describe('IssueService.start', () => {
     // renumber the issue into another repo. It must refuse on this path too.
     const { svc, deps, store } = await harness()
     // The target machine reports its (different) repository, as its daemon's scan would.
-    await store.repos.addRepo('/somewhere/entirely-else', asMachineId('mach-b'))
+    await seedRows(store, async () => await store.repos.addRepo('/somewhere/entirely-else', asMachineId('mach-b')))
     deps.requireMachineForRepo = vi.fn()
     deps.prepareMachineStart = vi.fn(async () => ({ repoPath: '/somewhere/entirely-else' }))
     const created = await svc.crud.create(svc.reports.store.serverWriter, {
@@ -3303,7 +3304,7 @@ describe('IssueService derived status (P1)', () => {
       title: 'B',
       startNow: false,
     })
-    await store.issues.addIssueDep(a.id, b.id, 'blocked-by')
+    await seedRows(store, async () => await store.issues.addIssueDep(a.id, b.id, 'blocked-by'))
     const reloaded = (await svc.reports.get(a.id))!
     expect(reloaded.blocked).toBe(true)
     expect(reloaded.ready).toBe(false)
@@ -3322,7 +3323,7 @@ describe('IssueService derived status (P1)', () => {
       title: 'B',
       startNow: false,
     })
-    await store.issues.addIssueDep(a.id, b.id, 'blocked-by')
+    await seedRows(store, async () => await store.issues.addIssueDep(a.id, b.id, 'blocked-by'))
     await svc.crud.update(svc.reports.store.serverWriter, b.id, { stage: 'done' })
     expect((await svc.reports.get(a.id))!.ready).toBe(true)
   })
@@ -4224,7 +4225,7 @@ describe('IssueService hierarchy reconciliation (P2a / I2)', () => {
       parentId: e.id,
       startNow: false,
     })
-    await store.issues.addIssueDep(c.id, e.id, 'related') // a real edge on the same pair
+    await seedRows(store, async () => await store.issues.addIssueDep(c.id, e.id, 'related')) // a real edge on the same pair
     await svc.hierarchy.removeDep(svc.reports.store.serverWriter, c.id, e.id) // no type → bulk
     expect(await store.issues.listIssueDeps(c.id)).toEqual([])
     expect((await svc.reports.get(c.id))!.parentId).toBe(e.id) // hierarchy untouched (parent_id)
@@ -4252,7 +4253,7 @@ describe('IssueService ready/blocked lists (P2a)', () => {
       title: 'C',
       startNow: false,
     })
-    await store.issues.addIssueDep(a.id, c.id, 'blocked-by') // a blocked by open c
+    await seedRows(store, async () => await store.issues.addIssueDep(a.id, c.id, 'blocked-by')) // a blocked by open c
     await svc.crud.update(svc.reports.store.serverWriter, c.id, {}) // no-op to ensure persisted
     const ready = (await svc.reports.readyList('/r')).map((w) => w.title)
     expect(ready).toEqual(['B', 'C']) // A is blocked; B(p0) before C(p2)
@@ -4270,7 +4271,7 @@ describe('IssueService ready/blocked lists (P2a)', () => {
       title: 'B',
       startNow: false,
     })
-    await store.issues.addIssueDep(a.id, b.id, 'blocked-by')
+    await seedRows(store, async () => await store.issues.addIssueDep(a.id, b.id, 'blocked-by'))
     expect((await svc.reports.blockedList('/r')).map((w) => w.title)).toEqual(['A'])
   })
 })
@@ -4278,7 +4279,7 @@ describe('IssueService ready/blocked lists (P2a)', () => {
 describe('IssueService graph (P2a)', () => {
   it('returns nodes for repo issues and edges from issue_deps', async () => {
     const { svc, store } = await harness()
-    await store.repos.addRepo('/other', store.hostMachineId)
+    await seedRows(store, async () => await store.repos.addRepo('/other', store.hostMachineId))
     const a = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'A',
@@ -4294,7 +4295,7 @@ describe('IssueService graph (P2a)', () => {
       title: 'X',
       startNow: false,
     })
-    await store.issues.addIssueDep(a.id, b.id, 'blocked-by')
+    await seedRows(store, async () => await store.issues.addIssueDep(a.id, b.id, 'blocked-by'))
     const g = await svc.reports.graph('/r')
     expect(g.nodes.map((n) => n.title).sort()).toEqual(['A', 'B'])
     expect(g.edges).toEqual([{ from: a.id, to: b.id, type: 'blocked-by' }])
@@ -4652,7 +4653,7 @@ describe('IssueService stale (P2b)', () => {
     // backdate updatedAt directly in the store; the report reads it there
     const row = (await store.issues.getIssue(a.id))!
     row.updatedAt = '2000-01-01T00:00:00.000Z'
-    await store.issues.upsertIssue(fixtureWriteScope(), row)
+    await seedRows(store, async () => await store.issues.upsertIssue(fixtureWriteScope(), row))
     const stale = await svc.reports.staleList('/r', 30, Date.parse('2026-06-30T00:00:00.000Z'))
     expect(stale.map((w) => w.title)).toEqual(['old'])
   })
@@ -4892,7 +4893,7 @@ describe('IssueService.prime (P1a)', () => {
     expect(unbound).toContain('`POD-557`')
     expect(unbound).toContain('only `POD-…` linkifies')
 
-    await store.repos.addRepo('/home/u/other', store.hostMachineId, undefined, 'OTH')
+    await seedRows(store, async () => await store.repos.addRepo('/home/u/other', store.hostMachineId, undefined, 'OTH'))
     const issue = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/home/u/other',
       title: 'Bound',
@@ -5039,10 +5040,10 @@ describe('IssueService.issueForCwd (P1b)', () => {
     // Simulate a narrow worktree nested under the broad one (row-level, no git).
     const nested = `${broadWt}/nested/issue-narrow`
     // Row-level move, straight to the table the folder lookup reads (POD-6155).
-    await store.issues.upsertIssue(fixtureWriteScope(), {
+    await seedRows(store, async () => await store.issues.upsertIssue(fixtureWriteScope(), {
       ...(await store.issues.getIssue(narrow.id))!,
       worktreePath: nested,
-    })
+    }))
     expect(await svc.reports.issueForCwd(`${nested}/src`)).toBe(narrow.id)
     expect(await svc.reports.issueForCwd(`${broadWt}/other`)).toBe(broad.id)
   })
@@ -5086,11 +5087,11 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
 
   it('resolves a human-facing nice id PREFIX-seq (#474)', async () => {
     const { svc, store } = await harness()
-    await store.repos.addRepo(
+    await seedRows(store, async () => await store.repos.addRepo(
       '/home/u/podium',
       asMachineId('__local__'),
       'git@github.com:o/podium.git',
-    )
+    ))
     const prefix = (await store.repos.prefixForPath('/home/u/podium'))!
     const w = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/home/u/podium',
@@ -5122,7 +5123,7 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
   it('resolves repo-qualified refs — the exact form the ambiguity error prints', async () => {
     const { svc, store } = await harness()
     for (const path of ['/home/u/r1', '/home/u/r2'])
-      await store.repos.addRepo(path, store.hostMachineId)
+      await seedRows(store, async () => await store.repos.addRepo(path, store.hostMachineId))
     const a = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/home/u/r1',
       title: 'A',
@@ -5145,7 +5146,7 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
   it('the ambiguity error is copy-paste actionable: its printed refs resolve', async () => {
     const { svc, store } = await harness()
     for (const path of ['/home/u/r1', '/home/u/r2'])
-      await store.repos.addRepo(path, store.hostMachineId)
+      await seedRows(store, async () => await store.repos.addRepo(path, store.hostMachineId))
     const a = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/home/u/r1',
       title: 'A',
@@ -5171,7 +5172,7 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
   it('a suffix ref matching several repos throws instead of guessing', async () => {
     const { svc, store } = await harness()
     for (const path of ['/a/podium', '/b/podium'])
-      await store.repos.addRepo(path, store.hostMachineId)
+      await seedRows(store, async () => await store.repos.addRepo(path, store.hostMachineId))
     await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/a/podium',
       title: 'A',
@@ -6565,7 +6566,7 @@ describe('IssueService children + depReport (epic ergonomics)', () => {
 
   it('depReport without id covers the repo', async () => {
     const { svc, store } = await harness()
-    await store.repos.addRepo('/other', store.hostMachineId)
+    await seedRows(store, async () => await store.repos.addRepo('/other', store.hostMachineId))
     await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'x',
@@ -7949,7 +7950,7 @@ describe('IssueService agent mail (#103)', () => {
     await svc.commentsMail.mailInbox(svc.reports.store.serverWriter, a.id, {
       sessionId: asSessionId('sOld'),
     })
-    await store.sessions.upsertSession(fixtureWriteScope(), {
+    await seedRows(store, async () => await store.sessions.upsertSession(fixtureWriteScope(), {
       id: asSessionId('sNew'),
       ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
@@ -7975,7 +7976,7 @@ describe('IssueService agent mail (#103)', () => {
       machineId: asMachineId('m1'),
       headless: false,
       issueId: a.id,
-    })
+    }))
     expect(
       (await svc.commentsMail.mailPending(a.id, { sessionId: asSessionId('sNew') })).unread,
     ).toBe(0)
@@ -7991,7 +7992,7 @@ describe('IssueService agent mail (#103)', () => {
     // Nobody was live when it was sent: it is still queued, so the next session
     // to arrive must be told about it even though it predates that session.
     await seedIssueMail(store, a.id, 'msg_held', { fromSession: asSessionId('sSender') })
-    await store.sessions.upsertSession(fixtureWriteScope(), {
+    await seedRows(store, async () => await store.sessions.upsertSession(fixtureWriteScope(), {
       id: asSessionId('sLate'),
       ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
@@ -8016,7 +8017,7 @@ describe('IssueService agent mail (#103)', () => {
       machineId: asMachineId('m1'),
       headless: false,
       issueId: a.id,
-    })
+    }))
     expect(
       (await svc.commentsMail.mailPending(a.id, { sessionId: asSessionId('sLate') })).unread,
     ).toBe(1)
@@ -8690,7 +8691,7 @@ it.each([
   'C:\\repo',
 ])('machine paths: shared roots remain unowned while nested worktrees attach under %s', async (root) => {
   const { svc, store } = await harness()
-  await store.repos.addRepo(root, store.hostMachineId)
+  await seedRows(store, async () => await store.repos.addRepo(root, store.hostMachineId))
   const w = await svc.crud.create(svc.reports.store.serverWriter, {
     repoPath: root,
     title: 'shared',
@@ -8710,7 +8711,7 @@ it.each([
   'C:\\repo',
 ])('machine paths: worktree creation and qualified issue reference under %s', async (root) => {
   const { svc, deps, store } = await harness()
-  await store.repos.addRepo(root, store.hostMachineId)
+  await seedRows(store, async () => await store.repos.addRepo(root, store.hostMachineId))
   const w = await svc.crud.create(svc.reports.store.serverWriter, {
     repoPath: root,
     title: 'feature',
