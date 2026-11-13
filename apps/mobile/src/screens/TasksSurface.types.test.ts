@@ -61,6 +61,12 @@ it('matches desktop and deck leaf progress for a TFT-88-shaped task across live 
       issue('remaining', 'verification', { stage: 'backlog' }),
       issue('proposal', 'audit', { stage: 'proposed' }),
       issue('unaccepted', 'proposal', { stage: 'done' }),
+      // TFT-95 has no seat and a discovered proposal (TFT-97). Desktop
+      // excludes that vacated origin even while the proposal is unaccepted.
+      issue('spin-off', null, {
+        stage: 'proposed',
+        deps: [{ type: 'discovered-from', id: 'checks-1' }],
+      }),
       ...['cancelled', 'duplicate', 'superseded'].map((closedReason) =>
         issue(closedReason, 'verification', { stage: 'done', closedReason }),
       ),
@@ -80,6 +86,7 @@ it('matches desktop and deck leaf progress for a TFT-88-shaped task across live 
     const desktop = pool.worklistRow('audit')?.progress
     if (!desktop || desktop === LOADING) throw new Error('Desktop progress must be loaded')
     const full = opening.full.buckets
+    expect(full).toBe(desktop)
     const deck = opening.progress
     figures = [
       taskRowFigure(board.task('audit').progress, null),
@@ -91,12 +98,12 @@ it('matches desktop and deck leaf progress for a TFT-88-shaped task across live 
   try {
     expect(board.issue('audit').childCount).toBe(4)
     expect(board.issue('audit').childDoneCount).toBe(0)
-    expect(figures).toEqual(['6/7', '6/7', '6/7', '6/7'])
+    expect(figures).toEqual(['5/6', '5/6', '5/6', '5/6'])
     board.toggleExpanded('audit')
     board.setFilter({ text: 'remaining' })
     opening.full.setFilter('needs-you')
     opening.full.setShowDone(true)
-    expect(figures).toEqual(['6/7', '6/7', '6/7', '6/7'])
+    expect(figures).toEqual(['5/6', '5/6', '5/6', '5/6'])
     runInAction(() =>
       pool.apply({
         type: 'update',
@@ -109,7 +116,7 @@ it('matches desktop and deck leaf progress for a TFT-88-shaped task across live 
         ],
       }),
     )
-    expect(figures).toEqual(['7/7', '7/7', '7/7', '7/7'])
+    expect(figures).toEqual(['6/6', '6/6', '6/6', '6/6'])
     runInAction(() =>
       pool.apply({
         type: 'update',
@@ -119,6 +126,15 @@ it('matches desktop and deck leaf progress for a TFT-88-shaped task across live 
             id: 'proposal',
             value: issue('proposal', 'audit', { stage: 'backlog' }),
           },
+        ],
+      }),
+    )
+    expect(figures).toEqual(['7/7', '7/7', '7/7', '7/7'])
+    runInAction(() =>
+      pool.apply({
+        type: 'update',
+        rows: [
+          { kind: 'issue', id: 'spin-off', value: issue('spin-off', null, { stage: 'proposed' }) },
         ],
       }),
     )

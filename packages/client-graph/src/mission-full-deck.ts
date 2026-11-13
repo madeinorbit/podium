@@ -18,7 +18,6 @@ import {
   type MissionBuckets,
   type ProposalPlacement,
   proposalShape,
-  tallyMissionBuckets,
 } from '@podium/client-core/values'
 import { companion, lazy } from '@podium/mobx-helpers'
 import {
@@ -43,6 +42,7 @@ import {
   settledAll,
 } from './mission-view'
 import type { IssueModel } from './models'
+import { sidebarIssueProgress } from './worklist/sidebar'
 
 /** The Full view's filter tabs (v6 mockup). Done is a separate toggle. */
 export const FULL_DECK_FILTERS = ['all', 'needs-you', 'active', 'up-next'] as const
@@ -369,9 +369,10 @@ export class FullDeck {
   @lazy({ equals: compareShallow }) get leafIds(): readonly string[] {
     return leafTasks(this.rootId, this.tree)
   }
-  /** Execution counts are separate from the attention filters' state words. */
+  /** The same execution count Tasks and the desktop worklist read. The drawn
+   * tree can retain a vacated origin or graft that is not a progress unit. */
   @lazy({ equals: compareStructural }) get buckets(): MissionBuckets {
-    return tallyMissionBuckets(this.leafIds, (id) => this.task(id).entity.missionBucket)
+    return requireLoaded(sidebarIssueProgress(this.root.entity))
   }
   /** Shipping counts as working but licenses no motion without a computing session. */
   @lazy get computing(): boolean {
