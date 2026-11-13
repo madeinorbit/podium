@@ -16,6 +16,7 @@ import {
 } from '@expo/ui/swift-ui'
 import {
   Animation,
+  accessibilityAddTraits,
   accessibilityElement,
   accessibilityHidden,
   accessibilityHint,
@@ -43,6 +44,7 @@ import {
   onAppear,
   onDisappear,
   onGeometryChange,
+  onTapGesture,
   pickerStyle,
   refreshable,
   scrollContentBackground,
@@ -203,8 +205,8 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
       {/* Keep the Host first so UIKit can discover the List for tab reselect. */}
       <View style={styles.listContainer}>
         <Host style={styles.host} seedColor={color.accentTint}>
+          {/* Keep UIKit's tracked scroll view and hidden search offset across lanes. */}
           <List
-            key={phone.lane}
             modifiers={[
               listStyle('insetGrouped'),
               listSectionSpacing(0),
@@ -606,11 +608,15 @@ const NativeWorkRow = observer(function NativeWorkRow(props: RowProps) {
     >
       <ContextMenu>
         <ContextMenu.Trigger>
-          <Button
-            onPress={open}
+          <VStack
+            spacing={0}
             modifiers={[
-              buttonStyle('plain'),
+              // A plain Button accepts drags that end inside its wide label.
+              // TapGesture fails after movement, including a cancelled/right swipe.
+              contentShape(shapes.rectangle()),
+              onTapGesture(open),
               accessibilityElement('ignore'),
+              accessibilityAddTraits(['isButton']),
               accessibilityLabel(
                 `${row.title}. ${word}. ${ref}${unread ? '. Unread' : ''}${notSaved ? '. Not saved' : ''}`,
               ),
@@ -701,7 +707,7 @@ const NativeWorkRow = observer(function NativeWorkRow(props: RowProps) {
                 ) : null}
               </VStack>
             </HStack>
-          </Button>
+          </VStack>
         </ContextMenu.Trigger>
         <ContextMenu.Items>
           <NativeRowActions

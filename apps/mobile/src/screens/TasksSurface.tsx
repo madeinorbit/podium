@@ -27,6 +27,7 @@ import { HeaderButton, Screen } from '../components/Screen'
 import { StorageNoticeAlert } from '../components/StorageNoticeAlert'
 import { EmptyState } from '../components/ui'
 import { WorkspaceContinuityNotice } from '../components/WorkspaceContinuityNotice'
+import { useRowPress } from '../hooks/useRowPress'
 import { useAgeNow } from '../lib/clock-hooks'
 import { taskRowAccessibilityProps } from '../lib/task-row-accessibility'
 import { color, font, mono, radius, sans, space } from '../theme/theme'
@@ -321,6 +322,11 @@ const TaskRow = observer(function TaskRow({
   onToggleExpanded: (id: string) => void
   onOpenActions: (issue: MobileTaskIssue) => void
 }) {
+  const press = useRowPress(
+    () => onOpen(issue.id),
+    () => onOpenActions(issue),
+  )
+  const expandPress = useRowPress(() => onToggleExpanded(issue.id))
   const loaded = here(issue.row)
   const edge = [styles.rowWrap, first && styles.rowFirst, last && styles.rowLast]
   // The shared load window resolves just this drawn row; membership stays live.
@@ -370,8 +376,7 @@ const TaskRow = observer(function TaskRow({
           }
           accessibility.onAccessibilityAction?.(event)
         }}
-        onPress={() => onOpen(issue.id)}
-        onLongPress={() => onOpenActions(issue)}
+        {...press}
         scaleTo={1}
         style={({ pressed }) => [
           styles.row,
@@ -397,7 +402,7 @@ const TaskRow = observer(function TaskRow({
             // The row carries this control's accessibility (its `expand` action).
             accessibilityElementsHidden
             importantForAccessibility="no-hide-descendants"
-            onPress={() => onToggleExpanded(issue.id)}
+            {...expandPress}
             hitSlop={10}
             scaleTo={0.94}
             style={styles.disclosure}

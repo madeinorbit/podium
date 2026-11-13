@@ -19,6 +19,7 @@ import { DeliveryFailureMark } from '../components/DeliveryFailureMark'
 import { NotSavedMark } from '../components/NotSavedMark'
 import { PressableScale } from '../components/PressableScale'
 import { WorkingMark } from '../components/WorkingMark'
+import { useRowPress } from '../hooks/useRowPress'
 import { useAgeNow } from '../lib/clock-hooks'
 import { mobileRowStamp } from '../lib/work-sections'
 import { alpha } from '../theme/mix'
@@ -60,6 +61,7 @@ export const WorkRow = observer(function WorkRow({
   focusId,
 }: WorkListRowProps) {
   const ownFocusId = useId()
+  const press = useRowPress(onOpen, onLongPress)
   const navLoader = useDelayedFlag(navPending, NAV_LOADER_DELAY_MS)
   useEffect(() => {
     if (row.ready === 'ready') onRestore?.()
@@ -95,8 +97,7 @@ export const WorkRow = observer(function WorkRow({
         text: `${word}${unread ? ' · Unread' : ''}${row.deliveryAttention === 'failed' ? ' · Message not delivered' : row.deliveryAttention === 'unknown' ? ' · Message not confirmed' : ''}`,
       }}
       accessibilityHint="Open task. Long press for actions."
-      onPress={onOpen}
-      onLongPress={onLongPress}
+      {...press}
       delayLongPress={450}
       scaleTo={1}
       style={({ pressed }) => [

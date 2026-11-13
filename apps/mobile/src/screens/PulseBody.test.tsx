@@ -6,6 +6,7 @@ import {
   usageSummary,
   visibleFleetOperations,
 } from '@podium/client-core/values'
+import { MobxPool } from '@podium/client-graph/pool'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { PulseBody, type PulseBodyProps } from './PulseBody'
@@ -81,4 +82,54 @@ it('keeps healthy quota and machines during a usage failure and labels stale rea
   expect(p.onRetry).toHaveBeenCalledExactlyOnceWith('usage')
   view.rerender(<PulseBody {...p} cold={false} />)
   expect(screen.getByText('Couldn’t refresh usage. Showing the last reading.')).toBeTruthy()
+})
+
+it('opens a Pulse task by tap, but not after a horizontal drag in either direction or back to its start', () => {
+  const stamp = '2026-10-03T12:00:00Z'
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
+  pool.apply({
+    type: 'replace',
+    rows: [
+      {
+        kind: 'issue',
+        id: 'task',
+        value: {
+          id: 'task',
+          seq: 1,
+          title: 'Pulse task',
+          stage: 'in_progress',
+          createdAt: stamp,
+          updatedAt: stamp,
+        },
+      },
+    ],
+  })
+  const onOpenTask = vi.fn()
+  const view = render(
+    <PulseBody {...props({ pool, tasks: [{ issueId: 'task', windowCostUsd: 1 }], onOpenTask })} />,
+  )
+  try {
+    const row = screen.getByRole('button', { name: /Pulse task/ })
+    const touch = (pageX: number) => ({ identifier: 1, target: row, pageX, pageY: 100 })
+    const touches = (pageX: number) => ({
+      touches: [touch(pageX)],
+      changedTouches: [touch(pageX)],
+    })
+    for (const distance of [80, -80, 12, -12]) {
+      fireEvent.touchStart(row, touches(100))
+      fireEvent.touchMove(row, touches(100 + distance))
+      fireEvent.touchMove(row, touches(100))
+      fireEvent.touchEnd(row, { touches: [], changedTouches: [touch(100)] })
+      // Some responders still deliver a release-inside press. It must be ignored.
+      fireEvent.click(row)
+      expect(onOpenTask).not.toHaveBeenCalled()
+    }
+    fireEvent.touchStart(row, touches(100))
+    fireEvent.touchEnd(row, { touches: [], changedTouches: [touch(100)] })
+    fireEvent.click(row, { clientX: 100, clientY: 100 })
+    expect(onOpenTask).toHaveBeenCalledExactlyOnceWith('task')
+  } finally {
+    view.unmount()
+    pool.dispose()
+  }
 })

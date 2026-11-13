@@ -2,15 +2,14 @@ import { Stack, useFocusEffect } from 'expo-router'
 import { useCallback, useLayoutEffect, useRef } from 'react'
 import type { SearchBarCommands } from 'react-native-screens'
 
-/** UIKit's pull-down field beneath the stock large title, with native Cancel. */
+/** UIKit owns the pull threshold and snap beneath the stock large title.
+ * Keep the screen's first scroll view mounted and let it own its offset/insets. */
 export function ListSearchBar({
   query,
   onQueryChange,
-  onCancel,
 }: {
   query: string
   onQueryChange: (query: string) => void
-  onCancel?: () => void
 }) {
   const searchRef = useRef<SearchBarCommands | null>(null)
   // This tracks only the native control's text; the list owns its one query.
@@ -45,7 +44,6 @@ export function ListSearchBar({
       onCancelButtonPress={() => {
         nativeQuery.current = ''
         onQueryChange('')
-        onCancel?.()
       }}
     />
   )

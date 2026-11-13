@@ -28,6 +28,7 @@ import {
   SEPARATOR,
   SectionHeader,
 } from '../components/instruments'
+import { useRowPress } from '../hooks/useRowPress'
 import { color, font, mono, sans, space } from '../theme/theme'
 import {
   attributedLabel,
@@ -419,12 +420,13 @@ function TaskRowBase({
   onOpen,
   disabled = false,
 }: TaskRowProps & { title: string; displayRef: string; disabled?: boolean }) {
+  const press = useRowPress(() => onOpen(issueId))
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`${displayRef} ${title}, ${formatCostRounded(costUsd)}`}
       disabled={disabled}
-      onPress={() => onOpen(issueId)}
+      {...press}
       style={({ pressed }) => [styles.task, pressed && styles.pressed]}
     >
       {first ? null : <View style={styles.taskDivider} />}

@@ -108,6 +108,7 @@ vi.mock('@expo/ui', () => ({
 vi.mock('@expo/ui/swift-ui/modifiers', () =>
   Object.fromEntries(
     [
+      'accessibilityAddTraits',
       'accessibilityElement',
       'accessibilityHidden',
       'accessibilityHint',
@@ -136,6 +137,7 @@ vi.mock('@expo/ui/swift-ui/modifiers', () =>
       'onAppear',
       'onDisappear',
       'onGeometryChange',
+      'onTapGesture',
       'opacity',
       'padding',
       'pickerStyle',
@@ -164,6 +166,19 @@ vi.mock('@expo/ui/swift-ui', () => {
     <div data-modifiers={JSON.stringify(modifiers)}>{children}</div>
   )
   const VStack = ({ children, modifiers }: Props) => {
+    const tap = modifiers?.find((m) => m.name === 'onTapGesture')?.value as (() => void) | undefined
+    if (tap)
+      return (
+        <button
+          type="button"
+          aria-label={modifiers?.find((m) => m.name === 'accessibilityLabel')?.value as string}
+          data-native-tap="true"
+          data-modifiers={JSON.stringify(modifiers)}
+          onClick={tap}
+        >
+          {children}
+        </button>
+      )
     const appear = modifiers?.find((m) => m.name === 'onAppear')?.value as (() => void) | undefined
     const disappear = modifiers?.find((m) => m.name === 'onDisappear')?.value as
       | (() => void)
@@ -522,18 +537,18 @@ it('native placeholders activate a bounded window both ways; only age labels rea
   expect(screen.queryAllByTestId('slot')).toHaveLength(0)
   fireEvent.click(screen.getByTestId('group-header'))
   expect(state.toggleFold).toHaveBeenCalledTimes(1)
-  // Cancel resets the native list even when UIKit clears the text first.
+  // UIKit may clear the text first. Neither event may replace its scroll view.
   expectPullDownSearch()
   act(() => changeSearchText('Task 150'))
   const mounts = state.listMount.mock.calls.length
   act(() => changeSearchText(''))
   expect(state.listMount).toHaveBeenCalledTimes(mounts)
   act(cancelSearch)
-  expect(state.listMount).toHaveBeenCalledTimes(mounts + 1)
+  expect(state.listMount).toHaveBeenCalledTimes(mounts)
   expect(board.query).toBe('')
   expect(screen.queryAllByTestId('slot')).toHaveLength(0)
   act(cancelSearch)
-  expect(state.listMount).toHaveBeenCalledTimes(mounts + 2)
+  expect(state.listMount).toHaveBeenCalledTimes(mounts)
 })
 
 it('Work keeps its native list and unchanged slots quiet during a one-row scroll', async () => {
@@ -658,6 +673,7 @@ it.each([
     refresh: { onRefresh: () => {} },
     bottomInset: 0,
   }
+  const onOpen = vi.fn()
   render(
     tab === 'Work' ? (
       <WorkSurface
@@ -667,15 +683,33 @@ it.each([
           collapsed: new Set(),
           loading: false,
           pendingNav: null,
+          onOpenIssue: onOpen,
+          onOpenSession: onOpen,
         } as unknown as WorkSurfaceProps)}
       />
     ) : (
       <TasksSurface
-        {...({ ...common, board, chips: [], booting: false } as unknown as TasksSurfaceProps)}
+        {...({
+          ...common,
+          board,
+          chips: [],
+          booting: false,
+          onOpen,
+        } as unknown as TasksSurfaceProps)}
       />
     ),
   )
   expectPullDownSearch()
+  expect(state.listMount).toHaveBeenCalledOnce()
+  // The native tap recognizer owns row opening, with button semantics for VoiceOver.
+  const openTarget = screen.getByRole('button', { name: /^Search parent\./ })
+  expect(openTarget.getAttribute('data-native-tap')).toBe('true')
+  expect(JSON.parse(openTarget.getAttribute('data-modifiers') ?? '[]')).toContainEqual({
+    name: 'accessibilityAddTraits',
+    value: ['isButton'],
+  })
+  fireEvent.click(openTarget)
+  expect(onOpen).toHaveBeenCalledOnce()
   expect(screen.getByText('Other task')).toBeTruthy()
   for (const text of ['POD-123', 'pod 123', '#123', '123', 'nested task']) {
     act(() => changeSearchText(text))
@@ -701,4 +735,45 @@ it.each([
   act(cancelSearch)
   expect(tab === 'Work' ? phone.query : board.searchFilter.text).toBeFalsy()
   expect(screen.getByText('Other task')).toBeTruthy()
+  expect(state.listMount).toHaveBeenCalledOnce()
+
+  if (tab === 'Work') {
+    for (const lane of ['snoozed', 'closed', 'open', 'closed', 'snoozed', 'open'] as const) {
+      act(() => phone.setLane(lane))
+      expectPullDownSearch()
+      expect(state.listMount).toHaveBeenCalledOnce()
+    }
+    expect(screen.getByText('Other task')).toBeTruthy()
+  } else {
+    act(() => board.setFilter({ projectPaths: ['/other'] }))
+    expect(screen.queryByText('Other task')).toBeNull()
+    act(() => board.setFilter({}))
+    expect(screen.getByText('Other task')).toBeTruthy()
+    expect(state.listMount).toHaveBeenCalledOnce()
+  }
+
+  act(() => {
+    pool.apply({
+      type: 'update',
+      rows: [
+        {
+          kind: 'issue',
+          id: 'other',
+          value: {
+            id: 'other',
+            seq: 2,
+            title: 'Reloaded task',
+            stage: 'in_progress',
+            audience: 'human',
+            repoId: 'repo',
+            repoPath: '/fixture',
+            createdAt: stamp,
+            updatedAt: stamp,
+          },
+        },
+      ],
+    })
+  })
+  expect(screen.getByText('Reloaded task')).toBeTruthy()
+  expect(state.listMount).toHaveBeenCalledOnce()
 })

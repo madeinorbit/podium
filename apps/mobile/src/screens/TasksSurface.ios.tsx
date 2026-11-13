@@ -14,6 +14,7 @@ import {
 } from '@expo/ui/swift-ui'
 import {
   Animation,
+  accessibilityAddTraits,
   accessibilityElement,
   accessibilityHidden,
   accessibilityHint,
@@ -39,6 +40,7 @@ import {
   onAppear,
   onDisappear,
   onGeometryChange,
+  onTapGesture,
   padding,
   pickerStyle,
   refreshable,
@@ -146,7 +148,6 @@ const MARK_COLOR: Record<TaskRowMark, string> = {
 export const TasksSurface = observer(function TasksSurface(props: TasksSurfaceProps) {
   const { board } = props
   const { fontScale } = useWindowDimensions()
-  const [listRevision, setListRevision] = useState(0)
   const folds = useStageFolds()
   // The shared board's groups: non-empty lanes plus the Proposed screening group.
   const groups = board?.groups ?? LOADING
@@ -216,17 +217,12 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
           board?.search(query)
           if (!query) board?.clearFilter('text')
         }}
-        onCancel={() => {
-          // SwiftUI otherwise anchors the restored groups to the last search
-          // result. A fresh List returns to the top, including an empty search.
-          setListRevision((revision) => revision + 1)
-        }}
       />
       {/* Keep the Host first for native tab reselect scroll discovery. */}
       <View style={styles.listContainer}>
         <Host style={styles.host} seedColor={color.accentTint}>
+          {/* Keep the scroll view that UIKit tracks for pull-down search. */}
           <List
-            key={listRevision}
             modifiers={[
               listStyle('insetGrouped'),
               listSectionSpacing(0),
@@ -484,11 +480,14 @@ const TaskRow = taskObserver(function TaskRow({
     <SwipeActions>
       <ContextMenu>
         <ContextMenu.Trigger>
-          <Button
-            onPress={() => props.onOpen(issue.id)}
+          <VStack
+            spacing={0}
             modifiers={[
-              buttonStyle('plain'),
+              // Recognize a tap rather than a Button release inside a wide row.
+              contentShape(shapes.rectangle()),
+              onTapGesture(() => props.onOpen(issue.id)),
               accessibilityElement('ignore'),
+              accessibilityAddTraits(['isButton']),
               accessibilityLabel(
                 `${issue.title}. ${ref}. ${progress}${match ? `. Matching sub-task ${match.displayRef}. ${match.title}` : ''}${unread ? '. Unread' : ''}${notSaved ? '. Not saved' : ''}`,
               ),
@@ -557,7 +556,7 @@ const TaskRow = taskObserver(function TaskRow({
                 </HStack>
               ) : null}
             </VStack>
-          </Button>
+          </VStack>
         </ContextMenu.Trigger>
         <ContextMenu.Items>
           {row.childCount > 0 ? (
