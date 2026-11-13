@@ -7,6 +7,10 @@ import {
 import { StyleSheet, Text, View } from 'react-native'
 import { color, mono, radius, sans, space } from '../theme/theme'
 
+const PREVIEW_LINES = 6
+const PREVIEW_LINE_CHARACTERS = 160
+const PREVIEW_CHARACTERS = PREVIEW_LINES * PREVIEW_LINE_CHARACTERS
+
 /** The recorded output or edit, capped only in the inline preview. */
 export function ToolCallContent({
   block,
@@ -19,7 +23,9 @@ export function ToolCallContent({
   const edit = resolveToolEdit(item)
   const result = block.result ?? item.toolResult
   const input = item.toolInput ?? item.toolInputJson
-  const diff = edit ? toolEditLines(edit, preview ? 6 : Number.POSITIVE_INFINITY) : undefined
+  const diff = edit
+    ? toolEditLines(edit, preview ? PREVIEW_LINES : Number.POSITIVE_INFINITY)
+    : undefined
   const output = result ?? 'No output recorded.'
   return (
     <View style={styles.content}>
@@ -38,8 +44,14 @@ export function ToolCallContent({
         </>
       ) : null}
       {diff ? (
-        <Text selectable={!preview} style={styles.output}>
-          {diff.lines.map((line, index) => (
+        <Text
+          testID={preview ? 'tool-call-diff-preview' : undefined}
+          selectable={!preview}
+          numberOfLines={preview ? PREVIEW_LINES : undefined}
+          ellipsizeMode="tail"
+          style={styles.output}
+        >
+          {(preview ? diff.lines.slice(0, PREVIEW_LINES) : diff.lines).map((line, index) => (
             <Text
               // biome-ignore lint/suspicious/noArrayIndexKey: diff lines have positional identity.
               key={index}
@@ -51,14 +63,22 @@ export function ToolCallContent({
                     : undefined
               }
             >
-              {`${line.kind === 'add' ? '+' : line.kind === 'del' ? '−' : line.kind === 'hunk' ? '@@ ' : ' '}${line.text}\n`}
+              {`${line.kind === 'add' ? '+' : line.kind === 'del' ? '−' : line.kind === 'hunk' ? '@@ ' : ' '}${preview ? line.text.slice(0, PREVIEW_LINE_CHARACTERS) : line.text}\n`}
             </Text>
           ))}
           {!preview && diff.omitted > 0 ? `${diff.omitted} more lines were not recorded.` : null}
         </Text>
       ) : (
-        <Text selectable={!preview} style={styles.output}>
-          {preview ? output.split('\n').slice(0, 6).join('\n') : output}
+        <Text
+          testID={preview ? 'tool-call-output-preview' : undefined}
+          selectable={!preview}
+          numberOfLines={preview ? PREVIEW_LINES : undefined}
+          ellipsizeMode="tail"
+          style={styles.output}
+        >
+          {preview
+            ? output.slice(0, PREVIEW_CHARACTERS).split('\n', PREVIEW_LINES).join('\n')
+            : output}
         </Text>
       )}
     </View>
