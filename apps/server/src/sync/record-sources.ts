@@ -543,6 +543,15 @@ const MACHINE_ROW_READS = {
  */
 const notTombstoned = (deletedAt: Column): string => `{row}.${deletedAt.name} IS NULL`
 
+/**
+ * A row of a session's satellite table can change only the record of a
+ * session that is on the feed: one whose row exists and is not tombstoned.
+ * (A satellite of a missing session would otherwise append a remove for a
+ * record that never was.)
+ */
+const ofLiveSession = (sessionId: Column): string =>
+  `EXISTS (SELECT 1 FROM ${getTableName(sessions)} WHERE ${sessions.id.name} = {row}.${sessionId.name} AND ${sessions.deletedAt.name} IS NULL)`
+
 /** The fleet's update channel and published targets (`machine-record-context.ts`). */
 const MACHINE_CONTEXT_ROWS = `{row}.${meta.key.name} IN ('machines.fleet-channel.v1', 'updates.execution.v1')`
 
@@ -905,8 +914,10 @@ export const RECORD_SOURCES: RecordSources = {
       },
       rows: notTombstoned(sessions.deletedAt),
     }),
-    own(offers, [offers.sessionId], (key) => str(key[0])),
-    own(sessionDrafts, [sessionDrafts.sessionId], (key) => str(key[0])),
+    own(offers, [offers.sessionId], (key) => str(key[0]), { rows: ofLiveSession(offers.sessionId) }),
+    own(sessionDrafts, [sessionDrafts.sessionId], (key) => str(key[0]), {
+      rows: ofLiveSession(sessionDrafts.sessionId),
+    }),
     // The record reads a lease's checkpoint only (`checkpointsOf`): a lease
     // opened or fenced with no checkpoint changes nothing.
     own(
@@ -918,21 +929,22 @@ export const RECORD_SOURCES: RecordSources = {
           sessionObservationCheckpoints.checkpointJson,
           sessionObservationCheckpoints.provider,
         ],
-        rows: `{row}.${sessionObservationCheckpoints.checkpointJson.name} IS NOT NULL`,
+        rows: `{row}.${sessionObservationCheckpoints.checkpointJson.name} IS NOT NULL AND ${ofLiveSession(sessionObservationCheckpoints.sessionId)}`,
       },
     ),
     own(runtimeEventCheckpoints, [runtimeEventCheckpoints.sessionId], (key) => str(key[0]), {
       reads: [runtimeEventCheckpoints.turnStateJson],
-      rows: `{row}.${runtimeEventCheckpoints.turnStateJson.name} IS NOT NULL`,
+      rows: `{row}.${runtimeEventCheckpoints.turnStateJson.name} IS NOT NULL AND ${ofLiveSession(runtimeEventCheckpoints.sessionId)}`,
     }),
     // Whether the session has a runtime transcript: only resets and complete
     // items can change it.
     own(podiumEvents, [podiumEvents.subject], (key) => str(key[0]), {
-      rows: `{row}.${podiumEvents.kind.name} = '${RUNTIME_EVENT_LOG_KIND}' AND json_extract({row}.${podiumEvents.payload.name}, '$.t') IN ('transcript-reset', 'item')`,
+      rows: `{row}.${podiumEvents.kind.name} = '${RUNTIME_EVENT_LOG_KIND}' AND json_extract({row}.${podiumEvents.payload.name}, '$.t') IN ('transcript-reset', 'item') AND ${ofLiveSession(podiumEvents.subject)}`,
     }),
     // The queued message count.
     own(queuedMessages, [queuedMessages.sessionId], (key) => str(key[0]), {
       reads: [queuedMessages.sessionId],
+      rows: ofLiveSession(queuedMessages.sessionId),
     }),
     // The Podium conversation id of the session's resume value.
     via(
