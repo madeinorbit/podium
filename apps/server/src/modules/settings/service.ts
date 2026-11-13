@@ -11,7 +11,6 @@ import {
   type TelegramClaimCode,
   telegramClaimCodeIsLive,
   type UserId,
-  userPreferencesRowId,
 } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import type { LedgerWriter } from '@podium/sync'

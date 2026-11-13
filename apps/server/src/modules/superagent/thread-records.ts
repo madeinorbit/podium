@@ -32,7 +32,6 @@ import { SUPERAGENT_THREAD_RECORD } from '@podium/commands'
 import {
   parseSuperagentThreadRowId,
   type SuperagentThreadWire,
-  superagentThreadRowId,
   type UserId,
   type UserRole,
 } from '@podium/model'

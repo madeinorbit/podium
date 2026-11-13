@@ -25,7 +25,7 @@ import {
   type ShipStep,
   shipRepairRef,
 } from '@podium/model'
-import type { MetadataChange } from '@podium/protocol'
+
 import type { ShippingJobRequestMessage, ShippingJobResult } from '@podium/protocol/daemon'
 import {
   SHIPPING_TRAIN_CAPABILITY,
@@ -36,7 +36,6 @@ import {
 } from '@podium/protocol/daemon'
 import type {
   BaselineFoldPort,
-  EntityChangeSpec,
   LedgerCommitOp,
   LedgerCommitResult,
   WriteScope,
@@ -62,7 +61,6 @@ import {
   GreenPrefixCache,
   isolateShippingTrain,
   type ShippingTrain,
-  shipLaneSchedule,
   shippingCompatibilityKey,
   shippingSchedule,
 } from './queue'

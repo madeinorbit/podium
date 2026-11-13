@@ -413,7 +413,6 @@ export class AutomationsService {
     // Somebody else's automation answers exactly like a missing one (POD-6284):
     // the caller may not know it exists.
     if (!current || current.ownerUserId !== this.ownerFor(principal)) return { removed: false }
-    const runIds = await this.deps.store.liveRunIdsOf(current.id)
     // The store TOMBSTONES rather than deletes (POD-1509) — the clock stays
     // injected here rather than reaching into the store, so a test that freezes
     // time still controls what a deletion is stamped with.

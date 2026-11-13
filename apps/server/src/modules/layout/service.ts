@@ -12,7 +12,7 @@
  */
 
 import { createLogger } from '@podium/logger'
-import { type LayoutSnapshot, layoutRowId, type UserId } from '@podium/model'
+import { type LayoutSnapshot, type UserId } from '@podium/model'
 import type { LedgerWriter } from '@podium/sync'
 
 /** What a layout write is made through: the command's own writer. */

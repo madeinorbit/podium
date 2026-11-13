@@ -7,12 +7,12 @@
 import type { Authority } from '../authority/authority'
 import type { ChangeLogReadRow } from '../authority/change-lifecycle'
 import type { ChangeLogStore } from '../change-log'
-import {
-  type EntityChangeSpec,
-  type Ledger,
-  type LedgerCommitOp,
-  type LedgerCommitResult,
-  type LedgerWriter,
+import type {
+  EntityChangeSpec,
+  Ledger,
+  LedgerCommitOp,
+  LedgerCommitResult,
+  LedgerWriter,
 } from '../ledger'
 import { type WriteScope, WriteScopeIssuer, type WriteScopeMint } from '../write-scope'
 

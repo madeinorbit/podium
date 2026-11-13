@@ -489,7 +489,6 @@ export class SessionStateService {
 
   private async persistPerUser(
     writer: SessionWriter,
-    userId: UserId,
     sessionId: SessionId,
     write: (scope: WriteScope) => void | Promise<void>,
   ): Promise<boolean> {
@@ -518,7 +517,6 @@ export class SessionStateService {
     if (previous && previous >= readAt) return true
     return this.persistPerUser(
       writer,
-      principal.userId,
       sessionId,
       async (scope) =>
         await this.ports.store.sessions.markSessionRead(scope, principal.userId, sessionId, readAt),
@@ -533,7 +531,6 @@ export class SessionStateService {
     if (!(await this.canReadSession(principal, sessionId))) return false
     return this.persistPerUser(
       writer,
-      principal.userId,
       sessionId,
       async (scope) =>
         await this.ports.store.sessions.markSessionUnread(scope, principal.userId, sessionId),
@@ -555,7 +552,7 @@ export class SessionStateService {
   ): Promise<boolean> {
     if (!(await this.canReadSession(principal, sessionId))) return false
     const store = this.ports.store.sessions
-    return this.persistPerUser(writer, principal.userId, sessionId, async (scope) =>
+    return this.persistPerUser(writer, sessionId, async (scope) =>
       readAt === null
         ? await store.markSessionUnread(scope, principal.userId, sessionId)
         : await store.markSessionRead(scope, principal.userId, sessionId, readAt),
@@ -571,7 +568,7 @@ export class SessionStateService {
   ): Promise<boolean> {
     if (!(await this.canReadSession(principal, sessionId))) return false
     const store = this.ports.store.sessions
-    return this.persistPerUser(writer, principal.userId, sessionId, async (scope) => {
+    return this.persistPerUser(writer, sessionId, async (scope) => {
       await store.markSessionUnread(scope, principal.userId, sessionId)
       await store.clearSnooze(scope, principal.userId, sessionId)
     })
@@ -594,7 +591,6 @@ export class SessionStateService {
     if (!(await this.canReadSession(principal, sessionId))) return false
     return this.persistPerUser(
       writer,
-      principal.userId,
       sessionId,
       async (scope) =>
         await this.ports.store.sessions.setSnooze(scope, principal.userId, sessionId, until),
@@ -609,7 +605,6 @@ export class SessionStateService {
     if (!(await this.canReadSession(principal, sessionId))) return false
     return this.persistPerUser(
       writer,
-      principal.userId,
       sessionId,
       async (scope) =>
         await this.ports.store.sessions.clearSnooze(scope, principal.userId, sessionId),

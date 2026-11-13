@@ -125,19 +125,20 @@ async function buildCorpus(): Promise<Corpus> {
     })
     ids.push(created.id)
   }
-  await reg.issues.crud.update(writer, ids[0]!, {
+  const [first, second, third] = ids as [IssueId, IssueId, IssueId]
+  await reg.issues.crud.update(writer, first, {
     description: 'A description',
     brief: 'A brief',
   } as never)
-  await reg.issues.hierarchy.addDep(writer, ids[1]!, ids[0]!)
-  await reg.issues.crud.markIssueRead(writer, ids[2]!, undefined, owner)
-  await reg.issues.crud.panelApply(writer, ids[0]!, { op: 'todo-add', text: 'Task' })
-  await reg.issues.crud.panelApply(writer, ids[0]!, { op: 'deferred-add', text: 'Later' } as never)
-  await reg.issues.crud.panelApply(writer, ids[0]!, {
+  await reg.issues.hierarchy.addDep(writer, second, first)
+  await reg.issues.crud.markIssueRead(writer, third, undefined, owner)
+  await reg.issues.crud.panelApply(writer, first, { op: 'todo-add', text: 'Task' })
+  await reg.issues.crud.panelApply(writer, first, { op: 'deferred-add', text: 'Later' } as never)
+  await reg.issues.crud.panelApply(writer, first, {
     op: 'artifact-add',
     path: 'review.html',
   })
-  await reg.issues.crud.setState(writer, ids[0]!, 'Where things stand')
+  await reg.issues.crud.setState(writer, first, 'Where things stand')
   const { sessionId } = await reg.modules.sessions.createSession({
     agentKind: 'codex',
     cwd: '/other/w1',
@@ -192,7 +193,7 @@ async function buildCorpus(): Promise<Corpus> {
   )
   // Kinds no service path above writes, seeded below the commit layer.
   await seedRows(store, async () => {
-    await store.sessions.addPin(owner, 'issue', ids[0]!, AT)
+    await store.sessions.addPin(owner, 'issue', first, AT)
     await store.sessions.setTabOrder(owner, '/other/w1', [sessionId])
     await store.conversations.index.upsert(fixtureWriteScope(), [
       {
@@ -225,7 +226,9 @@ async function buildCorpus(): Promise<Corpus> {
   })
   await settle(reg)
   // The server stops here, so nothing writes between the checks' reads.
-  const effectExecutors = reg.modules.effects!.executors
+  const effects = reg.modules.effects
+  if (effects === undefined) throw new Error('the registry has no effects module')
+  const effectExecutors = effects.executors
   await reg.dispose()
   return { store, reads: { store, effectExecutors, now: () => Date.parse(AT) } }
 }
@@ -239,13 +242,14 @@ const MODEL_TABLES: readonly string[] = (Object.values(schema) as unknown[])
   .flatMap((value) => (is(value, SQLiteTable) ? [getTableName(value)] : []))
   .filter((name) => !name.startsWith('sync_') && !name.startsWith('__'))
 
-/** The schema export that declares a table, by the table's SQL name. */
-function tableExport(name: string): keyof typeof schema {
-  for (const [key, value] of Object.entries(schema)) {
-    if (is(value, SQLiteTable) && getTableName(value) === name) return key as keyof typeof schema
-  }
-  throw new Error(`no schema export for table ${name}`)
-}
+/** Every model table's columns, by the table's SQL name. */
+const TABLE_COLUMNS: ReadonlyMap<string, readonly string[]> = new Map(
+  (Object.values(schema) as unknown[]).flatMap((value) =>
+    is(value, SQLiteTable)
+      ? [[getTableName(value), Object.values(getTableColumns(value)).map((c) => c.name)] as const]
+      : [],
+  ),
+)
 
 const recordKey = (kind: string, id: string) => `${kind}\u0000${id}`
 
@@ -267,7 +271,7 @@ function tablesOf(statement: string): string[] {
   for (const match of statement.matchAll(
     /\b(?:from|join|into|update)\s+"?([a-z_][a-z0-9_]*)"?/gi,
   )) {
-    const name = match[1]!.toLowerCase()
+    const name = (match[1] ?? '').toLowerCase()
     if (MODEL_TABLES.includes(name) || name.startsWith('sync_')) out.push(name)
   }
   return out
@@ -325,26 +329,24 @@ function perturbed(value: unknown): unknown {
 }
 
 /** Change the first string, number or boolean leaf in place. */
+/** A changed scalar, or undefined when `leaf` is not one. */
+function changedScalar(leaf: unknown): unknown {
+  if (typeof leaf === 'string') return `${leaf}~`
+  if (typeof leaf === 'number') return leaf + 1
+  if (typeof leaf === 'boolean') return !leaf
+  return undefined
+}
+
 function perturbLeaf(node: unknown): boolean {
-  if (Array.isArray(node)) {
-    for (let i = 0; i < node.length; i++) {
-      const leaf = node[i]
-      if (typeof leaf === 'string') return (node[i] = `${leaf}~`), true
-      if (typeof leaf === 'number') return (node[i] = leaf + 1), true
-      if (typeof leaf === 'boolean') return (node[i] = !leaf), true
-      if (perturbLeaf(leaf)) return true
+  if (node === null || typeof node !== 'object') return false
+  const slots = node as Record<string, unknown>
+  for (const key of Object.keys(slots)) {
+    const changed = changedScalar(slots[key])
+    if (changed !== undefined) {
+      slots[key] = changed
+      return true
     }
-    return false
-  }
-  if (node !== null && typeof node === 'object') {
-    const record = node as Record<string, unknown>
-    for (const key of Object.keys(record)) {
-      const leaf = record[key]
-      if (typeof leaf === 'string') return (record[key] = `${leaf}~`), true
-      if (typeof leaf === 'number') return (record[key] = leaf + 1), true
-      if (typeof leaf === 'boolean') return (record[key] = !leaf), true
-      if (perturbLeaf(leaf)) return true
-    }
+    if (perturbLeaf(slots[key])) return true
   }
   return false
 }
@@ -565,9 +567,7 @@ describe('record sources (POD-6920)', () => {
       } catch {
         continue
       }
-      const columns = Object.values(
-        getTableColumns(schema[tableExport(table)] as unknown as SQLiteTable),
-      ).map((column) => column.name)
+      const columns = TABLE_COLUMNS.get(table) ?? []
       for (const row of rows) {
         await store.transact(async () => {
           await db.run(

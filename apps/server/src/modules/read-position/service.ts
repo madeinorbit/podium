@@ -9,7 +9,7 @@
  * carries no change is indistinguishable to them from one that does.
  */
 
-import { readPositionRowId, type UserId } from '@podium/model'
+import { type UserId } from '@podium/model'
 import type { LedgerWriter } from '@podium/sync'
 import type { StoredReadPosition, UserReadPositionRepository } from '../../store/user-read-position'
 

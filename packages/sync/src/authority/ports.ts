@@ -29,7 +29,6 @@ import type {
   ChangeLogReadRow,
   ChangeLogWriteRow,
   SequencedChange,
-  StagedChangeSpec,
   StoredChangeRow,
 } from './change-lifecycle'
 import type { ScopedBootstrap, ScopedDelivery } from './scoping'

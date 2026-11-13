@@ -279,9 +279,11 @@ describe('derived change capture', () => {
 
   it('a rejected arbitration writes nothing and drains nothing', async () => {
     const w = world()
+    const row = OWNERSHIP_MATRIX.find((entry) => entry.conflict === 'exp-rev')
+    if (row === undefined) throw new Error('the ownership matrix has no exp-rev row')
     const outcome = await w.authority.commit({
       arbitrate: {
-        rowId: OWNERSHIP_MATRIX.find((row) => row.conflict === 'exp-rev')!.id,
+        rowId: row.id,
         attempt: { expectedRevision: 1 },
         current: async () => ({ revision: 2 }),
       },
