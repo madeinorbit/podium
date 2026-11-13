@@ -530,6 +530,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
   // Mount native content only once its first layout can pay for the composer.
   // Updating a zero inset later leaves short FlatList footers under the dock.
   const [composerHeight, setComposerHeight] = useState<number | null>(null)
+  const transcriptLayout = useRef(false)
   const [askHeight, setAskHeight] = useState(0)
   /** Bumped by a send so the feed lands on the new bubble, the same request
    *  the Superagent thread makes; the list owns how it gets there. */
@@ -669,7 +670,10 @@ const SessionConversationBody = observer(function SessionConversationBody({
   const composer = conversation.composer
   const readOnly = session.status === 'hibernated' || session.status === 'exited'
   const composerHidden = session.status === 'exited' || (readOnly && !hasTranscript)
-  const transcriptLayoutReady = composerHidden || Platform.OS === 'web' || composerHeight !== null
+  if (composerHidden || Platform.OS === 'web' || composerHeight !== null)
+    transcriptLayout.current = true
+  // Resuming an exited session adds its composer without remounting the feed.
+  const transcriptLayoutReady = transcriptLayout.current
   /**
    * THE STOP CONTROL, ON THE DESKTOP'S TERMS [POD-4645]. Drawn while a turn is
    * running as far as this phone can tell — the agent is computing, or a send
@@ -869,7 +873,13 @@ const SessionConversationBody = observer(function SessionConversationBody({
                 onQuote={composerHidden ? undefined : quoteIntoDraft}
                 mailReply={model.reply}
                 bottomInset={composerHidden ? 0 : (composerHeight ?? 0) + askHeight + keyboardLift}
-                overlayInset={composerHidden ? 0 : floatingHeight > 0 ? floatingHeight + keyboardLift : undefined}
+                overlayInset={
+                  composerHidden
+                    ? 0
+                    : floatingHeight > 0
+                      ? floatingHeight + keyboardLift
+                      : undefined
+                }
                 topInset={topInset}
                 streaming={streamingActive}
                 tail={tailState}

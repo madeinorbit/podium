@@ -90,7 +90,8 @@ describe('native lifecycle footer first layout', () => {
     )
     expect(screen.getByTestId('transcript-list')).toBe(list)
     expect(list.contains(screen.getByTestId('exited-notice'))).toBe(true)
-    expect(layout.insets.at(-1)).toBe(148)
+    expect(screen.queryByTestId('measuring-composer')).toBeNull()
+    expect(layout.insets.at(-1)).toBe(0)
 
     view.unmount()
     layout.insets = []
@@ -102,5 +103,33 @@ describe('native lifecycle footer first layout', () => {
     act(() => layout.report?.(164))
     await waitFor(() => expect(screen.getByTestId('hibernated-notice')).toBeTruthy())
     expect(layout.insets[0]).toBe(164)
+  })
+
+  it('mounts an exited transcript immediately when its composer is hidden', async () => {
+    Platform.OS = 'ios'
+    const exited = { ...session, status: 'exited', exitCode: 1 } as SessionView
+    const view = await renderWithMobileStore(
+      <SessionConversation session={exited} issue={undefined} />,
+      {
+        sessions: [exited],
+        api: {
+          sessions: { transcriptRead: { query: async () => ({ items: [], hasMore: false }) } },
+        },
+      },
+    )
+    expect(screen.queryByTestId('measuring-composer')).toBeNull()
+    expect(
+      screen.getByTestId('transcript-list').contains(screen.getByTestId('exited-notice')),
+    ).toBe(true)
+    expect(layout.insets[0]).toBe(0)
+    const list = screen.getByTestId('transcript-list')
+    await act(async () =>
+      view.replica.applyChanges('sessions', [{ ...exited, status: 'live' }], []),
+    )
+    expect(screen.getByTestId('transcript-list')).toBe(list)
+    expect(screen.getByTestId('measuring-composer')).toBeTruthy()
+    act(() => layout.report?.(148))
+    expect(screen.getByTestId('transcript-list')).toBe(list)
+    expect(layout.insets.at(-1)).toBe(148)
   })
 })
