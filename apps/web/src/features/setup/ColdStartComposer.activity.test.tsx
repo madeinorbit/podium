@@ -74,6 +74,7 @@ it('preserves desktop New task summary and picker output with one activity query
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(recent) }, undefined, {
       settings: true,
       cold: () => cold,
+      load: () => undefined,
     })
     state.pool = pool
     pool.apply({ type: 'replace', rows })

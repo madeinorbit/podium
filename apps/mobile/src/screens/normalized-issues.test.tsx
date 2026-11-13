@@ -209,7 +209,11 @@ const profile: ServerProfileContextValue = {
     updatedAt: '2026-09-30T10:00:00Z',
   },
   profiles: [],
-  config: { httpOrigin: 'http://127.0.0.1:0', wsClientUrl: 'ws://127.0.0.1:0/client' },
+  config: {
+    httpOrigin: 'http://127.0.0.1:0',
+    wsClientUrl: 'ws://127.0.0.1:0/client',
+    override: true,
+  },
   bearer: null,
   activation: 'verified',
   runtimeKey: 'normalized-fixture',
