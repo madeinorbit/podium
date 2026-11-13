@@ -136,7 +136,7 @@ it.each([
   '',
   'Error: answer could not be delivered',
   "[Tool call interrupted: the session ended before this call's result was recorded, so its outcome is unknown.]",
-])('keeps a question unresolved after %j until real answer evidence arrives', (text) => {
+])('retires a native pending slot on every paired result while preserving %j history', (text) => {
   const question = {
     ...call('native', 'native', 'AskUserQuestion'),
     toolInputJson: JSON.stringify({
@@ -144,7 +144,8 @@ it.each([
     }),
   }
   const f = fixture([question, result('result', 'native', text), prose('reply')])
-  expect(f.graph.pendingQuestionId).toBe('native')
+  expect(f.graph.pendingQuestionId).toBeUndefined()
+  expect(f.graph.block('native')?.result).toBe(text)
   f.apply({ changed: [result('result', 'native', 'You selected "main"')] })
   expect(f.graph.pendingQuestionId).toBeUndefined()
   f.graph.dispose()

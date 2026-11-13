@@ -4,6 +4,7 @@ import {
   codexAsyncQuestionReply,
   isChosenOption,
   isCodexAsyncQuestion,
+  isPendingAskQuestion,
   isPreviewLayout,
   parseAskQuestions,
 } from '@podium/client-core/values'
@@ -59,6 +60,7 @@ export function AskQuestionCard({
   const questions = parseAskQuestions(item.toolInputJson)
   const codex = isCodexAsyncQuestion(item)
   const outcome = askQuestionOutcome({ item })
+  const pending = live && isPendingAskQuestion({ item })
   const resultDetail =
     outcome === 'failed' || outcome === 'unknown'
       ? item.toolResult?.trim() || 'No answer was recorded.'
@@ -78,7 +80,7 @@ export function AskQuestionCard({
   }, [compact])
   const band = presentation === 'band'
   const answerSent = state === 'sent' && !resultDetail
-  const locked = !live || state === 'sending' || answerSent
+  const locked = !pending || state === 'sending' || answerSent
 
   const typed = (source: Record<number, string>, qi: number) => source[qi]?.trim() ?? ''
 
@@ -188,11 +190,25 @@ export function AskQuestionCard({
 
   const anyTyped = questions.some((_, qi) => typed(custom, qi) !== '')
   const commitsOnTap = questions.every((q) => !q.multiSelect) && !anyTyped
-  const needsConfirm = live && !answerSent && !commitsOnTap
-  const showActions = live && !answerSent && questions.length > 0
+  const needsConfirm = pending && !answerSent && !commitsOnTap
+  const showActions = pending && !answerSent && questions.length > 0
   const allAnswered =
     questions.length > 0 &&
     questions.every((_, qi) => (picks[qi]?.size ?? 0) > 0 || typed(custom, qi) !== '')
+
+  if (resultDetail) {
+    return (
+      <View testID="ask-question-history" style={styles.card}>
+        <Text style={styles.meta}>Not answered</Text>
+        {questions.map((question) => (
+          <Text key={question.question} style={styles.question}>
+            {question.question}
+          </Text>
+        ))}
+        <Text style={outcome === 'failed' ? styles.metaError : styles.meta}>{resultDetail}</Text>
+      </View>
+    )
+  }
 
   if (questions.length === 0) {
     return (
@@ -256,7 +272,7 @@ export function AskQuestionCard({
             <View style={[styles.options, band && styles.optionsBand]}>
               {q.options.map((opt, oi) => {
                 const picked = picks[qi]?.has(oi) ?? false
-                const chosen = !live && isChosenOption(item.toolResult ?? '', opt.label)
+                const chosen = !pending && isChosenOption(item.toolResult ?? '', opt.label)
                 const highlighted = picked || chosen || (answerSent && picked)
                 return (
                   <PressableScale

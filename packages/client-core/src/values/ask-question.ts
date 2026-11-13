@@ -18,7 +18,7 @@ export interface AskQuestion {
   question: string
   header?: string
   multiSelect?: boolean
-  options: readonly AskOption[]
+  options: AskOption[]
 }
 
 /**
@@ -114,13 +114,7 @@ export function askQuestionResult(block: {
 }
 
 export function isPendingAskQuestion(block: { item: TranscriptItem; result?: string }): boolean {
-  if (!isInterviewQuestion(block.item)) return false
-  return questionRemainsPending(block)
-}
-
-function questionRemainsPending(block: { item: TranscriptItem; result?: string }): boolean {
-  const outcome = askQuestionOutcome(block)
-  return outcome !== 'answered' && outcome !== 'skipped'
+  return isInterviewQuestion(block.item) && askQuestionResult(block) === undefined
 }
 
 /** A tool finishing is not evidence that the human answered it. */
@@ -219,7 +213,7 @@ export function latestPendingQuestion(items: TranscriptItem[]): TranscriptItem |
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i]
     if (!item || !isAskUserQuestion(item)) continue
-    return questionRemainsPending({ item }) ? item : null
+    return item.toolResult === undefined ? item : null
   }
   return null
 }
@@ -252,58 +246,32 @@ export function pendingAskFromState(
   status: SessionView['status'] | undefined,
   phase: string | undefined,
   transcriptHasPending: boolean,
+  interaction?: PendingInteractionWire,
 ): { item: TranscriptItem } | null {
   if (transcriptHasPending) return null
   if (status !== 'live' && status !== 'starting') return null
-  if (phase !== 'needs_user' || need?.kind !== 'question') return null
-  const questions = need.interview?.questions ?? []
-  if (questions.length === 0) return null
-  return { item: pendingAskItem(questions) }
-}
-
-function pendingAskItem(questions: readonly AskQuestion[]): TranscriptItem {
-  return {
-    // Stable across re-renders (and across restatements of the same wait) so
-    // the card keeps its React identity and the operator's half-made
-    // selection survives the next state tick.
-    id: PENDING_ASK_ITEM_ID,
-    role: 'tool',
-    text: '',
-    toolName: 'AskUserQuestion',
-    toolInputJson: JSON.stringify({ questions }),
-  }
-}
-
-/** Unresolved history stays in the feed; the live authority owns answerability. */
-export function currentAskQuestion(
-  transcript: TranscriptItem | null,
-  need: { kind: 'question' | 'permission'; interview?: AgentInterview } | undefined,
-  status: string | undefined,
-  phase: string | undefined,
-  interaction?: PendingInteractionWire,
-): TranscriptItem | null {
-  if (status !== 'live' && status !== 'starting') return transcript
-  const current =
+  const native =
     interaction?.kind === 'question' &&
     interaction.status === 'asked' &&
     hasTranscriptCard(interaction)
       ? (interaction.payload as QuestionAsk).questions
       : undefined
-  const announced = current?.length
-    ? pendingAskItem(current)
-    : pendingAskFromState(need, status, phase, false)?.item
-  if (!announced) return transcript
-  if (
-    transcript &&
-    isAskUserQuestion(transcript) &&
-    askQuestionOutcome({ item: transcript }) === 'pending' &&
-    matchesAskQuestions(
-      transcript.toolInputJson ?? '',
-      current?.length ? current : parseAskQuestions(announced.toolInputJson),
-    )
-  )
-    return transcript
-  return announced
+  const questions = native?.length
+    ? native
+    : phase === 'needs_user' && need?.kind === 'question'
+      ? (need.interview?.questions ?? [])
+      : []
+  if (questions.length === 0) return null
+  return {
+    item: {
+      // Stable across restatements so a half-made selection survives a state tick.
+      id: PENDING_ASK_ITEM_ID,
+      role: 'tool',
+      text: '',
+      toolName: 'AskUserQuestion',
+      toolInputJson: JSON.stringify({ questions }),
+    },
+  }
 }
 
 /** The synthetic item's id — also how a feed tells the state-drawn card apart
@@ -321,14 +289,8 @@ export function isChosenOption(answer: string, label: string): boolean {
  * choices rendered from a different question or layout. */
 export function matchesQuestionInteraction(row: PendingInteractionWire, raw: string): boolean {
   if (row.kind !== 'question' || row.status !== 'asked') return false
-  return matchesAskQuestions(raw, (row.payload as QuestionAsk).questions)
-}
-
-function matchesAskQuestions(
-  raw: string,
-  current: readonly (AskQuestion & { previewLayout?: boolean })[],
-): boolean {
   const shown = parseAskQuestions(raw)
+  const current = (row.payload as QuestionAsk).questions
   return (
     shown.length > 0 &&
     shown.length === current.length &&
@@ -337,8 +299,8 @@ function matchesAskQuestions(
       return (
         expected !== undefined &&
         question.question === expected.question &&
-        Boolean(question.multiSelect) === Boolean(expected.multiSelect) &&
-        isPreviewLayout(question) === (expected.previewLayout ?? isPreviewLayout(expected)) &&
+        Boolean(question.multiSelect) === expected.multiSelect &&
+        isPreviewLayout(question) === expected.previewLayout &&
         question.options.length === expected.options.length &&
         question.options.every((option, optionIndex) => {
           const target = expected.options[optionIndex]

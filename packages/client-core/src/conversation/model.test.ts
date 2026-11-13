@@ -1,11 +1,9 @@
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import type { TurnPreviewMessage } from '@podium/protocol'
-import { PendingInteractionWire } from '@podium/protocol'
 import { autorun, observable, runInAction, spy } from 'mobx'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { claudeRecordToItems } from '../../../harness/src/adapters/claude-code/transcript'
 import type { SocketHub } from '../socket-transport/socket-hub'
-import { matchesQuestionInteraction } from '../values/ask-question'
 import { DraftStore } from './draft-store'
 import {
   Conversation,
@@ -21,66 +19,59 @@ it.each([
   'Error: answer could not be delivered',
   '[Tool call interrupted: its outcome is unknown.]',
   'Unknown outcome',
-])('lets a resumed live need supersede native history with %j', async (result) => {
-  const oldQuestions = {
-    questions: [{ question: 'Old question?', options: [{ label: 'Old choice' }] }],
+])('never revives paired native history after a later live question settles for %j', async (result) => {
+  const questions = {
+    questions: [{ question: 'New question?', options: [{ label: 'New choice' }] }],
   }
-  const current = {
-    questions: [{ question: 'New native question?', options: [{ label: 'New choice' }] }],
-  }
-  const interaction = PendingInteractionWire.parse({
-    id: 'new-interaction',
-    sessionId: sid,
-    askedAt: '2026-11-13T12:00:00Z',
-    source: 'hook',
-    answerable: 'keystroke-emulated',
-    fingerprint: 'current-question',
-    kind: 'question',
-    status: 'asked',
-    payload: {
-      v: 1,
-      questions: [{ ...current.questions[0], multiSelect: false, previewLayout: false }],
+  const state = observable({ active: true })
+  const session = {
+    status: 'live',
+    get agentState() {
+      return {
+        phase: state.active ? 'needs_user' : 'working',
+        need: state.active ? { kind: 'question' as const, interview: questions } : undefined,
+      }
     },
-  })
-  const history = [
-    ...claudeRecordToItems({
+  }
+  const mapCall = (id: string, input: unknown) =>
+    claudeRecordToItems({
       type: 'assistant',
-      uuid: 'old-call',
-      message: {
-        content: [
-          { type: 'tool_use', id: 'old-use', name: 'AskUserQuestion', input: oldQuestions },
-        ],
-      },
-    }),
-    ...claudeRecordToItems({
-      type: 'user',
-      uuid: 'old-result',
-      message: { content: [{ type: 'tool_result', tool_use_id: 'old-use', content: result }] },
-    }),
-  ]
-  for (const authority of ['need', 'interaction'] as const) {
-    const f = fixture({
-      readSession: () => ({
-        status: 'live',
-        agentState: {
-          phase: authority === 'need' ? 'needs_user' : 'idle',
-          need: authority === 'need' ? { kind: 'question', interview: current } : undefined,
-        },
-      }),
-      readQuestion: () => (authority === 'interaction' ? interaction : undefined),
+      uuid: id,
+      message: { content: [{ type: 'tool_use', id: `${id}-use`, name: 'AskUserQuestion', input }] },
     })
+  const mapResult = (id: string, content: string) =>
+    claudeRecordToItems({
+      type: 'user',
+      uuid: `${id}-result`,
+      message: { content: [{ type: 'tool_result', tool_use_id: `${id}-use`, content }] },
+    })
+  const history = [
+    ...mapCall('old', {
+      questions: [{ question: 'Old question?', options: [{ label: 'Old choice' }] }],
+    }),
+    ...mapResult('old', result),
+  ]
+  const f = fixture({ readSession: () => session })
+  try {
     await f.conversation.start()
     runInAction(() => f.conversation.transcript.merge(history, { reset: true }))
-    const old = f.conversation.graph.block(history[0]!.id)
-    expect(old?.result).toBe(result)
-    expect(f.conversation.graph.pendingQuestionId).toBe(history[0]!.id)
-    const selected = f.conversation.pendingQuestion
-    expect(JSON.parse(selected?.toolInputJson ?? '{}').questions).toMatchObject(current.questions)
-    expect(matchesQuestionInteraction(interaction, selected?.toolInputJson ?? '')).toBe(true)
-    expect(matchesQuestionInteraction(interaction, old?.item.toolInputJson ?? '')).toBe(false)
-    f.conversation.dispose()
+    runInAction(() =>
+      f.conversation.transcript.merge([
+        ...mapCall('new', questions),
+        ...mapResult('new', 'User has answered your questions: "New question?"="New choice".'),
+      ]),
+    )
+    runInAction(() => {
+      state.active = false
+    })
+    expect(f.conversation.graph.pendingQuestionId).toBeUndefined()
+    expect(f.conversation.pendingQuestion).toBeNull()
+    expect(f.conversation.graph.block(history[0]!.id)?.result).toBe(result)
+  } finally {
+    f.dispose()
   }
 })
+
 const row = (id: string, text = id): TranscriptItem => ({
   id,
   cursor: `c-${id}`,

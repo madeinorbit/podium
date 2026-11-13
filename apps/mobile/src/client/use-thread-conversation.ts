@@ -2,7 +2,6 @@ import { hubConnection, PHONE_WARM_CONVERSATIONS } from '@podium/client-core/con
 import { randomUUID } from '@podium/client-core/id'
 import { useConversation, useStoreHandle } from '@podium/client-core/react'
 import { REPLICA_TRANSCRIPT_ITEM_CAP } from '@podium/client-core/replica'
-import { chatInteractions } from '@podium/client-graph/chat-context'
 import { here } from '@podium/client-graph/lookup'
 import { superagentState } from '@podium/client-graph/superagent'
 import { asSessionId, asThreadId, type SessionId } from '@podium/model'
@@ -44,10 +43,6 @@ export function useThreadConversation() {
       headless: true,
       streamSessionId: readSid,
       readSession: () => (pool && readSid() ? here(pool.model('session', readSid()!)) : undefined),
-      readQuestion: () => {
-        const sid = readSid()
-        return pool && sid ? chatInteractions(pool, sid).question : undefined
-      },
       readTurnRunning: () => (pool ? superagentState(pool).active?.turnRunning : undefined),
       initialTurnRunning: pool ? superagentState(pool).active?.turnRunning : false,
       hub: owner.hub,

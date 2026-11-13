@@ -6,7 +6,6 @@ import { TranscriptGraph } from '../conversation/transcript-graph'
 import {
   askQuestionOutcome,
   codexAsyncQuestionReply,
-  currentAskQuestion,
   isChosenOption,
   isPendingAskQuestion,
   isPreviewLayout,
@@ -69,16 +68,7 @@ function ask(id: string, overrides: Partial<TranscriptItem> = {}): TranscriptIte
   }
 }
 
-it('keeps a matching unresolved transcript item and ignores non-native authority', () => {
-  const item = ask('transcript-question')
-  const questions = parseAskQuestions(item.toolInputJson)
-  const need = {
-    kind: 'question' as const,
-    interview: {
-      questions: questions.map((question) => ({ ...question, options: [...question.options] })),
-    },
-  }
-  expect(currentAskQuestion(item, need, 'live', 'needs_user')).toBe(item)
+it('uses only a live native interaction when state announces a question outside the transcript', () => {
   const row = PendingInteractionWire.parse({
     id: 'current',
     sessionId: 'session',
@@ -90,19 +80,30 @@ it('keeps a matching unresolved transcript item and ignores non-native authority
     status: 'asked',
     payload: {
       v: 1,
-      questions: questions.map((question) => ({
-        ...question,
-        multiSelect: false,
-        previewLayout: false,
-      })),
+      questions: [
+        {
+          question: 'Current?',
+          multiSelect: false,
+          previewLayout: false,
+          options: [{ label: 'One' }],
+        },
+      ],
     },
   })
-  expect(currentAskQuestion(item, undefined, 'live', 'idle', row)).toBe(item)
+  const announced = pendingAskFromState(undefined, 'live', 'working', false, row)
+  expect(announced?.item.toolInputJson).toContain('Current?')
+  expect(matchesQuestionInteraction(row, announced?.item.toolInputJson ?? '')).toBe(true)
   expect(
-    currentAskQuestion(null, undefined, 'live', 'idle', { ...row, answerable: 'structured' }),
+    pendingAskFromState(undefined, 'live', 'working', false, { ...row, answerable: 'structured' }),
   ).toBeNull()
   expect(
-    currentAskQuestion(null, undefined, 'live', 'idle', { ...row, source: 'screen-classifier' }),
+    pendingAskFromState(undefined, 'live', 'working', false, {
+      ...row,
+      source: 'screen-classifier',
+    }),
+  ).toBeNull()
+  expect(
+    pendingAskFromState(undefined, 'live', 'working', false, { ...row, status: 'superseded' }),
   ).toBeNull()
 })
 
@@ -239,7 +240,7 @@ it('keeps an acknowledged async interview pending and builds a correlated chat r
   // The phone's native-menu reader must not offer to answer this via keystrokes.
   expect(latestPendingQuestion([item])).toBeNull()
   expect(isPendingAskQuestion({ item, result: '{"accepted":true}' })).toBe(true)
-  expect(isPendingAskQuestion({ item: ask('claude'), result: '{"accepted":true}' })).toBe(true)
+  expect(isPendingAskQuestion({ item: ask('claude'), result: '{"accepted":true}' })).toBe(false)
   const text = codexAsyncQuestionReply(item, [
     { freeText: 'main, using an isolated branch', otherIndex: 3 },
   ])
@@ -275,7 +276,7 @@ it.each([
 ] as const)('classifies question result %s as %s without inventing an answer', (result, outcome) => {
   const block = { item: ask('question'), result }
   expect(askQuestionOutcome(block)).toBe(outcome)
-  expect(isPendingAskQuestion(block)).toBe(outcome !== 'answered' && outcome !== 'skipped')
+  expect(isPendingAskQuestion(block)).toBe(false)
 })
 
 it('refuses a rendered question whose text, options, or layout differs from its interaction', () => {

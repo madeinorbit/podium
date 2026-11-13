@@ -1,22 +1,12 @@
 import { codexQuestionReplyText, parseCodexQuestionReplies } from '@podium/harness/browser'
 import { lazy } from '@podium/mobx-helpers'
-import type { AgentNeed, SessionId, SessionOffer, TranscriptItem } from '@podium/model'
-import type {
-  HeadlessActivityEvent,
-  PendingInteractionWire,
-  TurnPreviewItem,
-  TurnPreviewMessage,
-} from '@podium/protocol'
+import type { SessionId, SessionOffer, TranscriptItem } from '@podium/model'
+import type { HeadlessActivityEvent, TurnPreviewItem, TurnPreviewMessage } from '@podium/protocol'
 import { action, observable, observableRef, reaction, runInAction } from 'mobx'
 import type { SuperagentTurnFailure } from '../api'
 import type { SocketHub } from '../socket-transport/socket-hub'
 import { type TranscriptConnection, transcriptActivitySignal } from '../transcript/contracts'
-import {
-  askQuestionResult,
-  currentAskQuestion,
-  isCodexAsyncQuestion,
-  isPendingAskQuestion,
-} from '../values/ask-question'
+import { isCodexAsyncQuestion, isPendingAskQuestion } from '../values/ask-question'
 import { type ConversationContext, nativeSessionCanInterrupt } from './contracts'
 import type { DraftStore } from './draft-store'
 import {
@@ -46,7 +36,6 @@ export interface ConversationSession {
   status?: string
   agentPhase?: string
   agentSince?: string
-  agentNeed?: AgentNeed
   agentError?: ConversationContext['agentError']
   lastActiveAt?: string | null
   busy?: boolean | null
@@ -54,7 +43,6 @@ export interface ConversationSession {
     phase?: string
     since?: string
     error?: ConversationContext['agentError']
-    need?: AgentNeed
   } | null
   offer?: SessionOffer | null
 }
@@ -68,7 +56,6 @@ export interface ConversationOptions {
     'sessionId' | 'transcript' | 'drafts' | 'connection' | 'readContext' | 'compactionFor'
   >
   readSession?: () => ConversationSession | undefined
-  readQuestion?: () => PendingInteractionWire | undefined
   streamSessionId?: () => SessionId | undefined
   readTurnRunning?: () => boolean | undefined
   /** Hosts can supply headless/thread context while native context comes from the row. */
@@ -148,27 +135,11 @@ export class ConversationService {
     return this
   }
 
-  /** Paired history retains outcomes; the live native authority owns the slot. */
+  /** Only a question without a paired result can occupy the native pending slot. */
   @lazy get pendingQuestion(): TranscriptItem | null {
     const id = this.graph.pendingQuestionId
     const block = id === undefined ? undefined : this.graph.block(id)
-    if (this.options.headless && block && isCodexAsyncQuestion(block.item)) return null
-    const result = block ? askQuestionResult(block) : undefined
-    const transcript = !block
-      ? null
-      : result === undefined
-        ? block.item
-        : { ...block.item, toolResult: result }
-    const session = this.options.readSession?.()
-    return currentAskQuestion(
-      transcript,
-      session?.agentNeed ?? session?.agentState?.need,
-      session?.status,
-      this.agentPhase,
-      session?.status === 'live' || session?.status === 'starting'
-        ? this.options.readQuestion?.()
-        : undefined,
-    )
+    return !block || (this.options.headless && isCodexAsyncQuestion(block.item)) ? null : block.item
   }
 
   /** Both clients answer async interviews through the ordinary send lifecycle. */

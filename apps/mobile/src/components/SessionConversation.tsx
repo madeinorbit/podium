@@ -12,9 +12,9 @@ import {
   defaultChatCapable,
   matchesQuestionInteraction,
   OPTIMISTIC_SEND_CEILING_MS,
+  pendingAskFromState,
   principalShortName,
 } from '@podium/client-core/values'
-import { chatInteractions } from '@podium/client-graph/chat-context'
 import { here } from '@podium/client-graph/lookup'
 import { currentMessageRecord, ingestMessageRecords } from '@podium/client-graph/message-models'
 import type { SessionModel } from '@podium/client-graph/models'
@@ -260,7 +260,6 @@ export function useSessionConversation(props: {
             set: (id, text) => pool!.sessionObject(id).setMessageDraft(text),
           },
           readSession: () => (pool ? here(pool.model('session', sessionId)) : undefined),
-          readQuestion: () => (pool ? chatInteractions(pool, sessionId).question : undefined),
           hub: owner.hub,
           connection: hubConnection(owner.hub),
           scheduler: {
@@ -686,9 +685,16 @@ const SessionConversationBody = observer(function SessionConversationBody({
   const composerCaption = conversation.interruptError
     ? `Not stopped: ${conversation.interruptError}`
     : transcriptStatus
-  // The shared conversation chooses the current native question. Unresolved
-  // history stays in the feed when a new authoritative need supersedes it.
-  const pendingQuestion = transcript.pendingQuestion
+  const transcriptQuestion = transcript.pendingQuestion
+  const need = conversation.session?.agentNeed
+  const phase = conversation.session?.agentPhase
+  const pendingAsk = useMemo(
+    () =>
+      pendingAskFromState(need, session.status, phase, transcriptQuestion !== null, currentQuestion)
+        ?.item ?? null,
+    [need, session.status, phase, transcriptQuestion, currentQuestion],
+  )
+  const pendingQuestion = transcriptQuestion ?? pendingAsk
   const askAnswerable =
     session.status === 'live' || session.status === 'starting' || session.status === 'reconnecting'
   const pendingAskedAt = pendingQuestion?.ts ?? conversation.session?.agentSince
@@ -842,7 +848,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
             <TranscriptList
               transcript={transcript}
               presentation={model.presentation}
-              transcriptQuestion={pendingQuestion}
+              transcriptQuestion={transcriptQuestion}
               live={session.status === 'live'}
               assetContext={assetContext}
               pendingTurns={pendingTurns}

@@ -95,7 +95,7 @@ it.each([
   '',
   'Error: answer could not be delivered',
   "[Tool call interrupted: the session ended before this call's result was recorded, so its outcome is unknown.]",
-])('preserves an unresolved question and its result detail for %j', (result) => {
+])('keeps Not answered history and its result detail for %j', (result) => {
   const item: TranscriptItem = {
     id: 'question',
     role: 'tool',
@@ -105,11 +105,16 @@ it.each([
       questions: [{ question: 'Where?', options: [{ label: 'main' }] }],
     }),
   }
-  const rows = shapeMobileChatRow({ kind: 'block', block: { item, result }, blockIndex: 0 })
+  const rows = shapeMobileChatRow(
+    { kind: 'block', block: { item, result }, blockIndex: 0 },
+    { hiddenQuestionId: item.id },
+  )
   expect(rows[0]?.kind).toBe('question')
   expect(rows[0]?.item.toolResult).toBe(result)
   render(transcript([{ ...item, toolResult: result }]))
   expect(screen.getByText(result || 'No answer was recorded.')).toBeTruthy()
+  expect(screen.getByText('Not answered')).toBeTruthy()
+  expect(screen.queryByLabelText('main')).toBeNull()
   expect(screen.queryByLabelText(/Answered question/)).toBeNull()
 })
 

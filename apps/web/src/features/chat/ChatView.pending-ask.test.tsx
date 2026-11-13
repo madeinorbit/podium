@@ -12,6 +12,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { claudeRecordToItems } from '../../../../../packages/harness/src/adapters/claude-code/transcript'
 import './test-support/client-core-mock'
+import { publishScreenPoolFixture } from '@/test-support/mock-screen-pool'
+import { fakeStoreHandle } from './test-support/fake-store-handle'
 import { outboxChatSendActions } from './test-support/outbox-chat-send'
 
 // ---------------------------------------------------------------------------
@@ -221,6 +223,133 @@ const occurrences = (needle: string): number =>
   (container.textContent ?? '').split(needle).length - 1
 
 describe('a pending question the transcript does not carry', () => {
+  it.each(
+    [
+      '',
+      'Error: answer could not be delivered',
+      '[Tool call interrupted: its outcome is unknown.]',
+      'Unrecognized outcome',
+    ].flatMap((result) =>
+      (['need', 'interaction'] as const).map((authority) => [result, authority] as const),
+    ),
+  )('keeps %j history read-only after a state-only %s and its later answer', async (result, authority) => {
+    const old = claudeRecordToItems({
+      type: 'assistant',
+      uuid: 'old-call',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            id: 'old-use',
+            name: 'AskUserQuestion',
+            input: {
+              questions: [{ question: 'Old question?', options: [{ label: 'Old choice' }] }],
+            },
+          },
+        ],
+      },
+    })
+    const history = [
+      ...old,
+      ...claudeRecordToItems({
+        type: 'user',
+        uuid: 'old-result',
+        message: { content: [{ type: 'tool_result', tool_use_id: 'old-use', content: result }] },
+      }),
+    ]
+    await show(meta(), history)
+    const held = fakeStoreHandle
+      .ownConversations({
+        create: () => {
+          throw new Error('Expected the mounted conversation')
+        },
+      })
+      .acquire(asSessionId('s1'), { activateTranscript: false })
+    try {
+      const publication = held.conversation.graph.rowPublication
+      storeSessions = [authority === 'need' ? waiting() : meta()]
+      storeInteractions =
+        authority === 'interaction'
+          ? [
+              PendingInteractionWire.parse({
+                id: 'new-live',
+                sessionId: 's1',
+                askedAt: '2026-11-13T12:00:00Z',
+                source: 'hook',
+                answerable: 'keystroke-emulated',
+                fingerprint: 'new-live',
+                kind: 'question',
+                status: 'asked',
+                payload: {
+                  v: 1,
+                  questions: INTERVIEW.questions.map((question) => ({
+                    ...question,
+                    multiSelect: false,
+                    previewLayout: false,
+                  })),
+                },
+              }),
+            ]
+          : []
+      act(() => publishScreenPoolFixture())
+      await flush()
+      expect(held.conversation.graph.rowPublication).toBe(publication)
+      expect(container.textContent).toContain(result || 'No answer was recorded.')
+      expect(container.querySelectorAll('[data-testid="ask-live"]')).toHaveLength(1)
+      const oldHistory = container.querySelector('[data-testid="ask-readonly"]')
+      expect(oldHistory?.textContent).toContain('Old question?')
+      expect(oldHistory?.textContent).toContain('not answered')
+      await act(async () => optionButtons()[0]?.click())
+      await flush()
+      expect(answerMutate).toHaveBeenCalledTimes(1)
+      if (authority === 'interaction')
+        expect(answerMutate).toHaveBeenCalledWith(
+          expect.objectContaining({ interactionId: 'new-live' }),
+        )
+      act(() => {
+        held.conversation.transcript.merge([
+          ...claudeRecordToItems({
+            type: 'assistant',
+            uuid: 'new-call',
+            message: {
+              content: [
+                { type: 'tool_use', id: 'new-use', name: 'AskUserQuestion', input: INTERVIEW },
+              ],
+            },
+          }),
+          ...claudeRecordToItems({
+            type: 'user',
+            uuid: 'new-result',
+            message: {
+              content: [
+                {
+                  type: 'tool_result',
+                  tool_use_id: 'new-use',
+                  content:
+                    'User has answered your questions: "Where should the clickable status icon land?"="The issue row".',
+                },
+              ],
+            },
+          }),
+        ])
+        storeSessions = [meta()]
+        storeInteractions = []
+        publishScreenPoolFixture()
+      })
+      await flush()
+      expect(held.conversation.graph.pendingQuestionId).toBeUndefined()
+      expect(held.conversation.pendingQuestion).toBeNull()
+      expect(container.querySelector('[data-testid="ask-live"]')).toBeNull()
+      expect(container.querySelector('[data-testid="ask-readonly"]')?.textContent).toContain(
+        'Old question?',
+      )
+      expect(container.textContent).toContain(result || 'No answer was recorded.')
+      expect(optionButtons().every((button) => button.disabled)).toBe(true)
+    } finally {
+      held.release()
+    }
+  })
+
   it.each([
     '',
     'Error: answer could not be delivered',

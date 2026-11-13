@@ -35,7 +35,7 @@ export class MobileConversation extends ConversationService {
       {
         collapseContext: presentationOptions.collapseContext,
         hiddenQuestionId: presentationOptions.hidePendingQuestion
-          ? () => this.pendingQuestion?.id
+          ? () => this.graph.pendingQuestionId
           : undefined,
       },
     )

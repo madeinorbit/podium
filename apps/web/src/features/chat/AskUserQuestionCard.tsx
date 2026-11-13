@@ -6,6 +6,7 @@ import {
   codexAsyncQuestionReply,
   isChosenOption,
   isCodexAsyncQuestion,
+  isPendingAskQuestion,
   isPreviewLayout,
   optionPreview,
   parseAskQuestions,
@@ -141,6 +142,7 @@ export function AskUserQuestionCard({
   // The answer arrives as: …"<question>"="<chosen label>"… — match per option.
   const answer = askQuestionResult(block) ?? ''
   const outcome = askQuestionOutcome(block)
+  const pending = livePending && isPendingAskQuestion(block)
   const codex = isCodexAsyncQuestion(item)
   const replies = codex ? parseCodexQuestionReplies(answer) : null
   const replyAt = (qi: number) => replies?.find((reply) => reply.questionIndex === qi)?.answer
@@ -165,7 +167,7 @@ export function AskUserQuestionCard({
   // the keyboard route survives the advance — but never on mount, which would
   // steal focus from the composer the moment a question arrives.
   const followFocus = useRef(false)
-  const locked = submitState === 'sending' || !livePending
+  const locked = submitState === 'sending' || !pending
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `step` is the trigger, not a read
   useEffect(() => {
@@ -388,7 +390,7 @@ export function AskUserQuestionCard({
   // (question + chosen option) so past decisions stay auditable without spending
   // attention. Nothing is asked of the operator any more, so nothing here may
   // carry the signal colour.
-  if (!livePending && (outcome === 'answered' || outcome === 'skipped') && questions.length > 0) {
+  if (!pending && (outcome === 'answered' || outcome === 'skipped') && questions.length > 0) {
     return (
       <div className={cn(cls)} data-block={index} data-testid="ask-receipt">
         <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
@@ -422,7 +424,7 @@ export function AskUserQuestionCard({
 
   // Read-only (parked, or historical without a parseable result): a record of
   // what was asked, not a control. Quiet frame, no key caps, no signal colour.
-  const readOnly = !livePending
+  const readOnly = !pending
 
   return (
     <div className={cn(cls)} data-block={index}>
@@ -706,7 +708,7 @@ export function AskUserQuestionCard({
                   the same thing. It sits BELOW both columns rather than in the
                   options one: stacked, the evidence has to be read before the
                   way out of the choice, not after it. */}
-              {livePending && !readOnly && (
+              {pending && !readOnly && (
                 <div className="mt-1.5">
                   <label className="sr-only" htmlFor={`ask-free-${index}-${qi}`}>
                     Or type your own answer
@@ -736,7 +738,7 @@ export function AskUserQuestionCard({
         })}
 
         {/* Several questions, or a multi-select: the set is sent on one press. */}
-        {livePending && questions.length > 0 && !commitsOnClick && (
+        {pending && questions.length > 0 && !commitsOnClick && (
           <div className="mt-2.5 flex items-center gap-2.5">
             <button
               data-pressable
@@ -768,7 +770,7 @@ export function AskUserQuestionCard({
             </span>
           </div>
         )}
-        {livePending && commitsOnClick && (
+        {pending && commitsOnClick && (
           <div className="mt-2 flex items-center gap-2.5">
             {canSkip && (
               <button

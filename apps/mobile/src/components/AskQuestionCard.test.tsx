@@ -29,7 +29,7 @@ const single = ask([
 ])
 
 describe('AskQuestionCard', () => {
-  it('lets a recorded answer failure override an earlier successful request acknowledgement', async () => {
+  it('retires a recorded failure as read-only history after an earlier request acknowledgement', async () => {
     const onAnswer = vi.fn(async () => {})
     const view = render(<AskQuestionCard item={single} live onAnswer={onAnswer} />)
     fireEvent.click(screen.getByLabelText('SQLite'))
@@ -43,8 +43,9 @@ describe('AskQuestionCard', () => {
     )
     expect(screen.getByText('Error: answer could not be delivered')).toBeTruthy()
     expect(screen.queryByText('Answer sent')).toBeNull()
-    fireEvent.click(screen.getByLabelText('Postgres'))
-    await waitFor(() => expect(onAnswer).toHaveBeenCalledTimes(2))
+    expect(screen.getByText('Not answered')).toBeTruthy()
+    expect(screen.queryByLabelText('Postgres')).toBeNull()
+    expect(onAnswer).toHaveBeenCalledTimes(1)
   })
   it('retains its focused custom-answer field when opening the keyboard compacts the band', () => {
     const view = render(<AskQuestionCard item={single} live presentation="band" />)

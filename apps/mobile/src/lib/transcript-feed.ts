@@ -125,7 +125,7 @@ export function shapeMobileChatRow(
     const result = askQuestionResult(chatRow.block)
     const outcome = askQuestionOutcome(chatRow.block)
     const settled = outcome === 'answered' || outcome === 'skipped'
-    if (!settled && item.id === options.hiddenQuestionId) return rows
+    if (result === undefined && item.id === options.hiddenQuestionId) return rows
     append({
       key: transcriptItemKey(item),
       kind: settled ? 'receipt' : 'question',

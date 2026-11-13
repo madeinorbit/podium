@@ -77,13 +77,17 @@ it.each([
         block={ask(THREE, result)}
         cls=""
         index={0}
-        livePending={false}
-        onAnswer={async () => {}}
+        livePending
+        onAnswer={async () => {
+          throw new Error('Historical questions must not submit')
+        }}
       />,
     ),
   )
   expect(container.querySelector('[data-testid="ask-receipt"]')).toBeNull()
   expect(container.textContent).toContain(result || 'No answer was recorded.')
+  expect(container.querySelector('[data-testid="ask-readonly"]')).not.toBeNull()
+  expect(container.querySelector('[data-testid="ask-live"]')).toBeNull()
 })
 
 describe('AskUserQuestionCard', () => {

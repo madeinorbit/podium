@@ -128,7 +128,7 @@ describe('mobile transcript feed', () => {
     expect(hidden.positionOfKey('a1')).toBe(1)
     const askBlock = model.rows[1]!.blockIndices[0]!
     expect(hidden.rowsForBlock(askBlock)).toEqual([])
-    const receipt = buildMobileTranscript([{ ...ask, toolResult: 'Done' }], {
+    const receipt = buildMobileTranscript([{ ...ask, toolResult: 'You selected "Done"' }], {
       hiddenQuestionId: 'ask',
     })
     expect(receipt.rows[0]?.kind).toBe('receipt')

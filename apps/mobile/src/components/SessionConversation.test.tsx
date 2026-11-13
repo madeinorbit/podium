@@ -59,16 +59,19 @@ vi.mock('./Composer', () => ({ Composer: () => <div data-testid="composer" /> })
 vi.mock('./TranscriptList', () => ({
   TranscriptList: ({
     emptyComponent,
+    transcript,
     footer,
     pendingTurns,
     tail,
   }: {
     emptyComponent?: ReactNode
+    transcript?: { ids: readonly string[] }
     footer?: ReactNode
     pendingTurns?: readonly PendingTurn[]
     tail?: { label: string; tone: string; since?: string }
   }) => (
     <div>
+      <div data-testid="loaded-count">{transcript?.ids.length ?? 0}</div>
       <div
         data-testid="tail"
         data-since={tail?.since}
@@ -240,7 +243,7 @@ it.each([
   '',
   'Error: answer could not be delivered',
   "[Tool call interrupted: the session ended before this call's result was recorded, so its outcome is unknown.]",
-])('keeps an unresolved question pinned with its %j detail', async (result) => {
+])('does not pin retired question history with %j', async (result) => {
   const asking = {
     sessionId: `unresolved-${result.length}`,
     cwd: '/repo',
@@ -274,8 +277,9 @@ it.each([
       },
     },
   })
-  await screen.findByTestId('ask-question-tile')
-  expect(screen.getByText(result || 'No answer was recorded.')).toBeTruthy()
+  await waitFor(() => expect(screen.getByTestId('loaded-count').textContent).toBe('3'))
+  expect(screen.queryByTestId('ask-question-tile')).toBeNull()
+  expect(screen.queryByLabelText('main')).toBeNull()
 })
 
 it.each([
