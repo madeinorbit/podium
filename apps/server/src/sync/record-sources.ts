@@ -995,8 +995,8 @@ export const RECORD_SOURCES: RecordSources = {
 // ---------------------------------------------------------------------------
 
 /**
- * The records the captured rows reach, by kind, each id once, kinds in the
- * order first captured. A kind outside `kinds` (a test's subset) is skipped.
+ * The records the captured rows reach, by kind, each id once, kinds in
+ * declaration order. A kind outside `kinds` (a test's subset) is skipped.
  * One batched mapping per (kind, source) with captured rows.
  */
 export async function touchedRecords(
@@ -1042,8 +1042,14 @@ export async function touchedRecords(
       list.push(id)
     }
   }
-  for (const [kind, list] of out) if (list.length === 0) out.delete(kind)
-  return out
+  // Kinds in their declaration order, ids in the order captured: one commit's
+  // rows come out in the same order however its triggers fired.
+  const ordered = new Map<MetadataEntityKind, string[]>()
+  for (const kind of Object.keys(sources) as MetadataEntityKind[]) {
+    const list = out.get(kind)
+    if (list !== undefined && list.length > 0) ordered.set(kind, list)
+  }
+  return ordered
 }
 
 /** The SQL name of every column a source watches, keys first. */

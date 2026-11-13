@@ -220,7 +220,7 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
         onBehalfOf: OWNER,
       })
     }
-    await store.repos.addRepo('/r', store.hostMachineId)
+    await seedRows(store, async () => await store.repos.addRepo('/r', store.hostMachineId))
     await store.transact(async () => {
       for (const [index, id] of ['i1', 'i2'].entries()) {
         await seedRows(store, async () => await store.issues.upsertIssue(fixtureWriteScope(), {
@@ -356,7 +356,7 @@ const OTHER_OWNER = asUserId('usr_someone_else')
 async function seedGrantedIssues(reg: SessionRegistry, count: number): Promise<number> {
   const { store } = internals(reg)
   const ids = Array.from({ length: count }, (_, i) => `iss_shared_${i}`)
-  await store.repos.addRepo('/r', store.hostMachineId)
+  await seedRows(store, async () => await store.repos.addRepo('/r', store.hostMachineId))
   for (const id of ids) {
     await store.grants.upsert({
       resourceKind: 'issue',

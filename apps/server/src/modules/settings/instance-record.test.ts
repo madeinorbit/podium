@@ -28,6 +28,7 @@ import { openTestStore } from '../../test-support/open-test-store'
 import { logStoreRecords, testStoreRecords } from '../../test-support/record-writer'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import { envelope, expectAppliedOnPath, submit } from '../sync-write/outbox-test-support'
+import { seedRows } from '../../test-support/seed-rows'
 
 afterEach(() => disposeOracles())
 
@@ -365,10 +366,10 @@ describe('bootstrap streams stored instance settings', () => {
   it('every member loads the stored blob without appending to the log', async () => {
     const { store, authority } = await feedFixture()
     const stored = await store.settings.getSettings()
-    await store.settings.setSettings({
+    await seedRows(store, async () => await store.settings.setSettings({
       ...stored,
       hibernation: { ...stored.hibernation, memoryPct: 70 },
-    })
+    }))
 
 
     for (const user of [ME, 'user:anyone-6677']) {

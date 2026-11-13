@@ -28,6 +28,7 @@ import { OPERATOR } from './test-support/capabilities'
 import { attachDaemonWithInventory, fixtureInventory } from './test-support/daemon-inventory'
 import { forceFeature } from './test-support/features'
 import { assignHostMachine } from './test-support/host-daemon'
+import { seedRows } from './test-support/seed-rows'
 
 const registries: SessionRegistry[] = []
 afterEach(async () => {
@@ -636,7 +637,7 @@ describe('search_all tool', () => {
       sessionId,
       resume: { kind: 'claude-session', value: 'native-conv' },
     })
-    await registry.sessionStore.conversations.index.upsert(fixtureWriteScope(), [
+    await seedRows(registry.sessionStore, async () => await registry.sessionStore.conversations.index.upsert(fixtureWriteScope(), [
       {
         id: 'native-conv',
         agentKind: 'claude-code',
@@ -757,7 +758,7 @@ describe('thread ownership after administrator removal', () => {
     ).toBe(replacement)
     sa.dispose()
   })
-})
+}))
 
 it.each([
   '/src/podium',
@@ -773,7 +774,7 @@ it.each([
   expect(text).toContain('- podium (')
   expect(text).toContain('- podium #1')
   const { registry, sa } = await harness()
-  await registry.sessionStore.repos.addRepo(repoPath, registry.sessionStore.hostMachineId)
+  await seedRows(registry.sessionStore, async () => await registry.sessionStore.repos.addRepo(repoPath, registry.sessionStore.hostMachineId))
   const thread = await sa.ensureConciergeThread({ ownerUserId: firstAdminMemberId(), repoPath })
   expect(
     (await registry.sessionStore.superagent.listSuperagentThreads(firstAdminMemberId())).find(
@@ -792,7 +793,7 @@ it.each([
   String.raw`C:\Src\Podium`,
 ])('machine paths: session title and concierge repo usage under %s', async (cwd) => {
   const { registry, sa, turnReqs, settle } = await harness()
-  await registry.sessionStore.repos.addRepo(cwd, registry.sessionStore.hostMachineId)
+  await seedRows(registry.sessionStore, async () => await registry.sessionStore.repos.addRepo(cwd, registry.sessionStore.hostMachineId))
   expect(await registry.sessionStore.repos.listRepoPaths()).toContain(cwd)
   const created = await registry.modules.sessions.createSession({
     agentKind: 'claude-code',

@@ -13,6 +13,7 @@ import { PostCommitError } from './store/executor'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
 import { sessionReadPorts } from './test-support/session-facts'
+import { seedRows } from './test-support/seed-rows'
 
 async function harness(sessions: SessionMeta[] = [], extra: Partial<IssueDeps> = {}) {
   const store = await openTestStore(':memory:')
@@ -680,8 +681,8 @@ describe('IssueService event emission', () => {
   it('a mid-fanout read failure reports the committed close and emits no ready events', async () => {
     const { svc, store } = await harness()
     const origin = 'https://example.test/shared.git'
-    await store.repos.addRepo('/clone/one', asMachineId('machine-one'), origin)
-    await store.repos.addRepo('/clone/two', asMachineId('machine-two'), origin)
+    await seedRows(store, async () => await store.repos.addRepo('/clone/one', asMachineId('machine-one'), origin))
+    await seedRows(store, async () => await store.repos.addRepo('/clone/two', asMachineId('machine-two'), origin))
     const a = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/clone/one', title: 'A', startNow: false })
     const b = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/clone/one', title: 'B', startNow: false })
     const c = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/clone/two', title: 'C', startNow: false })
