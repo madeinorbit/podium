@@ -197,7 +197,16 @@ function MessageText({
   style: object
   onRefPress?: ((ref: string) => void) | undefined
 }) {
-  return <RichMarkdown text={text} textStyle={style} onRefPress={onRefPress} />
+  // iOS selection lives in the message menu's Select Text view; selectable
+  // paragraph text would raise a second system Copy bubble on long-press.
+  return (
+    <RichMarkdown
+      text={text}
+      textStyle={style}
+      onRefPress={onRefPress}
+      selectable={Platform.OS !== 'ios'}
+    />
+  )
 }
 
 function EnvelopePrincipalLabel({
