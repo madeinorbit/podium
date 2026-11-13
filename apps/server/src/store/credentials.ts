@@ -19,7 +19,7 @@ import {
   type MachineId,
   type UserId,
 } from '@podium/model'
-import { and, asc, desc, eq, isNotNull, lt, ne, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, isNotNull, lt, ne, or, sql } from 'drizzle-orm'
 import {
   accountMachineSends,
   accounts,
@@ -255,6 +255,38 @@ const credentialByLegacyKey = prepared((db: StoreDrizzle) =>
         eq(credentials.ownerUserId, param(credentials.ownerUserId, 'ownerUserId')),
         eq(credentials.legacyKey, param(credentials.legacyKey, 'legacyKey')),
       ),
+    )
+    .prepare(),
+)
+
+// LEGACY(remove-after: 2027-02): reads account ids written before credentials existed; removing it stops old spellings from resolving
+/**
+ * Other members' credentials imported from one old account id or its earlier
+ * workspace alias, in the order the old shared read took them: the `accounts`
+ * row's `created_at`, then its id (`legacy_id`), oldest first; credentials
+ * with no such row (any more) after them, oldest first.
+ */
+const legacySharedCandidates = prepared((db: StoreDrizzle) =>
+  db
+    .select({ id: credentials.id, ownerUserId: credentials.ownerUserId })
+    .from(credentials)
+    .leftJoin(accounts, eq(accounts.id, credentials.legacyId))
+    .where(
+      and(
+        or(
+          eq(credentials.legacyKey, param(credentials.legacyKey, 'legacyKey')),
+          eq(credentials.legacyKey, param(credentials.legacyKey, 'earlierKey')),
+        ),
+        ne(credentials.ownerUserId, param(credentials.ownerUserId, 'userId')),
+        ne(credentials.status, 'revoked'),
+      ),
+    )
+    .orderBy(
+      asc(sql`${accounts.createdAt} is null`),
+      asc(accounts.createdAt),
+      asc(accounts.id),
+      asc(credentials.createdAt),
+      asc(credentials.id),
     )
     .prepare(),
 )
@@ -826,6 +858,24 @@ export class CredentialsRepository {
   ): Promise<CredentialRecord | undefined> {
     const row = await credentialByLegacyKey(this.db).get({ ownerUserId, legacyKey })
     return row ? toRecord(row) : undefined
+  }
+
+  // LEGACY(remove-after: 2027-02): reads account ids written before credentials existed; removing it stops old spellings from resolving
+  /**
+   * Credentials of members other than `userId` that were moved from the old
+   * account id `legacyKey` or `earlierKey`, not revoked, in the order the old
+   * own-then-shared read took the shared ones. Whether `userId` may use each
+   * is the caller's question (`mayUse`).
+   */
+  async legacySharedCandidates(i: {
+    userId: UserId
+    legacyKey: string
+    earlierKey: string
+  }): Promise<{ id: CredentialId; ownerUserId: UserId }[]> {
+    return (await legacySharedCandidates(this.db).all(i)).map((r) => ({
+      id: asCredentialId(r.id),
+      ownerUserId: r.ownerUserId as UserId,
+    }))
   }
 
   // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table

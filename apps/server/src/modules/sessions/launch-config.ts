@@ -22,7 +22,7 @@ import {
   resolveSessionAccess,
 } from '../credentials/access'
 import { type AttachAccessDeps, attachAccess } from '../credentials/attach-access'
-import { credentialIdFromLegacy } from '../credentials/legacy-ids'
+import { credentialIdFromLegacy, type LegacyIdDeps } from '../credentials/legacy-ids'
 
 export interface LaunchConfigPorts {
   store: Pick<
@@ -71,7 +71,7 @@ export class CredentialRefusal extends Error {
  * one, rather than run on the machine's own login.
  */
 export async function legacyRoleDefault(
-  store: Pick<SessionStore, 'credentials'>,
+  store: LegacyIdDeps,
   harness: AgentKind,
   accountId: string,
   owner: UserId,

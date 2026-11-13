@@ -35,6 +35,8 @@ import { attachHostDaemon } from '../../test-support/host-daemon'
 import { openTestStore } from '../../test-support/open-test-store'
 import { seedRows } from '../../test-support/seed-rows'
 import { ACCESS_REFUSAL_MESSAGES } from '../credentials/access'
+import { connectThrough } from '../credentials/legacy-accounts'
+import { CREDENTIAL_RESOURCE_KIND, mayUse } from '../credentials/may-use'
 import { sealCredentialSecret } from '../credentials/vault'
 import { CredentialRefusal } from './launch-config'
 
@@ -477,6 +479,153 @@ describe('old account ids', () => {
       expect(delivered(frames[0])).toEqual(row.env)
     })
   }
+})
+
+// POD-6937 (review focus 4): an old `managed:*` id meant the person's own key,
+// and with none, a key another member shared with them. It still does after the
+// upgrade, for a role setting and for a stored session alike.
+describe('an old account id and a key another member shared', () => {
+  const BOB = asUserId('user:spawn-credential-shared-bob')
+
+  /**
+   * Before the upgrade, Alice (the first admin, custodian of the host) stored a
+   * `managed:anthropic` key and shared it with Bob, who has none. With
+   * `session`, Bob also has a hibernated session that recorded the old id. The
+   * store is reopened, so the start's one-time import moves the key into a
+   * credential and its sharing into a grant.
+   */
+  async function upgraded(session: boolean) {
+    const dir = mkdtempSync(join(tmpdir(), 'spawn-credential-shared-'))
+    dirs.push(dir)
+    const file = join(dir, 'podium.db')
+    const first = await openTestStore(file)
+    const one = await makeRegistry(first)
+    const alice = await firstAdminMemberId(first)
+    // Alice's own session first: a resume with no owner needs a sole member.
+    const sessionId = session ? await hibernated(one.reg, 'claude-code') : undefined
+    await memberFacts(first).create(
+      { id: BOB, displayName: 'Bob', email: null, role: 'member', createdAt: AT, disabledAt: null },
+      'not-a-real-hash',
+    )
+    await first.accounts.connect({
+      ownerUserId: alice,
+      accountKey: asAccountId('managed:anthropic'),
+      provider: 'anthropic',
+      kind: 'api-key',
+      credential: FAKE_A,
+      identity: 'masked',
+      scope: 'role',
+      createdAt: 1,
+    })
+    expect(await first.accounts.share(alice, asAccountId('managed:anthropic'), [BOB])).toBe(true)
+    await one.reg.dispose()
+    registries.splice(registries.indexOf(one.reg), 1)
+    if (sessionId) {
+      // Bob's row as a release before credentials wrote it.
+      const db = openDatabase(file)
+      db.prepare(
+        'UPDATE sessions SET account_id = ?, credential_id = NULL, owner_user_id = ? WHERE id = ?',
+      ).run('managed:anthropic', BOB, sessionId)
+      db.close()
+    }
+
+    const store = await openTestStore(file, first.hostMachineId)
+    const { reg, daemon } = await makeRegistry(store)
+    const aliceKey = (await store.credentials.findByLegacyKey(alice, 'managed:anthropic'))?.id
+    if (!aliceKey) throw new Error('the import moved no key')
+    // The import made the old share a grant: Bob may use Alice's key.
+    expect(await mayUse(store, BOB, { id: aliceKey, ownerUserId: alice })).toBe('use')
+    const current = await store.settings.getSettingsFor(BOB)
+    await store.settings.setSettingsFor(
+      BOB,
+      {
+        ...current,
+        roles: {
+          ...current.roles,
+          coding: { ...current.roles.coding, accountId: asAccountId('managed:anthropic') },
+        },
+      },
+      AT,
+    )
+    return { store, reg, daemon, aliceKey, sessionId }
+  }
+
+  const unshare = async (store: SessionStore, aliceKey: CredentialId) =>
+    expect(await store.grants.remove(CREDENTIAL_RESOURCE_KIND, aliceKey, BOB, 'use')).toBe(true)
+
+  /** Bob connects a key of his own under the old id, allowed on the host. */
+  async function connectBobs(store: SessionStore): Promise<CredentialId> {
+    const id = await connectThrough(store, {
+      owner: BOB,
+      accountKey: 'managed:anthropic',
+      provider: 'anthropic',
+      kind: 'api-key',
+      secret: FAKE_B,
+    })
+    if (!id) throw new Error('no credential for the key')
+    await store.credentials.allowMachine(id, store.hostMachineId, BOB)
+    return id
+  }
+
+  const launchAsBob = (reg: SessionRegistry) =>
+    reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/p', ownerUserId: BOB })
+
+  describe('from settings', () => {
+    it("runs on Alice's shared key when Bob has none", async () => {
+      const { reg, daemon, aliceKey } = await upgraded(false)
+      const spawned = await launchAsBob(reg)
+      expect(spawned.credentialId).toBe(aliceKey)
+      expect(delivered(spawns(daemon).at(-1))).toEqual({ ANTHROPIC_API_KEY: FAKE_A })
+    })
+
+    it('is refused not-found once Alice unshares, and her key is never sent', async () => {
+      const { store, reg, daemon, aliceKey } = await upgraded(false)
+      await unshare(store, aliceKey)
+      const sent = spawns(daemon).length
+      await expect(launchAsBob(reg)).rejects.toThrow(ACCESS_REFUSAL_MESSAGES['not-found'])
+      expect(spawns(daemon).length).toBe(sent)
+      expect(JSON.stringify(daemon)).not.toContain(FAKE_A)
+    })
+
+    it("runs on Bob's own key once he connects one, though Alice's is still shared", async () => {
+      const { store, reg, daemon } = await upgraded(false)
+      const bobs = await connectBobs(store)
+      const spawned = await launchAsBob(reg)
+      expect(spawned.credentialId).toBe(bobs)
+      expect(delivered(spawns(daemon).at(-1))).toEqual({ ANTHROPIC_API_KEY: FAKE_B })
+    })
+  })
+
+  describe('from a stored session', () => {
+    it("revives on Alice's shared key when Bob has none", async () => {
+      const { reg, daemon, sessionId } = await upgraded(true)
+      if (!sessionId) throw new Error('no session')
+      const { result, frames } = await wake(reg, daemon, sessionId)
+      expect(result).toEqual({ ok: true })
+      expect(frames).toHaveLength(1)
+      expect(delivered(frames[0])).toEqual({ ANTHROPIC_API_KEY: FAKE_A })
+    })
+
+    it('is refused not-found once Alice unshares, and her key is never sent', async () => {
+      const { store, reg, daemon, aliceKey, sessionId } = await upgraded(true)
+      if (!sessionId) throw new Error('no session')
+      await unshare(store, aliceKey)
+      const { result, frames } = await wake(reg, daemon, sessionId)
+      expect(result).toEqual({ ok: false, reason: ACCESS_REFUSAL_MESSAGES['not-found'] })
+      expect(frames).toEqual([])
+      expect(JSON.stringify(daemon)).not.toContain(FAKE_A)
+    })
+
+    it("revives on Bob's own key once he connects one, though Alice's is still shared", async () => {
+      const { store, reg, daemon, sessionId } = await upgraded(true)
+      if (!sessionId) throw new Error('no session')
+      await connectBobs(store)
+      const { result, frames } = await wake(reg, daemon, sessionId)
+      expect(result).toEqual({ ok: true })
+      expect(frames).toHaveLength(1)
+      expect(delivered(frames[0])).toEqual({ ANTHROPIC_API_KEY: FAKE_B })
+    })
+  })
 })
 
 // Epic plan Task 5: the credential crosses only in `access`, only to a daemon

@@ -406,8 +406,10 @@ describe('superagent response contract', () => {
 /**
  * A MANAGED ACCOUNT SERVES A HEADLESS (SUPERAGENT) TURN (POD-6733), through
  * the credential resolver (credential management §9): an old `managed:*` id
- * names the session owner's own credential, a credential id names that
- * credential, which another member may use once its owner shares it. A choice
+ * names the session owner's own credential, and with none, a key another
+ * member shared with them (as it did before credentials, POD-6937); a
+ * credential id names that credential, which another member may use once its
+ * owner shares it. A choice
  * with no usable credential is refused with the resolver's sentence, never run
  * on the machine's native login (`managed:claude-oauth` included).
  *
@@ -500,8 +502,9 @@ describe('managed credential on headless turns (two members)', () => {
     expect(alice.result).toMatchObject({ ok: true })
     expect(alice.request?.env).toEqual({ ANTHROPIC_API_KEY: ALICE_KEY })
 
-    // Bob's `managed:anthropic` names his own key, and he has none: refused
-    // before any dispatch, never served by Alice's key instead.
+    // Bob's `managed:anthropic` names his own key, and he has none, and nobody
+    // shares one with him: refused before any dispatch, never served by
+    // Alice's unshared key instead.
     const bob = await turnFor(h, BOB, 'managed:anthropic', 'bob-own')
     expect(bob.request).toBeUndefined()
     expect(bob.result).toMatchObject({ ok: false, error: ACCESS_REFUSAL_MESSAGES['not-found'] })
@@ -529,6 +532,27 @@ describe('managed credential on headless turns (two members)', () => {
     const shared = await turnFor(h, BOB, aliceKey, 'bob-shared')
     expect(shared.result).toMatchObject({ ok: true })
     expect(shared.request?.env).toEqual({ ANTHROPIC_API_KEY: ALICE_KEY })
+
+    // And Bob's old `managed:anthropic`, with no key of his own, reaches the
+    // key Alice shares with him, as it did before credentials (POD-6937).
+    const legacy = await turnFor(h, BOB, 'managed:anthropic', 'bob-legacy-shared')
+    expect(legacy.result).toMatchObject({ ok: true })
+    expect(legacy.request?.env).toEqual({ ANTHROPIC_API_KEY: ALICE_KEY })
+
+    // Alice stops sharing: the old id names nothing again, and her key is not sent.
+    await shareThrough(h.registry.sessionStore, {
+      owner: ALICE,
+      accountKey: 'managed:anthropic',
+      everyone: false,
+      users: [],
+      actor: ALICE,
+    })
+    const unsharedAgain = await turnFor(h, BOB, 'managed:anthropic', 'bob-legacy-unshared')
+    expect(unsharedAgain.request).toBeUndefined()
+    expect(unsharedAgain.result).toMatchObject({
+      ok: false,
+      error: ACCESS_REFUSAL_MESSAGES['not-found'],
+    })
   })
 
   it('a managed:claude-oauth selection with no token is refused, never run on the native login', async () => {
