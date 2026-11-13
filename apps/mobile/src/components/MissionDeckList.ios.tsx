@@ -91,7 +91,9 @@ export function DeckRow({ children }: { children: ReactNode }) {
       ]}
     >
       <RNHostView matchContents={{ vertical: true }}>
-        <View collapsable={false}>{children}</View>
+        <View collapsable={false} style={styles.row}>
+          {children}
+        </View>
       </RNHostView>
     </VStack>
   )
@@ -128,5 +130,6 @@ export function DeckProposals({
 
 const styles = StyleSheet.create({
   host: { flex: 1 },
+  row: { width: '100%' },
   content: { gap: space.md, paddingVertical: space.sm },
 })

@@ -136,6 +136,22 @@ describe('MissionDeck', () => {
     )
   })
 
+  it('styles Done like the other chips in both selected and unselected states', async () => {
+    await mount()
+    const done = screen.getByTestId('deck-filter-done')
+    expect(getComputedStyle(done).backgroundColor).toBe(
+      getComputedStyle(screen.getByTestId('deck-filter-all')).backgroundColor,
+    )
+    await act(async () => fireEvent.click(screen.getByTestId('deck-filter-active')))
+    expect(getComputedStyle(done).backgroundColor).toBe(
+      getComputedStyle(screen.getByTestId('deck-filter-all')).backgroundColor,
+    )
+    await act(async () => fireEvent.click(done))
+    expect(getComputedStyle(done).backgroundColor).toBe(
+      getComputedStyle(screen.getByTestId('deck-filter-all')).backgroundColor,
+    )
+  })
+
   it('opens a task on tap and its menu on long press', async () => {
     const { props } = await mount()
     const row = screen
@@ -349,9 +365,11 @@ it('keeps dozens of wrapped proposals readable after filtering a long mission', 
       parentId: phase.id,
       seq: index + 3,
       title:
-        index % 3 === 0
-          ? `Task ${index}: preserve conversation selection through background catch-up`
-          : `Delivery task ${index}`,
+        index === 56
+          ? 'Tasks rows and video polish'
+          : index % 3 === 0
+            ? `Task ${index}: preserve conversation selection through background catch-up`
+            : `Delivery task ${index}`,
       stage:
         index % 4 === 0
           ? 'done'
@@ -374,6 +392,10 @@ it('keeps dozens of wrapped proposals readable after filtering a long mission', 
   const sessions = tasks
     .filter((_, index) => index % 4 === 3)
     .map((task, index) => agent(`worker-${index}`, task.id, `Agent ${index}`, 'working'))
+  sessions.push({
+    ...agent('completed-helper', 'long-56', 'Tasks and video polish'),
+    status: 'hibernated',
+  })
   await mount([root, phase, ...tasks, ...proposals], sessions)
   expect(screen.getAllByTestId('deck-task')).toHaveLength(60)
   expect(screen.getAllByTestId('deck-proposal')).toHaveLength(48)

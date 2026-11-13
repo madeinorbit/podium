@@ -10,6 +10,7 @@ import {
   font,
   foregroundStyle,
   frame,
+  layoutPriority,
   padding,
   shapes,
   tint,
@@ -51,6 +52,7 @@ export const MissionProposalRow = observer(function MissionProposalRow({
             onPress={onPress}
             modifiers={[
               buttonStyle('plain'),
+              frame({ maxWidth: Infinity, alignment: 'leading' }),
               accessibilityElement('ignore'),
               accessibilityLabel(
                 `Proposal ${facts.ref} ${facts.title}${receipt ? `, ${receipt}` : ''}`,
@@ -73,20 +75,20 @@ export const MissionProposalRow = observer(function MissionProposalRow({
             >
               <Image
                 systemName="circle"
-                size={12}
                 color={deckColor.proposal}
-                modifiers={[padding({ top: 4 })]}
+                modifiers={[font({ textStyle: 'caption' }), padding({ top: 4 })]}
               />
               <VStack
                 alignment="leading"
                 spacing={4}
-                modifiers={[frame({ maxWidth: Infinity, alignment: 'leading' })]}
+                modifiers={[layoutPriority(1), frame({ maxWidth: Infinity, alignment: 'leading' })]}
               >
                 <Text
                   modifiers={[
                     font({ textStyle: 'subheadline' }),
                     foregroundStyle(color.text),
                     fixedSize({ horizontal: false, vertical: true }),
+                    frame({ maxWidth: Infinity, alignment: 'leading' }),
                   ]}
                 >
                   {facts.title}
@@ -96,6 +98,7 @@ export const MissionProposalRow = observer(function MissionProposalRow({
                     font({ textStyle: 'caption' }),
                     foregroundStyle(color.textDim),
                     fixedSize({ horizontal: false, vertical: true }),
+                    frame({ maxWidth: Infinity, alignment: 'leading' }),
                   ]}
                 >{`${facts.ref}${facts.author ? ` · by ${facts.author}` : ''}`}</Text>
                 {receipt ? (
@@ -105,6 +108,7 @@ export const MissionProposalRow = observer(function MissionProposalRow({
                       foregroundStyle(status?.phase === 'error' ? color.dangerText : color.textDim),
                       accessibilityIdentifier('deck-proposal-receipt'),
                       fixedSize({ horizontal: false, vertical: true }),
+                      frame({ maxWidth: Infinity, alignment: 'leading' }),
                     ]}
                   >
                     {receipt}

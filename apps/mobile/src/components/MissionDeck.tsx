@@ -27,7 +27,7 @@ import {
 } from '@podium/model/browser'
 import { observer } from 'mobx-react-lite'
 import { Fragment, type ReactNode, useEffect, useMemo, useState } from 'react'
-import { AppState, StyleSheet, Text, View } from 'react-native'
+import { AppState, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useTrpc } from '../client/hooks'
 import { color, font, leading, mono, sans, space } from '../theme/theme'
 import { deckColor, deckWordColor } from './deck-colors'
@@ -283,9 +283,9 @@ const Filters = observer(function Filters({ full }: { full: FullDeck }) {
         haptic={false}
         hitSlop={CHIP_SLOP}
         onPress={() => full.toggleShowDone()}
-        style={[styles.filter, full.showDone && full.filter === 'all' && styles.doneOn]}
+        style={[styles.filter, full.showDone && styles.filterOn]}
       >
-        <Text numberOfLines={1} style={styles.filterLabel}>
+        <Text numberOfLines={1} style={[styles.filterLabel, full.showDone && styles.filterLabelOn]}>
           Done
         </Text>
       </PressableScale>
@@ -479,7 +479,7 @@ const TaskLine = observer(function TaskLine({
   const blockers = word === 'blocked' ? settled(() => task.unmetBlockedByIds.length) : 0
   const label = taskWordText(word, blockers === LOADING ? 0 : blockers)
   return (
-    <View style={styles.line}>
+    <View collapsable={false} style={styles.line}>
       <View style={[styles.taskMarks, { marginLeft: Math.min(indent, 3) * space.sm }]}>
         {foldable ? (
           <View style={styles.disclosure}>
@@ -497,11 +497,9 @@ const TaskLine = observer(function TaskLine({
         ) : null}
         <StageGlyph stage={issueStatusOf(facts.status)} ground={color.groupedCard} />
       </View>
-      <PressableScale
+      <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${ref} ${title}, ${label}`}
-        haptic={false}
-        scaleTo={1}
         onPress={onPress}
         onLongPress={onLongPress}
         style={({ pressed }) => [
@@ -511,7 +509,7 @@ const TaskLine = observer(function TaskLine({
         ]}
         testID="deck-task"
       >
-        <View style={styles.taskText}>
+        <View collapsable={false} style={styles.taskText}>
           <Text style={[styles.lineTitle, word === 'done' && styles.doneTitle]} numberOfLines={2}>
             {title}
           </Text>
@@ -522,7 +520,7 @@ const TaskLine = observer(function TaskLine({
             </Text>
           </View>
         </View>
-      </PressableScale>
+      </Pressable>
     </View>
   )
 })
@@ -545,12 +543,10 @@ const AgentLine = observer(function AgentLine({
   const name = seatName(task, sessionId, session)
   const model = sessionModelLabel(session)
   return (
-    <PressableScale
+    <Pressable
       accessibilityRole="button"
       accessibilityLabel={`${name}, ${SESSION_WORD_LABEL[session.word]}${current ? ', open' : ''}`}
       accessibilityState={{ selected: current }}
-      haptic={false}
-      scaleTo={1}
       onPress={onPress}
       style={({ pressed }) => [
         styles.agent,
@@ -572,7 +568,7 @@ const AgentLine = observer(function AgentLine({
           {model ? ` · ${model}` : ''}
         </Text>
       </View>
-    </PressableScale>
+    </Pressable>
   )
 })
 
@@ -595,12 +591,10 @@ const SeatRow = observer(function SeatRow({
   const word = SESSION_WORD_LABEL[session.word]
   const model = sessionModelLabel(session)
   return (
-    <PressableScale
+    <Pressable
       accessibilityRole="button"
       accessibilityLabel={`${name}, ${word}${current ? ', open' : ''}`}
       accessibilityState={{ selected: current }}
-      haptic={false}
-      scaleTo={1}
       onPress={onPress}
       style={({ pressed }) => [
         styles.seat,
@@ -624,7 +618,7 @@ const SeatRow = observer(function SeatRow({
           </Text>
         </View>
       </View>
-    </PressableScale>
+    </Pressable>
   )
 })
 
@@ -712,7 +706,6 @@ const styles = StyleSheet.create({
     backgroundColor: color.quaternaryFill,
   },
   filterOn: { backgroundColor: color.text },
-  doneOn: { backgroundColor: color.secondaryFill },
   filterLabel: { ...sans(500), color: color.textDim, fontSize: 12 },
   filterLabelOn: { color: color.bg },
   filterCount: { ...mono(400), fontVariant: ['tabular-nums'] },
@@ -765,16 +758,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  taskText: { flex: 1, minWidth: 0, paddingVertical: space.sm, gap: space.xs },
+  // RNHostView measures without a height proposal. Let the text supply its
+  // intrinsic height, including when width or content arrives after mount.
+  taskText: { minWidth: 0, paddingVertical: space.sm, gap: space.xs },
   taskMeta: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, alignItems: 'center' },
   taskRef: { ...mono(400), color: color.textFaint, fontSize: font.micro },
   lineBody: {
     flex: 1,
     minWidth: 0,
+    minHeight: ROW_H,
     alignSelf: 'stretch',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
+    justifyContent: 'center',
     paddingRight: INSET,
   },
   separated: {

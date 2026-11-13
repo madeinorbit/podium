@@ -1,6 +1,7 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
 import { ROW_WINDOW_SIZE } from '@podium/client-graph/row-window'
-import { asIssueId } from '@podium/model'
+import { asIssueId, asSessionId } from '@podium/model'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { observer } from 'mobx-react-lite'
 import type { ReactNode } from 'react'
@@ -29,6 +30,7 @@ vi.mock('@expo/ui/swift-ui/modifiers', () => ({
       'foregroundStyle',
       'frame',
       'lineLimit',
+      'layoutPriority',
       'fixedSize',
       'padding',
       'listRowBackground',
@@ -63,7 +65,11 @@ vi.mock('@expo/ui/swift-ui', () => {
   const Box = ({ children }: Props) => <div>{children}</div>
   return {
     List: Box,
-    RNHostView: ({ children }: Props) => <div data-native-rn-host>{children}</div>,
+    RNHostView: ({ children, matchContents }: Props & { matchContents: unknown }) => (
+      <div data-native-rn-host data-sizing={JSON.stringify(matchContents)}>
+        {children}
+      </div>
+    ),
     Section: ({ children, header, modifiers }: Props) => (
       <div
         data-testid={modifiers?.find((m) => m.name === 'accessibilityIdentifier')?.value as string}
@@ -90,7 +96,14 @@ vi.mock('@expo/ui/swift-ui', () => {
       if (id && measure) native.measure.set(id, measure)
       return (
         // biome-ignore lint/a11y/noStaticElementInteractions: native cell appearance events are driven at this test boundary.
-        <div data-testid={id} onMouseEnter={appear} onMouseLeave={disappear}>
+        <div
+          data-testid={id}
+          data-layout-priority={
+            modifiers?.find((m) => m.name === 'layoutPriority')?.value as number
+          }
+          onMouseEnter={appear}
+          onMouseLeave={disappear}
+        >
           {children}
         </div>
       )
@@ -103,8 +116,23 @@ vi.mock('@expo/ui/swift-ui', () => {
         <div data-testid="row-placeholder" data-height={value.height} />
       )
     },
-    Image: () => null,
-    Text: Box,
+    Image: ({ systemName, size, modifiers }: Props & { systemName: string; size?: number }) => (
+      <span
+        data-native-symbol={systemName}
+        data-size={size}
+        data-font={JSON.stringify(modifiers?.find((m) => m.name === 'font')?.value)}
+      />
+    ),
+    Text: ({ children, modifiers }: Props) => (
+      <div
+        data-fills-width={
+          (modifiers?.find((m) => m.name === 'frame')?.value as { maxWidth?: number })?.maxWidth ===
+          Infinity
+        }
+      >
+        {children}
+      </div>
+    ),
     Button: ({
       label,
       children,
@@ -288,6 +316,93 @@ it('opens details from the context menu', async () => {
   )
   expect(f.onPress).toHaveBeenCalledOnce()
   expect(f.commands.issues.start.mutate).not.toHaveBeenCalled()
+})
+
+it('gives proposal text the available width and sizes the ring with Dynamic Type', async () => {
+  await mount()
+  const title = screen.getByText('Usage-based add-on')
+  expect(title.dataset.fillsWidth).toBe('true')
+  expect(title.parentElement?.dataset.layoutPriority).toBe('1')
+  const ring = title.parentElement?.parentElement?.querySelector('[data-native-symbol="circle"]')
+  expect(ring?.getAttribute('data-size')).toBeNull()
+  expect(JSON.parse(ring?.getAttribute('data-font') ?? 'null')).toEqual({ textStyle: 'caption' })
+})
+
+it('keeps the POD-2403 completed leaf and hibernated seat readable through catch-up and folds', async () => {
+  const root = {
+    id: asIssueId('root'),
+    seq: 2346,
+    title: 'iOS App Redesign',
+    stage: 'in_progress',
+    repoPath: '/fixture',
+    deps: [],
+  } as unknown as IssueViewModel
+  const completed = {
+    ...root,
+    id: asIssueId('completed'),
+    parentId: root.id,
+    seq: 2403,
+    title: 'Tasks rows and video polish',
+    stage: 'done',
+    closedReason: 'done',
+  } as IssueViewModel
+  const helper = {
+    sessionId: asSessionId('helper'),
+    issueId: completed.id,
+    agentKind: 'codex',
+    title: 'Tasks and video polish',
+    name: 'Tasks and video polish',
+    cwd: '/fixture',
+    status: 'hibernated',
+    archived: false,
+    origin: { kind: 'spawn' },
+    createdAt: '2026-11-11T00:00:00Z',
+    agentState: { phase: 'idle', idle: { kind: 'done' } },
+  } as unknown as SessionView
+  const f = await renderWithMobileStore(<Opened onPress={vi.fn()} />, {
+    issues: [
+      root,
+      ...Array.from({ length: 60 }, (_, index) => ({
+        ...completed,
+        id: asIssueId(`sibling-${index}`),
+        seq: 2404 + index,
+        title: `Completed sibling ${index}`,
+      })),
+      completed,
+    ],
+    sessions: [helper],
+  })
+  const body = screen.getByText(completed.title).closest('[data-testid="deck-task"]')
+  if (!(body instanceof HTMLElement)) throw new Error('Missing completed task body')
+  const host = body.closest('[data-native-rn-host]')
+  expect(host?.getAttribute('data-sizing')).toBe('{"vertical":true}')
+  const measurementRoot = host?.firstElementChild
+  const textRoot = screen.getByText(completed.title).parentElement
+  if (!measurementRoot || !textRoot) throw new Error('Missing row measurement roots')
+  expect(getComputedStyle(measurementRoot).width).toBe('100%')
+  // Text must contribute intrinsic height while RNHostView has no height
+  // proposal, rather than depending on a zero-basis flex measurement.
+  expect(getComputedStyle(textRoot).flexGrow || '0').toBe('0')
+  expect(within(body).getByText('Done')).toBeTruthy()
+  expect(within(body).getByText(/2403/)).toBeTruthy()
+  await act(async () => fireEvent.click(screen.getByLabelText(`Expand ${completed.title}`)))
+  expect(screen.getByText('Tasks and video polish')).toBeTruthy()
+  const rows = f.replica.rows('issueProjections')
+  await act(async () =>
+    f.replica.applySnapshot(
+      'issueProjections',
+      rows.map((row) => ({ ...row })),
+    ),
+  )
+  expect(screen.getByText(completed.title).closest('[data-testid="deck-task"]')).toBe(body)
+  expect(body.closest('[data-native-rn-host]')).toBe(host)
+  expect(within(body).getByText('Done')).toBeTruthy()
+  await act(async () => fireEvent.click(screen.getByLabelText(`Collapse ${completed.title}`)))
+  expect(screen.queryByTestId('deck-agent')).toBeNull()
+  await act(async () => fireEvent.click(screen.getByTestId('deck-filter-active')))
+  await act(async () => fireEvent.click(screen.getByTestId('deck-filter-all')))
+  expect(screen.getByText(completed.title)).toBeTruthy()
+  expect(screen.getAllByTestId('deck-task')).toHaveLength(61)
 })
 
 it.each([
