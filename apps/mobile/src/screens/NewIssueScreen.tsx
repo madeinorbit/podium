@@ -424,7 +424,7 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
               id: row.value,
               label: row.label,
               selected: !shell && draft.model === row.value,
-              onPress: () => write({ model: row.value, effort: AUTO, launchPickTouched: true }),
+              onPress: () => write({ model: row.value, launchPickTouched: true }),
             })),
             {
               id: 'shell',
@@ -461,6 +461,7 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
         items={repoChoices.map((repo) => ({
           id: repo.path,
           label: repo.name || machinePathBasename(repo.path),
+          subtitle: repo.originUrl ?? repo.path,
           selected: repo === selectedRepo,
           onPress: () => selectProject(repo.path),
         }))}

@@ -74,7 +74,11 @@ vi.mock('../components/compose/ComposeMenu', () => ({
     const choices = (entries: readonly ComposeMenuItem[], parent = ''): ReactElement[] =>
       entries.flatMap((item) =>
         item.items
-          ? choices(item.items, `${parent}/${item.id}`)
+          ? [
+              <fieldset key={`${parent}/${item.id}`} aria-label={item.label}>
+                {choices(item.items, `${parent}/${item.id}`)}
+              </fieldset>,
+            ]
           : [
               <button
                 key={`${parent}/${item.id}`}
@@ -87,8 +91,8 @@ vi.mock('../components/compose/ComposeMenu', () => ({
                   setPresented(null)
                 }}
               >
-                {item.label}
-                {item.subtitle}
+                <span>{item.label}</span>
+                {item.subtitle ? <small>{item.subtitle}</small> : null}
               </button>,
             ],
       )
@@ -263,6 +267,100 @@ describe('native New Task sheet logic', () => {
     expect(configuration()?.map((row) => row.id)).toEqual(['model'])
   })
 
+  it('lists cross-machine clones once and distinguishes separate projects named pipp', async () => {
+    const origin = 'https://github.com/example/pipp.git'
+    const otherOrigin = 'https://github.com/another/pipp.git'
+    const app = await mount({
+      repos: [
+        { ...repository('/repo/pipp'), repoId: asRepoId('pipp'), originUrl: origin },
+        { ...repository('/remote/pipp', 'remote'), repoId: asRepoId('pipp'), originUrl: origin },
+        {
+          ...repository('/repo/other-pipp'),
+          repoId: asRepoId('other-pipp'),
+          originUrl: otherOrigin,
+        },
+        repository('/local/pipp'),
+      ],
+      machines: [machine(), machine({ id: asMachineId('remote'), name: 'Remote' })],
+    })
+    await ready()
+    const input = prompt()
+    fireEvent.change(input, { target: { value: 'Keep this unsent draft' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Project, / }))
+    const choices = within(screen.getByRole('menu', { name: 'Project' })).getAllByRole(
+      'menuitemradio',
+    )
+    expect(choices).toHaveLength(3)
+    expect(new Set(choices.map((choice) => choice.textContent)).size).toBe(3)
+    const other = choices.find((choice) => choice.textContent?.includes('github.com/another/pipp'))
+    if (!other) throw new Error('Missing distinct pipp project')
+    fireEvent.click(other)
+    await waitFor(() =>
+      expect(
+        readFirstTaskDraft(app.runtime.access.uiState.get(FIRST_TASK_ACTIVATION_DRAFT_KEY))
+          .repoPath,
+      ).toBe('/repo/other-pipp'),
+    )
+    expect(prompt()).toBe(input)
+    expect(prompt().value).toBe('Keep this unsent draft')
+    expect(seams.back).not.toHaveBeenCalled()
+  })
+
+  it('keeps supported effort across model picks and clears it only for unsupported models or Auto', async () => {
+    const { runtime } = await mount({
+      api: {
+        models: {
+          catalog: {
+            query: async () => ({
+              machineId: 'host',
+              fetchedAt: Date.now(),
+              byAgent: {
+                'claude-code': [
+                  { value: 'first', label: 'First model', efforts: ['low', 'high'] },
+                  { value: 'second', label: 'Second model', efforts: ['high'] },
+                  { value: 'limited', label: 'Limited model', efforts: ['low'] },
+                  { value: 'none', label: 'No effort model', efforts: [] },
+                ],
+              },
+            }),
+          },
+        },
+      },
+    })
+    await ready()
+    const input = prompt()
+    const pick = (name: string) => {
+      fireEvent.click(screen.getByRole('button', { name: /^Agent, / }))
+      fireEvent.click(screen.getByRole('menuitemradio', { name }))
+    }
+    const selected = () =>
+      readFirstTaskDraft(runtime.access.uiState.get(FIRST_TASK_ACTIVATION_DRAFT_KEY))
+    pick('First model')
+    pick('High')
+    pick('Second model')
+    await waitFor(() => expect(selected()).toMatchObject({ model: 'second', effort: 'high' }))
+    pick('Second model')
+    expect(selected()).toMatchObject({ model: 'second', effort: 'high' })
+    pick('Limited model')
+    await waitFor(() => expect(selected()).toMatchObject({ model: 'limited', effort: 'auto' }))
+    pick('First model')
+    pick('High')
+    pick('No effort model')
+    await waitFor(() => expect(selected()).toMatchObject({ model: 'none', effort: 'auto' }))
+    pick('First model')
+    pick('High')
+    fireEvent.click(screen.getByRole('button', { name: /^Agent, / }))
+    fireEvent.click(
+      within(screen.getByRole('group', { name: /^Model · / })).getByRole('menuitemradio', {
+        name: 'Auto',
+      }),
+    )
+    await waitFor(() => expect(selected()).toMatchObject({ model: 'auto', effort: 'auto' }))
+    expect(prompt()).toBe(input)
+    expect(seams.back).not.toHaveBeenCalled()
+    expect(seams.replace).not.toHaveBeenCalled()
+  })
+
   it('uses each harness catalog and keeps a selected agent, model and effort across reopening', async () => {
     function Harness() {
       const [open, setOpen] = useState(true)
@@ -370,9 +468,9 @@ describe('native New Task sheet logic', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: /^Project, / }))
     await waitFor(() =>
-      expect(screen.getByRole('menuitemradio', { name: 'new-local-project' })).toBeTruthy(),
+      expect(screen.getByRole('menuitemradio', { name: /^new-local-project/ })).toBeTruthy(),
     )
-    fireEvent.click(screen.getByRole('menuitemradio', { name: 'new-local-project' }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /^new-local-project/ }))
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Project, new-local-project' })).toBeTruthy(),
     )
@@ -545,7 +643,7 @@ describe('native New Task sheet logic', () => {
     const names = () =>
       within(screen.getByRole('menu', { name: 'Project' }))
         .getAllByRole('menuitemradio')
-        .map((item) => item.textContent)
+        .map((item) => item.firstElementChild?.textContent)
     fireEvent.click(projectButton())
     expect(names()).toEqual(['alpha', 'beta'])
     repos = [...repos, repository('/repo/gamma')]
@@ -556,7 +654,7 @@ describe('native New Task sheet logic', () => {
     fireEvent.click(projectButton())
     fireEvent.click(projectButton())
     expect(names()).toEqual(['alpha', 'beta', 'gamma'])
-    fireEvent.click(screen.getByRole('menuitemradio', { name: 'gamma' }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /^gamma/ }))
     await waitFor(() => expect(screen.getByRole('button', { name: 'Project, gamma' })).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: 'Start Task' }))
     await waitFor(() => expect(create.mock.calls[0]?.[0]).toMatchObject({ cwd: '/repo/gamma' }))
@@ -584,7 +682,7 @@ describe('native New Task sheet logic', () => {
     const names = () =>
       within(screen.getByRole('menu', { name: 'Project' }))
         .getAllByRole('menuitemradio')
-        .map((item) => item.textContent)
+        .map((item) => item.firstElementChild?.textContent)
     fireEvent.click(projectButton())
     expect(names()).toEqual(['alpha', 'beta'])
     await act(async () => {
