@@ -53,30 +53,32 @@ export function ComposeMenu({
           : open,
         open,
       )}
-      <ActionSheet
-        key={page?.label ?? label}
-        visible={page !== null}
-        title={page?.label}
-        actions={rows.map((item) => ({
-          label: item.label,
-          hint: item.subtitle,
-          selected: item.selected,
-          disabled: item.disabled,
-          onPress: () => {
-            if (item.items) setPage({ label: item.label, items: item.items })
-            else {
-              close()
-              if (!item.selected) item.onPress?.()
-            }
-          },
-        }))}
-        onClose={() => {
-          setPage((current) => {
-            if (current !== page) return current
-            return null
-          })
-        }}
-      />
+      {page ? (
+        <ActionSheet
+          key={page?.label ?? label}
+          visible={page !== null}
+          title={page?.label}
+          actions={rows.map((item) => ({
+            label: item.label,
+            hint: item.subtitle,
+            selected: item.selected,
+            disabled: item.disabled,
+            onPress: () => {
+              if (item.items) setPage({ label: item.label, items: item.items })
+              else {
+                close()
+                if (!item.selected) item.onPress?.()
+              }
+            },
+          }))}
+          onClose={() => {
+            setPage((current) => {
+              if (current !== page) return current
+              return null
+            })
+          }}
+        />
+      ) : null}
     </>
   )
 }

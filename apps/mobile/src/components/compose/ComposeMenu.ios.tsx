@@ -32,7 +32,7 @@ export function ComposeMenu({
       }}
     >
       <Host
-        ignoreSafeArea="all"
+        // Preserve the keyboard safe area when UIKit places a tall menu.
         matchContents={{ vertical: true }}
         style={{ alignSelf: 'stretch', width, minHeight: contentHeight }}
       >

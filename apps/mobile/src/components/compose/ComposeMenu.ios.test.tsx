@@ -103,7 +103,10 @@ it('keeps a measured menu row in place through dismissal and label remeasurement
     native.hostLayout?.(event(402, 44))
     native.labelLayout?.(event(402, 44))
   })
-  expect(native.host).toMatchObject({ ignoreSafeArea: 'all', style: { width: 402, minHeight: 44 } })
+  expect(native.host).toMatchObject({
+    style: { width: 402, minHeight: 44 },
+  })
+  expect(native.host.ignoreSafeArea).toBeUndefined()
   act(() => {
     native.hostLayout?.(event(0, 0))
     native.labelLayout?.(event(0, 0))
@@ -151,7 +154,7 @@ it.each([
   fireEvent.touchStart(host, { touches: [touch], changedTouches: [touch] })
   fireEvent.touchEnd(host, { touches: [], changedTouches: [touch] })
   expect(native.dismissKeyboard).not.toHaveBeenCalled()
-  expect(native.host.ignoreSafeArea).toBe('all')
+  expect(native.host.ignoreSafeArea).toBeUndefined()
   // The menu remains a child of the current row, rather than a new sheet.
   expect(host.contains(screen.getByRole('region', { name: 'root' }))).toBe(true)
 })

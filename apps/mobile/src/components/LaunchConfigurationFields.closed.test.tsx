@@ -7,7 +7,7 @@ import { useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { LaunchConfiguration } from '../lib/launch-configuration'
 import * as sheets from './ActionSheet'
-import * as pickers from './action-sheet-native'
+import * as menus from './compose/ComposeMenu'
 import { LaunchConfigurationFields } from './LaunchConfigurationFields'
 import * as pressables from './PressableScale'
 
@@ -165,7 +165,7 @@ it('shows stored effort inert while the concrete model list is unavailable', () 
 it('leaves native Agent, Model, Effort and Machine labels to the SwiftUI menu responder', () => {
   state.catalog = { codex: [{ value: 'current', label: 'Current', efforts: ['high'] }] }
   const sheet = vi.spyOn(sheets, 'ActionSheet').mockImplementation(() => <></>)
-  vi.spyOn(pickers, 'NativePicker').mockImplementation(({ children }) => children(undefined))
+  vi.spyOn(menus, 'ComposeMenu').mockImplementation(({ children }) => children(undefined))
   const pressable = vi.spyOn(pressables, 'PressableScale')
   const changed = vi.fn()
   render(

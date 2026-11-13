@@ -335,6 +335,79 @@ describe('native New Task sheet logic', () => {
     expect(seams.back).not.toHaveBeenCalled()
   })
 
+  it('distinguishes the separately registered pipp clones by machine without merging their IDs', async () => {
+    await mount({
+      repos: [
+        {
+          ...repository('/home/podium/pipp'),
+          repoId: asRepoId('repo_2928f71bab0412fa'),
+          originUrl: 'https://github.com/madeinorbit/pipp.git',
+        },
+        {
+          ...repository('/Users/till/Sites/pipp', 'remote'),
+          repoId: asRepoId('repo_6a281f1347ed8b9f'),
+          originUrl: 'https://github.com/madeinorbit/pipp.git',
+        },
+      ],
+      machines: [
+        machine({ name: 'vmi3431366' }),
+        machine({ id: asMachineId('remote'), name: 'MBP-Cofo' }),
+      ],
+    })
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: /^Project, / }))
+    const choices = within(screen.getByRole('menu', { name: 'Project' })).getAllByRole(
+      'menuitemradio',
+    )
+    expect(choices).toHaveLength(2)
+    expect(choices.map((choice) => choice.textContent)).toEqual(
+      expect.arrayContaining([
+        'pippvmi3431366 · github.com/madeinorbit/pipp',
+        'pippMBP-Cofo · github.com/madeinorbit/pipp',
+      ]),
+    )
+    const mac = choices.find((choice) => choice.textContent?.includes('MBP-Cofo'))
+    if (!mac) throw new Error('Missing Mac checkout')
+    fireEvent.click(mac)
+    expect(screen.getByRole('button', { name: 'Machine, MBP-Cofo' })).toBeTruthy()
+  })
+
+  it('keeps Model and Effort at the root while unavailable agents occupy one submenu', async () => {
+    await mount({
+      api: {
+        models: {
+          catalog: {
+            query: async () => ({
+              machineId: 'host',
+              fetchedAt: Date.now(),
+              byAgent: {
+                'claude-code': [{ value: 'current', label: 'Current', efforts: ['high'] }],
+              },
+            }),
+          },
+        },
+      },
+    })
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: /^Agent, / }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Current' }))
+    await waitFor(() =>
+      expect(
+        seams.agentItems
+          .find((row) => row.id === 'configuration')
+          ?.items?.some((row) => row.id === 'effort'),
+      ).toBe(true),
+    )
+    const agents = seams.agentItems.find((row) => row.id === 'agents')?.items ?? []
+    expect(agents.length).toBeLessThanOrEqual(3)
+    const unavailable = agents.find((row) => row.id === 'unavailable')
+    expect(unavailable?.items?.length).toBeGreaterThan(0)
+    expect(unavailable?.items?.every((row) => row.disabled && row.subtitle)).toBe(true)
+    expect(
+      seams.agentItems.find((row) => row.id === 'configuration')?.items?.map((row) => row.id),
+    ).toEqual(['model', 'effort'])
+  })
+
   it('matches desktop by resetting effort to Auto on every model pick', async () => {
     const { runtime } = await mount({
       api: {

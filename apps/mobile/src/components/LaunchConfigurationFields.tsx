@@ -18,7 +18,7 @@ import {
   machinesForRepoOrClone,
 } from '@podium/model'
 import { observer } from 'mobx-react-lite'
-import { useLayoutEffect, useMemo, useState } from 'react'
+import { useLayoutEffect, useMemo } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import type { MobileTrpc } from '../client/trpc'
 import { useLaunchInputs } from '../client/use-launch-inputs'
@@ -35,11 +35,11 @@ import {
   selectLaunchModel,
 } from '../lib/launch-configuration'
 import { color, font, mono, radius, sans, space } from '../theme/theme'
-import { ActionSheet } from './ActionSheet'
-import { NativePicker, type NativePickerOption } from './action-sheet-native'
+import type { NativePickerOption } from './action-sheet-spec'
+import { ComposeMenu } from './compose/ComposeMenu'
 import { PressableScale } from './PressableScale'
 
-type Picker = 'agent' | 'model' | 'effort' | 'machine' | null
+type Picker = 'agent' | 'model' | 'effort' | 'machine'
 
 /** Native Where/How controls shared by task creation and deferred task launch. */
 export const LaunchConfigurationFields = observer(function LaunchConfigurationFields({
@@ -56,7 +56,6 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
   allowInheritedAgent?: boolean
 }) {
   const store = useLaunchInputs(repoPath)
-  const [fallback, setFallback] = useState<Picker>(null)
   const repo = store.repo
   const machines = (() => (repo ? machinesForRepoOrClone(repo, store.machines) : []))()
   // An unpinned launch is validated by the server's own authority/default
@@ -163,7 +162,7 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
     : []
 
   const rows: Array<{
-    key: Exclude<Picker, null>
+    key: Picker
     label: string
     selected: string
     options: readonly NativePickerOption[]
@@ -215,104 +214,98 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
   return (
     <>
       <View style={styles.group}>
-        {rows.map((row) =>
-          row.options.length === 0 ? (
-            <View
-              key={row.key}
-              accessibilityLabel={`${row.label}, ${row.valueLabel}`}
-              style={styles.row}
-            >
-              <Text style={styles.label}>{row.label}</Text>
-              <Text style={styles.value}>{row.valueLabel}</Text>
-            </View>
-          ) : (
-            <NativePicker
-              key={row.key}
-              label={row.label}
-              options={row.options}
-              selected={row.selected}
-              onSelect={row.select}
-              onOpenFallback={() => setFallback(row.key)}
-            >
-              {(onPress) => {
-                const content = (
-                  <>
-                    <Text style={styles.label}>{row.label}</Text>
-                    <Text style={styles.value} numberOfLines={1}>
-                      {row.valueLabel}
-                    </Text>
-                    <Text style={styles.chevron}>›</Text>
-                  </>
-                )
-                // The SwiftUI Menu owns iOS touches. An RN Pressable inside its
-                // label would compete for the responder, as in ComposeFieldRow.
-                return onPress ? (
-                  <PressableScale
-                    accessibilityRole="button"
-                    accessibilityLabel={`${row.label}, ${row.valueLabel}`}
-                    accessibilityHint="Opens a picker"
-                    onPress={onPress}
-                    style={({ pressed }) => [styles.row, pressed && styles.pressed]}
-                  >
-                    {content}
-                  </PressableScale>
-                ) : (
-                  <View
-                    accessible
-                    accessibilityRole="button"
-                    accessibilityLabel={`${row.label}, ${row.valueLabel}`}
-                    accessibilityHint="Opens a picker"
-                    style={styles.row}
-                  >
-                    {content}
-                  </View>
-                )
-              }}
-            </NativePicker>
-          ),
-        )}
+        {rows.map((row, index) => (
+          <View key={row.key}>
+            {row.options.length === 0 ? (
+              <View accessibilityLabel={`${row.label}, ${row.valueLabel}`} style={styles.row}>
+                <Text style={styles.label}>{row.label}</Text>
+                <Text style={styles.value}>{row.valueLabel}</Text>
+              </View>
+            ) : (
+              <ComposeMenu
+                label={row.label}
+                items={row.options.map((option) => ({
+                  id: option.value,
+                  label: option.group ? `${option.group} · ${option.label}` : option.label,
+                  selected: option.value === row.selected,
+                  disabled: option.disabled,
+                  onPress: () => row.select(option.value),
+                }))}
+              >
+                {(onPress) => {
+                  const content = (
+                    <>
+                      <Text style={styles.label}>{row.label}</Text>
+                      <Text style={styles.value} numberOfLines={1}>
+                        {row.valueLabel}
+                      </Text>
+                      <Text style={styles.chevron}>›</Text>
+                    </>
+                  )
+                  // The SwiftUI Menu owns iOS touches. An RN Pressable inside its
+                  // label would compete for the responder, as in ComposeFieldRow.
+                  return onPress ? (
+                    <PressableScale
+                      accessibilityRole="button"
+                      accessibilityLabel={`${row.label}, ${row.valueLabel}`}
+                      accessibilityHint="Opens a picker"
+                      onPress={onPress}
+                      style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+                    >
+                      {content}
+                    </PressableScale>
+                  ) : (
+                    <View
+                      accessible
+                      accessibilityRole="button"
+                      accessibilityLabel={`${row.label}, ${row.valueLabel}`}
+                      accessibilityHint="Opens a picker"
+                      style={styles.row}
+                    >
+                      {content}
+                    </View>
+                  )
+                }}
+              </ComposeMenu>
+            )}
+            {index < rows.length - 1 ? (
+              <View pointerEvents="none" style={styles.separator} />
+            ) : null}
+          </View>
+        ))}
       </View>
       {plan.refusal ? (
         <Text accessibilityLiveRegion="polite" style={styles.refusal}>
           {plan.refusal}
         </Text>
       ) : null}
-      {rows.map((row) =>
-        fallback === row.key ? (
-          <ActionSheet
-            key={row.key}
-            visible
-            title={row.label}
-            actions={row.options.map((option) => ({
-              label: option.label,
-              selected: option.value === row.selected,
-              disabled: option.disabled,
-              onPress: () => row.select(option.value),
-            }))}
-            onClose={() => setFallback((current) => (current === row.key ? null : current))}
-          />
-        ) : null,
-      )}
     </>
   )
 })
 
 const styles = StyleSheet.create({
   group: {
-    borderRadius: radius.lg,
+    borderRadius: radius.card,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: color.border,
     backgroundColor: color.surface,
     overflow: 'hidden',
   },
   row: {
+    width: '100%',
     minHeight: 48,
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.md,
     paddingHorizontal: space.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: color.hairline,
+  },
+  separator: {
+    position: 'absolute',
+    left: space.md,
+    right: 0,
+    bottom: 0,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: color.hairline,
   },
   label: {
     ...sans(500),
@@ -325,7 +318,7 @@ const styles = StyleSheet.create({
     flex: 1,
     color: color.body,
     fontSize: font.small,
-    textAlign: 'right',
+    textAlign: 'left',
   },
   chevron: {
     ...mono(400),

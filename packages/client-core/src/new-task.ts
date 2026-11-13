@@ -96,6 +96,21 @@ export function firstTaskRepositoryChoices(repos: GitRepositoryWire[]): RepoView
   )
 }
 
+/** Keep separately registered projects distinguishable without changing identity. */
+export function firstTaskRepositorySubtitle(
+  repo: RepoView,
+  machines: readonly MachineWire[],
+): string {
+  const names = new Set(
+    (repo.machines ?? []).flatMap(({ machineId }) => {
+      const machine = machines.find((candidate) => candidate.id === machineId)
+      return machine ? [machine.name] : []
+    }),
+  )
+  const origin = repo.originUrl ?? repo.path
+  return names.size ? `${[...names].join(', ')} · ${origin}` : repo.path
+}
+
 export function rankFirstTaskRepositories(
   repos: GitRepositoryWire[],
   repositoryUsage: ReadonlyMap<string, number>,

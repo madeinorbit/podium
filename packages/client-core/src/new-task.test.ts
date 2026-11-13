@@ -11,6 +11,8 @@ import {
   countWords,
   firstTaskLaunchNote,
   firstTaskMachines,
+  firstTaskRepositoryChoices,
+  firstTaskRepositorySubtitle,
   promptTitle,
   rankFirstTaskRepositories,
   selectedFirstTaskMachine,
@@ -22,6 +24,49 @@ const repo = (path: string, extra = {}): GitRepositoryWire =>
   ({ path, kind: 'repository', worktrees: [], ...extra }) as GitRepositoryWire
 
 describe('shared New Task helpers', () => {
+  it('keeps desktop server identities for same-origin registrations and names their machines', () => {
+    const repos = [
+      repo('/home/podium/pipp', {
+        repoId: 'repo_2928f71bab0412fa',
+        machineId: 'linux',
+        originUrl: 'https://github.com/madeinorbit/pipp.git',
+      }),
+      repo('/Users/till/Sites/pipp', {
+        repoId: 'repo_6a281f1347ed8b9f',
+        machineId: 'mac',
+        originUrl: 'git@github.com:madeinorbit/pipp.git',
+      }),
+    ]
+    const choices = firstTaskRepositoryChoices(repos)
+    // Old desktop grouping is the identity authority, including separate IDs.
+    expect(choices).toEqual(reposToViews(repos))
+    expect(choices).toHaveLength(2)
+    const machines = [
+      { id: 'linux', name: 'vmi3431366' },
+      { id: 'mac', name: 'MBP-Cofo' },
+    ] as MachineWire[]
+    expect(choices.map((choice) => firstTaskRepositorySubtitle(choice, machines))).toEqual([
+      'vmi3431366 · github.com/madeinorbit/pipp',
+      'MBP-Cofo · github.com/madeinorbit/pipp',
+    ])
+    expect(
+      choices.map(
+        (choice) => checkoutForMachine(repos, choice, choice.machines?.[0]?.machineId)?.path,
+      ),
+    ).toEqual(['/home/podium/pipp', '/Users/till/Sites/pipp'])
+  })
+
+  it('groups unstamped SSH and HTTPS clones but keeps local-only checkouts separate', () => {
+    const choices = firstTaskRepositoryChoices([
+      repo('/linux/pipp', { machineId: 'linux', originUrl: 'git@github.com:madeinorbit/pipp.git' }),
+      repo('/mac/pipp', { machineId: 'mac', originUrl: 'https://github.com/madeinorbit/pipp/' }),
+      repo('/work/local', { machineId: 'linux' }),
+      repo('/work/local', { machineId: 'mac' }),
+    ])
+    expect(choices).toHaveLength(3)
+    expect(choices[0]?.machines?.map((checkout) => checkout.machineId)).toEqual(['linux', 'mac'])
+  })
+
   it('keeps the desktop first-nonempty-line title, including its 120 character limit', () => {
     for (const prompt of [
       '',

@@ -28,6 +28,7 @@ import {
   firstTaskLaunchNote,
   firstTaskMachineDenied,
   firstTaskMachines,
+  firstTaskRepositorySubtitle,
   nativeAccountId,
   promptTitle,
   selectedFirstTaskMachine,
@@ -383,37 +384,45 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
   const models = modelOptions(agent, reported, served)
   const efforts = effortOptionsForModel(agent, draft.model, reported, served)
   const modelText = shell ? 'Shell' : modelLabel(agent, draft.model, reported, served)
+  const agentChoices: ComposeMenuItem[] = agentDescriptors(served).flatMap((row) => {
+    const kind = issueAgentKind(row.kind)
+    if (!kind) return []
+    const state = activationAgentReadiness(checkout, machine ? [machine] : [], kind)
+    const canRun = !machineDenied && agentCanLaunch(state, { headed: true })
+    return {
+      id: kind,
+      label: row.label,
+      selected: !shell && agent === kind,
+      disabled: !canRun,
+      ...(!canRun
+        ? {
+            subtitle:
+              state.state === 'missing'
+                ? `Not installed on ${machine?.name ?? 'this machine'}`
+                : state.state === 'offline'
+                  ? `${machine?.name ?? 'This machine'} is offline`
+                  : state.state === 'unauthorized'
+                    ? 'No access to this machine'
+                    : 'Not ready on this machine',
+          }
+        : {}),
+      onPress: () => write({ agent: kind, model: AUTO, effort: AUTO, launchPickTouched: false }),
+    }
+  })
+  const unavailableAgents = agentChoices.filter((row) => row.disabled && !row.selected)
   const agentItems: ComposeMenuItem[] = [
     {
       id: 'agents',
       label: 'Agent',
       inline: true,
-      items: agentDescriptors(served).flatMap((row) => {
-        const kind = issueAgentKind(row.kind)
-        if (!kind) return []
-        const state = activationAgentReadiness(checkout, machine ? [machine] : [], kind)
-        const canRun = !machineDenied && agentCanLaunch(state, { headed: true })
-        return {
-          id: kind,
-          label: row.label,
-          selected: !shell && agent === kind,
-          disabled: !canRun,
-          ...(!canRun
-            ? {
-                subtitle:
-                  state.state === 'missing'
-                    ? `Not installed on ${machine?.name ?? 'this machine'}`
-                    : state.state === 'offline'
-                      ? `${machine?.name ?? 'This machine'} is offline`
-                      : state.state === 'unauthorized'
-                        ? 'No access to this machine'
-                        : 'Not ready on this machine',
-              }
-            : {}),
-          onPress: () =>
-            write({ agent: kind, model: AUTO, effort: AUTO, launchPickTouched: false }),
-        }
-      }),
+      items: [
+        ...agentChoices.filter((row) => !row.disabled || row.selected),
+        // Keep the root menu short enough for Model and Effort above the
+        // software keyboard. Installation reasons remain in a native submenu.
+        ...(unavailableAgents.length
+          ? [{ id: 'unavailable', label: 'Unavailable agents', items: unavailableAgents }]
+          : []),
+      ],
     },
     {
       id: 'configuration',
@@ -465,7 +474,7 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
         items={repoChoices.map((repo) => ({
           id: repo.path,
           label: repo.name || machinePathBasename(repo.path),
-          subtitle: repo.originUrl ?? repo.path,
+          subtitle: firstTaskRepositorySubtitle(repo, machines),
           selected: repo === selectedRepo,
           onPress: () => selectProject(repo.path),
         }))}

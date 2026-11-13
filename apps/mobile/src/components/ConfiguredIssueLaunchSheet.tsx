@@ -1,23 +1,21 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { observer } from 'mobx-react-lite'
 import { spawnIssueAgent } from '@podium/client-core/values'
-
 import { issueDisplayRef } from '@podium/protocol'
+import { observer } from 'mobx-react-lite'
 import { useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useTrpc } from '../client/hooks'
 import { useSettingsRecord } from '../client/use-settings-record'
 import { IssueLaunchForm } from '../lib/issue-launch-draft'
-import {
-  type LaunchPlan,
-  launchPlanCanSubmit,
-} from '../lib/launch-configuration'
+import { type LaunchPlan, launchPlanCanSubmit } from '../lib/launch-configuration'
 import { color, font, radius, sans, space } from '../theme/theme'
 import { BottomSheet } from './BottomSheet'
 import { LaunchConfigurationFields } from './LaunchConfigurationFields'
 import { PressableScale } from './PressableScale'
 
-export function ConfiguredIssueLaunchSheet(props: Parameters<typeof ConfiguredIssueLaunchSheetBody>[0]) {
+export function ConfiguredIssueLaunchSheet(
+  props: Parameters<typeof ConfiguredIssueLaunchSheetBody>[0],
+) {
   return <ConfiguredIssueLaunchSheetBody key={props.issue?.id ?? 'closed'} {...props} />
 }
 
@@ -32,7 +30,17 @@ const ConfiguredIssueLaunchSheetBody = observer(function ConfiguredIssueLaunchSh
 }) {
   const trpc = useTrpc()
   const settingsRequest = useSettingsRecord()
-  const form = useMemo(() => issue ? new IssueLaunchForm(issue, patch => trpc.issues.update.mutate({ id: issue.id, patch }), () => settingsRequest?.model?.codingHarness) : null, [issue, trpc, settingsRequest])
+  const form = useMemo(
+    () =>
+      issue
+        ? new IssueLaunchForm(
+            issue,
+            (patch) => trpc.issues.update.mutate({ id: issue.id, patch }),
+            () => settingsRequest?.model?.codingHarness,
+          )
+        : null,
+    [issue, trpc, settingsRequest],
+  )
   const [plan, setPlan] = useState<LaunchPlan | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -114,7 +122,7 @@ const ConfiguredIssueLaunchSheetBody = observer(function ConfiguredIssueLaunchSh
 })
 
 const styles = StyleSheet.create({
-  head: { gap: 3, paddingHorizontal: space.lg, paddingBottom: space.md },
+  head: { gap: space.xs, paddingHorizontal: space.lg, paddingBottom: space.md },
   title: { ...sans(600), color: color.body, fontSize: font.small, textAlign: 'center' },
   subtitle: { ...sans(400), color: color.textFaint, fontSize: font.tiny, textAlign: 'center' },
   body: { paddingHorizontal: space.lg, paddingBottom: space.md },
@@ -130,7 +138,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: radius.lg,
+    borderRadius: radius.control,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: color.border,
     backgroundColor: color.surface,
@@ -140,7 +148,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: radius.lg,
+    borderRadius: radius.control,
     backgroundColor: color.accent,
   },
   secondaryText: { ...sans(600), color: color.textDim, fontSize: font.small },
