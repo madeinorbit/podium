@@ -194,7 +194,7 @@ vi.mock('@expo/ui/swift-ui', () => {
       return <Box>{children}</Box>
     },
     Picker: Box,
-    ProgressView: () => null,
+    ProgressView: () => <div data-testid="native-progress" />,
     Section: ({ children }: Props) => <section>{children}</section>,
     Spacer: Box,
     SwipeActions: Object.assign(Box, { Actions: () => null }),
@@ -243,6 +243,54 @@ const expectPullDownSearch = () =>
     obscureBackground: false,
     placeholder: 'Search tasks or ID',
   })
+
+it('keeps the native list rows unchanged when first-visit booting settles', async () => {
+  const stamp = '2026-10-03T12:00:00Z'
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
+  state.pool = pool
+  pool.apply({
+    type: 'replace',
+    rows: [
+      {
+        kind: 'issue',
+        id: 'task',
+        value: {
+          id: 'task',
+          seq: 1,
+          title: 'First task',
+          stage: 'in_progress',
+          audience: 'human',
+          repoPath: '/fixture',
+          createdAt: stamp,
+          updatedAt: stamp,
+        },
+      },
+    ],
+  })
+  await attachMobileScreens(pool)
+  const board = new MobileTasksBoard(pool, {
+    showDone: false,
+    expanded: [],
+    filter: {},
+    ordering: 'priority',
+    showAgentTasks: false,
+  })
+  const props = {
+    board,
+    chips: [],
+    booting: true,
+    refresh: { onRefresh: () => {} },
+  } as unknown as TasksSurfaceProps
+  const view = render(<TasksSurface {...props} board={null} />)
+  expect(screen.queryByTestId('native-progress')).toBeNull()
+  view.rerender(<TasksSurface {...props} />)
+  expect(screen.queryByTestId('native-progress')).toBeNull()
+  expect(screen.getByText('First task')).toBeTruthy()
+  const before = screen.getByTestId('native-host').innerHTML
+  view.rerender(<TasksSurface {...props} booting={false} />)
+  expect(screen.getByTestId('native-host').innerHTML).toBe(before)
+  expect(state.listMount).toHaveBeenCalledOnce()
+})
 
 it('Tasks aligns nested separators, pads scalable content and keeps cell traits outside slot observers', async () => {
   const stamp = '2026-10-03T12:00:00Z'

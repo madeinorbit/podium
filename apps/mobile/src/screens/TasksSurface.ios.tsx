@@ -6,7 +6,6 @@ import {
   Image,
   List,
   Picker,
-  ProgressView,
   Section,
   Spacer,
   SwipeActions,
@@ -272,7 +271,6 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
                 ))}
               </Section>
             ) : null}
-            {pending ? <ProgressView modifiers={quietRow} /> : null}
             {ordered.map((section) => {
               const [savedFold, toggle] = folds[section.stage]
               const folded = board?.isFolded(savedFold) ?? savedFold
