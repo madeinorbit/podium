@@ -34,6 +34,31 @@ afterEach(() => {
 })
 
 describe('iOS navigation refresh subtitle', () => {
+  it('uses the counts already updated with the list when the completion label expires', () => {
+    vi.useFakeTimers()
+    const store = new SyncProgressStore()
+    store.begin('stale')
+    const screen = (counts: string) => (
+      <WorkspaceSyncContext value={store}>
+        <Screen title="Work" large subtitle={counts}>
+          <Text>Saved list</Text>
+        </Screen>
+      </WorkspaceSyncContext>
+    )
+    const view = render(screen('2 need you · 4 working'))
+    const subtitle = () => options.current.unstable_nativeProps.headerConfig.largeSubtitle
+    // The shared pool delivers new list membership and its counts together.
+    // The completion acknowledgement intentionally occupies the subtitle first.
+    view.rerender(screen('3 need you · 2 working'))
+    expect(subtitle()).toBe('Updating…')
+    act(() => store.noteReady())
+    expect(subtitle()).toBe('Updated just now')
+    act(() => vi.advanceTimersByTime(UPDATED_SUBTITLE_MS - 1))
+    expect(subtitle()).toBe('Updated just now')
+    act(() => vi.advanceTimersByTime(1))
+    expect(subtitle()).toBe('3 need you · 2 working')
+  })
+
   it('updates both the large and collapsed subtitle, then restores the normal one', () => {
     vi.useFakeTimers()
     const store = new SyncProgressStore()

@@ -154,17 +154,21 @@ describe('shared catch-up publication', () => {
     const stream = controlledResponse()
     const h = await catchupFixture([stream.response])
     try {
+      const outbox = h.assembly.store.viewFor(principal).outbox
+      expect(await outbox.read()).toEqual([])
       h.assembly.feed.connected(false)
       stream.push({ ...syncMeta, mode: 'delta', fromSeq: 10, seq: 12 })
       stream.push(delta(10, 11, [sessionChange(11, 'one')]))
       await vi.waitFor(() => expect(h.assembly.progress.getSnapshot().framesCommitted).toBe(1))
       await h.assembly.settled()
+      expect(await outbox.read()).toEqual([])
       expect(h.assembly.store.viewFor(principal).cache.readCursor()?.seq).toBe(11)
       expect(h.batches).toEqual([])
       expect(h.cursors).not.toHaveBeenCalled()
       stream.push(delta(11, 12, [sessionChange(12, 'two')]))
       await vi.waitFor(() => expect(h.assembly.progress.getSnapshot().framesCommitted).toBe(2))
       await h.assembly.settled()
+      expect(await outbox.read()).toEqual([])
       expect(h.assembly.store.viewFor(principal).cache.readCursor()?.seq).toBe(12)
       expect(h.batches).toEqual([])
       stream.push(complete(12, 2))
@@ -182,6 +186,7 @@ describe('shared catch-up publication', () => {
       expect(h.visible).toEqual([['one', 'saved', 'two']])
       expect(h.rowBatches).toHaveBeenCalledOnce()
       expect(h.cursors).toHaveBeenCalledOnce()
+      expect(await outbox.read()).toEqual([])
     } finally {
       await h.assembly.dispose()
     }
