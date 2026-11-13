@@ -228,7 +228,48 @@ it('preserves interaction and recovery notices without a floating message banner
   const enabled = await mount()
   expect(enabled.seen[0]).toBeNull()
   expect(enabled.seen.some((pool) => pool !== null)).toBe(true)
-  expect(enabled.view.container.innerHTML).toMatchSnapshot('last green pilot-ON banners')
+  // D2/D3 preserve every ask and its accessible actions in decision tiles.
+  // Check that contract and the saved recovery words, rather than old HTML.
+  const tiles = enabled.view.getAllByTestId('pending-interaction')
+  expect(tiles).toHaveLength(12)
+  for (const title of [
+    'Input needed',
+    'Session blocked at startup',
+    'Session blocked',
+    'Sign-in needed',
+    'Plan awaiting approval',
+  ])
+    expect(enabled.view.getByText(title)).toBeTruthy()
+  expect(enabled.view.getAllByText('Question')).toHaveLength(5)
+  expect(enabled.view.getAllByText('Permission needed')).toHaveLength(2)
+  expect(
+    tiles
+      .flatMap((tile) =>
+        within(tile)
+          .queryAllByRole('button')
+          .map((button) => button.getAttribute('aria-label')),
+      )
+      .sort(),
+  ).toEqual(
+    [
+      'Decline',
+      'Resume the session',
+      'Resume from a summary',
+      'I signed in, retry',
+      'Stop waiting',
+      'Approve',
+      'Not yet',
+      'One',
+      'One',
+      'Two',
+      'Allow once',
+      'Always allow',
+      'Deny',
+    ].sort(),
+  )
+  expect(enabled.view.getAllByTestId('outbox-recovery-card')).toHaveLength(5)
+  for (let index = 0; index < 5; index++)
+    expect(enabled.view.getByText(`Synthetic authored ${index}`)).toBeTruthy()
   expect(enabled.view.queryByTestId('message-notice-banner')).toBeNull()
   expect(enabled.errors).toEqual([])
   expectPoolReadersOnly(enabled.runtime)
