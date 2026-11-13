@@ -54,8 +54,14 @@ function acceptedDeadlineIssues(issues: readonly IssueNavigationModel[], now: nu
 }
 const noteFields = (note: ReturnType<typeof issueNote>) => note
 const continuationFields = (value: ReturnType<typeof issueContinuation>) => value ? { ...value, target: value.target?.id ?? null } : null
-const sessionFields = (session: SessionView) => ({ ...sessionComparable(session), model: session.model, effort: session.effort,
-  spawnedBy: session.spawnedBy, resumable: session.resumable, refIssueId: session.refIssueId, refLetter: session.refLetter })
+// `busy` is a live reading (the session.condition topic, POD-6764): the
+// corpus rows still record one, the model reads the topic, so it is not a
+// field the deck's rows are compared on.
+const sessionFields = (session: SessionView) => {
+  const { busy: _liveReading, ...fields } = sessionComparable(session)
+  return { ...fields, model: session.model, effort: session.effort, spawnedBy: session.spawnedBy,
+    resumable: session.resumable, refIssueId: session.refIssueId, refLetter: session.refLetter }
+}
 const rowFields = (row: FlightDeckRow) => ({
   issue: issueFields(row.issue), depth: row.depth, sessions: row.sessions.map(sessionFields),
   descendantIds: row.descendantIds, matched: row.matched, actionableCount: row.actionableCount,

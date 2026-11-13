@@ -142,7 +142,9 @@ it('the archived flag uses the declared scalar while a session is cold', () => {
   expect(load).not.toHaveBeenCalled()
 })
 
-it.each(['phase', 'moved', 'lastActivity', 'lastInput', 'transcript', 'historyKind', 'rosterEligible'] as const)('history %s matches the old raw-row fact and rejects a mutation', name => {
+// `lastInput` is a live reading now (the session.condition topic, POD-6764),
+// not a fact of the row, so it has no raw-row counterpart to match.
+it.each(['phase', 'moved', 'lastActivity', 'transcript', 'historyKind', 'rosterEligible'] as const)('history %s matches the old raw-row fact and rejects a mutation', name => {
   const row = sessionRow({ archived: true, lastInputAt: stamp, transcriptAvailable: true, handoffTarget: 'Other machine' })
   const { pool } = open(issueRow(), [row]), model = pool.sessionObject('crew')
   const expected = { phase: row.agentState?.phase ?? 'unknown', moved: Boolean(row.handoffTarget),

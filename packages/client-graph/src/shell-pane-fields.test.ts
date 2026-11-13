@@ -310,13 +310,15 @@ it('re-runs no stamp, ownership, chrome or dock routing on a heartbeat of the pa
 })
 
 
-it('keeps pane lifecycle, host and birth grid equal to the row and quiet on activity', () => {
+// The terminal's size is a live reading (the session.terminalState topic,
+// POD-6764), not a record field, so it is not compared with the row here.
+it('keeps pane lifecycle and host equal to the row and quiet on activity', () => {
   const f = dockFixture(), panes = sessionPaneView(f.pool), id = f.sessions[0]!.sessionId
   const session = f.pool.sessionObject(id)
   const facts = () => ({ cwd: session.cwd, issueId: session.issueId, machineId: session.machineId,
-    status: session.status, archived: session.archived, geometry: session.geometry })
+    status: session.status, archived: session.archived })
   const old = (row: SessionView) => ({ cwd: row.cwd, issueId: row.issueId, machineId: row.machineId,
-    status: row.status, archived: row.archived, geometry: row.geometry })
+    status: row.status, archived: row.archived })
   let runs = 0
   const stop = autorun(() => { runs++; facts() })
   try {

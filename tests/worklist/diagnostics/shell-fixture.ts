@@ -232,6 +232,20 @@ export function shellFixture(count = 40) {
         value: { id: repoId, prefix: 'SYN', repoPath: '/synthetic/project' },
       },
       ...issues.map((value) => ({ kind: 'issue' as const, id: value.id, value })),
+      // The panel's artifacts are records of their own (POD-6764); the issue
+      // row's inline panel is what an older server sent.
+      ...issues.flatMap((issue) =>
+        (
+          (issue as { panel?: { artifacts?: Record<string, unknown>[] } }).panel?.artifacts ?? []
+        ).map((artifact, position) => {
+          const id = `${issue.id}:artifact:${position}`
+          return {
+            kind: 'issuePanelArtifact' as const,
+            id,
+            value: { addedAt: stamp, ...artifact, id, issueId: issue.id, position },
+          }
+        }),
+      ),
       ...sessions.map((value) => ({ kind: 'session' as const, id: value.sessionId, value })),
     ] as never,
   })
