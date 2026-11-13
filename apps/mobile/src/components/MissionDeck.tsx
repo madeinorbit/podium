@@ -327,12 +327,18 @@ const DeckRows = observer(function DeckRows({
   }
   return (
     <>
-      {blocks.map(({ phase, tasks, phaseStart }) => {
+      {blocks.map(({ phase, tasks, phaseStart }, index) => {
+        // Key by group and its occurrence, not by its first task: a first task
+        // that changes state must not remount the native rows beside it.
+        const groupKey = phase?.id ?? 'loose'
+        const occurrence = blocks
+          .slice(0, index)
+          .filter((block) => (block.phase?.id ?? 'loose') === groupKey).length
         const phaseSeats =
           phase && phaseStart ? settled(() => (phase.open ? phase.sessionIds : [])) : []
         const leadingSeats = phaseSeats === LOADING ? [] : phaseSeats
         return (
-          <Fragment key={`${phase?.id ?? 'loose'}-${tasks[0]?.id ?? 'heading'}`}>
+          <Fragment key={`${groupKey}-${occurrence}`}>
             <DeckGroup
               testID={`deck-group-${phase?.id ?? 'loose'}`}
               header={phase ? <PhaseHeading phase={phase} /> : undefined}

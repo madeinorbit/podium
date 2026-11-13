@@ -54,7 +54,16 @@ export function DeckGauge({ vitals, height = 8 }: { vitals: DeckVitals; height?:
     ['todo', vitals.todo, deckColor.gaugeTodo],
   ] as const
   return (
-    <View style={[styles.gauge, { height }]} testID="deck-gauge" aria-hidden>
+    <View
+      // Desktop keeps a neutral track when nothing is counted yet.
+      style={[
+        styles.gauge,
+        { height },
+        vitals.total === 0 && { backgroundColor: deckColor.gaugeTodo },
+      ]}
+      testID="deck-gauge"
+      aria-hidden
+    >
       {parts
         .filter(([, count]) => count > 0)
         .map(([key, count, tone]) => (
