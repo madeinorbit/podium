@@ -5,6 +5,7 @@ import { asIssueId } from '@podium/model'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { useCallback, useEffect, useState } from 'react'
+import { Platform } from 'react-native'
 import { useMissionOpening } from '../client/hooks'
 import { useMobilePoolProjection } from '../client/mobile-pool'
 import { useScreenReadFocus } from '../client/screen-read-focus'
@@ -70,17 +71,27 @@ export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
             screen.crew.find((session) => session.sessionId === rawSession)?.sessionId
           }
           onOpenSession={(session) =>
-            router.push(
-              `/mission/${encodeURIComponent(root.id)}?sessionId=${encodeURIComponent(session.sessionId)}`,
-            )
+            Platform.OS === 'web'
+              ? router.dismissTo(
+                  `/mission/${encodeURIComponent(root.id)}?sessionId=${encodeURIComponent(session.sessionId)}`,
+                )
+              : router.push(
+                  `/mission/${encodeURIComponent(root.id)}?sessionId=${encodeURIComponent(session.sessionId)}`,
+                )
           }
           onOpenTask={(issue) =>
-            router.push(
-              `/${issue.stage === 'proposed' ? 'inspect' : 'mission'}/${encodeURIComponent(issue.id)}`,
-            )
+            Platform.OS === 'web'
+              ? router.replace(`/inspect/${encodeURIComponent(issue.id)}`)
+              : router.push(
+                  `/${issue.stage === 'proposed' ? 'inspect' : 'mission'}/${encodeURIComponent(issue.id)}`,
+                )
           }
           onOpenTaskMenu={setMenuIssue}
-          onScreenProposals={() => router.push('/screen-proposed')}
+          onScreenProposals={() =>
+            Platform.OS === 'web'
+              ? router.replace('/screen-proposed')
+              : router.push('/screen-proposed')
+          }
         />
       ) : (
         <EmptyState fill title="Mission not found." />

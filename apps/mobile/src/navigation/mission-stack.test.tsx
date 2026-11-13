@@ -7,7 +7,23 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { MISSION_CHAT, MISSION_DECK, missionStack } from './mission-stack'
 import { useMissionDeckReturn } from './use-mission-deck-return'
 
-afterEach(cleanup)
+const platform = vi.hoisted(() => ({ os: 'ios' }))
+vi.mock('react-native', async (original) => {
+  const real = await original<typeof import('react-native')>()
+  return {
+    ...real,
+    Platform: {
+      ...real.Platform,
+      get OS() {
+        return platform.os
+      },
+    },
+  }
+})
+afterEach(() => {
+  cleanup()
+  platform.os = 'ios'
+})
 
 const options = {
   routeNames: ['(tabs)', MISSION_CHAT, MISSION_DECK, 'inspect/[issueId]'],
@@ -103,4 +119,27 @@ it('installs the history from the mounted chat without navigating away or remoun
   })
   expect(dispatch.mock.calls[0]?.[0].payload.routes[2]).toBe(route)
   expect(dispatch.mock.calls[0]?.[0].payload.routes[1].params.sessionId).toBe('remembered')
+})
+
+it('leaves web navigation history unchanged instead of inserting an unfocused deck URL', () => {
+  platform.os = 'web'
+  const state = push(initial(), MISSION_CHAT, { missionId: 'root' })
+  const route = focused(state)
+  const dispatch = vi.fn()
+  const navigation = { getState: () => state, dispatch } as unknown as NonNullable<
+    React.ContextType<typeof NavigationContext>
+  >
+  function Chat() {
+    useMissionDeckReturn('root', 'remembered')
+    return <div>Chat</div>
+  }
+  render(
+    <NavigationContext value={navigation}>
+      <NavigationRouteContext value={route}>
+        <Chat />
+      </NavigationRouteContext>
+    </NavigationContext>,
+  )
+  expect(dispatch).not.toHaveBeenCalled()
+  expect(state.routes.map((route) => route.name)).toEqual(['(tabs)', MISSION_CHAT])
 })

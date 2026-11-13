@@ -10,7 +10,7 @@ import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { type LayoutChangeEvent, StyleSheet, View } from 'react-native'
+import { type LayoutChangeEvent, Platform, StyleSheet, View } from 'react-native'
 import { useMissionOpening, useStoreActions, useTaskSeatMemory } from '../client/hooks'
 import { useMobilePool } from '../client/mobile-pool'
 import { useScreenReadFocus } from '../client/screen-read-focus'
@@ -210,7 +210,7 @@ export const MissionScreen = observer(function MissionScreen() {
     <Screen
       title={headerIssue ? headerIssue.title : 'Mission'}
       onBack={() => (router.canGoBack() ? router.back() : router.replace('/work'))}
-      backLabel="Flight deck"
+      backLabel={Platform.OS === 'web' ? 'Back' : 'Flight deck'}
       bareBack
       underHeader
       subtitle={seat ?? (root ? 'No agent on this mission' : undefined)}
@@ -229,7 +229,13 @@ export const MissionScreen = observer(function MissionScreen() {
             currentIssue={currentIssue}
             full={screen.full}
             findRequest={findRequest}
-            onOpenDetails={() => router.back()}
+            onOpenDetails={() => {
+              if (Platform.OS === 'web') {
+                router.push(
+                  `/mission/${encodeURIComponent(root.id)}/details${current ? `?sessionId=${encodeURIComponent(current.sessionId)}` : ''}`,
+                )
+              } else router.back()
+            }}
           />
         ) : (
           <EmptyState title="Mission not found." />

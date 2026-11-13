@@ -15,12 +15,26 @@ import { renderWithMobileStore } from '../client/test-support'
 import { MISSION_CHAT, MISSION_DECK } from '../navigation/mission-stack'
 
 const navigation = vi.hoisted(() => ({
+  platform: 'ios',
   params: {} as Record<string, string>,
   state: null as NavigationState | null,
   back: vi.fn(),
   push: vi.fn(),
   replace: vi.fn(),
+  dismissTo: vi.fn(),
 }))
+vi.mock('react-native', async (original) => {
+  const real = await original<typeof import('react-native')>()
+  return {
+    ...real,
+    Platform: {
+      ...real.Platform,
+      get OS() {
+        return navigation.platform
+      },
+    },
+  }
+})
 vi.mock('expo-router', () => ({
   useLocalSearchParams: () => navigation.params,
   useRouter: () => ({ ...navigation, canGoBack: () => true }),
@@ -55,6 +69,7 @@ const { MissionDetailsScreen } = await import('./MissionDetailsScreen')
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  navigation.platform = 'ios'
 })
 
 const options = {
@@ -88,7 +103,16 @@ function Navigator() {
   navigation.push.mockImplementation((url: string) => {
     const [path, query] = url.split('?')
     dispatch(
-      StackActions.push(MISSION_CHAT, {
+      StackActions.push(path?.endsWith('/details') ? MISSION_DECK : MISSION_CHAT, {
+        missionId: path?.split('/')[2],
+        ...Object.fromEntries(new URLSearchParams(query)),
+      }),
+    )
+  })
+  navigation.dismissTo.mockImplementation((url: string) => {
+    const [path, query] = url.split('?')
+    dispatch(
+      StackActions.popTo(MISSION_CHAT, {
         missionId: path?.split('/')[2],
         ...Object.fromEntries(new URLSearchParams(query)),
       }),
@@ -213,4 +237,43 @@ it('opens the task coordinator chat, pops the mission strip to its highlighted d
       'Coordinator, Working, open',
     ),
   )
+})
+
+it('web keeps an explicit chat-to-deck URL push and returns to the selected conversation', async () => {
+  navigation.platform = 'web'
+  await renderWithMobileStore(<Navigator />, {
+    issues: [
+      issue('root', { coordinatorSessionId: asSessionId('root-lead') }),
+      issue('child', {
+        parentId: asIssueId('root'),
+        coordinatorSessionId: asSessionId('child-lead'),
+      }),
+      issue('proposal', {
+        parentId: asIssueId('root'),
+        stage: 'proposed',
+        title: 'Agent proposal',
+      }),
+    ],
+    sessions: [agent('root-lead', 'root'), agent('child-lead', 'child')],
+  })
+  await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('child-lead'))
+  expect(navigation.state?.routes.map((route) => route.name)).toEqual(['(tabs)', MISSION_CHAT])
+  await act(async () => fireEvent.click(screen.getByTestId('mission-bar')))
+  expect(navigation.push).toHaveBeenCalledWith('/mission/root/details?sessionId=child-lead')
+  await waitFor(() => expect(screen.getByTestId('deck-seat')).toBeTruthy())
+  expect(navigation.state?.routes.map((route) => route.name)).toEqual([
+    '(tabs)',
+    MISSION_CHAT,
+    MISSION_DECK,
+  ])
+  fireEvent.click(screen.getByTestId('deck-seat'))
+  expect(navigation.dismissTo).toHaveBeenCalledWith('/mission/root?sessionId=root-lead')
+  await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('root-lead'))
+  expect(navigation.state?.routes.map((route) => route.name)).toEqual(['(tabs)', MISSION_CHAT])
+  await act(async () => fireEvent.click(screen.getByTestId('mission-bar')))
+  await waitFor(() => expect(screen.getByTestId('deck-seat')).toBeTruthy())
+  fireEvent.click(screen.getByLabelText('Screen proposals'))
+  expect(navigation.replace).toHaveBeenCalledWith('/screen-proposed')
+  fireEvent.click(screen.getByTestId('deck-task'))
+  expect(navigation.replace).toHaveBeenCalledWith('/inspect/child')
 })
