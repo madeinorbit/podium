@@ -226,7 +226,8 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
         async (f) =>
           await route(f, { type: 'agentObservation', observation: observation(f.ids[0]!) }),
       ),
-      24,
+      // POD-6920: derived change capture (no build before the write; one drain after it): 24 -> 17.
+      17,
     )
     expect(counts.small.statements).toBeGreaterThan(0)
     expectGrantReads(counts, 0)
@@ -251,7 +252,8 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
             tail: `c${size - 1}`,
           }),
       ),
-      22,
+      // POD-6920: derived change capture (no build before the write; one drain after it): 22 -> 15.
+      15,
     )
     expectGrantReads(counts, 0)
   })
@@ -279,7 +281,8 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
         ),
         setup: async (size) => await fixture(size, true),
       },
-      36,
+      // POD-6920: derived change capture (no build before the write; one drain after it): 36 -> 29.
+      29,
     )
     expectGrantReads(counts, 0)
   })
@@ -394,7 +397,8 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
           return f
         },
       },
-      17,
+      // POD-6920: derived change capture (no build before the write; one drain after it): 17 -> 3.
+      3,
     )
     expectGrantReads(counts, 0)
   })
@@ -417,7 +421,8 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
             observerGeneration: 1,
           }),
       ),
-      42,
+      // POD-6920: derived change capture (no build before the write; one drain after it): 42 -> 37.
+      37,
     )
     expectGrantReads(counts, 0)
   })
@@ -439,7 +444,8 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
             rebindId: 'rebind-1',
           }),
       ),
-      35,
+      // POD-6920: derived change capture (no build before the write; one drain after it): 35 -> 30.
+      30,
     )
     expectGrantReads(counts, 0)
   })
@@ -472,7 +478,8 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
         'agentState',
         async (f) => await route(f, { type: 'agentState', sessionId: f.ids[0], state: idle }),
       ),
-      33,
+      // POD-6920: derived change capture (no build before the write; one drain after it): 33 -> 26.
+      26,
     )
     // The accepted state is part of the existing row upsert, never a second write.
     for (const tally of [counts.small, counts.large])
@@ -511,7 +518,8 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
         ),
         setup: async (size) => await fixture(size, true),
       },
-      50,
+      // POD-6920: derived change capture (no build before the write; one drain after it): 50 -> 35.
+      35,
     )
     expectGrantReads(counts, 0)
   })

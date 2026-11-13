@@ -199,7 +199,8 @@ describe('host sample: pinned statement counts at 5 and 200 live shells', () => 
           .poll(async () => (await f.store.sessions.loadSessions()).some((s) => s.id === f.ids.at(-1)))
           .toBe(false)
       }),
-      39,
+      // POD-6920: derived change capture (no build before the write; one drain after it): 39 -> 46.
+      46,
     )
   })
 })

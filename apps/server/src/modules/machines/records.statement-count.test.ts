@@ -208,21 +208,25 @@ const oneNewWorktree: StatementPin<Fixture> = {
 describe('statement counts of the machine record writes', () => {
   it('a rename does not grow with the members or the fleet', async () => {
     // Observed at both sizes on the supplied epic base, before reach batching.
-    await expectConstantStatements(rename, 25)
+    // POD-6920: derived change capture (no build before the write; one drain after it): records.machine.edit (rename) 25 -> 18.
+    await expectConstantStatements(rename, 18)
   })
 
   it('the server rewriting one machine’s records does not grow with the members or the fleet', async () => {
-    await expectConstantStatements(republish, 16)
+    // POD-6920: derived change capture (no build before the write; one drain after it): stored machine rename (every member) 16 -> 9.
+    await expectConstantStatements(republish, 9)
   })
 
   it('a grant write does not grow with the members or the fleet', async () => {
     // Observed at both sizes on the supplied epic base, before reach batching.
     // POD-6864: re-measured on integrate/6253-sync-log 964ad37114: 25 -> 24.
-    await expectConstantStatements(grantWrite, 24)
+    // POD-6920: derived change capture (no build before the write; one drain after it): machine grant source write 24 -> 21.
+    await expectConstantStatements(grantWrite, 21)
   })
 
   it('a member role comparison reads a fixed number of times across the fleet', async () => {
-    await expectConstantStatements(memberRole, 12)
+    // POD-6920: derived change capture (no build before the write; one drain after it): member role comparison reads (every machine) 12 -> 11.
+    await expectConstantStatements(memberRole, 11)
   })
 
   it('a member role change batches checkout_reach writes at 5 and 200 machines', async () => {
@@ -253,7 +257,8 @@ describe('statement counts of the machine record writes', () => {
   it('a scan that finds one new worktree writes that one, whatever the machine holds', async () => {
     // POD-6769: the new checkout is built before the write and after it, in
     // place of one read of the stored copy (6 -> 7).
-    await expectConstantStatements(oneNewWorktree, 7)
+    // POD-6920: derived change capture (no build before the write; one drain after it): checkouts.rescan (one new worktree) 7 -> 8.
+    await expectConstantStatements(oneNewWorktree, 8)
   })
 })
 

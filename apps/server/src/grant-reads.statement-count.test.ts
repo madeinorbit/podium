@@ -234,9 +234,12 @@ describe('grant reads per change, a running session on an issue: pinned at 5 and
 // issue's pending mail (two statements); the flush now asks for both in one: -1.
 // POD-6218: the earliest admin is one statement, once per operation: issues.update -1.
 // Incoming scoped-write receipt reads plus private owner-only session/shared-task projection.
-const RENAME = 25
+// POD-6920: derived change capture (no build before the write; one drain after it): 25 -> 21.
+const RENAME = 21
 // POD-6791: measured on the integration base at 63. Sharing the issue and
 // body-header reads on both sides of the write removes two statements.
 // POD-6864: re-measured on integrate/6253-sync-log 964ad37114 at both sizes: 78 -> 79.
-const ISSUE_UPDATE = 79
-const OBSERVATION = 24
+// POD-6920: derived change capture: 79 -> 66.
+const ISSUE_UPDATE = 66
+// POD-6920: derived change capture: 24 -> 17.
+const OBSERVATION = 17

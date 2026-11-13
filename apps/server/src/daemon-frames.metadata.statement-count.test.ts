@@ -177,11 +177,12 @@ describe('daemon frames, the rest: pinned statement counts at 5 and 200', () => 
   // the session's grants (#92da1c94; sessions are private, design §2.3,
   // POD-6283).
   it('title of one session among many', async () => {
-    await expectConstantStatements(title, 22)
+    // POD-6920: derived change capture (no build before the write; one drain after it): title 22 -> 15.
+    await expectConstantStatements(title, 15)
   })
 
   it('title pin is armed', async () => {
-    await expectArmed(title, 22, plantPerSession('routeDaemonFrame'))
+    await expectArmed(title, 15, plantPerSession('routeDaemonFrame'))
   })
 
   const metrics = pin('hostMetrics', async (f) => await route(f, hostSample()))
@@ -219,7 +220,8 @@ describe('daemon frames, the rest: pinned statement counts at 5 and 200', () => 
   // published row is likely equal to the one already installed (inferred, not
   // traced). One more `meta` read (+1) is measured and not yet attributed.
   it('inventoryReport that changes the machine', async () => {
-    await expectConstantStatements(report('1.0.0'), 37)
+    // POD-6920: derived change capture (no build before the write; one drain after it): inventoryReport (1.0.0) 37 -> 36.
+    await expectConstantStatements(report('1.0.0'), 36)
   })
 
   it('inventoryReport that repeats the last one', async () => {
@@ -233,7 +235,8 @@ describe('daemon frames, the rest: pinned statement counts at 5 and 200', () => 
           return f
         },
       },
-      18,
+      // POD-6920: derived change capture (no build before the write; one drain after it): 18 -> 8.
+      8,
     )
   })
 

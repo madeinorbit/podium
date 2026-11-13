@@ -184,11 +184,12 @@ describe('session create: pinned statement counts at 5 and 200', () => {
   // The combined tRPC pin carries both deltas (51 + 7 + 31 = 89);
   // this merge resolution does not remeasure it.
   it('in process, a draft session in a repo', async () => {
-    await expectConstantStatements(draft, 40)
+    // POD-6920: derived change capture (no build before the write; one drain after it): createSession (draft, no issue) 40 -> 41.
+    await expectConstantStatements(draft, 41)
   })
 
   it('in-process pin is armed', async () => {
-    await expectArmed(draft, 40, plantPerSession)
+    await expectArmed(draft, 41, plantPerSession)
   })
 
   it('in process, a session on an issue', async () => {
@@ -202,7 +203,8 @@ describe('session create: pinned statement counts at 5 and 200', () => {
             issueId: f.issueId,
           }),
       ),
-      45,
+      // POD-6920: derived change capture (no build before the write; one drain after it): 45 -> 46.
+      46,
     )
   })
 
@@ -212,10 +214,11 @@ describe('session create: pinned statement counts at 5 and 200', () => {
   )
 
   it('over tRPC', async () => {
-    await expectConstantStatements(trpc, 103)
+    // POD-6920: derived change capture (no build before the write; one drain after it): tRPC sessions.create 103 -> 106.
+    await expectConstantStatements(trpc, 106)
   })
 
   it('tRPC pin is armed', async () => {
-    await expectArmed(trpc, 103, plantPerSession)
+    await expectArmed(trpc, 106, plantPerSession)
   })
 })

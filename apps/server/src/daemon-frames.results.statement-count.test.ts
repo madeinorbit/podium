@@ -276,7 +276,8 @@ describe('daemon *Result frames: pinned statement counts at 5 and 200', () => {
   // A report of conversations the server knows writes nothing: every row is
   // unchanged, so no change is appended either.
   it('scanResult that reports as many known conversations as the size', async () => {
-    await expectConstantStatements(scan(true), 6)
+    // POD-6920: derived change capture (no build before the write; one drain after it): scanResult (known conversations) 6 -> 5.
+    await expectConstantStatements(scan(true), 5)
   })
 
   // The same discovery path, on the frame a daemon's watcher sends whenever its
@@ -293,12 +294,13 @@ describe('daemon *Result frames: pinned statement counts at 5 and 200', () => {
             diagnostics: [],
           }),
       },
-      6,
+      // POD-6920: derived change capture (no build before the write; one drain after it): 6 -> 5.
+      5,
     )
   })
 
   it('scanResult pin is armed', async () => {
-    await expectArmed(scan(true), 6, plantPerSession)
+    await expectArmed(scan(true), 5, plantPerSession)
   })
 
   interface Approval extends Fixture {
@@ -346,11 +348,12 @@ describe('daemon *Result frames: pinned statement counts at 5 and 200', () => {
   // the log's append and latest-state rows); the broadcast and its approvals
   // list are gone.
   it('approvalExecResult of a session on an issue', async () => {
-    await expectConstantStatements(approval, 17)
+    // POD-6920: derived change capture (no build before the write; one drain after it): approvalExecResult 17 -> 20.
+    await expectConstantStatements(approval, 20)
   })
 
   it('approvalExecResult pin is armed', async () => {
-    await expectArmed(approval, 17, plantPerSession)
+    await expectArmed(approval, 20, plantPerSession)
   })
 
   it('sessionKillResult that confirms the kill', async () => {

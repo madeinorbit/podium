@@ -135,4 +135,5 @@ describe('the default principal per runtime event: pinned at 5 and 200 sessions'
 // Measured on the polaris VM. Before POD-6218 this frame ran 36 (on e617c446a5:
 // `users` 8, `meta` 2, `user_preferences` 2); POD-6216's board drain then
 // removed three (11ab04ade0 among them), so 33 on the parent of this change.
-const RUNTIME_EVENT = 36
+// POD-6920: derived change capture (no build before the write; one drain after it): 36 -> 29.
+const RUNTIME_EVENT = 29

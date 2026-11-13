@@ -101,19 +101,22 @@ const recover = {
 
 describe('statement counts of the superagent thread record', () => {
   it('an owner’s edit does not grow with the threads the table holds', async () => {
-    await expectConstantStatements(edit, 10)
+    // POD-6920: derived change capture (no build before the write; one drain after it): records.superagentThread.edit 10 -> 12.
+    await expectConstantStatements(edit, 12)
   })
 
   it('a turn’s status write does not grow with the threads the table holds', async () => {
-    await expectConstantStatements(turnStatus, 4)
+    // POD-6920: derived change capture (no build before the write; one drain after it): superagent turn status 4 -> 5.
+    await expectConstantStatements(turnStatus, 5)
   })
 
   it('interrupted preparation recovery ignores historical threads', async () => {
-    await expectConstantStatements(recover, 5)
+    // POD-6920: derived change capture (no build before the write; one drain after it): interrupted thread preparation recovery 5 -> 6.
+    await expectConstantStatements(recover, 6)
   })
 
   it('is armed: a read per stored thread on the edit path fails it', async () => {
-    await expectArmed(edit, 10, (o, size) => {
+    await expectArmed(edit, 12, (o, size) => {
       const repo = o.store.superagent
       const original = repo.getSuperagentThread.bind(repo)
       repo.getSuperagentThread = async (id, owner) => {

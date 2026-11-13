@@ -226,11 +226,12 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
   // POD-6864: re-measured on integrate/6253-sync-log 964ad37114 at both
   // sizes: to a session 119 -> 118, its issue holding mail 126 -> 125.
   it('over tRPC, to a running session', async () => {
-    await expectConstantStatements(trpcToSession, 118)
+    // POD-6920: derived change capture (no build before the write; one drain after it): tRPC messages.send to a session 118 -> 92.
+    await expectConstantStatements(trpcToSession, 92)
   })
 
   it('tRPC pin is armed', async () => {
-    await expectArmed(trpcToSession, 118, plantPerSession)
+    await expectArmed(trpcToSession, 92, plantPerSession)
   })
 
   // The pass attempts every held message, and each attempt read the issue's
@@ -257,7 +258,8 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
         'tRPC messages.send to a session, issue mail held',
         async (f) => await f.call.messages.send({ to: f.target, body: 'counted' }),
       ),
-      125,
+      // POD-6920: derived change capture (no build before the write; one drain after it): 125 -> 99.
+      99,
     )
   })
 
@@ -267,7 +269,8 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
         'relayed messages.send to a session, issue mail held',
         async (f) => await relay(f, 'send', { to: f.target, body: 'counted' }),
       ),
-      117,
+      // POD-6920: derived change capture (no build before the write; one drain after it): 117 -> 91.
+      91,
     )
   })
 
@@ -310,7 +313,8 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
         'tRPC messages.send to an issue',
         async (f) => await f.call.messages.send({ to: f.issueId, body: 'counted' }),
       ),
-      17,
+      // POD-6920: derived change capture (no build before the write; one drain after it): 17 -> 20.
+      20,
     )
   })
 
@@ -321,11 +325,12 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
   )
 
   it('through the agent relay, to a running session', async () => {
-    await expectConstantStatements(relayToSession, 110)
+    // POD-6920: derived change capture (no build before the write; one drain after it): relayed messages.send to a session 110 -> 84.
+    await expectConstantStatements(relayToSession, 84)
   })
 
   it('relay pin is armed', async () => {
-    await expectArmed(relayToSession, 110, plantPerSession)
+    await expectArmed(relayToSession, 84, plantPerSession)
   })
 
   it('through the agent relay, to its own issue', async () => {
@@ -334,7 +339,8 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
         'relayed messages.send to an issue',
         async (f) => await relay(f, 'send', { to: f.issueId, body: 'counted' }),
       ),
-      28,
+      // POD-6920: derived change capture (no build before the write; one drain after it): 28 -> 33.
+      33,
     )
   })
 
@@ -344,7 +350,8 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
         'relayed issues.mailSend',
         async (f) => await relay(f, 'mailSend', { id: f.issueId, body: 'counted' }, 'issues'),
       ),
-      26,
+      // POD-6920: derived change capture (no build before the write; one drain after it): 26 -> 31.
+      31,
     )
   })
 })

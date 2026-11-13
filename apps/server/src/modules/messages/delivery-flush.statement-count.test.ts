@@ -239,7 +239,8 @@ describe('session changes: pinned statement counts at 5 and 200 sessions [POD-62
           await h.store.close()
         },
       },
-      6,
+      // POD-6920: derived change capture (no build before the write; one drain after it): 6 -> 8.
+      8,
     )
   })
 })

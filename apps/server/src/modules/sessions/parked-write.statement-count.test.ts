@@ -163,7 +163,8 @@ describe('a write to a parked session: constant statements', () => {
         },
         teardown: async (f) => await f.reg.dispose(),
       },
-      34,
+      // POD-6920: derived change capture (no build before the write; one drain after it): 34 -> 29.
+      29,
     )
   })
 })
