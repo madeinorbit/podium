@@ -173,7 +173,7 @@ export const cursorManifest: AgentManifest = {
           opts.sessionId ?? '',
           '--model',
           model,
-          ...(opts.permissionMode === 'auto' ? ['--auto-review'] : []),
+          // Trust and the mode are the posture section's (POD-6858).
           prompt,
         ],
       }

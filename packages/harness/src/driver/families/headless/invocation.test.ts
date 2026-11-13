@@ -274,7 +274,16 @@ describe('buildHeadlessExec argv shapes', () => {
       POSTURE,
     )
     expect(cmd).toBe('/opt/cursor-agent')
-    expect(args).toEqual(['-p', '--resume', 'chat-1', '--model', 'auto', 'hi'])
+    expect(args).toEqual([
+      '-p',
+      '--resume',
+      'chat-1',
+      '--model',
+      'auto',
+      '--trust',
+      '--auto-review',
+      'hi',
+    ])
     const named = buildHeadlessExec(
       'cursor',
       { prompt: 'hi', sessionId: 'chat-1', model: 'composer-2.5' },
@@ -436,6 +445,9 @@ describe('composeHeadlessInvocation', () => {
       'chat-9',
       '--model',
       'auto',
+      // Moved to posture (POD-6858).
+      '--trust',
+      '--auto-review',
       'the prompt',
     ])
   })

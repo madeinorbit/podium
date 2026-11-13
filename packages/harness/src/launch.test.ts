@@ -155,6 +155,28 @@ function grokPlain(spec: LaunchSpec): Record<string, unknown> {
   expect(files).toEqual([])
   return rest
 }
+
+/**
+ * A Cursor terminal launch with its terms checked, shaped like {@link plain}.
+ * Cursor's terminal gets no flag; what it cannot be shown to meet is reported
+ * (POD-6858 §4.8). Moved to posture: the terms used to be empty.
+ */
+function cursorPlain(spec: LaunchSpec): Record<string, unknown> {
+  if (!('terms' in spec)) throw new Error('a Cursor launch always carries terms')
+  const { env, files, terms, ...rest } = spec
+  expect(terms.homeEdits).toEqual([])
+  expect(terms.requestedMode).toBeNull()
+  expect(terms.unmet.map((entry) => entry.requirement)).toEqual([
+    'workspace-trust',
+    'podium-cli',
+    'autonomy',
+    'quiet-start',
+    'podium-material',
+  ])
+  expect(env).toEqual({})
+  expect(files).toEqual([])
+  return rest
+}
 describe('agentLaunchCommand', () => {
   it('spawns claude fresh', () => {
     expect(
@@ -339,7 +361,7 @@ describe('agentLaunchCommand', () => {
   })
 
   it('spawns cursor fresh with its provider command', () => {
-    expect(plain(agentLaunchCommand('cursor', { ...ctx('cursor'), cwd: '/w' }))).toEqual({
+    expect(cursorPlain(agentLaunchCommand('cursor', { ...ctx('cursor'), cwd: '/w' }))).toEqual({
       cmd: exe('cursor'),
       args: [],
       cwd: '/w',
@@ -348,7 +370,7 @@ describe('agentLaunchCommand', () => {
 
   it('resumes cursor by chat id', () => {
     expect(
-      plain(
+      cursorPlain(
         agentLaunchCommand('cursor', {
           ...ctx('cursor'),
           cwd: '/w',
@@ -360,7 +382,9 @@ describe('agentLaunchCommand', () => {
 
   it('passes model override to cursor', () => {
     expect(
-      plain(agentLaunchCommand('cursor', { ...ctx('cursor'), cwd: '/w', model: 'composer-2.5' })),
+      cursorPlain(
+        agentLaunchCommand('cursor', { ...ctx('cursor'), cwd: '/w', model: 'composer-2.5' }),
+      ),
     ).toEqual({
       cmd: exe('cursor'),
       args: ['--model', 'composer-2.5'],
