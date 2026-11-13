@@ -14,6 +14,7 @@ import { serverRecordBuilders } from '../../sync/record-builders'
 import { testClientPrincipal } from '../../test-support/client-principal'
 import { openTestStore } from '../../test-support/open-test-store'
 import { logStoreRecords } from '../../test-support/record-writer'
+import { seedRows } from '../../test-support/seed-rows'
 import { countStatements, expectConstantStatements } from '../../test-support/statement-count'
 import { SessionActivityPublication } from './activity-publication'
 import { disposeOracles, makeOracle } from './oracle-support'
@@ -284,7 +285,15 @@ describe('session activity publication', () => {
 
   it('does not let checkpoint-derived activity bypass the stored publication value', async () => {
     const f = await fixture()
-    await f.store.observationCheckpoints.advanceGeneration(f.session.sessionId, 'codex', 'thread')
+    await seedRows(
+      f.store,
+      async () =>
+        await f.store.observationCheckpoints.advanceGeneration(
+          f.session.sessionId,
+          'codex',
+          'thread',
+        ),
+    )
     const checkpoint: SessionObservationCheckpointV1 = {
       schemaVersion: 1,
       podiumSessionId: f.session.sessionId,
@@ -315,7 +324,7 @@ describe('session activity publication', () => {
     })
     const cursor = await f.ledger.cursor()
     checkpoint.providerAt = iso(20_000)
-    await f.store.observationCheckpoints.save(checkpoint)
+    await seedRows(f.store, async () => await f.store.observationCheckpoints.save(checkpoint))
     const records = new SessionRecords({ store: f.store, sessions: new Map() })
     expect((await records.read([f.session.sessionId])).get(f.session.sessionId)?.lastActiveAt).toBe(
       iso(20_000),

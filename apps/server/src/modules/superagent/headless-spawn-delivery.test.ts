@@ -40,6 +40,7 @@ import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
 import { OPERATOR } from '../../test-support/capabilities'
 import { assignHostMachine } from '../../test-support/host-daemon'
+import { seedRows } from '../../test-support/seed-rows'
 import { selectHarnessAccountId } from '../sessions/harness-account'
 import { SessionMachineReconciler } from '../sessions/machine-reconciler'
 import { SessionClientPlane, type SessionClientPlanePorts } from '../sessions/session-client-plane'
@@ -536,7 +537,11 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
       ['roles.superagent.harness', 'claude-code'],
       ['roles.superagent.accountId', 'native:claude-code:FP9'],
     ] as const) {
-      await h.registry.sessionStore.settings.userPreferences.set(owner, path, value, now)
+      await seedRows(
+        h.registry.sessionStore,
+        async () =>
+          await h.registry.sessionStore.settings.userPreferences.set(owner, path, value, now),
+      )
     }
     const { sessionId: headedId } = await h.registry.modules.sessions.createSession({
       agentKind: 'codex',

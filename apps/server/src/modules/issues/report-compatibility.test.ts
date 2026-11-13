@@ -18,13 +18,24 @@ async function fixture() {
     instanceId: 'default',
   })
   registries.push(registry)
-  await seedRows(registry.sessionStore, async () => await registry.sessionStore.repos.addRepo('/report-fixture', registry.sessionStore.hostMachineId))
+  await seedRows(
+    registry.sessionStore,
+    async () =>
+      await registry.sessionStore.repos.addRepo(
+        '/report-fixture',
+        registry.sessionStore.hostMachineId,
+      ),
+  )
   // This report-only fixture has no daemon to answer automatic base-branch probes.
-  await seedRows(registry.sessionStore, async () => await registry.sessionStore.repos.setRepoDefaultParentBranch(
-    registry.sessionStore.hostMachineId,
-    '/report-fixture',
-    'main',
-  ))
+  await seedRows(
+    registry.sessionStore,
+    async () =>
+      await registry.sessionStore.repos.setRepoDefaultParentBranch(
+        registry.sessionStore.hostMachineId,
+        '/report-fixture',
+        'main',
+      ),
+  )
   const user = firstAdminMemberId()
   const capability = { ...OPERATOR, actorUser: user, onBehalfOf: user }
   const api = appRouter.createCaller({
@@ -197,9 +208,15 @@ it('keeps labels, hierarchy and comments fresh across report and tree reads', as
     (await api.list({ repoPath: '/report-fixture' })).find((row) => row.id === parent.id)!
   expect(await read()).toMatchObject({ labels: [], commentCount: 0, childCount: 0 })
   expect(await read()).not.toHaveProperty('pinned')
-  await registry.sessionStore.issues.setIssueLabels(parent.id, ['alpha'])
+  await seedRows(
+    registry.sessionStore,
+    async () => await registry.sessionStore.issues.setIssueLabels(parent.id, ['alpha']),
+  )
   expect(await read()).toMatchObject({ labels: ['alpha'] })
-  await registry.sessionStore.issues.setIssueLabels(parent.id, ['beta'])
+  await seedRows(
+    registry.sessionStore,
+    async () => await registry.sessionStore.issues.setIssueLabels(parent.id, ['beta']),
+  )
   await api.addComment({ id: parent.id, body: 'Fresh comment count' })
   const child = await api.create({
     repoPath: '/report-fixture',
