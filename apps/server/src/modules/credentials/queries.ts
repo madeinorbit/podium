@@ -4,7 +4,8 @@
  * built field by field and parsed through `CredentialView`, which has no field
  * that could hold one.
  *
- * Six reads whatever the number of credentials: the caller's own, the grants to
+ * Seven reads whatever the number of credentials: the caller's own, the
+ * placements of theirs still being removed, the grants to
  * the caller or to all members, those credentials, the grants of every listed
  * credential (own ones too, for `sharedWith`), the granters' standing, and the
  * allowed machines.
@@ -16,10 +17,11 @@ import {
   type CredentialId,
   type CredentialShare,
   CredentialView,
+  type MachineId,
   type UserId,
 } from '@podium/model'
 import { z } from 'zod'
-import type { CredentialRecord } from '../../store/credentials'
+import type { CredentialRecord, PlacementKind } from '../../store/credentials'
 import type { GrantRow } from '../../store/grants'
 import type { CredentialsState, CredentialsStore } from './commands'
 import { accessFrom, CREDENTIAL_RESOURCE_KIND, type CredentialAccessLevel } from './may-use'
@@ -46,11 +48,15 @@ function sharesOf(edges: readonly GrantRow[]): CredentialShare[] {
   })
 }
 
+/** A home or copied login waiting for its machine to confirm its removal (§8). */
+type PendingHome = { machineId: MachineId; kind: PlacementKind }
+
 function viewOf(
   record: CredentialRecord,
   access: CredentialAccessLevel,
   allowedMachines: readonly string[],
   edges: readonly GrantRow[],
+  pending: readonly PendingHome[] = [],
 ): CredentialView {
   return CredentialView.parse({
     id: record.id,
@@ -62,8 +68,15 @@ function viewOf(
     ...(record.statusReason ? { statusReason: record.statusReason } : {}),
     ...(record.expiresAt ? { expiresAt: record.expiresAt } : {}),
     ...(record.verifiedAt ? { verifiedAt: record.verifiedAt } : {}),
+    ...(record.limitReachedUntil ? { limitReachedUntil: record.limitReachedUntil } : {}),
     // Which machines hold a login is read from their inventories (epic Task 9).
-    homes: [],
+    // What Podium placed and is still removing shows until the machine confirms;
+    // a copied login file is in the harness's own home.
+    homes: pending.map((p) => ({
+      machineId: p.machineId,
+      homeId: p.kind === 'home' ? `podium:${record.id}` : 'default',
+      state: 'removal-pending' as const,
+    })),
     allowedMachines,
     // Sessions name their credential from epic Task 3 on; counted there.
     sessionCount: 0,
@@ -77,6 +90,18 @@ export async function listCredentials(
   userId: UserId,
 ): Promise<CredentialView[]> {
   const own = await store.credentials.listVisibleTo(userId)
+  // A removed credential stays listed, as `revoked`, while a machine has not
+  // yet confirmed removing what Podium placed there (§8 "visibly").
+  const pendingRows = await store.credentials.listPendingPlacementsOfOwner(userId)
+  const pendingOf = new Map<string, PendingHome[]>()
+  for (const row of pendingRows) {
+    const list = pendingOf.get(row.credential.id) ?? []
+    list.push({ machineId: row.machineId, kind: row.kind })
+    pendingOf.set(row.credential.id, list)
+    if (row.credential.status === 'revoked' && !own.some((r) => r.id === row.credential.id)) {
+      own.push(row.credential)
+    }
+  }
   const ownIds = new Set<string>(own.map((record) => record.id))
   const edges = await store.grants.listForGrantees(CREDENTIAL_RESOURCE_KIND, [
     userId,
@@ -111,7 +136,13 @@ export async function listCredentials(
         a.record.id.localeCompare(b.record.id),
     )
     .map(({ record, access }) =>
-      viewOf(record, access, allowed.get(record.id) ?? [], grantsOf.get(record.id) ?? []),
+      viewOf(
+        record,
+        access,
+        allowed.get(record.id) ?? [],
+        grantsOf.get(record.id) ?? [],
+        access === 'owner' ? (pendingOf.get(record.id) ?? []) : [],
+      ),
     )
 }
 

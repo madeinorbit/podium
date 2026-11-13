@@ -20,6 +20,7 @@ import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
 import type { SessionStore } from '../../store'
 import { memberFacts } from '../../store/fixtures/test-support'
+import { acceptingProviderFetch } from '../../test-support/fake-provider'
 import { SuperagentService } from '../superagent'
 import { withSecret } from './vault'
 
@@ -66,7 +67,11 @@ afterEach(() => {
 
 describe('acceptance 4: no secret leaves add or renew', () => {
   it('the result, the events, every table and credentials.list hold neither secret', async () => {
-    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(undefined, undefined, {
+      instanceId: 'default',
+      // Adding a key asks its provider; a test never reaches a real one (Task 13).
+      credentialProviderFetch: acceptingProviderFetch,
+    })
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const superagent = await SuperagentService.create(
       registry.modules,

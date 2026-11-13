@@ -67,6 +67,9 @@ function formatTime(iso: string): string {
 /** Every line that applies, most urgent first; "Ready" when nothing needs saying. */
 export function statusLines(view: CredentialView, ctx: StatusContext): StatusLine[] {
   const lines: StatusLine[] = []
+  if (view.status === 'revoked') {
+    lines.push({ tone: 'muted', text: 'Removed' })
+  }
   if (view.status === 'attention') {
     lines.push({
       tone: 'warn',
@@ -103,8 +106,19 @@ export function statusLines(view: CredentialView, ctx: StatusContext): StatusLin
   return lines
 }
 
-/** What `credentials.list` returned, without removed credentials. */
+const removalPending = (view: CredentialView): boolean =>
+  view.homes.some((home) => home.state === 'removal-pending')
+
+/**
+ * What `credentials.list` returned, without removed credentials, except a
+ * removed one a machine has not yet confirmed removing (§8: pending, visibly).
+ */
 export function listed(views: readonly CredentialView[]): CredentialView[] {
+  return views.filter((view) => view.status !== 'revoked' || removalPending(view))
+}
+
+/** Credentials that can still be chosen: not removed. */
+function usable(views: readonly CredentialView[]): CredentialView[] {
   return views.filter((view) => view.status !== 'revoked')
 }
 
@@ -130,12 +144,12 @@ export function harnessChoices(
   accepts: readonly { type: string }[],
 ): CredentialView[] {
   const types = new Set(accepts.map((line) => line.type))
-  return listed(views).filter((view) => isCredentialTypeId(view.type) && types.has(view.type))
+  return usable(views).filter((view) => isCredentialTypeId(view.type) && types.has(view.type))
 }
 
 /** Credentials a direct model call may run on: listed, of a type with a route (§9). */
 export function inferenceChoices(views: readonly CredentialView[]): CredentialView[] {
-  return listed(views).filter(
+  return usable(views).filter(
     (view) => isCredentialTypeId(view.type) && INFERENCE_ROUTES[view.type] !== undefined,
   )
 }

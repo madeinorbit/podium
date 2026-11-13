@@ -186,6 +186,12 @@ export interface InteractionServiceDeps {
   driverFamilyForSession?(
     sessionId: SessionId,
   ): SessionMeta['driverFamily'] | Promise<SessionMeta['driverFamily']>
+  /**
+   * What a `login` ask names (credential management §7): the label of the
+   * credential the session runs on, when it has one, so a person sees which
+   * credential to renew. `undefined`: the harness's own naming.
+   */
+  loginProviderForSession?(sessionId: SessionId): Promise<string | undefined>
   /** The transcript tail, for reading a live menu's options at synthesis time. */
   readTranscript(input: {
     sessionId: SessionId
@@ -553,7 +559,14 @@ export class InteractionService {
         input.next.phase === 'needs_user' && input.next.need?.kind === 'question'
           ? await this.readQuestionOptions(input.sessionId)
           : undefined
-      const ask = synthesizeAsk(input.sessionId, input.next, { questionOptions })
+      const provider =
+        input.next.phase === 'errored'
+          ? await this.deps.loginProviderForSession?.(input.sessionId)
+          : undefined
+      const ask = synthesizeAsk(input.sessionId, input.next, {
+        questionOptions,
+        ...(provider ? { provider } : {}),
+      })
       // THE CAUSAL STREAM OWNS THIS FAILURE — see {@link causalStreamOwnsFailures}.
       // The `errored` state is the compatibility shadow of a turn the driver has
       // already reported with a disposition the legacy arm cannot see.
@@ -665,12 +678,14 @@ export class InteractionService {
         )
         return
       }
+      const provider =
+        (await this.deps.loginProviderForSession?.(input.sessionId)) ?? input.provider
       const spec = materializeFailure({
         evidence: 'turn-failed',
         reason: input.ev.reason,
         disposition: input.ev.disposition,
         ...(input.ev.detail ? { detail: input.ev.detail } : {}),
-        ...(input.provider ? { provider: input.provider } : {}),
+        ...(provider ? { provider } : {}),
       })
       if (!spec) return
       await this.ask({

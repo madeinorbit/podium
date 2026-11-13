@@ -562,6 +562,26 @@ describe('translateClaudeHookPayload', () => {
     ])
   })
 
+  it('StopFailure as Claude Code 2.1.323 sends it: the class is `error`, the sentence its detail', async () => {
+    // Recorded on a live drive (credential management Task 13): a session on a
+    // Claude token the provider rejected. Read as `unknown` before, so Podium
+    // could not tell a rejected credential from any other failure.
+    expect(
+      await t({
+        hook_event_name: 'StopFailure',
+        error: 'authentication_failed',
+        last_assistant_message: 'Please run /login · API Error: 401 OAuth access token is invalid.',
+      }),
+    ).toEqual([
+      {
+        kind: 'turn_failed',
+        errorClass: 'authentication_failed',
+        retryable: false,
+        detail: 'Please run /login · API Error: 401 OAuth access token is invalid.',
+      },
+    ])
+  })
+
   it('Stop (unreadable transcript) → turn_completed without verdict', async () => {
     expect(await t({ hook_event_name: 'Stop', stop_hook_active: false })).toEqual([
       { kind: 'turn_completed' },

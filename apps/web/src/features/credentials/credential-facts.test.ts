@@ -75,6 +75,20 @@ describe('listed', () => {
     const kept = view()
     expect(listed([kept, view({ status: 'revoked' })])).toEqual([kept])
   })
+
+  it('keeps a removed credential while a machine has not confirmed its removal (Task 13)', () => {
+    const pending = view({
+      status: 'revoked',
+      homes: [
+        { machineId: 'machine:desk', homeId: 'default', state: 'removal-pending' },
+      ] as CredentialView['homes'],
+    })
+    expect(listed([pending])).toEqual([pending])
+    expect(texts(pending)).toEqual(['Removed', 'Removal pending on Desk'])
+    // Never offered as a choice.
+    expect(harnessChoices([pending], [{ type: pending.type }])).toEqual([])
+    expect(inferenceChoices([pending])).toEqual([])
+  })
 })
 
 describe('removalSentence', () => {

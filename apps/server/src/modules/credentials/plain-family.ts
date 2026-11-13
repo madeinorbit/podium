@@ -9,6 +9,7 @@ export const CREDENTIALS_PLAIN_FAMILY = definePlainFamily({
   service: (state): CredentialsState => ({
     store: state.store,
     callerUserId: asUserId(state.caller.userId),
+    health: state.modules.credentialHealth,
   }),
   commands: CREDENTIAL_COMMANDS_TRPC,
 })

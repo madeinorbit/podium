@@ -40,6 +40,7 @@ import { type CredentialRecord, newCredentialId } from '../../store/credentials'
 import type { PlainTargetCheck } from '../plain-command/entry'
 import { type CredentialEvent, recordCredentialEvent } from './events'
 import { pastedIdentity } from './fingerprint'
+import type { CredentialHealth } from './health'
 import { CREDENTIAL_RESOURCE_KIND, type CredentialAccessLevel, mayUse } from './may-use'
 import { sealCredentialSecret, VaultLockedError } from './vault'
 
@@ -53,6 +54,8 @@ export type CredentialsStore = Pick<
 export interface CredentialsState {
   readonly store: CredentialsStore
   readonly callerUserId: UserId
+  /** Verification, renewal follow-up, removal everywhere and share notices (Task 13). */
+  readonly health: CredentialHealth
 }
 
 export type CredentialHandler<In, Out> = (state: CredentialsState, input: In) => Out
@@ -157,14 +160,24 @@ export const CREDENTIAL_COMMANDS_TRPC = {
           message: `You already added this key as "${same.label}".`,
         })
       }
+      const verified = await state.health.verify(input.type, input.secret)
+      if (!verified.ok) throw badRequest(verified.reason)
       const id = newCredentialId()
       const sealed = await state.store.vault
         .seal({ credentialId: id, type: input.type, version: 1 }, Buffer.from(input.secret, 'utf8'))
         .catch(vaultRefusal)
       await state.store.credentials.insertWithSecret(
-        { id, ownerUserId: owner, label: input.label, type: input.type, identity },
+        {
+          id,
+          ownerUserId: owner,
+          label: input.label,
+          type: input.type,
+          identity,
+          ...(verified.expiresAt ? { expiresAt: verified.expiresAt } : {}),
+        },
         sealed,
       )
+      if (verified.providerChecked) await state.health.markVerified(id)
       await event(state, { kind: 'add', credentialId: id, detail: input.type })
       return { credentialId: id }
     }) satisfies CredentialHandler<In<'add'>, unknown>,
@@ -185,6 +198,8 @@ export const CREDENTIAL_COMMANDS_TRPC = {
     handler: (async (state, input) => {
       const { record } = await writable(state, input.credentialId)
       if (!pasted(record.type)) throw notPasted(record.type)
+      const verified = await state.health.verify(record.type, input.secret)
+      if (!verified.ok) throw badRequest(verified.reason)
       const identity = pastedIdentity(
         record.type,
         input.secret,
@@ -204,8 +219,11 @@ export const CREDENTIAL_COMMANDS_TRPC = {
         })
       }
       await state.store.credentials.setIdentity(record.id, { ...record.identity, ...identity })
+      if (verified.expiresAt)
+        await state.store.credentials.setExpiresAt(record.id, verified.expiresAt)
       if (record.status !== 'ok') await state.store.credentials.setStatus(record.id, 'ok')
       await event(state, { kind: 'renew', credentialId: record.id, detail: `version ${stored}` })
+      await state.health.afterRenew(record, verified)
       return { ok: true as const }
     }) satisfies CredentialHandler<In<'renew'>, unknown>,
   },
@@ -214,9 +232,7 @@ export const CREDENTIAL_COMMANDS_TRPC = {
     targetPermitted: personOnly,
     handler: (async (state, input) => {
       const { record } = await writable(state, input.credentialId)
-      await state.store.credentials.remove(record.id)
-      await state.store.grants.removeAllForResource(CREDENTIAL_RESOURCE_KIND, record.id)
-      await event(state, { kind: 'remove', credentialId: record.id })
+      await state.health.removeEverywhere(record.id, state.callerUserId)
       return { ok: true as const }
     }) satisfies CredentialHandler<In<'remove'>, unknown>,
   },
@@ -258,6 +274,7 @@ export const CREDENTIAL_COMMANDS_TRPC = {
         credentialId: record.id,
         detail: `${input.verb} to ${grantee}`,
       })
+      await state.health.afterShare(record, input.grantee, input.verb, caller)
       return { ok: true as const }
     }) satisfies CredentialHandler<In<'share'>, unknown>,
   },

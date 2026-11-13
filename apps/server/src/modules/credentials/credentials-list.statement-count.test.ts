@@ -97,12 +97,12 @@ const pin: StatementPin<Fixture> = {
 }
 
 describe('credentials.list statement count', () => {
-  it('is six statements at 5 and at 200 credentials', async () => {
-    await expectConstantStatements(pin, 6)
+  it('is seven statements at 5 and at 200 credentials', async () => {
+    await expectConstantStatements(pin, 7)
   })
 
   it('is armed: a read per credential on its path fails the pin', async () => {
-    await expectArmed(pin, 6, (f) => {
+    await expectArmed(pin, 7, (f) => {
       const credentials = f.store.credentials
       const original = credentials.allowedMachinesOf.bind(credentials)
       credentials.allowedMachinesOf = async (ids) => {

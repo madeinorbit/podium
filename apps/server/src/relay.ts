@@ -29,6 +29,7 @@ import {
   asSessionId,
   asUserId,
   firstAdminMemberId,
+  formatAgentError,
   machinePathsEqual,
   mintDeviceId,
   spawnedByParentSessionId,
@@ -119,6 +120,14 @@ import { AutomationScheduler } from './modules/automations/scheduler'
 import { AutomationsService } from './modules/automations/service'
 import { EventBus, type EventMap } from './modules/bus'
 import { CheckoutsService } from './modules/checkouts/service'
+import {
+  CREDENTIAL_EXPIRY_SWEEP_MS,
+  CREDENTIAL_TURN_BOUNDARY,
+  type FetchLike as CredentialFetch,
+  CredentialHealth,
+  classifyCredentialFailure,
+} from './modules/credentials/health'
+import { Placements } from './modules/credentials/placements'
 import { DaemonRequestBroker } from './modules/daemon-request'
 import { awaitEffectSettled } from './modules/effects/await'
 import { makeEffectFeedCapture } from './modules/effects/feed'
@@ -141,6 +150,7 @@ import { registerSessionAnswerEffect } from './modules/interactions/answer-effec
 import { InteractionFeedPublisher } from './modules/interactions/feed'
 import { deliverToNativeMenu } from './modules/interactions/native-menu-delivery'
 import { InteractionService } from './modules/interactions/service'
+import { interactionFingerprint } from './modules/interactions/synthesis'
 import { IssueSessionLifecycle } from './modules/issue-session-lifecycle'
 import { DurableIssueAccessIndex } from './modules/issues/access-index'
 import {
@@ -405,6 +415,9 @@ interface SessionRegistryOptions {
    *  context with no role is: the fleet's hub-only writes on `sync.submit` are
    *  refused when it is false, as their routes 404 (POD-6417). */
   servesHub?: boolean
+  /** The provider calls that verify a pasted credential (credential management
+   *  §7). Tests pass a fake provider; absent, the global `fetch`. */
+  credentialProviderFetch?: CredentialFetch
 }
 
 /** The composed module set (issue #13 Phase 2): the typed seam every caller —
@@ -499,6 +512,8 @@ export interface RegistryModules {
    */
   updateFleetBridge?: { onFleetChanged(): Promise<void> }
   rpc: DaemonRpcService
+  /** Credential verification, attention, expiry, renewal and removal (§7, §8; Task 13). */
+  credentialHealth: CredentialHealth
   serverTransfer: ServerTransferService
   loginPropagation: LoginPropagationService
   nativeLogin: NativeLoginService
@@ -692,6 +707,8 @@ export class SessionRegistry {
   private readonly superagentDefaults: SuperagentDefaultSeeder
   /** Message delivery slow sweep (#237) [spec:SP-34d7]. */
   private readonly messageSweep: ReturnType<typeof setInterval>
+  /** The credential expiry sweep (credential management §7). */
+  private readonly credentialExpirySweep: ReturnType<typeof setInterval>
   /** Queued-INPUT sweep (POD-1703) — the PTY queue's own backstop. The sweep
    *  above walks the message LEDGER; this one re-arms the drains that actually
    *  move bytes, which had no timer at all. */
@@ -2185,6 +2202,16 @@ export class SessionRegistry {
     this.bus.on('superagent.turnEnded', async (event) => {
       if (event.ok || event.harnessErrorKind !== 'provider-auth' || !event.harness) return
       const session = await sessionsSvc.sessionById(asSessionId(event.podiumSessionId))
+      // A superagent turn on a credential the provider rejected (§7).
+      if (session?.credentialId) {
+        await this.modules.credentialHealth.noteFailure({
+          credentialId: session.credentialId,
+          failure: 'rejected',
+          reason: event.error ?? 'The provider rejected this credential.',
+          ...(event.ownerUserId ? { actorUserId: event.ownerUserId } : {}),
+          sessionId: session.sessionId,
+        })
+      }
       if (!session?.machineId) return
       nativeLogin.markRequired(session.machineId, event.harness)
       await loginPropagation.trigger({
@@ -2611,7 +2638,17 @@ export class SessionRegistry {
       // through the first admin's row only because a settings read needs one.
       getSettings: async (forUser) =>
         await this.store.settings.getSettingsFor(forUser ?? (await firstAdminMemberId(this.store))),
-      complete: async (input) => await complete({ store: this.store, onMachine }, input),
+      complete: async (input) =>
+        await complete(
+          {
+            store: this.store,
+            onMachine,
+            // A provider that rejects the credential, or reports a limit (§7).
+            // DEFERRED READ: the health service is built below.
+            onCredentialFailure: async (failure) => await credentialHealth.noteFailure(failure),
+          },
+          input,
+        ),
       spawnSession: async (o) =>
         await sessionsSvc.createSession({
           requestTerminalDriver: true,
@@ -2779,6 +2816,90 @@ export class SessionRegistry {
     })
     stopClosedIssue = async (input) =>
       await issueSessionLifecycle.stopClosedIssue({ ...input, reason: 'close' })
+
+    // CREDENTIAL HEALTH (credential management §7, §8; Task 13). What a
+    // rejected, expiring, renewed or removed credential does to its sessions,
+    // its notices and the machines that hold a copy. The interaction aggregate
+    // that flags a session is built later: a DEFERRED READ, on the terms of the
+    // interaction sinks below.
+    let interactionsRef: InteractionService | undefined
+    const credentialPlacements = new Placements({
+      store: this.store,
+      // Removing a home is Task 9's; a propagated login file needs a daemon
+      // message that does not exist yet. Until a remover is bound for a kind,
+      // its placements stay `removal-pending`, visibly.
+      transport: { isOnline: (machineId) => machines.hasDaemon(machineId), removers: {} },
+    })
+    const credentialHealth = new CredentialHealth({
+      store: this.store,
+      placements: credentialPlacements,
+      // The inbox (POD-6881). A notice is a synced record and renew, remove and
+      // share are plain commands: the notice is the server's own write.
+      notices: {
+        emit: async (notice) => await asSystemWrite(async () => await notices.emitNotice(notice)),
+        resolve: async (key) => await asSystemWrite(async () => await notices.resolveNotices(key)),
+      },
+      now: () => this.now(),
+      ...(options.credentialProviderFetch ? { fetch: options.credentialProviderFetch } : {}),
+      sessions: {
+        liveSessionIds: async (credentialId) =>
+          await this.store.sessions.liveSessionIdsOnCredential(credentialId),
+        standing: async (sessionId) => {
+          const session = await sessionsSvc.sessionById(sessionId)
+          if (!session || session.status === 'hibernated' || session.status === 'exited') {
+            return 'not-running'
+          }
+          if (session.status === 'starting') return 'in-turn'
+          const phase = session.agentState?.phase
+          if (phase === 'ended') return 'not-running'
+          return phase === 'working' || phase === 'compacting' ? 'in-turn' : 'between-turns'
+        },
+        // Stop the harness between turns and start it again under the same
+        // session with its conversation resumed; the revival resolves the
+        // credential afresh and so delivers the renewed secret. These are the
+        // server's own session writes, which a renew or remove (plain commands)
+        // set off: `asSystemWrite` is the sanctioned way out of that scope.
+        restartWithResume: async (sessionId) =>
+          await asSystemWrite(async () => {
+            const parked = await sessionsSvc.hibernateSession({ sessionId })
+            if (!parked.ok) return parked
+            const revived = await issueSessionLifecycle.resurrectSession({ sessionId })
+            return revived.ok ? { ok: true } : { ok: false, reason: revived.reason }
+          }),
+        stop: async (sessionId) => {
+          await asSystemWrite(async () => await issueSessionLifecycle.stopSession({ sessionId }))
+        },
+        flagRemoved: async (sessionId, credential) => {
+          const spec = {
+            kind: 'recovery' as const,
+            payload: {
+              v: 1 as const,
+              reason: 'unknown' as const,
+              prompt: `The credential "${credential.label}" this session runs on was removed, so the session stops at the end of its current turn. Choose another credential to continue.`,
+              offered: ['abandon' as const],
+            },
+          }
+          await asSystemWrite(
+            async () =>
+              await interactionsRef?.ask({
+                interaction: {
+                  ...spec,
+                  sessionId,
+                  source: 'protocol',
+                  answerable: 'keystroke-emulated',
+                  askedAt: new Date(this.now()).toISOString(),
+                  fingerprint: interactionFingerprint(sessionId, spec),
+                },
+              }),
+          )
+        },
+      },
+    })
+    this.bus.on('machine.connected', ({ machineId }) =>
+      credentialPlacements.retryPendingOn(machineId).catch((err) => {
+        log.warn('credential placement removal on reconnect failed', { machineId, err })
+      }),
+    )
 
     // THE SESSION LIFECYCLE CONTROLLER (ADR 12 D5 E1, POD-6356): makes a
     // session's desired state true through the daemon channel, after each edit
@@ -4472,6 +4593,13 @@ export class SessionRegistry {
     this.store.interactions.setFeedCapture(interactionFeed.capture)
     const interactions = new InteractionService({
       store: this.store.interactions,
+      // A sign-in ask on a session that runs on a credential names it (§7).
+      loginProviderForSession: async (sessionId) => {
+        const credentialId = (await sessionsSvc.sessionById(sessionId))?.credentialId
+        if (!credentialId) return undefined
+        const label = (await this.store.credentials.get(credentialId))?.label
+        return label ? `The credential "${label}"` : undefined
+      },
       now: () => new Date(this.now()).toISOString(),
       /**
        * THE FAMILY IS ALREADY A SESSION PROJECTION. It is resolved from the
@@ -4586,6 +4714,7 @@ export class SessionRegistry {
             }),
         ),
     })
+    interactionsRef = interactions
     /**
      * THE PROTOCOL ASK INGRESS, BOUND (POD-2023).
      *
@@ -4651,6 +4780,34 @@ export class SessionRegistry {
       void interactions.onStateChanged({ sessionId: e.sessionId, prev: e.prev, next: e.next })
     })
     this.bus.on('session.exited', async (e) => await interactions.onSessionExited(e.sessionId))
+    // CREDENTIAL HEALTH ON THE SESSION STREAM (§7, §8). An error that names the
+    // credential (a rejection, a limit) is noted; a turn boundary runs a restart
+    // or stop that was waiting for it.
+    this.bus.on('session.stateChanged', ({ sessionId, prev, next, ownerUserId }) => {
+      const boundary = CREDENTIAL_TURN_BOUNDARY.has(next.phase)
+      const enteredError = next.phase === 'errored' && next.error && prev?.phase !== 'errored'
+      if (!(boundary && !CREDENTIAL_TURN_BOUNDARY.has(prev?.phase ?? 'unknown')) && !enteredError) {
+        return
+      }
+      void (async () => {
+        const credentialId = (await sessionsSvc.sessionById(sessionId))?.credentialId ?? null
+        if (enteredError && next.error && credentialId) {
+          const failure = classifyCredentialFailure({ errorClass: next.error.class })
+          if (failure !== 'other') {
+            await credentialHealth.noteFailure({
+              credentialId,
+              failure,
+              reason: formatAgentError(next.error),
+              ...(ownerUserId ? { actorUserId: ownerUserId } : {}),
+              sessionId,
+            })
+          }
+        }
+        if (boundary) await credentialHealth.onTurnBoundary(sessionId, credentialId)
+      })().catch((err: unknown) => {
+        log.warn('credential health on a session state change failed', { sessionId, err })
+      })
+    })
     this.modules = {
       superagentToolsWriter: this.writes.system('superagent.tools'),
       superagentTurnsWriter: this.writes.system('superagent.turns'),
@@ -4681,6 +4838,7 @@ export class SessionRegistry {
       updatesReconciler: reconciler,
       updateFleetBridge,
       rpc,
+      credentialHealth,
       serverTransfer,
       loginPropagation,
       nativeLogin,
@@ -4998,6 +5156,16 @@ export class SessionRegistry {
         })
     }, DELIVERY_RETRY_BACKSTOP_MS)
     this.messageSweep.unref?.()
+    // The credential expiry sweep (§7): a notice two weeks before, attention at expiry.
+    const sweepCredentialExpiry = () => {
+      if (!backgroundDisabled)
+        void this.modules.credentialHealth.checkExpiry().catch((err: unknown) => {
+          log.warn('credential expiry sweep failed', { err })
+        })
+    }
+    this.credentialExpirySweep = setInterval(sweepCredentialExpiry, CREDENTIAL_EXPIRY_SWEEP_MS)
+    this.credentialExpirySweep.unref?.()
+    sweepCredentialExpiry()
     // The PTY queue's backstop (POD-1703). Faster than the ledger sweep because
     // it is cheap — `drain` is single-flight and returns immediately on a
     // session with an empty queue or one already draining — and because what it
@@ -5271,6 +5439,7 @@ export class SessionRegistry {
     this.accountUsage.dispose()
     this.quotaBackfill.dispose()
     clearInterval(this.messageSweep)
+    clearInterval(this.credentialExpirySweep)
     clearInterval(this.queuedInputSweep)
     clearInterval(this.pendingUploadSweep)
     this.modules.messages.dispose()

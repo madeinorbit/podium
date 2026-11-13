@@ -453,3 +453,45 @@ describe('complete: the usage log line and the secret', () => {
     expect(`${err.message}\n${err.stack ?? ''}`).not.toContain(secret)
   })
 })
+
+describe('complete: a provider that rejects the credential or reports a limit (Task 13)', () => {
+  async function failing(status: number) {
+    const s = await open()
+    const id = await keyCredential(s, 'anthropic.api-key', planted('anthropic', 'chosen'))
+    const { fetchImpl } = fakeProvider(() => ({
+      status,
+      body: { error: { type: 'authentication_error', message: 'invalid x-api-key' } },
+    }))
+    const reported: unknown[] = []
+    const run = complete(
+      {
+        ...deps(s, fetchImpl),
+        onCredentialFailure: async (failure) => {
+          reported.push(failure)
+        },
+      },
+      { credentialId: id, model: 'some-model', messages, actingUserId: OWNER },
+    )
+    await expect(run).rejects.toThrow(new RegExp(`${status}`))
+    return { id, reported }
+  }
+
+  it('a 401 is reported as rejected, for the acting person, without the key', async () => {
+    const { id, reported } = await failing(401)
+    expect(reported).toEqual([
+      expect.objectContaining({ credentialId: id, failure: 'rejected', actorUserId: OWNER }),
+    ])
+    expect(JSON.stringify(reported)).toContain('invalid x-api-key')
+    expect(JSON.stringify(reported)).not.toContain(planted('anthropic', 'chosen'))
+  })
+
+  it('a 429 is reported as a limit', async () => {
+    const { reported } = await failing(429)
+    expect(reported).toEqual([expect.objectContaining({ failure: 'limit' })])
+  })
+
+  it('a server error says nothing about the credential', async () => {
+    const { reported } = await failing(500)
+    expect(reported).toEqual([])
+  })
+})

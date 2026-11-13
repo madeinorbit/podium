@@ -133,6 +133,13 @@ describe('acceptance 1: the list states', () => {
         ] as CredentialView['homes'],
       }),
       mine({ label: 'Gone key', status: 'revoked' }),
+      mine({
+        label: 'Removed key',
+        status: 'revoked',
+        homes: [
+          { machineId: 'machine:desk', homeId: 'default', state: 'removal-pending' },
+        ] as CredentialView['homes'],
+      }),
     ]
     render(<Page views={views} deps={deps} />)
     const row = (label: string) =>
@@ -144,6 +151,9 @@ describe('acceptance 1: the list states', () => {
     expect(row('Ana key')).toContain('Shared with you by Ana')
     expect(row('Leaving login')).toContain('Removal pending on Desk')
     expect(screen.queryByText('Gone key')).toBeNull()
+    // Removed, but a machine has not confirmed yet: shown, visibly pending (Task 13).
+    expect(row('Removed key')).toContain('Removed')
+    expect(row('Removed key')).toContain('Removal pending on Desk')
   })
 
   it('a credential granted to me opens nothing and offers no write action', () => {

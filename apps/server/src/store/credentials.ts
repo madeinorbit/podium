@@ -19,7 +19,7 @@ import {
   type MachineId,
   type UserId,
 } from '@podium/model'
-import { and, asc, desc, eq, lt, ne, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, isNotNull, lt, ne, sql } from 'drizzle-orm'
 import {
   accountMachineSends,
   accounts,
@@ -64,6 +64,8 @@ export interface CredentialRecord {
   statusReason: string | null
   expiresAt: string | null
   verifiedAt: string | null
+  /** ISO time until which the provider reported a plan or rate limit reached. */
+  limitReachedUntil: string | null
   // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
   legacyId: string | null
   /** The account id old sessions and settings recorded (`managed:anthropic`). */
@@ -190,6 +192,7 @@ function toRecord(r: CredentialRow): CredentialRecord {
     statusReason: r.statusReason,
     expiresAt: r.expiresAt,
     verifiedAt: r.verifiedAt,
+    limitReachedUntil: r.limitReachedUntil,
     legacyId: r.legacyId,
     legacyKey: r.legacyKey,
     createdAt: r.createdAt,
@@ -201,6 +204,17 @@ const toPlacementKind = (raw: string): PlacementKind =>
   raw === 'propagated-file' ? 'propagated-file' : 'home'
 const toPlacementState = (raw: string): PlacementState =>
   raw === 'present' || raw === 'removal-pending' ? raw : 'removed'
+
+function toPlacement(r: typeof credentialPlacements.$inferSelect): Placement {
+  return {
+    credentialId: asCredentialId(r.credentialId),
+    machineId: r.machineId,
+    kind: toPlacementKind(r.kind),
+    state: toPlacementState(r.state),
+    createdAt: r.createdAt,
+    removedAt: r.removedAt,
+  }
+}
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
@@ -323,6 +337,57 @@ const setCredentialStatus = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+const markCredentialVerified = prepared((db: StoreDrizzle) =>
+  db
+    .update(credentials)
+    .set({ verifiedAt: sql.placeholder('at'), updatedAt: sql.placeholder('now') })
+    .where(idIs())
+    .prepare(),
+)
+
+const setCredentialExpiry = prepared((db: StoreDrizzle) =>
+  db
+    .update(credentials)
+    .set({ expiresAt: sql.placeholder('expiresAt'), updatedAt: sql.placeholder('now') })
+    .where(idIs())
+    .prepare(),
+)
+
+const setCredentialLimit = prepared((db: StoreDrizzle) =>
+  db
+    .update(credentials)
+    .set({ limitReachedUntil: sql.placeholder('until'), updatedAt: sql.placeholder('now') })
+    .where(idIs())
+    .prepare(),
+)
+
+/**
+ * Move a working credential to `attention`, only if it is `ok` now: the row it
+ * returns is the one transition, so two rejections at once raise one notice.
+ */
+const markCredentialAttention = prepared((db: StoreDrizzle) =>
+  db
+    .update(credentials)
+    .set({
+      status: 'attention',
+      statusReason: sql.placeholder('statusReason'),
+      updatedAt: sql.placeholder('now'),
+    })
+    .where(and(idIs(), eq(credentials.status, 'ok')))
+    .returning({ id: credentials.id })
+    .prepare(),
+)
+
+/** Credentials with a recorded expiry, not removed: what the expiry sweep reads. */
+const credentialsWithExpiry = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(credentials)
+    .where(and(isNotNull(credentials.expiresAt), ne(credentials.status, 'revoked')))
+    .orderBy(asc(credentials.expiresAt), asc(credentials.id))
+    .prepare(),
+)
+
 const secretIs = () =>
   eq(credentialSecrets.credentialId, param(credentialSecrets.credentialId, 'credentialId'))
 
@@ -422,6 +487,49 @@ const placementsOf = prepared((db: StoreDrizzle) =>
         param(credentialPlacements.credentialId, 'credentialId'),
       ),
     )
+    .prepare(),
+)
+
+/**
+ * The owner's placements still waiting for a machine to confirm their removal,
+ * with their credential (removed ones too: that is when removal is pending).
+ * Led by the owner index; each credential's placements by their primary key.
+ */
+const pendingPlacementsOfOwner = prepared((db: StoreDrizzle) =>
+  db
+    .select({
+      credential: credentials,
+      machineId: credentialPlacements.machineId,
+      kind: credentialPlacements.kind,
+    })
+    .from(credentials)
+    .innerJoin(credentialPlacements, eq(credentialPlacements.credentialId, credentials.id))
+    .where(
+      and(
+        eq(credentials.ownerUserId, param(credentials.ownerUserId, 'ownerUserId')),
+        sql`${credentialPlacements.state} = 'removal-pending'`,
+      ),
+    )
+    // The owner index gives this order; each credential's placements follow
+    // their primary key (credential, machine, kind).
+    .orderBy(asc(credentials.createdAt), asc(credentials.id))
+    .prepare(),
+)
+
+/** A machine's placements still waiting for it to confirm their removal. */
+const pendingPlacementsOn = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(credentialPlacements)
+    .where(
+      and(
+        eq(credentialPlacements.machineId, param(credentialPlacements.machineId, 'machineId')),
+        // The partial index's own literal condition, so the planner can prove
+        // `idx_credential_placements_pending` applies (server-data rule 3).
+        sql`${credentialPlacements.state} = 'removal-pending'`,
+      ),
+    )
+    .orderBy(asc(credentialPlacements.credentialId), asc(credentialPlacements.kind))
     .prepare(),
 )
 
@@ -661,6 +769,39 @@ export class CredentialsRepository {
     await setCredentialStatus(this.db).run({ id, status, statusReason: reason, now: now() })
   }
 
+  /** It was shown to work at `at` (a provider accepted it). */
+  async markVerified(id: CredentialId, at: string): Promise<void> {
+    await markCredentialVerified(this.db).run({ id, at, now: now() })
+  }
+
+  async setExpiresAt(id: CredentialId, expiresAt: string | null): Promise<void> {
+    await setCredentialExpiry(this.db).run({ id, expiresAt, now: now() })
+  }
+
+  /** The provider reported a plan or rate limit until `until`; null clears it. */
+  async setLimitReachedUntil(id: CredentialId, until: string | null): Promise<void> {
+    await setCredentialLimit(this.db).run({ id, until, now: now() })
+  }
+
+  /**
+   * Move it to `attention` with `reason` if it is `ok` now. True only for the
+   * call that moved it: a credential already needing attention, or removed, is
+   * left as it is.
+   */
+  async markAttention(id: CredentialId, reason: string): Promise<boolean> {
+    const moved = await markCredentialAttention(this.db).all({
+      id,
+      statusReason: reason,
+      now: now(),
+    })
+    return moved.length > 0
+  }
+
+  /** Every credential with a recorded expiry, not removed, soonest first. */
+  async listWithExpiry(): Promise<CredentialRecord[]> {
+    return (await credentialsWithExpiry(this.db).all()).map(toRecord)
+  }
+
   /** The owner's credential for one provider identity, not removed. */
   async findByIdentity(i: {
     ownerUserId: UserId
@@ -753,14 +894,26 @@ export class CredentialsRepository {
   }
 
   async listPlacements(id: CredentialId): Promise<Placement[]> {
-    return (await placementsOf(this.db).all({ credentialId: id })).map((r) => ({
-      credentialId: asCredentialId(r.credentialId),
+    return (await placementsOf(this.db).all({ credentialId: id })).map(toPlacement)
+  }
+
+  /**
+   * The owner's placements waiting for a machine to confirm their removal, each
+   * with its credential, removed or not. One read.
+   */
+  async listPendingPlacementsOfOwner(
+    ownerUserId: UserId,
+  ): Promise<{ credential: CredentialRecord; machineId: MachineId; kind: PlacementKind }[]> {
+    return (await pendingPlacementsOfOwner(this.db).all({ ownerUserId })).map((r) => ({
+      credential: toRecord(r.credential),
       machineId: r.machineId,
       kind: toPlacementKind(r.kind),
-      state: toPlacementState(r.state),
-      createdAt: r.createdAt,
-      removedAt: r.removedAt,
     }))
+  }
+
+  /** Placements on `machineId` still waiting for the machine to confirm their removal. */
+  async listPendingPlacementsOn(machineId: MachineId): Promise<Placement[]> {
+    return (await pendingPlacementsOn(this.db).all({ machineId })).map(toPlacement)
   }
 
   async setPlacementState(ref: PlacementRef, state: PlacementState): Promise<void> {

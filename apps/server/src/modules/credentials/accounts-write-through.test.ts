@@ -22,6 +22,7 @@ import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
 import type { SessionStore } from '../../store'
 import { memberFacts } from '../../store/fixtures/test-support'
+import { acceptingProviderFetch } from '../../test-support/fake-provider'
 import { SuperagentService } from '../superagent'
 import { resolveSessionAccess } from './access'
 import { credentialOfAccount } from './legacy-accounts'
@@ -54,7 +55,11 @@ afterEach(() => {
 })
 
 async function harness() {
-  const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  const registry = await SessionRegistry.create(undefined, undefined, {
+    instanceId: 'default',
+    // Adding a key asks its provider; a test never reaches a real one (Task 13).
+    credentialProviderFetch: acceptingProviderFetch,
+  })
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const store = registry.sessionStore

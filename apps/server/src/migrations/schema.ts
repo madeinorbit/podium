@@ -445,6 +445,11 @@ export const sessions = sqliteTable(
     // Headless sessions (POD-6160): resident for as long as their row exists,
     // so a boot restores them beside the running ones. A few rows; partial.
     index('idx_sessions_headless').on(table.headless).where(sql`${table.headless} = 1`),
+    // The live sessions on a credential (credential management §7, §8): what a
+    // renewal restarts and a removal stops. Partial: sessions with a credential.
+    index('idx_sessions_credential')
+      .on(table.credentialId)
+      .where(sql`${table.credentialId} IS NOT NULL AND ${table.deletedAt} IS NULL`),
     check(
       'sessions_stop_reason_check',
       sql`stop_reason IS NULL OR stop_reason IN ('self', 'parent', 'forced', 'exited')`,
@@ -3672,6 +3677,8 @@ export const credentials = sqliteTable(
     statusReason: text('status_reason'),
     expiresAt: text('expires_at'),
     verifiedAt: text('verified_at'),
+    /** ISO time until which the provider reported a plan or rate limit reached. */
+    limitReachedUntil: text('limit_reached_until'),
     legacyId: text('legacy_id'),
     legacyKey: text('legacy_key'),
     createdAt: text('created_at').notNull(),
@@ -3682,6 +3689,10 @@ export const credentials = sqliteTable(
     index('idx_credentials_identity').on(table.ownerUserId, table.type, table.identityFingerprint),
     uniqueIndex('credentials_legacy_id').on(table.legacyId),
     uniqueIndex('credentials_owner_legacy_key').on(table.ownerUserId, table.legacyKey),
+    // The expiry sweep (credential management §7): the few credentials with an expiry.
+    index('idx_credentials_expiry')
+      .on(table.expiresAt)
+      .where(sql`${table.expiresAt} IS NOT NULL`),
     check('credentials_status', sql`status IN ('ok', 'attention', 'revoked')`),
   ],
 )
@@ -3727,6 +3738,10 @@ export const credentialPlacements = sqliteTable(
       columns: [table.credentialId, table.machineId, table.kind],
       name: 'credential_placements_pk',
     }),
+    // A machine that reconnects confirms what was waiting for it (§8 "cleanup").
+    index('idx_credential_placements_pending')
+      .on(table.machineId, table.credentialId, table.kind)
+      .where(sql`${table.state} = 'removal-pending'`),
     check('credential_placements_kind', sql`kind IN ('home', 'propagated-file')`),
     check('credential_placements_state', sql`state IN ('present', 'removal-pending', 'removed')`),
   ],

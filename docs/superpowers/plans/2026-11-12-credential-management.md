@@ -354,8 +354,43 @@ attachAccess(deps: AttachAccessDeps, plan: SessionAccess,
 //   for, before anything is created: resolveCredentialRef / credentialIdForRef
 //   (apps/server/src/modules/credentials/credential-ref.ts), SessionLifecycle.launchCredential.
 
-// apps/server/src/modules/credentials/placements.ts
-removePlacement(placement: { credentialId; machineId; kind: 'home' | 'propagated-file' }): Promise<'removed' | 'pending'>
+// apps/server/src/modules/credentials/placements.ts — `Placements`, built by the composition root
+placements.removePlacement(placement: { credentialId; machineId; kind: 'home' | 'propagated-file' }):
+  Promise<'removed' | 'pending'>            // pending: offline, no remover bound, or not confirmed
+placements.retryPendingOn(machineId)        // on machine.connected
+interface PlacementTransport { isOnline(machineId): boolean
+  removers: Partial<Record<'home' | 'propagated-file',
+    (machineId, credential: CredentialRecord) => Promise<boolean>>> }   // true: the machine confirmed
+//   relay.ts binds `removers: {}` today; Task 8 binds 'propagated-file' (credentialRemoveRequest)
+//   and 'home'. login-propagation records a 'propagated-file' placement when the installed
+//   login's fingerprint is a credential of the owner.
+// CredentialRecord.limitReachedUntil (column credentials.limit_reached_until); CredentialsRepository
+//   markVerified(id, at), setExpiresAt, setLimitReachedUntil(id, until | null),
+//   markAttention(id, reason) → boolean (true only for the call that moved it from 'ok'),
+//   listWithExpiry(), listPendingPlacementsOn(machineId), listPendingPlacementsOfOwner(ownerUserId)
+// SessionsRepository.liveSessionIdsOnCredential(credentialId) → SessionId[]
+
+// apps/server/src/modules/credentials/health.ts — `CredentialHealth`, at registry.modules.credentialHealth
+//   and on the credential commands' state (CredentialsState.health)
+health.verify(type, secret) → { ok: true; providerChecked; expiresAt? } | { ok: false; reason }
+health.noteFailure({ credentialId, failure: 'rejected' | 'limit' | 'other', reason, actorUserId?,
+  sessionId?, limitUntil? })   // rejected → 'attention' once; limit → limitReachedUntil
+health.checkExpiry()           // hourly: notice within 14 days, 'attention' at expiry
+health.afterRenew(record, { providerChecked })   // resolves notices; restarts sessions at a turn boundary
+health.removeEverywhere(credentialId, actorUserId)
+health.removeMemberCredentials(memberId, actorUserId)
+health.afterShare(record, grantee, verb, sharedBy)  // credential-shared notice
+health.onTurnBoundary(sessionId, credentialId | null)
+classifyCredentialFailure({ errorClass?, turnFailure?, httpStatus? }) → CredentialFailure
+interface CredentialNoticePort { emit(notice): Promise<void>; resolve(dedupeKey): Promise<void> }
+//   dedupe keys: credential-attention:<id>, credential-expiring:<id>,
+//   credential-shared:<id>:<userId>:<verb>
+interface CredentialSessionPort { liveSessionIds; standing(id) → 'in-turn' | 'between-turns' |
+  'not-running'; restartWithResume; stop; flagRemoved }   // bound in relay.ts, through asSystemWrite
+// CompleteDeps.onCredentialFailure (direct inference reports a 401/403 or 429/402);
+// SessionRegistryOptions.credentialProviderFetch (tests pass a fake provider);
+// InteractionServiceDeps.loginProviderForSession (a sign-in ask names the session's credential);
+// registerMemberRoutes option afterMemberRemoved(memberId, actor)
 
 // apps/server/src/modules/inference/complete.ts
 complete(deps, i: { credentialId?: CredentialId; role?: RoleName; model?: string
@@ -1587,7 +1622,7 @@ Files more than one task edits, and who goes first:
 - `apps/daemon/src/control/session.ts`, `host-runtime.ts`: 5, then 8, then 15.
 - `packages/protocol` messages and golden fixtures: 1, 5, 8, 10, 14, 22. Regenerate after
   rebase.
-- Drizzle migrations: 2, 3, 10, 16, and 4 if it needs one. One migration each; regenerate the
+- Drizzle migrations: 2, 3, 10, 13, 16, and 4 if it needs one. One migration each; regenerate the
   snapshot after rebase.
 - `docs/configuration.md`, `docs/data-and-upgrades.md`: 2, 23, 22, 21, one paragraph each.
 - `apps/web/src/features/credentials/`: 17 owns the page; 9 and 14 add their own

@@ -11,6 +11,7 @@ import {
   actorColumns,
   actorFromColumns,
   asSessionId,
+  type CredentialId,
   CredentialMismatch,
   EffectiveAuth,
   type IssueId,
@@ -391,6 +392,25 @@ const liveSessionsOnMachine = prepared((db: StoreDrizzle) =>
       isNull(sessionsTable.deletedAt),
     ),
   ),
+)
+
+/**
+ * The live sessions on one credential (credential management §7, §8): what a
+ * renewal restarts and a removal stops. Ids only, through the partial index
+ * `idx_sessions_credential`, whose condition this repeats.
+ */
+const liveSessionIdsOnCredential = prepared((db: StoreDrizzle) =>
+  db
+    .select({ id: sessionsTable.id })
+    .from(sessionsTable)
+    .where(
+      and(
+        eq(sessionsTable.credentialId, param(sessionsTable.credentialId, 'credentialId')),
+        isNotNull(sessionsTable.credentialId),
+        isNull(sessionsTable.deletedAt),
+      ),
+    )
+    .prepare(),
 )
 
 const liveSessions = prepared((db: StoreDrizzle) =>
@@ -1849,6 +1869,13 @@ export class SessionsRepository {
   async lifecyclePending(machineId: MachineId): Promise<SessionId[]> {
     const rows = await lifecyclePendingOnMachine(this.db).all({ machineId })
     return rows.map((row) => row.id as SessionId)
+  }
+
+  /** The ids of the live sessions that run on `credentialId`, in id order. */
+  async liveSessionIdsOnCredential(credentialId: CredentialId): Promise<SessionId[]> {
+    const rows = await liveSessionIdsOnCredential(this.db).all({ credentialId })
+    // Ordered here: the few rows of one credential, not a sort in the plan.
+    return rows.map((row) => row.id as SessionId).sort()
   }
 
   async sessionsOnMachine(machineId: MachineId): Promise<SessionRow[]> {

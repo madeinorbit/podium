@@ -111,6 +111,41 @@ describe('login propagation coordinator', () => {
 
   const toTarget = { targetMachineId: asMachineId('target'), agentKind: 'codex' as const }
 
+  it('records a propagated-file placement on the credential that names the copied login (Task 13)', async () => {
+    const s = await fleet()
+    await tick(s)
+    const credential = await s.credentials.insert({
+      ownerUserId: owner,
+      label: 'ChatGPT login',
+      type: 'openai.chatgpt-login',
+      identity: { fingerprint: 'same-account' },
+    })
+    const unrelated = await s.credentials.insert({
+      ownerUserId: owner,
+      label: 'Another login',
+      type: 'openai.chatgpt-login',
+      identity: { fingerprint: 'another-account' },
+    })
+    const { svc } = service(s)
+    await expect(svc.propagate(toTarget)).resolves.toMatchObject({ status: 'propagated' })
+    expect(await s.credentials.listPlacements(credential.id)).toEqual([
+      expect.objectContaining({
+        machineId: 'target',
+        kind: 'propagated-file',
+        state: 'present',
+      }),
+    ])
+    expect(await s.credentials.listPlacements(unrelated.id)).toEqual([])
+  })
+
+  it('a propagated login no credential names records no placement', async () => {
+    const s = await fleet()
+    await tick(s)
+    const { svc } = service(s)
+    await expect(svc.propagate(toTarget)).resolves.toMatchObject({ status: 'propagated' })
+    expect(await s.credentials.listPendingPlacementsOn(asMachineId('target'))).toEqual([])
+  })
+
   it('resumes after upgrading an incapable peer without getting stuck in the retry budget', async () => {
     const s = await fleet()
     await tick(s)

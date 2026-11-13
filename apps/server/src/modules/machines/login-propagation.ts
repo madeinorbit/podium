@@ -1,4 +1,5 @@
 import {
+  harnessAccepts,
   harnessPortableCredential,
   harnessSupportsCredentialPropagation,
 } from '@podium/harness/metadata'
@@ -214,6 +215,33 @@ export class LoginPropagationService {
     })
   }
 
+  /**
+   * What Podium placed on the target, for the owner's credential that names
+   * this login (credential management §8 "cleanup"): removing that credential
+   * removes the copied file again. A login no credential names places nothing.
+   */
+  private async recordPlacement(
+    ownerUserId: UserId,
+    harness: PropagatableHarness,
+    fingerprint: string,
+    machineId: MachineId,
+  ): Promise<void> {
+    const homeTypes = harnessAccepts(harness).filter((line) => line.deliver.kind === 'home')
+    for (const line of homeTypes) {
+      const credential = await this.deps.store.credentials.findByIdentity({
+        ownerUserId,
+        type: line.type,
+        fingerprint,
+      })
+      if (!credential) continue
+      await this.deps.store.credentials.recordPlacement({
+        credentialId: credential.id,
+        machineId,
+        kind: 'propagated-file',
+      })
+    }
+  }
+
   private async run(input: {
     input: LoginPropagationTrigger
     harness: PropagatableHarness
@@ -387,6 +415,7 @@ export class LoginPropagationService {
         return { status: 'failed', reason: 'target refused credential propagation' }
       }
       await this.record(input.ownerUserId, choice, targetId, 'installed')
+      await this.recordPlacement(input.ownerUserId, input.harness, choice.fingerprint, targetId)
       return { status: 'propagated', donorMachineId: donor, fingerprint: choice.fingerprint }
     } finally {
       await this.deps.store.secrets.clearNativeLoginTransfer(input.ownerUserId, transferId)

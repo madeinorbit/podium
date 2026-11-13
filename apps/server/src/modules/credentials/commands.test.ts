@@ -30,6 +30,7 @@ import { appRouter } from '../../router'
 import type { SessionStore } from '../../store'
 import { memberFacts } from '../../store/fixtures/test-support'
 import { OPERATOR } from '../../test-support/capabilities'
+import { acceptingProviderFetch } from '../../test-support/fake-provider'
 import { SuperagentService } from '../superagent'
 import { mayUse } from './may-use'
 import { sealCredentialSecret, withSecret } from './vault'
@@ -64,7 +65,11 @@ interface Harness {
 }
 
 async function harness(type: string = 'anthropic.api-key'): Promise<Harness> {
-  const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  const registry = await SessionRegistry.create(undefined, undefined, {
+    instanceId: 'default',
+    // Adding a key asks its provider; a test never reaches a real one (Task 13).
+    credentialProviderFetch: acceptingProviderFetch,
+  })
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const store = registry.sessionStore

@@ -56,6 +56,7 @@ import {
   refuse,
   resolveInferenceAccess,
 } from '../credentials/access'
+import { classifyCredentialFailure, httpStatusOf } from '../credentials/health'
 import { credentialIdFromLegacy } from '../credentials/legacy-ids'
 import { SecretUnavailableError, withSecret } from '../credentials/vault'
 import { CredentialRefusal } from '../sessions/launch-config'
@@ -110,6 +111,16 @@ export interface CompleteDeps {
   store: AccessDeps & Pick<SessionStore, 'vault' | 'settings'>
   fetch?: FetchLike
   onMachine?: OnMachineTransport
+  /**
+   * The provider rejected the credential, or reported a limit (credential
+   * management §7): the health service records it. Absent, nothing is recorded.
+   */
+  onCredentialFailure?: (failure: {
+    credentialId: CredentialId
+    failure: 'rejected' | 'limit'
+    reason: string
+    actorUserId: UserId
+  }) => Promise<void>
 }
 
 /** No credential is chosen, or the chosen one cannot serve this call here. */
@@ -170,7 +181,13 @@ export async function complete(deps: CompleteDeps, i: CompleteInput): Promise<Co
     tools: i.tools ?? [],
     actingUserId: i.actingUserId,
   }
-  const served = await runRoute(deps, access.route, call)
+  let served: Served
+  try {
+    served = await runRoute(deps, access.route, call)
+  } catch (err) {
+    await reportCredentialFailure(deps, credential.id, i.actingUserId, err)
+    throw err
+  }
   recordInferenceUsage({
     servedBy: credential.id,
     label: credential.label,
@@ -187,6 +204,32 @@ export async function complete(deps: CompleteDeps, i: CompleteInput): Promise<Co
     toolCalls: served.answer.toolCalls,
     servedBy: credential.id,
     label: credential.label,
+  }
+}
+
+/**
+ * A provider's answer that names the credential: 401/403 rejects it, 429/402
+ * is a limit. The error was already redacted of the secret. A failure to record
+ * it is logged and never replaces the call's own error.
+ */
+async function reportCredentialFailure(
+  deps: CompleteDeps,
+  credentialId: CredentialId,
+  actorUserId: UserId,
+  err: unknown,
+): Promise<void> {
+  if (!deps.onCredentialFailure || err instanceof CredentialRefusal) return
+  const failure = classifyCredentialFailure({ httpStatus: httpStatusOf(err) })
+  if (failure === 'other') return
+  try {
+    await deps.onCredentialFailure({
+      credentialId,
+      failure,
+      reason: err instanceof Error ? err.message : String(err),
+      actorUserId,
+    })
+  } catch (recordErr) {
+    log.warn('could not record a credential failure', { err: recordErr, credentialId })
   }
 }
 

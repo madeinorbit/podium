@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   asAccountId,
+  asCredentialId,
   asIssueId,
   asMachineId,
   asSessionId,
@@ -233,6 +234,26 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
 }
 
 describe('SessionStore sessions', () => {
+  it('lists the live sessions on a credential, through its index (credential management Task 13)', async () => {
+    const s = await openTestStore(':memory:')
+    const credentialId = asCredentialId('cred_00000000-0000-4000-8000-000000006900')
+    const other = asCredentialId('cred_00000000-0000-4000-8000-000000006901')
+    await s.sessions.upsertSessions(fixtureWriteScope(), [
+      row({ id: asSessionId('on-b'), durableLabel: 'podium-on-b', credentialId }),
+      row({ id: asSessionId('on-a'), durableLabel: 'podium-on-a', credentialId }),
+      row({ id: asSessionId('elsewhere'), durableLabel: 'podium-x', credentialId: other }),
+      row({ id: asSessionId('none'), durableLabel: 'podium-none' }),
+      row({
+        id: asSessionId('gone'),
+        durableLabel: 'podium-gone',
+        credentialId,
+        deletedAt: '2026-06-10T00:00:00.000Z',
+      }),
+    ])
+    expect(await s.sessions.liveSessionIdsOnCredential(credentialId)).toEqual(['on-a', 'on-b'])
+    await s.close()
+  })
+
   it('rejects persisting an invalid agentKind (write-side guard against poison rows)', async () => {
     // Strict on write: an agentKind outside the enum (e.g. the 'auto' sentinel) must
     // never reach the table, since it later fails the sessionsChanged zod-parse and

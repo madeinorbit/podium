@@ -102,6 +102,16 @@ export const CredentialDetail = observer(function CredentialDetail({
   })
   const shares = view.sharedWith ?? []
 
+  // Removed, with a machine that has not confirmed yet (§8): nothing left to change.
+  if (view.status === 'revoked') {
+    return (
+      <Section>
+        <ValueRow label="Kind" value={typeTitle(view.type)} />
+        <ValueRow label="Status" value={lines.map((line) => line.text).join(' · ')} />
+      </Section>
+    )
+  }
+
   const unshare = async (index: number) => {
     const share = shares[index]
     if (!share) return

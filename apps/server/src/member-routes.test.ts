@@ -23,6 +23,7 @@ function app(
     admin?: boolean
     workspace?: WorkspaceIdentity
     onMembershipChanged?: (memberId: string, change: string) => void
+    afterMemberRemoved?: (memberId: string, actor: string) => Promise<void>
   } = {},
 ) {
   const hono = new Hono()
@@ -32,6 +33,7 @@ function app(
     resolveUserId: async () => (options.admin ? firstAdminMemberId() : undefined),
     appUrl: () => 'https://workspace.example/',
     ...(options.onMembershipChanged ? { onMembershipChanged: options.onMembershipChanged } : {}),
+    ...(options.afterMemberRemoved ? { afterMemberRemoved: options.afterMemberRemoved } : {}),
   })
   return hono
 }
@@ -229,4 +231,20 @@ test('an invite cannot reset an active member with a password; that takes a reco
   const hono = app({ admin: true })
   expect((await post(hono, 'invite', { memberId: bob })).status).toBe(403)
   expect((await post(hono, 'recovery', { id: bob })).status).toBe(200)
+})
+
+test('removing a member then removes their credentials, named with the admin who did it (credential management Task 13)', async () => {
+  const removed = vi.fn(async (_memberId: string, _actor: string) => {})
+  const hono = app({ admin: true, afterMemberRemoved: removed })
+  const leaving = await identity.addMember({
+    name: 'Leaving',
+    email: 'leaving@example.com',
+    password: 'leaving-pass-123',
+  })
+  // Disabling keeps the member, and their credentials with them.
+  expect((await post(hono, 'disable', { id: leaving })).status).toBe(200)
+  expect(removed).not.toHaveBeenCalled()
+  expect((await post(hono, 'remove', { id: leaving })).status).toBe(200)
+  expect(removed).toHaveBeenCalledTimes(1)
+  expect(removed).toHaveBeenCalledWith(leaving, firstAdminMemberId())
 })
