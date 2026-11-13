@@ -81,7 +81,6 @@ import {
 import {
   type BindingConfirmations,
   type BuiltinHarnessKind,
-  DEFAULT_SESSION_POSTURE,
   type DaemonPtyInputMetadata,
   type DaemonPtyOutputBatch,
   type PeerBuild,
@@ -201,6 +200,7 @@ import { SessionRegistry } from './session/registry.js'
 import { SessionBinding } from './session-binding'
 import { driverHarnessContextFrom, engineSessionHarnessContext } from './session-harness-context'
 import { launchFoldersFor, podiumGrantsFor } from './session-posture'
+import { storedSessionPosture } from './session-posture-store'
 import { createSessionObservers } from './session-observers'
 import { sessionModelSize, terminalScreenFor, trackSessionOutput } from './session-screens'
 import { sweepUploads, UPLOADS_GC_INTERVAL_MS } from './session-uploads'
@@ -1191,11 +1191,11 @@ export async function createDaemonHostRuntime(args: {
           target.kind as BuiltinHarnessKind,
           target.driverId,
         ),
-      // THE CLIENT'S LAUNCH TERMS (POD-6858). No spawn frame states a posture
-      // yet, so every session runs on the default, and the client attached to
-      // it does too. A client mounts no MCP of its own.
+      // THE CLIENT'S LAUNCH TERMS (POD-6858). The client attached to a
+      // session runs on the posture the session was spawned on, as the daemon
+      // recorded it. A client mounts no MCP of its own.
       launchPosture: async (sessionId, target, context) => ({
-        posture: DEFAULT_SESSION_POSTURE,
+        posture: storedSessionPosture(sessionId),
         grants: podiumGrantsFor(
           { stateRoot: stateDir() },
           sessionId,

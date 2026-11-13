@@ -50,7 +50,6 @@ import {
   WriterLeaseRefusedError,
 } from '@podium/process/durable'
 import type { AgentPicture } from '@podium/process/screen'
-import { DEFAULT_SESSION_POSTURE } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
 import { measureTask } from '@podium/runtime/task-attribution'
@@ -108,6 +107,12 @@ import {
   prepareLaunch,
   sessionRuntimeDir,
 } from '../session-posture'
+import {
+  forgetSessionPosture,
+  recordSessionPosture,
+  spawnPosture,
+  storedSessionPosture,
+} from '../session-posture-store'
 import { Terminal } from '../terminal/terminal.js'
 import { type BindFacts, bindFrame, reportSize } from './applied-geometry'
 import type { ControlHandlers, DaemonContext } from './context'
@@ -1100,6 +1105,7 @@ async function launchAgentTerminal(ctx: DaemonContext, msg: SpawnControl): Promi
       { driverId: profile.driverId, auth: 'unknown', role: 'interactive' },
       await buildSessionHarnessContext(ctx, msg.agentKind as BuiltinHarnessKind),
     )
+    recordSessionPosture(msg.sessionId, base.posture)
     const spec: SessionSpec = {
       ...base,
       model: {
@@ -1319,10 +1325,12 @@ async function withOrder(
  * sessions mount MCP through the CLI's own config file, and passing an empty
  * one would make a driver report a tool mount it did not make.
  *
- * POSTURE AND GRANTS (POD-6858). The spawn frame carries no posture yet, nor
- * a permission mode, so every spawned session runs on the default posture
- * until the frame carries one. The grants are Podium's standing facts for
- * this session, built here on its machine like the context.
+ * POSTURE AND GRANTS (POD-6858). The session runs on the posture its spawn
+ * frame states, or the default when the frame states none (an older server,
+ * or one that picks no mode). The spawn path records it with the session
+ * ({@link recordSessionPosture}) so a later launch with no frame in hand runs
+ * on the same terms. The grants are Podium's standing facts for this session,
+ * built here on its machine like the context.
  */
 export function sessionSpecForSpawn(
   msg: SpawnControl,
@@ -1334,7 +1342,7 @@ export function sessionSpecForSpawn(
   return {
     ...plain,
     harnessContext,
-    posture: DEFAULT_SESSION_POSTURE,
+    posture: spawnPosture(msg),
     grants: podiumGrantsFor({ stateRoot }, msg.sessionId, plain, harnessContext),
   }
 }
@@ -1702,8 +1710,9 @@ async function adoptHeadlessSession(ctx: DaemonContext, msg: ReattachControl): P
       const spec: SessionSpec = {
         harness: msg.agentKind,
         harnessContext,
-        // No frame here states a posture: the reattached session runs on the default.
-        posture: DEFAULT_SESSION_POSTURE,
+        // No frame here states a posture: the reattached session runs on the
+        // one recorded when it was spawned (the default for an older record).
+        posture: storedSessionPosture(msg.sessionId),
         grants: podiumGrantsFor(
           { stateRoot: stateDir() },
           msg.sessionId,
@@ -2320,6 +2329,7 @@ export async function launchServerDriverSession(
           resolution.driverId,
         )),
     )
+    recordSessionPosture(msg.sessionId, spec.posture)
     // A resume ref goes to the driver only where its source can continue a
     // conversation from the ref alone (headless, the Claude stream engine);
     // the vendor servers resume from their journal above.
@@ -3161,10 +3171,12 @@ export const sessionHandlers: Pick<
           log.warn('could not retire the binding', { sessionId: msg.sessionId, reason: failure })
         }
         stopSessionProcess(ctx, msg, { retire: true })
+        forgetSessionPosture(msg.sessionId)
       })
       .catch((err) => {
         log.warn('could not retire the binding', { err, sessionId: msg.sessionId })
         stopSessionProcess(ctx, msg, { retire: true })
+        forgetSessionPosture(msg.sessionId)
       })
   },
   sessionResumeRefConflict: (ctx, msg) => {

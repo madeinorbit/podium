@@ -2,13 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { HarnessExecRequestMessage } from './harness'
 import { HeadlessTurnRequestMessage } from './headless'
 import { RuntimeDurableSendRequestMessage, RuntimeSendRequestMessage } from './runtime'
+import { SpawnMessage } from './terminal'
 
 /**
  * POSTURE ON THE WIRE (POD-6858 Task 9, harness-session-posture.md §4.2–4.3).
  *
  * The server states a session's launch terms in Podium's own words, inside the
  * frames it sends anyway: the runtime turn frame (and its durable twin), the
- * headless turn frame and the buffered exec frame. An older peer sends no
+ * headless turn frame, the buffered exec frame and the spawn frame. An older peer sends no
  * `posture`, so each frame must still parse without one; a mode that is
  * neither of the two levels nor a native pick is refused, never passed on.
  */
@@ -49,11 +50,20 @@ const execFrame = {
   cwd: '/repo',
 }
 
+const spawnFrame = {
+  type: 'spawn',
+  sessionId: 's-posture',
+  agentKind: 'claude-code',
+  cwd: '/repo',
+  geometry: { cols: 80, rows: 24 },
+}
+
 const frames = [
   ['runtimeSendRequest', RuntimeSendRequestMessage, turnFrame],
   ['runtimeDurableSendRequest', RuntimeDurableSendRequestMessage, durableFrame],
   ['headlessTurnRequest', HeadlessTurnRequestMessage, headlessFrame],
   ['harnessExecRequest', HarnessExecRequestMessage, execFrame],
+  ['spawn', SpawnMessage, spawnFrame],
 ] as const
 
 describe.each(frames)('%s carries a posture', (_name, schema, frame) => {

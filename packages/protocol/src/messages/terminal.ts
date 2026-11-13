@@ -17,6 +17,7 @@ import { PresenceIdentity } from '../planes/presence-rooms'
 import { FeedCursorField, SyncKindTokens } from './feed'
 import { ClientLogOrigin } from './logs'
 import { NativeBindingReceipt } from './native-binding'
+import { SessionPostureSchema } from './posture'
 
 const positiveInt = z.number().int().positive()
 
@@ -557,6 +558,15 @@ export const SpawnMessage = z.object({
    * that can tell a typo from a driver this build does not ship.
    */
   requestedDriverId: z.string().min(1).optional(),
+  /**
+   * THE SESSION'S LAUNCH TERMS, in Podium's words (POD-6858,
+   * harness-session-posture.md §4.2–4.3). Absent means
+   * `DEFAULT_SESSION_POSTURE`. The daemon stores the posture it resolves with
+   * the session, so a resume or wake while the server is unreachable runs on
+   * the same terms. Appended at the END: an older daemon strips it and runs
+   * the default, as it always did.
+   */
+  posture: SessionPostureSchema.optional(),
 })
 export const ReattachMessage = z.object({
   type: z.literal('reattach'),
