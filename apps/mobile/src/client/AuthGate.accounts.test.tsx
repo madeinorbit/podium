@@ -1,4 +1,5 @@
 import { cleanup, render, screen } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 
 vi.mock('./server-profile-context', () => ({
@@ -12,12 +13,20 @@ vi.mock('./server-profile-context', () => ({
   }),
 }))
 vi.mock('./demoData', () => ({ demoEnabled: () => false }))
-vi.mock('./launch-ready', () => ({ LaunchReadyView: ({ children }: any) => children }))
+vi.mock('./launch-ready', () => ({
+  LaunchReadyView: ({ children }: { children: ReactNode }) => children,
+}))
 vi.mock('../screens/LoginScreen', () => ({ LoginScreen: () => <div>SIGN IN</div> }))
 vi.mock('../components/PressableScale', () => ({
-  PressableScale: ({ children, onPress }: any) => <button onClick={onPress}>{children}</button>,
+  PressableScale: ({ children, onPress }: { children: ReactNode; onPress: () => void }) => (
+    <button type="button" onClick={onPress}>
+      {children}
+    </button>
+  ),
 }))
+
 import { AuthGate } from './AuthGate'
+
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
@@ -79,4 +88,18 @@ it('admits a verified mobile account with the same identity used by the web gate
     </AuthGate>,
   )
   await screen.findByText('WORKSPACE')
+})
+
+it('keeps a signed-out protected account at sign-in before navigation can mount', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ needsAuth: true, authed: false, userId: null })),
+  )
+  render(
+    <AuthGate>
+      <div>WORKSPACE</div>
+    </AuthGate>,
+  )
+  await screen.findByText('SIGN IN')
+  expect(screen.queryByText('WORKSPACE')).toBeNull()
 })

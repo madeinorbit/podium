@@ -45,7 +45,11 @@ function NativeNavigation({ reduceMotion }: RootNavigationProps) {
         gestureResponseDistance: { start: 80 },
       }}
     >
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      {/* `/` still matches index before its Redirect runs. Configure both ends
+          here so that first native frame has no header or replace animation. */}
+      <Stack.Screen name="index" options={{ headerShown: false, animation: 'none' }} />
+      <Stack.Screen name="signed-in" options={{ headerShown: false, animation: 'none' }} />
+      <Stack.Screen name="(tabs)" options={{ headerShown: false, animation: 'none' }} />
       <Stack.Screen name="new-issue" options={{ presentation: 'modal' }} />
       <Stack.Screen
         name="inspect/[issueId]"
