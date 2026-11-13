@@ -129,10 +129,12 @@ export function ComposeBody({
   const inputRef = promptRef ?? ownRef
   const [promptHeight, setPromptHeight] = useState<number>()
   const [promptWidth, setPromptWidth] = useState(0)
-  const [viewportHeight, setViewportHeight] = useState(0)
+  const [bodyHeight, setBodyHeight] = useState(0)
+  const [toolbarHeight, setToolbarHeight] = useState(0)
   const [scrollInset, setScrollInset] = useState(0)
   const [headerHeight, setHeaderHeight] = useState(0)
   const [footerHeight, setFooterHeight] = useState(0)
+  const viewportHeight = Math.max(0, bodyHeight - keyboardLift - toolbarHeight)
   const maxPromptHeight = viewportHeight
     ? Math.max(72, viewportHeight - scrollInset - headerHeight - footerHeight - 16)
     : undefined
@@ -153,15 +155,18 @@ export function ComposeBody({
     }
   }
   return (
-    <View style={[styles.body, { paddingBottom: keyboardLift }]}>
+    <View
+      testID="compose-body"
+      style={[styles.body, { paddingBottom: keyboardLift }]}
+      onLayout={(event) => setBodyHeight(event.nativeEvent.layout.height)}
+    >
       <ScrollView
         testID="compose-scroll"
-        style={styles.scroll}
+        style={[styles.scroll, { maxHeight: bodyHeight ? viewportHeight : undefined }]}
         contentInsetAdjustmentBehavior="automatic"
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
         contentContainerStyle={styles.content}
-        onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}
         onScroll={(event) => {
           const { top = 0, bottom = 0 } = event.nativeEvent.contentInset ?? {}
           setScrollInset(top + bottom)
@@ -296,6 +301,8 @@ export function ComposeBody({
         />
       </ScrollView>
       <View
+        testID="compose-toolbar"
+        onLayout={(event) => setToolbarHeight(event.nativeEvent.layout.height)}
         onTouchStart={Keyboard.dismiss}
         style={[styles.toolbar, { paddingBottom: keyboardLift > 0 ? 8 : Math.max(8, bottomInset) }]}
       >
@@ -341,7 +348,9 @@ function Tool({
 
 const styles = StyleSheet.create({
   body: { flex: 1, minHeight: 0 },
-  scroll: { flex: 1 },
+  // The body owns keyboard clearance; the measured bar owns the remaining
+  // bottom inset. Keep prompt sizing inside that same bounded viewport.
+  scroll: { flex: 1, minHeight: 0, overflow: 'hidden' },
   content: { flexGrow: 1, paddingBottom: 16 },
   dismissArea: { flex: 1, minHeight: 0 },
   field: {
@@ -450,6 +459,7 @@ const styles = StyleSheet.create({
   tipLink: { color: color.workingText },
   error: { fontWeight: '400', padding: 16, color: color.dangerText, fontSize: 13, lineHeight: 20 },
   toolbar: {
+    flexShrink: 0,
     paddingTop: 8,
     paddingHorizontal: 16,
     flexDirection: 'row',

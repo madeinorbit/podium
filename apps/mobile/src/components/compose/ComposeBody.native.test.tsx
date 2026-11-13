@@ -80,7 +80,8 @@ afterEach(() => {
 
 it('lets native text grow to ten lines, scrolls at the available height, and shrinks again', () => {
   const { rerender } = render(<ComposeBody {...props} />)
-  layout('compose-scroll', 600)
+  layout('compose-body', 660)
+  layout('compose-toolbar', 60)
   layout('compose-fields', 132)
   layout('compose-footer', 34)
   rerender(
@@ -97,12 +98,48 @@ it('lets native text grow to ten lines, scrolls at the available height, and shr
     native.scroll?.onScroll?.({ nativeEvent: { contentInset: { top: 64, bottom: 0 } } } as never),
   )
   expect(StyleSheet.flatten(native.input?.style)?.maxHeight).toBe(354)
-  layout('compose-scroll', 340)
+  layout('compose-body', 400)
   expect(StyleSheet.flatten(native.input?.style)?.maxHeight).toBe(94)
   expect(native.input?.scrollEnabled).toBe(true)
   content(56)
   expect(native.input?.scrollEnabled).toBe(false)
   expect(StyleSheet.flatten(native.input?.style)).not.toHaveProperty('height')
+})
+
+it('bounds a twelve-line prompt above the attachment bar and keyboard, with the tip below the input', () => {
+  const prompt = Array.from({ length: 12 }, (_, i) => `Line ${i + 1}`).join('\n')
+  const { rerender } = render(<ComposeBody {...props} prompt={prompt} keyboardLift={336} />)
+  const body = screen.getByTestId('compose-body')
+  const viewport = screen.getByTestId('compose-scroll')
+  const toolbar = screen.getByTestId('compose-toolbar')
+  const tip = screen.getByText(/Something big/)
+  expect(getComputedStyle(body).paddingBottom).toBe('336px')
+  expect(viewport.parentElement).toBe(body)
+  expect(viewport.nextElementSibling).toBe(toolbar)
+  expect(StyleSheet.flatten(native.scroll?.style)?.overflow).toBe('hidden')
+  expect(getComputedStyle(viewport).minHeight).toBe('0px')
+  expect(getComputedStyle(toolbar).flexShrink).toBe('0')
+  expect(
+    screen.getByRole('textbox', { name: 'Task prompt' }).nextElementSibling?.contains(tip),
+  ).toBe(true)
+
+  // The native viewport excludes both the 60pt toolbar and 336pt keyboard.
+  layout('compose-body', 736)
+  layout('compose-toolbar', 60)
+  expect(StyleSheet.flatten(native.scroll?.style)?.maxHeight).toBe(340)
+  layout('compose-fields', 132)
+  layout('compose-footer', 34)
+  content(276)
+  expect(StyleSheet.flatten(native.input?.style)?.maxHeight).toBe(158)
+  expect(native.input?.scrollEnabled).toBe(true)
+  expect(StyleSheet.flatten(native.input?.style)).not.toHaveProperty('height')
+
+  rerender(<ComposeBody {...props} prompt={prompt} bottomInset={34} />)
+  layout('compose-toolbar', 86)
+  expect(StyleSheet.flatten(native.scroll?.style)?.maxHeight).toBe(650)
+  expect(getComputedStyle(body).paddingBottom).toBe('0px')
+  expect(getComputedStyle(toolbar).paddingBottom).toBe('34px')
+  expect(native.input?.scrollEnabled).toBe(false)
 })
 
 it('keeps full-width rows, a small corner badge with a full hit area, and a keyboard dismissal target', () => {
