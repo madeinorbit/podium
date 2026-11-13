@@ -18,7 +18,7 @@ export interface AskQuestion {
   question: string
   header?: string
   multiSelect?: boolean
-  options: AskOption[]
+  options: readonly AskOption[]
 }
 
 /**
