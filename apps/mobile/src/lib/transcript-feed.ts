@@ -1,6 +1,7 @@
 import type { TranscriptActivityRun } from '@podium/client-core/conversation'
 import {
   activityRowSingletonDisplay,
+  askQuestionResult,
   type ChatBlock,
   type ChatRow,
   computeTranscript,
@@ -16,6 +17,7 @@ import {
   parseAskQuestions,
   searchBlocks,
   transcriptActivityFacts,
+  transcriptSystemText,
 } from '@podium/client-core/values'
 import type { TranscriptItem } from '@podium/model'
 
@@ -119,11 +121,12 @@ export function shapeMobileChatRow(
 
   const { item } = chatRow.block
   if (isAskUserQuestion(item)) {
-    if (!item.toolResult && item.id === options.hiddenQuestionId) return rows
+    const result = askQuestionResult(chatRow.block)
+    if (result === undefined && item.id === options.hiddenQuestionId) return rows
     append({
       key: transcriptItemKey(item),
-      kind: item.toolResult ? 'receipt' : 'question',
-      item,
+      kind: result !== undefined ? 'receipt' : 'question',
+      item: result !== undefined ? { ...item, toolResult: result } : item,
       blockIndices,
       turn: 'beat',
     })
@@ -178,7 +181,7 @@ export function shapeMobileChatRow(
     const quietText =
       item.systemKind === 'duration' && item.durationMs !== undefined
         ? `churned ${formatChurn(item.durationMs)}`
-        : item.text.trim()
+        : transcriptSystemText(item.text)
     if (quietText) {
       append({
         key: transcriptItemKey(item),

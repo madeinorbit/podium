@@ -3,13 +3,13 @@ import type { TurnPreviewMessage } from '@podium/protocol'
 import { autorun, observable, runInAction, spy } from 'mobx'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SocketHub } from '../socket-transport/socket-hub'
+import { DraftStore } from './draft-store'
 import {
   Conversation,
-  TURN_PREVIEW_STALE_MS,
   type ConversationOptions,
   type ConversationSession,
+  TURN_PREVIEW_STALE_MS,
 } from './model'
-import { DraftStore } from './draft-store'
 
 const sid = asSessionId('session')
 const row = (id: string, text = id): TranscriptItem => ({
@@ -112,6 +112,40 @@ function fixture(over: Partial<ConversationOptions> = {}) {
 afterEach(() => vi.useRealTimers())
 
 describe('Conversation real-time intake and ownership', () => {
+  it('uses the paired result to retire the pending question when the agent answers', async () => {
+    const f = fixture()
+    try {
+      await f.conversation.start()
+      const ask: TranscriptItem = {
+        id: 'ask',
+        role: 'tool',
+        text: '',
+        toolName: 'AskUserQuestion',
+        toolUseId: 'ask-use',
+        toolInputJson: JSON.stringify({
+          questions: [{ question: 'Pick a colour', options: [{ label: 'Red' }] }],
+        }),
+      }
+      f.delta([ask])
+      f.paint()
+      expect(f.conversation.pendingQuestion?.id).toBe('ask')
+      f.delta([
+        {
+          id: 'result',
+          role: 'tool',
+          text: '',
+          toolUseId: 'ask-use',
+          toolResult: 'You selected "Red"',
+        },
+        row('reply', 'You picked Red.'),
+      ])
+      f.paint()
+      expect(f.conversation.pendingQuestion).toBeNull()
+      expect(f.conversation.graph.block('ask')?.result).toContain('Red')
+    } finally {
+      f.dispose()
+    }
+  })
   it('publishes two deltas and a preview in one frame action, without waking the ids list', async () => {
     const f = fixture()
     await f.conversation.start()

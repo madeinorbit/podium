@@ -8,34 +8,33 @@ import type {
 } from '@podium/model'
 import { formatAgentError } from '@podium/model'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
+import {
+  action,
+  actionBound,
+  compareShallow,
+  compareStructural,
+  observable,
+  observableRef,
+  reaction,
+  runInAction,
+} from 'mobx'
 import type { OutboxChatSend } from '../engine/chat-send'
+import type {
+  ConversationClock,
+  ConversationContext,
+  ConversationMessage,
+  ConversationSendInput,
+  ConversationSendOptions,
+} from './contracts'
+import { CATCH_UP_BATCH, NOT_STORED } from './contracts'
+import type { DraftStore } from './draft-store'
+import { freezePlain } from './frozen'
 import {
   type ConversationBubble,
   type ConversationPendingTurn,
   projectConversation,
 } from './projection'
-
-import {
-  action,
-  actionBound,
-  observable,
-  observableRef,
-  reaction,
-  compareStructural,
-  compareShallow,
-  runInAction,
-} from 'mobx'
-import type {
-  ConversationSendOptions,
-  ConversationMessage,
-  ConversationContext,
-  ConversationClock,
-  ConversationSendInput,
-} from './contracts'
-import { CATCH_UP_BATCH, NOT_STORED } from './contracts'
-import type { DraftStore } from './draft-store'
 import type { TranscriptChange, TranscriptLog } from './transcript-log'
-import { freezePlain } from './frozen'
 
 export interface SendsOptions extends ConversationSendOptions {
   transcript: TranscriptLog
@@ -114,7 +113,8 @@ export class Sends {
   private catchUpAgain = false
 
   constructor(private readonly options: SendsOptions) {
-    if (options.lookupRecords && !options.messageRecords) throw new Error('Message lookup requires the shared record pool')
+    if (options.lookupRecords && !options.messageRecords)
+      throw new Error('Message lookup requires the shared record pool')
     this.clock = options.clock ?? defaultClock
     const pending = [...(options.initialPending ?? [])]
     runInAction(() => {
@@ -165,8 +165,13 @@ export class Sends {
     this.reconcile({ changed: this.options.transcript.items, added: [], rebuild: true }, true)
     this.unsubscribes.push(
       reaction(
-        () => [this.context.agentSince, this.context.agentPhase, this.context.agentError,
-          this.context.offer, this.context.canInterrupt],
+        () => [
+          this.context.agentSince,
+          this.context.agentPhase,
+          this.context.agentError,
+          this.context.offer,
+          this.context.canInterrupt,
+        ],
         () => this.observeContext(this.context),
         { fireImmediately: true, equals: compareStructural },
       ),
@@ -200,7 +205,8 @@ export class Sends {
   }
 
   @actionBound private observeContext(context: ConversationContext): void {
-    if (!context.offer || context.offer.createdAt !== this.dismissedOfferAt) this.dismissedOfferAt = null
+    if (!context.offer || context.offer.createdAt !== this.dismissedOfferAt)
+      this.dismissedOfferAt = null
     this.applyTerminalAgentError(context)
     this.reconcileOpenSend()
   }
@@ -252,7 +258,10 @@ export class Sends {
     return turn
   }
 
-  @action async sendOffer(prompt: string, offerCreatedAt: string): Promise<ConversationPendingTurn | null> {
+  @action async sendOffer(
+    prompt: string,
+    offerCreatedAt: string,
+  ): Promise<ConversationPendingTurn | null> {
     const turn = this.createTurn({ text: prompt, wire: prompt }, 'offer')
     if (!turn) return null
     this.dismissedOfferAt = offerCreatedAt
@@ -641,11 +650,12 @@ export class Sends {
   private currentRecords(
     pending: readonly ConversationPendingTurn[] = this.pending,
   ): readonly ConversationMessage[] {
-    const shown = new Set(pending.map(turn => turn.deliveryId))
+    const shown = new Set(pending.map((turn) => turn.deliveryId))
     const ids = new Set(this.feedIds)
     for (const id of this.looked) if (shown.has(id)) ids.add(id)
     const shared = this.options.messageRecords
-    if (!shared) return (this.options.records?.getSnapshot() ?? []).filter(record => ids.has(record.id))
+    if (!shared)
+      return (this.options.records?.getSnapshot() ?? []).filter((record) => ids.has(record.id))
     const records: ConversationMessage[] = []
     for (const id of ids) {
       const record = shared.read(id)
@@ -756,8 +766,8 @@ export class Sends {
    */
   @actionBound private observeRecords(notify = true): void {
     const records = this.options.records?.getSnapshot() ?? []
-    const seed = this.pending.find(turn => turn.reconcile === 'initial-prompt')
-    this.feedIds = records.map(record => record.id)
+    const seed = this.pending.find((turn) => turn.reconcile === 'initial-prompt')
+    this.feedIds = records.map((record) => record.id)
     const present = new Map<string, ConversationMessage>()
     for (const record of records) {
       present.set(record.id, record)
@@ -766,9 +776,13 @@ export class Sends {
       if (seed && record.initialPrompt) {
         this.seenOpen.delete(seed.deliveryId)
         this.seenOpen.add(record.id)
-        this.pending.replace(this.pending.map(turn => turn === seed
-          ? freezePlain({ ...turn, deliveryId: record.id, reconcile: 'record' as const })
-          : turn))
+        this.pending.replace(
+          this.pending.map((turn) =>
+            turn === seed
+              ? freezePlain({ ...turn, deliveryId: record.id, reconcile: 'record' as const })
+              : turn,
+          ),
+        )
       }
     }
     for (const [id, status] of this.hidden) {
@@ -783,6 +797,7 @@ export class Sends {
       }
     }
     const completed = this.consumeConfirmedTranscript()
+    this.settleCompaction(completed)
     const pending = this.pending.filter(
       (turn) =>
         (turn.state === 'retracted' || !completed.has(turn.deliveryId)) &&
@@ -849,6 +864,7 @@ export class Sends {
    * A delta examines only its changed entries; reads/resets may establish a baseline. */
   @action reconcile(change: TranscriptChange, baseline = false): void {
     const completed = this.consumeConfirmedTranscript()
+    this.settleCompaction(completed, change.changed)
     const retained = this.pending.filter(
       (turn) => turn.state === 'retracted' || !completed.has(turn.deliveryId),
     )
@@ -887,7 +903,8 @@ export class Sends {
     const pending = retained.filter((turn) => {
       if (
         (turn.reconcile !== 'next-user-item' && turn.reconcile !== 'initial-prompt') ||
-        turn.state === 'interrupted' || arrivals === 0
+        turn.state === 'interrupted' ||
+        arrivals === 0
       )
         return true
       arrivals--
@@ -911,6 +928,47 @@ export class Sends {
       this.looked.delete(record.id)
     }
     return completed
+  }
+
+  /** /compact is a local harness command, so its completion may have no user
+   * echo. A later manual compaction proves delivery for both phone and desktop.
+   * Reuse the existing hidden-send set; never rewrite the authority's record. */
+  private settleCompaction(completed: Set<string>, changed?: readonly TranscriptItem[]): void {
+    const candidates = this.currentRecords().filter(
+      (record) =>
+        /^\/compact(?:\s|$)/.test(record.body.trim()) &&
+        ['dispatched', 'typing', 'typed', 'accepted', 'unknown', 'confirmed'].includes(
+          record.status,
+        ),
+    )
+    const local = this.pending.filter(
+      (turn) =>
+        /^\/compact(?:\s|$)/.test(turn.text.trim()) &&
+        (turn.state === 'sent' || turn.state === 'sending'),
+    )
+    if (!candidates.length && !local.length) return
+    const items = changed ?? this.options.transcript.items
+    const at = items.reduce(
+      (latest, item) =>
+        item.role === 'system' &&
+        item.systemKind === 'compaction' &&
+        item.compaction?.trigger !== 'auto' &&
+        item.ts
+          ? Math.max(latest, Date.parse(item.ts) || 0)
+          : latest,
+      0,
+    )
+    if (!at) return
+    for (const record of candidates)
+      if (Date.parse(record.createdAt) <= at) {
+        this.hidden.set(record.id, null)
+        completed.add(record.id)
+      }
+    for (const turn of local)
+      if (turn.at <= at) {
+        this.hidden.set(turn.deliveryId, null)
+        completed.add(turn.deliveryId)
+      }
   }
 
   private markSent(): number {
@@ -1001,7 +1059,10 @@ export class Sends {
       (bubble) => bubble.state !== 'failed' && bubble.state !== 'unknown',
     )
     this.interruptMessageId =
-      !latest || latest.reconcile === 'initial-prompt' || latest.state === 'interrupted' || latest.state === 'retracted'
+      !latest ||
+      latest.reconcile === 'initial-prompt' ||
+      latest.state === 'interrupted' ||
+      latest.state === 'retracted'
         ? null
         : latest.deliveryId
   }

@@ -4,6 +4,7 @@ import {
   failLine,
   formatClock,
   resolveToolEdit,
+  toolSubject,
   toolVerdict,
 } from '@podium/client-core/values'
 import { lazy, Suspense, useState } from 'react'
@@ -33,9 +34,7 @@ export function ToolCallRow({ block }: { block: ChatBlock }) {
       : mail.notes === undefined
         ? 'Read notes'
         : `Read ${mail.notes} notes`
-    : item.toolName === 'Bash'
-      ? (item.toolInput ?? item.toolTitle ?? 'Call')
-      : (item.toolTitle ?? item.toolInput ?? item.toolName ?? 'Call')
+    : toolSubject(item, Number.POSITIVE_INFINITY) || item.toolName || 'Call'
   const glyph = mail
     ? Mail
     : item.toolName === 'Bash'

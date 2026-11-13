@@ -1,17 +1,11 @@
 import { lazy } from '@podium/mobx-helpers'
-import type { SessionId, SessionOffer } from '@podium/model'
+import type { SessionId, SessionOffer, TranscriptItem } from '@podium/model'
 import type { HeadlessActivityEvent, TurnPreviewItem, TurnPreviewMessage } from '@podium/protocol'
-import {
-  action,
-  observable,
-  observableRef,
-  reaction,
-  runInAction,
-} from 'mobx'
+import { action, observable, observableRef, reaction, runInAction } from 'mobx'
 import type { SuperagentTurnFailure } from '../api'
 import type { SocketHub } from '../socket-transport/socket-hub'
-import { transcriptActivitySignal, type TranscriptConnection } from '../transcript/contracts'
-import { nativeSessionCanInterrupt, type ConversationContext } from './contracts'
+import { type TranscriptConnection, transcriptActivitySignal } from '../transcript/contracts'
+import { type ConversationContext, nativeSessionCanInterrupt } from './contracts'
 import type { DraftStore } from './draft-store'
 import {
   ConversationFrameScheduler,
@@ -19,8 +13,8 @@ import {
 } from './frame-scheduler'
 import { freezePlain } from './frozen'
 import { Sends, type SendsOptions } from './sends'
-import { TranscriptLog, type TranscriptChange, type TranscriptLogOptions } from './transcript-log'
 import { TranscriptGraph } from './transcript-graph'
+import { type TranscriptChange, TranscriptLog, type TranscriptLogOptions } from './transcript-log'
 
 export const TURN_PREVIEW_STALE_MS = 20_000
 
@@ -127,25 +121,50 @@ export class ConversationService {
   @lazy get status(): string | undefined {
     return this.options.readSession?.()?.status
   }
-  @lazy get context(): ConversationContext { return this }
+  @lazy get context(): ConversationContext {
+    return this
+  }
+
+  /** Paired results settle questions for every transcript reader. */
+  @lazy get pendingQuestion(): TranscriptItem | null {
+    const id = this.graph.pendingQuestionId
+    return id === undefined ? null : (this.graph.block(id)?.item ?? null)
+  }
 
   @lazy get agentSince(): string | undefined {
-    return this.options.readContext ? this.options.readContext().agentSince : this.options.readSession?.()?.agentSince ?? this.options.readSession?.()?.agentState?.since
+    return this.options.readContext
+      ? this.options.readContext().agentSince
+      : (this.options.readSession?.()?.agentSince ??
+          this.options.readSession?.()?.agentState?.since)
   }
   @lazy get agentPhase(): string | undefined {
-    return this.options.readContext ? this.options.readContext().agentPhase : this.options.readSession?.()?.agentPhase ?? this.options.readSession?.()?.agentState?.phase
+    return this.options.readContext
+      ? this.options.readContext().agentPhase
+      : (this.options.readSession?.()?.agentPhase ??
+          this.options.readSession?.()?.agentState?.phase)
   }
   @lazy get agentError(): ConversationContext['agentError'] {
-    return this.options.readContext ? this.options.readContext().agentError : this.options.readSession?.()?.agentError ?? this.options.readSession?.()?.agentState?.error
+    return this.options.readContext
+      ? this.options.readContext().agentError
+      : (this.options.readSession?.()?.agentError ??
+          this.options.readSession?.()?.agentState?.error)
   }
   @lazy get offer(): SessionOffer | null | undefined {
-    return this.options.readContext ? this.options.readContext().offer : this.options.readSession?.()?.offer
+    return this.options.readContext
+      ? this.options.readContext().offer
+      : this.options.readSession?.()?.offer
   }
   @lazy get canInterrupt(): boolean {
-    return this.options.readContext ? this.options.readContext().canInterrupt : this.options.headless ? this.turnRunning : nativeSessionCanInterrupt(this.status)
+    return this.options.readContext
+      ? this.options.readContext().canInterrupt
+      : this.options.headless
+        ? this.turnRunning
+        : nativeSessionCanInterrupt(this.status)
   }
   @lazy get latestOperatorPrompt(): string | null | undefined {
-    return this.options.readContext ? this.options.readContext().latestOperatorPrompt : this.transcript.latestOperatorPrompt
+    return this.options.readContext
+      ? this.options.readContext().latestOperatorPrompt
+      : this.transcript.latestOperatorPrompt
   }
 
   @lazy get visibleFailure(): SuperagentTurnFailure | null {

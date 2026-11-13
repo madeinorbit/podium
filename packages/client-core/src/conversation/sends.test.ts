@@ -79,6 +79,74 @@ const states = (controller: {
  * screen. No ledger poll, and no transcript text is ever compared.
  */
 describe('MobX sends over synced records', () => {
+  it('settles a /compact notice on a later compaction, including a record arriving after the event', async () => {
+    const feed = transcript()
+    const synced = records()
+    const controller = createSendsFixture({
+      sessionId: asSessionId('s1'),
+      transcript: feed.port,
+      records: synced.port,
+      createDeliveryId: () => 'compact-send',
+      deliver: async () => ({ state: 'sent' }),
+      clock: {
+        now: () => Date.parse('2026-09-29T10:00:00Z'),
+        setTimeout: () => 0,
+        clearTimeout() {},
+      },
+    })
+    controller.start()
+    await controller.submit({ text: '/compact' })
+    synced.set([record('compact-send', { body: '/compact', status: 'unknown' })])
+    expect(states(controller)).toEqual(['compact-send:unknown'])
+    const compact: TranscriptItem = {
+      id: 'compaction',
+      role: 'system',
+      systemKind: 'compaction',
+      compaction: { trigger: 'manual' },
+      text: 'Summary',
+      ts: '2026-09-29T10:00:02Z',
+    }
+    feed.set([compact])
+    expect(controller.getSnapshot().bubbles).toEqual([])
+    expect(controller.getSnapshot().pending).toEqual([])
+    synced.set([
+      record('compact-send', { body: '/compact', status: 'typed' }),
+      record('late-compact', { body: '/compact keep tests', status: 'unknown' }),
+    ])
+    expect(controller.getSnapshot().bubbles).toEqual([])
+    controller.dispose()
+  })
+
+  it.each([
+    { trigger: 'auto', ts: '2026-09-29T10:00:02Z' },
+    { trigger: 'manual', ts: '2026-09-29T09:59:59Z' },
+  ] as const)('keeps uncertain sends when compaction is $trigger at $ts', (meta) => {
+    const feed = transcript(),
+      synced = records([
+        record('compact', { body: '/compact', status: 'unknown' }),
+        record('other', { body: 'ordinary prompt', status: 'unknown' }),
+      ])
+    const controller = createSendsFixture({
+      sessionId: asSessionId('s1'),
+      transcript: feed.port,
+      records: synced.port,
+      createDeliveryId: () => 'new',
+      deliver: vi.fn(),
+    })
+    controller.start()
+    feed.set([
+      {
+        id: 'compaction',
+        role: 'system',
+        systemKind: 'compaction',
+        compaction: { trigger: meta.trigger },
+        ts: meta.ts,
+        text: 'Summary',
+      },
+    ])
+    expect(states(controller)).toEqual(['compact:unknown', 'other:unknown'])
+    controller.dispose()
+  })
   it('does not publish transcript freshness or assistant text changes as conversation changes', () => {
     const feed = transcript()
     feed.set([user('u1', 'prompt'), { id: 'a1', role: 'assistant', text: 'partial' }])
