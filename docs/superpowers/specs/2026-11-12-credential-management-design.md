@@ -35,11 +35,14 @@ answered at all.
 
 ## 2. What exists today
 
-Read from `dev/mw` on 2026-11-12.
+Read from `dev/mw` on 2026-11-13. The multi-user work (POD-6300, POD-6360,
+`docs/design/multi-user-instance.md` §2.4–2.5) already made provider connections personal.
+This design keeps its rules and replaces its storage and plumbing.
 
 | Area | What is there | What is wrong with it |
 |---|---|---|
-| Stored credentials | Table `accounts`: three fixed API-key rows (`managed:anthropic`, `managed:openai`, `managed:openrouter`) and one Claude subscription token (`managed:claude-oauth`). | One per provider. Not encrypted. Instance-wide and admin-only, so a member cannot add their own key. A second, older store (`apiKeys.*` in server secrets) still feeds direct inference. |
+| Stored credentials | Table `accounts`, one row per owner and connection (`owner_user_id`, `account_key` such as `managed:anthropic`, `managed:claude-oauth`, `managed:anthropic:earlier-workspace`). Sharing by a list on the row (`shared_with`, `"*"` for everyone). A member sends a connection to a machine they only use (`account_machine_sends`). The old `apiKeys.*` server secrets were moved into it. | Not encrypted. One key per provider and person (the key is the provider name). Sharing is a list on the row instead of the grant record machines use. Ids still mix mechanism and provider. |
+| Rules already decided | A run uses the initiating member's own selected connection and never falls back to someone else's. Native logins on a machine belong to its custodian and are never used for anyone else. Running on someone else's machine needs the runner's own connection, sent there, with a warning. The D11 checkbox lets a person use a native login on all machines they hold custody of. | These stay. This design builds them on the credential record, the grant record and the resolver. |
 | Logins made in a harness | Each daemon reports who its harnesses are logged in as. The server groups them by identity (`login-catalog.ts`) and can copy a login to another machine of the same owner that is logged out (`login-propagation.ts`). | Only one login per harness per machine. Copying a self-renewing login to a second machine makes two copies that can log each other out. |
 | Choosing | Per-role default in personal settings (`roles.<role>.accountId`). A session stores the id it launched with and gets the same one when revived. | No choice per session. No way to change a session's credential. The id is a made-up string (`native:claude-code:<fingerprint>`, `managed:anthropic`) that mixes mechanism, harness and identity. |
 | Handing over | Stored credentials become environment variables on the spawn message (`resolveAccountEnv`, `credentialEnv`). The daemon removes competing variables it inherited (`foreignCredentialEnv`). | The secret rides in a plain message field. Nothing records where a secret was sent. The map from credential to environment variable is one hard-coded function. |
@@ -129,7 +132,7 @@ Notes:
   machines between people (section 12).
 - **A login found on a machine is also a credential.** When a daemon reports a harness login
   with an identity, the server creates one row for that identity the first time it sees it,
-  owned by the person who manages that machine. Which machines hold it is not copied into the row; it is read from the machine
+  owned by the machine's custodian. Which machines hold it is not copied into the row; it is read from the machine
   inventory the daemons already report, which stays the only source for that fact.
 - **"No credential" is a real choice.** A session with no credential set uses whatever its
   harness is logged into on its machine. This is today's default and stays the default, so
@@ -388,10 +391,15 @@ controls that machine, and by any other agent running there under the same opera
 user. So where a credential goes decides who can obtain it.
 
 - By default a vault secret is delivered, and a home is created, only on machines the
-  credential's owner manages.
-- A machine someone else manages needs the owner's explicit yes for that credential and that
-  machine, given next to the plain statement that the people who control that machine will be
-  able to read it.
+  credential's owner holds custody of (the machine grant with `custody`). Admin rights over a
+  machine do not count.
+- Any other machine needs the owner's explicit yes for that credential and that machine
+  ("send it there"), given next to the plain statement that everyone running on that machine's
+  operating-system account will be able to read it. This is the existing
+  `account_machine_sends` rule, now `credential_machines`.
+- **No credential** means the harness's own login on the machine, and that login belongs to
+  the machine's custodian. So "no credential" is only valid for the custodian; anyone else
+  running there must choose one of their own (`own-credential-required`).
 - Pairing a machine grants it nothing.
 - A direct model call made on the server (`http`) discloses nothing to any machine.
 
@@ -428,7 +436,8 @@ access they shared ends with them.
 resolveAccess({ consumer, credentialId | none, actingUser, machine? })
   → plan     { delivery }                    // or { route } for direct inference; never the secret
   → refusal  not-found | not-yours | wrong-type | not-on-this-machine | machine-not-allowed
-             | needs-attention | revoked | daemon-too-old | connection-not-encrypted
+             | own-credential-required | needs-attention | revoked | daemon-too-old
+             | connection-not-encrypted
 ```
 
 It checks, in order: the credential exists and is not revoked; the acting person owns it or has
@@ -654,8 +663,8 @@ and for ChatGPT plans other than Plus and Pro.
   (`resource, grantee, verb`). `credential` becomes a kind of resource with two verbs: `use`
   (run sessions and model calls on it) and `manage` (rename, renew, remove, share).
 - The owner can give `use` to another member or to all members. "All members" is the group
-  grantee the grants design already names as a planned addition; the API keys that are
-  instance-wide today need it on the first day.
+  grantee the grants design already names as a planned addition; connections shared with
+  everyone today (`shared_with` `"*"`) need it on the first day.
 - Like every grant it is checked at each use, not copied: take the grant away, or remove the
   person who gave it, and the access is gone at the next launch or call. A session may use a
   credential only if the person it acts for owns it or holds `use` on it.
@@ -798,7 +807,7 @@ One release, because each item is weak without the others:
     its sessions, its owner gets a notice, and renewing restarts the affected sessions.
 11. **Remove everywhere**, and events for add, renew, remove, share, deliver, switch and refuse.
 12. **The notification inbox**, with mentions in issue comments as its first other use.
-13. **Own machines by default**: a credential goes only to machines its owner manages, and to
+13. **Own machines by default**: a credential goes only to machines its owner holds custody of, and to
     another machine only after the owner allows it.
 
 ## 17. Not in this epic
@@ -822,7 +831,10 @@ Each of these has a place in the design and is left out on purpose.
 
 | Today | Becomes |
 |---|---|
-| `accounts` table, ids `managed:<provider>` | `credentials` + `credential_secrets`. The old plaintext values are overwritten once moved. Existing API-key rows migrate as credentials owned by the first admin and granted to all members; the Claude token migrates as the first admin's own. |
+| `accounts` table, ids `managed:<provider>` | `credentials` + `credential_secrets`. Each row keeps its owner (the first admin where it has none), and its old ids are kept on the credential so old sessions and settings still resolve. The old plaintext values are overwritten once moved. |
+| `accounts.shared_with` (`"*"` or user ids) | `use` grants, to all members or to each person. |
+| `account_machine_sends` | `credential_machines`. |
+| D11 checkbox (use a native login on all my custody machines) | Unchanged; it drives propagation, which records what it copies. |
 | `apiKeys.*` in server secrets | Credentials. The secret-key list loses those three. |
 | `native:<harness>` in settings and sessions | No credential (the harness's login in its default home). |
 | `native:<harness>:<fingerprint>` | The credential row for that identity. |
@@ -830,7 +842,7 @@ Each of these has a place in the design and is left out on purpose.
 | `credentialEnv()` | `accepts` lines in each harness adapter. |
 | `resolveAccountEnv`, `selectHarnessAccountId`, `nativeAccountIdForMachine`, `decodeAccount`, `roleApiBackend`, `apiKey(provider)` | The resolver. |
 | `SpawnMessage.env` carrying secrets | An `access` field on every message that starts a process, sent only over an encrypted connection. `env` stays for non-secret values. |
-| `accounts.connect / disconnect / login` contracts, admin-only | `credentials.add / renew / remove`, by the owner or a holder of `manage`; grant commands for sharing; `sessions.switchCredential`. |
+| `accounts.*` contracts and the key-sharing commands | `credentials.add / renew / remove`, by the owner or a holder of `manage`; grant commands for sharing; `sessions.switchCredential`. |
 | The visibility matrix row `managed-credentials` (no owner, no grants) | Owned by a person, with `use` and `manage` grants. `credential` joins the entity kinds a grant can name, and "all members" joins the grantees. |
 | One harness home per daemon; one login per harness in the inventory | A set of homes; one login per home (section 10). |
 | The Codex-subscription detour for direct inference (POD-4750) | Stays for `openai.chatgpt-login`. A ChatGPT plan signed in to Podium calls OpenAI's public API from the server. |
@@ -888,7 +900,9 @@ Listed so they can be overturned one at a time. "Operator" marks a decision the 
 13. Switching is stop-and-resume for every driver. Hidden reasoning from the old account is
     dropped; a handoff is the fallback.
 14. A ChatGPT plan's sign-in code is exchanged by the server; a daemon only relays the code.
-15. A credential goes only to machines its owner manages unless the owner allows another one.
+15. A credential goes only to machines its owner holds custody of unless the owner sends it to
+    another one. "No credential" is valid only for the machine's custodian. Both follow the
+    multi-user design.
 16. The Claude token is pasted. Podium does not capture it from one of its own terminals.
 17. People manage credentials. Agents only choose among the ones their person can use.
 18. Removing a credential stops the sessions running on it.

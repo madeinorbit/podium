@@ -36,7 +36,7 @@ below (§) refer to it.
 - The server decides what kind of connection a daemon is on. Nothing a daemon says about its
   own connection is used.
 - A vault secret is delivered, and a home is created, only on machines the credential's owner
-  manages or has allowed for that credential (§8).
+  holds custody of or has sent that credential to (§8).
 - The resolver's result never contains a secret. Only `attachAccess` and `withSecret` read one
   from the vault.
 - Commands that add, renew, remove or share a credential are refused for agent principals.
@@ -113,7 +113,7 @@ by the acceptance item named with it.
 6. **The key that protects stored secrets is missing** (restored database, lost file). The
    server starts; affected credentials read "needs attention"; nothing else fails; no new key
    silently replaces the old one. Task 2, item 5.
-7. **A person runs their own credential on a machine someone else manages.** Refused with
+7. **A person runs their own credential on a machine someone else holds custody of.** Refused with
    `machine-not-allowed` until the owner allows that machine for that credential. Task 3,
    item 6.
 8. **The server moves to another machine.** Stored credentials open on the new server, the old
@@ -198,7 +198,8 @@ withSecret<T>(credentialId: CredentialId, use: (secret: string) => Promise<T>): 
 // admin-only: query vault.status, command vault.reset; CLI `podium vault status|reset --confirm`
 
 // apps/server/src/store/credentials.ts — CredentialsRepository
-//   insert, get, listVisibleTo(userId), rename, setStatus, findByIdentity, findByLegacyId,
+//   insert, get, listVisibleTo(userId), rename, setStatus, findByIdentity,
+//   findByLegacyId(accountsId), findByLegacyKey(ownerUserId, key),
 //   remove(id)            // deletes the secrets, leaves the record as 'revoked', hidden from lists
 //   putSecret(id, sealed, expectedVersion) → version | 'conflict', latestSecret(id),
 //   recordPlacement, listPlacements, setPlacementState,
@@ -214,14 +215,15 @@ mayUse(userId: UserId, credential: { id: CredentialId; ownerUserId: UserId }):
 
 // apps/server/src/modules/credentials/access.ts
 type AccessRefusal = 'not-found' | 'not-yours' | 'wrong-type' | 'not-on-this-machine'
-  | 'machine-not-allowed' | 'needs-attention' | 'revoked' | 'daemon-too-old'
-  | 'connection-not-encrypted'
+  | 'machine-not-allowed' | 'own-credential-required' | 'needs-attention' | 'revoked'
+  | 'daemon-too-old' | 'connection-not-encrypted'
 const ACCESS_REFUSAL_MESSAGES: Record<AccessRefusal, string> = {
   'not-found': 'This credential no longer exists.',
   'not-yours': 'You do not have use of this credential. Ask its owner to share it.',
   'wrong-type': 'This kind of credential cannot be used here.',
   'not-on-this-machine': 'This login is not signed in on this machine. Sign in there, or pick another machine.',
-  'machine-not-allowed': "This credential's owner has not allowed it on this machine.",
+  'machine-not-allowed': "This credential's owner has not sent it to this machine.",
+  'own-credential-required': "The logins on this machine belong to the person who looks after it. Pick one of your own credentials.",
   'needs-attention': 'This credential needs attention before it can be used. Renew it or pick another.',
   'revoked': 'This credential was removed.',
   'daemon-too-old': 'Podium on this machine is too old to receive credentials. Update it.',
@@ -239,7 +241,9 @@ resolveInferenceAccess(i: { credentialId: CredentialId; actingUserId: UserId }):
 // homeId 'default' is the harness's own directory. credentialId null resolves to
 // { ok: true, credentialId: null, delivery: { kind: 'home', homeId: 'default' } }.
 // apps/server/src/modules/credentials/legacy-ids.ts
-credentialIdFromLegacy(accountId: string): Promise<CredentialId | null>
+credentialIdFromLegacy(accountId: string, ownerUserId: UserId): Promise<CredentialId | null>
+// "custody": the machine grant with verb 'manage' and custody=1 (multi-user design §2.4).
+// Admin rights over a machine are not custody.
 
 // apps/server/src/gateway/daemon-link-kind.ts
 type DaemonLinkKind = 'encrypted' | 'local' | 'trusted' | 'plain'
@@ -384,7 +388,9 @@ their CLI; the key paragraphs of `docs/configuration.md` and `docs/data-and-upgr
 
 **Delivers:**
 - Tables `credentials`, `credential_secrets`, `credential_placements`, `credential_machines`
-  as in §4, with `credentials.legacy_id` (nullable, unique) added, and `vault_key` (one row:
+  as in §4, with `credentials.legacy_id` (the `accounts.id`, nullable, unique) and
+  `credentials.legacy_key` (the id sessions and settings recorded: `account_key`, else `ref`,
+  else `id`; nullable, unique per owner) added, and `vault_key` (one row:
   `key_id`, `wrapped_data_key`, `created_at`).
 - `packages/runtime/src/vault-key.ts` as under "Shared names". The key file and its directory
   are created with owner-only permissions on first use. The key is never read from an
@@ -400,12 +406,17 @@ their CLI; the key paragraphs of `docs/configuration.md` and `docs/data-and-upgr
   out when the outside key is lost for good.
 - `CredentialsRepository` and `withSecret` as under "Shared names".
 - `recordCredentialEvent`, writing to the existing event log. It takes no secret.
-- The legacy import, at server start, under the `2027-05` header: every `accounts` row that
-  holds a secret and each `apiKeys.*` server secret becomes a credential with a sealed secret
-  and its old id in `legacy_id`. `managed:anthropic`, `managed:openai`, `managed:openrouter`
-  and the matching `apiKeys.*` become `<provider>.api-key`; `managed:claude-oauth` becomes
-  `anthropic.claude-token`. The owner is the first admin. The same secret found in both old
-  stores becomes one credential. The old values are left in place (Task 21 destroys them).
+- The legacy import, at server start, under the `2027-05` header. The base already made
+  connections personal (POD-6300, POD-6360): `accounts` has `owner_user_id`, `account_key`,
+  `ref`, `shared_with` and `account_machine_sends`. Every `accounts` row that holds a secret,
+  and each `apiKeys.*` server secret still present, becomes a credential with a sealed secret,
+  `legacy_id` and `legacy_key`. Type by provider and kind: `api-key` on anthropic, openai or
+  openrouter becomes `<provider>.api-key`; `oauth` on anthropic becomes
+  `anthropic.claude-token`; anything else is skipped and logged. Each row keeps its owner; a
+  row with no live owner, and the `apiKeys.*` secrets, go to the first admin. The same secret
+  for the same owner becomes one credential. `account_machine_sends` rows become
+  `credential_machines` rows (`allowed_by` = the owner). `shared_with` is left as it is for
+  Task 4. The old values are left in place (Task 21 destroys them).
 - `integrations.linearApiKey` and `notifications.telegramBotToken` are stored sealed by the
   same vault: an existing plain value is sealed in place at start, and reads return the
   plaintext to the callers that had it before.
@@ -428,11 +439,13 @@ their CLI; the key paragraphs of `docs/configuration.md` and `docs/data-and-upgr
    and no new key file appears. After `vault.reset` a new credential can be added and the old
    ones read "needs attention". `vault.reset` is refused for a member who is not an admin and
    for an agent principal.
-6. Legacy import: starting on a database with one `accounts` API-key row, one Claude-token
-   row and three `apiKeys.*` secrets, one of which repeats the `accounts` key, yields the
-   credentials with the mapped types, owned by the first admin, with `legacy_id` set and the
-   repeated key merged into one. Each opens to its original value. A second start creates
-   nothing. The old values are still present.
+6. Legacy import: starting on a database with API-key and Claude-token rows of two owners,
+   one row with no owner, one `account_machine_sends` row, an unsupported row, and `apiKeys.*`
+   secrets of which one repeats an `accounts` key of the first admin, yields the credentials
+   with the mapped types and owners, `legacy_id` and `legacy_key` set, the repeat merged, the
+   send as a `credential_machines` row, and the unsupported row skipped with a log line. Each
+   opens to its original value. A second start creates nothing. The old values are still
+   present.
 7. The two server secrets: after start their raw rows contain no plaintext; reading them
    through the store returns the original values; the existing Linear and Telegram tests pass.
 8. `recordCredentialEvent` writes an event that a test reads back, and its serialized form
@@ -524,17 +537,21 @@ other rebases onto it.
 
 **Delivers:**
 - `resolveSessionAccess`, `resolveInferenceAccess` and `ACCESS_REFUSAL_MESSAGES` with the
-  nine sentences under "Shared names". The checks run in this order and stop at the first
-  failure: the credential exists (`not-found`) and is not `revoked` (`revoked`); `mayUse` is
-  not null (`not-yours`); the harness and driver accept its type (`wrong-type`); for a `home`
-  type, the machine's inventory reports that identity (`not-on-this-machine`); the owner
-  manages the machine or allowed it (`machine-not-allowed`); its status is `ok`
-  (`needs-attention`). `daemon-too-old` and `connection-not-encrypted` are raised by Task 5.
+  ten sentences under "Shared names". The checks run in this order and stop at the first
+  failure: with no credential, the acting person holds custody of the machine
+  (`own-credential-required`), and that is the whole check; otherwise the credential exists
+  (`not-found`) and is not `revoked` (`revoked`); `mayUse` is not null (`not-yours`); the
+  harness and driver accept its type (`wrong-type`); for a `home` type, the machine's
+  inventory reports that identity (`not-on-this-machine`); the owner holds custody of the
+  machine or sent it there (`machine-not-allowed`); its status is `ok` (`needs-attention`).
+  The resolver replaces the rules the multi-user work put into `harness-account.ts` and
+  `account-env.ts`: a run never uses another person's connection or a custodian's login. `daemon-too-old` and `connection-not-encrypted` are raised by Task 5.
 - Every refusal records a `refuse` event.
-- `credentialIdFromLegacy` under the `2027-02` header: `''` and `native:<harness>` give no
-  credential; `native:<harness>:<fingerprint>` gives the credential with that identity when
-  one exists, otherwise none; `managed:<provider>` and `managed:claude-oauth` give the
-  credential whose `legacy_id` matches.
+- `credentialIdFromLegacy(accountId, ownerUserId)` under the `2027-02` header: `''` and
+  `native:<harness>` give no credential; `native:<harness>:<fingerprint>` gives the credential
+  with that identity when one exists, otherwise none; any other value is looked up with
+  `findByLegacyKey(ownerUserId, value)`, then `findByLegacyId(value)`. The owner is the
+  session's owner or the person whose settings hold the value.
 - `session.credentialId` on the record and the wire. A stored session or setting that still
   holds an old id is read through `credentialIdFromLegacy`; new writes store `credentialId`.
 - The personal setting `credentialDefaults`. Selection at launch: the credential the launch
@@ -549,22 +566,26 @@ other rebases onto it.
 **Acceptance:**
 1. A resolver table test with one row for each refusal this task raises (`not-found`,
    `revoked`, `not-yours`, `wrong-type`, `not-on-this-machine`, `machine-not-allowed`,
-   `needs-attention`) and one for each delivery (`env` with the declared variable for every
+   `own-credential-required`, `needs-attention`) and one for each delivery (`env` with the declared variable for every
    accepted vault type; the default home; no credential). For every row the serialized result
    does not contain the planted secret.
-2. `ACCESS_REFUSAL_MESSAGES` has the nine sentences; leaving one out fails to compile.
+2. `ACCESS_REFUSAL_MESSAGES` has the ten sentences; leaving one out fails to compile.
 3. Legacy ids (review focus 4): `''`, `native:claude-code`, `native:codex:<fingerprint>`,
-   `managed:anthropic` and `managed:claude-oauth` each resolve as specified, once from a
-   stored session and once from settings.
+   `managed:anthropic`, `managed:claude-oauth` and `managed:anthropic:earlier-workspace` each
+   resolve as specified, once from a stored session and once from settings; the same
+   `managed:anthropic` for two different owners resolves to each owner's own credential.
 4. Revival: a session stored on credential A revives on A after the person's default became B.
 5. No fallback: a launch whose credential is in `attention` sends no spawn message at all
    (asserted on the daemon port) and records a `refuse` event.
-6. Machine rule (review focus 7): the owner's own credential on a machine someone else
-   manages is refused with `machine-not-allowed`; after `allowMachine` it resolves; on a
-   machine the owner manages it resolves without one.
-7. Selection order: named beats default beats none, three cases.
-8. `git grep -w` for each deleted name finds nothing under `apps/server`.
-9. Lanes: the store shard (the migration) and the lean gate, on a remote lane.
+6. Machine rule (review focus 7): the owner's own credential on a machine where the owner
+   only holds `use` is refused with `machine-not-allowed`; after `allowMachine` it resolves;
+   on a machine the owner holds custody of it resolves without one; an admin without custody
+   is treated like a `use` holder.
+7. No credential: the custodian resolves to the default home; another person on that machine
+   is refused with `own-credential-required`, and no spawn is sent.
+8. Selection order: named beats default beats none, three cases.
+9. `git grep -w` for each deleted name finds nothing under `apps/server`.
+10. Lanes: the store shard (the migration) and the lean gate, on a remote lane.
 
 **Not in this task:** grants beyond the owner (Task 4), the `access` field (Task 5), launch
 inputs in the CLI and UI (Task 10), direct-inference callers (Task 12), destroying old values
@@ -582,7 +603,9 @@ one.
 `packages/model/src/ids/keys.ts` (the `credential` entity kind); the grant grantee "all
 members"; the credentials row of `packages/model/src/annotations/matrix.ts`; the
 `CredentialView` model in `packages/client-graph`; `may-use.ts` (shared with Task 3, see
-there); the all-members grant for imported keys in `legacy-import.ts` (that function only).
+there); the step in `legacy-import.ts` that turns `accounts.shared_with` into grants (that
+function only); the key-sharing server code it replaces (`sharedWith` readers in
+`apps/server/src/accounts.ts` and the accounts repository).
 
 **Consumes:** Tasks 1 and 2.
 
@@ -600,8 +623,10 @@ there); the all-members grant for imported keys in `legacy-import.ts` (that func
 - Grants on the existing grant record: `credential` as a resource kind, the verbs `use` and
   `manage`, and "all members" as a grantee. `mayUse` reads them at every call; nothing is
   cached or copied.
-- Each API key the legacy import created gets one `use` grant to all members, once, under the
-  `2027-05` header. The imported Claude token gets none.
+- Existing shares carry over, once, under the `2027-05` header: for each imported credential,
+  `shared_with` `"*"` becomes one `use` grant to all members and each user id in it one `use`
+  grant to that person (read through `legacy_id`). A user id that no longer exists is skipped
+  and logged.
 - Every contract is `online-sensitive` (never queued) and redacts `secret`.
 - An event for each of add, rename, renew, remove, share and unshare.
 
@@ -624,9 +649,9 @@ there); the all-members grant for imported keys in `legacy-import.ts` (that func
    later.
 6. `allowMachine` requires the acknowledgement, an owner or `manage` caller, and an enrolled
    machine.
-7. Imported keys: after the import, a second member can use each imported API key and cannot
-   use the imported Claude token; after a second start exactly one all-members grant exists
-   per key.
+7. Imported shares: a row shared with `"*"`, one shared with one person, and one not shared
+   give an all-members grant, a grant to that person, and none; after a second start the grants
+   are unchanged. A second member can use exactly what was shared with them before.
 8. Lanes: the lean gate, and the store shard if this task adds a migration, on a remote lane.
 
 **Not in this task:** the page (Task 17), provider verification and removal everywhere
@@ -828,12 +853,12 @@ propagation; `apps/web/src/features/credentials/add-subscription/` (new).
 (Task 17).
 
 **Delivers:**
-- `credentials.signInStart`: on a machine the person manages or has allowed, Podium ensures a
+- `credentials.signInStart`: on a machine the person holds custody of or has sent it to, Podium ensures a
   home and opens the vendor's own sign-in in a terminal there. When the home reports a login,
   the credential is bound to the identity that signed in and a `credential_placements` row
   (`home`, `present`) is written.
 - A login reported from a harness's default home becomes one credential the first time it is
-  seen, owned by the person who manages that machine. The same identity on a second machine
+  seen, owned by the machine's custodian. The same identity on a second machine
   is the same credential with a second home.
 - Removing a home placement: the vendor's sign-out runs in the home, then the home is
   deleted. A login in a default home is never signed out or deleted by Podium.
@@ -841,8 +866,8 @@ propagation; `apps/web/src/features/credentials/add-subscription/` (new).
 - "Add subscription" in the page's add menu.
 
 **Acceptance:**
-1. `signInStart` on a machine the person manages ensures a home and opens a terminal running
-   the vendor's sign-in in it; on a machine someone else manages and has not been allowed for,
+1. `signInStart` on a machine the person holds custody of ensures a home and opens a terminal
+   running the vendor's sign-in in it; on another machine that the credential was not sent to,
    it is refused with `machine-not-allowed`; an agent principal is refused.
 2. When the home reports a login, the credential shows the identity that signed in, status
    `ok`, and a placement row `home` / `present`.
@@ -851,7 +876,7 @@ propagation; `apps/web/src/features/credentials/add-subscription/` (new).
    otherwise gives this credential B's identity. In both cases the result shown to the person
    names the account that actually signed in.
 4. Found logins: a login in a default home creates exactly one credential, owned by the
-   person who manages the machine; the same identity on two machines is one credential with
+   machine's custodian; the same identity on two machines is one credential with
    two homes; a repeated report creates nothing. A harness that cannot report an identity
    creates no row.
 5. A sign-in that is cancelled or abandoned leaves no credential and no empty home.
@@ -1206,8 +1231,9 @@ in the web and desktop header; notices on the phone's inbox screen; push by kind
 and sets a default for each harness. It replaces "Accounts & Keys".
 
 **Owns:** `apps/web/src/features/credentials/` (new: the page and its dialogs); removal of
-`apps/web/src/features/settings/sections/accounts.tsx` and of the three API-key rows in the
-secrets section; the role editors in
+`apps/web/src/features/settings/sections/{accounts,key-sharing}.tsx` (the personal AI
+accounts and key-sharing sections; `use-on-my-machines.tsx`, the D11 checkbox, stays and moves
+onto the page); the role editors in
 `apps/web/src/features/settings/sections/{shared,sessions,superagent,workllm}.tsx`.
 
 **Consumes:** Task 4; `CREDENTIAL_TYPES` and `INFERENCE_ROUTES` (Task 1).
@@ -1226,13 +1252,13 @@ for their entries; the role editors' credential picker.
 4. The share dialog requires the disclosure acknowledgement for every type and shows the
    further warning for a type with `sharing: 'warn'`; the grantee is a member or everyone;
    unshare works.
-5. "Allow on a machine" lists only machines the person can use and does not manage, and
-   requires the acknowledgement.
+5. "Send to a machine" lists only machines the person can use and does not hold custody of,
+   and requires the acknowledgement.
 6. The default per harness can be set and cleared, and offers only credentials that harness
    accepts.
 7. The role editors offer the credentials that have a direct-inference route.
-8. The old "Accounts & Keys" section and the three API-key rows are gone and nothing links to
-   them.
+8. The old accounts and key-sharing sections are gone and nothing links to them; the D11
+   checkbox is on the page for each subscription login and still works.
 9. A member who is not an admin can do all of the above for their own credentials.
 10. Driven live: a member adds two Anthropic keys, names them, shares one with a second
     member, who sees it as granted, and sets a default. Screenshots at desktop and at phone
@@ -1407,6 +1433,8 @@ nowhere Podium controls.
 
 **Owns:** the destruction step in `apps/server/src/modules/credentials/legacy-import.ts`;
 the `accounts` repository; `apps/server/src/accounts.ts`; `packages/commands/src/accounts/`;
+`apps/server/src/modules/accounts/` except `native-login.ts` (moved by Task 9);
+`account_machine_sends` readers;
 the three `apiKeys.*` secret keys; `AccountView`; `apps/web/src/lib/accounts.ts`;
 `managed-harness-pairing.ts`; `credentialEnv` and `decodeAccount`; the documents that
 describe the old model; the upgrade note in `docs/data-and-upgrades.md`.
