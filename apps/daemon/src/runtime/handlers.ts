@@ -21,7 +21,7 @@
 
 import type { AgentSessionHandle, LegacyTurnTerms, TurnInput } from '@podium/harness/driver/host'
 import { isDriverRefusal } from '@podium/harness/driver/host'
-import { hasTurnEnded, type SessionId } from '@podium/model'
+import { type AgentKind, hasTurnEnded, type SessionId } from '@podium/model'
 import type { SessionPosture } from '@podium/protocol'
 import type {
   RuntimeConfigureResultMessage,
@@ -32,6 +32,7 @@ import type {
   TurnReceipt,
 } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
+import { deliveryOverlay } from '../control/access'
 import type { ControlHandlers, DaemonContext } from '../control/context'
 import { stopSessionProcess } from '../control/session'
 import { runtimeAttachmentBelongsToSession } from './attachment-staging'
@@ -229,79 +230,104 @@ export const runtimeHandlers: Pick<
       })
       return
     }
-    driverTiming.promptRequested(handle.binding, msg.turnId)
-    // Per-turn model/effort ride the wire as plain strings; the driver reads
-    // them as a supported() override (session sticky is the fallback there).
-    const modelEffort =
-      msg.model !== undefined || msg.effort !== undefined
-        ? {
-            overrides: {
-              supported: true as const,
-              value: {
-                ...(msg.model !== undefined ? { model: msg.model } : {}),
-                ...(msg.effort !== undefined ? { effort: msg.effort } : {}),
+    // THE TURN'S CREDENTIAL (credential management §8). A headless turn
+    // carries it; any other turn applies what the session holds. A daemon
+    // that restarted and has not had the server's refresh yet waits for it,
+    // then refuses the turn readably: it never runs on the machine's login.
+    // The binding's harness is a closed AgentKind written as a plain string.
+    const harness = handle.binding.harness as AgentKind
+    if (msg.access) ctx.access.remember(msg.sessionId, msg.access, harness)
+    const sendTurn = (credentialEnv: Record<string, string>): void => {
+      driverTiming.promptRequested(handle.binding, msg.turnId)
+      // Per-turn model/effort ride the wire as plain strings; the driver reads
+      // them as a supported() override (session sticky is the fallback there).
+      const modelEffort =
+        msg.model !== undefined || msg.effort !== undefined
+          ? {
+              overrides: {
+                supported: true as const,
+                value: {
+                  ...(msg.model !== undefined ? { model: msg.model } : {}),
+                  ...(msg.effort !== undefined ? { effort: msg.effort } : {}),
+                },
               },
-            },
+            }
+          : {}
+      void handle
+        .send(
+          {
+            id: msg.turnId,
+            rowId: msg.rowId,
+            deliveryRecovery: msg.deliveryRecovery,
+            // The program holds it durably (POD-4886): watch again, type nothing.
+            ...(msg.deliveryRecovery && msg.held === 'durable' ? { held: 'durable' as const } : {}),
+            initialPrompt: msg.initialPrompt,
+            text: msg.text,
+            attachments: msg.attachments,
+            ...turnTermsFromFrame(msg),
+            ...(msg.toolPolicy ? { toolPolicy: msg.toolPolicy } : {}),
+            ...(msg.mcpConfig ? { mcpConfig: msg.mcpConfig } : {}),
+            ...(msg.resumeValue ? { resumeValue: msg.resumeValue } : {}),
+            ...(msg.sessionUuid ? { sessionUuid: msg.sessionUuid } : {}),
+            ...(msg.accountId ? { accountId: msg.accountId } : {}),
+            ...(msg.requestDigest ? { requestDigest: msg.requestDigest } : {}),
+            ...(Object.keys(credentialEnv).length > 0 ? { env: credentialEnv } : {}),
+            ...(msg.contextPrompt ? { contextPrompt: msg.contextPrompt } : {}),
+            ...(msg.systemPrompt ? { systemPrompt: msg.systemPrompt } : {}),
+            ...(msg.timeoutMs ? { timeoutMs: msg.timeoutMs } : {}),
+            ...modelEffort,
+          },
+          { origin: msg.origin, delivery: msg.delivery },
+        )
+        .then((receipt) => {
+          driverTiming.promptReceipt(handle.binding, msg.turnId, receipt)
+          ctx.send({
+            type: 'runtimeSendResult',
+            requestId: msg.requestId,
+            sessionId: msg.sessionId,
+            receipt,
+          })
+        })
+        .catch(() => {
+          // A THROW IS NOT AN OUTCOME. The four outcomes are the contract's whole
+          // honesty commitment, so an unexpected failure is reported as the one
+          // that is true — we could not prove the send did anything — rather than
+          // as a silence the caller has to time out on.
+          //
+          // The throw may follow admission or a write, even for a direct send
+          // without a durable row (POD-4884). Only the pre-write guards above
+          // can prove a refusal; "could not prove" is `unverified`.
+          const receipt: TurnReceipt = {
+            outcome: 'unverified',
+            deliveredAs: msg.delivery,
+            verificationWindowMs: 0,
+            at: new Date().toISOString(),
           }
-        : {}
-    void handle
-      .send(
-        {
-          id: msg.turnId,
-          rowId: msg.rowId,
-          deliveryRecovery: msg.deliveryRecovery,
-          // The program holds it durably (POD-4886): watch again, type nothing.
-          ...(msg.deliveryRecovery && msg.held === 'durable' ? { held: 'durable' as const } : {}),
-          initialPrompt: msg.initialPrompt,
-          text: msg.text,
-          attachments: msg.attachments,
-          ...turnTermsFromFrame(msg),
-          ...(msg.toolPolicy ? { toolPolicy: msg.toolPolicy } : {}),
-          ...(msg.mcpConfig ? { mcpConfig: msg.mcpConfig } : {}),
-          ...(msg.resumeValue ? { resumeValue: msg.resumeValue } : {}),
-          ...(msg.sessionUuid ? { sessionUuid: msg.sessionUuid } : {}),
-          ...(msg.accountId ? { accountId: msg.accountId } : {}),
-          ...(msg.requestDigest ? { requestDigest: msg.requestDigest } : {}),
-          ...(msg.env ? { env: msg.env } : {}),
-          ...(msg.contextPrompt ? { contextPrompt: msg.contextPrompt } : {}),
-          ...(msg.systemPrompt ? { systemPrompt: msg.systemPrompt } : {}),
-          ...(msg.timeoutMs ? { timeoutMs: msg.timeoutMs } : {}),
-          ...modelEffort,
-        },
-        { origin: msg.origin, delivery: msg.delivery },
-      )
-      .then((receipt) => {
-        driverTiming.promptReceipt(handle.binding, msg.turnId, receipt)
-        ctx.send({
-          type: 'runtimeSendResult',
-          requestId: msg.requestId,
-          sessionId: msg.sessionId,
-          receipt,
+          driverTiming.promptReceipt(handle.binding, msg.turnId, receipt)
+          ctx.send({
+            type: 'runtimeSendResult',
+            requestId: msg.requestId,
+            sessionId: msg.sessionId,
+            receipt,
+          })
         })
-      })
-      .catch(() => {
-        // A THROW IS NOT AN OUTCOME. The four outcomes are the contract's whole
-        // honesty commitment, so an unexpected failure is reported as the one
-        // that is true — we could not prove the send did anything — rather than
-        // as a silence the caller has to time out on.
-        //
-        // The throw may follow admission or a write, even for a direct send
-        // without a durable row (POD-4884). Only the pre-write guards above
-        // can prove a refusal; "could not prove" is `unverified`.
+    }
+    void ctx.access.awaitAccess(msg.sessionId).then(
+      (access) => sendTurn(deliveryOverlay(harness, access).env),
+      (error: unknown) => {
+        const detail = error instanceof Error ? error.message : String(error)
         const receipt: TurnReceipt = {
-          outcome: 'unverified',
-          deliveredAs: msg.delivery,
-          verificationWindowMs: 0,
-          at: new Date().toISOString(),
+          outcome: 'refused',
+          refusal: { reason: 'not_running', detail },
         }
-        driverTiming.promptReceipt(handle.binding, msg.turnId, receipt)
         ctx.send({
           type: 'runtimeSendResult',
           requestId: msg.requestId,
           sessionId: msg.sessionId,
           receipt,
         })
-      })
+      },
+    )
   },
 
   runtimeInterruptRequest: (ctx, msg) => {

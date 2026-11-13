@@ -40,6 +40,7 @@ import { join } from 'node:path'
 import type { SpawnOptions } from '@podium/process/screen'
 import { afterAll, beforeEach, expect, it, vi } from 'vitest'
 import { stubDurable, testSessions, testTerminalRuntime } from '../session/testing.js'
+import { memoryMarkers, SessionAccessStore } from './access'
 import type { DaemonContext } from './context'
 
 /** Claude's hook settings file is written here at spawn; nothing reads it back. */
@@ -86,6 +87,7 @@ function contextForSpawn(): DaemonContext {
     sessionCwdTracker: { setLaunchCwd: async () => {}, clear: () => {} },
     hookEndpointFor: (id: string) => `http://127.0.0.1:1/hook/${id}`,
     agentRelayEndpointFor: (id: string) => `http://127.0.0.1:1/relay/${id}`,
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   // Admits an agent spawn (every profiled kind needs a runtime to create it):
   // the runtime's terminal create runs the daemon's launch with no

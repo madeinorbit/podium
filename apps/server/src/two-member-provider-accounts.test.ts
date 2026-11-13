@@ -109,6 +109,12 @@ const startClaude = async (who: MemberName, machineId: MachineId, cwd: string) =
 const frameOf = (machineId: MachineId, sessionId: SessionId) =>
   spawnFrames(machineId).find((frame) => frame.sessionId === sessionId)
 
+/** What a spawn frame delivers, as `{ variable: secret }`: only in `access` (epic Task 5). */
+const deliveredBy = (frame: Extract<ControlMessage, { type: 'spawn' }> | undefined) => {
+  expect(frame?.env).toBeUndefined()
+  const delivery = frame?.access?.delivery
+  return delivery?.kind === 'env' ? { [delivery.variable]: delivery.secret } : undefined
+}
 const credentialOf = async (who: MemberName, legacyKey: string) => {
   const found = await store().credentials.findByLegacyKey(MEMBERS[who].id, legacyKey)
   if (!found) throw new Error(`no credential ${legacyKey} for ${who}`)
@@ -143,10 +149,12 @@ describe('MU-26: each member’s connections are their own', () => {
     await select('bob', 'managed:anthropic')
     const alice = await startClaude('alice', f.machines.alice, '/wt/alice-keyed')
     const bob = await startClaude('bob', f.machines.bob, '/wt/bob-keyed')
-    expect(frameOf(f.machines.alice, alice.sessionId)?.env).toEqual({
+    expect(deliveredBy(frameOf(f.machines.alice, alice.sessionId))).toEqual({
       ANTHROPIC_API_KEY: ALICE_KEY,
     })
-    expect(frameOf(f.machines.bob, bob.sessionId)?.env).toEqual({ ANTHROPIC_API_KEY: BOB_KEY })
+    expect(deliveredBy(frameOf(f.machines.bob, bob.sessionId))).toEqual({
+      ANTHROPIC_API_KEY: BOB_KEY,
+    })
   })
 
   it('a selection with no connection of the member’s own fails clearly and borrows nobody’s', async () => {
@@ -354,7 +362,7 @@ describe('MU-28: Bob runs on Alice’s machine with his own connection only', ()
   it('then Bob’s run on Alice’s machine carries Bob’s key, and never Alice’s', async () => {
     const bob = await startClaude('bob', f.machines.alice, '/wt/bob-sent-on-alice')
     const frame = frameOf(f.machines.alice, bob.sessionId)
-    expect(frame?.env).toEqual({ ANTHROPIC_API_KEY: BOB_KEY })
+    expect(deliveredBy(frame)).toEqual({ ANTHROPIC_API_KEY: BOB_KEY })
     expect(JSON.stringify(frame)).not.toContain(ALICE_KEY)
     expect((await store().sessions.getSession(bob.sessionId))?.ownerUserId).toBe(MEMBERS.bob.id)
   })

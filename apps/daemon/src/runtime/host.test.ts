@@ -7,6 +7,7 @@ import { testSessionTerms } from '@podium/harness/driver/testing'
 import { asSessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
+import { memoryMarkers, SessionAccessStore } from '../control/access'
 import type { DaemonContext } from '../control/context'
 import * as processControl from '../control/session'
 import { DaemonHarnessRuntime } from '../harness-runtime'
@@ -86,6 +87,7 @@ describe('daemonRuntimeHost', () => {
     const driverSent: unknown[] = []
     const ctx = {
       send: (message: DaemonMessage) => daemonSent.push(message),
+      access: new SessionAccessStore({ markers: memoryMarkers() }),
     } as unknown as DaemonContext
     const host = daemonRuntimeHost(ctx, (message) => driverSent.push(message))
     const sessionId = asSessionId('session-1')

@@ -28,6 +28,7 @@ import {
 } from '@podium/runtime/installation-identity'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { memoryMarkers, SessionAccessStore } from './control/access'
 import type { DaemonContext } from './control/context'
 
 const targetMachineId = 'target-machine'
@@ -135,6 +136,7 @@ async function invoke(
       ...(restartAfterTransfer ? { restartAfterTransfer } : {}),
       ...(serverTransferCrashPoint ? { serverTransferCrashPoint } : {}),
       ...(retireAfterTransfer ? { retireAfterTransfer } : {}),
+      access: new SessionAccessStore({ markers: memoryMarkers() }),
     } as unknown as DaemonContext
     handlers[type](
       ctx,

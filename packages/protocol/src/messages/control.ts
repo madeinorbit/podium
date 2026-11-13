@@ -36,8 +36,8 @@ import {
 } from './headless'
 import {
   AgentQuotaRequestMessage,
-  QuotaHistoryRequestMessage,
   MemoryBreakdownRequestMessage,
+  QuotaHistoryRequestMessage,
   ReclaimAttachmentsMessage,
   ReclaimDiskEstimateRequestMessage,
   UsageRequestMessage,
@@ -48,15 +48,15 @@ import {
   RuntimeAnswerRequestMessage,
   RuntimeConfigureRequestMessage,
   RuntimeDraftRequestMessage,
+  RuntimeDurableSendRequestMessage,
+  RuntimeEventAckMessage,
+  RuntimeHistoryRequestMessage,
   RuntimeInterruptRequestMessage,
   RuntimeLifecycleRequestMessage,
   RuntimeQueueDrainAbandonedAckMessage,
-  RuntimeEventAckMessage,
-  RuntimeSnapshotRequestMessage,
-  RuntimeHistoryRequestMessage,
-  RuntimeStageAttachmentRequestMessage,
   RuntimeSendRequestMessage,
-  RuntimeDurableSendRequestMessage,
+  RuntimeSnapshotRequestMessage,
+  RuntimeStageAttachmentRequestMessage,
   RuntimeWatchMessage,
 } from './runtime'
 import { AgentObservationAckMessage, AgentObservationRebindAckMessage } from './runtime-state'
@@ -72,25 +72,26 @@ import {
   ServerTransferPromoteRequestMessage,
   ServerTransferValidateRequestMessage,
 } from './server-transfer'
+import { SessionAccessRefreshMessage } from './session-access'
 import {
   ShippingEvidenceRequestMessage,
   ShippingJobRequestMessage,
   ShippingRepairApplyRequestMessage,
 } from './shipping'
 import {
+  CloseClientTerminalMessage,
   DraftTargetMessage,
   InputMessage,
   KillMessage,
-  StealWriterMessage,
   ReattachMessage,
   RedrawMessage,
   ResizeMessage,
-  CloseClientTerminalMessage,
   SessionBindingRetireMessage,
   SessionPriorityMessage,
   SessionResumeRefAckMessage,
   SessionResumeRefConflictMessage,
   SpawnMessage,
+  StealWriterMessage,
 } from './terminal'
 import { TranscriptMirrorReadMessage, TranscriptReadRequestMessage } from './transcript'
 import { DevArtifactProbeRequestMessage, UpdateGrantMessage } from './update'
@@ -205,5 +206,28 @@ export const ControlMessage = z.discriminatedUnion('type', [
   /** Topic demand, a desired state (ADR 7 Amendment 2 D21). Appended at the
    *  END for index stability; sent only to a daemon that accepted topics.v1. */
   TopicWatchMessage,
+  /** A live session's access, sent again after a reconnect (credential
+   *  management §8). Appended at the END for index stability; sent only to a
+   *  daemon that accepted `CAP_SESSION_ACCESS`. */
+  SessionAccessRefreshMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>
+
+/**
+ * THE FRAMES THAT CAN CARRY A SECRET (credential management §8, "Never
+ * logged"): every control type whose shape has an `access` field. A logger, a
+ * trace or a dropped-frame warning names only the type of such a frame, never
+ * its fields or a parse error built from them. Pinned against the union's
+ * shapes by `session-access.test.ts`, so a new carrier cannot be left out.
+ */
+export const ACCESS_CARRYING_CONTROL_TYPES: ReadonlySet<ControlMessage['type']> = new Set([
+  'spawn',
+  'runtimeSendRequest',
+  'runtimeDurableSendRequest',
+  'sessionAccessRefresh',
+] as const satisfies readonly ControlMessage['type'][])
+
+/** Can a control frame of this type carry a secret? */
+export function carriesAccess(type: string): boolean {
+  return (ACCESS_CARRYING_CONTROL_TYPES as ReadonlySet<string>).has(type)
+}

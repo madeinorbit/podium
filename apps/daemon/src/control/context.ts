@@ -1,9 +1,8 @@
 import type { agentLaunchCommand, HarnessLogin } from '@podium/harness'
 import type { AgentKind, MachineId, SessionId, UsageBucketWire } from '@podium/model'
+import type { DurableBackend, DurableProcess } from '@podium/process/durable'
 import type { ServerTransferServingProof } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
-import type { DurableBackend, DurableProcess } from '@podium/process/durable'
-import type { SessionRegistry } from '../session/registry'
 import type { ProvisionedAccountHome } from '../account-home'
 import type { ConversationDeltaWire } from '../active-refresh'
 import type { AgentRelayHub } from '../agent-relay'
@@ -13,10 +12,11 @@ import type { ComposerSyncEngine } from '../composer-sync'
 import type { DaemonHarnessRuntime } from '../harness-runtime.js'
 import type { OutputScheduler } from '../output-scheduler'
 import type { PortableStateFence } from '../portable-state-fence'
+import type { DaemonMachineRuntime } from '../runtime/machine-runtime'
 import type { OpencodeClientTerminals } from '../runtime/opencode-attach'
 import type { ScopeMonitor } from '../runtime/scope-monitor'
-import type { DaemonMachineRuntime } from '../runtime/machine-runtime'
 import type { ServerReapIo } from '../runtime/server-reap'
+import type { SessionRegistry } from '../session/registry'
 import type { SessionBinding } from '../session-binding'
 import type { SessionObservers } from '../session-observers'
 import type { ShippingExecutionPlane } from '../shipping/executor'
@@ -131,6 +131,12 @@ export interface DaemonContext {
   hookSocketPath: string | undefined
   /** Durable per-machine SessionBinding and append-only alias history. */
   bindingStore: BindingStore
+  /**
+   * Each session's credential, in memory only (credential management §8), and
+   * the secret-free marker that a restarted daemon must wait for it. Every
+   * process start for a session applies it from here (`control/access.ts`).
+   */
+  access: import('./access').SessionAccessStore
   /** Canonical lifecycle API; handlers never reconstruct binding mutations. */
   sessionBinding: SessionBinding
   /** Hook-ingest endpoint for a session (instrumentation URLs). */

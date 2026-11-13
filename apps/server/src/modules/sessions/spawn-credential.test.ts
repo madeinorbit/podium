@@ -11,18 +11,23 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { harnessAccepts } from '@podium/harness/metadata'
 import {
   type AgentKind,
   asAccountId,
   asUserId,
+  CREDENTIAL_TYPES,
   type CredentialId,
+  type CredentialTypeId,
   firstAdminMemberId,
+  HarnessAgent,
   type SessionId,
   type UserId,
 } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { DaemonLink } from '../../gateway/daemon-link-kind'
 import { SessionRegistry } from '../../relay'
 import type { SessionStore } from '../../store'
 import { memberFacts } from '../../store/fixtures/test-support'
@@ -43,6 +48,16 @@ afterEach(async () => {
 type SpawnFrame = Extract<ControlMessage, { type: 'spawn' }>
 const spawns = (daemon: ControlMessage[]) =>
   daemon.filter((m): m is SpawnFrame => m.type === 'spawn')
+
+/**
+ * The secret a spawn frame delivers, as `{ variable: secret }` (epic Task 5):
+ * it rides `access`, and the frame's plain `env` never holds a credential.
+ */
+function delivered(frame: SpawnFrame | undefined): Record<string, string> | undefined {
+  expect(frame?.env).toBeUndefined()
+  const delivery = frame?.access?.delivery
+  return delivery?.kind === 'env' ? { [delivery.variable]: delivery.secret } : undefined
+}
 
 const AT = '2026-11-13T00:00:00.000Z'
 const FAKE_A = 'sk-FAKE-credential-a-0001'
@@ -116,12 +131,21 @@ async function reportLogins(
 
 async function makeRegistry(
   store: SessionStore,
+  host: { caps?: readonly string[]; link?: DaemonLink } = {},
 ): Promise<{ reg: SessionRegistry; daemon: ControlMessage[] }> {
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
-  await attachHostDaemon(reg, (m) => daemon.push(m))
+  await attachHostDaemon(reg, (m) => daemon.push(m), host)
   return { reg, daemon }
+}
+
+/** A daemon on another computer over plain ws, as the server judges it. */
+const PLAIN_LINK: DaemonLink = {
+  url: 'http://server.invalid/daemon',
+  hasProxyHeaders: false,
+  clientAddress: '203.0.113.7',
+  trustedProxyHops: 0,
 }
 
 const RESUME = {
@@ -169,7 +193,7 @@ describe('a new session', () => {
       cwd: '/p',
     })
     expect(spawned.credentialId).toBe(id)
-    expect(spawns(daemon).at(-1)?.env).toEqual({ ANTHROPIC_API_KEY: FAKE_A })
+    expect(delivered(spawns(daemon).at(-1))).toEqual({ ANTHROPIC_API_KEY: FAKE_A })
     expect((await store.sessions.getSession(spawned.sessionId))?.credentialId).toBe(id)
   })
 
@@ -186,7 +210,7 @@ describe('a new session', () => {
       credentialId: b,
     })
     expect(spawned.credentialId).toBe(b)
-    expect(spawns(daemon).at(-1)?.env).toEqual({ ANTHROPIC_API_KEY: FAKE_B })
+    expect(delivered(spawns(daemon).at(-1))).toEqual({ ANTHROPIC_API_KEY: FAKE_B })
   })
 
   it('takes "none" named at launch over the default', async () => {
@@ -200,10 +224,11 @@ describe('a new session', () => {
       credentialId: null,
     })
     expect(spawned.credentialId).toBeNull()
-    expect(Object.hasOwn(spawns(daemon).at(-1) ?? {}, 'env')).toBe(false)
+    expect(Object.hasOwn(spawns(daemon).at(-1) ?? {}, 'access')).toBe(false)
+    expect(delivered(spawns(daemon).at(-1))).toBeUndefined()
   })
 
-  it('runs on no credential when neither is set: env absent, not an empty object', async () => {
+  it('runs on no credential when neither is set: no access field', async () => {
     const store = await openTestStore(':memory:')
     const { reg, daemon } = await makeRegistry(store)
     const spawned = await reg.modules.sessions.createSession({
@@ -211,7 +236,8 @@ describe('a new session', () => {
       cwd: '/p',
     })
     expect(spawned.credentialId).toBeNull()
-    expect(Object.hasOwn(spawns(daemon).at(-1) ?? {}, 'env')).toBe(false)
+    expect(Object.hasOwn(spawns(daemon).at(-1) ?? {}, 'access')).toBe(false)
+    expect(delivered(spawns(daemon).at(-1))).toBeUndefined()
   })
 
   it('never gives a shell pane a credential', async () => {
@@ -333,7 +359,7 @@ describe('a wake', () => {
     const { result, frames } = await wake(reg, daemon, sessionId)
     expect(result).toEqual({ ok: true })
     expect(frames).toHaveLength(1)
-    expect(frames[0]?.env).toEqual({ OPENAI_API_KEY: FAKE_A })
+    expect(delivered(frames[0])).toEqual({ OPENAI_API_KEY: FAKE_A })
   })
 
   it('a credential removed while the session slept stops the wake, with the reason', async () => {
@@ -418,8 +444,7 @@ describe('old account ids', () => {
       })
       expect(spawned.credentialId).toBe(row.credential ? seeded : null)
       const frame = spawns(daemon).at(-1)
-      if (row.env) expect(frame?.env).toEqual(row.env)
-      else expect(Object.hasOwn(frame ?? {}, 'env')).toBe(false)
+      expect(delivered(frame)).toEqual(row.env)
     })
 
     it(`from a stored session: ${row.harness} with "${row.value}"`, async () => {
@@ -449,8 +474,166 @@ describe('old account ids', () => {
       const { result, frames } = await wake(reg, daemon, sessionId)
       expect(result).toEqual({ ok: true })
       expect(frames).toHaveLength(1)
-      if (row.env) expect(frames[0]?.env).toEqual(row.env)
-      else expect(Object.hasOwn(frames[0] ?? {}, 'env')).toBe(false)
+      expect(delivered(frames[0])).toEqual(row.env)
     })
   }
+})
+
+// Epic plan Task 5: the credential crosses only in `access`, only to a daemon
+// that offered it, over a connection the server judged safe.
+describe('delivery to the daemon (Task 5)', () => {
+  it('an older daemon: daemon-too-old, nothing sent, no session, vault never opened (acceptance 1)', async () => {
+    const store = await openTestStore(':memory:')
+    const id = await credential(store, { type: 'anthropic.api-key', secret: FAKE_A })
+    await setDefault(store, 'claude-code', id)
+    const { reg, daemon } = await makeRegistry(store, { caps: [] })
+    const open = vi.spyOn(store.vault, 'open')
+    const sessionsBefore = (await store.sessions.loadSessions()).length
+    const launch = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/p' })
+    await expect(launch).rejects.toBeInstanceOf(CredentialRefusal)
+    await expect(launch).rejects.toThrow(ACCESS_REFUSAL_MESSAGES['daemon-too-old'])
+    expect(spawns(daemon)).toEqual([])
+    expect((await store.sessions.loadSessions()).length).toBe(sessionsBefore)
+    expect(open).not.toHaveBeenCalled()
+    expect(JSON.stringify(daemon)).not.toContain(FAKE_A)
+  })
+
+  it('a plain connection: connection-not-encrypted, nothing sent, vault never opened (acceptance 2)', async () => {
+    const store = await openTestStore(':memory:')
+    const id = await credential(store, { type: 'anthropic.api-key', secret: FAKE_A })
+    await setDefault(store, 'claude-code', id)
+    const { reg, daemon } = await makeRegistry(store, { link: PLAIN_LINK })
+    const open = vi.spyOn(store.vault, 'open')
+    const launch = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/p' })
+    await expect(launch).rejects.toThrow(ACCESS_REFUSAL_MESSAGES['connection-not-encrypted'])
+    expect(spawns(daemon)).toEqual([])
+    expect(open).not.toHaveBeenCalled()
+  })
+
+  it('no credential: unchanged on an older daemon and on a plain connection (acceptance 3)', async () => {
+    for (const host of [{ caps: [] }, { link: PLAIN_LINK }]) {
+      const store = await openTestStore(':memory:')
+      const { reg, daemon } = await makeRegistry(store, host)
+      const spawned = await reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/p',
+      })
+      expect(spawned.credentialId).toBeNull()
+      expect(spawns(daemon)).toHaveLength(1)
+      expect(Object.hasOwn(spawns(daemon)[0] ?? {}, 'access')).toBe(false)
+    }
+  })
+
+  // Acceptance 9: every accepted vault type, on every harness that takes it.
+  const VAULT_LINES = HarnessAgent.options.flatMap((harness) =>
+    harnessAccepts(harness)
+      .filter((line) => CREDENTIAL_TYPES[line.type as CredentialTypeId]?.store === 'vault')
+      .map((line) => ({ harness, line })),
+  )
+
+  it('enumerates the vault lines it checks (canary)', () => {
+    expect(VAULT_LINES.length).toBeGreaterThanOrEqual(3)
+    expect(VAULT_LINES.map((v) => `${v.harness}:${v.line.type}`)).toContain(
+      'claude-code:anthropic.api-key',
+    )
+  })
+
+  for (const { harness, line } of VAULT_LINES) {
+    it(`${harness} on ${line.type}: the secret is in access, never in env (acceptance 9)`, async () => {
+      if (line.deliver.kind !== 'env') throw new Error('a vault line delivers by env')
+      const store = await openTestStore(':memory:')
+      const id = await credential(store, { type: line.type, secret: FAKE_A })
+      const { reg, daemon } = await makeRegistry(store)
+      await reg.modules.sessions.createSession({
+        agentKind: harness,
+        cwd: '/p',
+        credentialId: id,
+        ...(line.drivers?.[0] ? { requestedDriverId: line.drivers[0] } : {}),
+      })
+      const frame = spawns(daemon).at(-1)
+      expect(frame?.env?.[line.deliver.variable]).toBeUndefined()
+      expect(JSON.stringify(frame?.env ?? {})).not.toContain(FAKE_A)
+      expect(frame?.access).toEqual({
+        credentialId: id,
+        delivery: { kind: 'env', variable: line.deliver.variable, secret: FAKE_A },
+      })
+    })
+  }
+})
+
+// Epic plan Task 5, acceptance 6 (the server half): a restarted daemon holds no
+// secret, so the server sends it again when the daemon reconnects.
+describe('after the daemon reconnects (Task 5)', () => {
+  async function liveSession(
+    reg: SessionRegistry,
+    credentialId: CredentialId | null,
+  ): Promise<SessionId> {
+    const { sessionId } = await reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/p',
+      credentialId,
+    })
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'bind',
+      sessionId,
+      cmd: 'claude',
+      cwd: '/p',
+      agentKind: 'claude-code',
+      geometry: { cols: 80, rows: 24 },
+    })
+    return sessionId
+  }
+
+  async function reconnect(reg: SessionRegistry): Promise<ControlMessage[]> {
+    reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
+    const after: ControlMessage[] = []
+    await attachHostDaemon(reg, (m) => after.push(m))
+    return after
+  }
+
+  const indexOf = (frames: ControlMessage[], type: string, sessionId: SessionId) =>
+    frames.findIndex(
+      (m) => m.type === type && (m as { sessionId?: string }).sessionId === sessionId,
+    )
+
+  it('a live session on a vault credential gets its access again, before its reattach', async () => {
+    const store = await openTestStore(':memory:')
+    const id = await credential(store, { type: 'anthropic.api-key', secret: FAKE_A })
+    const { reg } = await makeRegistry(store)
+    const keyed = await liveSession(reg, id)
+    const bare = await liveSession(reg, null)
+    const after = await reconnect(reg)
+
+    const refresh = indexOf(after, 'sessionAccessRefresh', keyed)
+    const reattach = indexOf(after, 'reattach', keyed)
+    expect(reattach).toBeGreaterThanOrEqual(0)
+    expect(refresh).toBeGreaterThanOrEqual(0)
+    expect(refresh).toBeLessThan(reattach)
+    expect(after[refresh]).toEqual({
+      type: 'sessionAccessRefresh',
+      sessionId: keyed,
+      access: {
+        credentialId: id,
+        delivery: { kind: 'env', variable: 'ANTHROPIC_API_KEY', secret: FAKE_A },
+      },
+    })
+    // A session on the harness's own login has nothing to refresh.
+    expect(indexOf(after, 'reattach', bare)).toBeGreaterThanOrEqual(0)
+    expect(indexOf(after, 'sessionAccessRefresh', bare)).toBe(-1)
+  })
+
+  it('a credential that can no longer be used sends no refresh, and the refusal is recorded', async () => {
+    const store = await openTestStore(':memory:')
+    const id = await credential(store, { type: 'anthropic.api-key', secret: FAKE_A })
+    const { reg } = await makeRegistry(store)
+    const keyed = await liveSession(reg, id)
+    await store.credentials.setStatus(id, 'attention', 'expired')
+    const after = await reconnect(reg)
+    expect(indexOf(after, 'sessionAccessRefresh', keyed)).toBe(-1)
+    expect(JSON.stringify(after)).not.toContain(FAKE_A)
+    const refused = (await store.settingsAudit.list(100)).filter(
+      (row) => row.command === 'credentials.refuse',
+    )
+    expect(refused.length).toBeGreaterThan(0)
+  })
 })

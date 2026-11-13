@@ -204,6 +204,46 @@ function endTurn(attachment: ReturnType<typeof fakeAttachment>, output = 'answer
   attachment.emitStdout(`${frame({ type: 'result', subtype: 'success', result: output })}\n`)
 }
 
+describe('the claude stream engine journal and a delivered credential (epic Task 5)', () => {
+  /** Obviously fake. */
+  const PLANTED = 'sk-FAKE-planted-claude-journal-0005'
+
+  it('journals no secret the session layer delivered at engine start', async () => {
+    const attachment = fakeAttachment({ childPid: 4343 })
+    const { supervision, engines, spawned } = fakePorts({ spawn: attachment })
+    // The daemon's session layer applies the session's credential BELOW the
+    // family, at the one place every engine starts (SessionEngineScope).
+    const delivering: EngineProcessOwner = {
+      ...engines,
+      startEngine: (req) =>
+        engines.startEngine({
+          ...req,
+          env: { ...req.env, ANTHROPIC_API_KEY: PLANTED },
+          stripEnv: req.stripEnv.filter((key) => key !== 'ANTHROPIC_API_KEY'),
+        }),
+    }
+    const journal = journalStore()
+    const host = createClaudeEngineHost(hostDeps({ supervision, engines: delivering }, journal))
+    const handle = host.startTurn(turnInput())
+    await vi.waitFor(() => expect(spawned).toHaveLength(1))
+    // Canary: the engine process was handed the secret.
+    expect(spawned[0]?.env.ANTHROPIC_API_KEY).toBe(PLANTED)
+    answerHandshake(attachment, 'claude-native-journal')
+    await vi.waitFor(() =>
+      expect(
+        attachment.writes.map((line) => JSON.parse(line)).some((msg) => msg.type === 'user'),
+      ).toBe(true),
+    )
+    endTurn(attachment)
+    await handle.done
+    const entry = journal.recorded(SESSION_ID)
+    expect(entry?.claudeSessionId).toBe('claude-native-journal')
+    const written = JSON.stringify(entry)
+    expect(written).not.toContain(PLANTED)
+    expect(written).not.toContain(Buffer.from(PLANTED).toString('base64'))
+  })
+})
+
 describe('the claude stream engine host', () => {
   it('spawns the engine under the host and journals the harness session id', async () => {
     const attachment = fakeAttachment({ childPid: 4242 })

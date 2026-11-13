@@ -20,6 +20,7 @@
  *      gets the new installation.
  *   5. Native attach spawns the session's executable over the context env.
  */
+
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
@@ -48,6 +49,7 @@ import { asSessionId, type SessionId } from '@podium/model'
 import type { BuiltinHarnessKind } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { memoryMarkers, SessionAccessStore } from './control/access'
 import type { DaemonContext } from './control/context'
 import { launchServerDriverSession } from './control/session'
 import { DaemonHarnessRuntime } from './harness-runtime'
@@ -168,6 +170,7 @@ function daemon(builds: ResolvedHarnessInventory[], harness: 'codex' | 'grok') {
       adoptJournalled: async () => ({ found: false }),
       create,
     },
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   return { ctx, sent, create, harnessRuntime }
 }

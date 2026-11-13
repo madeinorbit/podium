@@ -38,6 +38,7 @@ export type AccessRefusal =
   | 'revoked'
   | 'daemon-too-old'
   | 'connection-not-encrypted'
+  | 'machine-offline'
 
 /** The one sentence a person reads for each refusal. */
 export const ACCESS_REFUSAL_MESSAGES: Record<AccessRefusal, string> = {
@@ -55,6 +56,8 @@ export const ACCESS_REFUSAL_MESSAGES: Record<AccessRefusal, string> = {
   'daemon-too-old': 'Podium on this machine is too old to receive credentials. Update it.',
   'connection-not-encrypted':
     "This machine's connection to the server is not encrypted, so credentials are not sent to it. Connect it over wss or declare its network trusted.",
+  'machine-offline':
+    'This machine is not connected, so its credential cannot be sent. Try again when it is online.',
 }
 
 export type AccessRefused = { ok: false; refusal: AccessRefusal; message: string }

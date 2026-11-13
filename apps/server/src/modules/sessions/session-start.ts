@@ -44,7 +44,6 @@ import { machinePathBasename } from '@podium/model'
  */
 
 import { randomUUID } from 'node:crypto'
-import { soleMemberFor } from '../../sole-member'
 import type { Attribution, ResumeRef } from '@podium/model'
 import {
   AgentKind,
@@ -69,6 +68,7 @@ import type { ControlMessage, RuntimeAttachmentRef } from '@podium/protocol/daem
 import { resolveRole } from '@podium/runtime'
 import { harnessSupportsEffort, harnessSupportsInitialPrompt } from '../../harness-manifest'
 import { type ResolvedLaunchSelection, resolveLaunchSelection } from '../../model-validation'
+import { soleMemberFor } from '../../sole-member'
 import type { SessionStore } from '../../store'
 import type { MachineUseResolver } from '../machines/service'
 import type { MessageWriter } from '../messages/writer'
@@ -778,8 +778,10 @@ export class SessionStart {
       ...(input.instructions?.length ? { instructions: input.instructions } : {}),
       geometry: { ...DEFAULT_GEOMETRY },
       ...launch,
-      // Until the `access` field exists (epic Task 5), an `env` delivery rides here.
-      ...(access.env ? { env: access.env } : {}),
+      // THE CREDENTIAL, in its own field and nowhere else (credential
+      // management §8): read from the vault above, before the row was
+      // written, and held in memory until this frame goes out.
+      ...(access.access ? { access: access.access } : {}),
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
       ...(input.requestedDriverId !== undefined
         ? { requestedDriverId: input.requestedDriverId }

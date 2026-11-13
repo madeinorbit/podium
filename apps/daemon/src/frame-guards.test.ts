@@ -1,6 +1,7 @@
 import { asMachineId, asSessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
+import { memoryMarkers, SessionAccessStore } from './control/access'
 import type { DaemonContext } from './control/context'
 import { controlFrameByteLength, createFrameGuard, MAX_CONTROL_FRAME_BYTES } from './frame-guards'
 import { attachTestTerminal, testSessions } from './session/testing.js'
@@ -11,6 +12,7 @@ const context = (): DaemonContext =>
     bindingStore: { isQuarantined: vi.fn(() => false) },
     sessions: testSessions(),
     send: vi.fn(),
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   }) as unknown as DaemonContext
 
 describe('daemon frame guards', () => {
@@ -188,4 +190,47 @@ it('isolates a quarantined session from unrelated control frames and binary inpu
     Buffer.from('y'),
   )
   expect(write).toHaveBeenCalledWith(Buffer.from('y'))
+})
+
+/**
+ * NEVER LOGGED (credential management §8): a frame of a type that can carry a
+ * session's credential is reported by its type and the paths that failed, never
+ * by the parse error, whatever field broke. Epic plan Task 5.
+ */
+describe('frames that can carry a credential', () => {
+  /** Obviously fake. */
+  const PLANTED = 'sk-FAKE-planted-frame-secret-0009'
+  const brokenSpawn = {
+    type: 'spawn',
+    sessionId: 's1',
+    agentKind: 'claude-code',
+    cwd: '/p',
+    geometry: { cols: 'wide', rows: 24 },
+    access: {
+      credentialId: 'cred_00000000-0000-4000-8000-000000000009',
+      // An unknown delivery kind: the parse error would quote the object.
+      delivery: { kind: PLANTED, variable: 'ANTHROPIC_API_KEY', secret: PLANTED },
+    },
+  }
+
+  it('a malformed spawn is warned about by type and path only', () => {
+    const warn = vi.fn()
+    createFrameGuard(context(), { warn }).receive(Buffer.from(JSON.stringify(brokenSpawn)))
+    expect(warn).toHaveBeenCalledWith(
+      'dropped a malformed control frame',
+      expect.objectContaining({ direction: 'inbound', type: 'spawn' }),
+    )
+    const logged = JSON.stringify(warn.mock.calls)
+    expect(logged).toContain('geometry')
+    expect(logged).not.toContain(PLANTED)
+    expect(logged).not.toContain(Buffer.from(PLANTED).toString('base64'))
+  })
+
+  it('a malformed frame of another type still carries its error (canary)', () => {
+    const warn = vi.fn()
+    createFrameGuard(context(), { warn }).receive(
+      Buffer.from(JSON.stringify({ type: 'kill', sessionId: 42, marker: PLANTED })),
+    )
+    expect(warn.mock.calls[0]?.[1]).toHaveProperty('err')
+  })
 })

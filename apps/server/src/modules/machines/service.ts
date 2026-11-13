@@ -30,6 +30,7 @@ import {
   machineRejectionMessage,
   resolveMachineChannel,
   SHARED_MACHINE_ACCOUNT_WARNING,
+  type SyncedServiceReport,
   structuralEligibility,
   type UpdateChannel,
   type UserId,
@@ -50,17 +51,19 @@ import type {
 } from '@podium/protocol'
 import {
   CAP_CREDENTIAL_IDENTITY_GUARD,
+  CAP_SESSION_ACCESS,
   SERVER_MOVE_CAPABILITY,
   supervisorGenerationOf,
   UPDATE_SPACE_CAPABILITY,
   unknownUpdateSpace,
   wireSchemaDigest,
 } from '@podium/protocol'
-import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
+import { type ControlMessage, carriesAccess, type DaemonMessage } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
 import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
 import { requestParentEnrollment } from '@podium/runtime/parent-control'
 import { TRPCError } from '@trpc/server'
+import type { DaemonLinkKind } from '../../gateway/daemon-link-kind'
 import type { DaemonControlPeer } from '../../gateway/daemon-ports'
 import { isPrivateOwner } from '../../private-resources'
 import type { MemberCredentials } from '../../identity/member-credentials'
@@ -122,6 +125,13 @@ const fencedSessionOf = (delivery: PendingDaemonDelivery): SessionId | undefined
   if (RETIRING_CONTROL_TYPES.has(delivery.message.type)) return undefined
   const sessionId = (delivery.message as { sessionId?: unknown }).sessionId
   return typeof sessionId === 'string' ? (sessionId as SessionId) : undefined
+}
+
+/** A control frame whose `access` holds a secret (an `env` delivery). */
+function carriesSecret(message: ControlMessage): boolean {
+  if (!carriesAccess(message.type)) return false
+  const access = (message as { access?: { delivery: { kind: string } } }).access
+  return access?.delivery.kind === 'env'
 }
 
 const sendControl = (transport: DaemonControlPeer, message: ControlMessage): void => {
@@ -318,6 +328,12 @@ export interface MachineFactsSnapshot {
 export interface MachinesDeps {
   /** Deployment configuration only; never an owner or grant input. */
   instanceId: string
+  /**
+   * The server's judgement of a connected daemon's connection (credential
+   * management §8). Read at the send, so a frame carrying a secret never goes
+   * to a socket judged `plain`. Absent: only the capability is checked.
+   */
+  daemonLinkKind?: (machineId: MachineId) => DaemonLinkKind | undefined
   /** Public half of the server update-signing key, sent on every successful machine hello. */
   updatePubkey?: () => string
   /** Old-key-signed path published with the current update key. */
@@ -1027,6 +1043,14 @@ export class MachinesService {
     return this.daemonCaps.get(machineId)?.has(cap) === true
   }
 
+  /** Why a frame carrying a secret may not go to this machine now, if it may not. */
+  private secretUnsafe(machineId: MachineId): string | undefined {
+    if (!this.daemons.has(machineId)) return 'no daemon is connected'
+    if (!this.daemonSupports(machineId, CAP_SESSION_ACCESS)) return 'its daemon is too old'
+    if (this.deps.daemonLinkKind?.(machineId) === 'plain') return 'its connection is not encrypted'
+    return undefined
+  }
+
   /** Wait briefly for the live daemon's first inventory, requesting it now. */
   async waitForInventory(machineId: MachineId, timeoutMs = 25_000): Promise<void> {
     if (!this.inventoryPending.has(machineId)) return
@@ -1069,6 +1093,14 @@ export class MachinesService {
       throw new Error(
         `Upgrade the daemon on ${machineId} before copying a login: the current peer cannot enforce account identity preservation.`,
       )
+    }
+    // A SECRET IS NEVER QUEUED (credential management §8). The access was
+    // attached for the daemon connected when the launch was resolved; if that
+    // socket went away or was replaced by an older daemon or a plain link since,
+    // the frame is refused here rather than parked for whatever connects next.
+    if (carriesSecret(msg)) {
+      const unsafe = this.secretUnsafe(machineId)
+      if (unsafe) throw new Error(`refusing to send a credential to ${machineId}: ${unsafe}`)
     }
     // Keep target and origin together: aggregate task timings cannot distinguish
     // a repeated target from a sweep, or an offline queue from a fresh request.

@@ -1,6 +1,7 @@
 import type { Inventory } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { memoryMarkers, SessionAccessStore } from './access'
 
 // The machine runtime owns the real CLI probe. This fake keeps the test on the
 // report/cache/rebuild behavior and proves the handler enters through that root.
@@ -32,8 +33,8 @@ vi.mock('../runtime/version-probe', async (importOriginal) => ({
 
 import {
   CODEX_VERSION_POLICY,
-  gateHarnessVersion,
   GROK_ACP_VERSION_POLICY,
+  gateHarnessVersion,
   OPENCODE_VERSION_POLICY,
 } from '@podium/harness'
 import {
@@ -122,6 +123,7 @@ function makeCtx(): { ctx: DaemonContext; sent: DaemonMessage[] } {
     machineId: 'm-test',
     homeDir: `/fake/home/${seq++}`,
     agentRuntime: { inventory: () => buildInventory() },
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   return { ctx, sent }
 }
@@ -153,6 +155,7 @@ function makeRuntimeCtx(opencode2Executable?: string): {
       reprobe,
       isCurrent: (candidate: unknown) => candidate === snapshot,
     },
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   return { ctx, sent, current, refresh, reprobe }
 }

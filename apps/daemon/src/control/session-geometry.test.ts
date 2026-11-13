@@ -1,15 +1,16 @@
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { harnessChildEnv } from '@podium/harness'
+import { testHarnessContext } from '@podium/harness/driver/testing'
 import { asSessionId } from '@podium/model'
 import type { DurableAttachment } from '@podium/process/screen'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
+import { testSessions } from '../session/testing.js'
+import { memoryMarkers, SessionAccessStore } from './access'
 import type { DaemonContext } from './context'
-import { harnessChildEnv } from '@podium/harness'
-import { testHarnessContext } from '@podium/harness/driver/testing'
 import { sessionHandlers, sessionSize, wireBridge } from './session'
 import { shellChildEnv } from './session-env'
-import { testSessions } from '../session/testing.js'
 
 /**
  * THE ASK AND THE SIZE EVENT (POD-4723, design rev 3 rule 1).
@@ -73,6 +74,7 @@ function daemonContext(): { ctx: DaemonContext; sent: DaemonMessage[] } {
     observers: { clearSession: () => {} },
     sessionCwdTracker: { clear: () => {} },
     send: (msg: DaemonMessage) => sent.push(msg),
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   return { ctx, sent }
 }

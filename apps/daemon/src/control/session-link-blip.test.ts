@@ -23,9 +23,10 @@ import type { AgentSessionHandle } from '@podium/harness/driver/host'
 import { asSessionId, type SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
+import { testSessions } from '../session/testing.js'
+import { memoryMarkers, SessionAccessStore } from './access'
 import type { DaemonContext } from './context'
 import { sessionHandlers } from './session'
-import { testSessions } from '../session/testing.js'
 
 vi.mock('../runtime/server-reap', () => ({ beginServerDriverReap: vi.fn(async () => false) }))
 
@@ -101,6 +102,7 @@ function linkBlipWorld(live: AgentSessionHandle) {
       serverHandleFor,
       adoptJournalled,
     },
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   return { ctx, sent, adoptJournalled, serverHandleFor }
 }

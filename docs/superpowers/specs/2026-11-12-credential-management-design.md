@@ -437,13 +437,16 @@ resolveAccess({ consumer, credentialId | none, actingUser, machine? })
   → plan     { delivery }                    // or { route } for direct inference; never the secret
   → refusal  not-found | not-yours | wrong-type | not-on-this-machine | machine-not-allowed
              | own-credential-required | needs-attention | revoked | daemon-too-old
-             | connection-not-encrypted
+             | connection-not-encrypted | machine-offline
 ```
 
 It checks, in order: the credential exists and is not revoked; the acting person owns it or has
 been given use of it; the consumer accepts its type; it can reach the machine in question and
 its owner allows that machine; it is healthy. The refusal reasons are a closed list and each
-has one sentence a person sees.
+has one sentence a person sees. `machine-offline` is raised only when no daemon is connected at
+the moment a secret would be sent (a race after the launch's own online check, a revival, a turn
+or a refresh); a launch on a machine that is offline is refused earlier with the launch's own
+sentence.
 
 The plan never contains the secret. Only the step that sends it to a daemon, and the provider
 call itself, read it from the vault. A refusal is final for that launch: a session is never

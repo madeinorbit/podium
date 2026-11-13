@@ -425,7 +425,7 @@ describe('resolveInferenceAccess', () => {
 })
 
 describe('ACCESS_REFUSAL_MESSAGES', () => {
-  it('has the ten sentences of the plan', () => {
+  it('has the eleven sentences of the plan', () => {
     expect(ACCESS_REFUSAL_MESSAGES).toEqual({
       'not-found': 'This credential no longer exists.',
       'not-yours': 'You do not have use of this credential. Ask its owner to share it.',
@@ -441,12 +441,14 @@ describe('ACCESS_REFUSAL_MESSAGES', () => {
       'daemon-too-old': 'Podium on this machine is too old to receive credentials. Update it.',
       'connection-not-encrypted':
         "This machine's connection to the server is not encrypted, so credentials are not sent to it. Connect it over wss or declare its network trusted.",
+      'machine-offline':
+        'This machine is not connected, so its credential cannot be sent. Try again when it is online.',
     })
   })
 
   it('cannot be written without one of them (compile check)', () => {
     // @ts-expect-error -- 'connection-not-encrypted' is missing, so this does not compile.
-    const nine: Record<AccessRefusal, string> = {
+    const ten: Record<AccessRefusal, string> = {
       'not-found': '',
       'not-yours': '',
       'wrong-type': '',
@@ -456,7 +458,8 @@ describe('ACCESS_REFUSAL_MESSAGES', () => {
       'needs-attention': '',
       revoked: '',
       'daemon-too-old': '',
+      'machine-offline': '',
     }
-    expect(Object.keys(nine)).toHaveLength(9)
+    expect(Object.keys(ten)).toHaveLength(10)
   })
 })

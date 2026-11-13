@@ -22,17 +22,18 @@
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { testHarnessContext, testLaunchPosture } from '@podium/harness/driver/testing'
-import type { BuiltinHarnessKind } from '@podium/protocol'
 import { asSessionId } from '@podium/model'
-import type { DaemonMessage } from '@podium/protocol/daemon'
 import type { AgentFrame, DurableAttachment } from '@podium/process/screen'
+import type { BuiltinHarnessKind } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import { createOpencodeClientTerminals } from '../runtime/opencode-attach'
-import { sessionModelSize, trackSessionSize } from '../session-screens'
 import type { ClientProcessOwner } from '../session/clients.js'
+import { testSessions } from '../session/testing.js'
+import { sessionModelSize, trackSessionSize } from '../session-screens'
+import { memoryMarkers, SessionAccessStore } from './access'
 import type { DaemonContext } from './context'
 import { onSessionSize, reconcileNativeClientTerminal, sessionHandlers, sessionSize } from './session'
-import { testSessions } from '../session/testing.js'
 
 /** The session's pinned harness context (POD-6546): a client terminal runs the
  *  session's executable, never the harness's bare name. */
@@ -124,6 +125,7 @@ function harness(over: { reportGeometry?: boolean; refuse?: boolean } = {}): Har
       if (over.reportGeometry === false && msg.type === 'geometryApplied') return
       sent.push(msg)
     },
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
 
   // The real client-terminal host: only the session-owned process port is

@@ -13,9 +13,10 @@ import { asSessionId } from '@podium/model'
 import type { DurableAttachment } from '@podium/process/screen'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { attachTestTerminal, testSessions } from '../session/testing.js'
+import { sessionScreenFor, trackSessionOutput, trackSessionSize } from '../session-screens'
+import { memoryMarkers, SessionAccessStore } from './access'
 import type { DaemonContext } from './context'
 import { sessionHandlers } from './session'
-import { sessionScreenFor, trackSessionOutput, trackSessionSize } from '../session-screens'
 
 const SESSION = asSessionId('22222222-2222-4222-8222-222222222222')
 const ENTER_ALT = '\x1b[?1049h'
@@ -58,6 +59,7 @@ function world(opts: { headed: boolean }): {
     },
     observers: {},
     composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   attachTestTerminal(ctx, SESSION, bridge, opts.headed ? 'client' : 'headed')
   return { ctx, bridge, enqueued }

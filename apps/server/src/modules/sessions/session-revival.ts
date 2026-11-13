@@ -38,11 +38,11 @@
 import { randomUUID } from 'node:crypto'
 import type { IssueId, MachineId, ResumeRef, SessionId, SessionMeta, UserId } from '@podium/model'
 import { type AgentKind, asSessionId } from '@podium/model'
-import { soleMemberFor } from '../../sole-member'
 import type { SessionBindingAdoptLaunchInstruction } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import type { AutoContinueController } from '../../auto-continue'
 import { type ResolvedLaunchSelection, resolveLaunchSelection } from '../../model-validation'
+import { soleMemberFor } from '../../sole-member'
 import type { SessionStore } from '../../store'
 import type { DurableIssueAccessIndex } from '../issues/access-index'
 import type { DaemonRpcService } from '../machines/rpc'
@@ -648,8 +648,10 @@ export class SessionRevival {
       // selection supplied on this wake may set model or effort.
       ...(selection && selection.model !== 'auto' ? { model: selection.model } : {}),
       ...(selection && selection.effort !== 'auto' ? { effort: selection.effort } : {}),
-      // Until the `access` field exists (epic Task 5), an `env` delivery rides here.
-      ...(access.env ? { env: access.env } : {}),
+      // THE CREDENTIAL, in its own field and nowhere else (credential
+      // management §8): read from the vault above, before the row was
+      // written, and held in memory until this frame goes out.
+      ...(access.access ? { access: access.access } : {}),
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
     })
     await preparedInstructions.commit()

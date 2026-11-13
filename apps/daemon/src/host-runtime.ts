@@ -127,6 +127,7 @@ import { BindingStore } from './binding-store'
 import { createBrowserOpenManager } from './browser-open'
 import { deliveryCaps } from './build-report'
 import { ComposerSyncEngine } from './composer-sync'
+import { type AccessMarker, SessionAccessStore } from './control/access'
 import type { DaemonContext, DurableBackend } from './control/context'
 import { readMemoryBreakdown } from './control/discovery'
 import { reportInventory, startInventoryRefresh } from './control/inventory'
@@ -197,6 +198,7 @@ import {
 import { createSessionClientScope } from './session/clients.js'
 import { driverSlotsOver } from './session/driver-slots.js'
 import { createSessionEngineScope } from './session/engines.js'
+import { createEngineJournal } from './session/journal.js'
 import { SessionRegistry } from './session/registry.js'
 import { SessionBinding } from './session-binding'
 import { driverHarnessContextFrom, engineSessionHarnessContext } from './session-harness-context'
@@ -1078,6 +1080,10 @@ export async function createDaemonHostRuntime(args: {
   const ctx: DaemonContext = {
     send,
     topicWatches,
+    // Secrets in memory; only "this session needs a credential" on disk.
+    access: new SessionAccessStore({
+      markers: createEngineJournal<AccessMarker>({ namespace: 'session-access' }),
+    }),
     ...(args.picturesAccepted ? { picturesAccepted: args.picturesAccepted } : {}),
     acknowledgeQueueDrainReport: args.acknowledgeQueueDrainReport,
     acknowledgeRuntimeEvent: args.acknowledgeRuntimeEvent,
@@ -1307,6 +1313,7 @@ export async function createDaemonHostRuntime(args: {
   const sessionEngines = createSessionEngineScope(engineDurable, {
     sessions: ctx.sessions,
     socketRoot: engineSocketRoot,
+    access: ctx.access,
     // Engines never follow the terminal `--backend`, so an explicit `none`
     // (which skips the boot probe) must not refuse them: probe lazily, the
     // same memoized resolve the host adapter itself runs at first spawn.
@@ -2019,6 +2026,9 @@ export async function createDaemonHostRuntime(args: {
       }
     }
     ctx.sessions.clear()
+    // The secrets go with the process; the markers stay, so the next daemon
+    // waits for the server's refresh instead of starting bare.
+    ctx.access.clearMemory()
     try {
       await reapServerSessionsBeforeDispose(serverReaps, () => {
         closeAgentRuntime?.dispose()

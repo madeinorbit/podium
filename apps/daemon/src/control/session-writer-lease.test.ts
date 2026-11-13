@@ -23,11 +23,12 @@
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
-import type { DurableAttachment } from '@podium/process/screen'
 import { WriterLeaseRefusedError } from '@podium/process/durable'
+import type { DurableAttachment } from '@podium/process/screen'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { attachTestTerminal, testSessions } from '../session/testing.js'
+import { memoryMarkers, SessionAccessStore } from './access'
 import type { DaemonContext } from './context'
 import { recoverTerminalProcess, sessionHandlers, stealTerminalWriter } from './session'
 
@@ -99,6 +100,7 @@ function world(): World {
     reattachGate: (fn: () => Promise<void>) => fn(),
     tailSeedGate: () => {},
     send: (msg: DaemonMessage) => sent.push(msg),
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   // The handlers under test reach the durable door through `durableProcessFor`;
   // point this world's holder at the stub.

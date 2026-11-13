@@ -35,8 +35,9 @@ import { type AgentKind, asSessionId, type SessionId } from '@podium/model'
 import { createDurableProcess } from '@podium/process/durable'
 import type { DurableAttachment } from '@podium/process/screen'
 import { describe, expect, it, vi } from 'vitest'
-import type { DaemonContext } from './context'
 import { attachTestTerminal, testSessions } from '../session/testing.js'
+import { memoryMarkers, SessionAccessStore } from './access'
+import type { DaemonContext } from './context'
 
 const SESSION = asSessionId('s-sizing-reattach')
 
@@ -190,6 +191,7 @@ function ctxFor(sent: Array<{ type: string; resizesBefore: number }>): DaemonCon
     // reported. A test that only checked both happened would pass on a bind that
     // announced a size the pty had not been given yet.
     send: (m: { type: string }) => sent.push({ ...m, resizesBefore: stub.state.resizes.length }),
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   const send = ctx.send
   const terminal = createTerminalRuntime(daemonRuntimeHost(ctx, send), undefined, driverSlotsOver(ctx.sessions))

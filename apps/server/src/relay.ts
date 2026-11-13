@@ -946,6 +946,7 @@ export class SessionRegistry {
     const machines = new MachinesService({
       compareMachineRecords: async (write, writer) =>
         await this.store.grants.machineRecordWrites.compare(write, writer),
+      daemonLinkKind: (machineId) => this.daemonLinks.daemonLinkKind(machineId),
       conditionChanged: (machineId) => machineConditionChanged?.(machineId),
       instanceId,
       ...(options.updatePubkey ? { updatePubkey: options.updatePubkey } : {}),
@@ -1990,6 +1991,7 @@ export class SessionRegistry {
       store: this.store,
       now: () => this.now(),
       bus: this.bus,
+      daemonLinkKind: (machineId) => this.daemonLinks.daemonLinkKind(machineId),
       authorizeQueuedMessage: (messageId) => queuedMessageApply.authorize(messageId),
       handOffQueuedMessage: async (writer, messageId, sessionId) =>
         (await queuedApplyHooks.handingOn?.(writer, messageId, sessionId)) ?? true,

@@ -14,14 +14,15 @@
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
+import type { DurableAttachment } from '@podium/process/screen'
 import type { DaemonPtyOutputBatch } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
-import type { DurableAttachment } from '@podium/process/screen'
 import { describe, expect, it } from 'vitest'
 import { OutputScheduler } from '../output-scheduler'
+import { testSessions } from '../session/testing.js'
+import { memoryMarkers, SessionAccessStore } from './access'
 import type { DaemonContext } from './context'
 import { sessionHandlers, wireBridge } from './session'
-import { testSessions } from '../session/testing.js'
 
 const SESSION = asSessionId('s-report')
 
@@ -94,6 +95,7 @@ function harness(over: Partial<DaemonContext> = {}): {
         timeline.push(`report:${msg.geometry.cols}x${msg.geometry.rows}`)
     },
     ...over,
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   return { ctx, sent, timeline }
 }

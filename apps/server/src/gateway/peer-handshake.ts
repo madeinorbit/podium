@@ -20,6 +20,7 @@ import {
   CAP_CREDENTIAL_IDENTITY_GUARD,
   CAP_DAEMON_GEOMETRY_APPLIED,
   CAP_MACHINE_PROCESSES_V1,
+  CAP_SESSION_ACCESS,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   CAP_TERMINAL_PICTURE_V1,
@@ -120,6 +121,9 @@ const createResolvedDaemonAcceptor = (deps: ResolvedDaemonAcceptorDeps): Handsha
       // module reads the accepted set to choose its geometry writer path.
       CAP_DAEMON_GEOMETRY_APPLIED,
       CAP_CREDENTIAL_IDENTITY_GUARD,
+      // Credential management §8: this server sends a session's credential in
+      // `access`, only to a daemon that accepted this.
+      CAP_SESSION_ACCESS,
       // POD-4886: this server reads the delivery outcome `accepted`; a daemon
       // sends it only once this is accepted.
       CAP_DELIVERY_ACCEPTED,

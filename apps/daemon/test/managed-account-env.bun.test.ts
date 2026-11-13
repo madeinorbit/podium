@@ -30,6 +30,7 @@ import type { HarnessAgent } from '@podium/model'
 import { hasBunTerminal } from '@podium/process/pty'
 import { SpawnMessage } from '@podium/protocol'
 import { credentialEnv } from '@podium/runtime'
+import { memoryMarkers, SessionAccessStore } from '../src/control/access'
 import type { DaemonContext } from '../src/control/context'
 import { launchTerminalSpawn } from '../src/control/session'
 
@@ -164,6 +165,7 @@ async function dumpEnvOfSpawnedProcess(
     sessionCwdTracker: { setLaunchCwd: async () => {}, clear: () => {} },
     hookEndpointFor: (id: string) => `http://127.0.0.1:1/hook/${id}`,
     agentRelayEndpointFor: (id: string) => `http://127.0.0.1:1/relay/${id}`,
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
 
   // The real wire frame through the real schema.

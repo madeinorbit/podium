@@ -10,7 +10,10 @@
 
 import { asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
+import { ComposerSyncEngine } from './composer-sync'
+import { memoryMarkers, SessionAccessStore } from './control/access'
 import type { DaemonContext } from './control/context'
+import { testSessions } from './session/testing.js'
 import {
   forgetSessionScreen,
   sessionScreenFor,
@@ -18,9 +21,7 @@ import {
   trackSessionOutput,
   trackSessionSize,
 } from './session-screens'
-import { ComposerSyncEngine } from './composer-sync'
 import { createTerminalScreenObserver } from './terminal-screen-observer'
-import { testSessions } from './session/testing.js'
 
 const SESSION = asSessionId('33333333-3333-4333-8333-333333333333')
 const ENTER_ALT = '\x1b[?1049h'
@@ -37,6 +38,7 @@ function ctxWith(): DaemonContext {
     },
     observers: {},
     composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
 }
 

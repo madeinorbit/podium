@@ -23,6 +23,7 @@ import type {
   WriteScope,
 } from '@podium/sync'
 import type { ClientConn, ClientRegistry } from '../../gateway/client-registry'
+import type { DaemonLinkKind } from '../../gateway/daemon-link-kind'
 import type { SessionStore } from '../../store'
 import type { EventBus } from '../bus'
 import type { WriteFunnel } from '../funnel'
@@ -255,6 +256,12 @@ export interface SessionLifecycleDeps {
    */
   residency?: { evictParked?: boolean; sweepIntervalMs?: number }
   machines: MachinesService
+  /**
+   * The server's judgement of each connected daemon's connection (credential
+   * management §8), `registry.daemonLinks.daemonLinkKind`. Absent: no daemon
+   * reads as connected, so a vault credential is refused, never sent.
+   */
+  daemonLinkKind?(machineId: MachineId): DaemonLinkKind | undefined
   rpc: DaemonRpcService
   /** Start-path notification; the propagation service decides whether login is needed. */
   onSpawnTargetLogin?(input: {

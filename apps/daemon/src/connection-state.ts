@@ -9,6 +9,7 @@ import {
   CAP_CREDENTIAL_IDENTITY_GUARD,
   CAP_DAEMON_GEOMETRY_APPLIED,
   CAP_MACHINE_PROCESSES_V1,
+  CAP_SESSION_ACCESS,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   CAP_TERMINAL_PICTURE_V1,
@@ -1070,6 +1071,9 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         // makes it true, so the advertisement is never ahead of the behaviour.
         CAP_DAEMON_GEOMETRY_APPLIED,
         CAP_CREDENTIAL_IDENTITY_GUARD,
+        // Credential management §8: this daemon keeps a session's credential
+        // from `access` in memory and applies it at every process start.
+        CAP_SESSION_ACCESS,
         // POD-4886: this daemon reports `accepted` for a held row. Offered so
         // a server that reads it can say so; sent only once it has.
         CAP_DELIVERY_ACCEPTED,

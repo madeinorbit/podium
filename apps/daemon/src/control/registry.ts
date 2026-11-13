@@ -149,6 +149,9 @@ export const CONTROL_HANDLERS: ControlHandlers = {
   ...serverEndpointHandlers,
   ...shippingHandlers,
   agentRelayResult: (ctx, msg) => ctx.agentRelayHub.onResult(msg),
+  // A live session's credential again after a reconnect (credential
+  // management §8): memory only. A start that waited for it goes on now.
+  sessionAccessRefresh: (ctx, msg) => ctx.access.remember(msg.sessionId, msg.access),
   updateGrant: (ctx, msg) => {
     void ctx.applyUpdateGrant(msg)
   },

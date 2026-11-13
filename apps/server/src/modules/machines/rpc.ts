@@ -20,6 +20,7 @@ import type {
 } from '@podium/model'
 import { asMachineId, resolveMachinePath } from '@podium/model'
 import type {
+  AccessField,
   BrowseDirsResultMessage,
   CodexCompleteResultMessage,
   CodexLlmMessageWire,
@@ -934,8 +935,8 @@ export class DaemonRpcService {
       timeoutMs?: number
       model?: string
       effort?: string
-      /** A headless turn's managed credential (POD-6733); never logged. */
-      env?: Record<string, string>
+      /** A headless turn's credential (POD-6733, credential management §8); never logged. */
+      access?: AccessField
     },
     machineId: MachineId,
   ): Promise<TurnReceipt> {
@@ -982,7 +983,7 @@ export class DaemonRpcService {
         ...(input.rowId && input.deliveryRecovery && input.held === 'durable'
           ? { held: 'durable' as const }
           : {}),
-        ...(input.env && Object.keys(input.env).length > 0 ? { env: { ...input.env } } : {}),
+        ...(input.access ? { access: input.access } : {}),
         // Appended at the END, as the frame declares it (POD-6858).
         ...(input.posture ? { posture: input.posture } : {}),
       }),

@@ -21,6 +21,7 @@ import {
   machinePathsEqual,
 } from '@podium/model'
 import type {
+  AccessField,
   BindingMachineAccess,
   HeadlessActivityEvent,
   HeadlessTurnEvent,
@@ -67,7 +68,7 @@ export interface HeadlessRuntimeRelay {
     timeoutMs?: number
     model?: string
     effort?: string
-    env?: Record<string, string>
+    access?: AccessField
   }): Promise<TurnReceipt>
   interrupt(sessionId: SessionId): Promise<{ ok: true } | { reason: string; detail?: string }>
   onEvent(listener: (sessionId: SessionId, event: RuntimeEvent) => void | Promise<void>): () => void
@@ -502,17 +503,17 @@ export class HeadlessService {
     // a restart never gets its establish frame again. A refusal is a verdict,
     // not a transport gap: nothing is sent, and the turn never runs on the
     // machine's own login instead.
-    let credentialEnv: Record<string, string> | undefined
+    let access: AccessField | undefined
     if (session) {
-      const access = await this.deps.credentialAccess({
+      const resolved = await this.deps.credentialAccess({
         agentKind: input.agent,
         accountId,
         ownerUserId: session.ownerUserId,
         machineId,
         sessionId: input.sessionId,
       })
-      if (!access.ok) return { ok: false, error: access.message }
-      credentialEnv = access.env
+      if (!resolved.ok) return { ok: false, error: resolved.message }
+      access = resolved.access
     }
     const model = input.model && input.model !== 'auto' ? input.model : undefined
     const effort = input.effort && input.effort !== 'auto' ? input.effort : undefined
@@ -616,7 +617,7 @@ export class HeadlessService {
           timeoutMs: budgetMs,
           ...(model ? { model } : {}),
           ...(effort ? { effort } : {}),
-          ...(credentialEnv ? { env: credentialEnv } : {}),
+          ...(access ? { access } : {}),
         })
       } catch (error) {
         return {

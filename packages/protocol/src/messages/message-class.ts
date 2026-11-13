@@ -200,6 +200,8 @@ export const CONTROL_PLANE_CLASS = {
   modelProbeRequest: 'control.command',
   imageUploadRequest: 'control.command',
   spawn: 'control.command',
+  // A live session's access after a reconnect (credential management §8).
+  sessionAccessRefresh: 'control.command',
   reattach: 'control.command',
   agentObservationAck: 'control.command',
   agentObservationRebindAck: 'control.command',

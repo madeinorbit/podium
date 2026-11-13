@@ -1,0 +1,150 @@
+{
+  "family": "session-access",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "cases": [
+    {
+      "schema": "AccessDelivery",
+      "variant": "minimal",
+      "wire": {
+        "kind": "env",
+        "variable": "variable",
+        "secret": "secret"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"env\",\"variable\":\"variable\",\"secret\":\"secret\"}"
+    },
+    {
+      "schema": "AccessDelivery",
+      "variant": "full/arm0",
+      "wire": {
+        "kind": "env",
+        "variable": "variable",
+        "secret": "secret"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"env\",\"variable\":\"variable\",\"secret\":\"secret\"}"
+    },
+    {
+      "schema": "AccessDelivery",
+      "variant": "full/arm1",
+      "wire": {
+        "kind": "home",
+        "homeId": "homeId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"home\",\"homeId\":\"homeId\"}"
+    },
+    {
+      "schema": "AccessField",
+      "variant": "minimal",
+      "wire": {
+        "credentialId": "credentialId",
+        "delivery": {
+          "kind": "env",
+          "variable": "delivery.variable",
+          "secret": "delivery.secret"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"credentialId\":\"credentialId\",\"delivery\":{\"kind\":\"env\",\"variable\":\"delivery.variable\",\"secret\":\"delivery.secret\"}}"
+    },
+    {
+      "schema": "AccessField",
+      "variant": "full/arm0",
+      "wire": {
+        "credentialId": "credentialId",
+        "delivery": {
+          "kind": "env",
+          "variable": "delivery.variable",
+          "secret": "delivery.secret"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"credentialId\":\"credentialId\",\"delivery\":{\"kind\":\"env\",\"variable\":\"delivery.variable\",\"secret\":\"delivery.secret\"}}"
+    },
+    {
+      "schema": "AccessField",
+      "variant": "full/arm1",
+      "wire": {
+        "credentialId": "credentialId",
+        "delivery": {
+          "kind": "home",
+          "homeId": "delivery.homeId"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"credentialId\":\"credentialId\",\"delivery\":{\"kind\":\"home\",\"homeId\":\"delivery.homeId\"}}"
+    },
+    {
+      "schema": "SessionAccessRefreshMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "sessionAccessRefresh",
+        "sessionId": "sessionId",
+        "access": {
+          "credentialId": "access.credentialId",
+          "delivery": {
+            "kind": "env",
+            "variable": "access.delivery.variable",
+            "secret": "access.delivery.secret"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionAccessRefresh\",\"sessionId\":\"sessionId\",\"access\":{\"credentialId\":\"access.credentialId\",\"delivery\":{\"kind\":\"env\",\"variable\":\"access.delivery.variable\",\"secret\":\"access.delivery.secret\"}}}"
+    },
+    {
+      "schema": "SessionAccessRefreshMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "sessionAccessRefresh",
+        "sessionId": "sessionId",
+        "access": {
+          "credentialId": "access.credentialId",
+          "delivery": {
+            "kind": "env",
+            "variable": "access.delivery.variable",
+            "secret": "access.delivery.secret"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionAccessRefresh\",\"sessionId\":\"sessionId\",\"access\":{\"credentialId\":\"access.credentialId\",\"delivery\":{\"kind\":\"env\",\"variable\":\"access.delivery.variable\",\"secret\":\"access.delivery.secret\"}}}"
+    },
+    {
+      "schema": "SessionAccessRefreshMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "sessionAccessRefresh",
+        "sessionId": "sessionId",
+        "access": {
+          "credentialId": "access.credentialId",
+          "delivery": {
+            "kind": "home",
+            "homeId": "access.delivery.homeId"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionAccessRefresh\",\"sessionId\":\"sessionId\",\"access\":{\"credentialId\":\"access.credentialId\",\"delivery\":{\"kind\":\"home\",\"homeId\":\"access.delivery.homeId\"}}}"
+    }
+  ]
+}

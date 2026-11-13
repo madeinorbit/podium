@@ -2,6 +2,7 @@ import { DriverRefusalError } from '@podium/harness/driver/host'
 import { asSessionId } from '@podium/model'
 import { ControlMessage, DaemonMessage, type RuntimeHistoryPage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
+import { memoryMarkers, SessionAccessStore } from '../control/access'
 import type { DaemonContext } from '../control/context'
 import { runtimeHandlers } from './handlers'
 import { seedRuntimeHistory } from './history-seed'
@@ -16,6 +17,7 @@ async function dispatch(history?: () => Promise<RuntimeHistoryPage>) {
   const ctx = {
     send: (message: DaemonMessage) => sent.push(DaemonMessage.parse(message)),
     agentRuntime: { handleFor: () => history ? { transcript: { history: read } } : undefined },
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   const parsed = ControlMessage.parse(request)
   if (parsed.type !== 'runtimeHistoryRequest') throw new Error('wrong frame')

@@ -163,6 +163,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   })
   bag.launchConfig = new SessionLaunchConfig({
     store,
+    daemonSupports: (machineId, cap) => machines.daemonSupports(machineId, cap),
+    daemonLinkKind: (machineId) => deps.daemonLinkKind?.(machineId),
   })
   bag.naming = new SessionNaming({
     session: (sessionId) => bag.sessions.get(sessionId),
@@ -182,6 +184,31 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     retireArchivedSurvivor: (sessionId) => bag.retireArchivedSurvivor(sessionId),
     reattachMessage: (session, machineId) =>
       sessionClientPlane.reattachMessageFor(session, machineId),
+    // The survivor's credential, resolved again for its owner now (a grant
+    // may have ended while the daemon was away) and attached for the daemon
+    // that just connected (credential management §8).
+    accessRefresh: async (session, machineId) => {
+      if (!session.credentialId && !session.accountId) return undefined
+      const stored = await bag.launchConfig.storedCredential({
+        harness: session.agentKind,
+        credentialId: session.credentialId,
+        accountId: session.accountId,
+        ownerUserId: session.ownerUserId,
+        machineId,
+        sessionId: session.sessionId,
+      })
+      if (!stored.ok || stored.credentialId === null) return undefined
+      const resolved = await bag.launchConfig.access({
+        harness: session.agentKind,
+        ...(session.lifecycleDriverRequest() ? { driverId: session.lifecycleDriverRequest() } : {}),
+        credentialId: stored.credentialId,
+        owner: session.ownerUserId,
+        machineId,
+        sessionId: session.sessionId,
+      })
+      if (!resolved.ok || !resolved.access) return undefined
+      return { type: 'sessionAccessRefresh', sessionId: session.sessionId, access: resolved.access }
+    },
     parkedOn: async (machineId) =>
       (await bag.records.onMachine(machineId, 'machineReconciler')).filter(
         (s: SessionSubject) => !isRunningStatus(s.status),

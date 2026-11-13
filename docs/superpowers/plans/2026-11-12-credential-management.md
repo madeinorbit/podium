@@ -246,7 +246,7 @@ CREDENTIAL_RESOURCE_KIND = 'credential'      // grants.resource_kind of a creden
 // apps/server/src/modules/credentials/access.ts
 type AccessRefusal = 'not-found' | 'not-yours' | 'wrong-type' | 'not-on-this-machine'
   | 'machine-not-allowed' | 'own-credential-required' | 'needs-attention' | 'revoked'
-  | 'daemon-too-old' | 'connection-not-encrypted'
+  | 'daemon-too-old' | 'connection-not-encrypted' | 'machine-offline'
 const ACCESS_REFUSAL_MESSAGES: Record<AccessRefusal, string> = {
   'not-found': 'This credential no longer exists.',
   'not-yours': 'You do not have use of this credential. Ask its owner to share it.',
@@ -258,6 +258,7 @@ const ACCESS_REFUSAL_MESSAGES: Record<AccessRefusal, string> = {
   'revoked': 'This credential was removed.',
   'daemon-too-old': 'Podium on this machine is too old to receive credentials. Update it.',
   'connection-not-encrypted': "This machine's connection to the server is not encrypted, so credentials are not sent to it. Connect it over wss or declare its network trusted.",
+  'machine-offline': 'This machine is not connected, so its credential cannot be sent. Try again when it is online.',
 }
 type SessionAccess =
   | { ok: true; credentialId: CredentialId | null
@@ -294,16 +295,28 @@ registry.daemonLinks.daemonLinkKind(machineId: MachineId): DaemonLinkKind | unde
 // packages/model: parseCidr, cidrContains, CidrRange, CIDR_RANGE_MESSAGE
 
 // apps/server/src/modules/credentials/attach-access.ts
-attachAccess(plan: SessionAccess, to: { machineId: MachineId; sessionId: SessionId }): Promise<
+// deps: AttachAccessDeps = { store: Pick<SessionStore, 'credentials' | 'vault' | 'settingsAudit'>
+//   daemonSupports(machineId, cap): boolean; daemonLinkKind(machineId): DaemonLinkKind | undefined }
+attachAccess(deps: AttachAccessDeps, plan: SessionAccess,
+  to: { machineId: MachineId; sessionId?: SessionId; actingUserId: UserId }): Promise<
   | { ok: true; access?: AccessField } | { ok: false; refusal: AccessRefusal; message: string }>
+// order for a vault credential: no daemon connected → machine-offline; no CAP_SESSION_ACCESS →
+// daemon-too-old; link plain → connection-not-encrypted; then the vault. A `deliver` event per delivery.
+// SessionLaunchConfig.access returns { ok, credentialId, access?: AccessField } (no `env`).
+// apps/daemon/src/control/access.ts — SessionAccessStore (memory; a secret-free marker per session
+//   under <stateDir>/session-access), deliveryOverlay(agentKind, access) → { env, args, keep }
 
 // packages/protocol
 //   AccessField = { credentialId: string
 //     delivery: { kind: 'env'; variable: string; secret: string } | { kind: 'home'; homeId: string } }
 //   carried as `access?: AccessField` on SpawnMessage, the headless turn request and engine start,
-//   and in sessionAccessRefresh { sessionId, access } (server → daemon after a reconnect);
-//   every message type that can carry it is excluded from logging by type
-//   daemon capability sessionAccess: 1
+//   and in sessionAccessRefresh { sessionId, access } (server → daemon after a reconnect,
+//   sent just before the survivor's reattach); RuntimeSendRequestMessage.env is removed;
+//   every message type that can carry it is excluded from logging by type:
+//   ACCESS_CARRYING_CONTROL_TYPES, carriesAccess(type) in '@podium/protocol/daemon'
+//   daemon capability CAP_SESSION_ACCESS = 'session.access.v1' (the "sessionAccess" capability)
+//   ("engine start" is the daemon's SessionEngineScope.startEngine, which applies the
+//   session's access from memory; no separate wire message)
 //   AgentInventory.logins?: { homeId: string; state; identity?; freshness? }[]
 //   homeEnsureRequest/Result, homeRemoveRequest/Result, oauthLoopbackRequest/Result
 //   server transfer promote request: vaultDataKey?: string | null ; promote result: vaultCheck?: string
@@ -590,7 +603,7 @@ other rebases onto it.
 
 **Delivers:**
 - `resolveSessionAccess`, `resolveInferenceAccess` and `ACCESS_REFUSAL_MESSAGES` with the
-  ten sentences under "Shared names". The checks run in this order and stop at the first
+  sentences under "Shared names" (ten; Task 5 added the eleventh, `machine-offline`). The checks run in this order and stop at the first
   failure: with no credential, the acting person holds custody of the machine
   (`own-credential-required`), and that is the whole check; otherwise the credential exists
   (`not-found`) and is not `revoked` (`revoked`); `mayUse` is not null (`not-yours`); the
@@ -622,7 +635,7 @@ other rebases onto it.
    `own-credential-required`, `needs-attention`) and one for each delivery (`env` with the declared variable for every
    accepted vault type; the default home; no credential). For every row the serialized result
    does not contain the planted secret.
-2. `ACCESS_REFUSAL_MESSAGES` has the ten sentences; leaving one out fails to compile.
+2. `ACCESS_REFUSAL_MESSAGES` has the ten sentences (eleven after Task 5); leaving one out fails to compile.
 3. Legacy ids (review focus 4): `''`, `native:claude-code`, `native:codex:<fingerprint>`,
    `managed:anthropic`, `managed:claude-oauth` and `managed:anthropic:earlier-workspace` each
    resolve as specified, once from a stored session and once from settings; the same

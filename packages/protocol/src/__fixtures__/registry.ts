@@ -57,6 +57,7 @@ import * as runtimeState from '../messages/runtime-state'
 import * as search from '../messages/search'
 import * as server from '../messages/server'
 import * as serverTransfer from '../messages/server-transfer'
+import * as sessionAccess from '../messages/session-access'
 import * as shipping from '../messages/shipping'
 import * as sync from '../messages/sync'
 import * as terminal from '../messages/terminal'
@@ -108,6 +109,7 @@ const MODULES: ReadonlyArray<readonly [family: string, module: Record<string, un
   ['search', search],
   ['server', server],
   ['server-transfer', serverTransfer],
+  ['session-access', sessionAccess],
   // Registered late (the module shipped before its family did), which is why
   // `shippingJobRequest` / `shippingJobResult` reached ControlMessage and
   // DaemonMessage with no fixture and the arm-coverage assertions failed. The

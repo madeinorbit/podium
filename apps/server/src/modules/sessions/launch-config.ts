@@ -11,6 +11,7 @@ import {
   type SessionId,
   type UserId,
 } from '@podium/model'
+import type { AccessField } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
 import { harnessCapabilitiesFor } from '../../harness-manifest'
 import type { SessionStore } from '../../store'
@@ -20,14 +21,18 @@ import {
   refuse,
   resolveSessionAccess,
 } from '../credentials/access'
+import { type AttachAccessDeps, attachAccess } from '../credentials/attach-access'
 import { credentialIdFromLegacy } from '../credentials/legacy-ids'
-import { SecretUnavailableError, withSecret } from '../credentials/vault'
 
 export interface LaunchConfigPorts {
   store: Pick<
     SessionStore,
     'settings' | 'credentials' | 'machines' | 'settingsAudit' | 'grants' | 'users' | 'vault'
   >
+  /** The live daemon's negotiated capabilities (`MachinesService.daemonSupports`). */
+  daemonSupports: AttachAccessDeps['daemonSupports']
+  /** The server's judgement of the live daemon's connection. */
+  daemonLinkKind: AttachAccessDeps['daemonLinkKind']
 }
 
 export interface LaunchModelDefaults {
@@ -36,11 +41,12 @@ export interface LaunchModelDefaults {
 }
 
 /**
- * What a launch may run on: the credential and, for an `env` delivery, the
- * variable carrying its secret, ready for the spawn frame. Or the refusal.
+ * What a launch may run on: the credential and the `access` field for the
+ * frame that starts its process (absent: the harness's own login, or a
+ * default-home login on an older daemon). Or the refusal.
  */
 export type LaunchAccess =
-  | { ok: true; credentialId: CredentialId | null; env?: Record<string, string> }
+  | { ok: true; credentialId: CredentialId | null; access?: AccessField }
   | AccessRefused
 
 /** A launch refused for its credential. The message is the sentence a person reads. */
@@ -53,14 +59,6 @@ export class CredentialRefusal extends Error {
   ) {
     super(message)
   }
-}
-
-/** Why the vault could not hand over a secret, as the refusal a person reads. */
-const SECRET_REFUSAL: Record<SecretUnavailableError['reason'], AccessRefusal> = {
-  'not-found': 'not-found',
-  revoked: 'revoked',
-  'no-secret': 'needs-attention',
-  'needs-attention': 'needs-attention',
 }
 
 // LEGACY(remove-after: 2027-02): reads account ids written before credentials existed; removing it stops old spellings from resolving
@@ -180,11 +178,11 @@ export class SessionLaunchConfig {
   }
 
   /**
-   * Resolve `credentialId` for this launch and, for an `env` delivery, read
-   * its secret into the variable the harness declared. Until the `access`
-   * field exists (epic Task 5) the secret rides the spawn frame's `env`; this
-   * is the last step before that frame is sent. A shell pane gets no
-   * credential and no check: it is a prompt the person drives, not a harness.
+   * Resolve `credentialId` for this launch, then attach it for the daemon
+   * connected for the machine now (`attachAccess`): the secret is read last,
+   * only for a capable daemon on a safe connection, and the frame that starts
+   * the process carries it in `access`. A shell pane gets no credential and
+   * no check: it is a prompt the person drives, not a harness.
    */
   async access(i: {
     harness: AgentKind
@@ -204,24 +202,24 @@ export class SessionLaunchConfig {
       ...(i.sessionId ? { sessionId: i.sessionId } : {}),
     })
     if (!plan.ok) return plan
-    if (plan.delivery.kind !== 'env' || plan.credentialId === null) {
-      return { ok: true, credentialId: plan.credentialId }
-    }
-    const { variable } = plan.delivery
-    const credentialId = plan.credentialId
-    try {
-      const env = await withSecret(this.ports.store, credentialId, async (secret) => ({
-        [variable]: secret,
-      }))
-      return { ok: true, credentialId, env }
-    } catch (error) {
-      if (!(error instanceof SecretUnavailableError)) throw error
-      return await refuse(this.ports.store, SECRET_REFUSAL[error.reason], {
-        credentialId,
-        actingUserId: i.owner,
+    const attached = await attachAccess(
+      {
+        store: this.ports.store,
+        daemonSupports: this.ports.daemonSupports,
+        daemonLinkKind: this.ports.daemonLinkKind,
+      },
+      plan,
+      {
         machineId: i.machineId,
+        actingUserId: i.owner,
         ...(i.sessionId ? { sessionId: i.sessionId } : {}),
-      })
+      },
+    )
+    if (!attached.ok) return attached
+    return {
+      ok: true,
+      credentialId: plan.credentialId,
+      ...(attached.access ? { access: attached.access } : {}),
     }
   }
 }

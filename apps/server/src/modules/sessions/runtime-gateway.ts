@@ -33,6 +33,7 @@
 
 import type { MachineId, MutationId, SessionId } from '@podium/model'
 import type {
+  AccessField,
   InteractionAnswerOutcome,
   ObservationInputOrigin,
   SessionPosture,
@@ -274,8 +275,8 @@ export class SessionRuntimeGateway {
     timeoutMs?: number
     model?: string
     effort?: string
-    /** A headless turn's managed credential (POD-6733): direct sends only. */
-    env?: Record<string, string>
+    /** A headless turn's credential (POD-6733, credential management §8): direct sends only. */
+    access?: AccessField
     /**
      * The party this send acts for.
      *

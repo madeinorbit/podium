@@ -20,6 +20,7 @@
  * Integration lane (the Rust podium-host, built from the vendored crate in a
  * checkout; real processes, real ptys).
  */
+
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readlinkSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -36,6 +37,7 @@ import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { testSessions } from '../session/testing.js'
 import { forgetSessionScreen } from '../session-screens'
+import { memoryMarkers, SessionAccessStore } from './access'
 import type { DaemonContext } from './context'
 import { sessionHandlers, sessionSize, wireBridge } from './session'
 
@@ -127,6 +129,7 @@ function daemonContext(): Harness {
     observers: { onResize: () => {}, clearSession: () => {} },
     sessionCwdTracker: { clear: () => {} },
     send: (msg: DaemonMessage) => sent.push(msg),
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   return { ctx, sent, output: () => out }
 }

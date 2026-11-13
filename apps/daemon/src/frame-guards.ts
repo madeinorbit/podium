@@ -1,11 +1,11 @@
 import { createLogger } from '@podium/logger'
 import type { DaemonPtyInputMetadata } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
-import { encodeDaemonMessage, parseControlMessage } from '@podium/protocol/daemon'
+import { carriesAccess, encodeDaemonMessage, parseControlMessage } from '@podium/protocol/daemon'
 import type { RawData, WebSocket } from 'ws'
 import type { DaemonContext } from './control/context'
-import { dispatchControlMessage } from './control/registry'
 import { dispatchInputBytes } from './control/legacy-terminal-input'
+import { dispatchControlMessage } from './control/registry'
 import { beginControlTurn, timeTask } from './loop-attribution'
 
 const log = createLogger('daemon:frames')
@@ -154,6 +154,17 @@ export function createFrameGuard(
     warn('dropped a malformed control frame', { direction, err })
   }
 
+  const warnDroppedByType = (type: string, err: unknown): void => {
+    const at = now()
+    if (at - lastWarnAt < WARN_THROTTLE_MS) return
+    lastWarnAt = at
+    warn('dropped a malformed control frame', {
+      direction: 'inbound',
+      type,
+      paths: issuePaths(err),
+    })
+  }
+
   return {
     receive(raw) {
       const finish = beginControlTurn()
@@ -176,7 +187,12 @@ export function createFrameGuard(
         // 35s timeout makes a stale daemon indistinguishable from an unreachable one.
         const reply = payloadRejectionReply(text, error)
         if (reply) ctx.send(reply)
-        warnDropped(error, 'inbound')
+        // NEVER LOGGED (credential management §8): a frame that can carry a
+        // session's credential is named by its type and failing paths only,
+        // never by an error that may quote its fields.
+        const type = envelopeType(text)
+        if (type !== undefined && carriesAccess(type)) warnDroppedByType(type, error)
+        else warnDropped(error, 'inbound')
         return
       }
       if (
@@ -229,4 +245,25 @@ export function createFrameGuard(
       }
     },
   }
+}
+
+/** The `type` of a raw frame, read without the schema that refused it. */
+function envelopeType(text: string): string | undefined {
+  try {
+    const parsed = JSON.parse(text) as { type?: unknown }
+    return typeof parsed?.type === 'string' ? parsed.type : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** The dotted paths a schema error names, and nothing it quotes. */
+function issuePaths(err: unknown): string[] {
+  const issues = (err as { issues?: unknown } | null)?.issues
+  if (!Array.isArray(issues)) return []
+  return issues.map((issue) =>
+    Array.isArray((issue as { path?: unknown }).path)
+      ? (issue as { path: (string | number)[] }).path.join('.')
+      : '',
+  )
 }

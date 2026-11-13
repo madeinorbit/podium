@@ -133,7 +133,10 @@ async function harness() {
         ...(m.allowedTools ? { allowedTools: [...m.allowedTools] } : {}),
         ...(m.toolPolicy ? { toolPolicy: m.toolPolicy } : {}),
         ...(m.timeoutMs ? { timeoutMs: m.timeoutMs } : {}),
-        ...(m.env ? { env: { ...m.env } } : {}),
+        // The credential the turn delivers, as `{ variable: secret }` (it rides `access`).
+        ...(m.access?.delivery.kind === 'env'
+          ? { env: { [m.access.delivery.variable]: m.access.delivery.secret } }
+          : {}),
         ...(info ? { agent: info.agent, cwd: info.cwd } : {}),
         frame: { ...m } as Record<string, unknown>,
       })

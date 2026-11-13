@@ -80,6 +80,15 @@ export interface MachineReconcilerPorts {
   /** Build the reattach control message for one survivor. */
   reattachMessage(session: Session, machineId: MachineId): Promise<ControlMessage>
   /**
+   * The survivor's credential again (credential management §8): a restarted
+   * daemon holds none, so a session on a vault credential gets
+   * `sessionAccessRefresh` just before its reattach, on the same ordered
+   * socket. Undefined: the session runs on no credential, or it was refused
+   * (the refusal is on the trail; the daemon's next turn waits, then fails).
+   * Absent (unit fixtures): nothing is refreshed.
+   */
+  accessRefresh?(session: Session, machineId: MachineId): Promise<ControlMessage | undefined>
+  /**
    * This machine's sessions that do not run, parked ones read from the
    * database (POD-6160 D2g): what the attach probe and the census look at.
    * Absent (unit fixtures): the resident sessions are all there is.
@@ -287,8 +296,10 @@ export class SessionMachineReconciler {
       await this.withSession(candidate.sessionId, 'reattachProbe', async (s) => {
         if (!s) return
         const message = await this.ports.reattachMessage(s, machineId)
+        const refresh = await this.ports.accessRefresh?.(s, machineId)
         if (s.machineId !== machineId || s.archived ||
             (!awaitsRebind(s) && s.status !== 'exited')) return
+        if (refresh) this.ports.toMachine(machineId, refresh)
         this.ports.toMachine(machineId, message)
       })
     }
@@ -437,7 +448,9 @@ export class SessionMachineReconciler {
     })
     session.awaitingRebind = true
     const message = await this.ports.reattachMessage(session, machineId)
+    const refresh = await this.ports.accessRefresh?.(session, machineId)
     if (session.machineId !== machineId || session.archived || !awaitsRebind(session)) return
+    if (refresh) this.ports.toMachine(machineId, refresh)
     this.ports.toMachine(machineId, message)
     this.ports.broadcastSessions()
   }

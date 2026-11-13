@@ -27,6 +27,8 @@
  */
 
 import { asMachineId, HarnessAgent, type Inventory, type MachineId } from '@podium/model'
+import { CAP_SESSION_ACCESS } from '@podium/protocol'
+import { type DaemonLink, IN_PROCESS_DAEMON_LINK } from '../gateway/daemon-link-kind'
 import type { DaemonControlPeer } from '../gateway/daemon-ports'
 import type { SessionRegistry } from '../relay'
 import { confirmingRetirement } from './host-daemon'
@@ -62,14 +64,15 @@ export async function attachDaemonWithInventory(
   machineId: MachineId | string,
   transport: DaemonControlPeer = () => {},
   inventory: Inventory = fixtureInventory(),
-  opts: { confirmRetirement?: boolean; caps?: readonly string[] } = {},
+  opts: { confirmRetirement?: boolean; caps?: readonly string[]; link?: DaemonLink } = {},
 ): Promise<void> {
-  await registry.gateway.attachDaemon(
-    machineId,
+  const peer =
     opts.confirmRetirement === false
       ? transport
-      : confirmingRetirement(registry, machineId, transport),
-    opts.caps,
-  )
+      : confirmingRetirement(registry, machineId, transport)
+  // As the socket accept path does: the link first, then the attach. A daemon
+  // of this build takes a session's credential (`CAP_SESSION_ACCESS`).
+  registry.daemonLinks.connected(asMachineId(machineId), opts.link ?? IN_PROCESS_DAEMON_LINK, peer)
+  await registry.gateway.attachDaemon(machineId, peer, opts.caps ?? [CAP_SESSION_ACCESS])
   await registry.modules.machines.recordInventory(asMachineId(machineId), inventory)
 }

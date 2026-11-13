@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
+import { describe, expect, it } from 'vitest'
 import { PortableStateFence } from '../portable-state-fence'
+import { memoryMarkers, SessionAccessStore } from './access'
 import type { DaemonContext } from './context'
 import { fileHandlers } from './files'
 
@@ -14,6 +15,7 @@ describe('image upload transfer fence', () => {
         send: (message: DaemonMessage) => {
           if (message.type === 'imageUploadResult') resolve(message)
         },
+        access: new SessionAccessStore({ markers: memoryMarkers() }),
       } as unknown as DaemonContext
       const msg = {
         type: 'imageUploadRequest',

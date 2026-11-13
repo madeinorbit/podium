@@ -1700,6 +1700,7 @@
       "variant": "full",
       "wire": {
         "accountId": "accountId",
+        "credentialId": "credentialId",
         "model": "model",
         "effort": "effort",
         "harness": "claude-code",
@@ -1710,7 +1711,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"accountId\":\"accountId\",\"model\":\"model\",\"effort\":\"effort\",\"harness\":\"claude-code\",\"subagentModel\":\"subagentModel\",\"startScreen\":\"native\",\"seedCliTheme\":true}"
+      "encoded": "{\"accountId\":\"accountId\",\"credentialId\":\"credentialId\",\"model\":\"model\",\"effort\":\"effort\",\"harness\":\"claude-code\",\"subagentModel\":\"subagentModel\",\"startScreen\":\"native\",\"seedCliTheme\":true}"
     },
     {
       "schema": "ConversationDiagnosticWire",
@@ -2142,12 +2143,13 @@
         "fingerprint": "fingerprint",
         "email": "email",
         "plan": "plan",
-        "organisation": "organisation"
+        "organisation": "organisation",
+        "masked": "masked"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"fingerprint\":\"fingerprint\",\"email\":\"email\",\"plan\":\"plan\",\"organisation\":\"organisation\"}"
+      "encoded": "{\"fingerprint\":\"fingerprint\",\"email\":\"email\",\"plan\":\"plan\",\"organisation\":\"organisation\",\"masked\":\"masked\"}"
     },
     {
       "schema": "CredentialIdField",
@@ -2166,6 +2168,44 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "\"\""
+    },
+    {
+      "schema": "CredentialShare",
+      "variant": "minimal",
+      "wire": {
+        "grantee": "all-members",
+        "verb": "use"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"grantee\":\"all-members\",\"verb\":\"use\"}"
+    },
+    {
+      "schema": "CredentialShare",
+      "variant": "full/arm0",
+      "wire": {
+        "grantee": "all-members",
+        "verb": "use"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"grantee\":\"all-members\",\"verb\":\"use\"}"
+    },
+    {
+      "schema": "CredentialShare",
+      "variant": "full/arm1",
+      "wire": {
+        "grantee": {
+          "userId": "grantee.userId"
+        },
+        "verb": "manage"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"grantee\":{\"userId\":\"grantee.userId\"},\"verb\":\"manage\"}"
     },
     {
       "schema": "CredentialSource",
@@ -2225,7 +2265,7 @@
     },
     {
       "schema": "CredentialView",
-      "variant": "full",
+      "variant": "full/arm0",
       "wire": {
         "id": "id",
         "ownerUserId": "ownerUserId",
@@ -2235,7 +2275,8 @@
           "fingerprint": "identity.fingerprint",
           "email": "identity.email",
           "plan": "identity.plan",
-          "organisation": "identity.organisation"
+          "organisation": "identity.organisation",
+          "masked": "identity.masked"
         },
         "status": "ok",
         "statusReason": "statusReason",
@@ -2251,12 +2292,62 @@
         ],
         "allowedMachines": ["allowedMachines[0]"],
         "sessionCount": 1,
-        "access": "owner"
+        "access": "owner",
+        "sharedWith": [
+          {
+            "grantee": "all-members",
+            "verb": "use"
+          }
+        ]
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"ownerUserId\":\"ownerUserId\",\"label\":\"label\",\"type\":\"type\",\"identity\":{\"fingerprint\":\"identity.fingerprint\",\"email\":\"identity.email\",\"plan\":\"identity.plan\",\"organisation\":\"identity.organisation\"},\"status\":\"ok\",\"statusReason\":\"statusReason\",\"limitReachedUntil\":\"limitReachedUntil\",\"expiresAt\":\"expiresAt\",\"verifiedAt\":\"verifiedAt\",\"homes\":[{\"machineId\":\"homes[0].machineId\",\"homeId\":\"homes[0].homeId\",\"state\":\"in\"}],\"allowedMachines\":[\"allowedMachines[0]\"],\"sessionCount\":1,\"access\":\"owner\"}"
+      "encoded": "{\"id\":\"id\",\"ownerUserId\":\"ownerUserId\",\"label\":\"label\",\"type\":\"type\",\"identity\":{\"fingerprint\":\"identity.fingerprint\",\"email\":\"identity.email\",\"plan\":\"identity.plan\",\"organisation\":\"identity.organisation\",\"masked\":\"identity.masked\"},\"status\":\"ok\",\"statusReason\":\"statusReason\",\"limitReachedUntil\":\"limitReachedUntil\",\"expiresAt\":\"expiresAt\",\"verifiedAt\":\"verifiedAt\",\"homes\":[{\"machineId\":\"homes[0].machineId\",\"homeId\":\"homes[0].homeId\",\"state\":\"in\"}],\"allowedMachines\":[\"allowedMachines[0]\"],\"sessionCount\":1,\"access\":\"owner\",\"sharedWith\":[{\"grantee\":\"all-members\",\"verb\":\"use\"}]}"
+    },
+    {
+      "schema": "CredentialView",
+      "variant": "full/arm1",
+      "wire": {
+        "id": "id",
+        "ownerUserId": "ownerUserId",
+        "label": "label",
+        "type": "type",
+        "identity": {
+          "fingerprint": "identity.fingerprint",
+          "email": "identity.email",
+          "plan": "identity.plan",
+          "organisation": "identity.organisation",
+          "masked": "identity.masked"
+        },
+        "status": "attention",
+        "statusReason": "statusReason",
+        "limitReachedUntil": "limitReachedUntil",
+        "expiresAt": "expiresAt",
+        "verifiedAt": "verifiedAt",
+        "homes": [
+          {
+            "machineId": "homes[0].machineId",
+            "homeId": "homes[0].homeId",
+            "state": "out"
+          }
+        ],
+        "allowedMachines": ["allowedMachines[0]"],
+        "sessionCount": 2,
+        "access": "manage",
+        "sharedWith": [
+          {
+            "grantee": {
+              "userId": "sharedWith[0].grantee.userId"
+            },
+            "verb": "manage"
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"ownerUserId\":\"ownerUserId\",\"label\":\"label\",\"type\":\"type\",\"identity\":{\"fingerprint\":\"identity.fingerprint\",\"email\":\"identity.email\",\"plan\":\"identity.plan\",\"organisation\":\"identity.organisation\",\"masked\":\"identity.masked\"},\"status\":\"attention\",\"statusReason\":\"statusReason\",\"limitReachedUntil\":\"limitReachedUntil\",\"expiresAt\":\"expiresAt\",\"verifiedAt\":\"verifiedAt\",\"homes\":[{\"machineId\":\"homes[0].machineId\",\"homeId\":\"homes[0].homeId\",\"state\":\"out\"}],\"allowedMachines\":[\"allowedMachines[0]\"],\"sessionCount\":2,\"access\":\"manage\",\"sharedWith\":[{\"grantee\":{\"userId\":\"sharedWith[0].grantee.userId\"},\"verb\":\"manage\"}]}"
     },
     {
       "schema": "DaemonLinkPolicy",
@@ -9058,6 +9149,7 @@
         "roles": {
           "coding": {
             "accountId": "roles.coding.accountId",
+            "credentialId": "roles.coding.credentialId",
             "model": "roles.coding.model",
             "effort": "roles.coding.effort",
             "harness": "claude-code",
@@ -9067,18 +9159,21 @@
           },
           "superagent": {
             "accountId": "roles.superagent.accountId",
+            "credentialId": "roles.superagent.credentialId",
             "model": "roles.superagent.model",
             "effort": "roles.superagent.effort",
             "harness": "claude-code"
           },
           "background": {
             "accountId": "roles.background.accountId",
+            "credentialId": "roles.background.credentialId",
             "model": "roles.background.model",
             "effort": "roles.background.effort",
             "harness": "claude-code"
           },
           "shipwright": {
             "accountId": "roles.shipwright.accountId",
+            "credentialId": "roles.shipwright.credentialId",
             "model": "roles.shipwright.model",
             "effort": "roles.shipwright.effort",
             "harness": "claude-code"
@@ -9104,7 +9199,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\",\"roles\":{\"coding\":{\"accountId\":\"roles.coding.accountId\",\"model\":\"roles.coding.model\",\"effort\":\"roles.coding.effort\",\"harness\":\"claude-code\",\"subagentModel\":\"roles.coding.subagentModel\",\"startScreen\":\"native\",\"seedCliTheme\":true},\"superagent\":{\"accountId\":\"roles.superagent.accountId\",\"model\":\"roles.superagent.model\",\"effort\":\"roles.superagent.effort\",\"harness\":\"claude-code\"},\"background\":{\"accountId\":\"roles.background.accountId\",\"model\":\"roles.background.model\",\"effort\":\"roles.background.effort\",\"harness\":\"claude-code\"},\"shipwright\":{\"accountId\":\"roles.shipwright.accountId\",\"model\":\"roles.shipwright.model\",\"effort\":\"roles.shipwright.effort\",\"harness\":\"claude-code\"}},\"sidebar\":{\"repoSort\":\"alphabetical\",\"repoOrder\":[\"sidebar.repoOrder[0]\"]},\"autoContinue\":{\"enabled\":true,\"promptDismissed\":true},\"notifications\":{\"web\":true,\"ntfyTopic\":\"notifications.ntfyTopic\",\"telegramChatId\":\"notifications.telegramChatId\"},\"credentialDefaults\":{\"claude-code\":\"credentialDefaults.claude-code\"}}"
+      "encoded": "{\"userId\":\"userId\",\"roles\":{\"coding\":{\"accountId\":\"roles.coding.accountId\",\"credentialId\":\"roles.coding.credentialId\",\"model\":\"roles.coding.model\",\"effort\":\"roles.coding.effort\",\"harness\":\"claude-code\",\"subagentModel\":\"roles.coding.subagentModel\",\"startScreen\":\"native\",\"seedCliTheme\":true},\"superagent\":{\"accountId\":\"roles.superagent.accountId\",\"credentialId\":\"roles.superagent.credentialId\",\"model\":\"roles.superagent.model\",\"effort\":\"roles.superagent.effort\",\"harness\":\"claude-code\"},\"background\":{\"accountId\":\"roles.background.accountId\",\"credentialId\":\"roles.background.credentialId\",\"model\":\"roles.background.model\",\"effort\":\"roles.background.effort\",\"harness\":\"claude-code\"},\"shipwright\":{\"accountId\":\"roles.shipwright.accountId\",\"credentialId\":\"roles.shipwright.credentialId\",\"model\":\"roles.shipwright.model\",\"effort\":\"roles.shipwright.effort\",\"harness\":\"claude-code\"}},\"sidebar\":{\"repoSort\":\"alphabetical\",\"repoOrder\":[\"sidebar.repoOrder[0]\"]},\"autoContinue\":{\"enabled\":true,\"promptDismissed\":true},\"notifications\":{\"web\":true,\"ntfyTopic\":\"notifications.ntfyTopic\",\"telegramChatId\":\"notifications.telegramChatId\"},\"credentialDefaults\":{\"claude-code\":\"credentialDefaults.claude-code\"}}"
     },
     {
       "schema": "PersonalPreferenceState",
@@ -9755,6 +9850,7 @@
       "variant": "full",
       "wire": {
         "accountId": "accountId",
+        "credentialId": "credentialId",
         "model": "model",
         "effort": "effort",
         "harness": "claude-code"
@@ -9762,7 +9858,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"accountId\":\"accountId\",\"model\":\"model\",\"effort\":\"effort\",\"harness\":\"claude-code\"}"
+      "encoded": "{\"accountId\":\"accountId\",\"credentialId\":\"credentialId\",\"model\":\"model\",\"effort\":\"effort\",\"harness\":\"claude-code\"}"
     },
     {
       "schema": "Roles",
@@ -9803,6 +9899,7 @@
       "wire": {
         "coding": {
           "accountId": "coding.accountId",
+          "credentialId": "coding.credentialId",
           "model": "coding.model",
           "effort": "coding.effort",
           "harness": "claude-code",
@@ -9812,18 +9909,21 @@
         },
         "superagent": {
           "accountId": "superagent.accountId",
+          "credentialId": "superagent.credentialId",
           "model": "superagent.model",
           "effort": "superagent.effort",
           "harness": "claude-code"
         },
         "background": {
           "accountId": "background.accountId",
+          "credentialId": "background.credentialId",
           "model": "background.model",
           "effort": "background.effort",
           "harness": "claude-code"
         },
         "shipwright": {
           "accountId": "shipwright.accountId",
+          "credentialId": "shipwright.credentialId",
           "model": "shipwright.model",
           "effort": "shipwright.effort",
           "harness": "claude-code"
@@ -9832,7 +9932,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"coding\":{\"accountId\":\"coding.accountId\",\"model\":\"coding.model\",\"effort\":\"coding.effort\",\"harness\":\"claude-code\",\"subagentModel\":\"coding.subagentModel\",\"startScreen\":\"native\",\"seedCliTheme\":true},\"superagent\":{\"accountId\":\"superagent.accountId\",\"model\":\"superagent.model\",\"effort\":\"superagent.effort\",\"harness\":\"claude-code\"},\"background\":{\"accountId\":\"background.accountId\",\"model\":\"background.model\",\"effort\":\"background.effort\",\"harness\":\"claude-code\"},\"shipwright\":{\"accountId\":\"shipwright.accountId\",\"model\":\"shipwright.model\",\"effort\":\"shipwright.effort\",\"harness\":\"claude-code\"}}"
+      "encoded": "{\"coding\":{\"accountId\":\"coding.accountId\",\"credentialId\":\"coding.credentialId\",\"model\":\"coding.model\",\"effort\":\"coding.effort\",\"harness\":\"claude-code\",\"subagentModel\":\"coding.subagentModel\",\"startScreen\":\"native\",\"seedCliTheme\":true},\"superagent\":{\"accountId\":\"superagent.accountId\",\"credentialId\":\"superagent.credentialId\",\"model\":\"superagent.model\",\"effort\":\"superagent.effort\",\"harness\":\"claude-code\"},\"background\":{\"accountId\":\"background.accountId\",\"credentialId\":\"background.credentialId\",\"model\":\"background.model\",\"effort\":\"background.effort\",\"harness\":\"claude-code\"},\"shipwright\":{\"accountId\":\"shipwright.accountId\",\"credentialId\":\"shipwright.credentialId\",\"model\":\"shipwright.model\",\"effort\":\"shipwright.effort\",\"harness\":\"claude-code\"}}"
     },
     {
       "schema": "RootIntegrationReceipt",
@@ -18709,6 +18809,7 @@
       "wire": {
         "userId": "userId",
         "roles.coding.accountId": "roles.coding.accountId",
+        "roles.coding.credentialId": "roles.coding.credentialId",
         "roles.coding.model": "roles.coding.model",
         "roles.coding.effort": "roles.coding.effort",
         "roles.coding.harness": "claude-code",
@@ -18716,14 +18817,17 @@
         "roles.coding.startScreen": "native",
         "roles.coding.seedCliTheme": true,
         "roles.superagent.accountId": "roles.superagent.accountId",
+        "roles.superagent.credentialId": "roles.superagent.credentialId",
         "roles.superagent.model": "roles.superagent.model",
         "roles.superagent.effort": "roles.superagent.effort",
         "roles.superagent.harness": "claude-code",
         "roles.background.accountId": "roles.background.accountId",
+        "roles.background.credentialId": "roles.background.credentialId",
         "roles.background.model": "roles.background.model",
         "roles.background.effort": "roles.background.effort",
         "roles.background.harness": "claude-code",
         "roles.shipwright.accountId": "roles.shipwright.accountId",
+        "roles.shipwright.credentialId": "roles.shipwright.credentialId",
         "roles.shipwright.model": "roles.shipwright.model",
         "roles.shipwright.effort": "roles.shipwright.effort",
         "roles.shipwright.harness": "claude-code",
@@ -18741,7 +18845,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\",\"roles.coding.accountId\":\"roles.coding.accountId\",\"roles.coding.model\":\"roles.coding.model\",\"roles.coding.effort\":\"roles.coding.effort\",\"roles.coding.harness\":\"claude-code\",\"roles.coding.subagentModel\":\"roles.coding.subagentModel\",\"roles.coding.startScreen\":\"native\",\"roles.coding.seedCliTheme\":true,\"roles.superagent.accountId\":\"roles.superagent.accountId\",\"roles.superagent.model\":\"roles.superagent.model\",\"roles.superagent.effort\":\"roles.superagent.effort\",\"roles.superagent.harness\":\"claude-code\",\"roles.background.accountId\":\"roles.background.accountId\",\"roles.background.model\":\"roles.background.model\",\"roles.background.effort\":\"roles.background.effort\",\"roles.background.harness\":\"claude-code\",\"roles.shipwright.accountId\":\"roles.shipwright.accountId\",\"roles.shipwright.model\":\"roles.shipwright.model\",\"roles.shipwright.effort\":\"roles.shipwright.effort\",\"roles.shipwright.harness\":\"claude-code\",\"sidebar.repoSort\":\"alphabetical\",\"sidebar.repoOrder\":[\"sidebar.repoOrder[0]\"],\"autoContinue.enabled\":true,\"autoContinue.promptDismissed\":true,\"notifications.web\":true,\"notifications.ntfyTopic\":\"notifications.ntfyTopic\",\"notifications.telegramChatId\":\"notifications.telegramChatId\",\"credentialDefaults\":{\"claude-code\":\"credentialDefaults.claude-code\"}}"
+      "encoded": "{\"userId\":\"userId\",\"roles.coding.accountId\":\"roles.coding.accountId\",\"roles.coding.credentialId\":\"roles.coding.credentialId\",\"roles.coding.model\":\"roles.coding.model\",\"roles.coding.effort\":\"roles.coding.effort\",\"roles.coding.harness\":\"claude-code\",\"roles.coding.subagentModel\":\"roles.coding.subagentModel\",\"roles.coding.startScreen\":\"native\",\"roles.coding.seedCliTheme\":true,\"roles.superagent.accountId\":\"roles.superagent.accountId\",\"roles.superagent.credentialId\":\"roles.superagent.credentialId\",\"roles.superagent.model\":\"roles.superagent.model\",\"roles.superagent.effort\":\"roles.superagent.effort\",\"roles.superagent.harness\":\"claude-code\",\"roles.background.accountId\":\"roles.background.accountId\",\"roles.background.credentialId\":\"roles.background.credentialId\",\"roles.background.model\":\"roles.background.model\",\"roles.background.effort\":\"roles.background.effort\",\"roles.background.harness\":\"claude-code\",\"roles.shipwright.accountId\":\"roles.shipwright.accountId\",\"roles.shipwright.credentialId\":\"roles.shipwright.credentialId\",\"roles.shipwright.model\":\"roles.shipwright.model\",\"roles.shipwright.effort\":\"roles.shipwright.effort\",\"roles.shipwright.harness\":\"claude-code\",\"sidebar.repoSort\":\"alphabetical\",\"sidebar.repoOrder\":[\"sidebar.repoOrder[0]\"],\"autoContinue.enabled\":true,\"autoContinue.promptDismissed\":true,\"notifications.web\":true,\"notifications.ntfyTopic\":\"notifications.ntfyTopic\",\"notifications.telegramChatId\":\"notifications.telegramChatId\",\"credentialDefaults\":{\"claude-code\":\"credentialDefaults.claude-code\"}}"
     },
     {
       "schema": "UserRole",
