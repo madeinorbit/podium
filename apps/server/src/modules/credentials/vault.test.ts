@@ -60,6 +60,9 @@ describe('Vault', () => {
 
     expect(await sealCredentialSecret(deps, credential, CANARY, 0)).toBe(1)
     expect(vault.state()).toBe('ready')
+    // The stored key id names the key file the first seal created.
+    expect(vault.status().keyId).toMatch(/^file:[0-9a-f]{16}$/)
+    expect(rawRows(s, 'vault_key')).toContain(vault.status().keyId)
 
     const latest = await s.credentials.latestSecret(credential.id)
     expect(latest?.openable).toBe(true)

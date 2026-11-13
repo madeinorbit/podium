@@ -197,7 +197,10 @@ export class Vault implements VaultKeyCheck {
       const provider = this.provider
       if (!provider) throw this.refusal()
       const fresh = randomBytes(KEY_BYTES)
-      await this.store.insertVaultKeyIfAbsent(provider.keyId, await provider.wrap(fresh))
+      // Wrap first: a file provider creates its key on the first wrap, and only then
+      // has the id to store with it.
+      const wrapped = await provider.wrap(fresh)
+      await this.store.insertVaultKeyIfAbsent(provider.keyId, wrapped)
       fresh.fill(0)
       this.stored = await this.store.readVaultKey()
       if (!this.stored) throw new Error('the vault key row was not stored')
