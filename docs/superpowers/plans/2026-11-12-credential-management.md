@@ -225,8 +225,8 @@ recordCredentialEvent(deps, i: { kind: 'add' | 'rename' | 'renew' | 'remove' | '
   | 'deliver' | 'switch' | 'refuse' | 'attention'; credentialId: CredentialId | null
   actorUserId: UserId; sessionId?: SessionId; machineId?: MachineId; detail?: string }): Promise<void>
 
-// apps/server/src/modules/credentials/may-use.ts
-mayUse(userId: UserId, credential: { id: CredentialId; ownerUserId: UserId }):
+// apps/server/src/modules/credentials/may-use.ts — deps: MayUseDeps = Pick<SessionStore, 'grants'>
+mayUse(deps: MayUseDeps, userId: UserId, credential: { id: CredentialId; ownerUserId: UserId }):
   Promise<'owner' | 'manage' | 'use' | null>
 
 // apps/server/src/modules/credentials/access.ts
@@ -249,15 +249,22 @@ type SessionAccess =
   | { ok: true; credentialId: CredentialId | null
       delivery: { kind: 'env'; variable: string } | { kind: 'home'; homeId: string } }
   | { ok: false; refusal: AccessRefusal; message: string }
-resolveSessionAccess(i: { harness: AgentKind; driverId?: string; credentialId: CredentialId | null
-  actingUserId: UserId; machineId: MachineId }): Promise<SessionAccess>
-resolveInferenceAccess(i: { credentialId: CredentialId; actingUserId: UserId }): Promise<
+// deps: AccessDeps = MayUseDeps & Pick<SessionStore, 'credentials' | 'machines' | 'settingsAudit'>
+//   (a SessionStore satisfies it); every refusal records a `refuse` event
+resolveSessionAccess(deps: AccessDeps, i: { harness: AgentKind; driverId?: string
+  credentialId: CredentialId | null; actingUserId: UserId; machineId: MachineId
+  sessionId?: SessionId }): Promise<SessionAccess>       // sessionId: named on the refuse event
+resolveInferenceAccess(deps: AccessDeps, i: { credentialId: CredentialId; actingUserId: UserId }): Promise<
   | { ok: true; credentialId: CredentialId; route: InferenceRoute; machineId?: MachineId }
   | { ok: false; refusal: AccessRefusal; message: string }>
 // homeId 'default' is the harness's own directory. credentialId null resolves to
 // { ok: true, credentialId: null, delivery: { kind: 'home', homeId: 'default' } }.
 // apps/server/src/modules/credentials/legacy-ids.ts
-credentialIdFromLegacy(accountId: string, ownerUserId: UserId): Promise<CredentialId | null>
+credentialIdFromLegacy(deps: Pick<SessionStore, 'credentials'>, accountId: string, ownerUserId: UserId):
+  Promise<CredentialId | null>           // a `cred_…` value passes through unchanged
+// apps/server/src/modules/sessions/launch-config.ts — SessionLaunchConfig: selectCredential,
+//   storedCredential, access (resolve, then withSecret into the env until Task 5);
+//   CredentialRefusal (the error a refused launch throws: { refusal, message })
 // "custody": the machine grant with verb 'manage' and custody=1 (multi-user design §2.4).
 // Admin rights over a machine are not custody.
 

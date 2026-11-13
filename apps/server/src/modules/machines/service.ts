@@ -1290,20 +1290,19 @@ export class MachinesService {
     this.unsubscribeMachineWrites()
   }
 
-  /** Resolve the native login identity available on the machine that will run a session. */
-  async nativeAccountIdForMachine(
-    machineId: MachineId,
-    agentKind: AgentKind,
-    accountId: AccountId,
-  ): Promise<AccountId> {
-    const unsuffixed = 'native:' + agentKind
-    if (accountId !== unsuffixed) return accountId
+  /**
+   * The harness login a machine reports, as the id a headless turn is fenced
+   * on (`native:<harness>:<fingerprint>`, or `native:<harness>` when it reports
+   * no identity). A turn's identity, not a credential choice: which credential
+   * a run may use is the resolver's (`modules/credentials/access.ts`).
+   */
+  async harnessLoginAccountId(machineId: MachineId, agentKind: AgentKind): Promise<AccountId> {
     const identity = (await this.deps.store.machines.getMachine(machineId))?.inventory?.agents.find(
       (agent) => agent.kind === agentKind,
     )?.login.identity
-    return identity?.fingerprint
-      ? asAccountId('native:' + agentKind + ':' + identity.fingerprint)
-      : accountId
+    return asAccountId(
+      identity?.fingerprint ? `native:${agentKind}:${identity.fingerprint}` : `native:${agentKind}`,
+    )
   }
 
   /** The password setup chose, written to the actor's account inside setup's transaction. */

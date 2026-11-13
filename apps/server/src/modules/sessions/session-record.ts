@@ -3,6 +3,7 @@ import {
   AgentKind,
   type AgentRuntimeState,
   type Attribution,
+  type CredentialId,
   type HarnessAgent,
   type SessionDelegation,
   type SessionDesired,
@@ -56,6 +57,7 @@ export interface SessionIdentity {
   readonly model: string | undefined
   readonly effort: string | undefined
   readonly accountId: AccountId | undefined
+  readonly credentialId: CredentialId | undefined
   readonly loginHarness: HarnessAgent | undefined
   readonly workflowRunId: string | undefined
   readonly workflowStepId: string | undefined
@@ -97,6 +99,7 @@ export function identityFromInit(init: StoredSessionInit): SessionIdentity {
     model: init.model,
     effort: init.effort,
     accountId: init.accountId,
+    credentialId: init.credentialId,
     loginHarness: init.loginHarness,
     workflowRunId: init.workflowRunId,
     workflowStepId: init.workflowStepId,
@@ -296,6 +299,7 @@ export function storedSessionInit(
     ...(r.requestedModel ? { requestedModel: r.requestedModel } : {}),
     ...(r.requestedEffort ? { requestedEffort: r.requestedEffort } : {}),
     ...(r.accountId ? { accountId: r.accountId } : {}),
+    ...(r.credentialId ? { credentialId: r.credentialId } : {}),
     ...(r.loginHarness ? { loginHarness: r.loginHarness } : {}),
     ...(r.spawnedBy ? { spawnedBy: r.spawnedBy } : {}),
     // The pair survives a restart. Absent on the row = none was ever recorded
@@ -420,6 +424,7 @@ export function projectSessionMeta(s: SessionIdentity, d: SessionDurableFields):
     ...(s.model ? { model: s.model } : {}),
     ...(s.effort ? { effort: s.effort } : {}),
     ...(s.accountId ? { accountId: s.accountId } : {}),
+    ...(s.credentialId ? { credentialId: s.credentialId } : {}),
     title: d.title,
     ...(d.name ? { name: d.name } : {}),
     ...(d.name && d.nameSource ? { nameSource: d.nameSource } : {}),

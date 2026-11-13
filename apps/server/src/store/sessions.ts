@@ -593,6 +593,7 @@ function fullSessionUpsertSet(value: (key: SessionColumnKey) => Placeholder | SQ
     requestedModel: value('requestedModel'),
     requestedEffort: value('requestedEffort'),
     accountId: value('accountId'),
+    credentialId: value('credentialId'),
     loginHarness: sql`COALESCE(${sessionsTable.loginHarness}, excluded."login_harness")`,
     title: value('title'),
     name: value('name'),
@@ -778,6 +779,7 @@ function sessionUpsertValues(row: SessionRow, now = Date.now()) {
     requestedModel: row.requestedModel ?? null,
     requestedEffort: row.requestedEffort ?? null,
     accountId: row.accountId ?? null,
+    credentialId: row.credentialId ?? null,
     loginHarness: row.loginHarness ?? null,
     cwd: row.cwd,
     title: row.title,
@@ -2710,6 +2712,7 @@ function mapSession(r: SessionSelect): SessionRow {
     ...(r.requestedModel != null ? { requestedModel: r.requestedModel } : {}),
     ...(r.requestedEffort != null ? { requestedEffort: r.requestedEffort } : {}),
     ...(r.accountId != null ? { accountId: r.accountId } : {}),
+    ...(r.credentialId != null ? { credentialId: r.credentialId } : {}),
     ...(r.loginHarness != null
       ? { loginHarness: AgentKind.exclude(['shell']).parse(r.loginHarness) }
       : {}),

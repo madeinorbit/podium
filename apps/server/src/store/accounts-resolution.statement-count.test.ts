@@ -1,6 +1,6 @@
 import { asAccountId, asUserId } from '@podium/model'
 import { expect, it, vi } from 'vitest'
-import { managedKeyFor } from '../modules/sessions/account-env'
+import { managedKeyFor } from '../llm-roles'
 import type { SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
 import {

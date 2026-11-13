@@ -10,9 +10,9 @@ import { messageTestWriter, messageTestWriters } from '../../test-support/messag
  */
 
 import {
-  asAccountId,
   type Attribution,
   actorUser,
+  asAccountId,
   asMachineId,
   asSessionId,
   asUserId,
@@ -25,6 +25,7 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentCommandPrincipal } from '../../command-principal'
 import { attachHostDaemon } from '../../test-support/host-daemon'
+import { sealCredentialSecret } from '../credentials/vault'
 import { mailHarness } from '../messages/characterization-support'
 import {
   disposeOracles,
@@ -108,10 +109,23 @@ async function ownConnectionOnHost(
     createdAt: 1,
   })
   await store.accounts.markSent(owner, id, store.hostMachineId, '2026-11-04T00:00:00.000Z')
+  // Launches read credentials (credential management epic, Task 3): the
+  // credential the legacy import makes of this connection, and its send.
+  const credential = await store.credentials.insert({
+    ownerUserId: owner,
+    label: 'OpenAI',
+    type: 'openai.api-key',
+    legacyKey: id,
+  })
+  expect(await sealCredentialSecret(store, credential, `sk-${owner}`, 0)).toBe(1)
+  await store.credentials.allowMachine(credential.id, store.hostMachineId, owner)
   const settings = await store.settings.getSettingsFor(owner)
   await store.settings.setSettingsFor(
     owner,
-    { ...settings, roles: { ...settings.roles, coding: { ...settings.roles.coding, accountId: id } } },
+    {
+      ...settings,
+      roles: { ...settings.roles, coding: { ...settings.roles.coding, accountId: id } },
+    },
     '2026-11-04T00:00:00.000Z',
   )
 }
@@ -211,10 +225,19 @@ describe('oracle: durable per-user session state (not live co-presence)', () => 
     // Sessions are private (design §2.3, POD-6283): Bob's agent cannot snooze
     // Alice's session, and snoozes his own.
     expect(
-      (await f.sessionState.execute('snoozes.set', { sessionId: f.alice.sessionId, until: bobUntil }, bob))
-        .outcome,
+      (
+        await f.sessionState.execute(
+          'snoozes.set',
+          { sessionId: f.alice.sessionId, until: bobUntil },
+          bob,
+        )
+      ).outcome,
     ).toBe('denied')
-    await f.sessionState.execute('snoozes.set', { sessionId: f.bob.sessionId, until: bobUntil }, bob)
+    await f.sessionState.execute(
+      'snoozes.set',
+      { sessionId: f.bob.sessionId, until: bobUntil },
+      bob,
+    )
     expect(await f.o.store.sessions.listSnoozes(ALICE)).toEqual({
       [f.alice.sessionId]: aliceUntil,
     })

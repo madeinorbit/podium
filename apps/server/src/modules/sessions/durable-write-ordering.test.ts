@@ -236,7 +236,11 @@ describe('durable session write ordering', () => {
       toMachine: (_machine: MachineId, message: ControlMessage) => {
         if (message.type === 'spawn') f.events.push(`spawn:${message.cwd}`)
       },
-      launchConfig: { modelDefaults: async () => ({}), accountEnv: async () => ({}) },
+      launchConfig: {
+        modelDefaults: async () => ({}),
+        storedCredential: async () => ({ ok: true, credentialId: null }),
+        access: async () => ({ ok: true, credentialId: null }),
+      },
       state: { draftSyncEnabled: () => false },
       broadcastSessions() {},
     } as unknown as SessionRevivalPorts)

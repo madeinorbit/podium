@@ -44,6 +44,7 @@ import { Attribution } from '../fields/attribution'
 import {
   AccountIdField,
   ConversationIdField,
+  CredentialIdField,
   IssueIdField,
   MachineIdField,
   RepoIdField,
@@ -522,7 +523,10 @@ export const SessionMetaEntity = z.object({
   /** Resolved launch configuration captured at spawn [spec:SP-dae6]. */
   model: z.string().optional(),
   effort: z.string().optional(),
+  // LEGACY(remove-after: 2027-02): reads account ids written before credentials existed; removing it stops old spellings from resolving
   accountId: AccountIdField.optional(),
+  /** The credential the session runs on (credential management §4); absent: none. */
+  credentialId: CredentialIdField.optional(),
   /** The agent profile this session started from (POD-6107). */
   agentProfileId: z.string().optional(),
   /** WHO set `name` (#490): 'user' = a human named it, and no agent may overwrite it;

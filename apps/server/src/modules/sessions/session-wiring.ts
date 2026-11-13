@@ -405,8 +405,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     sessionMachineId: (sessionId) => bag.sessions.get(sessionId)?.machineId,
     defaultMachine: () => machines.defaultMachine(),
     machineName: (machineId) => machines.machineName(machineId),
-    nativeAccountIdForMachine: (machineId, agentKind, accountId) =>
-      machines.nativeAccountIdForMachine(machineId, agentKind, accountId),
     resolveMachineForAgent: (requested, cwd, agentKind, use) =>
       machines.resolveMachineForAgent(requested, cwd, agentKind, use),
     onSpawnTargetLogin: (input) => bag.deps.onSpawnTargetLogin?.(input),
@@ -463,10 +461,25 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       ) === 'granted'
         ? 'allowed'
         : 'denied',
-    // The coding spawn's credential resolution, for a headless turn's owner
-    // on its machine (POD-6733).
-    accountEnv: ({ agentKind, accountId, ownerUserId, machineId }) =>
-      bag.launchConfig.accountEnv(agentKind, accountId, { ownerUserId, machineId }),
+    // The resolver, as a headed launch uses it, for a headless turn's owner
+    // on its machine (POD-6733): the session's account id read as a credential.
+    credentialAccess: async ({ agentKind, accountId, ownerUserId, machineId, sessionId }) => {
+      const stored = await bag.launchConfig.storedCredential({
+        harness: agentKind,
+        accountId,
+        ownerUserId,
+        machineId,
+        sessionId,
+      })
+      if (!stored.ok) return stored
+      return await bag.launchConfig.access({
+        harness: agentKind,
+        credentialId: stored.credentialId,
+        owner: ownerUserId,
+        machineId,
+        sessionId,
+      })
+    },
     // Late-bound: the gateway is constructed further down; reads inside the
     // closure stay legal per the file header.
     relay: () => bag.runtimeGateway,

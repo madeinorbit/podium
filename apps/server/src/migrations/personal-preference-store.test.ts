@@ -91,6 +91,7 @@ const POST_MIGRATION_PERSONAL_KEYS = [
   'roles.shipwright.model',
   'roles.shipwright.effort',
   'roles.shipwright.harness',
+  'credentialDefaults',
 ] as const
 
 /** Lifted by the frozen SQL but since removed from the live shape. A stored row

@@ -110,6 +110,7 @@ import type {
   AutomationId,
   AutomationRunId,
   ConversationId,
+  CredentialId,
   DeliveryReceiptId,
   IssueId,
   IssuePanelItemId,
@@ -182,6 +183,9 @@ export const sessions = sqliteTable(
     requestedModel: text('requested_model'),
     requestedEffort: text('requested_effort'),
     accountId: text('account_id').$type<AccountId>(),
+    /** The credential the session runs on (credential management §4). NULL: none,
+     *  or a session from before credentials, read through its `account_id`. */
+    credentialId: text('credential_id').$type<CredentialId>(),
     /** Harness authenticated by an interactive shell. Its presence protects the
      *  shell from generic idle reaping for the full durable session lifetime. */
     loginHarness: text('login_harness'),

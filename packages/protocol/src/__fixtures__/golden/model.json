@@ -2063,6 +2063,26 @@
       "encoded": "\"owner\""
     },
     {
+      "schema": "CredentialDefaults",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{}"
+    },
+    {
+      "schema": "CredentialDefaults",
+      "variant": "full",
+      "wire": {
+        "claude-code": ".claude-code"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"claude-code\":\".claude-code\"}"
+    },
+    {
       "schema": "CredentialHome",
       "variant": "minimal",
       "wire": {
@@ -9023,11 +9043,12 @@
           "web": true,
           "ntfyTopic": "",
           "telegramChatId": ""
-        }
+        },
+        "credentialDefaults": {}
       },
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\",\"roles\":{\"coding\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\",\"subagentModel\":\"auto\",\"startScreen\":\"native\",\"seedCliTheme\":true},\"superagent\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\"},\"background\":{\"accountId\":\"\",\"model\":\"google/gemini-2.5-flash\",\"effort\":\"auto\"},\"shipwright\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\"}},\"sidebar\":{\"repoSort\":\"lastUsed\",\"repoOrder\":[]},\"autoContinue\":{\"enabled\":false,\"promptDismissed\":false},\"notifications\":{\"web\":true,\"ntfyTopic\":\"\",\"telegramChatId\":\"\"}}"
+      "encoded": "{\"userId\":\"userId\",\"roles\":{\"coding\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\",\"subagentModel\":\"auto\",\"startScreen\":\"native\",\"seedCliTheme\":true},\"superagent\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\"},\"background\":{\"accountId\":\"\",\"model\":\"google/gemini-2.5-flash\",\"effort\":\"auto\"},\"shipwright\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\"}},\"sidebar\":{\"repoSort\":\"lastUsed\",\"repoOrder\":[]},\"autoContinue\":{\"enabled\":false,\"promptDismissed\":false},\"notifications\":{\"web\":true,\"ntfyTopic\":\"\",\"telegramChatId\":\"\"},\"credentialDefaults\":{}}"
     },
     {
       "schema": "PersonalPreferences",
@@ -9075,12 +9096,15 @@
           "web": true,
           "ntfyTopic": "notifications.ntfyTopic",
           "telegramChatId": "notifications.telegramChatId"
+        },
+        "credentialDefaults": {
+          "claude-code": "credentialDefaults.claude-code"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\",\"roles\":{\"coding\":{\"accountId\":\"roles.coding.accountId\",\"model\":\"roles.coding.model\",\"effort\":\"roles.coding.effort\",\"harness\":\"claude-code\",\"subagentModel\":\"roles.coding.subagentModel\",\"startScreen\":\"native\",\"seedCliTheme\":true},\"superagent\":{\"accountId\":\"roles.superagent.accountId\",\"model\":\"roles.superagent.model\",\"effort\":\"roles.superagent.effort\",\"harness\":\"claude-code\"},\"background\":{\"accountId\":\"roles.background.accountId\",\"model\":\"roles.background.model\",\"effort\":\"roles.background.effort\",\"harness\":\"claude-code\"},\"shipwright\":{\"accountId\":\"roles.shipwright.accountId\",\"model\":\"roles.shipwright.model\",\"effort\":\"roles.shipwright.effort\",\"harness\":\"claude-code\"}},\"sidebar\":{\"repoSort\":\"alphabetical\",\"repoOrder\":[\"sidebar.repoOrder[0]\"]},\"autoContinue\":{\"enabled\":true,\"promptDismissed\":true},\"notifications\":{\"web\":true,\"ntfyTopic\":\"notifications.ntfyTopic\",\"telegramChatId\":\"notifications.telegramChatId\"}}"
+      "encoded": "{\"userId\":\"userId\",\"roles\":{\"coding\":{\"accountId\":\"roles.coding.accountId\",\"model\":\"roles.coding.model\",\"effort\":\"roles.coding.effort\",\"harness\":\"claude-code\",\"subagentModel\":\"roles.coding.subagentModel\",\"startScreen\":\"native\",\"seedCliTheme\":true},\"superagent\":{\"accountId\":\"roles.superagent.accountId\",\"model\":\"roles.superagent.model\",\"effort\":\"roles.superagent.effort\",\"harness\":\"claude-code\"},\"background\":{\"accountId\":\"roles.background.accountId\",\"model\":\"roles.background.model\",\"effort\":\"roles.background.effort\",\"harness\":\"claude-code\"},\"shipwright\":{\"accountId\":\"roles.shipwright.accountId\",\"model\":\"roles.shipwright.model\",\"effort\":\"roles.shipwright.effort\",\"harness\":\"claude-code\"}},\"sidebar\":{\"repoSort\":\"alphabetical\",\"repoOrder\":[\"sidebar.repoOrder[0]\"]},\"autoContinue\":{\"enabled\":true,\"promptDismissed\":true},\"notifications\":{\"web\":true,\"ntfyTopic\":\"notifications.ntfyTopic\",\"telegramChatId\":\"notifications.telegramChatId\"},\"credentialDefaults\":{\"claude-code\":\"credentialDefaults.claude-code\"}}"
     },
     {
       "schema": "PersonalPreferenceState",
@@ -11794,6 +11818,7 @@
         "model": "model",
         "effort": "effort",
         "accountId": "accountId",
+        "credentialId": "credentialId",
         "agentProfileId": "agentProfileId",
         "nameSource": "user",
         "cwd": "cwd",
@@ -12005,6 +12030,7 @@
         "model": "model",
         "effort": "effort",
         "accountId": "accountId",
+        "credentialId": "credentialId",
         "agentProfileId": "agentProfileId",
         "nameSource": "agent",
         "cwd": "cwd",
@@ -12217,6 +12243,7 @@
         "model": "model",
         "effort": "effort",
         "accountId": "accountId",
+        "credentialId": "credentialId",
         "agentProfileId": "agentProfileId",
         "nameSource": "agent",
         "cwd": "cwd",
@@ -12430,6 +12457,7 @@
         "model": "model",
         "effort": "effort",
         "accountId": "accountId",
+        "credentialId": "credentialId",
         "agentProfileId": "agentProfileId",
         "nameSource": "agent",
         "cwd": "cwd",
@@ -12643,6 +12671,7 @@
         "model": "model",
         "effort": "effort",
         "accountId": "accountId",
+        "credentialId": "credentialId",
         "agentProfileId": "agentProfileId",
         "nameSource": "agent",
         "cwd": "cwd",
@@ -12877,6 +12906,7 @@
         "model": "model",
         "effort": "effort",
         "accountId": "accountId",
+        "credentialId": "credentialId",
         "agentProfileId": "agentProfileId",
         "nameSource": "user",
         "cwd": "cwd",
@@ -13086,6 +13116,7 @@
         "model": "model",
         "effort": "effort",
         "accountId": "accountId",
+        "credentialId": "credentialId",
         "agentProfileId": "agentProfileId",
         "nameSource": "agent",
         "cwd": "cwd",
@@ -13296,6 +13327,7 @@
         "model": "model",
         "effort": "effort",
         "accountId": "accountId",
+        "credentialId": "credentialId",
         "agentProfileId": "agentProfileId",
         "nameSource": "agent",
         "cwd": "cwd",
@@ -13507,6 +13539,7 @@
         "model": "model",
         "effort": "effort",
         "accountId": "accountId",
+        "credentialId": "credentialId",
         "agentProfileId": "agentProfileId",
         "nameSource": "agent",
         "cwd": "cwd",
@@ -13718,6 +13751,7 @@
         "model": "model",
         "effort": "effort",
         "accountId": "accountId",
+        "credentialId": "credentialId",
         "agentProfileId": "agentProfileId",
         "nameSource": "agent",
         "cwd": "cwd",
@@ -18699,12 +18733,15 @@
         "autoContinue.promptDismissed": true,
         "notifications.web": true,
         "notifications.ntfyTopic": "notifications.ntfyTopic",
-        "notifications.telegramChatId": "notifications.telegramChatId"
+        "notifications.telegramChatId": "notifications.telegramChatId",
+        "credentialDefaults": {
+          "claude-code": "credentialDefaults.claude-code"
+        }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\",\"roles.coding.accountId\":\"roles.coding.accountId\",\"roles.coding.model\":\"roles.coding.model\",\"roles.coding.effort\":\"roles.coding.effort\",\"roles.coding.harness\":\"claude-code\",\"roles.coding.subagentModel\":\"roles.coding.subagentModel\",\"roles.coding.startScreen\":\"native\",\"roles.coding.seedCliTheme\":true,\"roles.superagent.accountId\":\"roles.superagent.accountId\",\"roles.superagent.model\":\"roles.superagent.model\",\"roles.superagent.effort\":\"roles.superagent.effort\",\"roles.superagent.harness\":\"claude-code\",\"roles.background.accountId\":\"roles.background.accountId\",\"roles.background.model\":\"roles.background.model\",\"roles.background.effort\":\"roles.background.effort\",\"roles.background.harness\":\"claude-code\",\"roles.shipwright.accountId\":\"roles.shipwright.accountId\",\"roles.shipwright.model\":\"roles.shipwright.model\",\"roles.shipwright.effort\":\"roles.shipwright.effort\",\"roles.shipwright.harness\":\"claude-code\",\"sidebar.repoSort\":\"alphabetical\",\"sidebar.repoOrder\":[\"sidebar.repoOrder[0]\"],\"autoContinue.enabled\":true,\"autoContinue.promptDismissed\":true,\"notifications.web\":true,\"notifications.ntfyTopic\":\"notifications.ntfyTopic\",\"notifications.telegramChatId\":\"notifications.telegramChatId\"}"
+      "encoded": "{\"userId\":\"userId\",\"roles.coding.accountId\":\"roles.coding.accountId\",\"roles.coding.model\":\"roles.coding.model\",\"roles.coding.effort\":\"roles.coding.effort\",\"roles.coding.harness\":\"claude-code\",\"roles.coding.subagentModel\":\"roles.coding.subagentModel\",\"roles.coding.startScreen\":\"native\",\"roles.coding.seedCliTheme\":true,\"roles.superagent.accountId\":\"roles.superagent.accountId\",\"roles.superagent.model\":\"roles.superagent.model\",\"roles.superagent.effort\":\"roles.superagent.effort\",\"roles.superagent.harness\":\"claude-code\",\"roles.background.accountId\":\"roles.background.accountId\",\"roles.background.model\":\"roles.background.model\",\"roles.background.effort\":\"roles.background.effort\",\"roles.background.harness\":\"claude-code\",\"roles.shipwright.accountId\":\"roles.shipwright.accountId\",\"roles.shipwright.model\":\"roles.shipwright.model\",\"roles.shipwright.effort\":\"roles.shipwright.effort\",\"roles.shipwright.harness\":\"claude-code\",\"sidebar.repoSort\":\"alphabetical\",\"sidebar.repoOrder\":[\"sidebar.repoOrder[0]\"],\"autoContinue.enabled\":true,\"autoContinue.promptDismissed\":true,\"notifications.web\":true,\"notifications.ntfyTopic\":\"notifications.ntfyTopic\",\"notifications.telegramChatId\":\"notifications.telegramChatId\",\"credentialDefaults\":{\"claude-code\":\"credentialDefaults.claude-code\"}}"
     },
     {
       "schema": "UserRole",

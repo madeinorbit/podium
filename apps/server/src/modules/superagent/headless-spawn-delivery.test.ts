@@ -24,6 +24,7 @@ import {
   asAccountId,
   asMachineId,
   asThreadId,
+  asUserId,
   BUILTIN_HARNESS_KINDS,
   firstAdminMemberId,
 } from '@podium/model'
@@ -40,8 +41,9 @@ import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
 import { OPERATOR } from '../../test-support/capabilities'
 import { assignHostMachine } from '../../test-support/host-daemon'
+import { openTestStore } from '../../test-support/open-test-store'
 import { seedRows } from '../../test-support/seed-rows'
-import { selectHarnessAccountId } from '../sessions/harness-account'
+import { legacyRoleDefault } from '../sessions/launch-config'
 import { SessionMachineReconciler } from '../sessions/machine-reconciler'
 import { SessionClientPlane, type SessionClientPlanePorts } from '../sessions/session-client-plane'
 import { SuperagentService } from './service'
@@ -554,15 +556,17 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
       agentKind: 'codex',
     })
     const thread = await h.registry.sessionStore.superagent.getSuperagentThread('global')
-    const headedAccount = (await h.registry.sessionStore.sessions.getSession(headedId))?.accountId
+    const headed = await h.registry.sessionStore.sessions.getSession(headedId)
     const headlessAccount = thread?.podiumSessionId
       ? (await h.registry.sessionStore.sessions.getSession(thread.podiumSessionId))?.accountId
       : undefined
-    expect(headedAccount).toBe('native:codex:FP1')
-    // Same settings, same harness, same machine: the same account. A fork in
-    // the selection rule would show up here as two different identities for
-    // one login.
-    expect(headlessAccount).toBe(headedAccount)
+    // Same settings, same harness, same machine: no credential on both paths
+    // (credential management §9). The headed row records none; the headless
+    // turn names the login the machine reports for codex, which is that same
+    // "none". A fork in the selection rule would put a credential on one.
+    expect(headed?.credentialId ?? null).toBeNull()
+    expect(headed?.accountId ?? null).toBeNull()
+    expect(headlessAccount).toBe('native:codex:FP1')
     expect(ack.podiumSessionId).toBe(thread?.podiumSessionId)
   })
 
@@ -618,20 +622,42 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
     expect(turn.resumeValue).toBe('harness-old')
   })
 
-  it('the shared account rule keeps matching ids and falls back cross-harness ones', async () => {
-    // The selection table both paths call (selectHarnessAccountId): a native
-    // id for another harness must never be spent silently, while matching,
-    // explicit-shaped and non-native ids ride unchanged.
-    expect(selectHarnessAccountId('codex', asAccountId('native:codex:fp-a'))).toBe(
-      'native:codex:fp-a',
-    )
-    expect(selectHarnessAccountId('codex', asAccountId('native:codex'))).toBe('native:codex')
-    expect(selectHarnessAccountId('codex', asAccountId('native:claude-code:fp-b'))).toBe(
-      'native:codex',
-    )
-    expect(selectHarnessAccountId('codex', asAccountId('managed:openrouter'))).toBe(
-      'managed:openrouter',
-    )
-    expect(selectHarnessAccountId('codex', undefined)).toBe('native:codex')
+  it('the shared role rule keeps what the harness accepts and drops the rest', async () => {
+    // The rule both paths call (legacyRoleDefault): another harness's login is
+    // never spent silently, and an id the harness cannot take is no default.
+    const store = await openTestStore(':memory:')
+    try {
+      const owner = asUserId('user:role-rule')
+      const codexLogin = await store.credentials.insert({
+        ownerUserId: owner,
+        label: 'ChatGPT',
+        type: 'openai.chatgpt-login',
+        identity: { fingerprint: 'fp-a' },
+      })
+      await store.credentials.insert({
+        ownerUserId: owner,
+        label: 'Claude',
+        type: 'anthropic.claude-login',
+        identity: { fingerprint: 'fp-b' },
+      })
+      const openrouter = await store.credentials.insert({
+        ownerUserId: owner,
+        label: 'OpenRouter',
+        type: 'openrouter.api-key',
+        legacyKey: 'managed:openrouter',
+      })
+      const rule = (harness: 'codex' | 'opencode', id: string) =>
+        legacyRoleDefault(store, harness, id, owner)
+      expect(await rule('codex', 'native:codex:fp-a')).toBe(codexLogin.id)
+      expect(await rule('codex', 'native:codex')).toBeNull()
+      expect(await rule('codex', 'native:claude-code:fp-b')).toBeNull()
+      expect(await rule('codex', 'managed:openrouter')).toBeNull()
+      expect(await rule('opencode', 'managed:openrouter')).toBe(openrouter.id)
+      expect(await rule('codex', '')).toBeNull()
+      // A stored key the role names that is gone is refused, never replaced by a login.
+      expect(await rule('codex', 'managed:openai')).toBe('missing')
+    } finally {
+      await store.close()
+    }
   })
 })

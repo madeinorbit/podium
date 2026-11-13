@@ -10,8 +10,33 @@ import { type PodiumSettings, resolveRole, roleApiBackend } from '@podium/runtim
 import type { z } from 'zod'
 import { type LlmClient, type LlmMessage, llmClient } from './llm'
 import { LlmConfigError } from './llm-error'
-import { managedKeyFor, managedKeyName } from './modules/sessions/account-env'
-import type { AccountsRepository } from './store/accounts'
+import type { AccountsRepository, ManagedAccountRow } from './store/accounts'
+
+// Moved here from the session account rules epic Task 3 deleted
+// unchanged; direct inference moves onto credentials in epic Task 12.
+
+/** The words a person reads for each managed account id. */
+const MANAGED_KEY_NAMES: Readonly<Record<string, string>> = {
+  'managed:anthropic': 'Anthropic API key',
+  'managed:openai': 'OpenAI API key',
+  'managed:openrouter': 'OpenRouter API key',
+  'managed:claude-oauth': 'Claude setup token',
+}
+
+export const managedKeyName = (accountId: AccountId): string =>
+  MANAGED_KEY_NAMES[accountId] ?? `managed key ${accountId}`
+
+/** Own key first, then an explicit share: admin status never supplies a key. */
+export async function managedKeyFor(
+  accounts: Pick<AccountsRepository, 'own' | 'sharedWith'>,
+  ownerUserId: UserId,
+  accountId: AccountId,
+): Promise<ManagedAccountRow | undefined> {
+  return (
+    (await accounts.own(ownerUserId, accountId)) ??
+    (await accounts.sharedWith(ownerUserId, accountId))[0]
+  )
+}
 
 /** Roles that make a one-shot completion. */
 export type OneShotRole = 'background' | 'superagent'

@@ -59,7 +59,7 @@
 import { z } from 'zod'
 import { HarnessAgent } from '../entities/agent'
 import { PerUserSingletonKey } from '../fields/per-user-key'
-import { AccountIdField } from '../ids'
+import { AccountIdField, CredentialIdField } from '../ids'
 import { asAccountId } from '../ids/brands'
 import { CidrRange } from '../net/cidr'
 
@@ -191,11 +191,19 @@ export type NotificationRouting = z.infer<typeof NotificationRouting>
  * non-grantable BY CONSTRUCTION (ADR 9 D3 rule 4), so the class is a matrix
  * annotation on the family and never a per-row value a writer could set wrong.
  */
+/** Per harness, the credential a launch uses when it names none. */
+export const CredentialDefaults = z.record(HarnessAgent, CredentialIdField)
+export type CredentialDefaults = z.infer<typeof CredentialDefaults>
+
 export const PersonalPreferences = PerUserSingletonKey.extend({
   roles: Roles.default({}),
   sidebar: Sidebar.default({}),
   autoContinue: AutoContinuePreferences.default({}),
   notifications: NotificationRouting.default({}),
+  /** The credential each harness uses when a launch names none (credential
+   *  management §9 "Choosing for a session"). A harness absent here falls back
+   *  to no credential: its own login on the machine. */
+  credentialDefaults: CredentialDefaults.default({}),
 })
 export type PersonalPreferences = z.infer<typeof PersonalPreferences>
 

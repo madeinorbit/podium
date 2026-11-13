@@ -1,6 +1,6 @@
 // Generated from apps/server/src/router.ts. Run bun run api:types. Do not edit.
 import * as _podium_model from '@podium/model';
-import { MachineId, IssueId, UserId, IssueJoinVia, ArtifactId, SessionId, UserRole, UsageBucketWire, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentKind, AccountId, AgentPhase } from '@podium/model';
+import { MachineId, IssueId, UserId, IssueJoinVia, ArtifactId, SessionId, UserRole, UsageBucketWire, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentKind, CredentialId, AgentPhase } from '@podium/model';
 import { z } from 'zod';
 import * as Protocol from '@podium/protocol';
 import { ModelChoiceWire, ConvergenceState, MobileWebIdentity } from '@podium/protocol';
@@ -500,6 +500,8 @@ declare const PodiumSettings: z.ZodObject<{
     }, {
         trustedNetworks?: string[] | undefined;
     }>>;
+    /** Per harness, the credential a launch uses when it names none (credential management §9). */
+    credentialDefaults: z.ZodDefault<z.ZodRecord<z.ZodEnum<["claude-code", "codex", "grok", "opencode", "cursor", "pi"]>, z.ZodBranded<z.ZodString, "CredentialId">>>;
 }, "strip", z.ZodTypeAny, {
     issues: {
         assistantEnabled: boolean;
@@ -547,6 +549,7 @@ declare const PodiumSettings: z.ZodObject<{
         telegramChatId: string;
         telegramBotToken: string;
     };
+    credentialDefaults: Partial<Record<"claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi", string & z.BRAND<"CredentialId">>>;
     hibernation: {
         enabled: boolean;
         memoryPct: number;
@@ -638,6 +641,7 @@ declare const PodiumSettings: z.ZodObject<{
         telegramChatId?: string | undefined;
         telegramBotToken?: string | undefined;
     } | undefined;
+    credentialDefaults?: Partial<Record<"claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi", string>> | undefined;
     hibernation?: {
         enabled?: boolean | undefined;
         memoryPct?: number | undefined;
@@ -1186,7 +1190,8 @@ interface SessionSpawnResult {
     effort: string | null;
     machine: string;
     machineId: MachineId;
-    accountId: AccountId | null;
+    /** The credential the session runs on; `null`: none, the harness's own login. */
+    credentialId: CredentialId | null;
     /** The task prompt as its spawner's message, when a session spawned this one
      *  and the prompt is queued rather than launched with the process (POD-4778):
      *  the id the spawner checks with `podium mail status`. */
@@ -2467,6 +2472,7 @@ type Output_accounts_login = Pick<{
         };
         onBehalfOf: (string & z.BRAND<"UserId">) | null;
     };
+    credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
     cwd: string;
     delegation?: undefined | {
         actor: string & z.BRAND<"AgentIdentityId">;
@@ -2678,6 +2684,7 @@ type Output_accounts_login = Pick<{
         };
         onBehalfOf: (string & z.BRAND<"UserId">) | null;
     };
+    credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
     cwd: string;
     delegation?: undefined | {
         actor: string & z.BRAND<"AgentIdentityId">;
@@ -4889,6 +4896,7 @@ type Output_issues_get = (null) | ({
             };
             onBehalfOf: (string & z.BRAND<"UserId">) | null;
         };
+        credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
         cwd: string;
         delegation?: undefined | {
             actor: string & z.BRAND<"AgentIdentityId">;

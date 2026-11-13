@@ -234,7 +234,7 @@ export const ACCOUNT_COMMANDS_TRPC = {
       return {
         ok: true as const,
         removed: true as const,
-        // Spawn reads the sends afresh (account-env.ts); what has already been
+        // Spawn reads the sends afresh (the credential resolver); what has already been
         // spawned holds the key in its environment.
         note:
           `The next run on "${machineName}" no longer gets this key. Sessions already running on ` +

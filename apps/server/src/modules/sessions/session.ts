@@ -5,6 +5,7 @@ import type {
   AgentRuntimeState,
   Attribution,
   ConversationId,
+  CredentialId,
   Geometry,
   HarnessAgent,
   IssueId,
@@ -73,6 +74,7 @@ export interface SessionInit {
   requestedModel?: string
   requestedEffort?: string
   accountId?: AccountId
+  credentialId?: CredentialId
   /** Native harness whose interactive login owns this shell, when applicable. */
   loginHarness?: HarnessAgent
   origin: SessionOrigin
@@ -273,6 +275,8 @@ export class Session {
   readonly model: string | undefined
   readonly effort: string | undefined
   readonly accountId: AccountId | undefined
+  /** The credential the session runs on; absent: none (the harness login), or a legacy `accountId`. */
+  readonly credentialId: CredentialId | undefined
   /** Durable purpose marker: login shells must outlive ordinary idle-shell reaping. */
   readonly loginHarness: HarnessAgent | undefined
   /** Workflow pass-through metadata (#285) — immutable, uninterpreted. */
@@ -549,6 +553,7 @@ export class Session {
     this.model = identity.model
     this.effort = identity.effort
     this.accountId = identity.accountId
+    this.credentialId = identity.credentialId
     this.loginHarness = identity.loginHarness
     this.workflowRunId = identity.workflowRunId
     this.workflowStepId = identity.workflowStepId
@@ -1090,6 +1095,7 @@ export class Session {
       requestedModel: d.requestedModel ?? null,
       requestedEffort: d.requestedEffort ?? null,
       accountId: this.accountId ?? null,
+      credentialId: this.credentialId ?? null,
       loginHarness: this.loginHarness ?? null,
       cwd: d.cwd,
       title: d.title,

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Inventory, UserId } from '@podium/model'
-import { asAccountId, asMachineId, asSessionId, asUserId, firstAdminMemberId, isMachineOfflineForLiveTerminal } from '@podium/model'
+import { asMachineId, asSessionId, asUserId, firstAdminMemberId, isMachineOfflineForLiveTerminal } from '@podium/model'
 import type { DaemonPtyInputBatch, MachineSupervisorControlMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { mintSigningKeyPair, publicKeyWire } from '@podium/runtime/signing'
@@ -862,7 +862,7 @@ describe('MachinesService inventory persistence (#222)', () => {
     expect((await store.machines.getMachine(MACHINE))?.inventory).toEqual(latest)
   })
 
-  test('records the native identity fingerprint selected on the target machine', async () => {
+  test('names the harness login the target machine reports', async () => {
     const { svc, store } = await makeStoreService()
     await store.machines.upsertMachine({
     assignment: { server: false, agentExecution: true },
@@ -883,12 +883,9 @@ describe('MachinesService inventory persistence (#222)', () => {
       ],
     })
 
-    expect(await svc.nativeAccountIdForMachine(MACHINE, 'codex', asAccountId('native:codex'))).toBe(
-      'native:codex:fp-a',
-    )
-    expect(await svc.nativeAccountIdForMachine(MACHINE, 'codex', asAccountId('native:codex:fp-b'))).toBe(
-      'native:codex:fp-b',
-    )
+    expect(await svc.harnessLoginAccountId(MACHINE, 'codex')).toBe('native:codex:fp-a')
+    // A harness that reports no identity is named by its bare id.
+    expect(await svc.harnessLoginAccountId(MACHINE, 'claude-code')).toBe('native:claude-code')
   })
 
   test('a reconnect treats persisted absence as probing and a spawn wait joins the report', async () => {

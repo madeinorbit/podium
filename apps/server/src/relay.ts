@@ -3861,7 +3861,9 @@ export class SessionRegistry {
       modelCatalog: async (machineId) => await settings.getModelCatalog(machineId),
       quota: async (machineId) => (await rpc.agentQuota(false, machineId)).agents,
       nativeAccountId: async (machineId, agent, requested) =>
-        await machines.nativeAccountIdForMachine(machineId, agent, requested),
+        requested === `native:${agent}`
+          ? await machines.harnessLoginAccountId(machineId, agent)
+          : requested,
       validationProfile: async (issue) => (await shippingPolicy.resolve(issue)).validationProfile,
       evidence: {
         materialize: async (input) => {

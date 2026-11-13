@@ -12,7 +12,7 @@
 import { asAccountId, asMachineId, asUserId } from '@podium/model'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
-import { resolveAccountEnv } from '../modules/sessions/account-env'
+import { managedKeyFor } from '../llm-roles'
 import { AccountsRepository } from '../store/accounts'
 import { stageASeam } from '../test-support/stage-a-seam'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
@@ -53,7 +53,11 @@ const seedConnection = (db: SqlDatabase, id: string, provider: string, credentia
     .run(id, provider, credential)
 
 const ownership = (db: SqlDatabase) =>
-  db.prepare('SELECT id, ref, owner_user_id AS owner, shared_with AS sharedWith FROM accounts ORDER BY id').all()
+  db
+    .prepare(
+      'SELECT id, ref, owner_user_id AS owner, shared_with AS sharedWith FROM accounts ORDER BY id',
+    )
+    .all()
 
 /** The instance's existing first admin: the one member every database has. */
 const firstAdmin = (db: SqlDatabase) =>
@@ -78,17 +82,13 @@ describe(`migration ${MIGRATION}`, () => {
         { id: 'managed:anthropic', ref: 'managed:anthropic', owner: member, sharedWith: '["*"]' },
         { id: 'managed:openai', ref: 'managed:openai', owner: member, sharedWith: '["*"]' },
       ])
-      // Exactly as before: the member's spawn on their machine carries the key.
+      // Exactly as before: the member's own key is found for them. (Launches
+      // read it as a credential since epic Task 3; the legacy import carries it.)
       const accounts = new AccountsRepository(stageASeam(db))
-      const env = await resolveAccountEnv(
-        {
-          accounts,
-          machines: { custodian: async () => asUserId(member), getMachine: async () => undefined },
-        },
-        asAccountId('managed:anthropic'),
-        { ownerUserId: asUserId(member), machineId: asMachineId('host') },
-      )
-      expect(env).toEqual({ env: { ANTHROPIC_API_KEY: 'sk-ant-before' } })
+      expect(
+        (await managedKeyFor(accounts, asUserId(member), asAccountId('managed:anthropic')))
+          ?.credential,
+      ).toBe('sk-ant-before')
       // A reconnect replaces the migrated row rather than adding a second one.
       await accounts.upsert({
         id: asAccountId('managed:anthropic'),

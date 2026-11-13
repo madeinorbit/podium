@@ -8,9 +8,10 @@
  *
  * It drives the WHOLE chain, no layer faked:
  *
- *   accounts table            apps/server/src/store/accounts.ts      (real sqlite + migrations)
- *     -> resolveAccountEnv    apps/server/src/modules/sessions/account-env.ts
- *     -> credentialEnv        packages/runtime/src/settings.ts       (provider/kind -> env var)
+ *   a credential              (its record, held in memory here; the vault read is
+ *                              withSecret's, tested in apps/server)
+ *     -> resolveSessionAccess apps/server/src/modules/credentials/access.ts
+ *                              (the harness's declared `accepts` line -> env var)
  *     -> SpawnMessage.parse   packages/protocol/.../terminal.ts      (real zod wire round-trip)
  *     -> sessionHandlers.spawn apps/daemon/src/control/session.ts    (the real handler)
  *     -> spawnEnv + spawnAgent -> a real /bin/bash on a real PTY
@@ -29,77 +30,71 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { agentLaunchCommand } from '@podium/harness'
-import { asAccountId, asMachineId, asSessionId, asUserId, type SessionId } from '@podium/model'
+import { asCredentialId, asMachineId, asSessionId, asUserId, type SessionId } from '@podium/model'
 import { directPtyDurableForTests } from '@podium/process/durable'
 import { SpawnMessage } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
-import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DaemonContext } from '../apps/daemon/src/control/context'
 import { sessionHandlers } from '../apps/daemon/src/control/session'
 import { SessionRegistry } from '../apps/daemon/src/session/registry.js'
-import { resolveAccountEnv } from '../apps/server/src/modules/sessions/account-env'
-import { AccountsRepository } from '../apps/server/src/store/accounts'
-import { createBunStoreExecutor } from '../apps/server/src/store/executor'
+import {
+  type AccessDeps,
+  resolveSessionAccess,
+} from '../apps/server/src/modules/credentials/access'
 
 /** Whose key it is: the session owner (POD-6360, managed keys are per user). */
 const OWNER = asUserId('user:spawn-probe-owner')
 
 const CREDENTIAL = 'sk-test-xyz'
 
-function openAccountsDatabase() {
-  const db = openDatabase(':memory:')
-  // This lane owns only the managed-account aggregate. Keeping its fixture at
-  // that boundary avoids coupling a real PTY spawn test to the Bun-only full
-  // server migration runner used by SessionStore.
-  db.exec(`CREATE TABLE accounts (
-    id TEXT PRIMARY KEY,
-    provider TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    credential TEXT NOT NULL,
-    identity TEXT NOT NULL,
-    scope TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    owner_user_id TEXT,
-    ref TEXT,
-    account_key TEXT,
-    shared_with TEXT
-  )`)
-  db.exec('CREATE UNIQUE INDEX accounts_owner_ref ON accounts (owner_user_id, ref)')
-  db.exec('CREATE UNIQUE INDEX accounts_owner_account_key ON accounts (owner_user_id, account_key)')
-  return db
-}
-
 /** The owner runs on their own machine. */
 const ownMachine = asMachineId('machine-owner')
-/** Resolution ports: the member looks after the machine that spawns (POD-6300). */
-const portsFor = (accounts: AccountsRepository) => ({
-  accounts,
-  machines: { custodian: async () => OWNER, getMachine: async () => ({ name: 'own' }) },
-})
-const target = { ownerUserId: OWNER, machineId: ownMachine }
 
-/** The server side: a managed anthropic api-key account, resolved to spawn env. */
-async function managedAccountEnv(): Promise<Record<string, string> | undefined> {
-  const db = openAccountsDatabase()
-  const queries = createBunStoreExecutor({ database: db }).queries
-  if (!queries) throw new Error('the probe database is not bun-backed')
-  const accounts = new AccountsRepository(queries)
-  await accounts.connect({
+/**
+ * The server side: a credential of `type`, resolved for claude-code on the
+ * owner's own machine, as the spawn env until the `access` field exists (epic
+ * Task 5). The secret stands in for what `withSecret` hands over.
+ */
+async function resolvedEnv(type: string, secret: string): Promise<Record<string, string>> {
+  const id = asCredentialId('cred_00000000-0000-4000-8000-000000000216')
+  const record = {
+    id,
     ownerUserId: OWNER,
-    accountKey: asAccountId('managed:anthropic'),
-    provider: 'anthropic',
-    kind: 'api-key',
-    credential: CREDENTIAL,
-    identity: 'sk-t…xyz',
-    scope: 'role',
-    createdAt: 1,
+    label: type,
+    type,
+    identity: {},
+    status: 'ok',
+    statusReason: null,
+    expiresAt: null,
+    verifiedAt: null,
+    legacyId: null,
+    legacyKey: null,
+    createdAt: '2026-11-13T00:00:00.000Z',
+    updatedAt: '2026-11-13T00:00:00.000Z',
+  }
+  // Only what the resolver reads: the record, the machine's custodian, the event trail.
+  const deps = {
+    credentials: { get: async () => record, isMachineAllowed: async () => false },
+    machines: { custodian: async () => OWNER, getMachine: async () => undefined },
+    settingsAudit: { append: async () => {} },
+    grants: {},
+  } as unknown as AccessDeps
+  const plan = await resolveSessionAccess(deps, {
+    harness: 'claude-code',
+    credentialId: id,
+    actingUserId: OWNER,
+    machineId: ownMachine,
   })
-  const env = (
-    await resolveAccountEnv(portsFor(accounts), asAccountId('managed:anthropic'), target)
-  ).env
-  db.close()
-  return env
+  if (!plan.ok || plan.delivery.kind !== 'env') {
+    throw new Error(`no env delivery for ${type}: ${JSON.stringify(plan)}`)
+  }
+  return { [plan.delivery.variable]: secret }
+}
+
+/** The server side: an anthropic api-key credential, resolved to spawn env. */
+async function managedAccountEnv(): Promise<Record<string, string>> {
+  return await resolvedEnv('anthropic.api-key', CREDENTIAL)
 }
 
 interface Harness {
@@ -316,26 +311,7 @@ describe('managed account -> real spawned process env (#216)', () => {
   })
 
   it('an oauth credential rides the same path as CLAUDE_CODE_OAUTH_TOKEN', async () => {
-    const db = openAccountsDatabase()
-    const queries = createBunStoreExecutor({ database: db }).queries
-    if (!queries) throw new Error('the probe database is not bun-backed')
-    const accounts = new AccountsRepository(queries)
-    await accounts.connect({
-      ownerUserId: OWNER,
-      accountKey: asAccountId('managed:claude-oauth'),
-      provider: 'anthropic',
-      kind: 'oauth',
-      credential: 'oat-test-1',
-      identity: 'oat…t-1',
-      scope: 'role',
-      createdAt: 1,
-    })
-    const { env } = await resolveAccountEnv(
-      portsFor(accounts),
-      asAccountId('managed:claude-oauth'),
-      target,
-    )
-    db.close()
+    const env = await resolvedEnv('anthropic.claude-token', 'oat-test-1')
     expect(env).toEqual({ CLAUDE_CODE_OAUTH_TOKEN: 'oat-test-1' })
 
     const h = makeHarness(settingsDir)

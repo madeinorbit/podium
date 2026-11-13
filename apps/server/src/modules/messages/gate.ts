@@ -22,7 +22,7 @@
 
 import { type HumanCeiling, SINGLE_USER_CEILING, type TransportTag } from '@podium/commands'
 import type {
-  AccountId,
+  CredentialId,
   HarnessRefEntry,
   IssueId,
   MachineId,
@@ -107,7 +107,8 @@ export interface MessageGateDeps {
     effort?: string | null
     machine?: string
     machineId?: MachineId
-    accountId?: AccountId | null
+    /** The credential the session runs on; `null`: none. */
+    credentialId?: CredentialId | null
     /** The task prompt as the spawner's message, when it was queued as one. */
     promptMessageId?: string
   }>

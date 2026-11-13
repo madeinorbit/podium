@@ -7,6 +7,7 @@ import type {
   AccountId,
   AgentRuntimeState,
   Attribution,
+  CredentialId,
   Geometry,
   HarnessRefEntry,
   IssueId,
@@ -164,6 +165,7 @@ export interface SessionRow {
   requestedEffort?: string | null
   /** Account selection, not credential material. */
   accountId?: AccountId | null
+  credentialId?: CredentialId | null
   /** Harness authenticated by this shell; null for every ordinary session. */
   loginHarness?: import('@podium/model').HarnessAgent | null
   cwd: string

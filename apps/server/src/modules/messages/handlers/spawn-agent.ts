@@ -130,7 +130,7 @@ async function spawnOnce(
   const actualModel = spawned.model === undefined ? model : (spawned.model ?? undefined)
   const actualEffort = spawned.effort === undefined ? effort : (spawned.effort ?? undefined)
   const actualMachineId = spawned.machineId ?? machineId
-  const actualAccountId = spawned.accountId ?? undefined
+  const actualCredentialId = spawned.credentialId ?? undefined
   try {
     await deps.appendEvent?.(
       spawnedEvent(ctx, plan, input, sessionId, {
@@ -138,7 +138,7 @@ async function spawnOnce(
         model: actualModel,
         effort: actualEffort,
         machineId: actualMachineId,
-        accountId: actualAccountId,
+        credentialId: actualCredentialId,
       }),
     )
   } catch {}
@@ -245,7 +245,7 @@ function spawnedEvent(
     model: string | undefined
     effort: string | undefined
     machineId: MachineId | undefined
-    accountId?: string | undefined
+    credentialId?: string | undefined
   },
 ) {
   return {
@@ -263,7 +263,7 @@ function spawnedEvent(
       ...(actual.model ? { model: actual.model } : {}),
       ...(actual.effort ? { effort: actual.effort } : {}),
       ...(actual.machineId ? { machineId: actual.machineId } : {}),
-      ...(actual.accountId ? { accountId: actual.accountId } : {}),
+      ...(actual.credentialId ? { credentialId: actual.credentialId } : {}),
       ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
       ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
       ...(plan.agentProfileId ? { agentProfileId: plan.agentProfileId } : {}),

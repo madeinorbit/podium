@@ -47,7 +47,6 @@ import type { SessionStore } from '../../store'
 import type { DurableIssueAccessIndex } from '../issues/access-index'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService, MachineUseResolver } from '../machines/service'
-import { SpawnAccountRefusal } from './account-env'
 import type { SessionFacts } from './facts'
 import { HandoffCoordinator } from './handoff/coordinator'
 import type { AssertMachineUse, HandoffCaller, HandoffPorts } from './handoff/ports'
@@ -553,19 +552,28 @@ export class SessionRevival {
     // produced it may have been AWAITED, so hoisting it is what keeps the draft
     // from having to span that suspension (spec rule 26).
     const cwd = ensured.cwd || session.cwd
-    // Resolve the owner's account before marking the session starting: a
-    // missing connection or unapproved machine refuses the wake in place.
-    let accountEnv: { env?: Record<string, string> }
-    try {
-      accountEnv = await this.ports.launchConfig.accountEnv(
-        session.agentKind,
-        session.accountId,
-        { ownerUserId: session.ownerUserId, machineId: session.machineId },
-      )
-    } catch (error) {
-      if (error instanceof SpawnAccountRefusal) return { ok: false, reason: error.message }
-      throw error
-    }
+    // The credential STORED ON THE SESSION, never today's default: a session
+    // revives on what it ran on (credential management §9). Resolved before
+    // the session is marked starting, so a refusal leaves it where it was and
+    // sends nothing; it never falls back to another login.
+    const stored = await this.ports.launchConfig.storedCredential({
+      harness: session.agentKind,
+      credentialId: session.credentialId,
+      accountId: session.accountId,
+      ownerUserId: session.ownerUserId,
+      machineId: session.machineId,
+      sessionId,
+    })
+    if (!stored.ok) return { ok: false, reason: stored.message }
+    const access = await this.ports.launchConfig.access({
+      harness: session.agentKind,
+      ...(session.lifecycleDriverRequest() ? { driverId: session.lifecycleDriverRequest() } : {}),
+      credentialId: stored.credentialId,
+      owner: session.ownerUserId,
+      machineId: session.machineId,
+      sessionId,
+    })
+    if (!access.ok) return { ok: false, reason: access.message }
     // Name the allowed companions so model defaults can never leak into a
     // restart frame, even if the launch-config API later grows new fields.
     const { subagentModel, seedCliTheme } =
@@ -640,7 +648,8 @@ export class SessionRevival {
       // selection supplied on this wake may set model or effort.
       ...(selection && selection.model !== 'auto' ? { model: selection.model } : {}),
       ...(selection && selection.effort !== 'auto' ? { effort: selection.effort } : {}),
-      ...accountEnv,
+      // Until the `access` field exists (epic Task 5), an `env` delivery rides here.
+      ...(access.env ? { env: access.env } : {}),
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
     })
     await preparedInstructions.commit()

@@ -58,6 +58,7 @@ export function metaAsFacts(
     ...(meta.model ? { model: meta.model } : {}),
     ...(meta.effort ? { effort: meta.effort } : {}),
     ...(meta.accountId ? { accountId: meta.accountId } : {}),
+    ...(meta.credentialId ? { credentialId: meta.credentialId } : {}),
     ...(meta.observedModel ? { observedModel: meta.observedModel } : {}),
     ...(meta.observedEffort ? { observedEffort: meta.observedEffort } : {}),
     ...(meta.requestedModel ? { requestedModel: meta.requestedModel } : {}),

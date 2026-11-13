@@ -6,6 +6,7 @@ import {
   AutoContinuePreferences,
   asAccountId,
   CodingRole,
+  CredentialDefaults,
   DaemonLinkPolicy,
   DEFAULT_HARNESS_AGENT,
   DeploymentPreferences,
@@ -353,6 +354,8 @@ export const PodiumSettings = z.object({
   deployment: DeploymentPreferences.default({}),
   /** Networks whose daemons count as safe for credentials (credential management §8). */
   daemonLink: DaemonLinkPolicy.default({}),
+  /** Per harness, the credential a launch uses when it names none (credential management §9). */
+  credentialDefaults: CredentialDefaults.default({}),
 })
 export type PodiumSettings = z.infer<typeof PodiumSettings>
 

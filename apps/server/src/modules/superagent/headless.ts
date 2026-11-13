@@ -37,8 +37,8 @@ import type {
 } from '@podium/protocol/daemon'
 import { harnessSupportsNoTools } from '../../harness-manifest'
 import type { ObservationLeaseRecord } from '../../store/types'
-import { ForeignMachineLoginRefusal, managedKeyName } from '../sessions/account-env'
 import { authorReattachBinding, authorSpawnBinding } from '../sessions/binding-mint'
+import type { LaunchAccess } from '../sessions/launch-config'
 import { Session, type SessionDurableState } from '../sessions/session'
 import type { SessionWriter } from '../sessions/session-lifecycle-types'
 import { legacyPermissionModeFor } from '../sessions/session-posture'
@@ -137,23 +137,23 @@ export interface HeadlessDeps {
   broadcastSessions(): void
   clients(): Iterable<{ send(msg: ServerMessage): void }>
   /**
-   * The managed credential a headless turn runs with (POD-6733): the coding
-   * spawn's own resolution (`SessionLaunchConfig.accountEnv` →
-   * `resolveAccountEnv`), for the session's OWNER on its machine. Their own
-   * key, then one shared with them explicitly, never another member's
-   * unshared key; a foreign machine needs the key's owner to have sent it
-   * there. Throws `SpawnAccountRefusal` with the words a person reads.
+   * What a headless turn may run on (POD-6733; credential management §9): the
+   * session's account id read as a credential for its OWNER on its machine,
+   * through the resolver, with an `env` delivery's secret ready for the turn.
+   * A refusal carries the sentence a person reads; nothing falls back to the
+   * machine's own login.
    *
-   * REQUIRED, like `CompleteForRoleDeps.apiKey`: optional-with-a-default would
-   * let a composition that forgot it run every managed turn on the machine's
-   * native login, which is the bug this port exists to close.
+   * REQUIRED: optional-with-a-default would let a composition that forgot it
+   * run every turn on the machine's native login, which is the bug this port
+   * exists to close.
    */
-  accountEnv(input: {
+  credentialAccess(input: {
     agentKind: AgentKind
     accountId: AccountId
     ownerUserId: UserId
     machineId: MachineId
-  }): Promise<{ env?: Record<string, string> }>
+    sessionId: SessionId
+  }): Promise<LaunchAccess>
   /** Driver-contract relay. Late-bound: read through the closure at call time,
    *  since the gateway is constructed after this service. */
   relay(): HeadlessRuntimeRelay
@@ -410,38 +410,34 @@ export class HeadlessService {
   }
 
   /**
-   * Why a superagent turn on this session may not run on its NATIVE account,
-   * or undefined when it may (POD-6740, decision POD-6739 (a)). A machine's
-   * native CLI logins belong to the person who looks after it, so a member's
-   * superagent never runs on another person's login. The coding spawn's
-   * resolution decides (`accountEnv` → `resolveAccountEnv`: {} on the owner's
-   * own machine or one nobody looks after); only the words name the
-   * superagent role's fix. Managed accounts are resolved per turn in
-   * {@link headlessTurn}. The superagent awaits this before dispatch, so a
-   * refusal ends the turn before anything is sent.
+   * Why a superagent turn on this session may not run, or undefined when it
+   * may (POD-6740, decision POD-6739 (a)). A machine's own logins belong to the
+   * person who looks after it, so a member's superagent never runs on another
+   * person's login. The resolver decides, as for every launch
+   * (`credentialAccess`; credential management §9); only the words of the
+   * custodian refusal name the superagent role's fix. The superagent awaits
+   * this before dispatch, so a refusal ends the turn before anything is sent.
    */
   async superagentLoginRefusal(
     sessionId: SessionId,
     agent: AgentKind,
   ): Promise<string | undefined> {
     const session = this.deps.getSession(sessionId)
-    if (!session || session.accountId?.startsWith('managed:')) return undefined
-    try {
-      await this.deps.accountEnv({
-        agentKind: agent,
-        accountId: session.accountId ?? asAccountId(''),
-        ownerUserId: session.ownerUserId,
-        machineId: session.machineId,
-      })
-      return undefined
-    } catch (error) {
-      if (!(error instanceof ForeignMachineLoginRefusal)) return describeError(error)
-      return (
-        `"${error.machineName}" is someone else's machine: its native CLI logins are theirs, ` +
-        "and Podium never runs your superagent on another person's login. Connect your own " +
-        'account in Settings → AI accounts and select it for the superagent role.'
-      )
-    }
+    if (!session) return undefined
+    const access = await this.deps.credentialAccess({
+      agentKind: agent,
+      accountId: session.accountId ?? asAccountId(''),
+      ownerUserId: session.ownerUserId,
+      machineId: session.machineId,
+      sessionId,
+    })
+    if (access.ok) return undefined
+    if (access.refusal !== 'own-credential-required') return access.message
+    return (
+      "This is someone else's machine: its logins belong to the person who looks after it, " +
+      "and Podium never runs your superagent on another person's login. Connect your own " +
+      'account in Settings → AI accounts and select it for the superagent role.'
+    )
   }
 
   /**
@@ -500,36 +496,23 @@ export class HeadlessService {
         )
       }
     }
-    // A MANAGED ACCOUNT CARRIES ITS CREDENTIAL (POD-6733). Resolved at the
-    // moment of use, for the session's owner (a session always has one, so
-    // there is no requesting-user gap to fill), by the coding spawn's rule.
-    // It rides THIS turn: the headless driver runs a process per turn, and a
-    // session the daemon re-adopts after a restart never gets its establish
-    // frame again. A selection with no usable key is a verdict, not a
-    // transport gap: refused before anything is sent, and never run on the
-    // machine's native login instead (`managed:claude-oauth` included).
+    // THE TURN'S CREDENTIAL (POD-6733), resolved at the moment of use for
+    // the session's owner on its machine. It rides THIS turn: the headless
+    // driver runs a process per turn, and a session the daemon re-adopts after
+    // a restart never gets its establish frame again. A refusal is a verdict,
+    // not a transport gap: nothing is sent, and the turn never runs on the
+    // machine's own login instead.
     let credentialEnv: Record<string, string> | undefined
-    if (accountId.startsWith('managed:') && session) {
-      try {
-        credentialEnv = (
-          await this.deps.accountEnv({
-            agentKind: input.agent,
-            accountId,
-            ownerUserId: session.ownerUserId,
-            machineId,
-          })
-        ).env
-      } catch (error) {
-        return { ok: false, error: describeError(error) }
-      }
-      if (!credentialEnv || Object.keys(credentialEnv).length === 0) {
-        return {
-          ok: false,
-          error:
-            `The ${managedKeyName(accountId)} gives ${input.agent} no credential to run with; ` +
-            'select another account for this role in Settings → AI accounts.',
-        }
-      }
+    if (session) {
+      const access = await this.deps.credentialAccess({
+        agentKind: input.agent,
+        accountId,
+        ownerUserId: session.ownerUserId,
+        machineId,
+        sessionId: input.sessionId,
+      })
+      if (!access.ok) return { ok: false, error: access.message }
+      credentialEnv = access.env
     }
     const model = input.model && input.model !== 'auto' ? input.model : undefined
     const effort = input.effort && input.effort !== 'auto' ? input.effort : undefined

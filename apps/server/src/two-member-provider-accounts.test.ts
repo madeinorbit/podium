@@ -13,6 +13,16 @@
  * Every act goes through the production transport as the member (their own
  * login cookie); only selections are seeded through the store, and the fake
  * daemons report the machines' plan quota.
+ *
+ * LAUNCHES READ CREDENTIALS (credential management epic, Task 3). A launch
+ * resolves its credential through the resolver, which reads `credentials` and
+ * `credential_machines`, not the `accounts` tables the `accounts.*` commands
+ * below still write. Until Task 4 replaces those commands, a connect, send or
+ * unsend in a running server reaches launches only after the next start (the
+ * legacy import). So the launch cases here seed each member's credential and
+ * its machine allowance through the store, the way that import would, beside
+ * the command; the `accounts.*` assertions cover the accounts views only, not
+ * what a launch runs on.
  */
 
 import {
@@ -24,6 +34,8 @@ import {
 } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { ACCESS_REFUSAL_MESSAGES } from './modules/credentials/access'
+import { sealCredentialSecret } from './modules/credentials/vault'
 import { fixtureInventory } from './test-support/daemon-inventory'
 import {
   MEMBERS,
@@ -101,6 +113,27 @@ const startClaude = async (who: MemberName, machineId: MachineId, cwd: string) =
 const frameOf = (machineId: MachineId, sessionId: SessionId) =>
   spawnFrames(machineId).find((frame) => frame.sessionId === sessionId)
 
+/** The credential the legacy import makes of a member's connection. */
+const seedCredential = async (who: MemberName, type: string, legacyKey: string, secret: string) => {
+  // Once the accounts commands write through to credentials (Task 4), the
+  // command already made it: use that one.
+  const existing = await store().credentials.findByLegacyKey(MEMBERS[who].id, legacyKey)
+  if (existing) return existing.id
+  const record = await store().credentials.insert({
+    ownerUserId: MEMBERS[who].id,
+    label: legacyKey,
+    type,
+    legacyKey,
+  })
+  expect(await sealCredentialSecret(store(), record, secret, 0)).toBe(1)
+  return record.id
+}
+const credentialOf = async (who: MemberName, legacyKey: string) => {
+  const found = await store().credentials.findByLegacyKey(MEMBERS[who].id, legacyKey)
+  if (!found) throw new Error(`no credential ${legacyKey} for ${who}`)
+  return found.id
+}
+
 beforeAll(async () => {
   await (await trpc('alice')).accounts.connect.mutate({
     provider: 'anthropic',
@@ -112,6 +145,8 @@ beforeAll(async () => {
     kind: 'api-key',
     credential: BOB_KEY,
   })
+  await seedCredential('alice', 'anthropic.api-key', 'managed:anthropic', ALICE_KEY)
+  await seedCredential('bob', 'anthropic.api-key', 'managed:anthropic', BOB_KEY)
 })
 
 describe('MU-26: each member’s connections are their own', () => {
@@ -139,11 +174,12 @@ describe('MU-26: each member’s connections are their own', () => {
       kind: 'api-key',
       credential: 'sk-openai-alice-2222222222',
     })
+    await seedCredential('alice', 'openai.api-key', 'managed:openai', 'sk-openai-alice-2222222222')
     await select('bob', 'managed:openai')
     const before = spawnFrames(f.machines.bob).length
     // Nobody shares one with Bob, so Alice's is out of reach (sharing is explicit).
     await expect(startClaude('bob', f.machines.bob, '/wt/bob-no-openai')).rejects.toThrow(
-      /No OpenAI API key is available to you: .* you have not connected your own .* and nobody shares one with you/,
+      ACCESS_REFUSAL_MESSAGES['not-found'],
     )
     expect(spawnFrames(f.machines.bob)).toHaveLength(before)
     await select('bob', 'managed:anthropic')
@@ -226,16 +262,18 @@ describe('an admin cannot see, use or edit another member’s connection', () =>
   it('Alice (admin) sees only her own connection, and disconnecting hers leaves Bob’s', async () => {
     expect(JSON.stringify(await list('alice'))).not.toContain(mask(BOB_KEY))
     await (await trpc('alice')).accounts.disconnect.mutate({ id: 'managed:anthropic' })
+    // What Task 4's removal will do to her credential.
+    await store().credentials.setStatus(await credentialOf('alice', 'managed:anthropic'), 'revoked')
     expect((await view('alice', 'managed:anthropic'))?.status).toBe('not-configured')
     expect((await view('bob', 'managed:anthropic'))?.identity).toBe(mask(BOB_KEY))
   })
 
   it('Alice cannot run with Bob’s connection: with hers gone, her run fails', async () => {
     const before = spawnFrames(f.machines.alice).length
-    // Refused before any spawn: Bob's key is not shared with her, and an admin
-    // role never supplies one (`managedKeyFor`: own key, then explicit shares).
+    // Refused before any spawn: her own is removed, Bob's is not shared with
+    // her, and an admin role never supplies one.
     await expect(startClaude('alice', f.machines.alice, '/wt/alice-no-key')).rejects.toThrow(
-      /No Anthropic API key is available to you: .* you have not connected your own .* and nobody shares one with you/,
+      ACCESS_REFUSAL_MESSAGES.revoked,
     )
     expect(spawnFrames(f.machines.alice)).toHaveLength(before)
     expect(JSON.stringify(f.daemonFrames(f.machines.alice))).not.toContain(BOB_KEY)
@@ -255,6 +293,7 @@ describe('an admin cannot see, use or edit another member’s connection', () =>
       kind: 'api-key',
       credential: ALICE_KEY,
     })
+    await store().credentials.setStatus(await credentialOf('alice', 'managed:anthropic'), 'ok')
     await select('alice', 'managed:anthropic')
   })
 })
@@ -287,7 +326,7 @@ describe('MU-28: Bob runs on Alice’s machine with his own connection only', ()
     await select('bob', 'native:claude-code')
     const before = spawnFrames(f.machines.alice).length
     await expect(startClaude('bob', f.machines.alice, '/wt/bob-native-on-alice')).rejects.toThrow(
-      /someone else's machine: its native CLI logins are theirs/,
+      ACCESS_REFUSAL_MESSAGES['own-credential-required'],
     )
     expect(spawnFrames(f.machines.alice)).toHaveLength(before)
   })
@@ -296,8 +335,7 @@ describe('MU-28: Bob runs on Alice’s machine with his own connection only', ()
     await select('bob', 'managed:anthropic')
     const before = spawnFrames(f.machines.alice).length
     const refusal = startClaude('bob', f.machines.alice, '/wt/bob-unsent-on-alice')
-    await expect(refusal).rejects.toThrow(/Before your first run on "machine-alice"/)
-    await expect(refusal).rejects.toThrow(SHARED_MACHINE_ACCOUNT_WARNING)
+    await expect(refusal).rejects.toThrow(ACCESS_REFUSAL_MESSAGES['machine-not-allowed'])
     expect(spawnFrames(f.machines.alice)).toHaveLength(before)
     expect((await view('bob', 'managed:anthropic'))?.sendableTo).toEqual([
       { id: f.machines.alice, name: f.machines.alice },
@@ -312,6 +350,12 @@ describe('MU-28: Bob runs on Alice’s machine with his own connection only', ()
     expect(
       await (await trpc('bob')).accounts.send.mutate({ ...send, acknowledgeSharedMachine: true }),
     ).toEqual({ ok: true, sent: true, warning: SHARED_MACHINE_ACCOUNT_WARNING })
+    // What Task 4's send will record for his credential.
+    await store().credentials.allowMachine(
+      await credentialOf('bob', 'managed:anthropic'),
+      f.machines.alice,
+      MEMBERS.bob.id,
+    )
     expect((await view('bob', 'managed:anthropic'))?.sentTo).toEqual([
       { id: f.machines.alice, name: f.machines.alice },
     ])
@@ -362,6 +406,11 @@ describe('POD-6699: a sent connection can be taken back', () => {
 
   it('Bob takes it back: running sessions keep it, the next run there is refused', async () => {
     const result = await (await trpc('bob')).accounts.unsend.mutate(unsend)
+    // What Task 4's unsend will do to his credential.
+    await store().credentials.disallowMachine(
+      await credentialOf('bob', 'managed:anthropic'),
+      f.machines.alice,
+    )
     expect(result).toEqual({
       ok: true,
       removed: true,
@@ -374,7 +423,7 @@ describe('POD-6699: a sent connection can be taken back', () => {
     ])
     const before = spawnFrames(f.machines.alice).length
     await expect(startClaude('bob', f.machines.alice, '/wt/bob-unsent-again')).rejects.toThrow(
-      /Before your first run on "machine-alice"/,
+      ACCESS_REFUSAL_MESSAGES['machine-not-allowed'],
     )
     expect(spawnFrames(f.machines.alice)).toHaveLength(before)
     expect(await unsendAudits()).toEqual([

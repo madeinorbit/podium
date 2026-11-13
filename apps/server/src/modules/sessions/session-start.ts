@@ -47,11 +47,11 @@ import { randomUUID } from 'node:crypto'
 import { soleMemberFor } from '../../sole-member'
 import type { Attribution, ResumeRef } from '@podium/model'
 import {
-  type AccountId,
   AgentKind,
   type AgentSetupFields,
   asMachineId,
   asSessionId,
+  type CredentialId,
   type IssueId,
   type MachineId,
   type SessionId,
@@ -74,8 +74,7 @@ import type { MachineUseResolver } from '../machines/service'
 import type { MessageWriter } from '../messages/writer'
 import { authorSpawnBinding } from './binding-mint'
 import { createdByForBinding } from './command-plane'
-import { selectHarnessAccountId } from './harness-account'
-import type { SessionLaunchConfig } from './launch-config'
+import { CredentialRefusal, type SessionLaunchConfig } from './launch-config'
 import { normalizeAgentName } from './naming'
 import type { SessionRepository } from './repository'
 import { Session } from './session'
@@ -108,7 +107,8 @@ export interface SessionSpawnResult {
   effort: string | null
   machine: string
   machineId: MachineId
-  accountId: AccountId | null
+  /** The credential the session runs on; `null`: none, the harness's own login. */
+  credentialId: CredentialId | null
   /** The task prompt as its spawner's message, when a session spawned this one
    *  and the prompt is queued rather than launched with the process (POD-4778):
    *  the id the spawner checks with `podium mail status`. */
@@ -134,11 +134,6 @@ export interface SessionStartPorts {
   sessionMachineId(sessionId: SessionId): string | undefined
   defaultMachine(): Promise<MachineId>
   machineName(machineId: MachineId): Promise<string>
-  nativeAccountIdForMachine(
-    machineId: MachineId,
-    agentKind: AgentKind,
-    accountId: AccountId,
-  ): Promise<AccountId>
   resolveMachineForAgent(
     requested: string | undefined,
     cwd: string,
@@ -255,7 +250,9 @@ export interface SessionStartInput {
   initialAttachments?: readonly RuntimeAttachmentRef[]
   model?: string
   effort?: string
-  accountId?: AccountId
+  /** The credential the launch names; `null`: explicitly none. Absent: the
+   *  owner's default for the harness, then none (credential management §9). */
+  credentialId?: CredentialId | null
   forceUnknownModel?: boolean
   /** Server-internal issue launch answer, already vetted before workflow mutations. */
   launchSelection?: Pick<ResolvedLaunchSelection, 'model' | 'effort' | 'forced'>
@@ -499,7 +496,7 @@ export class SessionStart {
         ? { instructions: preparedInstructions.instructions }
         : {}),
       launchSelection: selection,
-      ...(input.accountId !== undefined ? { accountId: input.accountId } : {}),
+      ...(input.credentialId !== undefined ? { credentialId: input.credentialId } : {}),
       ...(input.loginHarness ? { loginHarness: input.loginHarness } : {}),
       ...(requestedDriverId !== undefined ? { requestedDriverId } : {}),
       ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
@@ -591,7 +588,7 @@ export class SessionStart {
     model?: string
     effort?: string
     launchSelection?: Pick<ResolvedLaunchSelection, 'model' | 'effort' | 'forced'>
-    accountId?: AccountId
+    credentialId?: CredentialId | null
     spawnedBy?: string
     workflowRunId?: string
     workflowStepId?: string
@@ -647,37 +644,26 @@ export class SessionStart {
         ? { effort: selection.effort }
         : {}),
     }
-    // THE OWNER'S OWN SELECTION (POD-6300): the account a run uses is the
-    // initiating member's choice, read from their preferences, whoever else's
-    // preferences the rest of the launch reads.
-    const inheritedAccountId =
-      input.agentKind === 'shell'
-        ? undefined
-        : resolveRole(await ownerSettings(), 'coding').accountId
-    // The harness-login rule lives in ONE place (POD-4827 review 2):
-    // `selectHarnessAccountId` — the superagent's headless establishment
-    // calls the same function with its superagent-or-coding preference, so
-    // the composer path and the superagent path resolve the same account
-    // for the same settings. An explicit account is user intent and remains
-    // byte-for-byte unchanged for the existing downstream
-    // compatibility/refusal behavior.
-    const selectedAccountId =
-      input.accountId !== undefined
-        ? input.accountId
-        : input.agentKind === 'shell' || inheritedAccountId === undefined
-          ? inheritedAccountId
-          : selectHarnessAccountId(input.agentKind, inheritedAccountId)
-    const accountId =
-      input.agentKind === 'shell' || selectedAccountId === undefined
-        ? undefined
-        : await this.ports.nativeAccountIdForMachine(machineId, input.agentKind, selectedAccountId)
-    // Resolved before anything is registered or persisted: a spawn refused for
-    // its account (no connection of the owner's, or another person's machine)
-    // leaves nothing behind.
-    const accountEnv = await this.ports.launchConfig.accountEnv(input.agentKind, selectedAccountId, {
-      ownerUserId,
+    // THE OWNER'S OWN CHOICE (credential management §9): what the launch
+    // named, then the owner's default for this harness, then none. Resolved
+    // before anything is registered or persisted, so a refused launch leaves
+    // nothing behind and sends nothing: it never falls back to another login.
+    const choice = await this.ports.launchConfig.selectCredential({
+      harness: input.agentKind,
+      ...(input.credentialId !== undefined ? { named: input.credentialId } : {}),
+      owner: ownerUserId,
       machineId,
     })
+    if (!choice.ok) throw new CredentialRefusal(choice.refusal, choice.message)
+    const access = await this.ports.launchConfig.access({
+      harness: input.agentKind,
+      ...(input.requestedDriverId !== undefined ? { driverId: input.requestedDriverId } : {}),
+      credentialId: choice.credentialId,
+      owner: ownerUserId,
+      machineId,
+      sessionId,
+    })
+    if (!access.ok) throw new CredentialRefusal(access.refusal, access.message)
     const principal = input.binding?.principal ?? { kind: 'user' as const, userId: ownerUserId }
     const parent =
       principal.kind === 'agent'
@@ -708,7 +694,7 @@ export class SessionStart {
       title: input.title || machinePathBasename(input.cwd) || input.cwd,
       ...(launch.model ? { model: launch.model } : {}),
       ...(launch.effort ? { effort: launch.effort } : {}),
-      ...(accountId ? { accountId } : {}),
+      ...(access.credentialId ? { credentialId: access.credentialId } : {}),
       ...(input.loginHarness ? { loginHarness: input.loginHarness } : {}),
       origin: input.origin,
       createdAt: new Date().toISOString(),
@@ -792,8 +778,8 @@ export class SessionStart {
       ...(input.instructions?.length ? { instructions: input.instructions } : {}),
       geometry: { ...DEFAULT_GEOMETRY },
       ...launch,
-      // The suffix is durable session attribution only; launch with the selected account unchanged.
-      ...accountEnv,
+      // Until the `access` field exists (epic Task 5), an `env` delivery rides here.
+      ...(access.env ? { env: access.env } : {}),
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
       ...(input.requestedDriverId !== undefined
         ? { requestedDriverId: input.requestedDriverId }
@@ -822,7 +808,7 @@ export class SessionStart {
       effort: launch.effort ?? null,
       machine: await this.ports.machineName(machineId),
       machineId,
-      accountId: accountId ?? null,
+      credentialId: access.credentialId,
     }
   }
 }
