@@ -19,7 +19,8 @@ export function DeckContent({ children }: { children: ReactNode }) {
   return <View style={styles.main}>{children}</View>
 }
 
-export function DeckProposals({ children }: { children: ReactNode }) {
+export function DeckProposals({ children, ids }: { children: ReactNode; ids: readonly string[] }) {
+  if (!ids.length) return null
   return (
     <View testID="deck-proposals" style={styles.proposals}>
       {children}

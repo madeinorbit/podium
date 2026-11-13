@@ -87,7 +87,8 @@ export const MissionDeck = observer(function MissionDeck({
   }, [submissions, receiptDeadline])
   const vitals = deckVitals(full)
   const [proposalsOpen, setProposalsOpen] = useState(true)
-  const rowIds = full.ready ? full.rowIds : []
+  const acceptedTree = full.ready ? submissions.acceptedTree : null
+  const rowIds = acceptedTree?.rowIds ?? []
   const proposalIds = full.ready ? submissions.ids : []
   const seatIds = full.ready ? settled(() => full.root.sessionIds) : []
   const rootSeats = seatIds === LOADING ? [] : seatIds
@@ -133,7 +134,7 @@ export const MissionDeck = observer(function MissionDeck({
           </View>
         ) : null}
 
-        {full.ready && full.filterable ? <Filters full={full} /> : null}
+        {acceptedTree?.filterable ? <Filters full={full} /> : null}
 
         <DeckRows
           full={full}
@@ -150,72 +151,73 @@ export const MissionDeck = observer(function MissionDeck({
           }}
         />
 
-        {full.ready && rowIds.length === 0 && full.filterable && full.filter !== 'all' ? (
+        {full.ready && rowIds.length === 0 && acceptedTree?.filterable && full.filter !== 'all' ? (
           <Text style={styles.empty}>
             Nothing {FILTER_LABEL[full.filter].toLowerCase()} right now.
           </Text>
         ) : null}
-        {full.ready && !full.filterable && rootSeats.length === 0 && proposalIds.length === 0 ? (
+        {full.ready &&
+        !acceptedTree?.filterable &&
+        rootSeats.length === 0 &&
+        proposalIds.length === 0 ? (
           <EmptyState title="No tasks or agents on this mission yet." />
         ) : null}
       </DeckContent>
       {proposalIds.length > 0 ? (
-        <>
-          <DeckContent>
-            <View style={styles.section}>
-              <PressableScale
-                accessibilityRole="button"
-                accessibilityLabel={`Proposals, ${proposalIds.length}`}
-                accessibilityState={{ expanded: proposalsOpen }}
-                haptic={false}
-                onPress={() => setProposalsOpen((open) => !open)}
-                style={styles.sectionToggle}
-              >
-                <Icon
-                  as={proposalsOpen ? ChevronDown : ChevronRight}
-                  size={12}
-                  color={deckColor.proposalText}
-                />
-                <Text style={[styles.sectionTitle, styles.proposalText]}>Proposed</Text>
-                <Text style={styles.sectionCount}>{proposalIds.length}</Text>
-              </PressableScale>
-              <PressableScale
-                accessibilityRole="button"
-                accessibilityLabel="Screen proposals"
-                haptic={false}
-                onPress={onScreenProposals}
-                style={styles.sectionAction}
-              >
-                <Text style={styles.sectionActionLabel}>Screen</Text>
-              </PressableScale>
-            </View>
-          </DeckContent>
-          {proposalsOpen ? (
-            <DeckProposals>
-              {proposalIds.map((id, index) => (
-                <MissionProposalSlot
-                  key={id}
-                  id={id}
-                  window={submissions.window}
-                  prime={index < ROW_WINDOW_SIZE}
-                >
-                  <ProposalContent
-                    full={full}
-                    id={id}
-                    first={index === 0}
-                    submissions={submissions}
-                    onSubmit={(action) => void submissions.submit(id, action, trpc)}
-                    onPress={() => {
-                      const issue = issueOf(id)
-                      if (issue) onOpenTask(issue)
-                    }}
-                  />
-                </MissionProposalSlot>
-              ))}
-            </DeckProposals>
-          ) : null}
-        </>
+        <DeckContent>
+          <View style={styles.section}>
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel={`Proposals, ${proposalIds.length}`}
+              accessibilityState={{ expanded: proposalsOpen }}
+              haptic={false}
+              onPress={() => setProposalsOpen((open) => !open)}
+              style={styles.sectionToggle}
+            >
+              <Icon
+                as={proposalsOpen ? ChevronDown : ChevronRight}
+                size={12}
+                color={deckColor.proposalText}
+              />
+              <Text style={[styles.sectionTitle, styles.proposalText]}>Proposed</Text>
+              <Text style={styles.sectionCount}>{proposalIds.length}</Text>
+            </PressableScale>
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel="Screen proposals"
+              haptic={false}
+              onPress={onScreenProposals}
+              style={styles.sectionAction}
+            >
+              <Text style={styles.sectionActionLabel}>Screen</Text>
+            </PressableScale>
+          </View>
+        </DeckContent>
       ) : null}
+      <DeckProposals ids={proposalsOpen ? proposalIds : []}>
+        {proposalsOpen
+          ? proposalIds.map((id, index) => (
+              <MissionProposalSlot
+                key={id}
+                id={id}
+                window={submissions.window}
+                prime={index < ROW_WINDOW_SIZE}
+              >
+                <ProposalContent
+                  full={full}
+                  id={id}
+                  first={index === 0}
+                  submissions={submissions}
+                  onSubmit={(action) => void submissions.submit(id, action, trpc)}
+                  onPress={() => {
+                    const issue = issueOf(id)
+                    if (issue) onOpenTask(issue)
+                  }}
+                />
+              </MissionProposalSlot>
+            ))
+          : null}
+      </DeckProposals>
     </MissionDeckList>
   )
 })

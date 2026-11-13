@@ -1,7 +1,14 @@
 import { discoveredPlacement } from '@podium/client-core/values'
 import { companion, lazy } from '@podium/mobx-helpers'
 import { asIssueId, asMutationId } from '@podium/model'
-import { action, compareShallow, observable, runInAction } from 'mobx'
+import {
+  action,
+  compareShallow,
+  compareStructural,
+  observable,
+  observableRef,
+  runInAction,
+} from 'mobx'
 import type { FullDeck, FullDeckTask } from './mission-full-deck'
 import { requireLoaded, settled } from './mission-view'
 import { RowWindow } from './row-window'
@@ -54,6 +61,9 @@ export class ProposalSubmissions {
   readonly provenance = companion((task: FullDeckTask) => new ProposalProvenance(task))
   readonly byId = observable.map<string, Submission>([], { deep: false })
   private readonly expired = observable.set<string>()
+  // Capture row identities at the action, not record facts. Publication must
+  // not move the brief confirmation out from under the operator's finger.
+  @observableRef private accessor receiptOrder: readonly string[] = []
   readonly window = new RowWindow(
     () => this.ids,
     (id) => id,
@@ -79,6 +89,35 @@ export class ProposalSubmissions {
   @lazy({ equals: compareShallow }) get ids(): readonly string[] {
     return this.listed(settled(() => this.full.proposalIds))
   }
+  /** A brief receipt occupies the proposal's place until it collapses. Drawing
+   * its accepted row above Proposed sooner would move the entire section. */
+  @lazy({ equals: compareStructural }) get acceptedTree(): {
+    readonly rowIds: readonly string[]
+    readonly filterable: boolean
+  } {
+    if (!this.holdingReceipts) return { rowIds: this.full.rowIds, filterable: this.full.filterable }
+    const rowIds: string[] = []
+    let heldDepth: number | null = null
+    for (const id of this.full.rowIds) {
+      if (heldDepth !== null && this.full.task(id).depth > heldDepth) continue
+      heldDepth = null
+      if (this.holdsReceipt(id)) heldDepth = this.full.task(id).depth
+      else rowIds.push(id)
+    }
+    return {
+      rowIds,
+      filterable: this.full.root.childIds.some((id) => !this.holdsReceipt(id)),
+    }
+  }
+
+  @lazy private get holdingReceipts(): boolean {
+    return this.receipts === 'brief' && [...this.byId.keys()].some((id) => this.holdsReceipt(id))
+  }
+
+  private holdsReceipt(id: string): boolean {
+    const status = this.byId.get(id)
+    return !!status && status.phase !== 'error' && !this.expired.has(id)
+  }
   /** Proposals the mission's root filed as their own issues (POD-2043): the
    * moved-conversation pane offers them in the same rows. */
   @lazy({ equals: compareShallow }) get spinOffIds(): readonly string[] {
@@ -87,7 +126,7 @@ export class ProposalSubmissions {
   /** Still proposed, or acted on in this opening and not dismissed: a receipt
    * outlives the stage change it caused. */
   private listed(proposed: readonly string[] | symbol): string[] {
-    return [
+    const ids = [
       ...new Set([...(typeof proposed === 'symbol' ? [] : proposed), ...this.byId.keys()]),
     ].filter((id) => {
       const status = this.byId.get(id)
@@ -98,6 +137,9 @@ export class ProposalSubmissions {
         settled(() => this.full.task(id).abandoned) !== true
       )
     })
+    if (!this.holdingReceipts) return ids
+    const remaining = new Set(ids)
+    return [...this.receiptOrder.filter((id) => remaining.delete(id)), ...remaining]
   }
 
   @action async submit(id: string, verb: ProposalAction, trpc: ProposalCommands): Promise<void> {
@@ -106,6 +148,7 @@ export class ProposalSubmissions {
     if (previous?.phase === 'pending' || previous?.phase === 'success') return
     const mutationId =
       previous?.action === verb ? previous.mutationId : asMutationId(crypto.randomUUID())
+    if (this.receipts === 'brief') this.receiptOrder = this.ids
     this.byId.set(id, { action: verb, mutationId, phase: 'pending' })
     try {
       const input = { id: asIssueId(id), mutationId }

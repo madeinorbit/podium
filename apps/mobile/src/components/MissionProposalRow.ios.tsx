@@ -15,7 +15,6 @@ import {
   accessibilityLabel,
   buttonStyle,
   contentShape,
-  disabled,
   font,
   foregroundStyle,
   frame,
@@ -64,7 +63,11 @@ export const MissionProposalRow = observer(function MissionProposalRow({
               accessibilityLabel(
                 `Proposal ${facts.ref} ${facts.title}${receipt ? `, ${receipt}` : ''}`,
               ),
-              accessibilityHint('Opens details. Swipe or long press for proposal actions.'),
+              accessibilityHint(
+                busy
+                  ? 'Opens details.'
+                  : 'Opens details. Swipe or long press for proposal actions.',
+              ),
             ]}
           >
             <VStack
@@ -116,54 +119,49 @@ export const MissionProposalRow = observer(function MissionProposalRow({
             </VStack>
           </Button>
         </ContextMenu.Trigger>
-        <ContextMenu.Items>
-          <Button
-            label="Start"
-            systemImage="play"
-            onPress={() => onSubmit('start')}
-            modifiers={[disabled(busy)]}
-          />
-          <Button
-            label="Add to backlog"
-            systemImage="tray"
-            onPress={() => onSubmit('backlog')}
-            modifiers={[disabled(busy)]}
-          />
-          <Button label="Open details" systemImage="arrow.up.right" onPress={onPress} />
-          {/* biome-ignore lint/a11y/useValidAriaRole: SwiftUI button role, not an ARIA role. */}
-          <Button
-            label="Dismiss"
-            systemImage="xmark"
-            role="destructive"
-            onPress={() => onSubmit('dismiss')}
-            modifiers={[disabled(busy)]}
-          />
-        </ContextMenu.Items>
+        {busy ? null : (
+          <ContextMenu.Items>
+            <Button label="Start" systemImage="play" onPress={() => onSubmit('start')} />
+            <Button label="Add to backlog" systemImage="tray" onPress={() => onSubmit('backlog')} />
+            <Button label="Open details" systemImage="arrow.up.right" onPress={onPress} />
+            {/* biome-ignore lint/a11y/useValidAriaRole: SwiftUI button role, not an ARIA role. */}
+            <Button
+              label="Dismiss"
+              systemImage="xmark"
+              role="destructive"
+              onPress={() => onSubmit('dismiss')}
+            />
+          </ContextMenu.Items>
+        )}
       </ContextMenu>
-      <SwipeActions.Actions edge="leading" allowsFullSwipe>
-        <Button
-          label="Start"
-          systemImage="play"
-          onPress={() => onSubmit('start')}
-          modifiers={[tint(deckColor.proposal), disabled(busy)]}
-        />
-        <Button
-          label="Backlog"
-          systemImage="tray"
-          onPress={() => onSubmit('backlog')}
-          modifiers={[tint('#636366'), disabled(busy)]}
-        />
-      </SwipeActions.Actions>
-      <SwipeActions.Actions edge="trailing" allowsFullSwipe={false}>
-        {/* biome-ignore lint/a11y/useValidAriaRole: SwiftUI button role, not an ARIA role. */}
-        <Button
-          label="Dismiss"
-          systemImage="xmark"
-          role="destructive"
-          onPress={() => onSubmit('dismiss')}
-          modifiers={[disabled(busy)]}
-        />
-      </SwipeActions.Actions>
+      {busy ? null : (
+        <>
+          <SwipeActions.Actions edge="leading" allowsFullSwipe>
+            <Button
+              label="Start"
+              systemImage="play"
+              onPress={() => onSubmit('start')}
+              modifiers={[tint(deckColor.proposal)]}
+            />
+            <Button
+              label="Backlog"
+              systemImage="tray"
+              onPress={() => onSubmit('backlog')}
+              modifiers={[tint('#636366')]}
+            />
+          </SwipeActions.Actions>
+          <SwipeActions.Actions edge="trailing" allowsFullSwipe={false}>
+            {/* A destructive swipe role lets SwiftUI remove the cell before the
+            command finishes. Keep its red tint while our receipt owns removal. */}
+            <Button
+              label="Dismiss"
+              systemImage="xmark"
+              onPress={() => onSubmit('dismiss')}
+              modifiers={[tint(color.danger)]}
+            />
+          </SwipeActions.Actions>
+        </>
+      )}
     </SwipeActions>
   )
 })
