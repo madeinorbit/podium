@@ -97,3 +97,18 @@ it('renders note preview emphasis, code and links as inline markdown leaves', ()
   expect(container.querySelector('[role="link"]')?.textContent).toBe('evidence')
   expect(container.textContent).not.toContain('**')
 })
+
+it('renders quoted and ordered-list note subjects without raw markdown', () => {
+  const { container } = render(
+    <span>
+      <RichMarkdownInline text="> **Ready** in `chat.ts`" />
+    </span>,
+  )
+  expect(container.textContent).toBe('Ready in chat.ts')
+  const second = render(
+    <span>
+      <RichMarkdownInline text="1. **Review** the patch" />
+    </span>,
+  )
+  expect(second.container.textContent).toBe('Review the patch')
+})

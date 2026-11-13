@@ -88,6 +88,14 @@ function renderInline(
   return tokens.map((token, index) => {
     const tokenKey = `${key}:${index}`
     switch (token.type) {
+      case 'paragraph':
+      case 'heading':
+      case 'blockquote':
+        return renderInline(token.tokens ?? [], ctx, tokenKey)
+      case 'list':
+        return (token.items ?? []).flatMap((item, itemIndex) =>
+          renderInline(item.tokens ?? [], ctx, `${tokenKey}:item:${itemIndex}`),
+        )
       case 'strong':
         return (
           <Text key={tokenKey} style={styles.strong}>
@@ -513,11 +521,7 @@ function Blocks({
 export function RichMarkdownInline({ text, onRefPress }: RichMarkdownProps) {
   const tokens = useMemo(() => parseMarkdown(text), [text])
   const ctx = { onRefPress, selectable: false }
-  return renderInline(
-    tokens.flatMap((token) => token.tokens ?? [token]),
-    ctx,
-    'subject',
-  )
+  return renderInline(tokens, ctx, 'subject')
 }
 
 /** Native GFM transcript renderer. The native shell retains scrolling and interactions. */
