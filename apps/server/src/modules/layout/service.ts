@@ -5,9 +5,9 @@
  *
  * ONE COMMIT PER WRITE (ADR 12 D9, POD-6594). A set or a clear is one
  * `commit` on the writer of the command that asked for it: the rows are written
- * in its `write`, with the commit's scope. The commit names the layout rows it
- * may affect, and the Authority appends a change entry for each one the write
- * changed (compare at save, POD-6769). The writer comes from the sync handler,
+ * in its `write`, with the commit's scope, and the Authority appends a change
+ * entry for each layout record the write changed, from the database's change
+ * capture (POD-6920). The writer comes from the sync handler,
  * per call; the service holds none of its own.
  */
 

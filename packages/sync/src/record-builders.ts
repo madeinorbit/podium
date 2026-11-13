@@ -16,7 +16,8 @@
  * batch of that member's ids) and the caller still gets exactly the ids it
  * asked for, once each, in the order it asked.
  *
- * Compare at save, the start-up load and the sharing rules read the registry.
+ * The change-log commit, the start-up load and the sharing rules read the
+ * registry.
  * Kinds backed by the same rows can share a read for one build or stream page.
  */
 

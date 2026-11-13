@@ -96,8 +96,8 @@ const upsertMeta = prepared((db: StoreDrizzle) =>
 
 /**
  * Runs the blob write for the feed, inside that write's transaction (POD-6677):
- * the `instancePreferences` feed capture. It is handed the write itself, so the
- * record can be built before it and again after it (compare at save, POD-6769).
+ * the `instancePreferences` feed capture. It is handed the write itself and
+ * runs it as a change-log commit (POD-6920).
  */
 export type InstancePreferencesFeedCapture = (
   write: () => Promise<void>,

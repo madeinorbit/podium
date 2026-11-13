@@ -60,9 +60,8 @@ export function makeInstancePreferencesFeedCapture(
   // open mode). Inside a sync command the change keeps that command's
   // provenance, which is a separate context.
   //
-  // COMPARE AT SAVE (POD-6769): the commit names the one record and runs the
-  // blob write; the Authority builds the record from the stored blob before
-  // and after it, and appends it when it differs.
+  // The commit runs the blob write; the capture fires only when the blob
+  // changed, and the Authority appends the record built from it (POD-6920).
   return async (write) => {
     await asSystemWrite(
       async () =>

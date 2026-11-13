@@ -1560,9 +1560,9 @@ export class IssuesRepository {
     // and it is why a wire projected BEFORE the write is a bug (see
     // IssueLifecyclePlan.wire, which enforces the ordering).
     //
-    // The compare-at-save builder includes the stored revision in its record.
-    // A skipped upsert therefore leaves both builds equal. A changed column
-    // advances the revision so replicas receive the new precondition token.
+    // The issue record carries the stored revision. A skipped upsert changes
+    // no column, so nothing is captured. A changed column advances the
+    // revision so replicas receive the new precondition token.
     const current = await issueRevision(this.db).get({ id: row.id })
     if (opts) {
       const found = current?.revision ?? null

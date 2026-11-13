@@ -36,10 +36,9 @@ export class ReadPositionService {
     proposed: StoredReadPosition,
     now: string,
   ): Promise<void> {
-    // One commit: the cursor row, and the change entry the Authority finds by
-    // building the record before and after (compare at save, POD-6769). A
-    // proposal at or behind the stored position moves nothing and appends
-    // nothing.
+    // One commit: the cursor row, and the change entry the Authority appends
+    // for the record the write changed (POD-6920). A proposal at or behind
+    // the stored position moves nothing and appends nothing.
     await writer.commit({
       write: async (scope) =>
         await this.deps.cursors.advance(scope, userId, streamId, proposed, now),

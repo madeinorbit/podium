@@ -36,7 +36,8 @@
  *    {@link CONFIRMED_PER_SESSION} confirmed ones. Their publishers decide
  *    what the feed carries from the same reads (POD-6766), so the two agree.
  *
- * Compare at save, the start-up load and the sharing rules read these builders.
+ * The change-log commit, the start-up load and the sharing rules read these
+ * builders; `record-sources.ts` declares what each reads (POD-6920).
  */
 
 import {

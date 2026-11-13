@@ -29,8 +29,8 @@ import { OOM_ATTRIBUTION_WINDOW_MS } from '../modules/sessions/session-record'
 import { DATABASE_ONLY_BUILDERS } from './record-builders'
 
 // Code constants that influence a record's value or membership automatically
-// change its token. Compare at save cannot notice these changes on upgrade:
-// both builds use the new code. Keep these inputs beside the schema inputs.
+// change its token. The change capture cannot notice these changes on
+// upgrade: no row changed. Keep these inputs beside the schema inputs.
 const profileInputs = {
   modelDefault: AgentCandidate.shape.model.parse(undefined),
   effortDefault: AgentCandidate.shape.effort.parse(undefined),
