@@ -30,6 +30,30 @@ prompt. A released shell on the dev channel does: the page persists both `update
 and its server-specific `updateFeedEndpoint` into `config.json`, so the page-driven and native
 fallback paths check the same manifest.
 
+## Linux AppImage display backend
+
+On Linux, the AppImage selects native Wayland before GTK initializes when both
+`APPIMAGE` and `WAYLAND_DISPLAY` are set. Without `WAYLAND_DISPLAY`, it keeps the
+AppImage's existing X11 backend. Other Linux packages keep their existing backend
+selection.
+
+Set `PODIUM_FORCE_X11=1` before launching the AppImage to force X11, through
+XWayland in a Wayland session:
+
+```sh
+PODIUM_FORCE_X11=1 ./Podium.AppImage
+```
+
+Any value, including `0` or an empty value, forces X11. Unset `PODIUM_FORCE_X11`
+to restore automatic Wayland selection. Setting `GDK_BACKEND` on the launch line
+cannot override the AppImage's GTK hook, which unconditionally sets it to `x11`.
+Podium applies its backend choice after that hook runs.
+
+The hook works around [tauri#8541](https://github.com/tauri-apps/tauri/issues/8541),
+a fatal GTK settings-schema mismatch reported with older AppImages on newer Linux
+systems. Native Wayland bypasses that workaround; use `PODIUM_FORCE_X11=1` if the
+app crashes or has compositor, input, or window integration problems.
+
 ## Releasing is one tag push
 
 Pushing a version tag publishes the headless release target to the named channel. It also
