@@ -3788,19 +3788,19 @@
       "file": "apps/web/src/features/chat/ChatView.tsx",
       "holder": "ConversationChatView/ConversationChatView/chat",
       "rule": "reader-summary",
-      "tokens": "348d6f2ae3167bd5beaf1567c2a10bc973476ebf4736cb1e95e3080a341f5a44",
+      "tokens": "fff4ccbd884e5acd76b608d8d527e5be95587c29cdf89be5029d2a7527ea7605",
       "gate": [],
       "origin": [
-        "0ada7271c7f9a312e00ddc7d7745c29aa340b32ed0cad32a202b66ad0a6fa4cc",
+        "1d0c2bf6eb5238d59ecee8e760a15543fc72d0c75f7fb2212df3a652e029ec17",
         "38fbaac9da16906de217d6806926a7bbec5c49548b92e3e9c328e6f573c27b23"
       ],
-      "fingerprint": "3b25d8517c22fff80df79e2a30626d49549a5f7f05c6f611324cde497f413eda",
+      "fingerprint": "57e69a6af069d79e10675d2acbf030e449d96187d2bfe024d60fb69802bdf76b",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Mount one chat reader and its DOM layout.",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "Display facts are read by leaf observers, but inherited conversation/context initialization taint remains; this entry claims no new collection bound. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 004229d48a542972d7a2e936455fb7c6a64b21c0c8731b8dc31ba8b0d9638680. POD-2047: Async interview submission reads its captured transcript block by ID; reader multiplicity and inherited collection demand are unchanged. Predecessor: aef63c7ad31df7b5a7f7d762b326cd7669dfa56308ed9ef69fc883990f001545. POD-2047 review fixes: replies now use the conversation outbox, removing the direct-send collection origin; current-question validation stays addressed and duplicate checks inspect this conversation pending replies. Classification and owner retain the inherited reader debt. Predecessor: 73fb89f4c9705c80f9d63ec115c88d898ea535eca1cf8daf6bca23e9fa33afbb. Predecessor: 8cbdd215fec11b8585f58062e26d540be96fce8532384306a175d395fe425bb1. POD-2219: the removed tl;dr rail button no longer reads the last answer text; reader multiplicity and inherited collection demand are unchanged. Predecessor: ef264dbe228e117f58409d18bfb00f32c34ae33856db693b93bffd048b10d0c1. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: e44abe82524bfc15e9af2523e4e47ea6731942d7fc60bfa6a3b9a110810cc521.",
+      "reason": "Display facts are read by leaf observers, but inherited conversation/context initialization taint remains; this entry claims no new collection bound. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 004229d48a542972d7a2e936455fb7c6a64b21c0c8731b8dc31ba8b0d9638680. POD-2047: Async interview submission reads its captured transcript block by ID; reader multiplicity and inherited collection demand are unchanged. Predecessor: aef63c7ad31df7b5a7f7d762b326cd7669dfa56308ed9ef69fc883990f001545. POD-2047 review fixes: replies now use the conversation outbox, removing the direct-send collection origin; current-question validation stays addressed and duplicate checks inspect this conversation pending replies. Classification and owner retain the inherited reader debt. Predecessor: 73fb89f4c9705c80f9d63ec115c88d898ea535eca1cf8daf6bca23e9fa33afbb. Predecessor: 8cbdd215fec11b8585f58062e26d540be96fce8532384306a175d395fe425bb1. POD-2219: the removed tl;dr rail button no longer reads the last answer text; reader multiplicity and inherited collection demand are unchanged. Predecessor: ef264dbe228e117f58409d18bfb00f32c34ae33856db693b93bffd048b10d0c1. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: e44abe82524bfc15e9af2523e4e47ea6731942d7fc60bfa6a3b9a110810cc521. POD-2450 review correction: async reply validation and deduplication moved into the existing shared ConversationService; the same pending queue and send lifecycle are used. Reader multiplicity, classification and inherited collection debt are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -13304,36 +13304,36 @@
       "file": "packages/client-core/src/conversation/model-test-support.ts",
       "holder": "createSendsFixture/messageRecords/read/callback",
       "rule": "consume:find",
-      "tokens": "c12f60cb8d9cf8a16124e49aad9e7880a70e390a071f4862a97f2c3fddff71ea",
+      "tokens": "f14b361925a31759c28c0fffde709a9030a15cc636772bf0e70a15755a1c90d0",
       "gate": [],
       "origin": [
         "16ca021922302621f847e8b9a4556601e3289c4d96289a0f6ab2430ee8535c5c"
       ],
-      "fingerprint": "3ec56e19112092b80a34ed91e20deb632b686ab7697aca107babe8ee96e3ecb4",
+      "fingerprint": "f63ccb91e42727beff62f9219d0f116955d7053dc026ad8372de80f4db51c05f",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5869",
       "trigger": "A hermetic Sends test fixture reads or installs its supplied records.",
       "bound": "The explicit finite fixture record array and returned lookup batch; this helper is test support and has no shipped reader.",
-      "reason": "The fixture provides the shared-record port without modifying existing behavior assertions.",
+      "reason": "The fixture provides the shared-record port without modifying existing behavior assertions. POD-2450: formatting adds callback parentheses; the same fixture lookup is unchanged. The fixture now also uses the production compaction grouping for receipt tests.",
       "guard": "sends.test.ts exercises all existing fixture behavior unchanged."
     },
     {
       "file": "packages/client-core/src/conversation/projection.ts",
       "holder": "projectConversation",
       "rule": "loop:for-of",
-      "tokens": "c7f3e1e313d1f267159ec691ad7ca091962b35b7952fae76d7b1b21220655874",
+      "tokens": "3abb2cf70f45dfefa1f2d27e59a556553efcd2c0f445a03093a73d5d533be40f",
       "gate": [],
       "origin": [
         "4c8a11ab9effe4e6bf0cd25c6a385dfeb4e8d62d886698e578c83474e66de937"
       ],
-      "fingerprint": "151189524a9a593dbc812847b645203fb328c128f5960621e1c344ff4d130f10",
+      "fingerprint": "17157fe94714b67317a9cf0fcb77b343a35965b298cfe6de32017816350fd71e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of projectConversation",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 371dfd41bbab75cde125b207d71af506735e4ecf88adaba43d6128c76b358392.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 371dfd41bbab75cde125b207d71af506735e4ecf88adaba43d6128c76b358392. POD-2450: each existing record projection now checks the named receipt through an addressed callback, and authoritative terminal failures override receipts. The same record membership is traversed; no new collection bound is claimed.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -16800,18 +16800,18 @@
       "file": "packages/client-core/src/values/ask-question.ts",
       "holder": "latestPendingQuestion",
       "rule": "loop",
-      "tokens": "c601ba9cb270074faae71a0fdc47e9ec6df1cc4cb69075132b45bd23f2494b20",
+      "tokens": "aeb1ff0d120375d66b9097ee8e87f71a5e3bef80357314cb247f6d9bde0e4a50",
       "gate": [],
       "origin": [
         "7afe8f2ee52a677a9ea139c03afcbb0f8f2c17662a21a6da7759bc4f1a149cc6"
       ],
-      "fingerprint": "005c4d849c911d703153e97ea17bf0447f1830024425c61259508db5e963536e",
+      "fingerprint": "bc1c1eb73bd24a9f68967e380ddb93ad168b7c7e501f2dbb3d499dadbb9b4b78",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of latestPendingQuestion",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "loop carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2450: the existing reverse scan now uses the shared question-outcome classifier. The inherited full-input collection bound and owner are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -36667,26 +36667,6 @@
       "guard": "settings-compose-catalog.test.ts proves shared answer parity, cached repeated demand and flat 1x/4x unrelated-history work. ColdStartComposer.order.test.tsx covers frozen ordering. No catalog bound or repair is asserted."
     },
     {
-      "file": "packages/client-core/src/conversation/sends.ts",
-      "holder": "Sends/settleCompaction/at",
-      "rule": "consume:reduce",
-      "tokens": "478cdfe1342e7b0b8695be1efa979d8c88545a9687c861b531cc47dc9d657795",
-      "gate": [
-        "exit:then:1cb317ef3b13ec523cbbe5cbde565319c8b438a33094b55e6087eb3d57141da0"
-      ],
-      "origin": [
-        "5a5205a4a4a8e405bdfb9566127c241aa8089a02bdf1550e691d418c8350289e"
-      ],
-      "fingerprint": "12a22f235df5fc67a4cb6fdb6bfe751712e6c14d49711e421f439a8f8c4ca695",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-2450",
-      "trigger": "Transcript ingestion supplies changed items; an incoming per-conversation message record can arrive after its compaction event.",
-      "bound": "One addressed conversation, only while a /compact send lacks completion proof. Transcript deltas examine change.changed; a record arriving later can examine the loaded transcript. Retained history is not a fixed cardinality cap.",
-      "reason": "A local /compact command may have no user echo. Its later manual or untagged compaction is delivery evidence. Existing hidden delivery IDs suppress further proof scans after settlement; no reader tick or ordinary render performs this ingestion.",
-      "guard": "packages/client-core/src/conversation/sends.test.ts covers option-free local command settlement, a record arriving after the event, rejection of automatic/older events, and zero transcript reads on later record updates once compact sends are settled."
-    },
-    {
       "file": "packages/client-core/src/values/markdown-plain-text.ts",
       "holder": "blocks/map:callback",
       "rule": "spread",
@@ -36711,7 +36691,7 @@
       "file": "packages/client-core/src/values/markdown-plain-text.ts",
       "holder": "blocks/map:callback",
       "rule": "consume:map",
-      "tokens": "99c836d4c6726b67766a756bb2a96f0bcd54481de4fb9f4aad86b8750d9f302c",
+      "tokens": "e40a354d91c3da8f647bfe3333b9bbe61f3b879431493a54dffb85985b659dce",
       "gate": [
         "switch:2e9f66103e441e4b955d4daf18bf5c3cb838770b6fe0424ef39f6b9afb42d7c2",
         "case:d6e9e07ac4a87af449f2c6c365761dd6e9a9b7192dfe78ecc17067eb73c83e14"
@@ -36720,14 +36700,55 @@
         "2e157c78584abd8c43f2d077dce2a6c1c33879e1f8410a894ba9ee53a2919606",
         "7ea6b6c4c41a6e547a301bfaf9a0a65661e348ccb3cb1c5e3d685a0c97420aae"
       ],
-      "fingerprint": "efab45ebdd958ecdfcd5ea1ae9126708f8d6b8ebd83bf2be4206b94a132cb6e8",
+      "fingerprint": "47ce673741ca95ea18402d93ff30da8a4eb8d76906b617c4bb1afdd603aee223",
       "count": 1,
       "classification": "visible output",
       "owner": "POD-2450",
       "trigger": "Select Text renders the selected message as plain text.",
       "bound": "Only Markdown table tokens parsed from that one selected message; these are not session, issue or database table rows.",
-      "reason": "The table header and body cells must be emitted in reading order so native selection and quoted text contain the rendered words.",
+      "reason": "The table header and body cells must be emitted in reading order so native selection and quoted text contain the rendered words. POD-2450 review correction: inline HTML br tokens now emit a newline. This changes text conversion, not the selected-message table-cell membership.",
       "guard": "packages/client-core/src/values/markdown-plain-text.test.ts covers table cell order, inline formatting, task states and hidden raw HTML; SelectTextSheet.test.tsx covers selection offsets and quote output on the plain rendering."
+    },
+    {
+      "file": "packages/client-core/src/values/ask-question.ts",
+      "holder": "isPendingAskQuestion/outcome",
+      "rule": "helper-consumer",
+      "tokens": "0f41df405769ab19c297658d9bb2a13a7020ee5b4580d4b906c89abd08fcfbb6",
+      "gate": [
+        "exit:then:807a98f87c5dfe3fd38fc9f800e5090c6dd4ba5d60b50d087a42f38da1e71c90"
+      ],
+      "origin": [
+        "7afe8f2ee52a677a9ea139c03afcbb0f8f2c17662a21a6da7759bc4f1a149cc6"
+      ],
+      "fingerprint": "5c9598c0be0b9dea73ecc474de420cb0d5c78bc48605074c20b9f4a167d2bc58",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2450",
+      "trigger": "An addressed interview block is classified during ingestion or rendered as a question. Non-interview blocks return before classification.",
+      "bound": "The one question tool result and its own parsed answer payload; no session, issue or database row collection is acquired.",
+      "reason": "Empty, rejected and interrupted results must stay unresolved. Positive answer evidence or an explicit skip settles the question. This consumes one document, not a history snapshot.",
+      "guard": "values/ask-question.test.ts covers actual answer, error, interruption, empty and registration outcomes; transcript-graph.test.ts covers paired result updates; desktop and mobile tests preserve error details and pending pins."
+    },
+    {
+      "file": "packages/client-core/src/values/ask-question.ts",
+      "holder": "latestPendingQuestion",
+      "rule": "helper-consumer",
+      "tokens": "ba438b3172ba0a353634c441de42be37efeb63f06771eddaea639687f8ce5843",
+      "gate": [
+        "loop:0116553880cd273cff14407be8a201815b6fca7190084aafb293f8d5bd6d5bb5",
+        "then:27dd5a4129fc6497db4dc1b2792e5e679281b65d9f730e9005545b7d38bf8c24"
+      ],
+      "origin": [
+        "7afe8f2ee52a677a9ea139c03afcbb0f8f2c17662a21a6da7759bc4f1a149cc6"
+      ],
+      "fingerprint": "cf661f7e804ca895b4a5e126f1440c715680e71cf1d53653176eadd483028fd9",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "The legacy latestPendingQuestion reader invokes shared outcome classification while walking its supplied transcript.",
+      "bound": "No new cardinality cap is established for that existing full-input reader.",
+      "reason": "Outcome classification is shared with the addressed graph and checks one question result at this loop position. The enclosing legacy scan still carries its previous collection-bound debt.",
+      "guard": "values/ask-question.test.ts verifies pending and settled behavior; this classification makes no bounded-history claim."
     }
   ]
 }
