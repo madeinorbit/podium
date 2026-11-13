@@ -115,9 +115,9 @@ describe('makeIssueClient', () => {
     }
   })
 
-  // POD-1376 part 2: the operator's credential rides as the same podium_session cookie
-  // the browser login uses, so the server's existing clientAuthGuard accepts it as-is.
-  it('sends the session token as the podium_session cookie', async () => {
+  // POD-1376 part 2: the operator's credential rides as the same cookie the browser sign-in
+  // sets. Under shared sign-in that is the device sign-in cookie, unprefixed over plain HTTP.
+  it('sends the session token as the device sign-in cookie', async () => {
     const cookies: (string | undefined)[] = []
     const srv = await serve((req, res) => {
       cookies.push(req.headers.cookie)
@@ -127,7 +127,7 @@ describe('makeIssueClient', () => {
     try {
       const client = makeIssueClient(srv.url, { sessionToken: 'tok-abc' })
       await (client as any).issues.stats.query({})
-      expect(cookies[0]).toContain('podium_session=tok-abc')
+      expect(cookies).toEqual(['podium.session_token=tok-abc'])
     } finally {
       srv.close()
     }

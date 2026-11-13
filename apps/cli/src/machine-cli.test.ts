@@ -302,7 +302,13 @@ it('an operator adopts over authenticated HTTP without an agent relay', async ()
     await machineCliMain(['adopt', quiet.name, '--for', 'member'])
     expect(errors).not.toHaveBeenCalled()
     expect(requests).toHaveLength(2)
-    expect(requests.every((request) => request.cookie?.includes('podium_session=operator-token'))).toBe(true)
+    // Every call carries the operator's credential as the shared-sign-in device cookie
+    // (plain HTTP to loopback, so the unprefixed name), never the retired `podium_session`
+    // cookie and never anonymously.
+    expect(requests.map((request) => request.cookie)).toEqual([
+      'podium.session_token=operator-token',
+      'podium.session_token=operator-token',
+    ])
     // On the sync write entry point (POD-6417): the envelope names the command.
     expect(requests[1]?.url).toContain('/trpc/sync.submit')
     expect(JSON.parse(requests[1]!.body)).toEqual({
