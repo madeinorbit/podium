@@ -1,9 +1,10 @@
 import { Buffer } from 'node:buffer'
-import { randomBytes, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { type HumanCeiling, workflowAssignInput } from '@podium/commands'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness/metadata'
+import type { OneTimeCodeOperations } from '@podium/identity'
 import type {
   AgentKind,
   Attribution,
@@ -71,11 +72,12 @@ import {
   NoDelegationsGranted,
   type WriteScope,
 } from '@podium/sync'
+import { FEED_RESCOPE_THRESHOLD } from '@podium/sync/bootstrap-worker'
 import { IssueAttachOrchestrator } from './application/issue-attach-orchestrator'
-import { hashToken } from './auth-route'
 import { bootStage } from './boot-timing'
 import { serverBuildVersion } from './build-version'
 import { capabilityPrincipalResolver } from './capability-principal'
+import { clientRelocations } from './client-relocation'
 import { codexAuthorizerFor, createCodexTransport } from './codex-machine'
 import {
   attributionOf,
@@ -97,6 +99,7 @@ import { PresenceRouting } from './gateway/presence-routing'
 import { createDaemonTopicIngress } from './gateway/topic-ingress'
 import { daemonTopicProducer, type TopicProducers, TopicRouting } from './gateway/topic-routing'
 import { driverFamilyForId } from './harness-manifest'
+import type { MemberCredentials } from './identity/member-credentials'
 import { checkIssueAccess, mayReachPrivate } from './issue-authz'
 import { type CodexTransport, llmClient } from './llm'
 import {
@@ -254,6 +257,7 @@ import type { SuperagentService } from './modules/superagent/service'
 import { makeThreadFeedCapture } from './modules/superagent/thread-records'
 import { SyncWriteEntry } from './modules/sync-write/entry'
 import { registerFamilyCommands } from './modules/sync-write/family-commands'
+import { legacyMutationFallback } from './modules/sync-write/legacy-receipt'
 import { registerOutboxCommands } from './modules/sync-write/outbox-commands'
 import { SyncWriteRegistry } from './modules/sync-write/registry'
 import { GRANT_EVENT_KIND } from './modules/updates/grant-cause'
@@ -312,6 +316,8 @@ export type { MemoryBreakdown }
  * when the closure is made.
  */
 interface SessionRegistryBoot {
+  readonly legacyReceiptCutoff: number
+  readonly legacyReceiptOwner: UserId | null
   readonly settings: Awaited<ReturnType<SessionStore['settings']['getSettings']>>
   readonly updateRecovery: Awaited<ReturnType<SessionStore['updateRecovery']['read']>>
 }
@@ -367,6 +373,14 @@ interface SessionRegistryOptions {
    *  disabled: mint throws, `pair` handshakes are rejected, `hello` unaffected. */
   installationId?: string
   pairing?: PairingCodes
+  /**
+   * A member's password and address, through their account of the identity
+   * package (POD-6746). Absent, which is a registry assembled without an
+   * identity core (most tests): every password write refuses.
+   */
+  memberCredentials?: MemberCredentials
+  /** Device claims are included in the last portable snapshot of a server move. */
+  clientRelocationCodes?: OneTimeCodeOperations
   /** Reaction contracts to publish on the module seam. Defaults to the registry;
    *  injected only so the runtime refusal of an invalid principal is observable
    *  (POD-1470). Whatever is passed goes through the same totality check the
@@ -593,6 +607,8 @@ export class SessionRegistry {
   topics!: TopicRouting
 
   readonly recoveryOnly: boolean
+  /** See {@link SessionRegistryOptions.memberCredentials}. */
+  readonly memberCredentials: MemberCredentials | undefined
   /** Typed in-process event bus — modules subscribe here (issue #13 Phase 2). */
   readonly bus = new EventBus()
   /** Typed accessor to the composed services — the one seam callers use. */
@@ -765,6 +781,10 @@ export class SessionRegistry {
     const registry = new SessionRegistry(resolvedStore, notificationPushers, options, {
       settings: await resolvedStore.settings.getSettings(),
       updateRecovery: await resolvedStore.updateRecovery.read(),
+      legacyReceiptOwner: await resolvedStore.settings.retiredSoloMemberId(),
+      legacyReceiptCutoff: await resolvedStore.settings.legacyMutationReceiptCutoff(
+        (options.now ?? Date.now)(),
+      ),
     })
     await registry.hydrate(options.rehearseBoot)
     return registry
@@ -790,6 +810,7 @@ export class SessionRegistry {
     const recoveryOnly = options.recoveryOnly === true
     const backgroundDisabled = recoveryOnly || options.rehearseBoot === true
     this.recoveryOnly = recoveryOnly
+    this.memberCredentials = options.memberCredentials
     this.now = options.now ?? Date.now
     const portableStateFence = options.portableStateFence ?? new PortableStateFence()
     // Resolve feature state once, then keep it atomic with settings changes. This also
@@ -865,7 +886,13 @@ export class SessionRegistry {
     const clientRegistry = new ClientRegistry()
     // Plaintext claims live only until this source tells its already-authenticated
     // browser sockets to leave. Their hashes enter the final portable snapshot.
-    const clientRelocationClaims = new Map<string, Map<string, string>>()
+    const relocations = clientRelocations({
+      codes: options.clientRelocationCodes,
+      clients: () => clientRegistry.values(),
+      // The socket was admitted by memberOfRequest; the current row could
+      // have been disabled since then.
+      accountFor: async (memberId) => (await this.store.users.get(memberId))?.accountId,
+    })
     // The operator's log-level valve over that same connection set (POD-1920).
     // Stateless: it selects connections and delivers a frame, so a client that
     // reconnects is back at its own default with nothing to clean up.
@@ -935,6 +962,7 @@ export class SessionRegistry {
       bus: this.bus,
       ...(options.pairing ? { pairing: options.pairing } : {}),
       ...(options.installationId ? { installationId: options.installationId } : {}),
+      ...(options.memberCredentials ? { memberCredentials: options.memberCredentials } : {}),
       // Custody transitions require an existing recipient in the member directory.
       userExists: async (userId) => (await this.store.users.get(userId)) !== undefined,
       // A daemon coming back gets nothing queued on behalf of an owner who can
@@ -1122,10 +1150,14 @@ export class SessionRegistry {
     this.configChangedBridge = bridgeConfigChanged(this.bus)
     const settings = new SettingsService(this.store.settings, this.store.secrets, this.bus, {
       telegramBindings: this.store.telegramBindings,
-      // Server-originated preference writes publish the person's record (POD-6673).
+      // The chat routing value is observed from Telegram, not supplied by the
+      // caller. Its server-owned projection also follows an online disconnect.
       // Read per call: the write contexts are built after this service.
       preferenceWriter: {
-        commit: async (op) => await this.writes.system('settings.preferences').commit(op),
+        commit: async (op) =>
+          await asSystemWrite(
+            async () => await this.writes.system('settings.preferences').commit(op),
+          ),
       },
       // The append-only settings trail (POD-421). Injected here so the transport
       // never reaches into the store for it.
@@ -1199,6 +1231,7 @@ export class SessionRegistry {
     const ledger = new Ledger({
       visibility,
       anchors: feedVisibility.anchors,
+      rescopeThreshold: FEED_RESCOPE_THRESHOLD,
       listenerPrincipal: CHANGE_LOG_OBSERVER,
       repo: this.store.sync,
       now: () => this.now(),
@@ -1703,42 +1736,19 @@ export class SessionRegistry {
             ? { ok: true }
             : { ok: false, error: result.error ?? 'endpoint resume was refused' }
         },
-        prepareClientRelocations: async (operationId) => {
-          const claims = clientRelocationClaims.get(operationId) ?? new Map<string, string>()
-          const expiresAt = new Date(this.now() + 10 * 60_000).toISOString()
-          for (const client of clientRegistry.values()) {
-            if (claims.has(client.id)) continue
-            const token = randomBytes(32).toString('base64url')
-            await this.store.auth.createClientSession(
-              hashToken(token),
-              client.principal.user,
-              expiresAt,
-              'server-transfer-claim',
-            )
-            claims.set(client.id, token)
-          }
-          clientRelocationClaims.set(operationId, claims)
-        },
-        cancelClientRelocations: async (operationId) => {
-          const claims = clientRelocationClaims.get(operationId)
-          if (!claims) return
-          // AWAITED: these rows ARE the claim credentials. Dropping the promise
-          // deletes the local map while the sessions stay valid in the database.
-          for (const token of claims.values())
-            await this.store.auth.deleteClientSession(hashToken(token))
-          clientRelocationClaims.delete(operationId)
-        },
+        prepareClientRelocations: relocations.prepare,
+        cancelClientRelocations: relocations.cancel,
         relocateClients: (input) => {
-          const claims = clientRelocationClaims.get(input.operationId)
+          const claimFor = relocations.take(input.operationId)
           for (const client of clientRegistry.values()) {
+            const claimToken = claimFor(client.id)
             clientRegistry.deliverAccountEvent(client, {
               type: 'serverRelocation',
               transferId: input.transferId,
               publicUrl: input.publicUrl,
-              ...(claims?.get(client.id) ? { claimToken: claims.get(client.id) } : {}),
+              ...(claimToken ? { claimToken } : {}),
             })
           }
-          clientRelocationClaims.delete(input.operationId)
         },
       },
       sourceHealthy: () => this.store.checkpointForTransfer(),
@@ -2433,7 +2443,6 @@ export class SessionRegistry {
               ownerUserId: s.ownerUserId,
             }),
           ),
-        notificationsEnabled: () => featureEnabled('notifications'),
       },
       notificationPushers,
       this.bus,
@@ -4262,6 +4271,11 @@ export class SessionRegistry {
     const syncWrite = new SyncWriteEntry({
       registry: new SyncWriteRegistry(),
       mutations,
+      legacyFallback: (id, human) =>
+        legacyMutationFallback(id, human, {
+          owner: boot.legacyReceiptOwner,
+          before: boot.legacyReceiptCutoff,
+        }),
       unitOfWork: async (fn) => await this.store.transact(fn),
       afterCommit: (step, label) => this.store.effect(step, label),
       spanOpen,

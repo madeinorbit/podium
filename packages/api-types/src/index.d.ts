@@ -1,6 +1,6 @@
 // Generated from apps/server/src/router.ts. Run bun run api:types. Do not edit.
 import * as _podium_model from '@podium/model';
-import { MachineId, IssueId, UserId, IssueJoinVia, ArtifactId, SessionId, UsageBucketWire, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentKind, AccountId, AgentPhase } from '@podium/model';
+import { MachineId, IssueId, UserId, IssueJoinVia, ArtifactId, SessionId, UserRole, UsageBucketWire, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentKind, AccountId, AgentPhase } from '@podium/model';
 import { z } from 'zod';
 import * as Protocol from '@podium/protocol';
 import { ModelChoiceWire, ConvergenceState, MobileWebIdentity } from '@podium/protocol';
@@ -354,27 +354,21 @@ declare const PodiumSettings: z.ZodObject<{
     sidebar: z.ZodDefault<z.ZodObject<{
         repoSort: z.ZodDefault<z.ZodEnum<["alphabetical", "lastUsed", "custom"]>>;
         repoOrder: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
-        groupByRepo: z.ZodDefault<z.ZodBoolean>;
     }, "strip", z.ZodTypeAny, {
         repoSort: "custom" | "alphabetical" | "lastUsed";
         repoOrder: string[];
-        groupByRepo: boolean;
     }, {
         repoSort?: "custom" | "alphabetical" | "lastUsed" | undefined;
         repoOrder?: string[] | undefined;
-        groupByRepo?: boolean | undefined;
     }>>;
     gitWorkflow: z.ZodDefault<z.ZodObject<{
         defaultParentBranch: z.ZodDefault<z.ZodString>;
-        mergeStyle: z.ZodDefault<z.ZodEnum<["ff-only", "pr", "ask"]>>;
         autoRebaseBeforeMerge: z.ZodDefault<z.ZodBoolean>;
     }, "strip", z.ZodTypeAny, {
         defaultParentBranch: string;
-        mergeStyle: "ask" | "ff-only" | "pr";
         autoRebaseBeforeMerge: boolean;
     }, {
         defaultParentBranch?: string | undefined;
-        mergeStyle?: "ask" | "ff-only" | "pr" | undefined;
         autoRebaseBeforeMerge?: boolean | undefined;
     }>>;
     issues: z.ZodDefault<z.ZodObject<{
@@ -500,7 +494,6 @@ declare const PodiumSettings: z.ZodObject<{
     sidebar: {
         repoSort: "custom" | "alphabetical" | "lastUsed";
         repoOrder: string[];
-        groupByRepo: boolean;
     };
     autoContinue: {
         enabled: boolean;
@@ -523,7 +516,6 @@ declare const PodiumSettings: z.ZodObject<{
     };
     gitWorkflow: {
         defaultParentBranch: string;
-        mergeStyle: "ask" | "ff-only" | "pr";
         autoRebaseBeforeMerge: boolean;
     };
     steward: {
@@ -590,7 +582,6 @@ declare const PodiumSettings: z.ZodObject<{
     sidebar?: {
         repoSort?: "custom" | "alphabetical" | "lastUsed" | undefined;
         repoOrder?: string[] | undefined;
-        groupByRepo?: boolean | undefined;
     } | undefined;
     autoContinue?: {
         enabled?: boolean | undefined;
@@ -613,7 +604,6 @@ declare const PodiumSettings: z.ZodObject<{
     } | undefined;
     gitWorkflow?: {
         defaultParentBranch?: string | undefined;
-        mergeStyle?: "ask" | "ff-only" | "pr" | undefined;
         autoRebaseBeforeMerge?: boolean | undefined;
     } | undefined;
     steward?: {
@@ -879,6 +869,18 @@ type LogsSetDaemonLevelInput = z.infer<typeof logsSetDaemonLevelInput>;
  *   - `spawning`    a wake spawned a fresh agent to receive it;
  *   - `dead_letter` the target was gone; NOT delivered. */
 type SendDisposition = 'delivered' | 'queued' | 'held' | 'spawning' | 'dead_letter';
+
+interface UserAccountRow {
+    id: string;
+    displayName: string;
+    email: string | null;
+    accountId?: string | null;
+    avatar?: string | null;
+    role: UserRole;
+    createdAt: string;
+    /** ADR 9's disable-before-remove. A disabled account is not an actor. */
+    disabledAt: string | null;
+}
 
 /**
  * ONE ACCOUNT'S TOKEN USAGE: the hour×model buckets for the last 7 days,
@@ -1420,6 +1422,8 @@ type TunnelHealth = TunnelHealthReport & {
     reportedAt: number;
 };
 
+type NetworkOption = 'tailscale-funnel' | 'tailscale-serve' | 'cloudflare-tunnel' | 'manual';
+
 type CloudRuntimeKind = 'cloud-machine' | 'cloud-agent';
 type CloudRuntimeState = 'provisioning' | 'running' | 'stopped' | 'failed';
 interface CloudProviderCapabilities {
@@ -1631,8 +1635,6 @@ interface ForWorktreeOutput {
     /** True when this call asked for the shell; false when it attached to an existing one. */
     readonly created: boolean;
 }
-
-type NetworkOption = 'tailscale-funnel' | 'tailscale-serve' | 'cloudflare-tunnel' | 'manual';
 
 /** What `mail.send` answers with, narrowed to the keys the chat paths return.
  *  Exported because it is the INFERRED return type of two tRPC procedures — an
@@ -2753,8 +2755,10 @@ type Output_agentProfiles_show = {
 type Output_auth_status = {
     canManageInstance: boolean;
     hasOwnCredential: boolean;
+    hostLocalRequest: boolean;
     loginPolicySource: SettingSource;
     loginRequired: boolean;
+    loginRequiredReason: "hosted" | "several-members" | null;
 };
 type Output_automations_create = {
     agentKind: string;
@@ -5953,9 +5957,7 @@ type Output_setup_complete = {
     allowedOrigins?: string[] | undefined;
     appUrl?: string | undefined;
     auth?: undefined | {
-        mode?: "cloud" | "local" | undefined;
         openMode?: boolean | undefined;
-        signInUrl?: string | undefined;
     };
     bindHost?: "0.0.0.0" | "127.0.0.1" | undefined;
     configVersion?: number | undefined;
@@ -6028,15 +6030,7 @@ type Output_setup_provenance = {
         env?: string;
         source: SettingSource;
     };
-    authMode: {
-        env?: string;
-        source: SettingSource;
-    };
     authOpenMode: {
-        env?: string;
-        source: SettingSource;
-    };
-    authSignInUrl: {
         env?: string;
         source: SettingSource;
     };
@@ -6576,8 +6570,15 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             input: (undefined) | ({
                 [k: string]: unknown;
             } & {});
+            output: UserAccountRow;
+            meta: unknown;
+        }>;
+        "setDisplayName": TRPC.TRPCMutationProcedure<{
+            input: {
+                displayName: string;
+            };
             output: {
-                email: null | string;
+                displayName: string;
             };
             meta: unknown;
         }>;
@@ -8341,6 +8342,16 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         "setSecret": TRPC.TRPCMutationProcedure<{
             input: Input_settings_setSecret;
             output: _podium_model.SecretPresenceWire;
+            meta: unknown;
+        }>;
+        "telegramBotPresence": TRPC.TRPCQueryProcedure<{
+            input: {};
+            output: (false) | (true);
+            meta: unknown;
+        }>;
+        "telegramDisconnect": TRPC.TRPCMutationProcedure<{
+            input: {};
+            output: void;
             meta: unknown;
         }>;
         "telegramSetupPoll": TRPC.TRPCMutationProcedure<{

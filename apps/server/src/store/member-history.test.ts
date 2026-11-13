@@ -4,6 +4,7 @@ import type { FamilyState } from '../modules/derived-family'
 import { USAGE_QUERIES } from '../modules/misc-queries'
 import { openTestStore } from '../test-support/open-test-store'
 import { expectConstantStatements } from '../test-support/statement-count'
+import { memberFacts } from './fixtures/test-support'
 
 it('preserves a one-member daemon’s complete legacy usage response', async () => {
   const store = await openTestStore(':memory:')
@@ -42,7 +43,7 @@ it('keeps a sole member compatible, but retained disabled people keep usage pers
   const store = await openTestStore(':memory:')
   try {
     expect(await store.users.hasSeveralMembers()).toBe(false)
-    await store.users.create(
+    await memberFacts(store).create(
       {
         id: asUserId('mem_retained'),
         displayName: 'Retained',
@@ -52,7 +53,7 @@ it('keeps a sole member compatible, but retained disabled people keep usage pers
       },
       'fixture-hash',
     )
-    await store.users.disable(asUserId('mem_retained'), '2026-11-02T00:00:00Z')
+    await memberFacts(store).disable(asUserId('mem_retained'), '2026-11-02T00:00:00Z')
     expect(await store.users.hasSeveralActiveMembers()).toBe(false)
     expect(await store.users.hasSeveralMembers()).toBe(true)
   } finally {
@@ -68,7 +69,7 @@ it('checks retained membership in one statement at 5 and 200 people', async () =
         const store = await openTestStore(':memory:')
         for (let n = 1; n < size; n += 1) {
           const id = asUserId(`mem_retained_${n}`)
-          await store.users.create(
+          await memberFacts(store).create(
             {
               id,
               displayName: 'Retained',
@@ -78,7 +79,7 @@ it('checks retained membership in one statement at 5 and 200 people', async () =
             },
             'fixture-hash',
           )
-          await store.users.disable(id, '2026-11-02T00:00:00Z')
+          await memberFacts(store).disable(id, '2026-11-02T00:00:00Z')
         }
         return store
       },

@@ -1,13 +1,24 @@
 import { asSessionId, asThreadId } from '@podium/model'
-import { Eraser, SquareTerminal } from 'lucide-react'
+import { Ellipsis, Eraser, RotateCcw, SquareTerminal } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { DockHeaderActions } from '@/app/DockHeaderSlot'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { ChatView } from '@/features/chat/ChatView'
 import { superagentWrites } from './superagent-writes'
+import {
+  useSuperagentAccess,
+  useSuperagentSession,
+  useSuperagentThread,
+} from './use-superagent-inputs'
 import { useIssueEvents } from './useIssueEvents'
-import { useSuperagentAccess, useSuperagentSession, useSuperagentThread } from './use-superagent-inputs'
 
 /** ONE chat across all issues (engraved-column.md §2.5): the column always
  *  binds the global thread; per-turn issue context rides the focus payload.
@@ -74,15 +85,10 @@ const BAR_ACTION_CLS =
  * client-core because apps/mobile still has a Tray screen.
  */
 export function SuperagentView(): JSX.Element {
-  const {
-    trpc,
-    setPane,
-    setSelectedWorktree,
-    setSelectedIssueId,
-    setView,
-    readPosition,
-  } = useSuperagentAccess()
+  const { trpc, setPane, setSelectedWorktree, setSelectedIssueId, setView, readPosition } =
+    useSuperagentAccess()
   const [error, setError] = useState<string | null>(null)
+  const [restarting, setRestarting] = useState(false)
   // POD-330 (audit item zero): the thread list is STORE state. The view used to
   // declare its own SuperThread type, hold the list in useState, fetch it from
   // tRPC itself and be poked to refetch by a `superRefreshKey` counter that
@@ -129,7 +135,9 @@ export function SuperagentView(): JSX.Element {
   // "Open in terminal": focus the PTY session once its row lands in the
   // sessions broadcast (a fresh resume may beat the broadcast by a beat).
   const [focusSessionId, setFocusSessionId] = useState<string | null>(null)
-  const focusSession = useSuperagentSession(focusSessionId ? asSessionId(focusSessionId) : undefined)
+  const focusSession = useSuperagentSession(
+    focusSessionId ? asSessionId(focusSessionId) : undefined,
+  )
   useEffect(() => {
     if (!focusSessionId) return
     const s = focusSession
@@ -169,32 +177,55 @@ export function SuperagentView(): JSX.Element {
     }
   }
 
+  const startFreshSession = async () => {
+    if (restarting) return
+    setError(null)
+    setRestarting(true)
+    try {
+      await superagentWrites(trpc).restart.mutate({ threadId: THREAD_ID })
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setRestarting(false)
+    }
+  }
+
   return (
     <section data-testid="superagent-pane" className="flex min-h-0 min-w-0 flex-1 flex-col">
-      {/* The pane's two controls, in the dock title bar. There is ONE header
-          (POD-516 item 10): "Superagent" already names this surface, so a
-          "Portfolio copilot" heading under it was the same name twice. */}
+      {/* Conversation actions belong to the thread's own menu. */}
       <DockHeaderActions>
-        {thread?.resumable && (
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className={BAR_ACTION_CLS}
-            title="Open this conversation in a terminal session"
-            onClick={() => void openInTerminal()}
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className={BAR_ACTION_CLS}
+                aria-label="Superagent conversation actions"
+                title="Superagent conversation actions"
+              />
+            }
           >
-            <SquareTerminal size={12} aria-hidden="true" />
-          </Button>
-        )}
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className={BAR_ACTION_CLS}
-          title="Clear context — start the global chat fresh"
-          onClick={() => void clear()}
-        >
-          <Eraser size={12} aria-hidden="true" />
-        </Button>
+            <Ellipsis size={12} aria-hidden="true" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-52">
+            {thread?.resumable && (
+              <DropdownMenuItem onClick={() => void openInTerminal()}>
+                <SquareTerminal aria-hidden="true" />
+                Open in terminal
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem disabled={restarting} onClick={() => void startFreshSession()}>
+              <RotateCcw aria-hidden="true" />
+              {restarting ? 'Starting fresh…' : 'Start a fresh session'}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => void clear()}>
+              <Eraser aria-hidden="true" />
+              Clear conversation
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </DockHeaderActions>
       {/* Nothing stands between the dock title and the conversation. The
           subtitle went with the heading, and the focus line went with round 3 —

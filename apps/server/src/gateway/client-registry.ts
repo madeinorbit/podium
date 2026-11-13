@@ -54,6 +54,11 @@ export interface ClientConn {
   principal: ClientPrincipal
   /** Socket termination on admission failure; absent for in-process sinks. */
   terminate?: () => void
+  /**
+   * End this socket because the member's access ended (POD-6910): a close code
+   * the client reads to word its sign-in screen. Absent for in-process sinks.
+   */
+  endSignIn?: (close: { code: number; reason: string }) => void
   send: Send<ServerMessage>
   /**
    * Lossy stream sink. False means the frame was dropped under pressure;

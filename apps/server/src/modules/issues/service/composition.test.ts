@@ -25,7 +25,6 @@ describe('issue tracker capability composition', () => {
         normalizeSettings({
           gitWorkflow: {
             defaultParentBranch: '',
-            mergeStyle: 'ff-only',
             autoRebaseBeforeMerge: true,
           },
           sessionDefaults: { agent: 'claude-code' },

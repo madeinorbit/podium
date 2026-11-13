@@ -1,9 +1,14 @@
+import {
+  type AuthCapabilities,
+  accountPageUrl,
+  type SignInPrompt,
+} from '@podium/client-core/accounts'
 import { useRef, useState } from 'react'
-import { Platform, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Linking, Platform, StyleSheet, Text, TextInput, View } from 'react-native'
 import { login, logout } from '../client/auth'
 import { useServerProfile } from '../client/server-profile-context'
-import { HostedSignInButton } from '../components/HostedSignInButton'
 import { AsciiWordmark } from '../components/AsciiWordmark'
+import { HostedSignInButton } from '../components/HostedSignInButton'
 import { KeyboardAvoidingRoot } from '../components/KeyboardAvoidingRoot'
 import { PressableScale } from '../components/PressableScale'
 import { WorkingMark } from '../components/WorkingMark'
@@ -45,11 +50,18 @@ function originHost(httpOrigin: string): string {
 
 export function LoginScreen({
   httpOrigin,
-  cloudSignInUrl,
+  capabilities,
+  prompt,
+  repairNeeded = false,
+  notice,
   onAuthed,
 }: {
   httpOrigin: string
-  cloudSignInUrl?: string
+  capabilities: AuthCapabilities
+  prompt: SignInPrompt
+  repairNeeded?: boolean
+  /** Why the server ended this phone's previous sign-in (POD-6910). */
+  notice?: string | undefined
   onAuthed: (bearer: string | null) => void | Promise<void>
 }) {
   const { profile } = useServerProfile()
@@ -62,7 +74,7 @@ export function LoginScreen({
   const submitInFlight = useRef(false)
 
   const submit = async () => {
-    if (!password || submitInFlight.current || ok) return
+    if (!password || submitInFlight.current || ok || !capabilities.passwordSignIn) return
     submitInFlight.current = true
     setBusy(true)
     setError(null)
@@ -97,7 +109,7 @@ export function LoginScreen({
         setError(
           revoked
             ? `✗ Could not save this session: ${detail}`
-            : `✗ Session storage and remote revocation failed. Revoke this phone from Settings → Connected devices: ${detail}`,
+            : `✗ Session storage and remote revocation failed. Revoke this phone from Settings → Account: ${detail}`,
         )
       }
     } finally {
@@ -134,21 +146,10 @@ export function LoginScreen({
           ? 'verifying…'
           : state === 'typing'
             ? 'press ⏎ to sign in'
-            : 'waiting on you — enter your email and password'
+            : prompt === 'password'
+              ? 'waiting on you — enter your password'
+              : 'waiting on you — enter your email and password'
   const btnGlyph = state === 'ok' ? '✓' : '→'
-  if (cloudSignInUrl) {
-    return (
-      <View style={styles.root}>
-        <AsciiWordmark color={C.text} fontSize={3.9} />
-        <Text style={styles.host}>Sign in to Podium Cloud</Text>
-        <HostedSignInButton
-          server={httpOrigin}
-          signInUrl={cloudSignInUrl}
-          workspaceId={profile.workspaceId}
-        />
-      </View>
-    )
-  }
 
   return (
     <KeyboardAvoidingRoot
@@ -158,68 +159,129 @@ export function LoginScreen({
     >
       <AsciiWordmark color={ok ? C.success : C.text} fontSize={3.9} />
       <Text style={styles.host}>{`Sign in to ${originHost(httpOrigin)}`.toUpperCase()}</Text>
-      <View style={[styles.form, error ? styles.formError : null]}>
-        <TextInput
-          accessibilityLabel="Email"
-          style={styles.input}
-          value={email}
-          onChangeText={(value) => {
-            setEmail(value)
-            if (error) setError(null)
-          }}
-          placeholder="Email"
-          placeholderTextColor={C.placeholder}
-          keyboardType="email-address"
-          autoComplete="email"
-          textContentType="username"
-          autoCapitalize="none"
-          autoCorrect={false}
-          returnKeyType="next"
-          onSubmitEditing={() => passwordInput.current?.focus()}
-        />
-      </View>
-      <Text style={[styles.status, { color: C.textDim }]}>
-        Upgrading an older server? Leave email blank if your admin account has no email yet.
-      </Text>
-      <View style={[styles.form, error ? styles.formError : null]}>
-        <TextInput
-          ref={passwordInput}
-          accessibilityLabel="Password"
-          style={styles.input}
-          value={password}
-          onChangeText={(v) => {
-            setPassword(v)
-            if (error) setError(null)
-          }}
-          placeholder="Password"
-          placeholderTextColor={C.placeholder}
-          secureTextEntry
-          autoCapitalize="none"
-          autoCorrect={false}
-          onSubmitEditing={() => void submit()}
-        />
-        <PressableScale
-          accessibilityRole="button"
-          accessibilityLabel="Log in"
-          disabled={(!password && !ok) || busy}
-          onPress={() => void submit()}
-          style={[
-            styles.submit,
-            ok ? { backgroundColor: C.successFill } : null,
-            { opacity: (password && !busy) || ok ? 1 : 0.45 },
-          ]}
-        >
-          {state === 'busy' ? (
-            <WorkingMark size={16} tint={C.accentText} label={null} />
-          ) : (
-            <Text style={styles.submitGlyph}>{btnGlyph}</Text>
+      {notice && !ok && (
+        <Text accessibilityRole="alert" style={[styles.status, { color: C.textDim }]}>
+          {notice}
+        </Text>
+      )}
+      {repairNeeded && (
+        <Text accessibilityRole="alert" style={[styles.status, { color: C.textDim }]}>
+          This phone needs to pair again after the server upgrade. On a signed-in computer, open
+          Settings → Account to create a new pairing code.
+        </Text>
+      )}
+      {capabilities.passwordSignIn && (
+        <>
+          {prompt === 'email-password' && (
+            <View style={[styles.form, error ? styles.formError : null]}>
+              <TextInput
+                accessibilityLabel="Email"
+                style={styles.input}
+                value={email}
+                onChangeText={(value) => {
+                  setEmail(value)
+                  if (error) setError(null)
+                }}
+                placeholder="Email"
+                placeholderTextColor={C.placeholder}
+                keyboardType="email-address"
+                autoComplete="email"
+                textContentType="username"
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="next"
+                onSubmitEditing={() => passwordInput.current?.focus()}
+              />
+            </View>
           )}
-        </PressableScale>
-      </View>
-      <View style={styles.statusRow} accessibilityRole={error ? 'alert' : undefined}>
-        {state !== 'busy' ? <View style={[styles.dot, { backgroundColor: statColor }]} /> : null}
-        <Text style={[styles.status, { color: statColor }]}>{statText}</Text>
-      </View>
+          <View style={[styles.form, error ? styles.formError : null]}>
+            <TextInput
+              ref={passwordInput}
+              accessibilityLabel="Password"
+              style={styles.input}
+              value={password}
+              onChangeText={(v) => {
+                setPassword(v)
+                if (error) setError(null)
+              }}
+              placeholder="Password"
+              placeholderTextColor={C.placeholder}
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              onSubmitEditing={() => void submit()}
+            />
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel="Log in"
+              disabled={(!password && !ok) || busy}
+              onPress={() => void submit()}
+              style={[
+                styles.submit,
+                ok ? { backgroundColor: C.successFill } : null,
+                { opacity: (password && !busy) || ok ? 1 : 0.45 },
+              ]}
+            >
+              {state === 'busy' ? (
+                <WorkingMark size={16} tint={C.accentText} label={null} />
+              ) : (
+                <Text style={styles.submitGlyph}>{btnGlyph}</Text>
+              )}
+            </PressableScale>
+          </View>
+          <View style={styles.statusRow} accessibilityRole={error ? 'alert' : undefined}>
+            {state !== 'busy' ? (
+              <View style={[styles.dot, { backgroundColor: statColor }]} />
+            ) : null}
+            <Text style={[styles.status, { color: statColor }]}>{statText}</Text>
+          </View>
+        </>
+      )}
+      {!ok && capabilities.passwordReset === 'admin-link' && (
+        <Text style={styles.status}>
+          {prompt === 'password'
+            ? 'Forgot it? Run podium setup on the machine that runs Podium.'
+            : 'Forgot your password? Ask an admin for a reset link.'}
+        </Text>
+      )}
+      {!ok && capabilities.accountUrl && (
+        <>
+          {prompt === 'email-password' &&
+            capabilities.providers.map((provider) => (
+              <HostedSignInButton
+                key={provider}
+                server={httpOrigin}
+                signInUrl={accountPageUrl(capabilities, 'sign-in')}
+                workspaceId={profile.workspaceId}
+                label={`Continue with ${provider === 'google' ? 'Google' : 'GitHub'}`}
+              />
+            ))}
+          {capabilities.passwordReset === 'mail' && (
+            <Text
+              accessibilityRole="link"
+              style={styles.status}
+              onPress={() => {
+                const url = accountPageUrl(capabilities, 'forgot-password')
+                if (url) void Linking.openURL(url)
+              }}
+            >
+              Forgot password?
+            </Text>
+          )}
+          {capabilities.selfSignUp && (
+            <Text
+              accessibilityRole="link"
+              style={styles.status}
+              onPress={() => {
+                const url = accountPageUrl(capabilities, 'sign-up')
+                if (url) void Linking.openURL(url)
+              }}
+            >
+              Create account
+            </Text>
+          )}
+        </>
+      )}
     </KeyboardAvoidingRoot>
   )
 }
@@ -290,6 +352,7 @@ const styles = StyleSheet.create({
   },
   status: {
     ...mono(400),
+    color: C.textDim,
     fontSize: font.tiny,
   },
 })

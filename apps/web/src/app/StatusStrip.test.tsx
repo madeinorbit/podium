@@ -91,9 +91,10 @@ vi.mock('./store', () => ({
 }))
 
 vi.mock('@/features/machines/ConnectionIndicator', () => ({
-  ConnectionIndicator: () => null,
-  useStableConnection: () => ({ health: 'healthy', visible: false }),
+  useStableConnection: () => ({ health: { state: 'online', since: 0 }, visible: false }),
+  useConnectionHealth: () => ({ state: 'online', since: 0 }),
   connectionSeverity: () => 'ok',
+  describeHealth: () => ({ headline: 'Connected', detail: '' }),
 }))
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 vi.mock('@/features/mobile-handoff/MobileHandoffChip', () => ({

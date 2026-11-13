@@ -419,11 +419,20 @@ export const machinePairingCodeHandler = async ({
         code: 'BAD_REQUEST',
         message: 'replacement requires a revoked machine',
       })
-  } else if (principal.kind === 'system' || principal.capability.role !== 'admin') {
-    throw new TRPCError({ code: 'FORBIDDEN', message: 'new enrollment requires an administrator' })
+  } else if (principal.kind !== 'user' || pairer === null) {
+    // NEW ENROLLMENT IS ANY MEMBER'S, FOR THEIR OWN CUSTODY (POD-6883). The fleet
+    // gate has already required an enabled account; the machine goes into the
+    // minter's custody with their `use`, exactly as an admin's does. An agent
+    // never mints one: a machine is a person's to bring.
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'new enrollment requires a signed-in member' })
   }
+  // The code is bound to the minter as they are now: any change to their
+  // authority (disable, removal, role) ends it at redeem (`enrollment.ts`).
+  const ownerAuthzGeneration =
+    pairer === null ? undefined : await mods(ctx).machines.ownerAuthzGeneration(pairer)
   const grant = {
     ...(pairer === null ? {} : { ownerUserId: pairer }),
+    ...(ownerAuthzGeneration === undefined ? {} : { ownerAuthzGeneration }),
     ...(input?.copyAgentCredentials ? { copyAgentCredentials: true } : {}),
     podiumManaged: input?.podiumManaged ?? true,
   }

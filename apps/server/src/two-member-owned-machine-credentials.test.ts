@@ -2,13 +2,15 @@
  * THE D11 CHECKBOX WITH TWO MEMBERS (POD-6301; design §2.5, §4.6, D11;
  * September addendum §4-5). Row MU-27 of the acceptance matrix, and unticking:
  *
- * - MU-27: Alice's ticked login reaches every machine Alice holds custody of,
+ * - MU-27: Alice's ticked login reaches every managed machine she holds custody of,
  *   now and in future, and none of Bob's machines or the one Bob shares with
  *   her. A machine of hers already signed in to a different account keeps it,
  *   and her Accounts hub says so.
  * - Pairing no longer copies by itself: a machine paired with the old "copy
  *   agent credentials" flag while nothing is ticked receives nothing.
  * - Unticking stops future copies and recalls nothing already installed.
+ * - A machine paired with copying off keeps its own logins, both at enrollment
+ *   and when its custodian later ticks a login again.
  *
  * Alice's and Bob's extra machines are fake daemons that answer credential
  * export and install like a real one (a login slot per machine); machines paired
@@ -16,6 +18,7 @@
  * their owner, so the enrollment path is the production one.
  */
 
+import { CREDENTIAL_PROPAGATION_HARNESSES } from '@podium/harness/metadata'
 import { asMachineId, type MachineId, SHARED_MACHINE_ACCOUNT_WARNING } from '@podium/model'
 import { CAP_CREDENTIAL_IDENTITY_GUARD, createHandshakeDialer } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
@@ -121,12 +124,14 @@ async function addMachine(
 async function pairMachine(
   owner: MemberName,
   name: string,
+  options: { copyAgentCredentials?: boolean; podiumManaged?: boolean } = {},
 ): Promise<FakeMachine & { ws: WebSocket }> {
   const { code } = (await (
     await trpc(owner)
   ).machines.pairingCode.mutate({
     // The old blanket flag the web app always sent: it no longer copies by itself.
     copyAgentCredentials: true,
+    ...options,
   })) as { code: string }
   const ws = new WebSocket(`ws://127.0.0.1:${f.handle.port}/daemon`)
   const machine = { id: asMachineId(name), login: undefined, frames: [] as ControlMessage[], ws }
@@ -286,6 +291,80 @@ describe('MU-27: Alice’s ticked login reaches every machine she holds custody 
   })
 })
 
+describe('a machine paired with copying off keeps its own logins', () => {
+  it('sends no credentialInstall frame at enrollment despite a ticked donor login', async () => {
+    expect((await codexRow('alice', ALICE))?.useOnMyMachines).toBe(true)
+    const { modules, sessionStore } = f.handle.registry
+    const propagation = vi.spyOn(modules.loginPropagation, 'propagate')
+    try {
+      const target = await pairMachine('alice', 'alice-keeps-own', {
+        copyAgentCredentials: false,
+        podiumManaged: false,
+      })
+      expect(await sessionStore.machines.getMachine(target.id)).toMatchObject({
+        podiumManaged: false,
+      })
+      // Wait for every enrollment trigger to settle. An empty frame list alone
+      // could otherwise pass before the fire-and-forget propagation ran.
+      await until(
+        () =>
+          propagation.mock.calls.filter(([input]) => input.targetMachineId === target.id).length ===
+          CREDENTIAL_PROPAGATION_HARNESSES.length,
+      )
+      const outcomes = await Promise.all(
+        propagation.mock.calls.flatMap(([input], index) =>
+          input.targetMachineId === target.id ? [propagation.mock.results[index]?.value] : [],
+        ),
+      )
+      expect(outcomes).toEqual(
+        CREDENTIAL_PROPAGATION_HARNESSES.map(() => ({
+          status: 'skipped',
+          reason: 'target keeps its own logins',
+        })),
+      )
+      expect(installs(target.id)).toEqual([])
+      expect(target.login).toBeUndefined()
+    } finally {
+      propagation.mockRestore()
+    }
+  })
+
+  it('sends no credentialInstall frame on a later tick while other managed machines still receive the login', async () => {
+    await choose('alice', ALICE, false)
+    const propagation = vi.spyOn(f.handle.registry.modules.loginPropagation, 'propagate')
+    try {
+      const managed = await pairMachine('alice', 'alice-managed-after-copy-off')
+      await until(
+        () =>
+          propagation.mock.calls.filter(([input]) => input.targetMachineId === managed.id)
+            .length === CREDENTIAL_PROPAGATION_HARNESSES.length,
+      )
+      await Promise.all(propagation.mock.results.map((result) => result.value))
+      propagation.mockClear()
+      // The mutation awaits propagation to every custody machine, including the
+      // excluded target. It also proves the donor remains usable by other targets.
+      expect(await choose('alice', ALICE, true)).toEqual({ ok: true, enabled: true })
+      expect(propagation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetMachineId: 'alice-keeps-own',
+          fingerprint: ALICE,
+          force: true,
+        }),
+      )
+      expect(installs('alice-keeps-own')).toEqual([])
+      expect(fakes.get('alice-keeps-own')?.login).toBeUndefined()
+      expect(installs(managed.id)).toHaveLength(1)
+      expect(installs(managed.id)[0]).toMatchObject({
+        propagation: true,
+        expectedFingerprint: ALICE,
+      })
+      expect(managed.login).toBe(ALICE)
+    } finally {
+      propagation.mockRestore()
+    }
+  })
+})
+
 describe('unticking stops future copies and recalls nothing', () => {
   it('a machine paired with the old copy flag after unticking receives nothing, and the installed copies stay', async () => {
     const before = credentialFrames('alice-vps').length
@@ -313,6 +392,56 @@ describe('unticking stops future copies and recalls nothing', () => {
     expect(credentialFrames('alice-legacy-target')).toEqual([])
     expect(fakes.get('alice-legacy-target')?.login).toBeUndefined()
   })
+})
+
+it('refuses an in-flight transfer if the target starts keeping its own logins during export', async () => {
+  const donor = 'alice-copy-mode-donor'
+  const target = 'alice-copy-mode-target'
+  const fingerprint = 'fp-copy-mode'
+  await addMachine(donor, 'alice', fingerprint)
+  await addMachine(target, 'alice', undefined)
+  const { modules, sessionStore } = f.handle.registry
+  await sessionStore.accounts.setOptIn(
+    MEMBERS.alice.id,
+    'codex',
+    fingerprint,
+    true,
+    new Date().toISOString(),
+  )
+  const exportLogin = modules.rpc.credentialExport.bind(modules.rpc)
+  const exporting = vi
+    .spyOn(modules.rpc, 'credentialExport')
+    .mockImplementationOnce(async (...args) => {
+      const exported = await exportLogin(...args)
+      await sessionStore.machines.upsertMachine({
+        id: target,
+        name: target,
+        hostname: target,
+        tokenHash: `${target}-token`,
+        ownerUserId: MEMBERS.alice.id,
+        podiumManaged: false,
+      })
+      return exported
+    })
+  try {
+    await expect(
+      modules.loginPropagation.propagate({
+        targetMachineId: asMachineId(target),
+        agentKind: 'codex',
+        principalUserId: MEMBERS.alice.id,
+        fingerprint,
+        force: true,
+      }),
+    ).resolves.toEqual({
+      status: 'skipped',
+      reason: 'stale transfer refused: target keeps its own logins',
+    })
+    expect(exporting).toHaveBeenCalledOnce()
+    expect(installs(target)).toEqual([])
+    expect(fakes.get(target)?.login).toBeUndefined()
+  } finally {
+    exporting.mockRestore()
+  }
 })
 
 it.each([

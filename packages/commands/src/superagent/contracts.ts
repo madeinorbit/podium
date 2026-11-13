@@ -381,7 +381,7 @@ export const superagentSendTurnInput = z.object({
   model: backendChoice.optional(),
   effort: backendChoice.optional(),
   /** Prompt-box connector pick. When set, this turn (and later ones, until Auto)
-   *  runs that harness — Settings → Superagent is only the default. Switching
+   *  runs that harness — Settings → Agents → Superagent is only the default. Switching
    *  harness starts a fresh session (#199). Omitted = leave the current rule
    *  alone (settings default, or the thread's last explicit pick). */
   agentKind: HarnessAgent.optional(),

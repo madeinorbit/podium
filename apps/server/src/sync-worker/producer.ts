@@ -13,7 +13,7 @@ import { openDatabase } from '@podium/runtime/sqlite'
 import type { RecordSourcePort } from '@podium/sync'
 import {
   ChangeRangeBootstrapRequired,
-  DEFAULT_RESCOPE_THRESHOLD,
+  FEED_RESCOPE_THRESHOLD,
   scopeChangesRange,
   shapedValue,
 } from '@podium/sync/bootstrap-worker'
@@ -111,7 +111,7 @@ async function* produceRecords(
       const omitted = job.omitKinds && new Set<string>(job.omitKinds)
       const iterator = scopeChangesRange(
         sync,
-        { policy, anchors, rescopeThreshold: DEFAULT_RESCOPE_THRESHOLD },
+        { policy, anchors, rescopeThreshold: FEED_RESCOPE_THRESHOLD },
         job.principal,
         job.from,
         target,

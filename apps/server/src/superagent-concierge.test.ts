@@ -24,6 +24,7 @@ import {
 import { buildGlobalSeed } from './modules/superagent/global'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
+import { memberFacts } from './store/fixtures/test-support'
 import { OPERATOR } from './test-support/capabilities'
 import { attachDaemonWithInventory, fixtureInventory } from './test-support/daemon-inventory'
 import { forceFeature } from './test-support/features'
@@ -731,7 +732,7 @@ describe('thread ownership after administrator removal', () => {
     const store = registry.sessionStore
     const original = await firstAdminMemberId(store)
     const replacement = asUserId('mem_2YYYYYYYYYYYYYYYYYYYYYYYYYY')
-    await store.users.create(
+    await memberFacts(store).create(
       {
         id: replacement,
         displayName: 'Next admin',
@@ -743,7 +744,7 @@ describe('thread ownership after administrator removal', () => {
     )
     // The server makes each member's global thread (POD-6675); no read does.
     const before = await sa.ensureConciergeThread({ ownerUserId: replacement, repoPath: '/r' })
-    await store.users.removeMember(original, replacement)
+    await memberFacts(store).removeMember(original, replacement)
     const after = await sa.ensureConciergeThread({ ownerUserId: replacement, repoPath: '/r' })
     expect(after).toEqual({ threadId: before.threadId, isNew: false })
     expect((await store.superagent.getSuperagentThread(asThreadId('global')))?.ownerUserId).toBe(

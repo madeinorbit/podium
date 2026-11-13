@@ -347,39 +347,12 @@ function memberDecision(human: UserId | undefined, issue: AuthTarget | undefined
  *  than left to be noticed in a diff: the line got shorter and every read path in
  *  the product now runs the scope switch.
  *
- *  WHAT GATES A READ, PRECISELY: **owner and grant scopes** — D19.2's own words,
- *  and the narrowest reading that is also the correct one. A read is decided by
- *  the same ownership rule as a write whenever the capability's scope NAMES A
- *  PERSON (`owned`, `self`). The three scopes that name no person (`all`, `none`,
- *  `subtree`) keep read-allow, each saying so on its own branch.
- *
- *  WHY `subtree` READS STAY ALLOWED, though it is the scope agents actually
- *  carry. A subtree capability is an ISSUE-TREE WRITE scope — the thing
- *  `--outside-scope` confirms crossing (ADR 3 D2) — not a visibility set. Gating
- *  reads by it would deny an agent every sibling issue, which is neither what
- *  A2's narrow default is about (what an agent may CHANGE) nor survivable: ADR 3
- *  Amendment 1 D20.2 requires that an agent may address any issue **its human can
- *  see, including outside its own subtree**, and the single-user parity criterion
- *  requires today's behaviour to be reproduced exactly. Visibility is bounded by
- *  the HUMAN CEILING (`@podium/commands`' `HumanCeiling`), which is a different
- *  question asked of a different fact, and answering it here would be the second
- *  permission check invariant 2 forbids.
- *
- *  WHY THIS IS NOT DEAD CODE, WHICH IS THE REASON D19.2 INSISTS ON IT. Nothing
- *  mints an `owned` or `self` capability SCOPE today (verified: the only
- *  producers of the `owned` shape are `presence-registry.ts` and
- *  `rename-target-path.ts`, and both build owned TARGETS, not scopes). So this
- *  change denies nothing that is currently allowed — its entire value is that
- *  read denial becomes REPRESENTABLE and therefore testable before the transport
- *  can tell two humans apart. Amendment 1's rejected-alternatives table is
- *  explicit that the opposite order — flip the transport first, gate reads later
- *  — leaves "every ownership check dead code on the one transport humans actually
- *  use, so nothing would be tested until the flip".
- *
- *  ALSO REJECTED, BY THE ADR AND NOT BY THIS FILE: keeping reads scope-free and
- *  filtering rows at the projection layer. That means the authority computed a
- *  forbidden row and hoped every projection dropped it (D19, rejected
- *  alternatives).
+ *  Agent scopes (`subtree` and `none`) allow reads across shared tasks, even
+ *  outside their write scope (D20.2). For owned and per-user data, reads are
+ *  intersected with the delegating member's current rights, using `onBehalfOf`.
+ *  A private target is always owner-only, independent of scope or grants.
+ *  Missing membership or ownership fails closed; an issue-scope override never
+ *  widens access to another member's data.
  *
  *  An ISSUE target under an `owned` scope is ALLOWED, for reads and writes
  *  alike (POD-6288): tasks are the shared class of design §4.1, so a member's
@@ -412,11 +385,19 @@ export function authorize(
       // names. A capability that names no human reaches only shared tasks.
       return memberDecision(cap.onBehalfOf, issue)
     case 'none':
-      if (action === 'read') return 'allow' // no person in this scope — see READS above
+      if (action === 'read') return memberDecision(cap.onBehalfOf, issue)
+      // A scope override never widens the member's owned or per-user rights.
+      // Their own or granted writes still require the existing confirmation.
+      if (
+        (issue?.kind === 'owned' || issue?.kind === 'per-user-row') &&
+        memberDecision(cap.onBehalfOf, issue) !== 'allow'
+      ) {
+        return 'forbidden'
+      }
       // Additive (no existing target) is a role question, not a scope one.
       return issue ? outOfScope(opts) : 'allow'
     case 'subtree': {
-      if (action === 'read') return 'allow' // no person in this scope — see READS above
+      if (action === 'read') return memberDecision(cap.onBehalfOf, issue)
       if (!issue) return 'allow'
       // A subtree capability is an ISSUE-tree capability. Handing it an owned
       // entity or a per-user row is not a scope violation to be overridden — it is

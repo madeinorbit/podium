@@ -7,7 +7,7 @@ import { workspaceFetch } from '@/lib/workspace-request'
  *
  * Both surfaces emit the shared `podium:` session address understood by the
  * installed phone app. The scope is public server identity, not a credential;
- * pairing and its expiring secret remain owned by Connected devices.
+ * pairing and its expiring secret remain owned by Account → Pair a phone.
  *
  * The QR carries the PUBLIC origin when the instance has one configured, never
  * `location.origin`: the packaged desktop page origin is not the server, and

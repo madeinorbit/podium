@@ -13,8 +13,9 @@ import {
   type UserId,
 } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
-import type { LedgerWriter } from '@podium/sync'
 import { configPath, onConfigChanged } from '@podium/runtime/config'
+import type { LedgerWriter } from '@podium/sync'
+import { TRPCError } from '@trpc/server'
 import type { CommandPrincipal } from '../../command-principal'
 import { ModelCatalog, type ModelCatalogSnapshot, type ModelProbe } from '../../model-catalog'
 import type { TelegramConfig } from '../../notify'
@@ -61,6 +62,7 @@ interface PendingTelegramSetup {
  *  the store, and so a test can observe the binding directly. */
 export interface TelegramBindingWriter {
   upsert(binding: TelegramChatBinding): Promise<void>
+  removeForUser(userId: UserId): Promise<void>
 }
 
 export interface TelegramSetupStartResult {
@@ -611,12 +613,18 @@ export class SettingsService {
    * changed token (the notify service's replay, the messaging bridge) must react
    * whichever command wrote it.
    *
-   * The material lands in the LEGACY blob path (`apiKeys.openai`, …) because
-   * that is where secrets still live; POD-419 owns moving them into the keyed
-   * store. The RETURN carries no material: `secretPresence` names presence, an
+   * The material lands in the keyed store. Provider keys use managed accounts.
+   * The RETURN carries no material: `secretPresence` names presence, an
    * opaque fingerprint and a rotation time, and has no value key by construction.
    */
   async setSecret(key: ServerSecretKey, value: string): Promise<SecretPresenceWire> {
+    if (key.startsWith('apiKeys.')) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message:
+          'Provider keys are personal managed accounts. Add or replace yours in Settings → AI accounts.',
+      })
+    }
     // POD-419: the material lands in the keyed store, never in the blob. The
     // rotation time is now DURABLE — POD-420 could only return it.
     const updatedAt = new Date(this.now()).toISOString()
@@ -665,6 +673,51 @@ export class SettingsService {
         secretPresence(row.key, await this.secrets.getOrEmpty(row.key), serverKey, row.updatedAt),
       ),
     )
+  }
+
+  /** Member-visible availability, without reading material or deriving a fingerprint. */
+  async telegramBotPresence(): Promise<boolean> {
+    return (await this.secrets.presence()).some(
+      (row) => row.key === 'notifications.telegramBotToken' && row.present,
+    )
+  }
+
+  /** Revoke the caller's chats and routing preference in the same ledger unit.
+   * No supplied user/chat id can target another person's connection. */
+  async disconnectTelegram(actor: UserId): Promise<void> {
+    if (!this.preferenceWriter)
+      throw new Error('Telegram disconnect requires the preference writer')
+    const { previous, next } = await this.writeTelegramRoute(
+      actor,
+      '',
+      async () => await this.telegramBindings.removeForUser(actor),
+    )
+    for (const [id, setup] of this.telegramSetups) {
+      if (setup.mint.userId === actor) this.telegramSetups.delete(id)
+    }
+    await this.emitSettingsChanged(previous, next, actor)
+  }
+
+  /** The authenticated binding and the outgoing notification route change together. */
+  private async writeTelegramRoute(
+    actor: UserId,
+    chatId: string,
+    writeBinding: () => Promise<void>,
+  ): Promise<{ previous: PodiumSettings; next: PodiumSettings }> {
+    const previous = await this.store.getSettingsFor(actor)
+    const write = async () => {
+      await writeBinding()
+      return await this.store.applyPreferencePatch(
+        actor,
+        { 'notifications.telegramChatId': chatId },
+        this.nowIso(),
+      )
+    }
+    const next = this.preferenceWriter
+      ? // The capture names the preference record the rows changed (POD-6920).
+        (await this.preferenceWriter.commit({ write })).result
+      : await write()
+    return { previous, next }
   }
 
   /**
@@ -757,9 +810,9 @@ export class SettingsService {
    * contract's error-consistency cell: distinguishing them would tell a caller
    * whether someone else's ceremony is open.
    */
-  async pollTelegramSetup(setupId: string): Promise<TelegramSetupPollResult> {
+  async pollTelegramSetup(setupId: string, actor: UserId): Promise<TelegramSetupPollResult> {
     const setup = this.telegramSetups.get(setupId)
-    if (!setup) return { status: 'expired' }
+    if (!setup || setup.mint.userId !== actor) return { status: 'expired' }
     const now = this.nowIso()
     if (!telegramClaimCodeIsLive(setup.mint, now)) {
       this.telegramSetups.delete(setupId)
@@ -770,6 +823,8 @@ export class SettingsService {
     if (!botToken) throw new Error('Telegram bot token is required before setup')
 
     const updates = await this.telegramSetup.getUpdates(botToken)
+    // Disconnect can cancel a ceremony while the external request is in flight.
+    if (this.telegramSetups.get(setupId) !== setup) return { status: 'expired' }
     const match = updates.find((update) => telegramTextHasCode(update.text, setup.mint.code))
     if (!match) return { status: 'pending', expiresAt: setup.mint.expiresAt }
 
@@ -783,24 +838,15 @@ export class SettingsService {
       this.telegramSetups.delete(setupId)
       return { status: 'expired' }
     }
-    await this.telegramBindings.upsert(binding)
-
-    // The INBOUND half is the binding above. This write is the OUTBOUND routing
-    // address — a different fact on a different row (`preferences-personal`) —
-    // and POD-1213 made it PER-USER, which is what ADR 9 D8 S3 asked for and
-    // POD-1080 recorded as still outstanding.
-    //
-    // IT IS WRITTEN FOR `setup.mint.userId`, NOT FOR THE POLLING CALLER. The two
-    // are the same principal today, and naming the mint's user is what keeps them
-    // the same principal when they stop being: the whole mechanism of D22.1 is
-    // that identity is captured at MINT time on an authenticated transport, and a
-    // routing address derived from whoever happened to poll would be a second,
-    // weaker answer sitting beside it. Both halves of the ceremony now name one
-    // user, from one place.
-    const next = await this.updatePreferences(setup.mint.userId, {
-      'notifications.telegramChatId': chatId,
-    })
+    // The inbound binding and outgoing routing preference both belong to the
+    // user captured by the mint. The observed chat id never comes from the caller.
+    const { previous, next } = await this.writeTelegramRoute(
+      setup.mint.userId,
+      chatId,
+      async () => await this.telegramBindings.upsert(binding),
+    )
     this.telegramSetups.delete(setupId)
+    await this.emitSettingsChanged(previous, next, setup.mint.userId)
     await this.telegramSetup.sendMessage(
       { botToken, chatId },
       'Telegram notifications are connected to Podium.',

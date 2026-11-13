@@ -14,7 +14,7 @@
  *   4. a TARGET permission check on the record the parsed input names (owner,
  *      grant, delegation: ADR 3 D8/D16), live, through the registration's
  *      resolver;
- *   5. dedup by `mutationId` (`MutationLedger`), after both checks, so a replay
+ *   5. dedup by authenticated actor and `mutationId`, after both checks, so a replay
  *      is still refused once a grant is revoked;
  *   6. the provenance scope: every change row the handler appends carries
  *      `mutationId` and `causationId`;
@@ -33,7 +33,7 @@
  */
 
 import { createLogger, describeError } from '@podium/logger'
-import type { Capability, MutationId } from '@podium/model'
+import type { Capability, MutationId, UserId } from '@podium/model'
 import { authorize } from '@podium/model'
 import type {
   SyncSubmitInput,
@@ -41,10 +41,16 @@ import type {
   SyncSubmitReply,
   WriteReceipt,
 } from '@podium/protocol'
-import type { AuthorityRefusal, MutationLedger, OutboxEnvelope } from '@podium/sync'
+import type {
+  AppliedMutationFallback,
+  AuthorityRefusal,
+  MutationLedger,
+  OutboxEnvelope,
+} from '@podium/sync'
 import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import { outsideWriteProvenance, withWriteProvenance } from '../../write-provenance'
 import { coarselyPermitted, parseCommandInput } from '../front-door'
+import { scopedMutationId } from './legacy-receipt'
 import {
   isNoTarget,
   isTargetRefused,
@@ -102,6 +108,8 @@ export interface SyncWriteEntryDeps {
   /** THE process's one dedup ledger (`relay.ts`); a second instance would be a
    *  second in-flight map over one table. */
   readonly mutations: Pick<MutationLedger, 'apply'>
+  /** Solo-install receipts have no actor metadata; only that member may replay them. */
+  readonly legacyFallback: (id: MutationId, human: UserId) => AppliedMutationFallback | undefined
   /** One unit of work: the store's `transact`. */
   readonly unitOfWork: <T>(fn: () => Promise<T>) => Promise<T>
   /** Register work to run after the outermost commit: the store's `effect`. */
@@ -208,15 +216,21 @@ export class SyncWriteEntry {
 
     // 5–7. Dedup; then provenance around one unit holding the handler and the record.
     const mutationId = envelope.mutationId
+    // A caller controls the wire id. Scope both in-flight and durable dedup to
+    // the authenticated actor, so guessing another person's id cannot replay
+    // their result. Keep the wire id unchanged in provenance and receipts.
+    const dedupId = scopedMutationId(principal, mutationId)
+    const human = onBehalfOfUser(principal)
     const provenance = { mutationId, causationId: mutationId }
     const ctx = this.contextFor(principal, mutationId, envelope.expectedRevision, confirmed)
     let application: { outcome: 'applied' | 'replayed'; value: unknown }
     try {
       application = await this.deps.mutations.apply(
-        mutationId,
+        dedupId,
         command.name,
         async () => await command.handle(ctx, input),
         {
+          fallback: human === null ? undefined : this.deps.legacyFallback(mutationId, human),
           unit: async (fn) =>
             await withWriteProvenance(provenance, async () => await this.deps.unitOfWork(fn)),
         },

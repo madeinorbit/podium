@@ -640,6 +640,8 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
       applied: await store1.sync.getAppliedMutation(asMutationId('mut-char-1')),
       queued: await store1.sync.listQueuedMessages(sessionId),
     }
+    // This fixture writes directly through MutationLedger, without actor scoping.
+    expect(before.applied).toBeDefined()
     expect(before.sessionIds).toContain(sessionId)
     expect(before.issue).not.toBeNull()
     expect(before.changes.length).toBeGreaterThan(0)

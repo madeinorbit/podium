@@ -1,0 +1,89 @@
+import type { MemberDirectoryAnswer } from '@podium/client-graph/member-directory'
+import { loadSyncedModels } from '@podium/client-graph/models'
+import { MobxPool } from '@podium/client-graph/pool'
+import { expect, test } from 'vitest'
+import { deviceLabel, MembersPage } from './members-data'
+
+test('person companions match sign-ins and machine custody by member id', async () => {
+  await loadSyncedModels()
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+  pool.sources.register(['settingsCatalog'], {
+    read: () => ({ machines: ['mine', 'theirs'], repositories: [] }),
+    dispose() {},
+  })
+  pool.apply({
+    type: 'update',
+    rows: [
+      {
+        kind: 'machine',
+        id: 'mine',
+        value: { id: 'mine', name: 'My machine', custodian: 'anna' },
+      },
+      {
+        kind: 'machine',
+        id: 'theirs',
+        value: { id: 'theirs', name: 'Their machine', custodian: 'admin' },
+      },
+    ],
+  })
+  const page = new MembersPage(pool)
+  await page.read(
+    async () =>
+      ({
+        members: [
+          {
+            id: 'anna',
+            displayName: 'Anna Smith',
+            role: 'member',
+            email: 'anna@example.com',
+            disabledAt: null,
+          },
+        ],
+        currentMemberId: 'admin',
+        invites: [],
+        actions: { anna: ['remove'] },
+      }) as MemberDirectoryAnswer,
+  )
+  await page.devices.load(async () => ({
+    signInsTotal: 5,
+    signIns: [
+      {
+        id: 'phone',
+        current: false,
+        memberId: 'anna',
+        deviceName: '',
+        platform: 'unknown',
+        kind: 'phone' as const,
+        createdAt: '',
+        lastSeenAt: null,
+        expiresAt: '',
+      },
+      {
+        id: 'browser',
+        current: false,
+        memberId: 'admin',
+        deviceName: 'Browser',
+        platform: 'unknown',
+        kind: 'browser' as const,
+        createdAt: '',
+        lastSeenAt: null,
+        expiresAt: '',
+      },
+    ],
+  }))
+  const member = page.members[0]
+  if (!member) throw new Error('Expected a member')
+  const person = page.person(member)
+  expect(person.initials).toBe('AS')
+  expect(person.self).toBe(false)
+  expect(person.allows('remove')).toBe(true)
+  expect(person.allows('setRole')).toBe(false)
+  expect(person.devices.map((device) => device.id)).toEqual(['phone'])
+  expect(person.machines.map((machine) => machine.name)).toEqual(['My machine'])
+  expect(page.devicesTruncated).toBe(true)
+  const device = person.devices[0]
+  if (!device) throw new Error('Expected a phone sign-in')
+  expect(deviceLabel(device)).toBe('Phone')
+  page.dispose()
+  pool.dispose()
+})

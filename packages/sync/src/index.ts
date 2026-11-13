@@ -53,6 +53,7 @@ export {
   keyOfRef,
   type DelegatedScope,
   type EntityKey,
+  type AnchorRef,
   type EntityRef,
   type FeedScopingGrade,
   type FeedVisibilityPolicy,

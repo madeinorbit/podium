@@ -1,15 +1,15 @@
-import { fixtureWriteScope } from '@podium/sync/testing'
 /** Release witnesses added after the owning tasks: actual caller/root resolution
  * for MU-08, disabled module callers, and MU-30 on a machine shared both ways. */
 import {
   asIssueId,
-  asMutationId,
-  mintDeviceId,
   asMachineId,
+  asMutationId,
   asSessionId,
+  mintDeviceId,
   type UsageBucketWire,
   type UsageSourceWire,
 } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   MEMBERS,
@@ -32,13 +32,37 @@ describe('direct file effects preserve private sessions and machine roots', () =
     const write = vi.spyOn(registry().modules.rpc, 'writeFile').mockResolvedValue({ ok: true })
     await registry().sessionStore.repos.addRepo('/alice-only-effect-root', f.machines.alice)
     const cases = [
-      { target: { kind: 'session' as const, id: f.sessions.alice }, input: { sessionId: f.sessions.alice, path: 'private.txt', content: 'foreign' } },
-      { target: { kind: 'machine' as const, id: f.machines.alice }, input: { machineId: f.machines.alice, root: REPO_PATH, path: 'private.txt', content: 'foreign' } },
-      { target: { kind: 'machine' as const, id: f.machines.bob }, input: { machineId: f.machines.bob, root: '/alice-only-effect-root', path: 'private.txt', content: 'foreign' } },
+      {
+        target: { kind: 'session' as const, id: f.sessions.alice },
+        input: { sessionId: f.sessions.alice, path: 'private.txt', content: 'foreign' },
+      },
+      {
+        target: { kind: 'machine' as const, id: f.machines.alice },
+        input: {
+          machineId: f.machines.alice,
+          root: REPO_PATH,
+          path: 'private.txt',
+          content: 'foreign',
+        },
+      },
+      {
+        target: { kind: 'machine' as const, id: f.machines.bob },
+        input: {
+          machineId: f.machines.bob,
+          root: '/alice-only-effect-root',
+          path: 'private.txt',
+          content: 'foreign',
+        },
+      },
     ]
     for (const { target, input } of cases) {
       const id = mintDeviceId('eff_')
-      const reply = await bob.sync.submit.mutate({ mutationId: asMutationId(mintDeviceId('mut_')), command: 'effects.create', version: 1, input: { id, kind: 'file.write', target, input } })
+      const reply = await bob.sync.submit.mutate({
+        mutationId: asMutationId(mintDeviceId('mut_')),
+        command: 'effects.create',
+        version: 1,
+        input: { id, kind: 'file.write', target, input },
+      })
       expect.soft(reply.outcome).toBe('rejected')
       expect.soft(await registry().sessionStore.effects.get(id)).toBeUndefined()
     }
@@ -50,13 +74,17 @@ describe('direct file effects preserve private sessions and machine roots', () =
     const write = vi.spyOn(registry().modules.rpc, 'writeFile').mockResolvedValue({ ok: true })
     const id = mintDeviceId('eff_')
     const input = { sessionId: f.sessions.bob, path: 'own-effect.txt', content: 'Bob owns this' }
-    const reply = await bob.sync.submit.mutate({ mutationId: asMutationId(mintDeviceId('mut_')), command: 'effects.create', version: 1, input: { id, kind: 'file.write', target: { kind: 'session', id: f.sessions.bob }, input } })
+    const reply = await bob.sync.submit.mutate({
+      mutationId: asMutationId(mintDeviceId('mut_')),
+      command: 'effects.create',
+      version: 1,
+      input: { id, kind: 'file.write', target: { kind: 'session', id: f.sessions.bob }, input },
+    })
     expect(reply.outcome).toBe('applied')
     await vi.waitFor(() => expect(write).toHaveBeenCalledWith(input))
     expect((await registry().sessionStore.effects.get(id))?.createdBy).toBe(MEMBERS.bob.id)
   })
 })
-
 
 it('a disabled explicit owner cannot create a session through the module', async () => {
   const disabledSessionId = asSessionId('disabled-release-owner')
@@ -503,7 +531,10 @@ describe('MU-30: usage belongs to the run owner on a shared OS account', () => {
 
   it('disabling the other member does not make their historical machine usage public', async () => {
     const store = registry().sessionStore
-    await store.users.disable(MEMBERS.bob.id, new Date().toISOString(), MEMBERS.alice.id)
+    await f.handle.identity.memberships.disable({
+      memberId: MEMBERS.bob.id,
+      actor: { memberId: MEMBERS.alice.id },
+    })
     vi.spyOn(registry().modules.rpc, 'usage').mockResolvedValue({
       hostname: f.machines.alice,
       buckets: [bucket('disabled-bob-history')],
@@ -514,7 +545,10 @@ describe('MU-30: usage belongs to the run owner on a shared OS account', () => {
         /upgrade.*daemon|daemon.*upgrade/i,
       )
     } finally {
-      await store.users.enable(MEMBERS.bob.id, new Date().toISOString(), MEMBERS.alice.id)
+      await f.handle.identity.memberships.enable({
+        memberId: MEMBERS.bob.id,
+        actor: { memberId: MEMBERS.alice.id },
+      })
     }
   })
 })

@@ -1,12 +1,12 @@
-import { repoWrites } from '@podium/commands/fleet-synced'
 import { LOCAL_PROJECT_INTAKE_DRAFT_KEY } from '@podium/client-core/ui-state'
+import { repoWrites } from '@podium/commands/fleet-synced'
 import type { MachineId } from '@podium/model'
 import { asMachineId, HOST_REPOS, isAbsoluteMachinePath, machinesFor } from '@podium/model'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { formatAppError } from '@/app/AppErrorPage'
-import { useSettingsClient } from '@/features/settings/stable-access'
 import { useSettingsCatalog, useSettingsDraftSeed } from '@/features/settings/readers'
+import { useSettingsClient } from '@/features/settings/stable-access'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { RepoPickerModal } from './RepoPickerModal'
 import { RepoScanResults } from './RepoScanResults'
@@ -70,6 +70,8 @@ function readLocalProjectDraft(raw: string | null | undefined): LocalProjectDraf
  * filesystem to fall back to.
  */
 type RepoScanFlowProps = {
+  /** Render in an existing settings pane instead of opening another dialog. */
+  embedded?: boolean
   onClose: () => void
   /** Fired once the selection is committed; the count covers adds + removals. */
   onDone: (changedCount: number) => void
@@ -80,12 +82,22 @@ type RepoScanFlowProps = {
 }
 
 export function RepoScanFlow(props: RepoScanFlowProps): JSX.Element {
-  const seed = useSettingsDraftSeed(props.onboarding ? LOCAL_PROJECT_INTAKE_DRAFT_KEY : null, readLocalProjectDraft)
+  const seed = useSettingsDraftSeed(
+    props.onboarding ? LOCAL_PROJECT_INTAKE_DRAFT_KEY : null,
+    readLocalProjectDraft,
+  )
   if (seed.loading) return <p role="status">Loading setup…</p>
   return <RepoScanFlowBody {...props} initialDraft={seed.value} />
 }
 
-function RepoScanFlowBody({ onClose, onDone, onboarding = false, initialMachineId, initialDraft }: RepoScanFlowProps & { initialDraft: LocalProjectDraft }): JSX.Element {
+function RepoScanFlowBody({
+  onClose,
+  onDone,
+  onboarding = false,
+  initialMachineId,
+  initialDraft,
+  embedded = false,
+}: RepoScanFlowProps & { initialDraft: LocalProjectDraft }): JSX.Element {
   const { trpc, uiState } = useSettingsClient()
   // Look again at my machines (POD-6644): what the scans find arrives as
   // `checkout` records on every device; this only waits for the scans.
@@ -295,6 +307,7 @@ function RepoScanFlowBody({ onClose, onDone, onboarding = false, initialMachineI
 
   return (
     <RepoPickerModal
+      embedded={embedded}
       onClose={() => {
         if (!committed.current) onClose()
       }}

@@ -7,15 +7,12 @@
  *
  * - `GET /auth/admin/viewer`: which sections the caller may open. Any
  *   signed-in member asks; a member who is not an admin gets none, and the
- *   client draws no admin area from that answer.
- * - `GET /auth/admin/access`: how people are admitted and every unexpired
- *   sign-in, by member and device, with how many there are in all
- *   (`signInsTotal`; at most {@link ADMIN_PAGE_LIMIT} are listed). Each
- *   sign-in carries its public `id`. No token or token hash leaves.
- * - `POST /auth/admin/sign-ins/revoke {id}`: end that one sign-in (POD-6701).
- *   The device is signed out at once: its row goes, its open connections
- *   close, and the event is audited as `members.revokeSignIn`. The member's
- *   other sign-ins stay.
+ *   client draws no admin area from that answer. It also says whether the
+ *   caller is the one who sets this server up (POD-6882), and answers the
+ *   caller's other {@link ViewerCapabilities}, such as adding a machine of
+ *   their own (POD-6883).
+ * - `GET /auth/admin/access`: admission facts from the shared memberships.
+ *   The device sign-in routes live in sign-in-routes.ts.
  * - `GET /auth/admin/audit`: the security events, newest first, as actor,
  *   delegated human, target, result and time. A stored row's detail is never
  *   sent as it is: only the ids and the few fields named in
@@ -25,21 +22,36 @@
  * Access, Audit and the revoke refuse anyone but an enabled admin with 403.
  */
 
+import type { WorkspaceIdentity } from '@podium/identity'
 import type { UserId, UserRole } from '@podium/model'
 import { type Context, Hono } from 'hono'
 import { z } from 'zod'
 import { isAllowedHttpOrigin } from './http-cors'
-import type { AuthRepository } from './store/auth'
 import {
   SECURITY_EVENT_KINDS,
   type SecurityEventRow,
   type SettingsAuditRepository,
 } from './store/settings-audit'
-import { MemberChangeRefused, type UsersRepository } from './store/users'
+import type { UsersRepository } from './store/users'
 
 /** The admin area's sections, in the order the client shows them. */
 export const ADMIN_SECTIONS = ['people', 'access', 'machines', 'instance', 'audit'] as const
 export type AdminSection = (typeof ADMIN_SECTIONS)[number]
+
+/**
+ * What the signed-in viewer may do beyond the admin sections, so the client
+ * offers a control by capability rather than by role or mode. A rendering hint
+ * with no authority: each command refuses on its own.
+ *
+ * - `addMachine`: mint an enrollment code for a new machine of their own
+ *   (`machines.pairingCode`). Every enabled member may, admin or not (POD-6883).
+ * - `setUpServer`: run first-run setup; only the workspace's earliest enabled
+ *   admin, who installed it (POD-6882).
+ */
+export interface ViewerCapabilities {
+  addMachine: boolean
+  setUpServer: boolean
+}
 
 /** How many sign-ins and events one answer carries at most. */
 export const ADMIN_PAGE_LIMIT = 200
@@ -122,11 +134,25 @@ export function projectSecurityEvent(row: SecurityEventRow, names: Names): Secur
   const machineId = text(detail.machineId)
   const memberId = text(detail.memberId)
   const inviteId = text(detail.inviteId)
+  if (row.command === 'machines.share' || row.command === 'machines.unshare') {
+    const grantee = text(detail.grantee)
+    if (grantee) facts.grantee = names.members.get(grantee) ?? 'Removed member'
+    if (detail.verb === 'see' || detail.verb === 'use' || detail.verb === 'manage')
+      facts.verb = detail.verb
+  }
+  // Removal can record both the person and a machine whose custody was released.
+  if (row.command === 'members.remove' && machineId && memberId)
+    facts.member = names.members.get(memberId) ?? 'Removed member'
   if (row.command === 'settings.setSecret' || row.command === 'settings.clearSecret') {
     // The secret's KEY names which one; its value was never stored here.
     target = { kind: 'secret', id: null, name: text(input.key) ?? 'A secret' }
   } else if (row.command === 'issues.editComment' || row.command === 'issues.deleteComment') {
     target = { kind: 'task', id: text(detail.issueId) ?? null, name: 'A comment' }
+  } else if (
+    inviteId &&
+    (row.command === 'members.invite' || row.command === 'members.inviteRevoked')
+  ) {
+    target = { kind: 'invite', id: inviteId, name: 'An invitation' }
   } else if (machineId) {
     target = { kind: 'machine', id: machineId, name: names.machines.get(machineId) ?? machineId }
   } else if (memberId) {
@@ -151,14 +177,12 @@ export function registerAdminRoutes(
   app: Hono,
   options: {
     users: UsersRepository
-    auth: AuthRepository
+    identity: WorkspaceIdentity
     audit: SettingsAuditRepository
     /** Names of the machines an event names, in one read. */
     machineNames: (ids: readonly string[]) => Promise<ReadonlyMap<string, string>>
     resolveUserId: (request: Request) => Promise<UserId | undefined>
     loginRequired: () => Promise<boolean>
-    /** Close the open connections of a sign-in that was just revoked, by its token hash. */
-    onCredentialRevoked?: (tokenHash: string) => void
     allowedOrigins?: ReadonlySet<string>
     now?: () => number
   },
@@ -190,23 +214,34 @@ export function registerAdminRoutes(
   routes.get('/viewer', async (c) => {
     const who = await caller(c)
     if (!who) return c.json({ error: 'Sign in required' }, 401)
-    return c.json({ sections: who.role === 'admin' ? [...ADMIN_SECTIONS] : [] })
+    // WHO SETS UP THIS SERVER (POD-6882). First-run setup (where the server
+    // runs, its first machine and project) belongs to the workspace's earliest
+    // enabled admin: the person who installed it. Everyone else joined a
+    // workspace that already exists, admins invited later included, and is
+    // never captured by that wizard, whatever their own repo list shows.
+    const firstAdmin = who.role === 'admin' ? await users.earliestAdmin() : undefined
+    return c.json({
+      sections: who.role === 'admin' ? [...ADMIN_SECTIONS] : [],
+      capabilities: {
+        // Every enabled member may bring a machine of their own (POD-6883).
+        addMachine: true,
+        setUpServer: firstAdmin?.id === who.id,
+      } satisfies ViewerCapabilities,
+    })
   })
 
   routes.get('/access', async (c) => {
     const who = await caller(c)
     if (who?.role !== 'admin') return adminRequired(c)
     const at = now()
-    const nowIso = new Date(at).toISOString()
-    const [members, invites, signIns, signInsTotal, signInRequired] = await Promise.all([
-      users.listIncludingDisabled(),
-      users.pendingInvites(),
-      options.auth.listUnexpiredSignIns(nowIso, ADMIN_PAGE_LIMIT),
-      options.auth.countUnexpiredSignIns(nowIso),
+    const [members, signInRequired] = await Promise.all([
+      options.identity.memberships.list(),
       options.loginRequired(),
     ])
-    const names = new Map(members.map((m) => [m.id as string, m.displayName]))
-    const open = invites.filter((invite) => Date.parse(invite.expiresAt) > at)
+    const invites = members.flatMap((member) =>
+      member.pendingInvitation ? [member.pendingInvitation] : [],
+    )
+    const open = invites.filter((invite) => invite.expiresAt.getTime() > at)
     return c.json({
       admission: {
         // Invitation only (design §2.1, D8); self-registration is not offered.
@@ -214,42 +249,11 @@ export function registerAdminRoutes(
         signInRequired,
         openInvites: open.length,
         expiredInvites: invites.length - open.length,
-        activeMembers: members.filter((m) => !m.disabledAt).length,
-        disabledMembers: members.filter((m) => m.disabledAt).length,
+        invitedMembers: members.filter((m) => m.status === 'invited').length,
+        activeMembers: members.filter((m) => m.status === 'active').length,
+        disabledMembers: members.filter((m) => m.status === 'disabled').length,
       },
-      signInsTotal,
-      signIns: signIns.map((row) => ({
-        id: row.sessionId,
-        memberId: row.userId,
-        memberName: names.get(row.userId) ?? 'Removed member',
-        kind: row.label,
-        deviceName: row.deviceName,
-        platform: row.platform,
-        createdAt: row.createdAt,
-        lastSeenAt: row.lastSeenAt,
-        expiresAt: row.expiresAt,
-      })),
     })
-  })
-
-  routes.post('/sign-ins/revoke', async (c) => {
-    const who = await caller(c)
-    if (!who) return c.json({ error: 'Sign in required' }, 401)
-    if (who.role !== 'admin') return adminRequired(c)
-    const { id } = z
-      .object({ id: z.string().regex(/^[A-Za-z0-9_-]{20,64}$/) })
-      .parse(await c.req.json().catch(() => ({})))
-    let revoked: Awaited<ReturnType<UsersRepository['revokeSignIn']>>
-    try {
-      revoked = await users.revokeSignIn(id, who.id)
-    } catch (error) {
-      if (error instanceof MemberChangeRefused && error.code === 'admin-required')
-        return adminRequired(c)
-      throw error
-    }
-    if (!revoked) return c.json({ error: 'Sign-in not found' }, 404)
-    options.onCredentialRevoked?.(revoked.tokenHash)
-    return c.json({ ok: true })
   })
 
   routes.get('/audit', async (c) => {

@@ -77,6 +77,7 @@ import type { IssueSessionLifecycle } from '../issue-session-lifecycle'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachineUseResolver } from '../machines/service'
 import type { SendDisposition } from '../messages/service'
+import { scopedMutationId } from '../sync-write/legacy-receipt'
 import { type AnswerChoice, type InterruptOutcome, inboxPrincipalFromCommand } from './inbox'
 import type { SessionLifecycle } from './lifecycle'
 import type { LifecycleOutcome } from './lifecycle-controller'
@@ -908,7 +909,7 @@ export const SESSION_COMMAND_HANDLERS = {
     const reserved = input.messageId
       ? (
           await ctx.deps.mutations.apply(
-            asMutationId(input.messageId),
+            scopedMutationId(ctx.principal, asMutationId(input.messageId)),
             'sessions.sendText',
             () => ({
               ...INTERRUPTED_SEND,
@@ -1176,6 +1177,7 @@ export async function dispatchSessionCommand<K extends SessionCommandKey>(
   const name = `sessions.${key}`
   // IDEMPOTENCY, FRAMEWORK-OWNED AND APPLIED HERE FOR EVERY COMMAND (POD-382).
   //
+  // Scope the outer receipt to the authenticated actor, as SyncWriteEntry does.
   // AFTER the parse and INSIDE the handler's gates: the handler runs its machine
   // `use` and owner checks, so a replay whose grant was revoked is refused by
   // those gates on the way in rather than served out of the dedup cache (ADR 3 D8
@@ -1189,7 +1191,9 @@ export async function dispatchSessionCommand<K extends SessionCommandKey>(
   const mutationId = (input as { mutationId?: unknown }).mutationId
   const run = async () =>
     (await ctx.deps.mutations.once(
-      typeof mutationId === 'string' ? asMutationId(mutationId) : undefined,
+      typeof mutationId === 'string'
+        ? scopedMutationId(ctx.principal, asMutationId(mutationId))
+        : undefined,
       name,
       () => handler(ctx, input),
     )) as Awaited<SessionCommandResult<K>>

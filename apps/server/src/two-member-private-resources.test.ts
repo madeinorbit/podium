@@ -210,10 +210,18 @@ describe('MU-08: search returns only the caller’s own sessions', () => {
 
 describe('MU-08: an approval is routed to who may decide it, and decided by them only', () => {
   /** Bob may manage his own machine, so he may decide its `stop`. */
-  const request = async (sessionId: SessionId, machine: 'alice' | 'bob', op: object = { kind: 'stop' }) =>
-    await fileApproval(registry(), { op, sessionId, machineId: f.machines[machine] })
+  const request = async (
+    sessionId: SessionId,
+    machine: 'alice' | 'bob',
+    op: object = { kind: 'stop' },
+  ) => await fileApproval(registry(), { op, sessionId, machineId: f.machines[machine] })
   /** A record as a request filed before a grant or role moved would have left it. */
-  const filedEarlier = async (sessionId: SessionId, machine: 'alice' | 'bob', person: string, op: object) => {
+  const filedEarlier = async (
+    sessionId: SessionId,
+    machine: 'alice' | 'bob',
+    person: string,
+    op: object,
+  ) => {
     const id = `apr_${crypto.randomUUID()}`
     await store().effects.insert(
       fixtureWriteScope(),
@@ -235,7 +243,9 @@ describe('MU-08: an approval is routed to who may decide it, and decided by them
   /** A decision as the app sends it, over the member's own `sync.submit`. */
   const decide = async (name: MemberName, id: string, decision: 'approve' | 'deny') => {
     const shown = await store().effects.get(id)
-    const reply = (await (await trpc(name)).sync.submit.mutate({
+    const reply = (await (
+      await trpc(name)
+    ).sync.submit.mutate({
       mutationId: `m-${crypto.randomUUID()}`,
       command: 'records.effect.edit',
       version: 1,
@@ -609,7 +619,13 @@ describe('task artifacts belong to the shared task (D4)', () => {
     expect(anonymous.status).toBe(401)
     // Carol holds a password but no sign-in: disabling her ended every one.
     expect((await f.login('carol')).ok).toBe(false)
-    expect(await store().auth.listClientSessionsOfUser(MEMBERS.carol.id)).toEqual([])
+    expect(
+      await f.handle.identity.core.deviceSignIns.listForAccount(
+        (await f.handle.identity.memberships.list()).find(
+          (member) => member.memberId === MEMBERS.carol.id,
+        )!.account!.id,
+      ),
+    ).toEqual([])
   })
 })
 
@@ -621,7 +637,10 @@ describe('task artifacts belong to the shared task (D4)', () => {
  */
 describe('admin Alice gets no reach over Bob’s mail or subscriptions', () => {
   /** Bob's agent mails `to` on Bob's behalf. */
-  const bobsAgentMails = async (to: { kind: 'operator' } | { kind: 'issue'; id: string }, body: string) =>
+  const bobsAgentMails = async (
+    to: { kind: 'operator' } | { kind: 'issue'; id: string },
+    body: string,
+  ) =>
     (
       await registry().modules.messages.send(
         registry().issues.reports.store.serverWriter,
@@ -688,27 +707,31 @@ describe('admin Alice gets no reach over Bob’s mail or subscriptions', () => {
       subscriberId: string
     }
     const listed = async (who: typeof alice) =>
-      ((await who.subscriptionList.query({} as never)) as Array<{ id: string }>).map((row) => row.id)
+      ((await who.subscriptionList.query({} as never)) as Array<{ id: string }>).map(
+        (row) => row.id,
+      )
     expect(await listed(bob)).toContain(sub.id)
     expect(await listed(alice)).not.toContain(sub.id)
     // A toggle and a removal are the record's generic edits (POD-6676).
     const id = subscriptionRowIdOf(sub)
     const submit = async (name: MemberName, command: string, input: unknown) =>
       (
-        (await (await trpc(name)).sync.submit.mutate({
+        (await (
+          await trpc(name)
+        ).sync.submit.mutate({
           mutationId: `mut_${name}_${command}`,
           command,
           version: 1,
           input,
         } as never)) as { outcome: string }
       ).outcome
-    expect(await submit('alice', 'records.subscription.edit', { id, patch: { enabled: false } })).toBe(
-      'rejected',
-    )
+    expect(
+      await submit('alice', 'records.subscription.edit', { id, patch: { enabled: false } }),
+    ).toBe('rejected')
     expect(await submit('alice', 'records.subscription.remove', { id })).toBe('rejected')
-    expect(await submit('bob', 'records.subscription.edit', { id, patch: { enabled: false } })).toBe(
-      'applied',
-    )
+    expect(
+      await submit('bob', 'records.subscription.edit', { id, patch: { enabled: false } }),
+    ).toBe('applied')
     expect(await submit('bob', 'records.subscription.remove', { id })).toBe('applied')
     expect(await listed(bob)).not.toContain(sub.id)
   })

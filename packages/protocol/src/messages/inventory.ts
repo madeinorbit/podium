@@ -58,6 +58,8 @@ export const HarnessDescriptorCapabilitiesWire = z.object({
   argvPrompt: z.boolean(),
   effort: z.boolean(),
   systemPrompt: z.boolean(),
+  /** Whether the harness accepts an override for its own helpers' model. */
+  subagentModel: z.boolean().optional(),
 })
 export type HarnessDescriptorCapabilitiesWire = z.infer<typeof HarnessDescriptorCapabilitiesWire>
 

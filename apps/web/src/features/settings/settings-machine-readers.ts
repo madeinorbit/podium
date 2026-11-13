@@ -1,7 +1,8 @@
-import { omitGone } from '@podium/client-graph/lookup'
 import type { MachineModel, MobxPool } from '@podium/client-graph'
-import { compareShallow } from 'mobx'
+import { omitGone } from '@podium/client-graph/lookup'
 import { keyedComputed, lazy } from '@podium/mobx-helpers'
+import { compareShallow } from 'mobx'
+
 const EMPTY_MACHINE_IDS: readonly string[] = []
 const loaded = <T extends object>(row: T | symbol | undefined): row is T =>
   typeof row === 'object' && row !== null
@@ -30,32 +31,11 @@ export function createSettingsMachineReaders(pool: MobxPool) {
     const catalog = omitGone(pool.row('settingsCatalog', 'catalog'))
     return loaded(catalog) ? catalog.machines : EMPTY_MACHINE_IDS
   })
-  const override = keyedComputed('settings.machineChannel', (id: string) => {
-    const row = omitGone(pool.model('machine', id))
-    return loaded(row) ? (row.updateChannelOverride ?? null) : null
-  })
-  const version = keyedComputed('settings.machineTarget', (id: string) => {
-    const row = omitGone(pool.model('machine', id))
-    return loaded(row) ? (row.targetVersion ?? null) : null
-  })
-  const targets = keyedComputed('settings.channelTargets', (channel: string | null) => {
-    const result: Record<string, string> = {}
-    for (const id of ids(null)) {
-      const selected = override(id) ?? channel
-      const target = version(id)
-      if (selected && target) result[selected] ??= target
-    }
-    return result
-  })
   return {
     models,
     ids,
-    targets,
     dispose() {
       ids.clear()
-      override.clear()
-      version.clear()
-      targets.clear()
     },
   }
 }

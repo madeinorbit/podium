@@ -1,3 +1,4 @@
+import { memberFacts } from '../../store/fixtures/test-support'
 /**
  * THE ISSUE COMMANDS THAT ACT ON MACHINES, AS EFFECT RECORDS (POD-6414).
  *
@@ -106,7 +107,7 @@ describe('the issue work effects', () => {
     const o = await makeOracle()
     const issue = await newIssue(o, 'not theirs')
     const member = asUserId('usr_member_6414')
-    await o.store.users.createUnclaimed({
+    await memberFacts(o.store).create({
       id: member,
       displayName: 'Member',
       email: null,
@@ -238,7 +239,7 @@ describe('issue.addSession and issue.begin spawn once per session id', () => {
     const o = await makeOracle()
     const issue = await startedIssue(o, 'writer gone')
     const gone = asUserId('usr_gone_6414')
-    await o.store.users.createUnclaimed({
+    await memberFacts(o.store).create({
       id: gone,
       displayName: 'Gone',
       email: null,

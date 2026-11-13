@@ -1,9 +1,14 @@
 import type { ServerReadiness } from '@podium/model'
 import type { Hono } from 'hono'
+import type { MembershipCatchUpStatus } from './identity/membership-catch-up'
 
 /** Public, non-secret lifecycle status. This route stays independent from the
  * setup compatibility route so setup composition can evolve in its owner lane. */
-export function registerReadinessRoute(app: Hono, readiness: () => ServerReadiness): void {
+export function registerReadinessRoute(
+  app: Hono,
+  readiness: () => ServerReadiness,
+  membershipCatchUp?: () => MembershipCatchUpStatus,
+): void {
   /**
    * 503 WHILE THE DATA PLANE IS BLOCKED (PDM-26), body unchanged.
    *
@@ -17,7 +22,10 @@ export function registerReadinessRoute(app: Hono, readiness: () => ServerReadine
    */
   app.get('/readiness', (c) => {
     const status = readiness()
-    return c.json(status, status.dataPlane === 'available' ? 200 : 503)
+    return c.json(
+      { ...status, ...(membershipCatchUp ? { membershipCatchUp: membershipCatchUp() } : {}) },
+      status.dataPlane === 'available' ? 200 : 503,
+    )
   })
   app.get('/setup/mobile', (c) => {
     const status = readiness()

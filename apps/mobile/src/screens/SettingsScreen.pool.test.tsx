@@ -7,7 +7,7 @@ import type { MobxPool } from '@podium/client-graph'
 import { settingsView } from '@podium/client-graph/settings-views'
 import type { HostMetricsWire } from '@podium/model'
 import { asUserId } from '@podium/model'
-import type { MobileClientSession } from '@podium/protocol'
+import type { DeviceSignInView } from '@podium/protocol'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { Alert, Platform } from 'react-native'
@@ -15,7 +15,10 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import { insideReader, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
 import { createHeaderFixture } from '../../../web/test/header-fixture'
+import type { AuthStatus } from '../client/auth'
+import { AuthStatusContext } from '../client/auth-context'
 import type { MobilePool } from '../client/mobile-pool'
+import { accountCapabilities } from '../test-support/auth-capabilities'
 
 const seams = vi.hoisted(() => ({
   host: undefined as MobilePool | undefined,
@@ -28,7 +31,7 @@ const seams = vi.hoisted(() => ({
   switch: vi.fn(async () => {}),
   back: vi.fn(),
   replace: vi.fn(),
-  devices: [] as MobileClientSession[],
+  devices: [] as DeviceSignInView[],
   reloadDevices: () => {},
 }))
 vi.mock('../client/mobile-pool', async (importOriginal) => {
@@ -128,7 +131,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-async function mount(count = 8, scale?: number) {
+async function mount(count = 8, scale?: number, status: AuthStatus | null = null) {
   seams.host = createMobilePool(false)
   const data = createHeaderFixture(count, count),
     errors: string[] = [],
@@ -204,7 +207,9 @@ async function mount(count = 8, scale?: number) {
         return seams.host!.host.attach(owner, (error) => errors.push(error.message))
       }}
     >
-      <Surface />
+      <AuthStatusContext.Provider value={status}>
+        <Surface />
+      </AuthStatusContext.Provider>
     </StoreProvider>,
   )
   await waitFor(
@@ -244,11 +249,8 @@ async function mount(count = 8, scale?: number) {
 it('measures phone settings and its real device feed at 1x and 4x', async () => {
   for (const scale of [1, 4]) {
     seams.devices = Array.from({ length: 8 * scale }, (_, i) => ({
-      sessionId: `device-${i}`,
-      userId: 'operator',
-      label: 'mobile',
-      kind: 'mobile',
-      deviceId: `device-${i}`,
+      id: `device-${i}`,
+      kind: 'phone',
       deviceName: `Phone ${i}`,
       platform: 'ios',
       lastSeenAt: '2026-10-06T10:00:00Z',
@@ -424,5 +426,19 @@ it('keeps unsynced phone changes until sign-out is explicitly confirmed', async 
   await waitFor(() => expect(seams.erase).toHaveBeenCalledOnce())
   expect(seams.logout).toHaveBeenCalledOnce()
   expect(seams.credential).toHaveBeenLastCalledWith(null)
+  expect(current.errors).toEqual([])
+})
+
+it('account device management omits phone pairing instructions', async () => {
+  const current = await mount(8, undefined, {
+    needsAuth: true,
+    authed: true,
+    userId: asUserId('operator'),
+    prompt: 'email-password',
+    capabilities: accountCapabilities,
+  })
+  expect(current.view.getByRole('link', { name: 'Manage all account devices' })).toBeTruthy()
+  expect(current.view.container.textContent).not.toContain('Pairing')
+  expect(current.view.getByText(/Manage device sign-ins in your account/)).toBeTruthy()
   expect(current.errors).toEqual([])
 })

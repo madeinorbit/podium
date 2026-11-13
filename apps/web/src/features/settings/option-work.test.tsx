@@ -101,7 +101,7 @@ it('measures the mounted settings sections at 1x and 4x', async () => {
         }
       },
     } as RoutedUiState
-    let state = { machines, repos, settingsTab: 'sessions', sessions: [] }
+    let state = { machines, repos, settingsTab: 'agents', sessions: [] }
     const owner = withKeyedInputs({
       getSnapshot: () => state as object,
       ui,
@@ -147,9 +147,23 @@ it('measures the mounted settings sections at 1x and 4x', async () => {
     const rowReads = vi.spyOn(pool, 'row')
     const settings = normalizeSettings({})
     const trpc = {
+      // The devices route now opens the Account page, which also mounts the
+      // profile/password section (POD-6652).
+      auth: {
+        profile: { query: async () => ({ email: null }) },
+        status: { query: async () => null },
+      },
       settings: {
         get: { query: async () => settings },
-        viewer: { query: async () => ({ permitted: {} }) },
+        viewer: {
+          query: async () => ({
+            permitted: {
+              'records.userPreferences.edit': true,
+              'records.instancePreferences.edit': true,
+            },
+          }),
+        },
+        telegramBotPresence: { query: vi.fn().mockResolvedValue(true) },
         secretPresence: { query: async () => [] },
       },
       accounts: { list: { query: async () => [] } },
@@ -180,7 +194,7 @@ it('measures the mounted settings sections at 1x and 4x', async () => {
         async (url: string) =>
           new Response(
             JSON.stringify(
-              // An admin's viewer: Updates and Repos are in the admin area (POD-6299).
+              // An admin's viewer: Workspace pages are authorized by the viewer (POD-6299).
               String(url).endsWith('/auth/admin/viewer')
                 ? { sections: ['people', 'access', 'machines', 'instance', 'audit'] }
                 : { sessions: devices },
@@ -193,7 +207,7 @@ it('measures the mounted settings sections at 1x and 4x', async () => {
       state = { ...state, ...patch }
       for (const wake of listeners) wake()
     }
-    for (const tab of ['sessions', 'updates', 'repos', 'devices']) {
+    for (const tab of ['agents', 'updates', 'projects', 'account']) {
       publish({ machines, repos, settingsTab: tab })
       const Surface = () => insideReader(tab, () => SettingsView({ onClose() {} }))
       let view!: ReturnType<typeof render>
@@ -205,8 +219,8 @@ it('measures the mounted settings sections at 1x and 4x', async () => {
             await settle()
             if (action === 'open') {
               if (tab === 'updates') await view.findByRole('button', { name: 'Check now' })
-              if (tab === 'repos') await view.findByText('project-0')
-              if (tab === 'devices') await view.findByText('Phone 0')
+              if (tab === 'projects') await view.findByText('project-0')
+              if (tab === 'account') await view.findByText('Phone 0')
             }
           },
           { pool },

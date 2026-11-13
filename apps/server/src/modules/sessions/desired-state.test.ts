@@ -1,3 +1,4 @@
+import { memberFacts } from '../../store/fixtures/test-support'
 /**
  * SESSION LIFECYCLE AS DESIRED STATE (ADR 12 D5 E1, POD-6356).
  *
@@ -297,7 +298,7 @@ describe('a start is re-authorized when it is acted on', () => {
    *  attach again. */
   async function revokeWriterUse(o: Oracle): Promise<void> {
     const other = asUserId('mem_lifecycle_other')
-    await o.store.users.create(
+    await memberFacts(o.store).create(
       {
         id: other,
         displayName: 'Other',

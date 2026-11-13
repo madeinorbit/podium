@@ -49,7 +49,6 @@ const issues = await IssueService.create({
     normalizeSettings({
       gitWorkflow: {
         defaultParentBranch: 'main',
-        mergeStyle: 'ff-only',
         autoRebaseBeforeMerge: true,
       },
       sessionDefaults: { agent: 'codex' },

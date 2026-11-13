@@ -34,6 +34,12 @@ export interface SendSocket {
   sendBinary?(data: Uint8Array, compress?: boolean): SendStatus
   terminate(): void
   /**
+   * Close with a code and reason the client can read (POD-6910), where the
+   * socket can. Inbound frames that arrive after it are dropped. A socket
+   * without it is terminated instead.
+   */
+  end?(code: number, reason: string): void
+  /**
    * Native `drain` for THIS socket: Bun's buffer shrank, another send may be
    * attempted. Not an acknowledgement of anything the client read. Absent on a
    * socket that cannot push back, which then never pauses.

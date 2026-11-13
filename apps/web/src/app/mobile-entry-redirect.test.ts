@@ -11,10 +11,11 @@ const desktopGlobal = globalThis as { __PODIUM_DESKTOP__?: NativeDesktopBridge }
 /** Point the app at a URL with a given UA and capture any location.replace(). */
 function boot(url: string, userAgent: string) {
   const replace = vi.fn()
-  const { pathname, search } = new URL(url, 'http://podium.local')
+  const { pathname, search, hash } = new URL(url, 'http://podium.local')
   vi.spyOn(window, 'location', 'get').mockReturnValue({
     pathname,
     search,
+    hash,
     replace,
   } as unknown as Location)
   vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(userAgent)
@@ -33,6 +34,15 @@ describe('redirectPhoneToMobileApp [POD-359]', () => {
     const { replace, redirected } = boot('/', IPHONE)
     expect(redirected).toBe(true)
     expect(replace).toHaveBeenCalledWith('/mobile')
+  })
+
+  it.each([
+    'invitation-secret',
+    'reset-secret',
+  ])('keeps %s on the shared screen when a cached shell handles a phone link', (token) => {
+    const { replace, redirected } = boot(`/#invite=${token}`, IPHONE)
+    expect(redirected).toBe(false)
+    expect(replace).not.toHaveBeenCalled()
   })
 
   it('carries the query string across', () => {

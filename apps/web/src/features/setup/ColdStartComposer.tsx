@@ -33,7 +33,6 @@ import {
   machinePathKey,
   preferredMachineChoices,
 } from '@podium/model/browser'
-import { nativeAccountId } from '@podium/runtime'
 import { ChevronDown, Folder, LoaderCircle, Monitor, Paperclip } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -56,7 +55,6 @@ import {
 } from '@/lib/agent-capability'
 import {
   ISSUE_AGENT_KINDS,
-  type IssueAgentKind,
   issueAgentIcon,
   issueAgentKind,
   issueAgentLabel,
@@ -260,7 +258,6 @@ export function ColdStartComposer({
     setPanelMode,
     setView,
     setOpenIssueId,
-    setPreferences,
   } = useSettingsClient()
   const { repos, machines } = useSettingsCatalog()
   const { usage: repositoryUsage, defaultAgent: recentAgent } = useSettingsSetupSummary(repos)
@@ -312,17 +309,9 @@ export function ColdStartComposer({
     readFirstTaskDraft,
   )
   const previousLaunchContext = useRef<LaunchPickContext | undefined>(undefined)
-  /**
-   * The operator's harness, as `roles.coding` answers it — the same read the
-   * deleted sidebar chip made, and held as a raw string for the same reason it
-   * was there (POD-1469). It is written back from the agent menu below, which is
-   * what makes "the last one you used" a fact rather than a hope.
-   */
-  // My coding default is a synced setting of mine (POD-6673); a pick made here
-  // shows at once, ahead of the record's own paint.
-  const syncedAgentSetting = useMyCodingHarness()
-  const [pickedAgentSetting, setAgentSetting] = useState<string | undefined>(undefined)
-  const agentSetting = pickedAgentSetting ?? syncedAgentSetting
+  // Launch choices stay in this composer's draft. Only Settings › Agents
+  // changes the synced default used by other launches.
+  const agentSetting = useMyCodingHarness()
   const [busy, setBusy] = useState(false)
   const runtimeDriversEnabled = useFeature('runtime-drivers')
   const HEADED_DRIVER = 'headed'
@@ -395,62 +384,12 @@ export function ColdStartComposer({
   /** A host the operator may see but not run on. Everything that starts work
    *  refuses on it; the picker still shows it, saying why. */
   const machineDenied = selectedMachine !== undefined && !authorized.has(selectedMachine.id)
-  /**
-   * WHICH HARNESS THIS BOX OPENS ON — the sidebar chip's rule, inherited whole
-   * (POD-1469).
-   *
-   * `New <Agent> in <Repo>` answered this with `resolveDefaultAgent` over the
-   * `roles.coding` harness, so that is the call, unchanged. In practice the
-   * settings read always yields a concrete harness — a native account NAMES its
-   * CLI (`native:codex`) and the role's default account names Claude Code — so
-   * what actually carries "the last one you used" is the write in
-   * `persistDefaultAgent` below, exactly as it did for the chip. The resolver's
-   * session fallback stays because it is the same resolver, and it is the right
-   * answer for the inputs that can still arrive unresolved: no setting yet (my
-   * synced `userPreferences` record not yet in the pool, POD-6673), or `auto`.
-   *
-   * Then availability, and only then: a default that cannot start on the chosen
-   * machine is not a default, so it steps aside for the first harness that can.
-   * A pick made in THIS box outranks both — it is the most recent thing the
-   * operator said about this specific task.
-   */
+  // A choice in this draft wins, then the saved Agents default. Availability
+  // may choose another runnable harness for this launch without changing it.
   const defaultAgent =
     issueAgentKind(agentSetting && agentSetting !== 'auto' ? agentSetting : recentAgent) ??
     DEFAULT_HARNESS_AGENT
 
-  /**
-   * PICKING A HARNESS HERE IS A WRITE (POD-1469).
-   *
-   * This is the half of the sidebar chip's behaviour that did not survive the
-   * move. `New <Agent> in <Repo>` showed the last harness you chose because its
-   * menu PERSISTED the choice — `roles.coding.accountId` — so the next spawn,
-   * from any surface, opened on it. The composer only ever held the pick in its
-   * own draft: correct for one run of the box, forgotten by the issue page, the
-   * dock and the CLI, and gone the moment ui-state was cleared.
-   *
-   * It is deliberately the same key and the same account spelling
-   * (`nativeAccountId`), because the point is that every surface reads ONE
-   * answer to "which harness does this operator work in".
-   *
-   * IT FIRES ON LAUNCH, NOT ON SELECT, which is also the chip's own rule:
-   * `NewAgentMenu.pick()` persisted and spawned as ONE action, so the operator's
-   * global default only ever moved when work actually started on that harness.
-   * Writing it from the menu's `onSelect` would mean opening the chip to look at
-   * Codex, changing your mind, and navigating away had silently retargeted the
-   * issue page, the dock and the CLI — with nothing to undo it. The draft already
-   * carries the pick for THIS task; this key is only for the next one.
-   *
-   * Best-effort: the local read is updated first either way, so a failed write
-   * costs the operator the persistence and never the pick they just made.
-   */
-  const persistDefaultAgent = async (kind: IssueAgentKind): Promise<void> => {
-    setAgentSetting(kind)
-    try {
-      await setPreferences({ 'roles.coding.accountId': nativeAccountId(kind) })
-    } catch {
-      // Kept optimistic — see above.
-    }
-  }
   const agent = launchAgentKind({
     picked: issueAgentKind(draft.agent),
     preferred: defaultAgent,
@@ -971,11 +910,6 @@ export function ColdStartComposer({
    *  starts a bare session. */
   const launch = (): void => {
     if (launchBlocked) return
-    // Starting work on a harness is what makes it the operator's harness — see
-    // `persistDefaultAgent`. Once, for both modes, and only when the pick is
-    // actually news: relaunching on the harness that is already the default has
-    // nothing to write.
-    if (agent !== defaultAgent) void persistDefaultAgent(agent)
     rememberLaunchPick(uiState, { machineId: selectedMachine!.id, harness: agent }, draft)
     // The new task gets the room, as it did when New task folded the deck.
     uiState.set(SUPERAGENT_MODE_KEY, 'folded')

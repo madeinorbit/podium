@@ -78,9 +78,8 @@ describe('replica ui-state collection', () => {
     expect(data.has(`${prefix}.uistate.v1`)).toBe(true)
   })
 
-  it('migrates the remaining ad-hoc families: panel-mode default and per-file maps', () => {
+  it('migrates the remaining ad-hoc families: per-file maps', () => {
     const { storage, data } = makeStorage({
-      'podium.panelModeDefault': 'chat',
       'podium.htmlmode:file:a:/x.html': 'split',
       'podium.htmlmode:file:b:/y.html': 'source',
       'podium.mdmode:file:a:/notes.md': 'source',
@@ -93,9 +92,7 @@ describe('replica ui-state collection', () => {
       }).deviceStorage(),
     )
 
-    // Exact keys migrate under their own names…
-    expect(ui.get('podium.panelModeDefault')).toBe('chat')
-    // …the per-file families fold into ONE JSON-map row each…
+    // Per-file families fold into ONE JSON-map row each…
     expect(JSON.parse(ui.get('podium.htmlmode') ?? '{}')).toEqual({
       'file:a:/x.html': 'split',
       'file:b:/y.html': 'source',
@@ -105,7 +102,6 @@ describe('replica ui-state collection', () => {
     })
     // …and every old key is removed.
     for (const k of [
-      'podium.panelModeDefault',
       'podium.htmlmode:file:a:/x.html',
       'podium.htmlmode:file:b:/y.html',
       'podium.mdmode:file:a:/notes.md',

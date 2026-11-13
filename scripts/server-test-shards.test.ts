@@ -1,4 +1,6 @@
-import { readdirSync, readFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { normalizedWireTests } from '../vitest.unit.config'
@@ -6,8 +8,10 @@ import {
   AGGREGATE_INPUTS,
   computePlan,
   diffAgainstPlan,
+  inputsForClosure,
   LANE_INPUTS,
   readManifest,
+  referencedRepositoryPaths,
   repositoryRoot,
   SHARDS,
   shardTaskName,
@@ -42,6 +46,90 @@ const walkServerFiles = (dir = join(repositoryRoot, 'apps/server'), out: string[
 
 describe('server test cache shards', () => {
   const manifest = readManifest(repositoryRoot)
+
+  it.each(['', '/', '//'])('normalizes directory literals ending in %j [POD-6380]', (suffix) => {
+    const fixture = mkdtempSync(join(tmpdir(), 'podium-server-shard-inputs-'))
+    try {
+      const directories = [
+        'apps/server/src/migrations',
+        'apps/server/src/store/executor',
+        'packages/sync/src/adapters/mobile-sqlite',
+      ]
+      for (const directory of directories) mkdirSync(join(fixture, directory), { recursive: true })
+      const file = 'apps/server/src/path-inputs.test.ts'
+      writeFileSync(
+        join(fixture, file),
+        [
+          ...directories.map((directory) => `${directory}${suffix}`),
+          directories[0],
+          file,
+          'apps/missing/',
+        ]
+          .map((path) => `readFileSync(${JSON.stringify(path)})`)
+          .join('\n'),
+      )
+
+      const referenced = referencedRepositoryPaths(fixture, file)
+      expect(referenced).toEqual([...directories.map((directory) => `${directory}/**`), file])
+      const inputs = inputsForClosure(referenced)
+      expect(inputs).toEqual(
+        expect.arrayContaining([
+          'src/migrations/**',
+          'src/store/executor/**',
+          '$TURBO_ROOT$/packages/sync/src/adapters/mobile-sqlite/**',
+          'src/path-inputs.test.ts',
+        ]),
+      )
+      expect(inputs.filter((input) => input.includes('//'))).toEqual([])
+    } finally {
+      rmSync(fixture, { recursive: true, force: true })
+    }
+  })
+
+  it('resolves every intended task through the full package wrapper [POD-6380]', () => {
+    // A dry run hashes the real inputs with Turbo's glob parser, without starting any
+    // package tests. Comparing the graph also prevents a narrower selection hiding a bad glob.
+    const run = spawnSync(
+      'bun',
+      ['run', 'test:unit', '--', '--full-because=server shard selection regression', '--dry=json'],
+      {
+        cwd: repositoryRoot,
+        env: process.env,
+        encoding: 'utf8',
+        timeout: 30_000,
+        maxBuffer: 16 * 1024 * 1024,
+      },
+    )
+    expect(run.error, run.stderr).toBeUndefined()
+    expect(run.status, run.stderr).toBe(0)
+    const graph = JSON.parse(run.stdout) as {
+      tasks: { taskId: string; task: string; command: string; inputs: Record<string, string> }[]
+    }
+    const configured = JSON.parse(readFileSync(join(repositoryRoot, 'turbo.json'), 'utf8')) as {
+      tasks: Record<string, unknown>
+    }
+    expect(
+      graph.tasks
+        .filter((task) => task.task === 'test')
+        .map((task) => task.taskId)
+        .sort(),
+    ).toEqual(
+      [
+        ...Object.keys(configured.tasks).filter((task) => task.endsWith('#test')),
+        '@podium/server#test',
+      ].sort(),
+    )
+    for (const shard of manifest.shards) {
+      const task = graph.tasks.find((task) => task.taskId === `@podium/server#test:${shard.id}`)
+      expect(task, `missing ${shard.id} shard`).toBeDefined()
+      expect(task?.command).toContain(`--config vitest.${shard.id}.config.ts`)
+      for (const file of shard.testFiles) {
+        expect(Object.keys(task?.inputs ?? {}), `${shard.id} does not hash ${file}`).toContain(
+          file.slice('apps/server/'.length),
+        )
+      }
+    }
+  }, 35_000)
 
   it('partitions every unit-lane server test file exactly once', () => {
     // The exhaustiveness refusal. `bun run test` reaches apps/server ONLY through the five

@@ -1,3 +1,4 @@
+import { memberFacts } from '../../store/fixtures/test-support'
 /**
  * PINS, TAB ORDERS AND PERSONAL PREFERENCES AS SYNCED PER-USER RECORDS
  * (POD-6673).
@@ -334,14 +335,14 @@ describe('records.userPreferences', () => {
     const o = await makeOracle()
     const env = envelope(
       'records.userPreferences.edit',
-      { id, patch: { 'sidebar.groupByRepo': true } },
+      { id, patch: { 'sidebar.repoSort': 'alphabetical' } },
       'u-r',
     )
     await expectAppliedOnPath(o, env, { writes: true })
     const replay = await submit(o, env)
     expect(replay.outcome === 'applied' && replay.replayed).toBe(true)
 
-    for (const path of ['apiKeys.openai', 'gitWorkflow.mergeStyle']) {
+    for (const path of ['apiKeys.openai', 'gitWorkflow.defaultParentBranch']) {
       const reply = await submit(
         o,
         envelope('records.userPreferences.edit', { id, patch: { [path]: 'x' } }, `u-${path}`),
@@ -468,7 +469,7 @@ describe('records.userReadPosition', () => {
   it('a disabled account is refused by its live role, whatever its capability says', async () => {
     const o = await makeOracle()
     const user = asUserId('usr_disabled_6673')
-    await o.store.users.createUnclaimed({
+    await memberFacts(o.store).create({
       id: user,
       displayName: 'Member',
       email: null,
@@ -476,7 +477,7 @@ describe('records.userReadPosition', () => {
       createdAt: new Date().toISOString(),
       disabledAt: null,
     })
-    await o.store.users.disable(user, new Date().toISOString())
+    await memberFacts(o.store).disable(user, new Date().toISOString())
     const reply = await o.reg.modules.syncWrite.submit(
       envelope(
         'records.userReadPosition.edit',

@@ -87,6 +87,24 @@
  *    through the quarantining helper it already uses.
  */
 
+/**
+ * THE IDENTITY TABLES (POD-6744, docs/design/people-and-sign-in.md section 1.1).
+ * They are defined by the shared identity package, because the cloud defines
+ * the same tables on Postgres from the same package, and re-exported here so
+ * this server's migration chain creates them. The package holds no migrations.
+ */
+export {
+  identityAccount,
+  identityInvitation,
+  identityMembership,
+  identityMembershipEvent,
+  identityOneTimeCode,
+  identitySession,
+  identityUser,
+  identityVerification,
+  identityWorkspaceRevision,
+} from '@podium/identity/schema/sqlite'
+
 import type {
   AccountId,
   AutomationId,
@@ -941,7 +959,7 @@ export const machines = sqliteTable(
      * Durable authority choice for this machine's next target. NULLABLE and null is
      * MEANINGFUL (POD-1882): null = this machine follows the FLEET DEFAULT channel
      * (config.updateChannel), which is what Settings → Updates sets. A value here is
-     * an operator's explicit per-machine pin, made in Settings → Machines, and it
+     * an operator's explicit per-machine pin, made in Settings → Updates, and it
      * survives the Podium-development flag being switched back off — the selector
      * hides, the pin does not move.
      */
@@ -1157,42 +1175,19 @@ export const users = sqliteTable(
      *  authorized under rights that have since changed, and is refused when it
      *  is dispatched. NULL: the member's authority never changed. */
     authzChangedAt: text('authz_changed_at'),
+    /**
+     * The version of the membership last applied to this row (POD-6745,
+     * docs/design/people-and-sign-in.md sections 1.8 and 2.6). A membership
+     * whose version is not above it changes nothing, so applying one twice,
+     * or an older one after a newer one, is harmless.
+     */
+    membershipVersion: integer('membership_version').notNull().default(0),
   },
   (table) => [
     uniqueIndex('users_email_unique').on(sql`lower(${table.email})`),
     uniqueIndex('users_account_id_unique').on(table.cloudAccountId),
   ],
 )
-
-/** Invite tokens are credentials: only their hash is persisted; no sync projection. */
-export const memberInvites = sqliteTable('member_invites', {
-  id: text().$type<import('@podium/model').InviteId>().primaryKey(),
-  tokenHash: text('token_hash').notNull().unique(),
-  memberId: text('member_id').$type<UserId>(),
-  email: text(),
-  role: text().$type<import('@podium/model').UserRole>().notNull(),
-  expiresAt: text('expires_at').notNull(),
-  createdBy: text('created_by').$type<UserId>().notNull(),
-  createdAt: text('created_at').notNull(),
-})
-
-// ACCOUNT CREDENTIAL MATERIAL (ADR 1 matrix row `account-credential`):
-// `secret-value`, never replicated, never enqueued (ADR 1 D6 unchanged).
-// A SEPARATE table from `users` on purpose — the account is `personal` and
-// reaches the wire; its credential is `secret` and has no wire projection to
-// be omitted from, because it is not on the aggregate at all.
-//
-// `source = 'instance-password'` with a NULL hash means "this account
-// authenticates with the shared instance password already in auth.json". That
-// is what the upgrade writes, because a SQL migration cannot read a file — see
-// the migration's own header. `per-user-scrypt` with a hash is Phase 3's
-// (POD-315) per-account credential.
-export const userCredentials = sqliteTable('user_credentials', {
-  userId: text('user_id').$type<UserId>().primaryKey(),
-  source: text().notNull(),
-  passwordHash: text('password_hash'),
-  updatedAt: text('updated_at').notNull(),
-})
 
 // GRANT EDGE (ADR 9 D2): `(entityRef, granteeUserId, verb)`. `owner` is the
 // GRANTER — the accountable party, since a grant may never exceed its granter's
@@ -1228,7 +1223,8 @@ export const grants = sqliteTable(
     grantee: text().notNull(),
     verb: text().notNull(),
     /** Custody is carried only by a machine manage edge. */
-    custody: integer({ mode: 'boolean' }).notNull().default(false),
+    // Keep the SQL spelling shipped by the custody migration.
+    custody: integer({ mode: 'boolean' }).notNull().default(sql`false`),
     owner: text().notNull(),
     visibility: text().notNull(),
     createdAt: text('created_at').notNull(),
@@ -1249,19 +1245,7 @@ export const grants = sqliteTable(
   ],
 )
 
-// A client session is a DEVICE — and, from POD-1075, one that RESOLVES TO A
-// USER (ADR 9 D1.3). `user_id` is what makes "which device" and "who" two
-// answers instead of one.
-//
-// It does NOT yet make the transport able to tell two people apart: there is
-// still one shared password, so every row an upgraded instance has names the
-// first admin, and `CLIENT_PRINCIPAL_GRADE` stays `'device'`. Per-user login is
-// Phase 3 (POD-315).
-//
-// `label` records WHY a row exists (POD-1376): 'login' = a browser sign-in,
-// 'upstream' = a node⇄hub provisioning token, 'break-glass' = a session minted
-// from local state-dir access by `podium auth mint-session`. Without it the
-// three are indistinguishable and revoking one class signs every device out too.
+// LEGACY(remove-after: 2027-06): pre-upgrade sign-ins consumed once by carry-over; removing this table requires older devices to sign in again.
 export const clientSessions = sqliteTable(
   'client_sessions',
   {
@@ -1282,6 +1266,29 @@ export const clientSessions = sqliteTable(
     index('idx_client_sessions_user').on(table.userId),
     index('idx_client_sessions_expires').on(table.expiresAt),
     index('idx_client_sessions_label').on(table.label),
+  ],
+)
+
+// LEGACY(remove-after: 2027-06): the sign-in carry-over's repeat records (docs/design/sign-in-carry-over.md, section 4.4); removing the table drops the ten-minute repeat of a carried old sign-in.
+// One row per old sign-in that became a device sign-in, for ten minutes. `sealed`
+// is the answer's Set-Cookie values, encrypted with a key derived from the old
+// token, which the database does not hold. `member_id` and `old_label` exist so
+// that whatever ends a member's or a label's old sign-ins can delete their
+// records with them.
+export const carriedSignIns = sqliteTable(
+  'carried_sign_ins',
+  {
+    oldTokenHash: text('old_token_hash').primaryKey(),
+    deviceSignInId: text('device_sign_in_id').notNull(),
+    sealed: text().notNull(),
+    expiresAt: text('expires_at').notNull(),
+    memberId: text('member_id').$type<UserId>().notNull(),
+    oldLabel: text('old_label').notNull(),
+  },
+  (table) => [
+    index('idx_carried_sign_ins_expires').on(table.expiresAt),
+    index('idx_carried_sign_ins_member').on(table.memberId),
+    index('idx_carried_sign_ins_label').on(table.oldLabel),
   ],
 )
 

@@ -49,6 +49,7 @@ A one-person instance runs exactly the same model, so nothing here may change ho
 
 - **Custody.** A machine's custodian is its `grants` row with `verb='manage'` and `custody=1`. Being allowed to run agents on it is a personal `use` grant.
 - **Admins.** Admins hold `manage` and `see` on every machine because of their role, but never `use`. An admin who wants to run on someone's machine has to take custody, which is recorded as a takeover, or be given a `use` grant.
+- **Adding a machine.** Any active member, not only an admin, can create an enrollment code for a new machine (decided 12 Nov 2026, POD-6883). The code belongs to the member who created it: the machine that uses it goes into their custody with their `use`. It works once, expires, and stops working if that member is disabled, removed or changes role. Agents cannot create one, and the viewer's `addMachine` capability is what makes the client offer it.
 - **Unowned machines.** A machine with no custodian can't be used by anyone. Any admin can adopt it.
 - **Removal and disable.** Removing a member makes their machines unowned in the same transaction, each with an audit row. Disabling a member keeps other people's shares on their machines.
 - **Tasks grant nothing on machines.** Reading or editing a task gives no right to use a machine. A `use` grant never gives access to another person's sessions on that machine.
@@ -134,7 +135,7 @@ Personal settings remain per member.
 10. **Some notifications are not per member.** Inbox delivery is keyed, but push/ntfy fan-out and issue-event notifications need checking against two members.
 
 What already matches and only needs two-member proof:
-- invites, per-member passwords and sign-in sessions (`member-routes.ts`, `member-invites.ts`, `auth-route.ts`);
+- invites, per-member passwords and sign-in sessions (`member-routes.ts`, `member-links.ts`, `auth-route.ts`);
 - the disable and remove transactions (`store/users.ts:468-633`);
 - client storage namespaced by `[syncBoundaryId, memberId]` (`packages/client-core/src/replica/principal-storage.ts`);
 - the per-member feed machinery (`GrantEdgeVisibilityPolicy`, `grant_audiences`, authorization revision);

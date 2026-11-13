@@ -77,7 +77,10 @@ it('disabling Bob closes his live feed in the commit and refuses what he queued'
   expect(await dispatch(inst, inst.sessions.bob, queuedBy(bob.id), queuedAt)).toEqual({ ok: true })
   await tick()
 
-  await inst.handle.registry.sessionStore.users.disable(bob.id, new Date().toISOString(), alice.id)
+  await inst.handle.identity.memberships.disable({
+    actor: { memberId: alice.id },
+    memberId: bob.id,
+  })
 
   // Gone by the time the disable returns: the commit's own publication closed
   // it, not the next heartbeat (15 s) or credential sweep.
@@ -88,7 +91,10 @@ it('disabling Bob closes his live feed in the commit and refuses what he queued'
   expect(await dispatch(inst, inst.sessions.bob, queuedBy(bob.id), queuedAt)).toMatchObject({
     ok: false,
   })
-  await inst.handle.registry.sessionStore.users.enable(bob.id, new Date().toISOString(), alice.id)
+  await inst.handle.identity.memberships.enable({
+    actor: { memberId: alice.id },
+    memberId: bob.id,
+  })
   expect(await dispatch(inst, inst.sessions.bob, queuedBy(bob.id), queuedAt)).toEqual({
     ok: false,
     reason: 'access changed after this was queued',
@@ -105,12 +111,19 @@ it('disabling Bob closes his live feed in the commit and refuses what he queued'
 it('demoting Alice rescopes her open connection and refuses what she queued as admin', async () => {
   const inst = await boot()
   const { alice, bob } = inst.members
-  const users = inst.handle.registry.sessionStore.users
   // The last admin cannot be demoted, so Bob becomes the second one first.
-  await expect(users.setRole(alice.id, 'member', alice.id)).rejects.toThrow(
-    'The last administrator cannot be demoted',
-  )
-  await users.setRole(bob.id, 'admin', alice.id)
+  await expect(
+    inst.handle.identity.memberships.setRole({
+      memberId: alice.id,
+      role: 'member',
+      actor: { memberId: alice.id },
+    }),
+  ).rejects.toMatchObject({ code: 'last-admin' })
+  await inst.handle.identity.memberships.setRole({
+    memberId: bob.id,
+    role: 'admin',
+    actor: { memberId: alice.id },
+  })
 
   const feed = await (await inst.as('alice')).feed()
   // The machines Alice may see are her `machineAccess` records (POD-6644).
@@ -132,7 +145,11 @@ it('demoting Alice rescopes her open connection and refuses what she queued as a
   const queuedAt = Date.now()
   await tick()
 
-  await users.setRole(alice.id, 'member', bob.id)
+  await inst.handle.identity.memberships.setRole({
+    memberId: alice.id,
+    role: 'member',
+    actor: { memberId: bob.id },
+  })
 
   // The same connection, still open, now carries Alice's member role.
   const [conn] = connectionsOf(inst, alice.id)
@@ -151,7 +168,7 @@ it('demoting Alice rescopes her open connection and refuses what she queued as a
   })
 })
 
-it("signing Bob out closes that device's connection; signing out everywhere closes all of them", async () => {
+it("signing Bob out closes that device's connection; ending all his sign-ins refuses his other device", async () => {
   const inst = await boot()
   const { bob } = inst.members
   const first = await inst.as('bob')
@@ -169,16 +186,17 @@ it("signing Bob out closes that device's connection; signing out everywhere clos
   const queuedAt = Date.now()
   await tick()
 
-  // Signing out everywhere closes the rest in the commit, and what was queued
-  // before it is refused at dispatch.
-  await inst.handle.registry.sessionStore.users.signOutEverywhere(bob.id, bob.id)
-  expect(connectionsOf(inst, bob.id)).toEqual([])
-  await secondFeed.until(() => secondFeed.closed(), 2000)
+  // Ending every device sign-in of Bob's account refuses his other device from
+  // then on. It does not touch what Bob may do: agent work depends on the
+  // membership, not on a device, so what he queued before still dispatches
+  // (people and sign-in specification, section 16 row 14). The route that
+  // also closes the open sockets at once is POD-6747's.
+  const bobAccount = (await inst.handle.registry.sessionStore.users.get(bob.id))?.accountId
+  expect(bobAccount).toBeTruthy()
+  await inst.handle.identity.core.deviceSignIns.revokeAllForAccount(bobAccount as string)
   await expect(inst.feedWith(secondCookie)).rejects.toThrow()
-  expect(await dispatch(inst, inst.sessions.bob, queuedBy(bob.id), queuedAt)).toEqual({
-    ok: false,
-    reason: 'access changed after this was queued',
-  })
+  expect(await dispatch(inst, inst.sessions.bob, queuedBy(bob.id), queuedAt)).toEqual({ ok: true })
+  secondFeed.close()
 })
 
 it("ending a delegation refuses its agent's calls and the work queued under it", async () => {
@@ -204,7 +222,9 @@ it("ending a delegation refuses its agent's calls and the work queued under it",
   })
 
   // Bob ends the session: its binding, and the delegation with it, retires.
-  await inst.handle.registry.modules.sessions.killSession(inst.handle.registry.issues.reports.store.serverWriter, { sessionId }).catch(() => {})
+  await inst.handle.registry.modules.sessions
+    .killSession(inst.handle.registry.issues.reports.store.serverWriter, { sessionId })
+    .catch(() => {})
 
   await expect(edit('after the delegation ended')).rejects.toThrow()
   expect(await dispatch(inst, inst.sessions.bobOnAliceTask, agentQueued, Date.now())).toMatchObject(
@@ -234,11 +254,10 @@ it("Bob's daemon reconnecting after Bob is disabled gets none of his queued work
       sessionId: asSessionId(inst.sessions.bob),
     })
     await tick()
-    await inst.handle.registry.sessionStore.users.disable(
-      bob.id,
-      new Date().toISOString(),
-      alice.id,
-    )
+    await inst.handle.identity.memberships.disable({
+      memberId: bob.id,
+      actor: { memberId: alice.id },
+    })
   })
 
   const sent = inst.daemonFrames(inst.machines.bob).slice(before)

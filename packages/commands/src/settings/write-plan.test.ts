@@ -32,7 +32,7 @@ import { ONLINE_ONLY_SETTINGS_COMMANDS } from './contracts'
 const base = {
   roles: { coding: { model: 'auto', effort: 'auto' } },
   sidebar: { repoSort: 'lastUsed' },
-  gitWorkflow: { mergeStyle: 'ff-only' },
+  gitWorkflow: { defaultParentBranch: '' },
   experimental: { someFlag: true },
   apiKeys: { openai: '', anthropic: 'sk-old' },
   notifications: { telegramChatId: '', telegramBotToken: '' },
@@ -279,7 +279,7 @@ describe('tiers are separated, and an unclassified change is refused', () => {
       base,
       edit({
         sidebar: { repoSort: 'alphabetical' },
-        gitWorkflow: { mergeStyle: 'pr' },
+        gitWorkflow: { defaultParentBranch: 'release' },
       }),
       ONLINE,
     )
@@ -355,6 +355,8 @@ describe('the online-only set is derived and non-empty', () => {
       'settings.clearSecret',
       'settings.secretPresence',
       'settings.setSecret',
+      'settings.telegramBotPresence',
+      'settings.telegramDisconnect',
       'settings.telegramSetupPoll',
       'settings.telegramSetupStart',
     ])

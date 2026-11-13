@@ -3,7 +3,12 @@ import {
   type IssueContractName,
   type LockCommandName,
 } from '@podium/commands'
-import { SESSION_COOKIE, type SyncSubmitTransport, writesThroughSubmit } from '@podium/protocol'
+import {
+  deviceSignInCookieName,
+  readHttpsRequiredRefusal,
+  type SyncSubmitTransport,
+  writesThroughSubmit,
+} from '@podium/protocol'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 
 /** One issue procedure endpoint. Query and mutate are the same call over both
@@ -118,6 +123,12 @@ function isTrpcEnvelope(text: string): boolean {
  *  misleading when a session was already sent — it tells the operator to do the thing they
  *  just did, and never says the credential was rejected. `carriedCredential` splits them. */
 function describeNonEnvelope(status: number, text: string, carriedCredential: boolean): string {
+  try {
+    const guidance = readHttpsRequiredRefusal(JSON.parse(text))
+    if (guidance) return `${guidance.message}\nHTTPS setup: ${guidance.docsUrl}`
+  } catch {
+    // An ordinary non-JSON transport failure keeps its existing description.
+  }
   const detail = text.trim() ? `: ${text.trim().slice(0, 500)}` : ''
   if (status === 401 && carriedCredential)
     return (
@@ -135,10 +146,14 @@ function describeNonEnvelope(status: number, text: string, carriedCredential: bo
 }
 
 export interface IssueClientOptions {
-  /** A `podium_session` token (the same credential the browser login issues) sent as a
+  /** A signed device sign-in token (the same value a browser receives) sent as a
    *  cookie on every call. Absent = no cookie, which is correct on an instance with no
-   *  password configured: `clientAuthGuard` passes those through. */
-  sessionToken?: string
+   *  password configured: `clientAuthGuard` passes those through.
+   *
+   *  A function is asked once, when the first call is made, and its answer is
+   *  used for every call of this client. A rejection fails that call with the
+   *  function's own message. */
+  sessionToken?: string | (() => Promise<string | undefined>)
   /** Stable hosted workspace selector sent before authentication. */
   workspaceId?: string
   /** Injected in tests. */
@@ -158,6 +173,16 @@ export interface IssueClientOptions {
  *  against it (see IssueTrpc) — procedure names route by path exactly as before. */
 export function makeIssueClient(baseUrl: string, opts: IssueClientOptions = {}): IssueTrpc {
   const doFetch = opts.fetchImpl ?? fetch
+  const origin = new URL(baseUrl)
+  const sendCookie =
+    origin.protocol === 'https:' || ['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname)
+  let lazyToken: Promise<string | undefined> | undefined
+  const resolvedSessionToken = (): Promise<string | undefined> => {
+    const { sessionToken } = opts
+    if (typeof sessionToken !== 'function') return Promise.resolve(sessionToken)
+    lazyToken ??= sessionToken()
+    return lazyToken
+  }
   // The CALL SIGNATURE, not `typeof fetch`: under Bun's lib types the global also
   // carries a `preconnect` method, and a wrapper is not obliged to reimplement it —
   // `httpBatchLink` only ever calls this.
@@ -166,8 +191,12 @@ export function makeIssueClient(baseUrl: string, opts: IssueClientOptions = {}):
     init?: Parameters<typeof fetch>[1],
   ): Promise<Response> => {
     const headers = new Headers(init?.headers)
-    if (opts.sessionToken)
-      headers.set('cookie', `${SESSION_COOKIE}=${encodeURIComponent(opts.sessionToken)}`)
+    const sessionToken = await resolvedSessionToken()
+    if (sessionToken && sendCookie)
+      headers.set(
+        'cookie',
+        `${deviceSignInCookieName(origin.protocol)}=${encodeURIComponent(sessionToken)}`,
+      )
     if (opts.workspaceId) headers.set('Podium-Workspace-Id', opts.workspaceId)
     const res = await doFetch(input as never, { ...init, headers })
     if (res.ok) return res
@@ -175,7 +204,7 @@ export function makeIssueClient(baseUrl: string, opts: IssueClientOptions = {}):
     // Response built from the same text rather than the drained original.
     const text = await res.text().catch(() => '')
     if (!isTrpcEnvelope(text))
-      throw new Error(describeNonEnvelope(res.status, text, Boolean(opts.sessionToken)))
+      throw new Error(describeNonEnvelope(res.status, text, Boolean(sessionToken)))
     return new Response(text, {
       status: res.status,
       statusText: res.statusText,

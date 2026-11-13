@@ -15,6 +15,16 @@ export const RELAY =
   process.env.PODIUM_RELAY ?? `ws://localhost:${Number(process.env.PORT ?? 8799)}`
 const HTTP = RELAY.replace(/^ws/, 'http')
 
+/** Keep background release offers from covering the settings interaction under test. */
+export async function deferUpdateOffers(page: Page): Promise<void> {
+  await page.addLocatorHandler(
+    page.getByRole('dialog', { name: 'Podium update', exact: true }),
+    async (dialog) => {
+      await dialog.getByRole('button', { name: 'Later', exact: true }).click()
+    },
+  )
+}
+
 interface PodiumTestApi {
   screenText(): string
   screenHash(opts?: { dropDim?: boolean }): string

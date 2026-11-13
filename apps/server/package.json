@@ -13,6 +13,7 @@
     "@podium/commands": "workspace:*",
     "@podium/logger": "workspace:*",
     "@podium/harness": "workspace:*",
+    "@podium/identity": "workspace:*",
     "@podium/issue-client": "workspace:*",
     "@podium/janitor": "workspace:*",
     "@podium/model": "workspace:*",

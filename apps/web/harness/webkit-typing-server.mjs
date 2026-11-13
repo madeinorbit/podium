@@ -335,7 +335,7 @@ try {
       if ((response.headers.get('content-type') ?? '').includes('text/html')) {
         const body = (await response.text()).replace(
           '<head>',
-          '<head><script>localStorage.setItem("podium.panelMode","chat");localStorage.setItem("podium.panelModeDefault","chat");window.__fixtureErrors=[];addEventListener("error",e=>window.__fixtureErrors.push(e.message));addEventListener("unhandledrejection",e=>window.__fixtureErrors.push(String(e.reason)));</script>',
+          '<head><script>localStorage.setItem("podium.panelMode","chat");window.__fixtureErrors=[];addEventListener("error",e=>window.__fixtureErrors.push(e.message));addEventListener("unhandledrejection",e=>window.__fixtureErrors.push(String(e.reason)));</script>',
         )
         return new Response(body, { headers: { 'content-type': 'text/html' } })
       }

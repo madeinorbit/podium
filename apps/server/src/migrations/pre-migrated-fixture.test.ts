@@ -176,11 +176,15 @@ describe('migration suites keep the full 54-step path [POD-523]', () => {
     expect(storeDatabaseOpenerInstalled()).toBe(false)
   })
 
-  it('still applies every migration in the manifest on a fresh database', () => {
+  it('applies schema migrations before import retirement on a fresh database', () => {
     const db = openDatabase(':memory:')
     db.exec('PRAGMA foreign_keys = OFF')
     const applied = runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
-    expect(applied).toEqual(DRIZZLE_MIGRATIONS.map((m) => m.name))
+    expect(applied).toEqual(
+      DRIZZLE_MIGRATIONS.filter((m) => !m.sql.startsWith('-- after-local-identity-import')).map(
+        (m) => m.name,
+      ),
+    )
     db.close()
   })
 
@@ -214,11 +218,13 @@ describe.skipIf(disabled)('the clone is the chain [POD-523]', () => {
     expect(fromClone.rows, DISAGREEMENT).toEqual(fromChain.rows)
   })
 
-  it('carries the whole migration ledger, so nothing is left pending', async () => {
+  it('carries schema migrations and leaves import retirement pending', async () => {
     installPreMigratedStoreFixture()
     const store = await openTestStore(':memory:')
     expect([...appliedDrizzleNames(raw(store))].sort()).toEqual(
-      DRIZZLE_MIGRATIONS.map((m) => m.name).sort(),
+      DRIZZLE_MIGRATIONS.filter((m) => !m.sql.startsWith('-- after-local-identity-import'))
+        .map((m) => m.name)
+        .sort(),
     )
     await store.close()
   })
@@ -229,7 +235,9 @@ describe.skipIf(disabled)('the clone is the chain [POD-523]', () => {
 
     const fresh = join(dir, 'fresh.db')
     const seeded = await openTestStore(fresh)
-    expect(appliedDrizzleNames(raw(seeded)).size).toBe(DRIZZLE_MIGRATIONS.length)
+    expect(appliedDrizzleNames(raw(seeded)).size).toBe(
+      DRIZZLE_MIGRATIONS.filter((m) => !m.sql.startsWith('-- after-local-identity-import')).length,
+    )
     await seeded.close()
 
     // A database the test built on purpose (here: one migration deep) must NOT be
@@ -241,7 +249,9 @@ describe.skipIf(disabled)('the clone is the chain [POD-523]', () => {
     old.close()
     const upgraded = await openTestStore(existing)
     // It advanced by its pending migrations rather than being replaced by the image.
-    expect(appliedDrizzleNames(raw(upgraded)).size).toBe(DRIZZLE_MIGRATIONS.length)
+    expect(appliedDrizzleNames(raw(upgraded)).size).toBe(
+      DRIZZLE_MIGRATIONS.filter((m) => !m.sql.startsWith('-- after-local-identity-import')).length,
+    )
     await upgraded.close()
   })
 })

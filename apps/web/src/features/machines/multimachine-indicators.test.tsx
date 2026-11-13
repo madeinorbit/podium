@@ -64,6 +64,8 @@ let maxIdleSessions = 8
 let hibernationEnabled = false
 let hibernationMemoryPct = 80
 let sessions: SessionMeta[] = []
+// Machine records the signed-in member holds without an access row of their own.
+let otherMembersMachines: unknown[] = []
 const settingsGet = vi.fn(async () => ({
   hibernation: {
     enabled: hibernationEnabled,
@@ -146,6 +148,7 @@ vi.mock('@/app/store', () => {
         lastSeenAt: 0,
         inventory: { os: 'linux', arch: 'x64', podiumVersion: '0.4.1', agents: [], tools: [] },
       },
+      ...otherMembersMachines,
     ],
     setView,
     setSettingsTab,
@@ -178,7 +181,6 @@ vi.mock('./ConnectionIndicator', () => ({
   useConnectionHealth: () => ({ state: 'online', pingMs: 10, since: 0 }),
   connectionSeverity: () => 'ok',
   describeHealth: () => ({ headline: 'Connected', detail: '' }),
-  ConnectionIndicator: () => null,
 }))
 
 const machineQuota = (
@@ -212,6 +214,7 @@ beforeEach(() => {
   hibernationEnabled = false
   hibernationMemoryPct = 80
   sessions = []
+  otherMembersMachines = []
   memoryBreakdown.mockResolvedValue(breakdownFor('vmi'))
   quotaSummary.mockResolvedValue([])
   // happy-dom lacks matchMedia; useIsMobile needs it.
@@ -287,7 +290,7 @@ describe('memory chip is machine-aware', () => {
     expect(await screen.findByText('Codex — known-session')).toBeTruthy()
     expect(screen.getByText('missing-')).toBeTruthy()
     expect(screen.getByText('2 processes')).toBeTruthy()
-    expect(await screen.findByText(/1 hibernated/)).toBeTruthy()
+    expect(await screen.findByText(/1 paused/)).toBeTruthy()
   })
 
   it('updates an open memory view when its machine processes topic pushes', async () => {
@@ -753,5 +756,48 @@ describe('header machine chip carries host-pressure readouts', () => {
     expect(idle?.querySelector('.header-value')?.textContent).toBe('1/2')
     expect(idle?.querySelector('.header-value')?.getAttribute('data-tone')).toBe('ok')
     expect(idle?.querySelector<HTMLElement>('.header-meter > span')?.style.width).toBe('50%')
+  })
+})
+
+// POD-6908: the desktop's own machine was enrolled by the previous person. The
+// next person cannot see it, so the header must not present it — only say what
+// this computer is, with nothing of the other member.
+describe('this computer in another member’s custody', () => {
+  afterEach(() => {
+    delete (globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__
+  })
+
+  it('says this computer is another member’s machine and never shows that machine', async () => {
+    otherMembersMachines = [
+      {
+        id: asMachineId('desk-id'),
+        name: 'desk',
+        hostname: 'desk',
+        online: false,
+        lastSeenAt: new Date(Date.now() - 60_000).toISOString(),
+        use: undefined,
+      },
+    ]
+    ;(globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__ = {
+      platform: 'linux',
+      machineId: 'desk-id',
+    }
+    render(<HeaderHostIndicators />)
+    const chip = await screen.findByTestId('this-computer-other-member')
+    expect(chip.getAttribute('aria-label')).toBe("This computer is another member's machine")
+    await waitFor(() => expect(settingsGet).toHaveBeenCalled())
+    expect(screen.queryByText('desk')).toBeNull()
+    expect(screen.queryByRole('button', { name: /desk/ })).toBeNull()
+  })
+
+  it('shows nothing extra when this computer is one of mine', async () => {
+    ;(globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__ = {
+      platform: 'linux',
+      machineId: 'vmi34',
+    }
+    render(<HeaderHostIndicators />)
+    await waitFor(() => expect(settingsGet).toHaveBeenCalled())
+    expect(screen.getByRole('button', { name: /vmi/i })).toBeTruthy()
+    expect(screen.queryByTestId('this-computer-other-member')).toBeNull()
   })
 })

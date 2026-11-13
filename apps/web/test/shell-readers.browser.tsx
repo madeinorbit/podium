@@ -19,7 +19,10 @@ import { AutoContinueDialog } from '../src/app/AutoContinueDialog'
 import { BrowserOpenOverlay } from '../src/app/BrowserOpenOverlay'
 import { CommandPaletteBoundary } from '../src/app/CommandPaletteBoundary'
 import { isComplexFlightDeckMission } from '../src/app/flight-deck-display'
-import { MachinesPanel } from '../src/app/MachinesPanel'
+import { MachinesPanel } from '../src/features/settings/MachinesPanel'
+import { AdminViewerContext } from '../src/features/settings/admin-viewer'
+import { SettingsOpening } from '../src/features/settings/SettingsOpening'
+import { SettingsFrame } from '../src/features/settings/settings-frame'
 import { RightDock } from '../src/app/RightDock'
 import { RightRail } from '../src/app/RightRail'
 import { useShellChrome, useShellClose, useShellDock } from '../src/app/shell-data'
@@ -31,6 +34,12 @@ import { activatePodiumHref } from '../src/lib/podium-link'
 import { createHeaderFixture } from './header-fixture'
 import '../src/index.css'
 import '../src/styles.css'
+
+const settingsViewer = {
+  status: 'ready' as const,
+  sections: ['people', 'access', 'machines', 'instance', 'audit'],
+  retry: () => {},
+}
 
 const sessionIndex = { calls: 0, first: undefined as string | undefined }
 Object.assign(globalThis, { __shellSessionIndex: sessionIndex })
@@ -249,7 +258,18 @@ function Surfaces() {
       <div className="flex">
         <section data-proof="machines" className="w-1/2 p-4">
           <Profiler id="machines" onRender={recordCommit}>
-            <MachinesPanel />
+            <SettingsOpening>
+              <AdminViewerContext.Provider value={settingsViewer}>
+                <SettingsFrame
+                  page="machines"
+                  viewer={settingsViewer}
+                  onPageChange={() => {}}
+                  onClose={() => {}}
+                >
+                  <MachinesPanel />
+                </SettingsFrame>
+              </AdminViewerContext.Provider>
+            </SettingsOpening>
           </Profiler>
         </section>
         <section data-proof="dock" className="w-1/2 min-h-[400px]">

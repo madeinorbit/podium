@@ -8,7 +8,7 @@ import { MobxPool } from './pool'
 import { SettingsRepositories } from './settings-repositories'
 
 /**
- * POD-6267: Settings → Repositories lists REPOSITORY RECORDS, and takes their
+ * POD-6267: Settings → Projects lists REPOSITORY RECORDS, and takes their
  * checkouts from what the machines publish. Every fixture below is built the way
  * the producer builds it (see `published`), because the first two landings were
  * tested on fixtures the producer never sends.

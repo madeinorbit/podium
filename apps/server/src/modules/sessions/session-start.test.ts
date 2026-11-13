@@ -1,3 +1,4 @@
+import { memberFacts } from '../../store/fixtures/test-support'
 /**
  * SessionStart seams that mutation found silent after the POD-1396 extract
  * (POD-1433). Both rules predate the cut and moved with the code; neither had
@@ -65,7 +66,7 @@ describe('SessionStart: a session is its starter’s, whatever task it is on (PO
 
     const { reg, daemon } = await makeRegistry()
     for (const id of [issueOwner, starter]) {
-      await reg.sessionStore.users.create({
+      await memberFacts(reg.sessionStore).create({
         id, displayName: id, role: 'member', createdAt: new Date(0).toISOString(), disabledAt: null,
       }, 'fixture-hash')
     }
@@ -99,7 +100,7 @@ describe('SessionStart: a session is its starter’s, whatever task it is on (PO
     const human = asUserId('user:binding-human')
     const requested = asUserId('user:requested')
     for (const id of [human, requested]) {
-      await reg.sessionStore.users.create({
+      await memberFacts(reg.sessionStore).create({
         id, displayName: id, role: 'member', createdAt: new Date(0).toISOString(), disabledAt: null,
       }, 'fixture-hash')
     }

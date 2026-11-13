@@ -20,8 +20,8 @@ import type { MachineId } from '@podium/model'
 import type { CapabilityRef, DeviceId, Principal, UserId } from '../../planes/principal'
 import type { DelegationDirectory, DelegationScope } from '../delegation-chain'
 import type {
-  BindingConfirmations,
   AuthRole,
+  BindingConfirmations,
   CredentialKind,
   HandshakeRejectReason,
   PeerCredential,
@@ -114,33 +114,6 @@ export interface PeerAuthStrategy<C extends PeerCredential = PeerCredential> {
 // ---------------------------------------------------------------------------
 // Directory ports
 // ---------------------------------------------------------------------------
-
-/**
- * PER-USER client sessions — ADR 3 Amendment 1 D14.1: a `client_session` remains
- * a DEVICE; it gains a user reference, and a user may hold many.
- *
- * The port is deliberately shaped as `(user, device)` even though today's
- * `client_sessions` table has no user column: POD-1075 lands the per-user
- * sessions this resolves against, and writing the port against today's single
- * shared password would bake the single-operator assumption into the one place
- * this issue exists to remove it from. Until POD-1075 lands there is no
- * production implementation, and the fail-closed default is the correct one.
- */
-export interface ClientSessionDirectory {
-  /**
-   * Resolve a session cookie token. `null` for unknown, expired or revoked —
-   * indistinguishably (consistent-error rule).
-   */
-  resolve(token: string): ResolvedClientSession | null
-}
-
-export interface ResolvedClientSession {
-  readonly user: UserId
-  /** The device this session IS. Two tabs on one device share it. */
-  readonly device: DeviceId
-  /** A disabled or revoked account fails closed at the transport edge. */
-  readonly userActive: boolean
-}
 
 /**
  * Machines are OWNED COMPUTE — readiness §3.1.4, ADR 3 Amendment 1 D18.
@@ -272,13 +245,10 @@ export interface CapabilityMinter {
 
 /** The bundle every strategy factory takes. Fakes in tests, services in prod. */
 export interface StrategyPorts {
-  readonly clientSessions?: ClientSessionDirectory
   readonly machines?: MachineDirectory
   readonly delegations?: DelegationDirectory
   readonly mint: CapabilityMinter
-  /** The operator channel's in-process binding, when this process has one. */
-  readonly boundUser?: () => UserId | null
 }
 
 /** Re-exported for strategy modules that talk about scopes in their doc comments. */
-export type { DelegationScope, CredentialKind }
+export type { CredentialKind, DelegationScope }

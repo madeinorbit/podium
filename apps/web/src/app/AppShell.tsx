@@ -1,9 +1,10 @@
-import { useSocketHub } from '@podium/client-core/react'
 import { cookieCredentials, watchAccountSwitch } from '@podium/client-core/accounts'
 import { createSocketLogin, observeLiveConnection } from '@podium/client-core/live-connection'
+import type { ClientPrincipal } from '@podium/client-core/principal'
+import { useSocketHub } from '@podium/client-core/react'
 import { parseReplicaNamespaceKey, replicaNamespaceKey } from '@podium/client-core/replica'
 import { observer } from '@podium/client-graph/react'
-import type { JSX, ReactNode } from 'react'
+import type { JSX } from 'react'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { flushSync } from 'react-dom'
 import { toast } from 'sonner'
@@ -13,6 +14,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { WaitingForServer } from '@/components/WaitingForServer'
 import { chordLabel } from '@/features/chat/use-composer-chord'
 import { DockIssueProvider } from '@/features/issues/dock-issue'
+import { AdminViewerContext, useAdminSections } from '@/features/settings/admin-viewer'
 import {
   hasActivationState,
   hasStaleActivation,
@@ -43,6 +45,7 @@ import { expireSignedInRuntime } from '@/lib/account-context'
 import { webAccounts } from '@/lib/accounts'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
+import { useSettingsShortcut } from '@/lib/hooks/use-settings-shortcut'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { prefetchAfterFirstPaint } from '@/lib/prefetch-after-first-paint'
 import { QuoteLayer } from '@/lib/quote/QuoteLayer'
@@ -68,7 +71,7 @@ import { RightDock } from './RightDock'
 import { RightRail } from './RightRail'
 import { MainViewOutlet } from './routes'
 import { StatusStrip } from './StatusStrip'
-import { SyncLoader, WarmSyncStatus } from './SyncLoader'
+import { SyncLoader } from './SyncLoader'
 import { useShellActions, useShellChrome } from './shell-data'
 import {
   CLOSE_RIGHT_PANEL,
@@ -82,6 +85,7 @@ import {
   rightPanelAllowed,
   SUPERAGENT_MODE_KEY,
 } from './shell-state'
+import { startSignInEndedWatch } from './sign-in-ended'
 import { describeWireSkew, reportSkew } from './skew-notice'
 import { type MainView, StoreProvider, useLive } from './store'
 import { ToolbarSlotProvider } from './ToolbarSlot'
@@ -206,6 +210,27 @@ function KernelWireSkewObserver({ httpOrigin }: { httpOrigin: string }): null {
         },
       }),
     [hub, httpOrigin],
+  )
+  return null
+}
+
+/** Ends the runtime when the server says this device's sign-in is gone (POD-6910). */
+function SignInEndedObserver({
+  httpOrigin,
+  principal,
+}: {
+  httpOrigin: string
+  principal: ClientPrincipal
+}): null {
+  const hub = useSocketHub()
+  const { userId, syncBoundaryId } = principal
+  useEffect(
+    () =>
+      startSignInEndedWatch(hub, {
+        httpOrigin,
+        principal: syncBoundaryId === undefined ? { userId } : { userId, syncBoundaryId },
+      }),
+    [hub, httpOrigin, userId, syncBoundaryId],
   )
   return null
 }
@@ -397,6 +422,7 @@ export function AppShell({
               >
                 <KernelWireSkewObserver httpOrigin={config.httpOrigin} />
                 <ServerFollowObserver />
+                <SignInEndedObserver httpOrigin={config.httpOrigin} principal={kernel.principal} />
                 <UpdateEffectsObserver />
                 <ReplicaReadyPodiumLinkHost
                   syncProgress={kernel.assembly.progress}
@@ -406,7 +432,7 @@ export function AppShell({
                     onInitialPodiumHrefConsumed()
                   }}
                 />
-                <RoutedDensityProvider>
+                <DensityProvider>
                   <SetupRecoveryReporter />
                   <BrowserOpenOverlay />
                   <ConfirmProvider>
@@ -416,7 +442,7 @@ export function AppShell({
                       <AppBody syncProgress={kernel.assembly.progress} />
                     </ToolbarSlotProvider>
                   </ConfirmProvider>
-                </RoutedDensityProvider>
+                </DensityProvider>
               </StoreProvider>
             </ErrorBoundary>
           )}
@@ -451,11 +477,6 @@ export function AppShell({
 /** The degraded setup gate re-asks when this runtime's connection comes back (POD-5798). */
 function SetupRecoveryReporter(): JSX.Element {
   return <SetupRecoveryOnConnect live={useLive()} />
-}
-
-function RoutedDensityProvider({ children }: { children: ReactNode }): JSX.Element {
-  const densityEnabled = useFeature('shell-density')
-  return <DensityProvider densityEnabled={densityEnabled}>{children}</DensityProvider>
 }
 
 /** Module-scope so the setter keeps a stable identity across renders — an inline
@@ -511,11 +532,19 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
   } = useActivationRoute()
   const vpsActivation = useConfirmedVpsActivation(trpc)
   const hasActivationCheckpoint = hasActivationState(window.location.search)
+  // WHO SETS THIS SERVER UP is the server's answer (POD-6882), not a reading of
+  // this member's own repo list: a member who joined an existing workspace sees
+  // nothing of anyone else's, and that emptiness sent them into the installer's
+  // wizard with no way out. Undefined until the server has answered.
+  const adminViewer = useAdminSections()
+  const setsUpServer =
+    adminViewer.status === 'loading' ? undefined : (adminViewer.capabilities?.setUpServer ?? true)
   const shouldContinueRemoteActivation =
     vpsActivation.ready &&
     shouldStartRemoteClientAtHandoff({
       launchMode: nativeDesktopBridge()?.launchMode,
       loaded: reposLoaded,
+      setsUpServer: setsUpServer === true,
       repoCount,
       sessionCount,
       route: activationState.route,
@@ -527,20 +556,29 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     shouldStartBrowserAtProjectIntake({
       nativeShell: nativeDesktopBridge() !== undefined,
       loaded: reposLoaded,
+      setsUpServer: setsUpServer === true,
       repoCount,
       sessionCount,
       route: activationState.route,
       hasActivationCheckpoint,
       hasVpsCheckpoint: vpsActivation.state !== null,
     })
-  const activationEligible = isActivationEligible({
+  const activationFacts = {
     loaded: reposLoaded,
     repoCount,
     sessionCount,
     setupInProgress,
     hasActivationCheckpoint,
     hasVpsCheckpoint: vpsActivation.state !== null,
+  }
+  const activationEligible = isActivationEligible({
+    ...activationFacts,
+    setsUpServer: setsUpServer === true,
   })
+  // Only a window that WOULD open setup waits for the server's answer; one with
+  // work in it never asks, so a warm start costs nothing extra.
+  const awaitingSetupViewer =
+    setsUpServer === undefined && isActivationEligible({ ...activationFacts, setsUpServer: true })
   // Setup owns the window outright (POD-1174). There is no exploring mode and no
   // other view to be in: while this is true the shell below simply does not
   // render, so nothing else can be reached until setup finishes.
@@ -614,7 +652,8 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
   // A setup flag or URL step left on an instance that already has sessions is
   // stale (see isActivationEligible): retire it, so the device heals itself.
   const staleActivation = hasStaleActivation({
-    loaded: reposLoaded,
+    loaded: reposLoaded && setsUpServer !== undefined,
+    setsUpServer: setsUpServer !== false,
     sessionCount,
     setupInProgress,
     hasActivationCheckpoint,
@@ -891,6 +930,8 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     return () => window.removeEventListener('keydown', onKey)
   }, [commandPaletteEnabled, paletteOpen, setPaletteOpen])
 
+  useSettingsShortcut(() => setView('settings'))
+
   const menuHost = (
     <DesktopMenuHost
       openSettings={() => setView('settings')}
@@ -903,7 +944,7 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
   // INSTALL, and shows the detailed sync screen instead of the splash. The
   // repositories are records in that bootstrap (POD-6644), so there is no
   // separate repository read to wait for.
-  if (!reposLoaded) {
+  if (!reposLoaded || awaitingSetupViewer) {
     return (
       <>
         {menuHost}
@@ -964,7 +1005,6 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
         <DockShellLifecycle />
         <div className="desktop-shell">
           <TopBar revealing={revealingChrome} />
-          <WarmSyncStatus store={syncProgress} />
           <div className="desktop-shell-row">
             <ResizableAside>
               <SidebarUnified />
@@ -1053,7 +1093,7 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
               <RightRail rightPanel={visibleRightPanel} onPanelChange={setRightPanel} />
             )}
           </div>
-          <StatusStrip />
+          <StatusStrip syncProgress={syncProgress} />
         </div>
         {/* The utility tier (POD-365): an inset sheet over a live shell. The mode
           underneath stays mounted, so closing is instant and the chrome never
@@ -1110,7 +1150,20 @@ const ObservedAppBody = observer(AppBodyView)
 export function AppBody(props: { syncProgress: SyncProgressStore }): JSX.Element {
   return (
     <TipHost>
-      <ObservedAppBody {...props} />
+      <SharedAdminViewer>
+        <ObservedAppBody {...props} />
+      </SharedAdminViewer>
     </TipHost>
   )
+}
+
+/**
+ * ONE `/auth/admin/viewer` READ FOR THE WHOLE SHELL (POD-6882). Setup reads
+ * from it who sets this server up; the command palette and Settings read the
+ * admin sections. Below this provider they share one answer instead of each
+ * asking the server.
+ */
+function SharedAdminViewer({ children }: { children: JSX.Element }): JSX.Element {
+  const viewer = useAdminSections()
+  return <AdminViewerContext.Provider value={viewer}>{children}</AdminViewerContext.Provider>
 }

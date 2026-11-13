@@ -27,9 +27,11 @@
 
 import type { MutationId, SessionId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
-import { and, asc, count, eq, gt, inArray, isNull, lt, lte, max, sql } from 'drizzle-orm'
+import { and, asc, count, eq, gt, inArray, isNull, lt, lte, max, or, sql } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/sqlite-core'
 import type { ChangeLogReadRow, ChangeLogWriteRow } from '../../authority/change-lifecycle'
 import type { ChangePrunePlan } from '../../change-log'
+import type { AppliedMutationFallback } from '../../mutation-ledger'
 import { inListOf, inListSize, inListValues, param, prepared, preparedFamily } from './prepared'
 import {
   appliedMutations,
@@ -254,11 +256,79 @@ const deleteChangeHead = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/**
+ * Each of `size` changes by seq, with the change of the same row just before it
+ * (POD-6834). The earlier change is one primary-key seek through a correlated
+ * `max(seq)` on `changes_entity (tenant_id, entity, entity_id, seq)`; a row with
+ * no earlier change in the log (first write, or pruned) comes back with a NULL
+ * prior. Catch-up reads the log here only to compare two logged records of one
+ * row; a pruned prior answers "moved", which costs a re-send, never a fact.
+ */
+const priorChange = alias(changes, 'prior')
+const earlierChange = alias(changes, 'earlier')
+const changesWithPrior = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({
+      seq: changes.seq,
+      op: changes.op,
+      payload: changes.payload,
+      // Named apart: the row reader keys columns by name, so a second `op` and
+      // `payload` would overwrite the change's own.
+      priorOp: sql<string | null>`${priorChange.op}`.as('prior_op'),
+      priorPayload: sql<string | null>`${priorChange.payload}`.as('prior_payload'),
+    })
+    .from(changes)
+    .leftJoin(
+      priorChange,
+      and(
+        eq(priorChange.tenantId, changes.tenantId),
+        eq(
+          priorChange.seq,
+          db
+            .select({ seq: max(earlierChange.seq) })
+            .from(earlierChange)
+            .where(
+              and(
+                eq(earlierChange.tenantId, changes.tenantId),
+                eq(earlierChange.entity, changes.entity),
+                eq(earlierChange.entityId, changes.entityId),
+                lt(earlierChange.seq, changes.seq),
+              ),
+            ),
+        ),
+      ),
+    )
+    .where(
+      and(eq(changes.tenantId, param(changes.tenantId, 'tenantId')), inListOf(changes.seq, size)),
+    )
+    .prepare(),
+)
+
+/** Seqs per grouped prior-change read: one parameter each. */
+const SEQ_CHUNK = 500
 const appliedMutationResult = prepared((db: StoreDrizzle) =>
   db
     .select({ result: appliedMutations.result })
     .from(appliedMutations)
     .where(eq(appliedMutations.mutationId, param(appliedMutations.mutationId, 'mutationId')))
+    .prepare(),
+)
+
+/** At most two primary-key hits; choose the current key before the legacy key. */
+const appliedMutationWithFallback = prepared((db: StoreDrizzle) =>
+  db
+    .select({
+      mutationId: appliedMutations.mutationId,
+      result: appliedMutations.result,
+      appliedAt: appliedMutations.appliedAt,
+    })
+    .from(appliedMutations)
+    .where(
+      or(
+        eq(appliedMutations.mutationId, param(appliedMutations.mutationId, 'mutationId')),
+        eq(appliedMutations.mutationId, param(appliedMutations.mutationId, 'fallbackId')),
+      ),
+    )
     .prepare(),
 )
 
@@ -764,12 +834,64 @@ export class SyncRepository {
     })
   }
 
+  /**
+   * These changes by seq, each with the change of the same row just before it
+   * (POD-6834): what a visibility anchor compares to tell a write that MOVED a
+   * fact from one that rewrote it unchanged. One statement per
+   * {@link SEQ_CHUNK} seqs. A seq not in the log is absent; a change with no
+   * earlier change in the log has `prior` undefined.
+   */
+  async changesWithPrior(seqs: readonly number[]): Promise<
+    Map<
+      number,
+      {
+        readonly op: string
+        readonly payload: string | null
+        readonly prior?: { readonly op: string; readonly payload: string | null }
+      }
+    >
+  > {
+    const distinct = [...new Set(seqs)]
+    const out = new Map<
+      number,
+      {
+        op: string
+        payload: string | null
+        prior?: { op: string; payload: string | null }
+      }
+    >()
+    for (let start = 0; start < distinct.length; start += SEQ_CHUNK) {
+      const chunk = distinct.slice(start, start + SEQ_CHUNK)
+      const size = inListSize(chunk.length)
+      const values = inListValues(chunk, size, 'in', { tenantId: this.tenantId })
+      for (const row of await changesWithPrior(this.db, size).all(values)) {
+        out.set(row.seq, {
+          op: row.op,
+          payload: row.payload,
+          ...(row.priorOp == null ? {} : { prior: { op: row.priorOp, payload: row.priorPayload } }),
+        })
+      }
+    }
+    return out
+  }
+
   // ---- outbox write path (docs/spec/outbox-write-path.md) ----
 
   /** The stored result of an already-applied mutation, or undefined if new. */
-  async getAppliedMutation(mutationId: MutationId): Promise<string | undefined> {
-    const row = await appliedMutationResult(this.db).get({ mutationId })
-    return row?.result
+  async getAppliedMutation(
+    mutationId: MutationId,
+    fallback?: AppliedMutationFallback,
+  ): Promise<string | undefined> {
+    if (fallback === undefined)
+      return (await appliedMutationResult(this.db).get({ mutationId }))?.result
+    const rows = await appliedMutationWithFallback(this.db).all({
+      mutationId,
+      fallbackId: fallback.mutationId,
+    })
+    const current = rows.find((row) => row.mutationId === mutationId)
+    if (current !== undefined) return current.result
+    const legacy = rows.find((row) => row.mutationId === fallback.mutationId)
+    return legacy !== undefined && legacy.appliedAt < fallback.before ? legacy.result : undefined
   }
 
   async recordAppliedMutation(

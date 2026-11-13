@@ -190,20 +190,17 @@ describe('pool-only preference consumers', () => {
     )
   }
 
-  const density = (enabled: boolean) => (
-    <DensityProvider densityEnabled={enabled}>
+  const density = () => (
+    <DensityProvider>
       <Density />
     </DensityProvider>
   )
 
-  it('keeps compact dormant while disabled, then adopts saved and replicated density with the existing writer', async () => {
+  it('adopts saved and replicated density with the existing writer', async () => {
     values.set(SHELL_DENSITY_KEY, 'compact')
-    paint(density(false))
+    paint(density())
     await settle()
-    expect(container.textContent).toBe('balanced')
-    expect(document.documentElement.dataset.density).toBe('balanced')
     expect(ui.set).not.toHaveBeenCalled()
-    paint(density(true))
     expect(container.textContent).toBe('compact')
     expect(document.documentElement.dataset.density).toBe('compact')
     act(() => container.querySelector('button')?.click())
@@ -219,11 +216,11 @@ describe('pool-only preference consumers', () => {
   it('paints balanced before the pool arrives and batches the declared density load', async () => {
     values.set(SHELL_DENSITY_KEY, 'compact')
     ports.pool = null
-    paint(density(true))
+    paint(density())
     expect(container.textContent).toBe('balanced')
     expect(ui.get).not.toHaveBeenCalled()
     ports.pool = pool
-    paint(density(true))
+    paint(density())
     expect(omitGone(pool.row('preference', SHELL_DENSITY_KEY))).toBe(LOADING)
     expect(container.textContent).toBe('balanced')
     await settle()

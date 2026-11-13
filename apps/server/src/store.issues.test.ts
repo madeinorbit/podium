@@ -233,6 +233,10 @@ describe('per-user issue state (POD-1076)', () => {
     ).toEqual({
       readAt: '2026-07-07T00:00:00.000Z',
       tuckedAt: '2026-07-08T00:00:00.000Z',
+      joinedAt: null,
+      joinedVia: null,
+      assignedAt: null,
+      assignedBy: null,
     })
     // An issue nobody touched has NO row — absence is the single spelling.
     expect(

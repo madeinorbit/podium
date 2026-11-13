@@ -253,13 +253,15 @@ describe('a rename queued offline is re-authorized at DRAIN, against the world a
     const before = await s.nameNow()
 
     expect(
-      (await renameOnTargetPath(
-        s.deps,
-        s.sessions.serverWriter,
-        { sessionId: s.sessionId, name: 'granted', mutationId: 'g1' },
-        human,
-        'outbox',
-      )).outcome,
+      (
+        await renameOnTargetPath(
+          s.deps,
+          s.sessions.serverWriter,
+          { sessionId: s.sessionId, name: 'granted', mutationId: 'g1' },
+          human,
+          'outbox',
+        )
+      ).outcome,
     ).toBe('denied')
     expect(await s.nameNow()).toBe(before)
   })
@@ -288,6 +290,7 @@ describe('a replay whose grant was revoked is refused, not served from the dedup
 
     // The mutation IS in the applied table — so a cache-first envelope would have
     // something to serve. This assertion is what makes the next one meaningful.
+    // renameOnTargetPath calls MutationLedger directly, so this key stays raw.
     expect(await s.store.sync.getAppliedMutation(asMutationId('dup-1'))).toBeDefined()
 
     s.ownership.owner = 'user:someone-else'

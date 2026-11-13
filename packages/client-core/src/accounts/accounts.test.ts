@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { principalKeyPrefix } from '../replica/principal-storage'
 import {
+  type AccountCredentials,
   activateServerProfile,
   browserProfileMetadataStorage,
+  CredentialWriteQueue,
   canOpenProfileOffline,
   clearProfileIdentity,
   cookieCredentials,
@@ -9,18 +12,15 @@ import {
   createAuthClient,
   createServerProfiles,
   createSingleServerAccounts,
-  CredentialWriteQueue,
   drainProfileCleanups,
   eraseAccountData,
   offlineProfileStatus,
-  removeServerProfile,
   readBrowserSignInWithEmail,
   rememberBrowserSignInWithEmail,
+  removeServerProfile,
   resolveOfflinePrincipal,
-  type AccountCredentials,
   type ServerProfile,
 } from './index'
-import { principalKeyPrefix } from '../replica/principal-storage'
 
 const ALICE = JSON.stringify(['installation-a', 'alice'])
 const BOB = JSON.stringify(['installation-a', 'bob'])
@@ -143,15 +143,18 @@ describe('browser account metadata storage', () => {
     await expect(result).rejects.toThrow('storage unavailable')
   })
 
-  it.each([null, '0', 'true', 'alice', '1'])(
-    'reads the existing sign-in hint %j without adopting an identity',
-    (hint) => {
-      const getItem = vi.fn(() => hint)
-      vi.stubGlobal('localStorage', { getItem })
-      expect(readBrowserSignInWithEmail()).toBe(hint === '1')
-      expect(getItem).toHaveBeenCalledExactlyOnceWith('podium.login.withEmail')
-    },
-  )
+  it.each([
+    null,
+    '0',
+    'true',
+    'alice',
+    '1',
+  ])('reads the existing sign-in hint %j without adopting an identity', (hint) => {
+    const getItem = vi.fn(() => hint)
+    vi.stubGlobal('localStorage', { getItem })
+    expect(readBrowserSignInWithEmail()).toBe(hint === '1')
+    expect(getItem).toHaveBeenCalledExactlyOnceWith('podium.login.withEmail')
+  })
 
   it('remembers both sign-in forms without changing account or UI records', () => {
     const values = new Map([
@@ -223,14 +226,12 @@ describe('one sign-in decision for both credential deliveries', () => {
         Response.json({
           ...status,
           authed: false,
-          mode: 'cloud',
-          providerSignedIn: true,
-          deniedReason: 'not a member',
+          denied: 'not_workspace_member',
         }),
     })
     expect(await client.probeAuth('https://a.example')).toMatchObject({
       kind: 'membership-denied',
-      reason: 'not a member',
+      reason: 'This account is not a member of this workspace.',
     })
   })
 
@@ -282,13 +283,22 @@ describe('one sign-in decision for both credential deliveries', () => {
   })
 
   it('never sends a password or a bearer over native cleartext', async () => {
-    const fetch = vi.fn()
+    const fetch = vi.fn(
+      async (_input: Parameters<typeof globalThis.fetch>[0], _init?: RequestInit) =>
+        Response.json({ error: 'https_required' }, { status: 400 }),
+    )
     const client = createAuthClient({ credentials: nativeCredentials(), fetch })
     expect(await client.login('http://192.168.1.2', 'secret')).toMatchObject({ ok: false })
     await expect(client.fetchAuthStatus('http://192.168.1.2', 'token')).rejects.toMatchObject({
       failure: { kind: 'auth-insecure' },
     })
-    expect(fetch).not.toHaveBeenCalled()
+    expect(fetch).toHaveBeenCalledTimes(2)
+    for (const [url, init] of fetch.mock.calls) {
+      expect(url).toBe('http://192.168.1.2/auth/status')
+      expect(init?.body).toBeUndefined()
+      expect(new Headers(init?.headers).has('authorization')).toBe(false)
+      expect(init?.credentials).toBe('omit')
+    }
   })
 
   it('checks a browser login identity before opening the app', async () => {
@@ -305,7 +315,6 @@ describe('one sign-in decision for both credential deliveries', () => {
       'https://a.example',
       null,
       undefined,
-      'local',
     )
     expect(fetch).toHaveBeenCalledWith(
       'https://a.example/auth/logout',
@@ -529,5 +538,37 @@ describe('switching profiles and removing account data', () => {
     closed()
     await Promise.all([disposal, erasure])
     expect(fallback).toHaveBeenCalledWith(ALICE)
+  })
+
+  // POD-6908: sign-out, removal and a refused account all erase through here,
+  // while the screen may still be mounted and writing. The namespace closes the
+  // moment the erase is asked for, before it waits behind anything.
+  it('seals the principal storage as soon as an erase is requested, on every path', async () => {
+    const order: string[] = []
+    let closed!: () => void
+    const closing = new Promise<void>((resolve) => {
+      closed = resolve
+    })
+    const registry = createAccountEraser(async () => void order.push('erase closed'))
+    registry.register(ALICE, {
+      erasePrincipalData: async () => void order.push('erase live'),
+      dispose: async () => {},
+      sealPrincipalData: () => order.push('seal'),
+    })
+    await registry.erase(ALICE)
+    expect(order).toEqual(['seal', 'erase live'])
+
+    order.length = 0
+    const bob = registry.register(BOB, {
+      erasePrincipalData: async () => void order.push('erase live'),
+      dispose: () => closing,
+      sealPrincipalData: () => order.push('seal'),
+    })
+    const disposal = bob.dispose()
+    const erasure = registry.erase(BOB)
+    expect(order).toEqual(['seal'])
+    closed()
+    await Promise.all([disposal, erasure])
+    expect(order).toEqual(['seal', 'erase closed'])
   })
 })

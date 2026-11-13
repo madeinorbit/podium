@@ -1,13 +1,14 @@
+import { accountPageUrl } from '@podium/client-core/accounts'
 import { relativeTime } from '@podium/client-core/focus'
+import type { RecordRequest } from '@podium/client-graph/requested-records'
+import { lazy } from '@podium/mobx-helpers'
 import {
-  MobileClientSession as MobileClientSessionSchema,
+  DeviceSignInsResponse,
   type MobilePairStartResponse as MobilePairStart,
   MobilePairStartResponse,
   type MobilePairStatusResponse as MobilePairStatus,
   MobilePairStatusResponse,
-  type MobileClientSession as MobileSessionView,
-  type MobileTransportReadiness,
-  RevokeMobileClientSessionRequest,
+  type DeviceSignInView as MobileSessionView,
 } from '@podium/protocol'
 import {
   ArrowRight,
@@ -15,32 +16,38 @@ import {
   Copy,
   ExternalLink,
   Globe,
+  LogOut,
   Monitor,
   RefreshCw,
+  Server,
   ShieldAlert,
-  ShieldCheck,
   Smartphone,
   TriangleAlert,
 } from 'lucide-react'
+import { compareShallow } from 'mobx'
 import { observer } from 'mobx-react-lite'
 import { QRCodeSVG } from 'qrcode.react'
 import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import { useWorklistPool } from '@/app/store-worklist-pool'
-import { serverConfig, type Trpc } from '@/app/trpc'
-import { Badge } from '@/components/ui/badge'
+import { serverConfig } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
+import { memberRequest } from '@/features/setup/member-api'
+import { useAccount } from '@/lib/account-context'
 import { useAgeNow, useCountdown, useDeadlineNow } from '@/lib/clock-hooks'
 import { WorkingMark } from '@/lib/motion/WorkingMark'
+import { useServerAuthStatus } from '@/lib/server-auth-status'
 import { workspaceFetch } from '@/lib/workspace-request'
 import { useSettingsUnsyncedChangeCount } from '../readers'
 import { deviceKey, useSettingsRecords } from '../record-readers'
-import { Section, Subsection } from './shared'
+import { useSettingsRowId } from '../settings-anchors'
+import { ConfirmInline, EntityRow, Section, ThisDeviceTag } from './shared'
 
 /**
  * Narrow view of the server contract consumed by this screen. Keeping it here
  * makes the security boundary visible: the web UI receives an ephemeral
  * envelope, a safe pairing handle, and public session metadata — never a
- * durable credential. The opaque per-row sessionId is used only for revocation.
+ * durable credential. The opaque per-row id is used only for revocation.
  */
 export interface MobilePairingApi {
   auth: {
@@ -60,7 +67,7 @@ export interface MobilePairingApi {
       query(): Promise<MobileSessionView[]>
     }
     revokeMobileSession: {
-      mutate(input: { sessionId: string }): Promise<unknown>
+      mutate(input: { id: string }): Promise<unknown>
     }
   }
 }
@@ -73,6 +80,7 @@ type PairStage =
     >)
   | { kind: 'approved' }
   | { kind: 'denied' }
+  | { kind: 'cancelled' }
   | { kind: 'expired' }
   | { kind: 'unavailable' }
 
@@ -96,9 +104,9 @@ type PairingFlow =
 type StartFailure = 'public-url' | 'transport' | 'auth' | 'unavailable' | 'invalid-response'
 
 const SAFE_START_ERRORS: Record<StartFailure, string> = {
-  'public-url': 'Set the address this phone can reach before pairing. Add it in Network settings.',
+  'public-url': 'Set the address this phone can reach before pairing. Add it in Access settings.',
   transport:
-    'Phone pairing works only over trusted HTTPS. Choose Tailscale Serve or add an HTTPS reverse proxy in Network settings.',
+    'Phone pairing works only over trusted HTTPS. Choose Tailscale Serve or add an HTTPS reverse proxy in Access settings.',
   auth: 'Your sign-in is no longer authorized. Sign in again, then create a new code.',
   unavailable: 'Couldn’t reach this server. Check the connection and try again.',
   'invalid-response':
@@ -107,7 +115,7 @@ const SAFE_START_ERRORS: Record<StartFailure, string> = {
 const SAFE_ACTION_ERROR = 'Couldn’t update this pairing request. Create a new code and try again.'
 const SAFE_CANCEL_ERROR =
   'Couldn’t cancel this request. Keep the link private; it will expire automatically.'
-const SAFE_REVOKE_ERROR = 'Couldn’t revoke this device. Nothing changed.'
+const SAFE_REVOKE_ERROR = 'Couldn’t sign out this device. Try again.'
 
 const BLOCKED_START_TITLES: Record<'public-url' | 'transport', string> = {
   'public-url': 'Podium URL needed',
@@ -213,19 +221,13 @@ export function createMobilePairingApi(httpOrigin: string): MobilePairingApi {
       mobileSessions: {
         query: async () => {
           // Every sign-in of the caller, not only phones (POD-6701).
-          const response = await requestJson(`${httpOrigin}/auth/client-sessions?include=all`, {
+          const response = await requestJson(`${httpOrigin}/auth/client-sessions`, {
             cache: 'no-store',
             credentials: 'include',
             referrerPolicy: 'no-referrer',
             headers: { accept: 'application/json' },
           })
-          return MobileClientSessionSchema.array()
-            .parse((response as { sessions?: unknown }).sessions)
-            .filter(
-              (session) =>
-                RevokeMobileClientSessionRequest.safeParse({ sessionId: session.sessionId })
-                  .success,
-            )
+          return DeviceSignInsResponse.parse(response).signIns
         },
       },
       revokeMobileSession: {
@@ -251,13 +253,17 @@ function displayPlatform(session: Pick<MobileSessionView, 'kind' | 'platform'>):
               : normalized === 'web'
                 ? 'Web'
                 : undefined
-  const kind =
-    session.kind === 'desktop' ? 'Desktop app' : session.kind === 'browser' ? 'Browser' : 'Phone'
+  const kind = {
+    desktop: 'Desktop app',
+    browser: 'Browser',
+    phone: 'Phone',
+    host: 'Host recovery',
+  }[session.kind]
   return os ? `${kind} · ${os}` : kind
 }
 
 function DeviceIcon({ kind }: { kind: MobileSessionView['kind'] }): JSX.Element {
-  const Icon = kind === 'desktop' ? Monitor : kind === 'browser' ? Globe : Smartphone
+  const Icon = { desktop: Monitor, browser: Globe, phone: Smartphone, host: Server }[kind]
   return <Icon className="mt-0.5 size-4 flex-none text-muted-foreground" aria-hidden="true" />
 }
 
@@ -380,34 +386,12 @@ function PairingCode({
   )
 }
 
-function Readiness({ origin, readiness }: { origin: string; readiness: MobileTransportReadiness }) {
-  const ready = readiness.grade !== 'insecure'
-  const Icon = ready ? ShieldCheck : TriangleAlert
-  return (
-    <div className="rounded-lg border border-hairline-soft bg-muted/20 p-3.5">
-      <div className="flex min-w-0 items-start gap-3">
-        <Icon
-          aria-hidden="true"
-          className={
-            ready ? 'mt-0.5 size-4 flex-none text-success' : 'mt-0.5 size-4 flex-none text-warning'
-          }
-        />
-        <div className="min-w-0">
-          <p className="settings-label break-all font-mono">{origin}</p>
-          <p className="settings-prose mt-1 font-medium text-foreground">{readiness.title}</p>
-          <p className="settings-prose mt-1">{readiness.guidance}</p>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 function PairingSetupRequired({
   reason,
-  onOpenNetwork,
+  onOpenAccess,
 }: {
   reason: 'public-url' | 'transport'
-  onOpenNetwork?: () => void
+  onOpenAccess?: () => void
 }): JSX.Element {
   return (
     <div role="alert" className="mt-4 rounded-lg border border-warning/30 bg-warning/5 p-4">
@@ -418,15 +402,15 @@ function PairingSetupRequired({
         <div className="min-w-0">
           <p className="settings-label text-foreground">{BLOCKED_START_TITLES[reason]}</p>
           <p className="settings-prose mt-1 max-w-[58ch]">{SAFE_START_ERRORS[reason]}</p>
-          {onOpenNetwork && (
+          {onOpenAccess && (
             <Button
               type="button"
               size="sm"
               variant="outline"
               className="mt-3"
-              onClick={onOpenNetwork}
+              onClick={onOpenAccess}
             >
-              Open Network settings
+              Open Access settings
               <ArrowRight aria-hidden="true" />
             </Button>
           )}
@@ -469,26 +453,15 @@ function ClaimRequest({
           <div className="min-w-0 flex-1">
             <h4 className="settings-h2">{stage.deviceName} wants to connect</h4>
             <p className="settings-micro mt-1">
-              {displayPlatform({ kind: 'mobile', platform: stage.platform })}
+              {displayPlatform({ kind: 'phone', platform: stage.platform })}
             </p>
             <p className="settings-prose mt-3">Confirm that the phone shows these exact words:</p>
-            <div
-              role="group"
-              className="mt-2 flex flex-wrap gap-x-2 gap-y-1 font-mono text-[18px] font-semibold tracking-tight text-foreground"
+            <fieldset
+              className="mt-2 border-0 p-0 font-mono text-[18px] font-semibold tracking-tight text-foreground"
               aria-label={`Verification phrase: ${stage.phrase.join(' ')}`}
             >
-              {stage.phrase.map((word, index) => (
-                <span key={`${index}-${word}`}>
-                  {index > 0 && <span aria-hidden="true"> </span>}
-                  {word}
-                  {index < stage.phrase.length - 1 && (
-                    <span className="ml-2 text-muted-foreground" aria-hidden="true">
-                      ·
-                    </span>
-                  )}
-                </span>
-              ))}
-            </div>
+              {stage.phrase.join(' · ')}
+            </fieldset>
             <p className="settings-micro mt-3">
               If the words differ or you do not recognize this phone, deny the request.
             </p>
@@ -531,6 +504,8 @@ function ClaimRequest({
       'Phone approved',
       'The phone can finish connecting now. This code cannot enroll another device.',
     ]
+  } else if (stage.kind === 'cancelled') {
+    copy = ['Pairing code cancelled', 'This code can no longer connect a phone.']
   } else if (stage.kind === 'denied') {
     copy = ['Request denied', 'No mobile session was created.']
   } else if (stage.kind === 'expired') {
@@ -566,103 +541,247 @@ function ClaimRequest({
   )
 }
 
-const MobileSessions = observer(function MobileSessions({
+/** This opening's ordering rule; every row remains the shared device model. */
+class AccountDevices {
+  constructor(readonly request: RecordRequest<'device'>) {}
+  @lazy({ equals: compareShallow }) get sessions() {
+    return [...this.request.models].sort((a, b) => Number(b.current) - Number(a.current))
+  }
+}
+
+/** Every sign-in belongs here, including the current device (POD-6701/POD-6704). */
+export const SignedInDevicesSection = observer(function SignedInDevicesSection({
   api,
-  refreshKey,
+  refreshKey = 0,
+  onPair,
 }: {
   api: MobilePairingApi
-  refreshKey: number
+  refreshKey?: number
+  onPair?: () => void
 }): JSX.Element {
   const pool = useWorklistPool()
+  const account = useAccount()
+  // A shared account signs out everywhere on its account page, not per workspace.
+  const accountWide = !useServerAuthStatus()?.capabilities?.accountUrl
+  const unsyncedChangeCount = useSettingsUnsyncedChangeCount()
   const readDevices = useCallback(() => api.auth.mobileSessions.query(), [api])
   const { request, reload } = useSettingsRecords('device', readDevices, deviceKey)
-  const sessions = request?.answer === undefined ? null : request.models
-  const loadError = Boolean(request?.error)
+  const devices = useMemo(() => (request ? new AccountDevices(request) : null), [request])
+  const sessions = request?.answer === undefined ? null : (devices?.sessions ?? [])
   const [confirming, setConfirming] = useState<string | null>(null)
   const [revoking, setRevoking] = useState<string | null>(null)
-  const [revokeError, setRevokeError] = useState<string | null>(null)
-  const confirmationRef = useRef<HTMLDivElement>(null)
-  const sessionsRegionRef = useRef<HTMLDivElement>(null)
+  const [error, setError] = useState<string | null>(null)
+  const revokingRef = useRef(false)
+  const pairRowId = useSettingsRowId('Pair a phone')
+  const signOutRowId = useSettingsRowId('Sign out')
+  const allRowId = useSettingsRowId('Sign out everywhere')
+  const sessionsRegionRef = useRef<HTMLElement>(null)
+  const checkingChanges = unsyncedChangeCount === null
+  const warnUnsynced = unsyncedChangeCount !== null && unsyncedChangeCount > 0
 
-  const load = useCallback(() => {
-    void reload()
-  }, [reload])
   useEffect(() => {
-    if (refreshKey > 0) load()
-  }, [load, refreshKey])
-  useEffect(() => {
-    if (confirming) confirmationRef.current?.focus()
-  }, [confirming])
+    if (refreshKey > 0) void reload()
+  }, [reload, refreshKey])
 
-  const confirm = useCallback((id: string | null) => {
-    setConfirming(id)
-    setRevokeError(null)
-  }, [])
-  const revoke = useCallback(
-    async (session: MobileSessionView): Promise<void> => {
-      const id = session.sessionId
-      setRevoking(id)
-      setRevokeError(null)
-      try {
-        await api.auth.revokeMobileSession.mutate({ sessionId: id })
+  const signOut = async (session: MobileSessionView) => {
+    if (revokingRef.current || (session.current && checkingChanges)) return
+    revokingRef.current = true
+    setRevoking(session.id)
+    setError(null)
+    try {
+      if (session.current && account) await account.signOut()
+      else {
+        await api.auth.revokeMobileSession.mutate({ id: session.id })
         request?.cancel()
-        if (pool) pool.apply({ type: 'update', rows: [{ kind: 'device', id, value: undefined }] })
-        setConfirming(null)
-        window.setTimeout(() => sessionsRegionRef.current?.focus(), 0)
-      } catch {
-        setRevokeError(SAFE_REVOKE_ERROR)
-      } finally {
-        setRevoking(null)
+        pool?.apply({
+          type: 'update',
+          rows: [{ kind: 'device', id: session.id, value: undefined }],
+        })
       }
-    },
-    [api, request, pool],
+      setConfirming(null)
+      sessionsRegionRef.current?.focus()
+      if (!session.current) toast.success(`${session.deviceName} signed out.`)
+    } catch (cause) {
+      setConfirming(session.id)
+      setError(cause instanceof Error ? cause.message : SAFE_REVOKE_ERROR)
+    } finally {
+      revokingRef.current = false
+      setRevoking(null)
+    }
+  }
+  const signOutEverywhere = async () => {
+    if (revokingRef.current || checkingChanges) return
+    revokingRef.current = true
+    setRevoking('all')
+    setError(null)
+    try {
+      await memberRequest(serverConfig(window.location).httpOrigin, 'sign-out-everywhere', {})
+      await account?.signOut()
+      setConfirming(null)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Couldn’t sign out everywhere. Try again.')
+    } finally {
+      revokingRef.current = false
+      setRevoking(null)
+    }
+  }
+  const changeConfirmation = (id: string | null) => {
+    setConfirming(id)
+    setError(null)
+  }
+  const unsyncedWarning = (
+    <>
+      <strong>
+        {unsyncedChangeCount === 1
+          ? '1 change on this device hasn’t synced yet'
+          : `${unsyncedChangeCount} changes on this device haven’t synced yet`}
+      </strong>{' '}
+      and will be lost. Podium also clears this account’s offline data here and closes it in your
+      other tabs.
+    </>
   )
-
   return (
-    <Subsection
-      title="Signed-in devices"
-      hint="Every browser, desktop app and phone signed in to your account. Revoking one signs out only that device."
-    >
-      <div
+    <section>
+      <header className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="settings-h mb-1.5">Where you’re signed in</h3>
+          <p className="settings-prose">
+            Each device has its own sign-in. Signing one out leaves the others alone.
+          </p>
+        </div>
+        {onPair && (
+          <Button id={pairRowId} type="button" size="sm" variant="outline" onClick={onPair}>
+            <Smartphone aria-hidden="true" />
+            Pair a phone
+          </Button>
+        )}
+      </header>
+      <section
         ref={sessionsRegionRef}
-        role="region"
-        aria-label="Signed-in devices"
+        aria-label="Where you’re signed in"
         className="outline-none"
         tabIndex={-1}
       >
-        {sessions === null && !loadError && <p className="settings-prose">Loading devices…</p>}
-        {loadError && (
-          <div className="flex flex-wrap items-center gap-2">
-            <p role="alert" className="settings-prose text-destructive">
-              Couldn’t load your signed-in devices.
+        <Section list>
+          {sessions === null && !request?.error && (
+            <p className="settings-prose p-4" role="status">
+              Loading devices…
             </p>
-            <Button type="button" size="xs" variant="outline" onClick={load}>
-              <RefreshCw aria-hidden="true" />
-              Try again
-            </Button>
-          </div>
-        )}
-        {sessions?.length === 0 && (
-          <p className="settings-prose">No devices are signed in to your account.</p>
-        )}
-        {sessions && sessions.length > 0 && (
-          <div className="divide-y divide-hairline-soft/70 border-y border-hairline-soft/70">
-            {sessions.map((session) => (
-              <MobileDeviceRow
-                key={session.sessionId}
-                session={session}
-                confirming={confirming}
-                revoking={revoking}
-                revokeError={revokeError}
-                confirmationRef={confirmationRef}
-                confirm={confirm}
-                revoke={revoke}
+          )}
+          {request?.error && (
+            <div className="flex flex-wrap items-center gap-2 p-4">
+              <p role="alert" className="settings-prose text-destructive">
+                Couldn’t load your signed-in devices.
+              </p>
+              <Button type="button" size="sm" variant="outline" onClick={() => void reload()}>
+                Try again
+              </Button>
+            </div>
+          )}
+          {sessions?.length === 0 && (
+            <p className="settings-prose p-4">No devices are signed in to your account.</p>
+          )}
+          {sessions?.map((session) => (
+            <div key={session.id}>
+              <EntityRow
+                leading={<DeviceIcon kind={session.kind} />}
+                title={session.deviceName}
+                pills={session.current && <ThisDeviceTag />}
+                subtitle={
+                  <>
+                    {displayPlatform(session)} · Last active{' '}
+                    <MobileDeviceActivity session={session} />
+                  </>
+                }
+                trailing={
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    id={session.current ? signOutRowId : undefined}
+                    disabled={revoking !== null || (session.current && checkingChanges)}
+                    pending={revoking === session.id}
+                    pendingLabel="Signing out…"
+                    onClick={() => {
+                      if (session.current && warnUnsynced) changeConfirmation(session.id)
+                      else void signOut(session)
+                    }}
+                  >
+                    Sign out
+                  </Button>
+                }
               />
-            ))}
-          </div>
-        )}
-      </div>
-    </Subsection>
+              {confirming === session.id && (
+                <div className="px-4">
+                  <ConfirmInline
+                    sentence={
+                      session.current && warnUnsynced ? (
+                        unsyncedWarning
+                      ) : (
+                        <>
+                          Sign out <strong>{session.deviceName}</strong>?
+                        </>
+                      )
+                    }
+                    actionLabel={
+                      session.current && warnUnsynced ? 'Sign out anyway' : 'Sign out device'
+                    }
+                    destructive
+                    pending={revoking !== null || (session.current && checkingChanges)}
+                    error={error}
+                    onCancel={() => changeConfirmation(null)}
+                    onConfirm={() => signOut(session)}
+                  />
+                </div>
+              )}
+            </div>
+          ))}
+          {accountWide && (
+            <div className="settings-list-note flex flex-wrap items-center justify-between gap-3">
+              <p className="settings-prose flex items-center gap-2">
+                <LogOut size={15} aria-hidden="true" />
+                Lost a device? Sign out of all of them at once.
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                id={allRowId}
+                disabled={checkingChanges || revoking !== null}
+                onClick={() => changeConfirmation('all')}
+              >
+                Sign out everywhere
+              </Button>
+            </div>
+          )}
+          {accountWide && confirming === 'all' && (
+            <div className="px-4">
+              <ConfirmInline
+                sentence={
+                  <>
+                    {warnUnsynced && (
+                      <>
+                        {unsyncedWarning}
+                        <br />
+                      </>
+                    )}
+                    Sign out on every device, this one included?
+                  </>
+                }
+                actionLabel={
+                  warnUnsynced ? 'Sign out everywhere anyway' : 'Confirm sign out everywhere'
+                }
+                destructive
+                pending={checkingChanges || revoking !== null}
+                error={error}
+                onCancel={() => changeConfirmation(null)}
+                onConfirm={signOutEverywhere}
+              />
+            </div>
+          )}
+        </Section>
+      </section>
+    </section>
   )
 })
 
@@ -674,145 +793,32 @@ const MobileDeviceActivity = observer(function MobileDeviceActivity({
   const now = useAgeNow(session.lastSeenAt ?? session.createdAt, 0, session.lastSeenAt !== null)
   return <>{formatActivity(session.lastSeenAt, now)}</>
 })
-const MobileDeviceRow = observer(function MobileDeviceRow({
-  session,
-  confirming,
-  revoking,
-  revokeError,
-  confirmationRef,
-  confirm,
-  revoke,
-}: {
-  session: MobileSessionView
-  confirming: string | null
-  revoking: string | null
-  revokeError: string | null
-  confirmationRef: import('react').RefObject<HTMLDivElement | null>
-  confirm(id: string | null): void
-  revoke(session: MobileSessionView): Promise<void>
-}) {
-  const isConfirming = confirming === session.sessionId
-  const unsyncedChangeCount = useSettingsUnsyncedChangeCount()
-  const warnUnsynced = session.current && unsyncedChangeCount !== null && unsyncedChangeCount > 0
-  const awaitingSyncCount = session.current && unsyncedChangeCount === null
-  return (
-    <div className="py-3.5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-start gap-3">
-          <DeviceIcon kind={session.kind} />
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="settings-label truncate text-foreground">{session.deviceName}</p>
-              {session.current && (
-                <Badge variant="outline" className="h-4 px-1.5 text-[11px]">
-                  This device
-                </Badge>
-              )}
-            </div>
-            <p className="settings-micro mt-1">
-              {displayPlatform(session)} · Last active <MobileDeviceActivity session={session} />
-            </p>
-          </div>
-        </div>
-        {!isConfirming && (
-          <Button
-            type="button"
-            size="xs"
-            variant="destructive"
-            className="self-start sm:self-auto"
-            disabled={awaitingSyncCount}
-            onClick={() => {
-              if (awaitingSyncCount) return
-              confirm(session.sessionId)
-            }}
-          >
-            Revoke
-          </Button>
-        )}
-      </div>
-      {isConfirming && (
-        <div
-          ref={confirmationRef}
-          className="mt-3 rounded-md border border-destructive/30 bg-destructive/5 p-3 outline-none"
-          role="group"
-          aria-label={`Confirm revoking ${session.deviceName}`}
-          tabIndex={-1}
-        >
-          {warnUnsynced ? (
-            <>
-              <p className="settings-label">Sign out with unsynced changes?</p>
-              <p className="settings-prose mt-1">
-                {unsyncedChangeCount === 1
-                  ? "1 change on this device hasn't synced yet and will be lost."
-                  : `${unsyncedChangeCount} changes on this device haven't synced yet and will be lost.`}
-              </p>
-            </>
-          ) : (
-            <p className="settings-prose">
-              Revoke <strong>{session.deviceName}</strong>?{' '}
-              {session.current
-                ? 'This is the device you are using now, so it will be signed out immediately.'
-                : 'It will lose access immediately; your other devices stay signed in.'}
-            </p>
-          )}
-          <div className="mt-2 flex flex-wrap gap-2">
-            <Button
-              type="button"
-              size="xs"
-              variant="destructive"
-              pending={revoking === session.sessionId}
-              pendingLabel="Revoking…"
-              disabled={awaitingSyncCount}
-              onClick={() => void revoke(session)}
-            >
-              {warnUnsynced ? 'Sign out anyway' : 'Revoke device'}
-            </Button>
-            <Button
-              type="button"
-              size="xs"
-              variant="outline"
-              disabled={revoking !== null}
-              onClick={() => {
-                confirm(null)
-              }}
-            >
-              {warnUnsynced ? 'Wait' : 'Cancel'}
-            </Button>
-          </div>
-          {revokeError && (
-            <p role="alert" className="settings-prose mt-2 text-destructive">
-              {revokeError}
-            </p>
-          )}
-        </div>
-      )}
-    </div>
-  )
-})
 
-/** Settings → Connected devices: mint, approve, and revoke mobile access. */
-export function ConnectedDevicesSection({
-  trpc,
+/** A phone-pairing takeover; its credential exists only for this mounted flow. */
+export function PhonePairingFlow({
   api: injectedApi,
-  onOpenNetwork,
+  onOpenAccess,
+  autoStart = false,
+  onSessionsChanged,
 }: {
-  trpc?: Trpc
   api?: MobilePairingApi
-  onOpenNetwork?: () => void
+  onOpenAccess?: () => void
+  autoStart?: boolean
+  onSessionsChanged?: () => void
 }): JSX.Element {
+  const capabilities = useServerAuthStatus()?.capabilities
   const httpOrigin = serverConfig(window.location).httpOrigin
   const api = useMemo(
     () => injectedApi ?? createMobilePairingApi(httpOrigin),
-    [httpOrigin, injectedApi, trpc],
+    [httpOrigin, injectedApi],
   )
-  const [origin, setOrigin] = useState<string | null>(null)
-  const [readiness, setReadiness] = useState<MobileTransportReadiness | null>(null)
   const [flow, setFlow] = useState<PairingFlow>({ kind: 'idle' })
   const [decisionBusy, setDecisionBusy] = useState<'approve' | 'deny' | 'cancel' | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
-  const [sessionRefresh, setSessionRefresh] = useState(0)
   const activePairingRef = useRef<string | null>(null)
-  const flowRegionRef = useRef<HTMLDivElement>(null)
+  const lifetime = useRef(0)
+  const starting = useRef(false)
+  const flowRegionRef = useRef<HTMLElement>(null)
   const previousFocusState = useRef('idle')
   const pairingDeadline =
     flow.kind === 'pair' && (flow.stage.kind === 'waiting' || flow.stage.kind === 'claimed')
@@ -830,12 +836,14 @@ export function ConnectedDevicesSection({
   }, [pairingDeadline, pairingDeadlineNow])
 
   useEffect(() => {
+    lifetime.current += 1
     return () => {
+      lifetime.current += 1
       const pairingId = activePairingRef.current
       activePairingRef.current = null
-      if (pairingId) {
-        void api.auth.mobilePairingDeny.mutate({ pairingId }).catch(() => {})
-      }
+      if (pairingId) void cancelPairingOnExit(api, pairingId)
+      else if (starting.current)
+        toast.loading('Cancelling pairing code…', { id: 'phone-pairing-cancel' })
     }
   }, [api])
 
@@ -858,11 +866,13 @@ export function ConnectedDevicesSection({
     const expiresAt = flow.start.expiresAt
 
     const poll = async (): Promise<void> => {
-      if (cancelled || inFlight) return
+      if (cancelled || inFlight || document.visibilityState === 'hidden') return
       if (Date.now() >= Date.parse(expiresAt)) {
         activePairingRef.current = null
         setFlow((current) =>
-          current.kind === 'pair' && current.start.pairingId === pairingId
+          current.kind === 'pair' &&
+          current.start.pairingId === pairingId &&
+          (current.stage.kind === 'waiting' || current.stage.kind === 'claimed')
             ? { ...current, url: '', stage: { kind: 'expired' } }
             : current,
         )
@@ -882,7 +892,12 @@ export function ConnectedDevicesSection({
           activePairingRef.current = null
         }
         setFlow((current) => {
-          if (current.kind !== 'pair' || current.start.pairingId !== pairingId) return current
+          if (
+            current.kind !== 'pair' ||
+            current.start.pairingId !== pairingId ||
+            (current.stage.kind !== 'waiting' && current.stage.kind !== 'claimed')
+          )
+            return current
           if (status.state === 'claimed') {
             if (current.stage.kind === 'claimed') return current
             return {
@@ -908,7 +923,9 @@ export function ConnectedDevicesSection({
         failures += 1
         if (!cancelled && failures >= 3) {
           setFlow((current) =>
-            current.kind === 'pair' && current.start.pairingId === pairingId
+            current.kind === 'pair' &&
+            current.start.pairingId === pairingId &&
+            (current.stage.kind === 'waiting' || current.stage.kind === 'claimed')
               ? { ...current, url: '', stage: { kind: 'unavailable' } }
               : current,
           )
@@ -920,9 +937,14 @@ export function ConnectedDevicesSection({
 
     void poll()
     const id = window.setInterval(() => void poll(), 1500)
+    const resume = () => {
+      if (document.visibilityState !== 'hidden') void poll()
+    }
+    document.addEventListener('visibilitychange', resume)
     return () => {
       cancelled = true
       window.clearInterval(id)
+      document.removeEventListener('visibilitychange', resume)
     }
   }, [api, flow])
 
@@ -934,35 +956,44 @@ export function ConnectedDevicesSection({
     let attempts = 0
     const id = window.setInterval(() => {
       attempts += 1
-      setSessionRefresh((value) => value + 1)
+      onSessionsChanged?.()
       if (attempts >= 3) window.clearInterval(id)
     }, 1500)
     return () => window.clearInterval(id)
-  }, [flow])
+  }, [flow, onSessionsChanged])
 
-  const start = async (): Promise<void> => {
-    const priorPairingId = activePairingRef.current
-    activePairingRef.current = null
-    if (priorPairingId) {
-      void api.auth.mobilePairingDeny.mutate({ pairingId: priorPairingId }).catch(() => {})
-    }
+  const start = useCallback(async (): Promise<void> => {
+    if (starting.current) return
+    starting.current = true
+    const generation = lifetime.current
     setFlow({ kind: 'starting' })
     setActionError(null)
     try {
+      const priorPairingId = activePairingRef.current
+      if (priorPairingId) {
+        await api.auth.mobilePairingDeny.mutate({ pairingId: priorPairingId })
+        activePairingRef.current = null
+      }
+      if (generation !== lifetime.current) return
       const result = await api.auth.mobilePairingStart.mutate()
+      if (generation !== lifetime.current) {
+        if (result.mode === 'pair') await cancelPairingOnExit(api, result.pairingId)
+        else toast.success('No pairing code is active.', { id: 'phone-pairing-cancel' })
+        return
+      }
       if (result.mode === 'open') {
         const canonical = canonicalOrigin(result.canonicalOrigin)
         const mobileUrl = mobileServerUrl(canonical)
         if (new URL(result.mobileUrl).href !== mobileUrl) {
           throw new Error('open mobile URL does not match canonical origin')
         }
-        setOrigin(canonical)
-        setReadiness(result.transport)
+        if (new URL(canonical).protocol !== 'https:') {
+          setFlow({ kind: 'error', reason: 'transport' })
+          return
+        }
         setFlow({ kind: 'open', url: mobileUrl })
       } else {
         const url = pairUrl(result)
-        setOrigin(result.canonicalOrigin)
-        setReadiness(result.transport)
         activePairingRef.current = result.pairingId
         setFlow({
           kind: 'pair',
@@ -974,9 +1005,24 @@ export function ConnectedDevicesSection({
         })
       }
     } catch (error) {
-      setFlow({ kind: 'error', reason: startFailure(error) })
+      if (generation === lifetime.current) setFlow({ kind: 'error', reason: startFailure(error) })
+      else toast.error(SAFE_CANCEL_ERROR, { id: 'phone-pairing-cancel' })
+    } finally {
+      starting.current = false
     }
-  }
+  }, [api])
+
+  useEffect(() => {
+    // An effect replay must not mint a code for an opening React already discarded.
+    let active = true
+    if (autoStart)
+      queueMicrotask(() => {
+        if (active) void start()
+      })
+    return () => {
+      active = false
+    }
+  }, [autoStart, start])
 
   const cancel = async (): Promise<void> => {
     if (flow.kind !== 'pair') return
@@ -986,7 +1032,7 @@ export function ConnectedDevicesSection({
       await api.auth.mobilePairingDeny.mutate({ pairingId: flow.start.pairingId })
       activePairingRef.current = null
       setFlow((current) =>
-        current.kind === 'pair' ? { ...current, url: '', stage: { kind: 'denied' } } : current,
+        current.kind === 'pair' ? { ...current, url: '', stage: { kind: 'cancelled' } } : current,
       )
     } catch {
       setActionError(SAFE_CANCEL_ERROR)
@@ -1036,114 +1082,116 @@ export function ConnectedDevicesSection({
           ? `${flow.stage.deviceName} wants to connect. Verification phrase: ${flow.stage.phrase.join(' ')}.`
           : flow.kind === 'pair' && flow.stage.kind === 'approved'
             ? 'Phone approved.'
-            : flow.kind === 'pair' && flow.stage.kind === 'denied'
-              ? 'Pairing request denied.'
-              : flow.kind === 'pair' && flow.stage.kind === 'expired'
-                ? 'Pairing code expired. Create a new code.'
-                : flow.kind === 'pair' && flow.stage.kind === 'unavailable'
-                  ? 'Pairing is no longer available. Create a new code.'
-                  : flow.kind === 'open'
-                    ? 'Mobile server link ready.'
-                    : ''
+            : flow.kind === 'pair' && flow.stage.kind === 'cancelled'
+              ? 'Pairing code cancelled.'
+              : flow.kind === 'pair' && flow.stage.kind === 'denied'
+                ? 'Pairing request denied.'
+                : flow.kind === 'pair' && flow.stage.kind === 'expired'
+                  ? 'Pairing code expired. Create a new code.'
+                  : flow.kind === 'pair' && flow.stage.kind === 'unavailable'
+                    ? 'Pairing is no longer available. Create a new code.'
+                    : flow.kind === 'open'
+                      ? 'Mobile server link ready.'
+                      : ''
 
   return (
-    <>
-      <Section
-        title="Connected devices"
-        hint="Pair a phone with this server, approve the device you are holding, and revoke mobile access one device at a time."
-      >
-        <p className="sr-only" aria-live="assertive" aria-atomic="true">
-          {announcement}
-        </p>
+    <div>
+      <p className="sr-only" aria-live="assertive" aria-atomic="true">
+        {announcement}
+      </p>
 
-        {origin && readiness ? (
-          <Readiness origin={origin} readiness={readiness} />
-        ) : (
-          <div className="rounded-lg border border-hairline-soft bg-muted/20 p-3.5">
-            <p className="settings-label">Server pairing address</p>
-            <p className="settings-prose mt-1">
-              Podium will use the configured Podium URL and show its connection guidance here.
-            </p>
+      {capabilities?.accountUrl && (
+        <p className="settings-prose mb-4">
+          <a className="underline" href={accountPageUrl(capabilities, 'devices')}>
+            Manage all account devices
+          </a>
+        </p>
+      )}
+      <section
+        ref={flowRegionRef}
+        aria-label="Phone pairing status"
+        className="outline-none"
+        tabIndex={-1}
+      >
+        {flow.kind === 'idle' && (
+          <div className="mt-4">
+            <Button type="button" onClick={() => void start()}>
+              <Smartphone aria-hidden="true" />
+              Pair a phone
+            </Button>
           </div>
         )}
 
-        <div
-          ref={flowRegionRef}
-          role="region"
-          aria-label="Phone pairing status"
-          className="outline-none"
-          tabIndex={-1}
-        >
-          {flow.kind === 'idle' && (
+        {flow.kind === 'starting' && (
+          <div className="mt-4 flex items-center gap-2" role="status">
+            <WorkingMark size={13} />
+            <p className="settings-prose">Creating a one-time code…</p>
+          </div>
+        )}
+
+        {flow.kind === 'error' &&
+          (flow.reason === 'public-url' || flow.reason === 'transport' ? (
+            <PairingSetupRequired reason={flow.reason} onOpenAccess={onOpenAccess} />
+          ) : (
             <div className="mt-4">
-              <Button type="button" onClick={() => void start()}>
-                <Smartphone aria-hidden="true" />
-                Pair a phone
-              </Button>
+              <p role="alert" className="settings-prose text-destructive">
+                {SAFE_START_ERRORS[flow.reason]}
+              </p>
             </div>
-          )}
+          ))}
 
-          {flow.kind === 'starting' && (
-            <div className="mt-4 flex items-center gap-2" role="status">
-              <WorkingMark size={13} />
-              <p className="settings-prose">Creating a one-time code…</p>
-            </div>
-          )}
-
-          {flow.kind === 'error' &&
-            (flow.reason === 'public-url' || flow.reason === 'transport' ? (
-              <PairingSetupRequired reason={flow.reason} onOpenNetwork={onOpenNetwork} />
-            ) : (
-              <div className="mt-4">
-                <p role="alert" className="settings-prose text-destructive">
-                  {SAFE_START_ERRORS[flow.reason]}
-                </p>
-              </div>
-            ))}
-
-          {flow.kind === 'pair' && (
-            <div className="mt-5">
-              {flow.stage.kind === 'waiting' && (
-                <PairingCode
-                  url={flow.url}
-                  mode="pair"
-                  expiresAt={flow.start.expiresAt}
-                  cancelling={decisionBusy === 'cancel'}
-                  cancelError={actionError}
-                  onCancel={() => void cancel()}
-                />
-              )}
-              <ClaimRequest
-                flow={flow}
-                busy={decisionBusy === 'cancel' ? null : decisionBusy}
-                error={actionError}
-                onApprove={() => void decide('approve')}
-                onDeny={() => void decide('deny')}
+        {flow.kind === 'pair' && (
+          <div className="mt-5">
+            {flow.stage.kind === 'waiting' && (
+              <PairingCode
+                url={flow.url}
+                mode="pair"
+                expiresAt={flow.start.expiresAt}
+                cancelling={decisionBusy === 'cancel'}
+                cancelError={actionError}
+                onCancel={() => void cancel()}
               />
-            </div>
-          )}
+            )}
+            <ClaimRequest
+              flow={flow}
+              busy={decisionBusy === 'cancel' ? null : decisionBusy}
+              error={actionError}
+              onApprove={() => void decide('approve')}
+              onDeny={() => void decide('deny')}
+            />
+          </div>
+        )}
 
-          {flow.kind === 'open' && (
-            <div className="mt-5">
-              <PairingCode url={flow.url} mode="open" />
-            </div>
-          )}
+        {flow.kind === 'open' && (
+          <div className="mt-5">
+            <PairingCode url={flow.url} mode="open" />
+          </div>
+        )}
 
-          {canStartAgain && (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="mt-4"
-              onClick={() => void start()}
-            >
-              <RefreshCw aria-hidden="true" />
-              {flow.kind === 'error' ? 'Try again' : 'Create a new code'}
-            </Button>
-          )}
-        </div>
-      </Section>
-      <MobileSessions api={api} refreshKey={sessionRefresh} />
-    </>
+        {canStartAgain && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="mt-4"
+            onClick={() => void start()}
+          >
+            <RefreshCw aria-hidden="true" />
+            {flow.kind === 'error' ? 'Try again' : 'Create a new code'}
+          </Button>
+        )}
+      </section>
+    </div>
   )
+}
+
+/** A toast outlives the takeover, so leaving never silently denies a scanning phone. */
+async function cancelPairingOnExit(api: MobilePairingApi, pairingId: string): Promise<void> {
+  toast.loading('Cancelling pairing code…', { id: 'phone-pairing-cancel' })
+  try {
+    await api.auth.mobilePairingDeny.mutate({ pairingId })
+    toast.success('Pairing code cancelled.', { id: 'phone-pairing-cancel' })
+  } catch {
+    toast.error(SAFE_CANCEL_ERROR, { id: 'phone-pairing-cancel' })
+  }
 }

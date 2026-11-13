@@ -90,26 +90,40 @@ const answers: Record<string, () => [number, unknown]> = {
               activeMembers: 2,
               disabledMembers: 1,
             },
+          },
+        ]
+      : [403, { error: 'Administrator required' }],
+  '/auth/status': () => [200, { capabilities: { adminEndDeviceSignIn: true } }],
+  '/auth/admin/sign-ins': () =>
+    viewer === 'alice'
+      ? [
+          200,
+          {
+            signInsTotal: 2,
             signIns: [
               {
+                id: 'alice-browser',
                 memberId: 'alice',
                 memberName: 'Alice',
-                kind: 'login',
-                deviceName: null,
-                platform: null,
+                kind: 'browser',
+                deviceName: 'Firefox on Linux',
+                platform: 'linux',
                 createdAt: at(5),
                 lastSeenAt: at(50),
                 expiresAt: '2026-12-04T09:05:00.000Z',
+                current: true,
               },
               {
+                id: 'bob-phone',
                 memberId: 'bob',
                 memberName: 'Bob',
-                kind: 'mobile',
+                kind: 'phone',
                 deviceName: 'Bob’s phone',
                 platform: 'ios',
                 createdAt: at(10),
                 lastSeenAt: at(40),
                 expiresAt: '2026-12-04T09:10:00.000Z',
+                current: false,
               },
             ],
           },
@@ -210,7 +224,7 @@ const LABEL: Record<string, string> = {
   access: 'Access',
   machines: 'Machines',
   audit: 'Audit',
-  security: 'Profile & security',
+  security: 'Account',
 }
 const groups = SETTINGS_SURFACES.map((surface) => ({
   surface,

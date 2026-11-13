@@ -1,14 +1,20 @@
-import { workspaceFetch } from '@/lib/workspace-request'
+import type { AuthStatus } from '@podium/client-core/accounts'
+import { httpsRequiredRefusal } from '@podium/protocol'
 import { type JSX, useEffect, useState } from 'react'
 import { LoginView } from '@/features/setup/LoginGate'
+import { webAuth } from '@/lib/accounts'
 import {
   describeReplicaFailure,
   endpointLabel,
   isSignedOut,
   type ReplicaFailure,
 } from '@/lib/replica-failure'
+import { useServerAuthStatus } from '@/lib/server-auth-status'
+import { workspaceFetch } from '@/lib/workspace-request'
 import { type ReloadWindow, reloadApp } from './AppErrorPage'
 import { BootScreen, type BootTrace } from './BootScreen'
+import { HttpsRequiredScreen } from './HttpsRequiredScreen'
+import { LoadingScreen } from './LoadingScreen'
 
 /**
  * WHAT THE OPERATOR GETS WHEN THE BOOT GATE FAILS.
@@ -84,6 +90,25 @@ export function ReplicaFailureScreen({
   // Cheap and deliberate: the sign-in screen sets a session cookie and then the
   // boot has to run again from the top — the gate's replica, its socket and its
   // outbox are all bound to a principal it has not seen yet.
+  const serverStatus = useServerAuthStatus()
+  const [signInStatus, setSignInStatus] = useState<AuthStatus | null>(serverStatus)
+  const [signInError, setSignInError] = useState<string>()
+  const signedOut = isSignedOut(cause)
+  useEffect(() => {
+    if (!signedOut || (signInStatus?.capabilities && signInStatus.prompt)) return
+    let alive = true
+    void webAuth
+      .fetchAuthStatus(httpOrigin)
+      .then((status) => {
+        if (alive) setSignInStatus(status)
+      })
+      .catch(() => {
+        if (alive) setSignInError('Could not load sign-in options. Reload to try again.')
+      })
+    return () => {
+      alive = false
+    }
+  }, [signedOut, signInStatus, httpOrigin])
   const [signedIn, setSignedIn] = useState(false)
   const starting = cause.kind === 'server-starting'
   useClearsItself(httpOrigin, starting, win)
@@ -91,10 +116,21 @@ export function ReplicaFailureScreen({
     if (signedIn) reloadApp(win)
   }, [signedIn, win])
 
-  if (isSignedOut(cause)) {
-    return <LoginView httpOrigin={httpOrigin} onLoggedIn={() => setSignedIn(true)} />
+  if (signedOut) {
+    if (signInError) return <p role="alert">{signInError}</p>
+    if (!signInStatus?.capabilities || !signInStatus.prompt) return <LoadingScreen />
+    return (
+      <LoginView
+        httpOrigin={httpOrigin}
+        capabilities={signInStatus.capabilities}
+        prompt={signInStatus.prompt}
+        onLoggedIn={() => setSignedIn(true)}
+      />
+    )
   }
 
+  if (cause.kind === 'auth-insecure')
+    return <HttpsRequiredScreen guidance={cause.guidance ?? httpsRequiredRefusal()} />
   const copy = describeReplicaFailure(cause, { endpoint: endpointLabel(httpOrigin) })
   return (
     <BootScreen

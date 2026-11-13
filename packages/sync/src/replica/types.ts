@@ -257,6 +257,8 @@ export type ReplicaEvent =
       readonly type: 'heal-progress'
       readonly framesCommitted: number
       readonly seq: number
+      /** The cursor seq this catch-up started from, so progress is measured, not guessed. */
+      readonly fromSeq: number
       /** Fixed source target; undefined only for sources without target metadata. */
       readonly targetSeq: number | undefined
     }

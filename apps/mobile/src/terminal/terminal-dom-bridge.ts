@@ -39,7 +39,7 @@ export function decodeFrameBytes(b64: string): Uint8Array {
  * `@expo/dom-webview`) — but the webview CANNOT open its own authenticated
  * /client socket: the server's WS upgrade accepts credentials only as a session
  * cookie or an `Authorization` bearer header (apps/server/src/server.ts
- * `principalForClient` → auth-route's `resolveClientCredential`), a browser
+ * `principalForClient` → shared identity resolution), a browser
  * `WebSocket` can set neither, and `isAllowedWsOrigin` refuses the DOM bundle's
  * `file://` page origin against any non-loopback host. The app's ONE
  * authenticated SocketHub therefore stays on the native side, and this module

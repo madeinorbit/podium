@@ -22,8 +22,11 @@ import { type InstanceAccountStore, InstanceService } from './service'
 const instanceService = (state: {
   telemetry?: { emitter: { buildUsageReport: () => unknown } } | undefined
   users?: InstanceAccountStore | undefined
+  credentials?: import('../../identity/member-credentials').MemberCredentials | undefined
   store?: { settings: import('../../store/settings').SettingsRepository }
   loginRequired?: (() => boolean | Promise<boolean>) | undefined
+  loginPolicy?: (() => Promise<import('./service').InstanceLoginPolicy>) | undefined
+  hostLocalRequest?: boolean | undefined
   readiness?: (() => ServerReadiness) | undefined
   requestCoordinatorRestart?: (() => void | Promise<void>) | undefined
   caller: { userId: UserId }
@@ -50,8 +53,11 @@ const instanceService = (state: {
     onSettingsChanged: (previous, next) =>
       state.modules?.bus.emit('settings.changed', { previous, next }),
     users: state.users,
+    credentials: state.credentials,
     callerUserId: state.caller.userId,
     loginRequired: state.loginRequired,
+    loginPolicy: state.loginPolicy,
+    hostLocalRequest: state.hostLocalRequest,
     // POD-2766: `setup.activate` reads readiness live and refuses anything that is
     // not activation-pending, so the restart cannot become a general bounce lever.
     readiness: state.readiness,
@@ -66,7 +72,7 @@ const instanceService = (state: {
       : undefined,
     // POD-4640: a URL written from Settings reaches Connect now, not in 5 minutes.
     onPublicUrlChanged: state.connect ? () => state.connect?.publicUrlChanged() : undefined,
-    // POD-5921: Settings → Network shows the bookmarkable link beside the address.
+    // POD-5921: Settings → Access shows the bookmarkable link beside the address.
     tunnelHealth: state.tunnelHealth,
     stableLink: state.connect?.stableLink ? () => state.connect?.stableLink?.() : undefined,
     // POD-4179: setup.complete records the host machine's grantee.

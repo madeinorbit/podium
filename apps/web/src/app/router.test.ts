@@ -1,4 +1,3 @@
-import { asIssueId } from '@podium/model'
 import {
   createRouter,
   parseRoute,
@@ -7,6 +6,7 @@ import {
   routeDefaults,
   routePath,
 } from '@podium/client-core/router'
+import { asIssueId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 
 // ---------------------------------------------------------------------------
@@ -177,8 +177,8 @@ describe('createRouter', () => {
     const win = fakeWindow('/settings')
     const router = createRouter({ win })
     router.navigate({ ...router.current(), settingsTab: 'appearance' })
-    router.navigate({ ...router.current(), settingsTab: 'network' })
-    expect(win.url()).toBe('/settings/network')
+    router.navigate({ ...router.current(), settingsTab: 'access' })
+    expect(win.url()).toBe('/settings/access')
 
     win.back()
     expect(router.current()).toMatchObject({ view: 'settings', settingsTab: 'appearance' })
@@ -231,4 +231,32 @@ describe('createRouter', () => {
     win.back()
     expect(win.url()).toBe('/issues') // nothing was pushed
   })
+})
+
+describe('legacy settings links', () => {
+  const aliases = {
+    sessions: 'agents',
+    superagent: 'agents',
+    workllm: 'agents',
+    security: 'account',
+    devices: 'account',
+    secrets: 'accounts',
+    hibernation: 'machines',
+    repos: 'projects',
+    workflow: 'projects',
+    network: 'access',
+    experimental: 'labs',
+    people: 'members',
+    audit: 'audit',
+    access: 'access',
+  }
+  for (const [oldId, page] of Object.entries(aliases)) {
+    it(`${oldId} opens ${page} and replaces the old address`, () => {
+      const win = fakeWindow(`/settings/${oldId}?e2e=1`)
+      const router = createRouter({ win })
+      expect(router.current()).toMatchObject({ view: 'settings', settingsTab: page })
+      expect(win.url()).toBe(`/settings/${page}?e2e=1`)
+      router.dispose()
+    })
+  }
 })

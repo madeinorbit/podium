@@ -445,6 +445,17 @@ function createHeaderViews(pool: MobxPool) {
     ids: (entity: HeaderEntity) => headerIds(pool, entity),
     /** Live samples of the fleet machines, in fleet order (watching them holds their topics). */
     metrics: fleetMetrics,
+    /**
+     * Whose machine this computer is, for the desktop header (POD-6908): `mine`
+     * when it is in my fleet, `another-member` when its record exists without
+     * my access row, `undefined` when the record is unknown here. The answer
+     * names no one: the other member's machine is never read past its access.
+     */
+    thisComputer: (machineId: string | undefined): 'mine' | 'another-member' | undefined => {
+      if (!machineId) return undefined
+      if (headerEntities(pool).inFleet(machineId)) return 'mine'
+      return headerEntities(pool).get('machine', machineId) ? 'another-member' : undefined
+    },
     /** My fleet's machine models (records, my access, live condition). */
     machines: (): MachineModel[] =>
       fleetIds().flatMap((id) => {

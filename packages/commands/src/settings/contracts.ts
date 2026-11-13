@@ -99,7 +99,6 @@
  */
 
 import {
-  MutationIdField,
   OWNERSHIP_MATRIX_INDEX,
   SERVER_SECRET_KEYS,
   SETTINGS_CLASSIFICATION,
@@ -495,6 +494,32 @@ export const settingsSecretPresenceContract = {
   conflict: 'n/a',
 } as const satisfies CommandContract<typeof settingsSecretPresenceInput>
 
+/** Members may learn only whether the workspace bot exists. Other secret
+ * presence, fingerprints and rotation times remain on the admin-only read. */
+export const settingsTelegramBotPresenceContract = {
+  ...settingsSecretPresenceContract,
+  name: 'settings.telegramBotPresence',
+  policy: {
+    ...settingsSecretPresenceContract.policy,
+    roleFloor: 'member',
+    rationale:
+      'Members need to know whether they can connect to the workspace Telegram bot. ' +
+      'This read returns one boolean, never a token, fingerprint, timestamp or another secret’s presence. ' +
+      'Secret management and the full presence surface remain admin-only.',
+  },
+  redaction: {
+    reviewed: true,
+    inputPaths: [],
+    outputPaths: [],
+    note: 'Empty input and a boolean output carry no credential material or identifying metadata.',
+  },
+  errorConsistency: {
+    callerSuppliedTargetId: false,
+    note: 'The caller supplies no key or target. Only the workspace Telegram bot’s availability is public to members.',
+  },
+  cli: { summary: 'Show whether the workspace Telegram bot is configured' },
+} as const satisfies CommandContract<typeof settingsSecretPresenceInput>
+
 // ---------------------------------------------------------------------------
 // settings.telegramSetupStart / settings.telegramSetupPoll — THE BINDING CEREMONY
 // ---------------------------------------------------------------------------
@@ -613,27 +638,15 @@ export const settingsTelegramSetupStartContract = {
   visibility: 'secret',
   input: settingsTelegramSetupStartInput,
   policy: {
-    action: 'manage',
-    roleFloor: 'admin',
+    action: 'write',
+    roleFloor: 'member',
     resource: 'secret',
     confirmation: 'confirm',
     rationale:
-      'Mints a bearer credential that lets whoever presents it bind a chat that SPEAKS AS THE MINTER. ' +
-      '`resource: "secret"` because what it writes is a preimage (ADR 9 D3’s `secrets` class names ' +
-      'pairing token preimages; this is that row’s sibling), which forces `online-sensitive` through ' +
-      '`classificationErrors`. `action: "manage"` and not `write`: it administers an authentication ' +
-      'path, it does not edit a row the caller owns. No `machineVerb` — there is no compute here. ' +
-      'RECORDED FORK on the floor, and it is the same fork `machines.pairingCode` recorded and ' +
-      'resolved the same way. D22 reads as SELF-SERVICE (each person binds their own chat, and the ' +
-      'binding this mint leads to is owned by the minter, so a member could not escalate through it) ' +
-      '— that argues `member`. ADR 3 Amendment 1 D15.3 is unconditional in the other direction: "any ' +
-      'contract whose policy names the `secret` resource kind requires the `admin` instance role". ' +
-      'The ADR is the pack’s tie-break and admin is the default-closed side, so admin it is; on ' +
-      'today’s one-account instance the two answers coincide, and whoever relaxes this when per-user ' +
-      'login lands must say why in the same place. `confirmation: "confirm"`: minting a credential ' +
-      'that can impersonate you must not happen by a stray click — `machines.pairingCode` again. ' +
-      'NOTHING ENFORCES EITHER THE FLOOR OR THE CONFIRMATION TODAY; the shipped button calls this ' +
-      'directly, and POD-315 owns the principal that would make the floor mean something.',
+      'Mints a one-time code for connecting the authenticated caller’s own Telegram chat. ' +
+      'Members may connect their own chat; they cannot change the workspace bot or choose another user. ' +
+      'The code carries the caller’s identity through the existing claim ceremony. The deliberate ' +
+      'Connect action confirms this online-only credential mint.',
   },
   exposure: SERVED_ON,
   delivery: TELEGRAM_MINT_DELIVERY,
@@ -673,21 +686,13 @@ export const settingsTelegramSetupPollContract = {
   input: settingsTelegramSetupPollInput,
   policy: {
     action: 'write',
-    roleFloor: 'admin',
+    roleFloor: 'member',
     resource: 'settings-domain',
     confirmation: 'none',
     rationale:
-      'Writes the durable `(userId, chatId)` binding — ADR 1’s `telegram-chat-binding` row, ' +
-      '`perUserState`, whose owner resolves to the user in the key. `resource: "settings-domain"` ' +
-      'names that row gate, following `settings.updatePersonal`: not `secret` (the secret is the ' +
-      'mint, and it is CONSUMED here rather than written), not `global` (a binding is nobody else’s), ' +
-      'not `none` (there IS a target class). `action: "write"` because it materialises the caller’s ' +
-      'own row rather than administering the instance. THE FLOOR IS `admin` TO MATCH THE MINT, and ' +
-      'that is a rule rather than a copy: the two halves of one ceremony must not carry different ' +
-      'floors, because the LOWER of the two is then the ceremony’s real floor and the higher one is ' +
-      'decoration. `confirmation: "none"`: the deliberate act was the mint, and re-confirming the ' +
-      'completion of a ceremony the principal started is friction on the path that ENDS the window — ' +
-      'a code that stays live because its redemption was awkward is the worse outcome.',
+      'Completes the caller’s Telegram connection by redeeming a one-time code. Members may ' +
+      'connect their own chat; the binding owner is always the user captured by the mint, never ' +
+      'a caller-supplied user or chat id. The mint and redemption carry the same member floor.',
   },
   exposure: SERVED_ON,
   delivery: {
@@ -758,6 +763,43 @@ export const settingsTelegramSetupPollContract = {
     'Binds the arriving chat to the polling user, once: an already-bound chat is refused rather than rebound, which is the fail-closed rule ROW.preferencesPersonal secretNote requires of the inbound Telegram edge',
 } as const satisfies CommandContract<typeof settingsTelegramSetupPollInput>
 
+/** Disconnect the authenticated person's own bindings; there is no target id. */
+export const settingsTelegramDisconnectInput = z.object({}).strict()
+export const settingsTelegramDisconnectContract = {
+  ...settingsTelegramSetupPollContract,
+  name: 'settings.telegramDisconnect',
+  input: settingsTelegramDisconnectInput,
+  policy: {
+    ...settingsTelegramSetupPollContract.policy,
+    roleFloor: 'member',
+    rationale:
+      'A member may disconnect their own Telegram chats. The handler derives the owner from the principal and removes their bindings and synced routing preference atomically.',
+  },
+  delivery: {
+    ...settingsTelegramSetupPollContract.delivery,
+    outboxReconciliation:
+      'Disconnect revokes chat authentication immediately and must never queue offline.',
+  },
+  redaction: {
+    reviewed: true,
+    inputPaths: [],
+    outputPaths: [],
+    note: 'The input is empty and the command returns no material.',
+  },
+  ownership: {
+    creates: [],
+    note: 'Removes only the authenticated caller’s bindings; creates nothing.',
+  },
+  errorConsistency: {
+    callerSuppliedTargetId: false,
+    note: 'The caller supplies no user or chat id to probe.',
+  },
+  cli: { summary: 'Disconnect your Telegram chats' },
+  conflict: 'cmd',
+  conflictRule:
+    'Repeated disconnects are idempotent. A fresh connection requires a new claim ceremony.',
+} as const satisfies CommandContract<typeof settingsTelegramDisconnectInput>
+
 // ---------------------------------------------------------------------------
 // The table
 // ---------------------------------------------------------------------------
@@ -786,6 +828,8 @@ export const SETTINGS_CONTRACTS = {
   'settings.setSecret': settingsSetSecretContract,
   'settings.clearSecret': settingsClearSecretContract,
   'settings.secretPresence': settingsSecretPresenceContract,
+  'settings.telegramBotPresence': settingsTelegramBotPresenceContract,
+  'settings.telegramDisconnect': settingsTelegramDisconnectContract,
   'settings.telegramSetupStart': settingsTelegramSetupStartContract,
   'settings.telegramSetupPoll': settingsTelegramSetupPollContract,
 } as const
@@ -827,6 +871,7 @@ export const CONTRACT_TIER: Readonly<Partial<Record<SettingsContractName, Settin
   // so it is checked against the SHIPPED row like the two writes, rather than
   // being exempted for being a read.
   'settings.secretPresence': 'server-secret',
+  'settings.telegramBotPresence': 'server-secret',
   // `telegramSetupStart` / `telegramSetupPoll` are deliberately ABSENT and the
   // type is `Partial` to say so. They are not blob writes and answer to no
   // settings TIER: the mint's row is the shared preimage row and the redeem's is
@@ -850,6 +895,7 @@ export const CONTRACT_TIER: Readonly<Partial<Record<SettingsContractName, Settin
 const CEREMONY_ROW = {
   'settings.telegramSetupStart': 'pairing-token',
   'settings.telegramSetupPoll': 'telegram-chat-binding',
+  'settings.telegramDisconnect': 'telegram-chat-binding',
 } as const satisfies Partial<Record<SettingsContractName, string>>
 
 /**

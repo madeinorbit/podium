@@ -7,7 +7,7 @@ import { DEFAULT_SETTINGS, type PodiumSettings } from '@podium/runtime'
  * forget), a kill switch disables it WITH the reason, and the page shows the
  * real report rather than marketing copy.
  */
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const trpcMock = vi.hoisted(() => ({
@@ -17,7 +17,14 @@ const trpcMock = vi.hoisted(() => ({
   preview: vi.fn(),
   setupInfo: vi.fn(),
   provenance: vi.fn(),
+  openTakeover: vi.fn(),
+  toast: vi.fn(),
 }))
+
+vi.mock('../settings-frame', () => ({
+  useSettingsFrame: () => ({ openTakeover: trpcMock.openTakeover }),
+}))
+vi.mock('sonner', () => ({ toast: trpcMock.toast }))
 
 vi.mock('@/app/store', () => {
   const trpc = {
@@ -72,6 +79,18 @@ const renderSection = async (patch: (p: Partial<PodiumSettings>) => void = () =>
   return within(container)
 }
 
+const renderReport = async () => {
+  const page = await renderSection()
+  expect(page.queryByTestId('telemetry-report')).toBeNull()
+  expect(trpcMock.preview).not.toHaveBeenCalled()
+  fireEvent.click(page.getByRole('button', { name: 'Show report' }))
+  const flow = trpcMock.openTakeover.mock.calls.at(-1)?.[0]
+  expect(flow.title).toBe('What a report contains')
+  const { container } = render(flow.content)
+  await act(flush)
+  return within(container)
+}
+
 describe('PrivacySection', () => {
   it('shows usage ON and crash OFF on a fresh install — the effective state (POD-5922)', async () => {
     const view = await renderSection()
@@ -97,6 +116,22 @@ describe('PrivacySection', () => {
     })
     expect(trpcMock.set).toHaveBeenCalledWith({ usage: 'off' })
     expect(view.getByTestId('telemetry-usage').getAttribute('aria-checked')).toBe('false')
+  })
+
+  it('undoes a reporting change through telemetry.set', async () => {
+    const view = await renderSection()
+    await act(async () => {
+      fireEvent.click(view.getByTestId('telemetry-usage'))
+      await flush()
+    })
+    const options = trpcMock.toast.mock.calls.at(-1)?.[1]
+    expect(options.action.label).toBe('Undo')
+    await act(async () => {
+      options.action.onClick()
+      await flush()
+    })
+    expect(trpcMock.set).toHaveBeenLastCalledWith({ usage: 'on' })
+    expect(view.getByTestId('telemetry-usage').getAttribute('aria-checked')).toBe('true')
   })
 
   it('toggles each tier independently', async () => {
@@ -130,8 +165,8 @@ describe('PrivacySection', () => {
     expect(view.getByTestId('telemetry-usage').getAttribute('aria-checked')).toBe('false')
   })
 
-  it('shows the example report before there is a real one', async () => {
-    const view = await renderSection()
+  it('loads the example report only inside the report takeover', async () => {
+    const view = await renderReport()
     await waitFor(() =>
       expect(view.getByTestId('telemetry-report').textContent).toContain('"installAge": "1-7d"'),
     )
@@ -140,27 +175,34 @@ describe('PrivacySection', () => {
 
   it('shows the REAL pending report once there is one', async () => {
     trpcMock.preview.mockResolvedValue({ schema: 1, sessions: { codex: 7 } })
-    const view = await renderSection()
-    expect(view.getByText(/your next report/i)).toBeTruthy()
+    const view = await renderReport()
+    expect(view.getByText(/next report from this workspace/i)).toBeTruthy()
     expect(view.getByTestId('telemetry-report').textContent).toContain('"codex": 7')
   })
 
-  it('names what is never sent, and where reports go', async () => {
-    const view = await renderSection()
+  it('names what is never sent, and where reports go in the takeover', async () => {
+    const view = await renderReport()
     expect(view.getByText(/never sent:/i).textContent).toMatch(/repo names/i)
-    expect(view.getByText(/drops your IP/i).textContent).toContain('pulse.meetpodium.com/v1/u')
+    expect(view.getByText(/drops IP addresses/i).textContent).toContain('pulse.meetpodium.com/v1/u')
   })
 
   it('offers a reset only once an install id exists', async () => {
-    expect((await renderSection()).queryByRole('button', { name: /reset/i })).toBeNull()
+    expect((await renderReport()).queryByRole('button', { name: /reset/i })).toBeNull()
     cleanup()
+    trpcMock.preview.mockClear()
     trpcMock.state.mockResolvedValue({ ...OFF, usage: 'on', installId: 'abc' })
-    const view = await renderSection()
+    trpcMock.preview
+      .mockResolvedValueOnce({ installId: 'abc' })
+      .mockResolvedValue({ installId: 'new-id-0000-4000-8000-000000000000' })
+    const view = await renderReport()
     await act(async () => {
       fireEvent.click(view.getByRole('button', { name: /reset/i }))
       await flush()
     })
     expect(trpcMock.resetId).toHaveBeenCalled()
+    expect(trpcMock.preview).toHaveBeenCalledTimes(2)
+    expect(view.getByTestId('telemetry-report').textContent).toContain('new-id-0000')
+    expect(view.getByTestId('telemetry-report').textContent).not.toContain('abc')
   })
 })
 
@@ -174,7 +216,7 @@ describe('mirror transcripts to this server', () => {
     expect(view.getByTestId('transcript-mirror').getAttribute('aria-checked')).toBe('true')
   })
 
-  it('writes the choice onto the settings blob', async () => {
+  it('passes the transcript change to the existing settings writer', async () => {
     const patch = vi.fn()
     const view = await renderSection(patch)
     fireEvent.click(view.getByTestId('transcript-mirror'))
@@ -210,7 +252,7 @@ describe('mirror transcripts to this server', () => {
 it('refuses the reset affordance when a file overrides the telemetry identity', async () => {
   trpcMock.state.mockResolvedValue({ ...OFF, installId: 'operator-id' })
   trpcMock.provenance.mockResolvedValue({ telemetryInstallId: { source: 'file' } })
-  const section = await renderSection()
+  const section = await renderReport()
   const reset = section.getByRole('button', { name: 'Reset' }) as HTMLButtonElement
   expect(reset.disabled).toBe(true)
   expect(section.getByText(/config.json overrides/)).toBeTruthy()

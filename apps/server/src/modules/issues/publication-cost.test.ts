@@ -26,7 +26,6 @@ it.each([16, 64])('publishes only the changed normalized issue among %i rows', a
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: '',
-          mergeStyle: 'ff-only',
           autoRebaseBeforeMerge: true,
         },
         sessionDefaults: { agent: 'claude-code' },

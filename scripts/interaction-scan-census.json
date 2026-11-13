@@ -34,12 +34,12 @@
       "file": "apps/mobile/src/client/test-replica.ts",
       "holder": "createMobileTestReplica/replica",
       "rule": "reader-summary",
-      "tokens": "af4c8d5c25bef77350a24ce955552b54723dc8c64054315334f957fe03fcb1e7",
+      "tokens": "a1a156b15a8b6f4bc6142de3597fe009f10ade417580a58dd0cefb7d1116210c",
       "gate": [],
       "origin": [
         "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
       ],
-      "fingerprint": "749fc250b86963c9418ae4ce85ddfad4f37e9092e46531320ced99bb3a984d3c",
+      "fingerprint": "3c37ee5ddb66f85510f56592c646ab6348efc9eb0ca576944d6fbb54f1396f4f",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
@@ -67,26 +67,6 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/client/connected-devices.ts",
-      "holder": "useConnectedDevices/reload/useCallback:callback/read:callback",
-      "rule": "reader-summary",
-      "tokens": "c781611949e00d5bc388fa377314c5d4d5498ddc1ea5c8fc123fb2b47ee379eb",
-      "gate": [
-        "then:e98979cf2a5fd90561826fa467512b90bcfd8f1c5585453627b46bbd03cd3aaf"
-      ],
-      "origin": [
-        "50f1e336840e638db3fcf24fff43d0f2b6b136a645ecd0b20b050b6d6cb002fd"
-      ],
-      "fingerprint": "b0499e63e5e0a2d63eb75a4f457eee36d9e7978092109fbc2b07bca7bb628524",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5870",
-      "trigger": "Visible phone settings requests the active principal device roster.",
-      "bound": "One server answer for the current principal; the request retains IDs and writes each device into the shared pool.",
-      "reason": "This callback is the request ingestion boundary. It replaces the private device array and fences superseded or closed requests.",
-      "guard": "settings-launch-records.parity.test.ts compares every public device field and stale-response fencing; SettingsScreen.pool.test.tsx checks 1x/4x heartbeat work."
     },
     {
       "file": "apps/mobile/src/client/issue-fixtures.ts",
@@ -906,24 +886,6 @@
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of SessionScreen/useEffect:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/screens/SettingsScreen.tsx",
-      "holder": "SettingsScreenBody/SettingsScreenBody/deviceFeed",
-      "rule": "reader-summary",
-      "tokens": "faf3825aa22424b09ee7b505893d56e869cf94e62f8fd0ee64bbc247fde34461",
-      "gate": [],
-      "origin": [
-        "50f1e336840e638db3fcf24fff43d0f2b6b136a645ecd0b20b050b6d6cb002fd"
-      ],
-      "fingerprint": "85efd32c8a3788ced2609b6a72ce186aa68670250ed42200c0f35c9a2577753c",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of SettingsScreen/deviceFeed",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
@@ -7169,77 +7131,21 @@
     },
     {
       "file": "apps/web/src/features/settings/SettingsView.tsx",
-      "holder": "SettingsViewBody/SettingsViewBody",
-      "rule": "consume:map",
-      "tokens": "cb71ecb87725b73fb278e81bcec7911453c9c527994f9663a704da01a2966851",
-      "gate": [],
-      "origin": [
-        "309d59c09b8ff11c68497f6356f344ddf005bd88062362e9f6f400c38c65c20b",
-        "3b2cab5dbc5d0d143c87e4e2f01e5fe38df12baa89b72d5ccb28933246ab9711"
-      ],
-      "fingerprint": "59092f33a0ee2059c8cd3a0101299643099e9be3ffa6e3a17630574276fd131d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of SettingsView",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/settings/SettingsView.tsx",
-      "holder": "SettingsViewBody/SettingsViewBody/map:callback",
-      "rule": "consume:map",
-      "tokens": "d095adb6609e9554526cfa32e87111baaa31114f452b375dd0459b831fc1fdf8",
-      "gate": [],
-      "origin": [
-        "c28c84b21c52f734084dee993b98541a98dccccc0ab3cb08a50a3961118e2089"
-      ],
-      "fingerprint": "acb89c875cd67679fb41c71421b9914b8131f9054e8ca76583ba6b253cb82680",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of SettingsView/map:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/settings/SettingsView.tsx",
       "holder": "SettingsViewBody/SettingsViewBody/offeredGroups",
       "rule": "reader-summary",
-      "tokens": "0cfe407daae8da0a551f6292b408c0f309b6184a2ad9f9ed941980035b74a101",
+      "tokens": "38a321204ec5880aff4113d3b88a16bbfb40f008f6963f226a155da240f751de",
       "gate": [],
       "origin": [
-        "3b2cab5dbc5d0d143c87e4e2f01e5fe38df12baa89b72d5ccb28933246ab9711"
+        "d49f274c5b2705c6ab314db7db852ee2c21f193774334621c352ee9e5979f60d"
       ],
-      "fingerprint": "464cb8eddfbae1b5f6166d95e7116fca0a9c9432fd72318f8865560cc89a447b",
+      "fingerprint": "53170a41147edebfba9a35886f61e60e30b9248b782eda34625c99b2b6275349",
       "count": 1,
       "classification": "bounded local work",
-      "owner": "POD-6299",
-      "trigger": "Settings opens or the viewer\u2019s admin sections answer.",
-      "bound": "The fixed Settings tab catalogue (SETTINGS_GROUPS: four surfaces, about twenty tabs) and at most five admin section names from /auth/admin/viewer.",
-      "reason": "Filters the fixed tab catalogue to the admin sections the server offers the viewer (POD-6299).",
-      "guard": "apps/web/src/features/settings/surfaces.test.ts and SettingsView.admin-area.test.tsx (POD-6299)"
-    },
-    {
-      "file": "apps/web/src/features/settings/SettingsView.tsx",
-      "holder": "SettingsViewBody/SettingsViewBody/settingsTabs",
-      "rule": "consume:filter",
-      "tokens": "2ada6822742c5e398adec6b5162722e75260859d5fbac2644866141f9fcd10d7",
-      "gate": [],
-      "origin": [
-        "3b2cab5dbc5d0d143c87e4e2f01e5fe38df12baa89b72d5ccb28933246ab9711",
-        "4475fbab60a225a8d712cb172885624802eb4a4062e81479f652b9c0da322800"
-      ],
-      "fingerprint": "ca9e2b7a5c2ab8e424ef2ac45107d450f9a4493d63a175aae26e4f418cd38c50",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of SettingsView/settingsTabs",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "owner": "POD-6652",
+      "trigger": "Settings opens, its page changes, or the admin viewer settles or retries.",
+      "bound": "Two static groups and 13 source-defined settings pages, with 110 source-defined search rows (including the fixed FEATURES registry). Search renders at most 14 results. No issue, session, machine or member records are traversed.",
+      "reason": "Filters or renders the fixed settings page catalogue against at most five section names from /auth/admin/viewer. This is navigation metadata, not an entity collection.",
+      "guard": "apps/web/src/features/settings/surfaces.test.ts pins the 13 pages and viewer visibility. settings-frame.test.ts covers catalog row coverage, cross-page row search and lazy target navigation; searchSettings caps results with slice(0, 14)."
     },
     {
       "file": "apps/web/src/features/settings/SettingsView.tsx",
@@ -7248,16 +7154,16 @@
       "tokens": "e98c022cf5fbd137ba3564ef2cdb4098c99492e3bc1c0675ed9d2b33bf1829b0",
       "gate": [],
       "origin": [
-        "3b2cab5dbc5d0d143c87e4e2f01e5fe38df12baa89b72d5ccb28933246ab9711"
+        "d49f274c5b2705c6ab314db7db852ee2c21f193774334621c352ee9e5979f60d"
       ],
-      "fingerprint": "4da0722c4a610f724f30b2d3eb57ab2558e75750cb6316d90fef25a26ccc8a44",
+      "fingerprint": "31b3cb9e8cc684c94d3ca26e5aad52d629207b4c8d01245400ae1bcb6a18f987",
       "count": 1,
       "classification": "bounded local work",
-      "owner": "POD-6299",
-      "trigger": "Settings opens or the viewer\u2019s admin sections answer.",
-      "bound": "The fixed Settings tab catalogue (SETTINGS_GROUPS: four surfaces, about twenty tabs) and at most five admin section names from /auth/admin/viewer.",
-      "reason": "Filters the fixed tab catalogue to the admin sections the server offers the viewer (POD-6299).",
-      "guard": "apps/web/src/features/settings/surfaces.test.ts and SettingsView.admin-area.test.tsx (POD-6299)"
+      "owner": "POD-6652",
+      "trigger": "Settings opens, its page changes, or the admin viewer settles or retries.",
+      "bound": "Two static groups and 13 source-defined settings pages, with 110 source-defined search rows (including the fixed FEATURES registry). Search renders at most 14 results. No issue, session, machine or member records are traversed.",
+      "reason": "Filters or renders the fixed settings page catalogue against at most five section names from /auth/admin/viewer. This is navigation metadata, not an entity collection.",
+      "guard": "apps/web/src/features/settings/surfaces.test.ts pins the 13 pages and viewer visibility. settings-frame.test.ts covers catalog row coverage, cross-page row search and lazy target navigation; searchSettings caps results with slice(0, 14)."
     },
     {
       "file": "apps/web/src/features/settings/SettingsView.tsx",
@@ -7266,72 +7172,17 @@
       "tokens": "dadeda771ad679f061a9fc2715be40fdb4e17a7f3a67a92652ab51370288e607",
       "gate": [],
       "origin": [
-        "3b2cab5dbc5d0d143c87e4e2f01e5fe38df12baa89b72d5ccb28933246ab9711",
-        "4475fbab60a225a8d712cb172885624802eb4a4062e81479f652b9c0da322800"
+        "4475fbab60a225a8d712cb172885624802eb4a4062e81479f652b9c0da322800",
+        "d49f274c5b2705c6ab314db7db852ee2c21f193774334621c352ee9e5979f60d"
       ],
-      "fingerprint": "3705cef4b021b39593cdc2b1974e45baa98715b4b27081997953afad9a51e13c",
+      "fingerprint": "72357cf971d5caaa915be318f1abf44456622e58da808daa02862f273d5ce5e0",
       "count": 1,
       "classification": "bounded local work",
-      "owner": "POD-6705",
-      "trigger": "Settings opens, the selected tab changes, or the admin viewer settles or retries.",
-      "bound": "The fixed Settings tab catalogue: four surfaces and twenty tabs (SETTINGS_GROUPS and TAB_LABEL). No issue or session rows are traversed.",
-      "reason": "Checks the selected destination against the finite visible settings tabs once, while an unresolved admin deep link waits for the viewer answer.",
-      "guard": "apps/web/src/features/settings/SettingsView.admin-area.test.tsx covers delayed admin/member answers and failed-read retry recovery."
-    },
-    {
-      "file": "apps/web/src/features/settings/SettingsView.tsx",
-      "holder": "SettingsViewBody/SettingsViewBody/visibleGroups",
-      "rule": "consume:filter",
-      "tokens": "26e097dc6f62713db0645e17e35bc844d9b8cb1fdcf33d75debccb0297ed51b9",
-      "gate": [],
-      "origin": [
-        "309d59c09b8ff11c68497f6356f344ddf005bd88062362e9f6f400c38c65c20b",
-        "3b2cab5dbc5d0d143c87e4e2f01e5fe38df12baa89b72d5ccb28933246ab9711"
-      ],
-      "fingerprint": "afdf302c85fa8d4917a443c5f8476a77d79633303d2130ffa1e06e26ec73eb4a",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of SettingsView/visibleGroups",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/settings/SettingsView.tsx",
-      "holder": "SettingsViewBody/SettingsViewBody/visibleGroups",
-      "rule": "consume:map",
-      "tokens": "a20619435eb5c6aad11f8de9653154865089de1858ee444cf9271bd4eb205ec8",
-      "gate": [],
-      "origin": [
-        "3b2cab5dbc5d0d143c87e4e2f01e5fe38df12baa89b72d5ccb28933246ab9711"
-      ],
-      "fingerprint": "4d0450a22821b8448b8a885e08b3bc59225c671c37c0907ac39c0d7a91bf070b",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-6299",
-      "trigger": "Settings opens or the viewer\u2019s admin sections answer.",
-      "bound": "The fixed Settings tab catalogue (SETTINGS_GROUPS: four surfaces, about twenty tabs) and at most five admin section names from /auth/admin/viewer.",
-      "reason": "Filters the fixed tab catalogue to the admin sections the server offers the viewer (POD-6299).",
-      "guard": "apps/web/src/features/settings/surfaces.test.ts and SettingsView.admin-area.test.tsx (POD-6299)"
-    },
-    {
-      "file": "apps/web/src/features/settings/SettingsView.tsx",
-      "holder": "SettingsViewBody/SettingsViewBody/visibleGroups/map:callback/tabs",
-      "rule": "consume:filter",
-      "tokens": "ce2762d268fbaf383dff69d1042bb9c1a41f9a269982da194915c35832d729ec",
-      "gate": [],
-      "origin": [
-        "309d59c09b8ff11c68497f6356f344ddf005bd88062362e9f6f400c38c65c20b"
-      ],
-      "fingerprint": "80be071e078a7c8e3d6e21189647ea43b79c49436b205542ee6a7b567f78b727",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of SettingsView/visibleGroups/map:callback/tabs",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "owner": "POD-6652",
+      "trigger": "Settings opens, its page changes, or the admin viewer settles or retries.",
+      "bound": "Two static groups and 13 source-defined settings pages, with 110 source-defined search rows (including the fixed FEATURES registry). Search renders at most 14 results. No issue, session, machine or member records are traversed.",
+      "reason": "Filters or renders the fixed settings page catalogue against at most five section names from /auth/admin/viewer. This is navigation metadata, not an entity collection.",
+      "guard": "apps/web/src/features/settings/surfaces.test.ts pins the 13 pages and viewer visibility. settings-frame.test.ts covers catalog row coverage, cross-page row search and lazy target navigation; searchSettings caps results with slice(0, 14)."
     },
     {
       "file": "apps/web/src/features/settings/readers.ts",
@@ -7442,22 +7293,24 @@
       "guard": "scripts/check-interaction-scans.ts"
     },
     {
-      "file": "apps/web/src/features/settings/sections/connected-devices.tsx",
-      "holder": "createMobilePairingApi/auth/mobileSessions/query/callback",
-      "rule": "consume:filter",
-      "tokens": "98cbca364d71099b6fb40547a52fc78567239a10a4f9ab358dc75d2177538edd",
+      "file": "apps/web/src/features/settings/sections/members-invite.tsx",
+      "holder": "InviteMember/InviteMember",
+      "rule": "reader-summary",
+      "tokens": "f9dcf407cc692160de2a93cb226f7c6795fc077220a21d9409e4252475fd7dad",
       "gate": [],
       "origin": [
-        "5f8f9b91b40165a82c0d0af9cb273cc5d8c1078be436677eefa6f029ac0bf122"
+        "0d87ba9538f272cae87540a92d643621c3788a910b28a3a42ff59392720a7519",
+        "0db0c383eae3a50331c37fbb3828050b89ce7080d95ca1da167c95fe36179c75",
+        "99f5b4139a6534aa3dd3a2dce73dc4f04abd04fd3466137e687cb054b81374fd"
       ],
-      "fingerprint": "bdbd7cd36be76e65a57df6cfcb68d151627f7285fa135462a0645b148498f510",
+      "fingerprint": "134229c02adcdcf29b68badbf7c508861b85bdfa0b9cf3b0265ad6503c19238f",
       "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createMobilePairingApi/auth/mobileSessions/query/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "classification": "bounded local work",
+      "owner": "POD-6749",
+      "trigger": "Opening the Invite takeover on Members",
+      "bound": "Reads the already-loaded member directory answer (its capabilities, the caller's own row and credential fact); no request and no scan beyond the directory's member list.",
+      "reason": "The invite form follows the server's reported invitation delivery and whether the inviting admin still needs an email address.",
+      "guard": "Exact fingerprint and multiplicity; members and members.capabilities tests cover link and mail delivery and the missing-email block."
     },
     {
       "file": "apps/web/src/features/settings/sections/privacy.tsx",
@@ -7501,20 +7354,18 @@
       "file": "apps/web/src/features/settings/sections/updates.tsx",
       "holder": "UpdatesSection/UpdatesSection",
       "rule": "consume:map",
-      "tokens": "31c8f4d390198b69d29bd58542e4bb7f717f5dd37b6e51c8f1b338abc9e61298",
-      "gate": [
-        "else:421b9170df7e51aca48d89b1bb8443bd593978052f3328a9be4e5dddd53a10b1"
-      ],
+      "tokens": "28b4ce820ce59233df61ffb3a14d94261bb3d1f453fd2796429ec7d9850810d8",
+      "gate": [],
       "origin": [
         "1c5ee753b1b879289bd720f19c49bdc7856db316c27adc03d8d747e09a0a62dc"
       ],
-      "fingerprint": "5d2bc51e27942e9a6af71303728886bb4f0f9e2b94a2daf2166d152387c572d8",
+      "fingerprint": "c1852660d1b4a733d18a96bed06d498ca4d4764099a45bde1ec3dae65656a659",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5866",
       "trigger": "Invocation of UpdatesSection",
       "bound": "Opening ownership bounds lifetime, not collection cardinality; the existing collection path still requires a named-demand or cardinality bound.",
-      "reason": "Per-opening context and query ownership expose the existing consume:map collection path. This lifetime change does not claim to repair its collection work. POD-5866 pilot reconciliation preserves the classification while moving opening ownership or adopting the landed model reader; predecessor: 7a923b15833c4501316ca361136d446e194e9e9b6bbc8f72b010b8c9c64a7d7e. POD-6683 wraps UpdatesSection in observer (the update-status reader), which only renames the holder; predecessor: d47ce236c66cc9dd8d39ffe48e0b3f41a6296bcdb7cad8c3336b4a636e57edb7.",
+      "reason": "Per-opening context and query ownership expose the existing consume:map collection path. This lifetime change does not claim to repair its collection work. POD-5866 pilot reconciliation preserves the classification while moving opening ownership or adopting the landed model reader; predecessor: 7a923b15833c4501316ca361136d446e194e9e9b6bbc8f72b010b8c9c64a7d7e. POD-6683 wraps UpdatesSection in observer (the update-status reader), which only renames the holder; predecessor: d47ce236c66cc9dd8d39ffe48e0b3f41a6296bcdb7cad8c3336b4a636e57edb7. POD-6519 moves machine update rows into the grouped Updates list; this changes the JSX and branch fingerprint, not the collection demand. Predecessor: 5d2bc51e27942e9a6af71303728886bb4f0f9e2b94a2daf2166d152387c572d8.",
       "guard": "Exact fingerprint and multiplicity only; POD-5866 opening tests prove release, and speed:structural compares work with the pilot baseline. This entry is not a collection-work fix."
     },
     {
@@ -7557,55 +7408,135 @@
       "file": "apps/web/src/features/settings/surfaces.ts",
       "holder": "visibleSettingsGroups",
       "rule": "consume:filter",
-      "tokens": "a9831146a21622aa02a85d3b90a59ec141f44abbd785720f15288a771f1cceb7",
+      "tokens": "15f58a3cdd87fc82d1c3d507214e8f0b51db67a95b9baf28d26871314e4a2372",
       "gate": [],
       "origin": [
-        "3b2cab5dbc5d0d143c87e4e2f01e5fe38df12baa89b72d5ccb28933246ab9711"
+        "d49f274c5b2705c6ab314db7db852ee2c21f193774334621c352ee9e5979f60d"
       ],
-      "fingerprint": "4254a297c886f2532504861169109dea32c61e87fa229920769c1d9a151a284c",
+      "fingerprint": "b72c8bb3c8a22c393d438cf2976db940d4665894ebc7820f2f1e024ffe28dbec",
       "count": 1,
       "classification": "bounded local work",
-      "owner": "POD-6299",
-      "trigger": "Settings opens or the viewer\u2019s admin sections answer.",
-      "bound": "The fixed Settings tab catalogue (SETTINGS_GROUPS: four surfaces, about twenty tabs) and at most five admin section names from /auth/admin/viewer.",
-      "reason": "Filters the fixed tab catalogue to the admin sections the server offers the viewer (POD-6299).",
-      "guard": "apps/web/src/features/settings/surfaces.test.ts and SettingsView.admin-area.test.tsx (POD-6299)"
-    },
-    {
-      "file": "apps/web/src/features/settings/surfaces.ts",
-      "holder": "visibleSettingsGroups/machines",
-      "rule": "consume:find",
-      "tokens": "8d78494539841ebd6d591f444cad8d866b3bd9074a26b59f7960dfa6b9957c24",
-      "gate": [],
-      "origin": [
-        "729cd127551ed363d3da9b728f33dcbc981f5304df68754c99c23a8fa6679bc7"
-      ],
-      "fingerprint": "e9efdbc4d936a2ae7d15154ae68e91ffad9fdeed64b294ddf666c71f813042a1",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-6299",
-      "trigger": "Settings opens or the viewer\u2019s admin sections answer.",
-      "bound": "The fixed Settings tab catalogue (SETTINGS_GROUPS: four surfaces, about twenty tabs) and at most five admin section names from /auth/admin/viewer.",
-      "reason": "Filters the fixed tab catalogue to the admin sections the server offers the viewer (POD-6299).",
-      "guard": "apps/web/src/features/settings/surfaces.test.ts and SettingsView.admin-area.test.tsx (POD-6299)"
+      "owner": "POD-6652",
+      "trigger": "Settings opens, its page changes, or the admin viewer settles or retries.",
+      "bound": "Two static groups and 13 source-defined settings pages, with 110 source-defined search rows (including the fixed FEATURES registry). Search renders at most 14 results. No issue, session, machine or member records are traversed.",
+      "reason": "Filters or renders the fixed settings page catalogue against at most five section names from /auth/admin/viewer. This is navigation metadata, not an entity collection.",
+      "guard": "apps/web/src/features/settings/surfaces.test.ts pins the 13 pages and viewer visibility. settings-frame.test.ts covers catalog row coverage, cross-page row search and lazy target navigation; searchSettings caps results with slice(0, 14)."
     },
     {
       "file": "apps/web/src/features/settings/surfaces.ts",
       "holder": "visibleSettingsGroups/map:callback/tabs",
       "rule": "consume:filter",
-      "tokens": "a583d826e1ac39dcd83d2c17c46f8f973b65530a0b0151c0e238bf2e6e6be9e2",
+      "tokens": "f7a365b122f594d4a8ed96150cb0685cdbea7b2a1ac84e217c49da22aa6327b0",
       "gate": [],
       "origin": [
-        "3b2cab5dbc5d0d143c87e4e2f01e5fe38df12baa89b72d5ccb28933246ab9711"
+        "d49f274c5b2705c6ab314db7db852ee2c21f193774334621c352ee9e5979f60d"
       ],
-      "fingerprint": "88459586ac204cec1eb565b75c9d98c86d0fe4a78392cf92670d5092f31db434",
+      "fingerprint": "b592ca44c4c770dd5335ce4f440c924adc0ce1c9e3702f983d53ad0825507295",
       "count": 1,
       "classification": "bounded local work",
-      "owner": "POD-6299",
-      "trigger": "Settings opens or the viewer\u2019s admin sections answer.",
-      "bound": "The fixed Settings tab catalogue (SETTINGS_GROUPS: four surfaces, about twenty tabs) and at most five admin section names from /auth/admin/viewer.",
-      "reason": "Filters the fixed tab catalogue to the admin sections the server offers the viewer (POD-6299).",
-      "guard": "apps/web/src/features/settings/surfaces.test.ts and SettingsView.admin-area.test.tsx (POD-6299)"
+      "owner": "POD-6652",
+      "trigger": "Settings opens, its page changes, or the admin viewer settles or retries.",
+      "bound": "Two static groups and 13 source-defined settings pages, with 110 source-defined search rows (including the fixed FEATURES registry). Search renders at most 14 results. No issue, session, machine or member records are traversed.",
+      "reason": "Filters or renders the fixed settings page catalogue against at most five section names from /auth/admin/viewer. This is navigation metadata, not an entity collection.",
+      "guard": "apps/web/src/features/settings/surfaces.test.ts pins the 13 pages and viewer visibility. settings-frame.test.ts covers catalog row coverage, cross-page row search and lazy target navigation; searchSettings caps results with slice(0, 14)."
+    },
+    {
+      "file": "apps/web/src/features/settings/MachinesPanel.tsx",
+      "holder": "MachinesPanel/MachinesPanel",
+      "rule": "reader-summary",
+      "tokens": "f9dcf407cc692160de2a93cb226f7c6795fc077220a21d9409e4252475fd7dad",
+      "gate": [],
+      "origin": [
+        "0d87ba9538f272cae87540a92d643621c3788a910b28a3a42ff59392720a7519",
+        "0db0c383eae3a50331c37fbb3828050b89ce7080d95ca1da167c95fe36179c75",
+        "99f5b4139a6534aa3dd3a2dce73dc4f04abd04fd3466137e687cb054b81374fd"
+      ],
+      "fingerprint": "cd8918adf6849d4e1222d6727eb33165e9b3921868b86886b71088ff58249c0b",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5866",
+      "trigger": "Opening the Machines page or its add/detail takeover",
+      "bound": "The shared per-opening machine catalog bounds lifetime, not cardinality; the acquisition still needs a narrower named demand.",
+      "reason": "POD-6519 splits the former machine panel into page, add, and detail components. Each uses the existing settings client/catalog path. The newly visible reader acquisition is recorded as existing opening-work debt, not as a collection-work repair.",
+      "guard": "Exact fingerprint and multiplicity; no performance bound is claimed. The Machines settings and settings opening tests cover ownership and release."
+    },
+    {
+      "file": "apps/web/src/features/settings/machine-add.tsx",
+      "holder": "AddMachineFlow/AddMachineFlow",
+      "rule": "reader-summary",
+      "tokens": "f9dcf407cc692160de2a93cb226f7c6795fc077220a21d9409e4252475fd7dad",
+      "gate": [],
+      "origin": [
+        "0d87ba9538f272cae87540a92d643621c3788a910b28a3a42ff59392720a7519",
+        "0db0c383eae3a50331c37fbb3828050b89ce7080d95ca1da167c95fe36179c75",
+        "99f5b4139a6534aa3dd3a2dce73dc4f04abd04fd3466137e687cb054b81374fd"
+      ],
+      "fingerprint": "be8b6e27250c33ad6aaf66b75f3bf382e7241d1a60e827d276d6eb2b577c7d46",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5866",
+      "trigger": "Opening the Machines page or its add/detail takeover",
+      "bound": "The shared per-opening machine catalog bounds lifetime, not cardinality; the acquisition still needs a narrower named demand.",
+      "reason": "POD-6519 splits the former machine panel into page, add, and detail components. Each uses the existing settings client/catalog path. The newly visible reader acquisition is recorded as existing opening-work debt, not as a collection-work repair.",
+      "guard": "Exact fingerprint and multiplicity; no performance bound is claimed. The Machines settings and settings opening tests cover ownership and release."
+    },
+    {
+      "file": "apps/web/src/features/settings/machine-detail.tsx",
+      "holder": "MachineDetailRecord/MachineDetailRecord",
+      "rule": "reader-summary",
+      "tokens": "f9dcf407cc692160de2a93cb226f7c6795fc077220a21d9409e4252475fd7dad",
+      "gate": [],
+      "origin": [
+        "0d87ba9538f272cae87540a92d643621c3788a910b28a3a42ff59392720a7519",
+        "0db0c383eae3a50331c37fbb3828050b89ce7080d95ca1da167c95fe36179c75",
+        "99f5b4139a6534aa3dd3a2dce73dc4f04abd04fd3466137e687cb054b81374fd"
+      ],
+      "fingerprint": "9f6f0426f3f3d34234f00281ce6246bcbcb889cd574c1ee47a9016be290ab28f",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5866",
+      "trigger": "Opening the Machines page or its add/detail takeover",
+      "bound": "The shared per-opening machine catalog bounds lifetime, not cardinality; the acquisition still needs a narrower named demand.",
+      "reason": "POD-6519 splits the former machine panel into page, add, and detail components. Each uses the existing settings client/catalog path. The newly visible reader acquisition is recorded as existing opening-work debt, not as a collection-work repair.",
+      "guard": "Exact fingerprint and multiplicity; no performance bound is claimed. The Machines settings and settings opening tests cover ownership and release."
+    },
+    {
+      "file": "apps/web/src/features/settings/sections/connected-devices.tsx",
+      "holder": "SignedInDevicesSection/SignedInDevicesSection",
+      "rule": "consume:map",
+      "tokens": "19331962de470d6784053fc792ab60ec6e6057668dc9f5dd06dcbfeba8fb0c3a",
+      "gate": [],
+      "origin": [
+        "1697c7c2ecc3cb2f64e11ba046360ad607bdadeedc552863784fd745e4ed23ec"
+      ],
+      "fingerprint": "7ff3b982bfbf5c8402ed8490265940ac40f32468ed2680d6a037571ef5e8d79b",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-6667",
+      "trigger": "Opening Account and loading the caller\u2019s sign-in inventory",
+      "bound": "One EntityRow is rendered for each returned sign-in in the explicitly opened Account section.",
+      "reason": "The Account redesign replaces the old connected-phone subset with every caller sign-in. This map directly renders those visible rows and performs no hidden whole-workspace scan.",
+      "guard": "Exact fingerprint and multiplicity; connected-devices tests cover every client kind, current-first ordering, and per-row sign-out."
+    },
+    {
+      "file": "apps/web/src/features/settings/sections/repos.tsx",
+      "holder": "ProjectDetail/ProjectDetail/flatMap:callback",
+      "rule": "consume:map",
+      "tokens": "73e4f8e884cd0023386bad1de8f2dea804a8779d50e2f49bf418c66a46e30496",
+      "gate": [
+        "&&:5e50a43a5963c413ad50a6f83e1076392c219b0cae3497de931fa78a87d61972"
+      ],
+      "origin": [
+        "5884e6a147f47780a4d78f9c0d7fc35a59c42c60ec7037843f295efedaed68b0"
+      ],
+      "fingerprint": "61722bc2633987f44279864a2a7115e26de3315478225734f4137e66e005a9b9",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-6667",
+      "trigger": "Opening one project detail takeover",
+      "bound": "One row is rendered for each worktree of each checkout of the selected project.",
+      "reason": "The project detail renders its addressed project\u2019s worktrees. The map consumes only the opened project\u2019s checkout relations and produces a visible row for every item.",
+      "guard": "Exact fingerprint and multiplicity; repos tests retain checkout/worktree detail behavior and opening ownership."
     },
     {
       "file": "apps/web/src/features/setup/ColdStartComposer.tsx",
@@ -8659,14 +8590,14 @@
       "file": "apps/web/src/lib/kernelReplica.ts",
       "holder": "openKernelAssembly/assembly",
       "rule": "helper-consumer",
-      "tokens": "283b6ee7463dd4ec590ac5bfee4d73ba5c92a5b4f1dbe9e7db58e937205cf0d2",
+      "tokens": "2928860a2d91f5ab215a4b4a27650cfadaafd7339ecdcfb3b43f2ab4394a124d",
       "gate": [
         "exit:then:5e2a14e1fded6dcf5bd2bbeb0a38680fd681e01937e3beb0794cbfbe6fbfbbad"
       ],
       "origin": [
         "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
       ],
-      "fingerprint": "9686af79ca5920e69f042781187786b9c570209a3b212752aac282fb5e0280ae",
+      "fingerprint": "379c62d051c36127b36b60c6eed6fd3786e9347ca5b74328d49325981965af88",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
@@ -8679,14 +8610,14 @@
       "file": "apps/web/src/lib/kernelReplica.ts",
       "holder": "openKernelAssembly/assembly",
       "rule": "reader-summary",
-      "tokens": "e3fbffd9d4cb96239eb491e1be85dc99e820d462b7db001ba9f651cf9f9ab454",
+      "tokens": "2b29b624603938d237c947c887d93309b2d5a77603210a787a17b541eb835d5d",
       "gate": [
         "exit:then:5e2a14e1fded6dcf5bd2bbeb0a38680fd681e01937e3beb0794cbfbe6fbfbbad"
       ],
       "origin": [
         "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
       ],
-      "fingerprint": "1609b6a8e801f0eeb3046a9b1a364fac3089038ebde945f5133e5d852180254c",
+      "fingerprint": "b29cafad7dbe24511bee728dc3e1095a81465a16651e1b7cf8e0bbeb9479fdcc",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
@@ -12071,12 +12002,12 @@
       "file": "packages/client-core/src/demo/demo-replica.ts",
       "holder": "createDemoReplica",
       "rule": "reader-summary",
-      "tokens": "06d6d70c47a9a44a1cd4f32c64416859e48529e0a9cc35ab5e049857f391b39c",
+      "tokens": "2815ab0db460dbb80ac441caffc2b788c89d00713cc0851fa7324fdcfd5660db",
       "gate": [],
       "origin": [
         "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
       ],
-      "fingerprint": "227f81ae4c93fa3457711d7dd2c41e0845e096c74ddef7599db5763a2619aaeb",
+      "fingerprint": "6f119d3ca1d4c1ebe0bd83d9120330f4cd05d1c56f4bfd30c27d2b25f819e7e3",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
@@ -22770,12 +22701,12 @@
       "file": "packages/client-core/src/values/operations-status.ts",
       "holder": "connectedDeviceViews",
       "rule": "consume:map",
-      "tokens": "c5b20d96013f69289a0cf3367b0294744763856b4d989323b30ab09ebb56a7e2",
+      "tokens": "202333dc459cf5e35cc549990eac6faed4d597f2fc2798e96657eb04fbb4c027",
       "gate": [],
       "origin": [
-        "8ff12b53fe953d1b180f478ea63bcbfcd4ca30dbabd7ee4c4646fa4aec08252e"
+        "65ca6a2c4db25f28418d43e265a861a23d12444cb59ea9bc7a8f4f359c30ab0b"
       ],
-      "fingerprint": "b21f429c54c37b9c579197f83b9f9bc76e64fe2eca91352a38394d3f62e392ea",
+      "fingerprint": "70b328233778c533a73765c41b7492785a7d77d927b5f2431e52f299f7e7a1d6",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -22788,12 +22719,12 @@
       "file": "packages/client-core/src/values/operations-status.ts",
       "holder": "connectedDeviceViews",
       "rule": "consume:map",
-      "tokens": "70b7f6f06b7098a44e3a3b9c5037ed8b405e6f46f9f5274876ac693cda3d8b66",
+      "tokens": "c0dab35331382664db44536a0a13ee144080ec3c6867050ce57b63ebeb92fdcf",
       "gate": [],
       "origin": [
-        "8ff12b53fe953d1b180f478ea63bcbfcd4ca30dbabd7ee4c4646fa4aec08252e"
+        "65ca6a2c4db25f28418d43e265a861a23d12444cb59ea9bc7a8f4f359c30ab0b"
       ],
-      "fingerprint": "f57bc53e2f2984ff396dc934905994281199be2d257b84c7560aa06ae84f3ebf",
+      "fingerprint": "8344021a98223f5da8ad20545a61a152f131476746a8ca8ba7bbb269037d1047",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -22806,12 +22737,12 @@
       "file": "packages/client-core/src/values/operations-status.ts",
       "holder": "connectedDeviceViews",
       "rule": "consume:sort",
-      "tokens": "1a3dfe3e84966b05203e2666fcb5f161b4db1f8ad74b47b4a74e340f0e44e8a1",
+      "tokens": "d18fa1719abff3d74330b809459156351dcb23fba3e086b13f8efcc41be5a96c",
       "gate": [],
       "origin": [
-        "8ff12b53fe953d1b180f478ea63bcbfcd4ca30dbabd7ee4c4646fa4aec08252e"
+        "65ca6a2c4db25f28418d43e265a861a23d12444cb59ea9bc7a8f4f359c30ab0b"
       ],
-      "fingerprint": "b12075669b462021f22e9e85258527feb40889783fbf89566667911e5114de6a",
+      "fingerprint": "e95d4ca4fc54f1160cbc1bf23d8edf491b76e25c621a2d954c9c4b74e74e9806",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -22819,6 +22750,204 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/settings/page-definitions.ts",
+      "holder": "searchSettings",
+      "rule": "bounded-window",
+      "tokens": "b42a8b5d4618d51307d2f8c35fb1a641c885322859c753cf9b8fb7b9dc6f4b2a",
+      "gate": [
+        "exit:then:cd89608d89a291bc1e1a927fd43f9463fb8e91d562dc9675974e41e9c04fb519"
+      ],
+      "origin": [
+        "a1a90d7f51b31b3f813e5e842de1e3b84aa95b0c0e1cbce530bae1f8b0c8fb6d",
+        "d49f274c5b2705c6ab314db7db852ee2c21f193774334621c352ee9e5979f60d"
+      ],
+      "fingerprint": "243d7551407e47d058d214a134c257aad68d9be08a8dc691e37f717c4db102d4",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6652",
+      "trigger": "The settings query or viewer-visible pages change.",
+      "bound": "Two static groups and 13 source-defined settings pages, with 110 source-defined search rows (including the fixed FEATURES registry). Search renders at most 14 results. No issue, session, machine or member records are traversed.",
+      "reason": "Search ranks labels, help and keywords from the fixed settings page definitions; the input comes only from the frame\u2019s visible subset of SETTINGS_GROUPS.",
+      "guard": "apps/web/src/features/settings/surfaces.test.ts pins the 13 pages and viewer visibility. settings-frame.test.ts covers catalog row coverage, cross-page row search and lazy target navigation; searchSettings caps results with slice(0, 14)."
+    },
+    {
+      "file": "apps/web/src/features/settings/page-definitions.ts",
+      "holder": "searchSettings",
+      "rule": "consume:map",
+      "tokens": "b434b05a12bb518d4efc37073528017500c60baa555965d493eb32779237a670",
+      "gate": [
+        "exit:then:cd89608d89a291bc1e1a927fd43f9463fb8e91d562dc9675974e41e9c04fb519"
+      ],
+      "origin": [
+        "a1a90d7f51b31b3f813e5e842de1e3b84aa95b0c0e1cbce530bae1f8b0c8fb6d",
+        "d49f274c5b2705c6ab314db7db852ee2c21f193774334621c352ee9e5979f60d"
+      ],
+      "fingerprint": "838ae2b9e564467952c0590ff9aba2dbebba522f25cfe12076f34d2ae95435bd",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6652",
+      "trigger": "The settings query or viewer-visible pages change.",
+      "bound": "Two static groups and 13 source-defined settings pages, with 110 source-defined search rows (including the fixed FEATURES registry). Search renders at most 14 results. No issue, session, machine or member records are traversed.",
+      "reason": "Search ranks labels, help and keywords from the fixed settings page definitions; the input comes only from the frame\u2019s visible subset of SETTINGS_GROUPS.",
+      "guard": "apps/web/src/features/settings/surfaces.test.ts pins the 13 pages and viewer visibility. settings-frame.test.ts covers catalog row coverage, cross-page row search and lazy target navigation; searchSettings caps results with slice(0, 14)."
+    },
+    {
+      "file": "apps/web/src/features/settings/page-definitions.ts",
+      "holder": "searchSettings",
+      "rule": "consume:sort",
+      "tokens": "f2de613e02e5534163896f342411bd91ea5e7cd7714db3c7b7f1bde6cc0126e1",
+      "gate": [
+        "exit:then:cd89608d89a291bc1e1a927fd43f9463fb8e91d562dc9675974e41e9c04fb519"
+      ],
+      "origin": [
+        "a1a90d7f51b31b3f813e5e842de1e3b84aa95b0c0e1cbce530bae1f8b0c8fb6d",
+        "d49f274c5b2705c6ab314db7db852ee2c21f193774334621c352ee9e5979f60d"
+      ],
+      "fingerprint": "ae98f9cc5e339ae57b23874bb49eb2da2053d190a64d2d1e050285a1be360b0a",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6652",
+      "trigger": "The settings query or viewer-visible pages change.",
+      "bound": "Two static groups and 13 source-defined settings pages, with 110 source-defined search rows (including the fixed FEATURES registry). Search renders at most 14 results. No issue, session, machine or member records are traversed.",
+      "reason": "Search ranks labels, help and keywords from the fixed settings page definitions; the input comes only from the frame\u2019s visible subset of SETTINGS_GROUPS.",
+      "guard": "apps/web/src/features/settings/surfaces.test.ts pins the 13 pages and viewer visibility. settings-frame.test.ts covers catalog row coverage, cross-page row search and lazy target navigation; searchSettings caps results with slice(0, 14)."
+    },
+    {
+      "file": "apps/web/src/features/settings/page-definitions.ts",
+      "holder": "searchSettings",
+      "rule": "consume:filter",
+      "tokens": "4b53f5ebcf8ada28300cef3035281425237b7d52c8717e219c56a0849d8dd2b6",
+      "gate": [
+        "exit:then:cd89608d89a291bc1e1a927fd43f9463fb8e91d562dc9675974e41e9c04fb519"
+      ],
+      "origin": [
+        "a1a90d7f51b31b3f813e5e842de1e3b84aa95b0c0e1cbce530bae1f8b0c8fb6d",
+        "d49f274c5b2705c6ab314db7db852ee2c21f193774334621c352ee9e5979f60d"
+      ],
+      "fingerprint": "cada092c5cf64cf137396cf1badb990acb47aa70e12fb148b68424f2123fe48f",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6652",
+      "trigger": "The settings query or viewer-visible pages change.",
+      "bound": "Two static groups and 13 source-defined settings pages, with 110 source-defined search rows (including the fixed FEATURES registry). Search renders at most 14 results. No issue, session, machine or member records are traversed.",
+      "reason": "Search ranks labels, help and keywords from the fixed settings page definitions; the input comes only from the frame\u2019s visible subset of SETTINGS_GROUPS.",
+      "guard": "apps/web/src/features/settings/surfaces.test.ts pins the 13 pages and viewer visibility. settings-frame.test.ts covers catalog row coverage, cross-page row search and lazy target navigation; searchSettings caps results with slice(0, 14)."
+    },
+    {
+      "file": "apps/web/src/features/settings/page-definitions.ts",
+      "holder": "searchSettings",
+      "rule": "consume:flatMap",
+      "tokens": "1ae3fcd46147fe0a6ffe0b775d6de93293ddaae79ff8209eaa25d4456a2f7f5c",
+      "gate": [
+        "exit:then:cd89608d89a291bc1e1a927fd43f9463fb8e91d562dc9675974e41e9c04fb519"
+      ],
+      "origin": [
+        "a1a90d7f51b31b3f813e5e842de1e3b84aa95b0c0e1cbce530bae1f8b0c8fb6d",
+        "d49f274c5b2705c6ab314db7db852ee2c21f193774334621c352ee9e5979f60d"
+      ],
+      "fingerprint": "fef61de0db9e74fc696cb647d6d1e37527689a1867148d850998693e118f9b76",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6652",
+      "trigger": "The settings query or viewer-visible pages change.",
+      "bound": "Two static groups and 13 source-defined settings pages, with 110 source-defined search rows (including the fixed FEATURES registry). Search renders at most 14 results. No issue, session, machine or member records are traversed.",
+      "reason": "Search ranks labels, help and keywords from the fixed settings page definitions; the input comes only from the frame\u2019s visible subset of SETTINGS_GROUPS.",
+      "guard": "apps/web/src/features/settings/surfaces.test.ts pins the 13 pages and viewer visibility. settings-frame.test.ts covers catalog row coverage, cross-page row search and lazy target navigation; searchSettings caps results with slice(0, 14)."
+    },
+    {
+      "file": "apps/web/src/features/settings/settings-frame.tsx",
+      "holder": "SettingsFrame",
+      "rule": "consume:map",
+      "tokens": "e06cf93a04feb99f0d3a4eea32401990765c0c40a259a0cba1786e1171ff8710",
+      "gate": [],
+      "origin": [
+        "d49f274c5b2705c6ab314db7db852ee2c21f193774334621c352ee9e5979f60d"
+      ],
+      "fingerprint": "3f2156d5f25545e78f4075cc8d44307b0ac146df68239de3db72e21324b03a7b",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6652",
+      "trigger": "Settings opens, its page changes, or the admin viewer settles or retries.",
+      "bound": "Two static groups and 13 source-defined settings pages, with 110 source-defined search rows (including the fixed FEATURES registry). Search renders at most 14 results. No issue, session, machine or member records are traversed.",
+      "reason": "Filters or renders the fixed settings page catalogue against at most five section names from /auth/admin/viewer. This is navigation metadata, not an entity collection.",
+      "guard": "apps/web/src/features/settings/surfaces.test.ts pins the 13 pages and viewer visibility. settings-frame.test.ts covers catalog row coverage, cross-page row search and lazy target navigation; searchSettings caps results with slice(0, 14)."
+    },
+    {
+      "file": "apps/web/src/features/settings/settings-frame.tsx",
+      "holder": "SettingsFrame/groups",
+      "rule": "reader-summary",
+      "tokens": "daba864eda12b90b8614db5b05951404f285142ab5810b970cc2c4422502fe01",
+      "gate": [],
+      "origin": [
+        "d49f274c5b2705c6ab314db7db852ee2c21f193774334621c352ee9e5979f60d"
+      ],
+      "fingerprint": "54c916df296e4516e916f3383826d9a23e959c490d0464f5070ef5b01786ee20",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6652",
+      "trigger": "Settings opens, its page changes, or the admin viewer settles or retries.",
+      "bound": "Two static groups and 13 source-defined settings pages, with 110 source-defined search rows (including the fixed FEATURES registry). Search renders at most 14 results. No issue, session, machine or member records are traversed.",
+      "reason": "Filters or renders the fixed settings page catalogue against at most five section names from /auth/admin/viewer. This is navigation metadata, not an entity collection.",
+      "guard": "apps/web/src/features/settings/surfaces.test.ts pins the 13 pages and viewer visibility. settings-frame.test.ts covers catalog row coverage, cross-page row search and lazy target navigation; searchSettings caps results with slice(0, 14)."
+    },
+    {
+      "file": "apps/web/src/features/settings/settings-frame.tsx",
+      "holder": "SettingsFrame/map:callback",
+      "rule": "consume:map",
+      "tokens": "b8346d326a0650d34299ad813fbf33930e45397d08812850c9cb04a284b338a8",
+      "gate": [
+        "else:0e8250ef7cc80d1f78f5e440ec732de5c42f7b0950055d3c51b7762a975919e6"
+      ],
+      "origin": [
+        "98c5223c2aa9ab6d588ab6fa851e77d79eb011c3f7dfe69850b3e94bef6fc370"
+      ],
+      "fingerprint": "3669e9162ef965ff1dbd2721a8379da3013f9525deecea80a4f790a6c86c618f",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6652",
+      "trigger": "Settings opens, its page changes, or the admin viewer settles or retries.",
+      "bound": "Two static groups and 13 source-defined settings pages, with 110 source-defined search rows (including the fixed FEATURES registry). Search renders at most 14 results. No issue, session, machine or member records are traversed.",
+      "reason": "Filters or renders the fixed settings page catalogue against at most five section names from /auth/admin/viewer. This is navigation metadata, not an entity collection.",
+      "guard": "apps/web/src/features/settings/surfaces.test.ts pins the 13 pages and viewer visibility. settings-frame.test.ts covers catalog row coverage, cross-page row search and lazy target navigation; searchSettings caps results with slice(0, 14)."
+    },
+    {
+      "file": "apps/web/src/features/settings/settings-frame.tsx",
+      "holder": "SettingsFrame/pages",
+      "rule": "consume:flatMap",
+      "tokens": "3a13b55600fa082a3f32771dde680381f5c52b2114c8b0ef3fe81acbe144cc24",
+      "gate": [],
+      "origin": [
+        "d49f274c5b2705c6ab314db7db852ee2c21f193774334621c352ee9e5979f60d"
+      ],
+      "fingerprint": "24210fba09a380042eeaf980472a8f0a4b53a7c4b9b001870ebffa2dece48186",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6652",
+      "trigger": "Settings opens, its page changes, or the admin viewer settles or retries.",
+      "bound": "Two static groups and 13 source-defined settings pages, with 110 source-defined search rows (including the fixed FEATURES registry). Search renders at most 14 results. No issue, session, machine or member records are traversed.",
+      "reason": "Filters or renders the fixed settings page catalogue against at most five section names from /auth/admin/viewer. This is navigation metadata, not an entity collection.",
+      "guard": "apps/web/src/features/settings/surfaces.test.ts pins the 13 pages and viewer visibility. settings-frame.test.ts covers catalog row coverage, cross-page row search and lazy target navigation; searchSettings caps results with slice(0, 14)."
+    },
+    {
+      "file": "apps/web/src/features/settings/settings-frame.tsx",
+      "holder": "SettingsFrame/results",
+      "rule": "helper-consumer",
+      "tokens": "83b58e39b6cf8b70f172e44b3323b6c3ff5263e6a0b16610f5e2a6e437a74864",
+      "gate": [],
+      "origin": [
+        "a1a90d7f51b31b3f813e5e842de1e3b84aa95b0c0e1cbce530bae1f8b0c8fb6d",
+        "d49f274c5b2705c6ab314db7db852ee2c21f193774334621c352ee9e5979f60d"
+      ],
+      "fingerprint": "9ccd5b2d1f6e7aafdf80301307ba3f0bdfd0afc1c04a7b45fdbdf68c35dce4d3",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6652",
+      "trigger": "The settings query or viewer-visible pages change.",
+      "bound": "Two static groups and 13 source-defined settings pages, with 110 source-defined search rows (including the fixed FEATURES registry). Search renders at most 14 results. No issue, session, machine or member records are traversed.",
+      "reason": "Filters or renders the fixed settings page catalogue against at most five section names from /auth/admin/viewer. This is navigation metadata, not an entity collection.",
+      "guard": "apps/web/src/features/settings/surfaces.test.ts pins the 13 pages and viewer visibility. settings-frame.test.ts covers catalog row coverage, cross-page row search and lazy target navigation; searchSettings caps results with slice(0, 14)."
     },
     {
       "file": "packages/client-core/src/values/operations-status.ts",
@@ -34029,13 +34158,13 @@
       "file": "packages/client-graph/src/header-entities.ts",
       "holder": "headerEntities",
       "rule": "reader-summary",
-      "tokens": "d4c88559c5e9f7e36370d1cb6806aecdb6605a1da4c9aa6bac84faab2e5a3409",
+      "tokens": "1de59c1ddd514bf3ce882703432a8a04470e91eaa64a91fef5309aa3d9e47c67",
       "gate": [],
       "origin": [
         "476a4c6ba0b104e23dcfaa9ca70c159377836a1c7d4e54db7c120e98f72f6d89",
         "cadc566af21b67f23d0f5de0834255cdda8495bf99c77bd863dfe1f5f7ed76d3"
       ],
-      "fingerprint": "50b9105cbb7664311ddc88a2c170214c3fe7338e776e8bcd4a859ef72c9a0e76",
+      "fingerprint": "36ce6de20ec7dddece42fc0cf906ab8dd14acdeed6a0a57734fec838a435d1bf",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
@@ -34048,13 +34177,13 @@
       "file": "packages/client-graph/src/header-entities.ts",
       "holder": "headerEntities/view:callback/view",
       "rule": "reader-summary",
-      "tokens": "22375b530ca059615849fb4646b6263a00aa12813d2cf1f4b3f0046246071fba",
+      "tokens": "916ccbfedea995c2659a13b80e0a8048b48bd5802e8cfa3baae86d3050b7bbc5",
       "gate": [],
       "origin": [
         "476a4c6ba0b104e23dcfaa9ca70c159377836a1c7d4e54db7c120e98f72f6d89",
         "cadc566af21b67f23d0f5de0834255cdda8495bf99c77bd863dfe1f5f7ed76d3"
       ],
-      "fingerprint": "527f4e27470e79dc895449906e592bfcb5c32d25bba3a1a24d9f9b517ce29e89",
+      "fingerprint": "046ab91f643cea83f1d6fc1851a1feed95b35438b4e21b14663359184848bdda",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
@@ -34514,6 +34643,27 @@
       "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
       "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
       "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
+    },
+    {
+      "file": "packages/client-graph/src/header-views.ts",
+      "holder": "createHeaderViews/thisComputer/callback",
+      "rule": "reader-summary",
+      "tokens": "daa25f6c75ea99fa2cc78527d9cd4e267cc70814e07c85a62fdcd21874e6dc22",
+      "gate": [
+        "exit:then:8503813140e4458f07f5d8baad70cb4591bfd415d90d9196fa34547c9857f3b5"
+      ],
+      "origin": [
+        "476a4c6ba0b104e23dcfaa9ca70c159377836a1c7d4e54db7c120e98f72f6d89",
+        "cadc566af21b67f23d0f5de0834255cdda8495bf99c77bd863dfe1f5f7ed76d3"
+      ],
+      "fingerprint": "a517652993347d28b3e7af83d34c5464326976e4c896157418c4f92d3c69c2e6",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6908",
+      "trigger": "The desktop header asking whose machine this computer is",
+      "bound": "Two point reads for one machine id: my fleet membership (a set lookup) and that machine's record. No collection is read.",
+      "reason": "headerEntities is the shared header view; thisComputer reads inFleet(id) and get('machine', id) only, never a table or list.",
+      "guard": "header-offline-machines.work.test.ts, multimachine-indicators.test.tsx"
     },
     {
       "file": "packages/client-graph/src/header-views.ts",
@@ -40155,6 +40305,28 @@
       "bound": "No new caller-list or per-issue session-cardinality bound is claimed.",
       "reason": "Replacing Parameters<Store[focusIssueSession]> with an explicit SessionId[] tuple makes the existing exclusion Set and issue-session find visible to the scanner. The body and its collection operations are unchanged. POD-6724 owns proving their bounds or replacing unnecessary enumeration.",
       "guard": "Exact fingerprint and multiplicity only; this is newly exposed debt, not a scan fix. packages/client-core/src/commands/navigation.test.ts covers timeout, excluded sessions and selection changes."
+    },
+    {
+      "file": "apps/mobile/src/screens/SettingsScreen.tsx",
+      "holder": "SettingsScreenBody/SettingsScreenBody",
+      "rule": "consume:map",
+      "tokens": "a8e3196faca37126e111e7c18485dac666a7be2f05f1c23a5963d824009f8a4f",
+      "gate": [
+        "else:b5cf26c9ebb20686918b8a944e16b4cc997f9c9cb9d32518e1109a6bd1f6ab77",
+        "else:fa489679de572d7e784abe0c3509f6040e5f198e94dbee2a41a77ea318bf9b4f",
+        "else:8b5121b7b753c14320029fd5bb7ab5206ad2385c0763bfaadb90501e0a256ad0"
+      ],
+      "origin": [
+        "6443ca28dfcd8508a13e7532847f8589e3d5093f0b79f044695c93ebb069ec4e"
+      ],
+      "fingerprint": "a50df1df4b39bca05526c31b86dd3f1e1ba47c550bee8ab0243820b91ed76424",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of SettingsScreenBody/SettingsScreenBody",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     }
   ]
 }

@@ -16,8 +16,10 @@ interface Counts {
 interface MeasuredLoop {
   name: string
   targetSql: string
+  executionRatio: number
   repository(store: SessionStore): object
   run(store: SessionStore, n: number): void | Promise<void>
+  check?(store: SessionStore, n: number): void | Promise<void>
 }
 
 /**
@@ -70,20 +72,29 @@ const loops: MeasuredLoop[] = [
   {
     name: 'ConversationIndexRepository.upsert',
     targetSql: 'insert into "conversations"',
+    executionRatio: 1,
     repository: (store) => store.conversations.index,
     run: async (store, n) =>
       await store.conversations.index.upsert(
         fixtureWriteScope(),
         conversationRows(n, store.hostMachineId),
       ),
+    check: async (store, n) => {
+      expect(await store.conversations.index.recentPage({ limit: n + 1 })).toHaveLength(n)
+    },
   },
 ]
 
 const measure = async (loop: MeasuredLoop, n: number): Promise<Counts> => {
   const store = await openTestStore(':memory:')
-  const counts = countPreparedQueryWork(loop.repository(store), loop.targetSql)
-  await loop.run(store, n)
-  return counts
+  try {
+    const counts = countPreparedQueryWork(loop.repository(store), loop.targetSql)
+    await loop.run(store, n)
+    await loop.check?.(store, n)
+    return counts
+  } finally {
+    await store.close()
+  }
 }
 
 describe('prepared batch SQL construction', () => {
@@ -99,6 +110,7 @@ describe('prepared batch SQL construction', () => {
     const loop: MeasuredLoop = {
       name: 'SyncRepository.appendChanges',
       targetSql: 'insert into "changes"',
+      executionRatio: 10,
       repository: (store) => store.sync,
       run: async (store, size) => {
         await store.sync.appendChanges(

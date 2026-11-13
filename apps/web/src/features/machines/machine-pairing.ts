@@ -66,7 +66,7 @@ export function useMachinePairing({
   const mint = useCallback(
     async (options: MintMachinePairingOptions = {}): Promise<void> => {
       const managed = options.podiumManaged ?? podiumManaged
-      const copyAgentCredentials = options.copyAgentCredentials ?? true
+      const copyAgentCredentials = options.copyAgentCredentials ?? managed
       const currentRequest = ++requestId.current
       setPodiumManaged(managed)
       // The command embeds both the bearer credential and its management

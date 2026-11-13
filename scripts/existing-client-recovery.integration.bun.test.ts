@@ -59,10 +59,9 @@ it('requires actual current administrator HTTP login for revoked recovery, prese
     applyLocalSetupDefault()
     server = await startServer({ port: 0, janitorWorkerForTests: noJanitorWorkerForTests })
     const actor = await firstAdminMemberId(server.registry.sessionStore)
-    await server.registry.sessionStore.users.setPasswordHash(
-      actor,
+    await server.identity.core.accounts.setPasswordHash(
+      (await server.registry.sessionStore.users.get(actor))!.accountId!,
       await hashPassword('scratch-admin-recovery'),
-      new Date().toISOString(),
     )
     const setup = loadSupervisorState(serverDir).setupEnrollment!
     confirmSetupEnrollment(setup.requestId, setup.publicKey, serverDir)

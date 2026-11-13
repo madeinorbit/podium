@@ -528,9 +528,11 @@ export interface HubEvents {
    * including a FIRST dial, which the health indicator deliberately stays
    * quiet about; `welcomed` when the server accepted this client (its
    * `welcome`, sent only to an authenticated connection). A wake or suspend
-   * is not a loss.
+   * is not a loss. A loss carries the socket's close cause when there was a
+   * socket to close: the server's close code says why it ended the link
+   * (POD-6910).
    */
-  link: [state: 'lost' | 'welcomed']
+  link: [state: 'lost' | 'welcomed', cause?: SocketCloseCause]
   /** The server announced a planned move over this live socket (a transfer). */
   serverRelocation: [move: { publicUrl: string; transferId: string; claimToken?: string }]
   /**
@@ -970,7 +972,7 @@ export class SocketHub {
     // A wake tears a possibly-dead socket down only to dial again at once: that
     // is not evidence the server is gone, and must not send a client to Connect.
     if (!this.intentionalClose && cause?.cause !== 'wake' && cause?.cause !== 'server-relocation') {
-      this.emit('link', 'lost')
+      this.emit('link', 'lost', cause)
     }
     if (!this.intentionalClose) {
       const retryInMs = this.scheduleReconnect()

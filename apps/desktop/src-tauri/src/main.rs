@@ -454,7 +454,7 @@ fn retarget_session_cookie(
         .map_err(|error| format!("cannot read local session cookie: {error}"))?;
     let Some(source_cookie) = cookies
         .into_iter()
-        .find(|cookie| cookie.name() == "podium_session")
+        .find(|cookie| cookie.name() == bootstrap::device_sign_in_cookie_name(source_url.scheme()))
     else {
         return Ok(false);
     };
@@ -472,9 +472,9 @@ fn retarget_existing_window(
 ) -> Result<(), String> {
     match retarget_session_cookie(app, source_url, server_url)? {
         true => {
-            log::info!("copied podium_session in memory for transferred origin")
+            log::info!("copied the device sign-in cookie in memory for the transferred origin")
         }
-        false => log::info!("no local podium_session cookie to transfer"),
+        false => log::info!("no local device sign-in cookie to transfer"),
     }
     grant_transfer_remote_capabilities(app, server_url)?;
     let target = Url::parse(&bootstrap::webview_http_url(server_url))
@@ -1483,10 +1483,14 @@ fn move_server(
         .map(|server| bootstrap::remote_window_origin_url(server, before.ui_url.as_deref()))
         .and_then(|url| Url::parse(&url).ok());
     let server_url = bootstrap::write_moved_server(&target)?;
-    if let Some(source) = source.as_ref() {
+    // A transfer claim issues the new cookie at its destination. Copy the
+    // old cookie only when following a verified address without a claim.
+    if let Some(source) = source.as_ref().filter(|_| {
+        claim_token.as_deref().map_or(true, str::is_empty)
+    }) {
         match retarget_session_cookie(&app, source, &server_url) {
-            Ok(true) => log::info!("copied podium_session to the followed server origin"),
-            Ok(false) => log::info!("no podium_session cookie to carry to the followed server"),
+            Ok(true) => log::info!("copied the device sign-in cookie to the followed server origin"),
+            Ok(false) => log::info!("no device sign-in cookie to carry to the followed server"),
             Err(error) => log::warn!("could not carry the session to the followed server: {error}"),
         }
     }

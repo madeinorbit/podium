@@ -3,11 +3,11 @@ import { prepareSetupEnrollment, confirmSetupEnrollment } from '@podium/runtime/
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
 import { openTestStore } from './test-support/open-test-store'
+import { openTestIdentity } from './test-support/test-identity'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { firstAdminMemberId, type ServerReadiness } from '@podium/model'
-import { hashPassword, verifyPasswordHash } from '@podium/runtime/auth-store'
 import { LAYERED_KEYS, loadConfig, saveConfig } from '@podium/runtime/config'
 import { encodeJoin } from '@podium/runtime/join'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -49,7 +49,8 @@ function installSetupParent() {
 async function makeHarness() {
   installSetupParent()
   const store = await openTestStore(':memory:', readOrCreateLocalMachineId())
-  const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default', installationId: 'setup-test-installation' })
+  const { credentials } = await openTestIdentity(store)
+  const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default', installationId: 'setup-test-installation', memberCredentials: credentials })
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
@@ -57,6 +58,7 @@ async function makeHarness() {
   return {
     registry,
     users,
+    credentials,
     settings: registry.sessionStore.settings,
     caller: appRouter.createCaller({
       registry,
@@ -118,19 +120,20 @@ const READY: ServerReadiness = {
   controlPlane: 'available',
 }
 
-/** The first admin's credential — what "a password is set" means after POD-1554. */
-async function credentialHash(): Promise<string> {
+/** Does this password sign the first admin in: what "a password is set" means. */
+async function adminPassword(password: string): Promise<boolean> {
   harness ??= await makeHarness()
-  return (await harness.users.credentialFor(firstAdminMemberId()))?.passwordHash ?? ''
+  return await harness.credentials.verifyPassword(firstAdminMemberId(), password)
+}
+
+async function adminHasPassword(): Promise<boolean> {
+  harness ??= await makeHarness()
+  return await harness.credentials.hasPassword(firstAdminMemberId())
 }
 
 async function seedPassword(password: string): Promise<void> {
   harness ??= await makeHarness()
-  await harness.users.setPasswordHash(
-    firstAdminMemberId(),
-    await hashPassword(password),
-    new Date().toISOString(),
-  )
+  await harness.credentials.setPassword(firstAdminMemberId(), password)
 }
 
 const priorStateDir = process.env.PODIUM_STATE_DIR!
@@ -213,7 +216,7 @@ describe('setup tRPC', () => {
     })
     expect(publicUrlChanged).toHaveBeenCalledTimes(2)
   })
-  it('info reports the current mode + publicUrl (for Settings → Network)', async () => {
+  it('info reports the current mode + publicUrl (for Settings → Access)', async () => {
     // appVersion is the baked build version ('dev' from source) [POD-838].
     const appVersion = process.env.PODIUM_APP_VERSION ?? 'dev'
     // Every layered value carries the LAYER that answered (PDM-26), so a control
@@ -271,27 +274,27 @@ describe('setup tRPC', () => {
       publicUrl: 'https://box.ts.net',
       password: 'launch-code',
     })
-    expect(await verifyPasswordHash('launch-code', await credentialHash())).toBe(true)
+    expect(await adminPassword('launch-code')).toBe(true)
   })
   it('rejects a reachable setup without password acknowledgement', async () => {
     await expect(
       (await caller()).setup.complete({ publicUrl: 'https://box.ts.net' }),
     ).rejects.toThrow()
-    expect(await credentialHash()).toBe('')
+    expect(await adminHasPassword()).toBe(false)
   })
   it('keeps an existing password when the URL is set later (no re-ack needed)', async () => {
     await seedPassword('already-set')
     // No password + no ack must NOT throw once one is already configured — it's "keep current".
     await (await caller()).setup.complete({ publicUrl: 'https://relay.ts.net' })
     expect(loadConfig().publicUrl).toBe('https://relay.ts.net')
-    expect(await verifyPasswordHash('already-set', await credentialHash())).toBe(true) // unchanged
+    expect(await adminPassword('already-set')).toBe(true) // unchanged
   })
   it('leaves auth open when no password is explicitly acknowledged', async () => {
     await (await caller()).setup.complete({
       publicUrl: 'https://box.ts.net',
       acknowledgeNoPassword: true,
     })
-    expect(await credentialHash()).toBe('')
+    expect(await adminHasPassword()).toBe(false)
   })
   /**
    * PDM-34: connect and join now ask the remote where its UI is. Nothing below
@@ -467,7 +470,7 @@ describe('a credential change does not trip the topology guard [POD-2766]', () =
       password: 'operator',
     })
 
-    expect(await verifyPasswordHash('operator', await credentialHash())).toBe(true)
+    expect(await adminPassword('operator')).toBe(true)
     // THE ASSERTION THIS ISSUE EXISTS FOR.
     expect(readiness()).toMatchObject({ state: 'ready', dataPlane: 'available' })
     // And the reason it holds: the box's own answer about how it is supervised
@@ -582,10 +585,15 @@ describe('setup.activate — the restart an operator can actually reach [POD-276
     const service = new InstanceService({
       callerUserId: firstAdminMemberId(),
       users: {
-        get: () => ({ role: 'member' }),
-        credentialFor: () => undefined,
-        setPasswordHash: () => {},
-        setEmail: () => {},
+        get: () => ({
+          id: firstAdminMemberId(),
+          displayName: 'Member',
+          email: null,
+          role: 'member',
+          createdAt: '2026-01-01T00:00:00Z',
+          disabledAt: null,
+        }),
+        writeProfile: () => {},
       },
       readiness: () => pendingOn(['persistence']),
       requestCoordinatorRestart: restart,

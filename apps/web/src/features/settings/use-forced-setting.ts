@@ -24,8 +24,6 @@ export type ForcedSettingKey =
   | 'connectBaseUrl'
   | 'connectProbeKeys'
   | 'authOpenMode'
-  | 'authMode'
-  | 'authSignInUrl'
   | 'telemetryUsage'
   | 'telemetryCrash'
   | 'telemetryInstallId'

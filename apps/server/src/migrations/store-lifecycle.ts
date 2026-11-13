@@ -2,8 +2,8 @@
 import { join, resolve } from 'node:path'
 import { stateDir } from '@podium/runtime/config'
 import { MACHINE_UPDATE_GRANT_ENV, readMachineUpdateJournal } from '@podium/runtime/machine-update'
-import type { DriverSession } from '../store/executor/driver'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
+import type { DriverSession } from '../store/executor/driver'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { runDrizzleMigrations } from './index'
 
@@ -35,6 +35,11 @@ export function migrateStoreConnection(db: SqlDatabase, path: string): string[] 
       update,
     }),
   )
+}
+
+/** The initial migration pass already captured the pre-import backup. */
+export function retireImportedIdentityStorage(db: SqlDatabase): string[] {
+  return withMigrationForeignKeysDisabled(db, () => runDrizzleMigrations(db, DRIZZLE_MIGRATIONS))
 }
 
 export function withMigrationForeignKeysDisabled<T>(db: SqlDatabase, migrate: () => T): T {
@@ -151,7 +156,12 @@ async function forgetTinyTables(session: DriverSession): Promise<void> {
     method: 'run',
     intent: 'write',
   })
-  await session.execute({ sql: 'ANALYZE sqlite_schema', params: [], method: 'run', intent: 'write' })
+  await session.execute({
+    sql: 'ANALYZE sqlite_schema',
+    params: [],
+    method: 'run',
+    intent: 'write',
+  })
 }
 
 /**
@@ -175,18 +185,41 @@ async function forgetTinyTables(session: DriverSession): Promise<void> {
  * transaction.
  */
 export async function serveTrafficTempStore(session: DriverSession): Promise<void> {
-  await session.execute({ sql: 'PRAGMA temp_store = MEMORY', params: [], method: 'run', intent: 'write' })
+  await session.execute({
+    sql: 'PRAGMA temp_store = MEMORY',
+    params: [],
+    method: 'run',
+    intent: 'write',
+  })
 }
 
 /** Run maintenance with temp files on disk, then put back what the connection had. */
-export async function withFileTempStore<T>(session: DriverSession, step: () => Promise<T>): Promise<T> {
-  const current = await session.execute({ sql: 'PRAGMA temp_store', params: [], method: 'get', intent: 'read' })
+export async function withFileTempStore<T>(
+  session: DriverSession,
+  step: () => Promise<T>,
+): Promise<T> {
+  const current = await session.execute({
+    sql: 'PRAGMA temp_store',
+    params: [],
+    method: 'get',
+    intent: 'read',
+  })
   const before = (current.rows[0] as { temp_store: number } | undefined)?.temp_store ?? 0
-  await session.execute({ sql: 'PRAGMA temp_store = FILE', params: [], method: 'run', intent: 'write' })
+  await session.execute({
+    sql: 'PRAGMA temp_store = FILE',
+    params: [],
+    method: 'run',
+    intent: 'write',
+  })
   try {
     return await step()
   } finally {
-    await session.execute({ sql: `PRAGMA temp_store = ${before}`, params: [], method: 'run', intent: 'write' })
+    await session.execute({
+      sql: `PRAGMA temp_store = ${before}`,
+      params: [],
+      method: 'run',
+      intent: 'write',
+    })
   }
 }
 

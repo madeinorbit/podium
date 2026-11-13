@@ -2,6 +2,7 @@ import { asMachineId, asUserId, firstAdminMemberId, machineAccessRowId } from '@
 import { machinePublicKeyWire } from '@podium/runtime/machine-credential'
 import { mintSigningKeyPair } from '@podium/runtime/signing'
 import { afterEach, expect, it, vi } from 'vitest'
+import { memberFacts } from '../../store/fixtures/test-support'
 import { disposeOracles, makeOracle } from '../sessions/oracle-support'
 
 const AT = '2026-11-11T00:00:00.000Z'
@@ -34,7 +35,7 @@ it('a source rename compares its records without reading the stored sync copy', 
 it('custody writes publish each final record once across their several grant writes', async () => {
   const o = await makeOracle()
   const id = o.store.hostMachineId
-  await o.store.users.create(
+  await memberFacts(o.store).create(
     { id: MEMBER, displayName: 'Reader', role: 'member', createdAt: AT, disabledAt: null },
     'hash',
   )
@@ -92,7 +93,7 @@ it('member creation, disablement, enablement and role changes compare the member
   })
   const ids = [o.store.hostMachineId, other].map((id) => machineAccessRowId(MEMBER, id)).sort()
   let before = await o.store.sync.maxChangeSeq()
-  await o.store.users.create(
+  await memberFacts(o.store).create(
     { id: MEMBER, displayName: 'Reader', role: 'admin', createdAt: AT, disabledAt: null },
     'hash',
   )
@@ -102,9 +103,9 @@ it('member creation, disablement, enablement and role changes compare the member
     )
   expect((await changed()).map((row) => row.entityId).sort()).toEqual(ids)
   for (const [write, op] of [
-    [() => o.store.users.disable(MEMBER, AT), 'remove'],
-    [() => o.store.users.enable(MEMBER, AT), 'upsert'],
-    [() => o.store.users.setRole(MEMBER, 'member'), 'remove'],
+    [() => memberFacts(o.store).disable(MEMBER, AT), 'remove'],
+    [() => memberFacts(o.store).enable(MEMBER, AT), 'upsert'],
+    [() => memberFacts(o.store).setRole(MEMBER, 'member'), 'remove'],
   ] as const) {
     before = await o.store.sync.maxChangeSeq()
     await write()

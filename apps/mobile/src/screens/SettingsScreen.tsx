@@ -1,11 +1,22 @@
+import { accountPageUrl } from '@podium/client-core/accounts'
 import { relativeTime } from '@podium/client-core/focus'
 import { devicePlatformLabel, visibleFleetOperations } from '@podium/client-core/values'
-import type { MobileClientSession } from '@podium/protocol'
+import type { DeviceSignInView } from '@podium/protocol'
 import { useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { useMemo, useState } from 'react'
-import { Alert, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import {
+  Alert,
+  Linking,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native'
 import { logout } from '../client/auth'
+import { useAuthStatus } from '../client/auth-context'
 import { useConnectedDevices } from '../client/connected-devices'
 import { DEMO_HOST_METRICS, DEMO_MACHINES, demoEnabled } from '../client/demoData'
 import { useConnected, useHttpOrigin } from '../client/hooks'
@@ -47,6 +58,7 @@ export function SettingsScreen() {
 
 const SettingsScreenBody = observer(function SettingsScreenBody() {
   const router = useRouter()
+  const capabilities = useAuthStatus()?.capabilities
   // The modal sheet reaches the physical bottom edge, so the last row still has
   // to clear the home indicator (the hook is the plain safe-area inset here).
   const bottomInset = useContentBottomInset()
@@ -111,7 +123,7 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
       } catch {
         Alert.alert(
           'Remote logout failed',
-          'This phone still has the credential needed to retry. Keep it, or remove local data now and later revoke this phone from Settings → Connected devices on the server.',
+          'This phone still has the credential needed to retry. Keep it, or remove local data now and later revoke this phone from Settings → Account on the server.',
           [
             { text: 'Keep signed in', style: 'cancel' },
             {
@@ -122,7 +134,7 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
                   if (Platform.OS !== 'web') {
                     Alert.alert(
                       'Removed locally',
-                      'The remote phone session may still be active. Revoke it from Settings → Connected devices on the server.',
+                      'The remote phone session may still be active. Revoke it from Settings → Account on the server.',
                     )
                   }
                 })
@@ -187,7 +199,7 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
                 } catch {
                   Alert.alert(
                     'Remote revocation failed',
-                    'Keep this server to retry with its credential, or remove it locally and later revoke the phone from Settings → Connected devices on the server.',
+                    'Keep this server to retry with its credential, or remove it locally and later revoke the phone from Settings → Account on the server.',
                     [
                       { text: 'Keep server', style: 'cancel' },
                       {
@@ -197,7 +209,7 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
                           void removeLocally().then(() =>
                             Alert.alert(
                               'Removed locally',
-                              'The remote phone session may still be active. Revoke it from Settings → Connected devices on the server.',
+                              'The remote phone session may still be active. Revoke it from Settings → Account on the server.',
                             ),
                           )
                         },
@@ -271,7 +283,19 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
           desktop or server surfaces.
         </Text>
 
-        <SectionHeader label="Connected devices" />
+        <SectionHeader label="Where you’re signed in" />
+        {capabilities?.accountUrl && (
+          <Text
+            accessibilityRole="link"
+            style={styles.hintCompact}
+            onPress={() => {
+              const url = accountPageUrl(capabilities, 'devices')
+              if (url) void Linking.openURL(url)
+            }}
+          >
+            Manage all account devices
+          </Text>
+        )}
         <View style={styles.panel}>
           {deviceFeed.loading && devices.length === 0 ? (
             <Row label="Devices" value="loading…" />
@@ -280,15 +304,17 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
           ) : devices.length === 0 ? (
             <Row label="Devices" value="none" />
           ) : (
-            devices.map((device) => <ConnectedDeviceRow key={device.sessionId} device={device} />)
+            devices.map((device) => <ConnectedDeviceRow key={device.id} device={device} />)
           )}
           {deviceFeed.failed && devices.length > 0 ? (
             <Row label="Refresh" value="failed · showing prior list" />
           ) : null}
         </View>
         <Text style={styles.hintCompact}>
-          This list belongs to the signed-in account on {profile.name}. Pairing and revocation stay
-          in Connected devices on the desktop.
+          This list belongs to the signed-in account on {profile.name}.{' '}
+          {capabilities?.accountUrl
+            ? 'Manage device sign-ins in your account.'
+            : 'Pairing and revocation stay in Settings → Account on the desktop.'}
         </Text>
 
         {Platform.OS !== 'web' ? (
@@ -410,7 +436,7 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
 const ConnectedDeviceRow = observer(function ConnectedDeviceRow({
   device,
 }: {
-  device: MobileClientSession
+  device: DeviceSignInView
 }) {
   const now = useAgeNow(
     device.lastSeenAt ?? device.createdAt,

@@ -2,10 +2,11 @@
  * THE UPGRADE TEST for `provider-connection-owners` (POD-6300; design §4.6, Q2).
  *
  * Before this release a managed provider connection was one instance-wide row
- * per account id. The migration gives every existing row an owner: the earliest
+ * per account id. The migration chain gives every existing row an owner: the earliest
  * active admin, since no existing row records the machine it came from (the
  * upgrade note in CHANGELOG says so). Seeded on a database
  * rewound to the migration before this one (an upgrade, not a first boot).
+ * The later per-user migration preserves legacy sharing explicitly as ["*"].
  */
 
 import { asAccountId, asMachineId, asUserId } from '@podium/model'
@@ -24,7 +25,9 @@ function rewound(): { db: SqlDatabase; upgrade(): void } {
   const cut = DRIZZLE_MIGRATIONS.findIndex((m) => m.name.endsWith(MIGRATION))
   expect(cut).toBeGreaterThan(0)
   runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cut))
-  return { db, upgrade: () => runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cut + 1)) }
+  // The merged chain supplies ownership in accounts-per-user-owner, after the
+  // provider migration adds ref. Exercise the full upgrade before current readers.
+  return { db, upgrade: () => runDrizzleMigrations(db, DRIZZLE_MIGRATIONS) }
 }
 
 const addMember = (
@@ -50,7 +53,7 @@ const seedConnection = (db: SqlDatabase, id: string, provider: string, credentia
     .run(id, provider, credential)
 
 const ownership = (db: SqlDatabase) =>
-  db.prepare('SELECT id, ref, owner_user_id AS owner FROM accounts ORDER BY id').all()
+  db.prepare('SELECT id, ref, owner_user_id AS owner, shared_with AS sharedWith FROM accounts ORDER BY id').all()
 
 /** The instance's existing first admin: the one member every database has. */
 const firstAdmin = (db: SqlDatabase) =>
@@ -72,8 +75,8 @@ describe(`migration ${MIGRATION}`, () => {
       upgrade()
 
       expect(ownership(db)).toEqual([
-        { id: 'managed:anthropic', ref: 'managed:anthropic', owner: member },
-        { id: 'managed:openai', ref: 'managed:openai', owner: member },
+        { id: 'managed:anthropic', ref: 'managed:anthropic', owner: member, sharedWith: '["*"]' },
+        { id: 'managed:openai', ref: 'managed:openai', owner: member, sharedWith: '["*"]' },
       ])
       // Exactly as before: the member's spawn on their machine carries the key.
       const accounts = new AccountsRepository(stageASeam(db))
@@ -128,7 +131,7 @@ describe(`migration ${MIGRATION}`, () => {
       upgrade()
 
       expect(ownership(db)).toEqual([
-        { id: 'managed:anthropic', ref: 'managed:anthropic', owner: original },
+        { id: 'managed:anthropic', ref: 'managed:anthropic', owner: original, sharedWith: '["*"]' },
       ])
     } finally {
       db.close()

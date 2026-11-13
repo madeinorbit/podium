@@ -52,7 +52,6 @@ async function world(shipped: number): Promise<{ store: SessionStore; service: S
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: 'main',
-          mergeStyle: 'ff-only',
           autoRebaseBeforeMerge: true,
         },
         sessionDefaults: { agent: 'codex' },

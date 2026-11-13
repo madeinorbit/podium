@@ -4,16 +4,16 @@ import { TRPCError } from '@trpc/server'
 import { describe, expect, it } from 'vitest'
 import { resolvePrincipal } from './command-principal'
 import { PairingManager } from './hub/pairing'
-
 import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
+import { memberFacts } from './store/fixtures/test-support'
 import { OPERATOR } from './test-support/capabilities'
 import { attachDaemonWithInventory, fixtureInventory } from './test-support/daemon-inventory'
 import { attachHostDaemon } from './test-support/host-daemon'
-import { openTestStore } from './test-support/open-test-store'
 import { renameMachine } from './test-support/machine-records'
+import { openTestStore } from './test-support/open-test-store'
 
 async function machineCaller() {
   const store = await openTestStore(':memory:')
@@ -97,8 +97,9 @@ describe('machines router', () => {
 /**
  * `machines.pairingCode` is a plain registration (POD-6593): its contract's
  * action is `write`, so the front door admits a member, and the fleet gate
- * decides who may mint which code. An administrator mints a new enrollment; a
- * retained (revoked) machine's grantee mints only its replacement.
+ * decides who may mint which code. Any member mints a new enrollment into their
+ * own custody (POD-6883); a retained (revoked) machine's grantee mints only its
+ * replacement.
  */
 describe('machines.pairingCode as a member', () => {
   const MEMBER = asUserId('user:pairing-member')
@@ -111,7 +112,7 @@ describe('machines.pairingCode as a member', () => {
 
   async function memberCaller() {
     const store = await openTestStore(':memory:')
-    await store.users.create(
+    await memberFacts(store).create(
       {
         id: MEMBER,
         displayName: 'Member',
@@ -176,10 +177,11 @@ describe('machines.pairingCode as a member', () => {
     expect(refusal.code).toBe('FORBIDDEN')
   })
 
-  it('refuses a member a new enrollment', async () => {
+  it("mints a member's new enrollment, bound to the member (POD-6883)", async () => {
     const call = await memberCaller()
-    const refusal = await refusalOf(call.machines.pairingCode())
-    expect(refusal.code).toBe('FORBIDDEN')
+    const result = await call.machines.pairingCode()
+    expect(typeof result.code).toBe('string')
+    expect(result.code.length).toBeGreaterThan(0)
   })
 })
 

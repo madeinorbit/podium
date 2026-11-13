@@ -81,7 +81,7 @@ vi.mock('@/app/store', () => {
     ({
       trpc: (api ??= {
         settings: {
-          get: { query: vi.fn(async () => ({ gitWorkflow: { mergeStyle: 'ff-only' } })) },
+          get: { query: vi.fn(async () => ({ gitWorkflow: { } })) },
         },
         issues: {
           events: { query: eventsQuery },

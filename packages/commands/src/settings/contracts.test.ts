@@ -43,7 +43,7 @@ const NAMES = SETTINGS_COMMAND_NAMES
 const ALL = NAMES.map((name) => SETTINGS_CONTRACTS[name])
 
 describe('the family is complete and classified', () => {
-  it('declares seven contracts: one per tier, the secret CLEAR and READ arms, and the ceremony pair', () => {
+  it('declares the secret arms, bot availability and Telegram connection commands', () => {
     // SEVEN as of POD-421, which added `settings.secretPresence` — the presence
     // READ POD-420 recorded as this issue's ("`settings.get` is deliberately
     // absent … what it returns is POD-419's question and POD-421's"). The number
@@ -55,6 +55,8 @@ describe('the family is complete and classified', () => {
       'settings.clearSecret',
       'settings.secretPresence',
       'settings.setSecret',
+      'settings.telegramBotPresence',
+      'settings.telegramDisconnect',
       'settings.telegramSetupPoll',
       'settings.telegramSetupStart',
     ])
@@ -119,6 +121,7 @@ describe('the secret arms are never queueable, and the matrix says so too', () =
       // answer "is a key configured" from before it was cleared.
       'settings.secretPresence',
       'settings.setSecret',
+      'settings.telegramBotPresence',
     ])
   })
 
@@ -212,9 +215,14 @@ describe('a preference patch is gated on the classified path — and can say YES
   })
 
   it.each([
-    'transcripts.mirror', 'deployment.authOpenMode', 'deployment.updateChannel',
-    'deployment.connectEnabled', 'deployment.telemetryUsage', 'deployment.telemetryCrash',
-    'deployment.telemetryInstallId', 'deployment.telemetrySince',
+    'transcripts.mirror',
+    'deployment.authOpenMode',
+    'deployment.updateChannel',
+    'deployment.connectEnabled',
+    'deployment.telemetryUsage',
+    'deployment.telemetryCrash',
+    'deployment.telemetryInstallId',
+    'deployment.telemetrySince',
   ])('a clear of %s is a reset of the instance record only', (path) => {
     const input = JSON.parse(JSON.stringify({ values: { [path]: null } }))
     const parsed = settingsUpdateInstanceInput.safeParse(input)
@@ -235,9 +243,11 @@ describe('a preference patch is gated on the classified path — and can say YES
 
   it('accepts a real instance path on the instance command', () => {
     const parsed = settingsUpdateInstanceInput.safeParse({
-      values: { 'gitWorkflow.mergeStyle': 'pr' },
+      values: { 'gitWorkflow.defaultParentBranch': 'release' },
     })
-    expect(parsed.success && parsed.data.patch).toEqual({ 'gitWorkflow.mergeStyle': 'pr' })
+    expect(parsed.success && parsed.data.patch).toEqual({
+      'gitWorkflow.defaultParentBranch': 'release',
+    })
   })
 
   it('REFUSES a path nothing classifies — the fail-closed branch', () => {
@@ -259,7 +269,9 @@ describe('a preference patch is gated on the classified path — and can say YES
 
   it('REFUSES an instance path on the personal command, and vice versa', () => {
     expect(
-      settingsUpdatePersonalInput.safeParse({ values: { 'gitWorkflow.mergeStyle': 'pr' } }).success,
+      settingsUpdatePersonalInput.safeParse({
+        values: { 'gitWorkflow.defaultParentBranch': 'release' },
+      }).success,
     ).toBe(false)
     expect(
       settingsUpdateInstanceInput.safeParse({ values: { 'roles.coding.model': 'opus' } }).success,
@@ -295,17 +307,19 @@ describe('a preference patch is gated on the classified path — and can say YES
 })
 
 describe('the derived path sets find something', () => {
-  it('the personal tier has its 27 leaves, including a deep one', () => {
+  it('the personal tier has its 26 leaves, including a deep one', () => {
     const personal = preferencePathsInTier('personal-preference')
-    expect(personal.length).toBe(27)
+    expect(personal.length).toBe(26)
+    expect(personal).not.toContain('sidebar.groupByRepo')
     expect(personal).toContain('roles.coding.model')
     expect(personal).toContain('roles.shipwright.model')
     expect(personal).toContain('autoContinue.promptDismissed')
   })
 
   it('the writable set is both preference tiers and NOTHING from the secret tier', () => {
-    // 50 = 27 personal + 23 instance. Secrets stay out.
-    expect(WRITABLE_PREFERENCE_PATHS.length).toBe(50)
+    // 48 = 26 personal + 22 instance after removing unused grouping/merge choices.
+    expect(WRITABLE_PREFERENCE_PATHS.length).toBe(48)
+    expect(WRITABLE_PREFERENCE_PATHS).not.toContain('gitWorkflow.mergeStyle')
     for (const key of SERVER_SECRET_KEYS) expect(WRITABLE_PREFERENCE_PATHS).not.toContain(key)
     // …and the exclusion is not an empty-set artefact.
     expect(WRITABLE_PREFERENCE_PATHS).toContain('experimental')
@@ -361,19 +375,11 @@ describe('redaction was reviewed, and the answers differ where the tiers differ'
   })
 
   it('no BLOB arm redacts an OUTPUT, because no output has a value key by construction', () => {
-    // Scoped to the four blob writes by their TIER membership rather than by a
-    // hand list, so a seventh blob contract inherits the claim and a seventh
-    // ceremony contract does not. The ceremony arms genuinely do carry material
-    // outwards and are asserted separately below — widening this loop over them
-    // would have meant either a false claim or a weakened one.
+    // Tier membership includes writes and presence projections. Ceremony outputs
+    // carry material and are asserted separately below.
     const blobArms = (NAMES as SettingsContractName[]).filter((n) => CONTRACT_TIER[n] !== undefined)
-    // THREE since POD-6677 (five since POD-421, less the personal write, now the
-    // `userPreferences` record, and the instance write, now the
-    // `instancePreferences` record): the presence read is a `server-secrets`-tier arm
-    // whose output is `SecretPresenceWire[]`, built independently of
-    // `ServerSecret` so that it has no value key to strip. It inherits the claim
-    // by tier membership exactly as the comment above intends.
-    expect(blobArms).toHaveLength(3)
+    // Set, clear, full secret presence and member bot availability expose no value key.
+    expect(blobArms).toHaveLength(4)
     for (const name of blobArms) {
       expect(SETTINGS_CONTRACTS[name].redaction.outputPaths).toEqual([])
       expect(SETTINGS_CONTRACTS[name].redaction.reviewed).toBe(true)
@@ -477,7 +483,7 @@ describe('the ceremony pair classifies a MINT and a REDEMPTION differently', () 
   it('both halves of one ceremony carry the SAME floor', () => {
     // The lower floor is the ceremony's real floor; two different ones would
     // make the higher a decoration.
-    expect(start.policy.roleFloor).toBe('admin')
+    expect(start.policy.roleFloor).toBe('member')
     expect(poll.policy.roleFloor).toBe(start.policy.roleFloor)
   })
 

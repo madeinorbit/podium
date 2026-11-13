@@ -15,6 +15,7 @@ import { buildSuperagentTools } from './modules/superagent/tools'
 import { privateResourceAccess } from './private-resources'
 import { workerSnapshot } from './test-support/bootstrap-snapshot'
 import { feedDelta } from './test-support/feed-delta'
+import { memberFacts } from './store/fixtures/test-support'
 
 const NOW = Date.parse('2026-10-02T12:00:00.000Z')
 const B = asUserId('user:b')
@@ -34,7 +35,7 @@ async function fixture() {
   const o = await makeOracle({ now: () => NOW })
   const A = await firstAdminMemberId(o.store)
   for (const user of [B, C])
-    await o.store.users.create(
+    await memberFacts(o.store).create(
       {
         id: user,
         displayName: user,

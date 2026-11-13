@@ -29,10 +29,9 @@ export class RosterFacts {
 
   /** The active members, in the directory's order (earliest first). */
   @lazy({ equals: compareShallow }) get members(): MemberModel[] {
-    return this.memberIds.flatMap((id) => {
-      const member = here(this.pool.model('member', id))
-      return member && !member.disabledAt ? [member] : []
-    })
+    // The latest answer owns the active ids. Admin-only disabledAt details
+    // may predate a public refresh that includes a re-enabled member.
+    return this.memberIds.flatMap((id) => here(this.pool.model('member', id)) ?? [])
   }
 
   /** Two or more active members: the multi-user task rules apply. */
@@ -60,7 +59,7 @@ export class RosterFacts {
    * one. Never the email: another member's email is the admins' (MU-13).
    */
   nameOf(id: string | null | undefined): string | undefined {
-    if (!id) return undefined
+    if (!id || !this.memberIds.includes(id)) return undefined
     const name = here(this.pool.model('member', id))?.displayName?.trim() || undefined
     return name && this.sharedNames.includes(name) ? `${name} (${memberTag(id)})` : name
   }

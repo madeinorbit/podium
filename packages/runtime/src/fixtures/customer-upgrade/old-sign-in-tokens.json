@@ -1,0 +1,16 @@
+{
+  "note": "Test-only values. Each is the old cookie value whose SHA-256 (hex) is the token_hash of one client_sessions row in multi-member-rows.json or server-rows.json. Made up for the sign-in carry-over tests (POD-6751); no real sign-in ever used them.",
+  "tokens": {
+    "aliceBrowser": "lTP16V0IKL94UE3OfbPwVjtR26DESV_ILnwjhgVqCM4",
+    "aliceDesktop": "fVHsE6KG35sLE5kGylaR6U6ESyyr3cmxEW8D2aSE47o",
+    "aliceHost": "Krhai8IVO7WU7uCc6cw94ZJckKFeeQ2iVNKGOm-di1U",
+    "aliceExpired": "vGJnEmvvbORKqvtGJCd00Cz8RFDK1TQlKaFmV9wq2jY",
+    "bobBrowser": "u4q4ob9NPWpNcKltXEKxJC5e1N9SGPSH7fgHfyGtnQg",
+    "bobPhone": "03esUAZ5uJPX56pIZrBuGreMmqLvaiM6ChiDfbi6fVc",
+    "upstream": "tsM91YCbVfXw35JRPZq6G9tlQvPiqk3jPPgtVpv0jX8",
+    "serverTransferClaim": "PcndmaeIEd6kT9JZpPFGgLJ9L4GE5EQ1mQTL12EM7ZM",
+    "unknownLabel": "lXFuFXW9-CEJMjARvaD6J7n-mVr8ktI47yCtGrjRGNk",
+    "soleBrowser": "TR0MZvadQHCyqYBNLjUXtTkzcj1f3UQGAKe3Z47_0Pk",
+    "soleHost": "gVz4kiCLvXgqUY00UYoHDPTc1CkWe0ZKzMbwyTmKwI4"
+  }
+}

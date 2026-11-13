@@ -47,6 +47,8 @@ import {
   createFeedRelay,
   type FeedBroadcastChannelFactory,
   observeLiveConnection,
+  type SignInWatchOptions,
+  watchSignIn,
 } from '@podium/client-core/live-connection'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider } from '@podium/client-core/react'
@@ -134,6 +136,7 @@ function logFollowEvent(event: FollowEvent): void {
     followLog.warn('could not follow the server', { err: event.error })
 }
 
+import type { ServerConfig } from '@podium/client-core/transport'
 import { type MobileTrpc, makeMobileTrpc, readServerConfig } from './trpc'
 
 // App-installation metadata must be available before a principal-scoped replica
@@ -153,6 +156,7 @@ import { mobileAccountEraser } from './account-data'
 import { mobileBrowserAccounts } from './browser-accounts'
 import { discardRefusedMember, refusedPrincipal } from './refused-member'
 import { MOBILE_REPLICA_DB } from './replica-storage-constants'
+import { noteSignedOut } from './signed-out-notice'
 
 /** Test-only/legacy fallback. Production passes AuthStatus.userId explicitly; an
  * unattributed pre-identity store is accepted only through the injected gate. */
@@ -295,7 +299,11 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
     relay?.dispose()
     await assembly.dispose()
   }
-  const ownership = mobileAccountEraser.register(principal, { erasePrincipalData, dispose })
+  const ownership = mobileAccountEraser.register(principal, {
+    erasePrincipalData,
+    dispose,
+    sealPrincipalData: assembly.sealPrincipalData,
+  })
   return {
     replica: assembly.replica,
     createReplicaFn: assembly.createReplicaFn,
@@ -320,6 +328,33 @@ function workspaceSelectorOf(config: {
   if (config.workspaceSlug) return { workspaceSlug: config.workspaceSlug }
   return undefined
 }
+
+/**
+ * ONE OPEN ASSEMBLY AND THE STORE INPUTS IT WAS OPENED FOR (POD-6913).
+ *
+ * StoreProvider builds a new runtime whenever its principal, config, api or
+ * network setting changes, and every runtime consumes the assembly's outbox
+ * factory, which may be consumed once. So those inputs travel WITH the
+ * assembly: they are fixed when the boot opens it, and they can only change
+ * together with a fresh assembly. A credential, workspace or network change
+ * re-runs the boot, which opens that fresh assembly. Reading them from the
+ * current render instead let a profile write after paint hand the store a new
+ * api over the old assembly, and the release build died with "kernel engine
+ * Outbox factory may only be consumed once".
+ *
+ * `id` keys the StoreProvider, so the other direction holds too: a new
+ * assembly always gets a new runtime, even when React batches the old one's
+ * retirement and the new one's arrival into one render.
+ */
+interface OpenedAssembly {
+  readonly id: number
+  readonly replica: MobileReplica
+  readonly api: MobileTrpc
+  readonly config: ServerConfig
+  readonly networkEnabled: boolean
+}
+
+let lastAssemblyId = 0
 
 export function MobileClientProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
@@ -479,6 +514,7 @@ function MobileHubAttach({
   bearer,
   onVersionNotice,
   follow,
+  signIn,
 }: {
   connectivity: NativeConnectivity | undefined
   networkEnabled: boolean
@@ -488,8 +524,11 @@ function MobileHubAttach({
   onVersionNotice: (message: string) => void
   /** How this client follows a moved server (POD-5921); absent in demo mode. */
   follow: FollowPorts | undefined
+  /** Asks the server after every lost link whether this sign-in still holds (POD-6910). */
+  signIn: SignInWatchOptions | undefined
 }): null {
   const hub = useSocketHub()
+  useEffect(() => (signIn ? watchSignIn(hub, signIn) : undefined), [hub, signIn])
   useEffect(() => {
     if (!follow) return
     return followHub(hub, follow, {
@@ -534,6 +573,13 @@ function LiveProvider({ children }: { children: ReactNode }) {
   const activation = serverProfile?.activation ?? 'verified'
   const revalidateOfflineProfile = serverProfile?.revalidateOfflineProfile
   const updateCredential = serverProfile?.updateCredential
+  // Read through a ref: the gate hands out a new `updateCredential` on every
+  // profile write (a recorded member, the server identity saved on the first
+  // connect), and that identity must not reach the transport. It used to: the
+  // expiry handler changed, so did the tRPC client, and the store rebuilt its
+  // runtime over a replica assembly it had already consumed (POD-6913).
+  const updateCredentialRef = useRef(updateCredential)
+  updateCredentialRef.current = updateCredential
   const recordUser = serverProfile?.recordUser
   const recordUserRef = useRef(recordUser)
   recordUserRef.current = recordUser
@@ -596,6 +642,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new credential needs a fresh expiry handler
   const endLiveCredential = useCallback(
     (refused: boolean) => {
+      const updateCredential = updateCredentialRef.current
       if (!updateCredential || authExpiryHandled.current) return
       authExpiryHandled.current = true
       const report = (cause: unknown) =>
@@ -627,39 +674,47 @@ function LiveProvider({ children }: { children: ReactNode }) {
         report(cause)
       })
     },
-    [
-      bearer,
-      updateCredential,
-      reportError,
-      config.httpOrigin,
-      config.workspaceId,
-      config.workspaceSlug,
-    ],
+    [bearer, reportError, config.httpOrigin, config.workspaceId, config.workspaceSlug],
   )
   const expireLiveCredential = useCallback(() => endLiveCredential(true), [endLiveCredential])
   const endSwitchedCredential = useCallback(() => endLiveCredential(false), [endLiveCredential])
-  // biome-ignore lint/correctness/useExhaustiveDependencies: profile identity changes must replace the verification callback
+  // An offline-cache profile is revalidated when the link drops. A live
+  // sign-in is checked by the sign-in watch below, on every lost link, so it
+  // can say why it ended (POD-6910).
   const verifyLiveCredential = useCallback(() => {
-    if (activation === 'offline-cache') {
-      void revalidateOfflineProfile?.().catch((cause: unknown) => {
-        reportError(cause instanceof Error ? cause.message : String(cause))
-      })
-      return
-    }
-    if (!bearer || authExpiryHandled.current) return
-    void checkLiveAuth(config.httpOrigin, bearer, config.workspaceId).then((result) => {
-      if (result.kind === 'expired') expireLiveCredential()
+    if (activation !== 'offline-cache') return
+    void revalidateOfflineProfile?.().catch((cause: unknown) => {
+      reportError(cause instanceof Error ? cause.message : String(cause))
     })
-  }, [
-    activation,
-    bearer,
-    config.httpOrigin,
-    config.workspaceId,
-    config.workspaceSlug,
-    expireLiveCredential,
-    reportError,
-    revalidateOfflineProfile,
-  ])
+  }, [activation, reportError, revalidateOfflineProfile])
+  // THE SERVER ENDED THIS SIGN-IN (POD-6910): this member was removed, or this
+  // phone was signed out from the device list. The server closes the socket,
+  // refuses the next one and answers /auth/status with "not signed in"; the
+  // same erase a refused request takes runs, and the sign-in screen says why.
+  // No answer is an outage: the hub keeps reconnecting and the data stays.
+  const signedInMember = serverProfile?.profile.memberId
+  const signInWatch = useMemo<SignInWatchOptions | undefined>(
+    () =>
+      activation === 'offline-cache' || (!bearer && mobileAccountCredentials.delivery !== 'browser')
+        ? undefined
+        : {
+            check: () => checkLiveAuth(config.httpOrigin, bearer, config.workspaceId),
+            ...(signedInMember ? { memberId: signedInMember } : {}),
+            onSignedOut: (reason) => {
+              noteSignedOut(profileId, reason)
+              expireLiveCredential()
+            },
+          },
+    [
+      activation,
+      bearer,
+      config.httpOrigin,
+      config.workspaceId,
+      expireLiveCredential,
+      profileId,
+      signedInMember,
+    ],
+  )
   const trpc = useMemo(
     () =>
       makeMobileTrpc(config.httpOrigin, bearer, expireLiveCredential, workspaceSelectorOf(config)),
@@ -693,7 +748,8 @@ function LiveProvider({ children }: { children: ReactNode }) {
   // boots. The migration and SQLite open then run BEFORE the store answers a
   // read and the app does not paint until they resolve — a replica read mid-
   // migration would show a slice that is about to be retired.
-  const [openedReplica, setOpenedReplica] = useState<MobileReplica | null>(null)
+  const [assembly, setAssembly] = useState<OpenedAssembly | null>(null)
+  const openedReplica = assembly?.replica ?? null
   // THE BOOT'S FAILURE SURFACE (POD-712). Without these two, a boot that threw
   // and a boot that was merely slow both rendered `null`, which the launch
   // boundary above shows as the wordmark splash — forever, and identically.
@@ -706,7 +762,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
     setBootFailure(null)
     setBootCause(null)
     setBootStalled(false)
-    setOpenedReplica(null)
+    setAssembly(null)
     setBootAttempt((n) => n + 1)
   }, [])
   // biome-ignore lint/correctness/useExhaustiveDependencies: `bootAttempt` is not read in the body — it IS the retry, the one thing that makes this effect run a second time after a failed or abandoned boot
@@ -715,7 +771,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
     // (ee02d6331), which conflated "this component went away" with "the page was
     // backgrounded" — two different facts with opposite correct responses. A
     // pagehide mid-boot therefore made the resolved replica close itself and
-    // skip `setOpenedReplica`, and since the effect's deps never changed there
+    // skip publishing it, and since the effect's deps never changed there
     // was no path back: the splash stayed up for the life of the page.
     let replicaForCleanup: MobileReplica | null = null
     const onPageHide = () => {
@@ -732,7 +788,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
         : AppState.addEventListener('change', (state) => {
             if (state === 'background') onPageHide()
           })
-    const stopBoot = startReplicaBoot({
+    const stopBoot = startReplicaBoot<OpenedAssembly>({
       open: async () => {
         if (Platform.OS === 'web')
           await mobileBrowserAccounts(
@@ -820,15 +876,18 @@ function LiveProvider({ children }: { children: ReactNode }) {
           await opened.dispose()
           throw error
         }
-        return opened
+        // The store sends through the same member-fenced client the queue was
+        // opened with (POD-6292), so the runtime and its outbox agree on whom
+        // they speak for.
+        return { id: ++lastAssemblyId, replica: opened, api: memberTrpc, config, networkEnabled }
       },
-      dispose: (replica) => replica.dispose(),
+      dispose: (value) => value.replica.dispose(),
       onCleanupError: (cause) => log.warn('replica cleanup failed', { cause }),
       onState: (state) => {
         if (state.status === 'ready') {
-          replicaForCleanup = state.value
-          openedPrincipalRef.current = state.value.principal
-          setOpenedReplica(state.value)
+          replicaForCleanup = state.value.replica
+          openedPrincipalRef.current = state.value.replica.principal
+          setAssembly(state.value)
           setBootFailure(null)
           setBootCause(null)
           setBootStalled(false)
@@ -837,7 +896,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
           setBootCause(state.cause)
           setBootStalled(false)
         } else {
-          setOpenedReplica(null)
+          setAssembly(null)
           setBootFailure(null)
           setBootCause(null)
           setBootStalled(state.status === 'stalled')
@@ -859,38 +918,16 @@ function LiveProvider({ children }: { children: ReactNode }) {
     profileId,
     trpc,
     inheritedAuthStatus,
+    networkEnabled,
     bootAttempt,
     retryBoot,
   ])
   const routerWindow = useMemo(() => createMemoryRouterWindow(), [])
-  // The runtime's own client, fenced to the member its replica opened for
-  // (POD-6292). Same member, same client across re-renders.
+  // Whose runtime this is, for the account-switch watch below.
   const boundMember = openedReplica?.clientPrincipal
   const boundBoundary = openedReplica
     ? parseReplicaNamespaceKey(openedReplica.principal)?.syncBoundaryId
     : undefined
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the selector is derived from the two workspace fields listed.
-  const storeTrpc = useMemo(
-    () =>
-      boundMember === undefined
-        ? trpc
-        : makeMobileTrpc(
-            config.httpOrigin,
-            bearer,
-            expireLiveCredential,
-            workspaceSelectorOf(config),
-            { member: boundMember },
-          ),
-    [
-      trpc,
-      boundMember,
-      bearer,
-      config.httpOrigin,
-      config.workspaceId,
-      config.workspaceSlug,
-      expireLiveCredential,
-    ],
-  )
   // ANOTHER TAB SWITCHED THE ACCOUNT (POD-6292, MU-12). The browser build shares
   // one cookie jar and one storage with every other tab: when the saved account
   // stops naming this runtime's member, end it as an expired session ends.
@@ -947,7 +984,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
   }
   // LaunchBoundary stays mounted above auth + replica assembly. A null subtree
   // here leaves that one branded transition in place instead of remounting it.
-  if (!openedReplica) {
+  if (!assembly || !openedReplica) {
     // The first attempt is covered by LaunchBoundary's one branded splash.
     // A retry starts only after that boundary has intentionally retired it to
     // show BootTroubleScreen, so it needs its own visible loading surface rather
@@ -960,8 +997,9 @@ function LiveProvider({ children }: { children: ReactNode }) {
   }
   return (
     <StoreProvider
-      config={config}
-      api={storeTrpc}
+      key={assembly.id}
+      config={assembly.config}
+      api={assembly.api}
       onFatalError={reportError}
       notices={notices}
       // The principal the auth status named, and the store opened for exactly
@@ -987,7 +1025,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
       // this app load; StoreProvider releases it before the runtime goes, so a
       // sign-out or user switch disposes it with the signed-in user's store.
       attachRuntime={(runtime) => attachMobilePool(runtime, (cause) => reportError(cause.message))}
-      networkEnabled={networkEnabled}
+      networkEnabled={assembly.networkEnabled}
       makeSocket={makeSocket}
       routerWindow={routerWindow}
       // Visibility, connectivity and ping cadence, from the platform rather
@@ -1003,6 +1041,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
         bearer={bearer}
         onVersionNotice={reportVersionNotice}
         follow={followPorts}
+        signIn={signInWatch}
       />
       <MobileShellSurface value={shell}>
         <MobileSyncBoundary

@@ -1,0 +1,197 @@
+import type { AuthCapabilities } from '@podium/client-core/accounts'
+import { RequestAnswer } from '@podium/client-graph/request-answer'
+import { observer } from 'mobx-react-lite'
+import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { toast } from 'sonner'
+import { serverConfig, type Trpc } from '@/app/trpc'
+import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
+import { useSettingsClient } from '@/features/settings/stable-access'
+import { authRequest } from '@/features/setup/member-api'
+import { forcedNotice, useForcedSetting } from '../use-forced-setting'
+import { ConfirmInline, Row, Section } from './shared'
+
+type AuthStatus = Awaited<ReturnType<Trpc['auth']['status']['query']>>
+
+/** Instance policy has one reversible control, separate from personal passwords. */
+export const InstanceLoginSection = observer(function InstanceLoginSection({
+  trpc,
+  capabilities,
+  onChanged,
+}: {
+  trpc: Trpc
+  /** What the server's sign-in edition offers; absent while it loads. */
+  capabilities?: AuthCapabilities | undefined
+  onChanged?: () => void
+}): JSX.Element | null {
+  const client = useSettingsClient()
+  const forced = useForcedSetting('authOpenMode')
+  const status = useMemo(() => new RequestAnswer<AuthStatus>(), [])
+  const reload = useCallback(() => status.load(() => trpc.auth.status.query()), [status, trpc])
+  useEffect(() => {
+    void reload()
+    return () => status.close()
+  }, [reload, status])
+  const [confirmRequired, setConfirmRequired] = useState<boolean | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const saving = useRef(false)
+  const data = status.answer
+  const setRequired = async (required: boolean, current: string) => {
+    if (saving.current) return
+    saving.current = true
+    setBusy(true)
+    setError(null)
+    try {
+      // Open mode can be a synthetic host sign-in. Take a real cookie BEFORE
+      // requiring sign-in, so this device keeps access to the change it made.
+      if (required && data?.hostLocalRequest && data.hasOwnCredential) {
+        const profile = await trpc.auth.profile.query()
+        // A sign-in without an address is the sole password account's.
+        await authRequest(serverConfig(window.location).httpOrigin, 'login', {
+          ...(profile.email ? { email: profile.email } : {}),
+          password: current,
+          prepareSignIn: true,
+        })
+      }
+      const next = await trpc.auth.setLoginRequired.mutate({
+        required,
+        current,
+        ...(!required ? { acknowledgeNoPassword: true as const } : {}),
+      })
+      await reload()
+      onChanged?.()
+      if (next.loginRequired !== required) {
+        setError(
+          required
+            ? 'Set your password in Account before requiring sign-in.'
+            : 'This deployment still requires sign-in. Shared and cloud workspaces always require it.',
+        )
+        return
+      }
+      setConfirmRequired(null)
+      toast.success(required ? 'Sign-in is required.' : 'Sign-in is turned off.')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Couldn’t change the sign-in requirement.')
+    } finally {
+      saving.current = false
+      setBusy(false)
+    }
+  }
+  if (!data)
+    return (
+      <Section title="Joining and signing in">
+        {status.error ? (
+          <>
+            <p role="alert" className="settings-prose text-destructive">
+              Couldn’t load the sign-in requirement.
+            </p>
+            <Button type="button" variant="outline" size="sm" onClick={() => void reload()}>
+              Try again
+            </Button>
+          </>
+        ) : (
+          <p role="status" className="settings-prose">
+            Loading sign-in settings…
+          </p>
+        )}
+      </Section>
+    )
+  if (!data.canManageInstance) return null
+  const mandatory =
+    data.loginRequiredReason === 'hosted'
+      ? 'Always on for hosted workspaces'
+      : data.loginRequiredReason === 'several-members'
+        ? 'Required while more than one person uses this workspace'
+        : data.loginRequired && !data.hostLocalRequest
+          ? 'Can only be turned off on the server machine itself.'
+          : null
+  const source = forced.forced
+    ? forcedNotice(forced)
+    : data.loginPolicySource === 'file'
+      ? forcedNotice({ forced: true, source: 'file' })
+      : null
+  return (
+    <Section title="Joining and signing in">
+      <Row
+        label="Require sign-in"
+        description={
+          <>
+            {mandatory ? (
+              mandatory
+            ) : data.loginRequired ? (
+              'Everyone signs in with their own account.'
+            ) : (
+              <>
+                <strong>
+                  Without sign-in, Podium only accepts this server machine itself, as any account.
+                </strong>
+              </>
+            )}
+            {source && <span className="mt-1 block">{source}</span>}
+          </>
+        }
+        readOnly={source !== null || mandatory !== null}
+        readOnlyValue={data.loginRequired ? 'On' : 'Off'}
+        pending={busy}
+        error={error ?? status.error}
+      >
+        <Switch
+          aria-label="Require sign-in"
+          checked={data.loginRequired}
+          disabled={busy}
+          onCheckedChange={(required) => {
+            setError(null)
+            setConfirmRequired(required)
+          }}
+        />
+      </Row>
+      {confirmRequired !== null && source === null && mandatory === null && (
+        <ConfirmInline
+          key={String(confirmRequired)}
+          sentence={
+            confirmRequired
+              ? 'Require everyone to sign in? Existing account passwords will be used.'
+              : 'Turn off sign-in for everyone? Existing passwords will be kept so you can turn it back on.'
+          }
+          actionLabel={confirmRequired ? 'Require sign-in' : 'Turn off sign-in'}
+          hasPassword={data.hasOwnCredential}
+          acknowledgement={
+            confirmRequired
+              ? undefined
+              : 'I understand that Podium can only be used from the server machine without signing in.'
+          }
+          destructive={!confirmRequired}
+          pending={busy}
+          onConfirm={(password) => setRequired(confirmRequired, password)}
+          onCancel={() => {
+            setConfirmRequired(null)
+            setError(null)
+          }}
+        />
+      )}
+      <Row
+        label="New people join"
+        description={
+          capabilities?.invitationDelivery === 'mail'
+            ? 'An admin emails an invitation with a workspace role under Members.'
+            : 'Each link works once and expires after 7 days.'
+        }
+      >
+        <span className="settings-prose">
+          {capabilities?.invitationDelivery === 'mail'
+            ? 'With an emailed invitation'
+            : 'With an invite link'}
+        </span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => client.setSettingsTab('members')}
+        >
+          Invite
+        </Button>
+      </Row>
+    </Section>
+  )
+})

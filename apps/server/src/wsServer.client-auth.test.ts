@@ -6,10 +6,10 @@ import {
   CLIENT_WIRE_VERSION,
   decodeBinaryEnvelope,
   type ServerMessage,
+  SIGN_IN_ENDED_CLOSE,
 } from '@podium/protocol'
 import { afterEach, describe, expect, test } from 'vitest'
 import { WebSocket } from 'ws'
-import { hashToken, requestUserId } from './auth-route'
 import {
   attachWebSockets,
   type NativeServer,
@@ -38,7 +38,6 @@ afterEach(async () => {
 async function start(
   authorizeClient: (request: Request) => boolean,
   credentialId?: string,
-  maintainClientCredential?: (credentialId: string) => Promise<boolean>,
   timers?: {
     setInterval(fn: () => void, ms: number): unknown
     clearInterval(handle: unknown): void
@@ -55,7 +54,6 @@ async function start(
       ...(principalForClient ? { principalForClient } : {}),
       userForClient: () => firstAdminMemberId(),
       roleForClient: () => 'admin',
-      ...(maintainClientCredential ? { maintainClientCredential } : {}),
       ...(credentialId
         ? {
             principalForClient: () => ({
@@ -185,32 +183,13 @@ async function connectDeltaClient(url: string) {
 }
 
 describe('/client WS auth gate', () => {
-  test('a disabled member cannot hello with their old cookie, even after re-enable', async () => {
-    const url = await start(
-      () => true,
-      undefined,
-      undefined,
-      undefined,
-      async (request) => {
-        const userId = await requestUserId(store!.auth, request.headers.get('cookie') ?? undefined)
-        const user = userId && (await store!.users.get(userId))
-        return user && userId ? { userId, userRole: user.role } : undefined
-      },
-    )
-    const member = firstAdminMemberId()
-    const cookie = { cookie: 'podium_session=disable-test-token' }
-    await store!.auth.createClientSession(
-      hashToken('disable-test-token'),
-      member,
-      '2999-01-01T00:00:00Z',
-    )
-    expect(await attempt(url, cookie)).toBe('open')
-    await store!.users.disable(member, '2026-09-17T12:00:00Z')
-    expect(await attempt(url, cookie)).toBe('rejected')
-    await store!.users.enable(member, '2026-09-17T13:00:00Z')
-    expect(await attempt(url, cookie)).toBe('rejected')
-    await store!.auth.createClientSession(hashToken('fresh-token'), member, '2999-01-01T00:00:00Z')
-    expect(await attempt(url, { cookie: 'podium_session=fresh-token' })).toBe('open')
+  test('refuses an upgrade with the answer the resolver gave: signed in and not a member', async () => {
+    const url = await start(() => true, undefined, undefined, () => ({
+      refused: { status: 403, body: { error: 'not_workspace_member' } },
+    }))
+    const response = await rejectedHandshake(url)
+    expect(response.status).toBe(403)
+    expect(JSON.parse(response.body)).toEqual({ error: 'not_workspace_member' })
   })
 
   test('accepts the client when the gate authorizes it', async () => {
@@ -251,45 +230,41 @@ describe('/client WS auth gate', () => {
     expect(await attempt(url, { authorization: 'Bearer wrong' })).toBe('rejected')
   })
 
-  test('remote revocation terminates sockets carrying that one credential', async () => {
+  test('remote revocation closes sockets carrying that one credential, saying why (POD-6910)', async () => {
     const url = await start(() => true, 'mobile-session-hash')
     const socket = new WebSocket(url)
     await new Promise<void>((resolve, reject) => {
       socket.once('open', resolve)
       socket.once('error', reject)
     })
-    const closed = new Promise<void>((resolve) => socket.once('close', () => resolve()))
+    const closed = new Promise<{ code: number; reason: string }>((resolve) =>
+      socket.once('close', (code: number, reason: Buffer) =>
+        resolve({ code, reason: reason.toString() }),
+      ),
+    )
     handle?.revokeClientCredential('mobile-session-hash')
-    await closed
+    // The client reads the code to tell a sign-out from a network drop.
+    expect(await closed).toEqual(SIGN_IN_ENDED_CLOSE.signedOut)
     expect(socket.readyState).toBe(WebSocket.CLOSED)
   })
 
-  test('the existing heartbeat terminates an expired credential without an inbound frame', async () => {
-    const ticks: (() => void)[] = []
-    const timers = {
-      setInterval(fn: () => void) {
-        ticks.push(fn)
-        return fn
-      },
-      clearInterval() {},
-    }
-    let valid = true
-    const url = await start(
-      () => true,
-      'expiring-mobile-hash',
-      async () => valid,
-      timers,
-    )
+  test('a removed member’s socket closes with access_ended through its connection (POD-6910)', async () => {
+    const url = await start(() => true, 'member-session-hash')
     const socket = new WebSocket(url)
     await new Promise<void>((resolve, reject) => {
       socket.once('open', resolve)
       socket.once('error', reject)
     })
-    valid = false
-    const closed = new Promise<void>((resolve) => socket.once('close', () => resolve()))
-    ticks[0]?.()
-    await closed
-    expect(socket.readyState).toBe(WebSocket.CLOSED)
+    const closed = new Promise<{ code: number; reason: string }>((resolve) =>
+      socket.once('close', (code: number, reason: Buffer) =>
+        resolve({ code, reason: reason.toString() }),
+      ),
+    )
+    // What the member routes' removal hook does for each of the member's connections.
+    const conns = [...(registry?.clientGateway.registry.values() ?? [])]
+    expect(conns).toHaveLength(1)
+    conns[0]?.endSignIn?.(SIGN_IN_ENDED_CLOSE.accessEnded)
+    expect(await closed).toEqual(SIGN_IN_ENDED_CLOSE.accessEnded)
   })
 
   test.each([
@@ -301,7 +276,6 @@ describe('/client WS auth gate', () => {
     let checks = 0
     const url = await start(
       () => true,
-      undefined,
       undefined,
       {
         setInterval(fn) {
@@ -341,7 +315,6 @@ describe('/client WS auth gate', () => {
     let checks = 0
     const url = await start(
       () => true,
-      undefined,
       undefined,
       {
         setInterval(fn) {

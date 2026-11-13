@@ -81,7 +81,7 @@ describe('the two-member fixture', () => {
     expect((await f.login('alice')).status).toBe(200)
     expect((await f.login('bob')).status).toBe(200)
     expect((await f.login('carol')).status).toBe(401)
-    await expect(f.as('carol')).rejects.toThrow(/carol could not sign in \(401\)/)
+    await expect(f.as('carol')).rejects.toThrow(/carol could not sign in \(invalid\)/)
   })
 })
 

@@ -1,3 +1,4 @@
+import { memberFacts } from '../apps/server/src/store/fixtures/test-support'
 /**
  * WHOSE "read" auto-archive means, pinned against the REAL storage [POD-1210].
  *
@@ -148,7 +149,7 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
   it('resolves both readers again after the original administrator is removed', async () => {
     const original = await firstAdminMemberId(store)
     const replacement = asUserId('mem_2YYYYYYYYYYYYYYYYYYYYYYYYYY')
-    await store.users.create(
+    await memberFacts(store).create(
       {
         id: replacement,
         displayName: 'Next admin',
@@ -177,7 +178,7 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
     const input = { cutoffReadAt: CUTOFF, limit: 100 }
     expect(await issues.read(input)).toEqual([])
     expect(await sessions.read(input)).toEqual([])
-    await store.users.removeMember(original, replacement)
+    await memberFacts(store).removeMember(original, replacement)
     expect((await issues.read(input)).map((row) => row.readerUserId)).toEqual([replacement])
     expect((await sessions.read(input)).map((row) => row.readerUserId)).toEqual([replacement])
   })

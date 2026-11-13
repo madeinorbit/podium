@@ -115,7 +115,7 @@ vi.mock('@/app/store', () => {
     fileTabs: [],
     view: 'workspace',
     setView: vi.fn(),
-    sidebarSettings: { groupByRepo: false },
+    sidebarSettings: { },
     setSidebarSettings: vi.fn(),
     uiState: { get: () => null, set: () => {}, subscribe: () => () => {} },
     spawnDraftAgent: vi.fn(),

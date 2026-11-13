@@ -47,6 +47,26 @@ export class SpawnAccountRefusal extends Error {
   override readonly name: string = 'SpawnAccountRefusal'
 }
 
+/**
+ * A native account refused on a machine someone else looks after: its native
+ * CLI logins are the custodian's. The message is the coding spawn's; a caller
+ * serving another role (the superagent, POD-6740) words the fix for that role
+ * from {@link machineName}, but the rule itself lives only in
+ * {@link resolveAccountEnv}.
+ */
+export class ForeignMachineLoginRefusal extends SpawnAccountRefusal {
+  override readonly name = 'ForeignMachineLoginRefusal'
+
+  constructor(readonly machineName: string) {
+    super(
+      `"${machineName}" is someone else's machine: its native CLI logins are theirs, and ` +
+        "Podium never runs your agents on another person's login or replaces it with yours. " +
+        'Send one of your own connections to this machine in Settings → AI accounts and select it, ' +
+        'or run on a machine you look after.',
+    )
+  }
+}
+
 /** The words a person reads for each managed account id. */
 const MANAGED_KEY_NAMES: Readonly<Record<string, string>> = {
   'managed:anthropic': 'Anthropic API key',
@@ -65,7 +85,7 @@ export class MissingManagedKeyError extends SpawnAccountRefusal {
   constructor(readonly accountId: AccountId) {
     super(
       `No ${managedKeyName(accountId)} is available to you: this agent's role uses one, and you ` +
-        'have not connected your own (Settings → Accounts) and nobody shares one with you. An ' +
+        'have not connected your own (Settings → AI accounts) and nobody shares one with you. An ' +
         'admin can share theirs.',
     )
   }
@@ -107,12 +127,7 @@ export async function resolveAccountEnv(
 
   if (!accountId.startsWith('managed:')) {
     if (!foreign) return {}
-    throw new SpawnAccountRefusal(
-      `"${await machineName()}" is someone else's machine: its native CLI logins are theirs, and ` +
-        "Podium never runs your agents on another person's login or replaces it with yours. " +
-        'Send one of your own connections to this machine in Settings → Accounts and select it, ' +
-        'or run on a machine you look after.',
-    )
+    throw new ForeignMachineLoginRefusal(await machineName())
   }
 
   const row = await managedKeyFor(ports.accounts, target.ownerUserId, accountId)
@@ -120,13 +135,13 @@ export async function resolveAccountEnv(
   const foreignToCredential = custodian !== null && custodian !== row.ownerUserId
   if (
     foreignToCredential &&
-    !(await ports.accounts.sentTo(row.ownerUserId, accountId)).includes(target.machineId)
+    !(await ports.accounts.sentTo(row.ownerUserId, row.accountKey)).includes(target.machineId)
   ) {
     throw new SpawnAccountRefusal(
       `Before your first run on "${await machineName()}": ${SHARED_MACHINE_ACCOUNT_WARNING} ` +
         (row.ownerUserId === target.ownerUserId
-          ? `To run there, send your ${providerLabel(accountId)} connection to it in Settings → Accounts.`
-          : 'The owner of the shared connection must send it to this machine in Settings → Accounts.'),
+          ? `To run there, send your ${providerLabel(accountId)} connection to it in Settings → AI accounts.`
+          : 'The owner of the shared connection must send it to this machine in Settings → AI accounts.'),
     )
   }
   const env = credentialEnv({

@@ -337,6 +337,9 @@ export function parseServedDescriptors(frame: unknown): HarnessDescriptorWire[] 
         argvPrompt: capabilities?.argvPrompt === true,
         effort: capabilities?.effort === true,
         systemPrompt: capabilities?.systemPrompt === true,
+        ...(typeof capabilities?.subagentModel === 'boolean'
+          ? { subagentModel: capabilities.subagentModel }
+          : {}),
       },
       catalog: {
         models,

@@ -96,6 +96,21 @@ export const SETTINGS_COMMANDS_TRPC = {
       unknown
     >,
   },
+  'settings.telegramBotPresence': {
+    contract: SETTINGS_CONTRACTS['settings.telegramBotPresence'],
+    handler: (async (svc) => await svc.telegramBotPresence()) satisfies SettingsHandler<
+      z.infer<(typeof SETTINGS_CONTRACTS)['settings.telegramBotPresence']['input']>,
+      Promise<boolean>
+    >,
+  },
+  'settings.telegramDisconnect': {
+    contract: SETTINGS_CONTRACTS['settings.telegramDisconnect'],
+    handler: (async (svc, _input, actor) =>
+      await svc.disconnectTelegram(actor)) satisfies SettingsHandler<
+      z.infer<(typeof SETTINGS_CONTRACTS)['settings.telegramDisconnect']['input']>,
+      void
+    >,
+  },
   'settings.telegramSetupStart': {
     contract: SETTINGS_CONTRACTS['settings.telegramSetupStart'],
     handler: (async (svc, _input, actor) =>
@@ -106,8 +121,8 @@ export const SETTINGS_COMMANDS_TRPC = {
   },
   'settings.telegramSetupPoll': {
     contract: SETTINGS_CONTRACTS['settings.telegramSetupPoll'],
-    handler: (async (svc, input) =>
-      await svc.pollTelegramSetup(input.setupId)) satisfies SettingsHandler<
+    handler: (async (svc, input, actor) =>
+      await svc.pollTelegramSetup(input.setupId, actor)) satisfies SettingsHandler<
       z.infer<(typeof SETTINGS_CONTRACTS)['settings.telegramSetupPoll']['input']>,
       unknown
     >,

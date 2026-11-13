@@ -1,3 +1,4 @@
+import { memberFacts } from '../../store/fixtures/test-support'
 /**
  * THE INSTANCE SETTINGS AS ONE SYNCED RECORD (POD-6677).
  *
@@ -49,7 +50,7 @@ const principal = (user: string): Principal => ({
 /** A second person on the instance, with this role. */
 async function member(o: Oracle, id: string, role: 'member' | 'admin' = 'member') {
   const user = asUserId(id)
-  await o.store.users.createUnclaimed({
+  await memberFacts(o.store).create({
     id: user,
     displayName: id,
     email: null,
@@ -79,7 +80,7 @@ describe('records.instancePreferences', () => {
       o,
       envelope(
         'records.instancePreferences.edit',
-        { id: ID, patch: { 'hibernation.memoryPct': 90, 'gitWorkflow.mergeStyle': 'pr' } },
+        { id: ID, patch: { 'hibernation.memoryPct': 90, 'gitWorkflow.defaultParentBranch': 'release' } },
         'i-1',
       ),
       { writes: true },
@@ -97,11 +98,11 @@ describe('records.instancePreferences', () => {
     )
     const stored = await o.store.settings.getSettings()
     expect(stored.hibernation.memoryPct).toBe(90)
-    expect(stored.gitWorkflow.mergeStyle).toBe('pr')
+    expect(stored.gitWorkflow.defaultParentBranch).toBe('release')
     expect(stored.experimental).toEqual({ 'git-panel': true })
     expect(await recordOn(o, ME)).toMatchObject({
       'hibernation.memoryPct': 90,
-      'gitWorkflow.mergeStyle': 'pr',
+      'gitWorkflow.defaultParentBranch': 'release',
       experimental: { 'git-panel': true },
     })
 
@@ -160,7 +161,7 @@ describe('records.instancePreferences', () => {
     expect(memberReply).toEqual({ outcome: 'rejected', refusal: { kind: 'unauthorized' } })
 
     const formerAdmin = await member(o, 'user:former-admin-6677', 'admin')
-    await o.store.users.disable(formerAdmin, new Date().toISOString())
+    await memberFacts(o.store).disable(formerAdmin, new Date().toISOString())
     const disabledReply = await o.reg.modules.syncWrite.submit(
       envelope(
         'records.instancePreferences.edit',
@@ -284,7 +285,7 @@ describe('the instance record reaches every member', () => {
 
 describe('no secret is ever on the instance record', () => {
   it('the schema has no secret leaf, and every leaf is the instance tier', () => {
-    const fields = Object.keys(InstancePreferencesWire.shape)
+    const fields = Object.keys(InstancePreferencesWire.innerType().shape)
     expect(fields.length).toBeGreaterThan(10)
     const secrets = new Set(
       SETTINGS_CLASSIFICATION.filter((c) => c.tier === 'server-secret').map((c) => c.path),
@@ -315,7 +316,7 @@ describe('no secret is ever on the instance record', () => {
 
   it('a feed sample after a secret is set carries no secret material', async () => {
     const o = await makeOracle()
-    await o.call.settings.setSecret({ key: 'apiKeys.openai', value: SECRET })
+    await o.call.settings.setSecret({ key: 'integrations.linearApiKey', value: SECRET })
     await expectAppliedOnPath(
       o,
       envelope(

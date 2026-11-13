@@ -355,25 +355,19 @@ export const DURABLE_STORES: readonly DurableStore[] = [
     store: 'client_sessions',
     kind: 'drizzle-table',
     row: 'per-user-client-session',
-    // The mint INSERTs the row, `listSessions`/`revoke` read and delete it. It
-    // became a declared write site at the POD-1439 reconciliation, when the mint
-    // started writing `user_id` (POD-1079, NOT NULL with no default). Whether
-    // filesystem access SHOULD be a sufficient root for that write is the open
-    // security question in POD-1604 (the POD-1402 tripwire) and is not settled
-    // here; this entry records only that this module is the writer, which is
-    // true under either answer.
-    writeSites: ['packages/runtime/src/session-mint.ts'],
+    // Compatibility input only; the server consumes and deletes these rows.
+    writeSites: [],
   },
   {
     store: '<stateDir>/cli-session.json',
     kind: 'filesystem',
     row: null,
     notEntityState:
-      'The CLI’s local cache of ONE minted credential, written owner-readable (0600) so a later `podium` invocation can present it. Not an entity class: the durable truth is the `client_sessions` row above, this file is a copy of the plaintext token that row only stores hashed. Deleting it costs a re-mint and loses nothing else, every read treats missing/malformed/expired alike as "no credential", and `PODIUM_SESSION_TOKEN` overrides it entirely.',
-    writeSites: ['packages/runtime/src/session-mint.ts'],
+      'The CLI’s local cache of one signed device sign-in, written owner-readable (0600) so a later `podium` invocation can present it. Not an entity class: the durable truth is the shared identity device sign-in, this file is a copy of the plaintext token that row only stores hashed. Deleting it costs a re-mint and loses nothing else, every read treats missing/malformed/expired alike as "no credential", and `PODIUM_SESSION_TOKEN` overrides it entirely.',
+    writeSites: ['packages/runtime/src/session-token.ts'],
   },
   { store: 'users', kind: 'drizzle-table', row: 'user-account' },
-  { store: 'user_credentials', kind: 'drizzle-table', row: 'account-credential' },
+  { store: 'identity_account', kind: 'drizzle-table', row: 'account-credential' },
   { store: 'grants', kind: 'drizzle-table', row: 'grant-edge' },
   { store: 'telegram_chat_bindings', kind: 'drizzle-table', row: 'telegram-chat-binding' },
   // A bound chat's routing, extended per conversation (POD-6212): the same user's route.

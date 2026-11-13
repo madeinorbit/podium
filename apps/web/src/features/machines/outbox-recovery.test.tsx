@@ -70,7 +70,7 @@ vi.mock('@/lib/clipboard', () => ({
 }))
 
 // eslint-disable-next-line import/first
-import { OutboxRecoveryIndicator } from './OutboxRecovery'
+import { OutboxRecoveryList } from './OutboxRecovery'
 
 async function parkOne(name = 'my careful title'): Promise<string> {
   const entry = outbox.enqueue('rename', { sessionId: 's1', name })
@@ -106,17 +106,13 @@ afterEach(() => {
 
 describe('dead-letter recovery, at runtime', () => {
   it('renders NOTHING while nothing is parked — a permanent zero-state is noise', () => {
-    render(<OutboxRecoveryIndicator />)
-    expect(screen.queryByTestId('outbox-recovery-chip')).toBeNull()
+    render(<OutboxRecoveryList />)
+    expect(screen.queryByTestId('outbox-recovery-list')).toBeNull()
   })
 
   it('a forced rejection SURFACES, with the author’s own words on screen', async () => {
     await parkOne('my careful title')
-    render(<OutboxRecoveryIndicator />)
-
-    const chip = screen.getByTestId('outbox-recovery-chip')
-    expect(chip).toBeTruthy()
-    fireEvent.click(chip)
+    render(<OutboxRecoveryList />)
 
     await waitFor(() => expect(screen.getByText('Couldn’t save this change')).toBeTruthy())
     // The recoverable intent: the user's own input, verbatim.
@@ -126,8 +122,7 @@ describe('dead-letter recovery, at runtime', () => {
 
   it('COPIES the author’s own words, verbatim, from the rolled-back change', async () => {
     await parkOne('words I do not want to retype')
-    render(<OutboxRecoveryIndicator />)
-    fireEvent.click(screen.getByTestId('outbox-recovery-chip'))
+    render(<OutboxRecoveryList />)
     await waitFor(() => expect(screen.getByTestId('outbox-copy')).toBeTruthy())
 
     fireEvent.click(screen.getByTestId('outbox-copy'))
@@ -142,11 +137,10 @@ describe('dead-letter recovery, at runtime', () => {
     // distinctive so its appearance anywhere would be caught.
     outbox.enqueue('rename', { sessionId: 'SECRET-TARGET-ID', name: 'mine' })
     await outbox.drain()
-    render(<OutboxRecoveryIndicator />)
-    fireEvent.click(screen.getByTestId('outbox-recovery-chip'))
+    render(<OutboxRecoveryList />)
     await waitFor(() => expect(screen.getByText('Couldn’t save this change')).toBeTruthy())
 
-    const dialog = screen.getByRole('dialog')
+    const dialog = screen.getByTestId('outbox-recovery-list')
     // The author's OWN input is shown verbatim and may legitimately contain the
     // id they typed — what must not appear is any statement ABOUT the target.
     expect(dialog.textContent).not.toMatch(/no longer have access/i)
@@ -157,10 +151,9 @@ describe('dead-letter recovery, at runtime', () => {
     // amendment property 15, asserted where it is easiest to break: the copy.
     refusalCode = 'FORBIDDEN'
     await parkOne('same text')
-    render(<OutboxRecoveryIndicator />)
-    fireEvent.click(screen.getByTestId('outbox-recovery-chip'))
-    await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy())
-    const denied = screen.getByRole('dialog').textContent
+    render(<OutboxRecoveryList />)
+    await waitFor(() => expect(screen.getByTestId('outbox-recovery-list')).toBeTruthy())
+    const denied = screen.getByTestId('outbox-recovery-list').textContent
     cleanup()
 
     outbox.dispose()
@@ -181,17 +174,15 @@ describe('dead-letter recovery, at runtime', () => {
       },
     })
     await parkOne('same text')
-    render(<OutboxRecoveryIndicator />)
-    fireEvent.click(screen.getByTestId('outbox-recovery-chip'))
-    await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy())
-    expect(screen.getByRole('dialog').textContent).toBe(denied)
+    render(<OutboxRecoveryList />)
+    await waitFor(() => expect(screen.getByTestId('outbox-recovery-list')).toBeTruthy())
+    expect(screen.getByTestId('outbox-recovery-list').textContent).toBe(denied)
   })
 
   it('RETRIES after the precondition is met, and the entry leaves the recovery list', async () => {
     await parkOne()
-    render(<OutboxRecoveryIndicator />)
-    fireEvent.click(screen.getByTestId('outbox-recovery-chip'))
-    await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy())
+    render(<OutboxRecoveryList />)
+    await waitFor(() => expect(screen.getByTestId('outbox-recovery-list')).toBeTruthy())
 
     expect(outbox.deadLetters()).toHaveLength(1)
     expect(screen.getByTestId('outbox-retry').textContent).toBe('Retry after fixing access')
@@ -203,9 +194,8 @@ describe('dead-letter recovery, at runtime', () => {
 
   it('DISCARDS on the user’s own say-so, with no read of the target', async () => {
     await parkOne()
-    render(<OutboxRecoveryIndicator />)
-    fireEvent.click(screen.getByTestId('outbox-recovery-chip'))
-    await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy())
+    render(<OutboxRecoveryList />)
+    await waitFor(() => expect(screen.getByTestId('outbox-recovery-list')).toBeTruthy())
 
     fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
     expect(outbox.deadLetters()).toHaveLength(0)
@@ -216,9 +206,8 @@ describe('dead-letter recovery, at runtime', () => {
     // here would re-send bytes the server has already refused, forever.
     refusalCode = 'BAD_REQUEST'
     await parkOne()
-    render(<OutboxRecoveryIndicator />)
-    fireEvent.click(screen.getByTestId('outbox-recovery-chip'))
-    await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy())
+    render(<OutboxRecoveryList />)
+    await waitFor(() => expect(screen.getByTestId('outbox-recovery-list')).toBeTruthy())
 
     // Asserted on the BUTTON's absence, not on its label. A first draft of this
     // matched /Retry/ by accessible name, and survived a mutant that rendered
@@ -232,9 +221,8 @@ describe('dead-letter recovery, at runtime', () => {
   it('EDITS the author’s text and re-queues it under a new identity', async () => {
     refusalCode = 'BAD_REQUEST'
     const original = await parkOne('bad title')
-    render(<OutboxRecoveryIndicator />)
-    fireEvent.click(screen.getByTestId('outbox-recovery-chip'))
-    await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy())
+    render(<OutboxRecoveryList />)
+    await waitFor(() => expect(screen.getByTestId('outbox-recovery-list')).toBeTruthy())
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
     const box = screen.getByLabelText('Your text') as HTMLTextAreaElement
@@ -254,9 +242,8 @@ describe('dead-letter recovery, at runtime', () => {
     refusalCode = 'BAD_REQUEST'
     const original = outbox.enqueue('issueUpdate', { id: 'i1', patch: { title: 'bad title' } })
     await outbox.drain()
-    render(<OutboxRecoveryIndicator />)
-    fireEvent.click(screen.getByTestId('outbox-recovery-chip'))
-    await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy())
+    render(<OutboxRecoveryList />)
+    await waitFor(() => expect(screen.getByTestId('outbox-recovery-list')).toBeTruthy())
 
     // Their own words, not the JSON dump the old scan fell back to.
     expect(screen.getByText(/bad title/)).toBeTruthy()
@@ -273,11 +260,11 @@ describe('dead-letter recovery, at runtime', () => {
     expect(requeued?.input).toEqual({ id: 'i1', patch: { title: 'fixed title' } })
   })
 
-  it('does not surface a review chip for a click that left no typed words', async () => {
+  it('does not surface a review entry for a click that left no typed words', async () => {
     outbox.enqueue('issueSetTucked', { id: 'SECRET-BOOKKEEPING-ID', tucked: true })
     await outbox.drain()
-    render(<OutboxRecoveryIndicator />)
-    expect(screen.queryByTestId('outbox-recovery-chip')).toBeNull()
+    render(<OutboxRecoveryList />)
+    expect(screen.queryByTestId('outbox-recovery-list')).toBeNull()
     expect(outbox.deadLetters()).toHaveLength(0)
   })
 
@@ -285,8 +272,8 @@ describe('dead-letter recovery, at runtime', () => {
     refusalCode = 'BAD_REQUEST'
     outbox.enqueue('issueUpdate', { id: 'SECRET-ISSUE-ID', patch: { stage: 'review' } })
     await outbox.drain()
-    render(<OutboxRecoveryIndicator />)
-    expect(screen.queryByTestId('outbox-recovery-chip')).toBeNull()
+    render(<OutboxRecoveryList />)
+    expect(screen.queryByTestId('outbox-recovery-list')).toBeNull()
     expect(outbox.deadLetters()).toHaveLength(0)
   })
 })

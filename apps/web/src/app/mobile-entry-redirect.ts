@@ -29,6 +29,8 @@ export function redirectPhoneToMobileApp(): boolean {
   // The Tauri shell serves this same dist and owns its own window — it must
   // never navigate itself into the web mobile app, whatever its webview's UA.
   if (nativeDesktopBridge()) return false
+  // Invitations and resets belong to the shared screen, including a cached shell entry.
+  if (new URLSearchParams(window.location.hash.slice(1)).get('invite')) return false
   const req = {
     pathname: window.location.pathname,
     search: window.location.search,

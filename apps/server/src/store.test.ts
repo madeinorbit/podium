@@ -62,7 +62,7 @@ async function tmpDbPath(): Promise<string> {
 describe('SessionStore repos', () => {
   it('reports the newest migration recorded by a real migrated store', async () => {
     const store = await openTestStore(':memory:')
-    const expected = [...DRIZZLE_MIGRATIONS]
+    const expected = DRIZZLE_MIGRATIONS.filter(m => !m.sql.startsWith('-- after-local-identity-import'))
       .map(({ name }) => name)
       .sort()
       .at(-1)
@@ -117,6 +117,7 @@ describe('SessionStore repos', () => {
         originUrl,
         repoId: deriveRepoId({ originUrl, machineId: asMachineId(machineId), path }),
         prefix: expect.any(String),
+        defaultParentBranch: null,
       },
     ])
     await store.close()
@@ -161,6 +162,8 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     // decision above — always projected; null = nobody asked for a driver, which
     // is also what a row written before the column reads as.
     requestedDriverId: null,
+    boundDriverId: null,
+    boundDriverCapabilities: null,
     // Whether the launch ever had a conversation (POD-2392): always projected,
     // null = the row makes no claim (which is what a pre-column row reads as).
     conversationBinding: null,

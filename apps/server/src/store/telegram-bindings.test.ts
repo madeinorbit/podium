@@ -116,6 +116,18 @@ describe('ONE ROW PER CHAT is enforced by the database, not by convention', () =
 })
 
 describe('an unreadable row DENIES rather than resolving to a guess', () => {
+  it('disconnects one user’s chats without revoking another user', async () => {
+    await bindings.upsert(binding(ALICE, '-1001'))
+    await bindings.upsert(binding(ALICE, '-1002'))
+    await bindings.upsert(binding(BOB, '-2001'))
+    await bindings.removeForUser(ALICE)
+    expect(await bindings.listForUser(ALICE)).toEqual([])
+    expect((await bindings.listForUser(BOB)).map((row) => row.chatId)).toEqual(['-2001'])
+    expect(resolveTelegramPrincipal(await bindings.list(), '-1001')).toEqual({
+      ok: false,
+      reason: 'unbound',
+    })
+  })
   // Each case plants ONE bad row beside a good one, so "the reader returned
   // nothing" cannot be what makes the assertion pass.
   const good = async () => await bindings.upsert(binding(ALICE, '-1001'))

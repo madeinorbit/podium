@@ -1,3 +1,4 @@
+import { memberFacts } from '../../store/fixtures/test-support'
 /**
  * THE ISSUE COMMANDS THAT ACT ON MACHINES OR GIT, ON THE ONE WRITE PATH
  * (POD-6603, ADR 12 D2/D9).
@@ -103,7 +104,7 @@ async function settled(o: Oracle, id: string) {
 
 async function member(o: Oracle, id: string) {
   const user = asUserId(id)
-  await o.store.users.createUnclaimed({
+  await memberFacts(o.store).create({
     id: user,
     displayName: id,
     email: null,

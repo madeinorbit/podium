@@ -64,6 +64,7 @@ import {
 } from '@podium/model'
 import type { MetadataEntityKind, Principal } from '@podium/protocol'
 import type {
+  AnchorRef,
   EntityRef,
   VisibilityAnchorPort,
   VisibilityEdge,
@@ -1277,6 +1278,48 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     return out
   }
 
+  /**
+   * Per ref, whether it is a `machine` or `machineAccess` upsert that left the
+   * visibility fact where the row's previous change had it: the custodian for a
+   * machine, the checkout reach for an access row (`recordReach` reads the
+   * same field, absent meaning `none`). Anything else counts as moved: a ref
+   * without a seq, a remove, a first write, or a previous change no longer in
+   * the log. One read for the batch, and none when it holds no such ref.
+   */
+  const unmovedMachineFacts = async (refs: readonly AnchorRef[]): Promise<boolean[]> => {
+    const parsedPayload = (payload: string): unknown => {
+      try {
+        return JSON.parse(payload)
+      } catch {
+        return undefined
+      }
+    }
+    const seqs = refs.flatMap((ref) =>
+      (ref.entity === 'machine' || ref.entity === 'machineAccess') && ref.seq !== undefined
+        ? [ref.seq]
+        : [],
+    )
+    if (seqs.length === 0) return refs.map(() => false)
+    const logged = await store.sync.changesWithPrior(seqs)
+    return refs.map((ref) => {
+      if (ref.seq === undefined) return false
+      const fact =
+        ref.entity === 'machine'
+          ? (payload: unknown) => (payload as { custodian?: unknown } | null)?.custodian ?? null
+          : ref.entity === 'machineAccess'
+            ? (payload: unknown) =>
+                (payload as { checkoutReach?: unknown } | null)?.checkoutReach ?? 'none'
+            : undefined
+      const change = logged.get(ref.seq)
+      if (!fact || !change?.prior) return false
+      if (change.op !== 'upsert' || change.prior.op !== 'upsert') return false
+      const now = change.payload == null ? undefined : parsedPayload(change.payload)
+      const before = change.prior.payload == null ? undefined : parsedPayload(change.prior.payload)
+      if (now === undefined || before === undefined) return false
+      return fact(now) === fact(before)
+    })
+  }
+
   const anchors: VisibilityAnchorPort = {
     visibilityEdges: async (refs) => {
       // An issue write is the audience-change edge for its normalized companions;
@@ -1289,8 +1332,16 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       const orderIds = [
         ...new Set(refs.filter((ref) => ref.entity === 'shipOrder').map((ref) => ref.entityId)),
       ]
+      // A machine's row and its members' access rows are rewritten on every
+      // machine report (version, services, harness sign-in). Only a write that
+      // moved the custodian or the member's checkout reach moves anyone's view;
+      // anchoring every rewrite sent each reader the machine's whole task or
+      // checkout set and, past the rescope threshold, sent every client back to
+      // a full bootstrap (POD-6834).
+      const unmoved = await unmovedMachineFacts(refs)
+      const moved = refs.filter((ref, index) => !unmoved[index])
       const machineIds = [
-        ...new Set(refs.filter((ref) => ref.entity === 'machine').map((ref) => ref.entityId)),
+        ...new Set(moved.filter((ref) => ref.entity === 'machine').map((ref) => ref.entityId)),
       ]
       // A member's access row moving is the edge for that machine's checkouts
       // (POD-6644). Its subjects are what the member's recorded reach covers
@@ -1299,7 +1350,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       // would tell them its path.
       const accessMachines = [
         ...new Set(
-          refs.flatMap((ref) => {
+          moved.flatMap((ref) => {
             if (ref.entity !== 'machineAccess') return []
             try {
               return [parseMachineAccessRowId(ref.entityId).machineId]
@@ -1338,7 +1389,8 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           panelSubjects.set(issueId, list)
         }
       }
-      return refs.map((ref): VisibilityEdge | null => {
+      return refs.map((ref, index): VisibilityEdge | null => {
+        if (unmoved[index]) return null
         if (ref.entity === 'shipOrder') return departures.get(ref.entityId) ?? null
         if (ref.entity === 'machine') return custody.get(ref.entityId) ?? null
         if (ref.entity === 'machineAccess') {

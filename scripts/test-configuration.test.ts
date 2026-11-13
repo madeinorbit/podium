@@ -525,6 +525,15 @@ describe('test lane configuration', () => {
     expect(config(agentSmokeConfig).test?.projects).toBeUndefined()
     expect(config(agentSmokeConfig).test?.exclude).toContain('apps/web/**')
   })
+
+  it('collects real-browser web integrations only in the integration lane', () => {
+    const file = 'apps/web/test/app-sheet-layers.integration.test.ts'
+    const selected = (lane: Config, path: string) =>
+      lane.test?.include?.some((pattern) => new Bun.Glob(pattern).match(path)) &&
+      !lane.test?.exclude?.some((pattern) => new Bun.Glob(pattern).match(path))
+    expect(selected(config(integrationConfig), file)).toBe(true)
+    expect(selected(config(webConfig), file.slice('apps/web/'.length))).toBe(false)
+  })
   it('keeps an all-five turn-and-resume case in the real-agent lane', () => {
     const source = readFileSync(
       new URL('../apps/daemon/src/headless-turns.smoke.test.ts', import.meta.url),

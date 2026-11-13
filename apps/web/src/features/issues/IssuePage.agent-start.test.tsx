@@ -30,7 +30,7 @@ vi.mock('@/app/store', () => {
   const makeSnapshot = () => ({
     trpc: {
       settings: {
-        get: { query: vi.fn(async () => ({ gitWorkflow: { mergeStyle: 'ff-only' } })) },
+        get: { query: vi.fn(async () => ({ gitWorkflow: { } })) },
       },
       issues: {
         // Activity feed loads transition events on mount; no events in this fixture.

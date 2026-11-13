@@ -176,11 +176,16 @@ async function authenticateDaemonUnlocked(
     }
     const now = new Date().toISOString()
     const publicKey = frame.publicKey
-    const enrolled = await deps.store.transact(async () => {
+    const enrolled = await deps.store.transact(async (): Promise<boolean | 'minter'> => {
       // Re-read in the enrollment transaction: minting a code does not freeze eligibility.
+      // `get` answers nothing for a disabled or removed member, and a code minted
+      // before any change to the minter's authority is no longer theirs (POD-6883).
       const member = await deps.store.users.get(ownerUserId)
-      if (!member || (existing && await deps.store.machines.custodian(existing.id) !== ownerUserId &&
-        (pairingGrant.clientRegistration !== undefined || member.role !== 'admin'))) return false
+      if (!member) return 'minter'
+      if (pairingGrant.ownerAuthzGeneration !== undefined &&
+        await deps.store.users.authzGenerationOf(ownerUserId) !== pairingGrant.ownerAuthzGeneration) return 'minter'
+      if (existing && await deps.store.machines.custodian(existing.id) !== ownerUserId &&
+        (pairingGrant.clientRegistration !== undefined || member.role !== 'admin')) return false
       const changed = await deps.store.machines.enrollMachine({
         id: frame.machineId, name: pairingGrant.clientRegistration && existing ? existing.name : name, hostname: frame.hostname, tokenHash: '',
         credentialKind: 'ed25519', publicKey,
@@ -197,6 +202,7 @@ async function authenticateDaemonUnlocked(
       })
       return changed
     })
+    if (enrolled === 'minter') return { ok: false, reason: 'invalid or expired code' }
     if (!enrolled) return { ok: false, reason: 'machine id already registered' }
     if (existing) host.retireIncarnation(frame.machineId)
 

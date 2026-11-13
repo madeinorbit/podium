@@ -37,7 +37,10 @@ export default defineConfig({
     ...sharedVitestConfig.test,
     passWithNoTests: true,
     include: integrationTests,
-    exclude: [...nodeTestExclude, 'scripts/loop-split-load.integration.test.ts'],
+    exclude: [
+      ...nodeTestExclude.filter((pattern) => pattern !== 'apps/web/**'),
+      'scripts/loop-split-load.integration.test.ts',
+    ],
     retry: 1,
     testTimeout: 20_000,
   },

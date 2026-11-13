@@ -57,7 +57,6 @@ async function world(outside: number, laneSize: number, outsideQueued = true) {
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: 'main',
-          mergeStyle: 'ff-only',
           autoRebaseBeforeMerge: true,
         },
         sessionDefaults: { agent: 'codex' },

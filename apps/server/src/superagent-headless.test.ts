@@ -393,6 +393,7 @@ describe('managed credential on headless turns (two members)', () => {
   const BOB = asUserId('user:bob-6733')
   const ALICE_KEY = 'sk-ant-alice-6733-0000000000'
   const ALICE_TOKEN = 'sk-ant-oat-alice-6733-000000'
+  const BOB_KEY = 'sk-ant-bob-6733-00000000000'
 
   const connect = async (
     h: Awaited<ReturnType<typeof harness>>,
@@ -523,6 +524,203 @@ describe('managed credential on headless turns (two members)', () => {
       agent: 'claude-code',
       accountId: 'managed:anthropic',
       env: { ANTHROPIC_API_KEY: ALICE_KEY },
+    })
+  })
+
+  it('a member’s account switch reaches their existing thread; another member’s stays put; a read error keeps the row (POD-6738)', async () => {
+    const h = await harness()
+    const send = async (owner: typeof ALICE, text: string) => {
+      const before = h.turnReqs.length
+      await h.sa.sendTurn(h.registry.modules.superagentBridgeWriter, {
+        ownerUserId: owner,
+        threadId: asThreadId('global'),
+        text,
+      })
+      await h.settle()
+      const request = h.turnReqs.slice(before).at(-1)!
+      h.resolveTurn(request, { harnessSessionId: `harness-${owner}`, output: 'ok' })
+      await h.settle()
+      return request
+    }
+    // Alice runs the superagent on Claude Code's native login on her own
+    // machine; Bob, on her machine, on his own key sent there (her native
+    // login is hers, POD-6740).
+    const useAccount = async (owner: typeof ALICE, accountId: string) => {
+      const current = await h.registry.sessionStore.settings.getSettingsFor(owner)
+      await h.registry.sessionStore.settings.setSettingsFor(
+        owner,
+        {
+          ...current,
+          roles: {
+            ...current.roles,
+            superagent: {
+              ...current.roles.superagent,
+              harness: 'claude-code',
+              accountId: asAccountId(accountId),
+            },
+          },
+        },
+        new Date().toISOString(),
+      )
+    }
+    await useAccount(ALICE, 'native:claude-code')
+    await connect(h, BOB, 'managed:anthropic', BOB_KEY)
+    await h.registry.sessionStore.accounts.markSent(
+      BOB,
+      'managed:anthropic',
+      h.registry.sessionStore.hostMachineId,
+      new Date().toISOString(),
+    )
+    await useAccount(BOB, 'managed:anthropic')
+    const aliceFirst = await send(ALICE, 'hi')
+    const bobFirst = await send(BOB, 'hi')
+    expect(aliceFirst.accountId).toMatch(/^native:claude-code/)
+    expect(bobFirst.accountId).toBe('managed:anthropic')
+    expect(aliceFirst.sessionId).not.toBe(bobFirst.sessionId)
+
+    // Alice switches the superagent to her managed key.
+    await connect(h, ALICE, 'managed:anthropic', ALICE_KEY)
+    await useAccount(ALICE, 'managed:anthropic')
+
+    // Her next turn on the SAME thread runs on a new row with the new account,
+    // and resumes the conversation it already had.
+    const aliceSwitched = await send(ALICE, 'again')
+    expect(aliceSwitched.sessionId).not.toBe(aliceFirst.sessionId)
+    expect(aliceSwitched).toMatchObject({
+      accountId: 'managed:anthropic',
+      env: { ANTHROPIC_API_KEY: ALICE_KEY },
+      resumeValue: `harness-${ALICE}`,
+    })
+    // A further turn keeps the reminted row: no churn once it matches.
+    const aliceSteady = await send(ALICE, 'steady')
+    expect(aliceSteady.sessionId).toBe(aliceSwitched.sessionId)
+
+    // Bob changed nothing: his thread keeps its row and his own key.
+    const bobAgain = await send(BOB, 'again')
+    expect(bobAgain.sessionId).toBe(bobFirst.sessionId)
+    expect(bobAgain.accountId).toBe(bobFirst.accountId)
+    expect(bobAgain.env).toEqual({ ANTHROPIC_API_KEY: BOB_KEY })
+
+    // Alice switches back, but her preference cannot be read right now: the
+    // bound row stays (a transient error is not a switch).
+    await useAccount(ALICE, 'native:claude-code')
+    const read = vi
+      .spyOn(h.registry.sessionStore.settings, 'getSettingsFor')
+      .mockRejectedValue(new Error('settings read failed'))
+    const kept = await h.sa.ensureSession(h.registry.modules.superagentBridgeWriter, {
+      ownerUserId: ALICE,
+      threadId: asThreadId('global'),
+    })
+    expect(read).toHaveBeenCalled()
+    read.mockRestore()
+    expect(kept.podiumSessionId).toBe(aliceSwitched.sessionId)
+    // Once it reads again, the switch back lands.
+    const back = await h.sa.ensureSession(h.registry.modules.superagentBridgeWriter, {
+      ownerUserId: ALICE,
+      threadId: asThreadId('global'),
+    })
+    expect(back.podiumSessionId).not.toBe(aliceSwitched.sessionId)
+    expect(
+      (await h.registry.modules.sessions.sessionById(back.podiumSessionId))?.accountId,
+    ).toMatch(/^native:claude-code/)
+  })
+})
+
+/**
+ * A SUPERAGENT NEVER RUNS ON SOMEONE ELSE'S LOGIN (POD-6740, decision POD-6739
+ * (a)). The coding spawn's custodian rule (`resolveAccountEnv`) holds for the
+ * superagent's headless turns too: a native account on a machine another
+ * member looks after is refused before anything runs, and the refusal names
+ * the fix. Alice is the first admin and looks after the host machine.
+ */
+describe('native superagent on a machine someone else looks after (two members)', () => {
+  const ALICE = firstAdminMemberId()
+  const BOB = asUserId('user:bob-6740')
+  const BOB_KEY = 'sk-ant-bob-6740-00000000000'
+
+  const selectSuperagentAccount = async (
+    h: Awaited<ReturnType<typeof harness>>,
+    owner: typeof ALICE,
+    accountId: string,
+  ) => {
+    const current = await h.registry.sessionStore.settings.getSettingsFor(owner)
+    await h.registry.sessionStore.settings.setSettingsFor(
+      owner,
+      {
+        ...current,
+        roles: {
+          ...current.roles,
+          superagent: {
+            ...current.roles.superagent,
+            harness: 'claude-code',
+            accountId: asAccountId(accountId),
+          },
+        },
+      },
+      new Date().toISOString(),
+    )
+  }
+
+  const send = async (h: Awaited<ReturnType<typeof harness>>, owner: typeof ALICE) => {
+    await h.sa.sendTurn(h.registry.modules.superagentBridgeWriter, {
+      ownerUserId: owner,
+      threadId: asThreadId('global'),
+      text: 'hi',
+    })
+    await h.settle()
+    const request = h.turnReqs.at(-1)
+    if (request) h.resolveTurn(request, { output: 'ok' })
+    await h.settle()
+    return request
+  }
+
+  it('refuses Bob’s native superagent on Alice’s machine; Alice’s own still runs', async () => {
+    const h = await harness()
+    const host = h.registry.sessionStore.hostMachineId
+    expect(await h.registry.sessionStore.machines.custodian(host)).toBe(ALICE)
+
+    // Bob, native, on Alice's machine: refused with the fix, and no harness runs.
+    await selectSuperagentAccount(h, BOB, nativeAccountId('claude-code'))
+    expect(await send(h, BOB)).toBeUndefined()
+    const notice = (await h.sa.history(BOB, asThreadId('global'))).find((m) =>
+      m.content.startsWith(TURN_FAILED_MARKER),
+    )
+    expect(notice?.content).toMatch(/someone else's machine/)
+    expect(notice?.content).toMatch(
+      /connect your own account in Settings → AI accounts and select it for the superagent role/i,
+    )
+    expect(h.turnReqs).toHaveLength(0)
+
+    // Alice, native, on her own machine: runs on its login, as before.
+    await selectSuperagentAccount(h, ALICE, nativeAccountId('claude-code'))
+    const alice = await send(h, ALICE)
+    expect(alice).toMatchObject({ agent: 'claude-code' })
+    expect(alice?.env).toBeUndefined()
+  })
+
+  it('runs Bob’s superagent on Alice’s machine with his own managed key sent there', async () => {
+    const h = await harness()
+    const host = h.registry.sessionStore.hostMachineId
+    await h.registry.sessionStore.accounts.connect({
+      ownerUserId: BOB,
+      accountKey: asAccountId('managed:anthropic'),
+      provider: 'anthropic',
+      kind: 'api-key',
+      credential: BOB_KEY,
+      identity: 'sk-a…',
+      scope: 'role',
+      createdAt: Date.now(),
+    })
+    await h.registry.sessionStore.accounts.markSent(
+      BOB,
+      'managed:anthropic',
+      host,
+      new Date().toISOString(),
+    )
+    await selectSuperagentAccount(h, BOB, 'managed:anthropic')
+    expect(await send(h, BOB)).toMatchObject({
+      accountId: 'managed:anthropic',
+      env: { ANTHROPIC_API_KEY: BOB_KEY },
     })
   })
 })

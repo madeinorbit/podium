@@ -100,7 +100,7 @@ describe('server readiness boundary', () => {
     // NOT all of /auth/*. Minting an account writes the live database, which is
     // work, and work stays blocked until this process runs the config it was
     // asked to run.
-    expect((await app.request('/auth/users', { method: 'POST' })).status).toBe(503)
+    expect((await app.request('/auth/members/invite', { method: 'POST' })).status).toBe(503)
   })
 
   it('serves the restart over the control plane while the data plane stays shut [POD-2766]', async () => {
@@ -147,6 +147,30 @@ describe('server readiness boundary', () => {
         }),
       ),
     ).toBe(false)
+  })
+
+  it('rejects a remote client behind a local proxy that appends its address after a spoofed first entry', () => {
+    // A local reverse proxy (or SSH/Tailscale-style forwarder) connects from
+    // 127.0.0.1 and commonly appends the real peer to a client-supplied
+    // X-Forwarded-For, so the first entry is the client's word (POD-6754 F2).
+    const local = (headers: Record<string, string> = {}) =>
+      new Request('http://127.0.0.1:18787/trpc/setup.complete', {
+        headers: { 'x-podium-peer-address': '127.0.0.1', ...headers },
+      })
+    expect(isHostLocalRequest(local({ 'x-forwarded-for': '127.0.0.1, 203.0.113.8' }))).toBe(false)
+    expect(isHostLocalRequest(local({ 'x-forwarded-host': '127.0.0.1, podium.example' }))).toBe(
+      false,
+    )
+    // An entry that cannot be read fails closed.
+    expect(isHostLocalRequest(local({ 'x-forwarded-for': '127.0.0.1, ' }))).toBe(false)
+    expect(isHostLocalRequest(local({ 'x-forwarded-for': '' }))).toBe(false)
+    expect(isHostLocalRequest(local({ 'x-forwarded-host': 'localhost:5173,' }))).toBe(false)
+    // A chain that names only this machine is still this machine.
+    expect(
+      isHostLocalRequest(
+        local({ 'x-forwarded-for': '127.0.0.1, ::1', 'x-forwarded-host': 'localhost:5173' }),
+      ),
+    ).toBe(true)
   })
 
   it('bypasses login only for a host setup call while the data plane is blocked', () => {

@@ -2,7 +2,7 @@ import { useRequestClient } from '@podium/client-core/react'
 /**
  * THE BRANCH PICKER FOR A REPOSITORY'S BASE BRANCH AND A TASK'S PARENT [POD-2065].
  *
- * One menu body for the sidebar's project ⋯ menu, Settings → Repositories and
+ * One menu body for the sidebar's project ⋯ menu, Settings → Projects and
  * the task page. The web has no route that lists a checkout's branches, so the
  * list is what the client already knows (`baseBranchChoices`) and the field takes
  * any other name. Whatever `onSave` rejects with is shown under the field with

@@ -20,6 +20,7 @@ import {
 import { asDelegationRef, CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterAll, describe, expect, it, vi } from 'vitest'
+import { memberFacts } from './store/fixtures/test-support'
 import { messageTestWriter, messageTestWriters } from './test-support/message-writer'
 import { testStoreRecords } from './test-support/record-writer'
 import { clientSessionViews } from './test-support/session-views'
@@ -1649,14 +1650,8 @@ describe('SessionRegistry', () => {
       onBehalfOf: colleague,
     })
     // The colleague is a member, so the server writes their access rows too.
-    await store.users.create(
-      {
-        id: colleague,
-        displayName: 'Colleague',
-        role: 'member',
-        createdAt: '2026-08-02T00:00:00.000Z',
-        disabledAt: null,
-      },
+    await memberFacts(store).create(
+      { id: colleague, displayName: 'Colleague', role: 'member', createdAt: '2026-08-02T00:00:00.000Z', disabledAt: null },
       'hash',
     )
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
@@ -3035,7 +3030,7 @@ describe('agent state', () => {
         expiresAt: new Date(301_000).toISOString(),
       })
 
-      const result = await reg.modules.settings.pollTelegramSetup(setup.setupId)
+      const result = await reg.modules.settings.pollTelegramSetup(setup.setupId, firstAdminMemberId())
 
       expect(result.status).toBe('connected')
       if (result.status !== 'connected') throw new Error('expected setup to connect')

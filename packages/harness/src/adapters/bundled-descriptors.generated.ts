@@ -30,7 +30,8 @@ export const GENERATED_BUNDLED_DESCRIPTORS: HarnessDescriptorWire[] =
       "capabilities": {
         "argvPrompt": true,
         "effort": true,
-        "systemPrompt": true
+        "systemPrompt": true,
+        "subagentModel": true
       },
       "catalog": {
         "models": [
@@ -87,7 +88,8 @@ export const GENERATED_BUNDLED_DESCRIPTORS: HarnessDescriptorWire[] =
       "capabilities": {
         "argvPrompt": true,
         "effort": true,
-        "systemPrompt": false
+        "systemPrompt": false,
+        "subagentModel": false
       },
       "catalog": {
         "models": [
@@ -175,7 +177,8 @@ export const GENERATED_BUNDLED_DESCRIPTORS: HarnessDescriptorWire[] =
       "capabilities": {
         "argvPrompt": true,
         "effort": true,
-        "systemPrompt": false
+        "systemPrompt": false,
+        "subagentModel": false
       },
       "catalog": {
         "models": [
@@ -213,7 +216,8 @@ export const GENERATED_BUNDLED_DESCRIPTORS: HarnessDescriptorWire[] =
       "capabilities": {
         "argvPrompt": true,
         "effort": true,
-        "systemPrompt": false
+        "systemPrompt": false,
+        "subagentModel": false
       },
       "catalog": {
         "models": [
@@ -263,7 +267,8 @@ export const GENERATED_BUNDLED_DESCRIPTORS: HarnessDescriptorWire[] =
       "capabilities": {
         "argvPrompt": false,
         "effort": false,
-        "systemPrompt": false
+        "systemPrompt": false,
+        "subagentModel": false
       },
       "catalog": {
         "models": [
@@ -302,7 +307,8 @@ export const GENERATED_BUNDLED_DESCRIPTORS: HarnessDescriptorWire[] =
       "capabilities": {
         "argvPrompt": true,
         "effort": true,
-        "systemPrompt": true
+        "systemPrompt": true,
+        "subagentModel": false
       },
       "catalog": {
         "models": [],

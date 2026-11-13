@@ -1,5 +1,5 @@
 /**
- * SETTINGS → REPOSITORIES [POD-6267].
+ * SETTINGS → Projects [POD-6267].
  *
  * A row is a REPOSITORY RECORD: the logical repo the server publishes (one per
  * repo id, with its server-decided name, prefix and base branch). Nothing here

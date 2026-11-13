@@ -1,197 +1,250 @@
+import '@/test-support/mock-request-pool.test.fixture'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Trpc } from '@/app/trpc'
-import { LoginPasswordSection } from './security'
+import { ServerAuthStatusContext } from '@/lib/server-auth-status'
+import { accountCapabilities } from '@/test-support/auth-capabilities'
+import { AccountProfileSection } from './security'
 
-/**
- * `enabled` used to be one boolean for the whole instance. It is now three answers: does
- * the CALLER have a password, does the INSTANCE require login, and may this caller change
- * that. The default here is an admin, because the disable flow is admin-only.
- */
-function fakeTrpc(enabled: boolean, canManageInstance = true) {
+const frame = vi.hoisted(() => ({ openTakeover: vi.fn(), closeTakeover: vi.fn() }))
+vi.mock('../settings-frame', () => ({ useSettingsFrame: () => frame }))
+
+function fakeTrpc(hasOwnCredential = true) {
+  let profile = {
+    id: 'me',
+    displayName: 'Alice',
+    email: 'alice@example.com',
+    role: 'member' as const,
+  }
   return {
     auth: {
-      profile: { query: vi.fn().mockResolvedValue({ email: null }) },
-      setEmail: { mutate: vi.fn().mockResolvedValue({ email: 'alice@example.com' }) },
+      profile: { query: vi.fn(async () => profile) },
+      setDisplayName: {
+        mutate: vi.fn(async ({ displayName }: { displayName: string }) => {
+          profile = { ...profile, displayName }
+          return { displayName }
+        }),
+      },
+      setEmail: {
+        mutate: vi.fn(async ({ email }: { email: string }) => {
+          profile = { ...profile, email }
+          return { email }
+        }),
+      },
       status: {
         query: vi.fn().mockResolvedValue({
-          hasOwnCredential: enabled,
-          loginRequired: enabled,
-          canManageInstance,
+          hasOwnCredential,
+          loginRequired: true,
+          canManageInstance: false,
+          loginPolicySource: 'default',
         }),
       },
       setPassword: { mutate: vi.fn().mockResolvedValue({ loginRequired: true }) },
-      setLoginRequired: { mutate: vi.fn().mockResolvedValue({ loginRequired: false }) },
     },
   } as unknown as Trpc
 }
-
+async function openPassword(trpc: Trpc) {
+  render(<AccountProfileSection trpc={trpc} />)
+  fireEvent.click(await screen.findByRole('button', { name: /^(change|set) password$/i }))
+  const flow = frame.openTakeover.mock.calls.at(-1)?.[0]
+  expect(flow).toBeTruthy()
+  return render(flow.content)
+}
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
+  frame.openTakeover.mockClear()
+  frame.closeTakeover.mockClear()
 })
 
-describe('LoginPasswordSection', () => {
-  it('in open mode: sets a password and then logs in to obtain the cookie', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) })
-    vi.stubGlobal('fetch', fetchMock)
-    const trpc = fakeTrpc(false)
-    render(<LoginPasswordSection trpc={trpc} />)
-    const btn = await screen.findByRole('button', { name: /set password/i })
-    fireEvent.change(screen.getByPlaceholderText(/^password$/i), { target: { value: 'newpw' } })
-    fireEvent.change(screen.getByPlaceholderText(/confirm/i), { target: { value: 'newpw' } })
-    fireEvent.click(btn)
+describe('Account Profile', () => {
+  it('commits the name on Enter and shows the role read-only', async () => {
+    const trpc = fakeTrpc()
+    render(<AccountProfileSection trpc={trpc} />)
+    const name = await screen.findByRole('textbox', { name: 'Name' })
+    fireEvent.change(name, { target: { value: 'New name' } })
+    expect(trpc.auth.setDisplayName.mutate).not.toHaveBeenCalled()
+    fireEvent.keyDown(name, { key: 'Enter' })
     await waitFor(() =>
-      expect(trpc.auth.setPassword.mutate).toHaveBeenCalledWith({
-        current: undefined,
-        next: 'newpw',
-      }),
+      expect(trpc.auth.setDisplayName.mutate).toHaveBeenCalledWith({ displayName: 'New name' }),
     )
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining('/auth/login'),
-      expect.objectContaining({ credentials: 'include' }),
-    )
+    expect(screen.getByText('Member')).toBeTruthy()
+    expect(screen.queryByRole('combobox', { name: 'Role' })).toBeNull()
   })
-
-  it('refuses to save when the new password and confirmation differ', async () => {
-    const trpc = fakeTrpc(false)
-    render(<LoginPasswordSection trpc={trpc} />)
-    const btn = await screen.findByRole('button', { name: /set password/i })
-    fireEvent.change(screen.getByPlaceholderText(/^password$/i), { target: { value: 'a' } })
-    fireEvent.change(screen.getByPlaceholderText(/confirm/i), { target: { value: 'b' } })
-    fireEvent.click(btn)
-    expect(await screen.findByRole('alert')).toBeTruthy()
-    expect(trpc.auth.setPassword.mutate).not.toHaveBeenCalled()
-  })
-
-  it('in enabled mode: a change sends the current + new password', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) })
-    vi.stubGlobal('fetch', fetchMock)
-    const trpc = fakeTrpc(true)
-    render(<LoginPasswordSection trpc={trpc} />)
-    const changeBtn = await screen.findByRole('button', { name: /change password/i })
-    fireEvent.change(screen.getByPlaceholderText(/current password/i), { target: { value: 'old' } })
-    fireEvent.change(screen.getByPlaceholderText(/new password/i), { target: { value: 'new' } })
-    fireEvent.change(screen.getByPlaceholderText(/confirm/i), { target: { value: 'new' } })
-    fireEvent.click(changeBtn)
-    await waitFor(() =>
-      expect(trpc.auth.setPassword.mutate).toHaveBeenCalledWith({ current: 'old', next: 'new' }),
-    )
-  })
-
-  it('in enabled mode: disable acknowledgement is scoped to the disable flow', async () => {
-    const trpc = fakeTrpc(true)
-    render(<LoginPasswordSection trpc={trpc} />)
-    await screen.findByRole('button', { name: /change password/i })
-
-    expect(screen.queryByText(/I understand that anyone who can reach this server/i)).toBeNull()
-
-    fireEvent.click(screen.getByRole('button', { name: /disable login/i }))
-    expect(screen.getByText(/I understand that anyone who can reach this server/i)).toBeTruthy()
-
-    fireEvent.change(screen.getByPlaceholderText(/current password to disable login/i), {
-      target: { value: 'old' },
-    })
-    const finalDisable = screen.getByRole('button', {
-      name: /^disable login$/i,
-    }) as HTMLButtonElement
-    expect(finalDisable.disabled).toBe(true)
-    fireEvent.click(screen.getByText(/I understand that anyone who can reach this server/i))
-    expect(finalDisable.disabled).toBe(false)
-    fireEvent.click(finalDisable)
-
-    await waitFor(() =>
-      expect(trpc.auth.setLoginRequired.mutate).toHaveBeenCalledWith({
-        required: false,
-        current: 'old',
-        acknowledgeNoPassword: true,
-      }),
-    )
-  })
-  it('disables instance policy changes when config.json overrides the settings row', async () => {
-    const trpc = fakeTrpc(true)
-    vi.mocked(trpc.auth.status.query).mockResolvedValue({
-      hasOwnCredential: true,
-      loginRequired: true,
-      canManageInstance: true,
-      loginPolicySource: 'file',
-    })
-    render(<LoginPasswordSection trpc={trpc} />)
-    const button = (await screen.findByRole('button', {
-      name: /disable login/i,
-    })) as HTMLButtonElement
-    expect(button.disabled).toBe(true)
-    expect(screen.getByText(/config.json overrides/)).toBeTruthy()
-    fireEvent.click(button)
-    expect(trpc.auth.setLoginRequired.mutate).not.toHaveBeenCalled()
-  })
-
-  it('a non-admin can change their own password but cannot disable login', async () => {
-    // The split POD-1554 exists for: one user must not be able to turn login off for
-    // everybody. The server refuses it too (roleFloor: admin) — this asserts the UI does
-    // not offer an action the caller cannot take.
-    const trpc = fakeTrpc(true, false)
-    render(<LoginPasswordSection trpc={trpc} />)
-    expect(await screen.findByRole('button', { name: /change password/i })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: /disable login/i })).toBeNull()
-  })
-})
-
-describe('profile email', () => {
-  it('loads and saves the caller email with their current password', async () => {
-    const trpc = fakeTrpc(true)
-    render(<LoginPasswordSection trpc={trpc} />)
-    const email = await screen.findByLabelText('Email')
-    await waitFor(() => expect((email as HTMLInputElement).disabled).toBe(false))
-    fireEvent.change(email, { target: { value: 'alice@example.com' } })
-    fireEvent.change(screen.getByLabelText('Password to change email'), {
-      target: { value: 'secret' },
-    })
+  it('asks for a password when a changed email blurs', async () => {
+    const trpc = fakeTrpc()
+    render(<AccountProfileSection trpc={trpc} />)
+    const email = await screen.findByRole('textbox', { name: 'Email' })
+    expect(screen.queryByLabelText('Your password')).toBeNull()
+    fireEvent.submit(email.closest('form')!)
+    expect(screen.queryByLabelText('Your password')).toBeNull()
+    expect(trpc.auth.setEmail.mutate).not.toHaveBeenCalled()
+    fireEvent.change(email, { target: { value: 'next@example.com' } })
+    expect(screen.queryByLabelText('Your password')).toBeNull()
+    fireEvent.blur(email)
+    fireEvent.change(screen.getByLabelText('Your password'), { target: { value: 'secret' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save email' }))
     await waitFor(() =>
       expect(trpc.auth.setEmail.mutate).toHaveBeenCalledWith({
-        email: 'alice@example.com',
+        email: 'next@example.com',
         current: 'secret',
       }),
     )
-    expect(await screen.findByText('Email saved. Use it the next time you sign in.')).toBeTruthy()
   })
-
-  it('shows a conflict and preserves the entered email', async () => {
+  it('saves an email on blur without a password when the caller has none', async () => {
+    const trpc = fakeTrpc(false)
+    render(<AccountProfileSection trpc={trpc} />)
+    const email = await screen.findByRole('textbox', { name: 'Email' })
+    fireEvent.change(email, { target: { value: 'next@example.com' } })
+    fireEvent.blur(email)
+    await waitFor(() =>
+      expect(trpc.auth.setEmail.mutate).toHaveBeenCalledWith({
+        email: 'next@example.com',
+        current: undefined,
+      }),
+    )
+  })
+  it('keeps a refused email and its error on the email row', async () => {
     const trpc = fakeTrpc(false)
     vi.mocked(trpc.auth.setEmail.mutate).mockRejectedValue(
       new Error('Email is already used in this workspace.'),
     )
-    render(<LoginPasswordSection trpc={trpc} />)
-    const email = await screen.findByLabelText('Email')
-    await waitFor(() => expect((email as HTMLInputElement).disabled).toBe(false))
-    fireEvent.change(email, { target: { value: 'alice@example.com' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Save email' }))
+    render(<AccountProfileSection trpc={trpc} />)
+    const email = await screen.findByRole('textbox', { name: 'Email' })
+    fireEvent.change(email, { target: { value: 'next@example.com' } })
+    fireEvent.submit(email.closest('form')!)
+    const error = await screen.findByRole('alert')
+    expect(error.closest('.settings-row')).toBe(email.closest('.settings-row'))
+    expect((email as HTMLInputElement).value).toBe('next@example.com')
+  })
+  it('settles auth-status failure and retries instead of loading forever', async () => {
+    const trpc = fakeTrpc()
+    vi.mocked(trpc.auth.status.query).mockRejectedValueOnce(new Error('offline'))
+    render(<AccountProfileSection trpc={trpc} />)
     expect(await screen.findByRole('alert')).toHaveProperty(
       'textContent',
-      'Email is already used in this workspace.',
+      'Couldn’t load your profile and sign-in settings.',
     )
-    expect((email as HTMLInputElement).value).toBe('alice@example.com')
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByRole('textbox', { name: 'Name' })).toBeTruthy()
   })
 
-  it('uses the saved email when refreshing the session after a password change', async () => {
-    const trpc = fakeTrpc(false)
-    vi.mocked(trpc.auth.profile.query).mockResolvedValue({ email: 'alice@example.com' })
+  it('replaces email and password with the account pages when the server reports an account URL', async () => {
+    const trpc = fakeTrpc()
+    render(
+      <ServerAuthStatusContext.Provider
+        value={{ needsAuth: true, authed: true, userId: null, capabilities: accountCapabilities }}
+      >
+        <AccountProfileSection trpc={trpc} />
+      </ServerAuthStatusContext.Provider>,
+    )
+    expect(await screen.findByRole('link', { name: 'Manage account' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Reset password by email' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Manage organisations' })).toBeTruthy()
+    expect(screen.getByRole('textbox', { name: 'Name' })).toBeTruthy()
+    expect(screen.queryByRole('textbox', { name: 'Email' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^(change|set) password$/i })).toBeNull()
+  })
+})
+
+describe('Account password takeover', () => {
+  it('sends the current and new password and checks the cookie refresh', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true })
     vi.stubGlobal('fetch', fetchMock)
-    render(<LoginPasswordSection trpc={trpc} />)
-    await screen.findByDisplayValue('alice@example.com')
-    fireEvent.change(screen.getByPlaceholderText(/^password$/i), { target: { value: 'newpw' } })
-    fireEvent.change(screen.getByPlaceholderText(/confirm/i), { target: { value: 'newpw' } })
-    fireEvent.click(screen.getByRole('button', { name: /set password/i }))
+    const trpc = fakeTrpc()
+    await openPassword(trpc)
+    fireEvent.change(screen.getByLabelText('Current password', { selector: 'input' }), {
+      target: { value: 'old' },
+    })
+    fireEvent.change(screen.getByLabelText('New password', { selector: 'input' }), {
+      target: { value: 'new' },
+    })
+    fireEvent.change(screen.getByLabelText('Confirm new password', { selector: 'input' }), {
+      target: { value: 'new' },
+    })
+    fireEvent.submit(screen.getByLabelText('New password', { selector: 'input' }).closest('form')!)
     await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({
-          body: JSON.stringify({ email: 'alice@example.com', password: 'newpw' }),
-        }),
-      ),
+      expect(trpc.auth.setPassword.mutate).toHaveBeenCalledWith({ current: 'old', next: 'new' }),
     )
+    await waitFor(() => expect(frame.closeTakeover).toHaveBeenCalledOnce())
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/auth/login'),
+      expect.objectContaining({
+        credentials: 'include',
+        body: JSON.stringify({ email: 'alice@example.com', password: 'new' }),
+      }),
+    )
+  })
+  it('refuses a mismatched confirmation before writing a credential', async () => {
+    const trpc = fakeTrpc(false)
+    await openPassword(trpc)
+    fireEvent.change(screen.getByLabelText('New password', { selector: 'input' }), {
+      target: { value: 'one' },
+    })
+    fireEvent.change(screen.getByLabelText('Confirm new password', { selector: 'input' }), {
+      target: { value: 'two' },
+    })
+    fireEvent.submit(screen.getByLabelText('New password', { selector: 'input' }).closest('form')!)
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Passwords don’t match.')
+    expect(trpc.auth.setPassword.mutate).not.toHaveBeenCalled()
+  })
+  it('retries a failed cookie refresh without changing the password twice', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce({ ok: false }).mockResolvedValue({ ok: true })
+    vi.stubGlobal('fetch', fetchMock)
+    const trpc = fakeTrpc(false)
+    await openPassword(trpc)
+    fireEvent.change(screen.getByLabelText('New password', { selector: 'input' }), {
+      target: { value: 'new' },
+    })
+    fireEvent.change(screen.getByLabelText('Confirm new password', { selector: 'input' }), {
+      target: { value: 'new' },
+    })
+    fireEvent.submit(screen.getByLabelText('New password', { selector: 'input' }).closest('form')!)
+    expect(await screen.findByRole('alert')).toHaveProperty(
+      'textContent',
+      expect.stringContaining('Your password changed'),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(frame.closeTakeover).toHaveBeenCalledOnce())
+    expect(trpc.auth.setPassword.mutate).toHaveBeenCalledOnce()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+  it('finishes an open-mode password change without calling the disabled login endpoint', async () => {
+    const trpc = fakeTrpc(false)
+    vi.mocked(trpc.auth.setPassword.mutate).mockResolvedValue({ loginRequired: false })
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    await openPassword(trpc)
+    fireEvent.change(screen.getByLabelText('New password', { selector: 'input' }), {
+      target: { value: 'new' },
+    })
+    fireEvent.change(screen.getByLabelText('Confirm new password', { selector: 'input' }), {
+      target: { value: 'new' },
+    })
+    fireEvent.submit(screen.getByLabelText('New password', { selector: 'input' }).closest('form')!)
+    await waitFor(() => expect(frame.closeTakeover).toHaveBeenCalledOnce())
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+  it('does not close a newer takeover when a password save finishes after leaving', async () => {
+    const trpc = fakeTrpc(false)
+    let finish: ((answer: { loginRequired: boolean }) => void) | undefined
+    vi.mocked(trpc.auth.setPassword.mutate).mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+    )
+    const flow = await openPassword(trpc)
+    fireEvent.change(screen.getByLabelText('New password', { selector: 'input' }), {
+      target: { value: 'new' },
+    })
+    fireEvent.change(screen.getByLabelText('Confirm new password', { selector: 'input' }), {
+      target: { value: 'new' },
+    })
+    fireEvent.submit(screen.getByLabelText('New password', { selector: 'input' }).closest('form')!)
+    flow.unmount()
+    finish?.({ loginRequired: false })
+    await waitFor(() => expect(trpc.auth.status.query).toHaveBeenCalledTimes(2))
+    expect(frame.closeTakeover).not.toHaveBeenCalled()
   })
 })

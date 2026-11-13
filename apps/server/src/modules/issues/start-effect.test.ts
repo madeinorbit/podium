@@ -1,3 +1,4 @@
+import { memberFacts } from '../../store/fixtures/test-support'
 /**
  * FILING A TASK AND STARTING ITS FIRST AGENT AS AN `issue.start` EFFECT (POD-6410).
  *
@@ -233,7 +234,7 @@ describe('an issue.start effect', () => {
     )
 
     const other = asUserId('mem_start_other')
-    await o.store.users.create(
+    await memberFacts(o.store).create(
       {
         id: other,
         displayName: 'Other',
@@ -257,7 +258,7 @@ describe('an issue.start effect', () => {
   it('the create is checked at act time: a parent archived before the run files nothing', async () => {
     const o = await oracle()
     const writer = asUserId('mem_start_writer')
-    await o.store.users.create(
+    await memberFacts(o.store).create(
       {
         id: writer,
         displayName: 'Writer',
@@ -294,7 +295,7 @@ describe('an issue.start effect', () => {
   it("a member's top-level start is filed as a proposal and starts nothing", async () => {
     const o = await oracle()
     const writer = asUserId('mem_start_member')
-    await o.store.users.create(
+    await memberFacts(o.store).create(
       {
         id: writer,
         displayName: 'Member',
@@ -325,7 +326,7 @@ describe('an issue.start effect', () => {
   it('a proposal keeps its stage: a chosen one is never applied to it', async () => {
     const o = await oracle()
     const writer = asUserId('mem_start_staged')
-    await o.store.users.create(
+    await memberFacts(o.store).create(
       {
         id: writer,
         displayName: 'Member',

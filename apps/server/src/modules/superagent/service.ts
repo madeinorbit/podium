@@ -246,9 +246,30 @@ export function superagentResponseContract(text: string): string {
  * own. `auto` from the send means "follow the settings role" for this turn,
  * whatever the thread holds; undefined is "no choice, the role decides".
  */
-export function turnChoice(sent: string | undefined, stored: string | undefined): string | undefined {
+export function turnChoice(
+  sent: string | undefined,
+  stored: string | undefined,
+): string | undefined {
   if (sent === undefined) return stored
   return sent === 'auto' ? undefined : sent
+}
+
+type HeadlessLaunch = { harness: HarnessAgentKind; cwd: string; machineId: MachineId }
+
+/**
+ * Whether a thread's bound headless row already runs on the account its owner
+ * now wants (POD-6738). A bare native id is the resolution when the machine has
+ * not reported a login fingerprint: it names the same login as a fingerprinted
+ * row for that harness, so an inventory gap does not remint.
+ */
+export function sameHeadlessAccount(
+  bound: AccountId,
+  wanted: AccountId,
+  harness: HarnessAgentKind,
+): boolean {
+  if (bound === wanted) return true
+  const bare = nativeAccountId(harness)
+  return wanted === bare && bound.startsWith(`${bare}:`)
 }
 
 export class SuperagentService {
@@ -693,7 +714,7 @@ export class SuperagentService {
     let podiumSessionId: SessionId
     let turnAgent = agentKind
     if (inFlight) {
-      podiumSessionId = await this.ensureHeadlessSession(writer, thread)
+      podiumSessionId = await this.ensureHeadlessSession(writer, thread, { keepAccount: true })
     } else {
       // A model override keeps its frozen harness: the turn's own, else the thread's.
       turnAgent = await this.intendedAgent(
@@ -912,10 +933,16 @@ export class SuperagentService {
   /** The thread's headless Podium session, created if the row is missing. Split
    *  out of the turn path so a QUEUED send can still ack with a session id — the
    *  client needs one to keep rendering the thread's transcript. The row commits
-   *  through `writer`: the command's, or the turn runner's (POD-6606). */
+   *  through `writer`: the command's, or the turn runner's (POD-6606).
+   *
+   *  `keepAccount` reuses a bound row whatever account it carries: a send that
+   *  lands while a turn runs must not move the thread off the session that turn
+   *  runs on (interrupt and abandon address the thread's bound session). The
+   *  turn that later drains the queue decides the account again. */
   private async ensureHeadlessSession(
     writer: SessionWriter,
     thread: SuperagentThreadRow,
+    { keepAccount = false }: { keepAccount?: boolean } = {},
   ): Promise<SessionId> {
     const bound = thread.podiumSessionId
     // A row minted before the account fence below has no account, and the
@@ -923,22 +950,60 @@ export class SuperagentService {
     // every turn without one and the daemon refuses them all. Mint a new row
     // instead: the harness conversation stays on the thread
     // (`harnessSessionId`), so the next turn resumes it.
-    if (bound && (await this.sessionById(bound))?.accountId) return bound
-    const agent = HarnessAgent.safeParse(thread.agentKind)
-    const settings = await this.store.settings.getSettingsFor(thread.ownerUserId)
-    const harness = agent.success ? agent.data : superagentHarnessAgent(settings)
-    const cwd = await this.threadCwd(thread)
+    const boundAccount = bound ? (await this.sessionById(bound))?.accountId : undefined
+    if (bound && boundAccount && keepAccount) return bound
+    // The account is launch identity too, so a member who switches the
+    // superagent's account (native -> managed, POD-6738) needs a new row for
+    // threads that already have one; the harness conversation stays, as above.
+    // An unreadable preference keeps the bound row: a transient read error
+    // must not churn sessions.
+    if (bound && boundAccount) {
+      const wanted = await this.headlessLaunchFor(thread).catch(() => undefined)
+      if (!wanted) return bound
+      const account = await this.headlessAccountFor(thread.ownerUserId, wanted)
+      if (!account.ok || sameHeadlessAccount(boundAccount, account.accountId, wanted.harness)) {
+        return bound
+      }
+      return await this.mintHeadlessSession(writer, thread, wanted, account.accountId)
+    }
+    const launch = await this.headlessLaunchFor(thread)
     // The daemon fences every headless turn on (turnId, requestDigest,
     // accountId): a session without an account mints a digest the daemon
     // refuses as `invalid_value` before anything runs (POD-4827 — the past-the-
     // gate red test pins the refusal). Headed spawns resolve this in
     // SessionStart.spawn; headless sessions never did. Resolve the same way
     // here (role default, harness-native fallback, per-machine fingerprint) so
-    // the first turn verifies. The machine probe is the offline-tolerant legacy
-    // resolution, never the capability gate: a refused box must still reach
-    // `requireOnlineSession`'s actionable refusal below, not die here.
-    const probeMachine = await this.modules.machines.resolveMachine(undefined, cwd)
-    const accountId = await this.headlessAccountFor(thread.ownerUserId, harness, probeMachine)
+    // the first turn verifies. A failed read falls back to the harness-native
+    // login: establishment must not break on it.
+    const account = await this.headlessAccountFor(thread.ownerUserId, launch)
+    return await this.mintHeadlessSession(
+      writer,
+      thread,
+      launch,
+      account.ok ? account.accountId : nativeAccountId(launch.harness),
+    )
+  }
+
+  /** The harness, cwd and machine a thread's headless row launches with. The
+   *  machine probe is the offline-tolerant legacy resolution, never the
+   *  capability gate: a refused box must still reach `requireOnlineSession`'s
+   *  actionable refusal, not die here. */
+  private async headlessLaunchFor(thread: SuperagentThreadRow): Promise<HeadlessLaunch> {
+    const agent = HarnessAgent.safeParse(thread.agentKind)
+    const harness = agent.success
+      ? agent.data
+      : superagentHarnessAgent(await this.store.settings.getSettingsFor(thread.ownerUserId))
+    const cwd = await this.threadCwd(thread)
+    const machineId = await this.modules.machines.resolveMachine(undefined, cwd)
+    return { harness, cwd, machineId }
+  }
+
+  private async mintHeadlessSession(
+    writer: SessionWriter,
+    thread: SuperagentThreadRow,
+    { harness, cwd }: HeadlessLaunch,
+    accountId: AccountId,
+  ): Promise<SessionId> {
     const { sessionId } = await this.modules.headless.createHeadlessSession(writer, {
       ownerUserId: thread.ownerUserId,
       agentKind: harness,
@@ -964,15 +1029,15 @@ export class SuperagentService {
    * preference is the one shared rule (`selectHarnessAccountId`, the same
    * function `SessionStart.spawn` calls), so the composer path and the
    * superagent path resolve the same account for the same settings.
-   * Never throws: settings/inventory reads must not break establishment — the
-   * worst case is a harness-level login error at dispatch, which names the
-   * repair instead of refusing the turn as a digest mismatch.
+   * Never throws: a settings/inventory read error is `ok: false`, so the mint
+   * path can fall back to the native login (the worst case is a harness-level
+   * login error at dispatch) and the reuse path can keep its bound row
+   * instead of reminting on a guess.
    */
   private async headlessAccountFor(
     ownerUserId: UserId,
-    agent: HarnessAgent,
-    machineId: MachineId,
-  ): Promise<AccountId> {
+    { harness: agent, machineId }: HeadlessLaunch,
+  ): Promise<{ ok: true; accountId: AccountId } | { ok: false }> {
     try {
       const settings = await this.store.settings.getSettingsFor(ownerUserId)
       const superBackend = resolveRole(settings, 'superagent')
@@ -986,9 +1051,9 @@ export class SuperagentService {
         agent,
         selected,
       )
-      return resolved || nativeAccountId(agent)
+      return { ok: true, accountId: resolved || nativeAccountId(agent) }
     } catch {
-      return nativeAccountId(agent)
+      return { ok: false }
     }
   }
 
@@ -1184,6 +1249,16 @@ export class SuperagentService {
     // hang — an in-process caller during boot would wait on the reaper instead
     // of answering — so the exemption stays and this note replaces the guess.
     if (harnessSupportsMcp(agent.data) && !this.mcpEndpoint && !allowWithoutMcp) {
+      return
+    }
+    // Never on another person's login (POD-6740): a native account on a
+    // machine someone else looks after ends the turn here, before dispatch.
+    const loginRefusal = await this.modules.headless.superagentLoginRefusal(
+      pending.podiumSessionId,
+      agent.data,
+    )
+    if (loginRefusal) {
+      await this.finishPendingTurn(pending, { ok: false, error: loginRefusal })
       return
     }
     this.dispatchedTurnIds.add(pending.turnId)

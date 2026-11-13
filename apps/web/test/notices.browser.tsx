@@ -10,9 +10,9 @@ import { checkNotices } from '../../../tests/worklist/diagnostics/notice-check'
 import { noticeFixture } from '../../../tests/worklist/diagnostics/notice-fixture'
 import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
-import { MessageNoticeIndicator } from '../src/features/chat/MessageNotices'
+import { MessageNoticeList } from '../src/features/chat/MessageNotices'
 import { PendingInteractionBar } from '../src/features/chat/PendingInteractionBar'
-import { OutboxRecoveryIndicator } from '../src/features/machines/OutboxRecovery'
+import { OutboxRecoveryList } from '../src/features/machines/OutboxRecovery'
 import { createHeaderFixture } from './header-fixture'
 import '../src/index.css'
 
@@ -101,10 +101,11 @@ function Surface() {
           commitMs += ms
         }}
       >
-        <header className="mb-6 flex gap-5">
-          <MessageNoticeIndicator />
-          <OutboxRecoveryIndicator />
-        </header>
+        {/* The sync panel's review section (POD-6852), rendered open. */}
+        <section className="mb-6 flex max-w-md flex-col gap-5">
+          <MessageNoticeList />
+          <OutboxRecoveryList />
+        </section>
         <PendingInteractionBar sessionId={'synthetic-session-0' as never} />
       </Profiler>
     </main>
@@ -152,7 +153,7 @@ const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => r
 const driver = {
   ready: () =>
     ready &&
-    !!document.querySelector('[data-testid="message-notice-chip"]') &&
+    !!document.querySelector('[data-testid="message-notice-list"]') &&
     !!document.querySelector('[data-testid="pending-interaction"]'),
   reset() {
     storeStats.reset()

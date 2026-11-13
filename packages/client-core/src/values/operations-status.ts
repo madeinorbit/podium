@@ -20,7 +20,7 @@ import {
   quotaAccountKey,
   type UpdateChannel,
 } from '@podium/model'
-import type { HostMemoryBreakdown, MobileClientSession } from '@podium/protocol'
+import type { DeviceSignInView, HostMemoryBreakdown } from '@podium/protocol'
 import { relativeTime } from '../focus'
 import { type MachineAvailability, machineViewsFromWire } from './compose/machines/authority'
 import {
@@ -332,22 +332,25 @@ export interface ConnectedDeviceView {
   expiresAt: string
 }
 
-export function devicePlatformLabel(platform: MobileClientSession['platform']): string {
+export function devicePlatformLabel(platform: DeviceSignInView['platform']): string {
   if (platform === 'ios') return 'iOS'
   if (platform === 'android') return 'Android'
   if (platform === 'web') return 'Web'
-  return 'Mobile'
+  if (platform === 'macos') return 'macOS'
+  if (platform === 'windows') return 'Windows'
+  if (platform === 'linux') return 'Linux'
+  return 'Unknown'
 }
 
 /** Current device first, then most recently seen. The server has already cut
  * the population to the authenticated user; no user id is rendered or joined. */
 export function connectedDeviceViews(
-  sessions: readonly MobileClientSession[],
+  sessions: readonly DeviceSignInView[],
   nowMs: number,
 ): ConnectedDeviceView[] {
   return sessions
     .map((session) => ({
-      sessionId: session.sessionId,
+      sessionId: session.id,
       name: session.deviceName,
       platform: devicePlatformLabel(session.platform),
       current: session.current,

@@ -43,10 +43,9 @@
  * it is keyed per user here for that reason.
  *
  * A **preference is instance-level when every reader must resolve it
- * IDENTICALLY**. `gitWorkflow.mergeStyle` is the sharp case and it is decided
- * here rather than defaulted: two people merging one repo under two merge styles
- * is not two preferences being honoured, it is one repo with two histories. Same
- * for `steward.enabled` and `issues.assistantEnabled` — a server-side job either
+ * IDENTICALLY**. `gitWorkflow.defaultParentBranch` coordinates where tasks land
+ * for the workspace. The same holds for `steward.enabled` and
+ * `issues.assistantEnabled` — a server-side job either
  * runs or does not; there is no per-reader answer for it to have.
  *
  * `hibernation` is the case worth naming because it looks personal and is not:
@@ -132,7 +131,6 @@ export type RoleName = keyof Roles
 export const Sidebar = z.object({
   repoSort: z.enum(['alphabetical', 'lastUsed', 'custom']).default('lastUsed'),
   repoOrder: z.array(z.string()).default([]),
-  groupByRepo: z.boolean().default(false),
 })
 export type Sidebar = z.infer<typeof Sidebar>
 
@@ -309,16 +307,12 @@ export type WorktreeGcPolicy = z.infer<typeof WorktreeGcPolicy>
 /**
  * Branch and merge policy.
  *
- * INSTANCE. `mergeStyle` is the sharpest argument for the whole distinction:
- * two people merging one repo under two merge styles is not two preferences
- * being honoured, it is one repo with two histories. A shared artifact needs one
- * answer, which is ADR 9 D3 rule 1's coordination-name reasoning applied to a
- * workflow rather than to a lock.
+ * INSTANCE. The parent branch and rebase policy coordinate the shared
+ * repository workflow, so every member resolves the same answer.
  */
 export const GitWorkflowPolicy = z.object({
   /** Parent branch for new issue worktrees + merge target. '' = auto-detect repo default. */
   defaultParentBranch: z.string().default(''),
-  mergeStyle: z.enum(['ff-only', 'pr', 'ask']).default('ff-only'),
   autoRebaseBeforeMerge: z.boolean().default(true),
 })
 export type GitWorkflowPolicy = z.infer<typeof GitWorkflowPolicy>

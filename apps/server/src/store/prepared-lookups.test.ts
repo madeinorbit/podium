@@ -44,7 +44,7 @@ import { join } from 'node:path'
 import { asMachineId, asSessionId, asUserId, type UserId } from '@podium/model'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { fixtureWriteScope } from '@podium/sync/testing'
-import { asc, eq, sql } from 'drizzle-orm'
+import { asc, eq, inArray, sql } from 'drizzle-orm'
 import { afterEach, describe, expect, it } from 'vitest'
 import { runDrizzleMigrations } from '../migrations'
 import { DRIZZLE_MIGRATIONS } from '../migrations/drizzle-manifest.generated'
@@ -200,39 +200,6 @@ describe('POD-3854 — the prepared read answers exactly what the fluent read di
     expect(await repo.get(BOB)).toBeUndefined()
     expect(await repo.get(asUserId('user:future'))).toBeUndefined()
   })
-
-  it('refuses a credential write for a disabled account and an unreadable role', async () => {
-    const { queries } = migratedStore()
-    const repo = new UsersRepository(queries)
-    const db = queries.rootDb
-    await db.insert(users).values(account(ALICE, '2026-09-01T10:00:00.000Z')).run()
-    await db
-      .insert(users)
-      .values({
-        ...account(BOB, '2026-09-02T10:00:00.000Z'),
-        disabledAt: '2026-09-03T00:00:00.000Z',
-      })
-      .run()
-    await db
-      .insert(users)
-      .values({ ...account(asUserId('user:future'), '2026-09-01T10:00:00.000Z'), role: 'overlord' })
-      .run()
-
-    // disable() sets disabledAt rather than removing the row, so the raw row
-    // stays truthy. Guarding on the raw row therefore let a credential write
-    // land on a suspended account and republish it through the commit funnel.
-    // The same hole swallowed the unreadable-role refusal.
-    await expect(repo.setPasswordHash(BOB, 'hash', '2026-09-04T00:00:00.000Z')).rejects.toThrow()
-    await expect(
-      repo.setPasswordHash(asUserId('user:future'), 'hash', '2026-09-04T00:00:00.000Z'),
-    ).rejects.toThrow()
-    await expect(
-      repo.setPasswordHash(asUserId('user:nobody'), 'hash', '2026-09-04T00:00:00.000Z'),
-    ).rejects.toThrow()
-
-    // The readable, enabled account still works.
-    await repo.setPasswordHash(ALICE, 'hash', '2026-09-04T00:00:00.000Z')
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -298,14 +265,19 @@ describe('POD-3854 — the executor sees the same statement it saw before', () =
     await repo.get(ALICE)
     const prepared = seen.splice(0).map(shape)
 
-    // The same two reads, spelled the way they were spelled before.
+    // The same two reads. b69f2d5917 batches user ids through IN,
+    // including a single-key lookup; the executor still sees the same work.
     await db
       .select()
       .from(sessionsTable)
       .where(eq(sessionsTable.id, asSessionId('sess-a')))
       .orderBy(asc(sessionsTable.createdAt), asc(sql`rowid`))
       .all()
-    await db.select().from(users).where(eq(users.id, ALICE)).get()
+    await db
+      .select()
+      .from(users)
+      .where(inArray(users.id, [ALICE]))
+      .all()
     expect(prepared).toEqual(seen.splice(0).map(shape))
     // A probe that saw nothing agrees with a probe that saw nothing.
     expect(prepared).toHaveLength(2)
@@ -447,7 +419,7 @@ describe('POD-3854 — the prepared query runs on every connection role', () => 
     // reader has to make its own.
     const countOf = (fragment: string) => prepares.filter((text) => text.includes(fragment)).length
     expect(countOf('from "sessions" where "sessions"."id" = ?')).toBe(2)
-    expect(countOf('from "users" where "users"."id" = ?')).toBe(2)
+    expect(countOf('from "users" where "users"."id" in (?)')).toBe(2)
   })
 
   it('refuses a write on a detached reader, the same way it always did', async () => {

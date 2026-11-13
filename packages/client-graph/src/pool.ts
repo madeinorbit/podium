@@ -12,7 +12,7 @@ import {
   type PinKind,
   repositoriesFromCheckouts,
 } from '@podium/model'
-import type { MobileClientSession, PendingInteractionWire } from '@podium/protocol'
+import type { DeviceSignInView, PendingInteractionWire } from '@podium/protocol'
 import type { MessagePoolRow } from './message-models'
 import { isPinned } from './per-user-records'
 import { SETUP_SESSION_SUMMARY_FIELDS, type SetupSession } from './settings-schema'
@@ -291,7 +291,7 @@ export interface PoolRows {
   issuePanelState: Readonly<IssuePanelStateWire> & Readonly<Record<string, unknown>>
   account: AccountView & Readonly<Record<string, unknown>>
   member: MemberView & Readonly<Record<string, unknown>>
-  device: MobileClientSession & Readonly<Record<string, unknown>>
+  device: DeviceSignInView & Readonly<Record<string, unknown>>
   repository: GitRepositoryWire & Readonly<Record<string, unknown>>
   messageRecord: MessagePoolRow & Readonly<Record<string, unknown>>
   pendingInteraction: PendingInteractionWire & Readonly<Record<string, unknown>>

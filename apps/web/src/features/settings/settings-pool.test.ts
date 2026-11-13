@@ -53,6 +53,7 @@ function fixture(sessions: SliceSession[] = []) {
   const read = vi.fn(() => state as object)
   const screen = fixtureUi(ui)
   screen.patch({ settingsTab: state.settingsTab })
+  Object.defineProperty(screen, 'screen', { get: () => state })
   const owner = {
     getSnapshot: read,
     get access() {

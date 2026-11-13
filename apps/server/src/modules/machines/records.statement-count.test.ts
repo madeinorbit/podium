@@ -1,3 +1,4 @@
+import { memberFacts } from '../../store/fixtures/test-support'
 /**
  * The machine record writes cost a constant number of statements (POD-6644,
  * rule 8 of docs/agents/server-data.md).
@@ -47,7 +48,7 @@ async function fixture(size: number): Promise<Fixture> {
   const o = await makeOracle()
   const machine = o.store.hostMachineId
   for (let i = 0; i < size; i++) {
-    await o.store.users.create(
+    await memberFacts(o.store).create(
       {
         id: `user:member-${i}`,
         displayName: `m${i}`,
@@ -161,7 +162,7 @@ const memberRole: StatementPin<Fixture> = {
       byQuery,
     }
   },
-  run: async (f) => await f.o.store.users.setRole(asUserId('user:member-0'), 'admin'),
+  run: async (f) => await memberFacts(f.o.store).setRole(asUserId('user:member-0'), 'admin'),
 }
 
 // Keep the reach writes visible while POD-6771 separately batches change_latest.

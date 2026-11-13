@@ -1,4 +1,5 @@
 import { serverRecordBuilders } from './sync/record-builders'
+import { memberFacts } from './store/fixtures/test-support'
 /**
  * AGENT PROFILES, WORKFLOWS AND TRIGGER SUBSCRIPTIONS AS SYNCED RECORDS
  * (POD-6676, ADR 12 D1; design POD-5620 §1.9-1.11), through the registry the
@@ -40,7 +41,7 @@ const entries = async (o: Oracle, mutationId: string) =>
 
 async function member(o: Oracle, id = 'usr_member_6676') {
   const user = asUserId(id)
-  await o.store.users.createUnclaimed({
+  await memberFacts(o.store).create({
     id: user,
     displayName: 'Member',
     email: null,

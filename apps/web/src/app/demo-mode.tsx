@@ -21,13 +21,12 @@ import {
 } from '@podium/client-core/demo'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import type { SessionId } from '@podium/model'
-import { TooltipProvider } from '@/components/ui/tooltip'
-import { Toaster } from '@/components/ui/sonner'
-import { ConfirmProvider } from '@/lib/hooks/use-confirm'
-import { useFeature } from '@/lib/use-feature'
-import { WebSyncProgressStore } from '@/lib/sync-progress'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Toaster } from '@/components/ui/sonner'
+import { TooltipProvider } from '@/components/ui/tooltip'
+import { ConfirmProvider } from '@/lib/hooks/use-confirm'
+import { WebSyncProgressStore } from '@/lib/sync-progress'
 import { AppBody } from './AppShell'
 import { DensityProvider } from './density'
 import { ErrorBoundary } from './ErrorBoundary'
@@ -77,7 +76,7 @@ export function demoTrpc(): Trpc {
       get: {
         query: async () => ({
           sessionDefaults: { agent: 'codex' },
-          sidebar: { repoSort: 'lastUsed', repoOrder: [], groupByRepo: false },
+          sidebar: { repoSort: 'lastUsed', repoOrder: [], },
         }),
       },
     },
@@ -121,11 +120,6 @@ export function demoTrpc(): Trpc {
   } as unknown as Trpc
 }
 
-function DemoDensityProvider({ children }: { children: ReactNode }): JSX.Element {
-  const densityEnabled = useFeature('shell-density')
-  return <DensityProvider densityEnabled={densityEnabled}>{children}</DensityProvider>
-}
-
 /**
  * The demo shell: the same `AppBody` the product renders, over demo rows.
  * Skips the login, setup and replica gates — there is no server to ask — and
@@ -136,11 +130,11 @@ export function WebDemoApp(): JSX.Element {
     <TooltipProvider>
       <ErrorBoundary resetKey="demo" onRetry={() => {}}>
         <WebDemoProvider>
-          <DemoDensityProvider>
+          <DensityProvider>
             <ToolbarSlotProvider>
               <DemoBody />
             </ToolbarSlotProvider>
-          </DemoDensityProvider>
+          </DensityProvider>
         </WebDemoProvider>
       </ErrorBoundary>
       <Toaster

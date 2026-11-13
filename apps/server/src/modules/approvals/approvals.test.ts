@@ -23,6 +23,7 @@ import { fixtureCommitWriter, fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { EffectsRunner } from '../effects/runner'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
+import { scopedMutationId } from '../sync-write/legacy-receipt'
 import { changeRows, envelope, submit } from '../sync-write/outbox-test-support'
 import { APPROVAL_EXEC_DEADLINE_MS } from './service'
 import {
@@ -145,7 +146,9 @@ describe('the person decides with records.effect.edit', () => {
       'm-approve-1',
     )
     expect(await submit(o, env)).toMatchObject({ outcome: 'applied', replayed: false })
-    expect(await o.store.sync.getAppliedMutation(env.mutationId)).toBeDefined()
+    expect(
+      await o.store.sync.getAppliedMutation(scopedMutationId(o.principal, env.mutationId)),
+    ).toBeDefined()
     await vi.waitFor(() => expect(execRequests(o, id)).toHaveLength(1))
     expect(execRequests(o, id)[0]).toMatchObject({ op: { kind: 'update' } })
     expect(await record(o, id)).toMatchObject({

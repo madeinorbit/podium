@@ -1,3 +1,4 @@
+import type { AuthCapabilities } from '@podium/client-core/accounts'
 import {
   activateServerProfile,
   adoptServerProfileMove,
@@ -65,7 +66,6 @@ import {
 } from './hosted-sign-in'
 import { hostedSignIn } from './hosted-sign-in-runtime'
 import { LaunchReadyView } from './launch-ready'
-import { PairingWelcome } from './pairing-welcome'
 import {
   captureMobileHandoffUrl,
   consumePendingMobileHandoff,
@@ -92,6 +92,8 @@ import {
   preflightServer,
   type ServerPreflight,
 } from './pairing'
+import { isPairingSystemPath } from './pairing-intent'
+import { PairingWelcome } from './pairing-welcome'
 import {
   deleteProfileCredential,
   getProfileCredential,
@@ -244,7 +246,7 @@ function profileReplacementFailure(profile: ServerProfile): ActivationFailure {
 function alertUnrevokedPhoneSession(): void {
   Alert.alert(
     'Phone session still active',
-    'A superseded phone session could not be revoked. Revoke it from Settings → Connected devices on the server.',
+    'A superseded phone session could not be revoked. Revoke it from Settings → Account on the server.',
   )
 }
 
@@ -302,7 +304,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
     reason: string
     server: string
     workspaceId?: string
-    signInUrl?: string
+    capabilities?: AuthCapabilities
   } | null>(null)
   const [handoffStatus, setHandoffStatus] = useState('')
   const [hostedReturn, setHostedReturn] = useState<{
@@ -383,12 +385,19 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
     // that route before parsing, rendering, logging, or awaiting network I/O.
     // Best-effort: on a cold launch the router may not be mounted yet, and a
     // throw here silently swallowed the whole pairing link (found 2026-08-27).
-    // The app/pair route also redirects itself, so a failed replace is safe.
+    //
+    // NOT FOR A PAIRING LINK (POD-6913). The router never holds one:
+    // app/+native-intent.ts keeps it out. And a replace at the root remounts
+    // the root layout, this gate included, so the pairing state set below was
+    // wiped as soon as it was set, and the phone stayed where it was with no
+    // pairing request sent.
     if (Platform.OS !== 'web') {
-      try {
-        router.replace('/')
-      } catch {
-        // not mounted yet — the pair route's own <Redirect> covers it
+      if (!isPairingSystemPath(raw)) {
+        try {
+          router.replace('/')
+        } catch {
+          // not mounted yet
+        }
       }
       setupOwnsStartup.current = false
     }
@@ -897,7 +906,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           throw new Error(
             revoked
               ? `Could not save this phone session: ${detail}`
-              : `Could not save this phone session, and remote revocation failed. Revoke it from Settings → Connected devices: ${detail}`,
+              : `Could not save this phone session, and remote revocation failed. Revoke it from Settings → Account: ${detail}`,
           )
         }
         throw cause
@@ -940,15 +949,15 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         const status = await fetchAuthStatus(result.server, result.token, result.workspaceId)
         if (!current()) return
         if (!status.authed || !status.userId) {
-          if (status.providerSignedIn === true && status.deniedReason) {
+          if (status.denied === 'not_workspace_member') {
             await revokePhoneSession(result)
             session = null
             if (!current()) return
             setMembershipRefusal({
-              reason: status.deniedReason,
+              reason: 'This account is not a member of this workspace.',
               server: result.server,
               workspaceId: result.workspaceId,
-              signInUrl: status.signInUrl,
+              capabilities: status.capabilities,
             })
             setHostedReturn(null)
             setHandoffStatus('')
@@ -1478,7 +1487,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           reason={membershipRefusal.reason}
           workspaceId={membershipRefusal.workspaceId}
           server={membershipRefusal.server}
-          signInUrl={membershipRefusal.signInUrl}
+          capabilities={membershipRefusal.capabilities}
         />
       </LaunchReadyView>
     )
@@ -1632,7 +1641,7 @@ function ActivationFailureView({
           <Text style={styles.setupBody}>
             Podium cannot safely contact or trust this server, so its remote mobile session may
             remain active. The saved bearer will not be sent. Revoke the session later from Settings
-            → Connected devices on another signed-in client.
+            → Account on another signed-in client.
           </Text>
           <PrimaryButton
             label={forgetting ? 'Forgetting…' : 'Forget locally'}

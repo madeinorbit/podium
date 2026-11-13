@@ -9,9 +9,9 @@
  * UI with `if (!useFeature('x')) return null`.
  *
  * Lives in `lib/` (not `features/`) because it is a cross-cutting gate every
- * feature may call, not a feature surface of its own — the Experimental settings
- * *page* is `features/settings/sections/experimental.tsx`. Keeping it here is what
- * stops `settings -> experimental` (and the next caller) from being a feature-to-
+ * feature may call, not a feature surface of its own — the Labs settings
+ * *page* is `features/settings/sections/labs.tsx`. Keeping it here is what
+ * stops `settings -> labs` (and the next caller) from being a feature-to-
  * feature edge; see features/README.md + test/features.structure.test.ts.
  */
 import { featureEnabled, featureStates } from '@podium/client-graph/instance-preferences'
@@ -23,7 +23,7 @@ export type { FeatureStates } from '@podium/protocol'
 
 const statesOf = (pool: MobxPool): FeatureStates | null => featureStates(pool) ?? null
 
-/** Every flag resolved (for the Experimental page); null until the instance
+/** Every flag resolved (for the Labs page); null until the instance
  *  settings are in the pool. */
 export function useFeaturesState(): FeatureStates | null {
   return useWorklistPoolProjection(statesOf, null)

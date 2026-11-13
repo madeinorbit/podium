@@ -94,7 +94,7 @@ self-consistent is the failure that test exists to catch.
 
 **These two brands ship ONE schema, not two** — `MemberIdField` *is* `MemberId`. §1's split
 protects fields that already parse bare strings; `mem_` and `inv_` name tables that do not
-exist yet (A2 adds the member column, A4 adds `member_invites`), so there is no such payload,
+exist yet (A2 adds the member column, A4 adds workspace invitation storage), so there is no such payload,
 and a permissive field schema would only invite binding the unchecked one at the fields the
 prefix exists to protect.
 

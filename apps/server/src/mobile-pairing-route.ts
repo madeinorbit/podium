@@ -1,29 +1,18 @@
-import { randomBytes } from 'node:crypto'
-import type { UserId } from '@podium/model'
+import { createHash } from 'node:crypto'
+import type { WorkspaceIdentity } from '@podium/identity'
 import {
   encodePairingEnvelope,
   MobilePairClaimRequest,
   MobilePairCompleteRequest,
   type MobilePairEnvelope,
   MobilePairingIdRequest,
+  mobilePairingPhraseFromDigest,
   mobilePairingUrl,
   normalizeHttpOrigin,
-  RevokeMobileClientSessionRequest,
 } from '@podium/protocol'
 import type { Context, Hono } from 'hono'
-import { deleteCookie } from 'hono/cookie'
-import {
-  type ClientCredentialHeaders,
-  hashToken,
-  isHttps,
-  parseSessionCookie,
-  resolveClientCredential,
-  SESSION_COOKIE,
-  SESSION_TTL_MS,
-  setSessionCookie,
-} from './auth-route'
-import type { MobilePairingManager } from './mobile-pairing'
-import type { AuthRepository, ClientSessionRow } from './store/auth'
+import { isAllowedHttpOrigin } from './http-cors'
+import { type MemberOfRequest, refusalAnswer } from './identity/member-of-request'
 
 const PAIRING_UNAVAILABLE = { error: 'pairing unavailable' } as const
 
@@ -63,7 +52,8 @@ export class PairingFailureThrottle {
     return this.buckets.size
   }
 
-  retryAfter(key: string, nowMs: number): number | undefined {
+  retryAfter(key: string | null, nowMs: number): number | undefined {
+    if (key === null) return undefined
     this.maybeSweep(nowMs)
     const bucket = this.buckets.get(key)
     if (!bucket) return undefined
@@ -75,12 +65,13 @@ export class PairingFailureThrottle {
     return Math.ceil((bucket.lockedUntil - nowMs) / 1000)
   }
 
-  fail(key: string, nowMs: number): void {
+  fail(key: string | null, nowMs: number): void {
+    if (key === null) return
     this.maybeSweep(nowMs)
     const current = this.buckets.get(key)
     const failures = (current && nowMs < current.expiresAt ? current.failures : 0) + 1
     const lockedUntil = failures >= this.opts.maxFailures ? nowMs + this.opts.lockoutMs : 0
-    if (!current && this.buckets.size >= this.opts.maxEntries) this.evictOldest()
+    if (!current && this.buckets.size >= this.opts.maxEntries && !this.makeRoom(nowMs)) return
     this.buckets.set(key, {
       failures: lockedUntil ? 0 : failures,
       lockedUntil,
@@ -88,8 +79,8 @@ export class PairingFailureThrottle {
     })
   }
 
-  clear(key: string): void {
-    this.buckets.delete(key)
+  clear(key: string | null): void {
+    if (key !== null) this.buckets.delete(key)
   }
 
   private maybeSweep(nowMs: number): void {
@@ -100,27 +91,21 @@ export class PairingFailureThrottle {
     }
   }
 
-  private evictOldest(): void {
-    const oldestKey = this.buckets.keys().next().value as string | undefined
-    if (oldestKey !== undefined) this.buckets.delete(oldestKey)
+  /**
+   * Drops the oldest bucket that is not a live lockout. A live lockout is never
+   * evicted, or failures from enough other peers would lift it early. When
+   * every bucket is a live lockout, a new peer is not tracked until one ends:
+   * it is never refused for that, so filling the table denies nobody else.
+   */
+  private makeRoom(nowMs: number): boolean {
+    for (const [key, bucket] of this.buckets) {
+      if (nowMs >= bucket.expiresAt || nowMs >= bucket.lockedUntil) {
+        this.buckets.delete(key)
+        return true
+      }
+    }
+    return false
   }
-}
-
-export function clientAddressForRequest(
-  request: Request,
-  directPeerAddress: string | undefined,
-  trustedProxyHops: number = 0,
-): string | undefined {
-  if (trustedProxyHops <= 0) {
-    return directPeerAddress && directPeerAddress.length <= 128 ? directPeerAddress : undefined
-  }
-  const chain = (request.headers.get('x-forwarded-for') ?? '')
-    .split(',')
-    .map((value) => value.trim())
-    .filter(Boolean)
-  const index = chain.length - trustedProxyHops
-  const candidate = index >= 0 ? chain[index] : undefined
-  return candidate && candidate.length <= 128 ? candidate : undefined
 }
 
 function transportReadiness(serverUrl: string) {
@@ -147,12 +132,12 @@ function transportReadiness(serverUrl: string) {
 }
 
 export interface MobilePairingRouteOptions {
-  store: AuthRepository
-  pairing: MobilePairingManager
+  identity: WorkspaceIdentity
+  memberOfRequest: MemberOfRequest
+  memberOfAccount: (accountId: string) => Promise<{ id: string } | undefined>
+  allowedOrigins?: ReadonlySet<string>
   serverIdentity: () => {
     publicUrl?: string
-    /** Where the web UI lives when it is not this server (PDM-26); absent means here. */
-    appUrl?: string
     instanceId: string
     /** Immutable hosted workspace registry identity, absent for self-hosted installs. */
     workspaceId?: string
@@ -161,90 +146,24 @@ export interface MobilePairingRouteOptions {
     installationId?: string
     installationPublicKey?: string
   }
-  loginRequired: () => boolean | Promise<boolean>
-  /** Resolve real credentials only; open-mode authorization must not grant session control. */
-  resolveUserId: (
-    headers: ClientCredentialHeaders,
-    request: Request,
-  ) => UserId | undefined | Promise<UserId | undefined>
   now?: () => number
-  trustedProxyHops?: number
-  /** A verified same-host browser or desktop request may control the ceremony
-   *  over loopback HTTP. Phone claim and credential delivery still require HTTPS. */
-  localControlRequest?: (request: Request) => boolean
-  requestPeerAddress?: (request: Request) => string | undefined
   throttle?: {
     maxFailures?: number
     lockoutMs?: number
     retentionMs?: number
     maxEntries?: number
   }
-  onCredentialRevoked?: (tokenHash: string) => void
 }
 
-const SESSION_PLATFORMS = new Set(['ios', 'android', 'web', 'unknown', 'macos', 'windows', 'linux'])
-
-/**
- * One stored sign-in as its owner sees it (POD-6701). A phone names itself as
- * it paired. A password login in a browser or the desktop app records which of
- * the two in `deviceId` and a name from its user agent at login; one written
- * before POD-6701 carries neither and reads as a browser.
- */
-function signInView(row: ClientSessionRow & { sessionId: string }, current: boolean) {
-  const kind =
-    row.label === 'mobile'
-      ? ('mobile' as const)
-      : row.deviceId === 'desktop'
-        ? ('desktop' as const)
-        : ('browser' as const)
-  const fallbackName =
-    row.label === 'mobile'
-      ? 'Mobile device'
-      : row.label === 'break-glass'
-        ? 'Host recovery session'
-        : kind === 'desktop'
-          ? 'Podium desktop'
-          : 'Web browser'
-  return {
-    sessionId: row.sessionId,
-    userId: row.userId,
-    label: row.label as 'login' | 'mobile' | 'break-glass',
-    kind,
-    deviceId: row.deviceId ?? kind,
-    deviceName: row.deviceName ?? fallbackName,
-    platform: (row.platform && SESSION_PLATFORMS.has(row.platform) ? row.platform : 'unknown') as
-      | 'ios'
-      | 'android'
-      | 'web'
-      | 'unknown'
-      | 'macos'
-      | 'windows'
-      | 'linux',
-    createdAt: row.createdAt,
-    expiresAt: row.expiresAt,
-    lastSeenAt: row.lastSeenAt ?? null,
-    current,
-  }
+/** Existing phone builds display these same three words for these same bytes. */
+function pairingPhrase(claimId: string, challenge: string): [string, string, string] {
+  const digest = createHash('sha256')
+    .update(`podium-mobile-phrase\0${claimId}\0${challenge}`)
+    .digest()
+  return mobilePairingPhraseFromDigest(digest)
 }
 
-function headersFor(c: Context): ClientCredentialHeaders {
-  return {
-    cookieHeader: c.req.header('cookie'),
-    authorizationHeader: c.req.header('authorization'),
-  }
-}
-
-function requestKey(c: Context, opts: MobilePairingRouteOptions): string | undefined {
-  return clientAddressForRequest(
-    c.req.raw,
-    opts.requestPeerAddress?.(c.req.raw),
-    opts.trustedProxyHops,
-  )
-}
-
-function isBrowserRequest(c: Context): boolean {
-  return c.req.header('origin') !== undefined
-}
+const deliveryOf = (c: Context) => (c.req.header('origin') === undefined ? 'bearer' : 'cookie')
 
 /** Both or neither: a key without its id, or the reverse, is not an identity. */
 function installationFields(identity: {
@@ -268,70 +187,99 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
     maxFailures,
     lockoutMs,
     retentionMs: opts.throttle?.retentionMs ?? Math.max(lockoutMs, 60_000),
-    maxEntries: opts.throttle?.maxEntries ?? 4_096,
+    // Buckets are small; room for many lockouts keeps the untracked case rare.
+    maxEntries: opts.throttle?.maxEntries ?? 16_384,
   })
-  const secure = (c: Context): boolean => isHttps(c, opts.trustedProxyHops)
-  const controlTransportAllowed = (c: Context): boolean =>
-    secure(c) || opts.localControlRequest?.(c.req.raw) === true
+  const { identity, memberOfRequest } = opts
+  const { codes, deviceSignIns } = identity.core
+  const factsOf = (c: Context) => memberOfRequest.factsOf(c.req.raw)
+  const secure = (c: Context) => factsOf(c).scheme === 'https'
+  const controlTransportAllowed = (c: Context) => secure(c) || factsOf(c).sameMachine
+  const signedInDevice = async (c: Context) => {
+    const caller = await memberOfRequest(c.req.raw)
+    if (caller.kind !== 'member') {
+      const refusal = refusalAnswer(caller)
+      return c.json(refusal.body, refusal.status)
+    }
+    if (!caller.deviceSignIn) return c.json({ error: 'authentication required' }, 401)
+    return { accountId: caller.accountId, signInId: caller.deviceSignIn.id }
+  }
+
+  app.use('/auth/mobile-pair/*', async (c, next) => {
+    c.header('cache-control', 'no-store')
+    const origin = c.req.header('origin')
+    if (
+      origin !== undefined &&
+      !isAllowedHttpOrigin(origin, new URL(c.req.url).host, opts.allowedOrigins)
+    ) {
+      return c.json({ error: 'Origin refused' }, 403)
+    }
+    await next()
+  })
 
   app.post('/auth/mobile-pair/start', async (c) => {
-    const identity = opts.serverIdentity()
-    if (!identity.publicUrl) return c.json({ error: 'public URL is not configured' }, 409)
+    const server = opts.serverIdentity()
+    if (!server.publicUrl) return c.json({ error: 'public URL is not configured' }, 409)
     let serverUrl: string
     try {
-      serverUrl = normalizeHttpOrigin(identity.publicUrl)
+      serverUrl = normalizeHttpOrigin(server.publicUrl)
     } catch {
       return c.json({ error: 'public URL is invalid' }, 409)
     }
 
-    if (!(await opts.loginRequired())) {
+    if (!(await identity.signInRequired())) {
       return c.json({
         mode: 'open' as const,
         canonicalOrigin: serverUrl,
         mobileUrl: `${serverUrl}/mobile`,
-        ...(identity.workspaceId ? { workspaceId: identity.workspaceId } : {}),
+        ...(server.workspaceId ? { workspaceId: server.workspaceId } : {}),
         transport: transportReadiness(serverUrl),
-        instanceId: identity.instanceId,
-        ...installationFields(identity),
+        instanceId: server.instanceId,
+        ...installationFields(server),
       })
     }
 
     if (!controlTransportAllowed(c) || !serverUrl.startsWith('https://')) {
       return c.json({ error: 'secure HTTPS is required for mobile pairing' }, 400)
     }
-    const userId = await opts.resolveUserId(headersFor(c), c.req.raw)
-    if (!userId) return c.json({ error: 'authentication required' }, 401)
-    const grant = opts.pairing.mint(userId, now())
+    const caller = await signedInDevice(c)
+    if (caller instanceof Response) return caller
+    const grant = await codes.issue({
+      purpose: 'pair-device',
+      accountId: caller.accountId,
+      createdBy: caller.signInId,
+    })
     const payload: MobilePairEnvelope = {
       v: 2,
       kind: 'mobile-client',
       mode: 'pair',
       serverUrl,
-      pairCode: grant.pairCode,
-      ...(identity.workspaceId ? { workspaceId: identity.workspaceId } : {}),
-      expiresAt: grant.expiresAt,
-      instanceId: identity.instanceId,
-      ...installationFields(identity),
+      pairCode: grant.code,
+      ...(server.workspaceId ? { workspaceId: server.workspaceId } : {}),
+      expiresAt: grant.expiresAt.toISOString(),
+      instanceId: server.instanceId,
+      ...installationFields(server),
     }
     const envelope = encodePairingEnvelope(payload)
     return c.json({
       mode: 'pair' as const,
-      pairingId: grant.pairingId,
+      pairingId: grant.id,
       envelope,
       pairingUrl: mobilePairingUrl(payload),
       canonicalOrigin: serverUrl,
-      ...(identity.workspaceId ? { workspaceId: identity.workspaceId } : {}),
+      ...(server.workspaceId ? { workspaceId: server.workspaceId } : {}),
       transport: transportReadiness(serverUrl),
-      expiresAt: grant.expiresAt,
-      instanceId: identity.instanceId,
+      expiresAt: grant.expiresAt.toISOString(),
+      instanceId: server.instanceId,
     })
   })
 
   app.post('/auth/mobile-pair/claim', async (c) => {
     if (!secure(c)) return c.json({ error: 'secure HTTPS is required' }, 400)
     const at = now()
-    const key = requestKey(c, opts)
-    if (!key) return c.json(PAIRING_UNAVAILABLE, 503)
+    // No known client (a nearby proxy no hop is trusted for): no per-peer budget,
+    // since that one address would be every client's. The codes carry 256 bits.
+    const key = factsOf(c).clientAddress
     const retryAfter = pairingFailures.retryAfter(key, at)
     if (retryAfter !== undefined) {
       return c.json({ error: 'too many attempts' }, 429, {
@@ -340,31 +288,54 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
     }
     const parsed = MobilePairClaimRequest.safeParse(await c.req.json().catch(() => undefined))
     const claimed = parsed.success
-      ? opts.pairing.claim(parsed.data, isBrowserRequest(c) ? 'browser' : 'native', at)
+      ? await codes.claim({
+          code: parsed.data.pairCode,
+          challenge: parsed.data.claimHash,
+          device: {
+            kind: 'phone',
+            deviceId: parsed.data.deviceId,
+            name: parsed.data.deviceName,
+            platform: parsed.data.platform,
+          },
+          delivery: deliveryOf(c),
+          phrase: pairingPhrase,
+        })
       : undefined
     if (!claimed) {
       pairingFailures.fail(key, at)
       return c.json(PAIRING_UNAVAILABLE, 400)
     }
     pairingFailures.clear(key)
-    return c.json(claimed)
+    return c.json({ ...claimed, expiresAt: claimed.expiresAt.toISOString() })
   })
 
   app.post('/auth/mobile-pair/status', async (c) => {
     if (!controlTransportAllowed(c)) return c.json({ error: 'secure HTTPS is required' }, 400)
-    const userId = await opts.resolveUserId(headersFor(c), c.req.raw)
-    if (!userId) return c.json({ error: 'authentication required' }, 401)
+    const caller = await signedInDevice(c)
+    if (caller instanceof Response) return caller
     const parsed = MobilePairingIdRequest.safeParse(await c.req.json().catch(() => undefined))
     if (!parsed.success) return c.json(PAIRING_UNAVAILABLE, 400)
-    return c.json(opts.pairing.status(parsed.data.pairingId, userId, now()))
+    const status = await codes.status(parsed.data.pairingId, caller.accountId)
+    if (status.state === 'claimed' || status.state === 'approved') {
+      return c.json({
+        state: status.state,
+        expiresAt: status.expiresAt.toISOString(),
+        deviceId: status.device.deviceId,
+        deviceName: status.device.name,
+        platform: status.device.platform,
+        delivery: status.delivery === 'bearer' ? 'native' : 'browser',
+        phrase: status.phrase,
+      })
+    }
+    return c.json(status)
   })
 
   const decision = (value: 'approved' | 'denied') => async (c: Context) => {
     if (!controlTransportAllowed(c)) return c.json({ error: 'secure HTTPS is required' }, 400)
-    const userId = await opts.resolveUserId(headersFor(c), c.req.raw)
-    if (!userId) return c.json({ error: 'authentication required' }, 401)
+    const caller = await signedInDevice(c)
+    if (caller instanceof Response) return caller
     const parsed = MobilePairingIdRequest.safeParse(await c.req.json().catch(() => undefined))
-    if (!parsed.success || !opts.pairing.decide(parsed.data.pairingId, userId, value, now())) {
+    if (!parsed.success || !(await codes.decide(parsed.data.pairingId, caller.accountId, value))) {
       return c.json(PAIRING_UNAVAILABLE, 400)
     }
     return c.json({ ok: true })
@@ -375,8 +346,9 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
   app.post('/auth/mobile-pair/complete', async (c) => {
     if (!secure(c)) return c.json({ error: 'secure HTTPS is required' }, 400)
     const at = now()
-    const key = requestKey(c, opts)
-    if (!key) return c.json(PAIRING_UNAVAILABLE, 503)
+    // No known client (a nearby proxy no hop is trusted for): no per-peer budget,
+    // since that one address would be every client's. The codes carry 256 bits.
+    const key = factsOf(c).clientAddress
     const retryAfter = pairingFailures.retryAfter(key, at)
     if (retryAfter !== undefined) {
       return c.json({ error: 'too many attempts' }, 429, {
@@ -388,89 +360,36 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
       pairingFailures.fail(key, at)
       return c.json(PAIRING_UNAVAILABLE, 400)
     }
-    const completed = opts.pairing.complete(parsed.data.claimId, parsed.data.claimSecret, at)
+    const completed = await codes.redeem(
+      {
+        claimId: parsed.data.claimId,
+        // The phone hashes the original bytes, not the base64url text it sends.
+        verifier: Buffer.from(parsed.data.claimSecret, 'base64url'),
+        onWrongVerifier: () => pairingFailures.fail(key, at),
+      },
+      { kind: 'phone' },
+      deliveryOf(c),
+      factsOf(c),
+    )
     if (completed === 'pending') return c.json({ status: 'pending' as const }, 202)
-    if (completed === 'invalid-secret') {
-      pairingFailures.fail(key, at)
+    if (!completed) return c.json(PAIRING_UNAVAILABLE, 400)
+    const member = await opts.memberOfAccount(completed.accountId)
+    if (!member) {
+      await deviceSignIns.revoke(completed.deviceSignInId)
       return c.json(PAIRING_UNAVAILABLE, 400)
     }
-    if (completed === 'unavailable') return c.json(PAIRING_UNAVAILABLE, 400)
     pairingFailures.clear(key)
-    const token = randomBytes(32).toString('base64url')
-    const expiresAt = new Date(at + SESSION_TTL_MS).toISOString()
-    await opts.store.createClientSession(hashToken(token), completed.userId, expiresAt, 'mobile', {
-      sessionId: randomBytes(18).toString('base64url'),
-      deviceId: completed.deviceId,
-      deviceName: completed.deviceName,
-      platform: completed.platform,
-      lastSeenAt: new Date(at).toISOString(),
-    })
-    if (completed.delivery === 'browser') {
-      setSessionCookie(c, token, opts.trustedProxyHops)
-      return c.json({
-        status: 'complete' as const,
-        delivery: 'browser' as const,
-        userId: completed.userId,
-        expiresAt,
-      })
-    }
-    return c.json({
+    const result = {
       status: 'complete' as const,
-      delivery: 'native' as const,
-      token,
-      userId: completed.userId,
-      expiresAt,
-    })
-  })
-
-  app.get('/auth/client-sessions', async (c) => {
-    if (c.req.header('authorization') && !secure(c)) {
-      return c.json({ error: 'secure HTTPS is required for bearer authentication' }, 400)
+      userId: member.id,
+      expiresAt: completed.expiresAt.toISOString(),
     }
-    const userId = await opts.resolveUserId(headersFor(c), c.req.raw)
-    if (!userId) return c.json({ error: 'authentication required' }, 401)
-    const credential = await resolveClientCredential(opts.store, headersFor(c), now())
-    // The plain list stays phones only: phone builds from before POD-6701 parse
-    // `label: 'mobile'` strictly. `?include=all` is every sign-in of the caller.
-    const rows =
-      c.req.query('include') === 'all'
-        ? await opts.store.listSignInsOfUser(userId, new Date(now()).toISOString())
-        : await opts.store.listMobileClientSessions(userId)
-    const sessions = rows.flatMap((row) =>
-      row.sessionId
-        ? [
-            signInView(
-              { ...row, sessionId: row.sessionId },
-              row.tokenHash === credential?.tokenHash,
-            ),
-          ]
-        : [],
-    )
-    return c.json({ sessions })
-  })
-
-  app.post('/auth/client-sessions/revoke', async (c) => {
-    if (c.req.header('authorization') && !secure(c)) {
-      return c.json({ error: 'secure HTTPS is required for bearer authentication' }, 400)
+    if (completed.bearer) {
+      return c.json({ ...result, delivery: 'native' as const, token: completed.bearer })
     }
-    const userId = await opts.resolveUserId(headersFor(c), c.req.raw)
-    if (!userId) return c.json({ error: 'authentication required' }, 401)
-    const parsed = RevokeMobileClientSessionRequest.safeParse(
-      await c.req.json().catch(() => undefined),
-    )
-    // Any one of the caller's own sign-ins: a phone, a browser, the desktop app (POD-6701).
-    const revokedTokenHash = parsed.success
-      ? await opts.store.deleteOwnedSignIn(parsed.data.sessionId, userId)
-      : undefined
-    if (!revokedTokenHash) {
-      return c.json({ error: 'session not found' }, 404)
+    for (const cookie of completed.headers.getSetCookie()) {
+      c.header('set-cookie', cookie, { append: true })
     }
-    opts.onCredentialRevoked?.(revokedTokenHash)
-    // Revoking the sign-in this browser holds signs this browser out too.
-    const cookie = parseSessionCookie(c.req.header('cookie'))
-    if (cookie && hashToken(cookie) === revokedTokenHash) {
-      deleteCookie(c, SESSION_COOKIE, { path: '/' })
-    }
-    return c.json({ ok: true })
+    return c.json({ ...result, delivery: 'browser' as const })
   })
 }

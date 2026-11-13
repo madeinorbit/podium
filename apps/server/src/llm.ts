@@ -102,7 +102,7 @@ export function llmClient(
   const key = apiKey
   if (!key) {
     throw new LlmConfigError(
-      `no API key configured for ${backend.provider} — connect one in Settings → Accounts`,
+      `no API key configured for ${backend.provider} — connect one in Settings → AI accounts`,
     )
   }
   const label = `${backend.provider} · ${backend.model}`
@@ -178,7 +178,7 @@ function codexCatalogHead(backend: LlmBackend): string {
   const head = effectiveCatalogModel(bundledDescriptorFor(backend.harnessAgent), backend.model)
   if (!head) {
     throw new LlmConfigError(
-      `no Codex model catalog for harness '${backend.harnessAgent}' — pick an explicit model in Settings → Background LLM.`,
+      `no Codex model catalog for harness '${backend.harnessAgent}' — pick an explicit model in Settings → Agents → Background model.`,
     )
   }
   return head

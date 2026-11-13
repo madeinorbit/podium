@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { resolvePrincipalAsync } from '../../command-principal'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import { FAMILY_COMMAND_NAMES } from '../sync-write/family-commands'
+import { scopedMutationId } from '../sync-write/legacy-receipt'
 import { envelope, head, rowsOf } from '../sync-write/outbox-test-support'
 import { RELAY_ARMS } from '../write-routes/relay'
 import { agentOnIssue, awaiting, inputOf, relay } from './test-support'
@@ -59,7 +60,13 @@ describe('approvals.request on the entry point', () => {
     // its activity event once. The approval record is on the change log (an
     // `effect` row, POD-6674) with the command's causation, and the receipt is
     // at the head.
-    expect(await o.store.sync.getAppliedMutation(env.mutationId)).toBeDefined()
+    const principal = await resolvePrincipalAsync(
+      await o.reg.modules.sessions.capabilityForSession(sessionId),
+      { parentSessionOf: async () => undefined },
+    )
+    expect(
+      await o.store.sync.getAppliedMutation(scopedMutationId(principal, env.mutationId)),
+    ).toBeDefined()
     expect(await requested(o, reply.result.id)).toBe(1)
     const rows = await rowsOf(o, env.mutationId)
     expect(rows.some((row) => row.entity === 'effect' && row.entityId === reply.result.id)).toBe(

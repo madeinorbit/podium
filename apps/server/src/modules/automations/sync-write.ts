@@ -8,12 +8,10 @@
  * server-originated write (ADR 12 D2), never inside a request.
  *
  * THE TARGET CHECK. The live role floor first (a disabled account is refused).
- * Then, for a write to an existing automation, its OWNER, read now: a member
- * reaches only their own. An automation that does not exist is no target, as in
- * the issue family: the handler answers it (`not-found` for an update, nothing
- * removed for a remove). The service keeps its own owner check behind this one,
- * so an admin, whose scope is every record, still cannot change another
- * person's schedule.
+ * The service then checks the current OWNER, answering a private automation
+ * exactly like a missing one (`not-found` for an update, nothing removed for a
+ * remove). A generic owned-target refusal would distinguish those cases before
+ * the handler and expose another member's automation, including to an admin.
  *
  * OPERATOR-ONLY. The contracts expose these writes on tRPC alone, so the entry
  * point's coarse check refuses them on the relay, the CLI and MCP whatever the
@@ -21,16 +19,8 @@
  * agent transport).
  */
 
-import type { AnyCommandContract } from '@podium/commands'
-import { asAutomationId } from '@podium/model'
 import type { SyncSubmitRefusal } from '@podium/protocol'
-import {
-  humanWithRoleFloor,
-  type SyncFamily,
-  type SyncFamilyState,
-  type SyncFamilyTargetContext,
-} from '../sync-write/family'
-import { isNoTarget, NO_TARGET, type SyncWriteTarget } from '../sync-write/registry'
+import { humanWithRoleFloor, type SyncFamily, type SyncFamilyState } from '../sync-write/family'
 import { AUTOMATION_COMMANDS, type AutomationState } from './registry'
 import { AutomationRefusal } from './service'
 
@@ -39,25 +29,6 @@ export const selectAutomationState = (state: SyncFamilyState): AutomationState =
   principal: state.principal,
   writer: state.writer,
 })
-
-/** The automation an input names, when it names one (every write but `create`). */
-const automationIdOf = (input: unknown): string | undefined => {
-  const id = (input as { id?: unknown } | null | undefined)?.id
-  return typeof id === 'string' ? id : undefined
-}
-
-async function automationTarget(
-  contract: AnyCommandContract,
-  input: unknown,
-  ctx: SyncFamilyTargetContext,
-): Promise<SyncWriteTarget> {
-  const floor = await humanWithRoleFloor(contract, ctx)
-  if (floor === undefined || !isNoTarget(floor)) return floor
-  const id = automationIdOf(input)
-  if (id === undefined) return NO_TARGET
-  const owner = await ctx.modules.automations.ownerOf(asAutomationId(id))
-  return owner === undefined ? NO_TARGET : { kind: 'owned', id, owner }
-}
 
 /** The service's refusals, with their words; anything else propagates. */
 export function automationRefusalOf(error: unknown): SyncSubmitRefusal | undefined {
@@ -72,6 +43,6 @@ export const AUTOMATION_SYNC_FAMILY: SyncFamily<AutomationState, typeof AUTOMATI
   family: 'automations',
   service: selectAutomationState,
   commands: AUTOMATION_COMMANDS,
-  target: automationTarget,
+  target: async (contract, _input, ctx) => await humanWithRoleFloor(contract, ctx),
   refusalOf: automationRefusalOf,
 }

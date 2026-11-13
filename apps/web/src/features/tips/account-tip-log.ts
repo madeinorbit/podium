@@ -1,5 +1,6 @@
 import { useDeviceState } from '@podium/client-core/react'
 import {
+  MOBILE_PROMO_DISMISSED_KEY,
   type RoutedUiState,
   requireReplicatedLayoutKey,
   TIP_SEEN_KEY_PREFIX,
@@ -14,10 +15,14 @@ import { useWorklistPool } from '@/app/store-worklist-pool'
 import { TIP_IDS, type TipId, type TipLog, type TipOutcome } from './types'
 
 export const ACCOUNT_TIP_IDS = TIP_IDS
-export type AccountTipLogContract = TipLog
+export type AccountTipLogContract = Omit<TipLog, 'setEnabled'> & {
+  /** Re-enabling restores dismissed cards; the returned action restores their prior state. */
+  setEnabled(on: boolean): (() => void) | undefined
+}
 
 const tipKey = (id: TipId): string => `${TIP_SEEN_KEY_PREFIX}${id}`
-const keys = [UI_STATE_KEYS.tipsEnabled, ...ACCOUNT_TIP_IDS.map(tipKey)]
+const dismissedKeys = [...ACCOUNT_TIP_IDS.map(tipKey), MOBILE_PROMO_DISMISSED_KEY]
+const keys = [UI_STATE_KEYS.tipsEnabled, ...dismissedKeys]
 
 /** Reads the shared preference rows, never a second copy of account state. */
 export class AccountTipLog implements AccountTipLogContract {
@@ -52,7 +57,7 @@ export class AccountTipLog implements AccountTipLogContract {
     this.disposed = true
   }
 
-  private write(key: string, value: string): void {
+  private write(key: string, value: string | null): void {
     this.ui.set(key, value)
   }
 
@@ -65,9 +70,16 @@ export class AccountTipLog implements AccountTipLogContract {
     if (outcome === 'skipped-all') this.setEnabled(false)
   }
 
-  @action setEnabled(on: boolean): void {
-    if (!this.ready) return
+  @action setEnabled(on: boolean): (() => void) | undefined {
+    if (!this.ready || on === this.enabled) return
+    const changedKeys = on ? keys : [UI_STATE_KEYS.tipsEnabled]
+    const previous = changedKeys.map((key) => [key, this.value(key)] as const)
+    if (on) for (const key of dismissedKeys) this.write(key, null)
     this.write(UI_STATE_KEYS.tipsEnabled, String(on))
+    return action(() => {
+      if (!this.ready) return
+      for (const [key, value] of previous) this.write(key, value)
+    })
   }
 }
 
@@ -76,7 +88,7 @@ const pendingLog: AccountTipLogContract = {
   enabled: true,
   isSeen: () => false,
   record: () => {},
-  setEnabled: () => {},
+  setEnabled: () => undefined,
 }
 
 /** Readiness follows the same addressed pool records as the tip values. */

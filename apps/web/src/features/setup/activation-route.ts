@@ -69,9 +69,17 @@ export function hasActivationState(search: string): boolean {
  * steps from the end. Once the wizard has been entered, `setupInProgress` is the
  * condition that holds — and only finishing it, which clears the flag, lets the
  * shell through.
+ *
+ * And none of it applies to someone who does not set this server up
+ * (POD-6882). Setup asks where the server runs and adds its first machine: the
+ * installer's questions. A member who joined an existing workspace sees only
+ * what is shared with them, so "no repos, no sessions" is their normal first
+ * view, not a server waiting to be set up. `setsUpServer` is the server's own
+ * answer (`/auth/admin/viewer`), never inferred from what this member can see.
  */
 export function isActivationEligible({
   loaded,
+  setsUpServer,
   repoCount,
   sessionCount,
   setupInProgress,
@@ -79,6 +87,7 @@ export function isActivationEligible({
   hasVpsCheckpoint,
 }: {
   loaded: boolean
+  setsUpServer: boolean
   repoCount: number
   sessionCount: number
   setupInProgress: boolean
@@ -93,6 +102,7 @@ export function isActivationEligible({
   // and must not lock a working instance out of its own shell.
   return (
     loaded &&
+    setsUpServer &&
     ((repoCount === 0 && sessionCount === 0) ||
       (setupInProgress && sessionCount === 0) ||
       hasActivationCheckpoint ||
@@ -100,19 +110,28 @@ export function isActivationEligible({
   )
 }
 
-/** A saved setup flag, with no setup step in the URL, on an instance that already has sessions. */
+/**
+ * Setup state this device should retire: a saved setup flag, with no setup step
+ * in the URL, on an instance that already has sessions; or any setup flag or
+ * step held by someone who does not set this server up (POD-6882), such as a
+ * member who was shown the wizard by an earlier build and pressed into it.
+ */
 export function hasStaleActivation({
   loaded,
+  setsUpServer,
   sessionCount,
   setupInProgress,
   hasActivationCheckpoint,
 }: {
   loaded: boolean
+  setsUpServer: boolean
   sessionCount: number
   setupInProgress: boolean
   hasActivationCheckpoint: boolean
 }): boolean {
-  return loaded && sessionCount > 0 && setupInProgress && !hasActivationCheckpoint
+  if (!loaded) return false
+  if (!setsUpServer) return setupInProgress || hasActivationCheckpoint
+  return sessionCount > 0 && setupInProgress && !hasActivationCheckpoint
 }
 
 /**
@@ -134,6 +153,7 @@ export function showsRemoteServer(launchMode: string | undefined): boolean {
 export function shouldStartRemoteClientAtHandoff({
   launchMode,
   loaded,
+  setsUpServer,
   repoCount,
   sessionCount,
   route,
@@ -142,6 +162,7 @@ export function shouldStartRemoteClientAtHandoff({
 }: {
   launchMode: string | undefined
   loaded: boolean
+  setsUpServer: boolean
   repoCount: number
   sessionCount: number
   route: ActivationRoute
@@ -151,6 +172,7 @@ export function shouldStartRemoteClientAtHandoff({
   return (
     showsRemoteServer(launchMode) &&
     loaded &&
+    setsUpServer &&
     repoCount === 0 &&
     sessionCount === 0 &&
     route === 'welcome' &&
@@ -169,6 +191,7 @@ export function shouldStartRemoteClientAtHandoff({
 export function shouldStartBrowserAtProjectIntake({
   nativeShell,
   loaded,
+  setsUpServer,
   repoCount,
   sessionCount,
   route,
@@ -177,6 +200,7 @@ export function shouldStartBrowserAtProjectIntake({
 }: {
   nativeShell: boolean
   loaded: boolean
+  setsUpServer: boolean
   repoCount: number
   sessionCount: number
   route: ActivationRoute
@@ -186,6 +210,7 @@ export function shouldStartBrowserAtProjectIntake({
   return (
     !nativeShell &&
     loaded &&
+    setsUpServer &&
     repoCount === 0 &&
     sessionCount === 0 &&
     route === 'welcome' &&

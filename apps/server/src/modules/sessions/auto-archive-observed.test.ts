@@ -1,3 +1,4 @@
+import { memberFacts } from '../../store/fixtures/test-support'
 /**
  * The APPLY side of stopped-session auto-archive (POD-1229).
  *
@@ -99,7 +100,7 @@ describe('a member’s own read retires their session, not the first admin’s (
       )
     })
     const bob = asUserId('mem_auto_archive_bob')
-    await reg.sessionStore.users.createUnclaimed({
+    await memberFacts(reg.sessionStore).create({
       id: bob,
       displayName: 'Bob',
       email: 'bob@example.test',

@@ -3,7 +3,9 @@ import { Hono } from 'hono'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { registerAdminRoutes, type SecurityEvent } from './admin-routes'
 import type { SessionStore } from './store'
+import { memberFacts } from './store/fixtures/test-support'
 import { openTestStore } from './test-support/open-test-store'
+import { openTestIdentity } from './test-support/test-identity'
 
 const bob = asUserId('mem_audit_bob')
 let alice: string
@@ -39,7 +41,7 @@ beforeAll(async () => {
   store = await openTestStore(':memory:')
   alice = firstAdminMemberId()
   caller = alice
-  await store.users.create(
+  await memberFacts(store).create(
     {
       id: bob,
       displayName: 'Bob',
@@ -67,7 +69,7 @@ beforeAll(async () => {
   app = new Hono()
   registerAdminRoutes(app, {
     users: store.users,
-    auth: store.auth,
+    identity: (await openTestIdentity(store)).workspace,
     audit: store.settingsAudit,
     machineNames: async () => new Map(),
     resolveUserId: async () => asUserId(caller),

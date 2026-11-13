@@ -58,31 +58,40 @@ describe('optional role harness persistence', () => {
     expect(normalizeSettings(saved).roles.superagent).toEqual(settings.roles.superagent)
   })
 
-  it.each(['coding', 'superagent', 'background', 'shipwright'] as const)(
-    'reads an older %s harness null as absent without losing other settings',
-    (role) => {
-      const raw = {
-        roles: { [role]: { accountId: nativeAccountId('codex'), harness: null, model: 'saved-model' } },
-        sidebar: { repoSort: 'alphabetical' },
-      }
-      const settings = normalizeSettings(raw)
-      expect(settings.roles[role]).not.toHaveProperty('harness')
-      expect(settings.roles[role].accountId).toBe(nativeAccountId('codex'))
-      expect(settings.roles[role].model).toBe('saved-model')
-      expect(settings.sidebar.repoSort).toBe('alphabetical')
-      expect(raw.roles[role]?.harness).toBeNull()
-    },
-  )
+  it.each([
+    'coding',
+    'superagent',
+    'background',
+    'shipwright',
+  ] as const)('reads an older %s harness null as absent without losing other settings', (role) => {
+    const raw = {
+      roles: {
+        [role]: { accountId: nativeAccountId('codex'), harness: null, model: 'saved-model' },
+      },
+      sidebar: { repoSort: 'alphabetical' },
+    }
+    const settings = normalizeSettings(raw)
+    expect(settings.roles[role]).not.toHaveProperty('harness')
+    expect(settings.roles[role].accountId).toBe(nativeAccountId('codex'))
+    expect(settings.roles[role].model).toBe('saved-model')
+    expect(settings.sidebar.repoSort).toBe('alphabetical')
+    expect(raw.roles[role]?.harness).toBeNull()
+  })
 
   it('still rejects a non-null invalid harness', () => {
-    expect(() => normalizeSettings({ roles: { superagent: { harness: 'invalid-harness' } } })).toThrow()
+    expect(() =>
+      normalizeSettings({ roles: { superagent: { harness: 'invalid-harness' } } }),
+    ).toThrow()
   })
 })
 
 describe('instance optional absence and meaningful nulls', () => {
   it('round-trips absent transcript/deployment defaults and all nullable hibernation controls', () => {
     const hibernation = {
-      loadPerCore: null, maxIdleSessions: null, idleShellMinutes: null, backstopMinutes: null,
+      loadPerCore: null,
+      maxIdleSessions: null,
+      idleShellMinutes: null,
+      backstopMinutes: null,
     }
     const saved = JSON.parse(JSON.stringify(normalizeSettings({ hibernation })))
     expect(saved.transcripts).toEqual({})
@@ -92,9 +101,19 @@ describe('instance optional absence and meaningful nulls', () => {
 
   it.each([
     { group: 'transcripts', key: 'mirror' },
-    ...['authOpenMode', 'updateChannel', 'connectEnabled', 'telemetryUsage',
-      'telemetryCrash', 'telemetryInstallId', 'telemetrySince'].map((key) => ({ group: 'deployment', key })),
-  ])('rejects a persisted null at $group.$key rather than silently loading defaults', ({ group, key }) => {
+    ...[
+      'authOpenMode',
+      'updateChannel',
+      'connectEnabled',
+      'telemetryUsage',
+      'telemetryCrash',
+      'telemetryInstallId',
+      'telemetrySince',
+    ].map((key) => ({ group: 'deployment', key })),
+  ])('rejects a persisted null at $group.$key rather than silently loading defaults', ({
+    group,
+    key,
+  }) => {
     expect(() => normalizeSettings({ [group]: { [key]: null } })).toThrow()
   })
 })
@@ -149,11 +168,14 @@ describe('resolveSpawnDefaults — harness only [POD-1107]', () => {
     roles: { coding: { accountId: nativeAccountId('grok'), model: 'grok-4', effort: 'high' } },
   })
 
-  it.each([undefined, {}, { agentKind: 'auto' }, { agentKind: '' }])(
-    'uses the configured harness for an unset pick %j', (override) => {
-      expect(resolveSpawnDefaults(settings, override)).toEqual({ agentKind: 'grok' })
-    },
-  )
+  it.each([
+    undefined,
+    {},
+    { agentKind: 'auto' },
+    { agentKind: '' },
+  ])('uses the configured harness for an unset pick %j', (override) => {
+    expect(resolveSpawnDefaults(settings, override)).toEqual({ agentKind: 'grok' })
+  })
 
   it('keeps an explicit harness without resolving model or effort', () => {
     expect(resolveSpawnDefaults(settings, { agentKind: 'codex' })).toEqual({ agentKind: 'codex' })
@@ -298,7 +320,6 @@ describe('normalizeSettings — sidebar defaults', () => {
     const s = normalizeSettings({})
     expect(s.sidebar.repoSort).toBe('lastUsed')
     expect(s.sidebar.repoOrder).toEqual([])
-    expect(s.sidebar.groupByRepo).toBe(false)
   })
 
   it('fills in sidebar defaults for old blobs without sidebar key', () => {
@@ -482,14 +503,20 @@ describe('normalizeSettings — gitWorkflow + issues', () => {
   it('defaults are present', () => {
     expect(DEFAULT_SETTINGS.gitWorkflow).toEqual({
       defaultParentBranch: '',
-      mergeStyle: 'ff-only',
+
       autoRebaseBeforeMerge: true,
     })
     expect(DEFAULT_SETTINGS.issues).toEqual({ assistantEnabled: true })
   })
-  it('back-compat: an old blob with no gitWorkflow parses with defaults', () => {
-    const s = normalizeSettings({ sessionDefaults: { agent: 'claude-code' } })
-    expect(s.gitWorkflow.mergeStyle).toBe('ff-only')
+  it('strips retired leaves from old blobs while retaining defaults', () => {
+    const s = normalizeSettings({
+      sessionDefaults: { agent: 'claude-code' },
+      gitWorkflow: { mergeStyle: 'pr' },
+      sidebar: { groupByRepo: true },
+    })
+    expect(s.gitWorkflow).not.toHaveProperty('mergeStyle')
+    expect(s.sidebar).not.toHaveProperty('groupByRepo')
+    expect(s.gitWorkflow.defaultParentBranch).toBe('')
     expect(s.issues.assistantEnabled).toBe(true)
   })
 })

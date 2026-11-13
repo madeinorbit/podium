@@ -110,7 +110,7 @@ describe('a preference row belongs to one person', () => {
       ALICE,
       normalizeSettings({
         ...alice,
-        sidebar: { ...alice.sidebar, repoSort: 'alphabetical', groupByRepo: true },
+        sidebar: { ...alice.sidebar, repoSort: 'alphabetical', },
         autoContinue: { ...alice.autoContinue, enabled: true },
       }),
       AT,
@@ -118,7 +118,6 @@ describe('a preference row belongs to one person', () => {
 
     const bob = await settings.getSettingsFor(BOB)
     expect(bob.sidebar.repoSort).toBe('lastUsed')
-    expect(bob.sidebar.groupByRepo).toBe(false)
     expect(bob.autoContinue.enabled).toBe(false)
     expect((await settings.getSettingsFor(ALICE)).sidebar.repoSort).toBe('alphabetical')
   })
@@ -131,7 +130,7 @@ describe('the instance tier stays shared — this moved 24 leaves, not the blob'
       ALICE,
       normalizeSettings({
         ...alice,
-        gitWorkflow: { ...alice.gitWorkflow, mergeStyle: 'pr' },
+        gitWorkflow: { ...alice.gitWorkflow, defaultParentBranch: 'release' },
         hibernation: { ...alice.hibernation, memoryPct: 61 },
       }),
       AT,
@@ -141,21 +140,21 @@ describe('the instance tier stays shared — this moved 24 leaves, not the blob'
     // made ALL settings per-user would pass this file's first describe block and
     // give one repo two merge styles, which is the thing `preferences-instance`
     // exists to prevent.
-    expect((await settings.getSettingsFor(BOB)).gitWorkflow.mergeStyle).toBe('pr')
+    expect((await settings.getSettingsFor(BOB)).gitWorkflow.defaultParentBranch).toBe('release')
     expect((await settings.getSettingsFor(BOB)).hibernation.memoryPct).toBe(61)
-    expect((await settings.getSettings()).gitWorkflow.mergeStyle).toBe('pr')
+    expect((await settings.getSettings()).gitWorkflow.defaultParentBranch).toBe('release')
   })
 
   it('an instance-tier leaf never becomes a per-user row', async () => {
-    await settings.applyPreferencePatch(ALICE, { 'gitWorkflow.mergeStyle': 'ask' }, AT)
+    await settings.applyPreferencePatch(ALICE, { 'gitWorkflow.defaultParentBranch': 'next' }, AT)
     expect(await settings.userPreferences.keysFor(ALICE)).toEqual([])
-    expect((await settings.getSettings()).gitWorkflow.mergeStyle).toBe('ask')
+    expect((await settings.getSettings()).gitWorkflow.defaultParentBranch).toBe('next')
   })
 
   it('the repository REFUSES a per-user row for a key that is not personal', async () => {
     // The refusal that keeps the two homes from both holding one key. A silent
     // ignore would make a mis-tiered write look identical to a successful one.
-    await expect(settings.userPreferences.set(ALICE, 'gitWorkflow.mergeStyle', 'pr', AT)).rejects.toThrow(
+    await expect(settings.userPreferences.set(ALICE, 'gitWorkflow.defaultParentBranch', 'pr', AT)).rejects.toThrow(
       /not a personal preference/,
     )
     await expect(settings.userPreferences.set(ALICE, 'apiKeys.openai', 'sk-x', AT)).rejects.toThrow(
@@ -197,13 +196,13 @@ describe('absence is the row being absent', () => {
       'settings',
       JSON.stringify({
         roles: { superagent: { harness: null, model: 'saved-model' } },
-        gitWorkflow: { mergeStyle: 'pr' },
+        gitWorkflow: { defaultParentBranch: 'release' },
       }),
     )
     const loaded = await settings.getSettingsFor(ALICE)
     expect(loaded.roles.superagent).not.toHaveProperty('harness')
     expect(loaded.roles.superagent.model).toBe('saved-model')
-    expect(loaded.gitWorkflow.mergeStyle).toBe('pr')
+    expect(loaded.gitWorkflow.defaultParentBranch).toBe('release')
   })
 
   it('an unset preference resolves to the blob’s value, and a set one overrides it', async () => {

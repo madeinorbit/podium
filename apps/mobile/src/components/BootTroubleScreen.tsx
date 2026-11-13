@@ -1,5 +1,6 @@
 import { type ReplicaFailure, replicaBootCopy } from '@podium/client-core/replica-assembly'
-import { StyleSheet, Text, View } from 'react-native'
+import { httpsRequiredRefusal } from '@podium/protocol'
+import { Linking, StyleSheet, Text, View } from 'react-native'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
 import { PressableScale } from './PressableScale'
 
@@ -37,12 +38,32 @@ export function BootTroubleScreen({
   const copy = replicaBootCopy(
     kind === 'stalled' ? { kind: 'boot-stalled' } : (cause ?? { kind: 'unknown' }),
   )
+  const guidance =
+    cause?.kind === 'auth-insecure' ? (cause.guidance ?? httpsRequiredRefusal()) : undefined
   return (
     <View style={styles.root}>
       <Text style={styles.label}>{copy.label}</Text>
       <Text style={styles.headline}>{copy.headline}</Text>
       <Text style={styles.body}>{copy.body}</Text>
-      {detail ? (
+      {guidance ? (
+        <>
+          {guidance.httpsUrl && (
+            <Text style={styles.body} selectable>
+              {guidance.httpsUrl}
+            </Text>
+          )}
+          <PressableScale
+            onPress={() => {
+              void Linking.openURL(guidance.docsUrl)
+            }}
+            style={styles.button}
+            accessibilityRole="link"
+          >
+            <Text style={styles.buttonText}>HTTPS setup instructions</Text>
+          </PressableScale>
+        </>
+      ) : null}
+      {detail && !guidance ? (
         <Text style={styles.detail} numberOfLines={4}>
           {detail}
         </Text>

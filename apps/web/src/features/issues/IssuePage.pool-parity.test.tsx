@@ -89,7 +89,7 @@ const trpc = {
     panelApply: { mutate: vi.fn(async () => ({})) },
     addComment: { mutate: vi.fn(async () => ({})) },
   },
-  settings: { get: { query: vi.fn(async () => ({ gitWorkflow: { mergeStyle: 'ff-only' } })) } },
+  settings: { get: { query: vi.fn(async () => ({ gitWorkflow: { } })) } },
   sessions: { sendText: { mutate: vi.fn(async () => ({})) } },
 }
 const state = {

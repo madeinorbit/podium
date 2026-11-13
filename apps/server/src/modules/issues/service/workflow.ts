@@ -2375,7 +2375,7 @@ export class IssueGitWorkflowModule {
   /**
    * The last background-LLM failure's actionable text — see
    * {@link IssueAssistantDigestModule.backgroundLastError}. Read by the
-   * accounts hub so Settings → Background LLM / Accounts can say why the
+   * accounts hub so Settings → Agents → Background model / Accounts can say why the
    * server AI is failing instead of looking fine.
    */
   backgroundLastError(): string | undefined {

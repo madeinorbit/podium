@@ -10,13 +10,16 @@
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asUserId } from '@podium/model'
 import { hashPassword, verifyPasswordHash } from '@podium/runtime/auth-store'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import {
   adoptStagedFirstAdminPassword,
   applyEnvFirstAdminPassword,
   type FirstAdminCredentialStore,
+  type FirstAdminCredentials,
 } from './first-admin-password'
+import { MemberHasNoAccount } from './identity/member-credentials'
 
 let dir: string
 
@@ -46,7 +49,7 @@ const authFileExists = (): boolean => existsSync(join(dir, 'auth.json'))
  * rather than a claim: "the second run changed nothing" is only observable if something
  * records whether a write happened at all.
  */
-class FakeUsers implements FirstAdminCredentialStore {
+class FakeUsers implements FirstAdminCredentialStore, FirstAdminCredentials {
   writes = 0
   private account: { id: string } | undefined = { id: FIRST_ADMIN }
   private credential: { source: string; passwordHash: string | null } | undefined = {
@@ -74,7 +77,13 @@ class FakeUsers implements FirstAdminCredentialStore {
     return userId === FIRST_ADMIN ? this.credential : undefined
   }
 
-  setPasswordHash(userId: string, passwordHash: string): void {
+  /** The account's side of it: does a sign-in find a password for this member. */
+  async hasPassword(userId: string): Promise<boolean> {
+    const credential = this.credentialFor(userId)
+    return credential?.source === 'per-user-scrypt' && !!credential.passwordHash
+  }
+
+  async setPasswordHash(userId: string, passwordHash: string): Promise<void> {
     if (userId !== FIRST_ADMIN) throw new Error(`unexpected user: ${userId}`)
     this.writes += 1
     this.credential = { source: 'per-user-scrypt', passwordHash }
@@ -86,7 +95,7 @@ describe('adoptStagedFirstAdminPassword', () => {
     const legacyHash = await seedLegacyAuthFile('correct horse battery staple')
     const users = new FakeUsers()
 
-    const result = await adoptStagedFirstAdminPassword({ users, authDir: dir })
+    const result = await adoptStagedFirstAdminPassword({ users, credentials: users, authDir: dir })
 
     expect(result.outcome).toBe('adopted')
     const credential = users.credentialFor(FIRST_ADMIN)
@@ -103,11 +112,11 @@ describe('adoptStagedFirstAdminPassword', () => {
     await seedLegacyAuthFile('hunter2')
     const users = new FakeUsers()
 
-    const first = await adoptStagedFirstAdminPassword({ users, authDir: dir })
+    const first = await adoptStagedFirstAdminPassword({ users, credentials: users, authDir: dir })
     const writesAfterFirst = users.writes
     const credentialAfterFirst = users.credentialFor(FIRST_ADMIN)?.passwordHash
 
-    const second = await adoptStagedFirstAdminPassword({ users, authDir: dir })
+    const second = await adoptStagedFirstAdminPassword({ users, credentials: users, authDir: dir })
 
     expect(first.outcome).toBe('adopted')
     expect(second.outcome).toBe('nothing-staged')
@@ -120,7 +129,7 @@ describe('adoptStagedFirstAdminPassword', () => {
   test('a box with no staged password writes nothing', async () => {
     const users = new FakeUsers()
 
-    const result = await adoptStagedFirstAdminPassword({ users, authDir: dir })
+    const result = await adoptStagedFirstAdminPassword({ users, credentials: users, authDir: dir })
 
     expect(result.outcome).toBe('nothing-staged')
     expect(users.writes).toBe(0)
@@ -130,7 +139,7 @@ describe('adoptStagedFirstAdminPassword', () => {
     await seedLegacyAuthFile('hunter2')
     const users = FakeUsers.withoutAccount()
 
-    const result = await adoptStagedFirstAdminPassword({ users, authDir: dir, warn: () => {} })
+    const result = await adoptStagedFirstAdminPassword({ users, credentials: users, authDir: dir, warn: () => {} })
 
     expect(result.outcome).toBe('no-first-admin')
     expect(users.writes).toBe(0)
@@ -143,13 +152,33 @@ describe('adoptStagedFirstAdminPassword', () => {
     const users = new FakeUsers()
     // A store that accepts the write and does not persist it — the failure mode the re-read
     // exists to catch. Without the re-read this deletes the only copy of the password.
-    users.setPasswordHash = () => {
+    users.setPasswordHash = async () => {
       users.writes += 1
     }
 
-    const result = await adoptStagedFirstAdminPassword({ users, authDir: dir, warn: () => {} })
+    const result = await adoptStagedFirstAdminPassword({ users, credentials: users, authDir: dir, warn: () => {} })
 
     expect(result.outcome).toBe('verify-failed')
+    expect(authFileExists()).toBe(true)
+  })
+
+  test('leaves auth.json in place when the first admin has no account to hold a password', async () => {
+    await seedLegacyAuthFile('hunter2')
+    const users = new FakeUsers()
+    // A database from before shared sign-in that has not been upgraded: the
+    // member row exists and no account stands behind it.
+    users.setPasswordHash = async (userId) => {
+      throw new MemberHasNoAccount(asUserId(userId))
+    }
+
+    const result = await adoptStagedFirstAdminPassword({
+      users,
+      credentials: users,
+      authDir: dir,
+      warn: () => {},
+    })
+
+    expect(result.outcome).toBe('no-account')
     expect(authFileExists()).toBe(true)
   })
 
@@ -158,7 +187,7 @@ describe('adoptStagedFirstAdminPassword', () => {
     const newer = await hashPassword('the-one-they-actually-use')
     const users = FakeUsers.withPerUserCredential(newer)
 
-    const result = await adoptStagedFirstAdminPassword({ users, authDir: dir })
+    const result = await adoptStagedFirstAdminPassword({ users, credentials: users, authDir: dir })
 
     expect(result.outcome).toBe('nothing-staged')
     expect(users.writes).toBe(0)
@@ -172,7 +201,7 @@ describe('applyEnvFirstAdminPassword', () => {
   test('sets the first admin credential from PODIUM_PASSWORD', async () => {
     const users = new FakeUsers()
 
-    const result = await applyEnvFirstAdminPassword({ users, env: { PODIUM_PASSWORD: 'from-env' } })
+    const result = await applyEnvFirstAdminPassword({ users, credentials: users, env: { PODIUM_PASSWORD: 'from-env' } })
 
     expect(result.applied).toBe(true)
     const credential = users.credentialFor(FIRST_ADMIN)
@@ -186,7 +215,7 @@ describe('applyEnvFirstAdminPassword', () => {
     const existing = await hashPassword('set-in-the-ui')
     const users = FakeUsers.withPerUserCredential(existing)
 
-    const result = await applyEnvFirstAdminPassword({ users, env: { PODIUM_PASSWORD: 'from-env' } })
+    const result = await applyEnvFirstAdminPassword({ users, credentials: users, env: { PODIUM_PASSWORD: 'from-env' } })
 
     expect(result.applied).toBe(false)
     expect(users.writes).toBe(0)
@@ -196,9 +225,9 @@ describe('applyEnvFirstAdminPassword', () => {
   test('is a no-op when PODIUM_PASSWORD is unset or blank', async () => {
     const users = new FakeUsers()
 
-    expect((await applyEnvFirstAdminPassword({ users, env: {} })).applied).toBe(false)
+    expect((await applyEnvFirstAdminPassword({ users, credentials: users, env: {} })).applied).toBe(false)
     expect(
-      (await applyEnvFirstAdminPassword({ users, env: { PODIUM_PASSWORD: '   ' } })).applied,
+      (await applyEnvFirstAdminPassword({ users, credentials: users, env: { PODIUM_PASSWORD: '   ' } })).applied,
     ).toBe(false)
     expect(users.writes).toBe(0)
   })

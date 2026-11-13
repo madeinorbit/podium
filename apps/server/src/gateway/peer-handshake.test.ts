@@ -1,4 +1,5 @@
 import { mintSigningKeyPair, publicKeyWire } from '@podium/runtime/signing'
+import { memberFacts } from '../store/fixtures/test-support'
 /**
  * THE GATEWAY END, THROUGH THE REAL SOCKET PATH. `wsServer.daemon.test.ts` already
  * pins today's daemon behaviour and still passes unchanged over the new framing;
@@ -777,7 +778,7 @@ describe('recovery-only daemon handshake verification', () => {
   it('rejects pairing before consuming its code', async () => {
     const world = await enrollmentHandshakeWorld({ queryOnly: false })
     if (!(await world.store.users.get(firstAdminMemberId())))
-      await world.store.users.create(
+      await memberFacts(world.store).create(
         {
           id: firstAdminMemberId(),
           displayName: 'Pairer',
@@ -866,7 +867,7 @@ describe('payload identity is inert at the real MachinesService', () => {
       updatePubkey: () => 'server-key-1',
     })
     const owner = asUserId('keypair-owner')
-    await store.users.create(
+    await memberFacts(store).create(
       {
         id: owner,
         displayName: 'Pairer',
@@ -929,7 +930,7 @@ describe('payload identity is inert at the real MachinesService', () => {
     })
     const machines = reg.modules.machines
     // Mint via the service so ownerUserId is stamped (hub PairingGrant is a narrower type).
-    await store.users.create(
+    await memberFacts(store).create(
       {
         id: 'user:attacker',
         displayName: 'Pairer',

@@ -1,7 +1,7 @@
 import { lazy } from '@podium/mobx-helpers'
 import type { AccountView, GitRepositoryWire, MemberView } from '@podium/model'
 import { machinePathBasename, repoNameFromOrigin } from '@podium/model/browser'
-import type { MobileClientSession } from '@podium/protocol'
+import type { DeviceSignInView } from '@podium/protocol'
 import { EntityModel, type ModelHost, registerModels } from './models'
 import type { EntitySpec, FieldSpec, ModelSchemaName, RowArrival } from './shared/schema'
 
@@ -22,7 +22,7 @@ export class DeviceModel extends EntityModel {
     super('device', id, host)
   }
 }
-export interface DeviceModel extends Readonly<MobileClientSession> {}
+export interface DeviceModel extends Readonly<DeviceSignInView> {}
 /** One registered repository on one machine, with its worktrees: derived from
  *  the `checkout` records (POD-6644), read through the pool's model identity. */
 export class RepositoryModel extends EntityModel {
@@ -137,15 +137,12 @@ registerModels(
       ['email', 'accountId', 'avatar', 'disabledAt'],
     ),
     device: record(
-      'MobileClientSession',
+      'DeviceSignInView',
       'request:auth.mobileSessions',
-      'sessionId',
+      'id',
       {
-        sessionId: 'id',
-        userId: 'id',
-        label: 'string',
+        id: 'id',
         kind: 'enum',
-        deviceId: 'id',
         deviceName: 'string',
         platform: 'enum',
         createdAt: 'isoDate',

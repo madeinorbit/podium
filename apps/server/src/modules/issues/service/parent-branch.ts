@@ -111,11 +111,11 @@ export async function missingParentBranchRefusal(
     input.repoDefault === parentBranch
       ? ` '${parentBranch}' is this repository's base branch, which it no longer has.`
       : input.instanceDefault.trim() === parentBranch
-        ? ` '${parentBranch}' is the instance's default parent branch (Settings → Git workflow → Default parent branch), which this repository does not have.`
+        ? ` '${parentBranch}' is the instance's default parent branch (Settings → Projects → Default base branch), which this repository does not have.`
         : ''
   return (
     `parent branch '${parentBranch}' does not exist in ${repoPath}.${source} ` +
-    `For new tasks, set this repository's base branch (sidebar project menu → Base branch, or Settings → Repositories). ` +
+    `For new tasks, set this repository's base branch (sidebar project menu → Base branch, or Settings → Projects). ` +
     `For this task: podium issue update --id ${issueRef} --parent-branch ${target}. ` +
     `Or create '${parentBranch}' in that repository. Then start the task again.`
   )

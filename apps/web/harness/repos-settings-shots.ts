@@ -1,4 +1,4 @@
-// Screenshot the Settings → Repositories harness (POD-6267). Start it first with
+// Screenshot the Settings → Projects harness (POD-6267). Start it first with
 // `bunx vite --config vite.repos-settings-harness.config.ts` from apps/web.
 // Usage: bun harness/repos-settings-shots.ts <outDir>
 import { readdirSync } from 'node:fs'

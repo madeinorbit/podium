@@ -1,13 +1,14 @@
 import '../../../test/shared-notice-model-fixture'
 import { NOTICE_MESSAGE_WINDOW } from '@podium/client-graph/notice-views'
 import type { JSX, ReactNode } from 'react'
-import { act } from 'react'
+import { act, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { noticeFixture } from '../../../../../tests/worklist/diagnostics/notice-fixture'
-import { OutboxRecoveryIndicator } from '../machines/OutboxRecovery'
-import { MessageNoticeIndicator } from './MessageNotices'
+import { OutboxRecoveryList } from '../machines/OutboxRecovery'
+import { MessageNoticeList } from './MessageNotices'
 import { PendingInteractionBar } from './PendingInteractionBar'
+import { usePoolMessageNoticeCount } from './use-pool-notices'
 
 const mock = vi.hoisted(() => ({
   state: {} as Record<string, unknown>,
@@ -40,6 +41,8 @@ vi.mock('@/app/store', () => ({
   },
 }))
 vi.mock('@/app/store-worklist-pool', () => ({
+  // No pool: an answer resolves on the server's word (useAnswerSession).
+  useWorklistPool: () => null,
   useWorklistPoolProjection: (read: (pool: unknown) => unknown, empty: unknown, active = true) =>
     active ? read(mock.pool) : empty,
 }))
@@ -109,13 +112,30 @@ afterEach(() => {
   act(() => root.unmount())
   container.remove()
 })
+/**
+ * The sync panel's contract for this list (POD-6852): a closed panel reads the
+ * count alone, the list mounts only while the panel is open, and opening a
+ * chat closes the panel behind it.
+ */
+function NoticePanel(): JSX.Element | null {
+  const count = usePoolMessageNoticeCount()
+  const [open, setOpen] = useState(false)
+  if (count === 0) return null
+  return open ? (
+    <MessageNoticeList onOpenChat={() => setOpen(false)} />
+  ) : (
+    <button type="button" data-testid="notice-panel-open" onClick={() => setOpen(true)}>
+      {count} need review
+    </button>
+  )
+}
 const render = () =>
   act(() =>
     root.render(
       <>
-        <MessageNoticeIndicator />
+        <NoticePanel />
         <PendingInteractionBar sessionId={'selected-session' as never} />
-        <OutboxRecoveryIndicator />
+        <OutboxRecoveryList />
       </>,
     ),
   )
@@ -130,7 +150,7 @@ const click = async (label: string) => {
 }
 const openNotices = () =>
   act(() =>
-    (container.querySelector('[data-testid="message-notice-chip"]') as HTMLButtonElement).click(),
+    (container.querySelector('[data-testid="notice-panel-open"]') as HTMLButtonElement).click(),
   )
 
 it('uses zero legacy selectors and derivations and retains open, dismiss, answer and discard actions', async () => {
@@ -178,13 +198,13 @@ it('says when older notices stay in their chats', () => {
       return { count: NOTICE_MESSAGE_WINDOW + 1, newest: 'notice-message-2' }
     return base(entity, id)
   })
-  act(() => root.render(<MessageNoticeIndicator />))
+  act(() => root.render(<NoticePanel />))
   openNotices()
   expect(container.textContent).toContain(`Showing the newest ${NOTICE_MESSAGE_WINDOW}`)
 })
 
 it('reads only the count with the list closed and releases list reads after opening a chat', async () => {
-  act(() => root.render(<MessageNoticeIndicator />))
+  act(() => root.render(<NoticePanel />))
   expect(mock.rows.mock.calls.map(([entity]) => entity)).toEqual(['noticeAttention'])
   mock.rows.mockClear()
   openNotices()

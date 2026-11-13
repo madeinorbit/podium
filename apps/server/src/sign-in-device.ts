@@ -9,7 +9,7 @@
  * likes, and the worst a false answer does is mislabel its own row.
  */
 
-import type { ClientSessionMetadata } from './auth-route'
+import type { DeviceDescription } from '@podium/identity'
 
 type SignInPlatform = 'ios' | 'android' | 'macos' | 'windows' | 'linux' | 'unknown'
 
@@ -50,16 +50,20 @@ function isDesktopOrigin(origin: string | undefined): boolean {
   }
 }
 
-/** The stored description of a password login in a browser or the desktop app. */
-export function browserSignInMetadata(
+/** Only phones have a stable device id; two browsers keep separate sign-ins. */
+export function browserSignInDevice(
   userAgent: string | undefined,
   origin: string | undefined,
-  lastSeenAt: string,
-): ClientSessionMetadata {
+  desktopHint = false,
+): DeviceDescription {
   const agent = userAgent ?? ''
   const platform = platformOf(agent)
-  const desktop = isDesktopOrigin(origin)
+  // The shell can also load a remote site directly, with an ordinary HTTPS origin.
+  const desktop = desktopHint || isDesktopOrigin(origin)
   const app = desktop ? 'Podium desktop' : (browserOf(agent) ?? 'Web browser')
-  const deviceName = platform === 'unknown' ? app : `${app} on ${OS_NAMES[platform]}`
-  return { deviceId: desktop ? 'desktop' : 'browser', deviceName, platform, lastSeenAt }
+  return {
+    kind: desktop ? 'desktop' : 'browser',
+    name: platform === 'unknown' ? app : `${app} on ${OS_NAMES[platform]}`,
+    platform,
+  }
 }

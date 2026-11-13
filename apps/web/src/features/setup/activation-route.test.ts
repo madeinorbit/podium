@@ -90,6 +90,7 @@ describe('activation route persistence', () => {
   it('keeps a durable VPS handoff resumable after a restart has created work', () => {
     const settled = {
       loaded: true,
+      setsUpServer: true,
       repoCount: 1,
       setupInProgress: false,
       hasActivationCheckpoint: false,
@@ -107,6 +108,7 @@ describe('activation route persistence', () => {
     // and saved the flag; every later load of a populated instance stayed in setup.
     const populated = {
       loaded: true,
+      setsUpServer: true,
       repoCount: 52,
       sessionCount: 400,
       setupInProgress: true,
@@ -129,6 +131,7 @@ describe('activation route persistence', () => {
     // hands the shell over.
     const midSetup = {
       loaded: true,
+      setsUpServer: true,
       repoCount: 1,
       sessionCount: 0,
       setupInProgress: true,
@@ -141,10 +144,46 @@ describe('activation route persistence', () => {
     expect(isActivationEligible({ ...midSetup, loaded: false })).toBe(false)
   })
 
+  // POD-6882: per-member visibility makes "no repos, no sessions" every newly
+  // joined member's first view. Whether setup is theirs is the server's answer.
+  it('captures only the person who sets the server up, never a member who joined', () => {
+    const shared = {
+      loaded: true,
+      setupInProgress: false,
+      hasActivationCheckpoint: false,
+      hasVpsCheckpoint: false,
+    }
+    // Alice installed the server and added a repo on its machine.
+    const alice = { ...shared, setsUpServer: true, repoCount: 1, sessionCount: 0 }
+    // Bob accepted Alice's invitation; none of her work is visible to him.
+    const bob = { ...shared, setsUpServer: false, repoCount: 0, sessionCount: 0 }
+    expect(isActivationEligible(alice)).toBe(false)
+    expect(isActivationEligible(bob)).toBe(false)
+    // Not even a setup step he was sent to, or a flag an earlier build saved…
+    expect(isActivationEligible({ ...bob, hasActivationCheckpoint: true })).toBe(false)
+    expect(isActivationEligible({ ...bob, setupInProgress: true })).toBe(false)
+    expect(isActivationEligible({ ...bob, hasVpsCheckpoint: true })).toBe(false)
+    // …and those are retired, so his device heals itself.
+    expect(hasStaleActivation({ ...bob, hasActivationCheckpoint: true })).toBe(true)
+    expect(hasStaleActivation({ ...bob, setupInProgress: true })).toBe(true)
+    expect(hasStaleActivation(bob)).toBe(false)
+    // No setup route is started for him on a fresh browser or desktop client.
+    const fresh = { ...bob, route: 'welcome' as const }
+    expect(shouldStartBrowserAtProjectIntake({ ...fresh, nativeShell: false })).toBe(false)
+    expect(shouldStartRemoteClientAtHandoff({ ...fresh, launchMode: 'client' })).toBe(false)
+    // A one-person server is unchanged: its owner, with nothing yet, gets setup.
+    const owner = { ...shared, setsUpServer: true, repoCount: 0, sessionCount: 0 }
+    expect(isActivationEligible(owner)).toBe(true)
+    expect(
+      shouldStartBrowserAtProjectIntake({ ...owner, nativeShell: false, route: 'welcome' }),
+    ).toBe(true)
+  })
+
   it('continues a fresh native client at the connection it just made', () => {
     const freshClient = {
       launchMode: 'client',
       loaded: true,
+      setsUpServer: true,
       repoCount: 0,
       sessionCount: 0,
       route: 'welcome' as const,
@@ -168,6 +207,7 @@ describe('activation route persistence', () => {
     const freshTab = {
       nativeShell: false,
       loaded: true,
+      setsUpServer: true,
       repoCount: 0,
       sessionCount: 0,
       route: 'welcome' as const,

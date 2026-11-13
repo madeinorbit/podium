@@ -270,6 +270,14 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
     label: 'SessionStore.transact',
   },
   {
+    // The sign-in carry-over's one transaction (POD-6751): consume the old
+    // sign-in, issue the device sign-in, record and audit.
+    file: 'apps/server/src/store/sign-in-carry-over.ts',
+    symbol: 'transaction',
+    body: 'arg0',
+    label: 'SignInCarryOverRepository.transaction',
+  },
+  {
     file: 'apps/server/src/modules/lock/service.ts',
     symbol: 'transact',
     body: 'arg0',
@@ -427,6 +435,36 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
     line: 585,
     why: 'Native IndexedDB transaction acquisition and connection recovery, taking store names and a mode without a body callback. Logical span bodies enter through the already-declared SyncUnitOfWork.transact port.',
   },
+  {
+    file: 'packages/identity/src/types.ts',
+    line: 113,
+    why: "the identity package's database port, SQLite arm (POD-6744): the property that HOLDS the transaction runner an edition hands in. On the server that runner is `createOrJoinTransaction`, which is named as an opener where the server binds it.",
+  },
+  {
+    file: 'packages/identity/src/types.ts',
+    line: 114,
+    why: "the identity package's database port, Postgres arm: the same property for the cloud's database. No server span exists there.",
+  },
+  {
+    file: 'packages/identity/src/runtime.ts',
+    line: 90,
+    why: "Runtime.transaction joins or delegates to the edition's database port. The server's createOrJoinTransaction binding is already a named opener; classifying this forwarding method as well would count the same span twice.",
+  },
+  {
+    file: 'packages/identity/src/runtime.ts',
+    line: 201,
+    why: "The implementation of Runtime.transaction joins the current async-local transaction or delegates to the edition's database port, binding the library adapter to that handle. It does not introduce an independent span.",
+  },
+  {
+    file: 'packages/identity/src/types.ts',
+    line: 149,
+    why: "the identity core's `transaction` (PDM-495): forwards to the edition's port above. The server's self-hosted issue and revoke ceremonies run identity and audit statements on that same store connection, then close sockets after commit.",
+  },
+  {
+    file: 'packages/identity/src/types.ts',
+    line: 431,
+    why: 'AppliedCursor.transaction is the hosted applied-cursor port (PDM-509), bound by the server to SessionStore.transact, already classified above. The forwarding port does not introduce an independent span.',
+  },
 ]
 
 /**
@@ -496,6 +534,8 @@ const NODE_MODULE_KIND: Readonly<Record<string, CapabilityKind>> = {
   util: 'contained',
   crypto: 'contained',
   buffer: 'contained',
+  // `Buffer.from`/`concat`/`subarray` are declared in @types/node's `buffer.buffer.d.ts`.
+  'buffer.buffer': 'contained',
   string_decoder: 'contained',
   querystring: 'contained',
   assert: 'contained',
@@ -629,6 +669,59 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   'apps/server/src/modules/issues/issue-reader.ts#CommittedIssueReader.rows': {
     kind: 'contained',
     why: 'Reads the existing committed IssueStore map without I/O or publication; rollback leaves nothing observable outside this process.',
+  },
+  'apps/server/src/identity/member-credentials.ts#MemberCredentials.hasPassword': {
+    kind: 'contained',
+    why: "Reads whether the member's account has a password login method (POD-6746): the member row through UsersRepository and one read of the identity package, both on the store's one drizzle handle inside the open transaction. No I/O outside the database and nothing is published.",
+  },
+  'apps/server/src/identity/member-credentials.ts#MemberCredentials.setPasswordHash': {
+    kind: 'contained',
+    why: "Writes the password login method of the member's account from a hash made before the transaction opened (POD-6746). The identity package's transaction is the store's `createOrJoinTransaction`, so the write joins the setup transaction and rolls back with it; a password write steps no membership version, writes no member row and publishes nothing.",
+  },
+  'packages/identity/src/types.ts#MembershipOperations.list': {
+    kind: 'contained',
+    why: "Reads the workspace's memberships with the identity package's own statements on the store's drizzle handle (POD-6746, `ensureLocalIdentity`); it joins the open transaction and has no effect outside the database.",
+  },
+  // THE SIGN-IN CARRY-OVER'S ONE TRANSACTION (POD-6751; docs/design/sign-in-carry-over.md, section 4.2).
+  'apps/server/src/sign-in-carry-over.ts#SignInCarryOverDeps.now': {
+    kind: 'contained',
+    why: 'Reads the clock, so that the consuming statement, the carry record and the repeat use one instant. No I/O and nothing is published.',
+  },
+  'apps/server/src/sign-in-carry-over.ts#SignInCarryOverDeps.audit': {
+    kind: 'contained',
+    why: "Inserts the one audit row of a carry through UsersRepository.audit on the store's drizzle handle; it joins the carry's transaction and rolls back with it. Nothing leaves the database.",
+  },
+  'packages/identity/src/types.ts#MembershipOperations.accountOfActiveMember': {
+    kind: 'contained',
+    why: "One read of a membership by primary key with the identity package's own statement on the store's drizzle handle; it joins the carry's transaction and has no effect outside the database.",
+  },
+  'packages/identity/src/types.ts#DeviceSignInOperations.create': {
+    kind: 'contained',
+    why: "Creates the device sign-in an old sign-in is exchanged for. The identity package writes the row through the sign-in library's adapter on the store's drizzle handle, so it joins the carry's transaction and rolls back with it (pinned by the injected-fault test of sign-in-carry-over.carry.test.ts). It sends nothing: the cookie it returns is added to the response after the commit, and no socket, agent or daemon learns of a sign-in that did not commit.",
+  },
+  'apps/server/src/identity/member-of-request.ts#MemberOfRequest.<anonymous>': {
+    kind: 'contained',
+    why: "Resolves the cookie of a carry record inside the carry's transaction (the repeat, section 4.3): one read of the identity package on the store's drizzle handle and one read of the member row, plus the package's hourly last-seen touch, which joins the transaction. No effect outside the database.",
+  },
+  'packages/identity/src/types.ts#MembershipOperations.adopt': {
+    kind: 'contained',
+    why: "Gives a member row its membership and account at boot (POD-6746, `ensureLocalIdentity`): membership, account and workspace revision rows written by the identity package through the store's `createOrJoinTransaction`, and the member row through `UsersRepository.writeMemberRow`, whose own effects are analysed where it is declared. Everything joins the one boot transaction and rolls back with it; nothing is sent outside the process.",
+  },
+  'packages/identity/src/types.ts#AccountOperations.create': {
+    kind: 'contained',
+    why: 'The local upgrade creates the account and copies an existing hash through the identity port. Those writes use the same store transaction as the member and membership rows.',
+  },
+  'packages/identity/src/types.ts#AccountOperations.updateProfile': {
+    kind: 'contained',
+    why: 'The local upgrade copies the avatar before adopting the member. The account write joins the store transaction, and there is no membership for that account to notify yet.',
+  },
+  'packages/identity/src/membership/legacy-link.ts#LegacyLinkImporter.<anonymous>': {
+    kind: 'contained',
+    why: 'The internal legacy link import writes the stored hash and expiry through the workspace transaction. It does not issue or send a link.',
+  },
+  'packages/identity/src/types.ts#TransactionPort.fn': {
+    kind: 'opaque',
+    why: "the body the identity package runs in a transaction of the server's store (POD-6746): `SessionStore.identityDatabase()` hands the package `createOrJoinTransaction`, and this is the package's callback inside it. Its statements go through the store's one drizzle handle and join that transaction; what the package does there is its own membership, account and device sign-in writes, and the member row write, which is `UsersRepository.writeMemberRow` and is analysed where it is declared.",
   },
   'apps/server/src/store/committed-rows.ts#CommittedRows.query': {
     kind: 'opaque',
@@ -1014,6 +1107,14 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   },
 
   /* --- reads, clocks and same-unit writes --------------------------------- */
+  'apps/server/src/modules/settings/service.ts#SettingsService.now': {
+    kind: 'contained',
+    why: 'a clock read for the preference timestamp; a rollback publishes no observation outside this process',
+  },
+  'apps/server/src/modules/settings/service.ts#SettingsService.writeBinding': {
+    kind: 'contained',
+    why: 'Both writeTelegramRoute callers supply only a TelegramBindingsRepository upsert or removeForUser statement on the same store transaction, so rollback undoes the binding with its routing preference and no provider I/O or publication occurs inside the span.',
+  },
   'apps/server/src/modules/lock/service.ts#LockServiceDeps.now': {
     kind: 'contained',
     why: 'a clock read',

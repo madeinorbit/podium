@@ -83,6 +83,9 @@ export interface Context {
   users?: UsersRepository
   /** Is login required on this instance — `credentialsRequired()` from server.ts. */
   loginRequired?: () => boolean | Promise<boolean>
+  loginPolicy?: () => Promise<import('./modules/instance/service').InstanceLoginPolicy>
+  /** The HTTP request passed the same host-local check as open-mode access. */
+  hostLocalRequest?: boolean
   /**
    * This process's event-loop accounting rings, which `perf.snapshot` reports
    * alongside the timings (loop design §7.2).

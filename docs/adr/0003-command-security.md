@@ -521,10 +521,9 @@ rejected for single-operator Podium:
 
 **Binding code / docs (characterization at decision time):**
 
-- Trust argument + **instrument** `HOST_LOCAL_MINT_TRUST`:
-  `packages/runtime/src/session-mint.ts` (multi-user must flip
-  `assumesSingleOperator` / `mintBoundToIdentity` together)
-- Tripwire tests: `packages/runtime/src/session-mint.test.ts` (coherence +
+- Historical host-local trust argument and its single-operator tripwire:
+  `docs/decisions/1402-host-local-mint-trust.md`
+- Tripwire tests: the historical runtime host-sign-in tests (coherence +
   `client_sessions` column pin reading `apps/server` schema)
 - Verb: `apps/cli/src/auth-cli.ts` (`podium auth mint-session`)
 - Agent use of the same path: `docs/agents/driving-podium.md` (auth section)
@@ -665,7 +664,7 @@ descriptions when reconciled by POD-359.
 - `docs/agents/driving-podium.md` (agent mint path)
 - `packages/commands/src/framework.ts`, `packages/sync/src/outbox/records.ts`, `packages/protocol/src/messages/message-class.ts`
 - `packages/domain/src/issue-authz.ts`
-- `packages/runtime/src/session-mint.ts`, `apps/cli/src/auth-cli.ts`
+- `packages/runtime/src/session-token.ts`, `apps/cli/src/auth-cli.ts`
 - `packages/client-core/src/outbox.ts`
 - `apps/server/src/modules/sessions/service.ts` (`APPLIED_MUTATIONS_MAX_AGE_MS`)
 - Specs: [spec:SP-3fe2], [spec:SP-b85a], [spec:SP-edbb], [spec:SP-15aa],

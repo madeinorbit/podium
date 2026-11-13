@@ -76,6 +76,7 @@ export function wireClientSocket(
   const id = registry.clientGateway.attachClient({
     send: sink.send,
     terminate: () => ws.terminate(),
+    endSignIn: ({ code, reason }) => (ws.end ? ws.end(code, reason) : ws.terminate()),
     sendStream: sink.sendLossy,
     sendBinary: sink.sendBinary,
     sendBinaryStream: sink.sendBinaryLossy,

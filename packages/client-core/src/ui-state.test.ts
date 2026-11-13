@@ -180,6 +180,19 @@ describe('workspace ui-state routing', () => {
     ).toBe('chat')
   })
 
+  it('follows startScreen until an explicit session choice overrides it', async () => {
+    const { effectivePanelMode } = await import('./ui-state')
+    const base = { chatCapable: true, terminalCapable: true, isMobile: false }
+    expect(effectivePanelMode({ ...base, startScreen: 'native' })).toBe('native')
+    expect(effectivePanelMode({ ...base, startScreen: 'chat' })).toBe('chat')
+    expect(effectivePanelMode({ ...base, startScreen: 'chat', saved: 'native' })).toBe('native')
+    expect(effectivePanelMode({ ...base, startScreen: 'auto', isMobile: true })).toBe('chat')
+    expect(effectivePanelMode({ ...base, startScreen: 'auto' })).toBe('native')
+    // Old persisted device defaults no longer participate in the derivation.
+    const legacy = { ...base, startScreen: 'native' as const, deviceDefault: 'chat' }
+    expect(effectivePanelMode(legacy)).toBe('native')
+  })
+
   it('throws when a replicated route has no canonical family key', () => {
     expect(() => requireReplicatedLayoutKey(UI_STATE_KEYS.split)).toThrow(
       'Replicated UI-state key has no layout key: podium.split',

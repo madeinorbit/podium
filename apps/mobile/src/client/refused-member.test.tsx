@@ -188,6 +188,88 @@ describe('a refused member on the phone (POD-6297)', () => {
   })
 })
 
+/**
+ * THE SERVER ENDS THE PHONE'S SIGN-IN OVER ITS SOCKET (POD-6910). Alice removes
+ * Bob, or signs this phone out from the device list: the server closes the
+ * phone's socket with a code and answers /auth/status with "not signed in".
+ * Nothing else is refused yet. The phone must erase that member's data, drop the
+ * credential and leave the reason for the sign-in screen. A network drop (no
+ * code, no answer) must keep the workspace and the data.
+ */
+describe("the server ends the phone's sign-in (POD-6910)", () => {
+  class ServerSocket {
+    static all: ServerSocket[] = []
+    readyState = 0
+    onopen: ((ev: unknown) => void) | null = null
+    onclose: ((ev: unknown) => void) | null = null
+    onmessage: ((ev: unknown) => void) | null = null
+    onerror: ((ev: unknown) => void) | null = null
+    constructor() {
+      ServerSocket.all.push(this)
+    }
+    send(): void {}
+    close(): void {}
+    addEventListener(): void {}
+    removeEventListener(): void {}
+    closedBy(code: number, reason = ''): void {
+      this.readyState = 3
+      this.onclose?.({ code, reason, wasClean: code !== 1006 })
+    }
+  }
+  let statusAnswer: unknown
+  beforeEach(() => {
+    ServerSocket.all = []
+    statusAnswer = undefined
+    ;(globalThis as { WebSocket?: unknown }).WebSocket = ServerSocket
+    vi.stubGlobal('fetch', async (input: unknown) => {
+      const url = String(input instanceof Request ? input.url : input)
+      if (url.endsWith('/auth/status') && statusAnswer !== undefined)
+        return Response.json(statusAnswer)
+      throw new Error('offline in this test')
+    })
+  })
+
+  async function socketOf() {
+    await waitFor(() => expect(ServerSocket.all.length).toBeGreaterThan(0), { timeout: 10_000 })
+    const socket = ServerSocket.all.at(-1)!
+    act(() => {
+      socket.readyState = 1
+      socket.onopen?.({})
+    })
+    return socket
+  }
+
+  it.each([
+    ['the phone is signed out from the device list', 4401, 'You were signed out on this device.'],
+    ['Alice removes the member', 4403, 'You no longer have access to this server.'],
+  ] as const)('%s: data erased, credential dropped, the reason kept for sign-in', async (_, code, copy) => {
+    state.device.set(aliceKey, 'alice data')
+    state.device.set(bobKey, 'bob data')
+    const { updateCredential } = await bootAsAlice()
+    const socket = await socketOf()
+    statusAnswer = { needsAuth: true, authed: false, userId: null }
+    act(() => socket.closedBy(code))
+    await waitFor(() => expect(updateCredential).toHaveBeenCalledWith(null), { timeout: 15_000 })
+    expect(state.device.has(aliceKey)).toBe(false)
+    expect(state.device.get(bobKey)).toBe('bob data')
+    const { signedOutNotice } = await import('./signed-out-notice')
+    expect(signedOutNotice('profile-a')).toBe(copy)
+  })
+
+  it('a network drop keeps the workspace and the data', async () => {
+    state.device.set(aliceKey, 'alice data')
+    const { updateCredential } = await bootAsAlice()
+    const socket = await socketOf()
+    act(() => socket.closedBy(1006))
+    await act(() => new Promise((resolve) => setTimeout(resolve, 1_500)))
+    expect(updateCredential).not.toHaveBeenCalledWith(null)
+    expect(state.device.get(aliceKey)).toBe('alice data')
+    expect(screen.getByTestId('app')).toBeTruthy()
+    const { signedOutNotice } = await import('./signed-out-notice')
+    expect(signedOutNotice('profile-a')).toBeUndefined()
+  })
+})
+
 describe('discardRefusedMember', () => {
   const run = (over: Partial<Parameters<typeof discardRefusedMember>[0]> = {}) => {
     const events: string[] = []

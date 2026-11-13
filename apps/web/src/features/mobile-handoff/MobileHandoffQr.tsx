@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils'
  * The plate is unconditional rather than themed: a QR is read by a camera, not
  * by the operator, and inverting it on a dark shell costs scan reliability on
  * every phone that assumes dark-on-light. Same treatment, same reason, as the
- * pairing code in Settings → Connected devices.
+ * pairing code in Settings → Account.
  *
  * THE ADDRESS LIVES ON THE CODE, not beside it. Printing `host/mobile` under
  * every code spent a line of both surfaces on a string nobody types — the

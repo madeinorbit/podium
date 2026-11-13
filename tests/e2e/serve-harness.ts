@@ -32,6 +32,7 @@ import {
   shellCommand,
 } from '@podium/harness'
 import { ensurePodiumCodexHooks } from '@podium/harness/adapters/codex/instrumentation'
+import { BUNDLED_DESCRIPTORS } from '@podium/harness/browser'
 import {
   type AgentKind,
   asMachineId,
@@ -51,6 +52,7 @@ import type { WorkerJob } from '../../apps/daemon/src/discovery-worker'
 import { runReclaimDiskEstimateJob } from '../../apps/daemon/src/reclaim-disk-estimate'
 import { DiscoveryWorkerClient, type WorkerLike } from '../../apps/daemon/src/worker-client'
 import { inProcessMachinePrincipal } from '../../apps/server/src/gateway/daemon-mux'
+import { MODEL_CATALOG_VERSION } from '../../apps/server/src/model-catalog'
 import { startServer } from '../../apps/server/src/test-support/enrolled-server'
 import {
   E2E_IDENTITY_FINGERPRINT,
@@ -374,6 +376,16 @@ const startHarnessServer = async (): Promise<Awaited<ReturnType<typeof startServ
       defaultParentBranch: resolveHarnessParentBranch(REPO_ROOT),
     },
   })
+  if (!REAL_AGENTS) {
+    // Model pickers offer only a machine's reported models. Keep the synthetic
+    // browser fixture independent of whichever agent CLIs this host has installed.
+    await store.settings.setModelCatalog({
+      machineId,
+      version: MODEL_CATALOG_VERSION,
+      fetchedAt: Date.now(),
+      byAgent: Object.fromEntries(BUNDLED_DESCRIPTORS.map((d) => [d.kind, d.catalog.models])),
+    })
+  }
   return Object.assign(started, { machineToken })
 }
 
@@ -489,6 +501,8 @@ if (E2E_ACCOUNT_ROLE === 'member' || E2E_ACCOUNT_ROLE === 'none') {
     ownerUserId: await firstAdminMemberId(harnessStore),
     assignment: { server: false, agentExecution: false },
   })
+  // Personal logins are derived only from online machines in the caller's custody.
+  await server.registry.gateway.attachDaemon(identityId, () => {})
   await server.registry.modules.machines.recordInventory(identityId, {
     os: 'linux',
     arch: 'x64',

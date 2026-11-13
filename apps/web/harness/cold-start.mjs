@@ -251,7 +251,7 @@ async function makePage() {
   page.on('console',message=>{if(['error','warning'].includes(message.type()))result.errors.push(`${message.type()}: ${message.text().slice(0,1000)}`)})
   await page.addInitScript(({now,surface})=>{
     const start=performance.now(); Date.now=()=>now+Math.floor(performance.now()-start)
-    localStorage.setItem('podium.panelModeDefault','chat')
+    
     localStorage.setItem('podium.panelMode','chat')
     window.__comparison=null
     const input=event=>{

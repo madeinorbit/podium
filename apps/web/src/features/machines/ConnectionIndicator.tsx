@@ -1,11 +1,6 @@
 import type { ConnectionCondition } from '@podium/client-core/live'
-import { Wifi, WifiOff } from 'lucide-react'
-import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { usePoolHeaderConnection } from '@/app/header-data'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { useClock } from '@/lib/clock-hooks'
-import { cn } from '@/lib/utils'
 
 const WAITING_CONNECTION: ConnectionCondition = { state: 'connecting', since: 0 }
 
@@ -121,55 +116,4 @@ export function describeHealth(health: ConnectionCondition, now: number): Connec
         detail: `No contact for ${formatFor(now - health.since)} — reconnecting automatically. Input is not reaching agents.`,
       }
   }
-}
-
-/**
- * Connection-health icon with an explanatory hover tooltip. Rendered by
- * HostIndicators only while the link is degraded or down — yellow wifi when
- * typing would lag, pulsing red wifi-off when input is going nowhere.
- */
-export function ConnectionIndicator({
-  health,
-  onOpen,
-}: {
-  health: ConnectionCondition
-  onOpen?: () => void
-}): JSX.Element {
-  const severity = connectionSeverity(health)
-  const now = useClock(1_000, severity !== 'ok')
-  const { headline, detail } = describeHealth(health, now)
-  const Icon = severity === 'down' ? WifiOff : Wifi
-  // A button so the tooltip is reachable by keyboard focus and by tap on touch
-  // devices, where hover doesn't exist. Tapping opens the host info panel.
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <button
-            data-pressable
-            type="button"
-            className={cn(
-              'relative inline-flex flex-none cursor-pointer items-center self-center border-0 bg-transparent p-0',
-              severity === 'ok' && 'text-success',
-              severity === 'degraded' && 'text-warning',
-              severity === 'down' && 'text-destructive',
-            )}
-            aria-label={`${headline}. ${detail}`}
-            onClick={onOpen}
-          >
-            {/* Pulse the ICON only — not the whole control. */}
-            <Icon
-              size={14}
-              aria-hidden="true"
-              className={cn(severity === 'down' && 'animate-pulse')}
-            />
-          </button>
-        }
-      />
-      <TooltipContent className="max-w-60 flex-col items-start gap-0.5">
-        <strong>{headline}</strong>
-        <span className="text-background/70">{detail}</span>
-      </TooltipContent>
-    </Tooltip>
-  )
 }

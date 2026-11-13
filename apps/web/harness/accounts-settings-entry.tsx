@@ -1,5 +1,5 @@
 /**
- * SETTINGS → ACCOUNTS & KEYS, REAL, IN A BROWSER (POD-6390).
+ * SETTINGS → AI accounts, REAL, IN A BROWSER (POD-6390).
  *
  * Mounts the SHIPPING `AccountsSection` inside the settings pane's own classes,
  * at the sheet's form width, on the sheet's card ground. `?scene=admin` (default)

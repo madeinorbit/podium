@@ -5,11 +5,11 @@
  * once, and the People list names each member's allowed actions from one read
  * of who has a password.
  */
-import { asInviteId, asMachineId, asUserId, firstAdminMemberId } from '@podium/model'
+import { asMachineId, asUserId, firstAdminMemberId } from '@podium/model'
 import { Hono } from 'hono'
 import { describe, expect, it, vi } from 'vitest'
 import { registerAdminRoutes } from './admin-routes'
-import { MemberInvites } from './member-invites'
+import { registerSignInRoutes } from './sign-in-routes'
 import { registerMemberRoutes } from './member-routes'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
@@ -18,34 +18,43 @@ import {
   expectConstantStatements,
   type StatementPin,
 } from './test-support/statement-count'
+import { cookieOf, openTestIdentity } from './test-support/test-identity'
 
 const at = '2026-11-04T12:00:00.000Z'
-const future = '2999-01-01T00:00:00.000Z'
 
 interface Fixture {
   store: SessionStore
   app: Hono
+  adminCookie: string
+  targetSignIn: string
 }
 
 async function setup(size: number): Promise<Fixture> {
   const store = await openTestStore(':memory:')
   const admin = firstAdminMemberId()
+  const identity = await openTestIdentity(store)
+  const { workspace } = identity
+  const adminAccount = (await store.users.get(admin))?.accountId
+  if (!adminAccount) throw new Error('Missing admin account')
+  const adminCookie = cookieOf(
+    await workspace.core.deviceSignIns.create(adminAccount, { kind: 'browser' }, 'cookie', {
+      scheme: 'https',
+      sameMachine: false,
+      clientAddress: null,
+    }),
+  )
+  let targetSignIn = ''
   for (let i = 0; i < size; i++) {
-    const id = asUserId(`mem_pin_${i}`)
-    await store.users.create(
-      { id, displayName: `Member ${i}`, role: 'member', createdAt: at, disabledAt: null },
-      'hash',
+    const id = await identity.addMember({ name: `Member ${i}`, email: `member-${i}@example.com` })
+    const member = await store.users.get(id)
+    const signIn = await identity.workspace.core.deviceSignIns.create(
+      member!.accountId!,
+      { kind: 'browser' },
+      'cookie',
+      { scheme: 'https', sameMachine: false, clientAddress: null },
     )
-    await store.auth.createClientSession(`pin-cookie-${i}`, id, future)
-    await store.users.insertInvite({
-      id: asInviteId(`invite-pin-${i}`),
-      tokenHash: `invite-hash-${i}`,
-      memberId: null,
-      role: 'member',
-      expiresAt: future,
-      createdBy: admin,
-      createdAt: at,
-    })
+    if (!targetSignIn) targetSignIn = signIn.deviceSignInId
+    await identity.workspace.memberships.invite({ actor: { memberId: admin }, role: 'member' })
     const machineId = asMachineId(`machine-pin-${i}`)
     await store.machines.upsertMachine({
       id: machineId,
@@ -80,7 +89,7 @@ async function setup(size: number): Promise<Fixture> {
   const resolveUserId = async () => admin
   registerAdminRoutes(app, {
     users: store.users,
-    auth: store.auth,
+    identity: identity.workspace,
     audit: store.settingsAudit,
     machineNames: async (ids) =>
       new Map([...(await store.machines.getMachines(ids))].map(([id, m]) => [id, m.name])),
@@ -89,11 +98,20 @@ async function setup(size: number): Promise<Fixture> {
   })
   registerMemberRoutes(app, {
     users: store.users,
-    invites: new MemberInvites(store.users),
+    identity: identity.workspace,
     resolveUserId,
     appUrl: () => 'http://podium.test',
   })
-  return { store, app }
+  registerSignInRoutes(app, {
+    identity: workspace,
+    memberOfRequest: identity.memberOfRequest,
+    audit: store.settingsAudit,
+  })
+  // First touch of a device records last-seen; subsequent requests reuse it.
+  await identity.memberOfRequest(
+    new Request('https://podium.test', { headers: { cookie: adminCookie } }),
+  )
+  return { store, app, adminCookie, targetSignIn }
 }
 
 const pin = (path: string | (() => string)): StatementPin<Fixture> => ({
@@ -109,43 +127,61 @@ const pin = (path: string | (() => string)): StatementPin<Fixture> => ({
   check: (result, _fixture, size) => {
     const { status, body } = result as { status: number; body: Record<string, unknown[]> }
     expect(status).toBe(200)
-    const rows = body.signIns ?? body.events ?? body.members
-    expect(rows!.length).toBeGreaterThanOrEqual(size)
+    if (body.admission)
+      expect((body.admission as unknown as { activeMembers: number }).activeMembers).toBe(size + 1)
+    else expect((body.events ?? body.members)!.length).toBeGreaterThanOrEqual(size)
   },
   teardown: async (fixture) => await fixture.store.close(),
 })
 
 describe('admin area reads', () => {
   it('Access runs a constant number of statements', async () => {
-    await expectConstantStatements(pin('/auth/admin/access'), 5)
+    await expectConstantStatements(pin('/auth/admin/access'), 4)
   })
-  it('ending one sign-in runs a constant number of statements (POD-6701)', async () => {
+  it('lists and counts sign-ins in a fixed number of statements', async () => {
+    await expectConstantStatements(
+      {
+        name: 'GET /auth/admin/sign-ins',
+        setup,
+        target: (fixture) => fixture.store,
+        run: async ({ app, adminCookie }) => {
+          const response = await app.request('https://podium.test/auth/admin/sign-ins', {
+            headers: { cookie: adminCookie },
+          })
+          return { status: response.status, ...(await response.json()) }
+        },
+        check: (result, _fixture, size) => {
+          expect(result).toMatchObject({ status: 200, signInsTotal: size + 1 })
+        },
+        teardown: (fixture) => fixture.store.close(),
+      },
+      4,
+    )
+  })
+  it('ending one sign-in through the admin route runs a constant number of statements', async () => {
     await expectConstantStatements(
       {
         name: 'POST /auth/admin/sign-ins/revoke',
         setup,
         target: (fixture) => fixture.store,
-        run: async (fixture) => {
-          const [first] = await fixture.store.auth.listUnexpiredSignIns(at, 1)
-          const id = first!.sessionId!
-          const response = await fixture.app.request(
-            'http://podium.test/auth/admin/sign-ins/revoke',
-            {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ id }),
-            },
-          )
-          return { status: response.status, id }
+        run: async ({ app, adminCookie, targetSignIn }) => {
+          const response = await app.request('https://podium.test/auth/admin/sign-ins/revoke', {
+            method: 'POST',
+            headers: { cookie: adminCookie, 'content-type': 'application/json' },
+            body: JSON.stringify({ id: targetSignIn }),
+          })
+          return { status: response.status, ...(await response.json()) }
         },
-        check: async (result, fixture, size) => {
-          const { status, id } = result as { status: number; id: string }
-          expect(status).toBe(200)
-          const left = await fixture.store.auth.listUnexpiredSignIns(at, 1000)
-          expect(left.map((row) => row.sessionId)).not.toContain(id)
-          expect(left.length).toBe(size - 1)
+        check: async (result, { app, adminCookie, targetSignIn }, size) => {
+          expect(result).toEqual({ status: 200, ok: true })
+          const response = await app.request('https://podium.test/auth/admin/sign-ins', {
+            headers: { cookie: adminCookie },
+          })
+          const { signIns, signInsTotal } = await response.json()
+          expect(signIns.map((row: { id: string }) => row.id)).not.toContain(targetSignIn)
+          expect(signInsTotal).toBe(size)
         },
-        teardown: async (fixture) => await fixture.store.close(),
+        teardown: (fixture) => fixture.store.close(),
       },
       6,
     )
@@ -186,6 +222,6 @@ describe('admin area reads', () => {
     })
   })
   it('the People list runs a constant number of statements', async () => {
-    await expectConstantStatements(pin('/auth/members/list'), 5)
+    await expectConstantStatements(pin('/auth/members/list'), 7)
   })
 })

@@ -93,7 +93,10 @@ export function createHeaderEntities(
     // whose condition is not read yet is not listed.
     const condition = liveCondition(id)
     const seen = condition?.lastSeenAt === undefined ? Number.NaN : Date.parse(condition.lastSeenAt)
+    // Only my fleet (POD-6908). Every member holds every machine record, so a
+    // record alone would put another member's machine in my header.
     const eligible =
+      fleet.has(id) &&
       machine &&
       condition &&
       isMachineOfflineForLiveTerminal(condition) &&

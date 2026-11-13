@@ -280,7 +280,16 @@ describe('production terminal answer identity', () => {
         ownerUserId: firstAdminMemberId(),
         kind: 'global',
       })
-      await store.superagent.updateSuperagentThreadBinding(threadId, { podiumSessionId: sessionId })
+      // The bound superagent acts with its owner's reach (3fbb163edc). A
+      // session merely named as the binding, without its provenance, does not.
+      const { sessionId: actorSessionId } = await registry.modules.sessions.createSession({
+        agentKind: 'shell',
+        cwd: '/project',
+        spawnedBy: `superagent:${threadId}`,
+      })
+      await store.superagent.updateSuperagentThreadBinding(threadId, {
+        podiumSessionId: actorSessionId,
+      })
       const tools = await buildSuperagentTools(
         { modules: registry.modules, store, repos: { list: async () => [] }, waitPollMs: 5 },
         '',

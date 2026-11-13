@@ -149,7 +149,7 @@ vi.mock('@/app/store', () => {
     deleteIssue: vi.fn(async () => {}),
     setIssueTucked,
     undeferIssue,
-    sidebarSettings: { groupByRepo: false },
+    sidebarSettings: { },
     setSidebarSettings: vi.fn(),
   })
   return {

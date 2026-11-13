@@ -23,8 +23,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
 import { appRouter } from '../../router'
 import type { EffectRow } from '../../store/effects'
+import { memberFacts } from '../../store/fixtures/test-support'
 import type { EffectRunContext } from '../effects/registry'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
+import { scopedMutationId } from '../sync-write/legacy-receipt'
 import { envelope, submit } from '../sync-write/outbox-test-support'
 import { SESSION_ANSWER_KIND, type SessionAnswerInput } from './answer-effect'
 
@@ -85,10 +87,22 @@ async function openAsk(o: Oracle, sessionId: SessionId, id = `ask:${sessionId}`)
 /** Two issues, each with its own worktree under the reported repo `/r`. */
 async function twoIssues(o: Oracle) {
   await o.store.repos.addRepo('/r', o.store.hostMachineId)
-  const a = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'A', startNow: false })
-  await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, a.id, { worktreePath: '/r/.worktrees/a' })
-  const b = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'B', startNow: false })
-  await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, b.id, { worktreePath: '/r/.worktrees/b' })
+  const a = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
+    repoPath: '/r',
+    title: 'A',
+    startNow: false,
+  })
+  await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, a.id, {
+    worktreePath: '/r/.worktrees/a',
+  })
+  const b = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
+    repoPath: '/r',
+    title: 'B',
+    startNow: false,
+  })
+  await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, b.id, {
+    worktreePath: '/r/.worktrees/b',
+  })
   return { a, b }
 }
 
@@ -165,7 +179,9 @@ describe('sessions.answerAskUserQuestion is a session.answer record', () => {
 
     const first = await submit(o, env)
     expect(first).toMatchObject({ outcome: 'applied' })
-    expect(await o.store.sync.getAppliedMutation(env.mutationId)).toBeDefined()
+    expect(
+      await o.store.sync.getAppliedMutation(scopedMutationId(o.principal, env.mutationId)),
+    ).toBeDefined()
     await vi.waitFor(async () => expect((await o.store.effects.get(id))?.status).toBe('succeeded'))
     const replay = await submit(o, env)
     expect(replay).toMatchObject({ outcome: 'applied', replayed: true })
@@ -199,7 +215,7 @@ describe('sessions.answerAskUserQuestion is a session.answer record', () => {
     const o = await makeOracle()
     const sessionId = await liveAgent(o)
     const member = asUserId('usr_answer_member')
-    await o.store.users.create(
+    await memberFacts(o.store).create(
       {
         id: member,
         displayName: 'member',

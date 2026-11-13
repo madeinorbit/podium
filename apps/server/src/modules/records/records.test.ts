@@ -1,3 +1,4 @@
+import { memberFacts } from '../../store/fixtures/test-support'
 /**
  * GENERIC SYNCED EDITS ON THE SYNC WRITE ENTRY POINT (ADR 12 D3/D4, POD-6391).
  *
@@ -477,7 +478,7 @@ describe('records.sessionUserState: the snooze (POD-6404)', () => {
 const MEMBER = asUserId('user:member-6404')
 
 async function member(o: Oracle): Promise<CommandPrincipal> {
-  await o.store.users.create(
+  await memberFacts(o.store).create(
     {
       id: MEMBER,
       displayName: 'member',

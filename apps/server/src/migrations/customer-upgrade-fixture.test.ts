@@ -30,7 +30,6 @@ import {
   enrollmentLedger,
   identityShapes,
   manifest,
-  multiMemberRows,
   serverReleaseMigrations,
   serverRows,
   writeIdentityShape,
@@ -38,8 +37,14 @@ import {
 import { LEDGER_IMPORT_MARKER, RETIRED_MEMBER_MAPPING } from '../enrollment-ledger-import'
 import { makeFeedVisibility } from '../feed-visibility'
 import { createPortableSnapshot } from '../modules/server-transfer/snapshot'
+import {
+  insertFixtureRow as insert,
+  type FixtureRow as Row,
+  seedCustomerMembers,
+} from '../test-support/customer-upgrade-database'
 import { openTestStore } from '../test-support/open-test-store'
 import { testStoreRecords } from '../test-support/record-writer'
+import { retainedSnapshotPaths } from './backup'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { runDrizzleMigrations } from './index'
 
@@ -51,18 +56,10 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
-type Row = Record<string, string | number | null>
 interface MachineRow {
   id: string
   owner_user_id: string | null
   token_hash: string
-}
-
-const insert = (db: SqlDatabase, table: string, row: Row) => {
-  const names = Object.keys(row)
-  db.prepare(
-    `INSERT INTO ${table} (${names.map((n) => `\`${n}\``).join(', ')}) VALUES (${names.map(() => '?').join(', ')})`,
-  ).run(...names.map((n) => row[n] as never))
 }
 
 // Before upgrade custody lives on the legacy row; afterwards the manage edge is authoritative.
@@ -439,7 +436,9 @@ describe('customer upgrade fixture: server', () => {
       sourceFeedId: 'feed-1',
       sourceFeedEpoch: epoch,
       sourceApplicationVersion: 'fixture',
-      sourceSchemaVersion: DRIZZLE_MIGRATIONS.at(-1)!.name,
+      sourceSchemaVersion: DRIZZLE_MIGRATIONS.filter(
+        (m) => !m.sql.startsWith('-- after-local-identity-import'),
+      ).at(-1)!.name,
       checkpoint: () => {},
     })
     const paths = snapshot.files.map((entry) => entry.path)
@@ -453,38 +452,10 @@ describe('customer upgrade fixture: server', () => {
 function memberCustomerState(multiple: boolean): string {
   const root = mkdtempSync(join(tmpdir(), 'podium-member-upgrade-'))
   roots.push(root)
-  const cut = DRIZZLE_MIGRATIONS.findIndex((m) => m.name === multiMemberRows.beforeMigration)
-  expect(cut).toBeGreaterThan(87)
   const db = openDatabase(join(root, 'podium.db'))
   try {
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cut))
-    db.exec('PRAGMA foreign_keys=OFF; DELETE FROM user_credentials; DELETE FROM users')
-    const shapes = [
-      multiMemberRows.singleMember,
-      ...(multiple ? [multiMemberRows.additionalMembers] : []),
-    ]
-    for (const shape of shapes) {
-      for (const [table, rows] of Object.entries(shape)) {
-        for (const row of rows) insert(db, table, row as Row)
-      }
-    }
-    for (const captured of serverRows.machines) {
-      const { owner_user_id: _owner, ...machine } = captured
-      insert(db, 'machines', machine as Row)
-      insert(db, 'grants', {
-        resource_kind: 'machine',
-        resource_id: machine.id,
-        grantee: 'mem_upgrade_alice',
-        verb: 'manage',
-        owner: 'mem_upgrade_alice',
-        visibility: 'private',
-        created_at: machine.created_at,
-        custody: 1,
-        actor_kind: 'user',
-        actor_id: 'mem_upgrade_alice',
-        on_behalf_of: 'mem_upgrade_alice',
-      })
-    }
+    const cut = seedCustomerMembers(db, multiple)
+    expect(cut).toBeGreaterThan(87)
     expect(db.prepare('SELECT count(*) AS n FROM users').get()).toEqual({ n: multiple ? 3 : 1 })
     expect(db.prepare('SELECT count(*) AS n FROM issues').get()).toEqual({ n: multiple ? 4 : 2 })
     expect(db.prepare('SELECT count(*) AS n FROM sessions').get()).toEqual({ n: multiple ? 5 : 1 })
@@ -510,7 +481,11 @@ function preservedMemberData(root: string) {
       .all(),
     preferences: db.prepare('SELECT * FROM user_preferences ORDER BY user_id, key').all(),
     credentials: db.prepare('SELECT * FROM user_credentials ORDER BY user_id').all(),
-    logins: db.prepare('SELECT * FROM client_sessions ORDER BY token_hash').all(),
+    // An earlier migration gives legacy sign-ins public ids. Compare their existing facts.
+    logins: db
+      .prepare(`SELECT token_hash, user_id, created_at, expires_at, label, device_id,
+      device_name, platform, last_seen_at FROM client_sessions ORDER BY token_hash`)
+      .all(),
     sessions: db
       .prepare(
         'SELECT id, issue_id, machine_id, cwd, title, created_at, created_by_on_behalf_of, delegation FROM sessions ORDER BY id',
@@ -574,6 +549,9 @@ describe('MU-15: customer personal data across the complete multi-user migration
     await upgrade(root)
     expect(preservedMemberData(root)).toEqual(before)
     withDb(root, (db) => {
+      expect(
+        db.prepare('SELECT count(*) AS n FROM client_sessions WHERE session_id IS NULL').get(),
+      ).toEqual({ n: 0 })
       expect(db.prepare('SELECT id, owner_user_id FROM sessions ORDER BY id').all()).toEqual([
         { id: 'session-alice-history', owner_user_id: 'mem_upgrade_alice' },
         ...(multiple
@@ -620,7 +598,8 @@ describe('MU-15: customer personal data across the complete multi-user migration
             .get(),
         ).toEqual({ joined_via: 'start' })
       expect(db.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get()).toEqual({
-        n: DRIZZLE_MIGRATIONS.length,
+        n: DRIZZLE_MIGRATIONS.filter((m) => !m.sql.startsWith('-- after-local-identity-import'))
+          .length,
       })
       expect(db.prepare('PRAGMA quick_check').get()).toEqual({ quick_check: 'ok' })
     })
@@ -664,4 +643,39 @@ describe('MU-15: customer personal data across the complete multi-user migration
       await store.close()
     }
   })
+})
+
+it('keeps the original Alice and Bob rollback snapshot when boot retries before local import', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'podium-import-retry-'))
+  roots.push(root)
+  const path = join(root, 'podium.db')
+  const db = openDatabase(path)
+  try {
+    seedCustomerMembers(db, true)
+    expect(
+      db
+        .prepare(
+          "SELECT id FROM users WHERE id IN ('mem_upgrade_alice', 'mem_upgrade_bob') ORDER BY id",
+        )
+        .all(),
+    ).toEqual([{ id: 'mem_upgrade_alice' }, { id: 'mem_upgrade_bob' }])
+    const credentials = db.prepare('SELECT * FROM user_credentials ORDER BY user_id').all()
+    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS, { dbPath: path, skipSchemaRepair: true })
+    const snapshots = retainedSnapshotPaths(path)
+    expect(snapshots).toHaveLength(1)
+    expect(
+      db.prepare("SELECT value FROM meta WHERE key = 'identity.legacyLinksImported'").get(),
+    ).toBeUndefined()
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    // The schema step committed, but the data step has not recorded completion.
+    // Another boot must keep its original rollback snapshot rather than stage
+    // a newer partial-upgrade snapshot and eventually prune the original away.
+    expect(
+      runDrizzleMigrations(db, DRIZZLE_MIGRATIONS, { dbPath: path, skipSchemaRepair: true }),
+    ).toEqual([])
+    expect(retainedSnapshotPaths(path)).toEqual(snapshots)
+    expect(db.prepare('SELECT * FROM user_credentials ORDER BY user_id').all()).toEqual(credentials)
+  } finally {
+    db.close()
+  }
 })

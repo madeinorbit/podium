@@ -1,4 +1,8 @@
-import { MEMBERSHIP_DENIED_COPY } from '@podium/client-core/accounts'
+import {
+  type AuthCapabilities,
+  accountPageUrl,
+  MEMBERSHIP_DENIED_COPY,
+} from '@podium/client-core/accounts'
 import { Text, View } from 'react-native'
 import { color, font, sans, space } from '../theme/theme'
 import { HostedSignInButton } from './HostedSignInButton'
@@ -12,13 +16,13 @@ export function MembershipDeniedView({
   reason,
   workspaceId,
   server,
-  signInUrl,
+  capabilities,
   onBegin,
 }: {
   reason: string
   server: string
   workspaceId?: string
-  signInUrl?: string
+  capabilities?: AuthCapabilities
   onBegin?(): void | Promise<void>
 }) {
   return (
@@ -29,13 +33,15 @@ export function MembershipDeniedView({
         {reason}
       </Text>
       <Text style={styles.body}>{MEMBERSHIP_DENIED_COPY.body}</Text>
-      <HostedSignInButton
-        server={server}
-        signInUrl={signInUrl}
-        workspaceId={workspaceId}
-        label={MEMBERSHIP_DENIED_COPY.action}
-        onBegin={onBegin}
-      />
+      {capabilities?.accountUrl && (
+        <HostedSignInButton
+          server={server}
+          signInUrl={accountPageUrl(capabilities, 'sign-in')}
+          workspaceId={workspaceId}
+          label={MEMBERSHIP_DENIED_COPY.action}
+          onBegin={onBegin}
+        />
+      )}
       <Text style={styles.help}>
         Already have an invitation? Open its link in your browser, then return to Podium.
       </Text>

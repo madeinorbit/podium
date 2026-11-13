@@ -412,7 +412,10 @@ export function validateFeedFrame(frame: {
     // may share a number. A start-up load is built from the model tables, whose
     // records have no change number of their own, so every row carries the head
     // number the load is stamped with; the replica's own rule (`validateFrame`)
-    // has always allowed a shared number.
+    // has always allowed a shared number. Rows an edge re-admits or evicts share
+    // the seq of the change that moved them too (ADR 2 Amendment 1 D14.3): a
+    // strict rule refused every frame that carried them, so a catch-up across one
+    // machine report stopped sync and a live one forced a re-bootstrap (POD-6834).
     if (change.seq < previous && !violations.includes('rows-unordered')) {
       violations.push('rows-unordered')
     }

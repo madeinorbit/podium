@@ -17,9 +17,11 @@ import { asMutationId, asSessionId, type SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { resolvePrincipalAsync } from '../../command-principal'
 import { appRouter } from '../../router'
 import { OPERATOR } from '../../test-support/capabilities'
 import { confirmingRetirement } from '../../test-support/host-daemon'
+import { scopedMutationId } from '../sync-write/legacy-receipt'
 import { envelope, expectAppliedOnPath, rowsOf, submit } from '../sync-write/outbox-test-support'
 import { sessionCommandCtx } from './command-ctx'
 import { dispatchSessionCommand } from './command-plane'
@@ -129,7 +131,11 @@ describe('sessions.continue is on the sync write entry point', () => {
       // (like a chat send's); its dedup record is what the replay is answered from.
       { writes: false },
     )
-    expect(await o.store.sync.getAppliedMutation(asMutationId('m-continue-1'))).toBeDefined()
+    expect(
+      await o.store.sync.getAppliedMutation(
+        scopedMutationId(o.principal, asMutationId('m-continue-1')),
+      ),
+    ).toBeDefined()
 
     expect(result).toEqual({ ok: true })
     await vi.waitFor(() => expect(durableSends(o.daemon, sessionId)).toHaveLength(1))
@@ -283,6 +289,10 @@ describe('the relay chat sends are on the sync write entry point (POD-6591)', ()
     it(`${proc}: as the calling agent, under the CLI's message id; a replay runs nothing`, async () => {
       const o = await makeOracle()
       const { caller: agent } = await caller(o)
+      const principal = await resolvePrincipalAsync(
+        await o.reg.modules.sessions.capabilityForSession(agent),
+        { parentSessionOf: async () => undefined },
+      )
       const target = await shellIn(o, '/r/.worktrees/a')
       const submitted = vi.spyOn(o.reg.modules.syncWrite, 'submitDetailed')
       const id =
@@ -304,7 +314,9 @@ describe('the relay chat sends are on the sync write entry point (POD-6591)', ()
       expect(call?.[0].confirmed).toBeUndefined()
       expect(call?.[1]).toMatchObject({ kind: 'agent', agentSessionId: agent })
       expect(call?.[2]).toBe('relay')
-      expect(await o.store.sync.getAppliedMutation(asMutationId(id))).toBeDefined()
+      expect(
+        await o.store.sync.getAppliedMutation(scopedMutationId(principal, asMutationId(id))),
+      ).toBeDefined()
       expect(await o.store.messages.getMessage(id)).not.toBeNull()
 
       const mailSend = vi.spyOn(o.reg.modules.messageGate, 'dispatch')
@@ -320,6 +332,10 @@ describe('the relay chat sends are on the sync write entry point (POD-6591)', ()
   it("a send outside the agent's scope is refused in the plane's words; --outside-scope confirms it", async () => {
     const o = await makeOracle()
     const { caller: agent, b } = await caller(o)
+    const principal = await resolvePrincipalAsync(
+      await o.reg.modules.sessions.capabilityForSession(agent),
+      { parentSessionOf: async () => undefined },
+    )
     const outside = await shellIn(o, '/r/.worktrees/b')
     const submitted = vi.spyOn(o.reg.modules.syncWrite, 'submitDetailed')
     const id = 'msg_00000000-0000-4000-8000-000000006593'
@@ -339,13 +355,18 @@ describe('the relay chat sends are on the sync write entry point (POD-6591)', ()
       `issue ${b.id} is outside your subtree; re-run with --outside-scope to confirm`,
     )
     expect(await o.store.messages.getMessage(id)).toBeNull()
-    expect(await o.store.sync.getAppliedMutation(asMutationId(id))).toBeUndefined()
+    expect(
+      await o.store.sync.getAppliedMutation(scopedMutationId(principal, asMutationId(id))),
+    ).toBeUndefined()
 
     expect(await send('send-outside-confirmed', true)).toMatchObject({
       ok: true,
       result: { ok: true },
     })
     expect(submitted.mock.calls.at(-1)?.[0]).toMatchObject({ mutationId: id, confirmed: true })
+    expect(
+      await o.store.sync.getAppliedMutation(scopedMutationId(principal, asMutationId(id))),
+    ).toBeDefined()
     expect(await o.store.messages.getMessage(id)).not.toBeNull()
 
     // The target check runs before the dedup: the recorded send replayed

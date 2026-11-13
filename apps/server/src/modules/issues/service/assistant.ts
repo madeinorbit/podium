@@ -41,7 +41,7 @@ export class IssueAssistantDigestModule {
   /**
    * The last background-LLM failure's actionable text (POD-4805): a refused
    * server-AI call must say why somewhere the operator looks — the server log
-   * (one warn line at the catch below) and Settings → Background LLM /
+   * (one warn line at the catch below) and Settings → Agents → Background model /
    * Accounts (read through the accounts hub). Undefined until the first
    * failure. Never an issue field: `refreshAssistant` stays non-throwing and
    * leaves prior state intact.
@@ -129,13 +129,11 @@ export class IssueAssistantDigestModule {
         {
           settings,
           // POD-469: the actor's managed key (own, then explicitly shared),
-          // the rule a coding spawn uses; the instance's legacy key only as a
-          // read-only fallback. Resolved at the moment of use (POD-419).
+          // the rule a coding spawn uses, resolved at the moment of use.
           apiKey: async (account) =>
             await oneShotApiKey(
               {
                 accounts: store.accounts,
-                legacyApiKey: async (provider) => await store.secrets.apiKeyFor(provider),
               },
               actor,
               account,

@@ -54,7 +54,6 @@ export function useSettingsCatalog(): SettingsCatalog {
 
 const EMPTY_MACHINE_IDS: readonly string[] = []
 const EMPTY_MACHINES: MachineModel[] = []
-const EMPTY_TARGETS: Record<string, string> = {}
 export function useSettingsMachineIds(): readonly string[] {
   const view = useSettingsOpening()
   const read = useCallback(
@@ -90,21 +89,12 @@ export function useSettingsMachine(id: string | null): MachineModel | null {
   )
   return useWorklistPoolProjection(read, null)
 }
-export function useSettingsMachineTargets(channel: string | null): Record<string, string> {
-  const view = useSettingsOpening()
-  const read = useCallback(
-    (_pool: MobxPool) => view?.machines.targets(channel) ?? EMPTY_TARGETS,
-    [view, channel],
-  )
-  return useWorklistPoolProjection(read, EMPTY_TARGETS)
-}
-
 const readTab = (pool: MobxPool) => {
   const row = omitGone(pool.row('settingsWindow', 'window'))
-  return loaded(row) ? row.settingsTab : 'sessions'
+  return loaded(row) ? row.settingsTab : 'agents'
 }
 export function useSettingsTab(): SettingsRows['settingsWindow']['settingsTab'] {
-  return useWorklistPoolProjection(readTab, 'sessions')
+  return useWorklistPoolProjection(readTab, 'agents')
 }
 
 export function useSettingsSessionPresent(id: string | null): boolean {

@@ -143,7 +143,7 @@ vi.mock('@/app/store', () => {
     archiveIssue,
     deleteIssue: vi.fn(async () => {}),
     setIssueTucked: vi.fn(async () => {}),
-    sidebarSettings: { groupByRepo: false },
+    sidebarSettings: { },
     setSidebarSettings: vi.fn(),
   })
   return {

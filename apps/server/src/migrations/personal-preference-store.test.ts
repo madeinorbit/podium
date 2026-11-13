@@ -96,7 +96,7 @@ const POST_MIGRATION_PERSONAL_KEYS = [
 /** Lifted by the frozen SQL but since removed from the live shape. A stored row
  * for one of these is harmless: `normalizeSettings` strips the unknown member
  * when the per-user overlay is resolved. */
-const RETIRED_PERSONAL_KEYS = ['roles.coding.subagentStrategy'] as const
+const RETIRED_PERSONAL_KEYS = ['roles.coding.subagentStrategy', 'sidebar.groupByRepo'] as const
 
 /**
  * DISTINCT per key, NON-DEFAULT, and recognisable in a failure message.

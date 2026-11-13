@@ -145,6 +145,14 @@ export function usePoolHostAggregate(id: MachineId | undefined) {
   })
 }
 
+/** Whose machine this computer is (the desktop shell's own machine id). */
+export function useThisComputer(machineId: string | undefined) {
+  const read = useMemo(
+    () => (pool: MobxPool) => headerView(pool).thisComputer(machineId),
+    [machineId],
+  )
+  return useWorklistPoolProjection(read, undefined)
+}
 const readOffline = (pool: MobxPool) => headerView(pool).offlineMachines()
 export function usePoolOfflineMachines() {
   return useWorklistPoolProjection(readOffline, EMPTY_MACHINES)

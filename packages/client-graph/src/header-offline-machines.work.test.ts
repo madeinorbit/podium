@@ -26,9 +26,11 @@ function machine(id: string, online: boolean, seen: number): Machine {
     id: id as HeaderRows['machine']['id'],
     name: id,
     hostname: id,
+    // In my fleet: the record carries my access row (POD-6644).
+    use: 'granted',
     online,
     lastSeenAt: new Date(seen).toISOString(),
-  }
+  } as Machine
 }
 function record(value: Machine): HeaderRows['machine'] {
   const { online: _online, lastSeenAt: _seen, availability: _availability, ...rest } = value
@@ -272,6 +274,47 @@ it('preserves all eligibility rules, source order, live online and replacement',
     // A machine whose condition is not read yet is not listed (POD-6644).
     headerEntities(pool).apply([{ kind: 'machine', id: 'unread', value: record(machine('unread', false, NOW)) }])
     expect(ids(answer)).toEqual(['a'])
+  } finally {
+    stop()
+    pool.dispose()
+  }
+})
+
+it('never lists another member machine, and answers whose this computer is (POD-6908)', () => {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: NOW })
+  const live = liveFixture(pool, () => NOW)
+  const mine = machine('mine', false, NOW - 1000)
+  // Every member holds every machine record; this one carries no access row of mine.
+  const { use: _use, ...desk } = machine('desk', false, NOW - 1000)
+  headerEntities(pool).apply([
+    { kind: 'machine', id: 'mine', value: record(mine) },
+    { kind: 'machine', id: 'desk', value: record(desk as Machine) },
+  ])
+  place(live, mine)
+  place(live, desk as Machine)
+  let answer: { id: string }[] = []
+  const stop = autorun(() => {
+    answer = headerView(pool).offlineMachines()
+  })
+  try {
+    expect(ids(answer)).toEqual(['mine'])
+    expect(headerView(pool).thisComputer('desk')).toBe('another-member')
+    expect(headerView(pool).thisComputer('mine')).toBe('mine')
+    expect(headerView(pool).thisComputer('unknown')).toBeUndefined()
+    expect(headerView(pool).thisComputer(undefined)).toBeUndefined()
+    // Access granted: it is my machine now, and offline like any other.
+    headerEntities(pool).apply([
+      {
+        kind: 'machine',
+        id: 'desk',
+        value: record({ ...(desk as Machine), use: 'granted' } as Machine),
+      },
+    ])
+    expect(ids(answer).sort()).toEqual(['desk', 'mine'])
+    expect(headerView(pool).thisComputer('desk')).toBe('mine')
+    // And withdrawn again.
+    headerEntities(pool).apply([{ kind: 'machine', id: 'desk', value: record(desk as Machine) }])
+    expect(ids(answer)).toEqual(['mine'])
   } finally {
     stop()
     pool.dispose()

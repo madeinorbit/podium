@@ -2,12 +2,15 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId, asUserId } from '@podium/model'
-import { prepareSetupEnrollment, confirmSetupEnrollment, signMachineHello } from '@podium/runtime/setup-enrollment'
+import { hashPassword } from '@podium/runtime/auth-store'
 import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
+import { confirmSetupEnrollment, prepareSetupEnrollment, signMachineHello } from '@podium/runtime/setup-enrollment'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { adoptLegacyHostMachine, completePreauthorizedSetup, enrollSetupMachine, readSetupEnrollment } from './setup-enrollment'
-import { openTestStore } from './test-support/open-test-store'
 import type { SessionStore } from './store'
+import { memberFacts } from './store/fixtures/test-support'
+import { openTestStore } from './test-support/open-test-store'
+import { openTestIdentity } from './test-support/test-identity'
 
 const actor = asUserId('setup-admin')
 const stores: SessionStore[] = []
@@ -22,7 +25,7 @@ async function fixture(preauthorized = false, createActor = true) {
   dirs.push(dir)
   const store = await openTestStore(':memory:')
   stores.push(store)
-  if (createActor) await store.users.create({ id: actor, displayName: 'Setup admin', role: 'admin',
+  if (createActor) await memberFacts(store).create({ id: actor, displayName: 'Setup admin', role: 'admin',
     createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
   return { store, dir, request: prepareSetupEnrollment(true, preauthorized, dir) }
 }
@@ -60,16 +63,30 @@ describe('setup enrollment transaction', () => {
 
   it('does not provision an uncommitted web setup request at boot', async () => {
     const { store, request } = await fixture()
-    expect(await completePreauthorizedSetup(store, 'installation-a', request)).toBeUndefined()
+    const { credentials } = await openTestIdentity(store)
+    expect(await completePreauthorizedSetup(store, credentials, 'installation-a', request)).toBeUndefined()
     expect(await store.machines.getMachine(asMachineId(request.machineId))).toBeUndefined()
   })
 
   it('binds the sole setup member and activates its password in the enrollment transaction', async () => {
     const { store, request } = await fixture(true, false)
+    const { credentials } = await openTestIdentity(store)
     const member = (await store.users.soleActiveMember())!
-    const receipt = await completePreauthorizedSetup(store, 'installation-a', request, 'setup-password-hash')
+    const staged = await hashPassword('setup password')
+    const receipt = await completePreauthorizedSetup(store, credentials, 'installation-a', request, staged)
     expect(receipt?.actor).toBe(member.id)
-    expect((await store.users.credentialFor(asUserId(member.id)))?.passwordHash).toBe('setup-password-hash')
+    // The password is the password of the admin's account: it is what a sign-in checks.
+    expect(await credentials.verifyPassword(asUserId(member.id), 'setup password')).toBe(true)
+  })
+
+  it('keeps a password the admin already has over the one setup staged', async () => {
+    const { store, request } = await fixture(true, false)
+    const { credentials } = await openTestIdentity(store)
+    const member = asUserId((await store.users.soleActiveMember())!.id)
+    await credentials.setPassword(member, 'their own password')
+    await completePreauthorizedSetup(store, credentials, 'installation-a', request, await hashPassword('staged later'))
+    expect(await credentials.verifyPassword(member, 'their own password')).toBe(true)
+    expect(await credentials.verifyPassword(member, 'staged later')).toBe(false)
   })
 
   it('moves server assignment only in the explicit transfer transition and preserves agent execution', async () => {
@@ -91,11 +108,12 @@ describe('setup enrollment transaction', () => {
 
   it('records ambiguous first-boot membership as unowned and never re-infers it', async () => {
     const { store, request } = await fixture(true)
-    await store.users.create({ id: asUserId('another-admin'), displayName: 'Other', role: 'admin',
+    await memberFacts(store).create({ id: asUserId('another-admin'), displayName: 'Other', role: 'admin',
       createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
-    const first = await completePreauthorizedSetup(store, 'installation-a', request)
+    const { credentials } = await openTestIdentity(store)
+    const first = await completePreauthorizedSetup(store, credentials, 'installation-a', request)
     expect(first?.actor).toBeNull()
-    expect(await completePreauthorizedSetup(store, 'installation-a', request)).toEqual(first)
+    expect(await completePreauthorizedSetup(store, credentials, 'installation-a', request)).toEqual(first)
   })
 })
 

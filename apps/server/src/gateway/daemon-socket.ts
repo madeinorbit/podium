@@ -392,7 +392,8 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
       // A NEWLY PAIRED MACHINE gets its custodian's ticked logins (POD-6301,
       // D11: "all machines I hold custody of, now and in future"). The pairing
       // grant's `copyAgentCredentials` no longer copies anything by itself: the
-      // owner's per-login choice decides, and propagation reaches only the
+      // owner's per-login choice decides. Propagation excludes targets that
+      // keep their own logins (`podiumManaged=false`), reaches only the
       // custodian's own machines and never replaces a login already there.
       if (!recoveryTransportOnly(registry) && outcome.pairingGrant !== undefined) {
         // Every harness with a propagatable native login (POD-4737): derived

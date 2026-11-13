@@ -13,7 +13,7 @@ import { useSettingsTrpc } from '@/features/settings/stable-access'
 /**
  * ONBOARDING'S D11 STEP (POD-6301; September addendum §5): every account Podium
  * detected on the person's machines, each with its own unticked box. The same
- * box is in Settings → Accounts for accounts found later. Nothing renders while
+ * box is in Settings → AI accounts for accounts found later. Nothing renders while
  * no account with a known identity was detected.
  */
 export const OnboardingAccountChoices = observer(

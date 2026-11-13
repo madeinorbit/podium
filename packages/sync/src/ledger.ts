@@ -111,6 +111,8 @@ export interface LedgerDeps {
   monotonicNow?: () => number
   visibility?: FeedVisibilityPolicy
   anchors?: VisibilityAnchorPort
+  /** D14.4's terminal-path bound, passed to the Authority (its default when absent). */
+  rescopeThreshold?: number
   listenerPrincipal?: Principal
   /** The command now appending, passed straight to the Authority — see
    *  `AuthorityDeps.provenance` (POD-6272). Unset stamps nothing. */
@@ -238,6 +240,7 @@ export class Ledger {
       // every site to name a real policy.
       visibility: deps.visibility ?? new DeviceGradeUnscopedPolicy(),
       anchors: deps.anchors ?? new DeviceGradeNoAnchors(),
+      ...(deps.rescopeThreshold === undefined ? {} : { rescopeThreshold: deps.rescopeThreshold }),
     })
     // One subscription, translating the kernel's vocabulary into this facade's.
     // Registered in the CONSTRUCTOR rather than lazily on first listener: the

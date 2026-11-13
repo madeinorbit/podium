@@ -13,6 +13,7 @@ import { countStatements } from '../test-support/statement-count'
 import { withOperation } from './executor/operation-scope'
 import { withReadScope } from './executor/read-scope'
 import type { StoreQueries } from './executor/sync-drizzle'
+import { memberFacts } from './fixtures/test-support'
 import { type GrantRow, GrantsRepository } from './grants'
 import type { SessionRow } from './types'
 
@@ -434,24 +435,24 @@ describe('UsersRepository.earliestAdmin for a whole operation', () => {
   it('sees an earlier admin created and a disable made in the same operation', async () => {
     await withStore(async (store) => {
       const original = (await store.users.earliestAdmin())!.id
-      await store.users.create(
+      await memberFacts(store).create(
         later('mem_2BBBBBBBBBBBBBBBBBBBBBBBBBB', '2099-01-01T00:00:00.000Z'),
         'scrypt:hash',
       )
       await withOperation(async () => {
         expect((await store.users.earliestAdmin())?.id).toBe(original)
-        await store.users.create(
+        await memberFacts(store).create(
           later('mem_0AAAAAAAAAAAAAAAAAAAAAAAAAA', '2000-01-01T00:00:00.000Z'),
           'scrypt:hash',
         )
         expect((await store.users.earliestAdmin())?.id).toBe('mem_0AAAAAAAAAAAAAAAAAAAAAAAAAA')
-        await store.users.disable(
+        await memberFacts(store).disable(
           asUserId('mem_0AAAAAAAAAAAAAAAAAAAAAAAAAA'),
           '2026-10-17T00:00:00.000Z',
         )
         expect((await store.users.earliestAdmin())?.id).toBe(original)
         await store.transact(async () => {
-          await store.users.disable(asUserId(original), '2026-10-17T00:00:01.000Z')
+          await memberFacts(store).disable(asUserId(original), '2026-10-17T00:00:01.000Z')
           expect((await store.users.earliestAdmin())?.id).toBe('mem_2BBBBBBBBBBBBBBBBBBBBBBBBBB')
         })
         expect((await store.users.earliestAdmin())?.id).toBe('mem_2BBBBBBBBBBBBBBBBBBBBBBBBBB')
@@ -466,7 +467,7 @@ describe('UsersRepository.earliestAdmin for a whole operation', () => {
         expect((await store.users.earliestAdmin())?.id).toBe(original)
         await expect(
           store.transact(async () => {
-            await store.users.create(
+            await memberFacts(store).create(
               later('mem_0AAAAAAAAAAAAAAAAAAAAAAAAAA', '2000-01-01T00:00:00.000Z'),
               'scrypt:hash',
             )
@@ -503,7 +504,7 @@ describe('UsersRepository.get for a whole operation', () => {
   it('one read before, inside and after its write span; ids of a tick in one read; none shared with the next operation', async () => {
     await withStore(async (store) => {
       const admin = asUserId((await store.users.earliestAdmin())!.id)
-      await store.users.create(member('mem_1BBBBBBBBBBBBBBBBBBBBBBBBBB'), 'scrypt:hash')
+      await memberFacts(store).create(member('mem_1BBBBBBBBBBBBBBBBBBBBBBBBBB'), 'scrypt:hash')
       const other = asUserId('mem_1BBBBBBBBBBBBBBBBBBBBBBBBBB')
       const phases = async () => {
         const first = await Promise.all([
@@ -529,12 +530,12 @@ describe('UsersRepository.get for a whole operation', () => {
       const other = asUserId('mem_1BBBBBBBBBBBBBBBBBBBBBBBBBB')
       await withOperation(async () => {
         expect(await store.users.get(other)).toBeUndefined()
-        await store.users.create(member(other), 'scrypt:hash')
+        await memberFacts(store).create(member(other), 'scrypt:hash')
         expect((await store.users.get(other))?.displayName).toBe(other)
-        await store.users.writeProfile(other, 'Renamed', null)
+        await memberFacts(store).writeProfile(other, 'Renamed', null)
         expect((await store.users.get(other))?.displayName).toBe('Renamed')
         await store.transact(async () => {
-          await store.users.disable(other, '2026-10-17T00:00:00.000Z')
+          await memberFacts(store).disable(other, '2026-10-17T00:00:00.000Z')
           expect(await store.users.get(other)).toBeUndefined()
         })
         expect(await store.users.get(other)).toBeUndefined()
@@ -567,7 +568,7 @@ describe('UsersRepository.get for a whole operation', () => {
         expect(await store.users.get(other)).toBeUndefined()
         await expect(
           store.transact(async () => {
-            await store.users.create(member(other), 'scrypt:hash')
+            await memberFacts(store).create(member(other), 'scrypt:hash')
             expect((await store.users.get(other))?.id).toBe(other)
             throw new Error('roll the span back')
           }),
@@ -605,8 +606,8 @@ describe('SettingsRepository.getSettingsFor for a whole operation', () => {
           expect((await store.settings.getSettingsFor(user)).sidebar.repoSort).toBe('custom')
         })
         expect((await store.settings.getSettingsFor(user)).sidebar.repoSort).toBe('custom')
-        await store.settings.applyPreferencePatch(user, { 'gitWorkflow.mergeStyle': 'ask' }, at)
-        expect((await store.settings.getSettingsFor(user)).gitWorkflow.mergeStyle).toBe('ask')
+        await store.settings.applyPreferencePatch(user, { 'gitWorkflow.defaultParentBranch': 'next' }, at)
+        expect((await store.settings.getSettingsFor(user)).gitWorkflow.defaultParentBranch).toBe('next')
         await store.settings.userPreferences.clear(user, 'sidebar.repoSort')
         expect((await store.settings.getSettingsFor(user)).sidebar.repoSort).not.toBe('custom')
       })
@@ -618,9 +619,9 @@ describe('SettingsRepository.getSettingsFor for a whole operation', () => {
       const user = (await store.users.earliestAdmin())!.id as UserId
       await withOperation(async () => {
         const first = await store.settings.getSettingsFor(user)
-        const stored = first.gitWorkflow.mergeStyle
-        first.gitWorkflow.mergeStyle = stored === 'ask' ? 'pr' : 'ask'
-        expect((await store.settings.getSettingsFor(user)).gitWorkflow.mergeStyle).toBe(stored)
+        const stored = first.gitWorkflow.defaultParentBranch
+        first.gitWorkflow.defaultParentBranch = stored === 'next' ? 'release' : 'next'
+        expect((await store.settings.getSettingsFor(user)).gitWorkflow.defaultParentBranch).toBe(stored)
       })
     })
   })

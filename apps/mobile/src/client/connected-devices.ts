@@ -1,4 +1,4 @@
-import type { MobileClientSession } from '@podium/protocol'
+import type { DeviceSignInView } from '@podium/protocol'
 import { lazy } from '@podium/mobx-helpers'
 import { compareShallow } from 'mobx'
 import { RecordRequest } from '@podium/client-graph/requested-records'
@@ -12,13 +12,13 @@ import { useServerProfile } from './ServerProfileGate'
 import { serverProfileRequestKey } from './server-profiles'
 
 export interface ConnectedDevicesFeed {
-  sessions: MobileClientSession[] | null
+  sessions: DeviceSignInView[] | null
   loading: boolean
   failed: boolean
   reload: () => void
 }
 class ConnectedDeviceRequest extends RecordRequest<'device'> {
-  constructor(pool: import('@podium/client-graph/pool').MobxPool) { super(pool, 'device', row => row.sessionId) }
+  constructor(pool: import('@podium/client-graph/pool').MobxPool) { super(pool, 'device', row => row.id) }
   @lazy({ equals: compareShallow }) get orderedModels() {
     return [...this.models].sort((a, b) => a.current !== b.current ? (a.current ? -1 : 1)
       : (b.lastSeenAt ?? b.createdAt).localeCompare(a.lastSeenAt ?? a.createdAt))

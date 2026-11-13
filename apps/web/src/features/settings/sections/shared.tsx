@@ -1,103 +1,859 @@
-import { observer } from 'mobx-react-lite'
 /**
- * Shared building blocks for the settings sections (P5d, issue #264): the
- * Section/Row layout primitives, the account/provider label helpers, and the
- * single reusable RoleBackendEditor (SP-6454 B3) used by the sessions,
- * superagent, and background-LLM tabs. Extracted verbatim from SettingsView.tsx.
+ * Shared row primitives and account/provider labels for settings pages.
  */
+import { SETTINGS_PATH_TIERS, settingsTierForPath } from '@podium/model/browser'
+import type { HarnessDescriptorWire } from '@podium/protocol'
+import type { ApiProvider, HarnessAgent, PodiumSettings } from '@podium/runtime'
+import { ChevronRight } from 'lucide-react'
+import { observer } from 'mobx-react-lite'
 import {
-  type AccountId,
-  asAccountId,
-} from '@podium/model/browser'
-import type { ApiProvider, HarnessAgent, RoleBackend } from '@podium/runtime'
-import type { JSX } from 'react'
+  type ChangeEvent,
+  type ComponentProps,
+  createContext,
+  type JSX,
+  type ReactNode,
+  useContext,
+  useId,
+  useRef,
+  useState,
+} from 'react'
+import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import type { HarnessDescriptorWire } from '@podium/protocol'
-import { AUTO, modelOptions } from '@podium/client-core/agent-models'
-import type { MachineModel } from '@podium/client-graph'
-import { useModelCatalogState } from '@/lib/use-model-catalog'
-import { useSettingsAuthorizedMachines } from '../readers'
-import { issueAgentDescriptors, issueDefaultAgentKind } from '@/lib/issue-agents'
-import { managedCodingHarnesses as managedCodingHarnessesFromDescriptors } from '@/lib/managed-harness-pairing'
-import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
+import { Switch } from '@/components/ui/switch'
+import { issueAgentDescriptors } from '@/lib/issue-agents'
+import { useSettingsRowId } from '../settings-anchors'
+import { useSettingsFrame } from '../settings-frame'
 
 export function Section({
+  id,
   title,
   hint,
+  action,
+  list,
   children,
 }: {
-  title: string
+  id?: string
+  title?: ReactNode
   hint?: string
+  action?: ReactNode
+  /** Auto-groups rendered rows; true also groups custom entity lists. */
+  list?: boolean
   children: React.ReactNode
 }): JSX.Element {
   // The separating rule and its spacing live in `.settings-measure > section`
   // (styles.css): the `first:` guard that used to be here could never fire,
   // because the class banner — not this section — is the pane's first child.
   return (
-    <section>
-      <h3 className="settings-h mb-1.5">{title}</h3>
-      {hint && <p className="settings-prose mb-4">{hint}</p>}
-      {children}
+    <section id={id} tabIndex={id ? -1 : undefined}>
+      {(title || hint || action) && (
+        <header className="settings-section-header">
+          {(title || hint) && (
+            <div className="min-w-0">
+              {title && <h3 className="settings-h">{title}</h3>}
+              {hint && <p className="settings-prose mt-1.5">{hint}</p>}
+            </div>
+          )}
+          {action && <div className="max-w-full shrink-0">{action}</div>}
+        </header>
+      )}
+      {list === false ? (
+        children
+      ) : (
+        <div className="settings-list" data-auto-list={list === undefined || undefined}>
+          {children}
+        </div>
+      )}
     </section>
   )
 }
 
-/** A named group INSIDE a section (Terminal, Reset settings, …). One step below
- *  `Section`'s heading — it used to be a step ABOVE it at 13px, so a subgroup
- *  outranked the section that contained it. */
-export function Subsection({
+/** The same entity layout for machines, people, projects, devices and keys.
+ * A stretched native button opens the row; trailing actions stay separate
+ * controls, so a clickable row never nests buttons. */
+export function EntityRow({
+  leading,
   title,
-  hint,
-  children,
+  pills,
+  subtitle,
+  monoSubtitle,
+  trailing,
+  onClick,
+  disabled,
 }: {
-  title: string
-  hint?: React.ReactNode
-  children: React.ReactNode
+  leading: ReactNode
+  title: ReactNode
+  pills?: ReactNode
+  subtitle?: ReactNode
+  monoSubtitle?: boolean
+  trailing?: ReactNode
+  onClick?: () => void
+  disabled?: boolean
 }): JSX.Element {
+  const id = useId()
   return (
-    <div className="mt-6 border-hairline-soft/70 border-t pt-5">
-      <h4 className="settings-h2 mb-1">{title}</h4>
-      {hint && <p className="settings-prose mb-3.5">{hint}</p>}
-      {children}
+    <div className="settings-list-row settings-entity-row">
+      {onClick && (
+        <Button
+          type="button"
+          variant="ghost"
+          className="settings-entity-open"
+          aria-labelledby={`${id}-title`}
+          aria-describedby={subtitle ? `${id}-subtitle` : undefined}
+          onClick={onClick}
+          disabled={disabled}
+        />
+      )}
+      <span className="settings-entity-avatar" aria-hidden="true">
+        {leading}
+      </span>
+      <div className="settings-entity-body">
+        <div className="settings-label settings-entity-title">
+          <span id={`${id}-title`} className="settings-entity-name">
+            {title}
+          </span>
+          {pills}
+        </div>
+        {subtitle && (
+          <div
+            id={`${id}-subtitle`}
+            className="settings-entity-subtitle"
+            data-mono={monoSubtitle || undefined}
+          >
+            {subtitle}
+          </div>
+        )}
+      </div>
+      <div className="settings-entity-trailing">
+        {trailing}
+        {onClick && (
+          <ChevronRight size={14} className="settings-entity-chevron" aria-hidden="true" />
+        )}
+      </div>
     </div>
   )
 }
 
-export function Row({
+/** Supply the existing synced settings object, never a copy of its values.
+ * `setting` binds a row to its command permission, pending write and refusal.
+ * Page tasks should pass the dotted leaf (or list of leaves) they edit. */
+export interface SettingsControlsState {
+  settings?: PodiumSettings
+  permitted?: Readonly<Record<string, boolean>>
+  feedback?: Readonly<Record<string, { pending?: boolean; error?: string }>>
+  readOnly?: boolean
+}
+export const SettingsControlsContext = createContext<SettingsControlsState>({})
+/** Header actions and custom controls use the same default-closed answer. */
+export function useSettingsPermitted(command: string): boolean {
+  return useContext(SettingsControlsContext).permitted?.[command] === true
+}
+
+type Setting = string | readonly string[]
+interface RowProps {
+  label: string
+  description?: ReactNode
+  setting?: Setting
+  readOnly?: boolean
+  readOnlyValue?: ReactNode
+  device?: boolean
+  error?: string | null
+  pending?: boolean
+  children?: ReactNode
+}
+
+function useRowState({ setting, readOnly, pending, error }: RowProps) {
+  const state = useContext(SettingsControlsContext)
+  const paths = setting ? (typeof setting === 'string' ? [setting] : setting) : []
+  const fields = SETTINGS_PATH_TIERS.filter((field) =>
+    paths.some(
+      (path) =>
+        field.path === path ||
+        field.path.startsWith(`${path}.`) ||
+        path.startsWith(`${field.path}.`),
+    ),
+  )
+  const denied =
+    state.permitted !== undefined &&
+    fields.some((field) => {
+      const tier = settingsTierForPath(field.path)
+      const command =
+        tier === 'personal-preference'
+          ? 'records.userPreferences.edit'
+          : tier === 'instance-preference'
+            ? 'records.instancePreferences.edit'
+            : 'settings.setSecret'
+      return state.permitted?.[command] !== true
+    })
+  const feedback = Object.entries(state.feedback ?? {}).filter(([path]) =>
+    paths.some((prefix) => path === prefix || path.startsWith(`${prefix}.`)),
+  )
+  return {
+    readOnly: Boolean(readOnly || state.readOnly || denied),
+    pending: Boolean(pending || feedback.some(([, status]) => status.pending)),
+    error: error || feedback.find(([, status]) => status.error)?.[1].error,
+    value: state.settings && paths[0] ? rowValue(state.settings, paths[0]) : undefined,
+  }
+}
+function rowValue(settings: PodiumSettings, path: string): unknown {
+  let value: unknown = settings
+  for (const key of path.split('.'))
+    value = value && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined
+  return value
+}
+function displayValue(value: unknown): ReactNode {
+  return typeof value === 'boolean'
+    ? value
+      ? 'On'
+      : 'Off'
+    : typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : '—'
+}
+
+export function ThisDeviceTag() {
+  return (
+    <span className="settings-micro rounded border border-hairline-soft px-1.5 py-0.5 whitespace-nowrap">
+      This device
+    </span>
+  )
+}
+
+export const Row = observer(function Row(props: RowProps): JSX.Element {
+  const { label, description, children, device, readOnlyValue } = props
+  const searchId = useSettingsRowId(label)
+  const id = useId()
+  const state = useRowState(props)
+  return (
+    <div
+      id={searchId}
+      className="settings-row"
+      tabIndex={searchId ? -1 : undefined}
+      data-readonly={state.readOnly || undefined}
+      aria-busy={state.pending || undefined}
+    >
+      <div className="min-w-0">
+        <span
+          id={`${id}-label`}
+          className="settings-label inline-flex flex-wrap items-center gap-2"
+        >
+          {label}
+          {device && <ThisDeviceTag />}
+        </span>
+        {description && (
+          <p id={`${id}-description`} className="settings-prose mt-1">
+            {description}
+          </p>
+        )}
+        {state.error && (
+          <p id={`${id}-error`} className="settings-prose mt-1 text-destructive" role="alert">
+            {state.error}
+          </p>
+        )}
+      </div>
+      {state.readOnly ? (
+        <div className="settings-control">
+          <span className="settings-label text-muted-foreground">
+            {readOnlyValue ?? displayValue(state.value)}
+          </span>
+        </div>
+      ) : (
+        <fieldset
+          className="settings-control m-0 min-w-0 border-0 p-0"
+          disabled={state.pending}
+          aria-labelledby={`${id}-label`}
+          aria-describedby={
+            [description && `${id}-description`, state.error && `${id}-error`]
+              .filter(Boolean)
+              .join(' ') || undefined
+          }
+        >
+          {children}
+        </fieldset>
+      )}
+    </div>
+  )
+})
+
+/** Input-compatible field whose local text is committed on Enter or blur.
+ * Existing clamp callbacks run only then; each keystroke stays untouched.
+ * Escape drops only the text in this field. */
+export function CommitInput({
+  value,
+  onChange,
+  onBlur,
+  onKeyDown,
+  ...props
+}: ComponentProps<typeof Input>) {
+  const [text, setText] = useState<string | null>(null)
+  const committed = useRef(false)
+  const commit = (event: { target: EventTarget; currentTarget: HTMLInputElement }) => {
+    if (committed.current) return
+    committed.current = true
+    if (text !== null && text !== String(value ?? ''))
+      onChange?.(event as ChangeEvent<HTMLInputElement>)
+    setText(null)
+  }
+  return (
+    <Input
+      {...props}
+      value={text ?? value ?? ''}
+      onChange={(event) => {
+        committed.current = false
+        setText(event.target.value)
+      }}
+      onBlur={(event) => {
+        commit(event)
+        onBlur?.(event)
+      }}
+      onKeyDown={(event) => {
+        onKeyDown?.(event)
+        if (event.defaultPrevented || event.nativeEvent.isComposing) return
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          commit(event)
+          event.currentTarget.blur()
+        }
+        if (event.key === 'Escape' && text !== null) {
+          event.preventDefault()
+          event.stopPropagation()
+          committed.current = true
+          setText(null)
+        }
+      }}
+    />
+  )
+}
+
+type Change<T> = (value: T) => unknown
+function useControlChange<T>(onChange: Change<T>, setting?: Setting) {
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const run = async (next: T, previous: T) => {
+    if (Object.is(next, previous) || pending) return
+    setError(null)
+    setPending(true)
+    try {
+      await onChange(next)
+      // Record-backed rows get their Undo from SettingsView.patch. Other row
+      // writers (including this-device preferences) get it here.
+      if (!setting)
+        toast('Saved', {
+          action: {
+            label: 'Undo',
+            onClick: () => {
+              void Promise.resolve()
+                .then(() => onChange(previous))
+                .catch((error: unknown) => {
+                  const reason = error instanceof Error ? error.message : String(error)
+                  setError(reason)
+                  toast.error(reason)
+                })
+            },
+          },
+        })
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setPending(false)
+    }
+  }
+  return { pending, error, run }
+}
+
+export function SwitchRow({
+  value,
+  onChange,
+  disabled,
+  ...props
+}: RowProps & {
+  value: boolean
+  onChange: Change<boolean>
+  disabled?: boolean
+}) {
+  const change = useControlChange(onChange, props.setting)
+  return (
+    <Row {...props} {...change} readOnlyValue={value ? 'On' : 'Off'}>
+      <Switch
+        aria-label={props.label}
+        checked={value}
+        disabled={disabled || change.pending}
+        onCheckedChange={(next) => void change.run(next, value)}
+      />
+    </Row>
+  )
+}
+export interface RowOption<T extends string = string> {
+  value: T
+  label: string
+  hint?: string
+  disabled?: boolean
+}
+export function SegmentedRow<T extends string>({
+  value,
+  onChange,
+  options,
+  ...props
+}: RowProps & {
+  value: T
+  onChange: Change<T>
+  options: readonly RowOption<T>[]
+}) {
+  const change = useControlChange(onChange, props.setting)
+  return (
+    <Row
+      {...props}
+      {...change}
+      error={change.error ?? props.error}
+      pending={change.pending || props.pending}
+      readOnlyValue={options.find((o) => o.value === value)?.label ?? value}
+    >
+      <fieldset aria-label={props.label} className="settings-segmented">
+        {options.map((option) => (
+          <Button
+            key={option.value}
+            type="button"
+            size="sm"
+            variant="ghost"
+            aria-pressed={value === option.value}
+            disabled={option.disabled || change.pending}
+            className={
+              value === option.value ? 'bg-secondary text-foreground' : 'text-muted-foreground'
+            }
+            onClick={() => void change.run(option.value, value)}
+          >
+            {option.label}
+          </Button>
+        ))}
+      </fieldset>
+    </Row>
+  )
+}
+export interface RowOptionGroup<T extends string = string> {
+  label: string
+  options: readonly RowOption<T>[]
+}
+export function SelectRow<T extends string>({
+  value,
+  onChange,
+  options = [],
+  groups = [],
+  placeholder,
+  ...props
+}: RowProps & {
+  value: T
+  onChange: Change<T>
+  options?: readonly RowOption<T>[]
+  groups?: readonly RowOptionGroup<T>[]
+  placeholder?: string
+}) {
+  const change = useControlChange(onChange, props.setting)
+  const selected = [...options, ...groups.flatMap((g) => g.options)].find((o) => o.value === value)
+  const items = (options: readonly RowOption<T>[]) =>
+    options.map((option) => (
+      <SelectItem key={option.value} value={option.value} disabled={option.disabled}>
+        <span className="flex min-w-0 flex-col">
+          <span>{option.label}</span>
+          {option.hint && (
+            <span className="settings-micro text-muted-foreground">{option.hint}</span>
+          )}
+        </span>
+      </SelectItem>
+    ))
+  return (
+    <Row {...props} {...change} readOnlyValue={selected?.label ?? value}>
+      <Select
+        value={value}
+        disabled={change.pending}
+        onValueChange={(next) => {
+          if (next !== null) void change.run(next as T, value)
+        }}
+      >
+        <SelectTrigger aria-label={props.label} className="w-full">
+          <SelectValue placeholder={placeholder}>
+            {selected ? (
+              <span className="flex min-w-0 gap-1.5">
+                <span>{selected.label}</span>
+                {selected.hint && (
+                  <span className="truncate text-muted-foreground">{selected.hint}</span>
+                )}
+              </span>
+            ) : (
+              value || placeholder
+            )}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {items(options)}
+          {groups.map((group) => (
+            <SelectGroup key={group.label}>
+              <SelectLabel>{group.label}</SelectLabel>
+              {items(group.options)}
+            </SelectGroup>
+          ))}
+        </SelectContent>
+      </Select>
+    </Row>
+  )
+}
+export function TextRow({
+  value,
+  onChange,
+  placeholder,
+  ...props
+}: RowProps & {
+  value: string
+  onChange: Change<string>
+  placeholder?: string
+}) {
+  const change = useControlChange(onChange, props.setting)
+  return (
+    <Row {...props} {...change} readOnlyValue={value || placeholder || '—'}>
+      <CommitInput
+        aria-label={props.label}
+        value={value}
+        placeholder={placeholder}
+        onChange={(event) => void change.run(event.target.value, value)}
+      />
+    </Row>
+  )
+}
+export function NumberRow({
+  value,
+  onChange,
+  min = -Infinity,
+  max = Infinity,
+  step = 1,
+  unit,
+  emptyValue = null,
+  placeholder,
+  ...props
+}: RowProps & {
+  value: number | null | undefined
+  onChange: Change<number | null | undefined>
+  min?: number
+  max?: number
+  step?: number
+  unit?: string
+  emptyValue?: null | undefined
+  placeholder?: string
+}) {
+  const change = useControlChange(onChange, props.setting)
+  return (
+    <Row
+      {...props}
+      {...change}
+      error={change.error ?? props.error}
+      pending={change.pending || props.pending}
+      readOnlyValue={value == null ? placeholder || '—' : `${value}${unit ? ` ${unit}` : ''}`}
+    >
+      <div className="flex items-center gap-2">
+        <CommitInput
+          aria-label={props.label}
+          className="w-24"
+          type="number"
+          value={value ?? ''}
+          min={Number.isFinite(min) ? min : undefined}
+          max={Number.isFinite(max) ? max : undefined}
+          step={step}
+          placeholder={placeholder}
+          onChange={(event) => {
+            const raw = event.target.value
+            const parsed = Number(raw)
+            const next =
+              raw === ''
+                ? emptyValue
+                : Number.isFinite(parsed)
+                  ? Math.min(max, Math.max(min, parsed))
+                  : value
+            void change.run(next, value)
+          }}
+        />
+        {unit && <span className="settings-micro text-muted-foreground">{unit}</span>}
+      </div>
+    </Row>
+  )
+}
+export function ValueRow({ value, ...props }: RowProps & { value: ReactNode }) {
+  return <Row {...props} readOnly readOnlyValue={value} />
+}
+
+/** Secrets expose presence and a server fingerprint or masked identity, never
+ * previous material. Remove offers Undo only when the owner supplies an inverse. */
+export function SecretRow({
+  present,
+  last4,
+  fingerprint,
+  maskedIdentity,
+  onSave,
+  onRemove,
+  hasPassword = false,
+  ...props
+}: RowProps & {
+  present: boolean
+  hasPassword?: boolean
+  last4?: string | null
+  fingerprint?: string | null
+  maskedIdentity?: string | null
+  onSave: (value: string) => Promise<unknown>
+  onRemove?: () => Promise<void | (() => Promise<unknown>)>
+}) {
+  const { openTakeover, closeTakeover } = useSettingsFrame()
+  const [confirming, setConfirming] = useState(false)
+  const row = useRowState(props)
+  const [error, setError] = useState<string | null>(null)
+  const [pending, setPending] = useState(false)
+  const identity = maskedIdentity ?? (last4 ? `•••• ${last4.slice(-4)}` : 'Set')
+  const display = (
+    <span className="settings-micro inline-flex flex-wrap items-center gap-1.5">
+      {identity}
+      {fingerprint && (
+        <span
+          className="rounded bg-chip px-1.5 py-0.5 font-mono"
+          title="Server fingerprint for telling keys apart; it contains no part of the token."
+          data-testid="secret-fingerprint"
+        >
+          {fingerprint}
+        </span>
+      )}
+    </span>
+  )
+  const remove = async () => {
+    if (!onRemove) return
+    setError(null)
+    setPending(true)
+    try {
+      const undo = await onRemove()
+      setConfirming(false)
+      toast(
+        'Removed',
+        undo
+          ? {
+              action: {
+                label: 'Undo',
+                onClick: () => {
+                  void undo().catch((error: unknown) => {
+                    setError(error instanceof Error ? error.message : String(error))
+                  })
+                },
+              },
+            }
+          : undefined,
+      )
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setPending(false)
+    }
+  }
+  return (
+    <>
+      <Row
+        {...props}
+        error={error ?? props.error}
+        pending={pending || props.pending}
+        readOnlyValue={present ? display : 'Not set'}
+      >
+        {present && display}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() =>
+            openTakeover({
+              title: `${present ? 'Replace' : 'Add'} ${props.label}`,
+              content: <SecretEntry label={props.label} onSave={onSave} onDone={closeTakeover} />,
+            })
+          }
+        >
+          {present ? 'Replace' : 'Add'}
+        </Button>
+        {present && onRemove && (
+          <Button type="button" variant="ghost" size="sm" onClick={() => setConfirming(true)}>
+            Remove
+          </Button>
+        )}
+      </Row>
+      {confirming && !row.readOnly && (
+        <ConfirmInline
+          sentence={`Remove ${props.label}?`}
+          actionLabel="Remove"
+          hasPassword={hasPassword}
+          destructive
+          pending={pending}
+          error={error}
+          onConfirm={remove}
+          onCancel={() => {
+            setConfirming(false)
+            setError(null)
+          }}
+        />
+      )}
+    </>
+  )
+}
+function SecretEntry({
   label,
-  description,
-  children,
+  onSave,
+  onDone,
 }: {
   label: string
-  /** The row's own explanation — lives under the label, never as a detached
-   *  paragraph between rows (POD-127 F3). */
-  description?: React.ReactNode
-  children: React.ReactNode
-}): JSX.Element {
-  // Every Row holds exactly one control, but the type system can't prove that to
-  // the a11y lint — a div keeps it honest; the visible text still sits beside it.
-  // Layout, type and the control-cell gap are all `.settings-row` in styles.css.
+  onSave: (value: string) => Promise<unknown>
+  onDone: () => void
+}) {
+  const [value, setValue] = useState('')
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   return (
-    <div className="settings-row">
-      <div className="min-w-0">
-        <span className="settings-label">{label}</span>
-        {description && <p className="settings-prose mt-1">{description}</p>}
+    <form
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (!value.trim() || pending) return
+        setPending(true)
+        setError(null)
+        void onSave(value)
+          .then(() => {
+            toast('Saved')
+            onDone()
+          })
+          .catch((error: unknown) => {
+            setError(error instanceof Error ? error.message : String(error))
+          })
+          .finally(() => setPending(false))
+      }}
+    >
+      <Row label={label} error={error}>
+        <Input
+          autoFocus
+          aria-label={label}
+          type="password"
+          autoComplete="off"
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+        />
+      </Row>
+      <div className="mt-4 flex justify-end gap-2">
+        <Button type="button" variant="ghost" onClick={onDone} disabled={pending}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={!value.trim()} pending={pending} pendingLabel="Saving…">
+          Save
+        </Button>
       </div>
-      <div className="settings-control">{children}</div>
-    </div>
+    </form>
+  )
+}
+
+/** The one confirmation block: render immediately under the triggering row.
+ * Only ask for a password when the viewer has one AND the action requires it.
+ * onConfirm may reject; the block keeps its input and displays the reason. */
+export function ConfirmInline({
+  sentence,
+  actionLabel,
+  onConfirm,
+  onCancel,
+  hasPassword = false,
+  acknowledgement,
+  pending = false,
+  error,
+  destructive = false,
+}: {
+  sentence: ReactNode
+  actionLabel: string
+  onConfirm: (password: string) => unknown
+  onCancel: () => void
+  hasPassword?: boolean
+  acknowledgement?: ReactNode
+  pending?: boolean
+  error?: string | null
+  destructive?: boolean
+}) {
+  const id = useId()
+  const [password, setPassword] = useState('')
+  const [acknowledged, setAcknowledged] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [failure, setFailure] = useState<string | null>(null)
+  const busy = pending || submitting
+  const ready = (!hasPassword || password.length > 0) && (!acknowledgement || acknowledged)
+  return (
+    <form
+      className="mt-2 mb-4 border-l-2 border-border-strong py-2 pl-4"
+      aria-label={actionLabel}
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (!ready || busy) return
+        setSubmitting(true)
+        setFailure(null)
+        void Promise.resolve()
+          .then(() => onConfirm(hasPassword ? password : ''))
+          .catch((error: unknown) => {
+            setFailure(error instanceof Error ? error.message : String(error))
+          })
+          .finally(() => setSubmitting(false))
+      }}
+    >
+      <p className="settings-prose">{sentence}</p>
+      {hasPassword && (
+        <label className="settings-label mt-3 block" htmlFor={`${id}-password`}>
+          Your password
+          <Input
+            id={`${id}-password`}
+            type="password"
+            autoComplete="current-password"
+            className="mt-1 max-w-72"
+            value={password}
+            disabled={busy}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+        </label>
+      )}
+      {acknowledgement && (
+        <label className="settings-prose mt-3 flex items-start gap-2" htmlFor={`${id}-ack`}>
+          <Checkbox
+            id={`${id}-ack`}
+            checked={acknowledged}
+            disabled={busy}
+            onCheckedChange={(value) => setAcknowledged(value === true)}
+          />
+          <span>{acknowledgement}</span>
+        </label>
+      )}
+      {(failure || error) && (
+        <p className="settings-prose mt-2 text-destructive" role="alert">
+          {failure || error}
+        </p>
+      )}
+      <div className="mt-3 flex items-center gap-2">
+        <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button
+          type="submit"
+          size="sm"
+          variant={destructive ? 'destructive' : 'default'}
+          disabled={!ready || busy}
+          pending={busy}
+          pendingLabel="Working…"
+        >
+          {actionLabel}
+        </Button>
+      </div>
+    </form>
   )
 }
 
 /** One row from `accounts.list` — a native CLI login or a managed API key. */
 export type { AccountView } from '@podium/model'
-import type { AccountView } from '@podium/model'
 
 export function providerLabel(p: ApiProvider): string {
   switch (p) {
@@ -131,414 +887,3 @@ export function clampInt(raw: string, min: number, max: number, fallback: number
   if (Number.isNaN(n)) return fallback
   return Math.min(max, Math.max(min, n))
 }
-
-export function clampNumber(raw: string, min: number, max: number, fallback: number): number {
-  const n = Number.parseFloat(raw)
-  if (Number.isNaN(n)) return fallback
-  return Math.min(max, Math.max(min, n))
-}
-
-/**
- * Native-harness options, read off descriptors (POD-4475): every harness the
- * report (or bundled copy) names, in registry order. The old table qualified
- * codex as 'Codex (ChatGPT)'; the descriptor label ('Codex') now applies
- * everywhere, and discovered logins still carry their identity/machine
- * suffix below — one name per harness, no second list.
- */
-function nativeHarnesses(
-  descriptors?: readonly HarnessDescriptorWire[],
-): { harness: HarnessAgent; label: string }[] {
-  return issueAgentDescriptors(descriptors)
-    .filter((d) => d.kind !== 'shell')
-    .map((d) => ({ harness: d.kind as HarnessAgent, label: d.label }))
-}
-const MANAGED_PROVIDERS: { provider: 'anthropic' | 'openai' | 'openrouter'; label: string }[] = [
-  { provider: 'anthropic', label: 'Anthropic API' },
-  { provider: 'openai', label: 'OpenAI API' },
-  { provider: 'openrouter', label: 'OpenRouter API' },
-]
-
-/**
- * Managed credentials a CODING session can actually run on (#216).
- *
- * A coding session always runs a harness; a managed account only supplies the
- * credential it authenticates WITH. Which harness each one can authenticate is
- * account topology read off `descriptor.provider` (POD-4541: `managedCodingHarnesses`
- * below pairs `managed:anthropic` with every resolved descriptor whose provider
- * is `anthropic`, etc. — never a hand-written harness list and never display
- * labels). An OPENROUTER_API_KEY authenticates none of the coding CLIs we ship,
- * so `managed:openrouter` is deliberately NOT offered here — presenting it would
- * spawn an agent that silently falls back to whatever login the machine happens
- * to have. It stays available for the API-backed background role below.
- */
-export const MANAGED_CODING_ACCOUNTS: {
-  id: AccountId
-  label: string
-}[] = [
-  {
-    id: asAccountId('managed:claude-oauth'),
-    label: 'Claude subscription (managed)',
-  },
-  {
-    id: asAccountId('managed:anthropic'),
-    label: 'Anthropic API key (managed)',
-  },
-  { id: asAccountId('managed:openai'), label: 'OpenAI API key (managed)' },
-]
-
-/** The harnesses a managed account can drive for the coding role; [] when it can
- *  drive none (so it is never offered). Reads the resolved descriptors through
- *  `managed-harness-pairing` (POD-4541) — bundled fallback when no report is held. */
-export function managedCodingHarnesses(
-  accountId: AccountId,
-  descriptors?: readonly HarnessDescriptorWire[],
-): HarnessAgent[] {
-  return managedCodingHarnessesFromDescriptors(accountId, descriptors)
-}
-
-/** Only offer execution paths each role can actually run today. CODING runs a
- *  native harness, or a MANAGED credential injected into that harness's spawn
- *  (#216). The superagent runs a native harness. Background work is API-only:
- *  managed provider keys plus Codex's local-login Responses API. */
-export function accountOptions(
-  role: 'coding' | 'superagent' | 'background' | 'shipwright',
-  accounts: AccountView[] = [],
-  descriptors?: readonly HarnessDescriptorWire[],
-): { id: AccountId; label: string }[] {
-  const native = nativeHarnesses(descriptors).map((o) => ({
-    id: asAccountId('native:' + o.harness),
-    label: o.label,
-  }))
-  const discovered = accounts
-    .filter((account) => account.source === 'native' && account.harness)
-    .map((account) => ({
-      id: asAccountId(account.id),
-      label:
-        harnessAgentLabel(account.harness as HarnessAgent, descriptors) +
-        (account.identity ? ' · ' + account.identity : '') +
-        (account.machines?.length ? ' · ' + account.machines.join(', ') : ''),
-    }))
-  const allNative = [
-    ...new Map([...native, ...discovered].map((option) => [option.id, option])).values(),
-  ]
-  if (role === 'coding') {
-    // The offered managed accounts are the ones whose credential can drive at
-    // least one resolved harness (POD-4541) — `managed:openrouter` stays
-    // unoffered because no descriptor carries that provider, not because a
-    // list says so.
-    const managed = MANAGED_CODING_ACCOUNTS.filter(
-      (o) => managedCodingHarnesses(o.id, descriptors).length > 0,
-    ).map((o) => ({ id: o.id, label: o.label }))
-    return [...allNative, ...managed]
-  }
-  // SHIPWRIGHT OFFERS WHAT THE SUPERAGENT DOES, and the omission is deliberate.
-  //
-  // This branch used to narrow the list to harnesses with a native all-tools-off
-  // mechanism (today Claude Code alone) by calling `harnessSupportsNoTools` from
-  // `@podium/harness/metadata`. That import answered one boolean by reaching the whole
-  // manifest registry, so the browser's settings chunk grew to 846KB of source against
-  // a 280KB budget — and it broke `manifest-platform` besides, since browser-safe
-  // apps/web may not take values from node-only packages/harness.
-  //
-  // The eligibility rule is not lost, just no longer duplicated here: the server
-  // enforces it where it can actually refuse (`shipping/shipwright-router.ts`,
-  // `superagent/headless.ts`). Showing it again in the picker needs the server to
-  // PROJECT the answer, which belongs with the real shipwright UI — and that UI should
-  // likely disable ineligible entries WITH THE REASON ('Codex cannot disable its
-  // tools') rather than silently omit them, which is a seam worth designing once
-  // instead of twice. Until then the whole control sits behind the dev-only
-  // `shipwright` feature flag, and the engine it configures is dormant regardless.
-  if (role === 'superagent' || role === 'shipwright') return allNative
-  return [
-    ...allNative.filter((option) => option.id.startsWith('native:codex')),
-    ...MANAGED_PROVIDERS.map((o) => ({ id: asAccountId('managed:' + o.provider), label: o.label })),
-  ]
-}
-
-/** Fold one catalog hook per authorized machine without copying catalog state.
- * Offline machines still contribute their last stored list; a pending list keeps
- * the combined warning quiet until all of the checks have settled. */
-const MachineModelWarning = observer(function MachineModelWarning({
-  machines,
-  index,
-  harness,
-  model,
-  descriptors,
-  missing = [],
-  loading = false,
-}: {
-  machines: readonly MachineModel[]
-  index: number
-  harness: HarnessAgent
-  model: string
-  descriptors?: readonly HarnessDescriptorWire[]
-  missing?: readonly string[]
-  loading?: boolean
-}): JSX.Element | null {
-  const machine = machines[index]!
-  const { catalog, status } = useModelCatalogState(machine.id)
-  const reported = catalog[harness]
-  const names =
-    reported?.length &&
-    !modelOptions(harness, reported, descriptors).some((option) => option.value === model)
-      ? [...missing, machine.name]
-      : missing
-  const pending = loading || status === 'loading'
-  if (index + 1 < machines.length) {
-    return (
-      <MachineModelWarning
-        key={machines[index + 1]!.id}
-        machines={machines}
-        index={index + 1}
-        harness={harness}
-        model={model}
-        descriptors={descriptors}
-        missing={names}
-        loading={pending}
-      />
-    )
-  }
-  return !pending && names.length > 0 ? (
-    <p className="settings-prose" role="status">
-      <span className="text-warning">Not offered on {names.join(', ')}</span>
-    </p>
-  ) : null
-})
-
-const ModelAvailabilityWarning = observer(function ModelAvailabilityWarning({
-  harness,
-  model,
-  descriptors,
-}: {
-  harness: HarnessAgent
-  model: string
-  descriptors?: readonly HarnessDescriptorWire[]
-}): JSX.Element | null {
-  const machines = useSettingsAuthorizedMachines()
-  if (machines.length === 0) return null
-  return (
-    <MachineModelWarning
-      key={machines[0]!.id}
-      machines={machines}
-      index={0}
-      harness={harness}
-      model={model}
-      descriptors={descriptors}
-    />
-  )
-})
-
-/**
- * The single reusable editor for any role's backend (SP-6454 B3): pick the
- * account (native CLI login vs managed provider key — "Agent CLI harness" vs
- * "Provider backend (API key or local login)"), then model + effort. Includes
- * the billing explainer the spec demands when picking a harness.
- */
-export const RoleBackendEditor = observer(function RoleBackendEditor({
-  role,
-  backend,
-  accounts,
-  onChange,
-  descriptors,
-  fallbackAccountId,
-}: {
-  role: 'coding' | 'superagent' | 'background' | 'shipwright'
-  backend: RoleBackend
-  accounts: AccountView[]
-  onChange: (b: RoleBackend) => void
-  /** Resolved descriptors when held; otherwise the bundled fallback applies. */
-  descriptors?: readonly HarnessDescriptorWire[]
-  /**
-   * Server-truth account shown when the stored account matches no option
-   * (POD-4805): an unset ('') background role otherwise displays the first
-   * native login while the server runs the role default — the page must show
-   * what the call uses. Sections pass `resolveRole(settings, role).accountId`;
-   * roles without one keep the old first-option fallback.
-   */
-  fallbackAccountId?: AccountId
-}): JSX.Element {
-  const options = accountOptions(role, accounts, descriptors)
-  const accountId = options.some((option) => option.id === backend.accountId)
-    ? backend.accountId
-    : fallbackAccountId && options.some((option) => option.id === fallbackAccountId)
-      ? fallbackAccountId
-      : (options[0]?.id || asAccountId('native:claude-code'))
-  const selectedOption = options.find((option) => option.id === accountId)
-  const selectedAccount = accounts.find((account) => account.id === accountId)
-  const selectedStatus =
-    selectedAccount?.status === 'connected' ? ` · ${selectedAccount.identity ?? 'connected'}` : ''
-  const selectedLabel = selectedOption ? `${selectedOption.label}${selectedStatus}` : accountId
-  const isNative = accountId.startsWith('native:')
-  const nativeHarness = isNative
-    ? (accountId.slice('native:'.length).split(':', 1)[0] as HarnessAgent)
-    : undefined
-  // A managed credential for the coding role needs a harness to run it on: the
-  // account says WHAT authenticates, `harness` says WHICH CLI. resolveRole() reads
-  // exactly this field, so it must be written — without it the role is ambiguous.
-  const codingHarnesses =
-    role === 'coding' && !isNative ? managedCodingHarnesses(accountId, descriptors) : []
-  const managedHarness =
-    codingHarnesses.length > 0
-      ? backend.harness && codingHarnesses.includes(backend.harness)
-        ? backend.harness
-        : (codingHarnesses[0] as HarnessAgent)
-      : undefined
-  const harness = nativeHarness ?? managedHarness
-  const agentKind = harness ? issueDefaultAgentKind(harness) : undefined
-  // The row shows whenever the harness takes an effort at all; with no levels to
-  // offer (an Auto model, or one the catalog does not describe) the picker reads
-  // Auto and is inert, the same as in the composer (POD-3911).
-  const showModelEffort = agentKind !== undefined
-
-  /** The `harness` a given account persists for this role: the superagent pins its
-   *  native harness, a coding managed account pins the CLI its credential drives,
-   *  and everything else leaves it unset (undefined, not absent — the key must be
-   *  written so switching back to a native account CLEARS a stale harness). */
-  const harnessFor = (id: AccountId, chosen?: HarnessAgent): HarnessAgent | undefined => {
-    if (id.startsWith('native:')) {
-      const h = id.slice('native:'.length).split(':', 1)[0] as HarnessAgent
-      return role === 'superagent' || role === 'shipwright' ? h : undefined
-    }
-    if (role !== 'coding') return undefined
-    const allowed = managedCodingHarnesses(id, descriptors)
-    if (allowed.length === 0) return undefined
-    return chosen && allowed.includes(chosen) ? chosen : (allowed[0] as HarnessAgent)
-  }
-  const updateBackend = (patch: Partial<RoleBackend>) =>
-    onChange({ ...backend, ...patch, harness: harnessFor(accountId, harness) })
-  // The billing/execution explainer belongs to the Account choice, so it renders
-  // as that row's description instead of a detached paragraph (POD-127 F3).
-  const accountNote: React.ReactNode =
-    role === 'shipwright' ? (
-      <>
-        Runs a bounded, tool-less repair turn under this exact local login. Podium disables
-        inherited settings and hooks, applies only the returned patch contract, and revalidates it
-        before any shipping step resumes.
-      </>
-    ) : accountId === 'native:claude-code' ? (
-      <>
-        Runs Claude Code&apos;s programmatic mode (<code>claude -p</code>) on this account —{' '}
-        <span className="text-warning">usage counts against its limits</span>. API users are billed
-        by token; subscribers consume plan usage.
-      </>
-    ) : accountId === 'native:codex' ? (
-      <>
-        Uses the ChatGPT login (<code>codex login</code>) on the machine the catalog names — no
-        API key; it uses your plan&apos;s included Codex capacity while limits allow.
-      </>
-    ) : isNative ? (
-      <>
-        Runs a real {harness ? harnessAgentLabel(harness, undefined) : 'agent'} agent with its own
-        tool belt, using its local login on this server.
-      </>
-    ) : codingHarnesses.length > 0 ? (
-      <>
-        Podium runs {managedHarness ? harnessAgentLabel(managedHarness, undefined) : 'a'} harness and injects
-        the credential you connected under Accounts into its environment — so this session runs on
-        that account from any connected machine.
-      </>
-    ) : (
-      <>
-        Billed per token against the API key you connected under Accounts, or the instance key under
-        API keys when you have none. This role calls the provider API directly.
-      </>
-    )
-  const asDefault = role === 'superagent' || role === 'shipwright'
-  return (
-    <>
-      <Row label={asDefault ? 'Default account' : 'Account'} description={accountNote}>
-        <Select
-          value={accountId}
-          onValueChange={(value) => {
-            // DECODE EDGE: the picker hands back a raw select value.
-            const nextAccountId = asAccountId(value ?? '')
-            onChange({
-              accountId: nextAccountId,
-              model: 'auto',
-              effort: 'auto',
-              harness: harnessFor(nextAccountId),
-            })
-          }}
-        >
-          <SelectTrigger className="w-full flex-1">
-            <SelectValue>{selectedLabel}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {options.map((o) => {
-              const d = accounts.find((a) => a.id === o.id)
-              const status = d?.status === 'connected' ? ` · ${d.identity ?? 'connected'}` : ''
-              return (
-                <SelectItem key={o.id} value={o.id}>
-                  {o.label}
-                  {status}
-                </SelectItem>
-              )
-            })}
-          </SelectContent>
-        </Select>
-      </Row>
-      {codingHarnesses.length > 0 && (
-        <Row label="Harness">
-          <Select
-            value={managedHarness ?? ''}
-            onValueChange={(value) =>
-              onChange({
-                ...backend,
-                accountId,
-                harness: harnessFor(accountId, (value ?? '') as HarnessAgent),
-              })
-            }
-          >
-            <SelectTrigger className="w-full flex-1">
-              <SelectValue>
-                {managedHarness ? harnessAgentLabel(managedHarness, undefined) : ''}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {codingHarnesses.map((h) => (
-                <SelectItem key={h} value={h}>
-                  {harnessAgentLabel(h)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Row>
-      )}
-      <Row label={asDefault ? 'Default model' : 'Model'}>
-        {agentKind ? (
-          <ModelPicker
-            allowFreeText
-            variant="field"
-            agentKind={agentKind}
-            value={backend.model}
-            onChange={(model) => updateBackend({ model, effort: AUTO })}
-          />
-        ) : (
-          <Input
-            type="text"
-            placeholder="auto"
-            value={backend.model === 'auto' ? '' : backend.model}
-            onChange={(e) => updateBackend({ model: e.target.value || 'auto' })}
-          />
-        )}
-      </Row>
-      {(role === 'coding' || role === 'superagent') &&
-        harness &&
-        backend.model &&
-        backend.model !== AUTO && (
-        <ModelAvailabilityWarning harness={harness} model={backend.model} descriptors={descriptors} />
-      )}
-      {showModelEffort && (
-        <Row label={asDefault ? 'Default effort' : 'Effort'}>
-          <EffortPicker
-            variant="field"
-            agentKind={agentKind}
-            model={backend.model}
-            value={backend.effort}
-            onChange={(effort) => updateBackend({ effort })}
-          />
-        </Row>
-      )}
-    </>
-  )
-})

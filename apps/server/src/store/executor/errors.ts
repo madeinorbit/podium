@@ -1,3 +1,5 @@
+import { DrizzleQueryError } from 'drizzle-orm'
+
 /**
  * The executor's refusals, one class per rule so a test can pin the rule rather
  * than a message [POD-3248].
@@ -152,3 +154,8 @@ export class StoreUnhealthyError extends StoreExecutorError {
 
 /** No transaction scope is open, so there is nothing for post-commit work to follow. */
 export class NoPostCommitScopeError extends StoreExecutorError {}
+
+/** Keep bound secrets out of errors crossing the persistence boundary. */
+export function sanitizeDatabaseError(error: unknown, message: string): unknown {
+  return error instanceof DrizzleQueryError ? new Error(message, { cause: error.cause }) : error
+}

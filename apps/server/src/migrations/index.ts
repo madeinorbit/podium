@@ -28,7 +28,7 @@ import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
 import { backupDatabase } from './backup'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
-import { applySchemaRepairs, repairReason } from './repair'
+import { applySchemaRepairs, repairReason, schemaRepairsAfter } from './repair'
 
 const log = createLogger('server:migrations')
 
@@ -224,7 +224,19 @@ export function runDrizzleMigrations(
   const semanticallyApplied = new Set(
     [...applied].map((name) => MIGRATION_NAME_ALIASES.get(name) ?? name),
   )
-  const pending = ordered.filter((m) => !semanticallyApplied.has(m.name))
+  // Retirement is a separate boot stage: an old binary upgrades its schema
+  // before the identity import can read its credentials and links. Never stamp
+  // the deferred migration until that import has committed for this database.
+  const imported =
+    hasTable(db, 'meta') &&
+    db
+      .prepare("SELECT 1 FROM meta WHERE key = 'identity.legacyLinksImported' AND value = '1'")
+      .get() !== undefined
+  const pending = ordered.filter(
+    (m) =>
+      !semanticallyApplied.has(m.name) &&
+      (!m.sql.startsWith('-- after-local-identity-import') || imported),
+  )
 
   // THE GUARD, before anything is applied — so the warning is in the log ABOVE
   // the damage rather than after it. It WARNS and proceeds; it does not refuse.
@@ -241,15 +253,12 @@ export function runDrizzleMigrations(
   }
 
   if (pending.length === 0) {
-    // Still repair: the POD-1621 database has EVERY migration applied and a
-    // wrong schema, so a boot with nothing pending is exactly the case that
-    // must heal itself.
     if (opts.skipSchemaRepair !== true) reportRepairs(db)
     return []
   }
 
-  // #43: snapshot before applying anything, but only when the DB already holds
-  // real tables (a brand-new file is not worth backing up).
+  // Snapshot before schema work. A retry with only retirement deferred keeps
+  // the original pre-upgrade snapshot instead of ageing it out of retention.
   if (opts.dbPath !== undefined && opts.dbPath !== ':memory:' && hasAnyDataTable(db)) {
     const backupStarted = performance.now()
     backupDatabase(db, opts.dbPath, `drizzle-${applied.size}`)
@@ -290,6 +299,10 @@ export function runDrizzleMigrations(
         )
       : undefined
   try {
+    // A previously damaged database must heal before pending migrations index
+    // the missing column. A rebuild still pending is repaired in the same
+    // transaction below, immediately after the statement that drops it.
+    if (opts.skipSchemaRepair !== true) reportRepairs(db)
     migrate(
       // `client` is @podium/runtime's deliberately narrow structural view of the
       // bun:sqlite handle (packages/runtime/src/sqlite/bun.ts names only the methods
@@ -304,7 +317,12 @@ export function runDrizzleMigrations(
         // Capture install age BEFORE this batch: historical migrations create
         // a first admin even on an empty database. The backfill must leave
         // that new account eligible while seeding every account on upgrades.
-        sql: mintIdsIn(m.sql).replaceAll('{{existing-install}}', applied.size > 0 ? '1' : '0'),
+        sql: mintIdsIn(
+          [
+            m.sql,
+            ...(opts.skipSchemaRepair === true ? [] : schemaRepairsAfter(m.name, applied)),
+          ].join('\n--> statement-breakpoint\n'),
+        ).replaceAll('{{existing-install}}', applied.size > 0 ? '1' : '0'),
       })),
     )
   } catch (error) {

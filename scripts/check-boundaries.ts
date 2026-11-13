@@ -105,9 +105,9 @@
  *     is the same mechanically visible condition as Stage A's: the ledger is
  *     empty.
  *
-  *  19. A hand-written `sql` fragment used in a select projection may not carry an
-  *     outer-table Column into its own FROM scope; use `sql.identifier`.
-  *
+ *  19. A hand-written `sql` fragment used in a select projection may not carry an
+ *     outer-table Column into its own FROM scope; use `sql.identifier`.
+ *
  *  20. The TERMINAL OBJECTS family (POD-4437, closing issue of POD-4414): five
  *     per-file rules pinning the six runtime objects (podium-host,
  *     DurableProcess, Terminal, RuntimeDriver, Session, Viewer) to the places
@@ -788,13 +788,19 @@ export function checkHarnessAllowlistTotals(
   // issue/lane, policy points at the policy module. Unsure = leak.
   for (const entry of allowlist) {
     if (!entry.reason || entry.reason.trim().length === 0) {
-      problems.push(`allowlist entry ${entry.file} has no reason — every entry needs a one-line reason (unsure = leak)`)
+      problems.push(
+        `allowlist entry ${entry.file} has no reason — every entry needs a one-line reason (unsure = leak)`,
+      )
     }
     if (entry.category === 'leak' && (!entry.issue || entry.issue.trim().length === 0)) {
-      problems.push(`allowlist entry ${entry.file} is leak but names no removing issue — leaks must name the issue/lane that removes them`)
+      problems.push(
+        `allowlist entry ${entry.file} is leak but names no removing issue — leaks must name the issue/lane that removes them`,
+      )
     }
     if (entry.category === 'policy' && (!entry.policy || entry.policy.trim().length === 0)) {
-      problems.push(`allowlist entry ${entry.file} is policy but points at no policy module — policy must point at the module that owns the preference`)
+      problems.push(
+        `allowlist entry ${entry.file} is policy but points at no policy module — policy must point at the module that owns the preference`,
+      )
     }
   }
   return problems
@@ -1730,7 +1736,7 @@ function resolveRelativeModule(repoRoot: string, fromFile: string, spec: string)
     .split(sep)
     .join('/')
   for (const candidate of [base, `${base}.ts`, `${base}.tsx`, `${base}/index.ts`]) {
-    if (candidate.endsWith('.ts') || candidate.endsWith('.tsx')) {
+    if (candidate.endsWith('.ts') || candidate.endsWith('.tsx') || candidate.endsWith('.json')) {
       if (existsSync(join(repoRoot, candidate))) return candidate
     }
   }
@@ -2169,21 +2175,6 @@ const STORE_BOUNDARY_DECISION_MARKER = /\/\/\s*DECISION POD-\d+/
  */
 const UPDATE_CONFLICT_STATEMENT_MARKER = /^\s*\/\/\s*UPDATE-CONFLICT STATEMENT POD-3406\b/
 
-/**
- * Rule 31b's `INSERT OR REPLACE` exemption (POD-3403), and it is PATH-PINNED
- * where {@link UPDATE_CONFLICT_STATEMENT_MARKER} is not.
- *
- * `UPDATE OR IGNORE` losing a race leaves the row alone. `INSERT OR REPLACE`
- * DELETES the conflicting row and reinserts, firing `ON DELETE CASCADE` on
- * every inbound foreign key. A token-plus-shape exemption would let any future
- * site adopt that by typing the token; pinning the path sends the next one back
- * for its own foreign-key audit. All THREE must hold — the token alone grants
- * nothing.
- */
-const REPLACE_STATEMENT_MARKER = /^\s*\/\/\s*REPLACE-STATEMENT POD-3403\b/
-const REPLACE_STATEMENT_SQL = /^\s*INSERT\s+OR\s+REPLACE\b/i
-const REPLACE_STATEMENT_FILE = 'apps/server/src/store/auth.ts'
-
 /** `.prepare(` — a prepared statement is a raw handle by definition. */
 // THE DISCRIMINATOR IS THE ARGUMENT, not the method — the same rule rule 1 uses
 // for `.all(sql`…`)` two definitions down. A raw connection prepare ALWAYS takes
@@ -2249,6 +2240,9 @@ const DRIZZLE_IMPORT_ROOTS: readonly string[] = [
   'apps/server/src/store/',
   'apps/server/src/migrations/',
   'packages/sync/src/adapters/sqlite/',
+  // The shared identity package defines its tables and its own statements for
+  // both the server's SQLite store and the cloud's Postgres (POD-6744).
+  'packages/identity/src/',
 ]
 
 /**
@@ -2725,30 +2719,16 @@ function rawHandleViolations(file: string, source: string): Violation[] {
     }
     return false
   }
-  const spanHasReplaceStatementMarker = (start: number): boolean => {
-    const [from, to] = spanLines(start)
-    const sourceLines = source.split('\n')
-    for (let line = from; line <= to; line++) {
-      if (REPLACE_STATEMENT_MARKER.test(sourceLines[line - 1] ?? '')) return true
-    }
-    return false
-  }
   for (const m of stripped.matchAll(new RegExp(RAW_EXECUTION_CALL.source, 'g'))) {
     const start = m.index ?? 0
     const at = lineAt(start)
     if (spanIsDecisionMarked(start)) continue
     const statementBody = stripped.slice(start + m[0].length)
     if (UPDATE_CONFLICT_SQL.test(statementBody) && spanHasUpdateConflictMarker(start)) continue
-    if (
-      file === REPLACE_STATEMENT_FILE &&
-      REPLACE_STATEMENT_SQL.test(statementBody) &&
-      spanHasReplaceStatementMarker(start)
-    )
-      continue
     add(
       at,
       `.${m[1]}(sql\`…\`)`,
-      `hands a WHOLE raw statement to drizzle's \`.${m[1]}()\`. A \`sql\` FRAGMENT inside a builder query is fine anywhere; a whole statement belongs behind the search port unless it is an \`UPDATE OR <conflict-algorithm>\` carrying the \`UPDATE-CONFLICT STATEMENT POD-3406\` token, or the ONE \`INSERT OR REPLACE\` site rule 31b pins by path (\`${REPLACE_STATEMENT_FILE}\`). A NEW \`INSERT OR REPLACE\` site does not get that token by typing it: OR REPLACE deletes the conflicting row and cascades, so it needs its own ruling and its own foreign-key audit.`,
+      `hands a WHOLE raw statement to drizzle's \`.${m[1]}()\`. A \`sql\` fragment inside a builder query is fine; a whole statement belongs behind the search port unless it is an \`UPDATE OR <conflict-algorithm>\` carrying the \`UPDATE-CONFLICT STATEMENT POD-3406\` token.`,
     )
   }
   return violations
@@ -3118,7 +3098,8 @@ export function checkDrizzleImportHome(file: string, source: string): Violation[
  * CONSTANT. Rewriting it as one statement per table turns ONE round trip into
  * FOURTEEN at boot, which rule 24 says is the finding rather than the fix.
  *
- * TWO KEYS, BOTH REQUIRED: the file listed here AND the token on the line. A
+ * TWO KEYS, BOTH REQUIRED: the listed file AND the token at the call or in
+ * its immediately preceding comment (stable under formatting). A
  * listed file cannot quietly grow a second raw statement, and the token pasted
  * into an unlisted file does nothing. The token is deliberately NOT
  * `// DECISION POD-<n>`: a decision marker means UNANSWERED and Stage A's exit
@@ -3185,8 +3166,12 @@ export function checkSqlRawLiteral(file: string, source: string): Violation[] {
     // site. My first two attempts hooked it to the raw-EXECUTION rule, which
     // never sees `sql.raw(...)` at all and so was inert both times.
     const constant = CONSTANT_IDENTIFIER_STATEMENTS.get(file)
-    const tokenOnLine =
-      constant !== undefined && (source.split('\n')[line - 1] ?? '').includes(constant.token)
+    const sourceLines = source.split('\n')
+    const previous = sourceLines[line - 2] ?? ''
+    const tokenOnLine = constant !== undefined && (
+      (sourceLines[line - 1] ?? '').includes(constant.token) ||
+      (/^\s*\/\//.test(previous) && previous.includes(constant.token))
+    )
     if (
       argument !== null &&
       !SQL_RAW_STRING_LITERAL.test(argument.trim()) &&
@@ -3572,13 +3557,14 @@ export function checkSequentialPromiseCombinator(file: string, source: string): 
       const literal = node.arguments[0] as ts.ArrayLiteralExpression
       for (const element of literal.elements) {
         for (const offender of serialisingAwaits(element)) {
-        const line = sourceFile.getLineAndCharacterOfPosition(offender.getStart(sourceFile)).line + 1
-        violations.push({
-          file,
-          specifier: `Promise.${combinator}`,
-          rule: 'sequential-promise-combinator',
-          message: `${file}:${line}: this element of the array passed to 'Promise.${combinator}()' is AWAITED, so it finishes before the next element is even started — the calls run one at a time and 'Promise.${combinator}' receives values that have already settled. Nothing here is concurrent. Delete the inner 'await' (the combinator already awaits); if you meant these to run in sequence, use separate statements and say so. (POD-3221 spec rule 59.)`,
-        })
+          const line =
+            sourceFile.getLineAndCharacterOfPosition(offender.getStart(sourceFile)).line + 1
+          violations.push({
+            file,
+            specifier: `Promise.${combinator}`,
+            rule: 'sequential-promise-combinator',
+            message: `${file}:${line}: this element of the array passed to 'Promise.${combinator}()' is AWAITED, so it finishes before the next element is even started — the calls run one at a time and 'Promise.${combinator}' receives values that have already settled. Nothing here is concurrent. Delete the inner 'await' (the combinator already awaits); if you meant these to run in sequence, use separate statements and say so. (POD-3221 spec rule 59.)`,
+          })
         }
       }
     }
@@ -3717,7 +3703,10 @@ export function checkTerminalObjectsProcess(file: string, source: string): Viola
       continue
     }
     const target = resolveTerminalObjectsRelative(file, spec)
-    if (target !== null && (target.startsWith('apps/daemon/') || target.startsWith('packages/harness/'))) {
+    if (
+      target !== null &&
+      (target.startsWith('apps/daemon/') || target.startsWith('packages/harness/'))
+    ) {
       violations.push({
         file,
         specifier: spec,
@@ -3796,7 +3785,10 @@ export function checkTerminalObjectsTerminal(file: string, source: string): Viol
       continue
     }
     const target = resolveTerminalObjectsRelative(file, spec)
-    if (target !== null && (target.startsWith(DAEMON_RUNTIME_DIR) || target.startsWith(DRIVER_DIR))) {
+    if (
+      target !== null &&
+      (target.startsWith(DAEMON_RUNTIME_DIR) || target.startsWith(DRIVER_DIR))
+    ) {
       violations.push({
         file,
         specifier: spec,
@@ -3922,7 +3914,10 @@ export function checkTerminalObjectsServer(file: string, source: string): Violat
       continue
     }
     const target = resolveTerminalObjectsRelative(file, spec)
-    if (target !== null && (target.startsWith('apps/daemon/') || target.startsWith('packages/pty/src/'))) {
+    if (
+      target !== null &&
+      (target.startsWith('apps/daemon/') || target.startsWith('packages/pty/src/'))
+    ) {
       violations.push({
         file,
         specifier: spec,
@@ -4051,7 +4046,8 @@ export function checkHistoryFromDisk(file: string, source: string): Violation[] 
     const code = stripComments(bodyText)
     for (const { label, re } of HISTORY_PROTOCOL_CLIENT_PATTERNS) {
       if (!re.test(code)) continue
-      const line = sourceFile.getLineAndCharacterOfPosition(historyNode.getStart(sourceFile)).line + 1
+      const line =
+        sourceFile.getLineAndCharacterOfPosition(historyNode.getStart(sourceFile)).line + 1
       violations.push({
         file,
         specifier: label,
@@ -4135,19 +4131,30 @@ export function checkHistoryFromDisk(file: string, source: string): Violation[] 
  * import a repository. This participates in the whole-repo sweep. */
 export function checkHotPathStoreBoundary(file: string, source: string): Violation[] {
   if (isTestFile(file) || file === 'apps/server/src/gateway/feed-test-plumbing.ts') return []
-  const hot = file.startsWith('apps/server/src/gateway/') || [
-    'apps/server/src/modules/sessions/daemon-lifecycle.ts',
-    'apps/server/src/modules/messages/scheduler.ts',
-    'apps/server/src/feed-visibility.ts',
-  ].includes(file)
+  const hot =
+    file.startsWith('apps/server/src/gateway/') ||
+    [
+      'apps/server/src/modules/sessions/daemon-lifecycle.ts',
+      'apps/server/src/modules/messages/scheduler.ts',
+      'apps/server/src/feed-visibility.ts',
+    ].includes(file)
   if (!hot) return []
   return extractImports(source).flatMap((ref) => {
     const target = ref.specifier.startsWith('.')
-      ? relative(process.cwd(), resolve(dirname(file), ref.specifier)).split(sep).join('/')
+      ? relative(process.cwd(), resolve(dirname(file), ref.specifier))
+          .split(sep)
+          .join('/')
       : ref.specifier.replace(/^@podium\/server(?:\/src)?(?=\/|$)/, 'apps/server/src')
     if (!/^apps\/server\/src\/store(?:[/.]|$)/.test(target)) return []
-    return [{ rule: 'hot-path-store-boundary', file, specifier: ref.specifier,
-      message: 'Hot paths receive a named port (hot-path-ports.ts); store imports belong to composition and persistence.' }]
+    return [
+      {
+        rule: 'hot-path-store-boundary',
+        file,
+        specifier: ref.specifier,
+        message:
+          'Hot paths receive a named port (hot-path-ports.ts); store imports belong to composition and persistence.',
+      },
+    ]
   })
 }
 
@@ -4228,8 +4235,8 @@ export function checkClientGraphBoundaries(file: string, source: string): Violat
     if (
       graph &&
       !ref.typeOnly &&
-      (/^@podium\/client-core(?:$|\/engine(?:\/|$))/.test(ref.specifier) ||
-        (path !== null && /^packages\/client-core\/src(?:$|\/index$|\/engine(?:\/|$))/.test(path)))
+      (/^@podium\/client-core(?:$|\/(?:engine|runtime-root)(?:\/|$))/.test(ref.specifier) ||
+        (path !== null && /^packages\/client-core\/src(?:$|\/index$|\/(?:engine|runtime-root)(?:\/|$))/.test(path)))
     ) {
       violations.push({
         file,
@@ -4241,7 +4248,10 @@ export function checkClientGraphBoundaries(file: string, source: string): Violat
     if (
       app &&
       (/^@podium\/client-graph\/diagnostics(?:\/|$)/.test(ref.specifier) ||
-        (path !== null && /^(?:packages\/client-graph\/(?:src\/)?diagnostics|tests\/worklist)(?:\/|$)/.test(path)) ||
+        (path !== null &&
+          /^(?:packages\/client-graph\/(?:src\/)?diagnostics|tests\/worklist)(?:\/|$)/.test(
+            path,
+          )) ||
         /^@podium\/worklist-tests(?:\/|$)/.test(ref.specifier))
     ) {
       violations.push({
@@ -4957,7 +4967,8 @@ function main(): void {
       seqProbeSource.indexOf('export async function loud'),
       seqProbeSource.indexOf('export async function quiet'),
     )
-    const loudOffset = seqProbeSource.slice(0, seqProbeSource.indexOf('export async function loud'))
+    const loudOffset = seqProbeSource
+      .slice(0, seqProbeSource.indexOf('export async function loud'))
       .split('\n').length
     const expectedLines = loudBody
       .split('\n')
@@ -4990,7 +5001,7 @@ function main(): void {
     console.log(
       `probe: sequential-promise-combinator flags ${seqLines.length}/${expectedLines.length} ` +
         `planted awaits (all/allSettled/race/any, conditional, nested, member) and ` +
-        `stays quiet on ${(quiet.length === 0 ? 'all' : 'not all')} 6 correct forms`,
+        `stays quiet on ${quiet.length === 0 ? 'all' : 'not all'} 6 correct forms`,
     )
   }
   // ONE allowlist, but the two rule families must be applied to their OWN
@@ -5069,7 +5080,8 @@ function main(): void {
       )
       const byFile = new Map<string, number>()
       for (const v of harness.warnings) byFile.set(v.file, (byFile.get(v.file) ?? 0) + 1)
-      for (const [file, n] of [...byFile.entries()].sort()) console.warn(`  [${HARNESS_VENDOR_RULE}] ${file} (${n})`)
+      for (const [file, n] of [...byFile.entries()].sort())
+        console.warn(`  [${HARNESS_VENDOR_RULE}] ${file} (${n})`)
     }
     for (const s of harness.stale) console.error(`  ${s}`)
     for (const t of harnessTotals) console.error(`  ${t}`)
@@ -5079,8 +5091,12 @@ function main(): void {
       if (harness.errors.length > 30) {
         console.error(`  … and ${harness.errors.length - 30} more`)
       }
-      console.error('\nThese are not in scripts/harness-boundary-allowlist.ts (or exceed the declared count).')
-      console.error('Vendor behaviour belongs in packages/harness/src/adapters/ or packages/harness/src/driver/families/ — the allow-list is a ratchet, it only goes down.')
+      console.error(
+        '\nThese are not in scripts/harness-boundary-allowlist.ts (or exceed the declared count).',
+      )
+      console.error(
+        'Vendor behaviour belongs in packages/harness/src/adapters/ or packages/harness/src/driver/families/ — the allow-list is a ratchet, it only goes down.',
+      )
     }
   }
 

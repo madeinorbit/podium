@@ -1,5 +1,5 @@
 import '@podium/client-graph/requested-models'
-import { MobileClientSession } from '@podium/protocol'
+import { DeviceSignInView } from '@podium/protocol'
 import { AccountView, MemberView, RequestRecordKey } from '@podium/model'
 import '@podium/client-graph/message-models'
 import { PendingInteractionWire } from '@podium/protocol'
@@ -88,7 +88,7 @@ export interface ShapeCarrier {
  * typecheck, so the citation vocabulary cannot drift from the model.
  */
 export const MODEL_SCHEMAS: Readonly<Record<ModelSchemaName, ShapeCarrier>> = {
-  AccountView, MemberView, MobileClientSession, RequestRecordKey,
+  AccountView, MemberView, DeviceSignInView, RequestRecordKey,
   PendingInteractionWire: { shape: Object.assign({}, ...PendingInteractionWire.options.map(arm => arm.shape)) },
   MessageRecordWire,
   MessageLedgerWire,

@@ -1,3 +1,4 @@
+import { accountCapabilities } from '../test-support/auth-capabilities'
 /**
  * Mobile principal identity tripwire.
  *
@@ -16,10 +17,9 @@ const STATUS_FIELDS = [
   'userId',
   'syncBoundaryId',
   'memberId',
-  'mode',
-  'signInUrl',
-  'providerSignedIn',
-  'deniedReason',
+  'capabilities',
+  'prompt',
+  'denied',
 ] as const
 
 /** Type-level equality in both directions keeps the parser contract explicit. */
@@ -50,10 +50,9 @@ describe('the mobile auth status names its replica principal', () => {
           userId: 'alice',
           syncBoundaryId: 'installation-a',
           memberId: 'alice',
-          mode: 'cloud',
-          signInUrl: 'https://ade.podium.do/account/sign-in',
-          providerSignedIn: true,
-          deniedReason: 'not a member of this workspace',
+          capabilities: accountCapabilities,
+          prompt: 'email-password',
+          denied: 'not_workspace_member',
         }),
         {
           headers: { 'content-type': 'application/json' },

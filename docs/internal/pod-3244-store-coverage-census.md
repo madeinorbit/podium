@@ -138,7 +138,6 @@ Converting a member with no caller and no test would be work spent on nothing. T
 | `apps/server/src/store/notification-facts.ts` | 14 | 0 | 9 |
 | `apps/server/src/store/automations.ts` | 13 | 0 | 7 |
 | `apps/server/src/store/machines.ts` | 13 | 0 | 0 |
-| `apps/server/src/store/auth.ts` | 12 | 0 | 1 |
 | `apps/server/src/store/interactions.ts` | 12 | 0 | 4 |
 | `apps/server/src/store/locks.ts` | 12 | 0 | 11 |
 | `apps/server/src/store/observation-checkpoints.ts` | 12 | 0 | 4 |
@@ -233,18 +232,6 @@ Every method in these files is reached only through a caller. There is no test t
 | `apps/server/src/store/approvals.ts` | ApprovalsRepository | `listPending` | 65 | yes | `apps/server/src/modules/approvals/service.single-flight.test.ts`, `apps/server/src/modules/approvals/service.test.ts` — also server:services, server:boundary, server:normalized-wire | `apps/server/src/approvals-relay-e2e.test.ts`, `apps/server/src/modules/approvals/service.test.ts` |
 | `apps/server/src/store/approvals.ts` | ApprovalsRepository | `listExecuting` | 77 | yes | `apps/server/src/modules/approvals/service.single-flight.test.ts`, `apps/server/src/modules/approvals/service.test.ts` — also server:services, server:boundary | — |
 | `apps/server/src/store/approvals.ts` | ApprovalsRepository | `transition` | 87 | yes | `apps/server/src/modules/approvals/service.single-flight.test.ts`, `apps/server/src/modules/approvals/service.test.ts` | — |
-| `apps/server/src/store/auth.ts` | AuthRepository | `createClientSession` | 66 | yes | `apps/server/src/mobile-pairing-route.test.ts`, `apps/server/src/store/auth.test.ts` — also server:boundary | `apps/server/src/auth-route.test.ts`, `apps/server/src/mobile-pairing-route.test.ts` +1 |
-| `apps/server/src/store/auth.ts` | AuthRepository | `listClientSessions` | 95 | yes | `apps/server/src/mobile-pairing-route.test.ts`, `apps/server/src/store/auth.test.ts` — also server:boundary | `apps/server/src/auth-route.test.ts`, `apps/server/src/store/auth.test.ts` |
-| `apps/server/src/store/auth.ts` | AuthRepository | `deleteClientSessionsByLabel` | 130 | yes | `apps/server/src/store/auth.test.ts` — also server:boundary | `apps/server/src/auth-route.test.ts`, `apps/server/src/store/auth.test.ts` |
-| `apps/server/src/store/auth.ts` | AuthRepository | `getClientSession` | 135 | yes | `apps/server/src/mobile-pairing-route.test.ts`, `apps/server/src/store/auth.test.ts` — also server:boundary | `apps/server/src/auth-route.test.ts`, `apps/server/src/mobile-pairing-route.test.ts` +1 |
-| `apps/server/src/store/auth.ts` | AuthRepository | `extendClientSession` | 170 | yes | server:boundary | `apps/server/src/auth-route.test.ts` |
-| `apps/server/src/store/auth.ts` | AuthRepository | `touchClientSession` | 176 | yes | `apps/server/src/store/auth.test.ts` — also server:boundary | `apps/server/src/store/auth.test.ts` |
-| `apps/server/src/store/auth.ts` | AuthRepository | `listMobileClientSessions` | 182 | yes | `apps/server/src/mobile-pairing-route.test.ts`, `apps/server/src/store/auth.test.ts` — also server:boundary | `apps/server/src/auth-route.test.ts`, `apps/server/src/mobile-pairing-route.test.ts` +1 |
-| `apps/server/src/store/auth.ts` | AuthRepository | `deleteOwnedMobileClientSession` | 188 | yes | `apps/server/src/mobile-pairing-route.test.ts`, `apps/server/src/store/auth.test.ts` | `apps/server/src/store/auth.test.ts` |
-| `apps/server/src/store/auth.ts` | AuthRepository | `isClientSessionValid` | 200 | yes | `apps/server/src/mobile-pairing-route.test.ts`, `apps/server/src/store/auth.test.ts` — also server:boundary | `apps/server/src/auth-route.test.ts`, `apps/server/src/store/auth.test.ts` |
-| `apps/server/src/store/auth.ts` | AuthRepository | `deleteClientSession` | 205 | yes | server:boundary | `apps/server/src/auth-route.test.ts` |
-| `apps/server/src/store/auth.ts` | AuthRepository | `deleteAllClientSessions` | 210 | yes | server:boundary | `apps/server/src/auth-route.test.ts` |
-| `apps/server/src/store/auth.ts` | AuthRepository | `deleteExpiredClientSessions` | 215 | yes | server:boundary | — |
 | `apps/server/src/store/automations.ts` | AutomationsRepository | `list` | 82 | yes | `apps/server/src/store/runtime-events.test.ts` — also server:services, server:boundary, server:normalized-wire | `apps/server/src/approvals-relay-e2e.test.ts`, `apps/server/src/automation-removal-scoping.test.ts` +3 |
 | `apps/server/src/store/automations.ts` | AutomationsRepository | `get` | 89 | yes | server:services, server:boundary | `apps/server/src/modules/automations/scheduler.test.ts` |
 | `apps/server/src/store/automations.ts` | AutomationsRepository | `ownerOf` | 111 | yes | server:boundary | — |

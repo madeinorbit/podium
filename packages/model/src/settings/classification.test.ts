@@ -100,16 +100,14 @@ describe('settingsLeafPaths — the instrument, probed first', () => {
 
 describe('the classification is TOTAL over the split shapes', () => {
   it('classifies every leaf of every tier, and the count is non-trivial', () => {
-    // A cardinality a broken walk cannot reach. 55 = 27 personal + 23 instance
-    // + 5 secret; the three parts are pinned separately below so a failure names
-    // which half moved rather than only that the total did. Instance went 13 →
-    // 14 with `hibernation.idleShellMinutes` (POD-565), and 15 → 16 with
-    // `transcripts.mirror` (PDM-26). Personal went 28 → 27 when the unwired
-    // `roles.coding.subagentStrategy` was removed (POD-5917).
-    expect(SETTINGS_CLASSIFICATION.length).toBe(55)
-    expect(settingsPathsInTier('personal-preference').length).toBe(27)
-    expect(settingsPathsInTier('instance-preference').length).toBe(23)
+    // A cardinality a broken walk cannot reach: 26 personal + 22 instance + 5 secret.
+    // The redesign removed sidebar.groupByRepo and gitWorkflow.mergeStyle.
+    expect(SETTINGS_CLASSIFICATION.length).toBe(53)
+    expect(settingsPathsInTier('personal-preference').length).toBe(26)
+    expect(settingsPathsInTier('instance-preference').length).toBe(22)
     expect(settingsPathsInTier('server-secret').length).toBe(5)
+    expect(classifySettingsPath('sidebar.groupByRepo')).toBeUndefined()
+    expect(classifySettingsPath('gitWorkflow.mergeStyle')).toBeUndefined()
   })
 
   it('has no duplicate path — the index cannot silently collapse two leaves', () => {
@@ -123,7 +121,9 @@ describe('the classification is TOTAL over the split shapes', () => {
     expect(classifySettingsPath('notifications.telegramChatId')?.tier).toBe('personal-preference')
     expect(classifySettingsPath('roles.superagent.accountId')?.tier).toBe('personal-preference')
     expect(classifySettingsPath('roles.shipwright.accountId')?.tier).toBe('personal-preference')
-    expect(classifySettingsPath('gitWorkflow.mergeStyle')?.tier).toBe('instance-preference')
+    expect(classifySettingsPath('gitWorkflow.defaultParentBranch')?.tier).toBe(
+      'instance-preference',
+    )
     expect(classifySettingsPath('experimental')?.tier).toBe('instance-preference')
     expect(classifySettingsPath('hibernation.memoryPct')?.tier).toBe('instance-preference')
     expect(classifySettingsPath('apiKeys.anthropic')?.tier).toBe('server-secret')
@@ -235,7 +235,7 @@ describe('unknown paths: honest lookup, closed answer', () => {
     // unconditionally would pass every refusal assertion above and be useless.
     expect(settingsPathMayReplicate('sidebar.repoSort')).toBe(true)
     expect(settingsPathMayEnqueue('sidebar.repoSort')).toBe(true)
-    expect(settingsPathMayReplicate('gitWorkflow.mergeStyle')).toBe(true)
+    expect(settingsPathMayReplicate('gitWorkflow.defaultParentBranch')).toBe(true)
   })
 
   it('refuses replication and enqueue for EVERY server secret, and for no preference', () => {

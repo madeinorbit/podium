@@ -244,7 +244,7 @@ and pin the returned key; it does not attempt a local substitution before that p
 
 ## Reachable-URL proof
 
-Both Settings → Network and the embedded Settings → Machines flow use one state machine and one
+Both Settings → Access and the embedded Settings → Machines flow use one state machine and one
 probe implementation:
 
 ```text

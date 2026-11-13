@@ -1,8 +1,9 @@
 import '@/test-support/mock-request-pool.test.fixture'
 import { SHARED_MACHINE_ACCOUNT_WARNING } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, expect, test, vi } from 'vitest'
-import { useWorklistPool } from '@/app/store-worklist-pool'
+import { useWorklistPool as fixturePool } from '@/app/store-worklist-pool'
 import { MachineCustody } from './machine-custody'
 
 /**
@@ -18,6 +19,13 @@ afterEach(() => {
 
 const UNSHARE = { mutate: vi.fn() }
 
+async function sharingSection() {
+  const heading = await screen.findByRole('heading', { name: 'Who else can run agents here' })
+  const section = heading.closest('section')
+  if (!section) throw new Error('Machine sharing section is missing')
+  return section
+}
+
 function seed(grants?: unknown[]) {
   vi.stubGlobal(
     'fetch',
@@ -32,8 +40,11 @@ function seed(grants?: unknown[]) {
       }),
     })),
   )
+  // This test module supplies a plain pool accessor, without React hooks.
+  const pool = fixturePool()
+  if (!pool) throw new Error('Missing test pool')
   act(() =>
-    useWorklistPool()!.apply({
+    pool.apply({
       type: 'replace',
       rows: [
         {
@@ -44,7 +55,8 @@ function seed(grants?: unknown[]) {
             name: 'Build box',
             custodian: 'alice',
             loggedOutHarnesses: [],
-            ...(grants ? { grants } : {}),
+            transferable: true,
+            grants: grants ?? [],
           },
         },
       ],
@@ -52,7 +64,7 @@ function seed(grants?: unknown[]) {
   )
 }
 
-test('names the custodian and gives use only after the warning is acknowledged', async () => {
+test('gives use only after the inline shared-machine warning is acknowledged', async () => {
   seed()
   const mutate = vi.fn().mockResolvedValue([])
   render(
@@ -62,17 +74,18 @@ test('names the custodian and gives use only after the warning is acknowledged',
       trpc={{ machines: { share: { mutate }, unshare: UNSHARE } }}
     />,
   )
-  expect(await screen.findByText('Custody: Alice')).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: 'Give use…' }))
-  expect(screen.getByRole('note').textContent).toBe(SHARED_MACHINE_ACCOUNT_WARNING)
-  fireEvent.change(screen.getByLabelText('Member'), { target: { value: 'bob' } })
-  const give = screen.getByRole('button', { name: 'Give use' })
+  expect(await screen.findByRole('heading', { name: 'Who else can run agents here' })).toBeTruthy()
+  fireEvent.click(await screen.findByRole('button', { name: 'Add someone' }))
+  expect(screen.getByText(SHARED_MACHINE_ACCOUNT_WARNING).textContent).toBe(
+    SHARED_MACHINE_ACCOUNT_WARNING,
+  )
+  const give = screen.getByRole('button', { name: 'Let them run agents here' })
   // Not before the person confirms the warning.
   expect(give).toHaveProperty('disabled', true)
   fireEvent.click(give)
   expect(mutate).not.toHaveBeenCalled()
-  fireEvent.click(screen.getByLabelText('I understand that we will share this machine’s account'))
-  fireEvent.click(screen.getByRole('button', { name: 'Give use' }))
+  await userEvent.click(screen.getByText('I understand we will share this machine’s account'))
+  fireEvent.click(screen.getByRole('button', { name: 'Let them run agents here' }))
   await waitFor(() =>
     expect(mutate).toHaveBeenCalledExactlyOnceWith({
       id: 'm-1',
@@ -85,7 +98,7 @@ test('names the custodian and gives use only after the warning is acknowledged',
 })
 
 test('offers no grant without custody authority', async () => {
-  seed()
+  seed([BOB_USE])
   render(
     <MachineCustody
       machineId="m-1"
@@ -93,8 +106,9 @@ test('offers no grant without custody authority', async () => {
       trpc={{ machines: { share: { mutate: vi.fn() }, unshare: UNSHARE } }}
     />,
   )
-  expect(await screen.findByText('Custody: Alice')).toBeTruthy()
-  expect(screen.queryByRole('button', { name: 'Give use…' })).toBeNull()
+  expect(await screen.findByRole('heading', { name: 'Who else can run agents here' })).toBeTruthy()
+  expect(await screen.findByText('Bob')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Add someone' })).toBeNull()
 })
 
 /**
@@ -118,9 +132,8 @@ test('lists who else has access and removes a grant', async () => {
       trpc={{ machines: { share: { mutate: vi.fn() }, unshare: { mutate: unshare } } }}
     />,
   )
-  const list = await screen.findByRole('list', { name: 'Who else has access' })
-  await waitFor(() => expect(list.textContent).toContain('Bob can run agents'))
-  expect(list.textContent).toContain('given by Alice')
+  const list = await sharingSection()
+  await waitFor(() => expect(list.textContent).toContain('Bob'))
   fireEvent.click(screen.getByRole('button', { name: 'Remove Bob: can run agents' }))
   await waitFor(() =>
     expect(unshare).toHaveBeenCalledExactlyOnceWith({ id: 'm-1', grantee: 'bob', verb: 'use' }),
@@ -150,7 +163,7 @@ test('shows the server’s refusal of a removal', async () => {
   )
 })
 
-test('shows no grants list without custody authority', async () => {
+test('shows no grant removal without custody authority', async () => {
   seed([BOB_USE])
   render(
     <MachineCustody
@@ -159,7 +172,7 @@ test('shows no grants list without custody authority', async () => {
       trpc={{ machines: { share: { mutate: vi.fn() }, unshare: UNSHARE } }}
     />,
   )
-  expect(await screen.findByText('Custody: Alice')).toBeTruthy()
-  expect(screen.queryByRole('list', { name: 'Who else has access' })).toBeNull()
+  expect(await screen.findByRole('heading', { name: 'Who else can run agents here' })).toBeTruthy()
+  expect(await screen.findByText('Bob')).toBeTruthy()
   expect(screen.queryByRole('button', { name: /^Remove / })).toBeNull()
 })

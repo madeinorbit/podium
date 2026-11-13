@@ -169,23 +169,24 @@ podium auth mint-session                 # caches it; podium CLI calls now carry
 podium auth mint-session --print-only --ttl 10m   # prints only, for a browser context
 ```
 
-The printed value is the `podium_session` cookie. For Playwright:
+The printed value is a signed device credential. For Playwright on loopback HTTP
+use the `podium.session_token` cookie; for HTTPS use `__Secure-podium.session_token`.
 
 ```js
-await context.addCookies([{ name: 'podium_session', value: TOKEN, url: 'http://localhost:18787' }])
+await context.addCookies([{ name: 'podium.session_token', value: TOKEN, url: 'http://localhost:18787' }])
 ```
 
-Minting needs write access to the instance's `podium.db`, which already implies ownership
-of everything in it; `PODIUM_STATE_DIR` selects a non-default instance. **Trust model
+Minting needs the running server’s user-only control socket and a single member.
+`PODIUM_STATE_DIR` selects a non-default instance. **Trust model
 (ADR 3 D14 / POD-1402):** this is deliberate. Agents run as the operator's OS user, so a
 constrained agent can mint the same way and shed its relay identity for a direct `/trpc`
 call. Agent/operator scope is accident prevention on the default path, not containment of
 a co-resident adversarial agent — do not build on a stronger assumption. Sessions are
-labelled, so clean up after yourself without signing the operator's browsers out:
+grouped by device kind, so clean up after yourself without signing the operator's browsers out:
 
 ```sh
-podium auth sessions          # label, token hash, expiry
-podium auth revoke-sessions   # drops the 'break-glass' class only
+podium auth sessions          # device kind, public ID, expiry
+podium auth revoke-sessions   # ends host sign-ins only
 ```
 
 If a `podium` command ever fails with `HTTP 401 unauthorized`, that is this — mint a

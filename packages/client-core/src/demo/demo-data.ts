@@ -1,5 +1,5 @@
 import { BUNDLED_DESCRIPTORS } from '@podium/harness/browser'
-import type { AgentKind } from '@podium/model'
+import type { AgentKind, IssueProjection } from '@podium/model'
 import {
   actorUser,
   asIssueId,
@@ -19,8 +19,7 @@ import {
   type UnbrandIds,
   type UsageBucketWire,
 } from '@podium/model'
-import type { HostMemoryBreakdown, MobileClientSession } from '@podium/protocol'
-import type { IssueProjection } from '@podium/model'
+import type { DeviceSignInView, HostMemoryBreakdown } from '@podium/protocol'
 import type { IssueViewModel } from '../replica'
 
 /** A demo issue: the pool row plus its bodies, which the demo seeds as
@@ -862,13 +861,10 @@ export const DEMO_QUOTA_HISTORY: QuotaWindowHistoryWire[] = Array.from(
   },
 )
 
-export const DEMO_MOBILE_SESSIONS: MobileClientSession[] = [
+export const DEMO_MOBILE_SESSIONS: DeviceSignInView[] = [
   {
-    sessionId: 'demo_current_mobile_session',
-    userId: 'demo',
-    label: 'mobile',
-    kind: 'mobile',
-    deviceId: 'demo-iphone',
+    id: 'demo_current_mobile_session',
+    kind: 'phone',
     deviceName: 'iPhone 16 Pro',
     platform: 'ios',
     createdAt: min(14 * 24 * 60),
@@ -877,11 +873,8 @@ export const DEMO_MOBILE_SESSIONS: MobileClientSession[] = [
     current: true,
   },
   {
-    sessionId: 'demo_other_mobile_session',
-    userId: 'demo',
-    label: 'mobile',
-    kind: 'mobile',
-    deviceId: 'demo-ipad',
+    id: 'demo_other_mobile_session',
+    kind: 'phone',
     deviceName: 'iPad mini',
     platform: 'ios',
     createdAt: min(32 * 24 * 60),

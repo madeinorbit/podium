@@ -100,6 +100,45 @@
         "created_at": "2026-10-30T12:00:00.000Z",
         "expires_at": "2030-01-01T00:00:00.000Z",
         "label": "login"
+      },
+      {
+        "token_hash": "259466c1621c904d304375255622dd4da1ebb58ee7460782e0b83583201cf2bd",
+        "user_id": "mem_upgrade_alice",
+        "created_at": "2026-11-01T09:00:00.000Z",
+        "expires_at": "2026-12-01T09:00:00.000Z",
+        "label": "login",
+        "device_id": "browser",
+        "device_name": "Firefox on Linux",
+        "platform": "linux",
+        "last_seen_at": "2026-11-10T09:00:00.000Z"
+      },
+      {
+        "token_hash": "42dfbbbd1d0ded83acc2469b24b0155b696438ac21aeb58c6876fca57e4da937",
+        "user_id": "mem_upgrade_alice",
+        "created_at": "2026-11-01T09:00:00.000Z",
+        "expires_at": "2026-12-02T09:00:00.000Z",
+        "label": "login",
+        "device_id": "desktop",
+        "device_name": "Podium desktop on macOS",
+        "platform": "macos",
+        "last_seen_at": "2026-11-10T10:00:00.000Z"
+      },
+      {
+        "token_hash": "e466e3edb207cbce5bbd2beb51dd10f7583ae5a05c1c04ffb4c59b8c4f0f30b9",
+        "user_id": "mem_upgrade_alice",
+        "created_at": "2026-11-01T09:00:00.000Z",
+        "expires_at": "2027-02-01T00:00:00.000Z",
+        "label": "break-glass"
+      },
+      {
+        "token_hash": "51a2486c9199d378cf777bc8389ed4fd5f10c04af0ac47888d0a82283e9b0f6b",
+        "user_id": "mem_upgrade_alice",
+        "created_at": "2026-10-02T00:00:00.000Z",
+        "expires_at": "2026-11-01T00:00:00.000Z",
+        "label": "login",
+        "device_id": "browser",
+        "device_name": "Chrome on Windows",
+        "platform": "windows"
       }
     ],
     "accounts": [
@@ -269,6 +308,50 @@
         "created_at": "2026-10-30T12:00:00.000Z",
         "expires_at": "2030-01-01T00:00:00.000Z",
         "label": "login"
+      },
+      {
+        "token_hash": "40cab8215a088e1ba2b5f43d8fca4452681d4584006824a092aa2d71f5655321",
+        "user_id": "mem_upgrade_bob",
+        "created_at": "2026-11-01T09:00:00.000Z",
+        "expires_at": "2026-12-05T09:00:00.000Z",
+        "label": "login",
+        "device_id": "browser",
+        "device_name": "Safari on macOS",
+        "platform": "macos",
+        "last_seen_at": "2026-11-10T11:00:00.000Z"
+      },
+      {
+        "token_hash": "0d4f8a756a1b22a931de17b52099a5040c7e91ce1e8039856ff3413942394d13",
+        "user_id": "mem_upgrade_bob",
+        "created_at": "2026-11-01T09:00:00.000Z",
+        "expires_at": "2026-12-06T09:00:00.000Z",
+        "label": "mobile",
+        "session_id": "fixture-mobile-public-id-bob",
+        "device_id": "fixture-phone-device-bob",
+        "device_name": "Bob’s phone",
+        "platform": "ios",
+        "last_seen_at": "2026-11-10T12:00:00.000Z"
+      },
+      {
+        "token_hash": "9200294a2523af48d13ef78ecc26f7b25a6d7b312dd68917a9094d1115cc93fa",
+        "user_id": "mem_upgrade_alice",
+        "created_at": "2026-11-01T09:00:00.000Z",
+        "expires_at": "2036-08-01T00:00:00.000Z",
+        "label": "upstream"
+      },
+      {
+        "token_hash": "d674fd4bbe429a8f6e56d2fa87255b16e69fc09353e3a88c9fe5eee3a29682ae",
+        "user_id": "mem_upgrade_alice",
+        "created_at": "2026-11-01T09:00:00.000Z",
+        "expires_at": "2026-12-01T09:00:00.000Z",
+        "label": "server-transfer-claim"
+      },
+      {
+        "token_hash": "a5bbbf636d581f89af73e89ae5767a4b02f29081bd1ddb0521e833cc0e738108",
+        "user_id": "mem_upgrade_bob",
+        "created_at": "2026-11-01T09:00:00.000Z",
+        "expires_at": "2026-12-01T09:00:00.000Z",
+        "label": "api"
       }
     ],
     "grants": [

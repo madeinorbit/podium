@@ -1,11 +1,10 @@
 import type { Operation } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
-  channelStatusRows,
   channelUnavailableProse,
-  describeChannelStatus,
   describeCheckOutcome,
   historyRows,
+  lastChecked,
   sourceUnavailableProse,
 } from './updates-view'
 
@@ -46,54 +45,6 @@ describe('channel prose (spec §6.3)', () => {
     expect(sourceUnavailableProse('its update source', 'no target')).toBe(
       'Nothing published on its update source yet.',
     )
-  })
-})
-
-describe('describeChannelStatus', () => {
-  it('names the version when one is published', () => {
-    expect(describeChannelStatus('stable', { status: 'ok' }, '0.4.3')).toEqual({
-      status: 'Podium 0.4.3 is published on Stable.',
-      tone: 'ok',
-    })
-  })
-
-  it('does not invent a version it was not given', () => {
-    expect(describeChannelStatus('edge', { status: 'ok' }, null)).toEqual({
-      status: 'A build is published on Edge.',
-      tone: 'ok',
-    })
-  })
-
-  it('says a never-checked channel has not been checked', () => {
-    expect(describeChannelStatus('edge', undefined, null)).toEqual({
-      status: 'Edge has not been checked yet.',
-      tone: 'warning',
-    })
-  })
-
-  /**
-   * An unavailable outcome wins over a stale version: the channel just said it
-   * has nothing, and showing the last version it had would be the offer §6.3
-   * says must not exist.
-   */
-  it('prefers the fresh refusal over a version left over from before', () => {
-    expect(
-      describeChannelStatus('dev', { status: 'unavailable', reason: 'no target' }, '0.4.2'),
-    ).toEqual({ status: 'Nothing published on Development yet.', tone: 'warning' })
-  })
-})
-
-describe('channelStatusRows', () => {
-  it('says when each channel was last checked, and when it never was', () => {
-    const rows = channelStatusRows({
-      channels: ['stable', 'edge'],
-      checks: [{ channel: 'stable', checkedAt: NOW - 7_200_000, outcome: { status: 'ok' } }],
-      targetByChannel: { stable: '0.4.3' },
-      now: NOW,
-    })
-    expect(rows.map((row) => row.checked)).toEqual(['checked 2h ago', 'never checked'])
-    expect(rows[0]?.status).toBe('Podium 0.4.3 is published on Stable.')
-    expect(rows[1]?.tone).toBe('warning')
   })
 })
 
@@ -202,5 +153,28 @@ describe('historyRows (spec §3.7)', () => {
   it('marks a retry as a retry', () => {
     const [row] = historyRows([operation({ retryOf: 'op_01i' })], NOW)
     expect(row?.retryNote).toBe('Retry of an earlier update')
+  })
+})
+
+describe('lastChecked', () => {
+  it('keeps a never-checked channel honest', () => {
+    expect(lastChecked(undefined, NOW)).toEqual({ label: 'Not checked yet' })
+  })
+  it('shows the selected channel’s age and failure reason on one line', () => {
+    expect(
+      lastChecked(
+        {
+          channel: 'stable',
+          checkedAt: NOW - 7_200_000,
+          outcome: { status: 'unavailable', reason: 'no target' },
+        },
+        NOW,
+      ).label,
+    ).toBe('2h ago · Nothing published on Stable yet.')
+  })
+  it('keeps the absolute timestamp alongside the relative label', () => {
+    const reading = lastChecked({ channel: 'edge', checkedAt: NOW, outcome: { status: 'ok' } }, NOW)
+    expect(reading.label).toBe('just now')
+    expect(reading.title).toBe(new Date(NOW).toLocaleString())
   })
 })

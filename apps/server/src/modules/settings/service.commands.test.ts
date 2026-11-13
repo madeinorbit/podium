@@ -19,14 +19,15 @@
  *    own schema rejects, so "it wrote something" is not the only thing proved.
  */
 
+import { readSettingsLeaf } from '@podium/commands'
 import type { TelegramChatBinding, UserId } from '@podium/model'
-import { firstAdminMemberId,
+import {
   asUserId,
+  firstAdminMemberId,
   SERVER_SECRET_KEYS,
   type SecretPresenceWire,
   type ServerSecretKey,
 } from '@podium/model'
-import { readSettingsLeaf } from '@podium/commands'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createBunStoreExecutor } from '../../store/executor'
@@ -46,7 +47,9 @@ import { SettingsService } from './service'
  * second copy of the very logic under test, which would agree with itself no
  * matter what the shipped one did.
  */
-function makeStore(db: ReturnType<typeof openMigratedTestDatabase> = openMigratedTestDatabase()): SettingsRepository {
+function makeStore(
+  db: ReturnType<typeof openMigratedTestDatabase> = openMigratedTestDatabase(),
+): SettingsRepository {
   const stage = createBunStoreExecutor({ database: db }).queries
   if (!stage) throw new Error('the test database is not bun-backed')
   return new SettingsRepository(stage)
@@ -72,7 +75,8 @@ function makeSecrets() {
       rows.delete(key)
     },
     fingerprintKey: async () => FINGERPRINT_KEY,
-    apiKeyFor: async (provider: string): Promise<string | undefined> => rows.get(`apiKeys.${provider}`)?.value,
+    apiKeyFor: async (provider: string): Promise<string | undefined> =>
+      rows.get(`apiKeys.${provider}`)?.value,
     presence: async (): Promise<SecretPresenceWire[]> =>
       SERVER_SECRET_KEYS.map((key) => ({
         key,
@@ -101,7 +105,7 @@ beforeEach(() => {
     // user a claim code is minted FOR. Both required rather than defaulted —
     // a no-op writer would let the ceremony report success while binding
     // nothing, and a default user would stamp one id for everybody.
-    telegramBindings: { upsert: async () => {} },
+    telegramBindings: { upsert: async () => {}, removeForUser: async () => {} },
     // REQUIRED (POD-421): an absent trail is indistinguishable from a working
     // one at every call site, so it is a compile error rather than a default.
     audit: { repo: { append: async () => {} }, now: () => '2026-07-31T00:00:00.000Z' },
@@ -141,44 +145,56 @@ describe('optional role harness saves stay loadable', () => {
     expect(await store.userPreferences.keysFor(USER)).not.toContain('roles.superagent.harness')
   })
 
-  it.each(['coding', 'background', 'superagent', 'shipwright'] as const)(
-    'a JSON null clear deletes the %s harness preference rather than storing null', async (role) => {
-      const path = `roles.${role}.harness`
-      await service.updatePreferences(USER, { [path]: 'codex' })
-      const saved = await service.updatePreferences(USER, { [path]: null })
-      expect(saved.roles[role]).not.toHaveProperty('harness')
-      expect((await service.getSettingsFor(USER)).roles[role]).not.toHaveProperty('harness')
-      expect(await store.userPreferences.keysFor(USER)).not.toContain(path)
-    },
-  )
+  it.each([
+    'coding',
+    'background',
+    'superagent',
+    'shipwright',
+  ] as const)('a JSON null clear deletes the %s harness preference rather than storing null', async (role) => {
+    const path = `roles.${role}.harness`
+    await service.updatePreferences(USER, { [path]: 'codex' })
+    const saved = await service.updatePreferences(USER, { [path]: null })
+    expect(saved.roles[role]).not.toHaveProperty('harness')
+    expect((await service.getSettingsFor(USER)).roles[role]).not.toHaveProperty('harness')
+    expect(await store.userPreferences.keysFor(USER)).not.toContain(path)
+  })
 
-  it.each(['loadPerCore', 'maxIdleSessions', 'idleShellMinutes', 'backstopMinutes'] as const)(
-    'hibernation.%s still persists null as its value', async (key) => {
-      const saved = await service.updatePreferences(USER, { [`hibernation.${key}`]: null })
-      expect(saved.hibernation[key]).toBeNull()
-      expect((await service.getSettingsFor(USER)).hibernation[key]).toBeNull()
-      const row = db.prepare('SELECT value FROM meta WHERE key = ?').get('settings') as { value: string }
-      expect(JSON.parse(row.value).hibernation[key]).toBeNull()
-    },
-  )
+  it.each([
+    'loadPerCore',
+    'maxIdleSessions',
+    'idleShellMinutes',
+    'backstopMinutes',
+  ] as const)('hibernation.%s still persists null as its value', async (key) => {
+    const saved = await service.updatePreferences(USER, { [`hibernation.${key}`]: null })
+    expect(saved.hibernation[key]).toBeNull()
+    expect((await service.getSettingsFor(USER)).hibernation[key]).toBeNull()
+    const row = db.prepare('SELECT value FROM meta WHERE key = ?').get('settings') as {
+      value: string
+    }
+    expect(JSON.parse(row.value).hibernation[key]).toBeNull()
+  })
 
-  it.each(Object.entries({
-    'transcripts.mirror': false,
-    'deployment.authOpenMode': true,
-    'deployment.updateChannel': 'dev',
-    'deployment.connectEnabled': false,
-    'deployment.telemetryUsage': 'off',
-    'deployment.telemetryCrash': 'on',
-    'deployment.telemetryInstallId': 'saved-install',
-    'deployment.telemetrySince': 0,
-  }))('a JSON null clear removes %s from the persisted blob', async (path, value) => {
+  it.each(
+    Object.entries({
+      'transcripts.mirror': false,
+      'deployment.authOpenMode': true,
+      'deployment.updateChannel': 'dev',
+      'deployment.connectEnabled': false,
+      'deployment.telemetryUsage': 'off',
+      'deployment.telemetryCrash': 'on',
+      'deployment.telemetryInstallId': 'saved-install',
+      'deployment.telemetrySince': 0,
+    }),
+  )('a JSON null clear removes %s from the persisted blob', async (path, value) => {
     await service.updatePreferences(USER, { [path]: value, 'hibernation.maxIdleSessions': null })
     expect(readSettingsLeaf(await service.getSettingsFor(USER), path)).toBe(value)
     const saved = await service.updatePreferences(USER, { [path]: null })
     expect(saved).not.toHaveProperty(path)
     expect(await service.getSettingsFor(USER)).not.toHaveProperty(path)
     expect(saved.hibernation.maxIdleSessions).toBeNull()
-    const row = db.prepare('SELECT value FROM meta WHERE key = ?').get('settings') as { value: string }
+    const row = db.prepare('SELECT value FROM meta WHERE key = ?').get('settings') as {
+      value: string
+    }
     const persisted = JSON.parse(row.value)
     expect(persisted).not.toHaveProperty(path)
     expect(persisted.hibernation.maxIdleSessions).toBeNull()
@@ -188,7 +204,12 @@ describe('optional role harness saves stay loadable', () => {
     db.prepare(
       'INSERT INTO user_preferences (user_id, key, value, updated_at) VALUES (?, ?, ?, ?)',
     ).run(USER, 'roles.superagent.harness', 'null', '2026-07-30T12:00:00.000Z')
-    await store.userPreferences.set(USER, 'roles.superagent.model', 'saved-model', '2026-07-30T12:00:00.000Z')
+    await store.userPreferences.set(
+      USER,
+      'roles.superagent.model',
+      'saved-model',
+      '2026-07-30T12:00:00.000Z',
+    )
 
     const current = await service.getSettingsFor(USER)
     expect(current.roles.superagent).not.toHaveProperty('harness')
@@ -245,7 +266,7 @@ describe('the blob write may not carry a secret', () => {
     // So the property is stronger than a refusal: the blob CANNOT express a
     // clear at all. Clearing is `settings.clearSecret` — online-only,
     // admin-grade, never queued.
-    await service.setSecret('apiKeys.anthropic', 'sk-configured')
+    await secrets.set('apiKeys.anthropic', 'sk-configured', '2026-01-01T00:00:00Z')
     const current = await service.getSettingsFor(USER)
     await expect(
       service.setSettingsFor(USER, { ...current, apiKeys: { ...current.apiKeys, anthropic: '' } }),
@@ -258,7 +279,7 @@ describe('the blob write may not carry a secret', () => {
     // is a ROUND-TRIP, not a rotation — refusing it would break every preference
     // save from that tab, which is the failure POD-420's positive control exists
     // to prevent, now expressed against the keyed store.
-    await service.setSecret('apiKeys.openai', 'sk-served-earlier')
+    await secrets.set('apiKeys.openai', 'sk-served-earlier', '2026-01-01T00:00:00Z')
     const current = await service.getSettingsFor(USER)
     await expect(
       service.setSettingsFor(USER, {
@@ -302,24 +323,38 @@ describe('the blob write may not carry a secret', () => {
   })
 })
 
-describe('setSecret / clearSecret are the only path to material', () => {
+describe('setSecret / clearSecret own integration tokens', () => {
+  it.each([
+    'apiKeys.openai',
+    'apiKeys.anthropic',
+    'apiKeys.openrouter',
+  ] as const)('refuses retired %s writes without changing the secret or publishing settings', async (key) => {
+    await secrets.set(key, 'old-upgrade-key', '2026-07-30T00:00:00.000Z')
+    const changed = vi.fn()
+    bus.on('settings.changed', changed)
+    await expect(service.setSecret(key, 'new-refused-key')).rejects.toThrow('AI accounts')
+    expect(await secrets.get(key)).toBe('old-upgrade-key')
+    expect(changed).not.toHaveBeenCalled()
+    expect(JSON.stringify(await service.getSettingsFor(USER))).not.toContain('new-refused-key')
+  })
+
   it('writes the material and returns a projection WITHOUT it', async () => {
-    const wire = await service.setSecret('apiKeys.openai', 'sk-live-value')
+    const wire = await service.setSecret('integrations.linearApiKey', 'lin-live-value')
     // POD-419: the material lands in the server-only keyed store, and NOT in the
     // blob — which is the object that round-trips to a browser.
-    expect(await secrets.get('apiKeys.openai')).toBe('sk-live-value')
-    expect((await service.getSettingsFor(USER)).apiKeys.openai).toBe('')
-    expect(JSON.stringify(await service.getSettingsFor(USER))).not.toContain('sk-live-value')
-    expect(wire.key).toBe('apiKeys.openai')
+    expect(await secrets.get('integrations.linearApiKey')).toBe('lin-live-value')
+    expect((await service.getSettingsFor(USER)).integrations.linearApiKey).toBe('')
+    expect(JSON.stringify(await service.getSettingsFor(USER))).not.toContain('lin-live-value')
+    expect(wire.key).toBe('integrations.linearApiKey')
     expect(wire.present).toBe(true)
     expect(wire.fingerprint).toMatch(/^[0-9a-f]{16}$/)
-    expect(JSON.stringify(wire)).not.toContain('sk-live-value')
+    expect(JSON.stringify(wire)).not.toContain('lin-live-value')
   })
 
   it('the fingerprint changes on rotation and is stable without one', async () => {
-    const first = await service.setSecret('apiKeys.openai', 'sk-one')
-    const again = await service.setSecret('apiKeys.openai', 'sk-one')
-    const rotated = await service.setSecret('apiKeys.openai', 'sk-two')
+    const first = await service.setSecret('integrations.linearApiKey', 'lin-one')
+    const again = await service.setSecret('integrations.linearApiKey', 'lin-one')
+    const rotated = await service.setSecret('integrations.linearApiKey', 'lin-two')
     expect(again.fingerprint).toBe(first.fingerprint)
     expect(rotated.fingerprint).not.toBe(first.fingerprint)
   })
@@ -360,10 +395,10 @@ describe('the preference patch applies by path and validates by model', () => {
   it('applies several paths across nested objects in one call', async () => {
     const saved = await service.updatePreferences(USER, {
       'sidebar.repoSort': 'alphabetical',
-      'gitWorkflow.mergeStyle': 'pr',
+      'gitWorkflow.defaultParentBranch': 'release',
     })
     expect(saved.sidebar.repoSort).toBe('alphabetical')
-    expect(saved.gitWorkflow.mergeStyle).toBe('pr')
+    expect(saved.gitWorkflow.defaultParentBranch).toBe('release')
   })
 
   it('REFUSES a value the model rejects — the parse is the value gate', async () => {
@@ -373,9 +408,9 @@ describe('the preference patch applies by path and validates by model', () => {
       service.updatePreferences(USER, { 'hibernation.memoryPct': 'not a number' }),
     ).rejects.toThrow()
     await expect(
-      service.updatePreferences(USER, { 'gitWorkflow.mergeStyle': 'octopus' }),
+      service.updatePreferences(USER, { 'gitWorkflow.autoRebaseBeforeMerge': 'yes' }),
     ).rejects.toThrow()
-    expect((await service.getSettingsFor(USER)).gitWorkflow.mergeStyle).toBe('ff-only')
+    expect((await service.getSettingsFor(USER)).gitWorkflow.autoRebaseBeforeMerge).toBe(true)
   })
 
   it('cannot be used to write a secret — it goes through the blob guard', async () => {
@@ -421,14 +456,10 @@ describe('the binding names the MINTER, never whoever redeems', () => {
     // "Telegram bot token is required before setup" before reaching the
     // ownership assertion these tests exist to make.
     const secretStore = makeSecrets()
-    await secretStore.set(
-      'notifications.telegramBotToken',
-      'bot:tok',
-      '2026-07-30T12:00:00.000Z',
-    )
+    await secretStore.set('notifications.telegramBotToken', 'bot:tok', '2026-07-30T12:00:00.000Z')
     const bound: TelegramChatBinding[] = []
     const service = new SettingsService(st, secretStore, new EventBus(), {
-      telegramBindings: { upsert: async (b) => void bound.push(b) },
+      telegramBindings: { upsert: async (b) => void bound.push(b), removeForUser: async () => {} },
       // REQUIRED (POD-421): an absent trail is indistinguishable from a working
       // one at every call site, so it is a compile error rather than a default.
       audit: { repo: { append: async () => {} }, now: () => '2026-07-31T00:00:00.000Z' },
@@ -447,15 +478,13 @@ describe('the binding names the MINTER, never whoever redeems', () => {
     return { service, bound }
   }
 
-  it('binds the chat to the user who MINTED, with a different user now current', async () => {
-    // THE TEST THE WHOLE ISSUE TURNS ON. Alice mints; by redemption the service's
-    // idea of "the current user" is Bob; the binding must still say Alice,
-    // because the user travelled inside the mint. If it says Bob, ownership is
-    // flowing from the redeeming call — POD-1079's failure mode, where anyone
-    // holding a setupId completes someone else's ceremony and takes the chat.
+  it('only lets the minting caller redeem their own chat', async () => {
+    // Another member's handle fails like an unknown one and cannot consume it.
     const { service, bound } = await ceremony()
     const setup = await service.startTelegramSetup(ALICE)
-    const result = await service.pollTelegramSetup(setup.setupId)
+    expect(await service.pollTelegramSetup(setup.setupId, BOB)).toEqual({ status: 'expired' })
+    expect(bound).toEqual([])
+    const result = await service.pollTelegramSetup(setup.setupId, ALICE)
 
     expect(result.status).toBe('connected')
     expect(bound).toHaveLength(1)
@@ -468,7 +497,7 @@ describe('the binding names the MINTER, never whoever redeems', () => {
     // implementation that hard-coded Alice would pass it perfectly.
     const { service, bound } = await ceremony()
     const setup = await service.startTelegramSetup(BOB)
-    await service.pollTelegramSetup(setup.setupId)
+    await service.pollTelegramSetup(setup.setupId, BOB)
 
     expect(bound[0]?.userId).toBe(BOB)
   })
@@ -476,7 +505,7 @@ describe('the binding names the MINTER, never whoever redeems', () => {
   it('records the chat the claimant messaged from', async () => {
     const { service, bound } = await ceremony()
     const setup = await service.startTelegramSetup(ALICE)
-    await service.pollTelegramSetup(setup.setupId)
+    await service.pollTelegramSetup(setup.setupId, ALICE)
     expect(bound[0]?.chatId).toBe('555')
   })
 
@@ -494,15 +523,15 @@ describe('the binding names the MINTER, never whoever redeems', () => {
     // The contract's error-consistency cell: telling them apart would say
     // whether someone else's ceremony is currently open.
     const { service, bound } = await ceremony()
-    expect(await service.pollTelegramSetup('never-minted')).toEqual({ status: 'expired' })
+    expect(await service.pollTelegramSetup('never-minted', ALICE)).toEqual({ status: 'expired' })
     expect(bound).toEqual([])
   })
 
   it('a redeemed mint is single-use — the second redemption is `expired`', async () => {
     const { service, bound } = await ceremony()
     const setup = await service.startTelegramSetup(ALICE)
-    expect((await service.pollTelegramSetup(setup.setupId)).status).toBe('connected')
-    expect(await service.pollTelegramSetup(setup.setupId)).toEqual({ status: 'expired' })
+    expect((await service.pollTelegramSetup(setup.setupId, ALICE)).status).toBe('connected')
+    expect(await service.pollTelegramSetup(setup.setupId, ALICE)).toEqual({ status: 'expired' })
     expect(bound).toHaveLength(1)
   })
 })

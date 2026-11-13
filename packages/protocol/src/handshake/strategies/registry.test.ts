@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { AUTH_ROLES, PeerCredential } from '../envelope'
-import { createRecordingMinter, fakeClientSessions, fakeDelegations, fakeMachines } from '../test-support'
+import { createRecordingMinter, fakeDelegations, fakeMachines } from '../test-support'
 import { createDefaultAuthRegistry } from './default-registry'
 import { createAuthStrategyRegistry } from './registry'
 
 const allPorts = () => ({
-  clientSessions: fakeClientSessions({}),
   machines: fakeMachines({}),
   delegations: fakeDelegations([]),
   mint: createRecordingMinter(),
@@ -17,10 +16,14 @@ const CREDENTIAL_KINDS = PeerCredential.options.map((o) => o.shape.kind.value)
 describe('auth strategy registry', () => {
   it('selects by (role, credentialKind) — a lookup, not a conditional', () => {
     const registry = createDefaultAuthRegistry(allPorts())
-    expect(registry.lookup('machine', 'daemonSecret')?.name).toBe('machine-local-secret')
+    expect(registry.lookup('machine', 'daemonSecret')?.name).toBe(
+      'unavailable(machine/daemonSecret)',
+    )
     expect(registry.lookup('machine', 'pairCode')?.name).toBe('machine-pair-code')
     expect(registry.lookup('machine', 'machineToken')?.name).toBe('machine-token')
-    expect(registry.lookup('console', 'sessionCookie')?.name).toBe('console-cookie')
+    expect(registry.lookup('console', 'sessionCookie')?.name).toBe(
+      'unavailable(console/sessionCookie)',
+    )
     expect(registry.lookup('agent-relay', 'delegationRef')?.name).toBe('agent-relay-delegation')
     expect(registry.lookup('node', 'nodeCredential')?.name).toBe('node-reserved-inert')
   })
@@ -44,8 +47,11 @@ describe('auth strategy registry', () => {
   })
 
   it('registers an explicit refusal, not a gap, when a port is unwired', () => {
-    // Production today: no per-user client sessions (POD-1075 not landed).
-    const registry = createDefaultAuthRegistry({ machines: fakeMachines({}), mint: createRecordingMinter() })
+    // Person-facing admission is owned by the shared identity boundary.
+    const registry = createDefaultAuthRegistry({
+      machines: fakeMachines({}),
+      mint: createRecordingMinter(),
+    })
     const console_ = registry.lookup('console', 'sessionCookie')
     expect(console_?.name).toBe('unavailable(console/sessionCookie)')
     const outcome = console_?.authenticate({

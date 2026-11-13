@@ -78,6 +78,9 @@ function needsTelemetryIdentity(
 // Every query this repository runs, prepared once per store [POD-6147].
 
 /** One `meta` value by key: every read here, whichever key it names. */
+const APPLIED_MEMBERSHIP_VERSION_KEY = 'identity.appliedMembershipVersion'
+const LEGACY_LINKS_IMPORTED_KEY = 'identity.legacyLinksImported'
+
 const metaValue = prepared((db: StoreDrizzle) =>
   db
     .select({ value: meta.value })
@@ -261,6 +264,17 @@ export class SettingsRepository {
     return row?.value ? asUserId(row.value) : null
   }
 
+  /** Immutable upgrade boundary: later raw receipts are never treated as solo-era receipts. */
+  async legacyMutationReceiptCutoff(now: number): Promise<number> {
+    return await this.createOrJoinTransaction(async () => {
+      const key = 'legacy_mutation_receipt_cutoff'
+      const row = await metaValue(this.db).get({ key })
+      if (row !== undefined) return Number(row.value)
+      await this.writeMeta(key, String(now))
+      return now
+    })
+  }
+
   /** Setup enrollment receipts share the database transaction with their machine row. */
   async setupEnrollmentReceipt(key: string): Promise<string | undefined> {
     return (await metaValue(this.db).get({ key: `setup_enrollment:${key}` }))?.value
@@ -279,6 +293,30 @@ export class SettingsRepository {
 
   async completeDataMigration(name: string): Promise<void> {
     await this.writeMeta(`data_migration:${name}`, '1')
+  }
+
+  /**
+   * The cursor of a hosted workspace (people and sign-in specification,
+   * section 11): every membership change up to this version has been applied
+   * to the member rows. A self-hosted server never reads or writes it.
+   */
+  async appliedMembershipVersion(): Promise<number> {
+    const row = await metaValue(this.db).get({ key: APPLIED_MEMBERSHIP_VERSION_KEY })
+    const version = Number(row?.value ?? 0)
+    return Number.isSafeInteger(version) && version > 0 ? version : 0
+  }
+
+  async recordAppliedMembershipVersion(version: number): Promise<void> {
+    await this.writeMeta(APPLIED_MEMBERSHIP_VERSION_KEY, String(version))
+  }
+
+  /** Import receipt: prevents replay and permits retirement of the source storage. */
+  async legacyIdentityLinksImported(): Promise<boolean> {
+    return (await metaValue(this.db).get({ key: LEGACY_LINKS_IMPORTED_KEY }))?.value === '1'
+  }
+
+  async recordLegacyIdentityLinksImported(): Promise<void> {
+    await this.writeMeta(LEGACY_LINKS_IMPORTED_KEY, '1')
   }
 
   async getSettings(): Promise<PodiumSettings> {
@@ -402,7 +440,9 @@ export class SettingsRepository {
     next: PodiumSettings,
     updatedAt: string,
   ): Promise<PodiumSettings> {
-    return await this.inSettingsCommit(async () => await this.writeSettingsFor(userId, next, updatedAt))
+    return await this.inSettingsCommit(
+      async () => await this.writeSettingsFor(userId, next, updatedAt),
+    )
   }
 
   /**
@@ -417,7 +457,8 @@ export class SettingsRepository {
     await capture(async () => {
       result = { value: await write() }
     })
-    if (result === undefined) throw new Error('settings: the change-log commit did not run its write')
+    if (result === undefined)
+      throw new Error('settings: the change-log commit did not run its write')
     return result.value
   }
 
@@ -463,20 +504,20 @@ export class SettingsRepository {
     updatedAt: string,
   ): Promise<PodiumSettings> {
     return await this.inSettingsCommit(async () => {
-    const instancePatch: Record<string, unknown> = {}
-    for (const [path, value] of Object.entries(values)) {
-      if (isPersonalPreferenceKey(path)) {
-        await this.userPreferences.set(userId, path, value, updatedAt)
-        continue
+      const instancePatch: Record<string, unknown> = {}
+      for (const [path, value] of Object.entries(values)) {
+        if (isPersonalPreferenceKey(path)) {
+          await this.userPreferences.set(userId, path, value, updatedAt)
+          continue
+        }
+        instancePatch[path] = value
       }
-      instancePatch[path] = value
-    }
-    if (Object.keys(instancePatch).length > 0) {
-      await this.setSettings(
-        normalizeSettings(applySettingsPatch(await this.getSettings(), instancePatch)),
-      )
-    }
-    return await this.getSettingsFor(userId)
+      if (Object.keys(instancePatch).length > 0) {
+        await this.setSettings(
+          normalizeSettings(applySettingsPatch(await this.getSettings(), instancePatch)),
+        )
+      }
+      return await this.getSettingsFor(userId)
     })
   }
 

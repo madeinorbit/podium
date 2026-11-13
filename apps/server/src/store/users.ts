@@ -1,37 +1,14 @@
 import { CommittedRows } from './committed-rows'
 import { GrantsRepository } from './grants'
 import { MachinesRepository } from './machines'
-/**
- * THE ACCOUNT ROLE READER (POD-1079) — the first reader the `users` table
- * (POD-1075) has had.
- *
- * `roleFloor` on a command contract is "which commands this principal may
- * ATTEMPT" (ADR 3 Amendment 1 D15), and the floor is compared against the
- * INSTANCE-LEVEL account role (ADR 9 D1.4), not against the per-command
- * capability role that already rides on the transport. Two different questions:
- * the capability says what this connection was granted, the account role says
- * what grade of person is behind it.
- *
- * Account creation, disablement and credential replacement publish the account
- * through the mandatory commit application. Credential hashes stay out of the
- * world index; disabled accounts and unknown roles still fail closed.
- *
- * Member writes are also used by the invite-and-claim service. Its public
- * routes enforce admin access; trusted account claims are an in-process
- * capability.
- */
+import { SignInCarryOverRepository } from './sign-in-carry-over'
+/** Member rows and authority. Identity changes arrive only through apply-membership. */
 
-import type { CredentialSource, UserId, UserRole } from '@podium/model'
-import { asUserId, CREDENTIAL_SOURCES, LoginEmail, USER_ROLES } from '@podium/model'
-import { and, asc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
-import {
-  clientSessions,
-  grants,
-  memberInvites,
-  settingsAuditEvents,
-  userCredentials,
-  users,
-} from '../migrations/schema'
+import type { MemberRows, MemberWrite } from '@podium/identity'
+import type { UserId, UserRole } from '@podium/model'
+import { asUserId, LoginEmail, USER_ROLES } from '@podium/model'
+import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { grants, settingsAuditEvents, users } from '../migrations/schema'
 import { applyAfterCommit, spanOpen } from './executor/executor'
 import { operationLoader } from './executor/operation-loader'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
@@ -40,10 +17,8 @@ import {
   inListSize,
   inListValues,
   param,
-  placeholdersFor,
   prepared,
   preparedFamily,
-  shapeOf,
 } from './executor/sync-drizzle'
 
 // Every query this repository runs, prepared once per store [POD-6147].
@@ -128,6 +103,14 @@ const userIdByEmail = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+const setUserProfile = prepared((db: StoreDrizzle) =>
+  db
+    .update(users)
+    .set({ displayName: sql.placeholder('displayName'), avatar: sql.placeholder('avatar') })
+    .where(eq(users.id, param(users.id, 'id')))
+    .prepare(),
+)
+
 const userIdByAccount = prepared((db: StoreDrizzle) =>
   db
     .select({ id: users.id })
@@ -145,48 +128,6 @@ const everyUserByCreation = prepared((db: StoreDrizzle) =>
   db.select().from(users).orderBy(asc(users.createdAt), asc(users.id)).prepare(),
 )
 
-const insertUserValues = {
-  id: sql.placeholder('id'),
-  displayName: sql.placeholder('displayName'),
-  email: sql.placeholder('email'),
-  role: sql.placeholder('role'),
-  createdAt: sql.placeholder('createdAt'),
-  disabledAt: null,
-}
-
-const insertUser = prepared((db: StoreDrizzle) =>
-  db.insert(users).values(insertUserValues).prepare(),
-)
-
-const insertUserReturning = prepared((db: StoreDrizzle) =>
-  db.insert(users).values(insertUserValues).returning().prepare(),
-)
-
-const setUserEmail = prepared((db: StoreDrizzle) =>
-  db
-    .update(users)
-    .set({ email: sql.placeholder('email') })
-    .where(eq(users.id, param(users.id, 'id')))
-    .prepare(),
-)
-
-const setUserDisabledAt = prepared((db: StoreDrizzle) =>
-  db
-    .update(users)
-    .set({ disabledAt: sql.placeholder('disabledAt') })
-    .where(eq(users.id, param(users.id, 'id')))
-    .returning()
-    .prepare(),
-)
-
-const setUserRole = prepared((db: StoreDrizzle) =>
-  db
-    .update(users)
-    .set({ role: sql.placeholder('role') })
-    .where(eq(users.id, param(users.id, 'id')))
-    .prepare(),
-)
-
 /** One step of the member's authorization generation, returning the row (POD-6293). */
 const bumpAuthzGeneration = prepared((db: StoreDrizzle) =>
   db
@@ -201,136 +142,11 @@ const bumpAuthzGeneration = prepared((db: StoreDrizzle) =>
 )
 
 /** Another enabled admin than `id`: a demotion must not leave the instance without one. */
-const otherActiveAdmin = prepared((db: StoreDrizzle) =>
-  db
-    .select({ id: users.id })
-    .from(users)
-    .where(
-      and(
-        eq(users.role, 'admin'),
-        isNull(users.disabledAt),
-        sql`${users.id} <> ${param(users.id, 'id')}`,
-      ),
-    )
-    .limit(1)
-    .prepare(),
-)
-
-const setUserProfile = prepared((db: StoreDrizzle) =>
+const stampMemberVersion = prepared((db: StoreDrizzle) =>
   db
     .update(users)
-    .set({ displayName: sql.placeholder('displayName'), avatar: sql.placeholder('avatar') })
+    .set({ membershipVersion: sql.placeholder('version') })
     .where(eq(users.id, param(users.id, 'id')))
-    .prepare(),
-)
-
-const claimUserAccount = prepared((db: StoreDrizzle) =>
-  db
-    .update(users)
-    .set({ cloudAccountId: sql.placeholder('cloudAccountId') })
-    .where(
-      and(
-        eq(users.id, param(users.id, 'id')),
-        isNull(users.cloudAccountId),
-        isNull(users.disabledAt),
-      ),
-    )
-    .prepare(),
-)
-
-const credentialByUser = prepared((db: StoreDrizzle) =>
-  db
-    .select()
-    .from(userCredentials)
-    .where(eq(userCredentials.userId, param(userCredentials.userId, 'userId')))
-    .prepare(),
-)
-
-const anyPerUserCredential = prepared((db: StoreDrizzle) =>
-  db
-    .select({ present: sql<number>`1` })
-    .from(userCredentials)
-    .where(
-      and(eq(userCredentials.source, 'per-user-scrypt'), isNotNull(userCredentials.passwordHash)),
-    )
-    .limit(1)
-    .prepare(),
-)
-
-/** Who signs in with a password: the members a recovery link can help (POD-6299). */
-const memberIdsWithPassword = prepared((db: StoreDrizzle) =>
-  db
-    .select({ userId: userCredentials.userId })
-    .from(userCredentials)
-    .where(
-      and(eq(userCredentials.source, 'per-user-scrypt'), isNotNull(userCredentials.passwordHash)),
-    )
-    .prepare(),
-)
-
-const insertCredential = prepared((db: StoreDrizzle) =>
-  db
-    .insert(userCredentials)
-    .values({
-      userId: sql.placeholder('userId'),
-      source: 'per-user-scrypt',
-      passwordHash: sql.placeholder('passwordHash'),
-      updatedAt: sql.placeholder('updatedAt'),
-    })
-    .prepare(),
-)
-
-const upsertCredential = prepared((db: StoreDrizzle) =>
-  db
-    .insert(userCredentials)
-    .values({
-      userId: sql.placeholder('userId'),
-      source: 'per-user-scrypt',
-      passwordHash: sql.placeholder('passwordHash'),
-      updatedAt: sql.placeholder('updatedAt'),
-    })
-    .onConflictDoUpdate({
-      target: userCredentials.userId,
-      set: {
-        source: 'per-user-scrypt',
-        passwordHash: sql.placeholder('passwordHash'),
-        updatedAt: sql.placeholder('updatedAt'),
-      },
-    })
-    .prepare(),
-)
-
-const deleteCredentialOf = prepared((db: StoreDrizzle) =>
-  db
-    .delete(userCredentials)
-    .where(eq(userCredentials.userId, param(userCredentials.userId, 'userId')))
-    .prepare(),
-)
-
-const deleteClientSessionsOf = prepared((db: StoreDrizzle) =>
-  db
-    .delete(clientSessions)
-    .where(eq(clientSessions.userId, param(clientSessions.userId, 'userId')))
-    .prepare(),
-)
-
-/** One sign-in by its public id, through `idx_client_sessions_session_id` (POD-6701). */
-const clientSessionBySessionId = prepared((db: StoreDrizzle) =>
-  db
-    .select({
-      tokenHash: clientSessions.tokenHash,
-      userId: clientSessions.userId,
-      label: clientSessions.label,
-    })
-    .from(clientSessions)
-    .where(eq(clientSessions.sessionId, param(clientSessions.sessionId, 'sessionId')))
-    .prepare(),
-)
-
-const deleteClientSessionByToken = prepared((db: StoreDrizzle) =>
-  db
-    .delete(clientSessions)
-    .where(eq(clientSessions.tokenHash, param(clientSessions.tokenHash, 'tokenHash')))
     .prepare(),
 )
 
@@ -363,37 +179,76 @@ const custodyMachinesOf = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-/** The invite row is the caller's insert model, so its optional columns decide the shape. */
-const insertInvite = preparedFamily((db: StoreDrizzle, shape: string) =>
+// ---- the member row as apply-membership writes it (POD-6745) ---------------
+
+/** A member row made by a membership that became active. */
+const insertMemberRow = prepared((db: StoreDrizzle) =>
   db
-    .insert(memberInvites)
-    .values(placeholdersFor(shape) as unknown as typeof memberInvites.$inferInsert)
+    .insert(users)
+    .values({
+      id: sql.placeholder('id'),
+      displayName: sql.placeholder('displayName'),
+      email: sql.placeholder('email'),
+      cloudAccountId: sql.placeholder('accountId'),
+      avatar: sql.placeholder('avatar'),
+      role: sql.placeholder('role'),
+      createdAt: sql.placeholder('createdAt'),
+      disabledAt: null,
+      membershipVersion: sql.placeholder('membershipVersion'),
+    })
+    .returning()
     .prepare(),
 )
 
-const invitesByCreation = prepared((db: StoreDrizzle) =>
-  db.select().from(memberInvites).orderBy(asc(memberInvites.createdAt)).prepare(),
-)
-
-const inviteByTokenHash = prepared((db: StoreDrizzle) =>
+/** Every identity fact of one member row, with the membership version applied. */
+const writeMemberFacts = prepared((db: StoreDrizzle) =>
   db
-    .select()
-    .from(memberInvites)
-    .where(eq(memberInvites.tokenHash, param(memberInvites.tokenHash, 'tokenHash')))
+    .update(users)
+    .set({
+      role: sql.placeholder('role'),
+      disabledAt: sql.placeholder('disabledAt'),
+      displayName: sql.placeholder('displayName'),
+      avatar: sql.placeholder('avatar'),
+      email: sql.placeholder('email'),
+      cloudAccountId: sql.placeholder('accountId'),
+      membershipVersion: sql.placeholder('membershipVersion'),
+    })
+    .where(eq(users.id, param(users.id, 'id')))
+    .returning()
     .prepare(),
 )
 
-const deleteInviteById = prepared((db: StoreDrizzle) =>
+/** The member row that holds an address, in any state. */
+const memberHoldingEmail = prepared((db: StoreDrizzle) =>
   db
-    .delete(memberInvites)
-    .where(eq(memberInvites.id, param(memberInvites.id, 'id')))
+    .select({ id: users.id, disabledAt: users.disabledAt })
+    .from(users)
+    .where(eq(sql`lower(${users.email})`, sql.placeholder('email')))
     .prepare(),
 )
 
-const deleteInvitesOfMember = prepared((db: StoreDrizzle) =>
+/** The member row that holds an account id, in any state. */
+const memberHoldingAccount = prepared((db: StoreDrizzle) =>
   db
-    .delete(memberInvites)
-    .where(eq(memberInvites.memberId, param(memberInvites.memberId, 'memberId')))
+    .select({ id: users.id, disabledAt: users.disabledAt })
+    .from(users)
+    .where(eq(users.cloudAccountId, param(users.cloudAccountId, 'accountId')))
+    .prepare(),
+)
+
+const clearMemberEmail = prepared((db: StoreDrizzle) =>
+  db
+    .update(users)
+    .set({ email: null })
+    .where(eq(users.id, param(users.id, 'id')))
+    .prepare(),
+)
+
+const clearMemberAccount = prepared((db: StoreDrizzle) =>
+  db
+    .update(users)
+    .set({ cloudAccountId: null })
+    .where(eq(users.id, param(users.id, 'id')))
     .prepare(),
 )
 
@@ -420,13 +275,6 @@ const parseRole = (raw: unknown): UserRole | undefined =>
     ? (raw as UserRole)
     : undefined
 
-export interface UserCredentialRow {
-  userId: UserId
-  source: CredentialSource
-  passwordHash: string | null
-  updatedAt: string
-}
-
 /**
  * WHAT CHANGED ABOUT A MEMBER'S AUTHORITY, AS COMMITTED (POD-6293; design §4.5).
  *
@@ -435,44 +283,20 @@ export interface UserCredentialRow {
  * and a rolled-back change publishes nothing.
  *
  * - `revoked`: the member can no longer act through anything they had open
- *   (disabled, removed, or every sign-in ended). Their connections close.
+ *   (disabled or removed). Their connections close.
  * - `rescoped`: the member still acts, with different rights (role change,
  *   re-enable). Their open connections keep going under the new rights.
  */
 export interface MemberAccessChange {
   readonly memberId: UserId
   readonly generation: number
-  readonly reason: 'disabled' | 'enabled' | 'role' | 'signed-out' | 'removed'
+  readonly reason: 'disabled' | 'enabled' | 'role' | 'removed'
   readonly effect: 'revoked' | 'rescoped'
   /** The member's role after the change, or `null` when they cannot act. */
   readonly role: UserRole | null
 }
 
 export type MemberAccessListener = (change: MemberAccessChange) => void
-
-/**
- * WHY A MEMBER CHANGE WAS REFUSED (POD-6298). Thrown inside the change's own
- * transaction, so the check and the write cannot be separated by another
- * request's commit; the member routes turn the code into the HTTP status.
- *
- * - `admin-required`: the actor is not an enabled admin when the change applies.
- * - `last-admin`: the change would leave the instance with no enabled admin.
- * - `self`: an admin cannot disable or remove their own account.
- * - `unavailable`: no such member, or one the change cannot apply to.
- */
-export class MemberChangeRefused extends Error {
-  constructor(
-    readonly code: 'admin-required' | 'last-admin' | 'self' | 'unavailable',
-    message: string,
-  ) {
-    super(message)
-    this.name = 'MemberChangeRefused'
-  }
-}
-
-const adminRequired = () => new MemberChangeRefused('admin-required', 'Administrator required')
-const lastAdmin = (what: string) =>
-  new MemberChangeRefused('last-admin', `The last administrator cannot be ${what}`)
 
 export class UsersRepository {
   readonly committed: CommittedRows<typeof users.$inferSelect>
@@ -484,6 +308,8 @@ export class UsersRepository {
     queries: StoreQueries,
     private readonly machinesRepository = new MachinesRepository(queries),
     private readonly grantsRepository = new GrantsRepository(queries),
+    // LEGACY(remove-after: 2027-06): end pre-upgrade sign-ins on a membership change.
+    private readonly oldSignIns = new SignInCarryOverRepository(queries),
   ) {
     this.committed = new CommittedRows(queries.createOrJoinTransaction, 'users')
     this.rootDb = queries.rootDb
@@ -550,7 +376,7 @@ export class UsersRepository {
       memberId: userId,
       generation: row.authzGeneration,
       reason,
-      effect: role === null || reason === 'signed-out' ? 'revoked' : 'rescoped',
+      effect: role === null ? 'revoked' : 'rescoped',
       role,
     }
     applyAfterCommit(() => {
@@ -694,13 +520,6 @@ export class UsersRepository {
     return row ? await this.get(row.id) : undefined
   }
 
-  async setEmail(userId: UserId, email: string): Promise<void> {
-    const normalized = LoginEmail.parse(email)
-    if (!(await this.get(userId))) throw new Error(`unknown user: ${userId}`)
-    await setUserEmail(this.db).run({ id: userId, email: normalized })
-    this.accountsWritten()
-  }
-
   async recordMembers(): Promise<{ id: UserId; role: UserRole }[]> {
     return (await activeRecordMembers(this.db).all()).flatMap((row) => {
       const role = parseRole(row.role)
@@ -742,23 +561,6 @@ export class UsersRepository {
     })
   }
 
-  /**
-   * The actor is an enabled admin, read from the row inside the caller's
-   * transaction rather than from the per-operation memo: a concurrent request
-   * that demoted or disabled the actor has committed before this one's write
-   * lane opened, and that commit is what must decide (POD-6298, MU-03).
-   */
-  private async requireActiveAdmin(actor: UserId): Promise<void> {
-    const row = await accountById(this.db).get({ id: actor })
-    if (!row || userFromRow(row)?.role !== 'admin') throw adminRequired()
-  }
-
-  /** Whether removing `userId`'s admin rights would leave no enabled admin. */
-  private async isLastActiveAdmin(row: typeof users.$inferSelect): Promise<boolean> {
-    if (row.disabledAt !== null || parseRole(row.role) !== 'admin') return false
-    return !(await otherActiveAdmin(this.db).get({ id: asUserId(row.id) }))
-  }
-
   /** The only enabled, readable member, or `undefined` when there are none or several. */
   async soleActiveMember(): Promise<UserAccountRow | undefined> {
     const rows = await firstTwoActiveMembers(this.db).all()
@@ -776,325 +578,192 @@ export class UsersRepository {
     return (await firstTwoMemberIds(this.db).all()).length > 1
   }
 
-  /**
-   * Disable authority, not custody. Agent principals intersect their delegation
-   * with this live member row, so publishing it invalidates them in the same
-   * commit. Keep delegations and machine grants as historical/access facts.
-   * Running processes may finish; they gain no permission for further Podium
-   * actions. Re-enabling restores rights, but never restores deleted cookies.
-   */
-  async disable(userId: UserId, disabledAt: string, actor?: UserId): Promise<void> {
-    await this.setDisabled(userId, disabledAt, disabledAt, actor)
-  }
-
-  async enable(userId: UserId, enabledAt: string, actor?: UserId): Promise<void> {
-    await this.setDisabled(userId, null, enabledAt, actor)
-  }
-
-  private async setDisabled(
-    userId: UserId,
-    disabledAt: string | null,
-    at: string,
-    actor?: UserId,
-  ): Promise<void> {
-    await this.machinesRepository.machineRecordWrites.compare(async () => {
-      await this.claimTransaction(async () => {
-        if (actor) await this.requireActiveAdmin(actor)
-        const existing = await accountById(this.db).get({ id: userId })
-        if (!existing) throw new MemberChangeRefused('unavailable', `unknown user: ${userId}`)
-        if ((existing.disabledAt !== null) === (disabledAt !== null)) return
-        // An admin disabling through member administration (every route passes
-        // the actor) cannot disable themselves or the last enabled admin. A
-        // system disable, in-process only, is not member administration.
-        if (disabledAt !== null && actor) {
-          if (actor === userId) throw new MemberChangeRefused('self', 'You cannot disable yourself')
-          if (await this.isLastActiveAdmin(existing)) throw lastAdmin('disabled')
-        }
-        await this.committed.write(async () => {
-          await setUserDisabledAt(this.db).all({ id: userId, disabledAt })
-          this.accountsWritten()
-          if (disabledAt !== null) {
-            await deleteClientSessionsOf(this.db).run({ userId })
-          }
-          const bumped = await this.bumpAuthorization(
-            userId,
-            disabledAt === null ? 'enabled' : 'disabled',
-          )
-          const rows = bumped ? [bumped] : []
-          await insertSettingsAudit(this.db).run({
-            command: disabledAt === null ? 'members.enable' : 'members.disable',
-            outcome: 'applied',
-            actorKind: actor ? 'user' : 'system',
-            actorId: actor ?? null,
-            onBehalfOf: actor ?? null,
-            detailJson: JSON.stringify({ memberId: userId, runningAgentPolicy: 'let-finish' }),
-            createdAt: at,
-          })
-          return rows
-        }, 'upsert')
-      })
-    })
-  }
-
-  async credentialFor(userId: UserId): Promise<UserCredentialRow | undefined> {
-    if (!(await this.get(userId))) return undefined
-    const row = await credentialByUser(this.db).get({ userId })
-    if (!row) return undefined
-    // Source parsing FAILS CLOSED for the same reason `parseRole` does, and it is
-    // load-bearing here rather than defensive: a leftover `'instance-password'` row from
-    // before POD-1554 must read as NO CREDENTIAL, never as one this build might verify
-    // against. The SQL migration deletes those rows; this is what happens if one survives.
-    if (!(CREDENTIAL_SOURCES as readonly string[]).includes(row.source)) return undefined
-    return {
-      userId: row.userId,
-      source: row.source as CredentialSource,
-      passwordHash: row.passwordHash,
-      updatedAt: row.updatedAt,
-    }
-  }
-
-  /** The members who sign in with a password, in one read (POD-6299). */
-  async membersWithPassword(): Promise<ReadonlySet<UserId>> {
-    return new Set((await memberIdsWithPassword(this.db).all()).map((row) => row.userId))
-  }
-
-  async hasPerUserCredentials(): Promise<boolean> {
-    const row = await anyPerUserCredential(this.db).get()
-    return row?.present === 1
-  }
-
-  async create(
-    account: Omit<UserAccountRow, 'email'> & { email?: string | null },
-    passwordHash: string,
-  ): Promise<void> {
-    await this.machinesRepository.machineRecordWrites.compare(async () => {
-      // The write invalidates the account loaders, so the read after a mint sees
-      // the account rather than a memoised "no account"; a rollback takes what
-      // the span read after it with it (see `accounts`).
-      await this.createOrJoinTransaction(async () => {
-        await this.committed.write(
-          async () =>
-            await insertUserReturning(this.db).all({
-              // EXTERNAL INPUT BRAND DECODE: UserAccountRow is the account-import
-              // boundary and deliberately carries its source id as a string.
-              id: asUserId(account.id),
-              displayName: account.displayName,
-              email: account.email == null ? null : LoginEmail.parse(account.email),
-              role: account.role,
-              createdAt: account.createdAt,
-            }),
-          'upsert',
-        )
-        this.accountsWritten()
-        await insertCredential(this.db).run({
-          // Same external account id, branded independently for this write.
-          userId: asUserId(account.id),
-          passwordHash,
-          updatedAt: account.createdAt,
-        })
-        await this.memberCreated?.(asUserId(account.id))
-      })
-    })
-  }
-
-  async setPasswordHash(userId: UserId, passwordHash: string, updatedAt: string): Promise<void> {
-    await this.committed.write(async () => {
-      // A credential write must not republish an older pass-scoped account.
-      // The funnel publishes the COMMITTED ROW, not UserAccountRow: the two
-      // diverged once accounts grew `accountId` and `avatar` (A4, A5), and the
-      // index is keyed on the stored column names.
-      const account = await accountById(this.db).get({ id: userId })
-      // Gate on the MAPPED read, publish the raw row. userFromRow answers
-      // undefined for a disabled account and for a role this build cannot
-      // parse; accountById answers the raw row regardless, and disable() sets
-      // disabledAt rather than removing the row, so a truthy row is not
-      // permission to write a credential.
-      if (!account || !userFromRow(account)) throw new Error(`unknown user: ${userId}`)
-      await upsertCredential(this.db).run({ userId, passwordHash, updatedAt })
-      return [{ ...account, id: userId }]
-    }, 'upsert')
-  }
-  /** Runs invite consumption and identity writes in the same transaction. */
-  async claimTransaction<T>(run: () => Promise<T>): Promise<T> {
-    return await this.createOrJoinTransaction(run)
-  }
-
-  async createUnclaimed(account: UserAccountRow): Promise<void> {
-    await this.machinesRepository.machineRecordWrites.compare(async () => {
-      await this.createOrJoinTransaction(async () => {
-        await insertUser(this.db).run({
-          id: asUserId(account.id),
-          displayName: account.displayName,
-          email: account.email,
-          role: account.role,
-          createdAt: account.createdAt,
-        })
-        this.accountsWritten()
-        await this.memberCreated?.(asUserId(account.id))
-      })
-    })
-  }
-
   async findMemberByAccount(accountId: string): Promise<UserAccountRow | undefined> {
     const row = await userIdByAccount(this.db).get({ accountId })
     return row ? await this.get(row.id) : undefined
   }
 
+  /** A member edits their own name and avatar (Account → Profile); never credentials. */
   async writeProfile(userId: UserId, name: string, avatar: string | null): Promise<void> {
     if (!(await this.get(userId))) throw new Error('Member unavailable')
     await setUserProfile(this.db).run({ id: userId, displayName: name, avatar })
     this.accountsWritten()
   }
 
-  async attachAccount(userId: UserId, accountId: string): Promise<void> {
-    const result = await claimUserAccount(this.db).run({ id: userId, cloudAccountId: accountId })
-    this.accountsWritten()
-    if (Number(result.changes) !== 1) throw new Error('Member is already claimed or unavailable')
+  /**
+   * THE MEMBER ROWS OF THE IDENTITY PACKAGE (POD-6745;
+   * docs/design/people-and-sign-in.md section 2.6). The package's
+   * apply-membership is the only caller of `write`.
+   */
+  readonly memberRows: MemberRows = {
+    write: (change) => this.writeMemberRow(change),
+    exists: async (memberId) =>
+      (await accountById(this.db).get({ id: asUserId(memberId) })) !== undefined,
   }
 
-  async removeMember(userId: UserId, actor: UserId): Promise<void> {
-    await this.machinesRepository.machineRecordWrites.compare(async () => {
-      await this.claimTransaction(async () => {
-        await this.requireActiveAdmin(actor)
-        if (userId === actor) throw new MemberChangeRefused('self', 'You cannot remove yourself')
-        // Read the retained row: a disabled member can still hold custody, and
-        // retrying removal by member id must succeed without duplicate audits.
-        const existing = await accountById(this.db).get({ id: userId })
-        if (!existing) throw new MemberChangeRefused('unavailable', 'Member unavailable')
-        if (await this.isLastActiveAdmin(existing)) throw lastAdmin('removed')
-        const at = new Date().toISOString()
-        await this.disable(userId, at, actor)
-        const held = await custodyMachinesOf(this.db).all({ grantee: userId })
+  /**
+   * ONE MEMBERSHIP, APPLIED TO ITS MEMBER ROW (POD-6745). The only writer of a
+   * member's identity facts: role, disabled, removed, name, picture, email and
+   * account id. In one transaction with the membership change where the two
+   * share a database.
+   *
+   * A change of what the member may do steps the authorization generation,
+   * which publishes the access change that closes sockets and refuses queued
+   * work (POD-6293). A change of name, picture, email or account id does not.
+   * A removed member is a disabled member row; only the membership tells the
+   * two apart, so no gate learns a new fact. Removal releases machine custody
+   * and deletes the member's incoming grants, as removing a member always did.
+   *
+   * `membership_version` makes it safe to apply a membership twice, or an
+   * older one after a newer one: such a change does nothing.
+   */
+  private async writeMemberRow(change: MemberWrite): Promise<void> {
+    // A member's role and disabled state feed the machine access records: the
+    // write is one change-log commit that appends what it reached (POD-6920).
+    await this.machinesRepository.machineRecordWrites.compare(
+      async () => await this.applyMemberRow(change),
+    )
+  }
+
+  private async applyMemberRow(change: MemberWrite): Promise<void> {
+    await this.createOrJoinTransaction(async () => {
+      const memberId = asUserId(change.memberId)
+      const existing = await accountById(this.db).get({ id: memberId })
+      if (existing && change.version <= existing.membershipVersion) return
+      if (change.state === 'invited') {
+        if (existing) {
+          await stampMemberVersion(this.db).run({ id: memberId, version: change.version })
+          this.accountsWritten()
+        }
+        return
+      }
+      const at = new Date().toISOString()
+      const actor = 'memberId' in change.actor ? asUserId(change.actor.memberId) : null
+      const removed = change.state === 'removed'
+
+      // The address and the account id are unique among member rows. A removed
+      // member keeps neither, so the person can come back as a new member. A
+      // row that is no longer active gives way to the member being written;
+      // an active one keeps what it holds.
+      let email = removed ? null : change.profile ? change.profile.email : (existing?.email ?? null)
+      if (email !== null) {
+        const parsed = LoginEmail.safeParse(email)
+        if (parsed.success) email = parsed.data
+        const holder = await memberHoldingEmail(this.db).get({ email: email.toLowerCase() })
+        if (holder && holder.id !== memberId) {
+          if (holder.disabledAt !== null) await clearMemberEmail(this.db).run({ id: holder.id })
+          else email = null
+        }
+      }
+      let accountId = removed ? null : change.accountId
+      if (accountId !== null) {
+        const holder = await memberHoldingAccount(this.db).get({ accountId })
+        if (holder && holder.id !== memberId) {
+          if (holder.disabledAt !== null) await clearMemberAccount(this.db).run({ id: holder.id })
+          else accountId = null
+        }
+      }
+
+      if (!existing) {
+        // No member exists before a membership is active.
+        if (change.state !== 'active') return
+        await this.committed.write(
+          async () =>
+            await insertMemberRow(this.db).all({
+              id: memberId,
+              displayName: change.profile?.name ?? 'Member',
+              email,
+              accountId,
+              avatar: change.profile?.image ?? null,
+              role: change.role,
+              createdAt: at,
+              membershipVersion: change.version,
+            }),
+          'upsert',
+        )
+        this.accountsWritten()
+        await this.memberCreated?.(memberId)
+        await this.audit('members.join', actor, { memberId, role: change.role }, at)
+        return
+      }
+
+      const wasDisabled = existing.disabledAt !== null
+      const disabled = change.state !== 'active'
+      const roleChanged = existing.role !== change.role
+      // The strongest change names the step; one applied snapshot steps once.
+      // A durable authority revision also captures changes between catch-ups
+      // that returned to the same role/state. Gates still read only this generation.
+      const reason: MemberAccessChange['reason'] | undefined = removed
+        ? 'removed'
+        : disabled !== wasDisabled
+          ? disabled
+            ? 'disabled'
+            : 'enabled'
+          : roleChanged || (change.authorizationVersion ?? 0) > existing.membershipVersion
+            ? 'role'
+            : undefined
+
+      await this.committed.write(async () => {
+        const [written] = await writeMemberFacts(this.db).all({
+          id: memberId,
+          role: change.role,
+          disabledAt: disabled ? (existing.disabledAt ?? at) : null,
+          displayName: change.profile?.name ?? existing.displayName,
+          avatar: change.profile ? change.profile.image : existing.avatar,
+          email,
+          accountId,
+          membershipVersion: change.version,
+        })
+        this.accountsWritten()
+        const bumped = reason ? await this.bumpAuthorization(memberId, reason) : undefined
+        const row = bumped ?? written
+        return row ? [row] : []
+      }, 'upsert')
+
+      // A member who may not act keeps no sign-in from before shared sign-in
+      // either (POD-6751, R16). Enabling them again brings none back.
+      if (disabled) await this.oldSignIns.endForMember(memberId)
+
+      if (roleChanged) {
+        await this.audit(
+          'members.setRole',
+          actor,
+          { memberId, from: existing.role, to: change.role },
+          at,
+        )
+      }
+      if (disabled !== wasDisabled && !removed) {
+        await this.audit(
+          disabled ? 'members.disable' : 'members.enable',
+          actor,
+          { memberId, runningAgentPolicy: 'let-finish' },
+          at,
+        )
+      }
+      if (removed) {
+        const held = await custodyMachinesOf(this.db).all({ grantee: memberId })
+        // A custody release is its own event, with no recipient.
         for (const machine of held) {
           await this.machinesRepository.setMachineOwner(machine.id, null)
-          await insertSettingsAudit(this.db).run({
-            command: 'members.remove',
-            outcome: 'applied',
-            actorKind: 'user',
-            actorId: actor,
-            onBehalfOf: actor,
-            detailJson: JSON.stringify({
-              memberId: userId,
+          await this.audit(
+            'machines.transferOwnership',
+            actor,
+            {
+              memberId,
               machineId: machine.id,
-              previousOwnerUserId: userId,
+              previousOwnerUserId: memberId,
               newOwnerUserId: null,
-            }),
-            createdAt: at,
-          })
+            },
+            at,
+          )
         }
+        // One member event per successful removal, even when no custody changed.
+        // Detail contains only the public id, never credentials or profile data.
+        await this.audit('members.remove', actor, { memberId }, at)
         // Keep other members' shares, including shares granted by this member.
-        // Only the removed member's incoming grants are invalidated. Session and
-        // issue attribution (and historical grant audiences) are never rewritten.
-        await this.grantsRepository.removeAllForGrantee(userId)
-        await deleteClientSessionsOf(this.db).run({ userId })
-        await deleteCredentialOf(this.db).run({ userId })
-        await deleteInvitesOfMember(this.db).run({ memberId: userId })
-        await this.bumpAuthorization(userId, 'removed')
-      })
-    })
-  }
-
-  /**
-   * Change a member's role (POD-6293). The role, the generation step and the
-   * audit row commit together; open connections are rescoped from the commit.
-   * The last enabled admin cannot be demoted, so the instance always keeps one.
-   */
-  async setRole(userId: UserId, role: UserRole, actor?: UserId): Promise<void> {
-    await this.machinesRepository.machineRecordWrites.compare(async () => {
-      await this.claimTransaction(async () => {
-        if (actor) await this.requireActiveAdmin(actor)
-        const existing = await accountById(this.db).get({ id: userId })
-        if (!existing || existing.disabledAt !== null) {
-          throw new MemberChangeRefused('unavailable', 'Member unavailable')
-        }
-        if (existing.role === role) return
-        if (existing.role === 'admin' && (await this.isLastActiveAdmin(existing))) {
-          throw lastAdmin('demoted')
-        }
-        await setUserRole(this.db).run({ id: userId, role })
-        this.accountsWritten()
-        await this.bumpAuthorization(userId, 'role')
-        await insertSettingsAudit(this.db).run({
-          command: 'members.setRole',
-          outcome: 'applied',
-          actorKind: actor ? 'user' : 'system',
-          actorId: actor ?? null,
-          onBehalfOf: actor ?? null,
-          detailJson: JSON.stringify({ memberId: userId, from: existing.role, to: role }),
-          createdAt: new Date().toISOString(),
-        })
-      })
-    })
-  }
-
-  /**
-   * Sign a member out everywhere (POD-6293): every sign-in session goes, the
-   * generation steps, and every open connection of theirs closes at the commit.
-   * Signing out one device is that credential's own revocation (`/auth/logout`),
-   * which closes that credential's connections and leaves the others.
-   */
-  async signOutEverywhere(userId: UserId, actor?: UserId): Promise<void> {
-    await this.claimTransaction(async () => {
-      if (actor && actor !== userId) await this.requireActiveAdmin(actor)
-      if (!(await accountById(this.db).get({ id: userId }))) {
-        throw new MemberChangeRefused('unavailable', 'Member unavailable')
+        // Only the removed member's incoming grants are invalidated.
+        await this.grantsRepository.removeAllForGrantee(memberId)
       }
-      await deleteClientSessionsOf(this.db).run({ userId })
-      await this.bumpAuthorization(userId, 'signed-out')
-      await insertSettingsAudit(this.db).run({
-        command: 'members.signOut',
-        outcome: 'applied',
-        actorKind: actor ? 'user' : 'system',
-        actorId: actor ?? null,
-        onBehalfOf: actor ?? null,
-        detailJson: JSON.stringify({ memberId: userId }),
-        createdAt: new Date().toISOString(),
-      })
-    })
-  }
-
-  /**
-   * AN ADMIN ENDS ONE SIGN-IN (POD-6701): the sign-in with that public id is
-   * deleted and the event audited, in one transaction. The member's other
-   * sign-ins and their authorization generation stay as they are; the caller
-   * closes the device's open connections with the returned token hash. Returns
-   * undefined when no sign-in has that id.
-   */
-  async revokeSignIn(
-    sessionId: string,
-    actor: UserId,
-  ): Promise<{ tokenHash: string; memberId: UserId } | undefined> {
-    return await this.claimTransaction(async () => {
-      await this.requireActiveAdmin(actor)
-      const row = await clientSessionBySessionId(this.db).get({ sessionId })
-      if (!row) return undefined
-      await deleteClientSessionByToken(this.db).run({ tokenHash: row.tokenHash })
-      await insertSettingsAudit(this.db).run({
-        command: 'members.revokeSignIn',
-        outcome: 'applied',
-        actorKind: 'user',
-        actorId: actor,
-        onBehalfOf: actor,
-        detailJson: JSON.stringify({ memberId: row.userId, label: row.label }),
-        createdAt: new Date().toISOString(),
-      })
-      return { tokenHash: row.tokenHash, memberId: row.userId }
-    })
-  }
-
-  /**
-   * A recovery link was used (POD-6298): the member's password is replaced,
-   * every sign-in of theirs ends with their open connections, and every other
-   * outstanding link for them goes, all in the caller's transaction. The
-   * member keeps their id, role and history.
-   */
-  async recoverPassword(userId: UserId, passwordHash: string, at: string): Promise<void> {
-    await this.claimTransaction(async () => {
-      await this.setPasswordHash(userId, passwordHash, at)
-      await deleteClientSessionsOf(this.db).run({ userId })
-      await deleteInvitesOfMember(this.db).run({ memberId: userId })
-      await this.bumpAuthorization(userId, 'signed-out')
-      await this.audit('members.recover', null, { memberId: userId }, at)
     })
   }
 
@@ -1116,20 +785,14 @@ export class UsersRepository {
     })
   }
 
-  async insertInvite(invite: typeof memberInvites.$inferInsert): Promise<void> {
-    await insertInvite(this.db, shapeOf(invite)).run(invite)
-  }
-
-  async pendingInvites(): Promise<(typeof memberInvites.$inferSelect)[]> {
-    return await invitesByCreation(this.db).all()
-  }
-
-  async inviteByHash(hash: string): Promise<typeof memberInvites.$inferSelect | undefined> {
-    return await inviteByTokenHash(this.db).get({ tokenHash: hash })
-  }
-
-  async deleteInvite(id: import('@podium/model').InviteId): Promise<boolean> {
-    return Number((await deleteInviteById(this.db).run({ id })).changes) === 1
+  /**
+   * Ends every sign-in a member still holds from before shared sign-in, and
+   * its carry records (POD-6751, R16). For the paths that end all device
+   * sign-ins of a member without changing the membership; call it in their
+   * transaction.
+   */
+  async endOldSignIns(memberId: UserId): Promise<void> {
+    await this.oldSignIns.endForMember(memberId)
   }
 }
 

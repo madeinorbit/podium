@@ -1,10 +1,15 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash, randomBytes } from 'node:crypto'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { firstAdminMemberId, MemberId } from '@podium/model'
+import { firstAdminMemberId, MemberId, newInviteId } from '@podium/model'
 import { CAP_SYNC_HTTP_V1, CLIENT_WIRE_VERSION } from '@podium/protocol'
+import { stagePasswordForFirstBoot } from '@podium/runtime/auth-store'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { noJanitorWorkerForTests } from './janitor-host'
+import { runDrizzleMigrations } from './migrations'
+import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
 import { startServer } from './server'
 
 /**
@@ -35,6 +40,91 @@ import { startServer } from './server'
  * it.
  */
 const priorStateDir = process.env.PODIUM_STATE_DIR
+
+it('keeps the all-in-one server’s shared password and a pending legacy invitation on upgrade', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'podium-shared-password-upgrade-'))
+  const password = 'shared-legacy-fixture-password'
+  const token = randomBytes(32).toString('base64url')
+  const email = 'invitee@example.test'
+  let server: Awaited<ReturnType<typeof startServer>> | undefined
+  try {
+    writeFileSync(
+      join(dir, 'config.json'),
+      JSON.stringify({ configVersion: 2, mode: 'all-in-one', persistence: 'systemd' }),
+    )
+    await stagePasswordForFirstBoot(password, dir)
+    const db = openDatabase(join(dir, 'podium.db'))
+    let member: { id: string }
+    try {
+      const cut = DRIZZLE_MIGRATIONS.findIndex(({ name }) => name.endsWith('_identity-core'))
+      runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cut))
+      member = db.prepare('SELECT id FROM users').get() as { id: string }
+      expect(db.prepare('SELECT user_id FROM user_credentials').all()).toEqual([])
+      db.prepare(`INSERT INTO member_invites (id, token_hash, email, role, created_by, created_at, expires_at)
+        VALUES (?, ?, ?, 'member', ?, ?, ?)`).run(
+        newInviteId(),
+        createHash('sha256').update(token).digest('hex'),
+        email,
+        member.id,
+        new Date().toISOString(),
+        new Date(Date.now() + 86_400_000).toISOString(),
+      )
+    } finally {
+      db.close()
+    }
+    process.env.PODIUM_STATE_DIR = dir
+    server = await startServer({
+      janitorWorkerForTests: noJanitorWorkerForTests,
+      host: '127.0.0.1',
+      port: 0,
+    })
+    const origin = `http://127.0.0.1:${server.port}`
+    const login = await fetch(`${origin}/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ password }),
+    })
+    expect(login.status).toBe(200)
+    const cookie = login.headers
+      .getSetCookie()
+      .find((value) => value.includes('session_token'))
+      ?.split(';')[0]
+    if (!cookie) throw new Error('The shared password did not produce a sign-in cookie')
+    const status = await fetch(`${origin}/auth/status`, { headers: { cookie } })
+    expect(await status.json()).toMatchObject({
+      authed: true,
+      userId: member.id,
+      prompt: 'password',
+    })
+    expect(existsSync(join(dir, 'auth.json'))).toBe(false)
+    const claim = () =>
+      fetch(`${origin}/auth/members/complete`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          token,
+          email,
+          displayName: 'Invitee',
+          password: 'invitee-fixture-password',
+        }),
+      })
+    const admitted = await claim()
+    expect(admitted.status).toBe(200)
+    const { userId } = (await admitted.json()) as { userId: string }
+    expect(userId).not.toBe(member.id)
+    expect(
+      (await server.identity.memberships.list()).find((entry) => entry.memberId === userId),
+    ).toMatchObject({ role: 'member', status: 'active', account: { email } })
+    const reused = await claim()
+    expect(reused.status).toBe(400)
+    expect(await reused.json()).toMatchObject({ code: 'invitation-invalid' })
+  } finally {
+    await server?.close()
+    if (priorStateDir === undefined) delete process.env.PODIUM_STATE_DIR
+    else process.env.PODIUM_STATE_DIR = priorStateDir
+    rmSync(dir, { recursive: true, force: true })
+  }
+}, 30_000)
 
 describe('open mode acts as the sole active member', () => {
   let stateDir: string
@@ -113,7 +203,13 @@ describe('open mode acts as the sole active member', () => {
     const res = await fetch(url('/trpc/instance.info?input=%7B%7D'), {
       headers: { 'x-forwarded-for': '203.0.113.9', 'x-forwarded-host': 'podium.example.com' },
     })
-    expect(res.status).toBe(401)
+    // Not this machine, and plain HTTP: nothing is read and nobody may sign in
+    // here (people and sign-in specification, section 2.3).
+    expect(res.status).toBe(400)
+    expect(await res.json()).toMatchObject({
+      error: 'https_required',
+      message: expect.stringContaining('HTTPS for sign-in from other computers'),
+    })
   })
 
   it('does not use open-mode authorization for pairing control or device management', async () => {
@@ -148,9 +244,11 @@ describe('open mode acts as the sole active member', () => {
     const res = await fetch(url('/auth/status'), {
       headers: { 'x-forwarded-for': '203.0.113.9', 'x-forwarded-host': 'podium.example.com' },
     })
-    const body = (await res.json()) as { authed: boolean; userId?: string }
+    const body = (await res.json()) as { error: string; message: string; userId?: string }
 
-    expect(body.authed).toBe(false)
+    expect(res.status).toBe(400)
+    expect(body.error).toBe('https_required')
+    expect(body.message).toContain('HTTPS for sign-in from other computers')
     expect(body.userId).toBeUndefined()
   })
 })
@@ -178,20 +276,27 @@ describe('open mode ends once a second active member exists (MU-01)', () => {
       }
     const trpcStatus = async () =>
       (await fetch(`http://127.0.0.1:${server.port}/trpc/instance.info?input=%7B%7D`)).status
-    const addBob = async () =>
-      await server.registry.sessionStore.users.createUnclaimed({
-        id: 'mem_bob_open_mode',
-        displayName: 'Bob',
-        email: 'bob@example.test',
-        role: 'member',
-        createdAt: new Date().toISOString(),
-        disabledAt: null,
-      })
+    // Bob becomes a member the only way a member comes to exist: an invitation
+    // that is accepted. He has no password.
+    const { memberships } = server.identity
+    const admin = { memberId: firstAdminMemberId() }
+    let bob = ''
+    const addBob = async () => {
+      const { invitation } = await memberships.invite({ actor: admin, role: 'member' })
+      bob = (
+        await memberships.accept({
+          token: invitation.token,
+          account: { kind: 'new', name: 'Bob', email: 'bob@example.test' },
+        })
+      ).memberId
+    }
+    const disableBob = async () => await memberships.disable({ actor: admin, memberId: bob })
+    const enableBob = async () => await memberships.enable({ actor: admin, memberId: bob })
     const close = async () => {
       await server.close()
       rmSync(dir, { recursive: true, force: true })
     }
-    return { server, status, trpcStatus, addBob, close }
+    return { server, status, trpcStatus, addBob, disableBob, enableBob, close }
   }
 
   afterAll(() => {
@@ -216,15 +321,13 @@ describe('open mode ends once a second active member exists (MU-01)', () => {
       expect(await f.trpcStatus()).toBe(401)
 
       // A disabled member is not a second person who can act.
-      await f.server.registry.sessionStore.users.disable(
-        'mem_bob_open_mode' as never,
-        new Date().toISOString(),
-      )
-      expect(await f.status()).toMatchObject({ needsAuth: false, authed: true, userId: alone.userId })
-      await f.server.registry.sessionStore.users.enable(
-        'mem_bob_open_mode' as never,
-        new Date().toISOString(),
-      )
+      await f.disableBob()
+      expect(await f.status()).toMatchObject({
+        needsAuth: false,
+        authed: true,
+        userId: alone.userId,
+      })
+      await f.enableBob()
       expect(await f.status()).toMatchObject({ needsAuth: true, authed: false })
       expect(await f.trpcStatus()).toBe(401)
     } finally {

@@ -33,12 +33,12 @@ server-side and never sent.
 
 | Role / ingress | Authenticated by | May then address | Refused |
 |---|---|---|---|
-| **console** (`/client`, cookie-bearing tRPC) | the `podium_session` cookie **on the HTTP upgrade**, resolved through `ClientSessionDirectory` to a **per-user** client session. The credential carries no material in the frame, so a forged hello cannot present one. Origin/CSWSH guards run before this and authenticate nobody. | whatever its `(user, device, capability)` principal is authorized for, re-resolved at every apply | no cookie, unknown/expired cookie, disabled or revoked account. **No fallback to an ambient operator.** |
+| **console** (`/client`, tRPC) | shared identity resolves the HTTP credential before the socket is admitted | the member’s current authority, revalidated on heartbeat and at apply | missing or expired sign-in, inactive membership, or missing member row |
 | **machine (local)** (`/daemon`) | the shared host secret from `readOrCreateDaemonSecret`, presented on the **same hello path as remote** — not a pairing ceremony, not a bootstrap special case | what its machine principal is authorized for; a machine is not a person, so its on-behalf-of is `null` | anything without the secret. Being loopback, in-process, or "the server host" is **not** proof; an authenticated human does **not** inherit `use` on the host machine (readiness M4 / D18.6) |
 | **machine (remote, first contact)** (`/daemon`) | a one-shot **pair code** from the join token (`serverUrl` + `pairCode`), redeemed through `PairingManager` — single-use, short TTL, memory-held | as above; the pairer is recorded as **owner** and a new machine is private to its pairer | unknown, expired or already-redeemed code; pairing disabled. This is the one branch allowed a peer-visible message ("invalid or expired code") because it discloses no identity |
 | **machine (remote, reconnect)** (`/daemon`) | the long-lived **machine token** minted by the pairing branch | as above, with the owner and grants the directory returns | unknown, rotated or revoked token, with no peer-visible detail. A token with no machine hint fails closed rather than scanning |
 | **agent relay** (not a peer role — ADR 3 Am.1 D14) | a **server-minted delegation reference**, resolved live through `DelegationDirectory`. Never a free-string identity | its own scope **intersected with its human's current rights**, resolved at every apply (D16) — nothing is copied into the connection | unknown, revoked or unresolvable chain; no human at the root; more than one human; a widening sub-agent; a root human who is disabled or revoked |
-| **operator channel** (`cli`, in-process `mcp`) | an **in-process binding** supplied by the composition root (`inProcess` is a fact the gateway asserts, never something a peer sends), **or** the local operator's client session token through the same per-user directory | what that human is authorized for — the channel has no identity of its own | neither binding nor session. **There is no ambient operator**: a CLI on the box with no session gets nothing (readiness §3.1.6 S4) |
+| **operator channel** (`cli`, in-process `mcp`) | direct CLI calls present a signed shared-identity bearer; agent calls use their scoped relay | the member or agent’s current authority | the protocol registry refuses person credentials; HTTP admission owns sign-in |
 | **node** | nothing. Reserved credential class, **no acceptor** ([spec:SP-0371]) | — | every connection: `role-not-implemented`, without crashing (D4.4) |
 | **system** (steward, expiry, boot reconcile, derived fields) | **in-process construction only** (D21.2) — there is no credential to steal | reads may cross owners; every write is attributed `system` and lands in the scope of what it acted on | every transport. It has **no** on-behalf-of and must never be assigned one |
 
@@ -51,13 +51,9 @@ lookup (`machineHint`), the resolved identity is the record the directory **veri
 the hint — a stolen token presented under another machine's id resolves to the token's own
 machine, or is refused.
 
-**A client session is a device, not a person.** The principal is `(user, device,
-capability)`; one user may hold many devices. The `ClientSessionDirectory` port is shaped
-that way already, which is why it has **no production binding yet**: per-user
-`client_sessions` land with POD-1075, and wiring the strategy to today's single instance
-password would resolve every cookie to one ambient operator — the exact hole this work
-removes. Until then the registry holds an explicit refusal for the console role rather
-than a gap, and `/client` keeps its existing cookie gate.
+Person-facing transports resolve an account’s device sign-in and active membership
+through the shared identity package. A member may use several devices. Old sign-ins
+are exchanged once during the bounded carry-over period.
 
 ## Order is part of the contract
 

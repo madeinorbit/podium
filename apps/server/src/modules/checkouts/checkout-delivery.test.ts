@@ -1,3 +1,4 @@
+import { memberFacts } from '../../store/fixtures/test-support'
 /**
  * CHECKOUT CHANGES REACH EXACTLY THEIR READERS (POD-6644 follow-ups).
  *
@@ -84,7 +85,7 @@ async function grant(o: Oracle, grantee: string, verb: Verb): Promise<void> {
 async function fixture(opts: { checkouts?: boolean } = {}): Promise<Oracle> {
   const o = await makeOracle()
   for (const id of [OWNER, MANAGER, USER, BOTH, SEER, STRANGER, LATE])
-    await o.store.users.create(
+    await memberFacts(o.store).create(
       { id, displayName: id, role: 'member', createdAt: AT, disabledAt: null },
       'hash',
     )

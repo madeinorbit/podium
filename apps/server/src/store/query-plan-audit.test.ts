@@ -307,6 +307,7 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/messages.ts:pendingDeliveredToPage', ['start', 'after']],
   ['packages/sync/src/adapters/sqlite/sync-repository.ts:insertChangeRows', SIZES],
   ['packages/sync/src/adapters/sqlite/sync-repository.ts:installedRowsOfKeys', SIZES],
+  ['packages/sync/src/adapters/sqlite/sync-repository.ts:changesWithPrior', SIZES],
   ['packages/sync/src/adapters/sqlite/sync-repository.ts:installedIdsUnderPrefixes', SIZES],
   [
     'packages/sync/src/adapters/sqlite/sync-repository.ts:serverTableQueries.queuedCounts',
@@ -401,10 +402,6 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
   [
     'apps/server/src/store/workflows.ts:runIdsOfRevisions',
     "The change capture's mapping of a changed workflow revision to the runs that read it (POD-6920): workflow_runs is a small table (a row per started workflow run), and a revision changes only when it is published.",
-  ],
-  [
-    'apps/server/src/store/auth.ts:clientSessionsOfUserNewestFirst',
-    "Sorts one person's sign-ins, found through idx_client_sessions_user: a row per signed-in device or login (POD-6172).",
   ],
   [
     'apps/server/src/store/automations.ts:lastSpawnedRuns',

@@ -275,20 +275,3 @@ function SyncFailure({
     </div>
   )
 }
-
-/** A heal never replaces the workspace the user is already working in. */
-export function WarmSyncStatus({ store }: { store: SyncProgressStore }): JSX.Element | null {
-  const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot)
-  if (snapshot.phase === 'ready' || snapshot.attempt === 0) return null
-  return (
-    <div role="status" className="px-3 py-1 text-sm">
-      <SyncFailure store={store} snapshot={snapshot} />
-      {snapshot.error === null && (
-        <span>
-          Updating cached workspace · {count(snapshot.rowsSeen)} rows received ·{' '}
-          {count(snapshot.framesCommitted)} change batches committed
-        </span>
-      )}
-    </div>
-  )
-}

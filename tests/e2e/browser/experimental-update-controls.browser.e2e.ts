@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page, test } from '@playwright/test'
-import { RELAY } from './_harness'
+import { deferUpdateOffers, RELAY } from './_harness'
 
 /**
  * Runtime verification of the Podium-development gating of update controls
@@ -9,14 +9,15 @@ import { RELAY } from './_harness'
  * the two Settings pages agree with each other and with the SERVER's resolved
  * state — the fleet-default selector on Updates is present with the flag off,
  * grows a Development option with it on, and the per-machine selector on
- * Machines appears and disappears with the same flag while the machine's
- * resolved source stays readable either way.
+ * Updates appears and disappears with the same flag while the machine's
+ * version stays readable either way.
  */
 test.skip(({ isMobile }) => isMobile, 'desktop test (settings nav is desktop-oriented)')
 
 // Same reason as experimental-settings.browser.e2e.ts: first boot on a loaded
 // harness box runs well past the default timeout.
 test.setTimeout(300_000)
+test.beforeEach(async ({ page }) => deferUpdateOffers(page))
 
 const SHOTS = process.env.PODIUM_UPDATE_CONTROLS_SHOTS
 
@@ -34,8 +35,8 @@ async function openUpdates(page: Page): Promise<void> {
   await expect(page.getByRole('heading', { name: 'Updates' })).toBeVisible({ timeout: 30_000 })
 }
 
-async function openMachines(page: Page): Promise<void> {
-  await openSettings(page, 'machines')
+async function openMachineUpdates(page: Page): Promise<void> {
+  await openUpdates(page)
   await expect(page.locator('[data-machine-update-controls]').first()).toBeVisible({
     timeout: 30_000,
   })
@@ -46,22 +47,15 @@ function flagRow(page: Page): Locator {
 }
 
 async function setDeveloping(page: Page, enabled: boolean): Promise<void> {
-  await openSettings(page, 'experimental')
-  await expect(page.getByRole('heading', { name: 'Experimental' })).toBeVisible({ timeout: 30_000 })
+  await openSettings(page, 'labs')
+  await expect(page.getByRole('heading', { name: 'Labs' })).toBeVisible({ timeout: 30_000 })
 
   const flagSwitch = flagRow(page).getByRole('switch').first()
   await expect(flagSwitch).toBeEnabled({ timeout: 20_000 })
   if ((await flagSwitch.getAttribute('aria-checked')) === String(enabled)) return
 
   await flagSwitch.click()
-  const updateDialog = page.getByRole('dialog', { name: 'Podium update' })
-  if (await updateDialog.isVisible().catch(() => false)) {
-    await updateDialog.getByRole('button', { name: 'Later' }).click()
-  }
-  const save = page.getByRole('button', { name: /^Save changes$/ })
-  await save.click()
-  await expect(page.getByText('Saved ✓')).toBeVisible({ timeout: 15_000 })
-  await expect(save).toBeHidden({ timeout: 15_000 })
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible({ timeout: 15_000 })
 }
 
 test('the update controls follow the Podium-development flag', async ({ page }) => {
@@ -71,26 +65,32 @@ test('the update controls follow the Podium-development flag', async ({ page }) 
   await setDeveloping(page, false)
 
   await openUpdates(page)
-  const fleetRow = page.locator('.settings-row').filter({ hasText: 'Fleet default channel' })
+  const fleetRow = page.locator('.settings-row').filter({ hasText: 'Update channel' })
   await expect(fleetRow.getByRole('button', { name: 'Stable' })).toBeVisible()
   await expect(fleetRow.getByRole('button', { name: 'Edge' })).toBeVisible()
   // The point of the issue: the selector itself is ordinary operation and stays.
   await expect(fleetRow.getByRole('button', { name: 'Development' })).toHaveCount(0)
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/updates-flag-off.png`, fullPage: true })
 
-  await openMachines(page)
+  await openMachineUpdates(page)
   const controls = page.locator('[data-machine-update-controls]').first()
   await expect(controls.getByLabel(/^Update channel for /)).toHaveCount(0)
-  // Hidden control, but never a hidden ANSWER — the machine still says where it is.
-  await expect(controls.locator('[data-machine-update-source]')).toBeVisible()
-  await expect(controls.getByText(/Target /)).toBeVisible()
+  const version = page
+    .getByTestId(/^update-machine-/)
+    .filter({ has: page.locator('[data-machine-update-controls]') })
+    .first()
+    .locator('.font-mono')
+    .first()
+  await expect(version).toBeVisible()
+  const machineVersion = (await version.innerText()).split(' → ')[0]!.trim()
+  expect(machineVersion).not.toBe('')
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/machines-flag-off.png`, fullPage: true })
 
   // ---- flag ON: Development offered, per-machine selector back ----
   await setDeveloping(page, true)
 
   await openUpdates(page)
-  const fleetRowOn = page.locator('.settings-row').filter({ hasText: 'Fleet default channel' })
+  const fleetRowOn = page.locator('.settings-row').filter({ hasText: 'Update channel' })
   await expect(fleetRowOn.getByRole('button', { name: 'Development' })).toBeVisible({
     timeout: 30_000,
   })
@@ -98,8 +98,12 @@ test('the update controls follow the Podium-development flag', async ({ page }) 
   await expect(fleetRowOn.getByRole('button', { name: 'Edge' })).toBeVisible()
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/updates-flag-on.png`, fullPage: true })
 
-  await openMachines(page)
-  const selector = page.locator('[data-machine-update-controls]').first().getByLabel(/^Update channel for /)
+  await openMachineUpdates(page)
+  await expect(version).toContainText(machineVersion)
+  const selector = page
+    .locator('[data-machine-update-controls]')
+    .first()
+    .getByLabel(/^Update channel for /)
   await expect(selector).toBeVisible({ timeout: 30_000 })
   await selector.click()
   // "Fleet default" is the clear-the-pin choice and comes first.

@@ -211,3 +211,8 @@ describe('machine paths: conservative Windows case comparisons', () => {
     expect(machinePathBasename('/a/.')).toBe('.')
   })
 })
+
+// A cwd is an absolute machine path, not a root-relative file token.
+it('does not place an absolute POSIX cwd under a Windows checkout', () => {
+  expect(isMachinePathWithinRoot(String.raw`C:\src\podium`, '/src/podium/src/app')).toBe(false)
+})

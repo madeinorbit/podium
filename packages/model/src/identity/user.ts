@@ -270,7 +270,7 @@ export type UserWire = z.infer<typeof UserWire>
  *
  * POD-1554 does the move the migration could not: a one-shot at BOOT (where a
  * file *is* readable) copies the hash into the first admin's row and deletes
- * `auth.json` — `apps/server/src/instance-password-migration.ts`. With that,
+ * `auth.json`. With that,
  * every account authenticates the one way, and the enum is a single member.
  *
  * A one-member enum is kept as an enum rather than collapsed to a literal

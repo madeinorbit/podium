@@ -1,6 +1,8 @@
+import { waitFor } from '@testing-library/react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { passwordCapabilities } from '@/test-support/auth-capabilities'
 import { ReplicaFailureScreen } from './ReplicaFailureScreen'
 
 describe('the screen a failed boot gate shows', () => {
@@ -15,13 +17,25 @@ describe('the screen a failed boot gate shows', () => {
     act(() => root.unmount())
     container.remove()
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
   })
 
   function render(node: React.ReactNode): void {
     act(() => root.render(node))
   }
 
-  it('asks for the password when the only thing missing is a session', () => {
+  it('asks for the server-selected password prompt when the only thing missing is a session', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          needsAuth: true,
+          authed: false,
+          capabilities: passwordCapabilities,
+          prompt: 'password',
+        }),
+      ),
+    )
     // The defect this issue exists for: a browser with no session used to be
     // told its "private replica" could not open, on a screen whose only button
     // reloaded it into the same wall.
@@ -32,7 +46,7 @@ describe('the screen a failed boot gate shows', () => {
         httpOrigin="http://pod.test"
       />,
     )
-    expect(container.querySelector('input[type="password"]')).not.toBeNull()
+    await waitFor(() => expect(container.querySelector('input[type="password"]')).not.toBeNull())
     expect(container.textContent).not.toContain('private replica')
     expect(container.textContent).not.toContain('authenticated account is unavailable')
   })

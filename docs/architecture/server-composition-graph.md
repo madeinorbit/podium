@@ -199,7 +199,6 @@ Runtime modules: 222. Runtime edges: 375. Cycles: 0.
 188. `apps/server/src/repo-id.ts`
 189. `apps/server/src/store/accounts.ts`
 190. `apps/server/src/store/approvals.ts`
-191. `apps/server/src/store/auth.ts`
 192. `apps/server/src/store/automations.ts`
 193. `apps/server/src/store/conversations/index.ts`
 194. `apps/server/src/store/conversations/mirror.ts`
@@ -422,10 +421,9 @@ Runtime modules: 222. Runtime edges: 375. Cycles: 0.
 | `apps/server/src/root-allowlist.ts` | — |
 | `apps/server/src/similarity.ts` | — |
 | `apps/server/src/steward.ts` | `apps/server/src/command-principal.ts`<br>`apps/server/src/issue-util.ts`<br>`apps/server/src/modules/sessions/session-by-id.ts`<br>`apps/server/src/store/notification-facts.ts` |
-| `apps/server/src/store.ts` | `apps/server/src/migrations/drizzle-manifest.generated.ts`<br>`apps/server/src/migrations/index.ts`<br>`apps/server/src/store/accounts.ts`<br>`apps/server/src/store/approvals.ts`<br>`apps/server/src/store/auth.ts`<br>`apps/server/src/store/automations.ts`<br>`apps/server/src/store/conversations.ts`<br>`apps/server/src/store/events.ts`<br>`apps/server/src/store/grants.ts`<br>`apps/server/src/store/issues.ts`<br>`apps/server/src/store/locks.ts`<br>`apps/server/src/store/machines.ts`<br>`apps/server/src/store/maintenance.ts`<br>`apps/server/src/store/messages.ts`<br>`apps/server/src/store/messaging-topics.ts`<br>`apps/server/src/store/notification-facts.ts`<br>`apps/server/src/store/observation-checkpoints.ts`<br>`apps/server/src/store/read-watermarks.ts`<br>`apps/server/src/store/repos.ts`<br>`apps/server/src/store/server-secrets.ts`<br>`apps/server/src/store/sessions.ts`<br>`apps/server/src/store/settings-audit.ts`<br>`apps/server/src/store/settings.ts`<br>`apps/server/src/store/superagent.ts`<br>`apps/server/src/store/telegram-bindings.ts`<br>`apps/server/src/store/user-layout.ts`<br>`apps/server/src/store/user-read-position.ts`<br>`apps/server/src/store/users.ts`<br>`apps/server/src/store/workflows.ts` |
+| `apps/server/src/store.ts` | `apps/server/src/migrations/drizzle-manifest.generated.ts`<br>`apps/server/src/migrations/index.ts`<br>`apps/server/src/store/accounts.ts`<br>`apps/server/src/store/approvals.ts`<br>`apps/server/src/store/automations.ts`<br>`apps/server/src/store/conversations.ts`<br>`apps/server/src/store/events.ts`<br>`apps/server/src/store/grants.ts`<br>`apps/server/src/store/issues.ts`<br>`apps/server/src/store/locks.ts`<br>`apps/server/src/store/machines.ts`<br>`apps/server/src/store/maintenance.ts`<br>`apps/server/src/store/messages.ts`<br>`apps/server/src/store/messaging-topics.ts`<br>`apps/server/src/store/notification-facts.ts`<br>`apps/server/src/store/observation-checkpoints.ts`<br>`apps/server/src/store/read-watermarks.ts`<br>`apps/server/src/store/repos.ts`<br>`apps/server/src/store/server-secrets.ts`<br>`apps/server/src/store/sessions.ts`<br>`apps/server/src/store/settings-audit.ts`<br>`apps/server/src/store/settings.ts`<br>`apps/server/src/store/superagent.ts`<br>`apps/server/src/store/telegram-bindings.ts`<br>`apps/server/src/store/user-layout.ts`<br>`apps/server/src/store/user-read-position.ts`<br>`apps/server/src/store/users.ts`<br>`apps/server/src/store/workflows.ts` |
 | `apps/server/src/store/accounts.ts` | — |
 | `apps/server/src/store/approvals.ts` | — |
-| `apps/server/src/store/auth.ts` | — |
 | `apps/server/src/store/automations.ts` | — |
 | `apps/server/src/store/conversations.ts` | `apps/server/src/store/conversations/index.ts`<br>`apps/server/src/store/conversations/mirror.ts`<br>`apps/server/src/store/conversations/registry.ts`<br>`apps/server/src/store/conversations/transcript-index.ts` |
 | `apps/server/src/store/conversations/index.ts` | — |

@@ -1009,7 +1009,7 @@ inside Podium:
 
 - [ ] **Step 3: Verify in the real UI**
 
-Run the app, open Settings → Accounts, and confirm all four:
+Run the app, open Settings → AI accounts, and confirm all four:
 1. Paste an Anthropic API key → the row flips to **connected** with a masked identity.
 2. Reload the page → it is still connected (it persisted to the DB, not to component state).
 3. Click **Disconnect** → it returns to **not-configured**.
@@ -1034,7 +1034,7 @@ git commit -m "feat(web): connect/disconnect managed accounts in the Accounts hu
 
 The whole point of #216 is that an agent runs on a server-held credential. Prove it:
 
-1. In Settings → Accounts, connect an **Anthropic API key**.
+1. In Settings → AI accounts, connect an **Anthropic API key**.
 2. Set the coding role's account to `managed:anthropic`.
 3. Spawn a new claude-code session.
 4. In that session's terminal, run: `env | grep ANTHROPIC_API_KEY`

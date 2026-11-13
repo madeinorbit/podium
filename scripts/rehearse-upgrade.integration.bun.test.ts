@@ -13,13 +13,16 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runDrizzleMigrations } from '../apps/server/src/migrations'
 import { DRIZZLE_MIGRATIONS } from '../apps/server/src/migrations/drizzle-manifest.generated'
+import { seedCustomerMembers } from '../apps/server/src/test-support/customer-upgrade-database'
+import { hashPassword, verifyPasswordHash } from '../packages/runtime/src/auth-store'
 import {
   identityShapes,
   serverReleaseMigrations,
   serverRows,
   writeIdentityShape,
 } from '../packages/runtime/src/fixtures/customer-upgrade'
-import { openDatabase } from '../packages/runtime/src/sqlite'
+import oldestServerReleaseMigrations from '../packages/runtime/src/fixtures/customer-upgrade/server-oldest-release-migrations.json'
+import { openDatabase, type SqlDatabase } from '../packages/runtime/src/sqlite'
 import { mintUpdateSigningKey } from '../packages/runtime/src/update-signing-key'
 import {
   copyRehearsalState,
@@ -30,6 +33,49 @@ import {
 
 const root = mkdtempSync(join(tmpdir(), 'podium-rehearsal-test-'))
 afterAll(() => rmSync(root, { recursive: true, force: true }))
+
+function ownership(db: SqlDatabase) {
+  return {
+    members: db
+      .prepare('SELECT id, email, role, disabled_at, authz_generation FROM users ORDER BY id')
+      .all(),
+    sessions: db
+      .prepare('SELECT id, owner_user_id, created_by_on_behalf_of FROM sessions ORDER BY id')
+      .all(),
+    tasks: db
+      .prepare(
+        'SELECT id, owner_user_id, created_by_on_behalf_of, assignee FROM issues ORDER BY id',
+      )
+      .all(),
+    custody: db
+      .prepare(
+        "SELECT resource_id, grantee, owner FROM grants WHERE resource_kind = 'machine' AND custody = 1 ORDER BY resource_id",
+      )
+      .all(),
+    machineKeys: db.prepare('SELECT id, token_hash, public_key FROM machines ORDER BY id').all(),
+    providerKeys: db
+      .prepare('SELECT id, owner_user_id, credential FROM accounts ORDER BY id')
+      .all(),
+    logins: db.prepare('SELECT * FROM client_sessions ORDER BY token_hash').all(),
+  }
+}
+
+/**
+ * The one line the sign-in carry-over writes at its first start (POD-6751):
+ * when the period ends and how many old sign-ins could still be carried.
+ */
+function carryOverLine(bootLog: string): { endsAt: string; oldSignIns: number } | undefined {
+  for (const line of bootLog.split('\n')) {
+    try {
+      const record = JSON.parse(line)
+      if (record.ns === 'server:sign-in-carry-over' && typeof record.endsAt === 'string')
+        return { endsAt: record.endsAt, oldSignIns: record.oldSignIns }
+    } catch {}
+  }
+  return undefined
+}
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000
+const RETIRED_LABELS = ['upstream', 'server-transfer-claim']
 
 describe('upgrade rehearsal', () => {
   it('snapshots committed WAL pages without copying credentials, backups or unrelated state', () => {
@@ -82,6 +128,110 @@ describe('upgrade rehearsal', () => {
     ).rejects.toThrow('timeout')
   })
 
+  it('upgrades Alice and Bob directly from the oldest supported server v0.1.0', async () => {
+    const source = join(root, 'oldest-source')
+    mkdirSync(source)
+    const sourcePath = join(source, 'podium.db')
+    const hashes = new Map(
+      await Promise.all(
+        ['Alice', 'Bob'].map(
+          async (name) => [name, await hashPassword(`${name}-oldest-fixture-password`)] as const,
+        ),
+      ),
+    )
+    const db = openDatabase(sourcePath)
+    try {
+      const shipped = new Set(oldestServerReleaseMigrations.migrations)
+      runDrizzleMigrations(
+        db,
+        DRIZZLE_MIGRATIONS.filter((m) => shipped.has(m.name)),
+      )
+      expect(db.prepare('SELECT id FROM users').all()).toEqual([{ id: 'user:sole' }])
+      db.prepare("UPDATE users SET display_name = 'Alice' WHERE id = 'user:sole'").run()
+      db.prepare(
+        "INSERT INTO users (id, display_name, role, created_at) VALUES ('mem_upgrade_bob', 'Bob', 'member', '2026-08-21T12:00:00.000Z')",
+      ).run()
+      for (const [id, name] of [
+        ['user:sole', 'Alice'],
+        ['mem_upgrade_bob', 'Bob'],
+      ] as const) {
+        const hash = hashes.get(name)
+        if (!hash) throw new Error('Missing fixture password hash')
+        db.prepare(`INSERT INTO user_credentials (user_id, source, password_hash, updated_at)
+          VALUES (?, 'per-user-scrypt', ?, '2026-08-21T12:00:00.000Z')
+          ON CONFLICT(user_id) DO UPDATE SET source = excluded.source, password_hash = excluded.password_hash`).run(
+          id,
+          hash,
+        )
+      }
+    } finally {
+      db.close()
+    }
+    const before = createHash('sha256').update(readFileSync(sourcePath)).digest('hex')
+    const output = await rehearse(source, join(root, 'oldest-copy'))
+    expect(createHash('sha256').update(readFileSync(sourcePath)).digest('hex')).toBe(before)
+    const identityRows = (database: ReturnType<typeof openDatabase>) =>
+      Object.fromEntries(
+        ['users', 'identity_user', 'identity_account', 'identity_membership'].map((table) => [
+          table,
+          database.prepare(`SELECT * FROM ${table} ORDER BY 1, 2`).all(),
+        ]),
+      )
+    let beforeRestart: ReturnType<typeof identityRows> | undefined
+    const upgraded = openDatabase(join(output, 'state', 'podium.db'), { readOnly: true })
+    try {
+      const members = upgraded
+        .prepare(`SELECT u.display_name AS name, m.status, a.password
+        FROM identity_membership m JOIN users u ON u.id = m.member_id
+        JOIN identity_account a ON a.user_id = m.account_id ORDER BY u.display_name`)
+        .all() as { name: string; status: string; password: string }[]
+      expect(members.map(({ name, status }) => ({ name, status }))).toEqual([
+        { name: 'Alice', status: 'active' },
+        { name: 'Bob', status: 'active' },
+      ])
+      for (const member of members) {
+        const expectedHash = hashes.get(member.name)
+        if (!expectedHash) throw new Error('Missing fixture password hash')
+        expect(member.password).toBe(expectedHash)
+        expect(
+          await verifyPasswordHash(`${member.name}-oldest-fixture-password`, member.password),
+        ).toBe(true)
+      }
+      expect(
+        upgraded
+          .prepare(
+            "SELECT name FROM sqlite_schema WHERE name IN ('user_credentials', 'member_invites')",
+          )
+          .all(),
+      ).toEqual([])
+      expect(upgraded.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get()).toEqual({
+        n: DRIZZLE_MIGRATIONS.length,
+      })
+      expect(upgraded.prepare('PRAGMA quick_check').get()).toEqual({ quick_check: 'ok' })
+      beforeRestart = identityRows(upgraded)
+    } finally {
+      upgraded.close()
+    }
+    const restartedOutput = await rehearse(join(output, 'state'), join(root, 'oldest-restart'))
+    const restarted = openDatabase(join(restartedOutput, 'state', 'podium.db'), { readOnly: true })
+    try {
+      expect(identityRows(restarted)).toEqual(beforeRestart)
+      expect(
+        restarted
+          .prepare(
+            "SELECT name FROM sqlite_schema WHERE name IN ('user_credentials', 'member_invites')",
+          )
+          .all(),
+      ).toEqual([])
+      expect(restarted.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get()).toEqual({
+        n: DRIZZLE_MIGRATIONS.length,
+      })
+      expect(restarted.prepare('PRAGMA quick_check').get()).toEqual({ quick_check: 'ok' })
+    } finally {
+      restarted.close()
+    }
+  }, 120_000)
+
   it('boots the candidate against a copy, fences session traffic and leaves the source untouched', async () => {
     const source = join(root, 'source')
     mkdirSync(source)
@@ -101,6 +251,8 @@ describe('upgrade rehearsal', () => {
       for (const [table, rows] of [
         ['machines', serverRows.machines],
         ['sessions', serverRows.sessions],
+        // The sole member's old sign-ins, for the carry-over (POD-6751).
+        ['client_sessions', serverRows.client_sessions],
       ] as const) {
         for (const row of rows) {
           const keys = Object.keys(row)
@@ -124,10 +276,17 @@ describe('upgrade rehearsal', () => {
       )
     const before = hashes()
     symlinkSync(source, join(source, 'live-state-link'))
+    const rehearsedAt = Date.now()
     const output = await rehearse(source, join(root, 'copy')).catch((error) => {
       const log = readFileSync(join(root, 'copy', 'boot.log'), 'utf8')
       throw new Error(`${String(error)}\n${log}`, { cause: error })
     })
+    // The boot log names the end of the carry-over period and the number of old sign-ins.
+    const carryOver = carryOverLine(readFileSync(join(output, 'boot.log'), 'utf8'))
+    expect(carryOver?.oldSignIns).toBe(serverRows.client_sessions.length)
+    const periodMs = Date.parse(carryOver?.endsAt ?? '') - rehearsedAt
+    expect(periodMs).toBeGreaterThanOrEqual(THIRTY_DAYS_MS)
+    expect(periodMs).toBeLessThan(THIRTY_DAYS_MS + 10 * 60_000)
     expect(hashes()).toEqual(before)
     expect(readdirSync(source).sort()).toEqual([...names, 'live-state-link'].sort())
     expect(readdirSync(join(output, 'state'))).not.toContain('live-state-link')
@@ -135,6 +294,18 @@ describe('upgrade rehearsal', () => {
       healthy: true,
       sessionTrafficDisabled: true,
     })
+    const upgraded = openDatabase(join(output, 'state', 'podium.db'), { readOnly: true })
+    try {
+      expect(
+        upgraded
+          .prepare(
+            "SELECT name FROM sqlite_schema WHERE name IN ('user_credentials', 'member_invites')",
+          )
+          .all(),
+      ).toEqual([])
+    } finally {
+      upgraded.close()
+    }
     const report = JSON.parse(readFileSync(join(output, 'rehearsal.json'), 'utf8'))
     expect(report).toMatchObject({
       healthy: true,
@@ -190,4 +361,138 @@ describe('upgrade rehearsal', () => {
     expect(env.XDG_RUNTIME_DIR).toBe(join(output, 'runtime'))
     await expect(rehearse(source, join(source, 'unsafe'))).rejects.toThrow('outside')
   }, 120_000)
+
+  for (const multiple of [false, true]) {
+    it(`carries passwords and ownership through the ${multiple ? 'multi' : 'single'}-member customer fixture`, async () => {
+      const source = join(root, `member-source-${multiple}`)
+      mkdirSync(source)
+      const sourcePath = join(source, 'podium.db')
+      const db = openDatabase(sourcePath)
+      const credentials = new Map<string, { password: string; hash: string }>()
+      let before: ReturnType<typeof ownership>
+      try {
+        seedCustomerMembers(db, multiple)
+        // Establish the state after the earlier ownership repairs, just before the identity tables.
+        const cut = DRIZZLE_MIGRATIONS.findIndex(({ name }) => name.endsWith('_identity-core'))
+        expect(cut).toBeGreaterThan(0)
+        runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cut))
+        expect(
+          db.prepare("SELECT name FROM sqlite_schema WHERE name = 'identity_membership'").get(),
+        ).toBeUndefined()
+        const fixtureMembers: [string, string][] = [['mem_upgrade_alice', 'alice']]
+        if (multiple) fixtureMembers.push(['mem_upgrade_bob', 'bob'])
+        for (const [id, name] of fixtureMembers) {
+          const password = `${name}-legacy-fixture-password`
+          const hash = await hashPassword(password)
+          db.prepare('UPDATE user_credentials SET password_hash = ? WHERE user_id = ?').run(
+            hash,
+            id,
+          )
+          if (multiple)
+            db.prepare('UPDATE users SET email = ? WHERE id = ?').run(`${name}@example.test`, id)
+          credentials.set(id, { password, hash })
+        }
+        before = ownership(db)
+        expect(before.tasks.length).toBeGreaterThan(0)
+        expect(before.machineKeys.length).toBeGreaterThan(0)
+        expect(before.providerKeys).toEqual([
+          {
+            id: 'managed:anthropic',
+            owner_user_id: 'mem_upgrade_alice',
+            credential: 'fixture-only-provider-key',
+          },
+        ])
+        if (multiple) {
+          expect(before.sessions).toContainEqual({
+            id: 'session-bob-on-alice',
+            owner_user_id: 'mem_upgrade_bob',
+            created_by_on_behalf_of: 'mem_upgrade_bob',
+          })
+          expect(before.custody).toContainEqual({
+            resource_id: 'machine-peer',
+            grantee: 'mem_upgrade_bob',
+            owner: 'mem_upgrade_bob',
+          })
+          expect(before.tasks).toContainEqual(
+            expect.objectContaining({
+              id: 'task-human-assignee',
+              owner_user_id: 'mem_upgrade_bob',
+            }),
+          )
+        }
+      } finally {
+        db.close()
+      }
+      const sourceBefore = createHash('sha256').update(readFileSync(sourcePath)).digest('hex')
+      const rehearsedAt = Date.now()
+      const output = await rehearse(source, join(root, `member-copy-${multiple}`))
+      expect(createHash('sha256').update(readFileSync(sourcePath)).digest('hex')).toBe(sourceBefore)
+      const upgraded = openDatabase(join(output, 'state', 'podium.db'), { readOnly: true })
+      try {
+        expect(upgraded.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get()).toEqual({
+          n: DRIZZLE_MIGRATIONS.length,
+        })
+        expect(upgraded.prepare('PRAGMA quick_check').get()).toEqual({ quick_check: 'ok' })
+        expect(
+          upgraded
+            .prepare(
+              "SELECT name FROM sqlite_schema WHERE name IN ('user_credentials', 'member_invites')",
+            )
+            .all(),
+        ).toEqual([])
+
+        // The upgrade deletes the sign-ins of the two retired labels (POD-6750)
+        // and leaves every other old sign-in exactly as it was.
+        const kept = (logins: unknown[]) =>
+          (logins as { label: string }[]).filter((row) => !RETIRED_LABELS.includes(row.label))
+        const after = ownership(upgraded)
+        expect({ ...after, logins: kept(after.logins) }).toEqual({
+          ...before,
+          logins: kept(before.logins),
+        })
+        expect(after.logins).toEqual(kept(before.logins))
+        // The boot log names the end of the carry-over period and how many
+        // old sign-ins could still be carried: those of a person's three labels.
+        const honoured = (before.logins as { label: string }[]).filter((row) =>
+          ['login', 'mobile', 'break-glass'].includes(row.label),
+        )
+        expect(honoured.length).toBe(multiple ? 8 : 5)
+        const carryOver = carryOverLine(readFileSync(join(output, 'boot.log'), 'utf8'))
+        expect(carryOver?.oldSignIns).toBe(honoured.length)
+        const periodMs = Date.parse(carryOver?.endsAt ?? '') - rehearsedAt
+        expect(periodMs).toBeGreaterThanOrEqual(THIRTY_DAYS_MS)
+        expect(periodMs).toBeLessThan(THIRTY_DAYS_MS + 10 * 60_000)
+        expect(
+          upgraded.prepare("SELECT value FROM meta WHERE key = 'signInCarryOver.endsAt'").get(),
+        ).toEqual({ value: carryOver?.endsAt })
+        expect(upgraded.prepare('SELECT count(*) AS n FROM carried_sign_ins').get()).toEqual({
+          n: 0,
+        })
+        const memberships = upgraded
+          .prepare(`
+        SELECT m.member_id, m.role, m.status, a.password
+        FROM identity_membership m LEFT JOIN identity_account a ON a.user_id = m.account_id
+        ORDER BY m.member_id`)
+          .all() as { member_id: string; role: string; status: string; password: string | null }[]
+        expect(memberships.map(({ password: _password, ...membership }) => membership)).toEqual([
+          { member_id: 'mem_upgrade_alice', role: 'admin', status: 'active' },
+          ...(multiple
+            ? [
+                { member_id: 'mem_upgrade_bob', role: 'member', status: 'active' },
+                { member_id: 'mem_upgrade_carol', role: 'member', status: 'disabled' },
+              ]
+            : []),
+        ])
+        for (const row of memberships) {
+          const credential = credentials.get(row.member_id)
+          expect(row.password).toBe(credential?.hash ?? null)
+          if (credential && row.password)
+            expect(await verifyPasswordHash(credential.password, row.password)).toBe(true)
+        }
+        expect(upgraded.prepare('SELECT id FROM identity_session').all()).toEqual([])
+      } finally {
+        upgraded.close()
+      }
+    }, 120_000)
+  }
 })

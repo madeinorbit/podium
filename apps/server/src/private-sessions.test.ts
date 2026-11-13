@@ -22,6 +22,7 @@
 import { asSessionId, type SessionId } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { runSessionCli } from '../../cli/src/session-cli'
 import { userCommandPrincipal } from './command-principal'
 import { inboxPrincipalFromCommand } from './modules/sessions/inbox'
 import { attachTestClient } from './test-support/client-transport'
@@ -316,6 +317,73 @@ describe('MU-07: an agent acting for Alice cannot read, send to or drive Bob’s
     await expect(aliceAgent().sessions.status.query({ ref: target() } as never)).rejects.toThrow(
       `no session found for ${target()}`,
     )
+  })
+
+  it('CLI transcript reads refuse Bob, including with a legacy grant; own reads and shared tasks work', async () => {
+    const client = aliceAgent()
+    // The CLI uses the same real daemon relay as the agent above. A session
+    // grant is intentionally inert for the private class (design §2.3).
+    await f.handle.registry.sessionStore.grants.upsert({
+      resourceKind: 'session',
+      resourceId: target(),
+      grantee: MEMBERS.alice.id,
+      verb: 'read',
+      owner: MEMBERS.bob.id,
+      visibility: 'personal',
+      createdAt: new Date().toISOString(),
+      actorKind: 'user',
+      actorId: MEMBERS.bob.id,
+      onBehalfOf: MEMBERS.bob.id,
+    })
+    try {
+      await expect(runSessionCli(['read', target()], client, { hasRelay: true })).rejects.toThrow(
+        `no session found for ${target()}`,
+      )
+      expect(await runSessionCli(['read', f.sessions.alice], client, { hasRelay: true })).toContain(
+        `fixture transcript of ${f.sessions.alice}`,
+      )
+      expect(await client.issues.get.query({ id: f.tasks.alice })).toMatchObject({
+        id: f.tasks.alice,
+      })
+      expect(await client.issues.get.query({ id: f.tasks.bob })).toMatchObject({ id: f.tasks.bob })
+    } finally {
+      await f.handle.registry.sessionStore.grants.remove(
+        'session',
+        target(),
+        MEMBERS.alice.id,
+        'read',
+      )
+    }
+  })
+
+  it('workspace fetch refuses another member’s private cwd on the same shared machine', async () => {
+    // A use grant permits Bob to run on Alice's machine, never Alice to read
+    // Bob's session. Same-machine fetch returns the cwd without daemon RPCs,
+    // so this exercises the real read without a mocked export or a timeout.
+    await f.handle.registry.modules.machines.shareMachine(f.machines.alice, MEMBERS.bob.id, 'use', {
+      actor: MEMBERS.alice.id,
+      onBehalfOf: MEMBERS.alice.id,
+    })
+    const privateCwd = '/wt/bob-private-peer'
+    const peer = await (await trpc('bob')).sessions.create.mutate({
+      agentKind: 'shell',
+      cwd: privateCwd,
+      machineId: f.machines.alice,
+      issueId: f.tasks.alice,
+    })
+    expect((await sessions().sessionOwner(peer.sessionId))?.owner).toBe(MEMBERS.bob.id)
+    // Bob's source is on Alice's own task, so the task scope gate permits it.
+    for (const outsideScope of [false, true]) {
+      // biome-ignore lint/suspicious/noExplicitAny: relay client types only issues
+      const client = f.agent(f.sessions.alice, { outsideScope }).client as any
+      await expect(client.workspace.fetch.mutate({ ref: peer.sessionId })).rejects.toThrow(
+        `no session found for ${peer.sessionId}`,
+      )
+      // Counterfactual: her own source still reaches the real fetch handler.
+      expect(await client.workspace.fetch.mutate({ ref: f.sessions.alice })).toMatchObject({
+        sameMachine: true,
+      })
+    }
   })
 
   it('session send and mail never reach it', async () => {

@@ -5,10 +5,11 @@ import { join } from 'node:path'
 import { asMachineId, asUserId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
-import { mintPairingToken, openEnrollmentLedger, verifyPairingToken, type EnrollmentLedger } from './enrollment-ledger'
+import { type EnrollmentLedger, mintPairingToken, openEnrollmentLedger, verifyPairingToken } from './enrollment-ledger'
 import { canSeeMachine, checkMachineUse, checkMachineVerb, machineVerbsFor, ownershipSnapshotFromMachines } from './machine-access'
 import { MachinesService, sha256 } from './modules/machines/service'
 import type { SessionStore } from './store'
+import { memberFacts } from './store/fixtures/test-support'
 import { openTestStore } from './test-support/open-test-store'
 
 const OWNER = asUserId('user:enrollment-admin')
@@ -38,7 +39,7 @@ async function makeWorld(stateDir: string) {
   const store = await openTestStore(':memory:')
   stores.push(store)
   for (const [id, role] of [[OWNER, 'admin'], [OTHER, 'member']] as const) {
-    await store.users.create({ id, displayName: id, role, createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
+    await memberFacts(store).create({ id, displayName: id, role, createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
   }
   // Historical disk data is fixture evidence only, never a runtime dependency.
   const enrollment = openEnrollmentLedger(stateDir)

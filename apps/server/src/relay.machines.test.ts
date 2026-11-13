@@ -22,6 +22,7 @@ import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { withReadScope } from './store/executor/read-scope'
+import { memberFacts } from './store/fixtures/test-support'
 import { captureLogs } from './test-support/capture-logs'
 import { attachTestClient } from './test-support/client-transport'
 import { attachDaemonWithInventory, fixtureInventory } from './test-support/daemon-inventory'
@@ -243,11 +244,14 @@ describe('multi-daemon routing', () => {
     const { reg } = await regWithTwoDaemons()
     try {
       await reg.sessionStore.repos.addRepo(root, asMachineId('m2'))
-      const issue = await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, {
-        repoPath: root,
-        title: 'Remote adoption',
-        startNow: false,
-      })
+      const issue = await reg.modules.issues.crud.create(
+        reg.modules.issues.reports.store.serverWriter,
+        {
+          repoPath: root,
+          title: 'Remote adoption',
+          startNow: false,
+        },
+      )
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'codex',
         cwd: root,
@@ -517,7 +521,7 @@ async function handoffRegistry(
 ) {
   const store = await openTestStore(':memory:')
   if (opts.secondMember) {
-    await store.users.create(
+    await memberFacts(store).create(
       {
         id: opts.secondMember,
         displayName: 'Bob',
@@ -593,7 +597,10 @@ async function handoffRegistry(
     const settings = await store.settings.getSettingsFor(opts.secondMember)
     await store.settings.setSettingsFor(
       opts.secondMember,
-      { ...settings, roles: { ...settings.roles, coding: { ...settings.roles.coding, accountId } } },
+      {
+        ...settings,
+        roles: { ...settings.roles, coding: { ...settings.roles.coding, accountId } },
+      },
       '2026-11-04T00:00:00.000Z',
     )
   }
@@ -741,7 +748,11 @@ async function handoffRegistry(
   })
   // An issue homed on the SOURCE machine, as `issue start` would leave it.
   const issue = opts.withIssue
-    ? await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, { repoPath: '/source/repo', title: 'handoff me', startNow: false })
+    ? await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, {
+        repoPath: '/source/repo',
+        title: 'handoff me',
+        startNow: false,
+      })
     : undefined
   if (issue) {
     await reg.modules.issues.crud.update(reg.modules.issues.reports.store.serverWriter, issue.id, {
@@ -757,8 +768,9 @@ async function handoffRegistry(
     conversationId: 'native-id',
     machineId: asMachineId('m1'),
     ...(issue ? { issueId: issue.id } : {}),
-    ...(opts.secondMember ? { ownerUserId: opts.secondMember } : {}),
+    ownerUserId: opts.secondMember ?? firstAdminMemberId(),
   })
+  if (issue) expect(await reg.modules.sessions.readSessionIssueId(sessionId)).toBe(issue.id)
   return { reg, source, target, sessionId, issueId: issue?.id, store }
 }
 

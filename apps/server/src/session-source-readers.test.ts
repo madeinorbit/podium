@@ -14,6 +14,7 @@ import { readSessionRefs, type SessionRefFacts } from './modules/sessions/refs'
 import { buildSuperagentTools } from './modules/superagent/tools'
 import { RepoRegistry } from './repo-registry'
 import type { IssueRow } from './store'
+import { memberFacts } from './store/fixtures/test-support'
 
 afterEach(async () => {
   await disposeOracles()
@@ -129,7 +130,7 @@ describe('S4 server consumers', () => {
     const sessions = o.reg.modules.sessions
     const A = await firstAdminMemberId(o.store)
     const B = asUserId('user:b')
-    await o.store.users.create(
+    await memberFacts(o.store).create(
       {
         id: B,
         displayName: 'B',

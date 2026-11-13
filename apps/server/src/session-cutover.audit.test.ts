@@ -1,5 +1,3 @@
-import { messageTestWriter, messageTestWriters } from './test-support/message-writer'
-import { soleHumanSessionStatePrincipal } from './test-support/session-state-principal'
 /**
  * THE 3.2 CUTOVER AUDIT (POD-382) — the gate the session family passes or the
  * build fails.
@@ -71,13 +69,18 @@ import { renameOnTargetPath } from './modules/sessions/rename-target-path'
 import { asyncSessionIssueAccess, type SessionVisibility } from './modules/sessions/session-access'
 import { SessionStateRegistry } from './modules/sessions/session-state/registry'
 import { sessionSurfaceManifest } from './modules/sessions/trpc'
+import { scopedMutationId } from './modules/sync-write/legacy-receipt'
 import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
 import { seedRows } from './test-support/seed-rows'
+import { messageTestWriter, messageTestWriters } from './test-support/message-writer'
+import { soleHumanSessionStatePrincipal } from './test-support/session-state-principal'
 
 /** One person's pins by kind, read the way the boot reconcile reads them. */
 async function pinsOf(
-  repo: { allPinsForBootReconcile(): Promise<{ userId: string; kind: string; entityId: string }[]> },
+  repo: {
+    allPinsForBootReconcile(): Promise<{ userId: string; kind: string; entityId: string }[]>
+  },
   userId: string,
 ): Promise<{ panels: string[]; worktrees: string[]; repos: string[] }> {
   const pins = (await repo.allPinsForBootReconcile()).filter((p) => p.userId === userId)
@@ -88,7 +91,9 @@ async function pinsOf(
 /** One person's tab orders by worktree, read the way the boot reconcile reads them. */
 async function tabOrdersOf(
   repo: {
-    allTabOrdersForBootReconcile(): Promise<{ userId: string; entityId: string; sessionIds: string[] }[]>
+    allTabOrdersForBootReconcile(): Promise<
+      { userId: string; entityId: string; sessionIds: string[] }[]
+    >
   },
   userId: string,
 ): Promise<Record<string, string[]>> {
@@ -362,8 +367,12 @@ describe('AC2 · framework idempotency is the single implementation', () => {
     expect((await o.reg.modules.sessions.listSessions(undefined, 'rpc')).length).toBe(before + 1)
 
     // The receipt is durable, under the command's dotted name, for both.
-    expect(await o.store.sync.getAppliedMutation(asMutationId('dup-1'))).toBeDefined()
-    expect(await o.store.sync.getAppliedMutation(asMutationId('dup-2'))).toBeDefined()
+    expect(
+      await o.store.sync.getAppliedMutation(scopedMutationId(o.principal, asMutationId('dup-1'))),
+    ).toBeDefined()
+    expect(
+      await o.store.sync.getAppliedMutation(scopedMutationId(o.principal, asMutationId('dup-2'))),
+    ).toBeDefined()
   })
 
   it('carries the chat mutation id onto the durable message ledger row', async () => {
@@ -387,7 +396,12 @@ describe('AC2 · framework idempotency is the single implementation', () => {
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     await o.call.sessions.rename({ sessionId, name: 'original' })
 
-    await o.reg.modules.mutations.once(asMutationId('planted'), 'sessions.rename', () => null)
+    // Plant the router's actor-scoped key; the wire mutation id stays unchanged.
+    await o.reg.modules.mutations.once(
+      scopedMutationId(o.principal, asMutationId('planted')),
+      'sessions.rename',
+      () => null,
+    )
     await o.call.sessions.rename({ sessionId, name: 'should not apply', mutationId: 'planted' })
 
     expect((await o.meta(sessionId)).name).toBe('original')

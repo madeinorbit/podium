@@ -14,6 +14,7 @@ import { type AnyCommandContract, defineCommands, layoutSetContract } from '@pod
 import { addSink, type LogRecord } from '@podium/logger'
 import {
   asMutationId,
+  asSessionId,
   asUserId,
   type ChangeProvenanceFields,
   firstAdminMemberId,
@@ -30,9 +31,11 @@ import type { SessionStore } from '../../store'
 import { applyAfterCommit, spanOpen } from '../../store/executor/executor'
 import { openTestStore } from '../../test-support/open-test-store'
 import { seedRows } from '../../test-support/seed-rows'
+import { expectConstantStatements } from '../../test-support/statement-count'
 import { WriteContexts } from '../../write-contexts'
 import { currentWriteProvenance } from '../../write-provenance'
 import { SyncWriteEntry, SyncWriteRefused } from './entry'
+import { legacyMutationFallback, scopedMutationId } from './legacy-receipt'
 import {
   NO_TARGET,
   type SyncWriteContext,
@@ -67,11 +70,15 @@ async function harness(): Promise<Harness> {
     applyCommit: { spanOpen, onCommit: applyAfterCommit },
     provenance: { current: currentWriteProvenance },
   })
+  const legacyCutoff = await store.settings.legacyMutationReceiptCutoff(2_000)
+  const legacyOwner = await store.settings.retiredSoloMemberId()
   const registry = new SyncWriteRegistry()
   const writes = new WriteContexts(ledger, ledger.takeScopeMint())
   const entry = new SyncWriteEntry({
     registry,
     mutations: new MutationLedger(store.sync, () => 1_000),
+    legacyFallback: (id, human) =>
+      legacyMutationFallback(id, human, { owner: legacyOwner, before: legacyCutoff }),
     unitOfWork: async (fn) => await store.transact(fn),
     afterCommit: (step, label) => store.effect(step, label),
     spanOpen,
@@ -391,6 +398,139 @@ describe('sync write entry point: dedup, provenance and the receipt', () => {
     expect(await rows(h)).toHaveLength(1)
   })
 
+  it('the same mutation id belongs to each authenticated member, including concurrent calls', async () => {
+    const h = await harness()
+    const runs = { count: 0 }
+    registerPut(h, { runs })
+    const other = userCommandPrincipal(asUserId('mem_other'), 'admin')
+    const [first, second] = await Promise.all([
+      h.entry.submit(envelope('shared-id', { id: 'a', note: 'first' }), h.admin, 'trpc'),
+      h.entry.submit(envelope('shared-id', { id: 'b', note: 'second' }), other, 'trpc'),
+    ])
+    expect(applied(first)).toMatchObject({ replayed: false, result: { stored: 'a' } })
+    expect(applied(second)).toMatchObject({ replayed: false, result: { stored: 'b' } })
+    // Each member retries their own persisted result, after the in-flight calls ended.
+    for (const [principal, id] of [
+      [h.admin, 'a'],
+      [other, 'b'],
+    ] as const) {
+      expect(
+        applied(
+          await h.entry.submit(
+            envelope('shared-id', { id: 'unused', note: 'retry' }),
+            principal,
+            'trpc',
+          ),
+        ),
+      ).toMatchObject({ replayed: true, result: { stored: id } })
+    }
+    expect(runs.count).toBe(2)
+    expect(await rows(h)).toHaveLength(2)
+  })
+
+  it('old unscoped receipts replay only for the original sole member and their agents', async () => {
+    const h = await harness()
+    const runs = { count: 0 }
+    registerPut(h, { runs })
+    await h.store.sync.recordAppliedMutation(
+      asMutationId('old-id'),
+      'test.put',
+      JSON.stringify({ stored: 'before-upgrade' }),
+      1_000,
+    )
+    const other = userCommandPrincipal(asUserId('mem_other'), 'admin')
+    expect(
+      applied(
+        await h.entry.submit(
+          envelope('old-id', { id: 'other', note: 'new member' }),
+          other,
+          'trpc',
+        ),
+      ),
+    ).toMatchObject({ replayed: false, result: { stored: 'other' } })
+    const agent: CommandPrincipal = {
+      kind: 'agent',
+      agentSessionId: asSessionId('agent-original'),
+      onBehalfOf: h.adminId,
+      capability: { role: 'admin', scope: { kind: 'all' } },
+      chain: [],
+    }
+    for (const principal of [h.admin, agent]) {
+      expect(
+        applied(
+          await h.entry.submit(
+            envelope('old-id', { id: 'must-not-run', note: 'retry' }),
+            principal,
+            'trpc',
+          ),
+        ),
+      ).toMatchObject({ replayed: true, result: { stored: 'before-upgrade' } })
+    }
+    expect(runs.count).toBe(1)
+  })
+
+  it('raw receipts written after upgrade never become the original member’s receipts', async () => {
+    const h = await harness()
+    registerPut(h)
+    await h.store.sync.recordAppliedMutation(
+      asMutationId('new-raw-id'),
+      'sessions.interrupt',
+      JSON.stringify({ stored: 'private' }),
+      3_000,
+    )
+    // The stored boundary must survive another boot; moving it would adopt newer members' receipts.
+    expect(await h.store.settings.legacyMutationReceiptCutoff(4_000)).toBe(2_000)
+    expect(
+      applied(
+        await h.entry.submit(envelope('new-raw-id', { id: 'own', note: 'own' }), h.admin, 'trpc'),
+      ),
+    ).toMatchObject({ replayed: false, result: { stored: 'own' } })
+  })
+
+  it('an admin cannot use the legacy fallback to read another member’s scoped receipt', async () => {
+    const h = await harness()
+    registerPut(h)
+    const otherId = asUserId('mem_other')
+    const other = userCommandPrincipal(otherId, 'admin')
+    await h.entry.submit(envelope('private-id', { id: 'private', note: 'secret' }), other, 'trpc')
+    // Even a caller who guesses the complete stored key gets no raw-key fallback.
+    const guess = scopedMutationId(other, asMutationId('private-id'))
+    expect(
+      applied(await h.entry.submit(envelope(guess, { id: 'own', note: 'own' }), h.admin, 'trpc')),
+    ).toMatchObject({ replayed: false, result: { stored: 'own' } })
+  })
+
+  it('legacy receipt lookup stays constant as the receipt history grows', async () => {
+    await expectConstantStatements(
+      {
+        name: 'legacy receipt lookup',
+        setup: async (size) => {
+          const h = await harness()
+          for (let i = 0; i < size; i++) {
+            await h.store.sync.recordAppliedMutation(
+              asMutationId(`old-${i}`),
+              'test.put',
+              '{}',
+              1_000,
+            )
+          }
+          return h
+        },
+        target: (h) => h.store,
+        run: (h) =>
+          h.store.sync.getAppliedMutation(
+            scopedMutationId(h.admin, asMutationId('scoped')),
+            legacyMutationFallback(asMutationId('old-0'), h.adminId, {
+              owner: h.adminId,
+              before: 2_000,
+            }),
+          ),
+        check: (result) => expect(result).toBe('{}'),
+      },
+      1,
+    )
+  })
+
   it('rows carry mutation_id = causation_id = M; the receipt seq is the head after commit', async () => {
     const h = await harness()
     registerPut(h)
@@ -485,7 +625,6 @@ describe('sync write entry point: dedup, provenance and the receipt', () => {
 
     expect(await h.store.layout.get(h.adminId, 'sidebar.section.a')).toBeUndefined()
     expect(await h.ledger.cursor()).toBe(before)
-    expect(await h.store.sync.getAppliedMutation(asMutationId('m-fail'))).toBeUndefined()
 
     // Nothing was recorded, so the retry runs the handler again and applies.
     fail = false
@@ -494,9 +633,12 @@ describe('sync write entry point: dedup, provenance and the receipt', () => {
     )
     expect(retry.replayed).toBe(false)
     expect(runs.count).toBe(2)
-    expect(await h.store.sync.getAppliedMutation(asMutationId('m-fail'))).toBe(
-      JSON.stringify({ stored: 'a' }),
-    )
+    expect(
+      applied(
+        await h.entry.submit(envelope('m-fail', { id: 'a', note: 'retry' }), h.admin, 'trpc'),
+      ),
+    ).toMatchObject({ replayed: true, result: { stored: 'a' } })
+    expect(runs.count).toBe(2)
   })
 
   it('a handler refusal is a rejected reply and writes nothing', async () => {
@@ -512,7 +654,6 @@ describe('sync write entry point: dedup, provenance and the receipt', () => {
     expect(reply).toEqual({ outcome: 'rejected', refusal: { kind: 'conflict' } })
     expect(await rows(h)).toHaveLength(0)
     expect(await h.store.layout.get(h.adminId, 'sidebar.section.a')).toBeUndefined()
-    expect(await h.store.sync.getAppliedMutation(asMutationId('m-conf'))).toBeUndefined()
   })
 
   it('the handler sees the envelope precondition and its own mutation id', async () => {

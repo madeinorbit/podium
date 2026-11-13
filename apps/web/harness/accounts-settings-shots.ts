@@ -1,4 +1,4 @@
-// Screenshot the Settings → Accounts & Keys harness (POD-6390). Start it first with
+// Screenshot the Settings → AI accounts harness (POD-6390). Start it first with
 // `bunx vite --config vite.accounts-settings-harness.config.ts` from apps/web.
 // Usage: bun harness/accounts-settings-shots.ts <outDir>
 import { readdirSync } from 'node:fs'

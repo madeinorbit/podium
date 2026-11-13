@@ -69,7 +69,6 @@ export const UI_STATE_KEYS = {
   fileScroll: 'podium.fileScroll',
   superOpen: 'podium.superOpen.v2',
   panelMode: 'podium.panelMode',
-  panelModeDefault: 'podium.panelModeDefault',
   dockShells: 'podium.dockShells',
   recentFiles: 'podium.recentFiles',
   /** Right-dock tab when the dock is a separate surface (`issue` | `git` | …). */
@@ -105,7 +104,6 @@ export const WORKSPACES_KEY = UI_STATE_KEYS.workspaces
 export const FILE_TABS_KEY = UI_STATE_KEYS.fileTabs
 export const SUPER_OPEN_KEY = UI_STATE_KEYS.superOpen
 export const PANEL_MODE_KEY = UI_STATE_KEYS.panelMode
-export const PANEL_MODE_DEFAULT_KEY = UI_STATE_KEYS.panelModeDefault
 export const DOCK_SHELLS_KEY = UI_STATE_KEYS.dockShells
 export const RECENT_FILES_KEY = UI_STATE_KEYS.recentFiles
 export const RIGHT_PANEL_KEY = UI_STATE_KEYS.rightPanel
@@ -140,12 +138,7 @@ export interface UiStateRoute {
 export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
   UI_STATE_KEYS.fileScroll,
   'podium.chat.stickyPrompts',
-  /** How much of a transcript the chat feed renders (POD-376) — a reading
-   *  preference belonging to the screen you read on, not to the session. */
-  'podium.chat.verbosity',
-  /** Whether the diff sheet wraps long lines — the same species as chat
-   *  verbosity: how wide the screen you are reading on is, not a property of
-   *  the diff. A phone has no business inheriting a monitor's answer. */
+  /** Whether the diff sheet wraps long lines on this screen. */
   'podium:diff-sheet:wrap',
   'podium.sounds.enabled',
   'podium.sounds.ownerWindow',
@@ -264,7 +257,6 @@ export const writeMissionScreenView = (mode: FlightDeckMode): string | null =>
   mode === 'full' ? null : mode
 
 export const STICKY_PROMPTS_KEY = 'podium.chat.stickyPrompts'
-export const CHAT_VERBOSITY_KEY = 'podium.chat.verbosity'
 export const DIFF_SHEET_WRAP_KEY = 'podium:diff-sheet:wrap'
 export const SOUNDS_ENABLED_KEY = 'podium.sounds.enabled'
 export const SOUND_OWNER_KEY = 'podium.sounds.ownerWindow'
@@ -395,21 +387,20 @@ export type PanelMode = 'native' | 'chat'
  * Derive the effective chat-vs-native mode for a session.
  *
  * This is the sole derivation for panel presentation. The store holds the
- * persisted per-session map; callers materialize the derived value into that
- * map on first open so subsequent reads are pure map lookups.
+ * persisted per-session choices; an untouched session follows startScreen
+ * reactively instead of materializing a default into an explicit choice.
  *
  * Priority:
  * 0. A session with no terminal always shows chat.
  * 1. Non-chat-capable sessions always show native.
  * 2. Persisted per-session override (when present).
- * 3. Personal default pick (panelModeDefault).
- * 4. The `startScreen` setting (`native` | `chat` | `auto`→mobile heuristic).
+ * 3. The `startScreen` setting (`native` | `chat` | `auto`→mobile heuristic).
  *
  * RULE 0 OUTRANKS THE PERSISTED PICK, AND THAT IS THE POINT (POD-2290). Rules
- * 2–4 answer "which of two views did this operator want"; rule 0 says there is
+ * 2–3 answer "which of two views did this operator want"; rule 0 says there is
  * only ONE view, so there is no preference to honour. An embedded-driven
- * session has no terminal, and a remembered `native` — a per-device
- * default, or a per-session pick made when the same harness still ran under a
+ * session has no terminal, and a remembered `native` — a per-session pick
+ * made when the same harness still ran under a
  * terminal — would put the operator back on a pane whose attach can never
  * confirm. The mirror of rule 1, which has always overridden the same saved
  * value for the opposite reason: a shell has no transcript to chat with.
@@ -426,14 +417,11 @@ export function effectivePanelMode(input: {
   serverFamily?: boolean
   /** Persisted per-session mode when known. */
   saved?: PanelMode | null
-  /** Personal default (PANEL_MODE_DEFAULT_KEY). */
-  deviceDefault?: string | null
 }): PanelMode {
   if (!input.terminalCapable) return 'chat'
   if (!input.chatCapable) return 'native'
   if (input.saved === 'native' || input.saved === 'chat') return input.saved
   if (input.serverFamily) return 'chat'
-  if (input.deviceDefault === 'native' || input.deviceDefault === 'chat') return input.deviceDefault
   if (input.startScreen === 'auto') return input.isMobile ? 'chat' : 'native'
   if (input.startScreen === 'chat') return 'chat'
   return 'native'
@@ -639,6 +627,52 @@ export type MainView =
   | 'specs'
   | 'workflows'
 
+/** Public settings destinations. Old links are canonicalized before entering history. */
+export const SETTINGS_PAGE_IDS = [
+  'agents',
+  'accounts',
+  'notifications',
+  'appearance',
+  'account',
+  'machines',
+  'projects',
+  'members',
+  'access',
+  'audit',
+  'privacy',
+  'updates',
+  'labs',
+] as const
+export type SettingsPage = (typeof SETTINGS_PAGE_IDS)[number]
+
+const LEGACY_SETTINGS_PAGES: Readonly<Record<string, SettingsPage>> = {
+  sessions: 'agents',
+  superagent: 'agents',
+  workllm: 'agents',
+  security: 'account',
+  devices: 'account',
+  secrets: 'accounts',
+  hibernation: 'machines',
+  repos: 'projects',
+  workflow: 'projects',
+  network: 'access',
+  experimental: 'labs',
+  people: 'members',
+}
+
+export function canonicalSettingsPage(page: string): string {
+  return Object.hasOwn(LEGACY_SETTINGS_PAGES, page) ? LEGACY_SETTINGS_PAGES[page]! : page
+}
+
+export function isSettingsPage(page: string): page is SettingsPage {
+  return (SETTINGS_PAGE_IDS as readonly string[]).includes(page)
+}
+
+function isLegacySettingsPath(pathname: string): boolean {
+  const page = workspaceRoutePath(pathname).split('/').filter(Boolean)[1]
+  return page !== undefined && canonicalSettingsPage(decode(page)) !== decode(page)
+}
+
 export interface RouteState {
   workspaceSlug?: string
   view: MainView
@@ -697,7 +731,11 @@ export function parseRoute(pathname: string, search: string): RouteState | null 
     case 'issues':
       return { view: 'issues', ...base, issueId: second === undefined ? null : asIssueId(second) }
     case 'settings':
-      return { view: 'settings', ...base, settingsTab: second ?? null }
+      return {
+        view: 'settings',
+        ...base,
+        settingsTab: second === undefined ? null : canonicalSettingsPage(second),
+      }
     case 'usage':
     case 'automations':
     case 'specs':
@@ -718,7 +756,9 @@ export function routePath(route: RouteState, currentSearch = ''): string {
       path = route.issueId ? `/issues/${encodeURIComponent(route.issueId)}` : '/issues'
       break
     case 'settings':
-      path = route.settingsTab ? `/settings/${encodeURIComponent(route.settingsTab)}` : '/settings'
+      path = route.settingsTab
+        ? `/settings/${encodeURIComponent(canonicalSettingsPage(route.settingsTab))}`
+        : '/settings'
       break
     default:
       path = `/${route.view}`
@@ -773,13 +813,19 @@ export function createRouter(init: { win?: RouterWindow; fallbackView?: MainView
     route = defaults(init.fallbackView)
     win.history.replaceState(null, '', routePath(route, win.location.search))
   } else route = parsed
+  if (route.view === 'settings' && isLegacySettingsPath(win.location.pathname)) {
+    win.history.replaceState(null, '', routePath(route, win.location.search))
+  }
 
   const notify = (): void => {
     for (const cb of [...listeners]) cb(route)
   }
   const onPopState = (): void => {
     route = parseRoute(win.location.pathname, win.location.search) ?? defaults('workspace')
-    if (parseRoute(win.location.pathname, win.location.search) === null) {
+    if (
+      parseRoute(win.location.pathname, win.location.search) === null ||
+      (route.view === 'settings' && isLegacySettingsPath(win.location.pathname))
+    ) {
       win.history.replaceState(null, '', routePath(route, win.location.search))
     }
     notify()
@@ -793,7 +839,11 @@ export function createRouter(init: { win?: RouterWindow; fallbackView?: MainView
   attach()
   const apply = (next: RouteState, mode: 'push' | 'replace'): void => {
     // View callers use routeDefaults; retain the workspace even when they omit it.
-    next = { ...defaults(next.view), ...next }
+    next = {
+      ...defaults(next.view),
+      ...next,
+      settingsTab: next.settingsTab === null ? null : canonicalSettingsPage(next.settingsTab),
+    }
     const nextUrl = routePath(next, win.location.search)
     if (nextUrl === `${win.location.pathname}${win.location.search}`) {
       route = next

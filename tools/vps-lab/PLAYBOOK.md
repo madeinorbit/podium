@@ -88,7 +88,7 @@ restart. Set it back to `<lab-ui-password>`.
 
 ## 5. Tunnel health in Settings (any server)
 
-Settings → Network shows the tunnel's state ("working" about a minute after it starts). The
+Settings → Access shows the tunnel's state ("working" about a minute after it starts). The
 tunnel checks its own address every five minutes, and restarts itself after three failures in a
 row. To watch that happen (~16 min):
 ```

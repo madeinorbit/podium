@@ -1,3 +1,4 @@
+import { memberFacts } from '../../store/fixtures/test-support'
 /**
  * THE SUPERAGENT'S WRITES ON THE SYNC WRITE ENTRY POINT (POD-6419).
  *
@@ -66,7 +67,7 @@ const spawnFrames = (o: Oracle): ControlMessage[] =>
 /** A member account that exists, so its role is read live. */
 async function member(o: Oracle, id = 'usr_member_6419'): Promise<UserId> {
   const user = asUserId(id)
-  await o.store.users.createUnclaimed({
+  await memberFacts(o.store).create({
     id: user,
     displayName: 'Member',
     email: null,
@@ -242,7 +243,7 @@ describe('the superagent target check', () => {
     const first = appliedReply(await o.reg.modules.syncWrite.submit(env, as, 'trpc'))
     expect(first.result).toMatchObject({ threadId: `global:${user}` })
 
-    await o.store.users.disable(user, new Date().toISOString())
+    await memberFacts(o.store).disable(user, new Date().toISOString())
     expect(await o.reg.modules.syncWrite.submit(env, as, 'trpc')).toEqual({
       outcome: 'rejected',
       refusal: { kind: 'unauthorized' },

@@ -119,11 +119,9 @@ const OPENROUTER = asAccountId('managed:openrouter')
 const CLAUDE_OAUTH = asAccountId('managed:claude-oauth')
 
 let accounts: AccountsRepository
-let legacy: Record<string, string>
 
 const ports = () => ({
   accounts,
-  legacyApiKey: async (provider: string) => legacy[provider],
 })
 
 const connect = async (
@@ -146,7 +144,6 @@ const connect = async (
 
 beforeEach(() => {
   accounts = new AccountsRepository(stageASeam(openMigratedTestDatabase()))
-  legacy = {}
 })
 
 describe('oneShotApiKey', () => {
@@ -172,24 +169,35 @@ describe('oneShotApiKey', () => {
     ).toBe('member-key')
   })
 
-  it('own key wins over the legacy instance key', async () => {
-    legacy.openrouter = 'legacy-key'
+  it('own key wins over an adopted workspace key shared with everyone', async () => {
     await connect(ADMIN, 'admin-key')
+    await connect(
+      MEMBER,
+      'earlier-workspace-key',
+      asAccountId('managed:openrouter:earlier-workspace'),
+    )
+    await accounts.share(MEMBER, asAccountId('managed:openrouter:earlier-workspace'), [
+      SHARED_WITH_EVERYONE,
+    ])
     expect(
       await oneShotApiKey(ports(), ADMIN, { provider: 'openrouter', accountId: OPENROUTER }),
     ).toBe('admin-key')
   })
 
-  it('falls back to the legacy instance key, read only, when no managed key applies', async () => {
-    legacy.openrouter = 'legacy-key'
-    await connect(MEMBER, 'member-key')
+  it('uses an adopted workspace key through ordinary account sharing', async () => {
+    const earlier = asAccountId('managed:openrouter:earlier-workspace')
+    await connect(MEMBER, 'earlier-key', earlier)
+    await accounts.share(MEMBER, earlier, [SHARED_WITH_EVERYONE])
     expect(
       await oneShotApiKey(ports(), ADMIN, { provider: 'openrouter', accountId: OPENROUTER }),
-    ).toBe('legacy-key')
+    ).toBe('earlier-key')
+    await accounts.share(MEMBER, earlier, [])
+    expect(
+      await oneShotApiKey(ports(), ADMIN, { provider: 'openrouter', accountId: OPENROUTER }),
+    ).toBeUndefined()
   })
 
-  it('a subscription token role does not quietly spend the legacy API key', async () => {
-    legacy.anthropic = 'legacy-anthropic'
+  it('an unconfigured subscription role does not spend an API key', async () => {
     expect(
       await oneShotApiKey(ports(), ADMIN, { provider: 'anthropic', accountId: CLAUDE_OAUTH }),
     ).toBeUndefined()
@@ -203,7 +211,6 @@ describe('oneShotApiKey', () => {
   })
 
   it('a native (harness) account needs no key and reads none', async () => {
-    legacy.codex = 'never'
     await connect(ADMIN, 'admin-key')
     expect(
       await oneShotApiKey(ports(), ADMIN, {

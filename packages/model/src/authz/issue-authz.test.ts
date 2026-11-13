@@ -138,8 +138,8 @@ describe('the scope set is CLOSED, with compiler-enforced totality (POD-299)', (
     // capability names, and this one names none, so another person's entity
     // is refused.
     all: 'forbidden',
-    none: 'allow',
-    subtree: 'allow',
+    none: 'forbidden',
+    subtree: 'forbidden',
     // The two scopes that name a person: gated by ownership, exactly as writes are.
     owned: 'forbidden',
     self: 'forbidden',
@@ -223,10 +223,19 @@ describe('owner-or-grant scope (the personal class)', () => {
   // member, so a member's own scope writes the member's OWN row, and still no
   // one else's (§3.3 non-grantable): a grant list cannot widen it.
   it('reaches its own per-user row and nobody else’s (§3.3 Self, non-grantable)', () => {
-    expect(authorize(alice, 'write', { kind: 'per-user-row', userId: asUserId('alice') })).toBe('allow')
-    expect(authorize(alice, 'write', { kind: 'per-user-row', userId: asUserId('bob') })).toBe('forbidden')
+    expect(authorize(alice, 'write', { kind: 'per-user-row', userId: asUserId('alice') })).toBe(
+      'allow',
+    )
+    expect(authorize(alice, 'write', { kind: 'per-user-row', userId: asUserId('bob') })).toBe(
+      'forbidden',
+    )
     expect(
-      authorize(alice, 'write', { kind: 'per-user-row', userId: asUserId('bob') }, { override: true }),
+      authorize(
+        alice,
+        'write',
+        { kind: 'per-user-row', userId: asUserId('bob') },
+        { override: true },
+      ),
     ).toBe('forbidden')
   })
 
@@ -278,13 +287,22 @@ describe('self scope (per-user state)', () => {
   const alice = cap({ kind: 'self', userId: asUserId('alice') })
 
   it('allows a principal to write its OWN row', () => {
-    expect(authorize(alice, 'write', { kind: 'per-user-row', userId: asUserId('alice') })).toBe('allow')
+    expect(authorize(alice, 'write', { kind: 'per-user-row', userId: asUserId('alice') })).toBe(
+      'allow',
+    )
   })
 
   it('DENIES writing another principal’s row — the self-scoping property', () => {
-    expect(authorize(alice, 'write', { kind: 'per-user-row', userId: asUserId('bob') })).toBe('forbidden')
+    expect(authorize(alice, 'write', { kind: 'per-user-row', userId: asUserId('bob') })).toBe(
+      'forbidden',
+    )
     expect(
-      authorize(alice, 'write', { kind: 'per-user-row', userId: asUserId('bob') }, { override: true }),
+      authorize(
+        alice,
+        'write',
+        { kind: 'per-user-row', userId: asUserId('bob') },
+        { override: true },
+      ),
     ).toBe('forbidden')
   })
 
@@ -302,7 +320,9 @@ describe('self scope (per-user state)', () => {
     )
     // The counterfactual: the same admin capability CAN manage its own row, so the
     // denial above is the scope talking and not a blanket refusal.
-    expect(authorize(adminSelf, 'manage', { kind: 'per-user-row', userId: asUserId('alice') })).toBe('allow')
+    expect(
+      authorize(adminSelf, 'manage', { kind: 'per-user-row', userId: asUserId('alice') }),
+    ).toBe('allow')
   })
 })
 
@@ -337,19 +357,26 @@ describe('a legacy persisted `all` is the member rule, not a bypass', () => {
     }
     const bob = asUserId('bob')
     for (const action of ['read', 'write', 'manage'] as const) {
-      expect(authorize(alicesAgent, action, { kind: 'private', id: 'bobs-session', owner: bob })).toBe(
+      expect(
+        authorize(alicesAgent, action, { kind: 'private', id: 'bobs-session', owner: bob }),
+      ).toBe('forbidden')
+      expect(authorize(alicesAgent, action, session(bob))).toBe('forbidden')
+      expect(authorize(alicesAgent, action, { kind: 'per-user-row', userId: bob })).toBe(
         'forbidden',
       )
-      expect(authorize(alicesAgent, action, session(bob))).toBe('forbidden')
-      expect(authorize(alicesAgent, action, { kind: 'per-user-row', userId: bob })).toBe('forbidden')
     }
     // The counterfactual: the same capability reaches Alice's own and shared tasks.
-    expect(authorize(alicesAgent, 'write', { kind: 'private', id: 'hers', owner: A_MEMBER })).toBe('allow')
+    expect(authorize(alicesAgent, 'write', { kind: 'private', id: 'hers', owner: A_MEMBER })).toBe(
+      'allow',
+    )
     expect(authorize(alicesAgent, 'write', { id: 'any-task' })).toBe('allow')
   })
 
   it('decides exactly as the member scope of the same human', () => {
-    const member: Capability = { ...UNCONSTRAINED_ADMIN, scope: { kind: 'owned', userId: A_MEMBER } }
+    const member: Capability = {
+      ...UNCONSTRAINED_ADMIN,
+      scope: { kind: 'owned', userId: A_MEMBER },
+    }
     const targets = [
       { id: 'any-task' },
       session(A_MEMBER),
@@ -361,10 +388,106 @@ describe('a legacy persisted `all` is the member rule, not a bypass', () => {
     ] as const
     for (const action of ['read', 'write', 'manage'] as const) {
       for (const target of targets) {
-        expect(authorize(UNCONSTRAINED_ADMIN, action, target), `${action} ${JSON.stringify(target)}`).toBe(
-          authorize(member, action, target),
-        )
+        expect(
+          authorize(UNCONSTRAINED_ADMIN, action, target),
+          `${action} ${JSON.stringify(target)}`,
+        ).toBe(authorize(member, action, target))
       }
+    }
+  })
+})
+
+describe('agent reads intersect the delegating member’s rights', () => {
+  const alice = asUserId('alice')
+  const bob = asUserId('bob')
+  it.each(['none', 'subtree'] as const)('%s never widens ownership or per-user access', (kind) => {
+    const agent: Capability = {
+      role: 'worker',
+      scope: kind === 'none' ? { kind } : { kind, rootId: asIssueId('root') },
+      actorSessionId: asSessionId('alice-agent'),
+      onBehalfOf: alice,
+    }
+    const owned = { kind: 'owned', id: 'owned', owner: bob } as const
+    for (const opts of [undefined, { override: true }]) {
+      expect(authorize(agent, 'read', owned, opts)).toBe('forbidden')
+      expect(authorize(agent, 'read', { ...owned, owner: alice }, opts)).toBe('allow')
+      expect(authorize(agent, 'read', { ...owned, grants: [alice] }, opts)).toBe('allow')
+      expect(authorize(agent, 'read', { ...owned, grants: ['alice-agent'] }, opts)).toBe(
+        'forbidden',
+      )
+      expect(authorize(agent, 'read', { ...owned, owner: null, grants: [alice] }, opts)).toBe(
+        'forbidden',
+      )
+      expect(authorize({ ...agent, onBehalfOf: undefined }, 'read', owned, opts)).toBe('forbidden')
+      expect(authorize(agent, 'read', { kind: 'private', id: 'private', owner: bob }, opts)).toBe(
+        'forbidden',
+      )
+      expect(authorize(agent, 'read', { kind: 'private', id: 'private', owner: alice }, opts)).toBe(
+        'allow',
+      )
+      expect(authorize(agent, 'read', { kind: 'per-user-row', userId: bob }, opts)).toBe(
+        'forbidden',
+      )
+      expect(authorize(agent, 'read', { kind: 'per-user-row', userId: alice }, opts)).toBe('allow')
+      expect(authorize(agent, 'read', { id: 'outside-subtree' }, opts)).toBe('allow')
+    }
+  })
+})
+
+describe('unscoped write overrides intersect the member’s rights (POD-6924)', () => {
+  const alice = asUserId('alice')
+  const bob = asUserId('bob')
+  const agent: Capability = {
+    role: 'worker',
+    scope: { kind: 'none' },
+    actorSessionId: asSessionId('alice-agent'),
+    onBehalfOf: alice,
+  }
+
+  it.each([
+    'write',
+    'manage',
+  ] as const)('%s to another member’s data is never overridable', (action) => {
+    const caller: Capability = { ...agent, role: action === 'manage' ? 'admin' : 'worker' }
+    for (const target of [
+      { kind: 'owned', id: 'bobs-data', owner: bob },
+      { kind: 'per-user-row', userId: bob },
+    ] as const) {
+      expect(authorize(caller, action, target)).toBe('forbidden')
+      expect(authorize(caller, action, target, { override: true })).toBe('forbidden')
+    }
+  })
+
+  it('keeps confirmation for the member’s own or granted writes', () => {
+    for (const target of [
+      { kind: 'owned', id: 'hers', owner: alice },
+      { kind: 'owned', id: 'shared', owner: bob, grants: [alice] },
+      { kind: 'per-user-row', userId: alice },
+    ] as const) {
+      expect(authorize(agent, 'write', target)).toBe('confirm-required')
+      expect(authorize(agent, 'write', target, { override: true })).toBe('allow')
+      expect(authorize({ ...agent, role: 'viewer' }, 'write', target, { override: true })).toBe(
+        'forbidden',
+      )
+    }
+  })
+
+  it('refuses an absent member or an unowned entity even with an override', () => {
+    expect(
+      authorize(
+        agent,
+        'write',
+        { kind: 'owned', id: 'unowned', owner: null, grants: [alice] },
+        { override: true },
+      ),
+    ).toBe('forbidden')
+    for (const target of [
+      { kind: 'owned', id: 'hers', owner: alice },
+      { kind: 'per-user-row', userId: alice },
+    ] as const) {
+      expect(
+        authorize({ ...agent, onBehalfOf: undefined }, 'write', target, { override: true }),
+      ).toBe('forbidden')
     }
   })
 })

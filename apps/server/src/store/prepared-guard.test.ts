@@ -51,7 +51,12 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([])
 
 function trackedSources(): string[] {
   const out: string[] = []
-  for (const dir of ['apps/server/src/store', 'packages/sync/src/adapters/sqlite']) {
+  for (const dir of [
+    'apps/server/src/store',
+    'packages/sync/src/adapters/sqlite',
+    // The shared identity package's own statements (POD-6744).
+    'packages/identity/src',
+  ]) {
     for (const entry of readdirSync(join(REPO_ROOT, dir), { recursive: true })) {
       out.push(relative(REPO_ROOT, join(REPO_ROOT, dir, String(entry))))
     }

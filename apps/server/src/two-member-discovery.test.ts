@@ -37,7 +37,10 @@ const bob = MEMBERS.bob.id
 beforeAll(async () => {
   f = await startTwoMemberInstance()
   // The fixture keeps the upgraded first admin's stored name; name her for the reader.
-  await f.handle.registry.sessionStore.users.writeProfile(alice, MEMBERS.alice.displayName, null)
+  await f.handle.identity.core.accounts.updateProfile(
+    (await f.handle.registry.sessionStore.users.get(alice))!.accountId!,
+    { name: MEMBERS.alice.displayName, image: null },
+  )
 }, 60_000)
 afterAll(async () => {
   await f?.close()
@@ -301,14 +304,18 @@ describe('Q4: a task keeps one worktree on one machine', () => {
   /** A task of Alice's with its worktree on her machine, homed as the fixture homes hers. */
   async function aliceHomedTask(title: string): Promise<Wire> {
     const task = await taskOf('alice', title)
-    await f.handle.registry.issues.crud.update(f.handle.registry.issues.reports.store.serverWriter, task.id, {
-      worktreePath: `/wt/alice-${task.seq}`,
-      machineId: f.machines.alice,
-    })
+    await f.handle.registry.issues.crud.update(
+      f.handle.registry.issues.reports.store.serverWriter,
+      task.id,
+      {
+        worktreePath: `/wt/alice-${task.seq}`,
+        machineId: f.machines.alice,
+      },
+    )
     return task
   }
 
-  it('without `use` there, Bob and his agent are refused and pointed to a sub-task', async () => {
+  it('without `use` there, Bob and his agent see an unknown machine and start nothing', async () => {
     const task = await aliceHomedTask('Alice terminus survey')
     const bobs = await trpc('bob')
     for (const attempt of [
@@ -316,13 +323,11 @@ describe('Q4: a task keeps one worktree on one machine', () => {
       () => bobs.issues.addSession.mutate({ id: task.id } as never),
       () => bobs.issues.addShell.mutate({ id: task.id } as never),
     ]) {
-      await expect(attempt()).rejects.toThrow(
-        /its worktree is on machine-alice, where you have no `use`\. Work on it through your own sub-task/,
-      )
+      await expect(attempt()).rejects.toThrow("unknown machine 'machine-alice'")
     }
     const viaAgent = actor(await sessionOn('bob', task.id, 'bob-terminus'))
     await expect(viaAgent.cli(['add-shell', String(task.seq)])).rejects.toThrow(
-      /podium issue create --parent-id REP-\d+ --title "â€¦" --machine <your machine> --start/,
+      "unknown machine 'machine-alice'",
     )
     // Nothing reached Alice's machine for it.
     expect(
@@ -371,11 +376,11 @@ describe('Q4: a task keeps one worktree on one machine', () => {
 const reached = (machine: 'alice' | 'bob', text: string): boolean =>
   f.daemonFrames(f.machines[machine]).some((frame) => JSON.stringify(frame).includes(text))
 
-/** The session a sent mail was handed to (`podium issue mail send` prints its id). */
-async function deliveredTo(sendOutput: string): Promise<string | null> {
+/** The durable delivery record, independent of the send's initial queued receipt. */
+async function deliveryOf(sendOutput: string) {
   const id = /\(([^)\s]+)\)/.exec(sendOutput)?.[1]
   if (!id) throw new Error(`no message id in: ${sendOutput}`)
-  return (await f.handle.registry.sessionStore.messages.getMessage(id))?.deliveredTo ?? null
+  return await f.handle.registry.sessionStore.messages.getMessage(id)
 }
 
 describe('task mail is published collaboration, never input into another personâ€™s session', () => {
@@ -385,8 +390,9 @@ describe('task mail is published collaboration, never input into another personâ
     const bobs = actor(await sessionOn('bob', task.id, 'bob-nunatak'))
 
     const sent = await alices.cli(['mail', 'send', String(task.seq), '--body', 'nunatak-mail-1'])
-    expect(sent).toContain('HELD')
-    expect(await deliveredTo(sent)).toBeNull()
+    expect(sent).toContain('QUEUED')
+    await f.handle.registry.modules.messages.sweep()
+    expect(await deliveryOf(sent)).toMatchObject({ deliveryStatus: 'stored', deliveredTo: null })
     await new Promise((resolve) => setTimeout(resolve, 200))
     expect(reached('bob', 'nunatak-mail-1')).toBe(false)
     // Published on the task: Bob's agent reads it in the task's mailbox.
@@ -408,8 +414,8 @@ describe('task mail is published collaboration, never input into another personâ
     ])
 
     const sent = await alices.cli(['mail', 'send', String(task.seq), '--body', 'tarn-mail-1'])
-    expect(sent).not.toContain('HELD')
-    expect(await deliveredTo(sent)).toBe(bobs.sessionId)
+    await f.handle.registry.modules.messages.sweep()
+    expect((await deliveryOf(sent))?.deliveredTo).toBe(bobs.sessionId)
   })
 })
 
@@ -421,8 +427,9 @@ describe('MU-21: Bobâ€™s edits, comments and mentions create no effect under Ali
 
     for (const body of ['esker-mail-one', 'esker-mail-two']) {
       const sent = await bobs.cli(['mail', 'send', String(task.seq), '--body', body])
-      expect(sent).toContain('HELD')
-      expect(await deliveredTo(sent)).toBeNull()
+      expect(sent).toContain('QUEUED')
+      await f.handle.registry.modules.messages.sweep()
+      expect(await deliveryOf(sent)).toMatchObject({ deliveryStatus: 'stored', deliveredTo: null })
     }
     await new Promise((resolve) => setTimeout(resolve, 200))
     expect(reached('alice', 'esker-mail')).toBe(false)

@@ -1,5 +1,6 @@
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { resolvePrincipal } from '../../command-principal'
+import { memberFacts } from '../../store/fixtures/test-support'
 /**
  * THE FLEET AUTHORIZATION GATE (POD-1079) — what POD-384 declared and nothing
  * read until now.
@@ -47,11 +48,11 @@ import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
 import { OPERATOR } from '../../test-support/capabilities'
+import { renameMachine } from '../../test-support/machine-records'
 import { openTestStore } from '../../test-support/open-test-store'
 import { SuperagentService } from '../superagent'
 import { FLEET_TARGETS, type FleetAuthzDeps, fleetAuthzFailure, roleSatisfiesFloor } from './authz'
 import { MACHINE_SCAN_KIND } from './discovery-effects'
-import { renameMachine } from '../../test-support/machine-records'
 
 const OWNER = firstAdminMemberId()
 const COLLEAGUE: UserId = asUserId('colleague')
@@ -149,18 +150,46 @@ describe('the target table covers the contract table, in both directions', () =>
 })
 
 describe('the role floor is read from the contract', () => {
-  it('a member may not attempt an `admin`-floor command, and an admin may', async () => {
-    // `machines.pairingCode` is the only admin floor in the family (POD-384).
-    const asMember = await fleetAuthzFailure(
-      'machines.pairingCode',
-      {},
-      deps(user(OWNER), { role: 'member' }),
-    )
-    expect(asMember?.code).toBe('FORBIDDEN')
-
+  it('any member may mint a NEW enrollment for their own custody; an agent may not', async () => {
+    // POD-6883: a member brings their own machine. The code carries the minter,
+    // so it can only ever enroll into the minter's custody.
+    expect(
+      await fleetAuthzFailure(
+        'machines.pairingCode',
+        {},
+        deps(user(COLLEAGUE), { role: 'member' }),
+      ),
+    ).toBeUndefined()
     expect(
       await fleetAuthzFailure('machines.pairingCode', {}, deps(user(OWNER), { role: 'admin' })),
     ).toBeUndefined()
+    // No account: the member floor refuses (a disabled or unknown member).
+    const noAccount = { ...deps(user(COLLEAGUE), { role: 'member' }), role: undefined }
+    expect(await fleetAuthzFailure('machines.pairingCode', {}, noAccount)).toMatchObject({
+      code: 'FORBIDDEN',
+    })
+    // An agent never mints a new machine, even for an admin.
+    const agent: CommandPrincipal = {
+      kind: 'agent',
+      agentSessionId: asSessionId('leaf'),
+      chain: [],
+      onBehalfOf: OWNER,
+      capability: { role: 'admin', scope: { kind: 'all' }, actorSessionId: asSessionId('leaf') },
+    }
+    const asAgent = { ...deps(user(OWNER), { role: 'admin' }), principal: agent }
+    expect(await fleetAuthzFailure('machines.pairingCode', {}, asAgent)).toMatchObject({
+      code: 'FORBIDDEN',
+      message: 'new enrollment requires a signed-in member',
+    })
+    // Client recovery stays an administrator's.
+    const client = { clientRegistration: { machineId: 'laptop' } }
+    expect(
+      await fleetAuthzFailure(
+        'machines.pairingCode',
+        client,
+        deps(user(OWNER), { role: 'member' }),
+      ),
+    ).toMatchObject({ code: 'FORBIDDEN' })
   })
 
   it('a member DOES clear the `member` floor — the floor admits, and the row gate refuses', async () => {
@@ -764,7 +793,7 @@ describe('the derived fleet router actually calls the gate', () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-fleet-transfer-'))
     try {
       const { call, store } = await caller(firstAdminMemberId(), { stateDir: dir })
-      await store.users.create(
+      await memberFacts(store).create(
         {
           id: COLLEAGUE,
           displayName: 'Colleague',
@@ -843,7 +872,7 @@ describe('the derived fleet router actually calls the gate', () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-fleet-adopt-'))
     try {
       const { call, store, registry } = await caller(null, { stateDir: dir })
-      await store.users.create(
+      await memberFacts(store).create(
         {
           id: COLLEAGUE,
           displayName: 'Colleague',
@@ -1008,7 +1037,7 @@ describe('a paired machine belongs to whoever minted its code', () => {
   const pairer = asUserId('user:pairer')
   async function service() {
     const store = await openTestStore(':memory:')
-    await store.users.create(
+    await memberFacts(store).create(
       {
         id: pairer,
         displayName: 'Pairer',
@@ -1084,9 +1113,10 @@ describe('explicit replacement pairing authority', () => {
         deps(user(COLLEAGUE), { role: 'member' }),
       ),
     ).toMatchObject({ code: 'FORBIDDEN' })
+    // A new enrollment is any member's own (POD-6883).
     expect(
       await fleetAuthzFailure('machines.pairingCode', {}, deps(user(OWNER), { role: 'member' })),
-    ).toMatchObject({ code: 'FORBIDDEN' })
+    ).toBeUndefined()
   })
 })
 
