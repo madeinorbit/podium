@@ -11,6 +11,8 @@ import {
   actorColumns,
   actorFromColumns,
   asSessionId,
+  CredentialMismatch,
+  EffectiveAuth,
   type IssueId,
   LaunchPostureReport,
   type MachineId,
@@ -594,6 +596,8 @@ function fullSessionUpsertSet(value: (key: SessionColumnKey) => Placeholder | SQ
     requestedEffort: value('requestedEffort'),
     accountId: value('accountId'),
     credentialId: value('credentialId'),
+    effectiveAuth: value('effectiveAuth'),
+    credentialMismatch: value('credentialMismatch'),
     loginHarness: sql`COALESCE(${sessionsTable.loginHarness}, excluded."login_harness")`,
     title: value('title'),
     name: value('name'),
@@ -780,6 +784,9 @@ function sessionUpsertValues(row: SessionRow, now = Date.now()) {
     requestedEffort: row.requestedEffort ?? null,
     accountId: row.accountId ?? null,
     credentialId: row.credentialId ?? null,
+    effectiveAuth: row.effectiveAuth == null ? null : JSON.stringify(row.effectiveAuth),
+    credentialMismatch:
+      row.credentialMismatch == null ? null : JSON.stringify(row.credentialMismatch),
     loginHarness: row.loginHarness ?? null,
     cwd: row.cwd,
     title: row.title,
@@ -2679,6 +2686,30 @@ function decodeLifecycleFailure(raw: string | null): SessionLifecycleRow['failur
 const driverCapabilities = SessionMeta.pick({ configureFields: true, attachKinds: true })
 
 /** A corrupt capability report is unknown, never an invented empty answer. */
+/** The JSON a column holds, or undefined when there is none or it does not parse. */
+function parsedJson(raw: string | null): unknown {
+  if (raw === null) return undefined
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return undefined
+  }
+}
+
+/** What the harness last reported; absent when nothing parses as one. */
+function decodeEffectiveAuth(raw: string | null): { effectiveAuth?: EffectiveAuth } {
+  const parsed = EffectiveAuth.safeParse(parsedJson(raw))
+  return parsed.success ? { effectiveAuth: parsed.data } : {}
+}
+
+/** The open mismatch; absent when nothing parses as one. */
+function decodeCredentialMismatch(raw: string | null): {
+  credentialMismatch?: CredentialMismatch
+} {
+  const parsed = CredentialMismatch.safeParse(parsedJson(raw))
+  return parsed.success ? { credentialMismatch: parsed.data } : {}
+}
+
 function decodeDriverCapabilities(raw: string | null): SessionDriverCapabilities | null {
   if (raw === null) return null
   try {
@@ -2713,6 +2744,10 @@ function mapSession(r: SessionSelect): SessionRow {
     ...(r.requestedEffort != null ? { requestedEffort: r.requestedEffort } : {}),
     ...(r.accountId != null ? { accountId: r.accountId } : {}),
     ...(r.credentialId != null ? { credentialId: r.credentialId } : {}),
+    // A value that does not parse reads as "not reported" rather than as a
+    // claim about which login a session ran on.
+    ...decodeEffectiveAuth(r.effectiveAuth),
+    ...decodeCredentialMismatch(r.credentialMismatch),
     ...(r.loginHarness != null
       ? { loginHarness: AgentKind.exclude(['shell']).parse(r.loginHarness) }
       : {}),

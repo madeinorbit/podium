@@ -129,6 +129,7 @@ const DISPATCH: Dispatcher = {
   agentColor: toSessions,
   agentModel: toSessions,
   agentMode: toSessions,
+  sessionAuth: toSessions,
   agentContext: toSessions,
   agentObservation: toSessions,
   agentObservationRebind: toSessions,

@@ -61,6 +61,7 @@ export const DAEMON_FRAME_PORTS = {
   agentColor: ['sessions'],
   agentModel: ['sessions'],
   agentMode: ['sessions'],
+  sessionAuth: ['sessions'],
   agentContext: ['sessions'],
   agentObservation: ['sessions'],
   agentObservationRebind: ['sessions'],

@@ -347,6 +347,29 @@ export interface HarnessInventory {
    * prevents accidents; it is not a barrier (spec §14). Absent: no switch.
    */
   hideFromCommands?: HideFromCommands
+  /**
+   * The harness's own answer to "which login are you on", read with a
+   * session's exact environment after it started (credential management §9
+   * "Launching"). Absent: the harness has no such command, and a session on it
+   * reports `unknown`.
+   */
+  authStatusProbe?: HarnessAuthStatusProbe
+}
+
+/** What a harness says it authenticated with. Never a secret. */
+export interface ReportedAuth {
+  readonly method: 'api-key' | 'subscription' | 'token' | 'unknown'
+  /** The environment variable the harness says it read the credential from. */
+  readonly sourceVariable?: string
+  /** A subscription login's account, and its login-identity fingerprint. */
+  readonly email?: string
+  readonly fingerprint?: string
+}
+
+export interface HarnessAuthStatusProbe {
+  readonly args: readonly string[]
+  readonly timeoutMs: number
+  classify(result: LoginCommandResult): ReportedAuth
 }
 
 /** Environment and arguments a launch adds to keep credentials out of agent commands. */

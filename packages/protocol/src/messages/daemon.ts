@@ -69,6 +69,7 @@ import {
   AgentStateMessage,
 } from './runtime-state'
 import { ServerEndpointResultMessage, ServerTransferResultMessage } from './server-transfer'
+import { SessionAuthMessage } from './session-auth'
 import {
   ShippingEvidenceResultMessage,
   ShippingJobResultMessage,
@@ -283,5 +284,9 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   /** A daemon-produced topic value (ADR 7 Amendment 2 D21), appended at the END
    *  so the golden corpus's index-sampled arms stay byte-identical. */
   TopicPublishMessage,
+  /** What a harness says it authenticated with after it started (credential
+   *  management §9, epic Task 10), appended at the END so the golden corpus's
+   *  index-sampled arms stay byte-identical. */
+  SessionAuthMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>

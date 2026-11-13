@@ -344,6 +344,11 @@ export const startInput = z.object({
   /** Agent profile by name or id (POD-6107); persists onto the issue like --model. */
   agentProfile: z.string().trim().min(1).max(100).optional(),
   forceUnknownModel: z.boolean().optional(),
+  /** The credential the session runs on (credential management §9): a label,
+   *  an id, or `none` for the harness's own login, resolved on the server
+   *  among the credentials the acting person can use, before anything is
+   *  created. A reference, never a secret. */
+  credential: z.string().trim().min(1).max(200).optional(),
   /** The spawned session's id, minted on the device (POD-6414): a start that
    *  names it spawns at most once under it. */
   sessionId: NewSessionId.optional(),
@@ -473,6 +478,11 @@ export const addSessionInput = z.object({
   id: IssueIdField,
   agentKind: z.string().optional(),
   forceUnknownModel: z.boolean().optional(),
+  /** The credential the session runs on (credential management §9): a label,
+   *  an id, or `none` for the harness's own login, resolved on the server
+   *  among the credentials the acting person can use, before anything is
+   *  created. A reference, never a secret. */
+  credential: z.string().trim().min(1).max(200).optional(),
   /** The new session's id, minted on the device (POD-6414): spawned at most once. */
   sessionId: NewSessionId.optional(),
 })

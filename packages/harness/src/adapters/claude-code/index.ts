@@ -19,6 +19,7 @@ import {
   unsupported,
 } from '../../manifest.js'
 import { claudeTranscriptClassifierRules } from '../../manifests/claude-code-classifier.js'
+import { classifyClaudeAuthStatus } from '../../manifests/claude-auth-status.js'
 import { classifyClaudeLoginStatus } from '../../manifests/claude-login-status.js'
 import { createTranscriptClassifier } from '../../observer.js'
 import { claudeCodeCatalog } from './catalog.js'
@@ -159,6 +160,13 @@ export const claudeCodeManifest: AgentManifest = {
     // Claude Code's documented switch: scrub Anthropic and cloud-provider
     // credentials from the environment of the commands it runs.
     hideFromCommands: { env: { CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1' } },
+    // What a started session is on, in Claude Code's own words (credential
+    // management §9 "Launching"): the same command as the login probe.
+    authStatusProbe: {
+      args: ['auth', 'status'],
+      timeoutMs: 12_000,
+      classify: classifyClaudeAuthStatus,
+    },
     detectLogin(homeDir, env: HarnessEnvironment) {
       // The account env (POD-6536): its selector, never the daemon's own.
       const configDir = claudeRoots(homeDir, env).state

@@ -335,12 +335,21 @@ attachAccess(deps: AttachAccessDeps, plan: SessionAccess,
 //   sessions.switchCredential({ sessionId, credentialId | null, whenBusy: 'wait' | 'interrupt' })
 //     → { continuedAs: 'resume' | 'handoff' | 'next-wake' }
 // session record: credentialId, effectiveAuth { method: 'api-key' | 'subscription' | 'token'
-//   | 'unknown'; fingerprint? }, credentialMismatch?
+//   | 'unknown'; fingerprint?; email? }, credentialMismatch? { chosen: { credentialId; method?;
+//   fingerprint?; email? }; reported: EffectiveAuth } (packages/model/src/credentials/effective-auth.ts;
+//   columns sessions.effective_auth, sessions.credential_mismatch, JSON)
+// daemon → server: sessionAuth { sessionId, method, source?, delivered?, identity?{email?,fingerprint?} }
+//   (packages/protocol, after each harness start; never a secret). HarnessInventory.authStatusProbe?
+//   { args, timeoutMs, classify(result) → ReportedAuth } declares the harness's own status command.
 // personal setting credentialDefaults: Partial<Record<HarnessAgent, CredentialId>>
 // role setting RoleBackend.credentialId?: CredentialId — written by the role pickers (Task 17),
 //   read by the server from Task 12; when both are set, credentialId wins over accountId
 // CLI: --credential <label | id | none> on `podium agent spawn`, `podium issue start`,
-//   `podium issue add-session`
+//   `podium issue add-session`. On the wire it is `credential: string` (label | id | 'none') on
+//   mail.spawnAgent, issues.start and issues.addSession; sessions.create (the pickers) takes
+//   `credentialId: CredentialId | null`. Both resolve on the server, for the person the session runs
+//   for, before anything is created: resolveCredentialRef / credentialIdForRef
+//   (apps/server/src/modules/credentials/credential-ref.ts), SessionLifecycle.launchCredential.
 
 // apps/server/src/modules/credentials/placements.ts
 removePlacement(placement: { credentialId; machineId; kind: 'home' | 'propagated-file' }): Promise<'removed' | 'pending'>

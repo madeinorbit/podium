@@ -186,6 +186,13 @@ export const sessions = sqliteTable(
     /** The credential the session runs on (credential management §4). NULL: none,
      *  or a session from before credentials, read through its `account_id`. */
     credentialId: text('credential_id').$type<CredentialId>(),
+    /** What the harness reported it authenticated with after its last start
+     *  (credential management §9 "Launching"): JSON `EffectiveAuth`. NULL:
+     *  nothing reported yet. Holds no secret. */
+    effectiveAuth: text('effective_auth'),
+    /** JSON `CredentialMismatch` while the harness answers on another identity
+     *  than `credential_id` names; NULL once a start answers as the choice. */
+    credentialMismatch: text('credential_mismatch'),
     /** Harness authenticated by an interactive shell. Its presence protects the
      *  shell from generic idle reaping for the full durable session lifetime. */
     loginHarness: text('login_harness'),

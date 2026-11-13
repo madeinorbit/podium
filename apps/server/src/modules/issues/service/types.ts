@@ -219,6 +219,8 @@ export interface IssueDeps {
     ownerUserId?: import('@podium/model').UserId
     /** The agent profile the session starts from (POD-6107). */
     agentProfileId?: string
+    /** The credential the start named, already resolved (`null`: none). */
+    credentialId?: import('@podium/model').CredentialId | null
   }): Promise<SpawnedSessionResult>
   /**
    * The read-only half of {@link repoOp} that create uses to choose a parent branch

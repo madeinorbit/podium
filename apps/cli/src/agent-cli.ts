@@ -3,7 +3,8 @@
  * [spec:SP-34d7 cross-harness]:
  *   spawn --harness <claude-code|codex|...> (--issue <ref> | --new "title" [--repo <path>])
  *         --prompt "…" [--title "…"] [--worktree] [--model M] [--effort E]
- *         [--profile <name>] [--workflow-run-id X] [--workflow-step-id Y]
+ *         [--profile <name>] [--credential <label|id|none>]
+ *         [--workflow-run-id X] [--workflow-step-id Y]
  *   await <sessionId> [--timeout <seconds>]
  *
  * The child is a FULL Podium session (real PTY, visible in the UI, human-
@@ -22,7 +23,7 @@ import {
   pendingSendNote,
   repeatUntilAnswered,
 } from '@podium/issue-client'
-import type { SessionId, IssueId } from '@podium/model'
+import type { IssueId, SessionId } from '@podium/model'
 import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import { flagTable } from './argv'
 import { MailCliError, MESSAGING_GLOBAL_FLAGS, parseMailArgs } from './mail-cli'
@@ -49,7 +50,7 @@ function helpText(): string {
     '  spawn --prompt "…" (--issue <ref> | --new "title" [--repo <path>])',
     '        [--title "…"] [--harness <claude-code|codex|grok|opencode|cursor>]',
     '        [--profile <name>] [--worktree] [--model M] [--effort E] [--force-unknown-model]',
-    '        [--workflow-run-id X] [--workflow-step-id Y]',
+    '        [--credential <label | id | none>] [--workflow-run-id X] [--workflow-step-id Y]',
     '      Spawn a full Podium agent session on an issue; the prompt is its first',
     '      turn and you become its parent (interrupt + wake rights). An issue is',
     '      never created implicitly — --new is the explicit create path.',
@@ -61,6 +62,11 @@ function helpText(): string {
     '      a step that names an agent profile starts from it as the run pinned it.',
     '      --model/--effort are checked against the live model catalog; pass',
     '      --force-unknown-model to spawn a deliberately unlisted model slug.',
+    '      --credential picks the login or key the child runs on: a credential',
+    '      label (any case) or id that the person you act for can use, or `none`',
+    "      for the harness's own login on the machine. Without it the person's",
+    '      default for that harness applies. An unknown or ambiguous label is',
+    '      refused before anything starts.',
     '      Agents get 10 spawns per target issue per UTC day; the output shows',
     '      how many are used. A refusal starts nothing and exits 1 with the reason',
     "      on stderr (--json: ok:false on stdout). Check each spawn's exit status.",
@@ -93,6 +99,7 @@ const AGENT_FLAGS = flagTable(MESSAGING_GLOBAL_FLAGS, {
       'model',
       'effort',
       'profile',
+      'credential',
       'workflow-run-id',
       'workflow-step-id',
     ],
@@ -141,6 +148,7 @@ export async function runAgentCli(argv: string[], client: AgentClient): Promise<
           ? { workflowStepId: args['workflow-step-id'] }
           : {}),
         ...(typeof args.profile === 'string' ? { agentProfile: args.profile } : {}),
+        ...(typeof args.credential === 'string' ? { credential: args.credential } : {}),
       }
       const r = (await repeatUntilAnswered(() => client.messages.spawnAgent.mutate(request))) as {
         ok: boolean

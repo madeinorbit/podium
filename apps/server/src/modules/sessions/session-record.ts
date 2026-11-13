@@ -194,6 +194,8 @@ export function durableStateFromInit(init: StoredSessionInit): SessionDurableSta
     launchPosture: init.launchPosture,
     requestedModel: init.requestedModel,
     requestedEffort: init.requestedEffort,
+    effectiveAuth: init.effectiveAuth,
+    credentialMismatch: init.credentialMismatch,
     draftSyncEngine: init.draftSyncEngine === true,
     handoffTargetMachineId: init.handoffTargetMachineId,
     conversationPodiumId: undefined,
@@ -300,6 +302,8 @@ export function storedSessionInit(
     ...(r.requestedEffort ? { requestedEffort: r.requestedEffort } : {}),
     ...(r.accountId ? { accountId: r.accountId } : {}),
     ...(r.credentialId ? { credentialId: r.credentialId } : {}),
+    ...(r.effectiveAuth ? { effectiveAuth: r.effectiveAuth } : {}),
+    ...(r.credentialMismatch ? { credentialMismatch: r.credentialMismatch } : {}),
     ...(r.loginHarness ? { loginHarness: r.loginHarness } : {}),
     ...(r.spawnedBy ? { spawnedBy: r.spawnedBy } : {}),
     // The pair survives a restart. Absent on the row = none was ever recorded
@@ -455,6 +459,8 @@ export function projectSessionMeta(s: SessionIdentity, d: SessionDurableFields):
     ...(d.launchPosture ? { launchPosture: structuredClone(d.launchPosture) } : {}),
     ...(d.requestedModel ? { requestedModel: d.requestedModel } : {}),
     ...(d.requestedEffort ? { requestedEffort: d.requestedEffort } : {}),
+    ...(d.effectiveAuth ? { effectiveAuth: d.effectiveAuth } : {}),
+    ...(d.credentialMismatch ? { credentialMismatch: d.credentialMismatch } : {}),
     // POD-3087. Published even when EMPTY, because empty is an answer — "this
     // driver changes nothing" — and a client that could not tell it from
     // "nobody told me" would hide the control on both.

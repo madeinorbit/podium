@@ -884,7 +884,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'start',
     summary:
-      "Start an issue: create its worktree+branch, claim it, spawn its agent. start <id> [--agent claude-code] [--model <slug>] [--effort low|medium|high] [--profile <name>] [--machine <name|id>] [--force-unknown-model]. --profile/--model/--effort take the same values as create/update and PERSIST onto the issue, so later sessions on it run the same; without them the issue's stored model/effort is used (`auto` = the CLI default). An unknown model or effort is refused before anything is created. --machine HOMES the issue on that machine (see `podium machine list`) — its worktree, branch and agent all live there from now on.",
+      "Start an issue: create its worktree+branch, claim it, spawn its agent. start <id> [--agent claude-code] [--model <slug>] [--effort low|medium|high] [--profile <name>] [--machine <name|id>] [--credential <label | id | none>] [--force-unknown-model]. --credential picks the login or key the session runs on: a credential label (any case) or id you can use, or `none` for the harness's own login; without it your default for the harness applies, and it is not stored on the issue. --profile/--model/--effort take the same values as create/update and PERSIST onto the issue, so later sessions on it run the same; without them the issue's stored model/effort is used (`auto` = the CLI default). An unknown model or effort is refused before anything is created. --machine HOMES the issue on that machine (see `podium machine list`) — its worktree, branch and agent all live there from now on.",
     args: z.strictObject({
       id: idArg,
       agent: z.string().min(1).optional(),
@@ -892,6 +892,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       effort: z.string().min(1).optional(),
       profile: z.string().min(1).optional(),
       machine: z.string().min(1).optional(),
+      credential: z.string().min(1).optional(),
       forceUnknownModel: z.boolean().optional(),
     }),
     positionals: ['id'],
@@ -912,6 +913,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         ...(a.model ? { defaultModel: a.model as string } : {}),
         ...(a.effort ? { defaultEffort: a.effort as string } : {}),
         ...(a.profile ? { agentProfile: a.profile as string } : {}),
+        ...(a.credential ? { credential: a.credential as string } : {}),
         ...(a.forceUnknownModel ? { forceUnknownModel: true } : {}),
       })) as {
         seq: number
@@ -1314,10 +1316,11 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'add-session',
     summary:
-      "Spawn another agent session in a started issue's worktree: add-session <id> [--agent claude-code] [--force-unknown-model]. Model/effort follow the issue defaults (update --model/--effort).",
+      "Spawn another agent session in a started issue's worktree: add-session <id> [--agent claude-code] [--credential <label | id | none>] [--force-unknown-model]. Model/effort follow the issue defaults (update --model/--effort). --credential picks the login or key the session runs on: a credential label (any case) or id you can use, or `none` for the harness's own login; without it your default for the harness applies.",
     args: z.strictObject({
       id: idArg,
       agent: z.string().optional(),
+      credential: z.string().min(1).optional(),
       forceUnknownModel: z.boolean().optional(),
     }),
     positionals: ['id'],
@@ -1325,6 +1328,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       const i = (await c.issues.addSession.mutate({
         id: a.id as string,
         ...(a.agent ? { agentKind: a.agent as string } : {}),
+        ...(a.credential ? { credential: a.credential as string } : {}),
         ...(a.forceUnknownModel ? { forceUnknownModel: true } : {}),
       })) as { seq: number; warning?: string }
       return { text: `session added to #${i.seq}${warned(i)}`, data: i }

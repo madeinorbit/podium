@@ -60,6 +60,7 @@ export function sessionCommandServices(modules: RegistryModules): SessionCommand
   const issueSessions = modules.issueSessionLifecycle
   return {
     createSession: sessions.createSession.bind(sessions),
+    launchCredential: sessions.launchCredential.bind(sessions),
     workspace: sessions.workspace,
     // The direct kill of the plane's hand-built contexts (`command-plane.ts`);
     // the routes kill through `records.session.remove`.

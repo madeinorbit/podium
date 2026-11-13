@@ -55,6 +55,7 @@
 import {
   AgentKind,
   ConversationIdField,
+  CredentialIdField,
   IssueIdField,
   MachineIdField,
   MessageId,
@@ -238,6 +239,11 @@ const createInput = z.object({
     * directions: what it does not name, it deletes.
     */
   requestedDriverId: z.string().min(1).optional(),
+  /** The credential the session runs on (credential management §9): an id
+   *  the person may use, or `null` for the harness's own login. Absent: the
+   *  person's default for the harness, then none. Refused before anything is
+   *  created when it names nothing the person may use. */
+  credentialId: CredentialIdField.nullable().optional(),
   mutationId,
 })
 

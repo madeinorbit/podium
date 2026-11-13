@@ -438,6 +438,10 @@ export const DAEMON_PLANE_CLASS = {
   // A daemon-produced topic value (ADR 7 Amendment 2 D21): live like hostMetrics,
   // which it replaces on a topics.v1 link; a lost one is superseded by the next.
   topicPublish: 'stream.live',
+  // WHAT A HARNESS SAID IT AUTHENTICATED WITH (credential management §9, epic
+  // Task 10). An entity fact, not a hint: a dropped one would leave a session
+  // on the wrong login looking as if nothing were wrong.
+  sessionAuth: 'control.entity',
 } as const satisfies Record<DaemonMessage['type'], PlaneClass>
 
 // ---- Derived legacy vocabulary (ADR 7 D1 bridge; one migration window) ------

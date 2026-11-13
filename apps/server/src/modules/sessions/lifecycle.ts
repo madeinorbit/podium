@@ -8,7 +8,12 @@ import type {
   SessionMeta,
   TranscriptItem,
 } from '@podium/model'
-import { type AgentKind, spawnedByParentSessionId, type UserId } from '@podium/model'
+import {
+  type AgentKind,
+  type CredentialId,
+  spawnedByParentSessionId,
+  type UserId,
+} from '@podium/model'
 
 /**
  * WHO a session wire projection is being built for — the explicit argument
@@ -51,6 +56,7 @@ import { ownershipSnapshotFromMachines } from '../../machine-access'
 import type { SessionStore } from '../../store'
 import { NO_LIFECYCLE } from '../../store/types'
 import type { EventBus } from '../bus'
+import { credentialIdForRef } from '../credentials/credential-ref'
 import type { WriteFunnel } from '../funnel'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService, MachineUseResolver } from '../machines/service'
@@ -134,6 +140,8 @@ const DAEMON_FRAMES_FOR_PARKED: ReadonlySet<string> = new Set([
   'bind',
   'reattachFailed',
   'sessionKillResult',
+  // What the harness said it authenticated with may land as a session parks.
+  'sessionAuth',
 ])
 
 /** Session lifecycle runtime + composition boundary (POD-1396 facade). */
@@ -618,6 +626,19 @@ export class SessionLifecycle {
 
   async createSession(input: Parameters<SessionStart['create']>[0]): Promise<SessionSpawnResult> {
     return await this.sessionStart.create(input)
+  }
+  /**
+   * The credential a launch names (credential management §9, epic Task 10),
+   * checked for the person the session runs for BEFORE anything is prepared,
+   * created or started: an id they cannot use, or a label that matches none or
+   * several of theirs, throws `CredentialRefError` with its sentence. `none`
+   * is `null` (the harness's own login); nothing named is `undefined`.
+   */
+  async launchCredential(
+    ref: string | undefined,
+    owner: UserId,
+  ): Promise<CredentialId | null | undefined> {
+    return await credentialIdForRef(this.store, { ref, actingUserId: owner })
   }
   capabilityForSession(sessionId: SessionId, senderMachineId?: MachineId): Promise<Capability> {
     return this.sessionAuthz.capabilityForSession(sessionId, senderMachineId)

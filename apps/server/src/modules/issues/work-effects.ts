@@ -176,6 +176,8 @@ export const IssueAddSessionInput = z
   .object({
     agentKind: z.string().optional(),
     forceUnknownModel: z.boolean().optional(),
+    /** The credential reference (`issues.addSession`'s own field); not a secret. */
+    credential: z.string().trim().min(1).max(200).optional(),
     /** A shell (`issues.addShell`): no agent, no model. */
     shell: z.boolean().optional(),
     sessionId: NewSessionId,
@@ -378,13 +380,14 @@ export function registerIssueWorkEffects(deps: IssueWorkEffectDeps): void {
     target: targetOf('addSession'),
     ready: machineKindReady,
     run: async (ctx) => {
-      const { shell, agentKind, forceUnknownModel, sessionId } = ctx.input
+      const { shell, agentKind, forceUnknownModel, credential, sessionId } = ctx.input
       return shell === true
         ? await spawnOnce(ctx.record, 'addShell', { sessionId })
         : await spawnOnce(ctx.record, 'addSession', {
             sessionId,
             ...(agentKind !== undefined ? { agentKind } : {}),
             ...(forceUnknownModel !== undefined ? { forceUnknownModel } : {}),
+            ...(credential !== undefined ? { credential } : {}),
           })
     },
     recover: async (ctx) => await spawnRecover(ctx.input.sessionId),
@@ -687,6 +690,7 @@ async function answerUnready(
       ...(typeof rest.defaultModel === 'string' ? { model: rest.defaultModel } : {}),
       ...(typeof rest.defaultEffort === 'string' ? { effort: rest.defaultEffort } : {}),
       ...(typeof rest.agentProfile === 'string' ? { agentProfile: rest.agentProfile } : {}),
+      ...(typeof rest.credential === 'string' ? { credential: rest.credential } : {}),
     }
     const answer = await workflow.answerWithoutMachine('start', issueId, opts)
     if (answer !== undefined) return answer

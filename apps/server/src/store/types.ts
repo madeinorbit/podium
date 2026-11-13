@@ -166,6 +166,10 @@ export interface SessionRow {
   /** Account selection, not credential material. */
   accountId?: AccountId | null
   credentialId?: CredentialId | null
+  /** What the harness reported it authenticated with (credential management §9). */
+  effectiveAuth?: import('@podium/model').EffectiveAuth | null
+  /** The harness answered on another identity than `credentialId` names. */
+  credentialMismatch?: import('@podium/model').CredentialMismatch | null
   /** Harness authenticated by this shell; null for every ordinary session. */
   loginHarness?: import('@podium/model').HarnessAgent | null
   cwd: string

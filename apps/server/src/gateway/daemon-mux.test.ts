@@ -221,7 +221,12 @@ describe('machine scope and the writer class', () => {
     // that session's authoritative size — so it carries exactly the ownership
     // boundary `bind` does: a machine that does not hold the session must not be
     // able to tell every viewer of it what size it now is.
-    expect(sessionFrames.length).toBe(29)
+    //
+    // 30 since POD-6897. `sessionAuth` is what a harness said it authenticated
+    // with; it sets and clears the session's credential mismatch, so a machine
+    // that does not hold the session must not be able to report for it (the
+    // projection also checks the session's machine).
+    expect(sessionFrames.length).toBe(30)
     for (const type of sessionFrames) {
       const { ports, calls } = fakePorts()
       muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))

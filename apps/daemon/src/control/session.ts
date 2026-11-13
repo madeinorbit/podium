@@ -116,6 +116,7 @@ import {
 } from '../session-posture-store'
 import { Terminal } from '../terminal/terminal.js'
 import { deliveryOverlay } from './access'
+import { reportEffectiveAuth, sessionProcessEnvironment } from './effective-auth'
 import { type BindFacts, bindFrame, reportSize } from './applied-geometry'
 import type { ControlHandlers, DaemonContext } from './context'
 import { dispatchInputBytes } from './legacy-terminal-input'
@@ -869,9 +870,11 @@ export async function launchTerminalProcess(
     // The session's credential, from memory (credential management §8): the
     // only credential this session chose, so it survives the inherited strip.
     // A login pane and a shell have none.
+    const access =
+      childContext && !loginHarness ? await ctx.access.awaitAccess(sessionId) : undefined
     const delivered =
       childContext && !loginHarness
-        ? deliveryOverlay(agentKind, await ctx.access.awaitAccess(sessionId))
+        ? deliveryOverlay(agentKind, access)
         : { env: {}, args: [], keep: [] }
     const child = childContext
       ? harnessChildEnv(childContext, {
@@ -928,6 +931,18 @@ export async function launchTerminalProcess(
     driverTiming.headedCliStage(sessionId, agentKind, 'native_cli_process_started', {
       adopted: session.adopted,
     })
+    // WHAT THE HARNESS SAYS IT IS ON (credential management §9 "Launching"):
+    // asked once, in the background, with this process's own environment. An
+    // adopted process was asked when it started.
+    if (childContext && !loginHarness && agentKind !== 'shell' && !session.adopted) {
+      reportEffectiveAuth(ctx, {
+        sessionId,
+        agentKind,
+        executable: childContext.installation.executable,
+        env: sessionProcessEnvironment(process.env, child),
+        access,
+      })
+    }
     const terminal = wireBridge(ctx, sessionId, session, agentKind, label)
     ctx.sessions.ensure(sessionId).harnessContext = harnessContext
     // The size the program is at: the host's WELCOME (the Terminal already

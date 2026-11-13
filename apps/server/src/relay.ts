@@ -2592,6 +2592,7 @@ export class SessionRegistry {
           ...(o.machineId ? { machineId: o.machineId } : {}),
           ...(o.ownerUserId ? { ownerUserId: o.ownerUserId } : {}),
           ...(o.agentProfileId ? { agentProfileId: o.agentProfileId } : {}),
+          ...(o.credentialId !== undefined ? { credentialId: o.credentialId } : {}),
         }),
       agentProfiles,
       repoOp: async (op, cwd, args, machineId) => await rpc.repoOp(op, cwd, args, machineId),
@@ -3320,6 +3321,7 @@ export class SessionRegistry {
         // child is a FULL Podium session through the one spawn path; --new is the
         // deliberate issue-create path (never automatic).
         awaitMachineInventory: async (machineId) => await machines.waitForInventory(machineId),
+        launchCredential: async (ref, owner) => await sessionsSvc.launchCredential(ref, owner),
         spawnSession: async (o) =>
           await sessionsSvc.createSession({
             requestTerminalDriver: true,
@@ -3337,6 +3339,7 @@ export class SessionRegistry {
             ...(o.workflowRunId ? { workflowRunId: o.workflowRunId } : {}),
             ...(o.workflowStepId ? { workflowStepId: o.workflowStepId } : {}),
             ...(o.agentProfileId ? { agentProfileId: o.agentProfileId } : {}),
+            ...(o.credentialId !== undefined ? { credentialId: o.credentialId } : {}),
           }),
         findAgentProfile: async (ref) => await agentProfiles.find(ref),
         resolveWorkflowStepLaunch: async ({ caller, cwd, ...step }) => {

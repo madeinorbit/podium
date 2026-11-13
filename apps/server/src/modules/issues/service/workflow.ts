@@ -1,6 +1,7 @@
 import { createLogger } from '@podium/logger'
 import {
   asMachineId,
+  type CredentialId,
   DEFER_NEXT_MESSAGE,
   type IssueGitState,
   type IssueId,
@@ -28,6 +29,7 @@ import { type LinearIssue, searchIssues } from '../../../linear'
 import { resolveLaunchSelection } from '../../../model-validation'
 import type { IssueRow } from '../../../store'
 import { afterCommit } from '../../../store/executor/executor'
+import { CredentialRefError, credentialIdForRef } from '../../credentials/credential-ref'
 import {
   buildShellLifetimeInputs,
   decideShellLifetime,
@@ -66,6 +68,21 @@ export interface IssueStartOptions {
   effort?: string
   /** Agent profile by name or id (POD-6107); persists onto the issue. */
   agentProfile?: string
+  /** The credential the spawned session runs on: a label, an id or `none`
+   *  (credential management §9). Launch-only: never stored on the issue. */
+  credential?: string
+}
+
+/** What `addSession` takes besides the agent: who and what the session runs on. */
+export interface AddSessionOptions {
+  spawnedBy?: string
+  forceUnknownModel?: boolean
+  onBehalfOf?: UserId
+  sessionId?: SessionId
+  /** The credential reference the caller named (label, id or `none`). */
+  credential?: string
+  /** That reference resolved; set by `addSession` itself before it spawns. */
+  credentialId?: CredentialId | null
 }
 
 /** The started issue, plus what was spawned when this start spawned a session. */
@@ -381,7 +398,7 @@ export class IssueGitWorkflowModule {
     const running = this.startsInFlight.get(key)
     if (running) {
       // A joiner gets the first start's result, so it may not ask for anything else.
-      if (agentKind || opts?.model || opts?.effort || opts?.agentProfile) {
+      if (agentKind || opts?.model || opts?.effort || opts?.agentProfile || opts?.credential) {
         throw new IssueRefusal(
           'this issue is already starting — wait for that start to finish, then use ' +
             '`podium issue add-session` to spawn a session with a different agent or model.',
@@ -411,9 +428,9 @@ export class IssueGitWorkflowModule {
     opts?: IssueStartOptions,
   ): Promise<IssueStartResult | undefined> {
     if (!row.worktreePath || (await this.store.factsFor(row)).length === 0) return undefined
-    if (opts?.model || opts?.effort || opts?.agentProfile) {
+    if (opts?.model || opts?.effort || opts?.agentProfile || opts?.credential) {
       throw new IssueRefusal(
-        `#${row.seq} is already started — --model/--effort/--profile apply only to the session start spawns. ` +
+        `#${row.seq} is already started — --model/--effort/--profile/--credential apply only to the session start spawns. ` +
           `Use \`podium issue update --id ${row.seq} --model/--effort\` to change the issue's profile, ` +
           `then \`podium issue add-session ${row.seq}\` to spawn a session that runs it.`,
       )
@@ -509,6 +526,9 @@ export class IssueGitWorkflowModule {
     }
     // The person this start runs for, whose preferences fill every default.
     const starter = sessionOwnerFor(row, opts).ownerUserId
+    // The credential it named, for that person, before any worktree or spawn:
+    // an unknown or ambiguous reference changes nothing (credential management §9).
+    const credentialId = await this.launchCredential(opts?.credential, starter)
     const launch = await this.issueLaunch(
       { ...row, agentProfileId: explicitProfileId ?? row.agentProfileId ?? null },
       { agent, model: stored.model, effort: stored.effort },
@@ -769,6 +789,7 @@ export class IssueGitWorkflowModule {
         ...(selection.forced ? { forceUnknownModel: true } : {}),
         ...(initialPrompt ? { initialPrompt } : {}),
         ...(launch.agentProfileId ? { agentProfileId: launch.agentProfileId } : {}),
+        ...(credentialId !== undefined ? { credentialId } : {}),
         spawnedBy: opts?.spawnedBy ?? spawnedByTag({ kind: 'issue', id: row.id }),
         ...sessionOwnerFor(row, opts),
         ...(row.machineId ? { machineId: row.machineId } : {}),
@@ -1863,11 +1884,19 @@ export class IssueGitWorkflowModule {
   async addSession(
     id: string,
     agentKind?: string,
-    opts?: { spawnedBy?: string; forceUnknownModel?: boolean; onBehalfOf?: UserId; sessionId?: SessionId },
+    opts?: AddSessionOptions,
   ): Promise<IssueProjection | Promise<IssueProjection>> {
     const row = await this.store.rowOrThrow(id)
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
       throw new IssueRefusal('shipping stage is system-owned and cannot add a session')
+    }
+    // The credential it named, before the worktree is rebuilt or anything spawns.
+    if (opts?.credential !== undefined && agentKind !== 'shell') {
+      const credentialId = await this.launchCredential(
+        opts.credential,
+        sessionOwnerFor(row, opts).ownerUserId,
+      )
+      opts = { ...opts, credentialId: credentialId ?? null }
     }
     if (!row.worktreePath) {
       if (!row.branch) throw new IssueRefusal('issue not started')
@@ -1885,7 +1914,7 @@ export class IssueGitWorkflowModule {
   private async spawnAddedSession(
     id: string,
     agentKind?: string,
-    opts?: { spawnedBy?: string; forceUnknownModel?: boolean; onBehalfOf?: UserId; sessionId?: SessionId },
+    opts?: AddSessionOptions,
   ): Promise<IssueProjection> {
     const row = await this.store.rowOrThrow(id)
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
@@ -1947,8 +1976,30 @@ export class IssueGitWorkflowModule {
       ...sessionOwnerFor(row, opts),
       ...(row.machineId ? { machineId: row.machineId } : {}),
       ...(launch?.agentProfileId ? { agentProfileId: launch.agentProfileId } : {}),
+      ...(opts?.credentialId !== undefined && kind !== 'shell'
+        ? { credentialId: opts.credentialId }
+        : {}),
     })
     return await this.store.projection(row)
+  }
+
+  /**
+   * The credential a launch named, for the person it runs for (credential
+   * management §9): `undefined` when it named none. A reference that names
+   * nothing that person may use is this command's refusal, with its sentence.
+   */
+  private async launchCredential(
+    ref: string | undefined,
+    owner: UserId | undefined,
+  ): Promise<CredentialId | null | undefined> {
+    if (ref === undefined) return undefined
+    if (!owner) throw new IssueRefusal('naming a credential needs the person the session runs for')
+    try {
+      return await credentialIdForRef(this.store.d.store, { ref, actingUserId: owner })
+    } catch (error) {
+      if (error instanceof CredentialRefError) throw new IssueRefusal(error.message)
+      throw error
+    }
   }
 
   async addShell(

@@ -42,6 +42,7 @@ import {
   type AgentKind,
   asMutationId,
   asUserId,
+  CredentialIdField,
   type EffectTarget,
   type MachineId,
   machineRejectionMessage,
@@ -161,6 +162,8 @@ export const SessionLaunchInput = sessionCommandPlaneInputs.create
         workflowRunId: z.string().optional(),
         workflowStepId: z.string().optional(),
         agentProfileId: z.string().optional(),
+        /** The credential the spawn named, resolved by its write (`null`: none). */
+        credentialId: CredentialIdField.nullable().optional(),
       })
       .strict()
       .optional(),
@@ -427,6 +430,7 @@ async function spawnAgentNow(
     ...(spawn.workflowRunId !== undefined ? { workflowRunId: spawn.workflowRunId } : {}),
     ...(spawn.workflowStepId !== undefined ? { workflowStepId: spawn.workflowStepId } : {}),
     ...(spawn.agentProfileId !== undefined ? { agentProfileId: spawn.agentProfileId } : {}),
+    ...(spawn.credentialId !== undefined ? { credentialId: spawn.credentialId } : {}),
   })
 }
 

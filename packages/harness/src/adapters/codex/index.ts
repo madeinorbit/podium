@@ -40,6 +40,7 @@ import {
 } from './state-provider.js'
 import { codexPromptTextMatches, codexTranscript } from './transcript.js'
 import { codexUsage } from './usage.js'
+import { classifyCodexLoginStatus } from '../../manifests/codex-login-status.js'
 
 const log = createLogger('harness:codex')
 
@@ -310,6 +311,14 @@ export const codexManifest: AgentManifest = {
         '-c',
         `shell_environment_policy.exclude=${JSON.stringify(deliveredEnvVariables(CODEX_ACCEPTS))}`,
       ],
+    },
+    // What a started session is on, in Codex's own words (credential
+    // management §9 "Launching"). It reads the stored login, not the key in
+    // the environment, which is exactly the disagreement worth reporting.
+    authStatusProbe: {
+      args: ['login', 'status'],
+      timeoutMs: 12_000,
+      classify: classifyCodexLoginStatus,
     },
     detectLogin(homeDir, env: HarnessEnvironment) {
       const path = codexAuthPath(homeDir, env)

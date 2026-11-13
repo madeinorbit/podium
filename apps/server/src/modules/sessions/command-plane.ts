@@ -129,7 +129,10 @@ export type SessionCommandServices = Pick<
   ): ReturnType<SessionLifecycle['answerAskUserQuestion']>
 } & Pick<IssueSessionLifecycle, 'resumeSession' | 'resurrectSession' | 'stopSession'> &
   // POD-6160 D2f: the command's session stays resident while it runs.
-  Partial<Pick<SessionLifecycle, 'residency'>>
+  Partial<Pick<SessionLifecycle, 'residency'>> &
+  // Epic Task 10: the named credential, checked before anything is prepared.
+  // Optional: a hand-built context that names none composes without it.
+  Partial<Pick<SessionLifecycle, 'launchCredential'>>
 
 /**
  * THE SUBSTRATE BOTH CHAT PATHS RIDE (#237) [spec:SP-34d7] — as a dispatch of
@@ -778,6 +781,12 @@ export async function createSessionNow(ctx: SessionCommandCtx, input: CreateInpu
   if (rest.machineId !== undefined) ctx.assertMachineUse(rest.machineId)
   const ownership = createdOwnership(ctx.principal)
   if (!ownership.owner) throw new Error('session creation requires an accountable human owner')
+  // THE NAMED CREDENTIAL, BEFORE ANYTHING IS PREPARED (credential management
+  // §9): an id the owner cannot use creates no clone, no draft and no session.
+  if (rest.credentialId) {
+    if (!ctx.sessions.launchCredential) throw new Error('credential choice is not wired here')
+    await ctx.sessions.launchCredential(rest.credentialId, asUserId(ownership.owner))
+  }
   const target = await ctx.sessions.workspace.prepareTarget({
     ...rest,
     use: ctx.machineUse,

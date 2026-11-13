@@ -279,6 +279,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     persistDraft: (session, draft) =>
       bag.repository.persistDraft(bag.deps.writers.daemon, session, draft),
     broadcastSessions: () => bag.broadcastSessions(),
+    credentialOf: async (id) => await bag.store.credentials.get(id),
     transcriptDelta: (sessionId, items, reset) =>
       bag.bus.emit('transcript.delta', {
         sessionId,

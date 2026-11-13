@@ -267,14 +267,29 @@ describe('redaction', () => {
     return schema instanceof z.ZodObject ? Object.keys(schema.shape) : []
   }
 
+  /**
+   * A REFERENCE TO A CREDENTIAL IS NOT A CREDENTIAL. A launch names the
+   * credential its session runs on by label, id or `none` (credential
+   * management §9, epic Task 10); the secret stays in the vault. Exactly these
+   * fields, named here, so a new credential-shaped field still fails.
+   */
+  const CREDENTIAL_REFERENCES = new Set(['start.credential', 'addSession.credential'])
+
   it('no issue command input carries a credential-shaped field', () => {
     let inspected = 0
+    const references: string[] = []
     for (const key of ISSUE_COMMAND_NAMES) {
       for (const field of keysOf(ISSUE_CONTRACTS[key].input)) {
         inspected += 1
+        if (CREDENTIAL_REFERENCES.has(`${key}.${field}`)) {
+          references.push(`${key}.${field}`)
+          continue
+        }
         expect(CREDENTIAL_ISH.test(field), `${key}.${field}`).toBe(false)
       }
     }
+    // The exemption names fields that exist, not stale ones.
+    expect(references.sort()).toEqual([...CREDENTIAL_REFERENCES].sort())
     // The scan looked at real fields, not at nothing.
     expect(inspected).toBeGreaterThan(100)
     // And it can say YES: the same predicate on the names it exists to catch.
