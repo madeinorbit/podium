@@ -52,7 +52,7 @@ async function harness(
 ) {
   const store = await openTestStore(':memory:')
   stores.push(store)
-  const makeLedger = (window?: number) =>
+  const makeLedger = async (window?: number) =>
     new Ledger({
       repo: store.sync,
       // The message kind is named after the write and built from the tables
@@ -64,7 +64,7 @@ async function harness(
       postCommit: (step, label) => afterCommit(step, label),
       applyCommit: { spanOpen, onCommit: applyAfterCommit },
     })
-  const ledger = makeLedger(opts.window)
+  const ledger = await makeLedger(opts.window)
   const feed = new MessageFeedPublisher({ ledger: testLedgerWriter(ledger) })
   store.messages.setFeedCapture(feed.capture)
   store.sessions.setMessageWindowWrite(feed.writeSessions)
@@ -91,7 +91,7 @@ async function harness(
   }
   /** A second publisher over the same table and log — the next boot. */
   const reboot = async (window?: number): Promise<MessageFeedPublisher> => {
-    const next = new MessageFeedPublisher({ ledger: testLedgerWriter(makeLedger(window)) })
+    const next = new MessageFeedPublisher({ ledger: testLedgerWriter(await makeLedger(window)) })
     store.messages.setFeedCapture(next.capture)
     store.sessions.setMessageWindowWrite(next.writeSessions)
     return next

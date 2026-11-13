@@ -38,7 +38,7 @@ afterEach(async () => {
   vi.restoreAllMocks()
 })
 
-function publication(store: SessionStore) {
+async function publication(store: SessionStore) {
   const ledger = new Ledger({
     repo: store.sync,
     records: await logStoreRecords(store),
@@ -71,7 +71,7 @@ async function fixture(count = 1, file = ':memory:') {
         toDaemon: () => {},
       }),
   )
-  const p = publication(store)
+  const p = await publication(store)
   const save = async (session = sessions[0]!) =>
     await p.writer.commit({
       write: async (scope) => await store.sessions.upsertSession(scope, session.toRow()),
@@ -264,7 +264,7 @@ describe('session activity publication', () => {
     stores.delete(f.store)
     const store = await openTestStore(file, machine)
     stores.add(store)
-    const p = publication(store)
+    const p = await publication(store)
     now = BASE + 59_999
     await p.publisher.flush()
     expect(await store.sessions.getSession(f.session.sessionId)).toMatchObject({
