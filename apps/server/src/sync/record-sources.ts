@@ -568,7 +568,9 @@ export const RECORD_SOURCES: RecordSources = {
       await reads.store.issues.issueIdsOfLabels(firstKeys(changes).map(Number)),
     ),
   ],
-  issueBodies: [byId(issues, issues.id)],
+  // Each text is a record of its own, keyed by the issue (POD-6921).
+  issueBrief: [byId(issues, issues.id, { reads: [issues.brief] })],
+  issueDescription: [byId(issues, issues.id, { reads: [issues.description] })],
   ...panelSources,
   issueDep: [
     own(issueDeps, [issueDeps.fromId, issueDeps.toId, issueDeps.type], (key) =>
