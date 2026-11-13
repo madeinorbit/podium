@@ -110,6 +110,7 @@ describe('the turn frame states the posture the driver runs the turn on', () => 
       type: 'runtimeDurableSendRequest',
       rowId: 'row-1',
       deliveryRecovery: false,
+      initialPrompt: false,
     } as never)
     await vi.waitFor(() => expect(d.turns).toHaveLength(1))
     expect(d.turns[0]?.posture).toEqual({ mode: { native: 'acceptEdits' } })

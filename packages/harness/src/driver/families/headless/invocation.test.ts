@@ -301,7 +301,6 @@ describe('buildHeadlessExec argv shapes', () => {
         prompt: 'task',
         systemPrompt: 'orchestrate',
         contextPrompt: 'repo context',
-        permissionMode: 'auto',
         sessionId: 'u',
       },
       harnessInstallation(snapshot, 'grok'),

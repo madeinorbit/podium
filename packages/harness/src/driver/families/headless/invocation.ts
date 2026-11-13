@@ -24,6 +24,7 @@ import { noAgentTerms } from '../../../posture.js'
 import { cursorCreateChatInvocation, harnessAdapterFor } from '../../../registry.js'
 import { buildClaudeDurableTurn } from '../claude-sdk/exec.js'
 import {
+  asksBypassPermissions,
   buildClaudeStreamInvocation,
   claudeStreamEnvOverlay,
   mcpConfigInline,
@@ -166,8 +167,11 @@ export function composeHeadlessInvocation(
     const manifest = harnessAdapterFor(spec.agent)
     if (!manifest) throw new Error(`no harness adapter for '${spec.agent}'`)
     const terms = { manifest, posture: spec.launchPosture }
+    // A native bypass pick runs as root only inside a sandbox it is told of.
     const envOverlay = claudeStreamEnvOverlay({
-      ...(spec.permissionMode ? { permissionMode: spec.permissionMode } : {}),
+      ...(asksBypassPermissions(spec.launchPosture.posture)
+        ? { permissionMode: 'bypassPermissions' }
+        : {}),
       isRoot: opts.isRoot,
     })
     if (spec.structuredPermissions) {
@@ -209,7 +213,6 @@ export function composeHeadlessInvocation(
     ...(spec.systemPrompt ? { systemPrompt: spec.systemPrompt } : {}),
     ...(spec.contextPrompt ? { contextPrompt: spec.contextPrompt } : {}),
     ...(spec.mcpConfig ? { mcpConfig: spec.mcpConfig } : {}),
-    ...(spec.permissionMode ? { permissionMode: spec.permissionMode } : {}),
     ...(spec.toolPolicy ? { toolPolicy: spec.toolPolicy } : {}),
     ...(spec.resumeValue ? { resumeValue: spec.resumeValue } : {}),
   }

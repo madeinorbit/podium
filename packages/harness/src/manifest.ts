@@ -181,8 +181,6 @@ export interface HarnessExecOptions {
   mcpConfigPath?: string
   /** The raw MCP config JSON ({ mcpServers: { name: { url, headers } } }). */
   mcpConfig?: string
-  /** Tools pre-approved so they run headlessly without a permission prompt. */
-  allowedTools?: string[]
 }
 
 /** A one-shot exec's argv, without a command (see {@link LaunchArgv}). */
@@ -656,7 +654,6 @@ export interface HeadlessExecOptions {
   effort?: string
   systemPrompt?: string
   mcpConfig?: string
-  permissionMode?: string
   /** Fail-closed capability request. `none` means the adapter must remove every
    * built-in, MCP, web, subagent and shell tool. */
   toolPolicy?: 'none'

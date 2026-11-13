@@ -152,13 +152,22 @@ async function fixture() {
   }
   function input(id: string, structured = false): TurnInput {
     const accountId = asAccountId('native:claude-code:fixture')
+    // A structured turn is a supervised one (POD-6858): its asks reach chat.
+    // Posture is never a digest fact.
     const facts = canonicalHeadlessContractFacts({
-      prompt: 'work', accountId, turnId: id, sessionId,
-      ...(structured ? { structuredPermissions: true as const } : {}),
+      prompt: 'work',
+      accountId,
+      turnId: id,
+      sessionId,
     })
-    const requestDigest = createHash('sha256')
-      .update(facts).digest('hex')
-    return { id, text: 'work', accountId, requestDigest, ...(structured ? { structuredPermissions: true } : {}) }
+    const requestDigest = createHash('sha256').update(facts).digest('hex')
+    return {
+      id,
+      text: 'work',
+      accountId,
+      requestDigest,
+      ...(structured ? { posture: { mode: 'supervised' as const } } : {}),
+    }
   }
   async function send(id: string, structured = false, interrupt = false) {
     const receipt = await handle.send(input(id, structured), {

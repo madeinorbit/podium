@@ -12,7 +12,7 @@ import {
   buildBtwDelta,
   buildBtwRecap,
   buildBtwSeed,
-  harnessAllowedTools,
+  legacyHarnessAllowedTools,
   matchAnswerToOptions,
   NOT_CONFIRMED_MSG,
   SuperagentService,
@@ -127,10 +127,13 @@ describe('buildBtwDelta', () => {
   })
 })
 
-describe('harnessAllowedTools', () => {
+describe('legacyHarnessAllowedTools', () => {
   const own = ['superagent_search']
   it('allow-lists the full composite tool set (superagent + issue) when known', () => {
-    const allowed = harnessAllowedTools(['superagent_search', 'issue_create', 'issue_list'], own)
+    const allowed = legacyHarnessAllowedTools(
+      ['superagent_search', 'issue_create', 'issue_list'],
+      own,
+    )
     expect(allowed).toContain('mcp__podium__issue_create')
     expect(allowed).toContain('mcp__podium__issue_list')
     expect(allowed).toContain('mcp__podium__superagent_search')
@@ -138,7 +141,7 @@ describe('harnessAllowedTools', () => {
     expect(allowed).toEqual(expect.arrayContaining(['Read', 'Grep', 'Glob']))
   })
   it('falls back to the superagent own tools when the full set is unknown', () => {
-    const allowed = harnessAllowedTools(undefined, own)
+    const allowed = legacyHarnessAllowedTools(undefined, own)
     expect(allowed).toContain('mcp__podium__superagent_search')
     expect(allowed).not.toContain('mcp__podium__issue_create')
   })

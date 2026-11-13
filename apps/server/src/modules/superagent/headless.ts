@@ -27,6 +27,7 @@ import type {
   LiveServerMessage,
   ServerMessage,
   SessionBindingSpawnInstruction,
+  SessionPosture,
 } from '@podium/protocol'
 import type {
   ControlMessage,
@@ -40,6 +41,7 @@ import { ForeignMachineLoginRefusal, managedKeyName } from '../sessions/account-
 import { authorReattachBinding, authorSpawnBinding } from '../sessions/binding-mint'
 import { Session, type SessionDurableState } from '../sessions/session'
 import type { SessionWriter } from '../sessions/session-lifecycle-types'
+import { legacyPermissionModeFor } from '../sessions/session-posture'
 import { afterCommitOrNow } from './after-commit'
 
 export interface HeadlessRuntimeRelay {
@@ -49,7 +51,10 @@ export interface HeadlessRuntimeRelay {
     text: string
     origin: 'system'
     delivery: 'when-ready'
+    posture?: SessionPosture
+    // LEGACY(remove-after: 2027-02): pre-posture daemons read these; removing it drops them
     allowedTools?: string[]
+    // LEGACY(remove-after: 2027-02): pre-posture daemons read this; removing it drops them
     permissionMode?: string
     toolPolicy?: 'none'
     mcpConfig?: string
@@ -57,7 +62,6 @@ export interface HeadlessRuntimeRelay {
     sessionUuid?: string
     accountId?: string
     requestDigest?: string
-    structuredPermissions?: true
     contextPrompt?: string
     systemPrompt?: string
     timeoutMs?: number
@@ -465,8 +469,12 @@ export class HeadlessService {
       contextPrompt?: string
       systemPrompt?: string
       mcpConfig?: string
-      allowedTools?: string[]
-      permissionMode?: string
+      /** The turn's launch terms (POD-6858). Absent: the session's. */
+      posture?: SessionPosture
+      /** The old Claude-worded allow list, sent only for daemons that predate
+       *  posture (see `legacyHarnessAllowedTools`). */
+      // LEGACY(remove-after: 2027-02): pre-posture daemons read this; removing it drops them
+      legacyAllowedTools?: string[]
       toolPolicy?: 'none'
       resumeValue?: string
       sessionUuid?: string
@@ -528,14 +536,20 @@ export class HeadlessService {
     // The daemon enforces the budget this call waits on: a one-shot turn
     // always carries it, since an absent deadline means none at all.
     const budgetMs = input.timeoutMs ?? 600_000
+    // THE OLD WORDS BESIDE THE POSTURE (POD-6858). A daemon that predates
+    // posture strips it and launches from these, and recomputes the digest
+    // over them; so the digest is minted over these too, never over posture.
+    // LEGACY(remove-after: 2027-02): pre-posture daemons read this; removing it drops them
+    const permissionMode = input.posture ? legacyPermissionModeFor(input.posture) : undefined
+    const allowedTools = input.legacyAllowedTools
     const requestDigest = createHash('sha256')
       .update(
         canonicalHeadlessContractFacts({
           prompt: input.prompt,
           ...(model !== undefined ? { model } : {}),
           ...(effort !== undefined ? { effort } : {}),
-          ...(input.allowedTools !== undefined ? { allowedTools: [...input.allowedTools] } : {}),
-          ...(input.permissionMode !== undefined ? { permissionMode: input.permissionMode } : {}),
+          ...(allowedTools !== undefined ? { allowedTools: [...allowedTools] } : {}),
+          ...(permissionMode !== undefined ? { permissionMode } : {}),
           ...(input.toolPolicy !== undefined ? { toolPolicy: input.toolPolicy } : {}),
           ...(input.mcpConfig !== undefined ? { mcpConfig: input.mcpConfig } : {}),
           ...(input.resumeValue !== undefined ? { resumeValue: input.resumeValue } : {}),
@@ -605,8 +619,9 @@ export class HeadlessService {
           text: input.prompt,
           origin: 'system',
           delivery: 'when-ready',
-          ...(input.allowedTools ? { allowedTools: [...input.allowedTools] } : {}),
-          ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
+          ...(input.posture ? { posture: input.posture } : {}),
+          ...(allowedTools ? { allowedTools: [...allowedTools] } : {}),
+          ...(permissionMode ? { permissionMode } : {}),
           ...(input.toolPolicy ? { toolPolicy: input.toolPolicy } : {}),
           ...(input.mcpConfig ? { mcpConfig: input.mcpConfig } : {}),
           ...(input.resumeValue ? { resumeValue: input.resumeValue } : {}),

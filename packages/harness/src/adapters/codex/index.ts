@@ -355,9 +355,9 @@ export const codexManifest: AgentManifest = {
         // Podium's MCP servers as per-invocation config overrides: verified on
         // codex-cli 0.144.5 that `mcp_servers.<name>.url` + `.bearer_token_env_var`
         // (+ `.http_headers` for identity) mount a streamable HTTP server over
-        // plain POST. Codex has no --allowedTools equivalent — allowedTools is
-        // ignored here; the run rides `codex exec`'s own default read-only
-        // sandbox, and MCP tool calls need no approval flag in exec mode.
+        // plain POST. Codex has no --allowedTools equivalent: the run rides
+        // `codex exec`'s own default read-only sandbox, and MCP tool calls
+        // need no approval flag in exec mode.
         // Prompt as positional is safe here: `-c` is single-value (clap
         // `<key=value>`), no variadic flag precedes the positional. The
         // daemon closes stdin immediately, else codex would block appending

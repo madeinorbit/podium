@@ -1459,7 +1459,7 @@ export function createClaudeSdkRuntime(
        * does not cancel it to make the change look instant.
        *
        * `permissionMode` refuses. The SDK does take one per query, so it would
-       * be easy to accept — and that is the trap: `spec.permissionMode` is the
+       * be easy to accept — and that is the trap: `spec.posture` is the
        * daemon host's field, sourced from the session's authorization, and
        * letting the runtime contract rewrite it would put a permission
        * escalation behind a settings control. It stays out until it has an

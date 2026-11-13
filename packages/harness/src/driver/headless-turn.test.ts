@@ -70,28 +70,26 @@ describe('headless contract fields', () => {
       handle,
       {
         text: 'hello',
-        allowedTools: ['Read', 'Bash'],
-        permissionMode: 'auto',
+        posture: { mode: 'supervised' },
+        legacyTerms: { allowedTools: ['Read', 'Bash'], permissionMode: 'auto' },
         mcpConfig: '{"mcpServers":{}}',
         resumeValue: 'harness-1',
         sessionUuid: 'uuid-1',
         accountId: ACCOUNT,
         requestDigest: DIGEST_A,
-        structuredPermissions: true,
       },
       { turnId: 'turn-1', harness: 'fake-harness' },
     )
     await driveTurn(sessionId, driver)
     await waited
     expect(driver.control.lastHeadless(sessionId)).toMatchObject({
-      allowedTools: ['Read', 'Bash'],
-      permissionMode: 'auto',
+      posture: { mode: 'supervised' },
+      legacyTerms: { allowedTools: ['Read', 'Bash'], permissionMode: 'auto' },
       mcpConfig: '{"mcpServers":{}}',
       resumeValue: 'harness-1',
       sessionUuid: 'uuid-1',
       accountId: ACCOUNT,
       requestDigest: DIGEST_A,
-      structuredPermissions: true,
     })
   })
 
@@ -100,9 +98,6 @@ describe('headless contract fields', () => {
       ...SPEC,
       durableLabel: 'podium-s1',
       executablePath: '/usr/bin/claude',
-      structuredPermissions: true,
-      allowedTools: ['Read'],
-      permissionMode: 'auto',
       toolPolicy: 'none',
       accountId: ACCOUNT,
     }

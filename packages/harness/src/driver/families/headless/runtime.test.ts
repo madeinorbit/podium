@@ -617,8 +617,7 @@ describe('headless dispatch', () => {
     try {
       const { handle, sessionId } = await createHandle(runtime)
       const input = makeTurn(sessionId, {
-        allowedTools: ['Read', 'Bash'],
-        permissionMode: 'auto',
+        posture: { mode: { native: 'plan' } },
         mcpConfig: '{"mcpServers":{}}',
         resumeValue: 'harness-9',
         sessionUuid: 'uuid-9',
@@ -638,8 +637,6 @@ describe('headless dispatch', () => {
         accountId: ACCOUNT,
         cwd: '/repo',
         prompt: 'hello',
-        allowedTools: ['Read', 'Bash'],
-        permissionMode: 'auto',
         mcpConfig: '{"mcpServers":{}}',
         resumeValue: 'harness-9',
         sessionUuid: 'uuid-9',
@@ -647,6 +644,7 @@ describe('headless dispatch', () => {
         effort: 'high',
         durableLabel: `podium-${sessionId}`,
       })
+      expect(spec?.launchPosture.posture).toEqual({ mode: { native: 'plan' } })
       expect(spec?.env).toMatchObject({ HOME: '/test' })
       expect(host.envs).toHaveLength(1)
     } finally {
@@ -658,20 +656,21 @@ describe('headless dispatch', () => {
     const { runtime, runners } = makeRuntime()
     try {
       const { handle, sessionId } = await createHandle(runtime, 'claude-code', {
-        allowedTools: ['Read'],
-        permissionMode: 'plan',
+        posture: { mode: 'supervised' },
         executablePath: '/opt/claude',
       })
       await handle.configure({ model: 'opus', effort: 'max' })
-      const input = makeTurn(sessionId, { permissionMode: 'auto' })
+      const input = makeTurn(sessionId, { posture: { mode: { native: 'acceptEdits' } } })
       const receipt = await handle.send(input, { origin: 'system', delivery: 'when-ready' })
       expect(receipt.outcome).toBe('accepted')
       expect(runners.turns[0]?.spec).toMatchObject({
-        allowedTools: ['Read'],
-        permissionMode: 'auto',
         model: 'opus',
         effort: 'max',
         executablePath: '/opt/claude',
+      })
+      // The turn's posture wins over the session's.
+      expect(runners.turns[0]?.spec.launchPosture.posture).toEqual({
+        mode: { native: 'acceptEdits' },
       })
     } finally {
       runtime.dispose()
@@ -920,7 +919,7 @@ describe('headless fences', () => {
       // the digest must refuse rather than run the wrong policy.
       const input = makeTurn(sessionId, { allowedTools: ['Read'] })
       const receipt = await handle.send(
-        { ...input, allowedTools: ['Bash'] },
+        { ...input, legacyTerms: { allowedTools: ['Bash'] } },
         { origin: 'system', delivery: 'when-ready' },
       )
       expect(receipt).toMatchObject({ outcome: 'refused', refusal: { reason: 'invalid_value' } })
@@ -1046,27 +1045,7 @@ describe('headless fences', () => {
     }
   })
 
-  it('refuses structured permissions where the harness has no SDK callback', async () => {
-    const { runtime, runners } = makeRuntime()
-    try {
-      const { handle, sessionId } = await createHandle(runtime, 'codex')
-      const input = makeTurn(sessionId, {
-        turnId: 'perm-no-channel',
-        accountId: 'native:codex:fp-1',
-        structuredPermissions: true,
-      })
-      const receipt = await handle.send(input, { origin: 'system', delivery: 'when-ready' })
-      expect(receipt).toMatchObject({
-        outcome: 'refused',
-        refusal: { reason: 'unsupported' },
-      })
-      expect(runners.turns).toHaveLength(0)
-    } finally {
-      runtime.dispose()
-    }
-  })
-
-  it('binds structuredPermissions into the digest', async () => {
+  it('binds the old structuredPermissions fact into the digest', async () => {
     const { runtime, runners } = makeRuntime()
     try {
       const { handle, sessionId } = await createHandle(runtime)
@@ -1074,7 +1053,7 @@ describe('headless fences', () => {
       // digest must refuse rather than run the wrong permission posture.
       const input = makeTurn(sessionId, { turnId: 'perm-digest' })
       const receipt = await handle.send(
-        { ...input, structuredPermissions: true as const },
+        { ...input, legacyTerms: { structuredPermissions: true as const } },
         { origin: 'system', delivery: 'when-ready' },
       )
       expect(receipt).toMatchObject({ outcome: 'refused', refusal: { reason: 'invalid_value' } })
@@ -1089,7 +1068,7 @@ describe('headless fences', () => {
     try {
       const { handle, sessionId } = await createHandle(runtime)
       const receipt = await handle.send(
-        makeTurn(sessionId, { turnId: 'perm-sdk', structuredPermissions: true }),
+        makeTurn(sessionId, { turnId: 'perm-sdk', posture: { mode: 'supervised' } }),
         { origin: 'system', delivery: 'when-ready' },
       )
       expect(receipt).toMatchObject({ outcome: 'accepted', turnEpoch: 1 })
@@ -1476,10 +1455,13 @@ describe('headless structured permissions', () => {
     const { runtime, host, runners } = makeRuntime()
     try {
       const { handle, sessionId } = await createHandle(runtime)
-      await handle.send(makeTurn(sessionId, { turnId: 'perm-1', structuredPermissions: true }), {
-        origin: 'system',
-        delivery: 'when-ready',
-      })
+      await handle.send(
+        makeTurn(sessionId, { turnId: 'perm-1', posture: { mode: 'supervised' } }),
+        {
+          origin: 'system',
+          delivery: 'when-ready',
+        },
+      )
       const turn = runners.turns[0]
       expect(turn?.spec).toMatchObject({ structuredPermissions: true })
       expect(typeof turn?.onPermission).toBe('function')
@@ -1534,10 +1516,13 @@ describe('headless structured permissions', () => {
     const { runtime, runners } = makeRuntime()
     try {
       const { handle, sessionId } = await createHandle(runtime)
-      await handle.send(makeTurn(sessionId, { turnId: 'perm-2', structuredPermissions: true }), {
-        origin: 'system',
-        delivery: 'when-ready',
-      })
+      await handle.send(
+        makeTurn(sessionId, { turnId: 'perm-2', posture: { mode: 'supervised' } }),
+        {
+          origin: 'system',
+          delivery: 'when-ready',
+        },
+      )
       const turn = runners.turns[0]
       turn?.onPermission?.({ id: 'perm-ask-2', toolName: 'Edit' })
       await flush()
@@ -1564,7 +1549,7 @@ describe('headless structured permissions', () => {
     try {
       const { handle, sessionId } = await createHandle(runtime)
       await handle.send(
-        makeTurn(sessionId, { turnId: 'perm-dedupe', structuredPermissions: true }),
+        makeTurn(sessionId, { turnId: 'perm-dedupe', posture: { mode: 'supervised' } }),
         { origin: 'system', delivery: 'when-ready' },
       )
       const turn = runners.turns[0]
@@ -1612,10 +1597,13 @@ describe('headless structured permissions', () => {
     const { runtime, runners } = makeRuntime()
     try {
       const { handle, sessionId } = await createHandle(runtime)
-      await handle.send(makeTurn(sessionId, { turnId: 'perm-3', structuredPermissions: true }), {
-        origin: 'system',
-        delivery: 'when-ready',
-      })
+      await handle.send(
+        makeTurn(sessionId, { turnId: 'perm-3', posture: { mode: 'supervised' } }),
+        {
+          origin: 'system',
+          delivery: 'when-ready',
+        },
+      )
       const turn = runners.turns[0]
       turn?.onPermission?.({
         id: 'perm-ask-3',

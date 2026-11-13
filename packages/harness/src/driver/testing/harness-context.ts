@@ -14,9 +14,9 @@ import {
 } from '@podium/protocol'
 import { type BoundCommand, harnessCommand } from '../../bound-command.js'
 import { type HarnessContext, harnessAccount, harnessRoots } from '../../harness-context.js'
-import type { LaunchPosture, LaunchFolders } from '../../launch-terms.js'
-import { noAgentTerms } from '../../posture.js'
+import type { LaunchFolders, LaunchPosture } from '../../launch-terms.js'
 import type { HarnessAccountScope, HarnessRoots } from '../../manifest.js'
+import { noAgentTerms } from '../../posture.js'
 import type { PodiumGrants } from '../../posture-types.js'
 
 export function testHarnessContext(input: {
@@ -131,12 +131,15 @@ export function testTurnPosture(kind: BuiltinHarnessKind = 'claude-code'): Launc
   return testLaunchPosture(testHarnessContext({ kind }))
 }
 
-/** The headless host's `turnPosture` port for a test host (POD-6858). */
+/** The headless host's `turnPosture` port for a test host (POD-6858): the
+ *  posture the runtime resolved for the turn, over test grants and folders. */
 export function testTurnPosturePort(): {
-  turnPosture: (input: { agent: string }) => Promise<LaunchPosture>
+  turnPosture: (input: { agent: string; posture: SessionPosture }) => Promise<LaunchPosture>
 } {
   return {
-    turnPosture: async ({ agent }) =>
-      testLaunchPosture(testHarnessContext({ kind: agent as BuiltinHarnessKind })),
+    turnPosture: async ({ agent, posture }) => ({
+      ...testLaunchPosture(testHarnessContext({ kind: agent as BuiltinHarnessKind })),
+      posture,
+    }),
   }
 }

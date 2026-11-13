@@ -32,7 +32,11 @@
  */
 
 import type { MachineId, MutationId, SessionId } from '@podium/model'
-import type { InteractionAnswerOutcome, ObservationInputOrigin } from '@podium/protocol'
+import type {
+  InteractionAnswerOutcome,
+  ObservationInputOrigin,
+  SessionPosture,
+} from '@podium/protocol'
 import type {
   DeliveryCancelResult,
   Refusal,
@@ -137,7 +141,11 @@ export interface RuntimeDaemonRpcPort {
       origin: ObservationInputOrigin
       delivery: TurnDelivery
       attachments?: readonly StagedAttachmentRef[]
+      /** The turn's launch terms in Podium's words (POD-6858). */
+      posture?: SessionPosture
+      // LEGACY(remove-after: 2027-02): pre-posture daemons read this; removing it drops them
       allowedTools?: string[]
+      // LEGACY(remove-after: 2027-02): pre-posture daemons read this; removing it drops them
       permissionMode?: string
       toolPolicy?: 'none'
       mcpConfig?: string
@@ -145,7 +153,6 @@ export interface RuntimeDaemonRpcPort {
       sessionUuid?: string
       accountId?: string
       requestDigest?: string
-      structuredPermissions?: true
       contextPrompt?: string
       systemPrompt?: string
       timeoutMs?: number
@@ -250,7 +257,11 @@ export class SessionRuntimeGateway {
     origin: ObservationInputOrigin
     delivery: TurnDelivery
     attachments?: readonly StagedAttachmentRef[]
+    /** The turn's launch terms in Podium's words (POD-6858). */
+    posture?: SessionPosture
+    // LEGACY(remove-after: 2027-02): pre-posture daemons read this; removing it drops them
     allowedTools?: string[]
+    // LEGACY(remove-after: 2027-02): pre-posture daemons read this; removing it drops them
     permissionMode?: string
     toolPolicy?: 'none'
     mcpConfig?: string
@@ -258,7 +269,6 @@ export class SessionRuntimeGateway {
     sessionUuid?: string
     accountId?: string
     requestDigest?: string
-    structuredPermissions?: true
     contextPrompt?: string
     systemPrompt?: string
     timeoutMs?: number

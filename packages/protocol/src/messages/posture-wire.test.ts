@@ -27,6 +27,7 @@ const durableFrame = {
   type: 'runtimeDurableSendRequest',
   rowId: 'row-1',
   deliveryRecovery: false,
+  initialPrompt: false,
 }
 const headlessFrame = {
   type: 'headlessTurnRequest',

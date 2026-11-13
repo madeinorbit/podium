@@ -39,19 +39,23 @@ export const MCP_TOKEN_HEADER = 'x-podium-mcp-token'
  *  carries so the HTTP MCP route can resolve which superagent thread the harness
  *  agent runs for — never the raw threadId, so callers can't claim one. */
 export const MCP_THREAD_HEADER = 'x-podium-mcp-thread'
-/** Read-only built-in tools the harness orchestrator may use headlessly without a
- *  permission prompt (alongside the Podium MCP tools). */
-const HARNESS_BUILTIN_ALLOWED = ['Read', 'Grep', 'Glob']
-
-/** The harness agent's `--allowedTools` belt: the read-only builtins plus every
- *  Podium MCP tool. Prefer the full composite tool set (superagent ⊕ issue) the
- *  server advertised; fall back to the superagent's own tools when unknown. */
-export function harnessAllowedTools(
+/**
+ * THE OLD `allowedTools` BELT, for daemons that predate posture (POD-6858): the
+ * read-only builtins plus every Podium MCP tool, in Claude's rule syntax.
+ * Prefer the full composite tool set (superagent ⊕ issue) the server
+ * advertised; fall back to the superagent's own tools when unknown. A daemon
+ * that reads `posture` ignores it: its posture section pre-approves Podium's
+ * MCP servers itself.
+ */
+// LEGACY(remove-after: 2027-02): pre-posture daemons read this; removing it drops them
+export function legacyHarnessAllowedTools(
   allToolNames: string[] | undefined,
   ownToolNames: string[],
 ): string[] {
   return [
-    ...HARNESS_BUILTIN_ALLOWED,
+    'Read',
+    'Grep',
+    'Glob',
     ...(allToolNames ?? ownToolNames).map((name) => `mcp__${MCP_SERVER_NAME}__${name}`),
   ]
 }

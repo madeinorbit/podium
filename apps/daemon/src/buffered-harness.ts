@@ -211,15 +211,16 @@ export async function executeBufferedHarnessTurn(
       ...(msg.systemPrompt ? { systemPrompt: msg.systemPrompt } : {}),
       ...(mcpConfigPath ? { mcpConfigPath } : {}),
       ...(msg.mcpConfig ? { mcpConfig: msg.mcpConfig } : {}),
-      ...(msg.allowedTools ? { allowedTools: msg.allowedTools } : {}),
     })
     const context = harnessContext(
       snapshot,
       msg.agent as BuiltinHarnessKind,
       ctx.homeDir ?? snapshot.commandEnvironment.machineHome,
     )
-    // THE RUN'S TERMS (POD-6858): the harness's `turn` terms on the default
-    // posture (the frame states none). A buffered run has no session, so its
+    // THE RUN'S TERMS (POD-6858): the harness's `turn` terms on the posture
+    // the frame states, or the default for an older server that states none
+    // (its Claude-worded `allowedTools` is not read: the posture section
+    // owns the allow rules). A buffered run has no session, so its
     // grants name a request-scoped uploads folder, `uploads/exec-<requestId>`,
     // which holds nothing: never the parent folder and never a session's.
     const repoRoot = await (io?.repoRootOf ?? repoRootOf)(workdir)
@@ -229,7 +230,7 @@ export async function executeBufferedHarnessTurn(
       context,
       exec,
       agentLaunchTerms(manifest, 'turn', {
-        posture: DEFAULT_SESSION_POSTURE,
+        posture: msg.posture ?? DEFAULT_SESSION_POSTURE,
         grants: podiumGrantsFor(
           { stateRoot: io?.stateRoot ?? stateDir() },
           execUploadsKey(msg.requestId),

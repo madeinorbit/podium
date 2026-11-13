@@ -115,6 +115,11 @@ const identity = (agent: HarnessAgent) => ({
   accountId: asAccountId(`native:${agent}:smoke`),
   requestDigest: 'a'.repeat(64),
 })
+/** The person's native bypass pick, as a posture (POD-6858). */
+const bypassPosture = {
+  ...testTurnPosture('claude-code'),
+  posture: { mode: { native: 'bypassPermissions' } },
+}
 const dirs: string[] = []
 const tempCwd = (): string => {
   const dir = mkdtempSync(join(tmpdir(), 'podium-headless-smoke-'))
@@ -137,9 +142,9 @@ describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBin('claude'))(
         {
           agent: 'claude-code',
           ...identity('claude-code'),
+          launchPosture: bypassPosture,
           cwd,
           prompt: `Remember this token: ${token}. Reply with just the word "stored".`,
-          permissionMode: 'bypassPermissions',
           sessionUuid,
           timeoutMs: 240_000,
         },
@@ -156,9 +161,9 @@ describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBin('claude'))(
         {
           agent: 'claude-code',
           ...identity('claude-code'),
+          launchPosture: bypassPosture,
           cwd,
           prompt: 'What was the token I asked you to remember? Reply with just the token.',
-          permissionMode: 'bypassPermissions',
           resumeValue: r1.harnessSessionId,
           timeoutMs: 240_000,
         },

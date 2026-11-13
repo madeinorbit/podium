@@ -7,7 +7,7 @@ import type {
   SessionId,
   TranscriptItemRef,
 } from '@podium/model'
-import type { ObservationInputOrigin } from '@podium/protocol'
+import type { ObservationInputOrigin, SessionPosture } from '@podium/protocol'
 import type { DeliveryFailureCause, RetractTooLate } from '@podium/protocol/daemon'
 import type { Declared } from '../manifest.js'
 
@@ -25,6 +25,19 @@ import type { Declared } from '../manifest.js'
  * it must never silently degrade to an ordinary send. It does not veto a provider
  * completion or reopen a fenced epoch: continuation opens a new epoch. */
 export type TurnDelivery = 'when-ready' | 'queue' | 'interrupt' | 'steer' | 'at-boundary'
+
+/**
+ * The launch terms a pre-posture server states in one vendor's words
+ * (`--allowedTools` rules, a Claude permission-mode word, the SDK permission
+ * channel). Carried only so the headless digest recomputes over the facts
+ * the server minted it on. Nothing launches from them.
+ */
+// LEGACY(remove-after: 2027-02): the digest pre-posture servers mint covers these; removing it refuses their turns
+export interface LegacyTurnTerms {
+  allowedTools?: string[]
+  permissionMode?: string
+  structuredPermissions?: true
+}
 
 /** Who is writing. Chat, mail, steward, superagent and auto-continue all become
  *  callers of one verb with different origins — this replaces `typeText` /
@@ -51,8 +64,8 @@ export interface TurnInput {
    * HEADLESS PER-TURN POLICY (POD-4386).
    *
    * The legacy headless port carried these per turn (HeadlessTurnRequestMessage:
-   * allowedTools, permissionMode, toolPolicy, mcpConfig, resumeValue,
-   * sessionUuid, accountId, requestDigest). The contract carried none of them,
+   * toolPolicy, mcpConfig, resumeValue, sessionUuid, accountId,
+   * requestDigest; and the launch terms, now {@link TurnInput.posture}). The contract carried none of them,
    * so superagent/shipwright could not migrate. They are OPTIONAL and
    * ABSENT-MEANS-ABSENT: a driver that does not implement a field refuses
    * `unsupported` rather than silently dropping it, and a turn that names no
@@ -64,10 +77,21 @@ export interface TurnInput {
    * `./headless-turn.ts`. Drivers verify both before dispatch and refuse on
    * mismatch (the headless family's runtime, ./families/headless/runtime.ts).
    */
-  /** Tools pre-approved for THIS TURN ONLY. Session default lives on SessionSpec. */
-  allowedTools?: string[]
-  /** Permission mode for THIS TURN ONLY (e.g. 'auto', 'bypassPermissions'). */
-  permissionMode?: string
+  /**
+   * THIS TURN'S LAUNCH TERMS (POD-6858, harness-session-posture.md §4.3), in
+   * Podium's words. Wins over the session's posture; absent means the
+   * session's. The driver's posture section turns it into the harness's own
+   * flags, so nothing here names a harness mode.
+   */
+  posture?: SessionPosture
+  /**
+   * THE OLD FRAME'S VENDOR-WORDED TERMS, as the digest facts only. A server
+   * mints `requestDigest` over these and still sends them for daemons that
+   * predate posture; the driver recomputes the digest over them and launches
+   * from {@link TurnInput.posture}, never from these.
+   */
+  // LEGACY(remove-after: 2027-02): the digest pre-posture servers mint covers these; removing it refuses their turns
+  legacyTerms?: LegacyTurnTerms
   /** Requests the adapter's tested all-tools-off mode for THIS TURN ONLY. */
   toolPolicy?: 'none'
   /** MCP config JSON ({ mcpServers: … }) for THIS TURN ONLY. */
@@ -80,8 +104,6 @@ export interface TurnInput {
   accountId?: string
   /** SHA-256 of the canonical immutable turn facts. */
   requestDigest?: string
-  /** Route SDK tool authorization through structured RuntimeDriver interactions. */
-  structuredPermissions?: true
   /**
    * The managed account's credential env for THIS TURN ONLY (POD-6733),
    * resolved by the server for the session's owner. Read by the headless

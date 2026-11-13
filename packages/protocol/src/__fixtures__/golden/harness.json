@@ -18,7 +18,7 @@
     },
     {
       "schema": "HarnessExecRequestMessage",
-      "variant": "full",
+      "variant": "full/arm0",
       "wire": {
         "type": "harnessExecRequest",
         "requestId": "requestId",
@@ -30,12 +30,41 @@
         "systemPrompt": "systemPrompt",
         "mcpConfig": "mcpConfig",
         "allowedTools": ["allowedTools[0]"],
-        "timeoutMs": 1
+        "timeoutMs": 1,
+        "posture": {
+          "mode": "supervised"
+        }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"harnessExecRequest\",\"requestId\":\"requestId\",\"agent\":\"claude-code\",\"model\":\"model\",\"effort\":\"effort\",\"prompt\":\"prompt\",\"cwd\":\"cwd\",\"systemPrompt\":\"systemPrompt\",\"mcpConfig\":\"mcpConfig\",\"allowedTools\":[\"allowedTools[0]\"],\"timeoutMs\":1}"
+      "encoded": "{\"type\":\"harnessExecRequest\",\"requestId\":\"requestId\",\"agent\":\"claude-code\",\"model\":\"model\",\"effort\":\"effort\",\"prompt\":\"prompt\",\"cwd\":\"cwd\",\"systemPrompt\":\"systemPrompt\",\"mcpConfig\":\"mcpConfig\",\"allowedTools\":[\"allowedTools[0]\"],\"timeoutMs\":1,\"posture\":{\"mode\":\"supervised\"}}"
+    },
+    {
+      "schema": "HarnessExecRequestMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "harnessExecRequest",
+        "requestId": "requestId",
+        "agent": "codex",
+        "model": "model",
+        "effort": "effort",
+        "prompt": "prompt",
+        "cwd": "cwd",
+        "systemPrompt": "systemPrompt",
+        "mcpConfig": "mcpConfig",
+        "allowedTools": ["allowedTools[0]"],
+        "timeoutMs": 2,
+        "posture": {
+          "mode": {
+            "native": "posture.mode.native"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessExecRequest\",\"requestId\":\"requestId\",\"agent\":\"codex\",\"model\":\"model\",\"effort\":\"effort\",\"prompt\":\"prompt\",\"cwd\":\"cwd\",\"systemPrompt\":\"systemPrompt\",\"mcpConfig\":\"mcpConfig\",\"allowedTools\":[\"allowedTools[0]\"],\"timeoutMs\":2,\"posture\":{\"mode\":{\"native\":\"posture.mode.native\"}}}"
     },
     {
       "schema": "HarnessExecResultMessage",

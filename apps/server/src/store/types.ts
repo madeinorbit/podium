@@ -28,7 +28,11 @@ import type {
   UserId,
   VisibilityClass,
 } from '@podium/model'
-import type { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
+import type {
+  ObservationProvider,
+  SessionObservationCheckpointV1,
+  SessionPosture,
+} from '@podium/protocol'
 import type { MessageFailedCause } from '@podium/protocol/daemon'
 
 /** ALIASES @podium/model's PinKind (POD-380). The three literals had four
@@ -824,8 +828,9 @@ export interface PendingSuperagentTurnRow {
     contextPrompt?: string
     systemPrompt?: string
     mcpConfig?: string
-    allowedTools?: string[]
-    permissionMode?: string
+    /** The turn's launch terms (POD-6858). A row an older server persisted
+     *  has none, and a `permissionMode: 'auto'` this type no longer names. */
+    posture?: SessionPosture
     resumeValue?: string
     sessionUuid?: string
     timeoutMs?: number

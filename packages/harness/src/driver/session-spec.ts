@@ -1,9 +1,13 @@
 // Part of the Agent Runtime contract (POD-1761 W1). See ./host.js for the
 // surface's five governing rules and the core-vs-extended tier boundary.
 
-import type { Declared, SelectionContext } from '../manifest.js'
+import {
+  type AgentInstruction,
+  DEFAULT_SESSION_POSTURE,
+  type SessionPosture,
+} from '@podium/protocol'
 import type { HarnessContext } from '../harness-context-types.js'
-import { type AgentInstruction, DEFAULT_SESSION_POSTURE, type SessionPosture } from '@podium/protocol'
+import type { Declared, SelectionContext } from '../manifest.js'
 import type { PodiumGrants } from '../posture-types.js'
 import type { InteractionKind } from './interactions.js'
 
@@ -123,7 +127,7 @@ export interface SessionSpec {
    *
    * The legacy headless port carried per-session durable identity
    * (durableLabel, executablePath) plus session-level tool policy that the
-   * contract could not name. All OPTIONAL and ABSENT-MEANS-ABSENT. Per-turn
+   * contract could not name. Its launch terms are {@link SessionSpec.posture}. All OPTIONAL and ABSENT-MEANS-ABSENT. Per-turn
    * values on TurnInput win over these session defaults; a driver that does
    * not implement a field refuses `unsupported` rather than silently dropping
    * it.
@@ -132,12 +136,6 @@ export interface SessionSpec {
   durableLabel?: string
   /** Absolute executable captured from the current generation. */
   executablePath?: string
-  /** Route SDK tool authorization through structured RuntimeDriver interactions. */
-  structuredPermissions?: true
-  /** Session-default tools pre-approved; per-turn TurnInput.allowedTools wins. */
-  allowedTools?: string[]
-  /** Session-default permission mode; per-turn TurnInput.permissionMode wins. */
-  permissionMode?: string
   /** Session-default all-tools-off mode; per-turn TurnInput.toolPolicy wins. */
   toolPolicy?: 'none'
   /** Exact native-login fingerprint for the session (durable identity). */
