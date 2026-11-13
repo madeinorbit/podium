@@ -8442,6 +8442,20 @@ a.ref-link--session::before {
   background: rgb(0 0 0 / 0.1);
   animation: app-sheet-fade 160ms ease-out;
 }
+
+/* Full-window backdrop blur halves dialog FPS on Linux desktop. Reuse the
+   pre-paint platform hook from index.html and keep each overlay's dim wash. */
+html[data-podium-platform="linux"]
+:is(
+  .app-sheet-backdrop,
+  [data-slot="dialog-overlay"],
+  [data-slot="alert-dialog-overlay"],
+  .calm-reader-layer
+) {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
 .app-sheet {
   position: fixed;
   top: calc(var(--topbar-h) + var(--sheet-gap));
