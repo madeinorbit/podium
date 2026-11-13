@@ -109,7 +109,10 @@ async function seed(args: Record<string, string>): Promise<BenchFixture> {
   const corpus = JSON.parse(readFileSync(args.corpus!, 'utf8')) as BenchCorpus
   const { SessionStore } = await import(join(checkout, 'apps/server/src/store.ts'))
   const model = await import(join(checkout, 'packages/model/src/index.ts'))
-  const store = await SessionStore.open(args.db!)
+  // The fixture is seeded below the change log, as a pre-capture build seeds
+  // it: a store that installs its change capture only when a log attaches
+  // (POD-6920; an older checkout ignores the option).
+  const store = await SessionStore.open(args.db!, undefined, { changeCapture: 'whenLogAttaches' })
   const owner = await model.firstAdminMemberId(store)
   model.primeFirstAdminMember(owner)
   // A fresh install mints its update signing key at first boot, before any machine
