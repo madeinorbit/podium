@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native'
 import { useConnected } from '../client/hooks'
 import { useServerProfile } from '../client/ServerProfileGate'
 import { usePoolContinuity } from '../client/use-pool-notices'
+import { useWorkspaceSyncPhase } from '../client/workspace-refresh'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { AlertTriangle } from './icons'
@@ -12,7 +13,7 @@ function plural(count: number, singular: string, multiple: string): string {
   return `${count} ${count === 1 ? singular : multiple}`
 }
 
-/** Persistent, first-snapshot status for facts that survive a relaunch. */
+/** Recovery facts are immediate; offline waits for the shared sync lifecycle. */
 export function WorkspaceContinuityNotice() {
   const { outboxSize, deadLetters } = usePoolContinuity()
   return <ContinuityNoticeBody outboxSize={outboxSize} deadLetters={deadLetters} />
@@ -27,18 +28,20 @@ function ContinuityNoticeBody({
 }) {
   const router = useRouter()
   const connected = useConnected()
+  const phase = useWorkspaceSyncPhase()
   const { profile } = useServerProfile()
-  if (connected && outboxSize === 0 && deadLetters === 0) return null
+  const offline = !connected && (phase === 'offline' || phase === 'error')
 
   const lines = [
-    !connected ? `Offline. Showing saved data for ${profile.name}.` : null,
-    outboxSize > 0
+    offline ? `Offline. Showing saved data for ${profile.name}.` : null,
+    offline && outboxSize > 0
       ? `${plural(outboxSize, 'change is', 'changes are')} queued and will send when connected.`
       : null,
     deadLetters > 0
       ? `${plural(deadLetters, 'change needs', 'changes need')} review in Settings.`
       : null,
   ].filter((line): line is string => line !== null)
+  if (lines.length === 0) return null
 
   return (
     <PressableScale

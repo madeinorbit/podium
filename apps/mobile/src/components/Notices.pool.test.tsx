@@ -3,9 +3,10 @@ import { Outbox, type OutboxEntry } from '@podium/client-core/outbox'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { SyncProgressStore } from '@podium/client-core/replica-assembly'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import { messageNotices, pendingInteractionCards } from '@podium/client-core/values'
-import { asMutationId, asSessionId, asUserId } from '@podium/model'
+import { asIssueId, asMutationId, asSessionId, asUserId } from '@podium/model'
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { cloneElement } from 'react'
 import { Alert } from 'react-native'
@@ -14,6 +15,7 @@ import { noticeFixture } from '../../../../tests/worklist/diagnostics/notice-fix
 import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import { createHeaderFixture } from '../../../web/test/header-fixture'
 import type { MobilePool } from '../client/mobile-pool'
+import { WorkspaceSyncContext } from '../client/workspace-refresh'
 
 const state = vi.hoisted(() => ({ host: undefined as MobilePool | undefined, push: vi.fn() }))
 vi.mock('../client/mobile-pool', async (importOriginal) => {
@@ -57,7 +59,10 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-async function mount() {
+async function mount({ boot = false, recovery = true } = {}) {
+  const progress = new SyncProgressStore()
+  progress.begin(boot ? 'stale' : 'live')
+  if (!boot) progress.noteDisconnected()
   state.host = createMobilePool(false)
   const fixture = createHeaderFixture(3, 3),
     data = noticeFixture(),
@@ -105,7 +110,7 @@ async function mount() {
     interactions: { answer: { mutate: answer } },
   })
   let queued: OutboxEntry[] = [],
-    parked: OutboxEntry[] = data.deadLetters.map((row) => ({
+    parked: OutboxEntry[] = (recovery ? data.deadLetters : []).map((row) => ({
       ...row.entry,
       state: 'dead-letter',
       deadLetter: {
@@ -134,11 +139,11 @@ async function mount() {
 
     seen.push(state.host!.host.usePool())
     return (
-      <>
+      <WorkspaceSyncContext value={progress}>
         <PendingInteractionBand sessionId={sessionId} />
         <WorkspaceContinuityNotice />
         <OutboxRecoveryPanel />
-      </>
+      </WorkspaceSyncContext>
     )
   }
   const tree = (
@@ -197,12 +202,15 @@ async function mount() {
     answer,
     evict,
     seen,
+    progress,
     switchSession(next: string) {
       sessionId = asSessionId(next)
       view.rerender(cloneElement(tree, { children: <Surface /> }))
     },
     connect(next: boolean) {
       connected = next
+      if (next) progress.noteReady()
+      else progress.noteDisconnected()
       const hub = runtime.hub as unknown as { emit(kind: string, value: unknown): void }
       hub.emit('connectionHealth', runtime.hub.connectionHealth())
     },
@@ -332,5 +340,63 @@ it('removes empty notices and retains the live offline status without snapshot s
   expect(enabled.view.getByTestId('workspace-continuity-notice').textContent).toBe(
     'Offline. Showing saved data for Synthetic server.Settings',
   )
+  expectPoolReadersOnly(enabled.runtime)
+})
+
+it('keeps the continuity banner quiet before the first hello, including a real queued write', async () => {
+  const enabled = await mount({ boot: true, recovery: false })
+  expect(enabled.progress.getSnapshot()).toMatchObject({ phase: 'reconnecting', attempt: 0 })
+  expect(enabled.view.queryByTestId('workspace-continuity-notice')).toBeNull()
+  await act(async () => {
+    await enabled.runtime.outbox.enqueue('issueUpdate', {
+      id: asIssueId('offline-task'),
+      patch: { title: 'Keep my request' },
+    })
+  })
+  expect(enabled.runtime.outbox.pending()).toHaveLength(1)
+  expect(enabled.runtime.readLocal('outboxSize')).toBe(1)
+  expect(enabled.view.queryByTestId('workspace-continuity-notice')).toBeNull()
+  act(() => enabled.progress.beginAttempt())
+  expect(enabled.view.queryByTestId('workspace-continuity-notice')).toBeNull()
+  act(() => enabled.connect(true))
+  expect(enabled.view.queryByTestId('workspace-continuity-notice')).toBeNull()
+  expectPoolReadersOnly(enabled.runtime)
+})
+
+it.each([
+  'offline',
+  'error',
+] as const)('shows a real %s failure immediately without inventing a queued write', async (phase) => {
+  const enabled = await mount({ boot: true, recovery: false })
+  act(() => {
+    if (phase === 'offline') enabled.progress.noteDisconnected()
+    else enabled.progress.noteError('network', 'First connection failed')
+  })
+  expect(enabled.view.getByTestId('workspace-continuity-notice').textContent).toBe(
+    'Offline. Showing saved data for Synthetic server.Settings',
+  )
+  expect(enabled.runtime.outbox.pending()).toHaveLength(0)
+  act(() => enabled.connect(true))
+  expect(enabled.view.queryByTestId('workspace-continuity-notice')).toBeNull()
+  expectPoolReadersOnly(enabled.runtime)
+})
+
+it('shows an actual queued write only while offline and hides it as soon as the socket connects', async () => {
+  const enabled = await mount({ boot: true, recovery: false })
+  await act(async () => {
+    await enabled.runtime.outbox.enqueue('issueUpdate', {
+      id: asIssueId('offline-task'),
+      patch: { title: 'Keep my request' },
+    })
+    enabled.progress.noteDisconnected()
+  })
+  expect(enabled.runtime.outbox.pending()).toHaveLength(1)
+  expect(enabled.view.getByTestId('workspace-continuity-notice').textContent).toContain(
+    '1 change is queued and will send when connected.',
+  )
+  act(() => enabled.connect(true))
+  // Pending HTTP receipts can outlive the handshake; they are not offline.
+  expect(enabled.runtime.outbox.pending()).toHaveLength(1)
+  expect(enabled.view.queryByTestId('workspace-continuity-notice')).toBeNull()
   expectPoolReadersOnly(enabled.runtime)
 })
