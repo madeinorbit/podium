@@ -83,6 +83,7 @@ import { WorkingMark } from '../components/WorkingMark'
 import { useAgeNow } from '../lib/clock-hooks'
 import { listOrderRevision } from '../lib/list-order-revision'
 import { startupTiming } from '../lib/startup-timing'
+import { useSettledOrder } from '../lib/use-settled-order'
 import { workMenuActionIds } from '../lib/work-menu'
 import { quietProjectsLabel, workLaneTitle, workMenuItem, workSubtitle } from '../lib/work-row-copy'
 import { mobileRowStamp } from '../lib/work-sections'
@@ -145,8 +146,11 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
   const sections = (
     phone.quietExpanded && quiet.length ? [...phone.activeSections, ...quiet] : phone.activeSections
   ).map((section) => ({ section, folded: !phone.needle && props.collapsed.has(section.key) }))
-  const orderRevision = listOrderRevision(
-    sections.map(({ section, folded }) => ({ key: section.key, folded, ids: section.ids })),
+  const orderRevision = useSettledOrder(
+    listOrderRevision(
+      sections.map(({ section, folded }) => ({ key: section.key, folded, ids: section.ids })),
+    ),
+    !props.loading,
   )
   const { onAction, onStatus } = props
   const onSwipe = useCallback(

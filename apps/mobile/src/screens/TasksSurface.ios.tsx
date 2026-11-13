@@ -79,6 +79,7 @@ import { StorageNoticeAlert } from '../components/StorageNoticeAlert'
 import { ANY, useProjectFacet } from '../components/task-filter-facets'
 import { useAgeNow } from '../lib/clock-hooks'
 import { listOrderRevision } from '../lib/list-order-revision'
+import { useSettledOrder } from '../lib/use-settled-order'
 import { workMenuActionIds } from '../lib/work-menu'
 import { color } from '../theme/theme'
 import { type TasksSurfaceProps, taskRowFigure, tasksSubtitle } from './TasksSurface.types'
@@ -148,15 +149,18 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
   const groups = board?.groups ?? LOADING
   const pending = props.booting || groups === LOADING
   const ordered = groups === LOADING ? [] : groups
-  const orderRevision = listOrderRevision(
-    ordered.map((section) => {
-      const savedFold = folds[section.stage][0]
-      return {
-        key: section.stage,
-        folded: board?.isFolded(savedFold) ?? savedFold,
-        ids: section.rows,
-      }
-    }),
+  const orderRevision = useSettledOrder(
+    listOrderRevision(
+      ordered.map((section) => {
+        const savedFold = folds[section.stage][0]
+        return {
+          key: section.stage,
+          folded: board?.isFolded(savedFold) ?? savedFold,
+          ids: section.rows,
+        }
+      }),
+    ),
+    !pending,
   )
   const proposals = board?.proposals ?? LOADING
   const screenable = proposals !== LOADING && proposals > 0
