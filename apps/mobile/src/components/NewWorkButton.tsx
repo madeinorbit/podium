@@ -12,23 +12,25 @@ export function NewWorkButton({
   repoPath,
 }: {
   size?: 28 | 32 | 34
-  renderTrigger?: (open: () => void) => ReactNode
+  renderTrigger?: (open: (tappedRepoPath?: string) => void) => ReactNode
   repoPath?: string | null
 }) {
   const router = useRouter()
   const pathname = usePathname()
-  const open = () =>
+  const open = (tappedRepoPath?: string) => {
+    const project = tappedRepoPath ?? repoPath
     router.push({
       pathname: '/new-issue',
       params: {
         backTo: pathname,
-        ...(repoPath ? { repoPath } : {}),
+        ...(project ? { repoPath: project } : {}),
       },
     })
+  }
   return renderTrigger ? (
     renderTrigger(open)
   ) : (
-    <HeaderButton label="New work" onPress={open} size={size}>
+    <HeaderButton label="New work" onPress={() => open()} size={size}>
       <Icon as={Plus} size={19} color={color.text} />
     </HeaderButton>
   )

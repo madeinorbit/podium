@@ -168,11 +168,9 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
   const subtitle =
     props.mode === 'tab' ? (refreshSubtitle ?? workSubtitle(needYou, working)) : undefined
   // W8: one launcher for every project header's +, opened with that project picked.
-  const [projectRepo, setProjectRepo] = useState<string | null>(null)
-  const openProjectWork = useRef<(() => void) | null>(null)
+  const openProjectWork = useRef<((repoPath: string) => void) | null>(null)
   const onNewInProject = useCallback((repoPath: string) => {
-    setProjectRepo(repoPath)
-    openProjectWork.current?.()
+    openProjectWork.current?.(repoPath)
   }, [])
 
   return (
@@ -201,7 +199,7 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
               <Stack.Toolbar.Button
                 icon="square.and.pencil"
                 accessibilityLabel="New work"
-                onPress={open}
+                onPress={() => open()}
               >
                 New work
               </Stack.Toolbar.Button>
@@ -226,7 +224,6 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
       )}
       {props.mode === 'tab' ? (
         <NewWorkButton
-          repoPath={projectRepo}
           renderTrigger={(open) => {
             // No trigger of its own: the project headers' + buttons open it.
             openProjectWork.current = open
