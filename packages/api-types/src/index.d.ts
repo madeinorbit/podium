@@ -1,6 +1,6 @@
 // Generated from apps/server/src/router.ts. Run bun run api:types. Do not edit.
 import * as _podium_model from '@podium/model';
-import { MachineId, IssueId, UserId, IssueJoinVia, ArtifactId, SessionId, UserRole, UsageBucketWire, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentKind, CredentialId, AgentPhase } from '@podium/model';
+import { MachineId, IssueId, UserId, UserRole, IssueJoinVia, ArtifactId, SessionId, UsageBucketWire, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentKind, CredentialId, AgentPhase } from '@podium/model';
 import { z } from 'zod';
 import * as Protocol from '@podium/protocol';
 import { ModelChoiceWire, ConvergenceState, MobileWebIdentity } from '@podium/protocol';
@@ -725,6 +725,18 @@ interface LinearIssue {
     url: string;
 }
 
+interface UserAccountRow {
+    id: string;
+    displayName: string;
+    email: string | null;
+    accountId?: string | null;
+    avatar?: string | null;
+    role: UserRole;
+    createdAt: string;
+    /** ADR 9's disable-before-remove. A disabled account is not an actor. */
+    disabledAt: string | null;
+}
+
 /** One edge endpoint in a dep report: enough to render "#12 title (open, blocks)". */
 interface DepReportRef {
     seq: number;
@@ -949,18 +961,6 @@ type LogsSetDaemonLevelInput = z.infer<typeof logsSetDaemonLevelInput>;
  *   - `spawning`    a wake spawned a fresh agent to receive it;
  *   - `dead_letter` the target was gone; NOT delivered. */
 type SendDisposition = 'delivered' | 'queued' | 'held' | 'spawning' | 'dead_letter';
-
-interface UserAccountRow {
-    id: string;
-    displayName: string;
-    email: string | null;
-    accountId?: string | null;
-    avatar?: string | null;
-    role: UserRole;
-    createdAt: string;
-    /** ADR 9's disable-before-remove. A disabled account is not an actor. */
-    disabledAt: string | null;
-}
 
 /**
  * ONE ACCOUNT'S TOKEN USAGE: the hour×model buckets for the last 7 days,
