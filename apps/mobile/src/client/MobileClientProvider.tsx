@@ -112,6 +112,7 @@ import { makePlatformSocketLogin } from './native-websocket'
 import { createPlatformConnectivity } from './platform-connectivity'
 import { platformFeedChannel } from './platform-feed-channel'
 import { useOptionalServerProfile } from './ServerProfileGate'
+import { noScreenFocus } from './screen-read-focus'
 import {
   completePendingProfileCleanup,
   loadPendingProfileCleanups,
@@ -396,6 +397,7 @@ function DemoProvider({ children }: { children: ReactNode }) {
       principal={asClientPrincipal(DEMO_PRINCIPAL)}
       createReplicaFn={createReplicaFn}
       routerWindow={routerWindow}
+      screenFocus={noScreenFocus}
       attachRuntime={(runtime) => attachMobilePool(runtime, (cause) => reportError(cause.message))}
     >
       <DemoSlicePublisher replica={demoReplica} />
@@ -913,6 +915,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
       networkEnabled={networkEnabled}
       makeSocket={makeSocket}
       routerWindow={routerWindow}
+      screenFocus={noScreenFocus}
       // Visibility, connectivity and ping cadence, from the platform rather
       // than from browser globals a phone does not have (POD-2055 WP-C).
       // Empty on web, which keeps every DOM default.

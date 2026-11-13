@@ -251,6 +251,9 @@ export interface ClientRuntimeInit<TApi extends PodiumClientApi> {
    */
   /** Where visibility comes from. Default: `document.visibilityState`. */
   visibility?: VisibilitySource
+  /** Optional route-owned focus. null leaves automatic reads/presence empty
+   * until a focused screen attaches; omitted uses the desktop workspace. */
+  screenFocus?: () => UserFocus | null
   /** Connectivity transitions for the outbox. Default: the window's `online`. */
   onlineEvents?: OnlineEvents
   /** Connectivity probe for the outbox. Default: `navigator.onLine`. */
@@ -315,6 +318,26 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   /** Where this client learns whether it is on screen (POD-2055 WP-C4). */
   private readonly visibility: VisibilitySource
+  private screenFocus: ClientRuntimeInit<TApi>['screenFocus']
+  private readonly defaultScreenFocus: ClientRuntimeInit<TApi>['screenFocus']
+
+  /** A route's focus lifetime is independent of the remembered worklist row.
+   * A late blur/unmount from the previous route cannot clear its successor. */
+  readonly attachScreenFocus = (read: () => UserFocus | null): (() => void) => {
+    if (this.destroyed) return () => {}
+    this.screenFocus = read
+    this.refreshScreenFocus()
+    return () => {
+      if (this.screenFocus !== read) return
+      this.screenFocus = this.defaultScreenFocus
+      if (!this.destroyed) this.refreshScreenFocus()
+    }
+  }
+
+  private refreshScreenFocus(): void {
+    this.batch(() => this.reactions.onVisibilityChange())
+    this.watchNavigation()
+  }
   private readonly hostMetricsStore = createHostMetricsStore()
   readonly hostMetrics = {
     subscribe: this.hostMetricsStore.subscribe,
@@ -413,6 +436,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.replica = init.createReplicaFn(init.principal)
     bindStoreStatsOwner(this.replica, this)
     this.visibility = init.visibility ?? domVisibility()
+    this.screenFocus = this.defaultScreenFocus = init.screenFocus
     this.hub = createEngineHub({
       wsClientUrl: init.config.wsClientUrl,
       api: this.api,
@@ -494,6 +518,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       hub: this.hub,
       notices: this.notices,
       isVisible: () => this.visibility.isVisible(),
+      screenFocus: () => this.screenFocus?.(),
       markSessionRead: (sessionId, readAt) => this.services.markSessionRead(sessionId, readAt),
       markIssueRead: (issueId, readAt) => this.services.markIssueRead(issueId, readAt),
       ...(init.workspacePruneGraceMs !== undefined
@@ -540,7 +565,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   /** The provider supplies addressed pool ports once, for this principal. */
   readonly ownConversations = (options: ConversationCacheOptions): ConversationCache => {
     if (this.destroyed) throw new Error('The conversation owner has changed')
-    return (this.conversationCache ??= new ConversationCache(options))
+    this.conversationCache ??= new ConversationCache(options)
+    return this.conversationCache
   }
 
   // ------------------------------------------------------------------ read seam
@@ -899,6 +925,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     const previous = this.stopNavigationWatch
     this.stopNavigationWatch = undefined
     const provider = this.state.navigation
+    const screenFocus = this.screenFocus?.()
     if (!provider?.watch) {
       previous?.()
       return
@@ -907,7 +934,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // window has no addressed pool cells to watch and needs no row reaction.
     if (
       provider.onTopology &&
-      !focusedPaneSession(this.state) &&
+      !focusedPaneSession(this.state, screenFocus) &&
+      !screenFocus?.issueId &&
+      !screenFocus?.openIssueId &&
       !this.state.selectedIssueId &&
       !this.state.openIssueId &&
       !this.pendingSessionNavigation &&
@@ -934,9 +963,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       provider,
       () => {
         const st = this.state
-        const focused = focusedPaneSession(st)
+        const screenFocus = this.screenFocus?.()
+        const focused = focusedPaneSession(st, screenFocus)
         const session = focused ? provider.session(focused) : undefined
-        const issue = foregroundIssue(st)
+        const issue = foregroundIssue(st, screenFocus)
         const pending = this.pendingNavigation
         return [
           this.pendingNavigationTopology
@@ -1066,12 +1096,17 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     const read = () => runInAction(() => selection.selectedId as IssueId | null)
     const owner = this.state
     Object.defineProperty(this.state, 'selectedIssueId', {
-      configurable: true, enumerable: true, get: read,
+      configurable: true,
+      enumerable: true,
+      get: read,
       set(this: EngineState, id: IssueId | null) {
         // Navigation plans inherit state. A speculative overlay owns its patch.
         if (this !== owner) {
           Object.defineProperty(this, 'selectedIssueId', {
-            configurable: true, enumerable: true, writable: true, value: id,
+            configurable: true,
+            enumerable: true,
+            writable: true,
+            value: id,
           })
         } else selection.select(id)
       },
@@ -1079,7 +1114,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     return () => {
       if (Object.getOwnPropertyDescriptor(this.state, 'selectedIssueId')?.get !== read) return
       Object.defineProperty(this.state, 'selectedIssueId', {
-        configurable: true, enumerable: true, writable: true, value: read(),
+        configurable: true,
+        enumerable: true,
+        writable: true,
+        value: read(),
       })
     }
   }
@@ -1404,9 +1442,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         canShow =
           worktrees.some((w) => machinePathsEqual(w.path, worktree)) ||
           crew === NAVIGATION_LOADING ||
-          (crew ?? []).some(
-            (s) => isMachinePathWithinRoot(worktree, s.cwd),
-          )
+          (crew ?? []).some((s) => isMachinePathWithinRoot(worktree, s.cwd))
       }
       if (canShow) patch.selectedWorktree = route.worktree
     }
@@ -1572,6 +1608,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   }
 
   private getUserFocus(): UserFocus {
+    if (this.screenFocus) {
+      if (!this.visibility.isVisible()) return { visibleSessionIds: [] }
+      return this.screenFocus() ?? { visibleSessionIds: [] }
+    }
     return userFocus(this.state)
   }
 

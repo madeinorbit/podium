@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { type LayoutChangeEvent, StyleSheet, View } from 'react-native'
 import { useMissionOpening, useStoreActions, useTaskSeatMemory } from '../client/hooks'
 import { useMobilePool } from '../client/mobile-pool'
+import { useScreenReadFocus } from '../client/screen-read-focus'
 import type { MobileTrpc } from '../client/trpc'
 import { useIssueCloseGuard } from '../client/use-issue-close'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
@@ -130,6 +131,7 @@ export const MissionScreen = observer(function MissionScreen() {
       : undefined
   const currentIssue = currentValue && currentValue !== LOADING ? currentValue : root
   const headerIssue = currentIssue ?? root
+  useScreenReadFocus(headerIssue?.id, current?.sessionId)
 
   const openSession = useCallback((session: SessionView) => {
     setPinnedSessionId(session.sessionId)

@@ -156,7 +156,12 @@ export function visibleLeafPaneIds(st: EngineState): string[] {
  * layouts). Anything else reads the panes, so a hidden or third pane is
  * reported exactly as it is rendered.
  */
-export function visibleTabIds(st: EngineState): SessionId[] {
+export function visibleTabIds(st: EngineState, screenFocus?: UserFocus | null): SessionId[] {
+  if (screenFocus !== undefined)
+    return (
+      screenFocus?.visibleSessionIds ??
+      (screenFocus?.focusedSessionId ? [screenFocus.focusedSessionId] : [])
+    )
   const ws = currentWorkspace(st)
   if (allTabIds(ws).length === 0) {
     return [st.paneA, st.split ? st.paneB : null].filter((id): id is SessionId => id != null)
@@ -177,7 +182,11 @@ export function visibleTabIds(st: EngineState): SessionId[] {
  * The scalar path survives for the empty-workspace case {@link visibleTabIds}
  * describes.
  */
-export function focusedPaneSession(st: EngineState): SessionId | null {
+export function focusedPaneSession(
+  st: EngineState,
+  screenFocus?: UserFocus | null,
+): SessionId | null {
+  if (screenFocus !== undefined) return screenFocus?.focusedSessionId ?? null
   const ws = currentWorkspace(st)
   if (allTabIds(ws).length === 0) {
     return st.split ? (st.focusedPane === 'A' ? st.paneA : st.paneB) : st.paneA
@@ -484,9 +493,7 @@ export function workspaceMembership(
             else if (issue?.worktreePath) worktrees.push(issue.worktreePath)
           }
         }
-        return (
-          loading || worktrees.some((wt) => isMachinePathWithinRoot(wt, session.cwd))
-        )
+        return loading || worktrees.some((wt) => isMachinePathWithinRoot(wt, session.cwd))
       }
     }
   }
@@ -516,9 +523,18 @@ export function referencedTabIds(st: Pick<EngineState, 'workspaces'>): Set<strin
  *
  *  A miss is final, not pending: under a scoped slice the selected issue may
  *  simply not be visible to this principal. */
-export function foregroundIssue(st: EngineState): NavigationIssue | undefined {
+export function foregroundIssue(
+  st: EngineState,
+  screenFocus?: UserFocus | null,
+): NavigationIssue | undefined {
   const id =
-    st.view === 'issues' ? st.openIssueId : st.view === 'workspace' ? st.selectedIssueId : null
+    screenFocus !== undefined
+      ? (screenFocus?.openIssueId ?? screenFocus?.issueId)
+      : st.view === 'issues'
+        ? st.openIssueId
+        : st.view === 'workspace'
+          ? st.selectedIssueId
+          : null
   if (!id) return undefined
   if (st.navigation) {
     const issue = st.navigation.issue(id)

@@ -21,6 +21,7 @@ import {
   useState,
 } from 'react'
 import { useStoreActions } from '../client/hooks'
+import { useScreenReadFocus } from '../client/screen-read-focus'
 import type { MobileTrpc } from '../client/trpc'
 import {
   useSessionContextBooting as useBooting,
@@ -88,6 +89,7 @@ export function SessionScreen() {
   const spawnPending = useSpawnPending(sessionId)
   const observedSpawnPrompt = useSpawnPrompt(sessionId)
   const issue = useIssue(session?.issueId)
+  useScreenReadFocus(issue?.id, session?.sessionId)
   const booting = useBooting()
   // A short id or birth ref in the route is answered by the server (POD-4637);
   // a `session` answer is the full id this route should have named.

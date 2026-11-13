@@ -16,7 +16,7 @@ import { omitGone } from '@podium/client-graph/lookup'
  *               other way would not be testing the path the product uses.
  */
 
-import type { ClientRuntime } from '@podium/client-core/engine'
+import type { ClientRuntime, UserFocus, VisibilitySource } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { type StoreNotices, StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import type { IssueViewModel, Replica } from '@podium/client-core/replica'
@@ -47,6 +47,8 @@ import { createMobileTestReplica } from './test-replica'
 import type { MobileTrpc } from './trpc'
 
 export interface MobileStoreFixture {
+  visibility?: VisibilitySource
+  screenFocus?: () => UserFocus | null
   /** A pre-seeded production kernel facade for addressed feed consumers. */
   replica?: Replica
   /** Exercise an app's real pool attachment on the provider-owned runtime. */
@@ -225,6 +227,8 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
         principal={principal}
         createReplicaFn={createReplicaFn}
         routerWindow={routerWindow}
+        visibility={fixture.visibility}
+        screenFocus={fixture.screenFocus}
         attachRuntime={
           fixture.attachRuntime ??
           ((runtime) =>

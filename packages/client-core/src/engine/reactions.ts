@@ -50,7 +50,7 @@ import {
   workspacesPatch,
   workspaceWritePatch,
 } from './state'
-import type { StoreNotices } from './types'
+import type { StoreNotices, UserFocus } from './types'
 
 /** Pruning asks only about identities held by this window. Loading rows stay
  * provisional, including files whose session scope is still loading. */
@@ -118,6 +118,9 @@ export interface ReactionPorts {
    * own push) and marked rows read on a screen nobody was looking at.
    */
   readonly isVisible: () => boolean
+  /** Native routes supply actual screen focus instead of desktop selection.
+   * undefined keeps desktop behavior; null means no task/session is on top. */
+  readonly screenFocus?: () => UserFocus | null | undefined
   /** Test seam: overrides {@link WORKSPACE_PRUNE_GRACE_MS}. */
   readonly pruneGraceMs?: number
   /** The worktree a `?pane=` link named while its session has not arrived yet
@@ -143,7 +146,17 @@ export class Reactions {
     const reads = (kind: 'issue' | 'session') =>
       new ReadAcknowledgements({
         observe: (id, at) => ports.state().navigation.observeRead?.(kind, id, at) ?? true,
-        allowed: (id) => ports.state().navigation.automaticReadAllowed?.(kind, id) ?? true,
+        allowed: (id) => {
+          const focus = ports.screenFocus?.()
+          if (focus !== undefined) {
+            const focusedId =
+              kind === 'issue'
+                ? foregroundIssue(ports.state(), focus)?.id
+                : focusedPaneSession(ports.state(), focus)
+            if (!this.isVisible() || focusedId !== id) return false
+          }
+          return ports.state().navigation.automaticReadAllowed?.(kind, id) ?? true
+        },
         leave: (id) => ports.state().navigation.leaveReadVisit?.(kind, id),
         save: (id, at) =>
           kind === 'issue'
@@ -324,7 +337,8 @@ export class Reactions {
       const moves = changes
         .filter((change) => change.before && change.after && change.before.cwd !== change.after.cwd)
         .sort((a, b) => {
-          const left = a.after?.order ?? '', right = b.after?.order ?? ''
+          const left = a.after?.order ?? '',
+            right = b.after?.order ?? ''
           return left < right ? -1 : left > right ? 1 : a.id.localeCompare(b.id)
         })
       for (const change of moves) {
@@ -332,13 +346,21 @@ export class Reactions {
         const to = st.navigation.worktreeForCwd(change.after!.cwd)
         if (from === NAVIGATION_LOADING || to === NAVIGATION_LOADING) return false
         if (from === to) continue
-        if (follow === null && to != null && from != null && from === st.selectedWorktree && visible.has(change.id)) {
+        if (
+          follow === null &&
+          to != null &&
+          from != null &&
+          from === st.selectedWorktree &&
+          visible.has(change.id)
+        ) {
           follow = to
         } else {
           const row = st.navigation.worktreeSession?.(change.id)
           if (row === NAVIGATION_LOADING) return false
-          notices.push({ title: `${row?.name || row?.title || 'A session'} moved worktree`,
-            destination: to ?? change.after?.cwd })
+          notices.push({
+            title: `${row?.name || row?.title || 'A session'} moved worktree`,
+            destination: to ?? change.after?.cwd,
+          })
         }
       }
       // Resolve the complete changed neighbourhood before producing effects,
@@ -384,7 +406,11 @@ export class Reactions {
   worktreeFallback(): boolean {
     const st = this.ports.state()
     if (!st.reposLoaded) return true
-    if (st.navigation.registeredWorktree && st.navigation.hasWorktreeSession && st.navigation.firstWorktree) {
+    if (
+      st.navigation.registeredWorktree &&
+      st.navigation.hasWorktreeSession &&
+      st.navigation.firstWorktree
+    ) {
       if (st.selectedWorktree) {
         const known = st.navigation.registeredWorktree(st.selectedWorktree)
         if (known === NAVIGATION_LOADING) return false
@@ -408,8 +434,8 @@ export class Reactions {
     if (known || st.selectedWorktree === this.ports.linkedWorktree?.()) return true
     const sessions = st.navigation.worktreeSessions?.()
     if (sessions === NAVIGATION_LOADING) return false
-    const hasSession = (sessions ?? []).some(
-      (s) => isMachinePathWithinRoot(selectedWorktree, s.cwd),
+    const hasSession = (sessions ?? []).some((s) =>
+      isMachinePathWithinRoot(selectedWorktree, s.cwd),
     )
     if (hasSession) return true
     this.ports.publish({ selectedWorktree: worktrees[0]?.path ?? null })
@@ -428,17 +454,21 @@ export class Reactions {
   reportViewState(): void {
     const st = this.ports.state()
     const tabVisible = this.isVisible()
+    const screenFocus = this.ports.screenFocus?.()
     // The dock's shell (#23) renders OUTSIDE the panes — without reporting it
     // here the server's viewVisible gate drops its resizes and the terminal
     // stays pinned to the spawn-default 80×24.
     const visible = tabVisible
       ? [
           ...new Set(
-            [...visibleTabIds(st), st.dockVisibleSession].filter((x): x is SessionId => x != null),
+            [
+              ...visibleTabIds(st, screenFocus),
+              ...(screenFocus === undefined ? [st.dockVisibleSession] : []),
+            ].filter((x): x is SessionId => x != null),
           ),
         ]
       : []
-    const focused = tabVisible ? focusedPaneSession(st) : null
+    const focused = tabVisible ? focusedPaneSession(st, screenFocus) : null
     // Rendered mode (native/chat) for each visible session — default 'native'
     // until its AgentPanel reports its effective mode.
     const modes: Record<string, 'native' | 'chat'> = {}
@@ -465,7 +495,7 @@ export class Reactions {
    */
   updateIssueVisitBaseline(): void {
     const state = this.ports.state()
-    const issue = this.isVisible() ? foregroundIssue(state) : undefined
+    const issue = this.isVisible() ? foregroundIssue(state, this.ports.screenFocus?.()) : undefined
     if (!issue) {
       if (state.issueVisitBaseline !== null) this.ports.publish({ issueVisitBaseline: null })
       return
@@ -484,7 +514,11 @@ export class Reactions {
    * a hidden workspace must never acknowledge its session's activity. */
   updateMarkReadTimer(): void {
     const st = this.ports.state()
-    const focusedId = this.isVisible() && st.view === 'workspace' ? focusedPaneSession(st) : null
+    const screenFocus = this.ports.screenFocus?.()
+    const focusedId =
+      this.isVisible() && (screenFocus !== undefined || st.view === 'workspace')
+        ? focusedPaneSession(st, screenFocus)
+        : null
     const session = focusedId ? navigationSession(st, focusedId) : undefined
     this.sessionReads.update(
       session?.sessionId ?? null,
@@ -495,7 +529,7 @@ export class Reactions {
 
   updateIssueMarkReadTimer(): void {
     const st = this.ports.state()
-    const issue = this.isVisible() ? foregroundIssue(st) : undefined
+    const issue = this.isVisible() ? foregroundIssue(st, this.ports.screenFocus?.()) : undefined
     const activity = issue ? navigationActivityAt(st, issue) : undefined
     const cursor = issue ? navigationIssueReadAt(st, issue.id) : null
     this.issueReads.update(

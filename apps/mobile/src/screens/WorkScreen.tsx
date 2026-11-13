@@ -129,11 +129,10 @@ const PoolWorkScreen = observer(function PoolWorkScreen({ mode }: { mode: WorkMo
           }),
         () => {
           router.push(`/mission/${encodeURIComponent(issue.id)}`)
-          void store.markIssueRead(issue.id)
         },
       )
     },
-    [filters, model, router, store],
+    [filters, model, router],
   )
   const openSession = useCallback(
     (sessionId: SessionId, rowKey: string) => {

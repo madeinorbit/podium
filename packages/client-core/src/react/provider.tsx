@@ -95,6 +95,7 @@ import {
   type Store,
   type StoreNotices,
   type StoreServerConfig,
+  type UserFocus,
 } from '../engine/types'
 import type { VisibilitySource } from '../engine/visibility'
 import type { CreateEngineOutbox } from '../engine/wiring'
@@ -163,6 +164,7 @@ export interface StoreProviderProps<TApi extends PodiumClientApi> {
    * native answers (AppState, NetInfo) and web passes none of them.
    */
   visibility?: VisibilitySource
+  screenFocus?: () => UserFocus | null
   onlineEvents?: OnlineEvents
   isOnline?: () => boolean
   heartbeatIntervalMs?: number
@@ -197,6 +199,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
   feed,
   createOutboxFn,
   visibility,
+  screenFocus,
   onlineEvents,
   isOnline,
   heartbeatIntervalMs,
@@ -274,6 +277,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
         feed,
         createOutboxFn,
         visibility,
+        screenFocus,
         onlineEvents,
         isOnline,
         heartbeatIntervalMs,
@@ -386,7 +390,9 @@ export function useRuntimeSelector<T, TApi extends PodiumClientApi = PodiumClien
     let listener: (() => void) | undefined
     const arm = () => {
       stop?.()
-      stop = listener ? owner.onLocals(keys as import('../engine/keyed-inputs').LocalKey[], listener) : undefined
+      stop = listener
+        ? owner.onLocals(keys as import('../engine/keyed-inputs').LocalKey[], listener)
+        : undefined
     }
     const access = new Proxy(owner.access, {
       get(target, key, receiver) {
@@ -404,22 +410,37 @@ export function useRuntimeSelector<T, TApi extends PodiumClientApi = PodiumClien
         // useSyncExternalStore may read repeatedly between publications. Keep
         // structured selections stable while their addressed locals agree,
         // including the render-to-subscribe gap.
-        if (selected && readSelector === current.current.selector && keys.every(key =>
-          Object.is(localValues.get(key), owner.readLocal(key as import('../engine/keyed-inputs').LocalKey))))
+        if (
+          selected &&
+          readSelector === current.current.selector &&
+          keys.every((key) =>
+            Object.is(
+              localValues.get(key),
+              owner.readLocal(key as import('../engine/keyed-inputs').LocalKey),
+            ),
+          )
+        )
           return selected.value
         nextKeys = new Set()
         localValues.clear()
         const value = current.current.selector(access)
         readSelector = current.current.selector
         const next = [...nextKeys].sort()
-        if (next.join('|') !== keys.join('|')) { keys = next; arm() }
+        if (next.join('|') !== keys.join('|')) {
+          keys = next
+          arm()
+        }
         if (!selected || !current.current.isEqual(selected.value, value)) selected = { value }
         return selected.value
       },
       subscribe(notify: () => void) {
         listener = notify
         arm()
-        return () => { listener = undefined; stop?.(); stop = undefined }
+        return () => {
+          listener = undefined
+          stop?.()
+          stop = undefined
+        }
       },
     }
   }, [owner])

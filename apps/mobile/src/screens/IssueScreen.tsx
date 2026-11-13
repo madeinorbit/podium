@@ -20,6 +20,7 @@ import { useConnected, useStoreActions, useTrpc } from '../client/hooks'
 import { issueObserver as observer } from '../client/issue-observer'
 import { IssueOpening, useIssueOpening } from '../client/issue-opening'
 import { useMobilePool } from '../client/mobile-pool'
+import { useScreenReadFocus } from '../client/screen-read-focus'
 import { useIssueCloseGuard } from '../client/use-issue-close'
 import {
   resolveEdgeFromPool,
@@ -118,6 +119,7 @@ const IssueScreenBody = observer(function IssueScreenBody({
   )
   const router = useRouter()
   const issue = useIssueModel(issueId)
+  useScreenReadFocus(issue?.id)
   const booting = useBooting()
   const connected = useConnected()
 

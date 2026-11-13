@@ -4,6 +4,7 @@ import { issueDisplayRef } from '@podium/protocol'
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
+import { useScreenReadFocus } from '../../../src/client/screen-read-focus'
 import {
   useSessionContextIssue as useIssue,
   useSessionContextSession as useSession,
@@ -30,6 +31,7 @@ export default function TerminalRoute() {
   const sessionId = raw ? asSessionId(raw) : undefined
   const session = useSession(sessionId)
   const issue = useIssue(session?.issueId)
+  useScreenReadFocus(issue?.id, session?.sessionId)
 
   const [active, setActive] = useState(true)
   useFocusEffect(

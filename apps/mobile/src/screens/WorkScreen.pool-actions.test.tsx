@@ -24,6 +24,7 @@ import { type ReactNode, useState } from 'react'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import { createSidebarActionsFixture } from '../../../web/test/sidebar-actions-fixture'
 import type { MobilePool } from '../client/mobile-pool'
+import { noScreenFocus } from '../client/screen-read-focus'
 import { WorkIssueMenu } from '../components/WorkIssueMenu'
 import { type PoolWorkMenuData, resolvePoolWorkMenu } from '../lib/pool-work-menu'
 import type { MobileWorkSection } from '../lib/work-sections'
@@ -304,6 +305,7 @@ async function mount(prepare?: (fixture: Fixture) => void, probeId?: string) {
   })
   const view = render(
     <StoreProvider
+      screenFocus={noScreenFocus}
       principal={asClientPrincipal(asUserId('sidebar-pool-actions'))}
       config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }}
       api={fixture.api}
@@ -417,7 +419,7 @@ afterAll(() => {
 })
 
 describe('mobile pool work-list actions', () => {
-  it('opens the mission before the deferred mark-read, then restores unread on refusal', async () => {
+  it('opens the mission and waits for its screen to take focus before marking read', async () => {
     await mount((f) => f.patchIssue(TARGET, { readAt: null }))
     expect(value().emphasizeUnread).toBe(true)
     const navigation = vi.fn(() => expect(requests).toEqual([]))
@@ -425,12 +427,8 @@ describe('mobile pool work-list actions', () => {
     fireEvent.click(button())
     await waitFor(() => expect(router.push).toHaveBeenCalledWith(`/mission/${TARGET}`))
     expect(navigation).toHaveBeenCalledOnce()
-    const write = await request('issues.markRead')
-    expect(write.input).toMatchObject({ id: TARGET, mutationId: expect.any(String) })
-    expect(pool().readCursor(TARGET)).toBe(iso(0))
-    expect(value().emphasizeUnread).toBe(false)
     await settled()
-    await settle(write)
+    expect(requests).toEqual([])
     expect(value().emphasizeUnread).toBe(true)
   })
 
@@ -483,8 +481,11 @@ describe('mobile pool work-list actions', () => {
     expect(first.input).toMatchObject({ id: TARGET, tucked: true, mutationId: expect.any(String) })
     expect(screen.queryByRole('button', { name: label })).toBeNull()
     expect(
-      mobileWorkView(pool()).mobileSections()
-        .sectionKeys.some((key) => mobileWorkView(pool()).mobileSections().section(key).closedIds.includes(TARGET)),
+      mobileWorkView(pool())
+        .mobileSections()
+        .sectionKeys.some((key) =>
+          mobileWorkView(pool()).mobileSections().section(key).closedIds.includes(TARGET),
+        ),
     ).toBe(true)
     await settled()
     await settle(first)
@@ -516,8 +517,11 @@ describe('mobile pool work-list actions', () => {
     await settled()
     await settle(write)
     expect(
-      mobileWorkView(pool()).mobileSections()
-        .sectionKeys.some((key) => mobileWorkView(pool()).mobileSections().section(key).closedIds.includes(TARGET)),
+      mobileWorkView(pool())
+        .mobileSections()
+        .sectionKeys.some((key) =>
+          mobileWorkView(pool()).mobileSections().section(key).closedIds.includes(TARGET),
+        ),
     ).toBe(true)
   })
 
@@ -549,8 +553,14 @@ describe('mobile pool work-list actions', () => {
     const write = await request('issues.undefer')
     expect(value().issue.deferred).toBe(false)
     expect(
-      mobileWorkView(pool()).mobileSections()
-        .sectionKeys.some((key) => mobileWorkView(pool()).mobileSections().section(key).data.some((row) => row === TARGET)),
+      mobileWorkView(pool())
+        .mobileSections()
+        .sectionKeys.some((key) =>
+          mobileWorkView(pool())
+            .mobileSections()
+            .section(key)
+            .data.some((row) => row === TARGET),
+        ),
     ).toBe(true)
     await settled()
     await settle(write)
@@ -676,14 +686,10 @@ describe('mobile pool work-list actions', () => {
       )
       const write = await request('issues.setPlacement')
       expect(write.input).toMatchObject({ placement, originId: 'synthetic-1' })
-      expect(value().issue.parentId ?? null).toBe(
-        placement === 'own' ? null : 'synthetic-1',
-      )
+      expect(value().issue.parentId ?? null).toBe(placement === 'own' ? null : 'synthetic-1')
       await settled()
       await settle(write)
-      expect(value().issue.parentId ?? null).toBe(
-        placement === 'own' ? 'synthetic-1' : null,
-      )
+      expect(value().issue.parentId ?? null).toBe(placement === 'own' ? 'synthetic-1' : null)
     })
 
   it('delete confirms the raw non-shell cascade count and restores the row on refusal', async () => {
@@ -704,8 +710,14 @@ describe('mobile pool work-list actions', () => {
     await choose('Delete')
     const write = await request('issues.delete')
     expect(
-      mobileWorkView(pool()).mobileSections()
-        .sectionKeys.every((key) => mobileWorkView(pool()).mobileSections().section(key).data.every((row) => row !== TARGET)),
+      mobileWorkView(pool())
+        .mobileSections()
+        .sectionKeys.every((key) =>
+          mobileWorkView(pool())
+            .mobileSections()
+            .section(key)
+            .data.every((row) => row !== TARGET),
+        ),
     ).toBe(true)
     await settled()
     await settle(write)
@@ -728,9 +740,13 @@ describe('mobile pool work-list actions', () => {
         })
         const split = mobileWorkView(pool()).mobileSections()
         expect(split.sectionKeys.includes('needs-you')).toBe(true)
-        const ordering = split.section(split.orderingSectionKeys.find((key) => split.section(key).kind === scope)!)
+        const ordering = split.section(
+          split.orderingSectionKeys.find((key) => split.section(key).kind === scope)!,
+        )
         expect(ordering.allIds.some((row) => row === 'synthetic-1')).toBe(true)
-        expect(split.orderingSectionKeys.every((key) => split.section(key).kind !== 'attention')).toBe(true)
+        expect(
+          split.orderingSectionKeys.every((key) => split.section(key).kind !== 'attention'),
+        ).toBe(true)
         const before = ordering.allIds.slice()
         const moving = before.at(-1)!
         const patches = planReorderKeys(
@@ -744,15 +760,13 @@ describe('mobile pool work-list actions', () => {
             patches.map(({ id, ...fields }) => referenceState(runtime).updateIssue(id, fields)),
           )
         })
-        expect(
-          mobileWorkView(pool()).mobileSections()
-            .section(ordering.key).allIds[0]!,
-        ).toBe(moving)
+        expect(mobileWorkView(pool()).mobileSections().section(ordering.key).allIds[0]!).toBe(
+          moving,
+        )
         await settled()
         for (const changed of patches) await settle(await request('issues.update', changed.id))
         expect(
-          mobileWorkView(pool()).mobileSections()
-            .section(ordering.key).allIds.slice(),
+          mobileWorkView(pool()).mobileSections().section(ordering.key).allIds.slice(),
         ).toEqual(before)
       })
 

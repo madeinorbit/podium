@@ -8,6 +8,7 @@ import { useCallback, useState } from 'react'
 import { Platform, StyleSheet, View } from 'react-native'
 import { useMissionOpening } from '../client/hooks'
 import { useMobilePoolProjection } from '../client/mobile-pool'
+import { useScreenReadFocus } from '../client/screen-read-focus'
 import { DetailSkeleton } from '../components/LaunchPlaceholders'
 import { MissionDeck } from '../components/MissionDeck'
 import { EmptyState } from '../components/ui'
@@ -32,6 +33,7 @@ export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
   const ready = resolved && screen?.ready === true
   const rootValue = ready ? screen.reader.issue(screen.rootId) : undefined
   const root = rootValue && rootValue !== LOADING ? rootValue : undefined
+  useScreenReadFocus(root?.id)
   const router = useRouter()
   const [menuIssue, setMenuIssue] = useState<IssueNavigationModel | null>(null)
   const menuIssueId = menuIssue?.id
