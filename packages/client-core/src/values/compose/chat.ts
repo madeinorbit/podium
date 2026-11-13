@@ -525,7 +525,7 @@ export function composerState(input: {
   headless: boolean
   turnRunning: boolean
   compact: boolean
-  wakeRequestedAt?: number
+  wakeRequestedAt?: number | null
 }): ComposerState {
   const { session, headless, turnRunning, compact } = input
   // Archive is retirement, not another parked state. In particular, an
@@ -676,7 +676,7 @@ export function chatActivityState(input: {
   headless: boolean
   turnRunning: boolean
   justSent: boolean
-  wakeRequestedAt?: number
+  wakeRequestedAt?: number | null
 }): ChatActivity | null {
   const { session, headless, turnRunning, justSent } = input
   if (!headless) return chatActivity(session, justSent, undefined, input.wakeRequestedAt)

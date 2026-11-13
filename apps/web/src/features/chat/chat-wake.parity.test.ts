@@ -104,6 +104,9 @@ describe.each(['desktop', 'phone'] as const)('%s wake outcome', (client) => {
       expect(view.activity).toBeNull()
       expect(view.composer.placeholder).toBe('Message the agent to resume it…')
       // A fresh reader cannot reconstruct waking from the leftover queue.
+      move('hibernated')
+      expect(view.activity).toBeNull()
+      expect(view.composer.placeholder).toBe('Message the agent to resume it…')
       const reopened =
         service instanceof MobileConversation
           ? new MobileChatViewModel(service, pool)

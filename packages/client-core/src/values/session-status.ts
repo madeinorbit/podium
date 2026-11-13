@@ -259,9 +259,10 @@ export interface ChatActivity {
 export function sessionWaking(
   meta: Pick<SessionView, 'status' | 'queuedMessageCount' | 'stoppedAt' | 'agentState'> | undefined,
   justSent = false,
-  wakeRequestedAt?: number,
+  wakeRequestedAt?: number | null,
 ): boolean {
   if (!meta) return false
+  if (wakeRequestedAt === null) return false
   if (meta.agentState?.phase === 'errored' && meta.agentState.error?.retryable === false)
     return false
   const queued = (meta.queuedMessageCount ?? 0) > 0
@@ -331,7 +332,7 @@ export function chatActivity(
     | undefined,
   justSent: boolean,
   offer = meta?.offer,
-  wakeRequestedAt?: number,
+  wakeRequestedAt?: number | null,
 ): ChatActivity | null {
   if (!meta) return null
   if (sessionWaking(meta, justSent, wakeRequestedAt))

@@ -161,23 +161,27 @@ export class Sends {
     })
   }
 
-  /** Server time of the newest message still in flight.
-   * Local optimistic timestamps cannot be compared with session.stoppedAt. */
-  @lazy get wakeRequestedAt(): number | undefined {
+  /** Server time of the newest message still in flight, or null when every
+   * visible attempt failed. Local times cannot be compared with stoppedAt. */
+  @lazy get wakeRequestedAt(): number | null | undefined {
     let latest: number | undefined
+    let inFlight = false
+    let failed = false
     for (const bubble of this.bubbles) {
+      if (bubble.state === 'failed' || bubble.state === 'unknown') failed = true
       if (
-        !bubble.record ||
-        (bubble.state !== 'sending' &&
-          bubble.state !== 'queued' &&
-          bubble.state !== 'sent' &&
-          bubble.state !== 'accepted')
+        bubble.state !== 'sending' &&
+        bubble.state !== 'queued' &&
+        bubble.state !== 'sent' &&
+        bubble.state !== 'accepted'
       )
         continue
+      inFlight = true
+      if (!bubble.record) continue
       const at = Date.parse(bubble.record.createdAt)
       if (Number.isFinite(at) && (latest === undefined || at > latest)) latest = at
     }
-    return latest
+    return latest ?? (!inFlight && failed ? null : undefined)
   }
 
   @action start(): void {

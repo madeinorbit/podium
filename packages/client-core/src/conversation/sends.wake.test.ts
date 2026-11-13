@@ -54,7 +54,7 @@ describe('shared wake request ordering', () => {
         expect(fixture.model.wakeRequestedAt).toBe(Date.parse(createdAt))
       }
       publish('failed')
-      expect(fixture.model.wakeRequestedAt).toBeUndefined()
+      expect(fixture.model.wakeRequestedAt).toBeNull()
       publish('stored', 'invalid')
       expect(fixture.model.wakeRequestedAt).toBeUndefined()
     } finally {
