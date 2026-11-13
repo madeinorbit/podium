@@ -190,6 +190,11 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/conversations/registry.ts:pathsOfNativeIds', SIZES],
   ['apps/server/src/store/transcript-costs.ts:costsOfIssues', SIZES],
   ['apps/server/src/store/grants.ts:grantsOfResources', SIZES],
+  // Credential management Task 4: the credentials a person was given, their
+  // allowed machines, and the grants to a person or to all members.
+  ['apps/server/src/store/credentials.ts:credentialsByIds', SIZES],
+  ['apps/server/src/store/credentials.ts:allowedMachinesOfMany', SIZES],
+  ['apps/server/src/store/grants.ts:grantsToGrantees', SIZES],
   ['apps/server/src/store/grants.ts:grantsOfResourceKeys', ['1x1', '2x4', '4x512']],
   ['apps/server/src/store/shipping.ts:activeOrdersOfLane', SIZES],
   ['apps/server/src/store/grants.ts:audiencesOf', SIZES],

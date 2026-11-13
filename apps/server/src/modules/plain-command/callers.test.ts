@@ -46,6 +46,7 @@ import {
 import { NativeLoginService } from '../accounts/native-login'
 import { ACCOUNT_COMMANDS_TRPC } from '../accounts/registry'
 import { EventBus } from '../bus'
+import { CREDENTIAL_COMMANDS_TRPC } from '../credentials/commands'
 import { coarselyPermitted, contractFrontDoor } from '../front-door'
 import {
   AUTH_COMMANDS_TRPC,
@@ -70,12 +71,17 @@ const CONTRACTS = new Map<string, AnyCommandContract>(
     ...Object.values(PERF_COMMANDS_TRPC),
     ...Object.values(SETTINGS_COMMANDS_TRPC),
     ...Object.values(VAULT_COMMANDS_TRPC),
+    ...Object.values(CREDENTIAL_COMMANDS_TRPC),
   ].map((c) => [c.contract.name, c.contract as AnyCommandContract]),
 )
 
 /** The commands whose table entry declares a target check (`entry.ts`, step 4). */
 const TARGET_CHECKS = new Map<string, PlainTargetCheck>(
-  [...Object.values(ACCOUNT_COMMANDS_TRPC), ...Object.values(VAULT_COMMANDS_TRPC)].flatMap((c) =>
+  [
+    ...Object.values(ACCOUNT_COMMANDS_TRPC),
+    ...Object.values(VAULT_COMMANDS_TRPC),
+    ...Object.values(CREDENTIAL_COMMANDS_TRPC),
+  ].flatMap((c) =>
     'targetPermitted' in c && c.targetPermitted
       ? [[c.contract.name, c.targetPermitted] as const]
       : [],
@@ -224,6 +230,50 @@ const CALLERS: readonly {
   { command: 'telemetry.set', who: 'member', caller: 'Settings → Privacy', expect: 'lost' },
   { command: 'telemetry.resetId', who: 'member', caller: 'Settings → Privacy', expect: 'lost' },
   { command: 'vault.reset', who: 'member', caller: 'podium vault reset', expect: 'floor' },
+  // Every member manages their own credentials (credential management Task 4).
+  { command: 'credentials.add', who: 'member', caller: 'credentials page (Task 17)', expect: 'ok' },
+  {
+    command: 'credentials.allowMachine',
+    who: 'member',
+    caller: 'credentials page (Task 17)',
+    expect: 'ok',
+  },
+  {
+    command: 'credentials.disallowMachine',
+    who: 'member',
+    caller: 'credentials page (Task 17)',
+    expect: 'ok',
+  },
+  {
+    command: 'credentials.remove',
+    who: 'member',
+    caller: 'credentials page (Task 17)',
+    expect: 'ok',
+  },
+  {
+    command: 'credentials.rename',
+    who: 'member',
+    caller: 'credentials page (Task 17)',
+    expect: 'ok',
+  },
+  {
+    command: 'credentials.renew',
+    who: 'member',
+    caller: 'credentials page (Task 17)',
+    expect: 'ok',
+  },
+  {
+    command: 'credentials.share',
+    who: 'member',
+    caller: 'credentials page (Task 17)',
+    expect: 'ok',
+  },
+  {
+    command: 'credentials.unshare',
+    who: 'member',
+    caller: 'credentials page (Task 17)',
+    expect: 'ok',
+  },
   {
     command: 'logs.setLevel',
     who: 'member',
@@ -297,6 +347,15 @@ const CALLERS: readonly {
   { command: 'telemetry.resetId', who: 'agent', caller: 'none today', expect: 'floor' },
   // Deleting every stored secret is an admin person's decision, never an agent's.
   { command: 'vault.reset', who: 'agent', caller: 'none today', expect: 'floor' },
+  // A credential write is a person's, never an agent's (credential management Task 4).
+  { command: 'credentials.add', who: 'agent', caller: 'none today', expect: 'floor' },
+  { command: 'credentials.allowMachine', who: 'agent', caller: 'none today', expect: 'floor' },
+  { command: 'credentials.disallowMachine', who: 'agent', caller: 'none today', expect: 'floor' },
+  { command: 'credentials.remove', who: 'agent', caller: 'none today', expect: 'floor' },
+  { command: 'credentials.rename', who: 'agent', caller: 'none today', expect: 'floor' },
+  { command: 'credentials.renew', who: 'agent', caller: 'none today', expect: 'floor' },
+  { command: 'credentials.share', who: 'agent', caller: 'none today', expect: 'floor' },
+  { command: 'credentials.unshare', who: 'agent', caller: 'none today', expect: 'floor' },
   // An agent may not sign its human in, store, remove, share or take back a key as them:
   // refused by the target check.
   { command: 'accounts.login', who: 'agent', caller: 'none today', expect: 'floor' },
@@ -318,10 +377,10 @@ const CALLERS: readonly {
   },
 ]
 
-describe('every current caller of the 33 non-sync commands', () => {
-  it('covers the 33 commands, and only them', () => {
-    // 32 on the base, which pinned 31; + vault.reset (POD-6889).
-    expect(CONTRACTS.size).toBe(33) // includes accounts.unsend; accounts.keys is a query
+describe('every current caller of the 41 non-sync commands', () => {
+  it('covers the 41 commands, and only them', () => {
+    // 32 on the base, which pinned 31; + vault.reset (POD-6889); + eight credentials.* (POD-6891).
+    expect(CONTRACTS.size).toBe(41) // includes accounts.unsend; accounts.keys is a query
     // None is queued any more. The two that were moved onto synced record
     // edits on purpose:
     //  - settings.updatePersonal: records.userPreferences.edit (POD-6673);
@@ -329,7 +388,7 @@ describe('every current caller of the 33 non-sync commands', () => {
     const queued = [...CONTRACTS.values()].filter((c) => c.delivery.class === 'offline-eligible')
     expect(queued.map((c) => c.name)).toEqual([])
     const plain = [...CONTRACTS.values()].filter((c) => c.delivery.class !== 'offline-eligible')
-    expect(plain).toHaveLength(33)
+    expect(plain).toHaveLength(41)
     for (const row of CALLERS) expect(CONTRACTS.has(row.command), row.command).toBe(true)
   })
 

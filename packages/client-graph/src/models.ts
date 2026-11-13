@@ -8,7 +8,7 @@ import { here, isGone, type Lookup, omitGone } from './lookup'
 import type { MessageModel, PendingInteractionModel } from './message-models'
 import { ReadObservation } from './read-observation'
 import { type FeatureId, type FeatureStates, OFFLINE_FEATURE_FACTS, resolveFeatureStates } from '@podium/protocol'
-import type { AccountModel, DeviceModel, MemberModel, RepositoryModel } from './requested-models'
+import type { AccountModel, CredentialModel, DeviceModel, MemberModel, RepositoryModel } from './requested-models'
 import type { AutomationModel, AutomationRunModel, MachineModel } from './synced-models'
 
 export type { AutomationModel, AutomationRunModel, MachineModel } from './synced-models'
@@ -1606,6 +1606,7 @@ export type ModelOf = {
   issuePanelState: IssuePanelStateModel
 
   account: AccountModel
+  credential: CredentialModel
   member: MemberModel
   device: DeviceModel
   instancePreferences: InstancePreferencesModel

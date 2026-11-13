@@ -18,6 +18,7 @@
 
 import { ACCOUNT_PLAIN_FAMILY } from '../accounts/plain-family'
 import { CLOUD_PLAIN_FAMILY } from '../cloud/plain-family'
+import { CREDENTIALS_PLAIN_FAMILY } from '../credentials/plain-family'
 import { FLEET_PLAIN_REGISTRATIONS } from '../fleet/plain-family'
 import { HOST_PLAIN_FAMILY } from '../hosts/plain-family'
 import {
@@ -56,6 +57,7 @@ const registrations = (): readonly PlainRegistration[] => [
   ...plainFamilyRegistrations(SPEC_PLAIN_FAMILY),
   ...plainFamilyRegistrations(TELEMETRY_PLAIN_FAMILY),
   ...plainFamilyRegistrations(VAULT_PLAIN_FAMILY),
+  ...plainFamilyRegistrations(CREDENTIALS_PLAIN_FAMILY),
   ...UPDATE_PLAIN_REGISTRATIONS,
 ]
 

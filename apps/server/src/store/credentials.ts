@@ -31,7 +31,14 @@ import {
   vaultKey,
 } from '../migrations/schema'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
-import { param, prepared } from './executor/sync-drizzle'
+import {
+  inListOf,
+  inListSize,
+  inListValues,
+  param,
+  prepared,
+  preparedFamily,
+} from './executor/sync-drizzle'
 
 export type CredentialStatus = 'ok' | 'attention' | 'revoked'
 
@@ -41,6 +48,8 @@ export interface CredentialIdentity {
   email?: string
   plan?: string
   organisation?: string
+  /** A display-only preview of a pasted secret. */
+  masked?: string
 }
 
 /** A credential as stored, without any secret. */
@@ -126,6 +135,8 @@ export interface LegacyAccountRow {
   provider: string
   kind: string
   credential: string
+  /** Who the owner shared it with: user ids, or `*` for everyone. */
+  sharedWith: string[]
 }
 
 export interface StoredVaultKey {
@@ -135,12 +146,25 @@ export interface StoredVaultKey {
 
 type CredentialRow = typeof credentials.$inferSelect
 
+// LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
+/** `accounts.shared_with`: a JSON list of user ids or `*`; anything else is private. */
+function parseLegacySharedWith(raw: string | null): string[] {
+  if (raw === null) return []
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((g): g is string => typeof g === 'string' && g !== '')
+  } catch {
+    return []
+  }
+}
+
 function parseIdentity(raw: string): CredentialIdentity {
   try {
     const parsed: unknown = JSON.parse(raw)
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
     const out: CredentialIdentity = {}
-    for (const key of ['fingerprint', 'email', 'plan', 'organisation'] as const) {
+    for (const key of ['fingerprint', 'email', 'plan', 'organisation', 'masked'] as const) {
       const value = (parsed as Record<string, unknown>)[key]
       if (typeof value === 'string' && value !== '') out[key] = value
     }
@@ -262,6 +286,27 @@ const renameCredential = prepared((db: StoreDrizzle) =>
   db
     .update(credentials)
     .set({ label: sql.placeholder('label'), updatedAt: sql.placeholder('now') })
+    .where(idIs())
+    .prepare(),
+)
+
+const setCredentialIdentity = prepared((db: StoreDrizzle) =>
+  db
+    .update(credentials)
+    .set({
+      identity: sql.placeholder('identity'),
+      identityFingerprint: sql.placeholder('identityFingerprint'),
+      updatedAt: sql.placeholder('now'),
+    })
+    .where(idIs())
+    .prepare(),
+)
+
+// LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
+const clearLegacyIdsOf = prepared((db: StoreDrizzle) =>
+  db
+    .update(credentials)
+    .set({ legacyId: null, legacyKey: null, updatedAt: sql.placeholder('now') })
     .where(idIs())
     .prepare(),
 )
@@ -419,6 +464,29 @@ const allowedMachine = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/** Many credentials by id, not removed, in id order (the primary key). */
+const credentialsByIds = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select()
+    .from(credentials)
+    .where(and(inListOf(credentials.id, size, 'ids'), ne(credentials.status, 'revoked')))
+    .orderBy(asc(credentials.id))
+    .prepare(),
+)
+
+/** The allowed machines of many credentials, in primary-key order. */
+const allowedMachinesOfMany = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({
+      credentialId: credentialMachines.credentialId,
+      machineId: credentialMachines.machineId,
+    })
+    .from(credentialMachines)
+    .where(inListOf(credentialMachines.credentialId, size, 'ids'))
+    .orderBy(asc(credentialMachines.credentialId), asc(credentialMachines.machineId))
+    .prepare(),
+)
+
 const theVaultKey = prepared((db: StoreDrizzle) =>
   db.select().from(vaultKey).where(eq(vaultKey.id, 1)).prepare(),
 )
@@ -456,6 +524,7 @@ const legacyAccounts = prepared((db: StoreDrizzle) =>
       provider: accounts.provider,
       kind: accounts.kind,
       credential: accounts.credential,
+      sharedWith: accounts.sharedWith,
     })
     .from(accounts)
     .leftJoin(users, eq(users.id, accounts.ownerUserId))
@@ -544,8 +613,44 @@ export class CredentialsRepository {
     return (await credentialsOfOwner(this.db).all({ ownerUserId: userId })).map(toRecord)
   }
 
+  /** Many credentials by id in one read per 500, removed ones left out. */
+  async getMany(ids: readonly CredentialId[]): Promise<CredentialRecord[]> {
+    const unique = [...new Set(ids)]
+    const out: CredentialRecord[] = []
+    for (let at = 0; at < unique.length; at += 500) {
+      const chunk = unique.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      const rows = await credentialsByIds(this.db, size).all(inListValues(chunk, size, 'ids'))
+      out.push(...rows.map(toRecord))
+    }
+    return out
+  }
+
+  /** The machines each credential's owner allowed (section 8); every asked id has an entry. */
+  async allowedMachinesOf(ids: readonly CredentialId[]): Promise<Map<CredentialId, MachineId[]>> {
+    const unique = [...new Set(ids)]
+    const out = new Map<CredentialId, MachineId[]>(unique.map((id) => [id, []]))
+    for (let at = 0; at < unique.length; at += 500) {
+      const chunk = unique.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      const rows = await allowedMachinesOfMany(this.db, size).all(inListValues(chunk, size, 'ids'))
+      for (const row of rows) out.get(asCredentialId(row.credentialId))?.push(row.machineId)
+    }
+    return out
+  }
+
   async rename(id: CredentialId, label: string): Promise<void> {
     await renameCredential(this.db).run({ id, label, now: now() })
+  }
+
+  /** Replace what is known about the provider account (a renewed key has a new one). */
+  async setIdentity(id: CredentialId, identity: CredentialIdentity): Promise<void> {
+    await setCredentialIdentity(this.db).run({
+      id,
+      identity: JSON.stringify(identity),
+      identityFingerprint: identity.fingerprint ?? null,
+      now: now(),
+    })
   }
 
   async setStatus(
@@ -580,6 +685,12 @@ export class CredentialsRepository {
   ): Promise<CredentialRecord | undefined> {
     const row = await credentialByLegacyKey(this.db).get({ ownerUserId, legacyKey })
     return row ? toRecord(row) : undefined
+  }
+
+  // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
+  /** Let go of the old account ids, so a later connect under them is a new credential. */
+  async clearLegacyIds(id: CredentialId): Promise<void> {
+    await clearLegacyIdsOf(this.db).run({ id, now: now() })
   }
 
   /** Delete the secrets; keep the record as `revoked`, which hides it from lists. */
@@ -689,6 +800,7 @@ export class CredentialsRepository {
       provider: r.provider,
       kind: r.kind,
       credential: r.credential,
+      sharedWith: parseLegacySharedWith(r.sharedWith ?? null),
     }))
   }
 

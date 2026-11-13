@@ -49,6 +49,7 @@ import { agentProfileFamilyProcedures } from './modules/agent-profiles/trpc'
 import { automationProcedures } from './modules/automations/trpc'
 import { cloudFamilyProcedures } from './modules/cloud/trpc'
 import { conversationFamilyProcedures } from './modules/conversations/trpc'
+import { credentialFamilyProcedures } from './modules/credentials/trpc'
 import { familyState, queryProcedures } from './modules/derived-family'
 import { fileFamilyProcedures } from './modules/files/trpc'
 import { REPO_QUERIES } from './modules/fleet/queries'
@@ -388,6 +389,7 @@ export const appRouter = t.router({
    */
   accounts: t.router(accountFamilyProcedures()),
   vault: t.router(vaultFamilyProcedures()),
+  credentials: t.router(credentialFamilyProcedures()),
   // PER-USER STATE (POD-380): the caller's saved orders.
   // setPrefix · add · addMany · remove — DERIVED (POD-384). Store-level
   // validation (^[A-Z]{2,5}$, server-wide prefix uniqueness, absolute paths) is

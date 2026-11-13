@@ -169,7 +169,7 @@ type InferenceRoute =
 const INFERENCE_ROUTES: Readonly<Partial<Record<CredentialTypeId, InferenceRoute>>>
 
 // packages/model/src/entities/credential.ts — CredentialView (what a client sees)
-//   id, ownerUserId, label, type, identity{fingerprint?,email?,plan?,organisation?},
+//   id, ownerUserId, label, type, identity{fingerprint?,email?,plan?,organisation?,masked?},
 //   status 'ok'|'attention'|'revoked', statusReason?, limitReachedUntil?, expiresAt?,
 //   verifiedAt?, homes[{machineId,homeId,state 'in'|'out'|'unknown'}], allowedMachines[],
 //   sessionCount, access 'owner'|'manage'|'use'; timestamps are ISO strings; type is an open string
@@ -218,16 +218,28 @@ sealCredentialSecret(deps, credential: { id; type }, plaintext: string, expected
 //   insert({ id?, ownerUserId, label, type, identity?, expiresAt?, legacyId?, legacyKey? }) → CredentialRecord
 //   findByIdentity({ ownerUserId, type, fingerprint }), listVisibleTo(userId): own, not revoked
 //   recordPlacement, listPlacements, setPlacementState,
-//   allowMachine, disallowMachine, isMachineAllowed
+//   allowMachine, disallowMachine, isMachineAllowed,
+//   getMany(ids) (not revoked), allowedMachinesOf(ids) → Map<id, MachineId[]>, setIdentity(id, identity),
+//   clearLegacyIds(id)   // 2027-05: lets a later accounts.connect under the same old id make a new credential
+// apps/server/src/store/grants.ts — GrantsRepository.listForGrantees(resourceKind, grantees[])
 // apps/server/src/modules/credentials/events.ts
 // writes `settings_audit_events` (command `credentials.<kind>`); deps: { settingsAudit } — a SessionStore
 recordCredentialEvent(deps, i: { kind: 'add' | 'rename' | 'renew' | 'remove' | 'share' | 'unshare'
   | 'deliver' | 'switch' | 'refuse' | 'attention'; credentialId: CredentialId | null
   actorUserId: UserId; sessionId?: SessionId; machineId?: MachineId; detail?: string }): Promise<void>
 
-// apps/server/src/modules/credentials/may-use.ts — deps: MayUseDeps = Pick<SessionStore, 'grants'>
+// apps/server/src/modules/credentials/may-use.ts — grants read at every call, never cached
+type MayUseDeps = Pick<SessionStore, 'grants' | 'users'>
 mayUse(deps: MayUseDeps, userId: UserId, credential: { id: CredentialId; ownerUserId: UserId }):
   Promise<'owner' | 'manage' | 'use' | null>
+//   a grant counts while its granter is a live member who is the owner or holds manage (a chain
+//   from the owner); a disabled owner's credential is usable by nobody else; role never counts.
+accessFrom(deps: Pick<SessionStore,'users'>, userId, credential, edges: GrantRow[])   // same, edges given
+CREDENTIAL_RESOURCE_KIND = 'credential'      // grants.resource_kind of a credential grant
+// packages/model/src/ids/keys.ts — "all members" as a grant subject:
+//   GrantSubject = { kind: 'user'; id: UserId } | { kind: 'group'; id: GrantGroupId }   GrantGroupId = 'all-members'
+//   ALL_MEMBERS_SUBJECT, granteeColumnOf(subject), ALL_MEMBERS_GRANTEE = 'group:all-members' (grants.grantee)
+//   only `use` may go to all members; removeAllForGrantee stays user-only
 
 // apps/server/src/modules/credentials/access.ts
 type AccessRefusal = 'not-found' | 'not-yours' | 'wrong-type' | 'not-on-this-machine'
@@ -296,6 +308,12 @@ attachAccess(plan: SessionAccess, to: { machineId: MachineId; sessionId: Session
 
 // packages/commands/src/credentials/contracts.ts
 //   credentials.add | rename | renew | remove | share | unshare | allowMachine | disallowMachine
+//   CredentialGrantee = 'all-members' | { userId }; CredentialGrantVerb = 'use' | 'manage'
+//   sentences for the dialogs: CREDENTIAL_SHARE_DISCLOSURE, CREDENTIAL_SHARE_WARNING,
+//   CREDENTIAL_MACHINE_DISCLOSURE
+// apps/server/src/modules/credentials/queries.ts — listCredentials(store, userId): CredentialView[]
+//   (homes [] until Task 9; sessionCount counted once sessions carry credential_id)
+// packages/client-graph — CredentialModel (`pool.model('credential', id)`, request:credentials.list)
 //   credentials.signInStart({ type, machineId, label }) → { credentialId, terminalSessionId }
 //   credentials.chatgptSignInStart | chatgptSignInComplete ; query credentials.list
 // packages/commands/src/sessions

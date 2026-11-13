@@ -26,7 +26,7 @@ import { SecretUnavailableError, withSecret } from '../credentials/vault'
 export interface LaunchConfigPorts {
   store: Pick<
     SessionStore,
-    'settings' | 'credentials' | 'machines' | 'settingsAudit' | 'grants' | 'vault'
+    'settings' | 'credentials' | 'machines' | 'settingsAudit' | 'grants' | 'users' | 'vault'
   >
 }
 

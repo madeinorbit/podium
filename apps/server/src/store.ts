@@ -559,6 +559,7 @@ export class SessionStore {
         secrets: this.secrets,
         users: this.users,
         credentials: this.credentials,
+        grants: this.grants,
         vault,
       })
     } catch (error) {

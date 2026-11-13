@@ -56,6 +56,14 @@ const PLAIN_COMMANDS = [
   'telemetry.resetId',
   'telemetry.set',
   'vault.reset',
+  'credentials.add',
+  'credentials.allowMachine',
+  'credentials.disallowMachine',
+  'credentials.remove',
+  'credentials.rename',
+  'credentials.renew',
+  'credentials.share',
+  'credentials.unshare',
 ] as const
 
 const MEMBER = asUserId('user:plain-family-member')
@@ -135,8 +143,8 @@ afterEach(() => {
 })
 
 describe('every non-sync command goes through the front door', () => {
-  it('a system principal with garbage input is refused as unauthorized by all 30', async () => {
-    expect(PLAIN_COMMANDS).toHaveLength(30)
+  it('a system principal with garbage input is refused as unauthorized by all 38', async () => {
+    expect(PLAIN_COMMANDS).toHaveLength(38)
     const { caller } = await harness({ capability: OPERATOR, principal: systemPrincipal('test') })
     const codes: Record<string, string> = {}
     for (const name of PLAIN_COMMANDS) {

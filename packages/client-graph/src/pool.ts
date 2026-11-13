@@ -4,6 +4,7 @@ import type { UiStore } from '@podium/client-core/ui'
 import { createDemandAtoms, lazy } from '@podium/mobx-helpers'
 import {
   type AccountView,
+  type CredentialView,
   asSessionId,
   type CheckoutWire,
   type GitRepositoryWire,
@@ -290,6 +291,8 @@ export interface PoolRows {
   issuePanelDeferred: Readonly<IssuePanelDeferredWire> & Readonly<Record<string, unknown>>
   issuePanelState: Readonly<IssuePanelStateWire> & Readonly<Record<string, unknown>>
   account: AccountView & Readonly<Record<string, unknown>>
+  /** Credential management Task 4: a credential I own or was given, from `credentials.list`. */
+  credential: CredentialView & Readonly<Record<string, unknown>>
   member: MemberView & Readonly<Record<string, unknown>>
   device: DeviceSignInView & Readonly<Record<string, unknown>>
   repository: GitRepositoryWire & Readonly<Record<string, unknown>>

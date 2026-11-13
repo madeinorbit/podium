@@ -16,7 +16,9 @@ import { fileKeyProvider, writeWrappedDataKey } from '@podium/runtime/vault-key'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionStore } from '../../store'
 import { memberFacts } from '../../store/fixtures/test-support'
+import { ACCOUNT_COMMANDS_TRPC } from '../accounts/registry'
 import { importLegacyCredentials } from './legacy-import'
+import { mayUse } from './may-use'
 import { withSecret } from './vault'
 
 /** Obviously fake keys. */
@@ -239,12 +241,14 @@ describe('importLegacyCredentials at server start', () => {
       secrets: store.secrets,
       users: store.users,
       credentials: store.credentials,
+      grants: store.grants,
       vault: store.vault,
       log,
     })
     expect(again).toEqual({
       created: 0,
       machinesAllowed: 0,
+      grantsMade: 0,
       skipped: ['github-row (github/api-key)'],
       refused: null,
     })
@@ -279,19 +283,152 @@ describe('importLegacyCredentials at server start', () => {
     expect(count(dbPath, 'SELECT count(*) AS n FROM account_machine_sends')).toBe(1)
   })
 
-  it('carries a send made after the move at the next start', async () => {
+  /** Share the planted rows as acceptance 7 names them; returns the admin's credential ids. */
+  function plantShares(dbPath: string, admin: UserId): void {
+    sql(dbPath, (db) => {
+      const share = db.prepare('UPDATE accounts SET shared_with = ? WHERE id = ?')
+      share.run('["*"]', `managed:anthropic@${admin}`)
+      share.run(JSON.stringify([MEMBER]), `managed:claude-oauth@${admin}`)
+      share.run(JSON.stringify(['user:gone-6891']), `managed:openai@${MEMBER}`)
+    })
+  }
+
+  const grantsOf = async (store: SessionStore, id: string) =>
+    (await store.grants.listForResource('credential', id))
+      .map((g) => `${g.verb} ${g.grantee} by ${g.owner}`)
+      .sort()
+
+  it('carries old shares as grants once: everyone, one person, nobody (acceptance 7)', async () => {
+    const { dbPath, keyPath } = place()
+    const admin = await plantLegacy(dbPath, keyPath)
+    plantShares(dbPath, admin)
+
+    const store = await openAt(dbPath, keyPath)
+    const everyone = await store.credentials.findByLegacyId(`managed:anthropic@${admin}`)
+    const toMember = await store.credentials.findByLegacyId(`managed:claude-oauth@${admin}`)
+    const vanished = await store.credentials.findByLegacyId(`managed:openai@${MEMBER}`)
+    const privateOne = await store.credentials.findByLegacyId('managed:openrouter')
+    if (!everyone || !toMember || !vanished || !privateOne) throw new Error('not moved')
+    expect(await grantsOf(store, everyone.id)).toEqual([`use group:all-members by ${admin}`])
+    expect(await grantsOf(store, toMember.id)).toEqual([`use ${MEMBER} by ${admin}`])
+    expect(await grantsOf(store, vanished.id)).toEqual([])
+    expect(await grantsOf(store, privateOne.id)).toEqual([])
+
+    // The member uses exactly what was shared with them, and their own.
+    const usable = []
+    for (const c of await store.credentials.listVisibleTo(admin)) {
+      if (await mayUse(store, MEMBER, c)) usable.push(c.legacyId)
+    }
+    expect(usable.sort()).toEqual([`managed:anthropic@${admin}`, `managed:claude-oauth@${admin}`])
+    await close(store)
+
+    // A second start leaves the grants as they are.
+    const second = await openAt(dbPath, keyPath)
+    expect(await grantsOf(second, everyone.id)).toEqual([`use group:all-members by ${admin}`])
+    expect(await grantsOf(second, toMember.id)).toEqual([`use ${MEMBER} by ${admin}`])
+    expect(
+      count(dbPath, "SELECT count(*) AS n FROM grants WHERE resource_kind = 'credential'"),
+    ).toBe(2)
+  })
+
+  it('logs an old share with someone who no longer exists, never a value', async () => {
+    const { dbPath, keyPath } = place()
+    const admin = await plantLegacy(dbPath, keyPath)
+    plantShares(dbPath, admin)
+    const store = await openAt(dbPath, keyPath)
+    // Undo the start's import so it runs again here, with a log to read.
+    sql(dbPath, (db) => {
+      for (const table of ['grants', 'credential_machines', 'credential_secrets', 'credentials']) {
+        db.prepare(
+          `DELETE FROM ${table}${table === 'grants' ? " WHERE resource_kind = 'credential'" : ''}`,
+        ).run()
+      }
+    })
+    const log = { info: vi.fn(), warn: vi.fn() }
+    const result = await importLegacyCredentials({
+      secrets: store.secrets,
+      users: store.users,
+      credentials: store.credentials,
+      grants: store.grants,
+      vault: store.vault,
+      log,
+    })
+    expect(result).toMatchObject({ created: 7, machinesAllowed: 1, grantsMade: 2 })
+    expect(log.info).toHaveBeenCalledWith(expect.stringContaining('no longer exist'), {
+      vanished: [`managed:openai@${MEMBER} → user:gone-6891`],
+    })
+    expect(JSON.stringify(log.info.mock.calls)).not.toContain(MEMBER_OPENAI)
+  })
+
+  it('an unshare and a disallowed machine survive a restart', async () => {
+    const { dbPath, keyPath } = place()
+    const admin = await plantLegacy(dbPath, keyPath)
+    plantShares(dbPath, admin)
+    const store = await openAt(dbPath, keyPath)
+    const everyone = await store.credentials.findByLegacyId(`managed:anthropic@${admin}`)
+    const sent = await store.credentials.findByLegacyKey(MEMBER, 'managed:openai')
+    if (!everyone || !sent) throw new Error('not moved')
+    expect(await store.credentials.isMachineAllowed(sent.id, SENT_TO)).toBe(true)
+    expect(await store.grants.remove('credential', everyone.id, 'group:all-members', 'use')).toBe(
+      true,
+    )
+    await store.credentials.disallowMachine(sent.id, SENT_TO)
+    await close(store)
+
+    const next = await openAt(dbPath, keyPath)
+    expect(await grantsOf(next, everyone.id)).toEqual([])
+    expect(await next.credentials.isMachineAllowed(sent.id, SENT_TO)).toBe(false)
+  })
+
+  /** The old command handlers, as the Settings page reaches them, over this store. */
+  const accountsAs = (store: SessionStore, caller: UserId) =>
+    ({
+      accounts: store.accounts,
+      machines: store.machines,
+      machineStanding: async () => new Map([[SENT_LATER, 'use' as const]]),
+      callerUserId: caller,
+      credentialStore: store,
+    }) as never
+
+  it('a send made after the move through accounts.send is allowed at once', async () => {
     const { dbPath, keyPath } = place()
     await plantLegacy(dbPath, keyPath)
     const store = await openAt(dbPath, keyPath)
     const credential = await store.credentials.findByLegacyKey(MEMBER, 'managed:openai')
     if (!credential) throw new Error('the member key was not moved')
     expect(await store.credentials.isMachineAllowed(credential.id, SENT_LATER)).toBe(false)
-    await store.accounts.markSent(MEMBER, 'managed:openai', SENT_LATER, '2026-11-02T00:00:00Z')
+    await ACCOUNT_COMMANDS_TRPC.send.handler(accountsAs(store, MEMBER), {
+      id: 'managed:openai',
+      machineId: SENT_LATER,
+      acknowledgeSharedMachine: true,
+    } as never)
+    expect(await store.credentials.isMachineAllowed(credential.id, SENT_LATER)).toBe(true)
+  })
+
+  it('an unshare and an unsend through accounts.* survive a restart', async () => {
+    const { dbPath, keyPath } = place()
+    const admin = await plantLegacy(dbPath, keyPath)
+    plantShares(dbPath, admin)
+    const store = await openAt(dbPath, keyPath)
+    const everyone = await store.credentials.findByLegacyId(`managed:anthropic@${admin}`)
+    const sent = await store.credentials.findByLegacyKey(MEMBER, 'managed:openai')
+    if (!everyone || !sent) throw new Error('not moved')
+    await ACCOUNT_COMMANDS_TRPC.share.handler(accountsAs(store, admin), {
+      id: 'managed:anthropic',
+      everyone: false,
+      users: [],
+    } as never)
+    await ACCOUNT_COMMANDS_TRPC.unsend.handler(accountsAs(store, MEMBER), {
+      id: 'managed:openai',
+      machineId: SENT_TO,
+    } as never)
+    expect(await grantsOf(store, everyone.id)).toEqual([])
+    expect(await store.credentials.isMachineAllowed(sent.id, SENT_TO)).toBe(false)
     await close(store)
 
     const next = await openAt(dbPath, keyPath)
-    expect(await next.credentials.isMachineAllowed(credential.id, SENT_LATER)).toBe(true)
-    expect(await next.credentials.listVisibleTo(MEMBER)).toHaveLength(2)
+    expect(await grantsOf(next, everyone.id)).toEqual([])
+    expect(await next.credentials.isMachineAllowed(sent.id, SENT_TO)).toBe(false)
   })
 
   it('imports nothing while the vault is locked, and imports on the next start with the key', async () => {

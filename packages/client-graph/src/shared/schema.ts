@@ -116,6 +116,7 @@ export type ModelSchemaName =
   | 'WorkflowRunRecord'
   | 'SubscriptionWire'
   | 'AccountView'
+  | 'CredentialView'
   | 'MemberView'
   | 'DeviceSignInView'
   | 'RequestRecordKey'
@@ -166,6 +167,7 @@ export type RowArrival =
   | 'replica:instancePreferences'
   | 'request:messages.ledger'
   | 'request:accounts.list'
+  | 'request:credentials.list'
   | 'request:members.list'
   | 'request:auth.mobileSessions'
 
@@ -222,7 +224,7 @@ export interface FieldSpec {
 // Relations
 // ---------------------------------------------------------------------------
 
-export type EntityName = 'issueBrief' | 'issueDescription' | 'issuePanelTodo' | 'issuePanelArtifact' | 'issuePanelDeferred' | 'issuePanelState' | 'account' | 'member' | 'device' | 'repository' | 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun' | 'messageRecord' | 'pendingInteraction' | 'effect' | 'pin' | 'userLayout' | 'tabOrder' | 'userPreferences' | 'userReadPosition' | 'superagentThread' | 'agentProfile' | 'workflow' | 'workflowRevision' | 'workflowBinding' | 'workflowRun' | 'subscription' | 'instancePreferences'
+export type EntityName = 'issueBrief' | 'issueDescription' | 'issuePanelTodo' | 'issuePanelArtifact' | 'issuePanelDeferred' | 'issuePanelState' | 'account' | 'credential' | 'member' | 'device' | 'repository' | 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun' | 'messageRecord' | 'pendingInteraction' | 'effect' | 'pin' | 'userLayout' | 'tabOrder' | 'userPreferences' | 'userReadPosition' | 'superagentThread' | 'agentProfile' | 'workflow' | 'workflowRevision' | 'workflowBinding' | 'workflowRun' | 'subscription' | 'instancePreferences'
 
 /**
  * Four kinds, and no more.
@@ -562,6 +564,7 @@ export { isExcluded as issueExcluded } from './predicates'
 
 const DECLARED = defineSchema({
   account: syncedIdentity('AccountView', 'request:accounts.list'),
+  credential: syncedIdentity('CredentialView', 'request:credentials.list'),
   member: syncedIdentity('MemberView', 'request:members.list'),
   device: { ...syncedIdentity('DeviceSignInView', 'request:auth.mobileSessions'), key: 'id',
     fields: { id: { type: 'id', source: { schema: 'DeviceSignInView', arrivesOn: 'request:auth.mobileSessions' } } } },

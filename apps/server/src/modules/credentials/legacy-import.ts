@@ -19,13 +19,16 @@
  *    its `legacy_key` is `managed:<provider>` unless an `accounts` row of the first
  *    admin already answers that id.
  *
- * The same secret of the same type for the same owner is one credential. Sharing
- * (`accounts.shared_with`) is left as it is: grants are separate records (epic
- * Task 4), which read it through `legacy_id`. A key sent to a machine
- * (`account_machine_sends`) is allowed there (`credential_machines`, allowed by the
- * credential's owner); this runs at every start, so a send made after the move is
- * carried too. A row with no credential type is skipped and logged by its id,
- * provider and kind, never its value.
+ * The same secret of the same type for the same owner is one credential. Its
+ * sharing and sends come with it, once, in the start that creates it: each user
+ * id in `accounts.shared_with` becomes a `use` grant to that person, `*` a `use`
+ * grant to all members (a user id that no longer exists is skipped and logged),
+ * and each `account_machine_sends` row allows that machine (`credential_machines`,
+ * allowed by the credential's owner). They are not carried again at a later
+ * start, so an unshare or a disallowed machine stays that way; the old
+ * `accounts.*` commands write their changes through to the credential instead.
+ * A row with no credential type is skipped and logged by its id, provider and
+ * kind, never its value.
  *
  * The old values are left where they are; epic Task 21 destroys them once every
  * moved secret has been read back. Nothing is imported while the vault cannot
@@ -33,12 +36,18 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { CredentialId, CredentialTypeId, UserId } from '@podium/model'
+import {
+  ALL_MEMBERS_GRANTEE,
+  type CredentialId,
+  type CredentialTypeId,
+  type UserId,
+} from '@podium/model'
 import {
   type CredentialsRepository,
   type LegacyAccountRow,
   newCredentialId,
 } from '../../store/credentials'
+import type { GrantsRepository } from '../../store/grants'
 import type { ServerSecretsRepository } from '../../store/server-secrets'
 import type { UsersRepository } from '../../store/users'
 import { type Vault, VaultLockedError, withSecret } from './vault'
@@ -47,8 +56,9 @@ const moduleLog = createLogger('server:credentials')
 
 export interface LegacyImportDeps {
   secrets: Pick<ServerSecretsRepository, 'get'>
-  users: Pick<UsersRepository, 'earliestAdmin'>
+  users: Pick<UsersRepository, 'earliestAdmin' | 'get'>
   credentials: CredentialsRepository
+  grants: Pick<GrantsRepository, 'upsert'>
   vault: Vault
   /** Defaults to the server log. */
   log?: {
@@ -61,6 +71,8 @@ export interface LegacyImportResult {
   created: number
   /** Machines allowed from the old sends, new this start. */
   machinesAllowed: number
+  /** Grants made from the old sharing, new this start. */
+  grantsMade: number
   /** Old rows not moved, by id, provider and kind (never the value). */
   skipped: string[]
   /** Why nothing was imported this start, or null. */
@@ -73,7 +85,7 @@ const API_KEY_TYPES: Readonly<Record<string, CredentialTypeId>> = {
   openrouter: 'openrouter.api-key',
 }
 
-const TYPE_LABELS: Readonly<Partial<Record<CredentialTypeId, string>>> = {
+export const TYPE_LABELS: Readonly<Partial<Record<CredentialTypeId, string>>> = {
   'anthropic.api-key': 'Anthropic API key',
   'openai.api-key': 'OpenAI API key',
   'openrouter.api-key': 'OpenRouter API key',
@@ -95,6 +107,8 @@ interface Candidate {
   type: CredentialTypeId
   label: string
   secret: string
+  /** `accounts.shared_with` of the row, or [] (the `apiKeys.*` secrets were never shared). */
+  sharedWith: readonly string[]
 }
 
 /** The credential type an `accounts` row maps to, or undefined when it has none. */
@@ -111,6 +125,8 @@ export function legacyAccountType(row: {
 interface Plan {
   /** One per credential to have, in the order they are created. */
   kept: Candidate[]
+  /** Every old row and secret, merged ones included. */
+  sources: Candidate[]
   /** A merged-away source's legacy id → the legacy id of the credential it became. */
   mergedInto: Map<string, string>
   skipped: string[]
@@ -147,6 +163,7 @@ async function plan(deps: LegacyImportDeps): Promise<Plan> {
         type,
         label: `${TYPE_LABELS[type]} (workspace)`,
         secret,
+        sharedWith: [],
       })
     }
   }
@@ -170,7 +187,7 @@ async function plan(deps: LegacyImportDeps): Promise<Plan> {
     else if (claim) claimedKeys.add(claim)
     kept.push(source)
   }
-  return { kept, mergedInto, skipped }
+  return { kept, mergedInto, skipped, sources }
 }
 
 function fromAccount(
@@ -191,18 +208,21 @@ function fromAccount(
     type,
     label: `${TYPE_LABELS[type]}${earlier ? ' (earlier workspace)' : ''}`,
     secret: row.credential,
+    sharedWith: row.sharedWith,
   }
 }
 
-/** Allow each moved account's credential on the machines its key was sent to. */
+type Created = ReadonlyMap<string, { id: CredentialId; ownerUserId: UserId }>
+
+/** Allow each credential made this start on the machines its old key was sent to. */
 async function carrySends(
   deps: LegacyImportDeps,
-  credentialOf: ReadonlyMap<string, { id: CredentialId; ownerUserId: UserId }>,
+  created: Created,
   mergedInto: ReadonlyMap<string, string>,
 ): Promise<number> {
   let allowed = 0
   for (const send of await deps.credentials.legacyAccountSends()) {
-    const credential = credentialOf.get(mergedInto.get(send.accountId) ?? send.accountId)
+    const credential = created.get(mergedInto.get(send.accountId) ?? send.accountId)
     if (!credential) continue
     if (await deps.credentials.isMachineAllowed(credential.id, send.machineId)) continue
     await deps.credentials.allowMachine(credential.id, send.machineId, credential.ownerUserId)
@@ -211,26 +231,72 @@ async function carrySends(
   return allowed
 }
 
+/**
+ * Give `use` of each credential made this start to whoever its old rows were
+ * shared with: `*` is all members, anything else a person who must still exist.
+ */
+async function carryShares(
+  deps: LegacyImportDeps,
+  created: Created,
+  sources: readonly Candidate[],
+  mergedInto: ReadonlyMap<string, string>,
+  log: NonNullable<LegacyImportDeps['log']>,
+): Promise<number> {
+  let made = 0
+  const vanished: string[] = []
+  for (const source of sources) {
+    const credential = created.get(mergedInto.get(source.legacyId) ?? source.legacyId)
+    if (!credential) continue
+    for (const shared of new Set(source.sharedWith)) {
+      if (shared === credential.ownerUserId) continue
+      if (shared !== '*' && !(await deps.users.get(shared as UserId))) {
+        vanished.push(`${source.legacyId} → ${shared}`)
+        continue
+      }
+      await deps.grants.upsert({
+        resourceKind: 'credential',
+        resourceId: credential.id,
+        grantee: shared === '*' ? ALL_MEMBERS_GRANTEE : shared,
+        verb: 'use',
+        owner: credential.ownerUserId,
+        visibility: 'secret',
+        createdAt: new Date().toISOString(),
+        actorKind: 'system',
+        actorId: null,
+        onBehalfOf: credential.ownerUserId,
+      })
+      made += 1
+    }
+  }
+  if (vanished.length > 0) {
+    log.info('old shares with people who no longer exist were not carried over', { vanished })
+  }
+  return made
+}
+
 export async function importLegacyCredentials(deps: LegacyImportDeps): Promise<LegacyImportResult> {
   const log = deps.log ?? moduleLog
   if (deps.vault.state() === 'locked') {
-    return { created: 0, machinesAllowed: 0, skipped: [], refused: 'vault-locked' }
+    return {
+      created: 0,
+      machinesAllowed: 0,
+      grantsMade: 0,
+      skipped: [],
+      refused: 'vault-locked',
+    }
   }
-  const { kept, mergedInto, skipped } = await plan(deps)
+  const { kept, mergedInto, skipped, sources } = await plan(deps)
   if (skipped.length > 0) {
     log.info('old account rows without a credential type were not moved into the vault', {
       skipped,
     })
   }
-  const credentialOf = new Map<string, { id: CredentialId; ownerUserId: UserId }>()
+  // Only the credentials made in this start carry their old sharing and sends.
+  const createdNow = new Map<string, { id: CredentialId; ownerUserId: UserId }>()
   let created = 0
   let refused: LegacyImportResult['refused'] = null
   for (const candidate of kept) {
-    const existing = await deps.credentials.findByLegacyId(candidate.legacyId)
-    if (existing) {
-      credentialOf.set(candidate.legacyId, existing)
-      continue
-    }
+    if (await deps.credentials.findByLegacyId(candidate.legacyId)) continue
     const id = newCredentialId()
     let sealed: Awaited<ReturnType<Vault['seal']>>
     try {
@@ -265,12 +331,13 @@ export async function importLegacyCredentials(deps: LegacyImportDeps): Promise<L
     )
     const readBack = await withSecret(deps, id, async (secret) => secret === candidate.secret)
     if (!readBack) throw new Error(`moving ${candidate.legacyId} into the vault did not read back`)
-    credentialOf.set(candidate.legacyId, { id, ownerUserId: candidate.ownerUserId })
+    createdNow.set(candidate.legacyId, { id, ownerUserId: candidate.ownerUserId })
     created += 1
   }
-  const machinesAllowed = await carrySends(deps, credentialOf, mergedInto)
-  if (created > 0 || machinesAllowed > 0) {
-    log.info('moved old keys into the vault', { created, machinesAllowed })
+  const machinesAllowed = await carrySends(deps, createdNow, mergedInto)
+  const grantsMade = await carryShares(deps, createdNow, sources, mergedInto, log)
+  if (created > 0 || machinesAllowed > 0 || grantsMade > 0) {
+    log.info('moved old keys into the vault', { created, machinesAllowed, grantsMade })
   }
-  return { created, machinesAllowed, skipped, refused }
+  return { created, machinesAllowed, grantsMade, skipped, refused }
 }

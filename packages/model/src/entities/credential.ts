@@ -23,6 +23,8 @@ export const CredentialIdentity = z.object({
   email: z.string().optional(),
   plan: z.string().optional(),
   organisation: z.string().optional(),
+  /** A display-only preview of a pasted secret (`sk-a…1234`); never the secret. */
+  masked: z.string().optional(),
 })
 export type CredentialIdentity = z.infer<typeof CredentialIdentity>
 

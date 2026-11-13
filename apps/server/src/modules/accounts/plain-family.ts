@@ -70,6 +70,8 @@ export const ACCOUNT_PLAIN_FAMILY = definePlainFamily({
     nativeLogin: state.modules.nativeLogin,
     loginPropagation: state.modules.loginPropagation,
     audit: state.store.settingsAudit,
+    // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
+    credentialStore: state.store,
     callerRole: async () => await state.store.users.roleOf(asUserId(state.caller.userId)),
     machineStanding: async () => await state.privateAccess.machineStanding(),
     callerUserId: state.caller.userId,

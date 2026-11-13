@@ -86,6 +86,7 @@ export const GOVERNED: readonly { table: string; module: string }[] = [
   { table: 'AUTH_COMMANDS_TRPC', module: 'instance' },
   { table: 'TELEMETRY_COMMANDS_TRPC', module: 'instance' },
   { table: 'VAULT_COMMANDS_TRPC', module: 'vault' },
+  { table: 'CREDENTIAL_COMMANDS_TRPC', module: 'credentials' },
 ]
 
 const read = (rel: string): string => readFileSync(join(ROOT, rel), 'utf8')

@@ -3,11 +3,11 @@ import { here } from './lookup'
 import type { MobxPool, PoolRows } from './pool'
 import type { PoolSource } from './source-registry'
 
-export type RequestedEntity = 'account' | 'member' | 'device'
+export type RequestedEntity = 'account' | 'credential' | 'member' | 'device'
 declare module './source-registry' {
   interface PoolSourceRows extends Pick<PoolRows, RequestedEntity> {}
 }
-const ENTITIES = ['account', 'member', 'device'] as const
+const ENTITIES = ['account', 'credential', 'member', 'device'] as const
 
 /** Passive ingestion shared by header samples and requested views. This source
  * keeps records through a core-feed replacement without owning requests. */

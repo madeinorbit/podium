@@ -1790,6 +1790,20 @@ type Input_conversations_search = {
     projectPath?: string | undefined;
     query?: string | undefined;
 };
+type Input_credentials_add = {
+    label: string;
+    secret: string;
+    type: "anthropic.api-key" | "anthropic.claude-login" | "anthropic.claude-token" | "openai.api-key" | "openai.chatgpt-login" | "openai.chatgpt-plan" | "openrouter.api-key";
+};
+type Input_credentials_share = {
+    acknowledgeDisclosure: boolean;
+    acknowledgeWarning?: boolean | undefined;
+    credentialId: string;
+    grantee: "all-members" | {
+        userId: string;
+    };
+    verb: "manage" | "use";
+};
 type Input_files_read = ({
     artifactId: string;
     issueId: string;
@@ -6829,6 +6843,93 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 [k: string]: unknown;
             } & {});
             output: Array<_podium_model.TaskCostRowWire>;
+            meta: unknown;
+        }>;
+    };
+    "credentials": {
+        "add": TRPC.TRPCMutationProcedure<{
+            input: Input_credentials_add;
+            output: {
+                credentialId: string & z.BRAND<"CredentialId">;
+            };
+            meta: unknown;
+        }>;
+        "allowMachine": TRPC.TRPCMutationProcedure<{
+            input: {
+                acknowledgeDisclosure: boolean;
+                credentialId: string;
+                machineId: string;
+            };
+            output: {
+                ok: true;
+            };
+            meta: unknown;
+        }>;
+        "disallowMachine": TRPC.TRPCMutationProcedure<{
+            input: {
+                credentialId: string;
+                machineId: string;
+            };
+            output: {
+                ok: true;
+            };
+            meta: unknown;
+        }>;
+        "list": TRPC.TRPCQueryProcedure<{
+            input: (undefined) | ({
+                [k: string]: unknown;
+            } & {});
+            output: Array<_podium_model.CredentialView>;
+            meta: unknown;
+        }>;
+        "remove": TRPC.TRPCMutationProcedure<{
+            input: {
+                credentialId: string;
+            };
+            output: {
+                ok: true;
+            };
+            meta: unknown;
+        }>;
+        "rename": TRPC.TRPCMutationProcedure<{
+            input: {
+                credentialId: string;
+                label: string;
+            };
+            output: {
+                ok: true;
+            };
+            meta: unknown;
+        }>;
+        "renew": TRPC.TRPCMutationProcedure<{
+            input: {
+                credentialId: string;
+                secret: string;
+            };
+            output: {
+                ok: true;
+            };
+            meta: unknown;
+        }>;
+        "share": TRPC.TRPCMutationProcedure<{
+            input: Input_credentials_share;
+            output: {
+                ok: true;
+            };
+            meta: unknown;
+        }>;
+        "unshare": TRPC.TRPCMutationProcedure<{
+            input: {
+                credentialId: string;
+                grantee: "all-members" | {
+                    userId: string;
+                };
+                verb?: "manage" | "use" | undefined;
+            };
+            output: {
+                ok: true;
+                removed: boolean;
+            };
             meta: unknown;
         }>;
     };

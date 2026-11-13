@@ -35,6 +35,13 @@ import { maskCredential } from '../../accounts'
 import type { RegistryModules, SessionRegistry } from '../../relay'
 import { SHARED_WITH_EVERYONE } from '../../store/accounts'
 import type { SettingsAuditRepository } from '../../store/settings-audit'
+import type { CredentialsStore } from '../credentials/commands'
+import {
+  connectThrough,
+  removeThrough,
+  sendThrough,
+  shareThrough,
+} from '../credentials/legacy-accounts'
 import type { PlainTargetCheck } from '../plain-command/entry'
 
 /** Exactly what the account family reaches, named. */
@@ -60,6 +67,11 @@ export interface AccountState {
   /** The settings audit trail, where a taken-back send is recorded (POD-6699).
    *  Optional so existing test states stay valid; absent, nothing is recorded. */
   readonly audit?: Pick<SettingsAuditRepository, 'append'> | undefined
+  // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
+  /** Where each change is written through to the credential the row became
+   *  (`credentials/legacy-accounts.ts`). Optional so existing test states stay
+   *  valid; the served family always passes it. */
+  readonly credentialStore?: CredentialsStore | undefined
   /**
    * The viewer's usable server-AI login (POD-4750): which native login the
    * server-side LLM would spend for the CALLER's background role, and on which
@@ -144,6 +156,16 @@ export const ACCOUNT_COMMANDS_TRPC = {
       // `callerSuppliedTargetId: false` true rather than aspirational. The row
       // is the CALLER's (POD-6300): the same id is another member's own row.
       const id = input.kind === 'oauth' ? 'managed:claude-oauth' : `managed:${input.provider}`
+      // The credential first: a vault that cannot seal refuses before the row changes.
+      if (state.credentialStore) {
+        await connectThrough(state.credentialStore, {
+          owner: asUserId(state.callerUserId),
+          accountKey: id,
+          provider: input.provider,
+          kind: input.kind,
+          secret: input.credential,
+        })
+      }
       // The caller's own row: a reconnect replaces their key and keeps their
       // sharing; a first connect starts private.
       await state.accounts.connect({
@@ -167,6 +189,9 @@ export const ACCOUNT_COMMANDS_TRPC = {
       // Only the caller's own row. Another user's key, shared with the caller or
       // not, is untouched: idempotent revocation, as the contract states.
       await state.accounts.disconnect(asUserId(state.callerUserId), input.id)
+      if (state.credentialStore) {
+        await removeThrough(state.credentialStore, asUserId(state.callerUserId), input.id)
+      }
       return { ok: true as const }
     }) satisfies AccountHandler<
       z.infer<(typeof ACCOUNT_CONTRACTS)['disconnect']['input']>,
@@ -198,6 +223,15 @@ export const ACCOUNT_COMMANDS_TRPC = {
         input.machineId,
         (state.now?.() ?? new Date()).toISOString(),
       )
+      if (state.credentialStore) {
+        await sendThrough(state.credentialStore, {
+          owner,
+          accountKey: input.id,
+          machineId: input.machineId,
+          sent: true,
+          actor: owner,
+        })
+      }
       return { ok: true as const, sent: true as const, warning: SHARED_MACHINE_ACCOUNT_WARNING }
     }) satisfies AccountHandler<z.infer<(typeof ACCOUNT_CONTRACTS)['send']['input']>, unknown>,
   },
@@ -228,6 +262,15 @@ export const ACCOUNT_COMMANDS_TRPC = {
           })
         },
       )
+      if (state.credentialStore) {
+        await sendThrough(state.credentialStore, {
+          owner,
+          accountKey: input.id,
+          machineId: input.machineId,
+          sent: false,
+          actor: caller,
+        })
+      }
       if (!removed) return { ok: true as const, removed: false as const }
       const machineName =
         (await state.machines.getMachine(input.machineId))?.name ?? input.machineId
@@ -311,6 +354,15 @@ export const ACCOUNT_COMMANDS_TRPC = {
       const users = input.users.filter((user) => user !== owner)
       const sharedWith = input.everyone ? [SHARED_WITH_EVERYONE, ...users] : users
       if (!(await state.accounts.share(owner, input.id, sharedWith))) throw noSuchKey()
+      if (state.credentialStore) {
+        await shareThrough(state.credentialStore, {
+          owner,
+          accountKey: input.id,
+          everyone: input.everyone,
+          users,
+          actor: asUserId(state.callerUserId),
+        })
+      }
       return { ok: true as const }
     }) satisfies AccountHandler<z.infer<(typeof ACCOUNT_CONTRACTS)['share']['input']>, unknown>,
   },

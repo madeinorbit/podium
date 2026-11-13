@@ -1,5 +1,5 @@
 import { lazy } from '@podium/mobx-helpers'
-import type { AccountView, GitRepositoryWire, MemberView } from '@podium/model'
+import type { AccountView, CredentialView, GitRepositoryWire, MemberView } from '@podium/model'
 import { machinePathBasename, repoNameFromOrigin } from '@podium/model/browser'
 import type { DeviceSignInView } from '@podium/protocol'
 import { EntityModel, type ModelHost, registerModels } from './models'
@@ -11,6 +11,21 @@ export class AccountModel extends EntityModel {
   }
 }
 export interface AccountModel extends Readonly<AccountView> {}
+/**
+ * A CREDENTIAL I own or was given (credential management §4), as
+ * `credentials.list` returns it. Never a secret: the record has no field for one.
+ */
+export class CredentialModel extends EntityModel {
+  constructor(id: string, host: ModelHost) {
+    super('credential', id, host)
+  }
+  /** The viewer may rename, renew, remove and share it. */
+  @lazy get canManage(): boolean {
+    return this.access === 'owner' || this.access === 'manage'
+  }
+}
+// `id` is the model's own (a plain string); the record's branded id is the same value.
+export interface CredentialModel extends Readonly<Omit<CredentialView, 'id'>> {}
 export class MemberModel extends EntityModel {
   constructor(id: string, host: ModelHost) {
     super('member', id, host)
@@ -119,6 +134,28 @@ registerModels(
         'keptOn',
       ],
     ),
+    credential: record(
+      'CredentialView',
+      'request:credentials.list',
+      'id',
+      {
+        id: 'id',
+        ownerUserId: 'id',
+        label: 'string',
+        type: 'string',
+        identity: 'object',
+        status: 'enum',
+        statusReason: 'string',
+        limitReachedUntil: 'isoDate',
+        expiresAt: 'isoDate',
+        verifiedAt: 'isoDate',
+        homes: 'object',
+        allowedMachines: 'object',
+        sessionCount: 'number',
+        access: 'enum',
+      },
+      ['statusReason', 'limitReachedUntil', 'expiresAt', 'verifiedAt'],
+    ),
     member: record(
       'MemberView',
       'request:members.list',
@@ -186,6 +223,7 @@ registerModels(
   },
   {
     account: AccountModel,
+    credential: CredentialModel,
     member: MemberModel,
     device: DeviceModel,
     repository: RepositoryModel,

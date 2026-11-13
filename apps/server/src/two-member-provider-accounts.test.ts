@@ -14,15 +14,12 @@
  * login cookie); only selections are seeded through the store, and the fake
  * daemons report the machines' plan quota.
  *
- * LAUNCHES READ CREDENTIALS (credential management epic, Task 3). A launch
- * resolves its credential through the resolver, which reads `credentials` and
- * `credential_machines`, not the `accounts` tables the `accounts.*` commands
- * below still write. Until Task 4 replaces those commands, a connect, send or
- * unsend in a running server reaches launches only after the next start (the
- * legacy import). So the launch cases here seed each member's credential and
- * its machine allowance through the store, the way that import would, beside
- * the command; the `accounts.*` assertions cover the accounts views only, not
- * what a launch runs on.
+ * LAUNCHES READ CREDENTIALS (credential management epic, Tasks 3 and 4). A
+ * launch resolves its credential through the resolver, which reads
+ * `credentials` and `credential_machines`. The `accounts.*` commands below write
+ * their change through to the credential at once (Task 4), so nothing here is
+ * seeded through the store: each launch runs on exactly what the member's last
+ * connect, send or unsend did, in the same running server, with no restart.
  */
 
 import {
@@ -35,7 +32,6 @@ import {
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { ACCESS_REFUSAL_MESSAGES } from './modules/credentials/access'
-import { sealCredentialSecret } from './modules/credentials/vault'
 import { fixtureInventory } from './test-support/daemon-inventory'
 import {
   MEMBERS,
@@ -113,21 +109,6 @@ const startClaude = async (who: MemberName, machineId: MachineId, cwd: string) =
 const frameOf = (machineId: MachineId, sessionId: SessionId) =>
   spawnFrames(machineId).find((frame) => frame.sessionId === sessionId)
 
-/** The credential the legacy import makes of a member's connection. */
-const seedCredential = async (who: MemberName, type: string, legacyKey: string, secret: string) => {
-  // Once the accounts commands write through to credentials (Task 4), the
-  // command already made it: use that one.
-  const existing = await store().credentials.findByLegacyKey(MEMBERS[who].id, legacyKey)
-  if (existing) return existing.id
-  const record = await store().credentials.insert({
-    ownerUserId: MEMBERS[who].id,
-    label: legacyKey,
-    type,
-    legacyKey,
-  })
-  expect(await sealCredentialSecret(store(), record, secret, 0)).toBe(1)
-  return record.id
-}
 const credentialOf = async (who: MemberName, legacyKey: string) => {
   const found = await store().credentials.findByLegacyKey(MEMBERS[who].id, legacyKey)
   if (!found) throw new Error(`no credential ${legacyKey} for ${who}`)
@@ -145,8 +126,9 @@ beforeAll(async () => {
     kind: 'api-key',
     credential: BOB_KEY,
   })
-  await seedCredential('alice', 'anthropic.api-key', 'managed:anthropic', ALICE_KEY)
-  await seedCredential('bob', 'anthropic.api-key', 'managed:anthropic', BOB_KEY)
+  // The connect made each member's credential.
+  await credentialOf('alice', 'managed:anthropic')
+  await credentialOf('bob', 'managed:anthropic')
 })
 
 describe('MU-26: each member’s connections are their own', () => {
@@ -174,7 +156,7 @@ describe('MU-26: each member’s connections are their own', () => {
       kind: 'api-key',
       credential: 'sk-openai-alice-2222222222',
     })
-    await seedCredential('alice', 'openai.api-key', 'managed:openai', 'sk-openai-alice-2222222222')
+    await credentialOf('alice', 'managed:openai')
     await select('bob', 'managed:openai')
     const before = spawnFrames(f.machines.bob).length
     // Nobody shares one with Bob, so Alice's is out of reach (sharing is explicit).
@@ -262,8 +244,10 @@ describe('an admin cannot see, use or edit another member’s connection', () =>
   it('Alice (admin) sees only her own connection, and disconnecting hers leaves Bob’s', async () => {
     expect(JSON.stringify(await list('alice'))).not.toContain(mask(BOB_KEY))
     await (await trpc('alice')).accounts.disconnect.mutate({ id: 'managed:anthropic' })
-    // What Task 4's removal will do to her credential.
-    await store().credentials.setStatus(await credentialOf('alice', 'managed:anthropic'), 'revoked')
+    // The disconnect removed her credential at once.
+    expect(
+      (await store().credentials.findByLegacyKey(MEMBERS.alice.id, 'managed:anthropic'))?.status,
+    ).toBe('revoked')
     expect((await view('alice', 'managed:anthropic'))?.status).toBe('not-configured')
     expect((await view('bob', 'managed:anthropic'))?.identity).toBe(mask(BOB_KEY))
   })
@@ -293,7 +277,10 @@ describe('an admin cannot see, use or edit another member’s connection', () =>
       kind: 'api-key',
       credential: ALICE_KEY,
     })
-    await store().credentials.setStatus(await credentialOf('alice', 'managed:anthropic'), 'ok')
+    // Connecting again made her a new, usable credential under the same account id.
+    expect(
+      (await store().credentials.findByLegacyKey(MEMBERS.alice.id, 'managed:anthropic'))?.status,
+    ).toBe('ok')
     await select('alice', 'managed:anthropic')
   })
 })
@@ -350,12 +337,13 @@ describe('MU-28: Bob runs on Alice’s machine with his own connection only', ()
     expect(
       await (await trpc('bob')).accounts.send.mutate({ ...send, acknowledgeSharedMachine: true }),
     ).toEqual({ ok: true, sent: true, warning: SHARED_MACHINE_ACCOUNT_WARNING })
-    // What Task 4's send will record for his credential.
-    await store().credentials.allowMachine(
-      await credentialOf('bob', 'managed:anthropic'),
-      f.machines.alice,
-      MEMBERS.bob.id,
-    )
+    // The send allowed his credential there at once.
+    expect(
+      await store().credentials.isMachineAllowed(
+        await credentialOf('bob', 'managed:anthropic'),
+        f.machines.alice,
+      ),
+    ).toBe(true)
     expect((await view('bob', 'managed:anthropic'))?.sentTo).toEqual([
       { id: f.machines.alice, name: f.machines.alice },
     ])
@@ -406,11 +394,13 @@ describe('POD-6699: a sent connection can be taken back', () => {
 
   it('Bob takes it back: running sessions keep it, the next run there is refused', async () => {
     const result = await (await trpc('bob')).accounts.unsend.mutate(unsend)
-    // What Task 4's unsend will do to his credential.
-    await store().credentials.disallowMachine(
-      await credentialOf('bob', 'managed:anthropic'),
-      f.machines.alice,
-    )
+    // The unsend disallowed his credential there at once.
+    expect(
+      await store().credentials.isMachineAllowed(
+        await credentialOf('bob', 'managed:anthropic'),
+        f.machines.alice,
+      ),
+    ).toBe(false)
     expect(result).toEqual({
       ok: true,
       removed: true,

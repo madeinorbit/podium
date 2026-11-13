@@ -126,6 +126,24 @@ export {
   conversationsSetMetaInput,
 } from './conversations/contracts'
 export {
+  CREDENTIAL_CONTRACT_NAMES,
+  CREDENTIAL_CONTRACTS,
+  CREDENTIAL_MACHINE_DISCLOSURE,
+  CREDENTIAL_SHARE_DISCLOSURE,
+  CREDENTIAL_SHARE_WARNING,
+  type CredentialContractName,
+  CredentialGrantee,
+  CredentialGrantVerb,
+  credentialsAddInput,
+  credentialsAllowMachineInput,
+  credentialsDisallowMachineInput,
+  credentialsRemoveInput,
+  credentialsRenameInput,
+  credentialsRenewInput,
+  credentialsShareInput,
+  credentialsUnshareInput,
+} from './credentials/contracts'
+export {
   EFFECT_CONFLICT_RULE,
   EFFECT_CONTRACTS,
   EFFECT_MAX_DEADLINE_MS,

@@ -34,6 +34,7 @@ import { describe, expect, it } from 'vitest'
 import { appRouter } from '../router'
 import { ACCOUNT_COMMANDS_TRPC } from './accounts/registry'
 import { CLOUD_COMMANDS_TRPC } from './cloud/registry'
+import { CREDENTIAL_COMMANDS_TRPC } from './credentials/commands'
 import { FILE_COMMANDS_TRPC } from './files/registry'
 import { HOST_COMMANDS_TRPC } from './hosts/registry'
 import {
@@ -75,6 +76,7 @@ const FAMILIES = [
   // same builder, so it is pinned by the same non-vacuity floor below.
   { router: 'logs', table: LOGS_COMMANDS_TRPC },
   { router: 'vault', table: VAULT_COMMANDS_TRPC },
+  { router: 'credentials', table: CREDENTIAL_COMMANDS_TRPC },
 ] as const
 
 const routerRecord = (name: string): Record<string, unknown> =>
@@ -118,11 +120,13 @@ describe('the derived families, against the RUNNING appRouter', () => {
    * 34 -> 35, eleven -> twelve families: `vault.reset` (POD-6889), an admin's way
    * out when the credential vault's key file is lost for good. (The base served 34
    * against a pin of 33 already.)
+   * 35 -> 43, twelve -> thirteen families: the eight `credentials.*` writes
+   * (credential management Task 4, POD-6891).
    */
-  it('governs twelve families and thirty-five derived writes', () => {
-    expect(FAMILIES).toHaveLength(12)
+  it('governs thirteen families and forty-three derived writes', () => {
+    expect(FAMILIES).toHaveLength(13)
     const total = FAMILIES.reduce((n, f) => n + Object.keys(f.table).length, 0)
-    expect(total).toBe(35)
+    expect(total).toBe(43)
   })
 
   it.each(
