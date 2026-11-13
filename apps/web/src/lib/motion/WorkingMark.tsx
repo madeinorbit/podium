@@ -6,6 +6,7 @@
 import { tetra } from '@podium/working-mark/designs'
 import { WorkingMark as AnimatedWorkingMark } from '@podium/working-mark/react'
 import { type JSX, memo } from 'react'
+import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { cn } from '@/lib/utils'
 
 function WorkingMarkCell({
@@ -16,7 +17,16 @@ function WorkingMarkCell({
   size?: number
   className?: string
 }): JSX.Element {
-  return <AnimatedWorkingMark design={tetra} size={size} className={cn('pod-mark', className)} />
+  // WebKitGTK repaints the whole Linux desktop window for each APNG frame.
+  const method = nativeDesktopBridge()?.platform === 'linux' ? 'still' : 'auto'
+  return (
+    <AnimatedWorkingMark
+      design={tetra}
+      size={size}
+      method={method}
+      className={cn('pod-mark', className)}
+    />
+  )
 }
 
 /** Timer ticks must not reconcile the mark. */
