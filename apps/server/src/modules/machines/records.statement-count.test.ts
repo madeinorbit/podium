@@ -221,7 +221,8 @@ describe('statement counts of the machine record writes', () => {
     // Observed at both sizes on the supplied epic base, before reach batching.
     // POD-6864: re-measured on integrate/6253-sync-log 964ad37114: 25 -> 24.
     // POD-6920: derived change capture (no build before the write; one drain after it): machine grant source write 24 -> 21.
-    await expectConstantStatements(grantWrite, 21)
+    // A share is not the custody edge, so it reaches the access rows and not the machine record: 21 -> 18.
+    await expectConstantStatements(grantWrite, 18)
   })
 
   it('a member role comparison reads a fixed number of times across the fleet', async () => {
