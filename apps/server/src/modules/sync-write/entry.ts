@@ -34,7 +34,7 @@
 
 import { createLogger, describeError } from '@podium/logger'
 import type { Capability, MutationId, UserId } from '@podium/model'
-import { asMutationId, authorize } from '@podium/model'
+import { authorize } from '@podium/model'
 import type {
   SyncSubmitInput,
   SyncSubmitRefusal,
@@ -50,7 +50,7 @@ import type {
 import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import { outsideWriteProvenance, withWriteProvenance } from '../../write-provenance'
 import { coarselyPermitted, parseCommandInput } from '../front-door'
-import { SCOPED_MUTATION_PREFIX } from './legacy-receipt'
+import { scopedMutationId } from './legacy-receipt'
 import {
   isNoTarget,
   isTargetRefused,
@@ -219,13 +219,7 @@ export class SyncWriteEntry {
     // A caller controls the wire id. Scope both in-flight and durable dedup to
     // the authenticated actor, so guessing another person's id cannot replay
     // their result. Keep the wire id unchanged in provenance and receipts.
-    const actor =
-      principal.kind === 'user'
-        ? ['user', principal.user]
-        : principal.kind === 'agent'
-          ? ['agent', principal.agentSessionId, principal.onBehalfOf]
-          : ['system', principal.job]
-    const dedupId = asMutationId(SCOPED_MUTATION_PREFIX + JSON.stringify([...actor, mutationId]))
+    const dedupId = scopedMutationId(principal, mutationId)
     const human = onBehalfOfUser(principal)
     const provenance = { mutationId, causationId: mutationId }
     const ctx = this.contextFor(principal, mutationId, envelope.expectedRevision, confirmed)

@@ -33,7 +33,7 @@ import { expectConstantStatements } from '../../test-support/statement-count'
 import { WriteContexts } from '../../write-contexts'
 import { currentWriteProvenance } from '../../write-provenance'
 import { SyncWriteEntry, SyncWriteRefused } from './entry'
-import { legacyMutationFallback } from './legacy-receipt'
+import { legacyMutationFallback, scopedMutationId } from './legacy-receipt'
 import {
   NO_TARGET,
   type SyncWriteContext,
@@ -488,7 +488,7 @@ describe('sync write entry point: dedup, provenance and the receipt', () => {
     const other = userCommandPrincipal(otherId, 'admin')
     await h.entry.submit(envelope('private-id', { id: 'private', note: 'secret' }), other, 'trpc')
     // Even a caller who guesses the complete stored key gets no raw-key fallback.
-    const guess = `podium:actor:v1:${JSON.stringify(['user', otherId, 'private-id'])}`
+    const guess = scopedMutationId(other, asMutationId('private-id'))
     expect(
       applied(await h.entry.submit(envelope(guess, { id: 'own', note: 'own' }), h.admin, 'trpc')),
     ).toMatchObject({ replayed: false, result: { stored: 'own' } })
@@ -513,7 +513,7 @@ describe('sync write entry point: dedup, provenance and the receipt', () => {
         target: (h) => h.store,
         run: (h) =>
           h.store.sync.getAppliedMutation(
-            asMutationId('scoped'),
+            scopedMutationId(h.admin, asMutationId('scoped')),
             legacyMutationFallback(asMutationId('old-0'), h.adminId, {
               owner: h.adminId,
               before: 2_000,

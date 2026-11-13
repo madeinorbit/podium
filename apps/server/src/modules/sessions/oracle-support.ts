@@ -1,6 +1,6 @@
-import { clientSessionViews } from '../../test-support/session-views'
-import { resolvePrincipal } from '../../command-principal'
+import { type CommandPrincipal, resolvePrincipal } from '../../command-principal'
 import { attachTestClient } from '../../test-support/client-transport'
+import { clientSessionViews } from '../../test-support/session-views'
 /**
  * SessionService ORACLE support (POD-392, the decomposition oracle for
  * POD-393/POD-394/POD-395; originally established by POD-379).
@@ -137,12 +137,12 @@ export interface Oracle {
   client: ServerMessage[]
   /** Every ControlMessage the server sent to the attached daemon. */
   daemon: ControlMessage[]
+  /** The authenticated principal captured by the tRPC caller. */
+  principal: CommandPrincipal
   /** tRPC caller with the OPERATOR capability — the human seam. */
   call: ReturnType<typeof appRouter.createCaller>
   /** Session facts joined with the actual feed homes, as the client sees them. */
-  meta(
-    sessionId: SessionId,
-  ): Promise<Awaited<ReturnType<typeof clientSessionViews>>[number]>
+  meta(sessionId: SessionId): Promise<Awaited<ReturnType<typeof clientSessionViews>>[number]>
   /**
    * Invoke a write the way a RELAYED AGENT does — through the capability seam,
    * with the capability minted from the calling session's cwd. This is the ONLY
@@ -256,22 +256,25 @@ export async function makeOracle(
   const client: ServerMessage[] = []
   /** Extra sinks the relay helper installs; the daemon send fn is single-slot. */
   const relayWaiters: ((msg: ControlMessage) => void)[] = []
-  await reg.gateway.attachDaemon(machineId, confirmingRetirement(reg, machineId, (msg) => {
-    daemon.push(msg)
-    for (const waiter of relayWaiters) waiter(msg)
-    // Answer the one RPC a session write makes of its daemon: `stop` inspects the
-    // worktree for unsaved work. A clean tree is the ordinary case; leaving it
-    // unanswered would turn every stop test into a 20s RPC timeout rather than a
-    // characterization. Tests that want the dirty-tree refusal drive it explicitly.
-    if (msg.type === 'repoOpRequest') {
-      reg.gateway.routeDaemonFrame(machineId, {
-        type: 'repoOpResult',
-        requestId: msg.requestId,
-        ok: true,
-        output: '',
-      })
-    }
-  }))
+  await reg.gateway.attachDaemon(
+    machineId,
+    confirmingRetirement(reg, machineId, (msg) => {
+      daemon.push(msg)
+      for (const waiter of relayWaiters) waiter(msg)
+      // Answer the one RPC a session write makes of its daemon: `stop` inspects the
+      // worktree for unsaved work. A clean tree is the ordinary case; leaving it
+      // unanswered would turn every stop test into a 20s RPC timeout rather than a
+      // characterization. Tests that want the dirty-tree refusal drive it explicitly.
+      if (msg.type === 'repoOpRequest') {
+        reg.gateway.routeDaemonFrame(machineId, {
+          type: 'repoOpResult',
+          requestId: msg.requestId,
+          ok: true,
+          output: '',
+        })
+      }
+    }),
+  )
   // A real daemon reports its current inventory immediately after attaching.
   // Without this frame the fixture describes a connection that is permanently
   // mid-probe, and every harness-gated command exercises reconnect timing
@@ -304,21 +307,23 @@ export async function makeOracle(
   // The oracle's own teardown is `reg.dispose()`; adoption is what makes that
   // stop the turn reaper too (POD-2772).
   reg.adoptSuperagent(superagent)
+  const principal = resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined })
   const call = appRouter.createCaller({
     registry: reg,
     repos,
     superagent,
     capability: OPERATOR,
-    principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+    principal,
   })
   return {
     reg,
     store,
     client,
     daemon,
+    principal,
     call,
     meta: async (sessionId) => {
-      const found = (await clientSessionViews(reg)).find(row => row.sessionId === sessionId)
+      const found = (await clientSessionViews(reg)).find((row) => row.sessionId === sessionId)
       if (!found) throw new Error(`no session meta for ${sessionId}`)
       return found
     },
