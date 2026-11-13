@@ -9,8 +9,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import '@/test-support/model-catalog-mock'
 import { ChatComposer } from './ChatComposer'
 import { ConversationPresentation } from './conversation-presentation'
-import { TranscriptFeed } from './conversation-render.test.fixture'
-import { WebConversation } from './conversation-render.test.fixture'
+import { TranscriptFeed, WebConversation } from './conversation-render.test.fixture'
 import type { ChatSurface } from './use-chat-layout'
 
 const counts = vi.hoisted(() => ({ frames: 0, composer: 0, preview: 0, rows: new Map<string, number>() }))
@@ -22,7 +21,11 @@ vi.mock('./ChatBlockView', () => ({ ChatBlockView: ({ block }: { block: { item: 
   counts.rows.set(block.item.id, (counts.rows.get(block.item.id) ?? 0) + 1)
   return <div data-block>{block.item.text}</div>
 } }))
-vi.mock('./TranscriptTail', () => ({ TranscriptTail: () => null, trailingRunIsLive: () => false }))
+vi.mock('./TranscriptTail', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./TranscriptTail')>()),
+  TranscriptTail: () => null,
+  trailingRunIsLive: () => false,
+}))
 vi.mock('@/lib/markdown', () => ({
   renderMarkdown: (text: string) => { counts.preview++; return text },
   sanitizeRenderedMarkdown: (text: string) => text,
@@ -66,6 +69,7 @@ function fixture() {
     // The list observes order and the worker's structural index, never item values.
     conversation.transcript.ids.length
     const rows = presentation.rows
+    // biome-ignore lint/correctness/useExhaustiveDependencies: the observable structural row list invalidates this render fixture
     const rendered = useMemo(() => rows.map((row, index) => ({ row, index })), [rows])
     return <TranscriptFeed chat={chat} rows={rendered} blocks={presentation.blocks}
       setScrollerRef={() => {}} setContentRef={() => {}} onScroll={() => {}} onPointerUp={() => {}}
