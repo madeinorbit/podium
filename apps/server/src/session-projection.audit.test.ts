@@ -83,8 +83,6 @@ const FULL_LIST_CALL = /(?<![A-Za-z])(?:listSessions|view\.list|view\.listInPage
 const ALLOWED: Record<string, string> = {
   'modules/sessions/lifecycle.ts':
     'the service facade that forwards to it, labelled by its caller',
-  'modules/sessions/session-wiring.ts':
-    'composition: supplies the boot-baseline port with the bootstrap label',
   'modules/sessions/repository.ts':
     'boot ledger reconcile — this IS the client-visible baseline that sync.changesSince is served from',
   'modules/sessions/queries.ts':
