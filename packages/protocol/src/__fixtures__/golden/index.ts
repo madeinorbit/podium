@@ -33,6 +33,7 @@ import search from './search.json' with { type: 'json' }
 import server from './server.json' with { type: 'json' }
 import serverTransfer from './server-transfer.json' with { type: 'json' }
 import sessionAccess from './session-access.json' with { type: 'json' }
+import sessionAuth from './session-auth.json' with { type: 'json' }
 import shipping from './shipping.json' with { type: 'json' }
 import sync from './sync.json' with { type: 'json' }
 import terminal from './terminal.json' with { type: 'json' }
@@ -75,6 +76,7 @@ export const GOLDEN: Record<string, unknown> = {
   server: server,
   'server-transfer': serverTransfer,
   'session-access': sessionAccess,
+  'session-auth': sessionAuth,
   shipping: shipping,
   sync: sync,
   terminal: terminal,
