@@ -738,9 +738,15 @@ export const RECORD_SOURCES: RecordSources = {
     byId(sessions, sessions.id),
     own(offers, [offers.sessionId], (key) => str(key[0])),
     own(sessionDrafts, [sessionDrafts.sessionId], (key) => str(key[0])),
-    own(sessionObservationCheckpoints, [sessionObservationCheckpoints.sessionId], (key) => str(key[0])),
+    // The record reads a lease's checkpoint only (`checkpointsOf`): a lease
+    // opened or fenced with no checkpoint changes nothing.
+    own(sessionObservationCheckpoints, [sessionObservationCheckpoints.sessionId], (key) => str(key[0]), {
+      reads: [sessionObservationCheckpoints.checkpointJson, sessionObservationCheckpoints.provider],
+      rows: `{row}.${sessionObservationCheckpoints.checkpointJson.name} IS NOT NULL`,
+    }),
     own(runtimeEventCheckpoints, [runtimeEventCheckpoints.sessionId], (key) => str(key[0]), {
       reads: [runtimeEventCheckpoints.turnStateJson],
+      rows: `{row}.${runtimeEventCheckpoints.turnStateJson.name} IS NOT NULL`,
     }),
     // Whether the session has a runtime transcript: only resets and complete
     // items can change it.

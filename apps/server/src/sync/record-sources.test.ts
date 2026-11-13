@@ -474,7 +474,7 @@ describe('record sources (POD-6920)', () => {
     corpus = await buildCorpus()
   }, 60_000)
   afterAll(async () => {
-    await corpus.store.close()
+    await corpus?.store.close()
   })
 
   it('declares every kind the server builds, with at least one source', () => {
