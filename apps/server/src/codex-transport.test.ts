@@ -1,75 +1,129 @@
+/**
+ * The on-machine route (POD-4750, credential management §9): a direct call on
+ * a ChatGPT login runs on the machine whose Codex home holds that login, and
+ * only the answer comes back. Since credentials, the login is chosen by the
+ * credential (its fingerprint), not by "any Codex login on the fleet".
+ */
+
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { bundledDescriptorFor } from '@podium/harness/browser'
-import { asMachineId, asUserId, Inventory } from '@podium/model'
-import { LlmBackend } from '@podium/runtime'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createCodexTransport, type CodexLoginMachineSource } from './codex-machine'
-import { llmClient, LlmConfigError } from './llm'
+import {
+  asMachineId,
+  asUserId,
+  type CredentialId,
+  Inventory,
+  type MachineId,
+  type UserId,
+} from '@podium/model'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import type { CodexLoginMachineSource, CodexTurnResult } from './codex-machine'
+import { LlmConfigError } from './llm'
+import { complete, type OnMachineTransport } from './modules/inference/complete'
+import type { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
-function inventoryFor(state: 'in' | 'out') {
+const OWNER = asUserId('user:codex-owner')
+const OTHER = asUserId('user:codex-other')
+const NOW = '2026-11-13T00:00:00.000Z'
+
+function inventoryFor(state: 'in' | 'out', fingerprint?: string) {
   return Inventory.parse({
     os: 'linux',
     arch: 'x64',
-    agents: [{ kind: 'codex', installed: true, login: { state } }],
+    agents: [
+      {
+        kind: 'codex',
+        installed: true,
+        login: { state, ...(fingerprint ? { identity: { fingerprint } } : {}) },
+      },
+    ],
   })
 }
 
 function record(
   id: string,
-  opts: { login?: 'in' | 'out'; online?: boolean; appVersion?: string | null } = {},
+  opts: { login?: 'in' | 'out'; fingerprint?: string; appVersion?: string | null } = {},
 ): CodexLoginMachineSource {
   return {
     id: asMachineId(id),
     name: id,
     revokedAt: null,
-    inventory: inventoryFor(opts.login ?? 'in'),
+    inventory: inventoryFor(opts.login ?? 'in', opts.fingerprint ?? 'fp-mine'),
     appVersion: opts.appVersion ?? null,
   }
+}
+
+let store: SessionStore | undefined
+afterEach(async () => {
+  await store?.close()
+  store = undefined
+})
+
+/** A store whose machines exist, each looked after by `custodians[id]` (default OWNER). */
+async function openWith(
+  records: CodexLoginMachineSource[],
+  custodians: Record<string, UserId> = {},
+): Promise<SessionStore> {
+  store = await openTestStore(':memory:')
+  for (const r of records) {
+    await store.machines.upsertMachine({
+      id: r.id,
+      name: r.name,
+      hostname: r.name,
+      tokenHash: 'test',
+      ownerUserId: custodians[String(r.id)] ?? OWNER,
+      assignment: { server: false, agentExecution: true },
+    })
+  }
+  return store
+}
+
+async function chatgptLogin(
+  s: SessionStore,
+  fingerprint = 'fp-mine',
+  owner: UserId = OWNER,
+): Promise<CredentialId> {
+  const credential = await s.credentials.insert({
+    ownerUserId: owner,
+    label: 'ChatGPT login',
+    type: 'openai.chatgpt-login',
+    identity: { fingerprint },
+  })
+  return credential.id
 }
 
 interface Stub {
   records: CodexLoginMachineSource[]
   online: string[]
   defaultId?: string
-  allow: string[]
-  complete: (
-    model: string,
-    messages?: unknown,
-    tools?: unknown,
-    effort?: unknown,
-    harness?: unknown,
-  ) => Promise<{ ok: boolean; text?: string; toolCalls?: []; error?: string }>
+  complete?: (input: { model: string; effort: string }) => Promise<CodexTurnResult>
 }
 
 function stubTransport(stub: Stub) {
-  const calls: { machineId: string; model: string }[] = []
-  const transport = createCodexTransport({
+  const calls: { machineId: string; model: string; effort: string }[] = []
+  const transport: OnMachineTransport = {
     listMachines: async () => stub.records,
-    isOnline: (id) => stub.online.includes(String(id)),
+    isOnline: (id: MachineId) => stub.online.includes(String(id)),
     defaultMachineId: async () => (stub.defaultId ? asMachineId(stub.defaultId) : undefined),
-    authorizerFor: async () => (id) =>
-      stub.allow.includes(String(id)) ? undefined : 'you do not have access to use this machine',
-    ownerUserId: async () => asUserId('owner-1'),
     codexComplete: async (machineId, input) => {
-      calls.push({ machineId: String(machineId), model: input.model })
-      return await stub.complete(input.model)
+      calls.push({ machineId: String(machineId), model: input.model, effort: input.effort })
+      return await (stub.complete ?? (async () => ({ ok: true, text: 'ok', toolCalls: [] })))(input)
     },
-  })
+  }
   return { transport, calls }
 }
 
-const codexBackend = (model = 'gpt-5.5', harnessEffort = 'auto') =>
-  LlmBackend.parse({ kind: 'api', provider: 'codex', model, harnessEffort, harnessAgent: 'codex' })
+const hi = [{ role: 'user' as const, content: 'hi' }]
 
-describe('codex transport (POD-4750)', () => {
+describe('on-machine route: the login chosen by credential (POD-4750)', () => {
   let prevCodexHome: string | undefined
   let emptyHome: string
 
   beforeEach(() => {
     // The server's own home has NO Codex login: any file read here fails the
-    // proof — the turn must succeed off the catalog machine alone.
+    // proof — the turn must succeed off the machine that holds the login.
     prevCodexHome = process.env.CODEX_HOME
     emptyHome = mkdtempSync(join(tmpdir(), 'codex-server-home-'))
     process.env.CODEX_HOME = emptyHome
@@ -79,140 +133,177 @@ describe('codex transport (POD-4750)', () => {
     else process.env.CODEX_HOME = prevCodexHome
   })
 
-  it('a codex turn succeeds via the picked machine with no server-side login file', async () => {
+  it('a turn runs on the machine holding the chosen login, with no server-side login file', async () => {
+    const records = [
+      // A skewed daemon version must not stop the call: version skew never gates the pick.
+      record('desk', { appVersion: 'v0.0.1-ancient' }),
+      record('laptop', { fingerprint: 'fp-someone-else' }),
+    ]
+    const s = await openWith(records)
+    const id = await chatgptLogin(s)
     const { transport, calls } = stubTransport({
-      // A skewed daemon version must not stop the call: version skew never
-      // gates the pick (the frame-guard arm and the no-reply deadline cover
-      // daemons that truly predate the frame).
-      records: [record('desk', { appVersion: 'v0.0.1-ancient' })],
-      online: ['desk'],
-      defaultId: 'desk',
-      allow: ['desk'],
+      records,
+      online: ['desk', 'laptop'],
+      defaultId: 'laptop',
       complete: async () => ({ ok: true, text: 'hello from the daemon', toolCalls: [] }),
     })
-    const client = llmClient(codexBackend(), undefined, fetch, { codexTransport: transport })
-    expect(client.label).toBe('codex · gpt-5.5 (ChatGPT subscription)')
-    const res = await client.complete([{ role: 'user', content: 'hi' }], [])
-    expect(res).toEqual({ text: 'hello from the daemon', toolCalls: [] })
-    // The backend's codex harness selected the codex login's machine.
-    expect(calls).toEqual([{ machineId: 'desk', model: 'gpt-5.5' }])
+    const result = await complete(
+      { store: s, onMachine: transport },
+      { credentialId: id, model: 'gpt-5.5', messages: hi, actingUserId: OWNER },
+    )
+    expect(result).toEqual({
+      text: 'hello from the daemon',
+      toolCalls: [],
+      servedBy: id,
+      label: 'ChatGPT login',
+    })
+    // The default machine holds another login, so it is not the one picked.
+    expect(calls).toEqual([{ machineId: 'desk', model: 'gpt-5.5', effort: 'medium' }])
   })
 
-  it("'auto' resolves from the harness catalog, not a hard-coded slug (POD-4805)", async () => {
-    // The Codex server-AI role stores model 'auto'. The slug the daemon sends
-    // must come from the same model list the Codex harness uses (the bundled
-    // descriptor catalog, generated from the adapter registry) — a hard-coded
-    // slug here is a second list that drifts when the catalog moves, which is
-    // how the server AI came to send a model the login refuses.
-    const seen: string[] = []
-    const transport = createCodexTransport({
-      listMachines: async () => [record('desk')],
-      isOnline: () => true,
-      defaultMachineId: async () => asMachineId('desk'),
-      authorizerFor: async () => () => undefined,
-      ownerUserId: async () => asUserId('owner-1'),
-      codexComplete: async (_m, input) => {
-        seen.push(input.model)
-        return { ok: true, text: 'ok', toolCalls: [] }
-      },
+  it('of two machines holding the login, the online default is picked', async () => {
+    const records = [record('a-box'), record('z-box')]
+    const s = await openWith(records)
+    const id = await chatgptLogin(s)
+    const { transport, calls } = stubTransport({
+      records,
+      online: ['a-box', 'z-box'],
+      defaultId: 'z-box',
     })
+    await complete(
+      { store: s, onMachine: transport },
+      { credentialId: id, model: 'm', messages: hi, actingUserId: OWNER },
+    )
+    expect(calls.map((c) => c.machineId)).toEqual(['z-box'])
+  })
+
+  it("'auto' resolves from the harness catalog, and the role's effort rides through (POD-4805)", async () => {
+    const records = [record('desk')]
+    const s = await openWith(records)
+    const id = await chatgptLogin(s)
+    await s.settings.applyPreferencePatch(
+      OWNER,
+      {
+        'roles.background.credentialId': id,
+        'roles.background.model': 'auto',
+        'roles.background.effort': 'high',
+      },
+      NOW,
+    )
+    const { transport, calls } = stubTransport({ records, online: ['desk'] })
     const head = bundledDescriptorFor('codex')?.catalog.models[0]?.value
     expect(head).toBeTruthy()
-    const auto = llmClient(codexBackend('auto'), undefined, fetch, { codexTransport: transport })
-    expect(auto.label).toBe(`codex · ${head} (ChatGPT subscription)`)
-    await auto.complete([{ role: 'user', content: 'hi' }], [])
-    expect(seen).toEqual([head])
-  })
-
-  it('maps model default and effort like the old client did', async () => {
-    const seen: { model: string; effort: string }[] = []
-    const transport = createCodexTransport({
-      listMachines: async () => [record('desk')],
-      isOnline: () => true,
-      defaultMachineId: async () => asMachineId('desk'),
-      authorizerFor: async () => () => undefined,
-      ownerUserId: async () => asUserId('owner-1'),
-      codexComplete: async (_m, input) => {
-        seen.push({ model: input.model, effort: input.effort })
-        return { ok: true, text: 'ok', toolCalls: [] }
-      },
-    })
-    // 'auto' resolves from the harness catalog (see the POD-4805 test above).
-    const head = bundledDescriptorFor('codex')?.catalog.models[0]?.value
-    const auto = llmClient(codexBackend('auto'), undefined, fetch, { codexTransport: transport })
-    expect(auto.label).toBe(`codex · ${head} (ChatGPT subscription)`)
-    await auto.complete([{ role: 'user', content: 'hi' }], [])
-    // Explicit effort rides through.
-    const high = llmClient(codexBackend('gpt-5.5', 'high'), undefined, fetch, {
-      codexTransport: transport,
-    })
-    await high.complete([{ role: 'user', content: 'hi' }], [])
-    expect(seen).toEqual([
-      { model: head, effort: 'medium' },
-      { model: 'gpt-5.5', effort: 'high' },
+    await complete(
+      { store: s, onMachine: transport },
+      { role: 'background', messages: hi, actingUserId: OWNER },
+    )
+    await complete(
+      { store: s, onMachine: transport },
+      { credentialId: id, model: 'gpt-5.5', messages: hi, actingUserId: OWNER },
+    )
+    expect(calls).toEqual([
+      { machineId: 'desk', model: head, effort: 'high' },
+      { machineId: 'desk', model: 'gpt-5.5', effort: 'medium' },
     ])
   })
 
-  it('a backend naming another harness spends that login, not the codex one', async () => {
-    // The harness value — not a literal in product code — selects the login.
-    // A claude-harness backend against a codex-only fleet is unusable.
-    const { transport } = stubTransport({
-      records: [record('desk')],
-      online: ['desk'],
-      defaultId: 'desk',
-      allow: ['desk'],
-      complete: async () => ({ ok: true, text: 'must not happen', toolCalls: [] }),
-    })
-    const backend = LlmBackend.parse({
-      kind: 'api',
-      provider: 'codex',
-      model: 'gpt-5.5',
-      harnessEffort: 'auto',
-      harnessAgent: 'claude-code',
-    })
-    const client = llmClient(backend, undefined, fetch, { codexTransport: transport })
-    await expect(client.complete([{ role: 'user', content: 'hi' }], [])).rejects.toThrow(
-      LlmConfigError,
-    )
-  })
-
   it('a daemon refusal surfaces as LlmConfigError with the daemon text', async () => {
+    const records = [record('desk')]
+    const s = await openWith(records)
+    const id = await chatgptLogin(s)
     const { transport } = stubTransport({
-      records: [record('desk')],
+      records,
       online: ['desk'],
-      defaultId: 'desk',
-      allow: ['desk'],
-      complete: async () => ({ ok: false, error: 'Codex access token is expired and Podium won\'t refresh it' }),
+      complete: async () => ({
+        ok: false,
+        error: "Codex access token is expired and Podium won't refresh it",
+      }),
     })
-    const client = llmClient(codexBackend(), undefined, fetch, { codexTransport: transport })
-    await expect(client.complete([{ role: 'user', content: 'hi' }], [])).rejects.toThrow(
-      /won't refresh/,
+    const call = complete(
+      { store: s, onMachine: transport },
+      { credentialId: id, model: 'm', messages: hi, actingUserId: OWNER },
     )
+    await expect(call).rejects.toThrow(LlmConfigError)
+    await expect(call).rejects.toThrow(/won't refresh/)
   })
 
-  it('codex without a transport fails closed (never a local file read)', async () => {
-    expect(() => llmClient(codexBackend(), undefined)).toThrow(LlmConfigError)
+  it('the machine holding the login is offline: the error names it', async () => {
+    const records = [record('desk')]
+    const s = await openWith(records)
+    const id = await chatgptLogin(s)
+    const { transport, calls } = stubTransport({ records, online: [] })
+    await expect(
+      complete(
+        { store: s, onMachine: transport },
+        { credentialId: id, model: 'm', messages: hi, actingUserId: OWNER },
+      ),
+    ).rejects.toThrow(/ChatGPT login on desk is offline/)
+    expect(calls).toEqual([])
   })
 
-  it('other providers are untouched by the transport', () => {
-    const { transport } = stubTransport({ records: [], online: [], allow: [], complete: async () => ({ ok: true, text: '', toolCalls: [] }) })
-    expect(() => llmClient(LlmBackend.parse({ kind: 'api', provider: 'anthropic', model: 'm' }), undefined, fetch, { codexTransport: transport })).toThrow(
-      /no API key configured/,
-    )
-    const ok = llmClient(LlmBackend.parse({ kind: 'api', provider: 'anthropic', model: 'm' }), 'sk-x', fetch, { codexTransport: transport })
-    expect(ok.label).toBe('anthropic · m')
+  it('no machine holds the login: not signed in, and no other login is spent', async () => {
+    const records = [record('desk', { fingerprint: 'fp-other' })]
+    const s = await openWith(records)
+    const id = await chatgptLogin(s)
+    const { transport, calls } = stubTransport({ records, online: ['desk'] })
+    await expect(
+      complete(
+        { store: s, onMachine: transport },
+        { credentialId: id, model: 'm', messages: hi, actingUserId: OWNER },
+      ),
+    ).rejects.toThrow(/not signed in on a machine/)
+    expect(calls).toEqual([])
   })
 
-  it('an unauthorized catalog login is never spent (generic error, no names)', async () => {
-    const { transport } = stubTransport({
-      records: [record('user-b-box')],
-      online: ['user-b-box'],
-      allow: [],
-      complete: async () => ({ ok: true, text: 'must not happen', toolCalls: [] }),
-    })
-    const client = llmClient(codexBackend(), undefined, fetch, { codexTransport: transport })
-    const err = await client.complete([{ role: 'user', content: 'hi' }], []).catch((e) => e)
+  it('a machine someone else looks after is used only once the owner sent the credential there', async () => {
+    const records = [record('their-box')]
+    const s = await openWith(records, { 'their-box': OTHER })
+    const id = await chatgptLogin(s)
+    const { transport, calls } = stubTransport({ records, online: ['their-box'] })
+    const err = await complete(
+      { store: s, onMachine: transport },
+      { credentialId: id, model: 'm', messages: hi, actingUserId: OWNER },
+    ).catch((e: unknown) => e)
     expect(err).toBeInstanceOf(LlmConfigError)
-    expect(String(err?.message ?? err)).not.toContain('user-b-box')
+    // Names neither the other person's machine nor spends its login.
+    expect(String((err as Error).message)).not.toContain('their-box')
+    expect(calls).toEqual([])
+    await s.credentials.allowMachine(id, asMachineId('their-box'), OWNER)
+    await complete(
+      { store: s, onMachine: transport },
+      { credentialId: id, model: 'm', messages: hi, actingUserId: OWNER },
+    )
+    expect(calls.map((c) => c.machineId)).toEqual(['their-box'])
+  })
+
+  it('without a transport the route fails closed (never a local file read)', async () => {
+    const s = await openWith([])
+    const id = await chatgptLogin(s)
+    await expect(
+      complete({ store: s }, { credentialId: id, model: 'm', messages: hi, actingUserId: OWNER }),
+    ).rejects.toThrow(LlmConfigError)
+  })
+
+  it("an old background role of 'native:codex' reads as the login on the person's own machine", async () => {
+    const records = [record('their-box', { fingerprint: 'fp-theirs' }), record('desk')]
+    const s = await openWith(records, { 'their-box': OTHER })
+    const mine = await chatgptLogin(s)
+    await chatgptLogin(s, 'fp-theirs', OTHER)
+    await s.settings.applyPreferencePatch(
+      OWNER,
+      { 'roles.background.accountId': 'native:codex', 'roles.background.model': 'gpt-5.5' },
+      NOW,
+    )
+    const { transport, calls } = stubTransport({
+      records,
+      online: ['their-box', 'desk'],
+      defaultId: 'their-box',
+    })
+    const result = await complete(
+      { store: s, onMachine: transport },
+      { role: 'background', messages: hi, actingUserId: OWNER },
+    )
+    expect(result.servedBy).toBe(mine)
+    expect(calls.map((c) => c.machineId)).toEqual(['desk'])
   })
 })

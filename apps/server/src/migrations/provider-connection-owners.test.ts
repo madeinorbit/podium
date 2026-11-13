@@ -9,16 +9,26 @@
  * The later per-user migration preserves legacy sharing explicitly as ["*"].
  */
 
-import { asAccountId, asMachineId, asUserId } from '@podium/model'
+import { type AccountId, asAccountId, asMachineId, asUserId, type UserId } from '@podium/model'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
-import { managedKeyFor } from '../llm-roles'
 import { AccountsRepository } from '../store/accounts'
 import { stageASeam } from '../test-support/stage-a-seam'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { runDrizzleMigrations } from './index'
 
 const MIGRATION = 'provider-connection-owners'
+
+/** The old managed-key read: the person's own key, then one shared with them. */
+async function ownThenShared(
+  accounts: Pick<AccountsRepository, 'own' | 'sharedWith'>,
+  userId: UserId,
+  accountId: AccountId,
+) {
+  return (
+    (await accounts.own(userId, accountId)) ?? (await accounts.sharedWith(userId, accountId))[0]
+  )
+}
 
 function rewound(): { db: SqlDatabase; upgrade(): void } {
   const db = openDatabase(':memory:')
@@ -86,7 +96,7 @@ describe(`migration ${MIGRATION}`, () => {
       // read it as a credential since epic Task 3; the legacy import carries it.)
       const accounts = new AccountsRepository(stageASeam(db))
       expect(
-        (await managedKeyFor(accounts, asUserId(member), asAccountId('managed:anthropic')))
+        (await ownThenShared(accounts, asUserId(member), asAccountId('managed:anthropic')))
           ?.credential,
       ).toBe('sk-ant-before')
       // A reconnect replaces the migrated row rather than adding a second one.

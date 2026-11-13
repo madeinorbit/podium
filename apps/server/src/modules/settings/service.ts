@@ -216,7 +216,7 @@ type SettingsStore = Pick<
  */
 type SecretStore = Pick<
   SessionStore['secrets'],
-  'get' | 'getOrEmpty' | 'set' | 'clear' | 'presence' | 'apiKeyFor' | 'fingerprintKey'
+  'get' | 'getOrEmpty' | 'set' | 'clear' | 'presence' | 'fingerprintKey'
 >
 
 /** What a preference write commits through: the command's own writer, or the
@@ -251,8 +251,7 @@ export interface SettingsServiceOptions {
    * It lives HERE rather than being reached out of the store by `trpc.ts`. That
    * is `rearch-audit`'s `router-triple-access` rule and it is the right shape
    * independently: a transport that can reach `sessionStore` directly is a
-   * transport that can grow a second policy for it — the same reasoning
-   * {@link apiKeyFor} already carries.
+   * transport that can grow a second policy for it.
    */
   audit: SettingsAuditPort
   /** Override the database-held MAC key in tests. */
@@ -376,9 +375,8 @@ export class SettingsService {
   /**
    * Record one settings command, applied or refused (POD-421).
    *
-   * A pass-through to {@link recordSettingsCommand}, and it exists for the
-   * reason {@link apiKeyFor} does: so the ROUTER does not reach into
-   * `sessionStore` for the audit repository. `rearch-audit`'s
+   * A pass-through to {@link recordSettingsCommand}, and it exists so the
+   * ROUTER does not reach into `sessionStore` for the audit repository. `rearch-audit`'s
    * `router-triple-access` counts exactly that, and it caught this on the first
    * run — the reach-through grew the census 18 → 19, which is the ratchet doing
    * its job on a line that was architecturally wrong for an independent reason.
@@ -718,19 +716,6 @@ export class SettingsService {
         (await this.preferenceWriter.commit({ write })).result
       : await write()
     return { previous, next }
-  }
-
-  /**
-   * The provider API key for an LLM backend's provider, or `undefined`.
-   *
-   * A pass-through to the keyed store, and it exists so the ROUTER does not have
-   * to reach into `sessionStore.secrets` itself: `rearch-audit`'s
-   * `hand-written state reach-through in router.ts` counts exactly that, and it
-   * caught this on the first run. A router that can read the secret store
-   * directly is a router that can grow a second policy for it.
-   */
-  async apiKeyFor(provider: string): Promise<string | undefined> {
-    return await this.secrets.apiKeyFor(provider)
   }
 
   /** Live per-agent model lists for ONE machine (SWR — returns cached instantly,

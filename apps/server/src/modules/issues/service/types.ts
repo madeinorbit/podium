@@ -14,8 +14,8 @@ import type { MetadataChange, RepoOp } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import type { EntityChangeSpec, LedgerCommitOp, LedgerCommitResult } from '@podium/sync'
 import type { LinearIssue } from '../../../linear'
-import type { llmClient } from '../../../llm'
 import type { IssueRow, SessionStore } from '../../../store'
+import type { CompleteInput, CompleteResult } from '../../inference/complete'
 import type { SessionFacts } from '../../sessions/facts'
 import type { PendingUploadStore } from '../pending-uploads'
 
@@ -349,7 +349,12 @@ export interface IssueDeps {
    *  the relay; optional so existing test deps literals stay valid. */
   onWorktreesChanged?(repoPath: string, machineId?: MachineId): void
   defaultRepoBranch?(repoPath: string): Promise<string>
-  llm?: typeof llmClient
+  /**
+   * Podium's own model calls (credential management §9): the composition root
+   * binds `complete` with the machine transport. Absent, calls run over HTTP
+   * credentials only, on this store.
+   */
+  complete?(i: CompleteInput): Promise<CompleteResult>
   linearSearch?(key: string, q: string): Promise<LinearIssue[]>
   /**
    * Fired after a durable closed-predicate flip so session teardown can begin.

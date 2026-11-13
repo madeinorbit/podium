@@ -17,7 +17,13 @@ import { ChevronDown } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
 import type { ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
-import { RoleCredentialRow } from '@/features/credentials/role-credential'
+import {
+  credentialModelSource,
+  type ModelSource,
+  modelFor,
+  RoleCredentialSelect,
+  useCredentialViews,
+} from '@/features/credentials/role-credential'
 import { issueAgentDescriptors } from '@/lib/issue-agents'
 import { PropertyMenu } from '@/lib/PropertyMenu'
 import { useHarnessDescriptors } from '@/lib/use-harness-descriptors'
@@ -391,8 +397,22 @@ const BackgroundModelSection = observer(function BackgroundModelSection({
     .filter((group) => group.options.length > 0)
   const change = (value: Partial<RoleBackend>) =>
     patch({ roles: { ...settings.roles, background: { ...backend, ...value } } })
-  const models = BACKGROUND_MODELS[provider] ?? []
-  const defaultModel = backgroundDefaultModel(provider)
+  // A picked credential serves the role's calls, so its provider decides the
+  // model list; with none picked, "Runs on" does (credential management §9).
+  const credentialViews = useCredentialViews()
+  const sourceOf = (credentialId: RoleBackend['credentialId']): ModelSource | undefined => {
+    const view = credentialId
+      ? credentialViews.find((candidate) => candidate.id === credentialId)
+      : undefined
+    return view ? credentialModelSource(view.type) : undefined
+  }
+  const runsOn: ModelSource = native
+    ? { kind: 'login', harness: resolved.harness }
+    : { kind: 'api', provider }
+  const pickedSource = sourceOf(backend.credentialId)
+  const source = pickedSource ?? runsOn
+  const models = source.kind === 'api' ? (BACKGROUND_MODELS[source.provider] ?? []) : []
+  const defaultModel = source.kind === 'api' ? backgroundDefaultModel(source.provider) : AUTO
   const modelValue = backend.model || defaultModel
   const machineLogin =
     native &&
@@ -453,24 +473,38 @@ const BackgroundModelSection = observer(function BackgroundModelSection({
             accountId: asAccountId(id),
             harness: undefined,
             effort: AUTO,
-            model: nextNative
-              ? AUTO
-              : nextModels.some((model) => model.value === backend.model)
-                ? backend.model
-                : backgroundDefaultModel(account.provider),
+            // A picked credential keeps deciding the model.
+            model: pickedSource
+              ? backend.model
+              : nextNative
+                ? AUTO
+                : nextModels.some((model) => model.value === backend.model)
+                  ? backend.model
+                  : backgroundDefaultModel(account.provider),
           })
         }}
       />
-      <RoleCredentialRow
+      <RoleCredentialSelect
         roleName="background"
+        views={credentialViews}
         backend={backend}
-        onChange={(background) => patch({ roles: { ...settings.roles, background } })}
+        onChange={(background) =>
+          patch({
+            roles: {
+              ...settings.roles,
+              background: {
+                ...background,
+                model: modelFor(sourceOf(background.credentialId) ?? runsOn, background.model),
+              },
+            },
+          })
+        }
       />
-      {native ? (
+      {source.kind === 'login' ? (
         <HarnessModelRow
           setting="roles.background.model"
           label="Model"
-          harness={resolved.harness}
+          harness={source.harness}
           value={backend.model}
           onChange={(model) => change({ model })}
           background

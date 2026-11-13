@@ -172,7 +172,7 @@ export async function accountViews(
 
   const own = new Map((await accounts.ownedBy(viewer)).map((a) => [a.accountKey, a]))
   const shared = new Map<string, ManagedAccountRow>()
-  // Oldest first: the same key the spawn picks (`managedKeyFor`).
+  // Oldest first: the first key another member shared with the viewer.
   for (const row of await accounts.sharedWithUser(viewer)) {
     // LEGACY(remove-after: 2027-05): adopted workspace aliases participate in ordinary provider sharing.
     const accountKey = row.accountKey.replace(/:earlier-workspace$/, '')

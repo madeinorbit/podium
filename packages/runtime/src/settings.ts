@@ -602,22 +602,6 @@ export function resolveSpawnDefaults(
   }
 }
 
-/** Bridge for the llmClient path (one-shot / superagent api loop): reconstruct an
- *  api-shaped LlmBackend from a resolved role. A harness-execution role yields
- *  kind:'harness', which llmClient rejects — harness-print one-shot is still
- *  "coming soon". */
-export function roleApiBackend(settings: PodiumSettings, role: RoleName): LlmBackend {
-  const r = resolveRole(settings, role)
-  return LlmBackend.parse({
-    kind: r.execution === 'api' ? 'api' : 'harness',
-    harnessAgent: r.harness,
-    harnessModel: r.model,
-    harnessEffort: r.effort,
-    provider: r.provider ?? 'openrouter',
-    model: r.model,
-  })
-}
-
 /**
  * Which harness runs a superagent turn. When the superagent's account resolves
  * to a harness, that's it; a legacy managed-provider setting still falls back

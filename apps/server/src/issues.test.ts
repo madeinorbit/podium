@@ -25,8 +25,9 @@ import { describe, expect, it, vi } from 'vitest'
 import { repoOpCommand } from '../../daemon/src/repo-op'
 import { systemPrincipal, userCommandPrincipal } from './command-principal'
 import { sessionsForIssue } from './issue-util'
-import { llmClient } from './llm'
 import { MODEL_CATALOG_VERSION } from './model-catalog'
+import { importLegacyCredentials } from './modules/credentials/legacy-import'
+import { complete } from './modules/inference/complete'
 import { IssueArtifactStore } from './modules/issues/artifact-store'
 import { PendingUploadStore } from './modules/issues/pending-uploads'
 import { type IssueDeps, IssueService } from './modules/issues/service'
@@ -34,6 +35,7 @@ import { ARTIFACT_READ_CAP_BYTES } from './modules/issues/service/crud'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { sameWorktreePath } from './modules/issues/service/worktree-safety'
 import type { SessionStore } from './store'
+import { memberFacts } from './store/fixtures/test-support'
 import { captureLogs } from './test-support/capture-logs'
 import { openTestStore } from './test-support/open-test-store'
 import { seedMailboxRow } from './test-support/seed-issue-mail'
@@ -3392,10 +3394,12 @@ describe('IssueService derived status (P1)', () => {
 describe('IssueService assistant', () => {
   async function harnessWithLlm(json: string) {
     const { deps } = await harness([])
-    deps.llm = (() => ({
+    deps.complete = async () => ({
+      text: json,
+      toolCalls: [],
+      servedBy: 'cred_fake' as never,
       label: 'fake',
-      complete: async () => ({ text: json, toolCalls: [] }),
-    })) as never
+    })
     deps.repoOp = vi.fn(async (op: string) => ({
       ok: true,
       output: op === 'status' ? '## issue/1-x' : 'abc plan',
@@ -3436,17 +3440,14 @@ describe('IssueService assistant', () => {
 
   it('a refused server-AI call stays non-throwing but records the actionable error (POD-4805)', async () => {
     // The daemon's refusal (e.g. a ChatGPT login sent a model it does not
-    // support) surfaces as a throw out of the llm factory — the shape
-    // `createCodexTransport` produces for a daemon `{ ok: false }` outcome.
+    // support) surfaces as a throw out of `complete` — the shape the
+    // on-machine route produces for a daemon `{ ok: false }` outcome.
     const refusal =
       "codex 400: The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account."
     const { deps } = await harness([])
-    deps.llm = (() => ({
-      label: 'fake',
-      complete: async () => {
-        throw new Error(refusal)
-      },
-    })) as never
+    deps.complete = async () => {
+      throw new Error(refusal)
+    }
     deps.repoOp = vi.fn(async (op: string) => ({
       ok: true,
       output: op === 'status' ? '## issue/1-x' : 'abc plan',
@@ -3491,24 +3492,12 @@ describe('IssueService assistant', () => {
     expect(svc.gitWorkflow.backgroundLastError()).toBe(refusal)
   })
 
-  it("an unset background role names its throw: '' never reaches the Codex login (POD-4805)", async () => {
-    // Stored exactly as the acceptance run had it —
-    // {accountId:'', model:'auto', effort:'auto'} — with a Codex login on the
-    // fleet and no provider key in the secrets store. '' is the documented
-    // role default, which resolves to managed:openrouter, so the call never
-    // spends the login: llmClient throws demanding the missing key, and the
-    // digest used to swallow it without a word.
+  it('an unset background role with no key names its throw, and spends no login (POD-4805)', async () => {
+    // Stored exactly as the acceptance run had it — {accountId:'', model:'auto',
+    // effort:'auto'} — with no key anywhere. '' is the documented role default,
+    // which reads as the imported OpenRouter key: there is none, so the call is
+    // "not configured" and the digest says so instead of swallowing it.
     const { deps } = await harness([])
-    deps.llm = ((backend: never, apiKey: never) =>
-      llmClient(backend, apiKey, fetch, {
-        codexTransport: {
-          complete: async () => {
-            throw new Error(
-              'must not reach the Codex transport: unset role runs managed:openrouter',
-            )
-          },
-        },
-      })) as never
     deps.repoOp = vi.fn(async (op: string) => ({
       ok: true,
       output: op === 'status' ? '## issue/1-x' : 'abc plan',
@@ -3521,7 +3510,6 @@ describe('IssueService assistant', () => {
         },
         sessionDefaults: { agent: 'claude-code' },
         issues: { assistantEnabled: true },
-        roles: { background: { accountId: asAccountId(''), model: 'auto', effort: 'auto' } },
       })
     const svc = await IssueService.create(deps)
     const c = await svc.crud.create(svc.reports.store.serverWriter, {
@@ -3534,39 +3522,46 @@ describe('IssueService assistant', () => {
       branch: 'issue/1-x',
       stage: 'planning',
     })
+    const expected =
+      'no credential is chosen for the background role — pick one in Settings → Credentials'
     const logs = captureLogs()
     try {
       const wire = await svc.gitWorkflow.refreshAssistant(c.id)
       expect(wire.activityNotes).toBeUndefined()
-      const expected = 'no API key configured for openrouter — add one in Settings → Credentials'
       const warns = logs.at('warn')
       expect(warns.map((r) => r.msg)).toContain('background LLM call failed')
       expect(warns.map((r) => r.err?.message)).toContain(expected)
     } finally {
       logs.restore()
     }
-    expect(svc.gitWorkflow.backgroundLastError()).toBe(
-      'no API key configured for openrouter — add one in Settings → Credentials',
-    )
+    expect(svc.gitWorkflow.backgroundLastError()).toBe(expected)
   })
 
-  it("the digest spends the designated member's managed key, never another member's (POD-469)", async () => {
-    // The background role reads the first admin's settings, so it spends that
-    // admin's credential: their own managed key from the Accounts hub, then a
-    // key shared with them. Another member's unshared key is never used, even
-    // when it is the only one connected.
+  it('after the upgrade the digest runs on the imported key with untouched role settings, never another member’s', async () => {
+    // Credential management Task 12, item 5. An instance from before credentials:
+    // the OpenRouter key sits in the old accounts table and nobody touched the
+    // background role. The upgrade start moves the key into the vault; the
+    // role's default then reads as that credential. Another member's unshared
+    // key is never spent, even while it is the only one there (POD-469).
     const { deps } = await harness([])
-    const keys: (string | undefined)[] = []
-    deps.llm = ((_backend: never, apiKey: string | undefined) => {
-      keys.push(apiKey)
-      return {
-        label: 'fake',
-        complete: async () => ({
-          text: '{"activityNotes":"n","suggestedStage":"","suggestedReason":"","blockedBy":[],"dependencyNote":""}',
-          toolCalls: [],
+    const store = deps.store
+    const received: string[] = []
+    const fakeFetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+      received.push(String((init?.headers as Record<string, string>).authorization))
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content:
+                  '{"activityNotes":"imported key answered","suggestedStage":"","suggestedReason":"","blockedBy":[],"dependencyNote":""}',
+              },
+            },
+          ],
         }),
-      }
-    }) as never
+      )
+    }) as typeof fetch
+    deps.complete = async (input) => await complete({ store, fetch: fakeFetch }, input)
     deps.repoOp = vi.fn(async () => ({ ok: true, output: '' })) as never
     deps.getSettings = async () =>
       normalizeSettings({
@@ -3576,10 +3571,8 @@ describe('IssueService assistant', () => {
         },
         sessionDefaults: { agent: 'claude-code' },
         issues: { assistantEnabled: true },
-        workLlm: { kind: 'api', provider: 'openrouter', model: 'm' },
       })
-    const store = deps.store
-    const connect = async (ownerUserId: UserId, credential: string) =>
+    const upgradeWith = async (ownerUserId: UserId, credential: string) => {
       await store.accounts.connect({
         ownerUserId,
         accountKey: asAccountId('managed:openrouter'),
@@ -3590,6 +3583,14 @@ describe('IssueService assistant', () => {
         scope: 'role',
         createdAt: 1,
       })
+      await importLegacyCredentials({
+        secrets: store.secrets,
+        users: store.users,
+        credentials: store.credentials,
+        grants: store.grants,
+        vault: store.vault,
+      })
+    }
     const svc = await IssueService.create(deps)
     const c = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
@@ -3602,12 +3603,25 @@ describe('IssueService assistant', () => {
       stage: 'planning',
     })
 
-    await connect(asUserId('user:other-member'), 'other-member-key')
-    await svc.gitWorkflow.refreshAssistant(c.id)
-    await connect(await firstAdminMemberId(store), 'admin-managed-key')
-    await svc.gitWorkflow.refreshAssistant(c.id)
+    const other = asUserId('user:other-member')
+    await memberFacts(store).create(
+      {
+        id: other,
+        displayName: 'other',
+        role: 'member',
+        createdAt: new Date().toISOString(),
+        disabledAt: null,
+      },
+      'not-a-real-hash',
+    )
+    await upgradeWith(other, 'sk-FAKE-other-member-key')
+    expect((await svc.gitWorkflow.refreshAssistant(c.id)).activityNotes).toBeUndefined()
+    expect(received).toEqual([])
 
-    expect(keys).toEqual([undefined, 'admin-managed-key'])
+    await upgradeWith(await firstAdminMemberId(store), 'sk-FAKE-admin-managed-key')
+    const wire = await svc.gitWorkflow.refreshAssistant(c.id)
+    expect(wire.activityNotes).toBe('imported key answered')
+    expect(received).toEqual(['Bearer sk-FAKE-admin-managed-key'])
   })
 
   it('applySuggestion moves the stage and clears the suggestion', async () => {

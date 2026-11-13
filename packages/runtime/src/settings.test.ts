@@ -10,7 +10,6 @@ import {
   normalizeSettings,
   resolveRole,
   resolveSpawnDefaults,
-  roleApiBackend,
   shouldPromptAutoContinue,
   superagentHarnessAgent,
 } from './settings'
@@ -300,18 +299,6 @@ describe('normalizeSettings — legacy → roles migration', () => {
     })
     expect(s.roles.background.accountId).toBe(managedAccountId('anthropic'))
     expect(resolveRole(s, 'background')).toMatchObject({ execution: 'api', provider: 'anthropic' })
-  })
-
-  it('roleApiBackend reconstructs an api LlmBackend for the llmClient path', () => {
-    const s = normalizeSettings({
-      workLlm: { kind: 'api', provider: 'anthropic', model: 'claude-x', harnessEffort: 'high' },
-    })
-    expect(roleApiBackend(s, 'background')).toMatchObject({
-      kind: 'api',
-      provider: 'anthropic',
-      model: 'claude-x',
-      harnessEffort: 'high',
-    })
   })
 })
 

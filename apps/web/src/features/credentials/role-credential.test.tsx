@@ -1,8 +1,9 @@
+import { AUTO } from '@podium/client-core/agent-models'
 import { normalizeSettings } from '@podium/runtime'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { credentialView } from '@/test-support/credential-view'
-import { RoleCredentialSelect } from './role-credential'
+import { credentialModelSource, modelFor, RoleCredentialSelect } from './role-credential'
 
 afterEach(cleanup)
 
@@ -42,7 +43,7 @@ describe('acceptance 7: the background role offers credentials with a direct-inf
     expect(onChange).toHaveBeenCalledWith({ ...backend, credentialId: router.id })
   })
 
-  it('never presents the saved choice as what runs today, and clears it', () => {
+  it('says what the pick serves and what runs without one, and clears it', () => {
     const backend = {
       ...normalizeSettings({}).roles.background,
       credentialId: key.id,
@@ -56,10 +57,39 @@ describe('acceptance 7: the background role offers credentials with a direct-inf
         onChange={onChange}
       />,
     )
-    expect(screen.getByText(/Until then they run on “Runs on” above/)).toBeTruthy()
+    expect(screen.getByText(/With none picked they run on “Runs on” above/)).toBeTruthy()
     fireEvent.click(screen.getByRole('combobox', { name: 'Credential' }))
     pick(/None picked/)
     const { credentialId: _gone, ...rest } = backend
     expect(onChange).toHaveBeenCalledWith(rest)
+  })
+})
+
+describe('the model a picked credential implies', () => {
+  it('a key gives its provider’s list, a ChatGPT login the Codex catalog, a token nothing', () => {
+    expect(credentialModelSource('anthropic.api-key')).toEqual({
+      kind: 'api',
+      provider: 'anthropic',
+    })
+    expect(credentialModelSource('openrouter.api-key')).toEqual({
+      kind: 'api',
+      provider: 'openrouter',
+    })
+    expect(credentialModelSource('openai.chatgpt-login')).toEqual({
+      kind: 'login',
+      harness: 'codex',
+    })
+    expect(credentialModelSource('anthropic.claude-token')).toBeUndefined()
+    expect(credentialModelSource('someone.else')).toBeUndefined()
+  })
+
+  it('keeps a model of the same provider and replaces one of another', () => {
+    const anthropic = { kind: 'api', provider: 'anthropic' } as const
+    expect(modelFor(anthropic, 'claude-sonnet-4-5')).toBe('claude-sonnet-4-5')
+    expect(modelFor(anthropic, 'google/gemini-2.5-flash')).toBe('claude-haiku-4-5')
+    expect(modelFor(anthropic, 'auto')).toBe('claude-haiku-4-5')
+    const login = { kind: 'login', harness: 'codex' } as const
+    expect(modelFor(login, 'claude-haiku-4-5')).toBe(AUTO)
+    expect(modelFor(login, 'gpt-5.5')).toBe('gpt-5.5')
   })
 })

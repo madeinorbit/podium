@@ -78,7 +78,7 @@ import { bootStage } from './boot-timing'
 import { serverBuildVersion } from './build-version'
 import { capabilityPrincipalResolver } from './capability-principal'
 import { clientRelocations } from './client-relocation'
-import { codexAuthorizerFor, createCodexTransport } from './codex-machine'
+import { codexAuthorizerFor } from './codex-machine'
 import {
   attributionOf,
   type CommandPrincipal,
@@ -102,7 +102,6 @@ import { daemonTopicProducer, type TopicProducers, TopicRouting } from './gatewa
 import { driverFamilyForId } from './harness-manifest'
 import type { MemberCredentials } from './identity/member-credentials'
 import { checkIssueAccess, mayReachPrivate } from './issue-authz'
-import { type CodexTransport, llmClient } from './llm'
 import {
   checkMachineUse,
   checkMachineVerb,
@@ -136,6 +135,7 @@ import { HIBERNATION_HOLDER, HibernationMetricsDemand } from './modules/hosts/me
 import { MachineProcessesTopic } from './modules/hosts/processes-topic'
 import { HOST_COMMANDS_TRPC, memoryBreakdownRoots } from './modules/hosts/registry'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
+import { complete, type OnMachineTransport } from './modules/inference/complete'
 import { registerSessionAnswerEffect } from './modules/interactions/answer-effect'
 import { InteractionFeedPublisher } from './modules/interactions/feed'
 import { deliverToNativeMenu } from './modules/interactions/native-menu-delivery'
@@ -2503,21 +2503,16 @@ export class SessionRegistry {
     // Late-bound for the same reason: the messages service is composed below.
     let noticeReassignment: ((facts: ReassignmentFacts) => Promise<void>) | undefined
 
-    // Server-side LLM over a catalog Codex login (POD-4750): the transport a
-    // `codex`-provider client runs on. It picks the owning machine from the
-    // login catalog — scoped to the user whose settings name the backend (the
-    // first admin, the same identity the digest's settings are read for) —
-    // and that machine's daemon performs the Responses call, so the token
-    // never leaves its machine and never crosses this interface.
-    const codexTransport: CodexTransport = createCodexTransport({
+    // Podium's own model calls (credential management §9). A ChatGPT login's
+    // calls run on the machine whose Codex home holds it (POD-4750): that
+    // machine's daemon performs the Responses call, so the login never leaves
+    // it and never crosses this interface.
+    const onMachine: OnMachineTransport = {
       listMachines: async () => await machines.listMachines(),
       isOnline: (id) => machines.hasDaemon(id),
       defaultMachineId: () => machines.defaultMachine().catch(() => undefined),
-      authorizerFor: async (owner) =>
-        await codexAuthorizerFor({ users: this.store.users, machines }, owner),
-      ownerUserId: () => firstAdminMemberId(this.store),
       codexComplete: async (machineId, input) => await rpc.codexComplete(machineId, input),
-    })
+    }
 
     const issues = IssueService.compose({
       store: this.store,
@@ -2569,11 +2564,7 @@ export class SessionRegistry {
       // through the first admin's row only because a settings read needs one.
       getSettings: async (forUser) =>
         await this.store.settings.getSettingsFor(forUser ?? (await firstAdminMemberId(this.store))),
-      // Server-side LLM clients run on this factory so the `codex` provider
-      // resolves to the catalog transport above instead of a server-local
-      // login file (POD-4750). Other providers behave exactly as `llmClient`.
-      llm: ((backend, apiKey) =>
-        llmClient(backend, apiKey, fetch, { codexTransport })) as typeof llmClient,
+      complete: async (input) => await complete({ store: this.store, onMachine }, input),
       spawnSession: async (o) =>
         await sessionsSvc.createSession({
           requestTerminalDriver: true,

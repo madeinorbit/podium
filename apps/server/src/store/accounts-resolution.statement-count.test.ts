@@ -1,6 +1,5 @@
-import { asAccountId, asUserId } from '@podium/model'
+import { type AccountId, asAccountId, asUserId, type UserId } from '@podium/model'
 import { expect, it, vi } from 'vitest'
-import { managedKeyFor } from '../llm-roles'
 import type { SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
 import {
@@ -8,7 +7,18 @@ import {
   expectConstantStatements,
   type StatementPin,
 } from '../test-support/statement-count'
-import { SHARED_WITH_EVERYONE } from './accounts'
+import { type AccountsRepository, SHARED_WITH_EVERYONE } from './accounts'
+
+/** The old managed-key read: the person's own key, then one shared with them. */
+async function ownThenShared(
+  accounts: Pick<AccountsRepository, 'own' | 'sharedWith'>,
+  userId: UserId,
+  accountId: AccountId,
+) {
+  return (
+    (await accounts.own(userId, accountId)) ?? (await accounts.sharedWith(userId, accountId))[0]
+  )
+}
 
 const viewer = asUserId('mem_viewer')
 const provider = asAccountId('managed:anthropic')
@@ -37,7 +47,7 @@ it('resolves shared provider keys and adopted aliases in two statements at any m
       return store
     },
     target: (store) => store,
-    run: (store) => managedKeyFor(store.accounts, viewer, provider),
+    run: (store) => ownThenShared(store.accounts, viewer, provider),
     check: (result) =>
       expect(result).toMatchObject({ accountKey: earlier, credential: 'credential-0' }),
     teardown: (store) => store.close(),

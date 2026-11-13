@@ -336,6 +336,10 @@ removePlacement(placement: { credentialId; machineId; kind: 'home' | 'propagated
 complete(deps, i: { credentialId?: CredentialId; role?: RoleName; model?: string
   messages: LlmMessage[]; tools?: LlmTool[]; actingUserId: UserId }):
   Promise<{ text: string; toolCalls: ToolCall[]; servedBy: CredentialId; label: string }>
+//   throws CredentialRefusal (refused credential) or InferenceNotConfigured (none chosen, no adapter)
+// recordInferenceUsage(usage) — the one writer of the usage line ('inference usage': servedBy,
+//   label, actingUserId, inferenceRole, model, route, machineId?, inputTokens, outputTokens); a later
+//   usage table replaces its body
 
 // apps/server/src/modules/notices/emit.ts
 emitNotice(i: { recipientUserId: UserId; kind: NoticeKind
@@ -1054,7 +1058,8 @@ one-shot mode (S5).
 - A role names a credential. A role setting from before this epic (an `accountId`, or a
   provider that relied on an `apiKeys.*` secret) is read as the imported credential, under
   the `2027-02` header.
-- `servedBy` and the credential's label on every result, and `servedBy` on the cost record.
+- `servedBy` and the credential's label on every result, and `servedBy` on the usage log line
+  (one structured info line per call, written by one function; the cost record of this version).
 - `roleApiBackend` and the `apiKey(provider)` callback are deleted.
 
 **Acceptance:**
@@ -1066,15 +1071,15 @@ one-shot mode (S5).
    and a role that names a Claude login is refused with `wrong-type`. The report says which.
 4. A role that names a credential without a route is refused with `wrong-type`. A role with
    no credential behaves as a role without a backend does today.
-5. After the upgrade, title generation works on an instance whose role settings were not
+5. After the upgrade, the issue assistant works on an instance whose role settings were not
    touched (the old setting resolves to the imported credential).
-6. Every result carries `servedBy` and `label`, and the cost record carries the credential id.
+6. Every result carries `servedBy` and `label`, and the usage log line carries the credential id.
 7. A role that names a credential the acting person may not use is refused with `not-yours`.
 8. `git grep -w` for `roleApiBackend` and for the `apiKey` callback finds nothing under
    `apps/server`, and no reader of an `apiKeys.*` secret is left in the inference path.
 9. The server's log output during a call does not contain the planted key.
-10. Driven live: title generation and the issue assistant answer on a second Anthropic key
-    chosen through the settings command; the cost record showing `servedBy` is attached.
+10. Driven live: the issue assistant answers on a second Anthropic key chosen through the
+    settings command; the usage log line showing `servedBy` is attached.
 11. Lanes: the lean gate, on a remote lane.
 
 **Not in this task:** the role pickers in the UI (Task 17), the ChatGPT plan route's adapter
@@ -1191,7 +1196,7 @@ menu (Task 17).
     updates the existing credential.
 11. Component tests for the states: waiting, paste instead, signed in as a named account,
     failed.
-12. Driven live with the operator: the sign-in completes and title generation answers on
+12. Driven live with the operator: the sign-in completes and the issue assistant answers on
     that plan (`servedBy`); screenshot attached.
 13. Lanes: the lean gate and the web tests, on a remote lane.
 
@@ -1417,7 +1422,7 @@ as a task under the acceptance phase and mailed to the coordinator.
 1. The instance runs the tip of the integration branch (the commit is shown), on its own
    ports and state directory.
 2. Upgrade: started from a copy of a state directory from before this epic that holds keys,
-   the keys appear as credentials and sessions and title generation work without touching a
+   the keys appear as credentials and sessions and the issue assistant work without touching a
    setting.
 3. A member adds a key and names it.
 4. Two subscriptions for one harness on one machine, with a session running on each at the

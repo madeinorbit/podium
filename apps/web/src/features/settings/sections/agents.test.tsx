@@ -1,16 +1,19 @@
 import type { ModelCatalogState } from '@podium/client-core/react'
 import type { MachineModel } from '@podium/client-graph'
 import { bundledDescriptorFor } from '@podium/harness/browser'
+import type { CredentialView } from '@podium/model'
 import { type AccountView, asMachineId } from '@podium/model/browser'
 import { normalizeSettings, resolveRole } from '@podium/runtime'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { observable, runInAction } from 'mobx'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { credentialView } from '@/test-support/credential-view'
 import { AgentRoleFields, AgentsSection } from './agents'
 import { ModelAvailabilityWarning } from './model-availability-warning'
 import { SettingsControlsContext } from './shared'
 
 const fixture = vi.hoisted(() => ({
+  credentialViews: [] as CredentialView[],
   machines: [] as MachineModel[],
   catalog: {} as ModelCatalogState['catalog'],
   byMachine: {} as Record<string, ModelCatalogState>,
@@ -26,8 +29,11 @@ vi.mock('@/lib/use-model-catalog', () => ({
       : { catalog: fixture.catalog, status: 'ready' },
 }))
 vi.mock('@/lib/use-harness-descriptors', () => ({ useHarnessDescriptors: () => ({ served: [] }) }))
-// The background role's credential row reads `credentials.list`; its own test covers it.
-vi.mock('@/features/credentials/role-credential', () => ({ RoleCredentialRow: () => null }))
+// The background role's credential row reads `credentials.list`; the fixture stands in for it.
+vi.mock('@/features/credentials/role-credential', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/credentials/role-credential')>()),
+  useCredentialViews: () => fixture.credentialViews,
+}))
 
 const accounts: AccountView[] = [
   {
@@ -297,4 +303,72 @@ it('shows the server default account for an unset background role and lists conc
   fireEvent.click(model)
   expect(screen.queryByRole('option', { name: /^Auto/ })).toBeNull()
   expect(screen.getByRole('option', { name: 'Claude Haiku 4.5' })).toBeTruthy()
+})
+
+describe('the background Model row follows the picked credential (credential management §9)', () => {
+  afterEach(() => {
+    fixture.credentialViews = []
+  })
+
+  function pickOption(name: RegExp) {
+    const item = screen.getByRole('option', { name })
+    fireEvent.pointerDown(item)
+    fireEvent.pointerUp(item)
+    fireEvent.click(item)
+  }
+
+  const backgroundOf = (patch: ReturnType<typeof vi.fn>) =>
+    (patch.mock.calls.at(-1)?.[0] as { roles: { background: Record<string, unknown> } }).roles
+      .background
+
+  it('picking an Anthropic key on the OpenRouter default stores an Anthropic model, never the OpenRouter one', () => {
+    const key = credentialView({ label: 'Key B', type: 'anthropic.api-key' })
+    fixture.credentialViews = [key]
+    const settings = normalizeSettings({})
+    const patch = vi.fn()
+    render(<AgentsSection settings={settings} accounts={accounts} patch={patch} />)
+    fireEvent.click(screen.getByRole('combobox', { name: 'Credential' }))
+    pickOption(/Key B/)
+    expect(backgroundOf(patch)).toMatchObject({
+      credentialId: key.id,
+      model: 'claude-haiku-4-5',
+    })
+  })
+
+  it('with a credential picked the row lists its provider’s models; clearing it returns to Runs on', () => {
+    const key = credentialView({ label: 'Key B', type: 'anthropic.api-key' })
+    fixture.credentialViews = [key]
+    const settings = normalizeSettings({
+      roles: { background: { credentialId: key.id, model: 'claude-haiku-4-5' } },
+    })
+    const patch = vi.fn()
+    render(<AgentsSection settings={settings} accounts={accounts} patch={patch} />)
+    const model = screen.getByRole('combobox', { name: 'Model' })
+    expect(model.textContent).toContain('Claude Haiku 4.5')
+    fireEvent.click(model)
+    expect(screen.getByRole('option', { name: 'Claude Sonnet 4.5' })).toBeTruthy()
+    expect(screen.queryByRole('option', { name: 'Gemini 2.5 Flash' })).toBeNull()
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
+    cleanup()
+
+    render(<AgentsSection settings={settings} accounts={accounts} patch={patch} />)
+    fireEvent.click(screen.getByRole('combobox', { name: 'Credential' }))
+    pickOption(/None picked/)
+    const cleared = backgroundOf(patch)
+    expect(cleared.credentialId).toBeUndefined()
+    expect(cleared.model).toBe('google/gemini-2.5-flash')
+  })
+
+  it('an Anthropic model already stored is kept when an Anthropic key is picked', () => {
+    const key = credentialView({ label: 'Key A', type: 'anthropic.api-key' })
+    fixture.credentialViews = [key]
+    const settings = normalizeSettings({
+      roles: { background: { accountId: 'managed:anthropic', model: 'claude-sonnet-4-5' } },
+    })
+    const patch = vi.fn()
+    render(<AgentsSection settings={settings} accounts={accounts} patch={patch} />)
+    fireEvent.click(screen.getByRole('combobox', { name: 'Credential' }))
+    pickOption(/Key A/)
+    expect(backgroundOf(patch)).toMatchObject({ credentialId: key.id, model: 'claude-sonnet-4-5' })
+  })
 })
