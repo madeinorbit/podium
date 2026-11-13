@@ -419,8 +419,8 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
   },
   {
     file: 'packages/sync/src/ledger.ts',
-    line: 117,
-    why: "the Ledger deps property; it is handed straight to the Authority, so every call goes through the port entry above. (Was 121; POD-6592's write-scope import moved it.)",
+    line: 95,
+    why: "the Ledger deps property; it is handed straight to the Authority, so every call goes through the port entry above. (Was 117; POD-6920 removed the record-naming types above it.)",
   },
   {
     file: 'packages/sync/src/adapters/indexeddb/idb.ts',
