@@ -7,17 +7,6 @@ import { type ComposeSheetHeaderProps, ComposeStartButton } from './ComposeStart
 export function ComposeSheetHeader(props: ComposeSheetHeaderProps) {
   return (
     <>
-      <Stack.Screen
-        options={{
-          title: 'New Task',
-          headerShown: true,
-          headerLargeTitleEnabled: false,
-          headerBackVisible: false,
-          headerTransparent: true,
-          headerShadowVisible: false,
-          headerTitleStyle: { color: color.text },
-        }}
-      />
       <Stack.Toolbar placement="left">
         <Stack.Toolbar.Button
           icon="xmark"

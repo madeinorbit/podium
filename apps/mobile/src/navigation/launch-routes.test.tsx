@@ -85,7 +85,15 @@ describe('native launch routes', () => {
     }
     // Pushed screens retain the normal native navigation behavior.
     expect(native.options.animation).toBe(reduceMotion ? 'fade' : 'default')
-    expect(native.screens['new-issue']).toMatchObject({ presentation: 'modal' })
+    expect(native.screens['new-issue']).toMatchObject({
+      presentation: 'formSheet',
+      sheetAllowedDetents: [1],
+      sheetGrabberVisible: false,
+      title: 'New Task',
+      headerTransparent: true,
+      headerLargeTitleEnabled: false,
+      headerBackVisible: false,
+    })
   })
 
   it.each([

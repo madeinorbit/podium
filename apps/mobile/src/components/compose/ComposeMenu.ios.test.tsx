@@ -10,11 +10,13 @@ const native = vi.hoisted(() => ({
   menu: {} as Record<string, unknown>,
   labelLayout: undefined as ((event: LayoutChangeEvent) => void) | undefined,
   hostLayout: undefined as ((event: LayoutChangeEvent) => void) | undefined,
+  dismissKeyboard: vi.fn(),
 }))
 vi.mock('react-native', async (original) => {
   const actual = await original<typeof import('react-native')>()
   return {
     ...actual,
+    Keyboard: { ...actual.Keyboard, dismiss: native.dismissKeyboard },
     View: (props: ComponentProps<typeof actual.View>) => {
       if (props.testID === 'compose-menu-label') native.labelLayout = props.onLayout
       if (props.testID === 'compose-menu-host') native.hostLayout = props.onLayout
@@ -83,7 +85,10 @@ vi.mock('@expo/ui/swift-ui', () => ({
   ),
 }))
 const { ComposeMenu } = await import('./ComposeMenu.ios')
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.clearAllMocks()
+})
 
 it('keeps a measured menu row in place through dismissal and label remeasurement', () => {
   const view = render(
@@ -127,6 +132,28 @@ it('bridges full-width labels and uses native menu dismissal for held Start', ()
   expect(native.menu.onPrimaryAction).toBe(start)
   expect(native.menu.modifiers).toContainEqual({ buttonStyle: 'plain' })
   expect(native.menu.modifiers).toContainEqual({ menuActionDismissBehavior: 'enabled' })
+})
+
+it.each([
+  'Project',
+  'Agent',
+  'Model',
+  'Effort',
+  'Machine',
+])('opens %s over the composing sheet without blurring and resizing it', (label) => {
+  render(
+    <ComposeMenu label={label} items={[{ id: 'current', label: 'Current', selected: true }]}>
+      {() => <span>Current</span>}
+    </ComposeMenu>,
+  )
+  const host = screen.getByTestId('compose-menu-host')
+  const touch = { identifier: 0, target: host, clientX: 10, clientY: 10, pageX: 10, pageY: 10 }
+  fireEvent.touchStart(host, { touches: [touch], changedTouches: [touch] })
+  fireEvent.touchEnd(host, { touches: [], changedTouches: [touch] })
+  expect(native.dismissKeyboard).not.toHaveBeenCalled()
+  expect(native.host.ignoreSafeArea).toBe('all')
+  // The menu remains a child of the current row, rather than a new sheet.
+  expect(host.contains(screen.getByRole('region', { name: 'root' }))).toBe(true)
 })
 
 it('updates native Model and Effort submenus with live choices and dispatches selected values', () => {

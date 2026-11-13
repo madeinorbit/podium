@@ -97,6 +97,7 @@ export function ComposeBody({
   prompt,
   onPrompt,
   promptRef,
+  promptReady = true,
   onStart,
   onCancel,
   onCoordinator,
@@ -116,6 +117,7 @@ export function ComposeBody({
   prompt: string
   onPrompt: (prompt: string) => void
   promptRef?: RefObject<TextInput | null>
+  promptReady?: boolean
   onStart: () => void
   onCancel: () => void
   onCoordinator: () => void
@@ -208,36 +210,40 @@ export function ComposeBody({
             </View>
           ) : null}
         </View>
-        <TextInput
-          ref={inputRef}
-          autoFocus
-          multiline
-          scrollEnabled={maxPromptHeight !== undefined && (promptHeight ?? 0) >= maxPromptHeight}
-          editable={!busy}
-          accessibilityLabel="Task prompt"
-          placeholder="What should change, and why?"
-          placeholderTextColor={color.textMicro}
-          value={prompt}
-          onChangeText={onPrompt}
-          onKeyPress={onKeyPress}
-          onLayout={(event) => setPromptWidth(event.nativeEvent.layout.width)}
-          onContentSizeChange={
-            Platform.OS === 'web'
-              ? undefined
-              : (event) => measure(event.nativeEvent.contentSize.height)
-          }
-          // Native must keep its intrinsic height. Feeding its last measurement
-          // back as height caps UIKit's next measurement and clips later lines.
-          style={[
-            styles.prompt,
-            { maxHeight: maxPromptHeight },
-            Platform.OS === 'web' && promptHeight !== undefined
-              ? { height: Math.min(promptHeight, maxPromptHeight ?? promptHeight) }
-              : undefined,
-          ]}
-          textAlignVertical="top"
-          selectionColor={color.accentTint}
-        />
+        {promptReady ? (
+          <TextInput
+            ref={inputRef}
+            autoFocus
+            multiline
+            scrollEnabled={maxPromptHeight !== undefined && (promptHeight ?? 0) >= maxPromptHeight}
+            editable={!busy}
+            accessibilityLabel="Task prompt"
+            placeholder="What should change, and why?"
+            placeholderTextColor={color.textMicro}
+            value={prompt}
+            onChangeText={onPrompt}
+            onKeyPress={onKeyPress}
+            onLayout={(event) => setPromptWidth(event.nativeEvent.layout.width)}
+            onContentSizeChange={
+              Platform.OS === 'web'
+                ? undefined
+                : (event) => measure(event.nativeEvent.contentSize.height)
+            }
+            // Native must keep its intrinsic height. Feeding its last measurement
+            // back as height caps UIKit's next measurement and clips later lines.
+            style={[
+              styles.prompt,
+              { maxHeight: maxPromptHeight },
+              Platform.OS === 'web' && promptHeight !== undefined
+                ? { height: Math.min(promptHeight, maxPromptHeight ?? promptHeight) }
+                : undefined,
+            ]}
+            textAlignVertical="top"
+            selectionColor={color.accentTint}
+          />
+        ) : (
+          <View testID="compose-prompt-pending" style={[styles.prompt, { height: 72 }]} />
+        )}
         <View
           testID="compose-footer"
           onLayout={(event) => setFooterHeight(event.nativeEvent.layout.height)}

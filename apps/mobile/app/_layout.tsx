@@ -53,7 +53,23 @@ function NativeNavigation({ reduceMotion }: RootNavigationProps) {
         name="(tabs)"
         options={{ title: 'Work', headerShown: false, animation: 'none' }}
       />
-      <Stack.Screen name="new-issue" options={{ presentation: 'modal' }} />
+      <Stack.Screen
+        name="new-issue"
+        options={{
+          // UIKit must know the sheet's presentation before its first frame.
+          presentation: 'formSheet',
+          sheetAllowedDetents: [1],
+          sheetGrabberVisible: false,
+          title: 'New Task',
+          headerShown: true,
+          headerLargeTitleEnabled: false,
+          headerBackVisible: false,
+          headerTransparent: true,
+          headerShadowVisible: false,
+          headerTitleStyle: { color: color.text },
+          contentStyle: { flex: 1, minHeight: 0, backgroundColor: color.groupedCard },
+        }}
+      />
       <Stack.Screen
         name="inspect/[issueId]"
         options={{

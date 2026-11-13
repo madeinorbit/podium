@@ -198,6 +198,35 @@ async function mount(
 }
 
 describe('native New Task sheet logic', () => {
+  it('opens before projects and machines arrive, then hydrates the existing sheet without losing the prompt', async () => {
+    let discovered = {
+      repositories: [] as GitRepositoryWire[],
+      machines: [] as MachineWire[],
+      diagnostics: [],
+    }
+    const app = await mount({
+      repos: [],
+      machines: [],
+      api: { discovery: { refreshRepos: { mutate: async () => discovered } } },
+    })
+    const input = prompt()
+    fireEvent.change(input, { target: { value: 'Typed before discovery finished' } })
+    expect((screen.getByRole('button', { name: 'Start Task' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
+    discovered = { repositories: [repository()], machines: [machine()], diagnostics: [] }
+    await act(async () => {
+      await app.runtime.access.refreshRepos()
+    })
+    await ready()
+    expect(screen.getByRole('button', { name: 'Project, podium' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Machine, Studio' })).toBeTruthy()
+    expect(prompt()).toBe(input)
+    expect(prompt().value).toBe('Typed before discovery finished')
+    expect(seams.back).not.toHaveBeenCalled()
+    expect(seams.replace).not.toHaveBeenCalled()
+  })
+
   it('offers Auto and Shell for an empty catalog and no Effort for models that report none', async () => {
     await mount({
       api: {

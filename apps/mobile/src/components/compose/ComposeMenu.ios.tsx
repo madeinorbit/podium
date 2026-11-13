@@ -8,7 +8,7 @@ import {
 } from '@expo/ui/swift-ui/modifiers'
 import type { SFSymbol } from 'expo-symbols'
 import { useState } from 'react'
-import { Keyboard, View } from 'react-native'
+import { View } from 'react-native'
 import type { ComposeMenuItem, ComposeMenuProps } from './ComposeMenu'
 
 /** The app's SwiftUI Menu/RNHostView pattern, with nested choices and primary actions. */
@@ -25,7 +25,8 @@ export function ComposeMenu({
     <View
       testID="compose-menu-host"
       style={[style, contentHeight > 0 && { minHeight: contentHeight }]}
-      onTouchStart={Keyboard.dismiss}
+      // Opening a UIMenu must leave the composing sheet and keyboard in place.
+      // Blurring here resizes the sheet while UIKit is presenting its menu.
       onLayout={(event) => {
         if (event.nativeEvent.layout.width > 0) setWidth(event.nativeEvent.layout.width)
       }}

@@ -81,6 +81,23 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+it('keeps the UITextView out of the first sheet layout, then mounts and focuses the saved prompt once', () => {
+  const { rerender } = render(
+    <ComposeBody {...props} prompt="Saved before cold start" promptReady={false} />,
+  )
+  expect(screen.queryByRole('textbox', { name: 'Task prompt' })).toBeNull()
+  expect(getComputedStyle(screen.getByTestId('compose-prompt-pending')).height).toBe('72px')
+  layout('compose-body', 736)
+  layout('compose-fields', 132)
+  rerender(<ComposeBody {...props} prompt="Saved before cold start" promptReady />)
+  const input = screen.getByRole('textbox', { name: 'Task prompt' })
+  expect(native.input?.autoFocus).toBe(true)
+  expect((input as HTMLTextAreaElement).value).toBe('Saved before cold start')
+  expect(screen.queryByTestId('compose-prompt-pending')).toBeNull()
+  rerender(<ComposeBody {...props} prompt="Edited after a picker" promptReady keyboardLift={0} />)
+  expect(screen.getByRole('textbox', { name: 'Task prompt' })).toBe(input)
+})
+
 it('lets native text grow to ten lines, scrolls at the available height, and shrinks again', () => {
   const { rerender } = render(<ComposeBody {...props} />)
   layout('compose-body', 660)

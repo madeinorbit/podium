@@ -71,6 +71,7 @@ import { useSettingsRecord } from '../client/use-settings-record'
 import { ComposeBody, ComposeFieldRow } from '../components/compose/ComposeBody'
 import type { ComposeMenuItem } from '../components/compose/ComposeMenu'
 import { ComposeSheetHeader } from '../components/compose/ComposeSheetHeader'
+import { useComposePresentation } from '../components/compose/useComposePresentation'
 import { useComposerAttachments } from '../components/useComposerAttachments'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { usePersistedUiState } from '../hooks/usePersistedUiState'
@@ -161,6 +162,7 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
   const insets = useSafeAreaInsets()
   const headerHeight = use(HeaderHeightContext) ?? 0
   const keyboardLift = useKeyboardLift()
+  const promptReady = useComposePresentation()
 
   // Same context restoration as desktop, after the coding role and stored draft arrive.
   useEffect(() => {
@@ -498,6 +500,7 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
         onSave={() => void save()}
       />
       <ComposeBody
+        promptReady={promptReady}
         fields={fields}
         prompt={draft.title}
         promptRef={promptRef}
