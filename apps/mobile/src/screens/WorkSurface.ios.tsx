@@ -78,6 +78,7 @@ import { StyleSheet, useWindowDimensions, View } from 'react-native'
 import type { SearchBarCommands } from 'react-native-screens'
 import { useMobilePoolProjection } from '../client/mobile-pool'
 import { useWorkspaceRefreshSubtitle } from '../client/workspace-refresh'
+import { ListNotices } from '../components/list-notices.ios'
 import { NativeGroupHeader } from '../components/NativeGroupHeader.ios'
 import { NewWorkButton } from '../components/NewWorkButton'
 import { WorkingMark } from '../components/WorkingMark'
@@ -233,8 +234,7 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
           }}
         />
       ) : null}
-      {/* UIKit follows the first native child to find the scroll view. The
-          reversed column keeps notices above it without blocking that path. */}
+      {/* Keep the Host first so UIKit can discover the List for tab reselect. */}
       <View style={styles.listContainer}>
         <Host style={styles.host} seedColor={color.accentTint}>
           <List
@@ -250,6 +250,7 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
             ]}
           >
             <Section>
+              <ListNotices>{props.notices}</ListNotices>
               {subtitle && !nativeSubtitleAvailable ? (
                 <Text
                   modifiers={[
@@ -376,7 +377,6 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
             ))}
           </List>
         </Host>
-        <View>{props.notices}</View>
       </View>
     </View>
   )
@@ -906,5 +906,5 @@ const NativeRowActions = observer(function NativeRowActions({
 const styles = StyleSheet.create({
   root: { flex: 1, minHeight: 0, backgroundColor: paper.ground },
   host: { flex: 1 },
-  listContainer: { flex: 1, minHeight: 0, flexDirection: 'column-reverse' },
+  listContainer: { flex: 1, minHeight: 0 },
 })

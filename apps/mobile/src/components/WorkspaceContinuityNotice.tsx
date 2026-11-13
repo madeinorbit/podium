@@ -7,6 +7,7 @@ import { useWorkspaceSyncPhase } from '../client/workspace-refresh'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { AlertTriangle } from './icons'
+import { NoticeLayout } from './notice-layout'
 import { PressableScale } from './PressableScale'
 
 function plural(count: number, singular: string, multiple: string): string {
@@ -44,23 +45,27 @@ function ContinuityNoticeBody({
   if (lines.length === 0) return null
 
   return (
-    <PressableScale
-      accessibilityRole="button"
-      accessibilityLabel={`${lines.join(' ')} Open Settings.`}
-      onPress={() => router.push('/settings')}
-      style={({ pressed }) => [styles.notice, pressed && styles.pressed]}
-      testID="workspace-continuity-notice"
-    >
-      <Icon as={AlertTriangle} size={17} color={color.needsYouText} />
-      <View style={styles.copy}>
-        {lines.map((line) => (
-          <Text key={line} style={styles.text}>
-            {line}
-          </Text>
-        ))}
-      </View>
-      <Text style={styles.link}>Settings</Text>
-    </PressableScale>
+    <NoticeLayout>
+      <PressableScale
+        accessibilityRole="button"
+        accessibilityLabel={`${lines.join(' ')} Open Settings.`}
+        onPress={() => router.push('/settings')}
+        style={({ pressed }) => [styles.notice, pressed && styles.pressed]}
+        testID="workspace-continuity-notice"
+      >
+        <Icon as={AlertTriangle} size={17} color={color.needsYouText} />
+        <View style={styles.copy}>
+          {lines.map((line) => (
+            <Text key={line} style={styles.text}>
+              {line}
+            </Text>
+          ))}
+        </View>
+        <View style={styles.action}>
+          <Text style={styles.link}>Settings</Text>
+        </View>
+      </PressableScale>
+    </NoticeLayout>
   )
 }
 
@@ -68,18 +73,21 @@ const styles = StyleSheet.create({
   notice: {
     minHeight: 52,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: space.sm,
-    borderRadius: radius.md,
+    borderRadius: radius.card,
+    borderCurve: 'continuous',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: color.borderStrong,
     backgroundColor: color.surface,
-    marginHorizontal: space.sm + 2,
+    marginHorizontal: space.md,
+    marginBottom: space.sm,
     paddingHorizontal: space.md,
-    paddingVertical: space.sm,
+    paddingVertical: space.md,
   },
   pressed: { opacity: 0.84 },
-  copy: { flex: 1, minWidth: 0, gap: 2 },
+  copy: { flex: 1, minWidth: 0, gap: space.xs },
   text: { color: color.body, fontSize: font.tiny, lineHeight: leading(font.tiny, 'prose') },
+  action: { flexShrink: 0, alignSelf: 'center', justifyContent: 'center', minHeight: 44 },
   link: { color: color.needsYouText, ...sans(600), fontSize: font.tiny },
 })

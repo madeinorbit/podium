@@ -73,11 +73,13 @@ import { StyleSheet, useWindowDimensions, View } from 'react-native'
 import { issueObserver as taskObserver } from '../client/issue-observer'
 import { useMobilePool } from '../client/mobile-pool'
 import { ChevronDown, Filter, MoreHorizontal, Plus } from '../components/icons'
+import { ListNotices } from '../components/list-notices.ios'
 import { NativeGroupHeader } from '../components/NativeGroupHeader.ios'
 import { RefreshOffer } from '../components/RefreshOffer'
 import { Screen } from '../components/Screen'
 import { StorageNoticeAlert } from '../components/StorageNoticeAlert'
 import { ANY, useProjectFacet } from '../components/task-filter-facets'
+import { WorkspaceContinuityNotice } from '../components/WorkspaceContinuityNotice'
 import { useAgeNow } from '../lib/clock-hooks'
 import { listOrderRevision } from '../lib/list-order-revision'
 import { useRowPrime } from '../lib/use-row-prime'
@@ -225,8 +227,7 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
           setListRevision((revision) => revision + 1)
         }}
       />
-      {/* Keep the Host first for native tab reselect scroll discovery. The
-          reversed column still places React Native notices above the list. */}
+      {/* Keep the Host first for native tab reselect scroll discovery. */}
       <View style={styles.listContainer}>
         <Host style={styles.host} seedColor={color.accentTint}>
           <List
@@ -240,6 +241,11 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
               accessibilityIdentifier('tasks-list'),
             ]}
           >
+            <ListNotices>
+              <StorageNoticeAlert />
+              <RefreshOffer />
+              <WorkspaceContinuityNotice />
+            </ListNotices>
             {filtered ? (
               <Section>
                 {props.chips.map((chip, index) => (
@@ -366,10 +372,6 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
             ) : null}
           </List>
         </Host>
-        <View>
-          <StorageNoticeAlert />
-          <RefreshOffer />
-        </View>
       </View>
     </Screen>
   )
@@ -669,5 +671,5 @@ const TaskAge = observer(function TaskAge({
 const styles = StyleSheet.create({
   root: { flex: 1, minHeight: 0 },
   host: { flex: 1 },
-  listContainer: { flex: 1, minHeight: 0, flexDirection: 'column-reverse' },
+  listContainer: { flex: 1, minHeight: 0 },
 })

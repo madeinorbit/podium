@@ -1,6 +1,7 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
+import { NoticeLayout } from '../components/notice-layout'
 import type { WorkSurfaceProps } from './WorkSurface.types'
 
 const navigation = vi.hoisted(() => ({ push: vi.fn() }))
@@ -29,9 +30,9 @@ vi.mock('@expo/ui/swift-ui/modifiers', () => ({
   ...Object.fromEntries(
     `accessibilityAddTraits accessibilityElement accessibilityHidden accessibilityHint accessibilityIdentifier
     accessibilityLabel accessibilityValue alignmentGuide animation background buttonStyle
-    contentShape disabled font foregroundStyle frame lineLimit listRowBackground listRowInsets
+    clipped contentShape disabled font foregroundStyle frame lineLimit listRowBackground listRowInsets
     listRowSeparator listRowSeparatorTint listSectionMargins listSectionSpacing listStyle
-    monospacedDigit onAppear onDisappear onGeometryChange pickerStyle refreshable
+    monospacedDigit onAppear onDisappear onGeometryChange opacity pickerStyle refreshable
     scrollContentBackground tag tint`
       .split(/\s+/)
       .map((name) => [name, (value: unknown) => ({ name, value })]),
@@ -62,7 +63,7 @@ vi.mock('@expo/ui/swift-ui', () => {
     ContextMenu: Object.assign(Box, { Trigger: Box, Items: () => null }),
     HStack: Box,
     Image: () => null,
-    List: Box,
+    List: ({ children }: { children: ReactNode }) => <div data-testid="work-list">{children}</div>,
     Picker: Box,
     ProgressView: () => null,
     RNHostView: Box,
@@ -112,10 +113,15 @@ it('opens the tapped project from the real Work project header on the first and 
       onTuck={vi.fn()}
       refresh={{ refreshing: false, onRefresh: vi.fn() } as unknown as WorkSurfaceProps['refresh']}
       bottomInset={0}
-      notices={null}
+      notices={
+        <NoticeLayout>
+          <button type="button">Offline Settings</button>
+        </NoticeLayout>
+      }
       loading={false}
     />,
   )
+  expect(within(screen.getByTestId('work-list')).getByText('Offline Settings')).toBeTruthy()
   for (const project of ['beta', 'alpha', 'beta']) {
     fireEvent.click(screen.getByRole('button', { name: `New work in ${project}` }))
     expect(navigation.push).toHaveBeenLastCalledWith({

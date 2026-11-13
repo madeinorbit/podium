@@ -26,6 +26,7 @@ import { RefreshOffer } from '../components/RefreshOffer'
 import { HeaderButton, Screen } from '../components/Screen'
 import { StorageNoticeAlert } from '../components/StorageNoticeAlert'
 import { EmptyState } from '../components/ui'
+import { WorkspaceContinuityNotice } from '../components/WorkspaceContinuityNotice'
 import { useAgeNow } from '../lib/clock-hooks'
 import { taskRowAccessibilityProps } from '../lib/task-row-accessibility'
 import { color, font, mono, radius, sans, space } from '../theme/theme'
@@ -189,6 +190,7 @@ const StageSections = observer(function StageSections(props: TasksSurfaceProps) 
           <>
             <StorageNoticeAlert />
             <RefreshOffer />
+            <WorkspaceContinuityNotice />
             {chips.length > 0 ? (
               <View style={styles.filterSummary} accessibilityRole="summary">
                 {chips.map((chip) => (

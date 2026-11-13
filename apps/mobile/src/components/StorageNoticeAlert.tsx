@@ -3,6 +3,7 @@ import { useMobileShell } from '../client/shell'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { AlertTriangle, RefreshCw, X } from './icons'
+import { NoticeLayout } from './notice-layout'
 import { PressableScale } from './PressableScale'
 
 /**
@@ -21,28 +22,30 @@ export function StorageNoticeAlert() {
   const info = notice.tone === 'info'
 
   return (
-    <View
-      accessibilityRole="alert"
-      style={[styles.alert, info ? styles.info : styles.warning]}
-      testID={info ? 'storage-notice-info' : 'storage-notice-alert'}
-    >
-      <Icon
-        as={info ? RefreshCw : AlertTriangle}
-        size={17}
-        color={info ? color.textDim : color.dangerText}
-      />
-      <Text style={styles.message}>{notice.message}</Text>
-      <PressableScale
-        accessibilityRole="button"
-        accessibilityLabel="Dismiss offline storage alert"
-        hitSlop={10}
-        haptic={false}
-        onPress={notice.dismiss}
-        style={styles.dismiss}
+    <NoticeLayout>
+      <View
+        accessibilityRole="alert"
+        style={[styles.alert, info ? styles.info : styles.warning]}
+        testID={info ? 'storage-notice-info' : 'storage-notice-alert'}
       >
-        <Icon as={X} size={16} color={color.textDim} />
-      </PressableScale>
-    </View>
+        <Icon
+          as={info ? RefreshCw : AlertTriangle}
+          size={17}
+          color={info ? color.textDim : color.dangerText}
+        />
+        <Text style={styles.message}>{notice.message}</Text>
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss offline storage alert"
+          hitSlop={10}
+          haptic={false}
+          onPress={notice.dismiss}
+          style={styles.dismiss}
+        >
+          <Icon as={X} size={16} color={color.textDim} />
+        </PressableScale>
+      </View>
+    </NoticeLayout>
   )
 }
 
