@@ -7,6 +7,7 @@ import {
   type IssueEventLine,
 } from '@podium/client-core/values'
 import type { IssueHistoryView } from '@podium/client-graph/issue-activity'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { issueObserver as observer } from '../../client/issue-observer'
@@ -89,10 +90,16 @@ export const IssueActivitySection = observer(function IssueActivitySection({
   issue: IssueViewModel
   busy: boolean
   commands: IssueCommands
-  feed: ActivityItem[]
+  feed: ActivityItem[] | typeof LOADING
   revision?: number
   history?: IssueHistoryView
 }) {
+  if (feed === LOADING)
+    return (
+      <View testID="issue-activity" accessibilityState={{ busy: true }} aria-busy>
+        <GroupHeading label="Activity" />
+      </View>
+    )
   // The board's activity list: newest first, one line per entry, in one card.
   // The day grouping still collapses runs of minor events into a rollup; the
   // day labels themselves are not drawn, each row carries its own age. The

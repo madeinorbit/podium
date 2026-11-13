@@ -1,5 +1,6 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { ISSUE_HISTORY_PAGE } from '@podium/client-graph/issue-activity'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { type ComponentProps, useState } from 'react'
 import { issueObserver as observer } from '../../client/issue-observer'
 import { useIssueOpening } from '../../client/issue-opening'
@@ -12,7 +13,6 @@ import { IssueActivitySection, MailSection } from './IssueActivity'
 import { IssueNow } from './IssueNow'
 import { IssueProperties } from './IssueProperties'
 
-const emptyFeed: import('@podium/client-core/values').ActivityItem[] = []
 const emptyMail: import('../../lib/issue-detail').IssueMailMessage[] = []
 
 export const PhoneMail = observer(function PhoneMail({ issue }: { issue: IssueViewModel }) {
@@ -47,7 +47,11 @@ export const PhoneTimeline = observer(function PhoneTimeline({
       issue={issue}
       busy={busy}
       commands={commands}
-      feed={history?.activity.history.items ?? emptyFeed}
+      feed={
+        !history || (history.loading && history.activity.history.items.length === 0)
+          ? LOADING
+          : history.activity.history.items
+      }
       revision={history?.activity.revision ?? 0}
       history={history}
     />
