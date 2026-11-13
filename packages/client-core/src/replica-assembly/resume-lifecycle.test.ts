@@ -4,13 +4,12 @@ import {
   type NetInfoStateLike,
 } from '@podium/client-core/live-connection'
 import { memoryStorage } from '@podium/client-core/replica'
-import { openReplicaAssembly } from '@podium/client-core/replica-assembly'
+import { openReplicaAssembly, watchSyncResume } from '@podium/client-core/replica-assembly'
 import { SocketHub, type WebSocketLike } from '@podium/client-core/socket-transport'
 import { CLIENT_WIRE_VERSION, SYNC_CONTENT_TYPE } from '@podium/protocol'
 import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import { IDBFactory } from 'fake-indexeddb'
 import { expect, it, vi } from 'vitest'
-import { watchWorkspaceResume } from '../../../../apps/mobile/src/client/workspace-refresh'
 
 class Socket implements WebSocketLike {
   onopen: WebSocketLike['onopen'] = null
@@ -109,7 +108,7 @@ it.each([
       return socket
     },
   })
-  const stopResume = watchWorkspaceResume(assembly.progress, connectivity)
+  const stopResume = watchSyncResume(assembly.progress, connectivity)
   const detach = connectivity.attachHub(hub)
   try {
     hub.connect()

@@ -12,6 +12,8 @@ import {
 } from 'react'
 import type { NativeConnectivity } from './native-connectivity'
 
+export { watchSyncResume as watchWorkspaceResume } from '@podium/client-core/replica-assembly'
+
 /** The existing shared lifecycle, passed through without a second store. */
 export const WorkspaceSyncContext = createContext<SyncProgressStore | null>(null)
 const subscribeIdle = () => () => {}
@@ -20,16 +22,6 @@ const foreground = () => true
 const WorkspaceVisibilityContext = createContext<NativeConnectivity['visibility'] | undefined>(
   undefined,
 )
-
-/** Runs before the visibility source dials, so hello latency cannot hide catch-up. */
-export function watchWorkspaceResume(
-  store: SyncProgressStore,
-  connectivity: Pick<NativeConnectivity, 'visibility' | 'isOnline'>,
-): () => void {
-  return connectivity.visibility.subscribe(() => {
-    if (connectivity.visibility.isVisible() && connectivity.isOnline()) store.noteReconnecting()
-  })
-}
 
 export function useWorkspaceSyncPhase(): SyncPhase {
   const store = useContext(WorkspaceSyncContext)

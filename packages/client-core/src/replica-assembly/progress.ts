@@ -1,4 +1,5 @@
 import type { Posture, ReplicaEvent } from '@podium/sync/replica'
+import type { NativeConnectivity } from '../live-connection/connectivity'
 
 export const COLD_SYNC_STALL_MS = 30_000
 export type SyncPhase =
@@ -200,4 +201,14 @@ export class SyncProgressStore {
     this.snapshot = { ...this.snapshot, ...patch }
     for (const listener of this.listeners) listener()
   }
+}
+
+/** Runs before the visibility source dials, so hello latency cannot hide catch-up. */
+export function watchSyncResume(
+  store: SyncProgressStore,
+  connectivity: Pick<NativeConnectivity, 'visibility' | 'isOnline'>,
+): () => void {
+  return connectivity.visibility.subscribe(() => {
+    if (connectivity.visibility.isVisible() && connectivity.isOnline()) store.noteReconnecting()
+  })
 }
