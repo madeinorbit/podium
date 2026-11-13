@@ -574,6 +574,7 @@ const TaskRow = taskObserver(function TaskRow({
                 <Picker
                   key={action}
                   label="Status"
+                  systemImage="circle.dashed"
                   selection={issueStatusValueOf(issue)}
                   onSelectionChange={(value) => props.onStatus(issue.id, String(value))}
                   modifiers={[pickerStyle('menu')]}
