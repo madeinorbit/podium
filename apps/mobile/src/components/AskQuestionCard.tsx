@@ -72,6 +72,7 @@ export function AskQuestionCard({
   const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle')
   const [editing, setEditing] = useState<Record<number, boolean>>({})
   const [expanded, setExpanded] = useState(false)
+  const [answerFocused, setAnswerFocused] = useState(false)
   useEffect(() => {
     if (!compact) setExpanded(false)
   }, [compact])
@@ -203,7 +204,7 @@ export function AskQuestionCard({
     )
   }
 
-  if (compact && !expanded)
+  if (compact && !expanded && !answerFocused)
     return (
       <View
         testID="ask-question-compact"
@@ -306,7 +307,11 @@ export function AskQuestionCard({
                 testID={`ask-free-text-${qi}`}
                 accessibilityLabel="Type your own answer"
                 value={custom[qi] ?? ''}
-                onFocus={() => setExpanded(true)}
+                onFocus={() => {
+                  setAnswerFocused(true)
+                  setExpanded(true)
+                }}
+                onBlur={() => setAnswerFocused(false)}
                 onChangeText={(text) => onCustomChange(qi, text)}
                 onSubmitEditing={() => {
                   if (!locked && allAnswered) void submit(picks)

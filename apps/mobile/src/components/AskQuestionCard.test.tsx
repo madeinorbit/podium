@@ -57,6 +57,12 @@ describe('AskQuestionCard', () => {
     expect(document.activeElement).toBe(input)
     expect((input as HTMLInputElement).value).toBe('DuckDB')
     expect(screen.queryByTestId('ask-question-compact')).toBeNull()
+    // Dismissing iOS's keyboard can retain TextInput focus. Reopening it must
+    // not depend on a second focus event before the keyboard frame event.
+    view.rerender(<AskQuestionCard item={single} live presentation="band" compact={false} />)
+    view.rerender(<AskQuestionCard item={single} live presentation="band" compact />)
+    expect(screen.getByLabelText('Type your own answer')).toBe(input)
+    expect(document.activeElement).toBe(input)
   })
   it('keeps a tall question scrollable and long options free to wrap', () => {
     const label = 'A much longer option label that needs several lines at Accessibility Medium.'
