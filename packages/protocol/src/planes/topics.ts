@@ -82,6 +82,12 @@ export const MachineConditionPayload = z.object({
     .optional(),
   /** The daemon's recovery after attaching. */
   daemonReadiness: DaemonReadiness.optional(),
+  /**
+   * What kind of connection the server judged the daemon to be on (credential
+   * management §8): `plain` receives no credentials. Absent while no daemon is
+   * connected, and from a server older than this field.
+   */
+  linkKind: z.enum(['encrypted', 'local', 'trusted', 'plain']).optional(),
 })
 export type MachineConditionPayload = z.infer<typeof MachineConditionPayload>
 

@@ -15,7 +15,7 @@ export const TAB_PATHS = {
   ],
   appearance: ['sidebar.repoSort'],
   account: [],
-  machines: ['hibernation'],
+  machines: ['hibernation', 'daemonLink'],
   projects: [
     'gitWorkflow.defaultParentBranch',
     'gitWorkflow.autoRebaseBeforeMerge',

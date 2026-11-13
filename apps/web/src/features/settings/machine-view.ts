@@ -50,6 +50,14 @@ export class SettingsMachine {
     return this.canManage && this.machine.online && this.machine.use === 'granted'
   }
 
+  /**
+   * Connected over a link the server judged `plain` (credential management §8):
+   * not encrypted and leaving its computer, so credentials are not sent to it.
+   */
+  @lazy get unencrypted(): boolean {
+    return this.machine.online && this.machine.linkKind === 'plain'
+  }
+
   @lazy get runsServer(): boolean {
     return this.machine.hostsServer === true || this.machine.serviceAssignment?.server === true
   }

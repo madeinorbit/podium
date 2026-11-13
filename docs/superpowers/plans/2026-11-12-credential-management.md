@@ -252,10 +252,13 @@ credentialIdFromLegacy(accountId: string, ownerUserId: UserId): Promise<Credenti
 // apps/server/src/gateway/daemon-link-kind.ts
 type DaemonLinkKind = 'encrypted' | 'local' | 'trusted' | 'plain'
 classifyDaemonLink(i: { url: string; forwardedProto?: string; hasProxyHeaders: boolean
-  clientAddress: string; trustedProxyHops: number; trustedNetworks: readonly string[] }): DaemonLinkKind
-daemonLinkKind(machineId: MachineId): DaemonLinkKind | undefined      // undefined: not connected
-// instance setting daemonLink.trustedNetworks: string[] (CIDR ranges, admin-only)
-// machine record (client-visible): linkKind?: DaemonLinkKind
+  clientAddress: string | undefined; trustedProxyHops: number; trustedNetworks: readonly string[] }): DaemonLinkKind
+// per server, on the registry (a module-level function would share state between servers):
+registry.daemonLinks.daemonLinkKind(machineId: MachineId): DaemonLinkKind | undefined  // undefined: not connected
+// instance setting daemonLink.trustedNetworks: string[] (CIDR ranges, admin person only, never an agent)
+// client-visible: linkKind?: DaemonLinkKind on the machine.condition topic payload
+//   (MachineConditionPayload; connection state, like `online`), read as MachineModel.linkKind
+// packages/model: parseCidr, cidrContains, CidrRange, CIDR_RANGE_MESSAGE
 
 // apps/server/src/modules/credentials/attach-access.ts
 attachAccess(plan: SessionAccess, to: { machineId: MachineId; sessionId: SessionId }): Promise<
@@ -468,9 +471,9 @@ their CLI; the key paragraphs of `docs/configuration.md` and `docs/data-and-upgr
 secret; a person can see it; and unencrypted connections have a dated way out.
 
 **Owns:** `apps/server/src/gateway/daemon-link-kind.ts` (new); the daemon accept path in
-`apps/server/src/gateway/ws-server.ts`; `linkKind` on the client-visible machine record; the
+`apps/server/src/gateway/ws-server.ts`; `linkKind` on the `machine.condition` topic payload; the
 instance setting `daemonLink.trustedNetworks` and its field in the machines settings; the
-warning on a machine's row in `apps/web/src/app/MachinesPanel.tsx`; the daemon's start-up
+warning on a machine's row in `apps/web/src/features/settings/machine-list.tsx`; the daemon's start-up
 warning where it resolves its server address; the connection paragraphs of
 `docs/adding-a-machine.md` and `docs/configuration.md`.
 
@@ -482,7 +485,8 @@ warning where it resolves its server address; the connection paragraphs of
   (`apps/server/src/readiness-boundary.ts` lists them); else `trusted` when the client address
   (resolved with `clientAddressForRequest`) is inside one of `daemonLink.trustedNetworks`;
   else `plain`. Nothing the daemon sends takes part.
-- `daemonLinkKind(machineId)` for Tasks 5 and 22, and `linkKind` on the machine record.
+- `registry.daemonLinks.daemonLinkKind(machineId)` for Tasks 5 and 22, and `linkKind` on the
+  `machine.condition` topic payload (connection state, like `online`).
 - `daemonLink.trustedNetworks`: a list of IPv4 and IPv6 CIDR ranges, written by an admin
   person only, validated. A change applies to daemons that are already connected.
 - A warning on the machine's row when its kind is `plain`, saying that credentials are not
@@ -502,7 +506,7 @@ warning where it resolves its server address; the connection paragraphs of
    result: a test sends a daemon that claims an encrypted connection over a plain one and
    reads `plain`.
 3. With a connected daemon classified `plain`, adding its network to
-   `daemonLink.trustedNetworks` makes `daemonLinkKind` return `trusted` without a reconnect,
+   `daemonLink.trustedNetworks` makes `registry.daemonLinks.daemonLinkKind` return `trusted` without a reconnect,
    and removing it returns `plain`.
 4. The setting refuses a write by a member who is not an admin, a write by an agent principal,
    and a value that is not a CIDR range.
@@ -675,11 +679,12 @@ those messages; `apps/daemon/src/control/access.ts` (new);
 `apps/daemon/src/control/{session,session-env}.ts`; the daemon's headless turn environment;
 the message logging filter; every daemon journal or log writer measurement S4 finds.
 
-**Consumes:** `SessionAccess` (Task 3), `withSecret` (Task 2), `daemonLinkKind` (Task 23).
+**Consumes:** `SessionAccess` (Task 3), `withSecret` (Task 2),
+`registry.daemonLinks.daemonLinkKind` (Task 23).
 
 **Delivers:**
 - `attachAccess`. For a vault credential it refuses `daemon-too-old` when the daemon did not
-  advertise `sessionAccess` and `connection-not-encrypted` when `daemonLinkKind` is `plain`,
+  advertise `sessionAccess` and `connection-not-encrypted` when `registry.daemonLinks.daemonLinkKind` is `plain`,
   both before the vault is read, and otherwise returns the `access` field with the secret.
   For a home other than `default` it needs `sessionAccess` and no secret is read. For no
   credential it returns no field, so a launch on the harness's own login is unchanged on any
@@ -702,7 +707,7 @@ the message logging filter; every daemon journal or log writer measurement S4 fi
 1. Older daemon (review focus 1): for a daemon without `sessionAccess` and a vault
    credential, the result is `daemon-too-old`, no spawn message is sent, the session does not
    start, and the vault was not opened (asserted with a spy).
-2. Plain connection: with `daemonLinkKind` `plain` the result is `connection-not-encrypted`,
+2. Plain connection: with `registry.daemonLinks.daemonLinkKind` `plain` the result is `connection-not-encrypted`,
    nothing is sent and the vault is not opened; the same machine with `trusted` receives the
    credential.
 3. No credential: a launch with `credentialId: null` works unchanged on a daemon without
@@ -1312,7 +1317,7 @@ it, and stays behind nowhere.
 `apps/daemon/src/server-transfer.ts`; the transfer paragraph of `docs/data-and-upgrades.md`.
 
 **Consumes:** `packages/runtime/src/vault-key.ts` and `Vault.exportDataKey` (Task 2);
-`daemonLinkKind` (Task 23).
+`registry.daemonLinks.daemonLinkKind` (Task 23).
 
 **Delivers:**
 - A transfer whose target is on a `plain` connection is refused before the snapshot is made.

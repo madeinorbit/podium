@@ -36,6 +36,7 @@ vi.mock('@/features/setup/RepoScanFlow', () => ({ RepoScanFlow: () => <div>Repos
 import { resetUpdateStatus } from '@/lib/update-status'
 import { AdminViewerContext } from './admin-viewer'
 import { MachinesPanel } from './MachinesPanel'
+import { UNENCRYPTED_MACHINE_NOTE } from './machine-list'
 import { SettingsOpening } from './SettingsOpening'
 import { SettingsFrame } from './settings-frame'
 
@@ -433,6 +434,27 @@ describe('machine presence and service states', () => {
     open()
     expect(detail().getByText('2 quarantined')).toBeTruthy()
     expect(detail().queryByText(/Restart Podium on this machine/)).toBeNull()
+  })
+})
+
+describe('a machine whose connection is not encrypted', () => {
+  it('warns on that machine and on no machine with a local or encrypted link', () => {
+    client()
+    state.machines = [
+      { ...machine({ id: asMachineId('remote'), name: 'Remote box' }), linkKind: 'plain' },
+      { ...machine({ id: asMachineId('local'), name: 'Local box' }), linkKind: 'local' },
+      { ...machine({ id: asMachineId('tls'), name: 'TLS box' }), linkKind: 'encrypted' },
+      // The link kind is a condition fact beside the record, as the pool seeds it.
+    ] as unknown as MachineWire[]
+    render()
+    const remote = within(machineRow('Remote box'))
+    expect(remote.getByText('Not encrypted')).toBeTruthy()
+    expect(remote.getByText(UNENCRYPTED_MACHINE_NOTE)).toBeTruthy()
+    expect(UNENCRYPTED_MACHINE_NOTE).toContain('wss')
+    for (const name of ['Local box', 'TLS box']) {
+      expect(within(machineRow(name)).queryByText('Not encrypted'), name).toBeNull()
+      expect(within(machineRow(name)).queryByText(UNENCRYPTED_MACHINE_NOTE), name).toBeNull()
+    }
   })
 })
 

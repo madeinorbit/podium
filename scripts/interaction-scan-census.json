@@ -37642,12 +37642,12 @@
       "file": "packages/client-graph/src/live-fixture.ts",
       "holder": "seedFixtureMachines",
       "rule": "consume:map",
-      "tokens": "2cc95e0545e48568b91692665009fd9e102585c3c312199a604af4b4a8419dc4",
+      "tokens": "ab5f6a119f304937cce7d8d292c6730b222117e7404a1d685c7cdc3004ab6a08",
       "gate": [],
       "origin": [
         "5b6662695caf9a227c4025e3ba75eaed64cf62a9506ecbaf91b2ed97f5cbe4b3"
       ],
-      "fingerprint": "099f7214a5581e37a1869b9445f3288c2b3752c4a93652266a0ca8c809b76041",
+      "fingerprint": "60d50d2272c4dd9e767e9bc64fc19189a705a30f7a87db386ef37cd0d2049e9f",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
@@ -37773,12 +37773,12 @@
       "file": "packages/client-graph/src/settings-owner-fixture.ts",
       "holder": "settingsOwnerFixture/seed",
       "rule": "reader-summary",
-      "tokens": "ea988510c67a379e960e1dbe2de58c3597ca9a676d60916daa2337a5a34d7d82",
+      "tokens": "8c65e9b83c239b16ad325480b9597c7c8a7c5f6bbc141ba135c684679065f6c3",
       "gate": [],
       "origin": [
         "5b6662695caf9a227c4025e3ba75eaed64cf62a9506ecbaf91b2ed97f5cbe4b3"
       ],
-      "fingerprint": "3e46ae8ed9877ac7a2195d64b2b3d7676a5b08c301ac52ba247d51adb6a106ea",
+      "fingerprint": "737db79c0b108a7e09df8709f44098d9d532faa1ba36476d804ed168326d92e2",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
@@ -37846,13 +37846,13 @@
       "file": "packages/client-graph/src/settings-owner-fixture.ts",
       "holder": "settingsOwnerFixture/seed",
       "rule": "reader-summary",
-      "tokens": "a3e465d6b40243006306689d25b3bafc383f27fd39e8243a35c79fde033ee80e",
+      "tokens": "a382adec0f25a95cb93a39d8db81dd9d9b198b98828913b1e0b9a1d68e3d5aaf",
       "gate": [],
       "origin": [
         "476a4c6ba0b104e23dcfaa9ca70c159377836a1c7d4e54db7c120e98f72f6d89",
         "cadc566af21b67f23d0f5de0834255cdda8495bf99c77bd863dfe1f5f7ed76d3"
       ],
-      "fingerprint": "d2661c3c6d3ece6dc738afe0f4830d12b5c425f1e799e2164b9309c5d412834f",
+      "fingerprint": "536b26f2ebf35348bede7ef5084f9ee83f7c3ee4e245f4562cee289840366239",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
@@ -37902,12 +37902,12 @@
       "file": "packages/client-graph/src/settings-owner-fixture.ts",
       "holder": "settingsOwnerFixture/seed",
       "rule": "spread",
-      "tokens": "d23d1df70d393c0d3f60206d06ac046259a9cc7deb67a6c9fc6a472bff376aa9",
+      "tokens": "8b4b7faa5b7222256616d66f6879ea0174e0ecb3c8413145e86726ad8dffc8cd",
       "gate": [],
       "origin": [
         "5b6662695caf9a227c4025e3ba75eaed64cf62a9506ecbaf91b2ed97f5cbe4b3"
       ],
-      "fingerprint": "41bce6a672440cd0ac348beebdb722d0b053a2cc968428a2461fb2a9651a467a",
+      "fingerprint": "af998bd9b59674f0b9752be0f12a62afd2f2f1df53aa96cf01fb79ce3db6147b",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-6695",

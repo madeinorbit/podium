@@ -47,6 +47,7 @@ import {
   type SettingsControlsState,
   useSettingsPermitted,
 } from './sections/shared'
+import { TrustedNetworksSection } from './sections/trusted-networks'
 import { WorkflowSection } from './sections/workflow'
 import { SettingsPageSection } from './settings-anchors'
 import { SettingsFrame } from './settings-frame'
@@ -173,6 +174,9 @@ const SECTION_VIEWS: Record<SettingsPage, (ctx: SectionContext) => JSX.Element> 
       <SettingsPageSection id="hibernation">
         <HibernationSettingsSection settings={settings} patch={patch} />
       </SettingsPageSection>
+      <SettingsPageSection id="trusted-networks">
+        <TrustedNetworksSettingsSection settings={settings} patch={patch} />
+      </SettingsPageSection>
     </>
   ),
   projects: ({ settings, patch, secrets, secretBusy, secretError, setSecret, clearSecret }) => (
@@ -231,6 +235,15 @@ function HibernationSettingsSection({
 }: Pick<SectionContext, 'settings' | 'patch'>) {
   const permitted = useSettingsPermitted('records.instancePreferences.edit')
   return permitted ? <IdleSessionLimits settings={settings} patch={patch} /> : null
+}
+
+/** Which networks count as safe for credentials: admins only, like the limits above. */
+function TrustedNetworksSettingsSection({
+  settings,
+  patch,
+}: Pick<SectionContext, 'settings' | 'patch'>) {
+  const permitted = useSettingsPermitted('records.instancePreferences.edit')
+  return permitted ? <TrustedNetworksSection settings={settings} patch={patch} /> : null
 }
 
 function IdleSessionLimits({ settings, patch }: Pick<SectionContext, 'settings' | 'patch'>) {

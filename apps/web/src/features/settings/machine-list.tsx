@@ -11,6 +11,11 @@ import { cn } from '@/lib/utils'
 import type { SettingsMachine } from './machine-view'
 import { EntityRow } from './sections/shared'
 
+/** Why a `plain` machine gets no credentials, and the two ways out. */
+export const UNENCRYPTED_MACHINE_NOTE =
+  'Its connection is not encrypted, so credentials are not sent to it. Connect it over wss, ' +
+  'or have an admin add its network to Trusted networks.'
+
 export const MachineCustodianName = observer(function MachineCustodianName({
   view,
   capitalized = false,
@@ -100,6 +105,7 @@ export const MachineListRow = observer(function MachineListRow({
             </Badge>
           )}
           {machine.unowned === true && <Badge variant="warning">Nobody looks after it</Badge>}
+          {view.unencrypted && <Badge variant="warning">Not encrypted</Badge>}
         </>
       }
       subtitle={
@@ -113,6 +119,11 @@ export const MachineListRow = observer(function MachineListRow({
               </>
             )}
           </span>
+          {view.unencrypted && (
+            <span className="settings-micro mt-1 block text-warning">
+              {UNENCRYPTED_MACHINE_NOTE}
+            </span>
+          )}
           <MachineSummary view={view} />
         </>
       }

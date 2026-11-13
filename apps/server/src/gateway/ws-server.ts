@@ -7,6 +7,7 @@
  * gateway's already-tested client and daemon protocol layers.
  */
 
+import { createLogger } from '@podium/logger'
 import type { ServerReadiness, UserId, UserRole } from '@podium/model'
 import { CAP_SYNC_HTTP_V1, fencedMemberOf, memberFenceRefuses, WireVersionOffer, negotiateVersion, CLIENT_WIRE_VERSION, MIN_CLIENT_WIRE_VERSION, DAEMON_WIRE_VERSION, MIN_DAEMON_WIRE_VERSION, SIGN_IN_ENDED_CLOSE } from '@podium/protocol'
 import { measureTask } from '@podium/runtime/task-attribution'
@@ -86,6 +87,11 @@ export function serveNative<T>(options: NativeServeOptions<T>): NativeServer<T> 
 import type { SessionRegistry } from '../relay'
 import { wireClientSocket } from './client-socket'
 import { userClientPrincipal } from './client-principal'
+import {
+  ACCEPT_PLAIN_DAEMON_LINKS,
+  type DaemonLinkFacts,
+  PLAIN_DAEMON_LINK_REFUSAL,
+} from './daemon-link-kind'
 import { wireDaemonSocket, wireMachineSocket } from './daemon-socket'
 import {
   CLIENT_PLANE_LIVENESS,
@@ -94,6 +100,8 @@ import {
   type SweepTimers,
 } from './plane-liveness'
 import { type GatewaySocket, shouldCompressWebSocketFrame, WS_MAX_PAYLOAD_BYTES } from './ws-send'
+
+const log = createLogger('server:gateway:ws')
 
 export interface WsHandle {
   handleRequest(
@@ -210,6 +218,14 @@ export function wsOriginVerdict(
 
 export interface WsTransportDeps {
   timers?: SweepTimers
+  /**
+   * The facts of a daemon's upgrade request, read the way sign-in reads them
+   * (its peer address and the trusted proxy hops are the server's). Absent: no
+   * link is recorded, so no daemon is judged safe for credentials.
+   */
+  daemonLink?: (request: Request) => DaemonLinkFacts
+  /** Tests only: the removal-date switch below, flipped. */
+  acceptPlainDaemonLinks?: boolean
   /** Exact origins from `allowedOrigins` that may open a browser socket. */
   allowedOrigins?: ReadonlySet<string>
   /**
@@ -228,6 +244,8 @@ export interface WsTransportDeps {
 interface SocketData {
   kind: 'client' | 'daemon' | 'machine'
   url: string
+  /** How a daemon's request reached the server (credential management §8). */
+  link?: DaemonLinkFacts
   userId?: UserId
   userRole?: UserRole
   credentialId?: string
@@ -389,7 +407,7 @@ export function attachWebSockets(
         daemons.add(socket)
         aliveDaemons.add(socket)
         if (native.data.kind === 'machine') wireMachineSocket(socket, registry)
-        else wireDaemonSocket(socket, registry)
+        else wireDaemonSocket(socket, registry, native.data.link)
         return
       }
       clients.add(socket)
@@ -551,7 +569,26 @@ export function attachWebSockets(
           ...(resolved?.credentialId ? { credentialId: resolved.credentialId } : {}),
         }
       } else {
-        data = { kind: pathname === '/machine' ? 'machine' : 'daemon', url: request.url }
+        const link = deps.daemonLink?.(request)
+        if (link !== undefined && registry.daemonLinks.kindOf(link) === 'plain') {
+          // LEGACY(remove-after: 2027-02): accepts a plain ws daemon connection from another computer so local-network installs survive the upgrade; removing it refuses such a daemon at connect
+          const accepted = deps.acceptPlainDaemonLinks ?? ACCEPT_PLAIN_DAEMON_LINKS
+          if (!accepted) {
+            return new Response(PLAIN_DAEMON_LINK_REFUSAL, {
+              status: 403,
+              headers: { connection: 'close', 'content-type': 'text/plain; charset=utf-8' },
+            })
+          }
+          log.warn('accepted a daemon connection that is not encrypted', {
+            path: pathname,
+            clientAddress: link.clientAddress,
+          })
+        }
+        data = {
+          kind: pathname === '/machine' ? 'machine' : 'daemon',
+          url: request.url,
+          ...(link !== undefined ? { link } : {}),
+        }
       }
 
       return server.upgrade(request, { data })

@@ -102,6 +102,17 @@ replacing a URL that is already set, and `--confirm-url-change` answers that
 ahead of time for a run that cannot show a prompt. Re-saving the *same* URL is
 idempotent and is never questioned.
 
+**Daemons on other computers need `wss` or a trusted network.** The daemon's connection
+follows the same rule as this URL. The server judges each daemon connection from how the
+request reached it (the scheme, and `trustedProxyHops` for a proxy it was told to trust), never
+from what the daemon says: `wss` is encrypted, a daemon on the server's own computer is local,
+an address inside the instance setting `daemonLink.trustedNetworks` is trusted, and anything
+else is plain. A plain connection from another computer receives no credentials and is
+accepted only until February 2027 (`LEGACY(remove-after: 2027-02)`); after that it is refused
+at connect. `daemonLink.trustedNetworks` is a list of IPv4 and IPv6 ranges (`100.64.0.0/10`,
+`fd7a:115c:a1e0::/48`) that only an admin person may set, in **Settings → Machines → Trusted
+networks**; a change applies to machines that are already connected.
+
 ### `PODIUM_APP_URL`
 
 Where the web UI is served from **when it is not this server** — the hosted

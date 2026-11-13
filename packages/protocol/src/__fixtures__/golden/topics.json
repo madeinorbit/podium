@@ -282,12 +282,13 @@
           "state": "attached",
           "reason": "daemonReadiness.reason",
           "quarantinedBindings": 1
-        }
+        },
+        "linkKind": "encrypted"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"online\":true,\"since\":\"since\",\"lastSeenAt\":\"lastSeenAt\",\"presenceSource\":\"supervisor\",\"availability\":{\"epoch\":\"availability.epoch\",\"server\":true,\"daemon\":true,\"supervisor\":true},\"daemonReadiness\":{\"state\":\"attached\",\"reason\":\"daemonReadiness.reason\",\"quarantinedBindings\":1}}"
+      "encoded": "{\"online\":true,\"since\":\"since\",\"lastSeenAt\":\"lastSeenAt\",\"presenceSource\":\"supervisor\",\"availability\":{\"epoch\":\"availability.epoch\",\"server\":true,\"daemon\":true,\"supervisor\":true},\"daemonReadiness\":{\"state\":\"attached\",\"reason\":\"daemonReadiness.reason\",\"quarantinedBindings\":1},\"linkKind\":\"encrypted\"}"
     },
     {
       "schema": "MachineProcessesPayload",

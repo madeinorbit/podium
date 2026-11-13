@@ -136,7 +136,7 @@ export function liveFixture(pool: MobxPool, now: () => number = () => Date.now()
  */
 export function seedFixtureMachines(
   pool: MobxPool,
-  machines: readonly MachineFacts[],
+  machines: readonly (MachineFacts & { linkKind?: MachineConditionPayload['linkKind'] })[],
 ): HeaderRecord<'machine'>[] {
   const live = liveFixture(pool)
   return machines.map((machine) => {
@@ -146,6 +146,7 @@ export function seedFixtureMachines(
       presenceSource,
       availability,
       daemonReadiness,
+      linkKind,
       serverMoveEligibility: _eligibility,
       ...record
     } = machine
@@ -156,6 +157,7 @@ export function seedFixtureMachines(
       ...(presenceSource !== undefined ? { presenceSource } : {}),
       ...(availability !== undefined ? { availability } : {}),
       ...(daemonReadiness !== undefined ? { daemonReadiness } : {}),
+      ...(linkKind !== undefined ? { linkKind } : {}),
     } as MachineConditionPayload)
     return {
       kind: 'machine' as const,

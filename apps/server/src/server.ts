@@ -103,6 +103,7 @@ import { controlSocketHandler } from './control-socket'
 import { registerArtifactRoute } from './file-artifact-route'
 import { registerAssetRoute } from './file-asset-route'
 import { adoptStagedFirstAdminPassword, applyEnvFirstAdminPassword } from './first-admin-password'
+import { daemonLinkFactsOf, IN_PROCESS_DAEMON_LINK } from './gateway/daemon-link-kind'
 import {
   createDaemonAcceptor,
   prepareDaemonFrame,
@@ -2124,8 +2125,14 @@ export async function startServer(
         },
       },
       // The same list and the same reporter as the HTTP plane: one statement of
-      // trust, read by both boundaries, so they cannot drift apart.
-      { allowedOrigins, onOriginRefused: reportOriginRefusal },
+      // trust, read by both boundaries, so they cannot drift apart. A daemon's
+      // link is judged from the same facts sign-in reads (credential management §8).
+      {
+        allowedOrigins,
+        onOriginRefused: reportOriginRefusal,
+        daemonLink: (request) =>
+          daemonLinkFactsOf(request, requestPeerAddresses.get(request), trustedProxyHops),
+      },
     )
     revokeConnectedDeviceSignIn = (sessionId) => ws.revokeClientCredential(sessionId)
 
@@ -2549,6 +2556,9 @@ export async function startServer(
         // component is written, so the very next call decides the machine "runs no
         // Podium daemon" -- and the write then lands after the store's scheduler
         // has begun draining, surfacing as an unhandled SchedulerClosedError.
+        // This link never leaves the computer: it is `local` for credentials.
+        const linkOwner = {}
+        registry.daemonLinks.connected(principal.machine, IN_PROCESS_DAEMON_LINK, linkOwner)
         if (registry.recoveryOnly) {
           await registry.modules.machines.attach(principal.machine, send)
           await registry.modules.machines.flushQueued(principal.machine)
@@ -2588,6 +2598,7 @@ export async function startServer(
           close: () => {
             credentialLive = false
             unregisterCredential()
+            registry.daemonLinks.disconnected(principal.machine, linkOwner)
             if (registry.recoveryOnly) registry.modules.machines.detach(principal.machine, send)
             else registry.gateway.detachDaemon(principal, transport)
           },

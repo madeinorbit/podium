@@ -11,6 +11,7 @@ import type { DaemonOptions } from './daemon-options'
 import { createDetachedRestart, waitForDetachedRestartParent } from './detached-restart'
 import { createDaemonHostRuntime } from './host-runtime'
 import { bootstrapDaemonInstance } from './instance-bootstrap'
+import { plainRemoteServerWarning } from './link-warning'
 import type { PortableStateControl } from './portable-state-fence'
 import { createQueueDrainOutbox } from './queue-drain-outbox'
 import { createRuntimeEventOutbox, prepareRuntimeEventDelivery } from './runtime-event-outbox'
@@ -91,6 +92,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     stateDir: process.env.PODIUM_STATE_DIR,
     installDir,
   })
+  // The server judges the connection and sends no credentials over a plain one
+  // (credential management §8); this line tells the person reading the log why.
+  const plainLink = opts.localLink ? undefined : plainRemoteServerWarning(opts.serverUrl)
+  if (plainLink !== undefined) log.warn(plainLink, { serverUrl: opts.serverUrl })
   /**
    * THE EXIT SEAM, DISARMED WHERE EXITING IS FATAL (POD-2210).
    *

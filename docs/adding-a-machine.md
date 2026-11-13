@@ -144,6 +144,19 @@ reachability to the server's URL; it never has to be publicly reachable itself. 
 Tailscale, both machines are on the same tailnet and the daemon↔server traffic rides that
 encrypted link directly, even when the public Funnel URL is only used by your browser.
 
+### A daemon on another computer needs an encrypted connection
+
+Podium sends credentials (API keys and other secrets it holds) to a machine only over a
+connection the server itself judged safe: a `wss://` address, a daemon on the server's own
+computer, or an address inside a network an admin trusts. A daemon on another computer that
+connects over plain `ws://` keeps working for now, but it receives no credentials. Its row in
+**Settings → Machines** shows **Not encrypted**, and its log says so at start. **Plain `ws://`
+connections from other computers stop being accepted after February 2027** (the code that
+still accepts them is marked `LEGACY(remove-after: 2027-02)`). To fix it, give the server an
+`https://` address (any of the reachability options above), or, when your machines talk over
+a private encrypted network such as a tailnet, add that network's range under **Settings →
+Machines → Trusted networks** (for example `100.64.0.0/10`).
+
 ## Add a machine to an existing server
 
 Once the first instance has finished setup (it has a `publicUrl`), pairing a second machine

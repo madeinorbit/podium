@@ -92,6 +92,7 @@ import { getFeatureStates, isFeatureEnabled, serverFeatureFacts } from './featur
 import { makeFeedVisibility } from './feed-visibility'
 import { ClientMux } from './gateway/client-mux'
 import { ClientRegistry } from './gateway/client-registry'
+import { DaemonLinks } from './gateway/daemon-link-kind'
 import { DaemonMux } from './gateway/daemon-mux'
 import { FeedServing } from './gateway/feed-serving'
 import { MobileClientVersions } from './gateway/mobile-client-versions'
@@ -609,6 +610,8 @@ export class SessionRegistry {
   private mobileVersions?: MobileClientVersions
   /** Topics on the stream plane (ADR 7 Amendment 2), over the gateway's one registry. */
   topics!: TopicRouting
+  /** Each connected daemon's link and its kind (credential management §8). */
+  readonly daemonLinks: DaemonLinks
 
   readonly recoveryOnly: boolean
   /** See {@link SessionRegistryOptions.memberCredentials}. */
@@ -926,6 +929,15 @@ export class SessionRegistry {
     let seedSuperagentDefaults: (() => Promise<void>) | undefined
     // The condition topic is composed below the machines service (POD-6644).
     let machineConditionChanged: ((machineId: MachineId) => void) | undefined
+    // WHAT KIND OF CONNECTION EACH DAEMON IS ON (credential management §8).
+    // Judged from the facts recorded at accept and the trusted networks the
+    // instance holds NOW, so an admin's change applies without a reconnect.
+    this.daemonLinks = new DaemonLinks({
+      trustedNetworks: () => currentSettings.daemonLink.trustedNetworks,
+      kindChanged: (machineId) => machineConditionChanged?.(machineId),
+    })
+    // Registered after the snapshot's own listener above, so it reads the new value.
+    this.bus.on('settings.changed', () => this.daemonLinks.settingsChanged())
     // Forward-declared for the same reason `updates` is: the update SERVICE has
     // to be able to ask whether a durable operation holds the lifecycle group
     // (single-flight's other half, P6), and the operations module is composed
@@ -1385,7 +1397,10 @@ export class SessionRegistry {
       snapshot: (id: string) => topicLate.sessionLive?.snapshot(kind, asSessionId(id)),
     })
     const machineConditions = new MachineConditionTopic({
-      condition: (machineId) => machines.condition(machineId),
+      condition: (machineId) => {
+        const linkKind = this.daemonLinks.daemonLinkKind(machineId)
+        return { ...machines.condition(machineId), ...(linkKind ? { linkKind } : {}) }
+      },
       now: () => this.now(),
       publish: (machineId, value) => topics.publish('machine.condition', machineId, value),
     })

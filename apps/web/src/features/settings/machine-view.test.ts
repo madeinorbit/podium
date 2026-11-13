@@ -71,3 +71,11 @@ test('repository discovery needs execution consent as well as management and pre
     new SettingsMachine(machine({ use: 'granted', transferable: false })).canFindRepositories,
   ).toBe(false)
 })
+
+test('only a connected machine on a plain link reads as unencrypted', () => {
+  expect(new SettingsMachine(machine({ linkKind: 'plain' })).unencrypted).toBe(true)
+  for (const linkKind of ['encrypted', 'local', 'trusted', undefined]) {
+    expect(new SettingsMachine(machine({ linkKind })).unencrypted, String(linkKind)).toBe(false)
+  }
+  expect(new SettingsMachine(machine({ linkKind: 'plain', online: false })).unencrypted).toBe(false)
+})

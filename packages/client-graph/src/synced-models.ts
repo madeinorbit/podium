@@ -94,6 +94,14 @@ export class MachineModel extends EntityModel {
   @lazy get daemonReadiness(): Condition['daemonReadiness'] {
     return this.condition?.daemonReadiness
   }
+  /**
+   * What kind of connection the server judged the connected daemon to be on
+   * (credential management §8). Only a CURRENT reading: a lost link has no kind.
+   */
+  @lazy get linkKind(): Condition['linkKind'] {
+    const reading = this.host.live?.conditionOf(this.id)
+    return reading?.known ? reading.value.linkKind : undefined
+  }
   /** The supervisor's last report as it stands now (its record, joined with
    *  the live availability: an agent plane that has gone is not available). */
   @lazy get services(): MachineServiceReport | undefined {

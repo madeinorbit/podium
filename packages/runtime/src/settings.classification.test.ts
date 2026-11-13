@@ -40,9 +40,9 @@ const classifiedPaths = () => SETTINGS_CLASSIFICATION.map((c) => c.path)
 
 describe('the blob walk, probed before it is believed', () => {
   it('finds a non-trivial number of leaves, nested ones included', () => {
-    // 42 + the shell-idle and backstop hibernation controls + transcripts.mirror,
-    // minus the removed roles.coding.subagentStrategy.
-    expect(blobLeaves().length).toBe(55)
+    // The classification's 53 leaves before daemonLink.trustedNetworks, + that one.
+    // Pinned to the classification count on purpose: the two walks must agree.
+    expect(blobLeaves().length).toBe(54)
     expect(blobLeaves()).toContain('roles.coding.model')
     expect(blobLeaves()).toContain('roles.background.accountId')
     expect(blobLeaves()).toContain('roles.shipwright.accountId')
@@ -101,6 +101,7 @@ describe('the blob COMPOSES the model schemas — no restatement', () => {
     ['worktreeGc', model.WorktreeGcPolicy],
     ['transcripts', model.TranscriptPolicy],
     ['deployment', model.DeploymentPreferences],
+    ['daemonLink', model.DaemonLinkPolicy],
   ]
 
   it('pins EVERY composable member, not a sample', () => {
@@ -193,6 +194,7 @@ describe('the composed blob still parses exactly as before', () => {
       // Absent, not `false`: nobody has chosen, and the built-in answer is on.
       transcripts: {},
       deployment: {},
+      daemonLink: { trustedNetworks: [] },
     })
   })
 
@@ -215,6 +217,7 @@ describe('the composed blob still parses exactly as before', () => {
       'worktreeGc',
       'transcripts',
       'deployment',
+      'daemonLink',
     ])
     expect(Object.keys(parsed.notifications)).toEqual([
       'web',

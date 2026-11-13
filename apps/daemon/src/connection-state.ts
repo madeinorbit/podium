@@ -51,6 +51,7 @@ import WebSocket, { type RawData } from 'ws'
 import { deliveryCaps } from './build-report'
 import type { DaemonOptions, ReconnectTimers } from './daemon-options'
 import { savePairingToken, savePinnedUpdatePubkey } from './identity'
+import { plainRemoteServerWarning } from './link-warning'
 import type { QueueDrainOutbox } from './queue-drain-outbox'
 import type { RuntimeEventOutbox } from './runtime-event-outbox'
 import { decideOnProtocolMismatch, decidePostUpdate } from './self-update'
@@ -606,6 +607,8 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     if (applied.serverUrl === activeServerUrl) return
     activeServerUrl = applied.serverUrl
     log.info('daemon adopted the resolved server URL', { serverUrl: applied.serverUrl })
+    const plain = plainRemoteServerWarning(applied.serverUrl)
+    if (plain !== undefined) log.warn(plain, { serverUrl: applied.serverUrl })
     if (reconnectTimer !== undefined) {
       timers.clearTimeout(reconnectTimer)
       reconnectTimer = undefined

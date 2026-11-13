@@ -19,6 +19,7 @@
 
 import {
   AgentProfileName,
+  CidrRange,
   CredentialId,
   canonicalShippingDestination,
   DriverFamilyWire,
@@ -83,6 +84,8 @@ export const SAMPLE_OVERRIDES = new Map<z.ZodTypeAny, SampleOverride>([
   [CredentialId, () => 'cred_0190f2a4-7c1e-7d3a-9b5e-2f6c8d4a1e71'],
   // A lowercase slug (POD-6107): the path-derived "AgentProfileName" fails the regex.
   [AgentProfileName, () => 'build'],
+  // A network range (credential management §8): a path-derived string is no range.
+  [CidrRange, () => '192.168.1.0/24'],
   // Closed isLayoutKey vocabulary (POD-1350 / POD-402). Path-derived samples
   // like "" / "entityId" / "key" fail the refine; pin the first exact key.
   [LayoutKeyField, () => FIXTURE_LAYOUT_KEY],

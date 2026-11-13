@@ -94,6 +94,19 @@ const isDefinitive = (error: unknown): boolean =>
 
 const REFUSED = 'the instance settings are written by an admin'
 
+/**
+ * Leaves only a PERSON may write, never an agent acting for one. Which networks
+ * count as safe for credentials (credential management §8) decides where
+ * secrets may go, and commands that move credentials are refused for agents.
+ */
+const PERSON_ONLY_LEAF_PREFIXES = ['daemonLink.'] as const
+const AGENT_REFUSED = 'which networks count as trusted for credentials is set by a person'
+
+const touchesPersonOnlyLeaf = (edited: { patch: object; unset: readonly string[] } | undefined) =>
+  [...Object.keys(edited?.patch ?? {}), ...(edited?.unset ?? [])].some((path) =>
+    PERSON_ONLY_LEAF_PREFIXES.some((prefix) => path.startsWith(prefix)),
+  )
+
 export function registerInstancePreferencesRecord(
   registry: SyncWriteRegistry,
   deps: InstancePreferencesRecordDeps,
@@ -119,6 +132,15 @@ export function registerInstancePreferencesRecord(
       // replay from an account demoted since is refused too.
       const human = humanOf(principal)
       const role = human === undefined ? undefined : await deps.roleOf(human)
+      if (principal.kind === 'agent' && touchesPersonOnlyLeaf(edited)) {
+        await audit(
+          principal,
+          { id, patch: edited?.patch ?? {}, unset: edited?.unset ?? [] },
+          'refused',
+          AGENT_REFUSED,
+        )
+        return undefined
+      }
       if (role !== undefined && isAdminGrade(role)) return NO_TARGET
       await audit(
         principal,

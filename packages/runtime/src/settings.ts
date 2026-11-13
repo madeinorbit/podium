@@ -6,6 +6,7 @@ import {
   AutoContinuePreferences,
   asAccountId,
   CodingRole,
+  DaemonLinkPolicy,
   DEFAULT_HARNESS_AGENT,
   DeploymentPreferences,
   ExperimentalFlags,
@@ -350,6 +351,8 @@ export const PodiumSettings = z.object({
    *  `PODIUM_TRANSCRIPT_LAKE` and `config.transcriptLake` sit above this row. */
   transcripts: TranscriptPolicy.default({}),
   deployment: DeploymentPreferences.default({}),
+  /** Networks whose daemons count as safe for credentials (credential management §8). */
+  daemonLink: DaemonLinkPolicy.default({}),
 })
 export type PodiumSettings = z.infer<typeof PodiumSettings>
 

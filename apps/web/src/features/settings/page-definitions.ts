@@ -406,6 +406,12 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
         'A last resort for quiet sessions, unless a wake-up is scheduled.',
         'backstop timeout suspend hours',
       ),
+      row(
+        'trusted-networks',
+        'Add a network',
+        'A range such as 100.64.0.0/10 or fd7a:115c:a1e0::/48.',
+        'trusted networks vpn tailscale cidr wss encrypted unencrypted credentials connection',
+      ),
     ],
   },
   {

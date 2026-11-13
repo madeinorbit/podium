@@ -61,6 +61,7 @@ import { HarnessAgent } from '../entities/agent'
 import { PerUserSingletonKey } from '../fields/per-user-key'
 import { AccountIdField } from '../ids'
 import { asAccountId } from '../ids/brands'
+import { CidrRange } from '../net/cidr'
 
 // ---------------------------------------------------------------------------
 // PERSONAL — the `(userId)`-keyed halves
@@ -394,6 +395,22 @@ export const DeploymentPreferences = z.object({
   telemetrySince: z.number().optional(),
 })
 
+/**
+ * WHICH NETWORKS A DAEMON MAY CONNECT OVER WITHOUT TLS AND STILL RECEIVE
+ * CREDENTIALS (credential management §8).
+ *
+ * INSTANCE tier: the server judges each daemon connection, and there is one
+ * judgement for everybody. Written by an admin person only, never by an agent
+ * acting for one (`records.instancePreferences.edit` refuses that leaf for an
+ * agent principal). Each entry is an IPv4 or IPv6 range such as a VPN's
+ * (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`). Empty: only `wss` and same-computer
+ * connections count as safe.
+ */
+export const DaemonLinkPolicy = z.object({
+  trustedNetworks: z.array(CidrRange).default([]),
+})
+export type DaemonLinkPolicy = z.infer<typeof DaemonLinkPolicy>
+
 export const InstancePreferences = z.object({
   hibernation: HibernationPolicy.default({}),
   gitWorkflow: GitWorkflowPolicy.default({}),
@@ -407,5 +424,6 @@ export const InstancePreferences = z.object({
   worktreeGc: WorktreeGcPolicy.default({}),
   transcripts: TranscriptPolicy.default({}),
   deployment: DeploymentPreferences.default({}),
+  daemonLink: DaemonLinkPolicy.default({}),
 })
 export type InstancePreferences = z.infer<typeof InstancePreferences>

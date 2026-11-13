@@ -1634,6 +1634,24 @@
       "encoded": "{\"machineId\":\"machineId\",\"path\":\"path\",\"root\":\"root\",\"kind\":\"repository\",\"repoId\":\"repoId\",\"branch\":\"branch\",\"originUrl\":\"originUrl\",\"locked\":true,\"prunable\":true}"
     },
     {
+      "schema": "CidrRange",
+      "variant": "minimal",
+      "wire": "192.168.1.0/24",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"192.168.1.0/24\""
+    },
+    {
+      "schema": "CidrRange",
+      "variant": "full",
+      "wire": "192.168.1.0/24",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"192.168.1.0/24\""
+    },
+    {
       "schema": "ClientSessionAggregate",
       "variant": "minimal",
       "wire": {
@@ -2219,6 +2237,28 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"id\":\"id\",\"ownerUserId\":\"ownerUserId\",\"label\":\"label\",\"type\":\"type\",\"identity\":{\"fingerprint\":\"identity.fingerprint\",\"email\":\"identity.email\",\"plan\":\"identity.plan\",\"organisation\":\"identity.organisation\"},\"status\":\"ok\",\"statusReason\":\"statusReason\",\"limitReachedUntil\":\"limitReachedUntil\",\"expiresAt\":\"expiresAt\",\"verifiedAt\":\"verifiedAt\",\"homes\":[{\"machineId\":\"homes[0].machineId\",\"homeId\":\"homes[0].homeId\",\"state\":\"in\"}],\"allowedMachines\":[\"allowedMachines[0]\"],\"sessionCount\":1,\"access\":\"owner\"}"
+    },
+    {
+      "schema": "DaemonLinkPolicy",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {
+        "trustedNetworks": []
+      },
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"trustedNetworks\":[]}"
+    },
+    {
+      "schema": "DaemonLinkPolicy",
+      "variant": "full",
+      "wire": {
+        "trustedNetworks": ["192.168.1.0/24"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"trustedNetworks\":[\"192.168.1.0/24\"]}"
     },
     {
       "schema": "DaemonReadiness",
@@ -4081,11 +4121,14 @@
           "afterDays": 14
         },
         "transcripts": {},
-        "deployment": {}
+        "deployment": {},
+        "daemonLink": {
+          "trustedNetworks": []
+        }
       },
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"hibernation\":{\"enabled\":true,\"memoryPct\":80,\"loadPerCore\":1.5,\"maxIdleSessions\":8,\"idleMinutes\":30,\"idleShellMinutes\":60,\"backstopMinutes\":2880},\"gitWorkflow\":{\"defaultParentBranch\":\"\",\"autoRebaseBeforeMerge\":true},\"issues\":{\"assistantEnabled\":true},\"steward\":{\"enabled\":true},\"experimental\":{},\"worktreeGc\":{\"mode\":\"propose\",\"afterDays\":14},\"transcripts\":{},\"deployment\":{}}"
+      "encoded": "{\"hibernation\":{\"enabled\":true,\"memoryPct\":80,\"loadPerCore\":1.5,\"maxIdleSessions\":8,\"idleMinutes\":30,\"idleShellMinutes\":60,\"backstopMinutes\":2880},\"gitWorkflow\":{\"defaultParentBranch\":\"\",\"autoRebaseBeforeMerge\":true},\"issues\":{\"assistantEnabled\":true},\"steward\":{\"enabled\":true},\"experimental\":{},\"worktreeGc\":{\"mode\":\"propose\",\"afterDays\":14},\"transcripts\":{},\"deployment\":{},\"daemonLink\":{\"trustedNetworks\":[]}}"
     },
     {
       "schema": "InstancePreferences",
@@ -4128,12 +4171,15 @@
           "telemetryCrash": "on",
           "telemetryInstallId": "deployment.telemetryInstallId",
           "telemetrySince": 1
+        },
+        "daemonLink": {
+          "trustedNetworks": ["192.168.1.0/24"]
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"hibernation\":{\"enabled\":true,\"memoryPct\":50,\"loadPerCore\":1,\"maxIdleSessions\":1,\"idleMinutes\":1,\"idleShellMinutes\":1,\"backstopMinutes\":60},\"gitWorkflow\":{\"defaultParentBranch\":\"gitWorkflow.defaultParentBranch\",\"autoRebaseBeforeMerge\":true},\"issues\":{\"assistantEnabled\":true},\"steward\":{\"enabled\":true},\"experimental\":{\"experimental.key\":true},\"worktreeGc\":{\"mode\":\"off\",\"afterDays\":1},\"transcripts\":{\"mirror\":true},\"deployment\":{\"authOpenMode\":true,\"updateChannel\":\"stable\",\"connectEnabled\":true,\"telemetryUsage\":\"on\",\"telemetryCrash\":\"on\",\"telemetryInstallId\":\"deployment.telemetryInstallId\",\"telemetrySince\":1}}"
+      "encoded": "{\"hibernation\":{\"enabled\":true,\"memoryPct\":50,\"loadPerCore\":1,\"maxIdleSessions\":1,\"idleMinutes\":1,\"idleShellMinutes\":1,\"backstopMinutes\":60},\"gitWorkflow\":{\"defaultParentBranch\":\"gitWorkflow.defaultParentBranch\",\"autoRebaseBeforeMerge\":true},\"issues\":{\"assistantEnabled\":true},\"steward\":{\"enabled\":true},\"experimental\":{\"experimental.key\":true},\"worktreeGc\":{\"mode\":\"off\",\"afterDays\":1},\"transcripts\":{\"mirror\":true},\"deployment\":{\"authOpenMode\":true,\"updateChannel\":\"stable\",\"connectEnabled\":true,\"telemetryUsage\":\"on\",\"telemetryCrash\":\"on\",\"telemetryInstallId\":\"deployment.telemetryInstallId\",\"telemetrySince\":1},\"daemonLink\":{\"trustedNetworks\":[\"192.168.1.0/24\"]}}"
     },
     {
       "schema": "InstancePreferencesWire",
@@ -4171,12 +4217,13 @@
         "deployment.telemetryUsage": "on",
         "deployment.telemetryCrash": "on",
         "deployment.telemetryInstallId": "deployment.telemetryInstallId",
-        "deployment.telemetrySince": 1
+        "deployment.telemetrySince": 1,
+        "daemonLink.trustedNetworks": ["192.168.1.0/24"]
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"hibernation.enabled\":true,\"hibernation.memoryPct\":50,\"hibernation.loadPerCore\":1,\"hibernation.maxIdleSessions\":1,\"hibernation.idleMinutes\":1,\"hibernation.idleShellMinutes\":1,\"hibernation.backstopMinutes\":60,\"gitWorkflow.defaultParentBranch\":\"gitWorkflow.defaultParentBranch\",\"gitWorkflow.autoRebaseBeforeMerge\":true,\"issues.assistantEnabled\":true,\"steward.enabled\":true,\"experimental\":{\"experimental.key\":true},\"worktreeGc.mode\":\"off\",\"worktreeGc.afterDays\":1,\"transcripts.mirror\":true,\"deployment.authOpenMode\":true,\"deployment.updateChannel\":\"stable\",\"deployment.connectEnabled\":true,\"deployment.telemetryUsage\":\"on\",\"deployment.telemetryCrash\":\"on\",\"deployment.telemetryInstallId\":\"deployment.telemetryInstallId\",\"deployment.telemetrySince\":1}"
+      "encoded": "{\"hibernation.enabled\":true,\"hibernation.memoryPct\":50,\"hibernation.loadPerCore\":1,\"hibernation.maxIdleSessions\":1,\"hibernation.idleMinutes\":1,\"hibernation.idleShellMinutes\":1,\"hibernation.backstopMinutes\":60,\"gitWorkflow.defaultParentBranch\":\"gitWorkflow.defaultParentBranch\",\"gitWorkflow.autoRebaseBeforeMerge\":true,\"issues.assistantEnabled\":true,\"steward.enabled\":true,\"experimental\":{\"experimental.key\":true},\"worktreeGc.mode\":\"off\",\"worktreeGc.afterDays\":1,\"transcripts.mirror\":true,\"deployment.authOpenMode\":true,\"deployment.updateChannel\":\"stable\",\"deployment.connectEnabled\":true,\"deployment.telemetryUsage\":\"on\",\"deployment.telemetryCrash\":\"on\",\"deployment.telemetryInstallId\":\"deployment.telemetryInstallId\",\"deployment.telemetrySince\":1,\"daemonLink.trustedNetworks\":[\"192.168.1.0/24\"]}"
     },
     {
       "schema": "IntegrationSecrets",
