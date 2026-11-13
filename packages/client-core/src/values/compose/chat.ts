@@ -515,13 +515,17 @@ export function issueClosedPlaceholder(state: ComposerState): string {
 
 export function composerState(input: {
   session:
-    | (Pick<SessionView, 'status' | 'resumable' | 'agentState' | 'queuedMessageCount'> & {
+    | (Pick<
+        SessionView,
+        'status' | 'resumable' | 'agentState' | 'queuedMessageCount' | 'stoppedAt'
+      > & {
         readonly archived?: boolean
       })
     | undefined
   headless: boolean
   turnRunning: boolean
   compact: boolean
+  wakeRequestedAt?: number
 }): ComposerState {
   const { session, headless, turnRunning, compact } = input
   // Archive is retirement, not another parked state. In particular, an
@@ -551,7 +555,7 @@ export function composerState(input: {
   // A wake already in flight (POD-762). The composer stays open — a second
   // message queues behind the first — but it must not keep offering to do the
   // thing it is already doing.
-  const waking = sessionWaking(session)
+  const waking = sessionWaking(session, false, input.wakeRequestedAt)
   // Headless: PTY status is meaningless — a send goes whenever no turn is
   // running (a turn is one queued unit; the server rejects overlap anyway).
   const deliverable = headless ? !archived && !turnRunning : sendable || canResume
@@ -672,9 +676,10 @@ export function chatActivityState(input: {
   headless: boolean
   turnRunning: boolean
   justSent: boolean
+  wakeRequestedAt?: number
 }): ChatActivity | null {
   const { session, headless, turnRunning, justSent } = input
-  if (!headless) return chatActivity(session, justSent)
+  if (!headless) return chatActivity(session, justSent, undefined, input.wakeRequestedAt)
   if (turnRunning) return { label: 'Working…', tone: 'working' }
   if (justSent) return { label: 'Sending', tone: 'idle', transient: 'just-sent' }
   return null

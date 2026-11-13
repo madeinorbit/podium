@@ -129,7 +129,7 @@ export class MobileChatViewModel {
     return this.service.sends.interruptError
   }
   @lazy({ equals: compareStructural }) get activity() {
-    return chatActivity(this.session, this.justSent, this.offer)
+    return chatActivity(this.session, this.justSent, this.offer, this.service.sends.wakeRequestedAt)
   }
   @lazy({ equals: compareStructural }) get composer() {
     return composerState({
@@ -137,6 +137,7 @@ export class MobileChatViewModel {
       headless: false,
       turnRunning: false,
       compact: false,
+      wakeRequestedAt: this.service.sends.wakeRequestedAt,
     })
   }
   @lazy get turnActive(): boolean {

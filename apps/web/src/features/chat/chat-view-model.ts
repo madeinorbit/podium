@@ -185,6 +185,7 @@ export class ChatViewModel {
       headless: this.headless,
       turnRunning: this.conversation.turnRunning,
       compact: this.compact,
+      wakeRequestedAt: this.conversation.sends.wakeRequestedAt,
     })
     return this.conversation.ready ? state : { ...state, deliverable: false, sendable: false }
   }
@@ -194,6 +195,7 @@ export class ChatViewModel {
       headless: this.headless,
       turnRunning: this.conversation.turnRunning,
       justSent: this.conversation.sends.justSent,
+      wakeRequestedAt: this.conversation.sends.wakeRequestedAt,
     })
   }
   @lazy get turnActive(): boolean {

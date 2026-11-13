@@ -252,13 +252,26 @@ export interface ChatActivity {
  * about — is still true when you come back from three issues away. A flag set
  * by the composer that just sent would be none of those.
  *
- * `justSent` only covers the optimistic gap before the send's own meta update
- * lands, and only while the session is still parked.
+ * `justSent` covers the optimistic gap while hibernated. For an exited
+ * session, only a server-stamped request newer than its stop proves another
+ * wake is pending. A leftover queue cannot turn an exit back into waking.
  */
-export function sessionWaking(meta: Pick<SessionView, 'status' | 'queuedMessageCount'> | undefined, justSent = false): boolean {
+export function sessionWaking(
+  meta: Pick<SessionView, 'status' | 'queuedMessageCount' | 'stoppedAt' | 'agentState'> | undefined,
+  justSent = false,
+  wakeRequestedAt?: number,
+): boolean {
   if (!meta) return false
+  if (meta.agentState?.phase === 'errored' && meta.agentState.error?.retryable === false)
+    return false
   const queued = (meta.queuedMessageCount ?? 0) > 0
-  if (meta.status === 'hibernated' || meta.status === 'exited') return queued || justSent
+  if (meta.status === 'hibernated') return queued || justSent
+  if (meta.status === 'exited') {
+    const stoppedAt = Date.parse(meta.stoppedAt ?? '')
+    return (
+      wakeRequestedAt !== undefined && Number.isFinite(stoppedAt) && wakeRequestedAt > stoppedAt
+    )
+  }
   // Resurrection has begun: the process is coming up and the queue drains once
   // the PTY binds. Nothing local is needed to know that.
   if (meta.status === 'starting') return queued
@@ -310,12 +323,19 @@ export function sessionWaking(meta: Pick<SessionView, 'status' | 'queuedMessageC
  * and dropped the offer line entirely, with no send anywhere in sight.
  */
 export function chatActivity(
-  meta: Pick<SessionView, 'status' | 'queuedMessageCount' | 'agentState' | 'offer' | 'busy'> | undefined,
+  meta:
+    | Pick<
+        SessionView,
+        'status' | 'queuedMessageCount' | 'stoppedAt' | 'agentState' | 'offer' | 'busy'
+      >
+    | undefined,
   justSent: boolean,
   offer = meta?.offer,
+  wakeRequestedAt?: number,
 ): ChatActivity | null {
   if (!meta) return null
-  if (sessionWaking(meta, justSent)) return { label: 'Waking the agent…', tone: 'working' }
+  if (sessionWaking(meta, justSent, wakeRequestedAt))
+    return { label: 'Waking the agent…', tone: 'working' }
   const parked = meta.status === 'hibernated' || meta.status === 'exited'
   const badge = agentBadge(meta, undefined, offer)
   if (badge?.tone === 'working' && !parked) {
@@ -324,7 +344,7 @@ export function chatActivity(
   const ptyWorking = !meta.agentState && meta.busy && !parked
   // A live PTY beats the optimistic row — it is an observation of now — but the
   // send still beats everything the last turn left behind.
-  if (justSent) {
+  if (justSent && !parked) {
     return ptyWorking
       ? { label: 'Working…', tone: 'working' }
       : { label: 'Sending', tone: 'idle', transient: 'just-sent' }
