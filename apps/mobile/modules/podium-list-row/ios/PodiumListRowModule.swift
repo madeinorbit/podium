@@ -36,14 +36,14 @@ private let dragWindow: TimeInterval = 0.5
 /// Return/Space.
 ///
 /// The Button's own action stays empty: SwiftUI's context-menu bridge runs it as
-/// the menu's preview action, and after a row has opened, a stale preview commit
-/// fired it again on the next touch anywhere in the list (reopening that row).
-/// A TapGesture tolerates tens of points of movement, so a short rightward drag
-/// (no leading swipe actions claim it) used to open rows; the simultaneous drag
-/// latch rejects any tap that follows movement past the slop.
+/// the menu's preview action. A TapGesture tolerates tens of points of movement,
+/// so a short rightward drag (no leading swipe actions claim it) used to open
+/// rows; a passive UIKit touch tracker rejects any tap that follows movement past
+/// the slop. A SwiftUI DragGesture cannot do this job: even as a simultaneous
+/// gesture it stops the List scrolling when a drag starts on a row.
 private struct ListRowPressModifier: ViewModifier {
   let dispatcher: EventDispatcher
-  @State private var draggedAt = Date.distantPast
+  @State private var movedAt = Date.distantPast
 
   func body(content: Content) -> some View {
     let button = Button {} label: {
@@ -52,14 +52,10 @@ private struct ListRowPressModifier: ViewModifier {
       content.foregroundStyle(Color.primary)
     }
     .buttonStyle(.automatic)
-    .simultaneousGesture(
-      DragGesture(minimumDistance: dragSlop)
-        .onChanged { _ in draggedAt = Date() }
-        .onEnded { _ in draggedAt = Date() }
-    )
+    .modifier(TouchMovement { movedAt = Date() })
     .simultaneousGesture(
       TapGesture().onEnded {
-        if Date().timeIntervalSince(draggedAt) >= dragWindow { activate() }
+        if Date().timeIntervalSince(movedAt) >= dragWindow { activate() }
       }
     )
     .accessibilityAction { activate() }
@@ -76,6 +72,81 @@ private struct ListRowPressModifier: ViewModifier {
 
   private func activate() {
     dispatcher([rowPressModifier: [:]])
+  }
+}
+
+/// Reports touch movement past the slop without ever taking part in gesture
+/// resolution: the recognizer never leaves `.possible` until it fails at touch-up.
+private struct TouchMovement: ViewModifier {
+  let onMove: () -> Void
+
+  func body(content: Content) -> some View {
+    if #available(iOS 18.0, *) {
+      content.gesture(TouchMovementGesture(onMove: onMove))
+    } else {
+      content
+    }
+  }
+}
+
+@available(iOS 18.0, *)
+private struct TouchMovementGesture: UIGestureRecognizerRepresentable {
+  let onMove: () -> Void
+
+  func makeUIGestureRecognizer(context: Context) -> TouchMovementRecognizer {
+    let recognizer = TouchMovementRecognizer()
+    recognizer.delegate = context.coordinator
+    return recognizer
+  }
+
+  func updateUIGestureRecognizer(_ recognizer: TouchMovementRecognizer, context: Context) {
+    recognizer.onMove = onMove
+  }
+
+  func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
+
+  final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+    func gestureRecognizer(
+      _ gestureRecognizer: UIGestureRecognizer,
+      shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+    ) -> Bool { true }
+  }
+}
+
+final class TouchMovementRecognizer: UIGestureRecognizer {
+  var onMove: (() -> Void)?
+  private var start: CGPoint?
+
+  override init(target: Any?, action: Selector?) {
+    super.init(target: target, action: action)
+    cancelsTouchesInView = false
+    delaysTouchesBegan = false
+    delaysTouchesEnded = false
+  }
+
+  convenience init() { self.init(target: nil, action: nil) }
+
+  override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+    start = touches.first?.location(in: nil)
+  }
+
+  override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+    guard let start, let point = touches.first?.location(in: nil) else { return }
+    if hypot(point.x - start.x, point.y - start.y) > dragSlop { onMove?() }
+  }
+
+  override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+    // Report the release position too: a fast flick may deliver no move event.
+    touchesMoved(touches, with: event)
+    state = .failed
+  }
+
+  override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+    state = .failed
+  }
+
+  override func reset() {
+    start = nil
   }
 }
 
