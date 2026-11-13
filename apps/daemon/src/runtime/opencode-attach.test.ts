@@ -917,6 +917,9 @@ describe('the client terminal a server-family attach produces', () => {
         'thread-9',
         '--remote',
         'unix:///instance/runtime/codex-9.sock',
+        // Moved to posture (POD-6858): a client draws the update menu too.
+        '-c',
+        'check_for_update_on_startup=false',
       ],
     })
     expect(codex.state.spawns[0]?.args.join(' ')).not.toMatch(/sandbox|approval|permissions/)
