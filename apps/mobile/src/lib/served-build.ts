@@ -85,7 +85,7 @@ export function refreshToServedBuild(
     ? undefined
     : window,
 ): void {
-  target?.location.reload()
+  if (Platform.OS === 'web') target?.location.reload()
 }
 
 export interface ServedBuildRefresh {

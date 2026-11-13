@@ -84,7 +84,9 @@ function useAccountActions() {
     await eraseLocalData()
     setLoggedOut(true)
     await updateCredential(null)
-    if (typeof window !== 'undefined') window.location.reload()
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined') window.location.reload()
+    }
   }
 
   const doLogout = async () => {

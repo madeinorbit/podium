@@ -382,6 +382,7 @@ it('keeps server controls and logout on their existing owners', async () => {
   })
   {
     const current = await mount()
+    const reload = vi.spyOn(window.location, 'reload').mockImplementation(() => {})
     // A root tab and native pushes on iOS: no Screen hands out a dismiss handler.
     for (const done of current.view.getAllByText('Done')) fireEvent.click(done)
     fireEvent.click(current.view.getByLabelText('Version'))
@@ -401,6 +402,8 @@ it('keeps server controls and logout on their existing owners', async () => {
     )
     expect(seams.erase).toHaveBeenCalled()
     expect(seams.credential).toHaveBeenLastCalledWith(null)
+    expect(reload).not.toHaveBeenCalled()
+    expect(Alert.alert).not.toHaveBeenCalled()
     expect(current.view.getByText('Logged out')).toBeTruthy()
     await act(async () => fireEvent.click(current.view.getByLabelText('Remove Phone')))
     expect(seams.remove).toHaveBeenLastCalledWith('phone')

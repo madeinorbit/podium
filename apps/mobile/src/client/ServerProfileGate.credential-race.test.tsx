@@ -1,6 +1,6 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { PODIUM_SCHEME, formatPodiumLink } from '@podium/protocol'
 import { offlineProfileStatus } from '@podium/client-core/accounts'
+import { formatPodiumLink, PODIUM_SCHEME } from '@podium/protocol'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ServerProfileContextValue } from './server-profile-context'
@@ -13,6 +13,7 @@ const seams = vi.hoisted(() => ({
   claimPairing: vi.fn(),
   credentials: new Map<string, string>(),
   deleteCredential: vi.fn<(profileId: string) => Promise<void>>(),
+  erase: vi.fn(async () => {}),
   durableProfiles: null as ServerProfileState | null,
   getCredential: vi.fn<(profileId: string) => Promise<string | null>>(),
   getInitialUrl: vi.fn<() => Promise<string | null>>(),
@@ -133,22 +134,44 @@ vi.mock('./trpc', () => ({
     seams.runtime.push({ origin: config?.httpOrigin ?? null, bearer })
   },
 }))
-vi.mock('./auth', () => ({ logout: seams.logout, fetchAuthStatus: seams.authStatus }))
+vi.mock('./auth', () => ({
+  logout: seams.logout,
+  fetchAuthStatus: seams.authStatus,
+  probeAuth: async (_origin: string, bearer: string | null) =>
+    bearer ? { kind: 'ready', auth: { kind: 'ready' } } : { kind: 'login' },
+}))
+vi.mock('./shell', () => ({ useMobileShell: () => ({ eraseLocalData: seams.erase }) }))
+vi.mock('./hooks', () => ({
+  useHttpOrigin: () => 'https://a.example',
+  useConnected: () => true,
+}))
+vi.mock('./connected-devices', () => ({ useConnectedDevices: () => null }))
+vi.mock('../screens/settings-readers', () => ({
+  useSettingsData: () => null,
+  useSettingsMachineStatus: () => null,
+}))
+vi.mock('../components/Screen', () => ({
+  Screen: ({ children }: { children: ReactNode }) => children,
+}))
+vi.mock('../components/OutboxRecoveryPanel', () => ({ OutboxRecoveryPanel: () => null }))
+vi.mock('../hooks/useContentBottomInset', () => ({ useContentBottomInset: () => 0 }))
 vi.mock('./hosted-sign-in-runtime', () => ({
   hostedSignIn: { redeem: seams.hostedRedeem, cancel: seams.hostedCancel, begin: vi.fn() },
 }))
 
-import {
-  resetInitialNativeLinkConsumptionForTests,
-  ServerProfileGate,
-  useServerProfile,
-} from './ServerProfileGate'
+import { SettingsServersScreen } from '../screens/SettingsScreen'
+import { AuthGate } from './AuthGate'
 import {
   captureMobileHandoffUrl,
   consumePendingMobileHandoff,
   pendingMobileHandoffSnapshot,
 } from './mobile-handoff'
 import { installMobileMetadataStorage } from './mobile-metadata-storage'
+import {
+  resetInitialNativeLinkConsumptionForTests,
+  ServerProfileGate,
+  useServerProfile,
+} from './ServerProfileGate'
 
 function ProfileProbe() {
   const context = useServerProfile()
@@ -299,6 +322,7 @@ beforeEach(() => {
   seams.router.replace.mockReset()
   seams.logout.mockReset()
   seams.logout.mockResolvedValue(undefined)
+  seams.erase.mockClear()
   seams.saveProfiles.mockReset()
   seams.saveProfiles.mockImplementation(async (state) => {
     seams.durableProfiles = state
@@ -319,6 +343,58 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  vi.restoreAllMocks()
+})
+
+it('logs out on native without a browser location and returns to the saved server sign-in screen', async () => {
+  render(
+    <ServerProfileGate>
+      <ProfileProbe />
+      <AuthGate>
+        <SettingsServersScreen />
+      </AuthGate>
+    </ServerProfileGate>,
+  )
+  const logout = await screen.findByRole('button', { name: 'Log out' })
+  // React Native defines window but has no location under it.
+  vi.spyOn(window, 'location', 'get').mockReturnValue(undefined as unknown as Location)
+  fireEvent.click(logout)
+
+  await screen.findByRole('button', { name: 'Log in' })
+  expect(seams.logout).toHaveBeenCalledWith('https://a.example', 'token-a', undefined)
+  expect(seams.erase).toHaveBeenCalledTimes(1)
+  expect(seams.credentials.has('profile-a')).toBe(false)
+  expect(seams.durableProfiles?.profiles[0]?.signedOut).toBe(true)
+  expect(seams.activeContext?.bearer).toBeNull()
+  expect(seams.alert).not.toHaveBeenCalled()
+  expect(screen.queryByRole('button', { name: 'Log out' })).toBeNull()
+})
+
+it('clears a failed manual server check when Back returns to Welcome', async () => {
+  seams.durableProfiles = { activeProfileId: null, profiles: [] }
+  seams.preflight.mockResolvedValue({
+    ok: false,
+    kind: 'insecure-lan',
+    title: 'LAN HTTP refused',
+    detail: 'Use a trusted HTTPS address.',
+  })
+  render(
+    <ServerProfileGate>
+      <ProfileProbe />
+    </ServerProfileGate>,
+  )
+  fireEvent.click(await screen.findByRole('button', { name: 'Enter server address' }))
+  fireEvent.change(screen.getByPlaceholderText('https://podium.example'), {
+    target: { value: 'http://192.168.1.20:18787' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Check server' }))
+  await screen.findByText(/LAN HTTP refused/)
+  fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+
+  expect(screen.getByText('Welcome to Podium')).toBeTruthy()
+  expect(screen.queryByText(/LAN HTTP refused/)).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Enter server address' }))
+  expect(screen.queryByText(/LAN HTTP refused/)).toBeNull()
 })
 
 describe('handoff profile selection', () => {

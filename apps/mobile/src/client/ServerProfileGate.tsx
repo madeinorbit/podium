@@ -1722,6 +1722,12 @@ function PairingSetup({
   const [offlineCandidate, setOfflineCandidate] = useState<string | null>(null)
   const connectInFlight = useRef(false)
 
+  const returnToWelcome = () => {
+    setError(null)
+    setOfflineCandidate(null)
+    setStep('welcome')
+  }
+
   const check = useCallback(async (origin: string, nextEnvelope: MobilePairingEnvelope | null) => {
     setStep('checking')
     setError(null)
@@ -1844,8 +1850,7 @@ function PairingSetup({
     }
   }
 
-  if (step === 'scan')
-    return <PairingScanner onScanned={scan} onCancel={() => setStep('welcome')} />
+  if (step === 'scan') return <PairingScanner onScanned={scan} onCancel={returnToWelcome} />
 
   const connect = async () => {
     if (!preflight || connectInFlight.current) return
@@ -1935,7 +1940,7 @@ function PairingSetup({
                 }
               }}
             />
-            <SecondaryButton label="Back" onPress={() => setStep('welcome')} />
+            <SecondaryButton label="Back" onPress={returnToWelcome} />
           </>
         ) : null}
         {step === 'checking' || step === 'claiming' ? (
@@ -1987,7 +1992,7 @@ function PairingSetup({
               }
               onPress={() => void connect()}
             />
-            <SecondaryButton label="Back" onPress={() => setStep('welcome')} />
+            <SecondaryButton label="Back" onPress={returnToWelcome} />
           </>
         ) : null}
         {step === 'waiting' && claim ? (
@@ -2009,7 +2014,7 @@ function PairingSetup({
               Confirm these exact words on your computer, then approve this phone.
             </Text>
             <ActivityIndicator color={color.workingText} />
-            <SecondaryButton label="Cancel" onPress={() => setStep('welcome')} />
+            <SecondaryButton label="Cancel" onPress={returnToWelcome} />
           </>
         ) : null}
         {offlineCandidate ? (

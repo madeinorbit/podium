@@ -1,8 +1,8 @@
-import { CameraView, type BarcodeScanningResult, useCameraPermissions } from 'expo-camera'
+import { type BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-camera'
 import { useEffect, useRef } from 'react'
-import { Linking, StyleSheet, Text, View } from 'react-native'
-import { PressableScale } from './PressableScale'
+import { Linking, StatusBar, StyleSheet, Text, View } from 'react-native'
 import { color, font, radius, sans, space } from '../theme/theme'
+import { PressableScale } from './PressableScale'
 
 export function PairingScanner({
   onScanned,
@@ -19,7 +19,12 @@ export function PairingScanner({
     if (!permission.granted && permission.canAskAgain) void requestPermission()
   }, [permission, requestPermission])
 
-  if (!permission) return <View style={styles.root} />
+  if (!permission)
+    return (
+      <View style={styles.root}>
+        <StatusBar barStyle="light-content" />
+      </View>
+    )
   if (!permission.granted) {
     return (
       <View style={styles.permission}>
@@ -67,6 +72,7 @@ export function PairingScanner({
 
   return (
     <View style={styles.root}>
+      <StatusBar barStyle="light-content" />
       <CameraView
         style={StyleSheet.absoluteFill}
         facing="back"

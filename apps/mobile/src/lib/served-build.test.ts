@@ -1,12 +1,33 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
+import { Platform } from 'react-native'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   readServedBuild,
+  refreshToServedBuild,
   SERVED_BUILD_POLL_MS,
   type ServedBuild,
   servesNewerBuild,
   useServedBuildRefresh,
 } from './served-build'
+
+describe('refreshToServedBuild', () => {
+  afterEach(() => {
+    ;(Platform as { OS: string }).OS = 'web'
+    vi.restoreAllMocks()
+  })
+
+  it.each(['ios', 'android'] as const)('ignores a native %s window with no location', (os) => {
+    ;(Platform as { OS: string }).OS = os
+    vi.spyOn(window, 'location', 'get').mockReturnValue(undefined as unknown as Location)
+    expect(() => refreshToServedBuild()).not.toThrow()
+  })
+
+  it('reloads the served page on web', () => {
+    const reload = vi.fn()
+    refreshToServedBuild({ location: { reload } })
+    expect(reload).toHaveBeenCalledTimes(1)
+  })
+})
 
 describe('servesNewerBuild', () => {
   it('offers a refresh when the server serves a build this page is not running', () => {
