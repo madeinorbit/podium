@@ -14,7 +14,6 @@ import {
 } from '@expo/ui/swift-ui'
 import {
   Animation,
-  accessibilityAddTraits,
   accessibilityElement,
   accessibilityHidden,
   accessibilityHint,
@@ -40,7 +39,6 @@ import {
   onAppear,
   onDisappear,
   onGeometryChange,
-  onTapGesture,
   padding,
   pickerStyle,
   refreshable,
@@ -74,6 +72,7 @@ import { issueObserver as taskObserver } from '../client/issue-observer'
 import { useMobilePool } from '../client/mobile-pool'
 import { ChevronDown, Filter, MoreHorizontal, Plus } from '../components/icons'
 import { ListNotices } from '../components/list-notices.ios'
+import { listRowPress } from '../components/list-row-press.ios'
 import { ListSearchBar } from '../components/list-search-bar.ios'
 import { NativeGroupHeader } from '../components/NativeGroupHeader.ios'
 import { RefreshOffer } from '../components/RefreshOffer'
@@ -480,14 +479,11 @@ const TaskRow = taskObserver(function TaskRow({
     <SwipeActions>
       <ContextMenu>
         <ContextMenu.Trigger>
-          <VStack
-            spacing={0}
+          <Button
             modifiers={[
-              // Recognize a tap rather than a Button release inside a wide row.
+              listRowPress(() => props.onOpen(issue.id)),
               contentShape(shapes.rectangle()),
-              onTapGesture(() => props.onOpen(issue.id)),
               accessibilityElement('ignore'),
-              accessibilityAddTraits(['isButton']),
               accessibilityLabel(
                 `${issue.title}. ${ref}. ${progress}${match ? `. Matching sub-task ${match.displayRef}. ${match.title}` : ''}${unread ? '. Unread' : ''}${notSaved ? '. Not saved' : ''}`,
               ),
@@ -556,7 +552,7 @@ const TaskRow = taskObserver(function TaskRow({
                 </HStack>
               ) : null}
             </VStack>
-          </VStack>
+          </Button>
         </ContextMenu.Trigger>
         <ContextMenu.Items>
           {row.childCount > 0 ? (

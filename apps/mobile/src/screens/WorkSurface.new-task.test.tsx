@@ -25,6 +25,9 @@ vi.mock('../client/mobile-pool', () => ({
   useMobilePoolProjection: (_read: unknown, fallback: unknown) => fallback,
 }))
 vi.mock('../client/workspace-refresh', () => ({ useWorkspaceRefreshSubtitle: () => undefined }))
+vi.mock('../components/list-row-press.ios', () => ({
+  listRowPress: (onOpen: () => void) => ({ name: 'listRowPress', value: onOpen }),
+}))
 vi.mock('./WorkListRow', () => ({ NAV_LOADER_DELAY_MS: 0, useDelayedFlag: () => false }))
 vi.mock('@expo/ui', () => ({ Host: ({ children }: { children: ReactNode }) => children }))
 vi.mock('@expo/ui/swift-ui/modifiers', () => ({
@@ -33,7 +36,7 @@ vi.mock('@expo/ui/swift-ui/modifiers', () => ({
     accessibilityLabel accessibilityValue alignmentGuide animation background buttonStyle
     clipped contentShape disabled font foregroundStyle frame lineLimit listRowBackground listRowInsets
     listRowSeparator listRowSeparatorTint listSectionMargins listSectionSpacing listStyle
-    monospacedDigit onAppear onDisappear onGeometryChange onTapGesture opacity pickerStyle refreshable
+    monospacedDigit onAppear onDisappear onGeometryChange opacity pickerStyle refreshable
     scrollContentBackground tag tint`
       .split(/\s+/)
       .map((name) => [name, (value: unknown) => ({ name, value })]),

@@ -40,6 +40,9 @@ vi.mock('@podium/client-graph/react', async (original) => ({
   useWorklistModel: () => state.work,
 }))
 vi.mock('../components/NewWorkButton', () => ({ NewWorkButton: () => null }))
+vi.mock('../components/list-row-press.ios', () => ({
+  listRowPress: (onOpen: () => void) => ({ name: 'podiumListRowPress', value: onOpen }),
+}))
 vi.mock('./WorkListRow', () => ({ NAV_LOADER_DELAY_MS: 0, useDelayedFlag: () => false }))
 vi.mock('../lib/clock-hooks', () => ({ useAgeNow: state.age }))
 vi.mock('../hooks/useRefreshableTab', () => ({ MIN_REFRESH_CONFIRMATION_MS: 0 }))
@@ -137,7 +140,6 @@ vi.mock('@expo/ui/swift-ui/modifiers', () =>
       'onAppear',
       'onDisappear',
       'onGeometryChange',
-      'onTapGesture',
       'opacity',
       'padding',
       'pickerStyle',
@@ -166,19 +168,6 @@ vi.mock('@expo/ui/swift-ui', () => {
     <div data-modifiers={JSON.stringify(modifiers)}>{children}</div>
   )
   const VStack = ({ children, modifiers }: Props) => {
-    const tap = modifiers?.find((m) => m.name === 'onTapGesture')?.value as (() => void) | undefined
-    if (tap)
-      return (
-        <button
-          type="button"
-          aria-label={modifiers?.find((m) => m.name === 'accessibilityLabel')?.value as string}
-          data-native-tap="true"
-          data-modifiers={JSON.stringify(modifiers)}
-          onClick={tap}
-        >
-          {children}
-        </button>
-      )
     const appear = modifiers?.find((m) => m.name === 'onAppear')?.value as (() => void) | undefined
     const disappear = modifiers?.find((m) => m.name === 'onDisappear')?.value as
       | (() => void)
@@ -197,7 +186,23 @@ vi.mock('@expo/ui/swift-ui', () => {
     )
   }
   return {
-    Button: Box,
+    Button: ({ children, modifiers, onPress }: Props & { onPress?: () => void }) => {
+      const recognizedTap = modifiers?.find((m) => m.name === 'podiumListRowPress')?.value as
+        | (() => void)
+        | undefined
+      return (
+        <button
+          type="button"
+          aria-label={modifiers?.find((m) => m.name === 'accessibilityLabel')?.value as string}
+          data-native-button="true"
+          data-release-action={onPress ? 'configured' : 'empty'}
+          data-modifiers={JSON.stringify(modifiers)}
+          onClick={recognizedTap ?? onPress}
+        >
+          {children}
+        </button>
+      )
+    },
     ContextMenu: Object.assign(Box, { Trigger: Box, Items: () => null }),
     HStack: Box,
     Image: () => null,
@@ -701,12 +706,13 @@ it.each([
   )
   expectPullDownSearch()
   expect(state.listMount).toHaveBeenCalledOnce()
-  // The native tap recognizer owns row opening, with button semantics for VoiceOver.
+  // Keep a real native Button for pressed feedback. The native modifier owns
+  // tap/assistive activation; the release-inside action must stay empty.
   const openTarget = screen.getByRole('button', { name: /^Search parent\./ })
-  expect(openTarget.getAttribute('data-native-tap')).toBe('true')
+  expect(openTarget.getAttribute('data-native-button')).toBe('true')
+  expect(openTarget.getAttribute('data-release-action')).toBe('empty')
   expect(JSON.parse(openTarget.getAttribute('data-modifiers') ?? '[]')).toContainEqual({
-    name: 'accessibilityAddTraits',
-    value: ['isButton'],
+    name: 'podiumListRowPress',
   })
   fireEvent.click(openTarget)
   expect(onOpen).toHaveBeenCalledOnce()

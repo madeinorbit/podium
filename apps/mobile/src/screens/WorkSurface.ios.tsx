@@ -16,7 +16,6 @@ import {
 } from '@expo/ui/swift-ui'
 import {
   Animation,
-  accessibilityAddTraits,
   accessibilityElement,
   accessibilityHidden,
   accessibilityHint,
@@ -44,7 +43,6 @@ import {
   onAppear,
   onDisappear,
   onGeometryChange,
-  onTapGesture,
   pickerStyle,
   refreshable,
   scrollContentBackground,
@@ -80,6 +78,7 @@ import { StyleSheet, useWindowDimensions, View } from 'react-native'
 import { useMobilePoolProjection } from '../client/mobile-pool'
 import { useWorkspaceRefreshSubtitle } from '../client/workspace-refresh'
 import { ListNotices } from '../components/list-notices.ios'
+import { listRowPress } from '../components/list-row-press.ios'
 import { ListSearchBar } from '../components/list-search-bar.ios'
 import { NativeGroupHeader } from '../components/NativeGroupHeader.ios'
 import { NewWorkButton } from '../components/NewWorkButton'
@@ -608,15 +607,12 @@ const NativeWorkRow = observer(function NativeWorkRow(props: RowProps) {
     >
       <ContextMenu>
         <ContextMenu.Trigger>
-          <VStack
-            spacing={0}
+          <Button
             modifiers={[
-              // A plain Button accepts drags that end inside its wide label.
-              // TapGesture fails after movement, including a cancelled/right swipe.
+              // Native Button feedback; the modifier accepts taps, never drags.
+              listRowPress(open),
               contentShape(shapes.rectangle()),
-              onTapGesture(open),
               accessibilityElement('ignore'),
-              accessibilityAddTraits(['isButton']),
               accessibilityLabel(
                 `${row.title}. ${word}. ${ref}${unread ? '. Unread' : ''}${notSaved ? '. Not saved' : ''}`,
               ),
@@ -707,7 +703,7 @@ const NativeWorkRow = observer(function NativeWorkRow(props: RowProps) {
                 ) : null}
               </VStack>
             </HStack>
-          </VStack>
+          </Button>
         </ContextMenu.Trigger>
         <ContextMenu.Items>
           <NativeRowActions
