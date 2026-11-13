@@ -508,6 +508,12 @@ const MACHINE_ROW_READS = {
   ],
 } as const satisfies Partial<RecordSource>
 
+/**
+ * A tombstoned row is on no record: its tombstoning (and a restore) is
+ * captured, and what happens to it afterwards, a purge included, is not.
+ */
+const notTombstoned = (deletedAt: Column): string => `{row}.${deletedAt.name} IS NULL`
+
 /** The fleet's update channel and published targets (`machine-record-context.ts`). */
 const MACHINE_CONTEXT_ROWS = `{row}.${meta.key.name} IN ('machines.fleet-channel.v1', 'updates.execution.v1')`
 
@@ -658,8 +664,10 @@ export const RECORD_SOURCES: RecordSources = {
     via(shipHolds, [shipHolds.orderId], 'all', lanesOfUpperOrders),
     via(deliveryReceipts, [deliveryReceipts.orderId], 'all', lanesOfUpperOrders),
   ],
-  automation: [byId(automations, automations.id)],
-  automationRun: [byId(automationRuns, automationRuns.id)],
+  automation: [byId(automations, automations.id, { rows: notTombstoned(automations.deletedAt) })],
+  automationRun: [
+    byId(automationRuns, automationRuns.id, { rows: notTombstoned(automationRuns.deletedAt) }),
+  ],
   userLayout: [
     own(
       userLayout,
@@ -739,7 +747,7 @@ export const RECORD_SOURCES: RecordSources = {
       rows: `{row}.${meta.key.name} = 'settings'`,
     }),
   ],
-  effect: [byId(effects, effects.id)],
+  effect: [byId(effects, effects.id, { rows: notTombstoned(effects.deletedAt) })],
   checkout: [
     own(checkouts, [checkouts.machineId, checkouts.path], (key) =>
       checkoutRowId(key[0] as MachineId, str(key[1])),
@@ -789,6 +797,7 @@ export const RECORD_SOURCES: RecordSources = {
           sessions.activityCount,
         ],
       },
+      rows: notTombstoned(sessions.deletedAt),
     }),
     own(offers, [offers.sessionId], (key) => str(key[0])),
     own(sessionDrafts, [sessionDrafts.sessionId], (key) => str(key[0])),
