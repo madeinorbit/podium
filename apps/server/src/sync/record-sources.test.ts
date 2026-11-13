@@ -238,9 +238,8 @@ async function buildCorpus(): Promise<Corpus> {
 // ---------------------------------------------------------------------------
 
 /** Every model table: what the schema declares, less the log's own tables. */
-const MODEL_TABLES: readonly string[] = Object.values(schema)
-  .filter((value): value is SQLiteTable => is(value, SQLiteTable))
-  .map((table) => getTableName(table))
+const MODEL_TABLES: readonly string[] = (Object.values(schema) as unknown[])
+  .flatMap((value) => (is(value, SQLiteTable) ? [getTableName(value)] : []))
   .filter((name) => !name.startsWith('sync_') && !name.startsWith('__'))
 
 /** The schema export that declares a table, by the table's SQL name. */
