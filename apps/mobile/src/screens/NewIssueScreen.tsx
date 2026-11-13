@@ -59,9 +59,10 @@ import {
   machinePathBasename,
 } from '@podium/model'
 import { useLocalSearchParams, useRouter } from 'expo-router'
+import { HeaderHeightContext } from 'expo-router/react-navigation'
 import { observer } from 'mobx-react-lite'
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { type TextInput, View } from 'react-native'
+import { use, useCallback, useEffect, useRef, useState } from 'react'
+import { Platform, type TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useStoreActions, useTrpc, useUiState } from '../client/hooks'
 import { useMobilePool, useMobilePoolProjection } from '../client/mobile-pool'
@@ -158,6 +159,7 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
   const [uploadScope] = useState(() => asSessionId(`coldstart-${randomUUID()}`))
   const attachments = useComposerAttachments(uploadScope, { destination: 'issue' })
   const insets = useSafeAreaInsets()
+  const headerHeight = use(HeaderHeightContext) ?? 0
   const keyboardLift = useKeyboardLift()
 
   // Same context restoration as desktop, after the coding role and stored draft arrive.
@@ -513,6 +515,7 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
         attachments={attachments.attachments}
         onRemoveAttachment={attachments.remove}
         bottomInset={insets.bottom}
+        topInset={Platform.OS === 'ios' ? headerHeight : 0}
         keyboardLift={keyboardLift}
         onPhotos={shell ? undefined : () => attachments.fromSource(pickPhotos)}
         onCamera={shell ? undefined : () => attachments.fromSource(takePhoto)}

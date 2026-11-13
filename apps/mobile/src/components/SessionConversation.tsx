@@ -540,6 +540,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
   // button rides on it, so a growing draft lifts the button without moving
   // the transcript.
   const [floatingHeight, setFloatingHeight] = useState(0)
+  const [viewportHeight, setViewportHeight] = useState(0)
   // biome-ignore lint/correctness/useExhaustiveDependencies: each rendered item count acknowledges a new transcript batch.
   useEffect(() => {
     transcript.markRendered()
@@ -825,7 +826,11 @@ const SessionConversationBody = observer(function SessionConversationBody({
   const captionTone = conversation.interruptError ? 'attention' : 'working'
 
   return (
-    <View style={styles.flex}>
+    <View
+      testID="conversation-viewport"
+      style={styles.flex}
+      onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}
+    >
       {!hasTranscript ? (
         <MobileSessionLifecycle
           session={session}
@@ -919,7 +924,16 @@ const SessionConversationBody = observer(function SessionConversationBody({
           feed pays for it with the composer's own resting height. */}
       {composerHidden ? null : (
         <View
-          style={[styles.composerLayer, { bottom: keyboardLift }]}
+          testID="conversation-composer-layer"
+          style={[
+            styles.composerLayer,
+            {
+              bottom: keyboardLift,
+              maxHeight: viewportHeight
+                ? Math.max(0, viewportHeight - topInset - keyboardLift)
+                : undefined,
+            },
+          ]}
           pointerEvents="box-none"
           onLayout={(event) => setFloatingHeight(event.nativeEvent.layout.height)}
         >
@@ -976,6 +990,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
 const styles = StyleSheet.create({
   flex: {
     flex: 1,
+    minHeight: 0,
   },
   /**
    * THE OFFLINE-MACHINE BANNER (this issue) — the phone's copy of the
@@ -1010,6 +1025,8 @@ const styles = StyleSheet.create({
   },
   askLayer: {
     backgroundColor: color.bg,
+    flexShrink: 1,
+    minHeight: 0,
   },
   /** Claims the feed remainder so the floating composer stays anchored. */
   empty: {

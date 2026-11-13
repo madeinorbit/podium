@@ -1,21 +1,37 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import type { TranscriptItem } from '@podium/model'
-import { cleanup, screen, waitFor } from '@testing-library/react'
-import { act, type ReactNode } from 'react'
-import { Platform } from 'react-native'
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, type ComponentProps, type ReactNode } from 'react'
+import { Platform, type View } from 'react-native'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { renderWithMobileStore } from '../client/test-support'
 
 const layout = vi.hoisted(() => ({
   report: undefined as undefined | ((height: number) => void),
   insets: [] as number[],
+  keyboardLift: 0,
+  callbacks: new Map<string, ComponentProps<typeof View>['onLayout']>(),
 }))
+vi.mock('react-native', async (original) => {
+  const rn = await original<typeof import('react-native')>()
+  const { forwardRef } = await import('react')
+  return {
+    ...rn,
+    View: forwardRef<View, ComponentProps<typeof View>>((props, ref) => {
+      if (props.testID) layout.callbacks.set(props.testID, props.onLayout)
+      return <rn.View {...props} ref={ref} onLayout={undefined} />
+    }),
+  }
+})
+vi.mock('../hooks/useKeyboardHeight', () => ({ useKeyboardLift: () => layout.keyboardLift }))
 const originalOS = Platform.OS
 afterEach(() => {
   cleanup()
   Platform.OS = originalOS
   layout.report = undefined
   layout.insets = []
+  layout.keyboardLift = 0
+  layout.callbacks.clear()
 })
 
 vi.mock('expo-haptics', () => ({
@@ -55,6 +71,61 @@ const session = {
 } as unknown as SessionView
 
 describe('native lifecycle footer first layout', () => {
+  it('bounds an expanded pinned question and the composer between the header and keyboard', async () => {
+    Platform.OS = 'ios'
+    layout.keyboardLift = 336
+    const live = { ...session, status: 'live' } as SessionView
+    await renderWithMobileStore(
+      <SessionConversation session={live} issue={undefined} topInset={132} />,
+      {
+        sessions: [live],
+        api: {
+          sessions: {
+            transcriptRead: {
+              query: async () => ({
+                items: [
+                  {
+                    id: 'long-question',
+                    role: 'tool',
+                    text: '',
+                    toolName: 'AskUserQuestion',
+                    toolInputJson: JSON.stringify({
+                      questions: [
+                        {
+                          question: 'Which rollout should we use? '.repeat(15),
+                          options: [{ label: 'Staged rollout' }, { label: 'Wait' }],
+                        },
+                      ],
+                    }),
+                  },
+                ],
+                hasMore: false,
+              }),
+            },
+          },
+        },
+      },
+    )
+    act(() => {
+      layout.report?.(148)
+      layout.callbacks.get('conversation-viewport')?.({
+        nativeEvent: { layout: { x: 0, y: 0, width: 402, height: 800 } },
+      } as never)
+    })
+    await screen.findByLabelText('Show question')
+    fireEvent.click(screen.getByLabelText('Show question'))
+    const layer = screen.getByTestId('conversation-composer-layer')
+    expect(layer.style.maxHeight).toBe('332px')
+    expect(layer.style.bottom).toBe('336px')
+    const card = screen.getByTestId('ask-question-tile')
+    const scroll = screen.getByTestId('ask-question-scroll')
+    expect(getComputedStyle(card.parentElement as HTMLElement).flexShrink).toBe('1')
+    expect(getComputedStyle(card).flexShrink).toBe('1')
+    expect(getComputedStyle(scroll).flexShrink).toBe('1')
+    expect(layer.contains(screen.getByTestId('measuring-composer'))).toBe(true)
+    expect(screen.getByLabelText('Wait')).toBeTruthy()
+  })
+
   it.each([
     { items: [] as TranscriptItem[] },
     { items: [{ id: 'last', role: 'assistant', text: 'Ready to continue.' }] as TranscriptItem[] },

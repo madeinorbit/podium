@@ -262,7 +262,7 @@ export function AskQuestionCard({
         keyboardShouldPersistTaps="handled"
         automaticallyAdjustContentInsets={false}
         contentInsetAdjustmentBehavior="never"
-        style={{ width: '100%', maxHeight: optionsHeight }}
+        style={{ width: '100%', maxHeight: optionsHeight, flexShrink: 1, minHeight: 0 }}
         contentContainerStyle={styles.scrollContent}
       >
         {resultDetail ? (
@@ -436,7 +436,12 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: color.border,
   },
-  band: { marginHorizontal: space.lg, marginVertical: space.sm },
+  band: {
+    marginHorizontal: space.lg,
+    marginVertical: space.sm,
+    flexShrink: 1,
+    minHeight: 0,
+  },
   meta: {
     ...sans(400),
     color: color.textDim,

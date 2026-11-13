@@ -8,10 +8,11 @@ const native = vi.hoisted(() => ({
   scroll: undefined as ComponentProps<typeof ScrollView> | undefined,
   layouts: new Map<string, ComponentProps<typeof View>['onLayout']>(),
   dismiss: vi.fn(),
+  scrollTo: vi.fn(),
 }))
 vi.mock('react-native', async (original) => {
   const rn = await original<typeof import('react-native')>()
-  const { forwardRef } = await import('react')
+  const { forwardRef, useImperativeHandle } = await import('react')
   return {
     ...rn,
     Platform: { ...rn.Platform, OS: 'ios' },
@@ -21,9 +22,10 @@ vi.mock('react-native', async (original) => {
       return <rn.View {...props} ref={ref} onLayout={undefined} />
     }),
     ScrollView: forwardRef<ScrollView, ComponentProps<typeof ScrollView>>((props, ref) => {
+      useImperativeHandle(ref, () => ({ scrollTo: native.scrollTo }) as unknown as ScrollView)
       if (!props.horizontal) native.scroll = props
       if (props.testID) native.layouts.set(props.testID, props.onLayout)
-      return <rn.ScrollView {...props} ref={ref} onLayout={undefined} />
+      return <rn.ScrollView {...props} onLayout={undefined} />
     }),
     TextInput: forwardRef<TextInput, ComponentProps<typeof TextInput>>((props, ref) => {
       native.input = props
@@ -76,6 +78,7 @@ afterEach(() => {
   cleanup()
   native.layouts.clear()
   vi.clearAllMocks()
+  vi.restoreAllMocks()
 })
 
 it('lets native text grow to ten lines, scrolls at the available height, and shrinks again', () => {
@@ -94,8 +97,12 @@ it('lets native text grow to ten lines, scrolls at the available height, and shr
   expect(StyleSheet.flatten(native.input?.style)).not.toHaveProperty('height')
   expect(StyleSheet.flatten(native.input?.style)?.maxHeight).toBe(418)
   expect(native.input?.scrollEnabled).toBe(false)
-  act(() =>
-    native.scroll?.onScroll?.({ nativeEvent: { contentInset: { top: 64, bottom: 0 } } } as never),
+  rerender(
+    <ComposeBody
+      {...props}
+      prompt={Array.from({ length: 10 }, (_, i) => `Line ${i + 1}`).join('\n')}
+      topInset={64}
+    />,
   )
   expect(StyleSheet.flatten(native.input?.style)?.maxHeight).toBe(354)
   layout('compose-body', 400)
@@ -104,6 +111,36 @@ it('lets native text grow to ten lines, scrolls at the available height, and shr
   content(56)
   expect(native.input?.scrollEnabled).toBe(false)
   expect(StyleSheet.flatten(native.input?.style)).not.toHaveProperty('height')
+})
+
+it('restores the form below the native sheet header after the keyboard closes, without remounting the prompt', () => {
+  const { rerender } = render(
+    <ComposeBody {...props} prompt="Keep this draft" keyboardLift={336} topInset={70} />,
+  )
+  const input = screen.getByRole('textbox', { name: 'Task prompt' })
+  expect(native.scroll?.contentInsetAdjustmentBehavior).toBe('never')
+  expect(native.scroll?.automaticallyAdjustContentInsets).toBe(false)
+  expect(native.scroll?.automaticallyAdjustKeyboardInsets).toBe(false)
+  expect(native.scroll?.contentInset?.top).toBe(70)
+  expect(native.scroll?.contentOffset?.y).toBe(-70)
+  expect(native.scrollTo).not.toHaveBeenCalled()
+
+  const frames: FrameRequestCallback[] = []
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((callback) => {
+    frames.push(callback)
+    return frames.length
+  })
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(() => {})
+  rerender(<ComposeBody {...props} prompt="Keep this draft" topInset={70} />)
+  layout('compose-body', 736)
+  layout('compose-toolbar', 86)
+  act(() => frames[0]?.(0))
+  expect(native.scrollTo).toHaveBeenCalledExactlyOnceWith({ y: -70, animated: false })
+  expect(screen.getByRole('textbox', { name: 'Task prompt' })).toBe(input)
+  expect((input as HTMLTextAreaElement).value).toBe('Keep this draft')
+
+  rerender(<ComposeBody {...props} prompt="Keep this draft, edited" topInset={70} />)
+  expect(native.scrollTo).toHaveBeenCalledTimes(1)
 })
 
 it('bounds a twelve-line prompt above the attachment bar and keyboard, with the tip below the input', () => {

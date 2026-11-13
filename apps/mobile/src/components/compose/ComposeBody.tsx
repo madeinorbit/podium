@@ -1,5 +1,5 @@
 import { COORDINATOR_PROMPT, countWords } from '@podium/client-core/new-task'
-import { type ReactNode, type RefObject, useCallback, useRef, useState } from 'react'
+import { type ReactNode, type RefObject, useCallback, useEffect, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Image,
@@ -109,6 +109,7 @@ export function ComposeBody({
   onCamera,
   onFiles,
   bottomInset,
+  topInset = 0,
   keyboardLift = 0,
 }: {
   fields: ReactNode
@@ -127,22 +128,36 @@ export function ComposeBody({
   onCamera?: () => void
   onFiles?: () => void
   bottomInset: number
+  topInset?: number
   keyboardLift?: number
 }) {
   const words = countWords(prompt)
   const ownRef = useRef<TextInput>(null)
   const inputRef = promptRef ?? ownRef
+  const scrollRef = useRef<ScrollView>(null)
+  const keyboardVisible = keyboardLift > 0
+  const wasKeyboardVisible = useRef(keyboardVisible)
   const [promptHeight, setPromptHeight] = useState<number>()
   const [promptWidth, setPromptWidth] = useState(0)
   const [bodyHeight, setBodyHeight] = useState(0)
   const [toolbarHeight, setToolbarHeight] = useState(0)
-  const [scrollInset, setScrollInset] = useState(0)
   const [headerHeight, setHeaderHeight] = useState(0)
   const [footerHeight, setFooterHeight] = useState(0)
   const viewportHeight = Math.max(0, bodyHeight - keyboardLift - toolbarHeight)
   const maxPromptHeight = viewportHeight
-    ? Math.max(72, viewportHeight - scrollInset - headerHeight - footerHeight - 16)
+    ? Math.max(72, viewportHeight - topInset - headerHeight - footerHeight - 16)
     : undefined
+  useEffect(() => {
+    const dismissed = wasKeyboardVisible.current && !keyboardVisible
+    wasKeyboardVisible.current = keyboardVisible
+    if (!dismissed) return
+    // Wait for the expanded viewport, then undo the focus scroll. The explicit
+    // header inset keeps UIKit's sheet adjustment from leaving the rows at y=0.
+    const frame = requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ y: -topInset, animated: false })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [keyboardVisible, topInset])
   const measure = useCallback((height: number) => setPromptHeight(Math.max(72, height)), [])
   useComposerMeasure(inputRef, prompt, promptWidth, measure)
   const onKeyPress = (event: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
@@ -166,17 +181,18 @@ export function ComposeBody({
       onLayout={(event) => setBodyHeight(event.nativeEvent.layout.height)}
     >
       <ScrollView
+        ref={scrollRef}
         testID="compose-scroll"
         style={[styles.scroll, { maxHeight: bodyHeight ? viewportHeight : undefined }]}
-        contentInsetAdjustmentBehavior="automatic"
+        automaticallyAdjustContentInsets={false}
+        automaticallyAdjustKeyboardInsets={false}
+        contentInsetAdjustmentBehavior="never"
+        contentInset={{ top: topInset, bottom: 0, left: 0, right: 0 }}
+        contentOffset={{ x: 0, y: -topInset }}
+        scrollIndicatorInsets={{ top: topInset }}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
         contentContainerStyle={styles.content}
-        onScroll={(event) => {
-          const { top = 0, bottom = 0 } = event.nativeEvent.contentInset ?? {}
-          setScrollInset(top + bottom)
-        }}
-        scrollEventThrottle={16}
       >
         <View
           testID="compose-fields"
