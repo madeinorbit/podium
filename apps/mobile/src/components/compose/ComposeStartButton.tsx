@@ -42,7 +42,9 @@ export function ComposeStartButton(props: ComposeSheetHeaderProps) {
     <ComposeMenu
       label="Start options"
       items={composeStartItems(props)}
-      onPrimaryAction={props.onStart}
+      onPrimaryAction={() => {
+        if (props.canStart) props.onStart()
+      }}
       disabled={props.busy}
       style={{ width: 44, height: 44 }}
     >

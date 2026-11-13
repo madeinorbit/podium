@@ -23,6 +23,8 @@ const seams = vi.hoisted(() => ({
   attachments: null as ComposerAttachmentsApi | null,
   close: undefined as (() => void) | undefined,
   agentItems: [] as readonly ComposeMenuItem[],
+  presented: true,
+  finishPresentation: undefined as (() => void) | undefined,
 }))
 vi.mock('expo-router', () => ({
   useRouter: () => ({
@@ -41,6 +43,13 @@ vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 34, left: 0, right: 0 }),
 }))
 vi.mock('../hooks/useKeyboardHeight', () => ({ useKeyboardLift: () => 0 }))
+vi.mock('../components/compose/useComposePresentation', () => ({
+  useComposePresentation: () => {
+    const [presented, setPresented] = useState(seams.presented)
+    seams.finishPresentation = () => setPresented(true)
+    return presented
+  },
+}))
 vi.mock('../components/compose/ComposeSheetHeader', () => ({
   ComposeSheetHeader: (props: ComposeSheetHeaderProps) => (
     <header>
@@ -136,6 +145,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   seams.params = {}
   seams.close = undefined
+  seams.presented = true
+  seams.finishPresentation = undefined
 })
 const repository = (path = '/repo/podium', machineId = 'host'): GitRepositoryWire =>
   ({
@@ -202,6 +213,24 @@ async function mount(
 }
 
 describe('native New Task sheet logic', () => {
+  it('ignores opening double taps until presentation ends and keeps empty Send enabled afterwards', async () => {
+    seams.presented = false
+    const create = vi.fn(async (input: { sessionId: string }) => ({ sessionId: input.sessionId }))
+    await mount({ api: { sessions: { create: { mutate: create } } } })
+    await ready()
+    const send = screen.getByRole('button', { name: 'Start Task' }) as HTMLButtonElement
+    expect(send.disabled).toBe(false)
+    expect(screen.queryByRole('textbox', { name: 'Task prompt' })).toBeNull()
+    fireEvent.click(send)
+    fireEvent.click(send)
+    expect(create).not.toHaveBeenCalled()
+    expect(seams.replace).not.toHaveBeenCalled()
+    act(() => seams.finishPresentation?.())
+    expect(prompt().value).toBe('')
+    fireEvent.click(send)
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+  })
+
   it('opens before projects and machines arrive, then hydrates the existing sheet without losing the prompt', async () => {
     let discovered = {
       repositories: [] as GitRepositoryWire[],

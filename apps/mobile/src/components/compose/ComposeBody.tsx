@@ -112,6 +112,7 @@ export function ComposeBody({
   bottomInset,
   topInset = 0,
   keyboardLift = 0,
+  trailingAction,
 }: {
   fields: ReactNode
   prompt: string
@@ -132,6 +133,7 @@ export function ComposeBody({
   bottomInset: number
   topInset?: number
   keyboardLift?: number
+  trailingAction?: ReactNode
 }) {
   const words = countWords(prompt)
   const ownRef = useRef<TextInput>(null)
@@ -192,7 +194,9 @@ export function ComposeBody({
         contentInset={{ top: topInset, bottom: 0, left: 0, right: 0 }}
         contentOffset={{ x: 0, y: -topInset }}
         scrollIndicatorInsets={{ top: topInset }}
-        keyboardShouldPersistTaps="handled"
+        // SwiftUI menus handle touches outside RN's responder system. With
+        // "handled", ScrollView treats them as background taps and blurs.
+        keyboardShouldPersistTaps="always"
         keyboardDismissMode="interactive"
         contentContainerStyle={styles.content}
       >
@@ -252,7 +256,7 @@ export function ComposeBody({
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
+              keyboardShouldPersistTaps="always"
               contentContainerStyle={styles.attachments}
             >
               {attachments.map((file) => (
@@ -330,7 +334,6 @@ export function ComposeBody({
       <View
         testID="compose-toolbar"
         onLayout={(event) => setToolbarHeight(event.nativeEvent.layout.height)}
-        onTouchStart={Keyboard.dismiss}
         style={[styles.toolbar, { paddingBottom: keyboardLift > 0 ? 8 : Math.max(8, bottomInset) }]}
       >
         <Glass interactive style={styles.tools}>
@@ -343,6 +346,7 @@ export function ComposeBody({
             {words} {words === 1 ? 'word' : 'words'}
           </Text>
         ) : null}
+        {trailingAction}
       </View>
     </View>
   )

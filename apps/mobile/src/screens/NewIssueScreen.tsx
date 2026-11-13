@@ -71,6 +71,7 @@ import { useSettingsRecord } from '../client/use-settings-record'
 import { ComposeBody, ComposeFieldRow } from '../components/compose/ComposeBody'
 import type { ComposeMenuItem } from '../components/compose/ComposeMenu'
 import { ComposeSheetHeader } from '../components/compose/ComposeSheetHeader'
+import { ComposeStartButton } from '../components/compose/ComposeStartButton'
 import { useComposePresentation } from '../components/compose/useComposePresentation'
 import { useComposerAttachments } from '../components/useComposerAttachments'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
@@ -267,6 +268,9 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
     attachments.clear()
   }
   const start = () => {
+    // A second tap at the opening control's old position must not launch work
+    // while UIKit is still presenting the sheet.
+    if (!promptReady) return
     const current = readFirstTaskDraft(uiState.get(FIRST_TASK_ACTIVATION_DRAFT_KEY))
     if (!status.canStart || starting.current || !selectedRepo || !checkout || !machine) return
     starting.current = true
@@ -490,17 +494,19 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
       />
     </>
   )
+  const headerProps = {
+    ...status,
+    hasPrompt: !!draft.title.trim(),
+    busy,
+    onCancel: () => router.back(),
+    onStart: start,
+    onSave: () => void save(),
+  }
   return (
     <View collapsable={false} style={{ flex: 1, minHeight: 0, backgroundColor: color.groupedCard }}>
-      <ComposeSheetHeader
-        {...status}
-        hasPrompt={!!draft.title.trim()}
-        busy={busy}
-        onCancel={() => router.back()}
-        onStart={start}
-        onSave={() => void save()}
-      />
+      <ComposeSheetHeader {...headerProps} />
       <ComposeBody
+        trailingAction={Platform.OS === 'ios' ? <ComposeStartButton {...headerProps} /> : undefined}
         promptReady={promptReady}
         fields={fields}
         prompt={draft.title}

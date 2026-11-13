@@ -98,6 +98,30 @@ it('keeps the UITextView out of the first sheet layout, then mounts and focuses 
   expect(screen.getByRole('textbox', { name: 'Task prompt' })).toBe(input)
 })
 
+it('keeps keyboard focus when native fields or toolbar actions are tapped and puts Send in the bottom toolbar', () => {
+  render(
+    <ComposeBody
+      {...props}
+      prompt="Keep my focus"
+      keyboardLift={336}
+      trailingAction={<button type="button">Send</button>}
+    />,
+  )
+  const input = screen.getByRole('textbox', { name: 'Task prompt' })
+  input.focus()
+  expect(native.scroll?.keyboardShouldPersistTaps).toBe('always')
+  const toolbar = screen.getByTestId('compose-toolbar')
+  const touch = { identifier: 0, target: toolbar, clientX: 10, clientY: 10, pageX: 10, pageY: 10 }
+  fireEvent.touchStart(toolbar, { touches: [touch], changedTouches: [touch] })
+  fireEvent.touchEnd(toolbar, { touches: [], changedTouches: [touch] })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  expect(toolbar.contains(screen.getByRole('button', { name: 'Send' }))).toBe(true)
+  expect(document.activeElement).toBe(input)
+  expect(native.dismiss).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByTestId('compose-dismiss-keyboard'))
+  expect(native.dismiss).toHaveBeenCalledOnce()
+})
+
 it('lets native text grow to ten lines, scrolls at the available height, and shrinks again', () => {
   const { rerender } = render(<ComposeBody {...props} />)
   layout('compose-body', 660)
