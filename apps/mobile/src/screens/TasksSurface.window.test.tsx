@@ -79,6 +79,10 @@ vi.mock('../components/NativeGroupHeader.ios', () => ({
 }))
 vi.mock('../components/RefreshOffer', () => ({ RefreshOffer: () => null }))
 vi.mock('../components/StorageNoticeAlert', () => ({ StorageNoticeAlert: () => null }))
+// Continuity behavior is covered by its pool and native-row tests, outside list windowing.
+vi.mock('../components/WorkspaceContinuityNotice', () => ({
+  WorkspaceContinuityNotice: () => null,
+}))
 vi.mock('./tasks-folds', () => ({
   useStageFolds: () =>
     Object.fromEntries(
