@@ -2,6 +2,7 @@ import { beginSwitch, isSwitchTraced, markSwitch } from '@podium/client-core/per
 import { useStoreHandle } from '@podium/client-core/react'
 import { effectivePanelMode, type PanelMode } from '@podium/client-core/ui-state'
 import { observe, reaction } from 'mobx'
+import { Observer } from 'mobx-react-lite'
 import { readSessions } from '@/app/command-launch-readers'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
@@ -963,21 +964,25 @@ export function AgentPanel({
           // still worth reading. Show it (read-only; the composer disables itself
           // when the session isn't live) with a banner to wake it back up.
           <>
-            {outcome ? (
-              <IssueOutcomeBanner
-                sessionId={sessionId}
-                outcome={outcome}
-                resume="parked"
-                waking={sessionWaking(session)}
-                queuedCount={session?.queuedMessageCount ?? 0}
-              />
-            ) : (
-              <HibernatedBanner
-                sessionId={sessionId}
-                waking={sessionWaking(session)}
-                queuedCount={session?.queuedMessageCount ?? 0}
-              />
-            )}
+            <Observer>
+              {() =>
+                outcome ? (
+                  <IssueOutcomeBanner
+                    sessionId={sessionId}
+                    outcome={outcome}
+                    resume="parked"
+                    waking={sessionWaking(session, false, conversation?.sends.wakeRequestedAt)}
+                    queuedCount={session?.queuedMessageCount ?? 0}
+                  />
+                ) : (
+                  <HibernatedBanner
+                    sessionId={sessionId}
+                    waking={sessionWaking(session, false, conversation?.sends.wakeRequestedAt)}
+                    queuedCount={session?.queuedMessageCount ?? 0}
+                  />
+                )
+              }
+            </Observer>
             <ChatView
               sessionId={sessionId}
               active={active}
@@ -996,24 +1001,28 @@ export function AgentPanel({
           // readable (and resumable via the composer) with a banner, instead of
           // replacing it with a dead-end pane. Shells (no transcript) still get it.
           <>
-            {outcome ? (
-              <IssueOutcomeBanner
-                sessionId={sessionId}
-                outcome={outcome}
-                resume={session.resumable === true ? 'ended' : null}
-                waking={sessionWaking(session)}
-              />
-            ) : (
-              <ExitedBanner
-                sessionId={sessionId}
-                exitCode={session.exitCode}
-                spawnFailure={session.spawnFailure}
-                isShell={session.agentKind === 'shell'}
-                resumable={session.resumable === true}
-                {...(session.neverBound ? { neverBound: true as const } : {})}
-                waking={sessionWaking(session)}
-              />
-            )}
+            <Observer>
+              {() =>
+                outcome ? (
+                  <IssueOutcomeBanner
+                    sessionId={sessionId}
+                    outcome={outcome}
+                    resume={session.resumable === true ? 'ended' : null}
+                    waking={sessionWaking(session, false, conversation?.sends.wakeRequestedAt)}
+                  />
+                ) : (
+                  <ExitedBanner
+                    sessionId={sessionId}
+                    exitCode={session.exitCode}
+                    spawnFailure={session.spawnFailure}
+                    isShell={session.agentKind === 'shell'}
+                    resumable={session.resumable === true}
+                    {...(session.neverBound ? { neverBound: true as const } : {})}
+                    waking={sessionWaking(session, false, conversation?.sends.wakeRequestedAt)}
+                  />
+                )
+              }
+            </Observer>
             <ChatView
               sessionId={sessionId}
               active={active}

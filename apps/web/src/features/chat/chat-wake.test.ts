@@ -6,6 +6,7 @@ import { asSessionId, type MessageRecordWire } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { Trpc } from '../../app/trpc'
 import { ChatViewModel } from './chat-view-model'
+import { queuedDeliveryLabel } from './TranscriptFeed'
 import { WebConversation } from './use-conversation'
 
 describe('desktop wake outcome', () => {
@@ -87,11 +88,17 @@ describe('desktop wake outcome', () => {
     try {
       expect(view.activity?.label).toBe('Waking the agent…')
       expect(view.composer.placeholder).toContain('Waking the agent')
+      expect(queuedDeliveryLabel(view.session, 1, service.sends.wakeRequestedAt)).toBe(
+        'pending · sends once the agent is up · queue position 1',
+      )
       move('starting')
       expect(view.activity?.label).toBe('Waking the agent…')
       move('exited', '2026-11-13T06:00:11Z')
       expect(view.activity).toBeNull()
       expect(view.composer.placeholder).toBe('Message the agent to resume it…')
+      expect(queuedDeliveryLabel(view.session, 1, service.sends.wakeRequestedAt)).not.toContain(
+        'once the agent is up',
+      )
       // A second send is a new wake even while the old exit is still synced.
       record = { ...record, createdAt: '2026-11-13T06:00:12Z' }
       for (const listener of listeners) listener()

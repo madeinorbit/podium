@@ -197,6 +197,7 @@ export function queuePositionSuffix(position: number | undefined): string {
 export function queuedDeliveryLabel(
   session: SessionView | SessionModel | undefined,
   position?: number,
+  wakeRequestedAt?: number | null,
 ): string {
   const error = queueIsBlocked(session)
     ? session && 'agentError' in session
@@ -207,7 +208,7 @@ export function queuedDeliveryLabel(
     const instruction = agentErrorRecoveryInstruction(error).replace(/\.$/, '')
     return `blocked · ${formatAgentError(error)} — ${instruction} to send${queuePositionSuffix(position)}`
   }
-  const label = sessionWaking(session)
+  const label = sessionWaking(session, false, wakeRequestedAt)
     ? 'pending · sends once the agent is up'
     : 'pending · sends after this turn'
   return `${label}${queuePositionSuffix(position)}`
@@ -774,7 +775,11 @@ export const TranscriptFeed = observer(function TranscriptFeed(
                               ) : waiting ? (
                                 <span className="transcript-delivery">
                                   {p.record || queueIsBlocked(session)
-                                    ? queuedDeliveryLabel(session, p.queuePosition)
+                                    ? queuedDeliveryLabel(
+                                        session,
+                                        p.queuePosition,
+                                        props.chat?.conversation.sends.wakeRequestedAt,
+                                      )
                                     : `pending${queuePositionSuffix(p.queuePosition)}`}
                                 </span>
                               ) : null}
