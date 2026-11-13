@@ -64,6 +64,13 @@ class FakeSpeechRecognition {
 }
 
 describe('Composer activity caption', () => {
+  it('caps a pinned-question draft at three lines and restores the usual six-line cap', () => {
+    const view = render(<Composer placeholder="Long draft" onSend={() => {}} maxLines={3} />)
+    const field = screen.getByLabelText('Long draft')
+    expect(field.style.maxHeight).toBe(`${COMPOSER_LINE * 3}px`)
+    view.rerender(<Composer placeholder="Long draft" onSend={() => {}} />)
+    expect(field.style.maxHeight).toBe(`${COMPOSER_LINE * COMPOSER_MAX_LINES}px`)
+  })
   it('shares the composer bar and disappears without reserving a row', () => {
     const { rerender } = render(
       <Composer placeholder="Message the agent…" onSend={vi.fn()} caption="working" />,

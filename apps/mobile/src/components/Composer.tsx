@@ -146,6 +146,7 @@ export function Composer({
   bottomInset = 0,
   onRestingHeight,
   onStop,
+  maxLines,
 }: {
   placeholder: string
   /**
@@ -209,6 +210,8 @@ export function Composer({
    * content-size update.
    */
   onRestingHeight?: (height: number) => void
+  /** A pinned question can reserve room for the feed while typing. */
+  maxLines?: number
   /**
    * Ends the running turn. Passed only while one runs and may be stopped;
    * absent draws no control, so an idle composer keeps its two-control rail.
@@ -263,9 +266,9 @@ export function Composer({
     !uploading &&
     (committedText.trim().length > 0 || attached.some((file) => file.state === 'ready'))
 
-  const height = composerFieldHeight(measured, line)
-  const scrolls = composerScrolls(measured, line)
-  const maxHeight = composerMaxHeight(line)
+  const height = composerFieldHeight(measured, line, maxLines)
+  const scrolls = composerScrolls(measured, line, maxLines)
+  const maxHeight = composerMaxHeight(line, maxLines)
   const atRest = composerAtRest(measured, line)
 
   // Web has to be asked for the content height; native volunteers it through
@@ -296,6 +299,7 @@ export function Composer({
     return onMediaPaste(inputRef.current, (files) => acceptRef.current?.(files))
   }, [takesMedia])
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a keyed insertion runs once; each render has the current writer.
   useEffect(() => {
     if (!draftInsertion) return
     clearVoiceRef.current()

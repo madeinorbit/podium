@@ -121,6 +121,7 @@ const SessionComposer = observer(function SessionComposer({
   onRestingHeight,
   turnActive,
   canInterrupt,
+  maxLines,
 }: {
   conversation: MobileChatViewModel
   placeholder: string
@@ -133,6 +134,7 @@ const SessionComposer = observer(function SessionComposer({
   onRestingHeight?: (height: number) => void
   turnActive: boolean
   canInterrupt: boolean
+  maxLines?: number
 }) {
   const draft = conversation.draft
   const setDraft = useCallback(
@@ -183,6 +185,7 @@ const SessionComposer = observer(function SessionComposer({
       onStop={replying ? undefined : onStop}
       header={replying ? <ComposerReplyHeader asker={asker} onCancel={reply.cancel} /> : undefined}
       leading={<ComposerModelChip session={conversation.session} onNotice={setNotice} />}
+      maxLines={maxLines}
     />
   )
 })
@@ -663,6 +666,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
   const hasTranscript = session.transcriptAvailable ?? defaultChatCapable(session.agentKind)
   const composer = conversation.composer
   const readOnly = session.status === 'hibernated' || session.status === 'exited'
+  const composerHidden = session.status === 'exited' || (readOnly && !hasTranscript)
   /**
    * THE STOP CONTROL, ON THE DESKTOP'S TERMS [POD-4645]. Drawn while a turn is
    * running as far as this phone can tell — the agent is computing, or a send
@@ -763,11 +767,15 @@ const SessionConversationBody = observer(function SessionConversationBody({
     () => ({
       label:
         activity?.label ?? (conversation.session?.agentPhase === 'idle' ? 'Idle' : session.status),
-      tone: (activity?.tone === 'attention' ? 'attention' : activity ? 'working' : 'idle') as
-        | 'working'
-        | 'attention'
-        | 'idle',
-      since: conversation.session?.agentSince,
+      tone:
+        activity?.tone === 'working' || activity?.tone === 'attention' || activity?.tone === 'error'
+          ? activity.tone
+          : ('idle' as const),
+      // A fresh send has no turn clock yet. Interrupted turns are settled.
+      since:
+        activity?.transient === 'just-sent' || activity?.label === 'interrupted'
+          ? undefined
+          : conversation.session?.agentSince,
     }),
     [activity, conversation.session?.agentPhase, conversation.session?.agentSince, session.status],
   )
@@ -838,16 +846,18 @@ const SessionConversationBody = observer(function SessionConversationBody({
               assetContext={assetContext}
               pendingTurns={pendingTurns}
               pinRequest={pinRequest}
-              hidePendingQuestion
+              hidePendingQuestion={!composerHidden}
               findRequest={findRequest}
               onRetryPending={retry}
               onDiscardPending={discard}
               onSendAgainPending={sendAgain}
               onRetractPending={retractPending}
-              onQuote={quoteIntoDraft}
+              onQuote={composerHidden ? undefined : quoteIntoDraft}
               mailReply={model.reply}
-              bottomInset={composerHeight + askHeight + keyboardLift}
-              overlayInset={floatingHeight > 0 ? floatingHeight + keyboardLift : undefined}
+              bottomInset={composerHidden ? 0 : composerHeight + askHeight + keyboardLift}
+              overlayInset={
+                composerHidden ? 0 : floatingHeight > 0 ? floatingHeight + keyboardLift : undefined
+              }
               topInset={topInset}
               streaming={streamingActive}
               tail={tailState}
@@ -884,7 +894,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
       )}
       {/* The composer floats OVER the feed rather than ending it [POD-502]. The
           feed pays for it with the composer's own resting height. */}
-      {readOnly && !hasTranscript ? null : (
+      {composerHidden ? null : (
         <View
           style={[styles.composerLayer, { bottom: keyboardLift }]}
           pointerEvents="box-none"
@@ -907,6 +917,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
                 live={askAnswerable}
                 onAnswer={answerAsk}
                 presentation="band"
+                compact={keyboardLift > 0}
                 {...(pendingAskedAt ? { askedAt: pendingAskedAt } : {})}
               />
             </View>
@@ -925,6 +936,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
             onRestingHeight={setComposerHeight}
             turnActive={turnActive}
             canInterrupt={conversation.canInterrupt}
+            maxLines={pendingQuestion && keyboardLift > 0 ? 3 : undefined}
           />
         </View>
       )}

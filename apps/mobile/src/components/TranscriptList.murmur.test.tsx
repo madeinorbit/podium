@@ -215,6 +215,58 @@ it("names a fold by the harness's own summary of its calls", () => {
 const transcript = (items: TranscriptItem[]) => (
   <TranscriptList items={items} live={false} transcriptQuestion={null} onAnswer={async () => {}} />
 )
+
+it('collapses a paired answer into its receipt and removes successful hook noise', () => {
+  render(
+    transcript([
+      {
+        id: 'question',
+        role: 'tool',
+        text: '',
+        toolName: 'AskUserQuestion',
+        toolUseId: 'ask-use',
+        toolInputJson: JSON.stringify({
+          questions: [{ question: 'Which colour?', options: [{ label: 'Red' }] }],
+        }),
+      },
+      {
+        id: 'result',
+        role: 'tool',
+        text: '',
+        toolUseId: 'ask-use',
+        toolResult: 'You selected "Red"',
+      },
+      { id: 'reply', role: 'assistant', text: 'You picked Red.' },
+      {
+        id: 'stdout',
+        role: 'system',
+        text: 'Compacted (ctrl+o to see full summary)\nPreCompact [http://127.0.0.1/hooks/id] completed successfully',
+      },
+    ]),
+  )
+  expect(screen.queryByTestId('ask-question-tile')).toBeNull()
+  expect(screen.getByText(/You picked Red/)).toBeTruthy()
+  expect(screen.queryByText(/PreCompact/)).toBeNull()
+  expect(screen.getByLabelText(/answered/i)).toBeTruthy()
+})
+
+it('uses the desktop short subject for file rows in an opened fold', () => {
+  render(
+    transcript([
+      {
+        id: 'read-path',
+        role: 'tool',
+        text: '',
+        toolName: 'Read',
+        toolInput: '/Users/till/project/.worktrees/issue-5/src/search.ts',
+        toolPaths: ['/Users/till/project/.worktrees/issue-5/src/search.ts'],
+      },
+    ]),
+  )
+  fireEvent.click(screen.getByLabelText(/^Expand work run:/))
+  expect(screen.getByLabelText('Expand call: search.ts')).toBeTruthy()
+  expect(screen.queryByText('/Users/till/project/.worktrees/issue-5/src/search.ts')).toBeNull()
+})
 const note = (id: string, body: string, ask = false) =>
   `[podium message ${id} · from issue:POD-1906 · to ${ask ? 'operator' : 'issue:POD-1879'}]\n${body}\n${ask ? `[this is a question: reply with podium mail reply ${id}]\n` : ''}[end podium message ${id}]`
 
@@ -533,6 +585,7 @@ it('copies, quotes and selects the resolved pointer body with the original times
   fireEvent.click(screen.getByLabelText(/^Open note from POD-1906/))
   const menu = messageMenus.get(body)
   if (!menu) throw new Error('Resolved pointer body has no menu')
+  expect(menu.messageId).toBe('msg_actions')
   expect([...messageMenus.keys()]).toEqual([body])
   expect(menu.timeLabel).toContain('2026')
   expect(menu.timeLabel).toContain(':32:05')

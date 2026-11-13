@@ -133,6 +133,8 @@ type MessageMenuHandler = (text: string, action?: MessageAction, timeLabel?: str
  *  a send into a parked session looks like nothing happened at all. */
 export interface PendingTurn {
   id: string
+  /** Existing send instant, so its day mark stays put when the echo arrives. */
+  at?: number
   /** The PROSE, without the attachment paths that ride with it — the paths are
    *  rendered as files below, exactly as they will be once the server echoes
    *  this turn back. */
@@ -435,12 +437,14 @@ function SystemMurmur({
 
 /** Each note menu owns the same body the reader sees, with its delivery time. */
 function NoteMessage({
+  messageId,
   body,
   ts,
   onHold,
   canQuote,
   children,
 }: {
+  messageId: string
   body: string
   ts?: string
   onHold?: MessageMenuHandler
@@ -451,6 +455,7 @@ function NoteMessage({
   const timeLabel = messageTimeLabel(ts)
   return (
     <MessageMenu
+      messageId={messageId}
       text={body}
       timeLabel={timeLabel}
       canQuote={canQuote}
@@ -524,7 +529,13 @@ const EnvelopeRow = observer(function EnvelopeRow({
   return envelope.pointer ? (
     content
   ) : (
-    <NoteMessage body={envelope.body} ts={ts} onHold={onHold} canQuote={onQuote !== undefined}>
+    <NoteMessage
+      messageId={envelope.id}
+      body={envelope.body}
+      ts={ts}
+      onHold={onHold}
+      canQuote={onQuote !== undefined}
+    >
       {content}
     </NoteMessage>
   )
@@ -614,7 +625,13 @@ const EnvelopeContents = observer(function EnvelopeContents({
   return (
     <>
       {envelope.pointer === 'by-id' ? (
-        <NoteMessage body={body} ts={ts} onHold={onHold} canQuote={onQuote !== undefined}>
+        <NoteMessage
+          messageId={envelope.id}
+          body={body}
+          ts={ts}
+          onHold={onHold}
+          canQuote={onQuote !== undefined}
+        >
           {prose}
         </NoteMessage>
       ) : (
@@ -836,7 +853,11 @@ function AskReceipt({ item }: { item: TranscriptItem }) {
     .map((o) => o.label)
     .join(', ')
   return (
-    <View style={styles.receipt}>
+    <View
+      style={styles.receipt}
+      accessible
+      accessibilityLabel={`Answered question: ${first?.question ?? 'Question'}${picked ? ` · ${picked}` : ''}`}
+    >
       <Text style={styles.receiptGlyph}>?</Text>
       <Text style={styles.receiptQ} numberOfLines={2}>
         {first?.question ?? item.toolInput ?? 'Question'}
@@ -852,7 +873,7 @@ function AskReceipt({ item }: { item: TranscriptItem }) {
 
 export interface TranscriptTailState {
   label: string
-  tone: 'working' | 'attention' | 'idle'
+  tone: 'working' | 'attention' | 'error' | 'idle'
   since?: string
 }
 
@@ -867,20 +888,22 @@ function elapsedSince(since: string | undefined, now: number): string | null {
 }
 
 function TranscriptTail({ state }: { state?: TranscriptTailState }) {
-  const now = useAgeNow(state?.since ?? '', 0, !!state?.since)
+  const since =
+    state?.label === 'interrupted' || state?.label === 'Sending' ? undefined : state?.since
+  const now = useAgeNow(since ?? '', 0, !!since)
 
   if (!state) return null
-  const elapsed = elapsedSince(state.since, now)
+  const elapsed = elapsedSince(since, now)
   // Working with no tool run in flight (thinking, writing): the same one live
   // line a running fold draws, with the turn's own clock.
   if (state.tone === 'working') {
-    const since = state.since ? Date.parse(state.since) : Number.NaN
+    const start = since ? Date.parse(since) : Number.NaN
     return (
       <View style={styles.tailWrap}>
         <MurmurLine
           glyph={<WorkingMark size={14} label={null} />}
           label={state.label}
-          clock={Number.isNaN(since) ? undefined : murmurClock(Math.max(0, now - since))}
+          clock={Number.isNaN(start) ? undefined : murmurClock(Math.max(0, now - start))}
           tone="live"
           accessibilityLabel={state.label}
         />
@@ -890,7 +913,15 @@ function TranscriptTail({ state }: { state?: TranscriptTailState }) {
   return (
     <View style={styles.tailWrap}>
       <View style={styles.tail} accessibilityRole="text">
-        <Text style={[styles.tailMark, state.tone === 'attention' && styles.tailAttention]}>●</Text>
+        <Text
+          style={[
+            styles.tailMark,
+            state.tone === 'attention' && styles.tailAttention,
+            state.tone === 'error' && styles.murmurFailed,
+          ]}
+        >
+          ●
+        </Text>
         <Text style={styles.tailLabel}>{state.label}</Text>
         {elapsed ? <Text style={styles.tailElapsed}>{elapsed}</Text> : null}
         <View style={styles.tailRule} />
@@ -961,11 +992,13 @@ function FeedRowFrame({
   reduceMotion: boolean
   children: React.ReactNode
 }) {
-  const entrance = useRef(new Animated.Value(arrived && !reduceMotion ? 0 : 1)).current
+  const animateArrival =
+    arrived && row.item.role !== 'user' && row.kind !== 'pending' && !reduceMotion
+  const entrance = useRef(new Animated.Value(animateArrival ? 0 : 1)).current
   useEffect(() => {
-    if (!arrived || reduceMotion) return
+    if (!animateArrival) return
     Animated.timing(entrance, { toValue: 1, duration: 220, useNativeDriver: true }).start()
-  }, [arrived, entrance, reduceMotion])
+  }, [animateArrival, entrance])
   // A note from another agent is a murmur line, not a turn of its own: it keeps
   // the feed's beat spacing instead of opening a new turn (board Chat).
   const turn = row.kind === 'envelope' && row.turn === 'open' ? 'beat' : row.turn
@@ -1135,6 +1168,7 @@ const TranscriptFeedRow = memo(
     const timeLabel = messageTimeLabel(row.item.ts)
     const message = (text: string, child: ReactNode) => (
       <MessageMenu
+        messageId={row.key}
         text={text}
         timeLabel={timeLabel}
         canQuote={onQuoteText !== undefined}
@@ -1149,14 +1183,25 @@ const TranscriptFeedRow = memo(
       case 'user': {
         content = message(
           row.item.text,
-          <View style={styles.userWrap}>
-            <View style={styles.userCard}>
-              <MessageText
-                text={row.item.text.trim()}
-                style={styles.userText}
-                onRefPress={onRefPress}
-              />
-              <SharedFiles item={row.item} context={assetContext} showHeader={false} />
+          <View style={styles.userWrap} testID="operator-message">
+            <View style={styles.pendingBubbleLine}>
+              <View style={styles.userCard}>
+                <MessageText
+                  text={row.item.text.trim()}
+                  style={styles.userText}
+                  onRefPress={onRefPress}
+                />
+                <SharedFiles item={row.item} context={assetContext} showHeader={false} />
+              </View>
+            </View>
+            <View style={styles.userMetaRow}>
+              <Text
+                style={styles.userMetaOutside}
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+              >
+                {'\u00a0'}
+              </Text>
             </View>
           </View>,
         )
@@ -1165,35 +1210,21 @@ const TranscriptFeedRow = memo(
       case 'pending': {
         const turn = row.pendingTurn
         const failed = pendingFailure(turn)
-        content = (
-          <View style={styles.userWrap}>
+        content = message(
+          row.pendingText,
+          <View style={styles.userWrap} testID="operator-message">
             <View style={styles.pendingBubbleLine}>
-              <View style={[styles.userCard, !failed && styles.userCardPending]}>
+              <View style={styles.userCard}>
                 <MessageText
                   text={row.pendingText}
                   style={styles.userText}
                   onRefPress={onRefPress}
                 />
                 <PendingFiles files={turn.files ?? []} context={assetContext} />
-                {!failed ? (
-                  <>
-                    {turn.retractError ? (
-                      <Text
-                        style={styles.pendingError}
-                      >{`couldn't retract — ${turn.retractError}`}</Text>
-                    ) : null}
-                    {turn.retractable && onRetractPending ? (
-                      <PressableScale
-                        accessibilityRole="button"
-                        accessibilityLabel="Retract this message"
-                        onPress={() => onRetractPending(turn.id)}
-                        hitSlop={8}
-                        style={({ pressed }) => [styles.retry, pressed && styles.retryPressed]}
-                      >
-                        <Text style={styles.retryText}>Retract</Text>
-                      </PressableScale>
-                    ) : null}
-                  </>
+                {!failed && turn.retractError ? (
+                  <Text
+                    style={styles.pendingError}
+                  >{`couldn't retract — ${turn.retractError}`}</Text>
                 ) : null}
               </View>
               {failed ? (
@@ -1212,9 +1243,21 @@ const TranscriptFeedRow = memo(
                 onDiscard={onDiscardPending}
               />
             ) : (
-              <Text style={styles.userMetaOutside}>{pendingMetaLine(turn)}</Text>
+              <View style={styles.userMetaRow}>
+                <Text style={styles.userMetaOutside}>{pendingMetaLine(turn)}</Text>
+                {turn.retractable && onRetractPending ? (
+                  <PressableScale
+                    accessibilityRole="button"
+                    accessibilityLabel="Retract this message"
+                    onPress={() => onRetractPending(turn.id)}
+                    hitSlop={12}
+                  >
+                    <Text style={styles.userMetaOutside}>Retract</Text>
+                  </PressableScale>
+                ) : null}
+              </View>
             )}
-          </View>
+          </View>,
         )
         break
       }
@@ -1418,7 +1461,7 @@ function JumpToNewest({
     return () => animation.stop()
   }, [enter, reduceMotion, visible])
 
-  if (!mounted) return null
+  if (!mounted || !visible) return null
   return (
     <Animated.View
       pointerEvents={visible ? 'box-none' : 'none'}
@@ -1698,6 +1741,9 @@ export const TranscriptList = observer(function TranscriptList({
           id: turn.id,
           role: 'user',
           text: turn.text,
+          ...(turn.at !== undefined && Number.isFinite(turn.at) && turn.at > 0
+            ? { ts: new Date(turn.at).toISOString() }
+            : {}),
           // A held upload (POD-2148) names its file, not a path on the machine.
           ...(turn.files?.some((file) => !file.attachmentId)
             ? {
@@ -1810,12 +1856,14 @@ export const TranscriptList = observer(function TranscriptList({
     setUnread(0)
   }, [transcriptId])
   const pinToNewest = useCallback(() => {
+    setAtTail(true)
     listRef.current?.pinToNewest()
+    followChangeRef.current?.(true)
     setUnread(0)
   }, [])
 
   const lastPinRequest = useRef(pinRequest)
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (pinRequest === lastPinRequest.current) return
     lastPinRequest.current = pinRequest
     // A send re-pins without travel: the optimistic row is about to grow the
@@ -2179,6 +2227,7 @@ const styles = StyleSheet.create({
   },
   // Operator turn — the ONLY elevated surface on the field.
   userWrap: {
+    alignSelf: 'stretch',
     alignItems: 'flex-end',
     gap: 4,
     paddingVertical: space.xs,
@@ -2194,11 +2243,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.md,
     paddingVertical: space.sm,
   },
-  userCardPending: {
-    opacity: 0.7,
-    borderStyle: 'dashed',
-  },
   pendingBubbleLine: {
+    width: '100%',
     flexDirection: 'row',
     justifyContent: 'flex-end',
     alignItems: 'center',
@@ -2233,7 +2279,10 @@ const styles = StyleSheet.create({
     paddingRight: 2,
     color: color.textMicro,
     fontSize: font.micro,
+    lineHeight: 16,
+    minHeight: 16,
   },
+  userMetaRow: { flexDirection: 'row', gap: space.md, minHeight: 16 },
   userText: {
     ...sans(400),
     color: color.text,

@@ -17,6 +17,7 @@ export type LocalPendingTurn = PendingTurn & { wire: string }
 export function pendingTurnOf(bubble: ConversationBubble): LocalPendingTurn {
   return {
     id: bubble.id,
+    at: bubble.at,
     text: bubble.text,
     wire: bubble.wire,
     ...(bubble.files ? { files: bubble.files as NonNullable<PendingTurn['files']> } : {}),

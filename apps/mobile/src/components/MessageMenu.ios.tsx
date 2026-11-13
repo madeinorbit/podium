@@ -1,6 +1,9 @@
 import { Host } from '@expo/ui'
 import { Button, ContextMenu, RNHostView, Section } from '@expo/ui/swift-ui'
-import { StyleSheet, View } from 'react-native'
+import { useState } from 'react'
+import { StyleSheet, useWindowDimensions, View } from 'react-native'
+import { space } from '../theme/theme'
+import { MessagePreview } from './MessagePreview'
 import type { MessageMenuProps } from './message-menu.types'
 
 /**
@@ -9,7 +12,17 @@ import type { MessageMenuProps } from './message-menu.types'
  * Text opens the message in a native text view with real selection handles,
  * which React Native's paragraph text cannot offer in place on iOS.
  */
-export function MessageMenu({ text, timeLabel, canQuote, onAction, children }: MessageMenuProps) {
+export function MessageMenu({
+  messageId,
+  text,
+  timeLabel,
+  canQuote,
+  onAction,
+  children,
+}: MessageMenuProps) {
+  const window = useWindowDimensions()
+  const [measuredWidth, setWidth] = useState<number>()
+  const width = measuredWidth ?? window.width - space.lg * 2
   const actions = (
     <>
       <Button label="Copy" systemImage="doc.on.doc" onPress={() => onAction(text, 'copy')} />
@@ -28,31 +41,39 @@ export function MessageMenu({ text, timeLabel, canQuote, onAction, children }: M
     </>
   )
   return (
-    <Host matchContents={{ vertical: true }} style={styles.host}>
-      <ContextMenu>
-        <ContextMenu.Trigger>
-          <RNHostView matchContents={{ vertical: true }}>
-            <View
-              collapsable={false}
-              accessibilityActions={[
-                { name: 'copy', label: 'Copy message' },
-                ...(canQuote ? [{ name: 'quote', label: 'Quote in reply' }] : []),
-                { name: 'select', label: 'Select text' },
-              ]}
-              onAccessibilityAction={(event) => {
-                const name = event.nativeEvent.actionName
-                if (name === 'copy' || name === 'quote' || name === 'select') onAction(text, name)
-              }}
-            >
-              {children}
-            </View>
-          </RNHostView>
-        </ContextMenu.Trigger>
-        <ContextMenu.Items>
-          {timeLabel ? <Section title={timeLabel}>{actions}</Section> : actions}
-        </ContextMenu.Items>
-      </ContextMenu>
-    </Host>
+    <View style={styles.host} onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
+      <Host matchContents={{ vertical: true }} style={{ width }}>
+        <ContextMenu key={messageId ?? text}>
+          <ContextMenu.Trigger>
+            <RNHostView matchContents={{ vertical: true }}>
+              <View
+                collapsable={false}
+                style={{ width }}
+                accessibilityActions={[
+                  { name: 'copy', label: 'Copy message' },
+                  ...(canQuote ? [{ name: 'quote', label: 'Quote in reply' }] : []),
+                  { name: 'select', label: 'Select text' },
+                ]}
+                onAccessibilityAction={(event) => {
+                  const name = event.nativeEvent.actionName
+                  if (name === 'copy' || name === 'quote' || name === 'select') onAction(text, name)
+                }}
+              >
+                {children}
+              </View>
+            </RNHostView>
+          </ContextMenu.Trigger>
+          <ContextMenu.Preview>
+            <RNHostView matchContents>
+              <MessagePreview text={text} />
+            </RNHostView>
+          </ContextMenu.Preview>
+          <ContextMenu.Items>
+            {timeLabel ? <Section title={timeLabel}>{actions}</Section> : actions}
+          </ContextMenu.Items>
+        </ContextMenu>
+      </Host>
+    </View>
   )
 }
 

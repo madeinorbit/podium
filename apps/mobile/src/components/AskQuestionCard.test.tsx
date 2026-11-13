@@ -5,6 +5,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 // This lane does not run testing-library's auto-cleanup, so an earlier render
 // would otherwise still be in the document when the next test queries it.
 afterEach(cleanup)
+vi.mock('react-native', async (original) => ({
+  ...(await original<object>()),
+  useWindowDimensions: () => ({ width: 402, height: 874, scale: 1, fontScale: 1 }),
+}))
 
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
@@ -25,6 +29,33 @@ const single = ask([
 ])
 
 describe('AskQuestionCard', () => {
+  it('keeps a tall question scrollable and long options free to wrap', () => {
+    const label = 'A much longer option label that needs several lines at Accessibility Medium.'
+    render(
+      <AskQuestionCard
+        item={ask([{ question: 'Which database?\n'.repeat(12), options: [{ label }] }])}
+        live
+        presentation="band"
+      />,
+    )
+    const scroll = screen.getByTestId('ask-question-scroll')
+    expect(Number.parseFloat(scroll.style.maxHeight)).toBeGreaterThan(100)
+    expect(Number.parseFloat(scroll.style.maxHeight)).toBeLessThanOrEqual(420)
+    const option = screen.getByLabelText(label)
+    expect(option.textContent).toBe(label)
+    expect(option.querySelector('div')?.style.webkitLineClamp ?? '').toBe('')
+  })
+  it('compacts while typing, expands on Show, and resets when the keyboard closes', () => {
+    const view = render(<AskQuestionCard item={single} live presentation="band" compact />)
+    expect(screen.getByTestId('ask-question-compact')).toBeTruthy()
+    expect(screen.queryByLabelText('SQLite')).toBeNull()
+    fireEvent.click(screen.getByLabelText('Show question'))
+    expect(screen.getByLabelText('SQLite')).toBeTruthy()
+    view.rerender(<AskQuestionCard item={single} live presentation="band" compact={false} />)
+    expect(screen.getByLabelText('SQLite')).toBeTruthy()
+    view.rerender(<AskQuestionCard item={single} live presentation="band" compact />)
+    expect(screen.queryByLabelText('SQLite')).toBeNull()
+  })
   it('submits a tapped option as a 1-based digit', async () => {
     const onAnswer = vi.fn(async () => {})
     render(<AskQuestionCard item={single} live onAnswer={onAnswer} />)

@@ -20,6 +20,18 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+it.each([
+  'typescript',
+  'patch',
+])('keeps long %s lines in a horizontal scroller with every byte intact', (language) => {
+  const source = `${language === 'patch' ? '+' : ''}${'long_identifier'.repeat(30)} // final bytes`
+  const view = render(<RichMarkdown text={`\`\`\`${language}\n${source}\n\`\`\``} />)
+  const scroller = view.getByTestId('code-scroller')
+  expect(scroller.textContent).toBe(source)
+  expect(getComputedStyle(scroller).overflowX).toBe('auto')
+  expect(getComputedStyle(scroller).width).toBe('100%')
+})
+
 it('colours fenced source and preserves patch lines, headings and whitespace', () => {
   vi.stubGlobal('requestIdleCallback', undefined)
   vi.useFakeTimers()

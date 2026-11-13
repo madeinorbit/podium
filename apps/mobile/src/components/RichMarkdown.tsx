@@ -308,7 +308,14 @@ function CodeBlock({ token, selectable }: { token: MarkdownToken; selectable: bo
         {language ? <Text style={styles.codeLanguage}>{language}</Text> : null}
         <CopyCodeButton source={source} />
       </View>
-      <ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator>
+      <ScrollView
+        testID="code-scroller"
+        horizontal
+        nestedScrollEnabled
+        showsHorizontalScrollIndicator
+        style={styles.codeScroller}
+        contentContainerStyle={styles.codeContent}
+      >
         <Text selectable={selectable} style={styles.codeText}>
           {diff ? (
             lines.map((line, index) => {
@@ -552,7 +559,7 @@ const headingStyles = StyleSheet.create({
 })
 
 const styles = StyleSheet.create({
-  root: { minWidth: 0 },
+  root: { minWidth: 0, width: '100%', maxWidth: '100%' },
   body: {
     ...sans(400),
     // Keep UIKit label adaptation, including Increase Contrast, for reading text.
@@ -560,7 +567,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 24,
   },
-  paragraph: { marginVertical: 4 },
+  paragraph: { marginVertical: 4, minWidth: 0, maxWidth: '100%' },
   // UIKit primary label can already be black/white: emphasis adds weight there.
   strong: { ...sans(600), color: color.text },
   em: { fontStyle: 'italic' },
@@ -595,6 +602,8 @@ const styles = StyleSheet.create({
   },
   listBody: { flex: 1, minWidth: 0 },
   codeFrame: {
+    alignSelf: 'stretch',
+    maxWidth: '100%',
     backgroundColor: color.surface,
     borderColor: color.border,
     borderWidth: 1,
@@ -635,12 +644,15 @@ const styles = StyleSheet.create({
   },
   image: { width: '100%', maxHeight: 360 },
   codeText: {
+    flexShrink: 0,
     ...mono(400),
     color: color.body,
     fontSize: font.small,
     lineHeight: leading(font.small),
     padding: space.md,
   },
+  codeScroller: { width: '100%' },
+  codeContent: { flexDirection: 'row', flexGrow: 1, alignItems: 'flex-start' },
   diffAdd: { color: '#22c55e', backgroundColor: 'rgba(34, 197, 94, 0.08)' },
   diffDel: { color: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.08)' },
   diffHunk: { color: '#06b6d4' },

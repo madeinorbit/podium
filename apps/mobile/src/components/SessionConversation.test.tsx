@@ -46,7 +46,7 @@ vi.mock('./TaskSheet', () => ({ TaskSheet: () => null }))
 // Same reason as TaskSheet: the offer's artifact strip mounts the artifact
 // viewer, which imports the boot gate this leaf lane cannot load.
 vi.mock('./ArtifactViewer', () => ({ ArtifactViewer: () => null }))
-vi.mock('./Composer', () => ({ Composer: () => null }))
+vi.mock('./Composer', () => ({ Composer: () => <div data-testid="composer" /> }))
 
 /**
  * The transcript, reduced to the facts these tests are about: the footer
@@ -64,10 +64,13 @@ vi.mock('./TranscriptList', () => ({
     emptyComponent?: ReactNode
     footer?: ReactNode
     pendingTurns?: readonly PendingTurn[]
-    tail?: { label: string; tone: string }
+    tail?: { label: string; tone: string; since?: string }
   }) => (
     <div>
-      <div data-testid="tail">{`${tail?.tone ?? 'none'}:${tail?.label ?? ''}`}</div>
+      <div
+        data-testid="tail"
+        data-since={tail?.since}
+      >{`${tail?.tone ?? 'none'}:${tail?.label ?? ''}`}</div>
       {(pendingTurns ?? []).map((turn) => (
         <div key={turn.id} data-testid="pending">
           {turn.failed ? `failed:${turn.text}` : turn.text}
@@ -82,6 +85,110 @@ vi.mock('./TranscriptList', () => ({
 const { SessionConversation } = await import('./SessionConversation')
 
 const OFFER_AT = '2026-08-18T12:00:00.000Z'
+
+it.each([
+  'option',
+  'custom',
+])('unpins a delivered %s answer even after its acknowledgement reported failure', async (kind) => {
+  const sessionId = `answered-${kind}`
+  const asking = {
+    sessionId,
+    cwd: '/repo',
+    status: 'live',
+    agentKind: 'claude-code',
+    agentState: { phase: 'idle' },
+  } as unknown as SessionView
+  const items: import('@podium/model').TranscriptItem[] = [
+    {
+      id: 'ask',
+      role: 'tool',
+      text: '',
+      toolName: 'AskUserQuestion',
+      toolUseId: 'use',
+      toolInputJson: JSON.stringify({
+        questions: [{ question: 'Pick a colour', options: [{ label: 'Red' }, { label: 'Blue' }] }],
+      }),
+    },
+  ]
+  const view = await renderWithMobileStore(
+    <SessionConversation session={asking} issue={undefined} />,
+    {
+      sessions: [asking],
+      api: {
+        sessions: {
+          transcriptRead: { query: async () => ({ items: [...items], hasMore: false }) },
+          answerAskUserQuestion: {
+            mutate: async () => ({ ok: false, reason: 'confirmation timed out' }),
+          },
+        },
+      },
+    },
+  )
+  await screen.findByTestId('ask-question-tile')
+  if (kind === 'option') fireEvent.click(screen.getByLabelText('Red'))
+  else {
+    fireEvent.click(screen.getByLabelText('Write a different answer'))
+    fireEvent.change(screen.getByLabelText('Type your own answer'), { target: { value: 'Purple' } })
+    fireEvent.click(screen.getByLabelText('Send answer'))
+  }
+  await screen.findByText('Not delivered. Try again.')
+  const arrived: import('@podium/model').TranscriptItem[] = [
+    {
+      id: 'result',
+      role: 'tool',
+      text: '',
+      toolUseId: 'use',
+      toolResult: kind === 'option' ? 'You selected "Red"' : 'You answered Purple',
+    },
+    { id: 'reply', role: 'assistant', text: 'You picked a colour.' },
+  ]
+  items.push(...arrived)
+  act(() => view.emit('transcriptDelta', sessionId, arrived, { reset: false }))
+  await waitFor(() => expect(screen.queryByTestId('ask-question-tile')).toBeNull())
+  expect(screen.queryByText('Not delivered. Try again.')).toBeNull()
+})
+
+it('opens an exited transcript without a writable composer', async () => {
+  const ended = {
+    sessionId: 'ended',
+    cwd: '/repo',
+    status: 'exited',
+    agentKind: 'claude-code',
+    transcriptAvailable: true,
+    resumable: true,
+  } as unknown as SessionView
+  await renderWithMobileStore(<SessionConversation session={ended} issue={undefined} />, {
+    sessions: [ended],
+    api: {
+      sessions: {
+        transcriptRead: {
+          query: async () => ({
+            items: [{ id: 'answer', role: 'assistant', text: 'Recorded answer' }],
+            hasMore: false,
+          }),
+        },
+      },
+    },
+  })
+  expect(screen.getByTestId('tail')).toBeTruthy()
+  expect(screen.queryByTestId('composer')).toBeNull()
+})
+
+it('settles an interrupted turn with quiet styling and no running clock', async () => {
+  const stopped = {
+    sessionId: 'stopped',
+    cwd: '/repo',
+    status: 'live',
+    agentKind: 'claude-code',
+    agentState: { phase: 'idle', since: '2026-11-13T10:00:00Z', idle: { kind: 'interrupted' } },
+  } as unknown as SessionView
+  await renderWithMobileStore(<SessionConversation session={stopped} issue={undefined} />, {
+    sessions: [stopped],
+    api: { sessions: { transcriptRead: { query: async () => ({ items: [], hasMore: false }) } } },
+  })
+  await waitFor(() => expect(screen.getByTestId('tail').textContent).toBe('idle:interrupted'))
+  expect(screen.getByTestId('tail').getAttribute('data-since')).toBeNull()
+})
 
 const session = {
   sessionId: 'sess-1',
@@ -117,7 +224,8 @@ describe('offer accept is optimistic', () => {
     // No await on the mutation: this is the state the operator sees on the press.
     await waitFor(() => expect(screen.queryByTestId('session-action-card')).toBeNull())
     expect(screen.getByTestId('pending').textContent).toBe('merge it')
-    expect(screen.getByTestId('tail').textContent).toContain('working')
+    expect(screen.getByTestId('tail').textContent).toBe('idle:Sending')
+    expect(screen.getByTestId('tail').getAttribute('data-since')).toBeNull()
     await waitFor(() =>
       expect(sendText).toHaveBeenCalledWith(expect.objectContaining({ text: 'merge it' })),
     )

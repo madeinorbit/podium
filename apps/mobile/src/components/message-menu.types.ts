@@ -5,6 +5,8 @@ import type { ReactNode } from 'react'
 export type MessageAction = 'copy' | 'quote' | 'select'
 
 export interface MessageMenuProps {
+  /** Source identity keeps a recycled native menu attached to its own message. */
+  messageId?: string
   text: string
   /** Exact local instant, already formatted by the transcript for its menu. */
   timeLabel?: string
