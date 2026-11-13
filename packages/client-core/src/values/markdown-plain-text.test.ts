@@ -1,6 +1,10 @@
 import { expect, it } from 'vitest'
 import { markdownPlainText } from './markdown-plain-text'
 
+it.each(['<br>', '<br/>', '<br />', '<BR>'])('preserves rendered %s line breaks', (tag) => {
+  expect(markdownPlainText(`first${tag}second`)).toBe('first\nsecond')
+})
+
 it('renders headings, emphasis, links, lists and quotes as readable text', () => {
   expect(
     markdownPlainText(

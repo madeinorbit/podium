@@ -1,14 +1,19 @@
+import { markdownPlainText } from '@podium/client-core/markdown-plain-text'
 import { LinearGradient } from 'expo-linear-gradient'
-import { useState } from 'react'
-import { StyleSheet, useWindowDimensions, View } from 'react-native'
-import { color, radius, space } from '../theme/theme'
-import { RichMarkdown } from './RichMarkdown'
+import { useMemo, useState } from 'react'
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { color, font, leading, radius, sans, space } from '../theme/theme'
+
+const PREVIEW_CHAR_LIMIT = 2048
 
 /** The system menu lifts a separate, bounded copy instead of the feed row. */
 export function MessagePreview({ text }: { text: string }) {
   const { width, height } = useWindowDimensions()
   const maxHeight = Math.min(360, height * 0.45)
   const [overflow, setOverflow] = useState(false)
+  // ContextMenu mounts its React preview before presentation. Bound parsing and
+  // native text; never duplicate images, highlighting or reference subscriptions.
+  const preview = useMemo(() => markdownPlainText(text.slice(0, PREVIEW_CHAR_LIMIT)), [text])
   return (
     <View
       testID="message-preview"
@@ -20,9 +25,12 @@ export function MessagePreview({ text }: { text: string }) {
         }
         style={styles.body}
       >
-        <RichMarkdown text={text} selectable={false} />
+        <Text style={styles.text} numberOfLines={20}>
+          {preview}
+          {text.length > PREVIEW_CHAR_LIMIT ? '…' : ''}
+        </Text>
       </View>
-      {overflow ? (
+      {overflow || text.length > PREVIEW_CHAR_LIMIT ? (
         <LinearGradient
           pointerEvents="none"
           colors={[color.clear, color.bgRaised]}
@@ -41,5 +49,11 @@ const styles = StyleSheet.create({
     padding: space.lg,
   },
   body: { flexShrink: 0 },
+  text: {
+    ...sans(400),
+    color: color.text,
+    fontSize: font.body,
+    lineHeight: leading(font.body, 'prose'),
+  },
   fade: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 40 },
 })

@@ -26,7 +26,7 @@ function inline(tokens: readonly Token[]): string {
     .map((token) => {
       switch (token.type) {
         case 'html':
-          return ''
+          return /^<br\s*\/?>$/i.test(token.raw) ? '\n' : ''
         case 'br':
           return '\n'
         case 'codespan':
