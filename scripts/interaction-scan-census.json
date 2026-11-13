@@ -1206,13 +1206,13 @@
       "file": "apps/mobile/src/screens/SuperagentScreen.tsx",
       "holder": "SuperagentScreen/SuperagentScreen",
       "rule": "reader-summary",
-      "tokens": "c9404be300c7a9f1f6aca2f1a4297c9c4a47986862e274a8a6b3e33defd1708d",
+      "tokens": "1f0087907233dd197dc0d59667532605a0383affb4ca6f53473c05bc47431ffa",
       "gate": [],
       "origin": [
         "68e3937b5ddc0e3225b88b6d2c8452c91e69bf5f15e60db36fd51bd6fccaaa54",
         "d7d1283b420779e4456f3da32f99f6ffa2bd5ae35362572cca620bd871c3821d"
       ],
-      "fingerprint": "c383701a17ff89c5917a9f9bf8fe790c4a288d11a0d15c915ef601662681224a",
+      "fingerprint": "a8f6075117cb0e14f4e347630e2307ba1fe55bade8b39308319561565b0f3d71",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
