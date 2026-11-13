@@ -6,6 +6,7 @@ import { appRouter } from '../../router'
 import { authoritySnapshot } from '../../test-support/authority-snapshot'
 import { OPERATOR } from '../../test-support/capabilities'
 import { openTestStore } from '../../test-support/open-test-store'
+import { seedRows } from '../../test-support/seed-rows'
 
 const registries: SessionRegistry[] = []
 afterEach(async () => {
@@ -17,13 +18,13 @@ async function fixture() {
     instanceId: 'default',
   })
   registries.push(registry)
-  await registry.sessionStore.repos.addRepo('/report-fixture', registry.sessionStore.hostMachineId)
+  await seedRows(registry.sessionStore, async () => await registry.sessionStore.repos.addRepo('/report-fixture', registry.sessionStore.hostMachineId))
   // This report-only fixture has no daemon to answer automatic base-branch probes.
-  await registry.sessionStore.repos.setRepoDefaultParentBranch(
+  await seedRows(registry.sessionStore, async () => await registry.sessionStore.repos.setRepoDefaultParentBranch(
     registry.sessionStore.hostMachineId,
     '/report-fixture',
     'main',
-  )
+  ))
   const user = firstAdminMemberId()
   const capability = { ...OPERATOR, actorUser: user, onBehalfOf: user }
   const api = appRouter.createCaller({
