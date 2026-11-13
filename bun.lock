@@ -719,6 +719,7 @@
     "@xterm/addon-web-links@0.11.0": "patches/@xterm%2Faddon-web-links@0.11.0.patch",
     "@expo/metro-config@57.0.13": "patches/@expo%2Fmetro-config@57.0.13.patch",
     "expo-sqlite@57.0.4": "patches/expo-sqlite@57.0.4.patch",
+    "react-native@0.86.0": "patches/react-native@0.86.0.patch",
     "react-native-screens@4.26.2": "patches/react-native-screens@4.26.2.patch",
   },
   "packages": {

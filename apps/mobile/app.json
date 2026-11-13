@@ -63,6 +63,7 @@
     },
     "plugins": [
       "./plugins/with-ios-release-contract",
+      "./plugins/with-patched-react-native",
       "./plugins/with-scene-lifecycle",
       "expo-router",
       [
