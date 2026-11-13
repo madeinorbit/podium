@@ -565,7 +565,7 @@ describe('AC4 · the per-user split actually happened', () => {
     const store = o.store.sessions
     await seedRows(o.store, async () => await store.addPin(asUserId('user:alice'), 'panel', 's-1', '2026-11-08T00:00:00.000Z'))
     await seedRows(o.store, async () => await store.setSnooze(fixtureWriteScope(), asUserId('user:alice'), asSessionId('s-1'), null))
-    await store.setTabOrder(asUserId('user:alice'), '/w', ['s-1'])
+    await seedRows(o.store, async () => await store.setTabOrder(asUserId('user:alice'), '/w', ['s-1']))
 
     // Alice's rows exist; Bob's are EMPTY — asserted on the values, because a
     // `userId` parameter the store ignored would satisfy any signature check.

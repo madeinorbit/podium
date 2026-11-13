@@ -29,17 +29,27 @@ export async function seedRows<T>(
 
 /**
  * {@link seedRows} for a fixture that writes through the raw connection (a
- * corrupt row, a hand-written value): one transaction whose capture is
- * dropped before it commits.
+ * corrupt row, a hand-written value): one savepoint whose capture is dropped,
+ * so it works inside a transaction the store already has open and outside one.
  */
-export function seedRaw(db: { exec(sql: string): void }, write: () => void): void {
-  db.exec('BEGIN')
+export function seedRaw(db: RawSeedDatabase, write: () => void): void {
+  const head = db.prepare('SELECT coalesce(max(id), 0) AS head FROM sync_capture').get() as {
+    head: number
+  }
+  db.exec('SAVEPOINT seed_raw')
   try {
     write()
-    db.exec('DELETE FROM sync_capture')
-    db.exec('COMMIT')
+    db.exec(`DELETE FROM sync_capture WHERE id > ${Number(head.head)}`)
+    db.exec('RELEASE seed_raw')
   } catch (error) {
-    db.exec('ROLLBACK')
+    db.exec('ROLLBACK TO seed_raw')
+    db.exec('RELEASE seed_raw')
     throw error
   }
+}
+
+/** The raw connection's two calls {@link seedRaw} makes. */
+export interface RawSeedDatabase {
+  exec(sql: string): void
+  prepare(sql: string): { get(...params: unknown[]): unknown }
 }

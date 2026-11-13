@@ -50,7 +50,10 @@ function seedUser(
 ): void {
   // User lifecycle writes are intentionally absent from UsersRepository.
   // @ts-expect-error test-only seed through SessionStore's private connection
-  const db = store.db as { exec(sql: string): void; prepare(sql: string): { run(...a: unknown[]): unknown } }
+  const db = store.db as {
+    exec(sql: string): void
+    prepare(sql: string): { run(...a: unknown[]): unknown; get(...a: unknown[]): unknown }
+  }
   // A raw fixture write reaches the tables, not the log (POD-6920).
   seedRaw(db, () =>
     db

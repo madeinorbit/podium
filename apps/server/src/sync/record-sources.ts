@@ -724,12 +724,15 @@ export const RECORD_SOURCES: RecordSources = {
   issueProjection: [
     byId(issues, issues.id),
     own(issueLabels, [issueLabels.issueId], (key) => str(key[0])),
+    // A label's name reaches the issues carrying it; a new label carries
+    // none, and a deleted one leaves them through their own label rows.
     via(
       labels,
       [labels.id],
       [labels.name],
       async (changes, reads) =>
         await reads.store.issues.issueIdsOfLabels(firstKeys(changes).map(Number)),
+      { ops: ['u'] },
     ),
   ],
   // Each text is a record of its own, keyed by the issue (POD-6921).

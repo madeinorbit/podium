@@ -582,7 +582,7 @@ describe('bootstrap streams stored personal records', () => {
   it('stored pins, orders and preferences need no log seed', async () => {
     const { store, authority } = await feedFixture()
     await seedRows(store, async () => await store.sessions.addPin(ALICE, 'repo', '/r', '2026-01-01T00:00:00.000Z'))
-    await store.sessions.setTabOrder(ALICE, '/w', ['s1', 's2'])
+    await seedRows(store, async () => await store.sessions.setTabOrder(ALICE, '/w', ['s1', 's2']))
     await store.settings.applyPreferencePatch(ALICE, { 'sidebar.repoSort': 'custom' }, 't')
 
 

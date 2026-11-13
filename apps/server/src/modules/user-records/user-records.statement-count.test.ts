@@ -45,8 +45,8 @@ async function fixture(size: number): Promise<Fixture> {
     const other = asUserId(`user:other-${i}`)
     await seedRows(o.store, async () => await o.store.sessions.addPin(other, 'repo', `/repo/${i}`, AT))
     await seedRows(o.store, async () => await o.store.sessions.addPin(ME, 'worktree', `/mine/${i}`, AT))
-    await o.store.sessions.setTabOrder(other, `/w/${i}`, ['s1'])
-    await o.store.sessions.setTabOrder(ME, `/mine/${i}`, ['s1'])
+    await seedRows(o.store, async () => await o.store.sessions.setTabOrder(other, `/w/${i}`, ['s1']))
+    await seedRows(o.store, async () => await o.store.sessions.setTabOrder(ME, `/mine/${i}`, ['s1']))
     await o.store.settings.applyPreferencePatch(other, { 'sidebar.repoSort': 'custom' }, AT)
     await o.store.readPositions.advance(
       fixtureWriteScope(),

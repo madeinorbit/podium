@@ -154,8 +154,11 @@ const enrollmentHandshakeWorld = async (options: EnrollmentHandshakeWorldOptions
   if (options.revoked) await seeded.machines.revokeMachine(machineId)
   await seeded.close()
 
+  // No change log is wired in this world (no registry), so nothing drains a
+  // capture: the store captures only once a log attaches (POD-6920).
   const store = await SessionStore.open(dbPath, hostMachineId, {
     queryOnly: options.queryOnly ?? true,
+    changeCapture: 'whenLogAttaches',
   })
   const pairing = new PairingManager({ installationId: 'installation-test' })
   const machines = new MachinesService({

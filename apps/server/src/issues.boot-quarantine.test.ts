@@ -45,7 +45,10 @@ function deps(store: SessionStore): IssueDeps {
 }
 
 /** White-box seam: reach the store's own SQLite connection to inject corrupt rows. */
-type RawDb = { prepare(q: string): { run(...a: unknown[]): unknown }; exec(q: string): void }
+type RawDb = {
+  prepare(q: string): { run(...a: unknown[]): unknown; get(...a: unknown[]): unknown }
+  exec(q: string): void
+}
 function rawDb(s: SessionStore): RawDb {
   return (s as unknown as { db: RawDb }).db
 }
