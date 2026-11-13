@@ -565,9 +565,11 @@ const MACHINE_ROW_READS = {
 
 /**
  * The harnesses a machine record shows as logged out: the installed agents
- * of the inventory whose login is out, in inventory order.
+ * of the inventory whose login is out, in inventory order. A machine with no
+ * inventory (or an unreadable one) shows none, the same as one with none
+ * logged out, so its first report of nothing logged out reaches no record.
  */
-const MACHINE_LOGGED_OUT = `CASE WHEN json_valid({row}.${machines.inventoryJson.name}) THEN (SELECT json_group_array(json_extract(agent.value, '$.kind')) FROM json_each({row}.${machines.inventoryJson.name}, '$.agents') AS agent WHERE json_extract(agent.value, '$.installed') = 1 AND json_extract(agent.value, '$.login.state') = 'out') ELSE {row}.${machines.inventoryJson.name} END`
+const MACHINE_LOGGED_OUT = `CASE WHEN json_valid({row}.${machines.inventoryJson.name}) THEN (SELECT json_group_array(json_extract(agent.value, '$.kind')) FROM json_each({row}.${machines.inventoryJson.name}, '$.agents') AS agent WHERE json_extract(agent.value, '$.installed') = 1 AND json_extract(agent.value, '$.login.state') = 'out') ELSE '[]' END`
 
 /**
  * A tombstoned row is on no record: its tombstoning (and a restore) is
