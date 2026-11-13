@@ -11,7 +11,14 @@
  * `revoked` so sessions and events that name it still resolve to something.
  */
 
-import type { MachineId, UserId } from '@podium/model'
+import { randomUUID } from 'node:crypto'
+import {
+  asCredentialId,
+  CREDENTIAL_ID_PREFIX,
+  type CredentialId,
+  type MachineId,
+  type UserId,
+} from '@podium/model'
 import { and, asc, desc, eq, lt, ne, sql } from 'drizzle-orm'
 import {
   accountMachineSends,
@@ -23,11 +30,6 @@ import {
   users,
   vaultKey,
 } from '../migrations/schema'
-import {
-  asCredentialId,
-  type CredentialId,
-  newCredentialId,
-} from '../modules/credentials/credential-id'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import { param, prepared } from './executor/sync-drizzle'
 
@@ -470,6 +472,10 @@ const legacySends = prepared((db: StoreDrizzle) =>
 )
 
 const now = (): string => new Date().toISOString()
+
+/** A new credential id: `cred_<uuid>`, minted by the server, meaning nothing by itself. */
+export const newCredentialId = (): CredentialId =>
+  asCredentialId(`${CREDENTIAL_ID_PREFIX}${randomUUID()}`)
 
 export class CredentialsRepository {
   private readonly rootDb: StoreDrizzle

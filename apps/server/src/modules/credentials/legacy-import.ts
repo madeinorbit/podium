@@ -33,11 +33,14 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { UserId } from '@podium/model'
-import type { CredentialsRepository, LegacyAccountRow } from '../../store/credentials'
+import type { CredentialId, CredentialTypeId, UserId } from '@podium/model'
+import {
+  type CredentialsRepository,
+  type LegacyAccountRow,
+  newCredentialId,
+} from '../../store/credentials'
 import type { ServerSecretsRepository } from '../../store/server-secrets'
 import type { UsersRepository } from '../../store/users'
-import { type CredentialId, newCredentialId } from './credential-id'
 import { type Vault, VaultLockedError, withSecret } from './vault'
 
 const moduleLog = createLogger('server:credentials')
@@ -64,13 +67,13 @@ export interface LegacyImportResult {
   refused: 'vault-locked' | 'vault-key-unusable' | null
 }
 
-const API_KEY_TYPES: Readonly<Record<string, string>> = {
+const API_KEY_TYPES: Readonly<Record<string, CredentialTypeId>> = {
   anthropic: 'anthropic.api-key',
   openai: 'openai.api-key',
   openrouter: 'openrouter.api-key',
 }
 
-const TYPE_LABELS: Readonly<Record<string, string>> = {
+const TYPE_LABELS: Readonly<Partial<Record<CredentialTypeId, string>>> = {
   'anthropic.api-key': 'Anthropic API key',
   'openai.api-key': 'OpenAI API key',
   'openrouter.api-key': 'OpenRouter API key',
@@ -89,13 +92,16 @@ interface Candidate {
    *  same owner already answers it. */
   legacyKey: string | null
   ownerUserId: UserId
-  type: string
+  type: CredentialTypeId
   label: string
   secret: string
 }
 
 /** The credential type an `accounts` row maps to, or undefined when it has none. */
-export function legacyAccountType(row: { provider: string; kind: string }): string | undefined {
+export function legacyAccountType(row: {
+  provider: string
+  kind: string
+}): CredentialTypeId | undefined {
   if (row.kind === 'oauth')
     return row.provider === 'anthropic' ? 'anthropic.claude-token' : undefined
   if (row.kind !== 'api-key') return undefined
@@ -133,7 +139,7 @@ async function plan(deps: LegacyImportDeps): Promise<Plan> {
       const secret = await deps.secrets.get(key)
       if (!secret) continue
       const provider = key.slice('apiKeys.'.length)
-      const type = API_KEY_TYPES[provider] as string
+      const type = API_KEY_TYPES[provider] as CredentialTypeId
       sources.push({
         legacyId: key,
         legacyKey: `managed:${provider}`,

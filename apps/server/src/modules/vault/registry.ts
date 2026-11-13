@@ -14,9 +14,8 @@ import {
   VAULT_CONTRACTS,
   type VaultContractName,
 } from '@podium/commands'
-import type { UserId } from '@podium/model'
+import type { CredentialId, UserId } from '@podium/model'
 import type { z } from 'zod'
-import type { CredentialId } from '../credentials/credential-id'
 import type { CredentialEvent } from '../credentials/events'
 import type { VaultStatus } from '../credentials/vault'
 import type { PlainTargetCheck } from '../plain-command/entry'

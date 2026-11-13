@@ -22,6 +22,7 @@
  */
 
 import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'node:crypto'
+import type { CredentialId } from '@podium/model'
 import type { KeyProvider } from '@podium/runtime/vault-key'
 import type {
   CredentialRecord,
@@ -30,7 +31,6 @@ import type {
   StoredVaultKey,
   VaultKeyCheck,
 } from '../../store/credentials'
-import type { CredentialId } from './credential-id'
 
 export type { SealedSecret } from '../../store/credentials'
 

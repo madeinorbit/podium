@@ -7,9 +7,8 @@
  * extra property through a cast still stores only these fields.
  */
 
-import type { MachineId, SessionId, UserId } from '@podium/model'
+import type { CredentialId, MachineId, SessionId, UserId } from '@podium/model'
 import type { SettingsAuditRepository } from '../../store/settings-audit'
-import type { CredentialId } from './credential-id'
 
 export const CREDENTIAL_EVENT_KINDS = [
   'add',

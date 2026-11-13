@@ -1,8 +1,7 @@
-import { asMachineId, asSessionId, asUserId } from '@podium/model'
+import { asCredentialId, asMachineId, asSessionId, asUserId } from '@podium/model'
 import { afterEach, describe, expect, expectTypeOf, it } from 'vitest'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
-import { asCredentialId } from './credential-id'
 import { type CredentialEvent, recordCredentialEvent } from './events'
 
 /** Obviously fake. */
