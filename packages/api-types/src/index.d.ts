@@ -492,6 +492,14 @@ declare const PodiumSettings: z.ZodObject<{
         telemetryInstallId?: string | undefined;
         telemetrySince?: number | undefined;
     }>>;
+    /** Networks whose daemons count as safe for credentials (credential management §8). */
+    daemonLink: z.ZodDefault<z.ZodObject<{
+        trustedNetworks: z.ZodDefault<z.ZodArray<z.ZodEffects<z.ZodString, string, string>, "many">>;
+    }, "strip", z.ZodTypeAny, {
+        trustedNetworks: string[];
+    }, {
+        trustedNetworks?: string[] | undefined;
+    }>>;
 }, "strip", z.ZodTypeAny, {
     issues: {
         assistantEnabled: boolean;
@@ -571,6 +579,9 @@ declare const PodiumSettings: z.ZodObject<{
         telemetryCrash?: "off" | "on" | undefined;
         telemetryInstallId?: string | undefined;
         telemetrySince?: number | undefined;
+    };
+    daemonLink: {
+        trustedNetworks: string[];
     };
     apiKeys: {
         openrouter: string;
@@ -659,6 +670,9 @@ declare const PodiumSettings: z.ZodObject<{
         telemetryCrash?: "off" | "on" | undefined;
         telemetryInstallId?: string | undefined;
         telemetrySince?: number | undefined;
+    } | undefined;
+    daemonLink?: {
+        trustedNetworks?: string[] | undefined;
     } | undefined;
     apiKeys?: {
         openrouter?: string | undefined;
