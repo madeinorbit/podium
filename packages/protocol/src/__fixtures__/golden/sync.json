@@ -820,6 +820,24 @@
           "effort": "value.effort",
           "accountId": "value.accountId",
           "credentialId": "value.credentialId",
+          "effectiveAuth": {
+            "method": "api-key",
+            "fingerprint": "value.effectiveAuth.fingerprint",
+            "email": "value.effectiveAuth.email"
+          },
+          "credentialMismatch": {
+            "chosen": {
+              "credentialId": "value.credentialMismatch.chosen.credentialId",
+              "method": "api-key",
+              "fingerprint": "value.credentialMismatch.chosen.fingerprint",
+              "email": "value.credentialMismatch.chosen.email"
+            },
+            "reported": {
+              "method": "api-key",
+              "fingerprint": "value.credentialMismatch.reported.fingerprint",
+              "email": "value.credentialMismatch.reported.email"
+            }
+          },
           "agentProfileId": "value.agentProfileId",
           "nameSource": "user",
           "cwd": "value.cwd",
@@ -1320,6 +1338,24 @@
           "effort": "value.effort",
           "accountId": "value.accountId",
           "credentialId": "value.credentialId",
+          "effectiveAuth": {
+            "method": "api-key",
+            "fingerprint": "value.effectiveAuth.fingerprint",
+            "email": "value.effectiveAuth.email"
+          },
+          "credentialMismatch": {
+            "chosen": {
+              "credentialId": "value.credentialMismatch.chosen.credentialId",
+              "method": "api-key",
+              "fingerprint": "value.credentialMismatch.chosen.fingerprint",
+              "email": "value.credentialMismatch.chosen.email"
+            },
+            "reported": {
+              "method": "api-key",
+              "fingerprint": "value.credentialMismatch.reported.fingerprint",
+              "email": "value.credentialMismatch.reported.email"
+            }
+          },
           "agentProfileId": "value.agentProfileId",
           "nameSource": "user",
           "cwd": "value.cwd",
@@ -1693,6 +1729,24 @@
               "effort": "changes[0].value.effort",
               "accountId": "changes[0].value.accountId",
               "credentialId": "changes[0].value.credentialId",
+              "effectiveAuth": {
+                "method": "api-key",
+                "fingerprint": "changes[0].value.effectiveAuth.fingerprint",
+                "email": "changes[0].value.effectiveAuth.email"
+              },
+              "credentialMismatch": {
+                "chosen": {
+                  "credentialId": "changes[0].value.credentialMismatch.chosen.credentialId",
+                  "method": "api-key",
+                  "fingerprint": "changes[0].value.credentialMismatch.chosen.fingerprint",
+                  "email": "changes[0].value.credentialMismatch.chosen.email"
+                },
+                "reported": {
+                  "method": "api-key",
+                  "fingerprint": "changes[0].value.credentialMismatch.reported.fingerprint",
+                  "email": "changes[0].value.credentialMismatch.reported.email"
+                }
+              },
               "agentProfileId": "changes[0].value.agentProfileId",
               "nameSource": "user",
               "cwd": "changes[0].value.cwd",
@@ -2272,6 +2326,24 @@
               "effort": "changes[0].value.effort",
               "accountId": "changes[0].value.accountId",
               "credentialId": "changes[0].value.credentialId",
+              "effectiveAuth": {
+                "method": "api-key",
+                "fingerprint": "changes[0].value.effectiveAuth.fingerprint",
+                "email": "changes[0].value.effectiveAuth.email"
+              },
+              "credentialMismatch": {
+                "chosen": {
+                  "credentialId": "changes[0].value.credentialMismatch.chosen.credentialId",
+                  "method": "api-key",
+                  "fingerprint": "changes[0].value.credentialMismatch.chosen.fingerprint",
+                  "email": "changes[0].value.credentialMismatch.chosen.email"
+                },
+                "reported": {
+                  "method": "api-key",
+                  "fingerprint": "changes[0].value.credentialMismatch.reported.fingerprint",
+                  "email": "changes[0].value.credentialMismatch.reported.email"
+                }
+              },
               "agentProfileId": "changes[0].value.agentProfileId",
               "nameSource": "user",
               "cwd": "changes[0].value.cwd",

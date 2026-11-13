@@ -2170,6 +2170,43 @@
       "encoded": "\"\""
     },
     {
+      "schema": "CredentialMismatch",
+      "variant": "minimal",
+      "wire": {
+        "chosen": {
+          "credentialId": "chosen.credentialId"
+        },
+        "reported": {
+          "method": "api-key"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"chosen\":{\"credentialId\":\"chosen.credentialId\"},\"reported\":{\"method\":\"api-key\"}}"
+    },
+    {
+      "schema": "CredentialMismatch",
+      "variant": "full",
+      "wire": {
+        "chosen": {
+          "credentialId": "chosen.credentialId",
+          "method": "api-key",
+          "fingerprint": "chosen.fingerprint",
+          "email": "chosen.email"
+        },
+        "reported": {
+          "method": "api-key",
+          "fingerprint": "reported.fingerprint",
+          "email": "reported.email"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"chosen\":{\"credentialId\":\"chosen.credentialId\",\"method\":\"api-key\",\"fingerprint\":\"chosen.fingerprint\",\"email\":\"chosen.email\"},\"reported\":{\"method\":\"api-key\",\"fingerprint\":\"reported.fingerprint\",\"email\":\"reported.email\"}}"
+    },
+    {
       "schema": "CredentialShare",
       "variant": "minimal",
       "wire": {
@@ -2861,6 +2898,48 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "\"x\""
+    },
+    {
+      "schema": "EffectiveAuth",
+      "variant": "minimal",
+      "wire": {
+        "method": "api-key"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"method\":\"api-key\"}"
+    },
+    {
+      "schema": "EffectiveAuth",
+      "variant": "full",
+      "wire": {
+        "method": "api-key",
+        "fingerprint": "fingerprint",
+        "email": "email"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"method\":\"api-key\",\"fingerprint\":\"fingerprint\",\"email\":\"email\"}"
+    },
+    {
+      "schema": "EffectiveAuthMethod",
+      "variant": "minimal",
+      "wire": "api-key",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"api-key\""
+    },
+    {
+      "schema": "EffectiveAuthMethod",
+      "variant": "full",
+      "wire": "api-key",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"api-key\""
     },
     {
       "schema": "EffectRecordWire",
@@ -11919,6 +11998,24 @@
         "effort": "effort",
         "accountId": "accountId",
         "credentialId": "credentialId",
+        "effectiveAuth": {
+          "method": "api-key",
+          "fingerprint": "effectiveAuth.fingerprint",
+          "email": "effectiveAuth.email"
+        },
+        "credentialMismatch": {
+          "chosen": {
+            "credentialId": "credentialMismatch.chosen.credentialId",
+            "method": "api-key",
+            "fingerprint": "credentialMismatch.chosen.fingerprint",
+            "email": "credentialMismatch.chosen.email"
+          },
+          "reported": {
+            "method": "api-key",
+            "fingerprint": "credentialMismatch.reported.fingerprint",
+            "email": "credentialMismatch.reported.email"
+          }
+        },
         "agentProfileId": "agentProfileId",
         "nameSource": "user",
         "cwd": "cwd",
@@ -12131,6 +12228,24 @@
         "effort": "effort",
         "accountId": "accountId",
         "credentialId": "credentialId",
+        "effectiveAuth": {
+          "method": "subscription",
+          "fingerprint": "effectiveAuth.fingerprint",
+          "email": "effectiveAuth.email"
+        },
+        "credentialMismatch": {
+          "chosen": {
+            "credentialId": "credentialMismatch.chosen.credentialId",
+            "method": "subscription",
+            "fingerprint": "credentialMismatch.chosen.fingerprint",
+            "email": "credentialMismatch.chosen.email"
+          },
+          "reported": {
+            "method": "subscription",
+            "fingerprint": "credentialMismatch.reported.fingerprint",
+            "email": "credentialMismatch.reported.email"
+          }
+        },
         "agentProfileId": "agentProfileId",
         "nameSource": "agent",
         "cwd": "cwd",
@@ -12344,6 +12459,24 @@
         "effort": "effort",
         "accountId": "accountId",
         "credentialId": "credentialId",
+        "effectiveAuth": {
+          "method": "token",
+          "fingerprint": "effectiveAuth.fingerprint",
+          "email": "effectiveAuth.email"
+        },
+        "credentialMismatch": {
+          "chosen": {
+            "credentialId": "credentialMismatch.chosen.credentialId",
+            "method": "token",
+            "fingerprint": "credentialMismatch.chosen.fingerprint",
+            "email": "credentialMismatch.chosen.email"
+          },
+          "reported": {
+            "method": "token",
+            "fingerprint": "credentialMismatch.reported.fingerprint",
+            "email": "credentialMismatch.reported.email"
+          }
+        },
         "agentProfileId": "agentProfileId",
         "nameSource": "agent",
         "cwd": "cwd",
@@ -12558,6 +12691,24 @@
         "effort": "effort",
         "accountId": "accountId",
         "credentialId": "credentialId",
+        "effectiveAuth": {
+          "method": "unknown",
+          "fingerprint": "effectiveAuth.fingerprint",
+          "email": "effectiveAuth.email"
+        },
+        "credentialMismatch": {
+          "chosen": {
+            "credentialId": "credentialMismatch.chosen.credentialId",
+            "method": "unknown",
+            "fingerprint": "credentialMismatch.chosen.fingerprint",
+            "email": "credentialMismatch.chosen.email"
+          },
+          "reported": {
+            "method": "unknown",
+            "fingerprint": "credentialMismatch.reported.fingerprint",
+            "email": "credentialMismatch.reported.email"
+          }
+        },
         "agentProfileId": "agentProfileId",
         "nameSource": "agent",
         "cwd": "cwd",
@@ -12772,6 +12923,24 @@
         "effort": "effort",
         "accountId": "accountId",
         "credentialId": "credentialId",
+        "effectiveAuth": {
+          "method": "unknown",
+          "fingerprint": "effectiveAuth.fingerprint",
+          "email": "effectiveAuth.email"
+        },
+        "credentialMismatch": {
+          "chosen": {
+            "credentialId": "credentialMismatch.chosen.credentialId",
+            "method": "unknown",
+            "fingerprint": "credentialMismatch.chosen.fingerprint",
+            "email": "credentialMismatch.chosen.email"
+          },
+          "reported": {
+            "method": "unknown",
+            "fingerprint": "credentialMismatch.reported.fingerprint",
+            "email": "credentialMismatch.reported.email"
+          }
+        },
         "agentProfileId": "agentProfileId",
         "nameSource": "agent",
         "cwd": "cwd",
@@ -13007,6 +13176,24 @@
         "effort": "effort",
         "accountId": "accountId",
         "credentialId": "credentialId",
+        "effectiveAuth": {
+          "method": "api-key",
+          "fingerprint": "effectiveAuth.fingerprint",
+          "email": "effectiveAuth.email"
+        },
+        "credentialMismatch": {
+          "chosen": {
+            "credentialId": "credentialMismatch.chosen.credentialId",
+            "method": "api-key",
+            "fingerprint": "credentialMismatch.chosen.fingerprint",
+            "email": "credentialMismatch.chosen.email"
+          },
+          "reported": {
+            "method": "api-key",
+            "fingerprint": "credentialMismatch.reported.fingerprint",
+            "email": "credentialMismatch.reported.email"
+          }
+        },
         "agentProfileId": "agentProfileId",
         "nameSource": "user",
         "cwd": "cwd",
@@ -13217,6 +13404,24 @@
         "effort": "effort",
         "accountId": "accountId",
         "credentialId": "credentialId",
+        "effectiveAuth": {
+          "method": "subscription",
+          "fingerprint": "effectiveAuth.fingerprint",
+          "email": "effectiveAuth.email"
+        },
+        "credentialMismatch": {
+          "chosen": {
+            "credentialId": "credentialMismatch.chosen.credentialId",
+            "method": "subscription",
+            "fingerprint": "credentialMismatch.chosen.fingerprint",
+            "email": "credentialMismatch.chosen.email"
+          },
+          "reported": {
+            "method": "subscription",
+            "fingerprint": "credentialMismatch.reported.fingerprint",
+            "email": "credentialMismatch.reported.email"
+          }
+        },
         "agentProfileId": "agentProfileId",
         "nameSource": "agent",
         "cwd": "cwd",
@@ -13428,6 +13633,24 @@
         "effort": "effort",
         "accountId": "accountId",
         "credentialId": "credentialId",
+        "effectiveAuth": {
+          "method": "token",
+          "fingerprint": "effectiveAuth.fingerprint",
+          "email": "effectiveAuth.email"
+        },
+        "credentialMismatch": {
+          "chosen": {
+            "credentialId": "credentialMismatch.chosen.credentialId",
+            "method": "token",
+            "fingerprint": "credentialMismatch.chosen.fingerprint",
+            "email": "credentialMismatch.chosen.email"
+          },
+          "reported": {
+            "method": "token",
+            "fingerprint": "credentialMismatch.reported.fingerprint",
+            "email": "credentialMismatch.reported.email"
+          }
+        },
         "agentProfileId": "agentProfileId",
         "nameSource": "agent",
         "cwd": "cwd",
@@ -13640,6 +13863,24 @@
         "effort": "effort",
         "accountId": "accountId",
         "credentialId": "credentialId",
+        "effectiveAuth": {
+          "method": "unknown",
+          "fingerprint": "effectiveAuth.fingerprint",
+          "email": "effectiveAuth.email"
+        },
+        "credentialMismatch": {
+          "chosen": {
+            "credentialId": "credentialMismatch.chosen.credentialId",
+            "method": "unknown",
+            "fingerprint": "credentialMismatch.chosen.fingerprint",
+            "email": "credentialMismatch.chosen.email"
+          },
+          "reported": {
+            "method": "unknown",
+            "fingerprint": "credentialMismatch.reported.fingerprint",
+            "email": "credentialMismatch.reported.email"
+          }
+        },
         "agentProfileId": "agentProfileId",
         "nameSource": "agent",
         "cwd": "cwd",
@@ -13852,6 +14093,24 @@
         "effort": "effort",
         "accountId": "accountId",
         "credentialId": "credentialId",
+        "effectiveAuth": {
+          "method": "unknown",
+          "fingerprint": "effectiveAuth.fingerprint",
+          "email": "effectiveAuth.email"
+        },
+        "credentialMismatch": {
+          "chosen": {
+            "credentialId": "credentialMismatch.chosen.credentialId",
+            "method": "unknown",
+            "fingerprint": "credentialMismatch.chosen.fingerprint",
+            "email": "credentialMismatch.chosen.email"
+          },
+          "reported": {
+            "method": "unknown",
+            "fingerprint": "credentialMismatch.reported.fingerprint",
+            "email": "credentialMismatch.reported.email"
+          }
+        },
         "agentProfileId": "agentProfileId",
         "nameSource": "agent",
         "cwd": "cwd",

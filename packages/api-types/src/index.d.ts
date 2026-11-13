@@ -210,10 +210,10 @@ declare const PodiumSettings: z.ZodObject<{
             credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }, {
+            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
-            credentialId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             subagentModel?: string | undefined;
             startScreen?: "auto" | "native" | "chat" | undefined;
@@ -232,10 +232,10 @@ declare const PodiumSettings: z.ZodObject<{
             credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }, {
+            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
-            credentialId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }>>;
         background: z.ZodDefault<z.ZodObject<{
@@ -251,10 +251,10 @@ declare const PodiumSettings: z.ZodObject<{
             credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }, {
+            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
-            credentialId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }>>;
         shipwright: z.ZodDefault<z.ZodObject<{
@@ -270,10 +270,10 @@ declare const PodiumSettings: z.ZodObject<{
             credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }, {
+            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
-            credentialId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }>>;
     }, "strip", z.ZodTypeAny, {
@@ -310,34 +310,34 @@ declare const PodiumSettings: z.ZodObject<{
         };
     }, {
         superagent?: {
+            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
-            credentialId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
         coding?: {
+            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
-            credentialId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             subagentModel?: string | undefined;
             startScreen?: "auto" | "native" | "chat" | undefined;
             seedCliTheme?: boolean | undefined;
         } | undefined;
         background?: {
+            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
-            credentialId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
         shipwright?: {
+            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
-            credentialId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
     }>>;
@@ -624,34 +624,34 @@ declare const PodiumSettings: z.ZodObject<{
     } | undefined;
     roles?: {
         superagent?: {
+            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
-            credentialId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
         coding?: {
+            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
-            credentialId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             subagentModel?: string | undefined;
             startScreen?: "auto" | "native" | "chat" | undefined;
             seedCliTheme?: boolean | undefined;
         } | undefined;
         background?: {
+            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
-            credentialId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
         shipwright?: {
+            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
-            credentialId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
     } | undefined;
@@ -1865,6 +1865,7 @@ type Input_interactions_answer = {
 };
 type Input_issues_addSession = {
     agentKind?: string | undefined;
+    credential?: string | undefined;
     forceUnknownModel?: boolean | undefined;
     id: string;
     sessionId?: string | undefined;
@@ -2009,6 +2010,7 @@ type Input_issues_setPlacement = {
 type Input_issues_start = {
     agentKind?: string | undefined;
     agentProfile?: string | undefined;
+    credential?: string | undefined;
     defaultEffort?: string | undefined;
     defaultModel?: string | undefined;
     forceUnknownModel?: boolean | undefined;
@@ -2198,6 +2200,7 @@ type Input_sessions_create = {
         mediaType: string;
         path?: string | undefined;
     }[];
+    credentialId?: null | string | undefined;
     cwd: string;
     draftArtifacts?: undefined | {
         dataBase64: string;
@@ -2515,6 +2518,19 @@ type Output_accounts_login = Pick<{
         onBehalfOf: (string & z.BRAND<"UserId">) | null;
     };
     credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
+    credentialMismatch?: undefined | {
+        chosen: {
+            credentialId: string & z.BRAND<"CredentialId">;
+            email?: string | undefined;
+            fingerprint?: string | undefined;
+            method?: "api-key" | "subscription" | "token" | "unknown" | undefined;
+        };
+        reported: {
+            email?: string | undefined;
+            fingerprint?: string | undefined;
+            method: "api-key" | "subscription" | "token" | "unknown";
+        };
+    };
     cwd: string;
     delegation?: undefined | {
         actor: string & z.BRAND<"AgentIdentityId">;
@@ -2541,6 +2557,11 @@ type Output_accounts_login = Pick<{
     draftUpdatedAt?: string | undefined;
     driverFamily?: "server" | "terminal" | undefined;
     driverId?: string | undefined;
+    effectiveAuth?: undefined | {
+        email?: string | undefined;
+        fingerprint?: string | undefined;
+        method: "api-key" | "subscription" | "token" | "unknown";
+    };
     effort?: string | undefined;
     exitCode?: number | undefined;
     force?: boolean | undefined;
@@ -2727,6 +2748,19 @@ type Output_accounts_login = Pick<{
         onBehalfOf: (string & z.BRAND<"UserId">) | null;
     };
     credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
+    credentialMismatch?: undefined | {
+        chosen: {
+            credentialId: string & z.BRAND<"CredentialId">;
+            email?: string | undefined;
+            fingerprint?: string | undefined;
+            method?: "api-key" | "subscription" | "token" | "unknown" | undefined;
+        };
+        reported: {
+            email?: string | undefined;
+            fingerprint?: string | undefined;
+            method: "api-key" | "subscription" | "token" | "unknown";
+        };
+    };
     cwd: string;
     delegation?: undefined | {
         actor: string & z.BRAND<"AgentIdentityId">;
@@ -2753,6 +2787,11 @@ type Output_accounts_login = Pick<{
     draftUpdatedAt?: string | undefined;
     driverFamily?: "server" | "terminal" | undefined;
     driverId?: string | undefined;
+    effectiveAuth?: undefined | {
+        email?: string | undefined;
+        fingerprint?: string | undefined;
+        method: "api-key" | "subscription" | "token" | "unknown";
+    };
     effort?: string | undefined;
     exitCode?: number | undefined;
     force?: boolean | undefined;
@@ -4939,6 +4978,19 @@ type Output_issues_get = (null) | ({
             onBehalfOf: (string & z.BRAND<"UserId">) | null;
         };
         credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
+        credentialMismatch?: undefined | {
+            chosen: {
+                credentialId: string & z.BRAND<"CredentialId">;
+                email?: string | undefined;
+                fingerprint?: string | undefined;
+                method?: "api-key" | "subscription" | "token" | "unknown" | undefined;
+            };
+            reported: {
+                email?: string | undefined;
+                fingerprint?: string | undefined;
+                method: "api-key" | "subscription" | "token" | "unknown";
+            };
+        };
         cwd: string;
         delegation?: undefined | {
             actor: string & z.BRAND<"AgentIdentityId">;
@@ -4965,6 +5017,11 @@ type Output_issues_get = (null) | ({
         draftUpdatedAt?: string | undefined;
         driverFamily?: "server" | "terminal" | undefined;
         driverId?: string | undefined;
+        effectiveAuth?: undefined | {
+            email?: string | undefined;
+            fingerprint?: string | undefined;
+            method: "api-key" | "subscription" | "token" | "unknown";
+        };
         effort?: string | undefined;
         exitCode?: number | undefined;
         force?: boolean | undefined;
