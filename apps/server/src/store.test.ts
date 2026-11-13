@@ -313,7 +313,14 @@ describe('SessionStore sessions', () => {
 
     const b = await openTestStore(file)
     expect(await b.sessions.loadSessions()).toEqual([
-      row({ status: 'live', title: 'renamed', lastActiveAt: '2026-06-09T00:05:00.000Z' }),
+      // The published activity time stays at the first publication until the
+      // publish interval has passed (POD-6764).
+      row({
+        status: 'live',
+        title: 'renamed',
+        lastActiveAt: '2026-06-09T00:05:00.000Z',
+        publishedLastActiveAt: '2026-06-09T00:00:00.000Z',
+      }),
     ])
     await b.sessions.purgeSession(fixtureWriteScope(), asSessionId('id-1'))
     expect(await b.sessions.loadSessions()).toEqual([])
