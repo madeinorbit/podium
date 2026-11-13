@@ -24,8 +24,11 @@ const focused = (state: NavigationState) => required(state.routes[state.index])
 const sessionParam = (route: NavigationState['routes'][number] | undefined) =>
   (route?.params as { sessionId?: string } | undefined)?.sessionId
 const pop = (state: NavigationState) =>
-  required(
-    router.getStateForAction(state as ReturnType<typeof initial>, StackActions.pop(1), options),
+  router.getRehydratedState(
+    required(
+      router.getStateForAction(state as ReturnType<typeof initial>, StackActions.pop(1), options),
+    ),
+    options,
   )
 const push = (state: NavigationState, name: string, params: object) => {
   const result = router.getStateForAction(
@@ -34,7 +37,7 @@ const push = (state: NavigationState, name: string, params: object) => {
     options,
   )
   if (!result) throw new Error('Push refused')
-  return result
+  return router.getRehydratedState(result, options)
 }
 
 it('task opening keeps chat on top with its selected seat and deck beneath', () => {

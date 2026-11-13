@@ -115,7 +115,7 @@ export const MissionProposalRow = observer(function MissionProposalRow({
               {receipt ? (
                 <Text
                   modifiers={[
-                    font({ textStyle: 'caption1' }),
+                    font({ textStyle: 'caption' }),
                     foregroundStyle(status?.phase === 'error' ? color.dangerText : color.textDim),
                     accessibilityIdentifier('deck-proposal-receipt'),
                   ]}

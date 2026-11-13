@@ -72,14 +72,17 @@ function Navigator() {
       options,
     )
     if (!opened) throw new Error('Cannot open task')
-    return opened
+    return stack.getRehydratedState(opened, options)
   })
   navigation.state = state
   const route = state.routes[state.index]
   if (!route) throw new Error('Missing screen')
   navigation.params = route.params as Record<string, string>
   const dispatch = (action: Parameters<typeof stack.getStateForAction>[1]) => {
-    setState((current) => stack.getStateForAction(current, action, options) ?? current)
+    setState((current) => {
+      const next = stack.getStateForAction(current, action, options)
+      return next ? stack.getRehydratedState(next, options) : current
+    })
   }
   navigation.back.mockImplementation(() => dispatch(StackActions.pop(1)))
   navigation.push.mockImplementation((url: string) => {

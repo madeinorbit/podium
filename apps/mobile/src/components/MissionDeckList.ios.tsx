@@ -1,5 +1,5 @@
 import { Host } from '@expo/ui'
-import { List, RNHostView, Section } from '@expo/ui/swift-ui'
+import { List, RNHostView, Section, VStack } from '@expo/ui/swift-ui'
 import {
   accessibilityIdentifier,
   background,
@@ -36,16 +36,17 @@ export function MissionDeckList({ children }: { children: ReactNode }) {
 
 export function DeckContent({ children }: { children: ReactNode }) {
   return (
-    <RNHostView
-      matchContents={{ vertical: true }}
+    <VStack
       modifiers={[
         listRowInsets({ leading: 0, trailing: 0, top: 0, bottom: 0 }),
         listRowSeparator('hidden'),
         listRowBackground(color.bg),
       ]}
     >
-      <View style={styles.content}>{children}</View>
-    </RNHostView>
+      <RNHostView matchContents={{ vertical: true }}>
+        <View style={styles.content}>{children}</View>
+      </RNHostView>
+    </VStack>
   )
 }
 

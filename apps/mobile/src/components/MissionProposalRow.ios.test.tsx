@@ -109,7 +109,7 @@ async function mount() {
     childDoneCount: 0,
     parentBranch: 'main',
     archived: false,
-  } as IssueViewModel
+  } as unknown as IssueViewModel
   const proposal = {
     ...root,
     id: asIssueId('proposal'),
