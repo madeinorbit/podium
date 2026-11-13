@@ -7,7 +7,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { type ReactNode, useEffect } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { ScreenAction } from '../components/screen-actions'
-import { FOLD_EXIT_MS, ROW_PRIME_MS } from '../lib/use-fold-exit'
+import { ROW_PRIME_MS } from '../lib/use-row-prime'
 import type { TasksSurfaceProps } from './TasksSurface.types'
 import type { WorkSurfaceProps } from './WorkSurface.types'
 
@@ -440,13 +440,6 @@ it('native placeholders activate a bounded window both ways; only age labels rea
   fireEvent.click(screen.getByTestId('group-header'))
   expect(state.toggleFold).not.toHaveBeenCalled()
   act(() => board.search(''))
-  // The fold animates: rows stay mounted at zero height, then unmount.
-  expect(
-    screen
-      .getAllByTestId('slot')
-      .every((slot) => slot.getAttribute('data-modifiers')?.includes('"height":0')),
-  ).toBe(true)
-  await act(() => new Promise<void>((resolve) => setTimeout(resolve, FOLD_EXIT_MS + 20)))
   expect(screen.queryAllByTestId('slot')).toHaveLength(0)
   fireEvent.click(screen.getByTestId('group-header'))
   expect(state.toggleFold).toHaveBeenCalledTimes(1)
@@ -458,8 +451,6 @@ it('native placeholders activate a bounded window both ways; only age labels rea
   act(() => state.search?.onCancelButtonPress())
   expect(state.listMount).toHaveBeenCalledTimes(mounts + 1)
   expect(board.query).toBe('')
-  // Clearing the search re-folded the group, which animates shut first.
-  await act(() => new Promise<void>((resolve) => setTimeout(resolve, FOLD_EXIT_MS + 20)))
   expect(screen.queryAllByTestId('slot')).toHaveLength(0)
   act(() => state.search?.onCancelButtonPress())
   expect(state.listMount).toHaveBeenCalledTimes(mounts + 2)

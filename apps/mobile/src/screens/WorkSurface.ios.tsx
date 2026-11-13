@@ -26,7 +26,6 @@ import {
   animation,
   background,
   buttonStyle,
-  clipped,
   contentShape,
   disabled,
   font,
@@ -44,7 +43,6 @@ import {
   onAppear,
   onDisappear,
   onGeometryChange,
-  opacity,
   pickerStyle,
   refreshable,
   scrollContentBackground,
@@ -86,7 +84,7 @@ import { WorkingMark } from '../components/WorkingMark'
 import { useAgeNow } from '../lib/clock-hooks'
 import { listOrderRevision } from '../lib/list-order-revision'
 import { startupTiming } from '../lib/startup-timing'
-import { useFoldExit, useRowPrime } from '../lib/use-fold-exit'
+import { useRowPrime } from '../lib/use-row-prime'
 import { sectionAnimationValue, useSettledOrder } from '../lib/use-settled-order'
 import { workMenuActionIds } from '../lib/work-menu'
 import { quietProjectsLabel, workLaneTitle, workMenuItem, workSubtitle } from '../lib/work-row-copy'
@@ -116,15 +114,6 @@ const cardRowAt = (first: boolean, last: boolean) => [
   }),
 ]
 const loneCardRow = cardRowAt(true, true)
-/** A folding group's row: zero height and clear, so SwiftUI animates it shut. */
-const collapsedRow = [
-  frame({ height: 0 }),
-  clipped(),
-  opacity(0),
-  listRowBackground(paper.card),
-  listRowSeparator('hidden'),
-  listRowInsets({ leading: CARD_INSET, trailing: CARD_INSET, top: 0, bottom: 0 }),
-]
 /** Rows that sit on the ground rather than in a card (lane control, notes, empty state). */
 const quietRow = [
   listRowBackground(paper.ground),
@@ -159,9 +148,6 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
   const sections = (
     phone.quietExpanded && quiet.length ? [...phone.activeSections, ...quiet] : phone.activeSections
   ).map((section) => ({ section, folded: !phone.needle && props.collapsed.has(section.key) }))
-  const closing = useFoldExit(
-    sections.flatMap(({ section, folded }) => (folded ? [section.key] : [])),
-  )
   const animate = useSettledOrder(
     listOrderRevision(
       sections.map(({ section, folded }) => ({ key: section.key, folded, ids: section.ids })),
@@ -304,7 +290,7 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
                     ),
                   ]}
                 >
-                  {folded && !closing.has(section.key)
+                  {folded
                     ? null
                     : section.ids.map((id, index) => (
                         <NativeWorkSlot
@@ -313,7 +299,6 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
                           section={section}
                           first={index === 0}
                           last={index === section.ids.length - 1}
-                          collapsed={folded}
                           prime={index < MOBILE_TASK_WINDOW_SIZE}
                         >
                           <NativeWorkRow
@@ -404,7 +389,6 @@ const NativeWorkSlot = observer(function NativeWorkSlot({
   section,
   first,
   last,
-  collapsed,
   prime,
   children,
 }: {
@@ -412,8 +396,6 @@ const NativeWorkSlot = observer(function NativeWorkSlot({
   section: PhoneWorkSection
   first: boolean
   last: boolean
-  /** The group is folding: the row stays mounted at zero height while it animates out. */
-  collapsed: boolean
   /** A row in the first window draws itself on mount (an unfold, a first render)
    * instead of a placeholder that waits for SwiftUI's appearance callback. */
   prime: boolean
@@ -435,11 +417,11 @@ const NativeWorkSlot = observer(function NativeWorkSlot({
           section.window.disappear(id, owner)
         }),
         onGeometryChange((frame) => {
-          if (shown && !collapsed && frame.height > 0) setHeight(frame.height)
+          if (shown && frame.height > 0) setHeight(frame.height)
         }),
         // Keep cell insets outside the measured content, as on Tasks. Otherwise
         // the placeholder can pay those insets twice during a fast fling.
-        ...(collapsed ? collapsedRow : cardRowAt(first, last)),
+        ...cardRowAt(first, last),
       ]}
     >
       {shown ? children : <Spacer modifiers={[frame({ height })]} />}
