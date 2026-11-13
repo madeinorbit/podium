@@ -467,6 +467,31 @@ async function accessIds(
   return out
 }
 
+/** The access rows a change of these machine grant edges can move. */
+async function machineGrantAccessIds(
+  changes: readonly SourceChange[],
+  reads: RecordReads,
+): Promise<string[]> {
+  const keys = keysOf(changes).filter((key) => key[0] === 'machine')
+  const machineIds = unique(keys.map((key) => str(key[1])))
+  if (machineIds.length === 0) return []
+  if (keys.some((key) => key[3] === 1 || key[3] === true)) return accessIds(machineIds, 'all', reads)
+  const admins = (await reads.store.users.recordMembers())
+    .filter((member) => member.role === 'admin')
+    .map((member) => member.id as string)
+  const out: string[] = []
+  for (const machineId of machineIds) {
+    const custodian = await reads.store.machines.custodian(machineId)
+    const members = unique([
+      ...keys.filter((key) => str(key[1]) === machineId).map((key) => str(key[2])),
+      ...admins,
+      ...(custodian === null ? [] : [custodian as string]),
+    ])
+    out.push(...(await accessIds([machineId], members, reads)))
+  }
+  return out
+}
+
 /** The ship lanes of these orders, and of the queued orders that depend on them. */
 async function lanesOfOrders(
   changes: readonly SourceChange[],
@@ -672,16 +697,14 @@ export const RECORD_SOURCES: RecordSources = {
       (changes, reads) => accessIds(firstKeys(changes), 'all', reads),
       { derived: MACHINE_ROW_READS.derived },
     ),
+    // A machine grant edge changes its grantee's row, and the rows that list
+    // the machine's grants (its custodian's and the admins'); a custody edge
+    // changes who owns it, which every member's row says.
     via(
       grants,
-      [grants.resourceKind, grants.resourceId],
+      [grants.resourceKind, grants.resourceId, grants.grantee, grants.custody],
       'all',
-      (changes, reads) =>
-        accessIds(
-          unique(keysOf(changes).flatMap((key) => (key[0] === 'machine' ? [str(key[1])] : []))),
-          'all',
-          reads,
-        ),
+      machineGrantAccessIds,
       { rows: `{row}.${grants.resourceKind.name} = 'machine'` },
     ),
     // A member is in the fleet's access while enabled with a role (`recordMembers`).
