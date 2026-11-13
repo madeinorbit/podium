@@ -1,5 +1,6 @@
-import type { BoardFilter, filterChips } from '@podium/client-core/values'
+import type { BoardFilter, filterChips, MissionProgress } from '@podium/client-core/values'
 import type { MobileTaskIssue, MobileTasksBoard } from '@podium/client-graph/mobile-tasks'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { type IssueBoardStage, machinePathBasename } from '@podium/model'
 import type { useMinimizeTabBarOnScroll } from '../hooks/useMinimizeTabBarOnScroll'
 import type { useRefreshableTab } from '../hooks/useRefreshableTab'
@@ -52,12 +53,13 @@ export function tasksSubtitle(
   }
 }
 
-/** The trailing figure on a task row: child progress for a parent, else its age. */
+/** Format the shared mission count, or the age of a task without children. */
 export function taskRowFigure(
-  issue: Pick<MobileTaskIssue, 'childCount' | 'childDoneCount'>,
+  progress: Pick<MissionProgress, 'done' | 'total'> | typeof LOADING | null | undefined,
   age: string | null | undefined,
 ): string {
-  if (issue.childCount > 0) return `${issue.childDoneCount}/${issue.childCount}`
+  if (progress === LOADING) return ''
+  if (progress) return `${progress.done}/${progress.total}`
   return compactAge(age)
 }
 

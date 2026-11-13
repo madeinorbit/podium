@@ -21,6 +21,7 @@ import type { MobxPool } from './pool'
 import { firstResidentChildMatch } from './resident-child-match'
 import { RowWindow } from './row-window'
 import { LOADING, type Loaded } from './worklist/rollup'
+import { worklistView } from './worklist/view-model'
 
 export type MobileTaskIssue = ModelOf['issue'] &
   Readonly<Pick<IssueViewModel, 'type' | 'priority' | 'stage' | 'closedReason'>>
@@ -108,6 +109,11 @@ class BoardTask {
     })
     if (issueNeedsHuman(this.issue as unknown as IssueNavigationModel, sessions)) return 'needs'
     return this.stage === 'in_progress' ? 'working' : 'resting'
+  }
+
+  /** The desktop Work row's accepted-leaf count, shared with the flight deck. */
+  get progress() {
+    return worklistView(this.board.pool).row(this.issue).progress
   }
 
   // --- Audience and proposals (board options never reach these)

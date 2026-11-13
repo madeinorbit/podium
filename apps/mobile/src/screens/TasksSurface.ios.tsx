@@ -444,7 +444,8 @@ const TaskRow = taskObserver(function TaskRow({
   const nav = issue as unknown as IssueNavigationModel
   const placement = discoveredPlacement(nav)
   const actions = workMenuActionIds(nav, 'live', { placement: Boolean(placement?.originId) })
-  const progress = issue.childCount > 0 ? `${taskRowFigure(issue, null)} sub-tasks done` : ''
+  const figure = issue.childCount > 0 ? taskRowFigure(task.progress, null) : ''
+  const progress = figure ? `${figure} sub-tasks done` : ''
   const accessible = fontScale >= ACCESSIBILITY_SCALE
   const title = (lines: number) => (
     <Text
@@ -521,7 +522,7 @@ const TaskRow = taskObserver(function TaskRow({
                     {title(3)}
                     <HStack spacing={8}>
                       {refText}
-                      <TaskFigure issue={issue} fontScale={fontScale} />
+                      <TaskFigure issue={issue} board={board} fontScale={fontScale} />
                     </HStack>
                   </VStack>
                 ) : (
@@ -544,7 +545,9 @@ const TaskRow = taskObserver(function TaskRow({
                   />
                 ) : null}
                 {accessible ? null : refText}
-                {accessible ? null : <TaskFigure issue={issue} fontScale={fontScale} />}
+                {accessible ? null : (
+                  <TaskFigure issue={issue} board={board} fontScale={fontScale} />
+                )}
               </HStack>
               {match ? (
                 <HStack modifiers={[padding({ leading: 22 + row.depth * 16, bottom: 6 })]}>
@@ -681,14 +684,16 @@ const figureModifiers = [
 
 const TaskFigure = observer(function TaskFigure({
   issue,
+  board,
   fontScale,
 }: {
   issue: MobileTaskIssue
+  board: MobileTasksBoard
   fontScale: number
 }) {
   return issue.childCount > 0 ? (
     <Text modifiers={[font({ size: 12 * fontScale, design: 'monospaced' }), ...figureModifiers]}>
-      {taskRowFigure(issue, null)}
+      {taskRowFigure(board.task(issue.id).progress, null)}
     </Text>
   ) : (
     <TaskAge issue={issue} fontScale={fontScale} />
@@ -705,7 +710,7 @@ const TaskAge = observer(function TaskAge({
   const now = useAgeNow(issue.updatedAt)
   return (
     <Text modifiers={[font({ size: 12 * fontScale, design: 'monospaced' }), ...figureModifiers]}>
-      {taskRowFigure(issue, relativeTime(issue.updatedAt, now))}
+      {taskRowFigure(null, relativeTime(issue.updatedAt, now))}
     </Text>
   )
 })

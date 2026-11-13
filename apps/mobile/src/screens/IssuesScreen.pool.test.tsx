@@ -208,8 +208,9 @@ it('redraws only the changed task row and keeps the folded proposals and expansi
   expect(state.counts.get('Task 2') ?? 0).toBe(0)
   expect(state.counts.get('Task 4') ?? 0).toBe(0)
   expect(state.lists).toBe(lists)
-  // A parent's trailing figure is its child progress, and the disclosure.
-  fireEvent.click(screen.getByText('0/2'))
+  // The proposed child is outside accepted progress; the count still discloses children.
+  expect(screen.getByRole('button', { name: 'Task 1: Renamed task, 0/1' })).toBeTruthy()
+  fireEvent.click(screen.getByText('0/1'))
   expect(screen.getByRole('button', { name: /Task 3: child/ })).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: /Task 3: child/ }))
   expect(router.push).toHaveBeenCalledWith('/issue/child')

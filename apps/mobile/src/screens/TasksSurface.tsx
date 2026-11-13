@@ -348,7 +348,14 @@ const TaskRow = observer(function TaskRow({
   const accessibility = taskRowAccessibilityProps({
     seq: issue.seq,
     title: issue.title,
-    ...(state ? { stateText: state.text } : {}),
+    ...(state
+      ? {
+          stateText:
+            state.tone === 'quiet'
+              ? taskRowFigure(board.task(issue.id).progress, null)
+              : state.text,
+        }
+      : {}),
     onOpen: () => onOpen(issue.id),
     onShowActions: () => onOpenActions(issue),
   })
@@ -407,7 +414,7 @@ const TaskRow = observer(function TaskRow({
             scaleTo={0.94}
             style={styles.disclosure}
           >
-            <TaskFigure issue={issue} />
+            <TaskFigure issue={issue} board={board} />
             <Icon
               as={row.expanded ? ChevronDown : ChevronRight}
               size={12}
@@ -415,16 +422,22 @@ const TaskRow = observer(function TaskRow({
             />
           </PressableScale>
         ) : (
-          <TaskFigure issue={issue} />
+          <TaskFigure issue={issue} board={board} />
         )}
       </PressableScale>
     </View>
   )
 })
 
-const TaskFigure = observer(function TaskFigure({ issue }: { issue: MobileTaskIssue }) {
+const TaskFigure = observer(function TaskFigure({
+  issue,
+  board,
+}: {
+  issue: MobileTaskIssue
+  board: MobileTasksBoard
+}) {
   return issue.childCount > 0 ? (
-    <Text style={styles.figure}>{taskRowFigure(issue, null)}</Text>
+    <Text style={styles.figure}>{taskRowFigure(board.task(issue.id).progress, null)}</Text>
   ) : (
     <TaskAge issue={issue} />
   )
@@ -433,7 +446,7 @@ const TaskFigure = observer(function TaskFigure({ issue }: { issue: MobileTaskIs
 const TaskAge = observer(function TaskAge({ issue }: { issue: MobileTaskIssue }) {
   const now = useAgeNow(issue.updatedAt)
   return (
-    <Text style={styles.figure}>{taskRowFigure(issue, relativeTime(issue.updatedAt, now))}</Text>
+    <Text style={styles.figure}>{taskRowFigure(null, relativeTime(issue.updatedAt, now))}</Text>
   )
 })
 
