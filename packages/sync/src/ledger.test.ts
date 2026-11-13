@@ -100,10 +100,23 @@ describe('ledger facade', () => {
     })
   })
 
-  it('preserves explicit provenance through the facade', async () => {
-    const f = fixture()
-    await f.save([{ ...spec('a', 1), mutationId: asMutationId('m'), causationId: 'c' }])
-    expect(await f.repo.changesSince(0)).toMatchObject([{ mutationId: 'm', causationId: 'c' }])
+  it('passes the ambient provenance through the facade', async () => {
+    const repo = createTestSyncRepository()
+    const records = new ModelRecords()
+    const ledger = new Ledger({
+      repo,
+      records,
+      now: () => 1_000,
+      transact: (fn) => fn(),
+      provenance: { current: () => ({ mutationId: asMutationId('m'), causationId: 'c' }) },
+    })
+    await testLedgerWriter(ledger).commit({
+      write: async () => {
+        const { id, ...row } = spec('a', 1)
+        records.set([{ ...row, entityId: id }])
+      },
+    })
+    expect(await repo.changesSince(0)).toMatchObject([{ mutationId: 'm', causationId: 'c' }])
   })
 
   it('runs a commit application even when no record changed', async () => {
@@ -138,6 +151,8 @@ describe('source write and append atomicity', () => {
         writer.commit({
           write: async () => {
             db.prepare('INSERT INTO test_models VALUES (?, ?)').run('a', '1')
+            // What the table's capture trigger would record (POD-6920).
+            records.capture('issueProjection', 'a')
           },
         })
       const append = vi

@@ -333,6 +333,10 @@ describe('the broadcast tail keeps passes in append order', () => {
     collect(authority, seen)
 
     const first = authority.save([upsert('s1')])
+    // The first span commits and its pass waits at the gate before the second
+    // write starts: a database runs the two spans one after the other, and
+    // the in-memory capture here is shared (POD-6920).
+    await new Promise((resolve) => setTimeout(resolve, 0))
     const second = authority.save([upsert('s2')])
     gate.release()
     await Promise.all([first, second])

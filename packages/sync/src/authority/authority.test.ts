@@ -167,23 +167,28 @@ describe('authority write funnel', () => {
     expect(delivered).toHaveBeenCalledTimes(1)
   })
 
-  it('stamps ambient provenance once at the call, preserving an explicit group', async () => {
-    let mutationId = asMutationId('first')
-    const current = vi.fn(() => ({ mutationId, originId: 'ambient' }))
+  // A commit names no records (POD-6920), so its rows carry the ambient
+  // command's provenance, read once at the call; there is no per-row group.
+  it('stamps ambient provenance once at the call', async () => {
+    let ambient: { mutationId?: ReturnType<typeof asMutationId>; originId?: string } = {
+      mutationId: asMutationId('first'),
+      originId: 'ambient',
+    }
+    const current = vi.fn(() => ambient)
     const store = memoryChangeLog()
     const authority = build({ store, provenance: { current } })
     const spec = upsert('s', 1)
     await authority.commit({
       write: async () => {
-        mutationId = asMutationId('later')
+        ambient = { mutationId: asMutationId('later'), originId: 'ambient' }
         authority.models.set([spec])
       },
     })
-    await authority.save([{ ...upsert('t', 2), causationId: 'explicit' }])
+    ambient = {}
+    await authority.save([upsert('t', 2)])
     expect(current).toHaveBeenCalledTimes(2)
     expect(await store.changesSince(0)).toMatchObject([
       { mutationId: 'first', originId: 'ambient' },
-      { causationId: 'explicit' },
     ])
     const second = (await store.changesSince(1))[0]!
     expect(second).not.toHaveProperty('mutationId')
