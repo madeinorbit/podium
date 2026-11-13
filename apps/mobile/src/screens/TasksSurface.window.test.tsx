@@ -273,7 +273,8 @@ it('Tasks aligns nested separators, pads scalable content and keeps cell traits 
     { name: 'alignmentGuide', value: 'listRowSeparatorLeading', offset: 22 },
     { name: 'listRowBackground', value: expect.any(String) },
     { name: 'listRowSeparatorTint', value: expect.any(String) },
-    { name: 'listRowInsets', value: { leading: 12, trailing: 12, top: 0, bottom: 0 } },
+    // The card's first row keeps 8pt more room against the rounded corners.
+    { name: 'listRowInsets', value: { leading: 12, trailing: 12, top: 8, bottom: 0 } },
   ])
   for (const [depth, nestedSlot] of slots.entries()) {
     expect(modifiers(nestedSlot)).toContainEqual({
