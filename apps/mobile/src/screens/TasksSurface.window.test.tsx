@@ -42,6 +42,7 @@ vi.mock('@podium/client-graph/react', async (original) => ({
 vi.mock('../components/NewWorkButton', () => ({ NewWorkButton: () => null }))
 vi.mock('../components/list-row-press.ios', () => ({
   listRowPress: (onOpen: () => void) => ({ name: 'podiumListRowPress', value: onOpen }),
+  listSearchStartsHidden: () => ({ name: 'podiumSearchStartsHidden' }),
 }))
 vi.mock('./WorkListRow', () => ({ NAV_LOADER_DELAY_MS: 0, useDelayedFlag: () => false }))
 vi.mock('../lib/clock-hooks', () => ({ useAgeNow: state.age }))
@@ -164,10 +165,28 @@ vi.mock('@expo/ui/swift-ui/modifiers', () =>
 )
 vi.mock('@expo/ui/swift-ui', () => {
   type Props = { children?: ReactNode; modifiers?: { name: string; value: unknown }[] }
-  const Box = ({ children, modifiers }: Props) => (
-    <div data-modifiers={JSON.stringify(modifiers)}>{children}</div>
+  // The row modifier wraps its label stack in the native Button (podium-list-row).
+  const RowButton = ({ children, modifiers }: Props) => (
+    <button
+      type="button"
+      aria-label={modifiers?.find((m) => m.name === 'accessibilityLabel')?.value as string}
+      data-native-row="true"
+      data-modifiers={JSON.stringify(modifiers)}
+      onClick={modifiers?.find((m) => m.name === 'podiumListRowPress')?.value as () => void}
+    >
+      {children}
+    </button>
   )
+  const isRow = (modifiers: Props['modifiers']) =>
+    Boolean(modifiers?.some((m) => m.name === 'podiumListRowPress'))
+  const Box = ({ children, modifiers }: Props) =>
+    isRow(modifiers) ? (
+      <RowButton modifiers={modifiers}>{children}</RowButton>
+    ) : (
+      <div data-modifiers={JSON.stringify(modifiers)}>{children}</div>
+    )
   const VStack = ({ children, modifiers }: Props) => {
+    if (isRow(modifiers)) return <RowButton modifiers={modifiers}>{children}</RowButton>
     const appear = modifiers?.find((m) => m.name === 'onAppear')?.value as (() => void) | undefined
     const disappear = modifiers?.find((m) => m.name === 'onDisappear')?.value as
       | (() => void)
@@ -186,23 +205,16 @@ vi.mock('@expo/ui/swift-ui', () => {
     )
   }
   return {
-    Button: ({ children, modifiers, onPress }: Props & { onPress?: () => void }) => {
-      const recognizedTap = modifiers?.find((m) => m.name === 'podiumListRowPress')?.value as
-        | (() => void)
-        | undefined
-      return (
-        <button
-          type="button"
-          aria-label={modifiers?.find((m) => m.name === 'accessibilityLabel')?.value as string}
-          data-native-button="true"
-          data-release-action={onPress ? 'configured' : 'empty'}
-          data-modifiers={JSON.stringify(modifiers)}
-          onClick={recognizedTap ?? onPress}
-        >
-          {children}
-        </button>
-      )
-    },
+    Button: ({ children, modifiers, onPress }: Props & { onPress?: () => void }) => (
+      <button
+        type="button"
+        aria-label={modifiers?.find((m) => m.name === 'accessibilityLabel')?.value as string}
+        data-modifiers={JSON.stringify(modifiers)}
+        onClick={onPress}
+      >
+        {children}
+      </button>
+    ),
     ContextMenu: Object.assign(Box, { Trigger: Box, Items: () => null }),
     HStack: Box,
     Image: () => null,
@@ -380,11 +392,13 @@ it('Tasks aligns nested separators, pads scalable content and keeps cell traits 
     if (!node) throw new Error('Expected a native view')
     return JSON.parse(node.getAttribute('data-modifiers') ?? '[]')
   }
-  const cellTraits = modifiers(slot).slice(-4)
+  const cellTraits = modifiers(slot).slice(-3)
   expect(slot.parentElement?.tagName).toBe('SECTION')
+  // No custom listRowBackground: it would suppress the List's native touch-down
+  // highlight (the system cell background has paper.card's exact values).
+  expect(modifiers(slot).map((m: { name: string }) => m.name)).not.toContain('listRowBackground')
   expect(cellTraits).toEqual([
     { name: 'alignmentGuide', value: 'listRowSeparatorLeading', offset: 22 },
-    { name: 'listRowBackground', value: expect.any(String) },
     { name: 'listRowSeparatorTint', value: expect.any(String) },
     // The card's first row keeps 8pt more room against the rounded corners.
     { name: 'listRowInsets', value: { leading: 12, trailing: 12, top: 8, bottom: 0 } },
@@ -401,7 +415,7 @@ it('Tasks aligns nested separators, pads scalable content and keeps cell traits 
   await lapsePrime()
   expect(screen.getByText('Single task')).toBeTruthy()
   act(() => fireEvent.mouseEnter(slot))
-  expect(modifiers(slot).slice(-4)).toEqual(cellTraits)
+  expect(modifiers(slot).slice(-3)).toEqual(cellTraits)
   expect(modifiers(screen.getByText('Single task').parentElement).slice(0, 2)).toEqual([
     { name: 'padding', value: { vertical: 6 } },
     { name: 'frame', value: expect.objectContaining({ minHeight: 44, alignment: 'leading' }) },
@@ -445,7 +459,7 @@ it('Tasks aligns nested separators, pads scalable content and keeps cell traits 
   // A short lane never leaves the window: the row stays, not a placeholder.
   act(() => fireEvent.mouseLeave(slot))
   expect(screen.getByText('Single task')).toBeTruthy()
-  expect(modifiers(slot).slice(-4)).toEqual(cellTraits)
+  expect(modifiers(slot).slice(-3)).toEqual(cellTraits)
 })
 
 it('native placeholders activate a bounded window both ways; only age labels read the clock', async () => {
@@ -706,14 +720,10 @@ it.each([
   )
   expectPullDownSearch()
   expect(state.listMount).toHaveBeenCalledOnce()
-  // Keep a real native Button for pressed feedback. The native modifier owns
-  // tap/assistive activation; the release-inside action must stay empty.
+  // One native row Button per row: the podium-list-row modifier builds it around
+  // the label, so press feedback, drags and assistive activation stay native.
   const openTarget = screen.getByRole('button', { name: /^Search parent\./ })
-  expect(openTarget.getAttribute('data-native-button')).toBe('true')
-  expect(openTarget.getAttribute('data-release-action')).toBe('empty')
-  expect(JSON.parse(openTarget.getAttribute('data-modifiers') ?? '[]')).toContainEqual({
-    name: 'podiumListRowPress',
-  })
+  expect(openTarget.getAttribute('data-native-row')).toBe('true')
   fireEvent.click(openTarget)
   expect(onOpen).toHaveBeenCalledOnce()
   expect(screen.getByText('Other task')).toBeTruthy()

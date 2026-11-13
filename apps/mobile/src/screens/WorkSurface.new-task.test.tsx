@@ -27,6 +27,7 @@ vi.mock('../client/mobile-pool', () => ({
 vi.mock('../client/workspace-refresh', () => ({ useWorkspaceRefreshSubtitle: () => undefined }))
 vi.mock('../components/list-row-press.ios', () => ({
   listRowPress: (onOpen: () => void) => ({ name: 'listRowPress', value: onOpen }),
+  listSearchStartsHidden: () => ({ name: 'podiumSearchStartsHidden' }),
 }))
 vi.mock('./WorkListRow', () => ({ NAV_LOADER_DELAY_MS: 0, useDelayedFlag: () => false }))
 vi.mock('@expo/ui', () => ({ Host: ({ children }: { children: ReactNode }) => children }))

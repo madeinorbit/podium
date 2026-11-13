@@ -78,7 +78,7 @@ import { StyleSheet, useWindowDimensions, View } from 'react-native'
 import { useMobilePoolProjection } from '../client/mobile-pool'
 import { useWorkspaceRefreshSubtitle } from '../client/workspace-refresh'
 import { ListNotices } from '../components/list-notices.ios'
-import { listRowPress } from '../components/list-row-press.ios'
+import { listRowPress, listSearchStartsHidden } from '../components/list-row-press.ios'
 import { ListSearchBar } from '../components/list-search-bar.ios'
 import { NativeGroupHeader } from '../components/NativeGroupHeader.ios'
 import { NewWorkButton } from '../components/NewWorkButton'
@@ -105,8 +105,9 @@ const MARK_WIDTH = 14
 const MARK_GAP = 8
 /** A card's first and last rows keep this much more room against its rounded corners. */
 const CARD_EDGE = 8
-const cardRowAt = (first: boolean, last: boolean) => [
-  listRowBackground(paper.card),
+/** Task rows keep the system cell background (paper.card's exact values): a custom
+ * listRowBackground suppresses the List's native touch-down highlight. */
+const taskRowAt = (first: boolean, last: boolean) => [
   listRowSeparatorTint(paper.separator),
   listRowInsets({
     leading: CARD_INSET,
@@ -114,6 +115,10 @@ const cardRowAt = (first: boolean, last: boolean) => [
     top: 8 + (first ? CARD_EDGE : 0),
     bottom: 8 + (last ? CARD_EDGE : 0),
   }),
+]
+const cardRowAt = (first: boolean, last: boolean) => [
+  listRowBackground(paper.card),
+  ...taskRowAt(first, last),
 ]
 const loneCardRow = cardRowAt(true, true)
 /** Rows that sit on the ground rather than in a card (lane control, notes, empty state). */
@@ -213,6 +218,7 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
               background(paper.ground),
               refreshable(props.refresh.onRefresh),
               accessibilityIdentifier('work-list'),
+              listSearchStartsHidden(),
               onAppear(() => startupTiming.mark('work.native-list-appear')),
             ]}
           >
@@ -388,7 +394,7 @@ const NativeWorkSlot = observer(function NativeWorkSlot({
         }),
         // Keep cell insets outside the measured content, as on Tasks. Otherwise
         // the placeholder can pay those insets twice during a fast fling.
-        ...cardRowAt(first, last),
+        ...taskRowAt(first, last),
       ]}
     >
       {shown ? children : <Spacer modifiers={[frame({ height })]} />}
@@ -601,17 +607,20 @@ const NativeWorkRow = observer(function NativeWorkRow(props: RowProps) {
   return (
     <SwipeActions
       modifiers={[
-        listRowBackground(props.pending ? paper.fill : paper.card),
+        ...(props.pending ? [listRowBackground(paper.fill)] : []),
         alignmentGuide('listRowSeparatorLeading', MARK_WIDTH + MARK_GAP),
       ]}
     >
       <ContextMenu>
         <ContextMenu.Trigger>
-          <Button
+          <HStack
+            alignment="top"
+            spacing={MARK_GAP}
             modifiers={[
-              // Native Button feedback; the modifier accepts taps, never drags.
-              listRowPress(open),
+              frame({ minHeight: 36, maxWidth: Infinity, alignment: 'leading' }),
               contentShape(shapes.rectangle()),
+              // The native row Button: List highlight, taps only, never drags.
+              listRowPress(open),
               accessibilityElement('ignore'),
               accessibilityLabel(
                 `${row.title}. ${word}. ${ref}${unread ? '. Unread' : ''}${notSaved ? '. Not saved' : ''}`,
@@ -619,91 +628,80 @@ const NativeWorkRow = observer(function NativeWorkRow(props: RowProps) {
               accessibilityHint('Opens task. Swipe or long press for actions.'),
             ]}
           >
-            <HStack
-              alignment="top"
-              spacing={MARK_GAP}
-              modifiers={[
-                frame({ minHeight: 36, maxWidth: Infinity, alignment: 'leading' }),
-                contentShape(shapes.rectangle()),
-              ]}
+            {tone === 'working' ? (
+              // The shared animated mark (UI-thread clock), as on desktop rows.
+              <HStack modifiers={[frame({ width: MARK_WIDTH, height: 20 }), accessibilityHidden()]}>
+                <RNHostView matchContents>
+                  <WorkingMark size={12} tint={color.workingText} />
+                </RNHostView>
+              </HStack>
+            ) : (
+              <Image
+                systemName={mark.symbol}
+                size={mark.size}
+                color={mark.signal ? toneColor(tone) : paper.tertiary}
+                modifiers={[frame({ width: MARK_WIDTH, height: 20 }), accessibilityHidden()]}
+              />
+            )}
+            <VStack
+              alignment="leading"
+              spacing={2}
+              modifiers={[frame({ maxWidth: Infinity, alignment: 'leading' })]}
             >
-              {tone === 'working' ? (
-                // The shared animated mark (UI-thread clock), as on desktop rows.
-                <HStack
-                  modifiers={[frame({ width: MARK_WIDTH, height: 20 }), accessibilityHidden()]}
+              <HStack alignment="firstTextBaseline" spacing={MARK_GAP}>
+                <Text
+                  modifiers={[
+                    font({ textStyle: 'body', weight: unread ? 'semibold' : 'regular' }),
+                    foregroundStyle(props.lane === 'closed' ? paper.secondary : paper.ink),
+                    lineLimit(expanded ? 3 : 1),
+                    frame({ maxWidth: Infinity, alignment: 'leading' }),
+                  ]}
                 >
-                  <RNHostView matchContents>
-                    <WorkingMark size={12} tint={color.workingText} />
-                  </RNHostView>
-                </HStack>
-              ) : (
-                <Image
-                  systemName={mark.symbol}
-                  size={mark.size}
-                  color={mark.signal ? toneColor(tone) : paper.tertiary}
-                  modifiers={[frame({ width: MARK_WIDTH, height: 20 }), accessibilityHidden()]}
-                />
-              )}
-              <VStack
-                alignment="leading"
-                spacing={2}
-                modifiers={[frame({ maxWidth: Infinity, alignment: 'leading' })]}
-              >
-                <HStack alignment="firstTextBaseline" spacing={MARK_GAP}>
-                  <Text
-                    modifiers={[
-                      font({ textStyle: 'body', weight: unread ? 'semibold' : 'regular' }),
-                      foregroundStyle(props.lane === 'closed' ? paper.secondary : paper.ink),
-                      lineLimit(expanded ? 3 : 1),
-                      frame({ maxWidth: Infinity, alignment: 'leading' }),
-                    ]}
-                  >
-                    {row.title}
-                  </Text>
-                  {unread ? (
-                    <Image
-                      systemName="circle.fill"
-                      size={6}
-                      color={color.workingText}
-                      modifiers={[accessibilityHidden()]}
-                    />
-                  ) : null}
-                  {expanded ? null : loading ? (
-                    <ProgressView />
-                  ) : (
-                    <NativeRowStamp row={row} lane={props.lane} />
-                  )}
-                </HStack>
-                <HStack alignment="firstTextBaseline" spacing={MARK_GAP}>
-                  <Text
-                    modifiers={[
-                      font({ textStyle: 'footnote' }),
-                      foregroundStyle(wordColor),
-                      lineLimit(expanded ? 2 : 1),
-                      frame({ maxWidth: Infinity, alignment: 'leading' }),
-                    ]}
-                  >
-                    {word}
-                  </Text>
-                  {expanded ? null : refText}
-                </HStack>
-                {childHit ? <NativeChildHit id={childHit} /> : null}
-                {notSaved ? (
-                  <Text
-                    modifiers={[font({ textStyle: 'caption' }), foregroundStyle(color.dangerText)]}
-                  >
-                    Not saved
-                  </Text>
+                  {row.title}
+                </Text>
+                {unread ? (
+                  <Image
+                    systemName="circle.fill"
+                    size={6}
+                    color={color.workingText}
+                    modifiers={[accessibilityHidden()]}
+                  />
                 ) : null}
-                {expanded ? (
-                  <HStack spacing={MARK_GAP}>
-                    {refText}
-                    <NativeRowStamp row={row} lane={props.lane} />
-                  </HStack>
-                ) : null}
-              </VStack>
-            </HStack>
-          </Button>
+                {expanded ? null : loading ? (
+                  <ProgressView />
+                ) : (
+                  <NativeRowStamp row={row} lane={props.lane} />
+                )}
+              </HStack>
+              <HStack alignment="firstTextBaseline" spacing={MARK_GAP}>
+                <Text
+                  modifiers={[
+                    font({ textStyle: 'footnote' }),
+                    foregroundStyle(wordColor),
+                    lineLimit(expanded ? 2 : 1),
+                    frame({ maxWidth: Infinity, alignment: 'leading' }),
+                  ]}
+                >
+                  {word}
+                </Text>
+                {expanded ? null : refText}
+              </HStack>
+              {childHit ? <NativeChildHit id={childHit} /> : null}
+              {notSaved ? (
+                <Text
+                  modifiers={[font({ textStyle: 'caption' }), foregroundStyle(color.dangerText)]}
+                >
+                  Not saved
+                </Text>
+              ) : null}
+              {expanded ? (
+                <HStack spacing={MARK_GAP}>
+                  {refText}
+                  <NativeRowStamp row={row} lane={props.lane} />
+                </HStack>
+              ) : null}
+            </VStack>
+          </HStack>
         </ContextMenu.Trigger>
         <ContextMenu.Items>
           <NativeRowActions

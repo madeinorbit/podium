@@ -72,7 +72,7 @@ import { issueObserver as taskObserver } from '../client/issue-observer'
 import { useMobilePool } from '../client/mobile-pool'
 import { ChevronDown, Filter, MoreHorizontal, Plus } from '../components/icons'
 import { ListNotices } from '../components/list-notices.ios'
-import { listRowPress } from '../components/list-row-press.ios'
+import { listRowPress, listSearchStartsHidden } from '../components/list-row-press.ios'
 import { ListSearchBar } from '../components/list-search-bar.ios'
 import { NativeGroupHeader } from '../components/NativeGroupHeader.ios'
 import { RefreshOffer } from '../components/RefreshOffer'
@@ -98,8 +98,9 @@ const CARD_INSET = 12
 /** Card rows on Work's grouped paper: the same ground, card and separator. */
 /** A card's first and last rows keep this much more room against its rounded corners. */
 const CARD_EDGE = 8
-const cardRowAt = (first: boolean, last: boolean) => [
-  listRowBackground(paper.card),
+/** Task rows keep the system cell background (paper.card's exact values): a custom
+ * listRowBackground suppresses the List's native touch-down highlight. */
+const taskRowAt = (first: boolean, last: boolean) => [
   listRowSeparatorTint(paper.separator),
   listRowInsets({
     leading: CARD_INSET,
@@ -107,6 +108,10 @@ const cardRowAt = (first: boolean, last: boolean) => [
     top: first ? CARD_EDGE : 0,
     bottom: last ? CARD_EDGE : 0,
   }),
+]
+const cardRowAt = (first: boolean, last: boolean) => [
+  listRowBackground(paper.card),
+  ...taskRowAt(first, last),
 ]
 /** Rows that sit on the ground rather than in a card (headers, notes). */
 const quietRow = [
@@ -229,6 +234,7 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
               background(paper.ground),
               refreshable(props.refresh.onRefresh),
               accessibilityIdentifier('tasks-list'),
+              listSearchStartsHidden(),
             ]}
           >
             <ListNotices>
@@ -406,7 +412,7 @@ const TaskSlot = observer(function TaskSlot({
         // and measurement wrappers, on the Section's direct row view.
         // The guide is relative to content that already starts after the card inset.
         alignmentGuide('listRowSeparatorLeading', ROW_AXIS - CARD_INSET + depth * 16),
-        ...cardRowAt(first, last),
+        ...taskRowAt(first, last),
       ]}
     >
       {shown ? children : <Spacer modifiers={[frame({ height })]} />}
@@ -480,10 +486,13 @@ const TaskRow = taskObserver(function TaskRow({
     <SwipeActions>
       <ContextMenu>
         <ContextMenu.Trigger>
-          <Button
+          <VStack
+            alignment="leading"
+            spacing={0}
             modifiers={[
-              listRowPress(() => props.onOpen(issue.id)),
               contentShape(shapes.rectangle()),
+              // The native row Button: List highlight, label colours, taps only.
+              listRowPress(() => props.onOpen(issue.id)),
               accessibilityElement('ignore'),
               accessibilityLabel(
                 `${issue.title}. ${ref}. ${progress}${match ? `. Matching sub-task ${match.displayRef}. ${match.title}` : ''}${unread ? '. Unread' : ''}${notSaved ? '. Not saved' : ''}`,
@@ -491,71 +500,65 @@ const TaskRow = taskObserver(function TaskRow({
               accessibilityHint('Opens the task. Swipe or long press for actions.'),
             ]}
           >
-            <VStack alignment="leading" spacing={0}>
-              <HStack
-                spacing={8}
-                modifiers={[
-                  // Keep the native list minimum; this padding lets larger text
-                  // grow the content before it reaches the separators.
-                  padding({ vertical: 6 }),
-                  frame({ minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
-                  contentShape(shapes.rectangle()),
-                ]}
-              >
-                {row.depth > 0 ? (
-                  <Spacer modifiers={[frame({ width: row.depth * 16 - 8 })]} />
-                ) : null}
+            <HStack
+              spacing={8}
+              modifiers={[
+                // Keep the native list minimum; this padding lets larger text
+                // grow the content before it reaches the separators.
+                padding({ vertical: 6 }),
+                frame({ minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
+                contentShape(shapes.rectangle()),
+              ]}
+            >
+              {row.depth > 0 ? <Spacer modifiers={[frame({ width: row.depth * 16 - 8 })]} /> : null}
+              <Image
+                systemName={MARK_SYMBOL[mark]}
+                size={mark === 'needs' ? 8 : 10}
+                color={MARK_COLOR[mark]}
+                modifiers={[frame({ width: 14 }), accessibilityHidden()]}
+              />
+              {accessible ? (
+                // Accessibility sizes (as Mail): the title takes the row's width and
+                // up to three lines; ID and figure wrap to their own line below it.
+                <VStack
+                  alignment="leading"
+                  spacing={2}
+                  modifiers={[frame({ maxWidth: Infinity, alignment: 'leading' })]}
+                >
+                  {title(3)}
+                  <HStack spacing={8}>
+                    {refText}
+                    <TaskFigure issue={issue} board={board} fontScale={fontScale} />
+                  </HStack>
+                </VStack>
+              ) : (
+                title(1)
+              )}
+              {unread ? (
                 <Image
-                  systemName={MARK_SYMBOL[mark]}
-                  size={mark === 'needs' ? 8 : 10}
-                  color={MARK_COLOR[mark]}
-                  modifiers={[frame({ width: 14 }), accessibilityHidden()]}
+                  systemName="circle.fill"
+                  size={6}
+                  color={color.workingText}
+                  modifiers={[accessibilityHidden()]}
                 />
-                {accessible ? (
-                  // Accessibility sizes (as Mail): the title takes the row's width and
-                  // up to three lines; ID and figure wrap to their own line below it.
-                  <VStack
-                    alignment="leading"
-                    spacing={2}
-                    modifiers={[frame({ maxWidth: Infinity, alignment: 'leading' })]}
-                  >
-                    {title(3)}
-                    <HStack spacing={8}>
-                      {refText}
-                      <TaskFigure issue={issue} board={board} fontScale={fontScale} />
-                    </HStack>
-                  </VStack>
-                ) : (
-                  title(1)
-                )}
-                {unread ? (
-                  <Image
-                    systemName="circle.fill"
-                    size={6}
-                    color={color.workingText}
-                    modifiers={[accessibilityHidden()]}
-                  />
-                ) : null}
-                {notSaved ? (
-                  <Image
-                    systemName="exclamationmark.icloud"
-                    size={12}
-                    color={color.dangerText}
-                    modifiers={[accessibilityHidden()]}
-                  />
-                ) : null}
-                {accessible ? null : refText}
-                {accessible ? null : (
-                  <TaskFigure issue={issue} board={board} fontScale={fontScale} />
-                )}
-              </HStack>
-              {match ? (
-                <HStack modifiers={[padding({ leading: 22 + row.depth * 16, bottom: 6 })]}>
-                  <TaskSearchHit issue={match} fontScale={fontScale} />
-                </HStack>
               ) : null}
-            </VStack>
-          </Button>
+              {notSaved ? (
+                <Image
+                  systemName="exclamationmark.icloud"
+                  size={12}
+                  color={color.dangerText}
+                  modifiers={[accessibilityHidden()]}
+                />
+              ) : null}
+              {accessible ? null : refText}
+              {accessible ? null : <TaskFigure issue={issue} board={board} fontScale={fontScale} />}
+            </HStack>
+            {match ? (
+              <HStack modifiers={[padding({ leading: 22 + row.depth * 16, bottom: 6 })]}>
+                <TaskSearchHit issue={match} fontScale={fontScale} />
+              </HStack>
+            ) : null}
+          </VStack>
         </ContextMenu.Trigger>
         <ContextMenu.Items>
           {row.childCount > 0 ? (
