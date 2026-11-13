@@ -215,8 +215,10 @@ describe('buildHeadlessExec argv shapes', () => {
       POSTURE,
     )
     expect(first.cmd).toBe('/opt/opencode')
+    // Moved to posture: `--auto` (the default posture, right after `run`).
     expect(first.args).toEqual([
       'run',
+      '--auto',
       '--format',
       'json',
       '-m',
@@ -233,6 +235,7 @@ describe('buildHeadlessExec argv shapes', () => {
     )
     expect(resumed.args).toEqual([
       'run',
+      '--auto',
       '--format',
       'json',
       '-s',

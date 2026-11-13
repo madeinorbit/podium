@@ -112,6 +112,33 @@ function claudePlain(spec: LaunchSpec): Record<string, unknown> {
   expect(files).toEqual([])
   return rest
 }
+
+/**
+ * What OpenCode's posture section adds to every terminal launch under the
+ * default posture (POD-6858 §4.8): the Podium CLI and the uploads folder in the
+ * inline config's permission block. Moved to posture: `--auto`, which the
+ * builder used to put first on every launch, now ends the launch's options.
+ */
+const OPENCODE_POSTURE_PERMISSION = {
+  bash: { 'podium *': 'allow' },
+  external_directory: { '/var/podium-test/uploads/session/*': 'allow' },
+}
+
+/** An OpenCode terminal launch with its terms and inline config checked,
+ *  shaped like {@link plain}. */
+function opencodePlain(spec: LaunchSpec): Record<string, unknown> {
+  if (!('terms' in spec)) throw new Error('an OpenCode launch always carries terms')
+  const { env, files, terms, ...rest } = spec
+  expect(terms).toEqual({ homeEdits: [], requestedMode: 'auto', unmet: [] })
+  const { OPENCODE_CONFIG_CONTENT: config, ...otherEnv } = env
+  expect(JSON.parse(config ?? '{}')).toEqual({ permission: OPENCODE_POSTURE_PERMISSION })
+  return {
+    ...rest,
+    ...(Object.keys(otherEnv).length > 0 ? { env: otherEnv } : {}),
+    ...(files.length > 0 ? { files } : {}),
+  }
+}
+
 describe('agentLaunchCommand', () => {
   it('spawns claude fresh', () => {
     expect(
@@ -229,14 +256,16 @@ describe('agentLaunchCommand', () => {
   })
 
   it('spawns opencode fresh with its provider command', () => {
-    expect(plain(agentLaunchCommand('opencode', { ...ctx('opencode'), cwd: '/w' }))).toEqual({
+    expect(
+      opencodePlain(agentLaunchCommand('opencode', { ...ctx('opencode'), cwd: '/w' })),
+    ).toEqual({
       cmd: exe('opencode'),
       args: ['--auto'],
       cwd: '/w',
     })
   })
 
-  it('always spawns headed opencode in auto permissions mode', () => {
+  it('spawns headed opencode in auto permissions mode under the default posture', () => {
     expect(agentLaunchCommand('opencode', { ...ctx('opencode'), cwd: '/w' }).args).toContain(
       '--auto',
     )
@@ -263,31 +292,32 @@ describe('agentLaunchCommand', () => {
       cwd: '/w',
       podiumSessionId: asSessionId('podium-opencode-a'),
     })
-    expect(spec.env).toEqual({
+    const { OPENCODE_CONFIG_CONTENT: _posture, ...env } = spec.env ?? {}
+    expect(env).toEqual({
       OPENCODE_DB: opencodeSessionDbPath('/instance/home', 'podium-opencode-a'),
     })
   })
 
   it('resumes opencode by session id', () => {
     expect(
-      plain(
+      opencodePlain(
         agentLaunchCommand('opencode', {
           ...ctx('opencode'),
           cwd: '/w',
           resume: { kind: 'opencode-session', value: 'ses_abc' },
         }),
       ),
-    ).toEqual({ cmd: exe('opencode'), args: ['--auto', '--session', 'ses_abc'], cwd: '/w' })
+    ).toEqual({ cmd: exe('opencode'), args: ['--session', 'ses_abc', '--auto'], cwd: '/w' })
   })
 
   it('passes model override to opencode', () => {
     expect(
-      plain(
+      opencodePlain(
         agentLaunchCommand('opencode', { ...ctx('opencode'), cwd: '/w', model: 'openai/gpt-5.5' }),
       ),
     ).toEqual({
       cmd: exe('opencode'),
-      args: ['--auto', '-m', 'openai/gpt-5.5'],
+      args: ['-m', 'openai/gpt-5.5', '--auto'],
       cwd: '/w',
     })
   })
@@ -413,7 +443,7 @@ describe('agentLaunchCommand', () => {
           cwd: '/w',
           initialPrompt: '--help\nDo real work',
         }).args,
-      ).toEqual(['--auto', '--prompt=--help\nDo real work'])
+      ).toEqual(['--prompt=--help\nDo real work', '--auto'])
       expect(
         agentLaunchCommand('opencode', { ...ctx('opencode'), cwd: '/w', initialPrompt: '  ' }).args,
       ).toEqual(['--auto'])
@@ -578,7 +608,7 @@ describe('agentLaunchCommand', () => {
         env: { OPENCODE_CONFIG_CONTENT: '{"permission":{"edit":"ask"}}' },
       })
       expect(JSON.parse(spec.env?.OPENCODE_CONFIG_CONTENT ?? '{}')).toEqual({
-        permission: { edit: 'ask' },
+        permission: { edit: 'ask', ...OPENCODE_POSTURE_PERMISSION },
         instructions: ['/runtime/session/podium-instructions.md'],
       })
       expect(spec.files).toEqual([
@@ -641,7 +671,7 @@ describe('agentLaunchCommand', () => {
         runtimeDir: '/runtime/session',
         instructions: [{ source: 'test', content: 'Keep the instructions.' }],
       })
-      expect(spec.args).toEqual(['--auto', '-m', model])
+      expect(spec.args).toEqual(['-m', model, '--auto'])
       expect(spec.env?.XDG_STATE_HOME).toBe('/runtime/session/opencode-state')
       expect(spec.files?.[0]).toEqual({
         path: '/runtime/session/opencode-state/opencode/model.json',
@@ -666,7 +696,9 @@ describe('agentLaunchCommand', () => {
 
     it('leaves native defaults alone when OpenCode effort is auto', () => {
       expect(
-        plain(agentLaunchCommand('opencode', { ...ctx('opencode'), cwd: '/w', effort: 'auto' })),
+        opencodePlain(
+          agentLaunchCommand('opencode', { ...ctx('opencode'), cwd: '/w', effort: 'auto' }),
+        ),
       ).toEqual({
         cmd: exe('opencode'),
         args: ['--auto'],
