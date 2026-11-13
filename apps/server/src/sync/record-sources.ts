@@ -632,10 +632,21 @@ export const RECORD_SOURCES: RecordSources = {
     ),
   ],
   machineAccess: [
+    // An access row carries what a member may see and use of the machine,
+    // not its name, version or update channel (those are the machine record's).
     via(
       machines,
       [machines.id],
-      MACHINE_ROW_READS.reads,
+      {
+        allBut: [
+          ...MACHINE_ROW_READS.reads.allBut,
+          machines.name,
+          machines.appVersion,
+          machines.updateChannel,
+          machines.updateChannelOverride,
+          machines.installKind,
+        ],
+      },
       (changes, reads) => accessIds(firstKeys(changes), 'all', reads),
       { derived: MACHINE_ROW_READS.derived },
     ),
@@ -655,7 +666,6 @@ export const RECORD_SOURCES: RecordSources = {
     via(users, [users.id], [users.role, users.disabledAt], (changes, reads) =>
       accessIds('all', firstKeys(changes), reads),
     ),
-    machineContext((_changes, reads) => accessIds('all', 'all', reads)),
   ],
   // A repo is a fold of its registrations: a change to one reaches the
   // logical repo it belongs to, before and after.
