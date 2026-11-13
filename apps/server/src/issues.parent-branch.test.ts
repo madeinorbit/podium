@@ -7,6 +7,7 @@ import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { CompatibilityShippingPolicyResolver } from './modules/shipping/policy'
 import { openTestStore } from './test-support/open-test-store'
 import { sessionReadPorts } from './test-support/session-facts'
+import { seedRows } from './test-support/seed-rows'
 
 /**
  * POD-2065: an instance-wide default parent branch (`tf.dev`, for Podium
@@ -155,8 +156,8 @@ describe('detecting the base on the right machine (POD-2065)', () => {
     const a = asMachineId('machine-a')
     const b = asMachineId('machine-b')
     // The same path on two machines, holding two different repositories.
-    await store.repos.addRepo('/r', a, 'git@example.com:acme/alpha.git')
-    await store.repos.addRepo('/r', b, 'git@example.com:acme/beta.git')
+    await seedRows(store, () => store.repos.addRepo('/r', a, 'git@example.com:acme/alpha.git'))
+    await seedRows(store, () => store.repos.addRepo('/r', b, 'git@example.com:acme/beta.git'))
     const refs = new Map([
       [a, new Set(['main'])],
       [b, new Set(['master'])],
@@ -194,8 +195,8 @@ describe('detecting the base on the right machine (POD-2065)', () => {
     const b = asMachineId('machine-b')
     const c = asMachineId('machine-c')
     // Two identities at one path, and the pin reported neither: ambiguous.
-    await store.repos.addRepo('/same', a, 'git@example.com:acme/alpha.git')
-    await store.repos.addRepo('/same', b, 'git@example.com:acme/beta.git')
+    await seedRows(store, () => store.repos.addRepo('/same', a, 'git@example.com:acme/alpha.git'))
+    await seedRows(store, () => store.repos.addRepo('/same', b, 'git@example.com:acme/beta.git'))
     const asked: (string | undefined)[] = []
     const readRepo: NonNullable<IssueDeps['readRepo']> = async (op, _cwd, args, machineId) => {
       asked.push(machineId)

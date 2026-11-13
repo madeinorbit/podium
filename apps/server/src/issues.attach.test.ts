@@ -18,6 +18,7 @@ import { seatText } from './modules/issues/service/seat'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { openTestStore } from './test-support/open-test-store'
 import { sessionReadPorts } from './test-support/session-facts'
+import { seedRows } from './test-support/seed-rows'
 
 // issue-as-workspace: attachSession / drafts / origin persistence (spec
 // docs/internal/superpowers/specs/2026-07-06-issue-as-workspace-design.md).
@@ -713,7 +714,7 @@ describe('soleOwnerForCwd', () => {
     })
     // Model a pre-existing claim: new claims on a registered root are refused.
     await svc.crud.update(svc.reports.store.serverWriter, squatter.id, { worktreePath: '/r' })
-    await store.repos.addRepo('/r', store.hostMachineId)
+    await seedRows(store, () => store.repos.addRepo('/r', store.hostMachineId))
     await expect(
       svc.crud.update(svc.reports.store.serverWriter, squatter.id, { worktreePath: '/r' }),
     ).rejects.toThrow('a repository root cannot be recorded as an issue worktree')
@@ -876,7 +877,7 @@ describe('prime draft/attach variants', () => {
 describe('store: sessions.issue_id round-trip', () => {
   it('persists and reloads issueId on session rows', async () => {
     const store = await openTestStore(':memory:')
-    await store.sessions.upsertSession(fixtureWriteScope(), {
+    await seedRows(store, () => store.sessions.upsertSession(fixtureWriteScope(), {
       id: asSessionId('sx'),
       ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
@@ -899,14 +900,14 @@ describe('store: sessions.issue_id round-trip', () => {
       archived: false,
       workState: null,
       issueId: asIssueId('iss_1'),
-    })
+    }))
     const rows = await store.sessions.loadSessions()
     expect(rows.find((r) => r.id === 'sx')?.issueId).toBe('iss_1')
     // clearing round-trips too
-    await store.sessions.upsertSession(fixtureWriteScope(), {
+    await seedRows(store, () => store.sessions.upsertSession(fixtureWriteScope(), {
       ...rows.find((r) => r.id === 'sx')!,
       issueId: null,
-    })
+    }))
     expect((await store.sessions.loadSessions()).find((r) => r.id === 'sx')?.issueId).toBeNull()
   })
 })

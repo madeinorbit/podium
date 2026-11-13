@@ -18,6 +18,7 @@ import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
 import { recordTestWriter } from '../../test-support/record-writer'
 import { CheckoutsService, checkoutDiff, checkoutsFromScan } from './service'
+import { seedRows } from '../../test-support/seed-rows'
 
 const M = asMachineId('m1')
 const ROOT = '/home/u/podium'
@@ -150,7 +151,7 @@ describe('a scan writes what moved, and only that', () => {
     const w = await world()
     w.answer([scanned([{ path: WT, branch: 'feature' }])])
     await w.service.rescan(M)
-    await w.store.repos.removeRepo(ROOT, M)
+    await seedRows(w.store, () => w.store.repos.removeRepo(ROOT, M))
     await w.service.registrationsChanged(M)
     expect(await w.store.checkouts.ofMachine(M)).toEqual([])
   })

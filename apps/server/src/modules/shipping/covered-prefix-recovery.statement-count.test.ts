@@ -20,6 +20,7 @@ import { IssueService } from '../issues/service'
 import { CompatibilityShippingPolicyResolver } from './policy'
 import { ShippingService } from './service'
 import { logStoreRecords } from '../../test-support/record-writer'
+import { seedRows } from '../../test-support/seed-rows'
 
 const PROFILE = {
   id: 'default',
@@ -99,7 +100,7 @@ async function world(shipped: number): Promise<{ store: SessionStore; service: S
   const history = (await issues.reports.get(created.id))!
   for (let index = 0; index < shipped; index += 1) {
     const at = new Date(Date.UTC(2026, 7, 13, 0, index)).toISOString()
-    const order = await store.shipping.createOrder(fixtureWriteScope(), {
+    const order = await seedRows(store, () => store.shipping.createOrder(fixtureWriteScope(), {
       id: asShipOrderId(`shipped-${index}`),
       issueId: history.id,
       descendantManifest: [],
@@ -119,24 +120,24 @@ async function world(shipped: number): Promise<{ store: SessionStore; service: S
       closeMode: 'after-destination',
       state: 'queued',
       stateChangedAt: at,
-    })
-    const { attempt } = await store.shipping.claimAttempt(fixtureWriteScope(), {
+    }))
+    const { attempt } = await seedRows(store, () => store.shipping.claimAttempt(fixtureWriteScope(), {
       orderId: order.id,
       expectedState: 'queued',
       expectedAttemptId: null,
       expectedGeneration: 0,
       machineId: asMachineId('machine-1'),
       startedAt: at,
-    })
+    }))
     for (const [from, to] of [
       ['preflight', 'composing'],
       ['composing', 'validating'],
       ['validating', 'landing'],
       ['landing', 'verifying'],
     ] as const) {
-      await store.shipping.transitionOrder(fixtureWriteScope(), order.id, from, to, at)
+      await seedRows(store, () => store.shipping.transitionOrder(fixtureWriteScope(), order.id, from, to, at))
     }
-    await store.shipping.finishAttempt(fixtureWriteScope(), attempt.id, attempt.leaseGeneration, {
+    await seedRows(store, () => store.shipping.finishAttempt(fixtureWriteScope(), attempt.id, attempt.leaseGeneration, {
       finishedAt: at,
       outcome: 'succeeded',
       testedIntegrationSha: `head-${index}`,
@@ -144,8 +145,8 @@ async function world(shipped: number): Promise<{ store: SessionStore; service: S
       destinationSha: `head-${index}`,
       validationProfileId: 'default',
       validationResult: 'passed',
-    })
-    await store.shipping.completeVerifiedOrder(fixtureWriteScope(), {
+    }))
+    await seedRows(store, () => store.shipping.completeVerifiedOrder(fixtureWriteScope(), {
       id: asDeliveryReceiptId(`receipt-${index}`),
       orderId: order.id,
       approvedBaseSha: order.approvedBaseSha,
@@ -158,7 +159,7 @@ async function world(shipped: number): Promise<{ store: SessionStore; service: S
       validationResult: 'passed',
       destination: order.destination,
       completedAt: at,
-    })
+    }))
   }
   return { store, service }
 }

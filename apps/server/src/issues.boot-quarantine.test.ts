@@ -12,6 +12,7 @@ import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
 import { sessionReadPorts } from './test-support/session-facts'
+import { seedRaw } from './test-support/seed-rows'
 
 /** Issues are placed on a machine that reported their repo (2b803efb5 refuses
  *  implicit placement), so the host machine reports the fixture repo. */
@@ -59,15 +60,17 @@ describe('IssueService boot quarantine', () => {
     const good1 = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'healthy one', startNow: false })
     const good2 = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'healthy two', startNow: false })
     // SQLite permits NULL in a TEXT PRIMARY KEY — a genuinely corrupt row.
-    rawDb(store)
-      .prepare(
-        `INSERT INTO issues (id, owner_user_id, created_by_actor, created_by_on_behalf_of,
-           repo_path, seq, title, stage, default_agent, created_at, updated_at)
-         VALUES (NULL, '${firstAdminMemberId()}', '${firstAdminMemberId()}',
-                 '${firstAdminMemberId()}', '/r', 99, 'poisoned', 'backlog', 'claude-code',
-                 't', 't')`,
-      )
-      .run()
+    seedRaw(rawDb(store), () =>
+      rawDb(store)
+        .prepare(
+          `INSERT INTO issues (id, owner_user_id, created_by_actor, created_by_on_behalf_of,
+             repo_path, seq, title, stage, default_agent, created_at, updated_at)
+           VALUES (NULL, '${firstAdminMemberId()}', '${firstAdminMemberId()}',
+                   '${firstAdminMemberId()}', '/r', 99, 'poisoned', 'backlog', 'claude-code',
+                   't', 't')`,
+        )
+        .run(),
+    )
 
     // Fresh service over the same store simulates the next boot. Every listing
     // leaves a row with a non-string id out in SQL (POD-6158).
@@ -82,7 +85,9 @@ describe('IssueService boot quarantine', () => {
     const store = await reportingStore()
     const svc = await IssueService.create(deps(store))
     const w = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'keep me', startNow: false })
-    rawDb(store).prepare('UPDATE issues SET blocked_by = ? WHERE id = ?').run('{not json', w.id)
+    seedRaw(rawDb(store), () =>
+      rawDb(store).prepare('UPDATE issues SET blocked_by = ? WHERE id = ?').run('{not json', w.id),
+    )
 
     const rebooted = await IssueService.create(deps(store))
     const row = await rebooted.reports.get(w.id)

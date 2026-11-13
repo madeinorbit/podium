@@ -10,6 +10,7 @@
  * dropped, so it reaches the tables and not the log.
  */
 
+import type { SqlDatabase } from '@podium/runtime/sqlite'
 import type { SessionStore } from '../store'
 
 export async function seedRows<T>(
@@ -21,4 +22,21 @@ export async function seedRows<T>(
     await store.sync.drainCapture()
     return result
   })
+}
+
+/**
+ * {@link seedRows} for a fixture that writes through the raw connection (a
+ * corrupt row, a hand-written value): one transaction whose capture is
+ * dropped before it commits.
+ */
+export function seedRaw(db: Pick<SqlDatabase, 'exec'>, write: () => void): void {
+  db.exec('BEGIN')
+  try {
+    write()
+    db.exec('DELETE FROM sync_capture')
+    db.exec('COMMIT')
+  } catch (error) {
+    db.exec('ROLLBACK')
+    throw error
+  }
 }

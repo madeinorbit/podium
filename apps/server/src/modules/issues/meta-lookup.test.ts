@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { openTestStore } from '../../test-support/open-test-store'
 import { type IssueDeps, IssueService } from './service'
 import { issueTestPlumbing } from './service/test-plumbing'
+import { seedRows } from '../../test-support/seed-rows'
 
 async function harness() {
   const store = await openTestStore(':memory:')
@@ -68,13 +69,13 @@ describe('POD-826 lightweight issue lookups', () => {
     const created = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/repo', title: 'indexed', startNow: false })
     const row = (await deps.store.issues.getIssue(created.id))!
     const scan = vi.spyOn(deps.store.issues, 'listIssueRows')
-    await deps.store.issues.upsertIssue(fixtureWriteScope(), { ...row, worktreePath: '/wt' })
+    await seedRows(deps.store, () => deps.store.issues.upsertIssue(fixtureWriteScope(), { ...row, worktreePath: '/wt' }))
     // One indexed query per answer (POD-6155); every issue is never read.
     for (let i = 0; i < 20; i++) expect(await svc.reports.issueForCwd('/wt/src')).toBe(created.id)
     expect(scan).not.toHaveBeenCalled()
     // Inside a write span the same query sees the span's own write.
     await deps.store.transact(async () => {
-      await deps.store.issues.upsertIssue(fixtureWriteScope(), { ...row, worktreePath: '/moved' })
+      await seedRows(deps.store, () => deps.store.issues.upsertIssue(fixtureWriteScope(), { ...row, worktreePath: '/moved' }))
       expect(await svc.reports.issueForCwd('/moved/src')).toBe(created.id)
       expect(await svc.reports.issueForCwd('/wt/src')).toBeNull()
     })

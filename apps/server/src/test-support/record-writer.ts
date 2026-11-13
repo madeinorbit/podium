@@ -91,7 +91,7 @@ export function recordTestWriter(
     opts.transact ??
     (storeTransact === undefined
       ? (fn) => fn()
-      : async (fn) => await storeTransact.call(store, fn))
+      : async <T>(fn: () => Promise<T>) => (await storeTransact.call(store, fn)) as T)
   const authority = new Authority({
     store: memoryChangeLog(),
     now: opts.now ?? (() => 1_000),

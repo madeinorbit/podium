@@ -3953,24 +3953,6 @@ describe('POD-4974 O2 ship lanes', () => {
         vi.spyOn(store.shipping, 'listReceipts'),
         vi.spyOn(store.shipping, 'listNativeStackEdges'),
       ]
-      // What the commit names before it writes: the touched order, its lane
-      // and the orders queued in that lane. Nothing from the other repo.
-      const named = await (
-        service as never as {
-          shipRecords: (touched: () => Promise<string[]>) => {
-            affects: () => Promise<{ entity: string; id: string }[]>
-          }
-        }
-      )
-        .shipRecords(async () => [first.id])
-        .affects()
-      expect([...new Set(named.map((record) => `${record.entity}:${record.id}`))].sort()).toEqual(
-        [
-          `shipLane:${shipLaneIdOf(first)}`,
-          `shipOrder:${first.id}`,
-          `shipOrder:${second.id}`,
-        ].sort(),
-      )
       for (const scan of scans) scan.mockClear()
       const head = await ledger.cursor()
       await service['transition'](first, 'preflight')

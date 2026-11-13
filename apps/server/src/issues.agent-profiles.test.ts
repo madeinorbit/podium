@@ -9,7 +9,9 @@ import { describe, expect, it, vi } from 'vitest'
 import { AgentProfileService } from './modules/agent-profiles/service'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
+import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
+import { seedRows } from './test-support/seed-rows'
 import { sessionReadPorts } from './test-support/session-facts'
 
 async function harness() {
@@ -55,16 +57,17 @@ async function harness() {
     now: () => '2026-10-14T00:00:00.000Z',
     agentProfiles,
   }
-  return { svc: await IssueService.create(deps), spawnSession, agentProfiles, sessions, repoOp }
+  return { svc: await IssueService.create(deps), store, spawnSession, agentProfiles, sessions, repoOp }
 }
 
 /** Single-candidate profiles, so no probing decides the pick and each is recognisable. */
-async function withProfiles(agentProfiles: AgentProfileService) {
+async function withProfiles(agentProfiles: AgentProfileService, store: SessionStore) {
   const admin = { userId: firstAdminMemberId(), actorSessionId: null }
-  // A profile's record write (POD-6676), on a writer that only runs the write.
+  // A profile's record write (POD-6676), on a writer that only runs the write
+  // and drops its capture: these profiles are fixtures, not what is measured.
   const writer = {
     commit: async <T>(op: { write: (scope: never) => Promise<T> }) => ({
-      result: await op.write(undefined as never),
+      result: await seedRows(store, () => op.write(undefined as never)),
     }),
   }
   const make = async (name: string, harness: 'claude-code' | 'codex', effort: string) =>
@@ -183,7 +186,7 @@ describe('issues with agent profiles', () => {
 describe('agent profile inheritance on start', () => {
   async function mission() {
     const h = await harness()
-    const p = await withProfiles(h.agentProfiles)
+    const p = await withProfiles(h.agentProfiles, h.store)
     const root = await h.svc.crud.create(h.svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Mission',

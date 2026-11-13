@@ -64,7 +64,10 @@ async function fixture(size: number): Promise<Fixture> {
     ...issueTestPlumbing(() => {}, { store }),
     setSessionArchived: vi.fn(),
   }
-  return { store, svc: await IssueService.create(deps) }
+  const svc = await IssueService.create(deps)
+  // The change log is attached before anything is measured (POD-6920).
+  await store.attachChangeLog()
+  return { store, svc }
 }
 
 const pin = (name: string, run: (f: Fixture, size: number) => Promise<unknown>, check: (result: unknown, size: number) => void) => ({

@@ -680,20 +680,22 @@ export class SessionStore {
     })
   }
 
-  /** Whether the change capture is installed (POD-6920). */
-  private changeLogAttached = false
+  /** The change capture's installation, once started (POD-6920). */
+  private changeLogAttached: Promise<void> | undefined
 
   /**
    * DERIVED CHANGE CAPTURE (POD-6920): from here every write of a row a
    * synced record reads is captured, and a transaction that does not drain
    * its capture into the log cannot commit. The boot does this for every
    * server store; a test store does it when its test wires a change log over
-   * the store (`SessionRegistry.create`, `testStoreRecords`). Idempotent.
+   * the store (`SessionRegistry.create`, `logStoreRecords`). Idempotent: a
+   * second call waits for the first.
    */
   async attachChangeLog(): Promise<void> {
-    if (this.changeLogAttached) return
-    this.changeLogAttached = true
-    await this.executor.exclusive(async (session) => await installChangeCapture(session))
+    this.changeLogAttached ??= this.executor.exclusive(
+      async (session) => await installChangeCapture(session),
+    )
+    await this.changeLogAttached
   }
 
   /** Run `fn` atomically on the shared connection (nesting-safe: BEGIN at depth

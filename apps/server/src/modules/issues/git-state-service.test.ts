@@ -7,6 +7,7 @@ import { openTestStore } from '../../test-support/open-test-store'
 import { sessionReadPorts } from '../../test-support/session-facts'
 import { type IssueDeps, IssueService } from './service'
 import { issueTestPlumbing } from './service/test-plumbing'
+import { seedRows } from '../../test-support/seed-rows'
 
 // POD-98: the git-state service wiring end-to-end at the service layer —
 // turn-end trigger → coalesced probe (via repoOp) → targeted gitState update,
@@ -534,7 +535,7 @@ describe('POD-384 parent-branch movement watch', () => {
     row.branch = `issue/${row.seq}`
     row.parentBranch = parentBranch
     if (patch.branch !== undefined) row.branch = patch.branch
-    await issues.upsertIssue(fixtureWriteScope(), row)
+    await seedRows(svc.reports.store.deps.store, () => issues.upsertIssue(fixtureWriteScope(), row))
   }
 
   /** A branch one commit ahead of `main`, whose reflog proves the tip has moved
