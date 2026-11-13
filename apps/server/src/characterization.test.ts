@@ -652,6 +652,9 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
     // Reopen with the SAME code: the constructor migration pass must not fire any
     // destructive ALTER twice, drop data, or reshape the schema.
     const store2 = await openTestStore(file)
+    // A test store installs its change capture when a log attaches; a
+    // production boot installs it at open (POD-6920).
+    await store2.attachChangeLog()
     const after = {
       sessionIds: (await store2.sessions.loadSessions()).map((s) => s.id),
       issue: await store2.issues.getIssue(issue.id),

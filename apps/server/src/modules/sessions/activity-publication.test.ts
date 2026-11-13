@@ -437,11 +437,14 @@ describe('session activity publication', () => {
           return f
         },
         target: (f) => f.store,
-        run: async (f) => {
-          const ids = await f.store.sessions.activityPublicationsDue(now)
-          await f.store.sessions.publishActivity(fixtureWriteScope(), ids, now)
-          return ids
-        },
+        // The store-level write runs as a seed: the publisher's commit drains
+        // the capture the same way, one statement more (POD-6920).
+        run: async (f) =>
+          await seedRows(f.store, async () => {
+            const ids = await f.store.sessions.activityPublicationsDue(now)
+            await f.store.sessions.publishActivity(fixtureWriteScope(), ids, now)
+            return ids
+          }),
         check: async (result, f, size) => {
           expect(result).toHaveLength(size)
           expect(await f.store.sessions.getSession(f.session.sessionId)).toMatchObject({
@@ -449,7 +452,7 @@ describe('session activity publication', () => {
           })
         },
       },
-      2,
+      3,
     )
   })
 

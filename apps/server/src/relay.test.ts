@@ -6389,7 +6389,10 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
     })
     // Exactly what the old build persisted: text and updated_at, no rev, no
     // origin, no history.
-    await store.sessions.setDraft(sessionId, 'written before the upgrade')
+    await seedRows(
+      store,
+      async () => await store.sessions.setDraft(sessionId, 'written before the upgrade'),
+    )
     await reg.dispose()
     await store.close()
 

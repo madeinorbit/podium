@@ -26,12 +26,12 @@ import { appliedReply, envelope, submit } from './modules/sync-write/outbox-test
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
 import { testStoreRecords } from './test-support/record-writer'
+import { seedRows } from './test-support/seed-rows'
 import {
   expectArmed,
   expectConstantStatements,
   type StatementPin,
 } from './test-support/statement-count'
-import { seedRows } from './test-support/seed-rows'
 
 afterEach(() => disposeOracles())
 
@@ -44,47 +44,63 @@ let seq = 0
 /** `size` workflows, each with a revision, a binding on its own task and a run. */
 async function seedWorkflows(store: SessionStore, size: number, who = owner): Promise<void> {
   for (let i = 0; i < size; i++) {
-    await seedRows(store, async () => await store.workflows.insertWorkflow({
-      id: `wf_${i}`,
-      name: `Workflow ${i}`,
-      description: '',
-      scope: 'repository',
-      scopeRef: 'repo',
-      actor,
-      ownerUserId: who,
-      now: AT,
-    }))
-    await seedRows(store, async () => await store.workflows.insertRevision({
-      id: `wfr_${i}`,
-      workflowId: `wf_${i}`,
-      instructions: 'x',
-      steps: [],
-      actor,
-      now: AT,
-    }))
-    await store.workflows.setBinding({
-      targetKind: 'issue',
-      targetId: `iss_${i}`,
-      revisionId: `wfr_${i}`,
-      actor,
-      ownerUserId: who,
-      now: AT,
-    })
-    await store.workflows.insertRun({
-      run: {
-        id: `wrun_${i}`,
-        subjectKind: 'issue',
-        subjectId: `iss_${i}`,
-        coordinatorSessionId: asSessionId(`sess_${i}`),
-        revisionId: `wfr_${i}`,
-        status: 'active',
-        supersedesRunId: null,
-        startedAt: AT,
-        completedAt: null,
-        ownerUserId: who,
-      },
-      steps: [],
-    })
+    await seedRows(
+      store,
+      async () =>
+        await store.workflows.insertWorkflow({
+          id: `wf_${i}`,
+          name: `Workflow ${i}`,
+          description: '',
+          scope: 'repository',
+          scopeRef: 'repo',
+          actor,
+          ownerUserId: who,
+          now: AT,
+        }),
+    )
+    await seedRows(
+      store,
+      async () =>
+        await store.workflows.insertRevision({
+          id: `wfr_${i}`,
+          workflowId: `wf_${i}`,
+          instructions: 'x',
+          steps: [],
+          actor,
+          now: AT,
+        }),
+    )
+    await seedRows(
+      store,
+      async () =>
+        await store.workflows.setBinding({
+          targetKind: 'issue',
+          targetId: `iss_${i}`,
+          revisionId: `wfr_${i}`,
+          actor,
+          ownerUserId: who,
+          now: AT,
+        }),
+    )
+    await seedRows(
+      store,
+      async () =>
+        await store.workflows.insertRun({
+          run: {
+            id: `wrun_${i}`,
+            subjectKind: 'issue',
+            subjectId: `iss_${i}`,
+            coordinatorSessionId: asSessionId(`sess_${i}`),
+            revisionId: `wfr_${i}`,
+            status: 'active',
+            supersedesRunId: null,
+            startedAt: AT,
+            completedAt: null,
+            ownerUserId: who,
+          },
+          steps: [],
+        }),
+    )
   }
 }
 
@@ -127,54 +143,70 @@ async function writeFixture(size: number): Promise<WriteFixture> {
   const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
   await seedWorkflows(o.store, size, me)
   for (let i = 0; i < size; i++) {
-    await o.store.agentProfiles.insert({
-      id: `agp_other_${i}`,
-      name: `other-${i}`,
-      description: '',
-      candidates: [],
-      machineId: null,
-      instructions: '',
-      actor: me,
-      now: AT,
-    })
-    await o.store.events.addSubscription({
-      id: `sub_${i}`,
-      subscriberKind: 'session',
-      subscriberId: sessionId,
-      event: 'issue.closed',
-      sourceKind: 'relationship',
-      sourceRef: 'my-children',
-      deliverNudge: true,
-      deliverNotify: false,
-      origin: 'custom',
-      enabled: true,
-      createdAt: AT,
-    })
+    await seedRows(
+      o.store,
+      async () =>
+        await o.store.agentProfiles.insert({
+          id: `agp_other_${i}`,
+          name: `other-${i}`,
+          description: '',
+          candidates: [],
+          machineId: null,
+          instructions: '',
+          actor: me,
+          now: AT,
+        }),
+    )
+    await seedRows(
+      o.store,
+      async () =>
+        await o.store.events.addSubscription({
+          id: `sub_${i}`,
+          subscriberKind: 'session',
+          subscriberId: sessionId,
+          event: 'issue.closed',
+          sourceKind: 'relationship',
+          sourceRef: 'my-children',
+          deliverNudge: true,
+          deliverNotify: false,
+          origin: 'custom',
+          enabled: true,
+          createdAt: AT,
+        }),
+    )
   }
   // The rows each write names, beside the `size` others.
-  await o.store.agentProfiles.insert({
-    id: 'agp_mine',
-    name: 'mine',
-    description: '',
-    candidates: [],
-    machineId: null,
-    instructions: '',
-    actor: me,
-    now: AT,
-  })
-  await o.store.events.addSubscription({
-    id: 'sub_mine',
-    subscriberKind: 'session',
-    subscriberId: sessionId,
-    event: 'session.finished',
-    sourceKind: 'relationship',
-    sourceRef: 'my-children',
-    deliverNudge: true,
-    deliverNotify: false,
-    origin: 'custom',
-    enabled: true,
-    createdAt: AT,
-  })
+  await seedRows(
+    o.store,
+    async () =>
+      await o.store.agentProfiles.insert({
+        id: 'agp_mine',
+        name: 'mine',
+        description: '',
+        candidates: [],
+        machineId: null,
+        instructions: '',
+        actor: me,
+        now: AT,
+      }),
+  )
+  await seedRows(
+    o.store,
+    async () =>
+      await o.store.events.addSubscription({
+        id: 'sub_mine',
+        subscriberKind: 'session',
+        subscriberId: sessionId,
+        event: 'session.finished',
+        sourceKind: 'relationship',
+        sourceRef: 'my-children',
+        deliverNudge: true,
+        deliverNotify: false,
+        origin: 'custom',
+        enabled: true,
+        createdAt: AT,
+      }),
+  )
   return { o, session: sessionId }
 }
 

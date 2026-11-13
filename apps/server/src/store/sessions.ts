@@ -52,6 +52,7 @@ import {
   snoozes as snoozesTable,
   tabOrder,
 } from '../migrations/schema'
+import { type ChangeLogCommit, throughChangeLog } from './change-log-commit'
 import { applyAfterCommit, spanOpen } from './executor/executor'
 import { operationLoader } from './executor/operation-loader'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
@@ -1408,6 +1409,7 @@ export class SessionsRepository {
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
   private messageWindowWrite: SessionMessageWindowWrite | undefined
+  private snoozeLapseCommit: ChangeLogCommit | undefined
 
   /** Installed with the message feed. Every liveness-changing write below
    *  runs as a change-log commit inside the same transaction. */
@@ -2187,7 +2189,8 @@ export class SessionsRepository {
   /**
    * ONE USER'S OVERLAY OF A SET OF SESSIONS (POD-6160): the read marker and
    * the snooze of each, two indexed statements per 500 ids. A snooze that has
-   * expired reads as absent, as `listSnoozes` reads it; neither read writes.
+   * expired reads as absent, as `listSnoozes` reads it; deleting it is left to
+   * that listing, so this read never writes.
    */
   async userStateOf(
     userId: UserId,
@@ -2260,20 +2263,37 @@ export class SessionsRepository {
   }
 
   // ---- snoozes ----
-  /** Active snoozes. A timed snooze whose deadline has passed reads as absent
-   *  (the client clock also ignores lapsed ones at render time). `null` snoozes
-   *  (until-next-message) never lapse by time. The read never writes (POD-6920:
-   *  every write runs in a change-log commit); a lapsed row goes with the
-   *  session's next shared event (`clearAllSnoozes`), the person's next snooze
-   *  of it, or the session's purge. */
+  /** Active snoozes. Lazily deletes any timed snooze whose deadline has passed
+   *  (the client clock also ignores lapsed ones at render time; this is just
+   *  housekeeping). `null` snoozes (until-next-message) never lapse by time.
+   *  The delete runs as a change-log commit when the hook is installed
+   *  (POD-6920): a read outside one may not change a synced row. */
   async listSnoozes(userId: UserId, now: number = Date.now()): Promise<SnoozeMap> {
     const rows = await snoozesOfUser(this.db).all({ userId })
     const out: SnoozeMap = {}
+    const expired: SessionId[] = []
     for (const r of rows) {
-      if (r.snoozedUntil !== null && Date.parse(r.snoozedUntil) <= now) continue
+      if (r.snoozedUntil !== null && Date.parse(r.snoozedUntil) <= now) {
+        expired.push(r.sessionId)
+        continue
+      }
       out[r.sessionId] = r.snoozedUntil
     }
+    // The lazy delete stays scoped to the reader: housekeeping on read must never
+    // drop somebody else's row, even an expired one.
+    if (expired.length > 0) {
+      await throughChangeLog(this.snoozeLapseCommit, async () => {
+        for (const id of expired) {
+          await deleteUserSnooze(this.db).run({ userId, sessionId: id })
+        }
+      })
+    }
     return out
+  }
+
+  /** The composition root's change-log commit for {@link listSnoozes}' lazy delete. */
+  setSnoozeLapseCommit(commit: ChangeLogCommit): void {
+    this.snoozeLapseCommit = commit
   }
 
   /** Snooze a session for one user. `until` = null → until next message; ISO

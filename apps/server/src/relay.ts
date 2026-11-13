@@ -1240,6 +1240,7 @@ export class SessionRegistry {
     this.store.grants.machineRecordWrites.compare = async (write, writer) =>
       await asSystemWrite(async () => await compareMachineRecords(write, writer))
     installSessionSourceWrites(this.store, writes.system('sessions.live'))
+    this.store.sessions.setSnoozeLapseCommit(changeLogCommit(writes.system('sessions.snoozeLapse')))
     // ONE HOOK ON THE ONE APPEND (POD-1772): every orchestrator event write in
     // the server goes through `store.events.appendEvent`, and every retention
     // batch through `pruneEventBatch`. Each runs this commit in its own

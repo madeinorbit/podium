@@ -175,6 +175,10 @@ export const SYSTEM_WRITE_ORIGINS = {
     what: "session rows whose birth ref changed because an issue repair renumbered or re-keyed their issue, captured inside that repair's write",
     kind: 'mirror',
   },
+  'sessions.snoozeLapse': {
+    what: "a person's lapsed timed snoozes, deleted when their snooze list is read (POD-6920)",
+    kind: 'mirror',
+  },
   'sessions.live': {
     what: "a session's live fields (activity, terminal state, the composer's draft tag) captured to the feed, inside whichever unit flushes them",
     kind: 'mirror',

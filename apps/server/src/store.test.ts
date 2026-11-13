@@ -868,8 +868,8 @@ describe('SessionStore snoozes', () => {
     )
     const now = Date.parse('2026-06-19T00:00:00.000Z')
     expect(await store.sessions.listSnoozes(firstAdminMemberId(), now)).toEqual({ forever: null })
-    // the read filters the lapsed row and leaves it in place: reads never write (POD-6920)
-    expect(await store.sessions.hasAnySnooze(asSessionId('past'))).toBe(true)
+    // the expired row was deleted, not just filtered
+    expect(await store.sessions.listSnoozes(firstAdminMemberId(), 0)).toEqual({ forever: null })
     await store.close()
   })
 

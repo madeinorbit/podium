@@ -60,10 +60,15 @@ describe('layout on sync.submit', () => {
   it('a failed change append leaves neither the row nor the change entry', async () => {
     const o = await makeOracle()
     // The append itself fails: the row is written in the same commit, so it
-    // goes with it.
+    // goes with it. Only the layout append fails; a background commit's
+    // append (the server's own writes) goes through.
+    const append = o.store.sync.appendChanges.bind(o.store.sync)
     const capture = vi
       .spyOn(o.store.sync, 'appendChanges')
-      .mockRejectedValueOnce(new Error('append failed'))
+      .mockImplementation(async (rows, ...rest) => {
+        if (rows.some((row) => row.entity === 'userLayout')) throw new Error('append failed')
+        return await append(rows, ...rest)
+      })
 
     await expect(
       submit(o, envelope('layout.set', { values: { dockTab: 'files' } }, 'm-layout-fail')),

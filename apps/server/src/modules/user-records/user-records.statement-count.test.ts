@@ -18,6 +18,7 @@ import {
 } from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
+import { seedRows } from '../../test-support/seed-rows'
 import {
   expectArmed,
   expectConstantStatements,
@@ -25,7 +26,6 @@ import {
 } from '../../test-support/statement-count'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import { appliedReply, envelope, submit } from '../sync-write/outbox-test-support'
-import { seedRows } from '../../test-support/seed-rows'
 
 afterEach(() => disposeOracles())
 
@@ -43,17 +43,33 @@ async function fixture(size: number): Promise<Fixture> {
   const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
   for (let i = 0; i < size; i++) {
     const other = asUserId(`user:other-${i}`)
-    await seedRows(o.store, async () => await o.store.sessions.addPin(other, 'repo', `/repo/${i}`, AT))
-    await seedRows(o.store, async () => await o.store.sessions.addPin(ME, 'worktree', `/mine/${i}`, AT))
-    await seedRows(o.store, async () => await o.store.sessions.setTabOrder(other, `/w/${i}`, ['s1']))
-    await seedRows(o.store, async () => await o.store.sessions.setTabOrder(ME, `/mine/${i}`, ['s1']))
+    await seedRows(
+      o.store,
+      async () => await o.store.sessions.addPin(other, 'repo', `/repo/${i}`, AT),
+    )
+    await seedRows(
+      o.store,
+      async () => await o.store.sessions.addPin(ME, 'worktree', `/mine/${i}`, AT),
+    )
+    await seedRows(
+      o.store,
+      async () => await o.store.sessions.setTabOrder(other, `/w/${i}`, ['s1']),
+    )
+    await seedRows(
+      o.store,
+      async () => await o.store.sessions.setTabOrder(ME, `/mine/${i}`, ['s1']),
+    )
     await o.store.settings.applyPreferencePatch(other, { 'sidebar.repoSort': 'custom' }, AT)
-    await o.store.readPositions.advance(
-      fixtureWriteScope(),
-      other,
-      'issueEvents',
-      { lastEventId: i + 1, seenAt: null },
-      AT,
+    await seedRows(
+      o.store,
+      async () =>
+        await o.store.readPositions.advance(
+          fixtureWriteScope(),
+          other,
+          'issueEvents',
+          { lastEventId: i + 1, seenAt: null },
+          AT,
+        ),
     )
   }
   return { o, session: sessionId }

@@ -25,7 +25,6 @@ function fixture(count: number) {
   const rows = Array.from({ length: count }, (_, i) => makeSession(i))
   const sessions = new Map(rows.map((s) => [s.sessionId, s]))
   const written: SessionRow[] = []
-  const projected: unknown[] = []
   const store = {
     transferFenceActive: false,
     sessions: {
@@ -42,16 +41,11 @@ function fixture(count: number) {
     sessions,
     store,
     writers: ((ledger) => ({ live: ledger, boot: ledger }))({
-      commit: async ({
-        write,
-        changes,
-      }: {
-        write: () => Promise<void>
-        changes: () => Promise<unknown[]>
-      }) => {
+      // The commit names no records (POD-6920): the rows it writes are what
+      // the database captures, so `written` is what reaches the feed.
+      commit: async ({ write }: { write: () => Promise<void> }) => {
         commits += 1
         await write()
-        projected.push(...(await changes()))
         return { changes: [] }
       },
     }),
@@ -61,7 +55,7 @@ function fixture(count: number) {
     },
     now: () => Date.now(),
   } as never)
-  return { repo, rows, sessions, store, written, projected, commits: () => commits }
+  return { repo, rows, sessions, store, written, commits: () => commits }
 }
 
 // The pre-queue algorithm, retained as the same-fixture behavioral oracle.
@@ -108,7 +102,6 @@ describe('changed session activity saving', () => {
       await oldFlush(old)
       await flushCandidate(candidate.repo)
       expect(candidate.written).toEqual(old.written)
-      expect(candidate.projected).toEqual(old.projected)
       expect(candidate.rows.map((s) => s.terminal.activityDirty)).toEqual(
         old.rows.map((s) => s.terminal.activityDirty),
       )
@@ -139,11 +132,6 @@ describe('changed session activity saving', () => {
     expect(f.store.sessions.upsertSessions).toHaveBeenCalledTimes(1)
     expect(f.store.sessions.upsertSession).not.toHaveBeenCalled()
     expect(f.written.map((row) => row.id)).toEqual(['dirty-2', 'dirty-0', 'dirty-3'])
-    expect(f.projected.map((change) => (change as { id: string }).id)).toEqual([
-      'dirty-2',
-      'dirty-0',
-      'dirty-3',
-    ])
     expect(f.rows.map((s) => s.terminal.activityDirty)).toEqual([false, false, false, false])
   })
 

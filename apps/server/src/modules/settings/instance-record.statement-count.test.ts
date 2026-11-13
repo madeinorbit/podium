@@ -8,7 +8,8 @@
  * its change entry is the one record, never a scan of anybody else's rows.
  */
 
-import { asUserId, INSTANCE_PREFERENCES_ROW_ID } from '@podium/model'
+import { asUserId, firstAdminMemberId, INSTANCE_PREFERENCES_ROW_ID } from '@podium/model'
+import { superagentBackendIsUnset } from '@podium/runtime'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   expectArmed,
@@ -25,6 +26,15 @@ let seq = 0
 
 async function fixture(size: number): Promise<Oracle> {
   const o = await makeOracle()
+  // The host daemon's inventory seeds the admin's superagent default in the
+  // background; it lands before the run, not inside it, at either size.
+  await expect
+    .poll(async () =>
+      superagentBackendIsUnset(
+        (await o.store.settings.getSettingsFor(firstAdminMemberId())).roles.superagent,
+      ),
+    )
+    .toBe(false)
   for (let i = 0; i < size; i++) {
     const other = asUserId(`user:member-${i}`)
     await o.store.users.createUnclaimed({
@@ -66,11 +76,12 @@ describe('statement counts of the instance settings edit', () => {
   it('does not grow with the members or the preferences the store holds', async () => {
     // POD-6769: the record is built before and after the blob write (+1). The
     // base ran 16 against its pin of 15 at f4053a3909.
-    await expectConstantStatements(instanceEdit, 17)
+    // POD-6920: derived change capture adds the commit's capture mark: 17 -> 18.
+    await expectConstantStatements(instanceEdit, 18)
   })
 
   it('is armed: a read per member on the edit path fails it', async () => {
-    await expectArmed(instanceEdit, 17, (o, size) => {
+    await expectArmed(instanceEdit, 18, (o, size) => {
       const users = o.store.users
       const original = users.roleOf.bind(users)
       users.roleOf = async (user) => {

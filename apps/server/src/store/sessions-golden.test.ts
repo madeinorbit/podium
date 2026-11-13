@@ -387,14 +387,17 @@ describe('snoozes across readers', () => {
     expect(await sessions.hasAnySnooze(asSessionId('sess-2'))).toBe(true)
   })
 
-  it('listSnoozes reads a lapsed timed snooze as absent without deleting it', async () => {
-    // POD-6920: a read never writes; every write runs in a change-log commit.
-    // The lapsed rows go with the session's next shared event.
+  it('listSnoozes lapses a timed snooze on read, scoped to the reader', async () => {
+    // A read that WRITES, and the housekeeping is deliberately reader-scoped:
+    // dropping somebody else's expired row would be a cross-owner delete nobody
+    // asked for.
     await put({ id: 'sess-1' })
     const past = '2000-01-01T00:00:00.000Z'
     await sessions.setSnooze(fixtureWriteScope(), ALICE, asSessionId('sess-1'), past)
+    await sessions.setSnooze(fixtureWriteScope(), BOB, asSessionId('sess-1'), past)
 
     expect(await sessions.listSnoozes(ALICE)).toEqual({})
+    // BOB's equally-expired row was not touched by ALICE's read.
     expect(await sessions.hasAnySnooze(asSessionId('sess-1'))).toBe(true)
   })
 

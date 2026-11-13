@@ -475,7 +475,8 @@ async function machineGrantAccessIds(
   const keys = keysOf(changes).filter((key) => key[0] === 'machine')
   const machineIds = unique(keys.map((key) => str(key[1])))
   if (machineIds.length === 0) return []
-  if (keys.some((key) => key[3] === 1 || key[3] === true)) return accessIds(machineIds, 'all', reads)
+  if (keys.some((key) => key[3] === 1 || key[3] === true))
+    return accessIds(machineIds, 'all', reads)
   const admins = (await reads.store.users.recordMembers())
     .filter((member) => member.role === 'admin')
     .map((member) => member.id as string)
@@ -563,6 +564,12 @@ const MACHINE_ROW_READS = {
 } as const satisfies Partial<RecordSource>
 
 /**
+ * The harnesses a machine record shows as logged out: the installed agents
+ * of the inventory whose login is out, in inventory order.
+ */
+const MACHINE_LOGGED_OUT = `CASE WHEN json_valid({row}.${machines.inventoryJson.name}) THEN (SELECT json_group_array(json_extract(agent.value, '$.kind')) FROM json_each({row}.${machines.inventoryJson.name}, '$.agents') AS agent WHERE json_extract(agent.value, '$.installed') = 1 AND json_extract(agent.value, '$.login.state') = 'out') ELSE {row}.${machines.inventoryJson.name} END`
+
+/**
  * A tombstoned row is on no record: its tombstoning (and a restore) is
  * captured, and what happens to it afterwards, a purge included, is not.
  */
@@ -577,15 +584,19 @@ const notTombstoned = (deletedAt: Column): string => `{row}.${deletedAt.name} IS
 const ofLiveSession = (sessionId: Column): string =>
   `EXISTS (SELECT 1 FROM ${getTableName(sessions)} WHERE ${sessions.id.name} = {row}.${sessionId.name} AND ${sessions.deletedAt.name} IS NULL)`
 
-/** The fleet's update channel and published targets (`machine-record-context.ts`). */
-const MACHINE_CONTEXT_ROWS = `{row}.${meta.key.name} IN ('machines.fleet-channel.v1', 'updates.execution.v1')`
-
 /**
  * What a machine record reads of those rows: the channel's whole value, and
  * of the update checkpoint only each channel's published version, so a
  * checkpoint write that moved no version leaves no trace.
  */
 const MACHINE_CONTEXT_VALUE = `CASE WHEN {row}.${meta.key.name} = 'updates.execution.v1' AND json_valid({row}.${meta.value.name}) THEN (SELECT group_concat(json_extract(target.value, '$[0]') || '=' || coalesce(json_extract(target.value, '$[1].version'), ''), ',') FROM json_each({row}.${meta.value.name}, '$.targets') AS target) ELSE {row}.${meta.value.name} END`
+
+/**
+ * The fleet's update channel and published targets (`machine-record-context.ts`).
+ * An update checkpoint that publishes no target reads as no checkpoint, so its
+ * first write (the updates module's boot) reaches no record.
+ */
+const MACHINE_CONTEXT_ROWS = `{row}.${meta.key.name} = 'machines.fleet-channel.v1' OR ({row}.${meta.key.name} = 'updates.execution.v1' AND (${MACHINE_CONTEXT_VALUE}) IS NOT NULL)`
 
 /** The machine context rows, captured by key and by {@link MACHINE_CONTEXT_VALUE}. */
 const machineContext = (ids: RecordSource['ids']): RecordSource =>
@@ -651,18 +662,17 @@ export const RECORD_SOURCES: RecordSources = {
   ],
   machine: [
     // The machine record (`record-facts.ts` MachineProjection): its name,
-    // logged-out harnesses (inventory), version, channel override and install
-    // kind; the rest of the row is the access rows'.
+    // version, channel override and install kind, and of the inventory only
+    // the installed harnesses that are logged out; the rest of the row
+    // (revocation and supersession included) is the access rows'.
     byId(machines, machines.id, {
       reads: [
         machines.name,
-        machines.inventoryJson,
         machines.appVersion,
         machines.updateChannelOverride,
         machines.installKind,
-        machines.revokedAt,
-        machines.supersededBy,
       ],
+      derived: [MACHINE_LOGGED_OUT],
     }),
     // The custodian is read from the machine's grant edges.
     via(
@@ -951,7 +961,9 @@ export const RECORD_SOURCES: RecordSources = {
       },
       rows: notTombstoned(sessions.deletedAt),
     }),
-    own(offers, [offers.sessionId], (key) => str(key[0]), { rows: ofLiveSession(offers.sessionId) }),
+    own(offers, [offers.sessionId], (key) => str(key[0]), {
+      rows: ofLiveSession(offers.sessionId),
+    }),
     own(sessionDrafts, [sessionDrafts.sessionId], (key) => str(key[0]), {
       rows: ofLiveSession(sessionDrafts.sessionId),
     }),
