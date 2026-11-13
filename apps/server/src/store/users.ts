@@ -867,36 +867,34 @@ export class UsersRepository {
     account: Omit<UserAccountRow, 'email'> & { email?: string | null },
     passwordHash: string,
   ): Promise<void> {
-    await this.machinesRepository.machineRecordWrites.compare(
-      async () => {
-        // The write invalidates the account loaders, so the read after a mint sees
-        // the account rather than a memoised "no account"; a rollback takes what
-        // the span read after it with it (see `accounts`).
-        await this.createOrJoinTransaction(async () => {
-          await this.committed.write(
-            async () =>
-              await insertUserReturning(this.db).all({
-                // EXTERNAL INPUT BRAND DECODE: UserAccountRow is the account-import
-                // boundary and deliberately carries its source id as a string.
-                id: asUserId(account.id),
-                displayName: account.displayName,
-                email: account.email == null ? null : LoginEmail.parse(account.email),
-                role: account.role,
-                createdAt: account.createdAt,
-              }),
-            'upsert',
-          )
-          this.accountsWritten()
-          await insertCredential(this.db).run({
-            // Same external account id, branded independently for this write.
-            userId: asUserId(account.id),
-            passwordHash,
-            updatedAt: account.createdAt,
-          })
-          await this.memberCreated?.(asUserId(account.id))
+    await this.machinesRepository.machineRecordWrites.compare(async () => {
+      // The write invalidates the account loaders, so the read after a mint sees
+      // the account rather than a memoised "no account"; a rollback takes what
+      // the span read after it with it (see `accounts`).
+      await this.createOrJoinTransaction(async () => {
+        await this.committed.write(
+          async () =>
+            await insertUserReturning(this.db).all({
+              // EXTERNAL INPUT BRAND DECODE: UserAccountRow is the account-import
+              // boundary and deliberately carries its source id as a string.
+              id: asUserId(account.id),
+              displayName: account.displayName,
+              email: account.email == null ? null : LoginEmail.parse(account.email),
+              role: account.role,
+              createdAt: account.createdAt,
+            }),
+          'upsert',
+        )
+        this.accountsWritten()
+        await insertCredential(this.db).run({
+          // Same external account id, branded independently for this write.
+          userId: asUserId(account.id),
+          passwordHash,
+          updatedAt: account.createdAt,
         })
-      },
-    )
+        await this.memberCreated?.(asUserId(account.id))
+      })
+    })
   }
 
   async setPasswordHash(userId: UserId, passwordHash: string, updatedAt: string): Promise<void> {
@@ -922,21 +920,19 @@ export class UsersRepository {
   }
 
   async createUnclaimed(account: UserAccountRow): Promise<void> {
-    await this.machinesRepository.machineRecordWrites.compare(
-      async () => {
-        await this.createOrJoinTransaction(async () => {
-          await insertUser(this.db).run({
-            id: asUserId(account.id),
-            displayName: account.displayName,
-            email: account.email,
-            role: account.role,
-            createdAt: account.createdAt,
-          })
-          this.accountsWritten()
-          await this.memberCreated?.(asUserId(account.id))
+    await this.machinesRepository.machineRecordWrites.compare(async () => {
+      await this.createOrJoinTransaction(async () => {
+        await insertUser(this.db).run({
+          id: asUserId(account.id),
+          displayName: account.displayName,
+          email: account.email,
+          role: account.role,
+          createdAt: account.createdAt,
         })
-      },
-    )
+        this.accountsWritten()
+        await this.memberCreated?.(asUserId(account.id))
+      })
+    })
   }
 
   async findMemberByAccount(accountId: string): Promise<UserAccountRow | undefined> {
@@ -957,47 +953,45 @@ export class UsersRepository {
   }
 
   async removeMember(userId: UserId, actor: UserId): Promise<void> {
-    await this.machinesRepository.machineRecordWrites.compare(
-      async () => {
-        await this.claimTransaction(async () => {
-          await this.requireActiveAdmin(actor)
-          if (userId === actor) throw new MemberChangeRefused('self', 'You cannot remove yourself')
-          // Read the retained row: a disabled member can still hold custody, and
-          // retrying removal by member id must succeed without duplicate audits.
-          const existing = await accountById(this.db).get({ id: userId })
-          if (!existing) throw new MemberChangeRefused('unavailable', 'Member unavailable')
-          if (await this.isLastActiveAdmin(existing)) throw lastAdmin('removed')
-          const at = new Date().toISOString()
-          await this.disable(userId, at, actor)
-          const held = await custodyMachinesOf(this.db).all({ grantee: userId })
-          for (const machine of held) {
-            await this.machinesRepository.setMachineOwner(machine.id, null)
-            await insertSettingsAudit(this.db).run({
-              command: 'members.remove',
-              outcome: 'applied',
-              actorKind: 'user',
-              actorId: actor,
-              onBehalfOf: actor,
-              detailJson: JSON.stringify({
-                memberId: userId,
-                machineId: machine.id,
-                previousOwnerUserId: userId,
-                newOwnerUserId: null,
-              }),
-              createdAt: at,
-            })
-          }
-          // Keep other members' shares, including shares granted by this member.
-          // Only the removed member's incoming grants are invalidated. Session and
-          // issue attribution (and historical grant audiences) are never rewritten.
-          await this.grantsRepository.removeAllForGrantee(userId)
-          await deleteClientSessionsOf(this.db).run({ userId })
-          await deleteCredentialOf(this.db).run({ userId })
-          await deleteInvitesOfMember(this.db).run({ memberId: userId })
-          await this.bumpAuthorization(userId, 'removed')
-        })
-      },
-    )
+    await this.machinesRepository.machineRecordWrites.compare(async () => {
+      await this.claimTransaction(async () => {
+        await this.requireActiveAdmin(actor)
+        if (userId === actor) throw new MemberChangeRefused('self', 'You cannot remove yourself')
+        // Read the retained row: a disabled member can still hold custody, and
+        // retrying removal by member id must succeed without duplicate audits.
+        const existing = await accountById(this.db).get({ id: userId })
+        if (!existing) throw new MemberChangeRefused('unavailable', 'Member unavailable')
+        if (await this.isLastActiveAdmin(existing)) throw lastAdmin('removed')
+        const at = new Date().toISOString()
+        await this.disable(userId, at, actor)
+        const held = await custodyMachinesOf(this.db).all({ grantee: userId })
+        for (const machine of held) {
+          await this.machinesRepository.setMachineOwner(machine.id, null)
+          await insertSettingsAudit(this.db).run({
+            command: 'members.remove',
+            outcome: 'applied',
+            actorKind: 'user',
+            actorId: actor,
+            onBehalfOf: actor,
+            detailJson: JSON.stringify({
+              memberId: userId,
+              machineId: machine.id,
+              previousOwnerUserId: userId,
+              newOwnerUserId: null,
+            }),
+            createdAt: at,
+          })
+        }
+        // Keep other members' shares, including shares granted by this member.
+        // Only the removed member's incoming grants are invalidated. Session and
+        // issue attribution (and historical grant audiences) are never rewritten.
+        await this.grantsRepository.removeAllForGrantee(userId)
+        await deleteClientSessionsOf(this.db).run({ userId })
+        await deleteCredentialOf(this.db).run({ userId })
+        await deleteInvitesOfMember(this.db).run({ memberId: userId })
+        await this.bumpAuthorization(userId, 'removed')
+      })
+    })
   }
 
   /**

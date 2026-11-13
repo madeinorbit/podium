@@ -6,9 +6,10 @@
  * it (POD-6920). Checkpoints, runtime events and offers already run in the
  * persist funnel; draft documents run in their own commit.
  */
-import { changeLogCommit } from '../store/change-log-commit'
+
 import type { LedgerWriter } from '@podium/sync'
 import type { SessionStore } from '../store'
+import { changeLogCommit } from '../store/change-log-commit'
 
 export function installSessionSourceWrites(
   store: SessionStore,

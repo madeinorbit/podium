@@ -11,8 +11,8 @@ import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
-import { sessionReadPorts } from './test-support/session-facts'
 import { seedRaw } from './test-support/seed-rows'
+import { sessionReadPorts } from './test-support/session-facts'
 
 /** Issues are placed on a machine that reported their repo (2b803efb5 refuses
  *  implicit placement), so the host machine reports the fixture repo. */
@@ -35,7 +35,10 @@ function deps(store: SessionStore): IssueDeps {
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
+    spawnSession: vi.fn(async () => ({
+      sessionId: asSessionId('s1'),
+      machine: 'machine-under-test',
+    })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     ...issueTestPlumbing(undefined, { store }),
   }
@@ -58,8 +61,16 @@ describe('IssueService boot quarantine', () => {
   it('a structurally corrupt row (NULL id) is skipped; the other rows are read', async () => {
     const store = await reportingStore()
     const svc = await IssueService.create(deps(store))
-    const good1 = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'healthy one', startNow: false })
-    const good2 = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'healthy two', startNow: false })
+    const good1 = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'healthy one',
+      startNow: false,
+    })
+    const good2 = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'healthy two',
+      startNow: false,
+    })
     // SQLite permits NULL in a TEXT PRIMARY KEY — a genuinely corrupt row.
     seedRaw(rawDb(store), () =>
       rawDb(store)
@@ -85,7 +96,11 @@ describe('IssueService boot quarantine', () => {
   it('bad JSON in a column quarantines the VALUE but keeps the row', async () => {
     const store = await reportingStore()
     const svc = await IssueService.create(deps(store))
-    const w = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'keep me', startNow: false })
+    const w = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'keep me',
+      startNow: false,
+    })
     seedRaw(rawDb(store), () =>
       rawDb(store).prepare('UPDATE issues SET blocked_by = ? WHERE id = ?').run('{not json', w.id),
     )

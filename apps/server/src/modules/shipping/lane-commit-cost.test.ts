@@ -17,12 +17,12 @@ import { fixtureWriteScope, testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
+import { logStoreRecords } from '../../test-support/record-writer'
+import { seedRows } from '../../test-support/seed-rows'
 import { sessionReadPorts } from '../../test-support/session-facts'
 import { IssueService } from '../issues/service'
 import { CompatibilityShippingPolicyResolver } from './policy'
 import { ShippingService } from './service'
-import { logStoreRecords } from '../../test-support/record-writer'
-import { seedRows } from '../../test-support/seed-rows'
 
 const stores: SessionStore[] = []
 afterEach(async () => {
@@ -104,27 +104,29 @@ async function world(outside: number, laneSize: number, outsideQueued = true) {
     id: string,
   ) => {
     const at = new Date(Date.UTC(2026, 7, 13, 0, minute++)).toISOString()
-    return await seedRows(store, () => store.shipping.createOrder(fixtureWriteScope(), {
-      id: asShipOrderId(id),
-      issueId,
-      descendantManifest: [],
-      repoId,
-      repoPath,
-      machineId: asMachineId('machine-1'),
-      targetBranch: 'main',
-      destination: 'local:main',
-      approvedBaseSha: 'base-sha',
-      approvedHeadSha: `head-${id}`,
-      deliveryDependsOn: [],
-      requestedBy,
-      requestedAt: at,
-      policyId: 'compatibility-local:main',
-      validationProfile: PROFILE,
-      validationProfileDigest: createHash('sha256').update(JSON.stringify(PROFILE)).digest('hex'),
-      closeMode: 'after-destination',
-      state: 'queued',
-      stateChangedAt: at,
-    }))
+    return await seedRows(store, () =>
+      store.shipping.createOrder(fixtureWriteScope(), {
+        id: asShipOrderId(id),
+        issueId,
+        descendantManifest: [],
+        repoId,
+        repoPath,
+        machineId: asMachineId('machine-1'),
+        targetBranch: 'main',
+        destination: 'local:main',
+        approvedBaseSha: 'base-sha',
+        approvedHeadSha: `head-${id}`,
+        deliveryDependsOn: [],
+        requestedBy,
+        requestedAt: at,
+        policyId: 'compatibility-local:main',
+        validationProfile: PROFILE,
+        validationProfileDigest: createHash('sha256').update(JSON.stringify(PROFILE)).digest('hex'),
+        closeMode: 'after-destination',
+        state: 'queued',
+        stateChangedAt: at,
+      }),
+    )
   }
   const issueIn = async (repoPath: string, title: string) => {
     const created = await issues.crud.create(issues.reports.store.serverWriter, {
@@ -145,13 +147,15 @@ async function world(outside: number, laneSize: number, outsideQueued = true) {
       await order(other.id, other.repoId!, `/other-${index}`, `outside-${index}`)
     } else {
       const old = await order(history.id, history.repoId!, '/history', `outside-${index}`)
-      await seedRows(store, () => store.shipping.transitionOrder(
-        fixtureWriteScope(),
-        old.id,
-        'queued',
-        'cancelled',
-        '2026-08-13T09:00:00.000Z',
-      ))
+      await seedRows(store, () =>
+        store.shipping.transitionOrder(
+          fixtureWriteScope(),
+          old.id,
+          'queued',
+          'cancelled',
+          '2026-08-13T09:00:00.000Z',
+        ),
+      )
     }
   }
   const lane: ShipOrder[] = []

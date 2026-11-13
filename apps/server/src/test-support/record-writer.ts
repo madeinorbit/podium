@@ -16,9 +16,9 @@ import {
   type RecordSourcePort,
 } from '@podium/sync'
 import { authorityCommitWriter, memoryChangeLog } from '@podium/sync/testing'
-import { databaseRecords } from '../sync/record-source'
 import type { SessionStore } from '../store'
 import type { RecordReads } from '../sync/record-builders'
+import { databaseRecords } from '../sync/record-source'
 
 /**
  * The record source over a real store, for a test that READS records (a

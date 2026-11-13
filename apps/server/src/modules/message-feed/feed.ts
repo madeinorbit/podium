@@ -195,7 +195,6 @@ export async function messageWindow(
   return messageRecords([...open, ...confirmed])
 }
 
-
 export class MessageFeedPublisher {
   constructor(private readonly deps: MessageFeedDeps) {}
 

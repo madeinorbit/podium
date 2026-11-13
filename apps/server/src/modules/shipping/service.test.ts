@@ -19,6 +19,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
 import { logStoreRecords } from '../../test-support/record-writer'
+import { seedRows } from '../../test-support/seed-rows'
 import { sessionReadPorts } from '../../test-support/session-facts'
 import {
   countStatements,
@@ -42,7 +43,6 @@ import {
   shippingResourceHolderId,
 } from './service'
 import { ShippingEvidenceRegistry } from './shipwright'
-import { seedRows } from '../../test-support/seed-rows'
 
 const stores: SessionStore[] = []
 afterEach(async () => {
@@ -2231,11 +2231,13 @@ describe('ShippingService enqueue transaction', () => {
     const covered = admitted[0]!
     const leader = admitted[1]!
     expect(leader.receipt.order.deliveryDependsOn).toEqual([covered.receipt.order.id])
-    await seedRows(store, () => store.shipping.claimTrain(fixtureWriteScope(), {
-      leaderOrderId: leader.receipt.order.id,
-      startedAt: '2026-08-13T10:00:00.000Z',
-      members: admitted.map(({ receipt }) => ({ orderId: receipt.order.id })),
-    }))
+    await seedRows(store, () =>
+      store.shipping.claimTrain(fixtureWriteScope(), {
+        leaderOrderId: leader.receipt.order.id,
+        startedAt: '2026-08-13T10:00:00.000Z',
+        members: admitted.map(({ receipt }) => ({ orderId: receipt.order.id })),
+      }),
+    )
 
     // A crash between the leader's settlement and its covered prefix's, as a
     // build before the one atomic train completion could leave it: the leader
@@ -2966,11 +2968,13 @@ describe('ShippingService enqueue transaction', () => {
     )
     const sibling = admitted[0]!
     const leader = admitted[1]!
-    await seedRows(store, () => store.shipping.claimTrain(fixtureWriteScope(), {
-      leaderOrderId: leader.receipt.order.id,
-      startedAt: '2026-08-13T10:00:00.000Z',
-      members: admitted.map(({ receipt }) => ({ orderId: receipt.order.id })),
-    }))
+    await seedRows(store, () =>
+      store.shipping.claimTrain(fixtureWriteScope(), {
+        leaderOrderId: leader.receipt.order.id,
+        startedAt: '2026-08-13T10:00:00.000Z',
+        members: admitted.map(({ receipt }) => ({ orderId: receipt.order.id })),
+      }),
+    )
 
     await service.runOrder(leader.receipt.order.id, [sibling.receipt.order])
     const hold = (await store.shipping.openHoldForOrder(leader.receipt.order.id))!
@@ -3240,11 +3244,13 @@ describe('ShippingService enqueue transaction', () => {
     )
     const sibling = admitted[0]!
     const leader = admitted[1]!
-    await seedRows(store, () => store.shipping.claimTrain(fixtureWriteScope(), {
-      leaderOrderId: leader.receipt.order.id,
-      startedAt: '2026-08-13T10:00:00.000Z',
-      members: admitted.map(({ receipt }) => ({ orderId: receipt.order.id })),
-    }))
+    await seedRows(store, () =>
+      store.shipping.claimTrain(fixtureWriteScope(), {
+        leaderOrderId: leader.receipt.order.id,
+        startedAt: '2026-08-13T10:00:00.000Z',
+        members: admitted.map(({ receipt }) => ({ orderId: receipt.order.id })),
+      }),
+    )
     await expect(
       service.enqueue(laneWriter(service), { issueId: sibling.issue.id, ...approval }),
     ).resolves.toMatchObject({
@@ -3752,27 +3758,29 @@ describe('POD-4974 O2 ship lanes', () => {
     })
     const issue = (await issues.reports.get(created.id))!
     const at = `2026-08-13T10:${String(input.minute).padStart(2, '0')}:00.000Z`
-    return await seedRows(store, () => store.shipping.createOrder(fixtureWriteScope(), {
-      id: asShipOrderId(`order-${input.title}`),
-      issueId: issue.id,
-      descendantManifest: [],
-      repoId: issue.repoId!,
-      repoPath,
-      machineId: asMachineId('machine-1'),
-      targetBranch: 'main',
-      destination: 'local:main',
-      approvedBaseSha: input.baseSha ?? 'base-sha',
-      approvedHeadSha: input.headSha ?? `head-${input.title}`,
-      deliveryDependsOn: input.deliveryDependsOn ?? [],
-      requestedBy: approval.requestedBy,
-      requestedAt: at,
-      policyId: 'compatibility-local:main',
-      validationProfile: PROFILE,
-      validationProfileDigest: createHash('sha256').update(JSON.stringify(PROFILE)).digest('hex'),
-      closeMode: 'after-destination',
-      state: 'queued',
-      stateChangedAt: at,
-    }))
+    return await seedRows(store, () =>
+      store.shipping.createOrder(fixtureWriteScope(), {
+        id: asShipOrderId(`order-${input.title}`),
+        issueId: issue.id,
+        descendantManifest: [],
+        repoId: issue.repoId!,
+        repoPath,
+        machineId: asMachineId('machine-1'),
+        targetBranch: 'main',
+        destination: 'local:main',
+        approvedBaseSha: input.baseSha ?? 'base-sha',
+        approvedHeadSha: input.headSha ?? `head-${input.title}`,
+        deliveryDependsOn: input.deliveryDependsOn ?? [],
+        requestedBy: approval.requestedBy,
+        requestedAt: at,
+        policyId: 'compatibility-local:main',
+        validationProfile: PROFILE,
+        validationProfileDigest: createHash('sha256').update(JSON.stringify(PROFILE)).digest('hex'),
+        closeMode: 'after-destination',
+        state: 'queued',
+        stateChangedAt: at,
+      }),
+    )
   }
   /** Bootstrap reads seeded model truth without starting the lane machine. */
   const publishSeeded = async (_service: ShippingService, ledger: Ledger) => {

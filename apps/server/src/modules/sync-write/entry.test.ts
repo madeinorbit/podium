@@ -29,6 +29,7 @@ import { type CommandPrincipal, userCommandPrincipal } from '../../command-princ
 import type { SessionStore } from '../../store'
 import { applyAfterCommit, spanOpen } from '../../store/executor/executor'
 import { openTestStore } from '../../test-support/open-test-store'
+import { seedRows } from '../../test-support/seed-rows'
 import { WriteContexts } from '../../write-contexts'
 import { currentWriteProvenance } from '../../write-provenance'
 import { SyncWriteEntry, SyncWriteRefused } from './entry'
@@ -38,7 +39,6 @@ import {
   SyncWriteRegistry,
   type SyncWriteTarget,
 } from './registry'
-import { seedRows } from '../../test-support/seed-rows'
 
 const FEED = { feedId: 'feed-test', epoch: 'epoch-test' }
 
@@ -124,13 +124,15 @@ function registerPut(
       await ctx.ledger.commit(
         h.ledger.modelOperation({
           write: async (scope) =>
-            await seedRows(h.store, () => h.store.layout.set(
-              scope,
-              h.adminId,
-              `sidebar.section.${input.id}`,
-              input.note,
-              '2026-11-04T00:00:00.000Z',
-            )),
+            await seedRows(h.store, () =>
+              h.store.layout.set(
+                scope,
+                h.adminId,
+                `sidebar.section.${input.id}`,
+                input.note,
+                '2026-11-04T00:00:00.000Z',
+              ),
+            ),
           rows: () => [conversation(input.id, input.note)],
         }),
       )
@@ -618,13 +620,15 @@ describe('sync write entry point: what an old route adapter needs (POD-6350)', (
         heard.push({ error, spanOpen: spanOpen(), note: input.note })
         // Outside the rolled-back unit: this write stays. A trail row below the
         // write path, so it takes a fixture scope.
-        await seedRows(h.store, () => h.store.layout.set(
-          fixtureWriteScope(),
-          h.adminId,
-          'sidebar.section.trail',
-          input.note,
-          '2026-11-04T00:00:00.000Z',
-        ))
+        await seedRows(h.store, () =>
+          h.store.layout.set(
+            fixtureWriteScope(),
+            h.adminId,
+            'sidebar.section.trail',
+            input.note,
+            '2026-11-04T00:00:00.000Z',
+          ),
+        )
       },
     })
 

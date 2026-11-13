@@ -57,7 +57,10 @@ async function harness(
       repo: store.sync,
       // The message kind is named after the write and built from the tables
       // (POD-6770), with the window this harness runs.
-      records: await logStoreRecords(store, window === undefined ? {} : { confirmedPerSession: window }),
+      records: await logStoreRecords(
+        store,
+        window === undefined ? {} : { confirmedPerSession: window },
+      ),
       now: Date.now,
       transact: async (fn) => await store.transact(fn),
       // As relay.ts wires it: subscribers hear a change once it has committed.

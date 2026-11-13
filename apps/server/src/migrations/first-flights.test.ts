@@ -9,10 +9,10 @@ import { fixtureWriteScope } from '@podium/sync/testing'
 import { expect, it } from 'vitest'
 import { SessionRegistry } from '../relay'
 import { openTestStore } from '../test-support/open-test-store'
+import { seedRows } from '../test-support/seed-rows'
 import type { WriteContexts } from '../write-contexts'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { runDrizzleMigrations } from './index'
-import { seedRows } from '../test-support/seed-rows'
 
 const index = DRIZZLE_MIGRATIONS.findIndex((m) => m.name.endsWith('_first-flights-seen-state'))
 const through = DRIZZLE_MIGRATIONS.slice(0, index + 1)

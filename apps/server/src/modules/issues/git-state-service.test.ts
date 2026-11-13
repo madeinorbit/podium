@@ -4,10 +4,10 @@ import { normalizeSettings } from '@podium/runtime'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
 import { openTestStore } from '../../test-support/open-test-store'
+import { seedRows } from '../../test-support/seed-rows'
 import { sessionReadPorts } from '../../test-support/session-facts'
 import { type IssueDeps, IssueService } from './service'
 import { issueTestPlumbing } from './service/test-plumbing'
-import { seedRows } from '../../test-support/seed-rows'
 
 // POD-98: the git-state service wiring end-to-end at the service layer —
 // turn-end trigger → coalesced probe (via repoOp) → targeted gitState update,

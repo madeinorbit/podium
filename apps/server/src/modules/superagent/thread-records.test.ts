@@ -26,8 +26,8 @@ import type { PendingSuperagentTurnRow, SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
 import { logStoreRecords, testStoreRecords } from '../../test-support/record-writer'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
-import { makeThreadFeedCapture } from './thread-records'
 import { envelope, expectAppliedOnPath, submit } from '../sync-write/outbox-test-support'
+import { makeThreadFeedCapture } from './thread-records'
 
 afterEach(() => disposeOracles())
 

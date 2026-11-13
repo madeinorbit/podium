@@ -28,7 +28,6 @@
  * older build parses this kind's log rows as unknown and advances its cursor.
  */
 
-import { changeLogCommit } from '../../store/change-log-commit'
 import { SUPERAGENT_THREAD_RECORD } from '@podium/commands'
 import {
   parseSuperagentThreadRowId,
@@ -40,6 +39,7 @@ import {
 import type { LedgerWriter } from '@podium/sync'
 import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import type { SessionStore, SuperagentThreadRow } from '../../store'
+import { changeLogCommit } from '../../store/change-log-commit'
 import type { SuperagentThreadFeedCapture } from '../../store/superagent'
 import { registerRecordKind } from '../records/generic'
 import { SyncWriteRefused } from '../sync-write/entry'

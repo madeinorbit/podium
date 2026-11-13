@@ -111,8 +111,8 @@ import {
   workflows,
 } from '../migrations/schema'
 import { FEED_WINDOW } from '../modules/issue-events/feed'
-import { RUNTIME_EVENT_LOG_KIND } from '../store/events'
 import { CONFIRMED_PER_SESSION } from '../modules/message-feed/feed'
+import { RUNTIME_EVENT_LOG_KIND } from '../store/events'
 import type { RecordReads } from './record-builders'
 
 // ---------------------------------------------------------------------------
@@ -196,10 +196,12 @@ function own(
     keys,
     ...more,
     ids: (changes) =>
-      unique(keysOf(changes).flatMap((key) => {
-        const id = idOf(key)
-        return id === null ? [] : [id]
-      })),
+      unique(
+        keysOf(changes).flatMap((key) => {
+          const id = idOf(key)
+          return id === null ? [] : [id]
+        }),
+      ),
   }
 }
 
@@ -269,8 +271,10 @@ async function issueEventIds(
   const afterIds = new Set(after.map((row) => row.id))
   const beforeIds = new Set(before.map((row) => row.id))
   const out: string[] = []
-  for (const row of after) if (!beforeIds.has(row.id)) out.push(issueEventRowId(row.id, row.subject))
-  for (const row of before) if (!afterIds.has(row.id)) out.push(issueEventRowId(row.id, row.subject))
+  for (const row of after)
+    if (!beforeIds.has(row.id)) out.push(issueEventRowId(row.id, row.subject))
+  for (const row of before)
+    if (!afterIds.has(row.id)) out.push(issueEventRowId(row.id, row.subject))
   for (const row of touched) {
     if (afterIds.has(row.id) || beforeIds.has(row.id))
       out.push(issueEventRowId(row.id, row.subject))
@@ -306,14 +310,25 @@ function chatKey(key: readonly unknown[] | null): ChatKey | null {
   return {
     id,
     sessionId,
-    recordId: sender === null ? null : messageRecordRowId({ sessionId, senderUserId: sender, messageId: id }),
+    recordId:
+      sender === null
+        ? null
+        : messageRecordRowId({ sessionId, senderUserId: sender, messageId: id }),
     confirmed: key[5] === 'confirmed',
     createdAt: str(key[6]),
   }
 }
 
 const newestFirst = (a: { createdAt: string; id: string }, b: { createdAt: string; id: string }) =>
-  a.createdAt === b.createdAt ? (a.id < b.id ? 1 : a.id > b.id ? -1 : 0) : a.createdAt < b.createdAt ? 1 : -1
+  a.createdAt === b.createdAt
+    ? a.id < b.id
+      ? 1
+      : a.id > b.id
+        ? -1
+        : 0
+    : a.createdAt < b.createdAt
+      ? 1
+      : -1
 
 /**
  * CHAT MESSAGES: the open ones, and each live session's newest
@@ -392,7 +407,10 @@ async function messageIds(changes: readonly SourceChange[], reads: RecordReads):
 const LIVE_CONVERSATION = `(coalesce({row}.${sessions.status.name}, '') <> 'exited' AND coalesce({row}.${sessions.archived.name}, 0) = 0 AND {row}.${sessions.deletedAt.name} IS NULL)`
 
 /** Every confirmed chat record of these sessions' tails, live or not. */
-async function confirmedTailIds(sessionIds: readonly string[], reads: RecordReads): Promise<string[]> {
+async function confirmedTailIds(
+  sessionIds: readonly string[],
+  reads: RecordReads,
+): Promise<string[]> {
   if (sessionIds.length === 0) return []
   const rows = await reads.store.messages.confirmedChatTail(
     reads.confirmedPerSession ?? CONFIRMED_PER_SESSION,
@@ -418,7 +436,10 @@ async function confirmedTailIds(sessionIds: readonly string[], reads: RecordRead
 // ---------------------------------------------------------------------------
 
 /** The sessions whose record reads these issues (their own or reference). */
-async function sessionsOfIssues(issueIds: readonly string[], reads: RecordReads): Promise<string[]> {
+async function sessionsOfIssues(
+  issueIds: readonly string[],
+  reads: RecordReads,
+): Promise<string[]> {
   if (issueIds.length === 0) return []
   return (await reads.store.sessions.sessionsReferencingIssues(issueIds as IssueId[])).map(
     (row) => row.id,
@@ -436,7 +457,9 @@ async function accessIds(
       ? (await reads.store.machines.listMachines()).map((machine) => machine.id)
       : machineIds
   const userList =
-    userIds === 'all' ? (await reads.store.users.recordMembers()).map((member) => member.id) : userIds
+    userIds === 'all'
+      ? (await reads.store.users.recordMembers()).map((member) => member.id)
+      : userIds
   const out: string[] = []
   for (const machineId of machineList)
     for (const userId of userList)
@@ -546,7 +569,10 @@ const panelTables = {
 
 /** A soft-deleted issue takes these kinds' records with it. */
 const issueDeletion = (
-  ids: (issueIds: readonly string[], reads: RecordReads) => Promise<Iterable<string>> | Iterable<string>,
+  ids: (
+    issueIds: readonly string[],
+    reads: RecordReads,
+  ) => Promise<Iterable<string>> | Iterable<string>,
 ): RecordSource =>
   via(issues, [issues.id], [issues.deletedAt], (changes, reads) => ids(firstKeys(changes), reads), {
     // A new issue has none of these records yet, and a purged one's leave
@@ -592,8 +618,12 @@ export const RECORD_SOURCES: RecordSources = {
   machine: [
     byId(machines, machines.id, MACHINE_ROW_READS),
     // The custodian is read from the machine's grant edges.
-    via(grants, [grants.resourceKind, grants.resourceId], 'all', (changes) =>
-      unique(keysOf(changes).flatMap((key) => (key[0] === 'machine' ? [str(key[1])] : []))),
+    via(
+      grants,
+      [grants.resourceKind, grants.resourceId],
+      'all',
+      (changes) =>
+        unique(keysOf(changes).flatMap((key) => (key[0] === 'machine' ? [str(key[1])] : []))),
       { rows: `{row}.${grants.resourceKind.name} = 'machine'` },
     ),
     // The fleet's update channel and published targets reach every machine.
@@ -609,12 +639,16 @@ export const RECORD_SOURCES: RecordSources = {
       (changes, reads) => accessIds(firstKeys(changes), 'all', reads),
       { derived: MACHINE_ROW_READS.derived },
     ),
-    via(grants, [grants.resourceKind, grants.resourceId], 'all', (changes, reads) =>
-      accessIds(
-        unique(keysOf(changes).flatMap((key) => (key[0] === 'machine' ? [str(key[1])] : []))),
-        'all',
-        reads,
-      ),
+    via(
+      grants,
+      [grants.resourceKind, grants.resourceId],
+      'all',
+      (changes, reads) =>
+        accessIds(
+          unique(keysOf(changes).flatMap((key) => (key[0] === 'machine' ? [str(key[1])] : []))),
+          'all',
+          reads,
+        ),
       { rows: `{row}.${grants.resourceKind.name} = 'machine'` },
     ),
     // A member is in the fleet's access while enabled with a role (`recordMembers`).
@@ -632,8 +666,12 @@ export const RECORD_SOURCES: RecordSources = {
   issueProjection: [
     byId(issues, issues.id),
     own(issueLabels, [issueLabels.issueId], (key) => str(key[0])),
-    via(labels, [labels.id], [labels.name], async (changes, reads) =>
-      await reads.store.issues.issueIdsOfLabels(firstKeys(changes).map(Number)),
+    via(
+      labels,
+      [labels.id],
+      [labels.name],
+      async (changes, reads) =>
+        await reads.store.issues.issueIdsOfLabels(firstKeys(changes).map(Number)),
     ),
   ],
   // Each text is a record of its own, keyed by the issue (POD-6921).
@@ -719,11 +757,19 @@ export const RECORD_SOURCES: RecordSources = {
       sessionUserStateRowId(key[0] as UserId, key[1] as SessionId),
     ),
     // A disabled person's markers leave the feed; a deleted session's too.
-    via(users, [users.id], [users.disabledAt, users.role], async (changes, reads) =>
-      await reads.store.sessions.sessionUserStateIdsOf({ userIds: firstKeys(changes) }),
+    via(
+      users,
+      [users.id],
+      [users.disabledAt, users.role],
+      async (changes, reads) =>
+        await reads.store.sessions.sessionUserStateIdsOf({ userIds: firstKeys(changes) }),
     ),
-    via(sessions, [sessions.id], [sessions.deletedAt], async (changes, reads) =>
-      await reads.store.sessions.sessionUserStateIdsOf({ sessionIds: firstKeys(changes) }),
+    via(
+      sessions,
+      [sessions.id],
+      [sessions.deletedAt],
+      async (changes, reads) =>
+        await reads.store.sessions.sessionUserStateIdsOf({ sessionIds: firstKeys(changes) }),
     ),
   ],
   superagentThread: [
@@ -748,8 +794,11 @@ export const RECORD_SOURCES: RecordSources = {
   workflowRun: [
     byId(workflowRuns, workflowRuns.id),
     own(workflowRunSteps, [workflowRunSteps.runId], (key) => str(key[0])),
-    via(workflowRevisions, [workflowRevisions.id], [workflowRevisions.workflowId], async (changes, reads) =>
-      await reads.store.workflows.runIdsOfRevisions(firstKeys(changes)),
+    via(
+      workflowRevisions,
+      [workflowRevisions.id],
+      [workflowRevisions.workflowId],
+      async (changes, reads) => await reads.store.workflows.runIdsOfRevisions(firstKeys(changes)),
     ),
   ],
   instancePreferences: [
@@ -764,9 +813,15 @@ export const RECORD_SOURCES: RecordSources = {
     ),
   ],
   issueEvent: [
-    via(podiumEvents, [podiumEvents.id, podiumEvents.kind, podiumEvents.subject], 'all', issueEventIds, {
-      rows: `{row}.${podiumEvents.kind.name} IN (${FEED_KINDS_SQL}) AND {row}.${podiumEvents.subject.name} <> ''`,
-    }),
+    via(
+      podiumEvents,
+      [podiumEvents.id, podiumEvents.kind, podiumEvents.subject],
+      'all',
+      issueEventIds,
+      {
+        rows: `{row}.${podiumEvents.kind.name} IN (${FEED_KINDS_SQL}) AND {row}.${podiumEvents.subject.name} <> ''`,
+      },
+    ),
   ],
   pendingInteraction: [
     own(pendingInteractions, [pendingInteractions.sessionId, pendingInteractions.id], (key) =>
@@ -786,8 +841,11 @@ export const RECORD_SOURCES: RecordSources = {
     ),
     // A session that stops (or starts again) being a live conversation takes
     // its confirmed tail off the feed (or back).
-    via(sessions, [sessions.id], [], async (changes, reads) =>
-      await confirmedTailIds(firstKeys(changes), reads),
+    via(
+      sessions,
+      [sessions.id],
+      [],
+      async (changes, reads) => await confirmedTailIds(firstKeys(changes), reads),
       { derived: [LIVE_CONVERSATION] },
     ),
   ],
@@ -813,10 +871,18 @@ export const RECORD_SOURCES: RecordSources = {
     own(sessionDrafts, [sessionDrafts.sessionId], (key) => str(key[0])),
     // The record reads a lease's checkpoint only (`checkpointsOf`): a lease
     // opened or fenced with no checkpoint changes nothing.
-    own(sessionObservationCheckpoints, [sessionObservationCheckpoints.sessionId], (key) => str(key[0]), {
-      reads: [sessionObservationCheckpoints.checkpointJson, sessionObservationCheckpoints.provider],
-      rows: `{row}.${sessionObservationCheckpoints.checkpointJson.name} IS NOT NULL`,
-    }),
+    own(
+      sessionObservationCheckpoints,
+      [sessionObservationCheckpoints.sessionId],
+      (key) => str(key[0]),
+      {
+        reads: [
+          sessionObservationCheckpoints.checkpointJson,
+          sessionObservationCheckpoints.provider,
+        ],
+        rows: `{row}.${sessionObservationCheckpoints.checkpointJson.name} IS NOT NULL`,
+      },
+    ),
     own(runtimeEventCheckpoints, [runtimeEventCheckpoints.sessionId], (key) => str(key[0]), {
       reads: [runtimeEventCheckpoints.turnStateJson],
       rows: `{row}.${runtimeEventCheckpoints.turnStateJson.name} IS NOT NULL`,
@@ -844,15 +910,20 @@ export const RECORD_SOURCES: RecordSources = {
         }
         const out: string[] = []
         for (const [machineId, nativeIds] of byMachine) {
-          for (const rows of (await reads.store.sessions.listSessionsByResumeValues(nativeIds)).values())
+          for (const rows of (
+            await reads.store.sessions.listSessionsByResumeValues(nativeIds)
+          ).values())
             for (const row of rows) if (row.machineId === machineId) out.push(row.id)
         }
         return out
       },
     ),
     // The issue and reference joins.
-    via(issues, [issues.id], 'all', async (changes, reads) =>
-      await sessionsOfIssues(firstKeys(changes), reads),
+    via(
+      issues,
+      [issues.id],
+      'all',
+      async (changes, reads) => await sessionsOfIssues(firstKeys(changes), reads),
     ),
     // The reference's repo, resolved by path.
     via(repos, [repos.path], 'all', async (changes, reads) => {
@@ -879,7 +950,10 @@ export async function touchedRecords(
   kinds?: ReadonlySet<MetadataEntityKind>,
   sources: RecordSources = RECORD_SOURCES,
 ): Promise<Map<MetadataEntityKind, string[]>> {
-  const groups = new Map<string, { kind: MetadataEntityKind; source: number; changes: SourceChange[] }>()
+  const groups = new Map<
+    string,
+    { kind: MetadataEntityKind; source: number; changes: SourceChange[] }
+  >()
   for (const row of rows) {
     const kind = row.kind as MetadataEntityKind
     if (kinds !== undefined && !kinds.has(kind)) continue

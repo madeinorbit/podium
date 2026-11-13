@@ -38,21 +38,29 @@ function keyArray(source: RecordSource, row: 'OLD' | 'NEW'): string {
 }
 
 /** The CREATE TRIGGER statements of one source of one kind. */
-export function sourceTriggers(kind: MetadataEntityKind, index: number, source: RecordSource): string[] {
+export function sourceTriggers(
+  kind: MetadataEntityKind,
+  index: number,
+  source: RecordSource,
+): string[] {
   const table = quote(sourceTableName(source))
   const name = (op: string) => quote(`${CAPTURE_TRIGGER_PREFIX}${kind}__${index}__${op}`)
   const insert = (op: 'i' | 'u' | 'd', oldKey: string, newKey: string) =>
     `INSERT INTO sync_capture (kind, source, op, old_key, new_key) VALUES (${literal(kind)}, ${index}, '${op}', ${oldKey}, ${newKey});`
-  const rowsOf = (row: 'OLD' | 'NEW') => (source.rows === undefined ? undefined : `(${over(source.rows, row)})`)
+  const rowsOf = (row: 'OLD' | 'NEW') =>
+    source.rows === undefined ? undefined : `(${over(source.rows, row)})`
   const changed = [
     ...watchedColumns(source).map((column) => `OLD.${quote(column)} IS NOT NEW.${quote(column)}`),
-    ...(source.derived ?? []).map((value) => `(${over(value, 'OLD')}) IS NOT (${over(value, 'NEW')})`),
+    ...(source.derived ?? []).map(
+      (value) => `(${over(value, 'OLD')}) IS NOT (${over(value, 'NEW')})`,
+    ),
   ]
   const updateWhen = [
     ...(source.rows === undefined ? [] : [`(${rowsOf('OLD')} OR ${rowsOf('NEW')})`]),
     `(${changed.join(' OR ')})`,
   ].join(' AND ')
-  const when = (condition: string | undefined) => (condition === undefined ? '' : ` WHEN ${condition}`)
+  const when = (condition: string | undefined) =>
+    condition === undefined ? '' : ` WHEN ${condition}`
   const ops = new Set(source.ops ?? ['i', 'u', 'd'])
   return [
     ...(ops.has('i')
@@ -80,8 +88,7 @@ export function captureTriggerStatements(sources: RecordSources = RECORD_SOURCES
   )
 }
 
-const statement = (sql: string) =>
-  ({ sql, params: [], method: 'run', intent: 'write' }) as const
+const statement = (sql: string) => ({ sql, params: [], method: 'run', intent: 'write' }) as const
 
 /** Drop every capture trigger, whatever declarations made it. */
 export async function dropChangeCapture(session: DriverSession): Promise<void> {
@@ -93,7 +100,9 @@ export async function dropChangeCapture(session: DriverSession): Promise<void> {
   })
   const names = (found.rows as { name: string }[]).map((row) => row.name)
   if (names.length === 0) return
-  await session.executeBatch(names.map((name) => statement(`DROP TRIGGER IF EXISTS ${quote(name)}`)))
+  await session.executeBatch(
+    names.map((name) => statement(`DROP TRIGGER IF EXISTS ${quote(name)}`)),
+  )
 }
 
 /**

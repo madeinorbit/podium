@@ -93,8 +93,8 @@ import type {
   FeedVisibilityPolicy,
   VisibilityAnchorPort,
 } from '../feed/visibility'
-import { arbitrate } from './arbitration'
 import type { RecordIdsByKind } from '../record-builders'
+import { arbitrate } from './arbitration'
 import type { ScopedChange, SequencedChange, StagedChangeSpec } from './change-lifecycle'
 import type {
   AuthorityClock,

@@ -17,8 +17,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
 import { recordTestWriter } from '../../test-support/record-writer'
-import { CheckoutsService, checkoutDiff, checkoutsFromScan } from './service'
 import { seedRows } from '../../test-support/seed-rows'
+import { CheckoutsService, checkoutDiff, checkoutsFromScan } from './service'
 
 const M = asMachineId('m1')
 const ROOT = '/home/u/podium'
@@ -74,7 +74,10 @@ async function world(opts: { online?: boolean } = {}) {
   }
 }
 
-const scanned = (worktrees: GitRepositoryWire['worktrees'], branch = 'main'): GitRepositoryWire => ({
+const scanned = (
+  worktrees: GitRepositoryWire['worktrees'],
+  branch = 'main',
+): GitRepositoryWire => ({
   path: ROOT,
   kind: 'repository',
   branch,
@@ -93,12 +96,12 @@ describe('a scan writes what moved, and only that', () => {
       [ROOT, ROOT, 'repository', 'main'],
     ])
     const first = w.captured.flat()
-    expect(first.map((spec) => [spec.entity, spec.op, parseCheckoutRowId(spec.id).path]).sort()).toEqual(
-      [
-        ['checkout', 'upsert', WT],
-        ['checkout', 'upsert', ROOT],
-      ],
-    )
+    expect(
+      first.map((spec) => [spec.entity, spec.op, parseCheckoutRowId(spec.id).path]).sort(),
+    ).toEqual([
+      ['checkout', 'upsert', WT],
+      ['checkout', 'upsert', ROOT],
+    ])
     // No head on the record: it moves on every commit.
     expect(first.every((spec) => !JSON.stringify(spec).includes('abc'))).toBe(true)
 
@@ -174,9 +177,11 @@ describe('scanned origins', () => {
 describe('the scan reading (pure)', () => {
   it('matches roots by machine path key without rewriting display paths', () => {
     const root = String.raw`C:\Src\Podium`
-    const { rows, reported } = checkoutsFromScan(M, [{ path: root, repoId: null, originUrl: null }], [
-      { path: 'c:/src/podium', kind: 'repository', worktrees: [] },
-    ])
+    const { rows, reported } = checkoutsFromScan(
+      M,
+      [{ path: root, repoId: null, originUrl: null }],
+      [{ path: 'c:/src/podium', kind: 'repository', worktrees: [] }],
+    )
     expect(rows.map((row) => row.path)).toEqual([root])
     expect(reported.size).toBe(1)
   })
@@ -194,7 +199,12 @@ describe('the scan reading (pure)', () => {
         { path: main, kind: 'repository', worktrees: [{ path: linked, branch: 'feature' }] },
         // The linked worktree's own listing names its main repository: that
         // does not make the main repository a worktree.
-        { path: linked, kind: 'worktree', branch: 'feature', worktrees: [{ path: main, branch: 'main' }] },
+        {
+          path: linked,
+          kind: 'worktree',
+          branch: 'feature',
+          worktrees: [{ path: main, branch: 'main' }],
+        },
       ],
     )
     expect(rows.map((row) => [row.path, row.root, row.kind]).sort()).toEqual([

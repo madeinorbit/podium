@@ -25,8 +25,8 @@ import type { SessionStore } from './store'
 import { NotificationArbiter } from './store/notification-facts'
 import { captureLogs } from './test-support/capture-logs'
 import { openTestStore } from './test-support/open-test-store'
-import { sessionReadPorts } from './test-support/session-facts'
 import { seedRows } from './test-support/seed-rows'
+import { sessionReadPorts } from './test-support/session-facts'
 
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */
@@ -1392,9 +1392,9 @@ describe('StewardService stored subscriptions (Phase B)', () => {
       title: 'Target',
       startNow: false,
     })
-    await seedRows(store, () => store.events.addSubscription(
-      seedSub({ id: 'sub_1', subscriberId: p.id, sourceRef: x.id }),
-    ))
+    await seedRows(store, () =>
+      store.events.addSubscription(seedSub({ id: 'sub_1', subscriberId: p.id, sourceRef: x.id })),
+    )
     await issues.crud.close(issues.reports.store.serverWriter, x.id)
     await steward.tick()
     expect(sendNotice).toHaveBeenCalledTimes(1)
@@ -1432,13 +1432,15 @@ describe('StewardService stored subscriptions (Phase B)', () => {
       title: 'Target',
       startNow: false,
     })
-    await seedRows(store, () => store.events.addSubscription(
-      seedSub({
-        id: 'sub_coord',
-        subscriberId: subscriber.id,
-        sourceRef: source.id,
-      }),
-    ))
+    await seedRows(store, () =>
+      store.events.addSubscription(
+        seedSub({
+          id: 'sub_coord',
+          subscriberId: subscriber.id,
+          sourceRef: source.id,
+        }),
+      ),
+    )
 
     await issues.crud.close(issues.reports.store.serverWriter, source.id)
     await steward.tick()
@@ -1462,9 +1464,9 @@ describe('StewardService stored subscriptions (Phase B)', () => {
       title: 'Target',
       startNow: false,
     })
-    await seedRows(store, () => store.events.addSubscription(
-      seedSub({ id: 'sub_1', subscriberId: p.id, sourceRef: x.id }),
-    ))
+    await seedRows(store, () =>
+      store.events.addSubscription(seedSub({ id: 'sub_1', subscriberId: p.id, sourceRef: x.id })),
+    )
     // x already told the watcher's live session directly.
     await seedTold(store, x.id, { kind: 'session', id: 'psess' })
     await issues.crud.close(issues.reports.store.serverWriter, x.id)
@@ -1478,16 +1480,18 @@ describe('StewardService stored subscriptions (Phase B)', () => {
       fakeSession({ sessionId: asSessionId('worker'), cwd: '/x' }),
     ]
     const { store, steward, sendNotice } = await harness({ sessions })
-    await seedRows(store, () => store.events.addSubscription(
-      seedSub({
-        id: 'sub_exit',
-        subscriberKind: 'session',
-        subscriberId: 'watcher',
-        event: 'session.exited',
-        sourceKind: 'session',
-        sourceRef: 'worker',
-      }),
-    ))
+    await seedRows(store, () =>
+      store.events.addSubscription(
+        seedSub({
+          id: 'sub_exit',
+          subscriberKind: 'session',
+          subscriberId: 'watcher',
+          event: 'session.exited',
+          sourceKind: 'session',
+          sourceRef: 'worker',
+        }),
+      ),
+    )
     await store.events.appendEvent({
       ts: 't',
       kind: 'session.exited',
@@ -1507,16 +1511,18 @@ describe('StewardService stored subscriptions (Phase B)', () => {
       fakeSession({ sessionId: asSessionId('worker'), cwd: '/x' }),
     ]
     const { store, steward, sendNotice } = await harness({ sessions })
-    await seedRows(store, () => store.events.addSubscription(
-      seedSub({
-        id: 'sub_s',
-        subscriberKind: 'session',
-        subscriberId: 'watcher',
-        event: 'session.finished',
-        sourceKind: 'session',
-        sourceRef: 'worker',
-      }),
-    ))
+    await seedRows(store, () =>
+      store.events.addSubscription(
+        seedSub({
+          id: 'sub_s',
+          subscriberKind: 'session',
+          subscriberId: 'watcher',
+          event: 'session.finished',
+          sourceKind: 'session',
+          sourceRef: 'worker',
+        }),
+      ),
+    )
     // Non-finished phases are ignored; only idle+done derives session.finished.
     await store.events.appendEvent({
       ts: 't',
@@ -1565,15 +1571,17 @@ describe('StewardService stored subscriptions (Phase B)', () => {
       fakeSession({ sessionId: asSessionId('kid'), cwd: '/k', issueId: child.id }),
       fakeSession({ sessionId: asSessionId('stranger'), cwd: '/s', issueId: outsider.id }),
     )
-    await seedRows(store, () => store.events.addSubscription(
-      seedSub({
-        id: 'sub_rel',
-        subscriberId: epic.id,
-        event: 'session.finished',
-        sourceKind: 'relationship',
-        sourceRef: 'my-children',
-      }),
-    ))
+    await seedRows(store, () =>
+      store.events.addSubscription(
+        seedSub({
+          id: 'sub_rel',
+          subscriberId: epic.id,
+          event: 'session.finished',
+          sourceKind: 'relationship',
+          sourceRef: 'my-children',
+        }),
+      ),
+    )
     // A non-child session finishing does NOT deliver.
     await store.events.appendEvent({
       ts: 't',
@@ -1659,35 +1667,41 @@ describe('StewardService stored subscriptions (Phase B)', () => {
         issueId: epic.id,
       }),
     )
-    await seedRows(store, () => store.events.addSubscription(
-      seedSub({
-        id: 'sub_subtree',
-        subscriberKind: 'session',
-        subscriberId: 'esess',
-        sourceKind: 'relationship',
-        sourceRef: 'my-subtree',
-        createdAt: 't1',
-      }),
-    ))
-    await seedRows(store, () => store.events.addSubscription(
-      seedSub({
-        id: 'sub_children',
-        subscriberId: mid.id,
-        sourceKind: 'relationship',
-        sourceRef: 'my-children',
-        createdAt: 't2',
-      }),
-    ))
+    await seedRows(store, () =>
+      store.events.addSubscription(
+        seedSub({
+          id: 'sub_subtree',
+          subscriberKind: 'session',
+          subscriberId: 'esess',
+          sourceKind: 'relationship',
+          sourceRef: 'my-subtree',
+          createdAt: 't1',
+        }),
+      ),
+    )
+    await seedRows(store, () =>
+      store.events.addSubscription(
+        seedSub({
+          id: 'sub_children',
+          subscriberId: mid.id,
+          sourceKind: 'relationship',
+          sourceRef: 'my-children',
+          createdAt: 't2',
+        }),
+      ),
+    )
     // The epic is the leaf's grandparent: its 'my-children' would not match.
-    await seedRows(store, () => store.events.addSubscription(
-      seedSub({
-        id: 'sub_not_child',
-        subscriberId: epic.id,
-        sourceKind: 'relationship',
-        sourceRef: 'my-children',
-        createdAt: 't3',
-      }),
-    ))
+    await seedRows(store, () =>
+      store.events.addSubscription(
+        seedSub({
+          id: 'sub_not_child',
+          subscriberId: epic.id,
+          sourceKind: 'relationship',
+          sourceRef: 'my-children',
+          createdAt: 't3',
+        }),
+      ),
+    )
     await steward.tick()
     sendNotice.mockClear()
     await issues.crud.close(issues.reports.store.serverWriter, leaf.id)
@@ -1714,9 +1728,11 @@ describe('StewardService stored subscriptions (Phase B)', () => {
       title: 'Target',
       startNow: false,
     })
-    await seedRows(store, () => store.events.addSubscription(
-      seedSub({ id: 'sub_off', subscriberId: p.id, sourceRef: x.id, enabled: false }),
-    ))
+    await seedRows(store, () =>
+      store.events.addSubscription(
+        seedSub({ id: 'sub_off', subscriberId: p.id, sourceRef: x.id, enabled: false }),
+      ),
+    )
     await issues.crud.close(issues.reports.store.serverWriter, x.id)
     await steward.tick()
     expect(sendNotice).not.toHaveBeenCalled()
@@ -1742,9 +1758,9 @@ describe('StewardService stored subscriptions (Phase B)', () => {
       title: 'Target',
       startNow: false,
     })
-    await seedRows(store, () => store.events.addSubscription(
-      seedSub({ id: 'sub_c', subscriberId: p.id, sourceRef: x.id }),
-    ))
+    await seedRows(store, () =>
+      store.events.addSubscription(seedSub({ id: 'sub_c', subscriberId: p.id, sourceRef: x.id })),
+    )
     await issues.crud.close(issues.reports.store.serverWriter, x.id, 'done', {
       actorSessionId: asSessionId('causer'),
     })
@@ -1765,15 +1781,17 @@ describe('StewardService stored subscriptions (Phase B)', () => {
       title: 'Target',
       startNow: false,
     })
-    await seedRows(store, () => store.events.addSubscription(
-      seedSub({
-        id: 'sub_n',
-        subscriberId: p.id,
-        sourceRef: x.id,
-        deliverNudge: false,
-        deliverNotify: true,
-      }),
-    ))
+    await seedRows(store, () =>
+      store.events.addSubscription(
+        seedSub({
+          id: 'sub_n',
+          subscriberId: p.id,
+          sourceRef: x.id,
+          deliverNudge: false,
+          deliverNotify: true,
+        }),
+      ),
+    )
     await issues.crud.close(issues.reports.store.serverWriter, x.id)
     await steward.tick()
     expect(sendNotice).not.toHaveBeenCalled()
@@ -1813,9 +1831,9 @@ describe('StewardService stored subscriptions (Phase B)', () => {
       title: 'Target',
       startNow: false,
     })
-    await seedRows(store, () => store.events.addSubscription(
-      seedSub({ id: 'sub_q', subscriberId: p.id, sourceRef: x.id }),
-    ))
+    await seedRows(store, () =>
+      store.events.addSubscription(seedSub({ id: 'sub_q', subscriberId: p.id, sourceRef: x.id })),
+    )
     await issues.crud.close(issues.reports.store.serverWriter, x.id)
     await steward.tick()
     expect(notify).not.toHaveBeenCalled()
@@ -1837,15 +1855,17 @@ describe('StewardService stored subscriptions (Phase B)', () => {
       title: 'Target',
       startNow: false,
     })
-    await seedRows(store, () => store.events.addSubscription(
-      seedSub({
-        id: 'sub_boom',
-        subscriberId: p.id,
-        sourceRef: x.id,
-        deliverNudge: false,
-        deliverNotify: true,
-      }),
-    ))
+    await seedRows(store, () =>
+      store.events.addSubscription(
+        seedSub({
+          id: 'sub_boom',
+          subscriberId: p.id,
+          sourceRef: x.id,
+          deliverNudge: false,
+          deliverNotify: true,
+        }),
+      ),
+    )
     await issues.crud.close(issues.reports.store.serverWriter, x.id)
     await expect(steward.tick()).resolves.toBeUndefined()
     expect(await store.events.listEventsSince(0, { kinds: ['steward.notify'] })).toHaveLength(1)
@@ -2301,19 +2321,23 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     const ackFallback = vi.fn()
     h.deps.messaging = { ackFallback }
     const steward = new StewardService(h.deps)
-    await seedRows(h.store, async () => await h.store.events.addSubscription({
-      id: 'stopped-child-finished',
-      subscriberKind: 'session',
-      subscriberId: 'parent',
-      sourceKind: 'session',
-      sourceRef: 'child',
-      event: 'session.finished',
-      deliverNudge: true,
-      deliverNotify: true,
-      origin: 'custom',
-      enabled: true,
-      createdAt: '2026-07-02T00:00:00.000Z',
-    }))
+    await seedRows(
+      h.store,
+      async () =>
+        await h.store.events.addSubscription({
+          id: 'stopped-child-finished',
+          subscriberKind: 'session',
+          subscriberId: 'parent',
+          sourceKind: 'session',
+          sourceRef: 'child',
+          event: 'session.finished',
+          deliverNudge: true,
+          deliverNotify: true,
+          origin: 'custom',
+          enabled: true,
+          createdAt: '2026-07-02T00:00:00.000Z',
+        }),
+    )
     await h.store.events.appendEvent({
       ts: '2026-07-02T15:14:56.000Z',
       kind: 'session.phase',
@@ -2383,19 +2407,23 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     const h = await harness({ sessions })
     const ackFallback = vi.fn()
     h.deps.messaging = { ackFallback }
-    await seedRows(h.store, async () => await h.store.events.addSubscription({
-      id: 'queued-child-settled',
-      subscriberKind: 'session',
-      subscriberId: parentId,
-      sourceKind: 'session',
-      sourceRef: childId,
-      event: phase === 'idle' ? 'session.finished' : 'session.errored',
-      deliverNudge: true,
-      deliverNotify: true,
-      origin: 'custom',
-      enabled: true,
-      createdAt: '2026-07-02T00:00:00.000Z',
-    }))
+    await seedRows(
+      h.store,
+      async () =>
+        await h.store.events.addSubscription({
+          id: 'queued-child-settled',
+          subscriberKind: 'session',
+          subscriberId: parentId,
+          sourceKind: 'session',
+          sourceRef: childId,
+          event: phase === 'idle' ? 'session.finished' : 'session.errored',
+          deliverNudge: true,
+          deliverNotify: true,
+          origin: 'custom',
+          enabled: true,
+          createdAt: '2026-07-02T00:00:00.000Z',
+        }),
+    )
     // The event was produced while live. A ten-hour backlog makes the
     // steward see it only after the parent explicitly stopped the child.
     const eventId = await h.store.events.appendEvent({

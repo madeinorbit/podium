@@ -494,13 +494,9 @@ export class SessionStateService {
     write: (scope: WriteScope) => void | Promise<void>,
   ): Promise<boolean> {
     if (!this.ports.getSession(sessionId)) return false
-    await this.ports.persistSession(
-      writer,
-      sessionId,
-      async (scope) => {
-        await write(scope)
-      },
-    )
+    await this.ports.persistSession(writer, sessionId, async (scope) => {
+      await write(scope)
+    })
     this.ports.broadcastSessions()
     return true
   }
@@ -583,13 +579,9 @@ export class SessionStateService {
 
   async rearmUnreadForAll(writer: SessionWriter, sessionId: SessionId): Promise<void> {
     if (!this.ports.getSession(sessionId)) return
-    await this.ports.persistSession(
-      writer,
-      sessionId,
-      async (scope) => {
-        await this.ports.store.sessions.clearAllReadAt(scope, sessionId)
-      },
-    )
+    await this.ports.persistSession(writer, sessionId, async (scope) => {
+      await this.ports.store.sessions.clearAllReadAt(scope, sessionId)
+    })
     this.ports.broadcastSessions()
   }
 
@@ -628,13 +620,9 @@ export class SessionStateService {
   async clearAllSnoozes(writer: SessionWriter, sessionId: SessionId): Promise<void> {
     if (!this.ports.getSession(sessionId)) return
     if (!(await this.ports.store.sessions.hasAnySnooze(sessionId))) return
-    await this.ports.persistSession(
-      writer,
-      sessionId,
-      async (scope) => {
-        await this.ports.store.sessions.clearAllSnoozes(scope, sessionId)
-      },
-    )
+    await this.ports.persistSession(writer, sessionId, async (scope) => {
+      await this.ports.store.sessions.clearAllSnoozes(scope, sessionId)
+    })
     this.ports.broadcastSessions()
   }
 

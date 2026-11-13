@@ -15,7 +15,6 @@
  * file, which not every caller has.
  */
 
-import { attachLaneIntentAudit } from './lane-intent-audit'
 import type { SqlDatabase, SqlStatement } from '@podium/runtime/sqlite'
 import type {
   BatchRouter,
@@ -31,6 +30,7 @@ import type {
 } from './driver'
 import { NO_BUSY_RETRY, queryClientOver, UNBOUNDED_WRITE_BUDGET_MS } from './driver'
 import { createStoreExecutor, type RootStoreExecutor, type StoreExecutorOptions } from './executor'
+import { attachLaneIntentAudit } from './lane-intent-audit'
 import {
   installQueryAttributionProbe,
   instrumentDriver,
@@ -349,9 +349,17 @@ function undrainedCapture(db: SqlDatabase): string[] | undefined {
   try {
     const rows = db
       .prepare('SELECT kind, source, op, old_key, new_key FROM sync_capture ORDER BY id LIMIT 5')
-      .all() as { kind: string; source: number; op: string; old_key: string | null; new_key: string | null }[]
+      .all() as {
+      kind: string
+      source: number
+      op: string
+      old_key: string | null
+      new_key: string | null
+    }[]
     if (rows.length === 0) return undefined
-    return rows.map((row) => `${row.kind}#${row.source} ${row.op} ${row.old_key ?? '-'} -> ${row.new_key ?? '-'}`)
+    return rows.map(
+      (row) => `${row.kind}#${row.source} ${row.op} ${row.old_key ?? '-'} -> ${row.new_key ?? '-'}`,
+    )
   } catch {
     return undefined
   }

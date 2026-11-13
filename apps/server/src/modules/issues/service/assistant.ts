@@ -187,12 +187,8 @@ export class IssueAssistantDigestModule {
     const digestStage = result.suggestedStage
     row.suggestedStage = digestStage && digestStage !== row.stage ? digestStage : null
     row.suggestedReason = row.suggestedStage ? result.suggestedReason : null
-    return await this.store.persistWith(
-      this.store.serverWriter,
-      row,
-      async (scope) => {
-        await this.store.deps.store.issues.panel.save(scope, 'issuePanelState', state)
-      },
-    )
+    return await this.store.persistWith(this.store.serverWriter, row, async (scope) => {
+      await this.store.deps.store.issues.panel.save(scope, 'issuePanelState', state)
+    })
   }
 }

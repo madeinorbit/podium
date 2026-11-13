@@ -5,11 +5,11 @@ import { fixtureWriteScope, testLedgerWriter } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
 import { openTestStore } from '../../test-support/open-test-store'
+import { logStoreRecords } from '../../test-support/record-writer'
+import { seedRows } from '../../test-support/seed-rows'
 import { type AutomationDecision, decideTick, GRACE_MS, type Schedulable } from './decide'
 import type { AutomationPrompt } from './prompt'
 import { type AutomationCommandWriter, type AutomationInput, AutomationsService } from './service'
-import { logStoreRecords } from '../../test-support/record-writer'
-import { seedRows } from '../../test-support/seed-rows'
 
 const TEST_PRINCIPAL = userCommandPrincipal(firstAdminMemberId(), 'admin')
 
@@ -454,10 +454,14 @@ describe('AutomationsService.tick — spawn', () => {
       enabled: true,
       sessionMode: 'fresh',
     })
-    await seedRows(h.store, async () => await h.store.automations.update(fixtureWriteScope(), {
-      ...(await h.store.automations.get(a.id))!,
-      agentKind: 'not-a-harness',
-    }))
+    await seedRows(
+      h.store,
+      async () =>
+        await h.store.automations.update(fixtureWriteScope(), {
+          ...(await h.store.automations.get(a.id))!,
+          agentKind: 'not-a-harness',
+        }),
+    )
 
     h.setNow(new Date(runAt.getTime() + 1_000))
     await h.service.tick()
@@ -584,16 +588,18 @@ describe('AutomationsService.tick — spawn', () => {
     h.setNow(new Date(2026, 6, 15, 9, 0, 10))
     // Materialize crash gap: reserved run, nextRunAt NOT re-armed.
     const runId = automationOccurrenceRunId(a.id, firedAt)
-    await seedRows(h.store, () => h.store.automations.addRun(fixtureWriteScope(), {
-      id: runId,
-      automationId: a.id,
-      firedAt,
-      sessionId: null,
-      outcome: 'error',
-      detail: 'reserved',
-      actor: `automation:${a.id}`,
-      onBehalfOf: firstAdminMemberId(),
-    }))
+    await seedRows(h.store, () =>
+      h.store.automations.addRun(fixtureWriteScope(), {
+        id: runId,
+        automationId: a.id,
+        firedAt,
+        sessionId: null,
+        outcome: 'error',
+        detail: 'reserved',
+        actor: `automation:${a.id}`,
+        onBehalfOf: firstAdminMemberId(),
+      }),
+    )
     // nextRunAt still the original occurrence
     expect((await h.store.automations.get(a.id))?.nextRunAt).toBe(firedAt)
 
@@ -634,16 +640,20 @@ describe('AutomationsService.tick — spawn', () => {
     const firedAt = iso(new Date(2026, 6, 15, 9, 0))
     h.setNow(new Date(2026, 6, 15, 9, 0, 10))
     const runId = automationOccurrenceRunId(a.id, firedAt)
-    await seedRows(h.store, async () => await h.store.automations.addRun(fixtureWriteScope(), {
-      id: runId,
-      automationId: a.id,
-      firedAt,
-      sessionId: null,
-      outcome: 'error',
-      detail: 'reserved',
-      actor: `automation:${a.id}`,
-      onBehalfOf: firstAdminMemberId(),
-    }))
+    await seedRows(
+      h.store,
+      async () =>
+        await h.store.automations.addRun(fixtureWriteScope(), {
+          id: runId,
+          automationId: a.id,
+          firedAt,
+          sessionId: null,
+          outcome: 'error',
+          detail: 'reserved',
+          actor: `automation:${a.id}`,
+          onBehalfOf: firstAdminMemberId(),
+        }),
+    )
 
     // Revocation happens after durable reservation and before startup replay.
     h.revokeOwner()

@@ -4,7 +4,6 @@
  * 'concierge' intake threads).
  */
 
-import { type ChangeLogCommit, throughChangeLog } from './change-log-commit'
 import {
   asThreadId,
   firstAdminMemberId,
@@ -21,6 +20,7 @@ import {
   superagentThreads,
   users,
 } from '../migrations/schema'
+import { type ChangeLogCommit, throughChangeLog } from './change-log-commit'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import {
   inListOf,

@@ -575,9 +575,7 @@ export class ReposRepository {
     prefix?: string,
   ): Promise<void> {
     return this.sessionRecordWrite
-      ? await this.sessionRecordWrite(() =>
-          this.addRepoRows(path, machineId, originUrl, prefix),
-        )
+      ? await this.sessionRecordWrite(() => this.addRepoRows(path, machineId, originUrl, prefix))
       : await this.addRepoRows(path, machineId, originUrl, prefix)
   }
 
@@ -667,9 +665,7 @@ export class ReposRepository {
    */
   async updateRepoOrigin(machineId: MachineId, path: string, originUrl: string): Promise<void> {
     return this.sessionRecordWrite
-      ? await this.sessionRecordWrite(() =>
-          this.updateRepoOriginRows(machineId, path, originUrl),
-        )
+      ? await this.sessionRecordWrite(() => this.updateRepoOriginRows(machineId, path, originUrl))
       : await this.updateRepoOriginRows(machineId, path, originUrl)
   }
 

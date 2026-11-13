@@ -17,9 +17,9 @@ import { type StewardDeps, StewardService } from './steward'
 import type { SessionStore, Subscription } from './store'
 import { probeStatements } from './store/executor/statement-probe'
 import { openTestStore } from './test-support/open-test-store'
+import { seedRows } from './test-support/seed-rows'
 import { sessionReadPorts } from './test-support/session-facts'
 import { expectConstantStatements, type StatementPin } from './test-support/statement-count'
-import { seedRows } from './test-support/seed-rows'
 
 interface Fixture {
   store: SessionStore
@@ -135,7 +135,9 @@ async function setup(size: number): Promise<Fixture> {
     issueId: epic.id,
   } as never)
   // The one subscription the poll matches: the epic watches its children close.
-  await seedRows(store, () => store.events.addSubscription(subscription({ id: 'sub_match', subscriberId: epic.id })))
+  await seedRows(store, () =>
+    store.events.addSubscription(subscription({ id: 'sub_match', subscriberId: epic.id })),
+  )
   await seedRows(store, async () => {
     for (let i = 0; i < size; i++) await store.events.addSubscription(stale(i))
   })

@@ -5,7 +5,6 @@
  * event-subscriptions design Phase B).
  */
 
-import { type ChangeLogCommit, throughChangeLog } from './change-log-commit'
 import { AgentRuntimeState, FEED_EVENT_KINDS, isFeedEventKind, type SessionId } from '@podium/model'
 import { ISSUE_EVENTS_DEFAULT_LIMIT, ProviderCursor } from '@podium/protocol'
 import { RuntimeEvent } from '@podium/protocol/daemon'
@@ -37,6 +36,7 @@ import {
   subscriptionDeliveries,
   subscriptions,
 } from '../migrations/schema'
+import { type ChangeLogCommit, throughChangeLog } from './change-log-commit'
 import { runAtRoot } from './executor/context'
 import { afterCommit, spanOpen } from './executor/executor'
 import { withOwnOperation } from './executor/operation-scope'

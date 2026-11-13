@@ -29,10 +29,7 @@ import type { IssueRow, StoredIssueUserState } from '../../../store'
 import { afterCommit } from '../../../store/executor/executor'
 import type { SessionFacts } from '../../sessions/facts'
 import { normalizeBlankIssueText } from '../blank-text'
-import {
-  issueProjectionRows,
-  issueRowToProjection,
-} from '../projection'
+import { issueProjectionRows, issueRowToProjection } from '../projection'
 import { IssueNotFound } from './not-found'
 import { IssueRefusal } from './refusal'
 import type { IssueDeps, IssueWriter } from './types'

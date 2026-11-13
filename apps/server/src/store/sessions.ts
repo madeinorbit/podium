@@ -1875,37 +1875,33 @@ export class SessionsRepository {
       if (group) group.push(values)
       else byShape.set(shape, [values])
     }
-    await this.writeSessionRows(
-      async () => {
-        for (const [shape, group] of byShape) {
-          const keys = shape === '' ? [] : shape.split(',')
-          for (let start = 0; start < group.length; start += UPSERT_ROWS_PER_STATEMENT) {
-            const chunk = group.slice(start, start + UPSERT_ROWS_PER_STATEMENT)
-            const size = inListSize(chunk.length)
-            let changed = 0
-            for (const values of chunk)
-              changed |= changedGroups(this.writtenColumns.get(values.id), values)
-            const params: Record<string, unknown> = {}
-            for (let index = 0; index < size; index++) {
-              const values = chunk[Math.min(index, chunk.length - 1)] as Record<string, unknown>
-              for (const key of keys) params[rowParam(index, key)] = values[key]
-            }
-            try {
-              await upsertSessionsOfShape(
-                this.db,
-                `${size}|${manyRowGroups(changed)}|${shape}`,
-              ).run(params)
-            } catch (error) {
-              for (const values of chunk) this.writtenColumns.forget(values.id)
-              throw error
-            }
-            for (const values of chunk)
-              this.writtenColumns.wrote(values.id, indexedColumnsOf(values))
+    await this.writeSessionRows(async () => {
+      for (const [shape, group] of byShape) {
+        const keys = shape === '' ? [] : shape.split(',')
+        for (let start = 0; start < group.length; start += UPSERT_ROWS_PER_STATEMENT) {
+          const chunk = group.slice(start, start + UPSERT_ROWS_PER_STATEMENT)
+          const size = inListSize(chunk.length)
+          let changed = 0
+          for (const values of chunk)
+            changed |= changedGroups(this.writtenColumns.get(values.id), values)
+          const params: Record<string, unknown> = {}
+          for (let index = 0; index < size; index++) {
+            const values = chunk[Math.min(index, chunk.length - 1)] as Record<string, unknown>
+            for (const key of keys) params[rowParam(index, key)] = values[key]
           }
+          try {
+            await upsertSessionsOfShape(this.db, `${size}|${manyRowGroups(changed)}|${shape}`).run(
+              params,
+            )
+          } catch (error) {
+            for (const values of chunk) this.writtenColumns.forget(values.id)
+            throw error
+          }
+          for (const values of chunk) this.writtenColumns.wrote(values.id, indexedColumnsOf(values))
         }
-        this.rowsWritten()
-      },
-    )
+      }
+      this.rowsWritten()
+    })
   }
 
   /** Tombstone sessions without destroying their metadata or UI satellites.

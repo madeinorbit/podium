@@ -11,7 +11,10 @@ import type { SessionStore } from '../store'
 import { changeLogCommit } from '../store/change-log-commit'
 
 export function installChangeLogHooks(
-  store: Pick<SessionStore, 'events' | 'messages' | 'sessions' | 'superagent' | 'effects' | 'interactions'>,
+  store: Pick<
+    SessionStore,
+    'events' | 'messages' | 'sessions' | 'superagent' | 'effects' | 'interactions'
+  >,
   writer: Pick<LedgerWriter, 'commit'>,
 ): void {
   const commit = changeLogCommit(writer)

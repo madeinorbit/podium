@@ -40,11 +40,8 @@ import * as schema from '../migrations/schema'
 import { SessionRegistry } from '../relay'
 import type { SessionStore } from '../store'
 import type { DriverSession } from '../store/executor/driver'
+import { probeStatements, type StatementProbeHolder } from '../store/executor/statement-probe'
 import type { StoreDrizzle } from '../store/executor/sync-drizzle'
-import {
-  probeStatements,
-  type StatementProbeHolder,
-} from '../store/executor/statement-probe'
 import type { MessageRow } from '../store/types'
 import { attachHostDaemon } from '../test-support/host-daemon'
 import { openTestStore } from '../test-support/open-test-store'
@@ -267,7 +264,9 @@ async function snapshot(reads: RecordReads): Promise<Map<string, string>> {
 /** The tables a statement reads or writes, by name. */
 function tablesOf(statement: string): string[] {
   const out: string[] = []
-  for (const match of statement.matchAll(/\b(?:from|join|into|update)\s+"?([a-z_][a-z0-9_]*)"?/gi)) {
+  for (const match of statement.matchAll(
+    /\b(?:from|join|into|update)\s+"?([a-z_][a-z0-9_]*)"?/gi,
+  )) {
     const name = match[1]!.toLowerCase()
     if (MODEL_TABLES.includes(name) || name.startsWith('sync_')) out.push(name)
   }
@@ -278,10 +277,7 @@ function tablesOf(statement: string): string[] {
  * CHECK 1: the tables each builder's SQL touches, against its declaration.
  * One line per kind that read a table it did not declare.
  */
-async function undeclaredTableReads(
-  corpus: Corpus,
-  sources: RecordSources,
-): Promise<string[]> {
+async function undeclaredTableReads(corpus: Corpus, sources: RecordSources): Promise<string[]> {
   const registry = serverRecordBuilders()
   const violations: string[] = []
   for (const kind of registry.kinds()) {
@@ -310,7 +306,8 @@ class Rollback extends Error {}
 /** A different value of the same kind, or undefined when there is none to try. */
 function perturbed(value: unknown): unknown {
   if (value === null || value === undefined) return undefined
-  if (typeof value === 'number') return Number.isInteger(value) && (value === 0 || value === 1) ? 1 - value : value + 1
+  if (typeof value === 'number')
+    return Number.isInteger(value) && (value === 0 || value === 1) ? 1 - value : value + 1
   if (typeof value === 'bigint') return value + 1n
   if (typeof value !== 'string') return undefined
   if (/^\d{4}-\d{2}-\d{2}T/.test(value) && !Number.isNaN(Date.parse(value)))
@@ -332,9 +329,9 @@ function perturbLeaf(node: unknown): boolean {
   if (Array.isArray(node)) {
     for (let i = 0; i < node.length; i++) {
       const leaf = node[i]
-      if (typeof leaf === 'string') return ((node[i] = `${leaf}~`), true)
-      if (typeof leaf === 'number') return ((node[i] = leaf + 1), true)
-      if (typeof leaf === 'boolean') return ((node[i] = !leaf), true)
+      if (typeof leaf === 'string') return (node[i] = `${leaf}~`), true
+      if (typeof leaf === 'number') return (node[i] = leaf + 1), true
+      if (typeof leaf === 'boolean') return (node[i] = !leaf), true
       if (perturbLeaf(leaf)) return true
     }
     return false
@@ -343,9 +340,9 @@ function perturbLeaf(node: unknown): boolean {
     const record = node as Record<string, unknown>
     for (const key of Object.keys(record)) {
       const leaf = record[key]
-      if (typeof leaf === 'string') return ((record[key] = `${leaf}~`), true)
-      if (typeof leaf === 'number') return ((record[key] = leaf + 1), true)
-      if (typeof leaf === 'boolean') return ((record[key] = !leaf), true)
+      if (typeof leaf === 'string') return (record[key] = `${leaf}~`), true
+      if (typeof leaf === 'number') return (record[key] = leaf + 1), true
+      if (typeof leaf === 'boolean') return (record[key] = !leaf), true
       if (perturbLeaf(leaf)) return true
     }
   }
@@ -418,7 +415,9 @@ async function missedChanges(
               after = await snapshot(reads)
             } catch (error) {
               if (named.size === 0)
-                missed.push(`${edit.label}: a build failed (${String(error)}) and nothing was named`)
+                missed.push(
+                  `${edit.label}: a build failed (${String(error)}) and nothing was named`,
+                )
             }
             if (after !== undefined) {
               for (const key of new Set([...baseline.keys(), ...after.keys()])) {
@@ -540,7 +539,9 @@ describe('record sources (POD-6920)', () => {
     }[]
     await expect(
       store.transact(async () => {
-        await db.run(sql`UPDATE issues SET title = 'bypassed' WHERE seq = (SELECT min(seq) FROM issues)`)
+        await db.run(
+          sql`UPDATE issues SET title = 'bypassed' WHERE seq = (SELECT min(seq) FROM issues)`,
+        )
       }),
     ).rejects.toThrow(/outside a change-log commit/)
     await expect(

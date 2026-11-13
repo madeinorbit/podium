@@ -12,9 +12,9 @@
 
 import type { MetadataEntityKind } from '@podium/protocol'
 import type { RecordSourcePort } from '@podium/sync'
-import { type RecordReads, serverRecordBuilders } from './record-builders'
 import { inChangeLogCommit } from '../store/commit-open'
 import { spanOpen } from '../store/executor/executor'
+import { type RecordReads, serverRecordBuilders } from './record-builders'
 import { touchedRecords } from './record-sources'
 
 /**

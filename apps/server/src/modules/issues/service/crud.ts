@@ -255,38 +255,34 @@ export class IssueCrudModule {
       : [mutation.expectedStage]
     const needsHumanBefore = row.needsHuman
     let result: T | undefined
-    const issue = await this.store.persistWith(
-      writer,
-      row,
-      async (scope) => {
-        if (!(expectedStages as readonly string[]).includes(row.stage)) {
-          throw new IssueRefusal(
-            `issue ${row.id} shipping stage fence failed: expected ${expectedStages.join(' or ')}`,
-          )
+    const issue = await this.store.persistWith(writer, row, async (scope) => {
+      if (!(expectedStages as readonly string[]).includes(row.stage)) {
+        throw new IssueRefusal(
+          `issue ${row.id} shipping stage fence failed: expected ${expectedStages.join(' or ')}`,
+        )
+      }
+      result = await write(scope)
+      const nextStage = mutation.nextStageForResult?.(result as T) ?? mutation.nextStage
+      if (nextStage) {
+        const legal =
+          (row.stage === 'review' && nextStage === 'shipping') ||
+          (row.stage === 'shipping' &&
+            (nextStage === 'review' || nextStage === 'done' || nextStage === 'shipping'))
+        if (!legal) {
+          throw new Error(`illegal shipping issue-stage transition ${row.stage} → ${nextStage}`)
         }
-        result = await write(scope)
-        const nextStage = mutation.nextStageForResult?.(result as T) ?? mutation.nextStage
-        if (nextStage) {
-          const legal =
-            (row.stage === 'review' && nextStage === 'shipping') ||
-            (row.stage === 'shipping' &&
-              (nextStage === 'review' || nextStage === 'done' || nextStage === 'shipping'))
-          if (!legal) {
-            throw new Error(`illegal shipping issue-stage transition ${row.stage} → ${nextStage}`)
-          }
-          row.stage = nextStage
-        }
-        if (mutation.needsHuman !== undefined) {
-          row.needsHuman = mutation.needsHuman
-          // A ship hold is typed on ShipOrderProjection, never a fake session question.
-          row.humanQuestion = null
-          row.humanQuestionOptions = null
-          row.humanQuestionAskedBy = null
-          row.humanQuestionAskedAt = null
-          row.humanQuestionAttribution = null
-        }
-      },
-    )
+        row.stage = nextStage
+      }
+      if (mutation.needsHuman !== undefined) {
+        row.needsHuman = mutation.needsHuman
+        // A ship hold is typed on ShipOrderProjection, never a fake session question.
+        row.humanQuestion = null
+        row.humanQuestionOptions = null
+        row.humanQuestionAskedBy = null
+        row.humanQuestionAskedAt = null
+        row.humanQuestionAttribution = null
+      }
+    })
     const event =
       typeof mutation.event === 'function' ? await mutation.event(result as T) : mutation.event
     if (event) await this.store.emitEvent(event.kind, row.id, event.payload)
@@ -346,38 +342,34 @@ export class IssueCrudModule {
       row.humanQuestionAskedAt = null
       row.humanQuestionAttribution = null
     }
-    const committed = await this.store.persistManyWith(
-      writer,
-      rows,
-      write,
-      async (result) =>
-        (
-          await Promise.all(
-            entries.map(async ({ mutation }, index) => {
-              const row = rows[index]!
-              const event =
-                typeof mutation.event === 'function' ? await mutation.event(result) : mutation.event
-              const attention =
-                !needsHumanBefore.get(row.id) && mutation.needsHuman === true
+    const committed = await this.store.persistManyWith(writer, rows, write, async (result) =>
+      (
+        await Promise.all(
+          entries.map(async ({ mutation }, index) => {
+            const row = rows[index]!
+            const event =
+              typeof mutation.event === 'function' ? await mutation.event(result) : mutation.event
+            const attention =
+              !needsHumanBefore.get(row.id) && mutation.needsHuman === true
+                ? {
+                    kind: 'issue.needs_human',
+                    subject: row.id,
+                    payload: { seq: row.seq, kind: 'ship-hold' },
+                  }
+                : needsHumanBefore.get(row.id) && mutation.needsHuman === false
                   ? {
-                      kind: 'issue.needs_human',
+                      kind: 'issue.needs_human_cleared',
                       subject: row.id,
                       payload: { seq: row.seq, kind: 'ship-hold' },
                     }
-                  : needsHumanBefore.get(row.id) && mutation.needsHuman === false
-                    ? {
-                        kind: 'issue.needs_human_cleared',
-                        subject: row.id,
-                        payload: { seq: row.seq, kind: 'ship-hold' },
-                      }
-                    : undefined
-              return [
-                ...(event ? [{ ...event, subject: row.id }] : []),
-                ...(attention ? [attention] : []),
-              ]
-            }),
-          )
-        ).flat(),
+                  : undefined
+            return [
+              ...(event ? [{ ...event, subject: row.id }] : []),
+              ...(attention ? [attention] : []),
+            ]
+          }),
+        )
+      ).flat(),
     )
     return committed
   }
@@ -388,14 +380,11 @@ export class IssueCrudModule {
   async setState(writer: IssueWriter, id: string, text: string): Promise<IssueProjection> {
     const row = await this.store.rowOrThrow(id)
     const value = IssuePanelStateWire.parse({ id: row.id, text, updatedAt: this.store.now() })
-    const wire = await this.store.commitPanel(
-      writer,
-      async (scope) => {
-        await this.store.rowOrThrow(row.id)
-        await this.store.deps.store.issues.panel.save(scope, 'issuePanelState', value)
-        return await this.store.projection(row)
-      },
-    )
+    const wire = await this.store.commitPanel(writer, async (scope) => {
+      await this.store.rowOrThrow(row.id)
+      await this.store.deps.store.issues.panel.save(scope, 'issuePanelState', value)
+      return await this.store.projection(row)
+    })
     await this.store.emitEvent('issue.state', row.id, { seq: row.seq })
     return { ...wire, activityNotes: value.text, notesUpdatedAt: value.updatedAt }
   }
@@ -415,80 +404,77 @@ export class IssueCrudModule {
           ? 'issuePanelArtifact'
           : 'issuePanelDeferred'
     ) as Exclude<IssuePanelKind, 'issuePanelState'>
-    const wire = await this.store.commitPanel(
-      writer,
-      async (scope) => {
-        await this.store.rowOrThrow(row.id)
-        if (op.op === 'todo-clear') {
-          await repo.clearTodos(scope, row.id)
-          return await this.store.projection(row)
-        }
-        // Positions are resolved inside the command transaction. A UI names its
-        // record directly, so deleting an earlier item cannot retarget a click.
-        const records = await repo.forIssues(entity, [row.id])
-        const at = () => {
-          const itemId = 'itemId' in op ? op.itemId : undefined
-          const index = 'index' in op ? op.index : undefined
-          const found = itemId
-            ? records.find((r) => r.id === itemId)
-            : index === undefined
-              ? undefined
-              : records[index - 1]
-          if (!found)
-            throw new IssueRefusal(
-              itemId ? `no item ${itemId}` : `no item ${index} (list has ${records.length})`,
-            )
-          return found
-        }
-        if (op.op === 'todo-done' || op.op === 'todo-undone') {
-          await repo.toggle(scope, row.id, at().id, op.op === 'todo-done')
-        } else if (
-          op.op === 'todo-remove' ||
-          op.op === 'deferred-remove' ||
-          op.op === 'artifact-remove'
-        ) {
-          const record =
-            op.op === 'artifact-remove' && 'path' in op
-              ? records.find(
-                  (r) =>
-                    'path' in r &&
-                    r.path === op.path &&
-                    (op.artifactId === undefined ||
-                      ('artifactId' in r && r.artifactId === op.artifactId)),
-                )
-              : at()
-          if (record) await repo.remove(scope, entity, row.id, record.id)
-        } else {
-          const existing =
-            op.op === 'artifact-add'
-              ? records.find((r) => 'path' in r && r.path === op.path)
-              : undefined
-          const itemId = existing?.id ?? op.itemId ?? randomUUID()
-          if (!existing && (await repo.hasId(entity, itemId)))
-            throw new IssueRefusal(`item ${itemId} already exists`)
-          const identity = {
-            id: itemId,
-            issueId: row.id,
-            position:
-              existing && 'position' in existing
-                ? existing.position
-                : await repo.next(entity, row.id),
-          }
-          const value =
-            op.op === 'todo-add'
-              ? IssuePanelTodoWire.parse({ ...identity, text: op.text, done: false })
-              : op.op === 'deferred-add'
-                ? IssuePanelDeferredWire.parse({
-                    ...identity,
-                    text: op.text,
-                    addedAt: this.store.now(),
-                  })
-                : IssuePanelArtifactWire.parse({ ...op, ...identity, addedAt: this.store.now() })
-          await repo.save(scope, entity, value)
-        }
+    const wire = await this.store.commitPanel(writer, async (scope) => {
+      await this.store.rowOrThrow(row.id)
+      if (op.op === 'todo-clear') {
+        await repo.clearTodos(scope, row.id)
         return await this.store.projection(row)
-      },
-    )
+      }
+      // Positions are resolved inside the command transaction. A UI names its
+      // record directly, so deleting an earlier item cannot retarget a click.
+      const records = await repo.forIssues(entity, [row.id])
+      const at = () => {
+        const itemId = 'itemId' in op ? op.itemId : undefined
+        const index = 'index' in op ? op.index : undefined
+        const found = itemId
+          ? records.find((r) => r.id === itemId)
+          : index === undefined
+            ? undefined
+            : records[index - 1]
+        if (!found)
+          throw new IssueRefusal(
+            itemId ? `no item ${itemId}` : `no item ${index} (list has ${records.length})`,
+          )
+        return found
+      }
+      if (op.op === 'todo-done' || op.op === 'todo-undone') {
+        await repo.toggle(scope, row.id, at().id, op.op === 'todo-done')
+      } else if (
+        op.op === 'todo-remove' ||
+        op.op === 'deferred-remove' ||
+        op.op === 'artifact-remove'
+      ) {
+        const record =
+          op.op === 'artifact-remove' && 'path' in op
+            ? records.find(
+                (r) =>
+                  'path' in r &&
+                  r.path === op.path &&
+                  (op.artifactId === undefined ||
+                    ('artifactId' in r && r.artifactId === op.artifactId)),
+              )
+            : at()
+        if (record) await repo.remove(scope, entity, row.id, record.id)
+      } else {
+        const existing =
+          op.op === 'artifact-add'
+            ? records.find((r) => 'path' in r && r.path === op.path)
+            : undefined
+        const itemId = existing?.id ?? op.itemId ?? randomUUID()
+        if (!existing && (await repo.hasId(entity, itemId)))
+          throw new IssueRefusal(`item ${itemId} already exists`)
+        const identity = {
+          id: itemId,
+          issueId: row.id,
+          position:
+            existing && 'position' in existing
+              ? existing.position
+              : await repo.next(entity, row.id),
+        }
+        const value =
+          op.op === 'todo-add'
+            ? IssuePanelTodoWire.parse({ ...identity, text: op.text, done: false })
+            : op.op === 'deferred-add'
+              ? IssuePanelDeferredWire.parse({
+                  ...identity,
+                  text: op.text,
+                  addedAt: this.store.now(),
+                })
+              : IssuePanelArtifactWire.parse({ ...op, ...identity, addedAt: this.store.now() })
+        await repo.save(scope, entity, value)
+      }
+      return await this.store.projection(row)
+    })
     await this.store.emitEvent('issue.panel', row.id, { seq: row.seq, op: op.op })
     return { ...wire, panel: await this.store.parsePanel(row) }
   }

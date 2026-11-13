@@ -49,10 +49,7 @@ export class StoreModelLedger extends Ledger {
       const snapshot = await store.layout.getSnapshot(user)
       yield Object.entries(snapshot).flatMap(([name, value]) => {
         if (!name.startsWith(PREFIX)) return []
-        const [kind, id] = JSON.parse(name.slice(PREFIX.length)) as [
-          string,
-          string,
-        ]
+        const [kind, id] = JSON.parse(name.slice(PREFIX.length)) as [string, string]
         return kind === entity ? [{ id, value }] : []
       })
     }

@@ -760,11 +760,7 @@ export class SessionRepository {
     draft: SessionDurableState,
     additionalWrite: SessionAdditionalWrite = async () => {},
   ): Promise<void> {
-    await this.persistDraftsUnlocked(
-      writer,
-      [{ session, draft }],
-      additionalWrite,
-    )
+    await this.persistDraftsUnlocked(writer, [{ session, draft }], additionalWrite)
   }
 
   /**

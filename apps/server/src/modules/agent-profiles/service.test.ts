@@ -6,10 +6,10 @@
  */
 import { asSessionId, asUserId, type MachineId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { AgentProfilesRepository } from '../../store/agent-profiles'
 import { SyncRepository } from '@podium/sync'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { syncServerTables } from '../../migrations/sync-server-tables'
+import { AgentProfilesRepository } from '../../store/agent-profiles'
 import { createBunStoreExecutor } from '../../store/executor'
 import { installChangeCapture } from '../../sync/capture-triggers'
 import { RECORD_SOURCES, type RecordSources } from '../../sync/record-sources'

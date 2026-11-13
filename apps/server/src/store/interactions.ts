@@ -26,7 +26,6 @@
  * provide. Rows are trimmed by age, never by status.
  */
 
-import { type ChangeLogCommit, throughChangeLog } from './change-log-commit'
 import type { SessionId } from '@podium/model'
 import {
   type InteractionAnswer,
@@ -38,6 +37,7 @@ import {
 } from '@podium/protocol'
 import { and, asc, desc, eq, inArray, lt, sql } from 'drizzle-orm'
 import { pendingInteractions } from '../migrations/schema'
+import { type ChangeLogCommit, throughChangeLog } from './change-log-commit'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import {
   inListOf,

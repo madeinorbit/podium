@@ -202,7 +202,9 @@ describe('derived change capture', () => {
     w.set('pin', 'p1', { v: 1 })
     await w.authority.commit({ write: async () => undefined })
     const changes = await committed(w.authority.commit({ write: async () => w.touch('pin', 'p1') }))
-    expect(changes).toEqual([{ seq: 2, entity: 'pin', entityId: 'p1', op: 'upsert', value: { v: 1 } }])
+    expect(changes).toEqual([
+      { seq: 2, entity: 'pin', entityId: 'p1', op: 'upsert', value: { v: 1 } },
+    ])
   })
 
   it('builds once per kind, after the write, and nothing before it', async () => {

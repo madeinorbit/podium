@@ -17,7 +17,6 @@
  * expiry of a record that has started, a finish of one already settled.
  */
 
-import { type ChangeLogCommit, throughChangeLog } from './change-log-commit'
 import {
   type EffectDecision,
   EffectLifecycle,
@@ -28,6 +27,7 @@ import {
 import type { WriteScope } from '@podium/sync'
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm'
 import { effects } from '../migrations/schema'
+import { type ChangeLogCommit, throughChangeLog } from './change-log-commit'
 import { afterCommit } from './executor/executor'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import {

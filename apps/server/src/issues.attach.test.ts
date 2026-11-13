@@ -17,8 +17,8 @@ import { type IssueDeps, IssueService } from './modules/issues/service'
 import { seatText } from './modules/issues/service/seat'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { openTestStore } from './test-support/open-test-store'
-import { sessionReadPorts } from './test-support/session-facts'
 import { seedRows } from './test-support/seed-rows'
+import { sessionReadPorts } from './test-support/session-facts'
 
 // issue-as-workspace: attachSession / drafts / origin persistence (spec
 // docs/internal/superpowers/specs/2026-07-06-issue-as-workspace-design.md).
@@ -341,7 +341,9 @@ describe('attachSession', () => {
       sess(asSessionId('s1'), '/r/.worktrees/epic'),
       sess(asSessionId('s2'), '/r/.worktrees/epic'),
     ])
-    await seedRows(store, () => store.repos.setRepoDefaultParentBranch(store.hostMachineId, '/r', 'release'))
+    await seedRows(store, () =>
+      store.repos.setRepoDefaultParentBranch(store.hostMachineId, '/r', 'release'),
+    )
     const parent = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Epic',
@@ -868,7 +870,11 @@ describe('prime draft/attach variants', () => {
 
   it('bound issue past backlog is not nagged about its stage', async () => {
     const { svc } = await harness()
-    const a = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
     await svc.crud.claim(svc.reports.store.serverWriter, a.id)
     expect(await svc.reports.prime({ boundIssueId: a.id })).not.toContain('still in `backlog`')
   })
@@ -877,37 +883,41 @@ describe('prime draft/attach variants', () => {
 describe('store: sessions.issue_id round-trip', () => {
   it('persists and reloads issueId on session rows', async () => {
     const store = await openTestStore(':memory:')
-    await seedRows(store, () => store.sessions.upsertSession(fixtureWriteScope(), {
-      id: asSessionId('sx'),
-      ownerUserId: firstAdminMemberId(),
-      agentKind: 'claude-code',
-      cwd: '/r',
-      title: 't',
-      name: null,
-      machineId: store.hostMachineId,
-      originKind: 'spawn',
-      conversationId: null,
-      resumeKind: null,
-      resumeValue: null,
-      status: 'live',
-      exitCode: null,
-      durableLabel: 'podium-sx',
-      createdAt: 't',
-      lastActiveAt: 't',
-      lastOutputAt: null,
-      lastInputAt: null,
-      lastResumedAt: null,
-      archived: false,
-      workState: null,
-      issueId: asIssueId('iss_1'),
-    }))
+    await seedRows(store, () =>
+      store.sessions.upsertSession(fixtureWriteScope(), {
+        id: asSessionId('sx'),
+        ownerUserId: firstAdminMemberId(),
+        agentKind: 'claude-code',
+        cwd: '/r',
+        title: 't',
+        name: null,
+        machineId: store.hostMachineId,
+        originKind: 'spawn',
+        conversationId: null,
+        resumeKind: null,
+        resumeValue: null,
+        status: 'live',
+        exitCode: null,
+        durableLabel: 'podium-sx',
+        createdAt: 't',
+        lastActiveAt: 't',
+        lastOutputAt: null,
+        lastInputAt: null,
+        lastResumedAt: null,
+        archived: false,
+        workState: null,
+        issueId: asIssueId('iss_1'),
+      }),
+    )
     const rows = await store.sessions.loadSessions()
     expect(rows.find((r) => r.id === 'sx')?.issueId).toBe('iss_1')
     // clearing round-trips too
-    await seedRows(store, () => store.sessions.upsertSession(fixtureWriteScope(), {
-      ...rows.find((r) => r.id === 'sx')!,
-      issueId: null,
-    }))
+    await seedRows(store, () =>
+      store.sessions.upsertSession(fixtureWriteScope(), {
+        ...rows.find((r) => r.id === 'sx')!,
+        issueId: null,
+      }),
+    )
     expect((await store.sessions.loadSessions()).find((r) => r.id === 'sx')?.issueId).toBeNull()
   })
 })
