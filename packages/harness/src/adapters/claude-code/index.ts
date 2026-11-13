@@ -148,6 +148,17 @@ export const claudeCodeManifest: AgentManifest = {
     // in your environment" modal, whose one-time approval is then remembered per
     // key in `.claude.json` — after which the switch is permanently silent.
     foreignCredentialEnv: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'],
+    accepts: [
+      { type: 'anthropic.api-key', deliver: { kind: 'env', variable: 'ANTHROPIC_API_KEY' } },
+      {
+        type: 'anthropic.claude-token',
+        deliver: { kind: 'env', variable: 'CLAUDE_CODE_OAUTH_TOKEN' },
+      },
+      { type: 'anthropic.claude-login', deliver: { kind: 'home' } },
+    ],
+    // Claude Code's documented switch: scrub Anthropic and cloud-provider
+    // credentials from the environment of the commands it runs.
+    hideFromCommands: { env: { CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1' } },
     detectLogin(homeDir, env: HarnessEnvironment) {
       // The account env (POD-6536): its selector, never the daemon's own.
       const configDir = claudeRoots(homeDir, env).state

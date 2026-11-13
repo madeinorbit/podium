@@ -825,6 +825,7 @@ describe('MachinesService inventory persistence (#222)', () => {
         icon: { id: 'claude-code', viewBox: '0 0 24 24', d: 'M0 0h24v24H0z' },
         capabilities: { argvPrompt: true, effort: true, systemPrompt: true },
         catalog: { models: [], efforts: [], liveMerge: 'live-wins-when-non-empty' },
+        accepts: [],
       },
     ]
     await svc.recordInventory(MACHINE, INV, descriptors)

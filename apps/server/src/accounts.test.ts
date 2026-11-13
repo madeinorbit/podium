@@ -495,6 +495,7 @@ describe('accountViews provider source (POD-4529)', () => {
         icon: { id: kind, viewBox: '0 0 24 24', d: 'M0 0h24v24H0z' },
         capabilities: { argvPrompt: true, effort: true, systemPrompt: true },
         catalog: { models: [], efforts: [], liveMerge: 'live-wins-when-non-empty' },
+        accepts: [],
       },
     ]
   }

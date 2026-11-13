@@ -139,6 +139,8 @@ export const grokManifest: AgentManifest = {
     // Its presence flips grok from the OIDC session in `auth.json` to
     // API-key/custom-endpoint auth.
     foreignCredentialEnv: ['XAI_API_KEY'],
+    // An xAI key or Grok login is none of the registry's credential types.
+    accepts: [],
     detectLogin(homeDir, env: HarnessEnvironment) {
       const path = grokHome(homeDir, env)
       try {

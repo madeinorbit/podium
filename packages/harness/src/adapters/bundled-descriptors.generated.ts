@@ -71,7 +71,29 @@ export const GENERATED_BUNDLED_DESCRIPTORS: HarnessDescriptorWire[] =
           "max"
         ],
         "liveMerge": "live-wins-when-non-empty"
-      }
+      },
+      "accepts": [
+        {
+          "type": "anthropic.api-key",
+          "deliver": {
+            "kind": "env",
+            "variable": "ANTHROPIC_API_KEY"
+          }
+        },
+        {
+          "type": "anthropic.claude-token",
+          "deliver": {
+            "kind": "env",
+            "variable": "CLAUDE_CODE_OAUTH_TOKEN"
+          }
+        },
+        {
+          "type": "anthropic.claude-login",
+          "deliver": {
+            "kind": "home"
+          }
+        }
+      ]
     },
     {
       "schemaVersion": 1,
@@ -156,7 +178,32 @@ export const GENERATED_BUNDLED_DESCRIPTORS: HarnessDescriptorWire[] =
           "xhigh"
         ],
         "liveMerge": "live-wins-when-non-empty"
-      }
+      },
+      "accepts": [
+        {
+          "type": "openai.api-key",
+          "deliver": {
+            "kind": "env",
+            "variable": "OPENAI_API_KEY"
+          }
+        },
+        {
+          "type": "openai.chatgpt-login",
+          "deliver": {
+            "kind": "home"
+          }
+        },
+        {
+          "type": "openai.chatgpt-plan",
+          "deliver": {
+            "kind": "env",
+            "variable": "ACCESS_TOKEN"
+          },
+          "drivers": [
+            "codex-app-server"
+          ]
+        }
+      ]
     },
     {
       "schemaVersion": 1,
@@ -199,7 +246,8 @@ export const GENERATED_BUNDLED_DESCRIPTORS: HarnessDescriptorWire[] =
           "max"
         ],
         "liveMerge": "live-wins-when-non-empty"
-      }
+      },
+      "accepts": []
     },
     {
       "schemaVersion": 1,
@@ -243,6 +291,29 @@ export const GENERATED_BUNDLED_DESCRIPTORS: HarnessDescriptorWire[] =
         ],
         "liveMerge": "live-wins-when-non-empty"
       },
+      "accepts": [
+        {
+          "type": "anthropic.api-key",
+          "deliver": {
+            "kind": "env",
+            "variable": "ANTHROPIC_API_KEY"
+          }
+        },
+        {
+          "type": "openai.api-key",
+          "deliver": {
+            "kind": "env",
+            "variable": "OPENAI_API_KEY"
+          }
+        },
+        {
+          "type": "openrouter.api-key",
+          "deliver": {
+            "kind": "env",
+            "variable": "OPENROUTER_API_KEY"
+          }
+        }
+      ],
       "login": {
         "command": "opencode auth login",
         "installHint": "Install OpenCode on this machine, then run “opencode auth login”. Podium will detect it automatically.",
@@ -288,6 +359,7 @@ export const GENERATED_BUNDLED_DESCRIPTORS: HarnessDescriptorWire[] =
         "efforts": [],
         "liveMerge": "live-wins-when-non-empty"
       },
+      "accepts": [],
       "login": {
         "command": "cursor-agent login"
       }
@@ -323,6 +395,29 @@ export const GENERATED_BUNDLED_DESCRIPTORS: HarnessDescriptorWire[] =
         ],
         "liveMerge": "live-wins-when-non-empty"
       },
+      "accepts": [
+        {
+          "type": "anthropic.api-key",
+          "deliver": {
+            "kind": "env",
+            "variable": "ANTHROPIC_API_KEY"
+          }
+        },
+        {
+          "type": "openai.api-key",
+          "deliver": {
+            "kind": "env",
+            "variable": "OPENAI_API_KEY"
+          }
+        },
+        {
+          "type": "openrouter.api-key",
+          "deliver": {
+            "kind": "env",
+            "variable": "OPENROUTER_API_KEY"
+          }
+        }
+      ],
       "login": {
         "command": "pi",
         "installHint": "Install Pi on this machine, then run “pi” and sign in with its /login command. Podium will detect it automatically."

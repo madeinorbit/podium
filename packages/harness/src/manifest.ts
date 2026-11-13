@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type {
+  AcceptedCredential,
   AgentQuotaWire,
   HarnessRef,
   ResumeRef,
@@ -329,6 +330,29 @@ export interface HarnessInventory {
    * Empty array = this harness has no such variable (declare it, don't omit it).
    */
   foreignCredentialEnv: readonly string[]
+  /**
+   * The credential types this harness accepts and how each one is delivered
+   * (credential management spec §5). Whether a credential can be used for a
+   * session is the match between its type and these lines; a pairing not
+   * declared here cannot be selected.
+   *
+   * Only types this harness can already run on today. A harness's own login
+   * that is none of the registry's types gets no line and stays "no
+   * credential". Empty array = it accepts none (declare it, don't omit it).
+   */
+  accepts: readonly AcceptedCredential[]
+  /**
+   * What a launch sets so the commands the agent runs do not inherit the
+   * delivered credential, where the harness documents such a switch. It
+   * prevents accidents; it is not a barrier (spec §14). Absent: no switch.
+   */
+  hideFromCommands?: HideFromCommands
+}
+
+/** Environment and arguments a launch adds to keep credentials out of agent commands. */
+export interface HideFromCommands {
+  env?: Readonly<Record<string, string>>
+  args?: readonly string[]
 }
 
 /** Prefer a recognizable name + email without duplicating equal values. */

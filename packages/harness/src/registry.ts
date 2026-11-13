@@ -1,5 +1,5 @@
 import { join, normalize } from 'node:path'
-import type { AgentKind, HarnessAgent } from '@podium/model'
+import type { AcceptedCredential, AgentKind, HarnessAgent } from '@podium/model'
 import {
   type BuiltinHarnessKind,
   isBuiltinHarnessKind,
@@ -32,6 +32,7 @@ import {
   type HarnessLogin,
   type HarnessTranscript,
   type HarnessUsage,
+  type HideFromCommands,
   type PortableCredential,
   type ServerRuntimeSpec,
 } from './manifest.js'
@@ -192,6 +193,20 @@ const PROPAGATABLE_HARNESSES: Partial<Record<AgentKind, true>> = {
 }
 
 /** Native logins whose guarded credential files may be propagated between machines. */
+/**
+ * The credential types this harness accepts and how each is delivered
+ * (credential management spec §5). Empty for a harness this build has never
+ * heard of: an unknown harness accepts nothing rather than borrowing a row.
+ */
+export function harnessAccepts(kind: AgentKind | string): readonly AcceptedCredential[] {
+  return manifestFor(kind)?.inventory.accepts ?? []
+}
+
+/** What a launch adds to keep credentials out of the agent's commands, if the harness has a switch. */
+export function harnessHideFromCommands(kind: AgentKind | string): HideFromCommands | undefined {
+  return manifestFor(kind)?.inventory.hideFromCommands
+}
+
 export function harnessSupportsCredentialPropagation(
   kind: AgentKind | string,
 ): kind is 'claude-code' | 'codex' {

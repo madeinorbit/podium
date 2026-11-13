@@ -2027,6 +2027,109 @@
       "encoded": "{\"models\":[{\"model\":\"models[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}],\"messages\":1,\"sessionCount\":1}"
     },
     {
+      "schema": "CredentialAccess",
+      "variant": "minimal",
+      "wire": "owner",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"owner\""
+    },
+    {
+      "schema": "CredentialAccess",
+      "variant": "full",
+      "wire": "owner",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"owner\""
+    },
+    {
+      "schema": "CredentialHome",
+      "variant": "minimal",
+      "wire": {
+        "machineId": "machineId",
+        "homeId": "homeId",
+        "state": "in"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"machineId\":\"machineId\",\"homeId\":\"homeId\",\"state\":\"in\"}"
+    },
+    {
+      "schema": "CredentialHome",
+      "variant": "full",
+      "wire": {
+        "machineId": "machineId",
+        "homeId": "homeId",
+        "state": "in"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"machineId\":\"machineId\",\"homeId\":\"homeId\",\"state\":\"in\"}"
+    },
+    {
+      "schema": "CredentialId",
+      "variant": "minimal",
+      "wire": "cred_0190f2a4-7c1e-7d3a-9b5e-2f6c8d4a1e71",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"cred_0190f2a4-7c1e-7d3a-9b5e-2f6c8d4a1e71\""
+    },
+    {
+      "schema": "CredentialId",
+      "variant": "full",
+      "wire": "cred_0190f2a4-7c1e-7d3a-9b5e-2f6c8d4a1e71",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"cred_0190f2a4-7c1e-7d3a-9b5e-2f6c8d4a1e71\""
+    },
+    {
+      "schema": "CredentialIdentity",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{}"
+    },
+    {
+      "schema": "CredentialIdentity",
+      "variant": "full",
+      "wire": {
+        "fingerprint": "fingerprint",
+        "email": "email",
+        "plan": "plan",
+        "organisation": "organisation"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"fingerprint\":\"fingerprint\",\"email\":\"email\",\"plan\":\"plan\",\"organisation\":\"organisation\"}"
+    },
+    {
+      "schema": "CredentialIdField",
+      "variant": "minimal",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
+    },
+    {
+      "schema": "CredentialIdField",
+      "variant": "full",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
+    },
+    {
       "schema": "CredentialSource",
       "variant": "minimal",
       "wire": "per-user-scrypt",
@@ -2043,6 +2146,79 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "\"per-user-scrypt\""
+    },
+    {
+      "schema": "CredentialStatus",
+      "variant": "minimal",
+      "wire": "ok",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"ok\""
+    },
+    {
+      "schema": "CredentialStatus",
+      "variant": "full",
+      "wire": "ok",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"ok\""
+    },
+    {
+      "schema": "CredentialView",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "ownerUserId": "ownerUserId",
+        "label": "label",
+        "type": "type",
+        "identity": {},
+        "status": "ok",
+        "homes": [],
+        "allowedMachines": [],
+        "sessionCount": 1,
+        "access": "owner"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"ownerUserId\":\"ownerUserId\",\"label\":\"label\",\"type\":\"type\",\"identity\":{},\"status\":\"ok\",\"homes\":[],\"allowedMachines\":[],\"sessionCount\":1,\"access\":\"owner\"}"
+    },
+    {
+      "schema": "CredentialView",
+      "variant": "full",
+      "wire": {
+        "id": "id",
+        "ownerUserId": "ownerUserId",
+        "label": "label",
+        "type": "type",
+        "identity": {
+          "fingerprint": "identity.fingerprint",
+          "email": "identity.email",
+          "plan": "identity.plan",
+          "organisation": "identity.organisation"
+        },
+        "status": "ok",
+        "statusReason": "statusReason",
+        "limitReachedUntil": "limitReachedUntil",
+        "expiresAt": "expiresAt",
+        "verifiedAt": "verifiedAt",
+        "homes": [
+          {
+            "machineId": "homes[0].machineId",
+            "homeId": "homes[0].homeId",
+            "state": "in"
+          }
+        ],
+        "allowedMachines": ["allowedMachines[0]"],
+        "sessionCount": 1,
+        "access": "owner"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"ownerUserId\":\"ownerUserId\",\"label\":\"label\",\"type\":\"type\",\"identity\":{\"fingerprint\":\"identity.fingerprint\",\"email\":\"identity.email\",\"plan\":\"identity.plan\",\"organisation\":\"identity.organisation\"},\"status\":\"ok\",\"statusReason\":\"statusReason\",\"limitReachedUntil\":\"limitReachedUntil\",\"expiresAt\":\"expiresAt\",\"verifiedAt\":\"verifiedAt\",\"homes\":[{\"machineId\":\"homes[0].machineId\",\"homeId\":\"homes[0].homeId\",\"state\":\"in\"}],\"allowedMachines\":[\"allowedMachines[0]\"],\"sessionCount\":1,\"access\":\"owner\"}"
     },
     {
       "schema": "DaemonReadiness",

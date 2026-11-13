@@ -81,6 +81,7 @@ export type {
   HarnessCapabilities,
   HarnessLogin,
   LoginIdentity,
+  HideFromCommands,
   PortableCredential,
 } from './manifest.js'
 // Static driver vocabulary for consumers that fingerprint declaration-derived facts.
@@ -97,10 +98,12 @@ export {
   CREDENTIAL_PROPAGATION_HARNESSES,
   driverFamilyForId,
   driverIdIsServerFamily,
+  harnessAccepts,
   harnessCapabilitiesFor,
   harnessComposerReadiness,
   harnessDetectLogin,
   harnessDisplayName,
+  harnessHideFromCommands,
   harnessInterrupt,
   harnessNeedsSubmitVerification,
   harnessObservationProvider,

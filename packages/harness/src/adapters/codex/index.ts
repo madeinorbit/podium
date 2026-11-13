@@ -278,6 +278,22 @@ export const codexManifest: AgentManifest = {
       'OPENAI_ORG_ID',
       'OPENAI_BASE_URL',
     ],
+    accepts: [
+      { type: 'openai.api-key', deliver: { kind: 'env', variable: 'OPENAI_API_KEY' } },
+      { type: 'openai.chatgpt-login', deliver: { kind: 'home' } },
+      // A ChatGPT plan signed in to Podium reaches Codex as the token of a
+      // model provider the server driver is started with (plan Task 15); the
+      // terminal driver has no such start, so the line is limited to it.
+      {
+        type: 'openai.chatgpt-plan',
+        deliver: { kind: 'env', variable: 'ACCESS_TOKEN' },
+        drivers: ['codex-app-server'],
+      },
+    ],
+    // Codex's documented `shell_environment_policy.ignore_default_excludes`
+    // (default true): false removes every variable whose name contains KEY,
+    // SECRET or TOKEN from the commands the agent runs.
+    hideFromCommands: { args: ['-c', 'shell_environment_policy.ignore_default_excludes=false'] },
     detectLogin(homeDir, env: HarnessEnvironment) {
       const path = codexAuthPath(homeDir, env)
       let contents: string

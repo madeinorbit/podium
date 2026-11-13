@@ -830,6 +830,7 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
         // Declared empty, not omitted: "this CLI has no env that overrides its
         // login" is an answer, and the type demands one.
         foreignCredentialEnv: [],
+        accepts: [],
       },
       launch: (opts) => ({ args: [], cwd: opts.cwd }),
       // Irreducible (POD-6858): every harness process runs on some terms; the

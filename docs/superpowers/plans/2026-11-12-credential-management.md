@@ -171,12 +171,16 @@ const INFERENCE_ROUTES: Readonly<Partial<Record<CredentialTypeId, InferenceRoute
 // packages/model/src/entities/credential.ts — CredentialView (what a client sees)
 //   id, ownerUserId, label, type, identity{fingerprint?,email?,plan?,organisation?},
 //   status 'ok'|'attention'|'revoked', statusReason?, limitReachedUntil?, expiresAt?,
-//   verifiedAt?, homes[{machineId,homeId,state}], allowedMachines[], sessionCount,
-//   access 'owner'|'manage'|'use'
+//   verifiedAt?, homes[{machineId,homeId,state 'in'|'out'|'unknown'}], allowedMachines[],
+//   sessionCount, access 'owner'|'manage'|'use'; timestamps are ISO strings; type is an open string
 
 // packages/harness — HarnessInventory.accepts: readonly AcceptedCredential[]
-//   harnessAccepts(kind) from '@podium/harness/metadata'; HarnessDescriptorWire.accepts
-//   HarnessInventory.hideFromCommands?: { env?: Record<string,string>; args?: string[] }
+//   harnessAccepts(kind), harnessHideFromCommands(kind) from '@podium/harness/metadata'
+//   HarnessInventory.hideFromCommands?: HideFromCommands { env?: Record<string,string>; args?: string[] }
+//   HarnessDescriptorWire.accepts: HarnessDescriptorAcceptWire[] (open strings: type, deliver.kind,
+//     deliver.variable?, drivers?); absent on the wire parses as []
+// packages/model/src/credentials — also CREDENTIAL_TYPE_IDS, isCredentialTypeId,
+//   acceptsProblems({ types, routes, consumers }) (the matching check)
 
 // packages/runtime/src/vault-key.ts — usable by the server and by a daemon in a transfer
 resolveVaultKeyPath(env: NodeJS.ProcessEnv, instance: string): string
