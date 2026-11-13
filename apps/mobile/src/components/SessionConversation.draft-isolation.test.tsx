@@ -4,7 +4,7 @@ import type { SessionView } from '@podium/client-core/session-values'
  * the composer asleep while the addressed transcript leaf updates. */
 
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { type ReactNode, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { renderWithMobileStore } from '../client/test-support'
 
@@ -59,12 +59,18 @@ vi.mock('@podium/client-core/values', async (importOriginal) => {
   }
 })
 
-vi.mock('./SessionLifecycle', () => ({
-  MobileSessionLifecycle: () => {
-    screenRenders.count += 1
-    return null
-  },
-}))
+// This hook runs in SessionConversationBody on every render. Lifecycle is now
+// a transcript note and does not mount for this live session.
+vi.mock('../hooks/useKeyboardHeight', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../hooks/useKeyboardHeight')>()
+  return {
+    ...actual,
+    useKeyboardLift: () => {
+      screenRenders.count += 1
+      return actual.useKeyboardLift()
+    },
+  }
+})
 vi.mock('./TaskSheet', () => ({ TaskSheet: () => null }))
 vi.mock('./ArtifactViewer', () => ({ ArtifactViewer: () => null }))
 vi.mock('./TranscriptList', async () => {
@@ -98,24 +104,29 @@ describe('phone composer draft isolation', () => {
   it('typing N keys renders the transcript 0 times and the screen 0 times', async () => {
     screenRenders.count = 0
     transcriptRenders.count = 0
-    const fixture = await renderWithMobileStore(
-      <SessionConversation session={session} issue={undefined} />,
-      {
-        sessions: [session],
-        api: {
-          sessions: {
-            transcriptRead: {
-              query: async () => ({
-                items: [{ id: 'stream', role: 'assistant', text: 'start', cursor: 'stream' }],
-                hasMore: false,
-              }),
-            },
-            answerAskUserQuestion: { mutate: async () => ({ ok: true }) },
-            interrupt: { mutate: async () => ({ ok: true }) },
+    composerWork.renders = 0
+    composerWork.state = 0
+    let redrawScreen!: () => void
+    function Host() {
+      const [topInset, setTopInset] = useState(0)
+      redrawScreen = () => setTopInset((inset) => inset + 4)
+      return <SessionConversation session={session} issue={undefined} topInset={topInset} />
+    }
+    const fixture = await renderWithMobileStore(<Host />, {
+      sessions: [session],
+      api: {
+        sessions: {
+          transcriptRead: {
+            query: async () => ({
+              items: [{ id: 'stream', role: 'assistant', text: 'start', cursor: 'stream' }],
+              hasMore: false,
+            }),
           },
+          answerAskUserQuestion: { mutate: async () => ({ ok: true }) },
+          interrupt: { mutate: async () => ({ ok: true }) },
         },
       },
-    )
+    })
 
     // Let mount settle: composer field present, initial transcript/screen paints done.
     const input = (await screen.findByPlaceholderText(
@@ -129,6 +140,15 @@ describe('phone composer draft isolation', () => {
     expect(field).not.toBeNull()
     await waitFor(() => expect(transcriptRenders.count).toBeGreaterThan(0))
     await waitFor(() => expect(screenRenders.count).toBeGreaterThan(0))
+    expect(composerWork.renders).toBeGreaterThan(0)
+    expect(composerWork.state).toBeGreaterThan(0)
+
+    // Positive control: a screen prop change must register on both probes.
+    const mountedScreen = screenRenders.count
+    const mountedTranscript = transcriptRenders.count
+    act(redrawScreen)
+    expect(screenRenders.count).toBeGreaterThan(mountedScreen)
+    expect(transcriptRenders.count).toBeGreaterThan(mountedTranscript)
 
     const transcriptBaseline = transcriptRenders.count
     const screenBaseline = screenRenders.count
@@ -185,7 +205,11 @@ describe('phone composer draft isolation', () => {
     expect(field.value).toBe('hello')
     expect(
       streamed.every(
-        (sample) => sample.composer === 0 && sample.screen === 0 && sample.composerState === 0,
+        (sample) =>
+          sample.composer === 0 &&
+          sample.screen === 0 &&
+          sample.composerState === 0 &&
+          sample.transcript === 1,
       ),
     ).toBe(true)
     console.log('[phone composer typing and stream]', JSON.stringify({ typing, streamed }))
