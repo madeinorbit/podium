@@ -2008,7 +2008,7 @@ export const TranscriptList = observer(function TranscriptList({
   )
 
   return (
-    <View style={styles.listFrame}>
+    <View style={styles.listFrame} collapsable={false}>
       <TranscriptViewport
         ref={listRef}
         identity={transcriptId}

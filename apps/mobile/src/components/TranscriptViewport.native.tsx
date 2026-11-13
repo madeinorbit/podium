@@ -7,7 +7,8 @@ import {
   useImperativeHandle,
   useRef,
 } from 'react'
-import { FlatList } from 'react-native'
+import { FlatList, Platform } from 'react-native'
+import { ScrollViewMarker } from 'react-native-screens/experimental'
 import { useNativeTranscriptScroll } from '../hooks/useNativeTranscriptScroll'
 import { listWindow } from './list-window'
 import type { TranscriptViewportHandle, TranscriptViewportProps } from './TranscriptViewport.types'
@@ -48,7 +49,7 @@ export const TranscriptViewport = forwardRef(function NativeViewport<Item>(
     }),
     [scroll.jumpToBottom, scroll.readAtTarget],
   )
-  return (
+  const list = (
     <FlatList
       {...props}
       {...listWindow}
@@ -69,6 +70,17 @@ export const TranscriptViewport = forwardRef(function NativeViewport<Item>(
         scrollToOffset(Math.max(0, index * averageItemLength))
       }
     />
+  )
+  // Configure the actual UIScrollView when it mounts, including after the
+  // transcript/composer loading boundary. A screen-level option is applied
+  // before that scroll view exists and the v4 stack does not revisit it.
+  // The marker also preserves the first-descendant chain for UIKit's header.
+  return Platform.OS === 'ios' ? (
+    <ScrollViewMarker style={{ flex: 1, minHeight: 0 }} scrollEdgeEffects={{ top: 'soft' }}>
+      {list}
+    </ScrollViewMarker>
+  ) : (
+    list
   )
 }) as <Item>(
   props: TranscriptViewportProps<Item> & RefAttributes<TranscriptViewportHandle>,

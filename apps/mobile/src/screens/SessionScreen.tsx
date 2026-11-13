@@ -229,9 +229,9 @@ export function SessionScreen() {
 
 /**
  * The transcript runs under the transparent navigation bar (POD-2387): the
- * Screen opts in with `underHeader`, and the inverted feed cannot use the
- * automatic content inset, so it takes the bar's height as its top inset. The
- * hook reads the Screen's context, hence a component below it.
+ * Screen opts in with `underHeader`. The feed pays the measured bar height in
+ * its content padding and marks its native scroll view for the iOS 26 edge
+ * effect. The hook reads the Screen's context, hence a component below it.
  */
 function HeaderInsetConversation(props: ComponentProps<typeof SessionConversation>) {
   return <SessionConversation {...props} topInset={useHeaderInset()} />

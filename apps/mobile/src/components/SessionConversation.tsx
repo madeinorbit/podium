@@ -454,8 +454,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
   onInitialPendingSettled?: () => void
   /** Wait until the authority recognizes a client-minted session id. */
   deferInitialTranscript?: boolean
-  /** Height of chrome floating over the top of the feed (the mission deck bar):
-   *  the transcript scrolls under it and rests below it. */
+  /** Height of the native header over the feed: content rests below it. */
   topInset?: number
 }) {
   const storeHandle = useStoreHandle<MobileTrpc>()
@@ -530,6 +529,8 @@ const SessionConversationBody = observer(function SessionConversationBody({
   // Mount native content only once its first layout can pay for the composer.
   // Updating a zero inset later leaves short FlatList footers under the dock.
   const [composerHeight, setComposerHeight] = useState<number | null>(null)
+  const [offlineBannerHeight, setOfflineBannerHeight] = useState(0)
+  const transcriptTopInset = topInset + (offlineMachineName ? offlineBannerHeight : 0)
   const transcriptLayout = useRef(false)
   const [askHeight, setAskHeight] = useState(0)
   /** Bumped by a send so the feed lands on the new bubble, the same request
@@ -828,6 +829,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
   return (
     <View
       testID="conversation-viewport"
+      collapsable={false}
       style={styles.flex}
       onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}
     >
@@ -839,23 +841,12 @@ const SessionConversationBody = observer(function SessionConversationBody({
           onRemove={store.killSession}
         />
       ) : null}
-      {offlineMachineName ? (
-        <View
-          style={[styles.offlineBanner, topInset > 0 && { marginTop: topInset }]}
-          testID="machine-offline-banner"
-          accessibilityRole="alert"
-        >
-          <Text style={styles.offlineText}>
-            {`machine '${offlineMachineName}' is offline — showing last known transcript.`}
-          </Text>
-        </View>
-      ) : null}
       {readOnly && !hasTranscript ? null : (
         <BootstrapCrossfade
           resolved={transcriptLayoutReady && (loaded || itemCount > 0)}
           placeholder={
             <TranscriptSkeleton
-              topInset={topInset}
+              topInset={transcriptTopInset}
               bottomInset={composerHidden ? 0 : (composerHeight ?? 0) + askHeight + keyboardLift}
             />
           }
@@ -890,7 +881,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
                       ? floatingHeight + keyboardLift
                       : undefined
                 }
-                topInset={topInset}
+                topInset={transcriptTopInset}
                 streaming={streamingActive}
                 tail={tailState}
                 refreshControl={refreshControl}
@@ -925,6 +916,24 @@ const SessionConversationBody = observer(function SessionConversationBody({
           ) : null}
         </BootstrapCrossfade>
       )}
+      {/* The transcript must be the first native descendant. An in-flow banner
+          before it makes the stack's scroll-view finder stop at the banner. */}
+      {offlineMachineName ? (
+        <View
+          style={[styles.offlineLayer, { top: topInset }]}
+          onLayout={(event) => setOfflineBannerHeight(event.nativeEvent.layout.height)}
+        >
+          <View
+            style={styles.offlineBanner}
+            testID="machine-offline-banner"
+            accessibilityRole="alert"
+          >
+            <Text style={styles.offlineText}>
+              {`machine '${offlineMachineName}' is offline — showing last known transcript.`}
+            </Text>
+          </View>
+        </View>
+      ) : null}
       {/* The composer floats OVER the feed rather than ending it [POD-502]. The
           feed pays for it with the composer's own resting height. */}
       {composerHidden ? null : (
@@ -996,6 +1005,13 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
     minHeight: 0,
+  },
+  offlineLayer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    zIndex: 1,
+    backgroundColor: color.bg,
   },
   /**
    * THE OFFLINE-MACHINE BANNER (this issue) — the phone's copy of the
