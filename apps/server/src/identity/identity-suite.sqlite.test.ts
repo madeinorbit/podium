@@ -65,7 +65,9 @@ const harness: SuiteHarness = {
   async open() {
     const dir = mkdtempSync(join(tmpdir(), 'podium-identity-suite-'))
     const path = join(dir, 'podium.db')
-    const store = await SessionStore.open(path)
+    // No change log is wired over this store: the suite exercises the member
+    // writer, not the feed, so nothing is captured (POD-6920).
+    const store = await SessionStore.open(path, undefined, { changeCapture: 'whenLogAttaches' })
     // The store's one drizzle instance and its transaction runner. Nothing in
     // the server hands them to the identity package yet (POD-6746 does), so
     // this leg reads them where the store keeps them.
@@ -186,7 +188,7 @@ describe('identity suite on sqlite: the leg', () => {
   it('reads no identity table by a table scan, the sign-in library included', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-identity-plans-'))
     const path = join(dir, 'podium.db')
-    const store = await SessionStore.open(path)
+    const store = await SessionStore.open(path, undefined, { changeCapture: 'whenLogAttaches' })
     const reader = openDatabase(path)
     try {
       const statements = [...observed].filter((sql) => /\bidentity_/.test(sql))

@@ -540,11 +540,11 @@ export async function startTwoMemberInstance(
           // This host's no-janitor seam omits its normal sync worker. Resolve
           // the real sign-in cookie through the identity package before the
           // fixture worker builds/scopes the snapshot; never infer a member from
-          // the test name. A valid credential is resolved before any
-          // same-machine admission.
+          // the test name. The request is the loopback one the feed socket
+          // makes; a valid credential resolves before any same-machine admission.
           const resolution = await handle.identity.resolve(
             new Request(origin, { headers: { cookie } }),
-            { scheme: 'http', sameMachine: false, clientAddress: '127.0.0.1' },
+            { scheme: 'http', sameMachine: true, clientAddress: '127.0.0.1' },
           )
           const userId = resolution.kind === 'member' ? asUserId(resolution.memberId) : undefined
           const account = userId ? await store.users.get(userId) : undefined
