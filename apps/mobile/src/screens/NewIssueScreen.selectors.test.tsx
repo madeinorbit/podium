@@ -306,7 +306,7 @@ describe('native New Task sheet logic', () => {
     expect(seams.back).not.toHaveBeenCalled()
   })
 
-  it('keeps supported effort across model picks and clears it only for unsupported models or Auto', async () => {
+  it('matches desktop by resetting effort to Auto on every model pick', async () => {
     const { runtime } = await mount({
       api: {
         models: {
@@ -338,9 +338,12 @@ describe('native New Task sheet logic', () => {
     pick('First model')
     pick('High')
     pick('Second model')
-    await waitFor(() => expect(selected()).toMatchObject({ model: 'second', effort: 'high' }))
+    await waitFor(() => expect(selected()).toMatchObject({ model: 'second', effort: 'auto' }))
+    pick('High')
     pick('Second model')
-    expect(selected()).toMatchObject({ model: 'second', effort: 'high' })
+    expect(selected()).toMatchObject({ model: 'second', effort: 'auto' })
+    pick('First model')
+    pick('High')
     pick('Limited model')
     await waitFor(() => expect(selected()).toMatchObject({ model: 'limited', effort: 'auto' }))
     pick('First model')

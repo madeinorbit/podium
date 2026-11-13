@@ -424,7 +424,7 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
               id: row.value,
               label: row.label,
               selected: !shell && draft.model === row.value,
-              onPress: () => write({ model: row.value, launchPickTouched: true }),
+              onPress: () => write({ model: row.value, effort: AUTO, launchPickTouched: true }),
             })),
             {
               id: 'shell',
