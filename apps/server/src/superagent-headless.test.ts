@@ -14,7 +14,7 @@ import {
   BUILTIN_HARNESS_KINDS,
   firstAdminMemberId,
 } from '@podium/model'
-import type { ServerMessage } from '@podium/protocol'
+import { DEFAULT_SESSION_POSTURE, type ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { type HarnessAgent, nativeAccountId } from '@podium/runtime'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -50,6 +50,7 @@ type TurnReq = {
   contextPrompt?: string
   systemPrompt?: string
   permissionMode?: string
+  posture?: unknown
   resumeValue?: string
   sessionUuid?: string
   model?: string
@@ -117,6 +118,9 @@ async function harness() {
         ...(m.contextPrompt ? { contextPrompt: m.contextPrompt } : {}),
         ...(m.systemPrompt ? { systemPrompt: m.systemPrompt } : {}),
         ...(m.permissionMode ? { permissionMode: m.permissionMode } : {}),
+        ...((m as { posture?: unknown }).posture
+          ? { posture: (m as { posture?: unknown }).posture }
+          : {}),
         ...(m.resumeValue ? { resumeValue: m.resumeValue } : {}),
         ...(m.sessionUuid ? { sessionUuid: m.sessionUuid } : {}),
         ...(m.model ? { model: m.model } : {}),
@@ -1570,6 +1574,9 @@ describe('sendTurn (headless harness turns)', () => {
     expect(req.prompt).toBe('hello')
     expect(req.contextPrompt).toContain('[SUPERAGENT CONTEXT]')
     expect(req.contextPrompt).toContain('/r')
+    // The launch terms in Podium's words (POD-6858 Task 9), and the old word
+    // beside them for a daemon that predates posture.
+    expect(req.posture).toEqual(DEFAULT_SESSION_POSTURE)
     expect(req.permissionMode).toBe('auto')
     expect(req.systemPrompt).toContain('superagent')
     expect(req.resumeValue).toBeUndefined() // first turn

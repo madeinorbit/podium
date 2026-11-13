@@ -77,6 +77,53 @@ describe('a buffered run without a working folder (POD-6858)', () => {
   })
 })
 
+describe("the exec frame's posture (POD-6858 Task 9)", () => {
+  async function argsFor(overrides: Partial<BufferedHarnessRequest>): Promise<string[]> {
+    const seen: string[][] = []
+    const result = await executeBufferedHarnessTurn(
+      { homeDir: '/home/op', harnessRuntime: undefined },
+      req(overrides),
+      {
+        snapshot: async () => fakeSnapshot('claude-code', '/usr/bin/claude'),
+        runChild: async ({ args }) => {
+          seen.push([...args])
+          return { stdout: 'ok' }
+        },
+        repoRootOf: async () => undefined,
+        prepareLaunchPorts: {
+          writeLaunchFile: async () => {},
+          homeEdits: {
+            readFile: async () => undefined,
+            writeFileAtomic: async () => {},
+            createFileExclusive: async () => true,
+            log: () => {},
+          },
+          log: () => {},
+        },
+      },
+    )
+    expect(result.ok).toBe(true)
+    expect(seen).toHaveLength(1)
+    return seen[0]!
+  }
+
+  it('runs on the posture the frame states', async () => {
+    const args = await argsFor({ posture: { mode: 'supervised' } } as never)
+    expect(args[args.indexOf('--permission-mode') + 1]).toBe('default')
+  })
+
+  it('runs on the default posture when an older server states none', async () => {
+    const args = await argsFor({})
+    expect(args[args.indexOf('--permission-mode') + 1]).toBe('auto')
+  })
+
+  it("ignores an older server's Claude-worded allow list: the posture section owns the rules", async () => {
+    const args = await argsFor({ allowedTools: ['Read', 'Bash'] } as never)
+    expect(args).not.toContain('--allowedTools')
+    expect(args.some((arg) => arg.includes('Read,Bash'))).toBe(false)
+  })
+})
+
 describe('buffered harness compatibility (POD-4304 F09)', () => {
   it('keeps the wire frame registered with old-peer result shape', () => {
     expect(typeof execHandlers.harnessExecRequest).toBe('function')

@@ -15,6 +15,7 @@
 import { createHash } from 'node:crypto'
 import { rmSync } from 'node:fs'
 import { asAccountId, asSessionId, type SessionId } from '@podium/model'
+import { DEFAULT_SESSION_POSTURE, type SessionPosture } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
 import { supported } from '../../../manifest.js'
@@ -35,6 +36,7 @@ import {
 } from '../../testing/harness-context.js'
 import type { AttachmentRef } from '../../turns.js'
 import type { EngineProcessOwner } from '../engine-supervision.js'
+import { composeHeadlessInvocation } from './invocation.js'
 import {
   assertNativeHeadlessAccount,
   createHeadlessRuntime,
@@ -306,6 +308,7 @@ function makeTurn(
     structuredPermissions?: true
     attachments?: AttachmentRef[]
     digest?: string
+    posture?: SessionPosture
   } = {},
 ): TurnInput {
   const turnId = fields.turnId ?? 'turn-1'
@@ -347,15 +350,27 @@ function makeTurn(
           }),
         }
       : {}),
-    ...(fields.allowedTools !== undefined ? { allowedTools: fields.allowedTools } : {}),
-    ...(fields.permissionMode !== undefined ? { permissionMode: fields.permissionMode } : {}),
+    // The old vendor-worded fields ride only as the facts the digest covers.
+    ...(fields.allowedTools !== undefined ||
+    fields.permissionMode !== undefined ||
+    fields.structuredPermissions !== undefined
+      ? {
+          legacyTerms: {
+            ...(fields.allowedTools !== undefined ? { allowedTools: fields.allowedTools } : {}),
+            ...(fields.permissionMode !== undefined
+              ? { permissionMode: fields.permissionMode }
+              : {}),
+            ...(fields.structuredPermissions !== undefined
+              ? { structuredPermissions: fields.structuredPermissions }
+              : {}),
+          },
+        }
+      : {}),
+    ...(fields.posture !== undefined ? { posture: fields.posture } : {}),
     ...(fields.toolPolicy !== undefined ? { toolPolicy: fields.toolPolicy } : {}),
     ...(fields.mcpConfig !== undefined ? { mcpConfig: fields.mcpConfig } : {}),
     ...(fields.resumeValue !== undefined ? { resumeValue: fields.resumeValue } : {}),
     ...(fields.sessionUuid !== undefined ? { sessionUuid: fields.sessionUuid } : {}),
-    ...(fields.structuredPermissions !== undefined
-      ? { structuredPermissions: fields.structuredPermissions }
-      : {}),
   }
 }
 
@@ -463,6 +478,129 @@ describe('headless driver identity', () => {
     const { runtime } = makeRuntime()
     try {
       await expect(runtime.driverFor('shell').create(makeSpec('shell'))).rejects.toThrow()
+    } finally {
+      runtime.dispose()
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Posture (POD-6858 Task 9)
+// ---------------------------------------------------------------------------
+
+describe('a headless turn runs on the posture its frame states', () => {
+  it('runs a Cursor turn stated autonomous with --auto-review, whatever the old permissionMode says', async () => {
+    // The interim gap POD-6872 left: the old frame's `permissionMode: 'auto'`
+    // read as a native Cursor mode that does not exist, so the turn lost
+    // --auto-review. The posture on the frame is what the launch reads.
+    const { runtime, runners } = makeRuntime()
+    try {
+      const { handle, sessionId } = await createHandle(runtime, 'cursor', {
+        harnessContext: testHarnessContext({ kind: 'cursor' }),
+      })
+      const receipt = await handle.send(
+        makeTurn(sessionId, {
+          accountId: 'native:cursor:fp-1',
+          sessionUuid: 'chat-1',
+          permissionMode: 'auto',
+          posture: { mode: 'autonomous' },
+        }),
+        { origin: 'system', delivery: 'when-ready' },
+      )
+      expect(receipt.outcome).toBe('accepted')
+      const spec = runners.turns[0]?.spec
+      expect(spec?.launchPosture.posture).toEqual({ mode: 'autonomous' })
+      const invocation = composeHeadlessInvocation(spec!, testHarnessSnapshot(), {
+        isRoot: false,
+      })
+      expect(invocation.command.args).toContain('--auto-review')
+      expect(invocation.command.terms.requestedMode).toBe('auto-review')
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('runs a turn that states no posture on the session posture', async () => {
+    const { runtime, runners } = makeRuntime()
+    try {
+      const { handle, sessionId } = await createHandle(runtime)
+      const receipt = await handle.send(makeTurn(sessionId), {
+        origin: 'system',
+        delivery: 'when-ready',
+      })
+      expect(receipt.outcome).toBe('accepted')
+      expect(runners.turns[0]?.spec.launchPosture.posture).toEqual(DEFAULT_SESSION_POSTURE)
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('verifies the digest over the old fields the server minted it on, not over posture', async () => {
+    // An older daemon strips `posture` before it recomputes the digest, so
+    // the server never puts it there: a posture beside an unchanged digest
+    // verifies.
+    const { runtime, runners } = makeRuntime()
+    try {
+      const { handle, sessionId } = await createHandle(runtime)
+      const receipt = await handle.send(
+        makeTurn(sessionId, {
+          permissionMode: 'auto',
+          allowedTools: ['mcp__podium__issue_list'],
+          posture: { mode: 'supervised' },
+        }),
+        { origin: 'system', delivery: 'when-ready' },
+      )
+      expect(receipt.outcome).toBe('accepted')
+      expect(runners.turns).toHaveLength(1)
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('routes a supervised Claude turn through the permission channel, so its asks reach chat', async () => {
+    const { runtime, runners } = makeRuntime()
+    try {
+      const { handle, sessionId } = await createHandle(runtime)
+      const receipt = await handle.send(
+        makeTurn(sessionId, { turnId: 'supervised-1', posture: { mode: 'supervised' } }),
+        { origin: 'system', delivery: 'when-ready' },
+      )
+      expect(receipt.outcome).toBe('accepted')
+      expect(runners.turns[0]?.spec).toMatchObject({ structuredPermissions: true })
+      expect(typeof runners.turns[0]?.onPermission).toBe('function')
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('runs an autonomous Claude turn without the permission channel', async () => {
+    const { runtime, runners } = makeRuntime()
+    try {
+      const { handle, sessionId } = await createHandle(runtime)
+      await handle.send(makeTurn(sessionId, { posture: { mode: 'autonomous' } }), {
+        origin: 'system',
+        delivery: 'when-ready',
+      })
+      expect(runners.turns[0]?.spec).not.toHaveProperty('structuredPermissions')
+      expect(runners.turns[0]?.onPermission).toBeUndefined()
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('runs a supervised Codex turn rather than refusing it: its posture section reports what it cannot do', async () => {
+    const { runtime, runners } = makeRuntime()
+    try {
+      const { handle, sessionId } = await createHandle(runtime, 'codex')
+      const receipt = await handle.send(
+        makeTurn(sessionId, {
+          accountId: 'native:codex:fp-1',
+          posture: { mode: 'supervised' },
+        }),
+        { origin: 'system', delivery: 'when-ready' },
+      )
+      expect(receipt.outcome).toBe('accepted')
+      expect(runners.turns[0]?.spec).not.toHaveProperty('structuredPermissions')
     } finally {
       runtime.dispose()
     }
