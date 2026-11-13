@@ -292,10 +292,12 @@ it('regaining USE re-admits the lost worktree and ends its evicts', async () => 
   expect(
     (await o.store.checkouts.lostOfMachines([MACHINE])).get(MACHINE)?.get(BOTH),
   ).toBeUndefined()
-  // A later move of the row re-admits, and evicts nothing.
+  // A later rewrite of the row that leaves the member's reach where it was
+  // (a new hostname) anchors nothing: it neither re-admits nor evicts
+  // (POD-6834, machine reports must not re-send every checkout).
   const later = await o.reg.changeLedger.authority.cursor()
   await o.store.machines.touchMachine(MACHINE, 'renamed-host')
-  expect(await received(o, later, BOTH)).toEqual([`upsert ${worktree}`, `upsert ${root}`].sort())
+  expect(await received(o, later, BOTH)).toEqual([])
 })
 
 it('a lost checkout that is gone is still evicted to the member who lost it', async () => {
