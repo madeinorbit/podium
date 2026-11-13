@@ -277,6 +277,23 @@ it('collapses a paired answer into its receipt and removes successful hook noise
   expect(screen.getByLabelText(/answered/i)).toBeTruthy()
 })
 
+it('omits successful PreCompact and PostCompact rows from text and accessibility, retaining failures', () => {
+  const { container } = render(
+    transcript([
+      {
+        id: 'success',
+        role: 'system',
+        text: 'PreCompact [http://127.0.0.1:45977/hooks/id] completed successfully: {}\nPostCompact [if [ -n home ]; then hook; fi] completed successfully: {}',
+      },
+      { id: 'failed', role: 'system', text: 'PostCompact [hook] failed: exit 1' },
+    ]),
+  )
+  expect(container.textContent).not.toContain('completed successfully')
+  expect(container.innerHTML).not.toContain('127.0.0.1')
+  expect(screen.queryByLabelText(/completed successfully/)).toBeNull()
+  expect(screen.getByText('PostCompact [hook] failed: exit 1')).toBeTruthy()
+})
+
 it('uses the desktop short subject for file rows in an opened fold', () => {
   render(
     transcript([
