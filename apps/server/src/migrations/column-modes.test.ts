@@ -42,6 +42,7 @@ const BOOLEAN_COLUMNS = [
   // The identity tables come from the shared identity package (POD-6744).
   'identity_session.fixed_expiry',
   'identity_user.email_verified',
+  'issue_panel_todos.done',
   'issues.archived',
   'issues.draft',
   'issues.needs_human',

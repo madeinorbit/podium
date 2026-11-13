@@ -213,7 +213,19 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     deletionSource: null,
     // Provenance lets restore recover cwd-derived sessions that had no explicit issueId.
     deletedByIssueId: null,
+    // Stored session facts the record projects (POD-6764): always read back,
+    // defaulted when the daemon reported nothing.
+    draftSyncEngine: false,
+    agentState: null,
+    agentColor: null,
+    observedModel: null,
+    observedEffort: null,
+    handoffTargetMachineId: null,
     ...overrides,
+    // The published activity time reads back as the row's own unless a test
+    // pins it (POD-6764).
+    publishedLastActiveAt:
+      overrides.publishedLastActiveAt ?? overrides.lastActiveAt ?? '2026-06-09T00:00:00.000Z',
   }
 }
 
