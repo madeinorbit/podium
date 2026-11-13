@@ -7,6 +7,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { type ReactNode, useEffect } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { ScreenAction } from '../components/screen-actions'
+import { FOLD_EXIT_MS, ROW_PRIME_MS } from '../lib/use-fold-exit'
 import type { TasksSurfaceProps } from './TasksSurface.types'
 import type { WorkSurfaceProps } from './WorkSurface.types'
 
@@ -104,6 +105,7 @@ vi.mock('@expo/ui/swift-ui/modifiers', () =>
       'animation',
       'background',
       'buttonStyle',
+      'clipped',
       'contentShape',
       'font',
       'foregroundStyle',
@@ -120,6 +122,7 @@ vi.mock('@expo/ui/swift-ui/modifiers', () =>
       'onAppear',
       'onDisappear',
       'onGeometryChange',
+      'opacity',
       'padding',
       'pickerStyle',
       'refreshable',
@@ -202,6 +205,10 @@ afterEach(() => {
   state.folded = false
   state.work = null
 })
+
+/** Freshly mounted rows draw themselves for ROW_PRIME_MS, then the viewport window rules. */
+const lapsePrime = () =>
+  act(() => new Promise<void>((resolve) => setTimeout(resolve, ROW_PRIME_MS + 20)))
 
 it('Tasks aligns nested separators, pads scalable content and keeps cell traits outside slot observers', async () => {
   const stamp = '2026-10-03T12:00:00Z'
@@ -287,6 +294,9 @@ it('Tasks aligns nested separators, pads scalable content and keeps cell traits 
       offset: 22 + depth * 16,
     })
   }
+  // A freshly mounted row draws itself; the placeholder returns once the prime lapses.
+  expect(screen.getByText('Single task')).toBeTruthy()
+  await lapsePrime()
   expect(modifiers(slot.firstElementChild)).toContainEqual({
     name: 'frame',
     value: { height: 44 },
@@ -390,7 +400,11 @@ it('native placeholders activate a bounded window both ways; only age labels rea
   )
   const slots = screen.getAllByTestId('slot')
   expect(slots).toHaveLength(199)
+  // The first window draws on mount, then hands over to the viewport window.
+  expect(screen.getAllByText(/^Task \d+$/)).toHaveLength(MOBILE_TASK_WINDOW_SIZE)
+  await lapsePrime()
   expect(screen.queryAllByText(/^Task \d+$/)).toHaveLength(0)
+  state.age.mockClear()
   act(() => fireEvent.mouseEnter(slots[0]!))
   expect(screen.getAllByText(/^Task \d+$/)).toHaveLength(MOBILE_TASK_WINDOW_SIZE)
   // Task 0 has a progress label, so it must not subscribe to age.
@@ -426,6 +440,13 @@ it('native placeholders activate a bounded window both ways; only age labels rea
   fireEvent.click(screen.getByTestId('group-header'))
   expect(state.toggleFold).not.toHaveBeenCalled()
   act(() => board.search(''))
+  // The fold animates: rows stay mounted at zero height, then unmount.
+  expect(
+    screen
+      .getAllByTestId('slot')
+      .every((slot) => slot.getAttribute('data-modifiers')?.includes('"height":0')),
+  ).toBe(true)
+  await act(() => new Promise<void>((resolve) => setTimeout(resolve, FOLD_EXIT_MS + 20)))
   expect(screen.queryAllByTestId('slot')).toHaveLength(0)
   fireEvent.click(screen.getByTestId('group-header'))
   expect(state.toggleFold).toHaveBeenCalledTimes(1)
@@ -437,6 +458,8 @@ it('native placeholders activate a bounded window both ways; only age labels rea
   act(() => state.search?.onCancelButtonPress())
   expect(state.listMount).toHaveBeenCalledTimes(mounts + 1)
   expect(board.query).toBe('')
+  // Clearing the search re-folded the group, which animates shut first.
+  await act(() => new Promise<void>((resolve) => setTimeout(resolve, FOLD_EXIT_MS + 20)))
   expect(screen.queryAllByTestId('slot')).toHaveLength(0)
   act(() => state.search?.onCancelButtonPress())
   expect(state.listMount).toHaveBeenCalledTimes(mounts + 2)
@@ -483,6 +506,7 @@ it('Work keeps its native list and unchanged slots quiet during a one-row scroll
   expect(state.header.headerTransparent).toBe(true)
   const host = screen.getByTestId('native-host')
   expect(host.parentElement?.firstElementChild).toBe(host)
+  await lapsePrime()
   act(() => fireEvent.mouseEnter(slots[30]!))
   expect(screen.getAllByText(/^Work \d+$/)).toHaveLength(MOBILE_TASK_WINDOW_SIZE)
   state.slot.mockClear()

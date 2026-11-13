@@ -26,6 +26,7 @@ import {
   animation,
   background,
   buttonStyle,
+  clipped,
   contentShape,
   disabled,
   font,
@@ -43,6 +44,7 @@ import {
   onAppear,
   onDisappear,
   onGeometryChange,
+  opacity,
   pickerStyle,
   refreshable,
   scrollContentBackground,
@@ -54,6 +56,7 @@ import { relativeTime } from '@podium/client-core/focus'
 import { discoveredPlacement, type IssueNavigationModel } from '@podium/client-core/values'
 import { headerView } from '@podium/client-graph/header-views'
 import { omitGone } from '@podium/client-graph/lookup'
+import { MOBILE_TASK_WINDOW_SIZE } from '@podium/client-graph/mobile-tasks'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { observer, useWorklistModel } from '@podium/client-graph/react'
 import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
@@ -83,6 +86,7 @@ import { WorkingMark } from '../components/WorkingMark'
 import { useAgeNow } from '../lib/clock-hooks'
 import { listOrderRevision } from '../lib/list-order-revision'
 import { startupTiming } from '../lib/startup-timing'
+import { useFoldExit, useRowPrime } from '../lib/use-fold-exit'
 import { sectionAnimationValue, useSettledOrder } from '../lib/use-settled-order'
 import { workMenuActionIds } from '../lib/work-menu'
 import { quietProjectsLabel, workLaneTitle, workMenuItem, workSubtitle } from '../lib/work-row-copy'
@@ -112,6 +116,15 @@ const cardRowAt = (first: boolean, last: boolean) => [
   }),
 ]
 const loneCardRow = cardRowAt(true, true)
+/** A folding group's row: zero height and clear, so SwiftUI animates it shut. */
+const collapsedRow = [
+  frame({ height: 0 }),
+  clipped(),
+  opacity(0),
+  listRowBackground(paper.card),
+  listRowSeparator('hidden'),
+  listRowInsets({ leading: CARD_INSET, trailing: CARD_INSET, top: 0, bottom: 0 }),
+]
 /** Rows that sit on the ground rather than in a card (lane control, notes, empty state). */
 const quietRow = [
   listRowBackground(paper.ground),
@@ -146,6 +159,9 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
   const sections = (
     phone.quietExpanded && quiet.length ? [...phone.activeSections, ...quiet] : phone.activeSections
   ).map((section) => ({ section, folded: !phone.needle && props.collapsed.has(section.key) }))
+  const closing = useFoldExit(
+    sections.flatMap(({ section, folded }) => (folded ? [section.key] : [])),
+  )
   const animate = useSettledOrder(
     listOrderRevision(
       sections.map(({ section, folded }) => ({ key: section.key, folded, ids: section.ids })),
@@ -288,7 +304,7 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
                     ),
                   ]}
                 >
-                  {folded
+                  {folded && !closing.has(section.key)
                     ? null
                     : section.ids.map((id, index) => (
                         <NativeWorkSlot
@@ -297,6 +313,8 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
                           section={section}
                           first={index === 0}
                           last={index === section.ids.length - 1}
+                          collapsed={folded}
+                          prime={index < MOBILE_TASK_WINDOW_SIZE}
                         >
                           <NativeWorkRow
                             id={id}
@@ -386,33 +404,45 @@ const NativeWorkSlot = observer(function NativeWorkSlot({
   section,
   first,
   last,
+  collapsed,
+  prime,
   children,
 }: {
   id: string
   section: PhoneWorkSection
   first: boolean
   last: boolean
+  /** The group is folding: the row stays mounted at zero height while it animates out. */
+  collapsed: boolean
+  /** A row in the first window draws itself on mount (an unfold, a first render)
+   * instead of a placeholder that waits for SwiftUI's appearance callback. */
+  prime: boolean
   children: React.ReactNode
 }) {
   const active = section.window.has(id)
+  const [primed, unprime] = useRowPrime(prime)
   const [owner] = useState(() => ({}))
   useEffect(() => () => section.window.disappear(id, owner), [section, id, owner])
   const [height, setHeight] = useState(36)
+  const shown = active || primed
   return (
     <VStack
       spacing={0}
       modifiers={[
         onAppear(() => section.window.appear(id, owner)),
-        onDisappear(() => section.window.disappear(id, owner)),
+        onDisappear(() => {
+          unprime()
+          section.window.disappear(id, owner)
+        }),
         onGeometryChange((frame) => {
-          if (active && frame.height > 0) setHeight(frame.height)
+          if (shown && !collapsed && frame.height > 0) setHeight(frame.height)
         }),
         // Keep cell insets outside the measured content, as on Tasks. Otherwise
         // the placeholder can pay those insets twice during a fast fling.
-        ...cardRowAt(first, last),
+        ...(collapsed ? collapsedRow : cardRowAt(first, last)),
       ]}
     >
-      {active ? children : <Spacer modifiers={[frame({ height })]} />}
+      {shown ? children : <Spacer modifiers={[frame({ height })]} />}
     </VStack>
   )
 })
