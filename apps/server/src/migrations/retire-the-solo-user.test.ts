@@ -546,91 +546,36 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
     expect(payload).toBe(`{"id":"sess-1","ownerUserId":"${firstAdminId(db)}"}`)
   })
 
+  // The feed as this migration found it: the singleton identity and the log
+  // in their pre-tenant shapes, written as the server of the time wrote them.
+  // Today's repository reads the tenant feed of a migrated database only.
+  const seedOldFeed = (db: SqlDatabase, payload: string): void => {
+    db.prepare(
+      'INSERT INTO feed_identity (singleton, feed_id, epoch, minted_at) VALUES (1, ?, ?, 1)',
+    ).run('installation-feed', 'before-retirement')
+    db.prepare(
+      'INSERT INTO changes (entity, entity_id, op, payload, event_time) VALUES (?, ?, ?, ?, ?)',
+    ).run('session', 'sess-1', 'upsert', payload, 1)
+    db.exec(`INSERT OR REPLACE INTO change_latest (entity, entity_id, seq, payload)
+      SELECT entity, entity_id, seq, payload FROM changes WHERE op = 'upsert' AND payload IS NOT NULL ORDER BY seq`)
+  }
+  const oldIdentity = (db: SqlDatabase) =>
+    db.prepare('SELECT feed_id AS feedId, epoch FROM feed_identity WHERE singleton = 1').get() as {
+      feedId: string
+      epoch: string
+    }
+
   it.each([
     false,
     true,
   ])('reconnects an old cursor with rewritten owners (compacted: %s)', async (compacted) => {
     const db = preMigrationDb()
-    const queries = createTestSyncQueries(db)
-    const repo = new SyncRepository(queries, testSyncServerTables)
-    await repo.writeFeedIdentity({ feedId: 'installation-feed', epoch: 'before-retirement' }, 1)
-    await repo.appendChanges(
-      [
-        {
-          entity: 'session',
-          entityId: 'sess-1',
-          op: 'upsert',
-          payload: JSON.stringify({ sessionId: 'sess-1', ownerUserId: RETIRED }),
-        },
-      ],
-      1,
-    )
-    db.exec(`INSERT OR REPLACE INTO change_latest (entity, entity_id, seq, payload)
-      SELECT entity, entity_id, seq, payload FROM changes WHERE op = 'upsert' AND payload IS NOT NULL ORDER BY seq`)
-    const makeServing = () => {
-      const bootRepo = new SyncRepository(createTestSyncQueries(db), testSyncServerTables)
-      const records = new ModelRecords()
-      records.set([
-        {
-          entity: 'session',
-          entityId: 'sess-1',
-          op: 'upsert',
-          value: { sessionId: 'sess-1', ownerUserId: firstAdminId(db) },
-        },
-      ])
-      const ledger = new Ledger({
-        repo: bootRepo,
-        records,
-        now: () => 1,
-        transact: queries.createOrJoinTransaction,
-      })
-      const serving = new FeedServing({
-        authority: ledger.authority,
-        identity: new FeedIdentityRegistry(
-          {
-            readIdentity: () => bootRepo.readFeedIdentity(),
-            writeIdentity: (identity) => bootRepo.writeFeedIdentity(identity, 1),
-          },
-          () => 'unexpected-mint',
-        ),
-        retention: { minAvailableSeq: () => bootRepo.minChangeSeq() },
-        subscriptions: new SubscriptionRegistry(),
-        diagnostics: () => [],
-      })
-      return { serving, authority: ledger.authority }
-    }
-    const connect = async (
-      serving: FeedServing,
-      id: string,
-      cursor?: { feedId: string; epoch: string; seq: number },
-    ) => {
-      const received: ServerMessage[] = []
-      const peer = {
-        id,
-        wireVersion: CLIENT_WIRE_VERSION,
-        acceptsDelta: true,
-        send: (message: ServerMessage) => {
-          received.push(message)
-        },
-      }
-      serving.attach(
-        peer,
-        DEVICE_GRADE_PRINCIPAL,
-        userClientPrincipal(id, UserId.parse(mintIdsIn('{{mint:mem_}}')), 'admin'),
-        cursor,
-      )
-      await serving.admissionSettled()
-      return received
-    }
+    seedOldFeed(db, JSON.stringify({ sessionId: 'sess-1', ownerUserId: RETIRED }))
     // This client has consumed the old owner at the current head.
-    const before = makeServing()
-    const cold = await connect(before.serving, 'cold')
-    expect(cold.map((frame) => frame.type)).toEqual(['feedResume'])
-    const oldWorld = await before.authority.bootstrap(DEVICE_GRADE_PRINCIPAL)
-    expect(oldWorld.changes.map((change) => change.value)).toEqual([
-      { sessionId: 'sess-1', ownerUserId: RETIRED },
-    ])
-    const held = { ...(await before.serving.identity()), seq: await repo.maxChangeSeq() }
+    const held = {
+      ...oldIdentity(db),
+      seq: (db.prepare('SELECT max(seq) AS seq FROM changes').get() as { seq: number }).seq,
+    }
     const oldPayload = JSON.parse(
       (db.prepare('SELECT payload FROM change_latest').get() as { payload: string }).payload,
     )
@@ -639,48 +584,92 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
 
     runDrizzleMigrations(db, throughRetirement())
 
-    const after = makeServing() // boot reads the committed generation afresh
-    expect((await after.serving.identity()).feedId).toBe(held.feedId)
-    expect((await after.serving.identity()).epoch).not.toBe(held.epoch)
-    const received = await connect(after.serving, 'reconnected', held)
-    expect(received.map((frame) => frame.type)).toEqual(['feedResyncRequired'])
-    const bootstrap = await after.authority.bootstrap(DEVICE_GRADE_PRINCIPAL)
-    expect(bootstrap.changes.map((change) => change.value)).toEqual([
-      { sessionId: 'sess-1', ownerUserId: firstAdminId(db) },
-    ])
-    expect((db.prepare('SELECT seq FROM change_latest').get() as { seq: number }).seq).toBe(
-      held.seq,
-    )
-    const identity = await repo.readFeedIdentity()
+    // The same feed, a new generation, and the owner rewritten where catch-up
+    // and the start-up load of the time read it.
+    expect(oldIdentity(db).feedId).toBe(held.feedId)
+    expect(oldIdentity(db).epoch).not.toBe(held.epoch)
+    const rewritten = db.prepare('SELECT seq, payload FROM change_latest').get() as {
+      seq: number
+      payload: string
+    }
+    expect(rewritten.seq).toBe(held.seq)
+    expect(JSON.parse(rewritten.payload).ownerUserId).toBe(firstAdminId(db))
+    const identity = oldIdentity(db)
     runDrizzleMigrations(db, throughRetirement())
-    expect(await repo.readFeedIdentity()).toEqual(identity)
+    expect(oldIdentity(db)).toEqual(identity)
     // Even a direct replay of this migration finds no old payload to invalidate.
     runDrizzleMigrations(db, [
       ...throughRetirement(),
       { ...retirementMigration(), name: '20990101000000_retirement-replay' },
     ])
-    expect(await repo.readFeedIdentity()).toEqual(identity)
+    expect(oldIdentity(db)).toEqual(identity)
+
+    // Today's server on the upgraded database: the client holding the old
+    // generation is told to reload, and the load carries the new owner.
+    runDrizzleMigrations(db, ALL_MIGRATIONS)
+    const queries = createTestSyncQueries(db)
+    const bootRepo = new SyncRepository(queries, testSyncServerTables)
+    const records = new ModelRecords()
+    records.set([
+      {
+        entity: 'session',
+        entityId: 'sess-1',
+        op: 'upsert',
+        value: { sessionId: 'sess-1', ownerUserId: firstAdminId(db) },
+      },
+    ])
+    const ledger = new Ledger({
+      repo: bootRepo,
+      records,
+      now: () => 1,
+      transact: queries.createOrJoinTransaction,
+    })
+    const serving = new FeedServing({
+      authority: ledger.authority,
+      identity: new FeedIdentityRegistry(
+        {
+          readIdentity: () => bootRepo.readFeedIdentity(),
+          writeIdentity: (next) => bootRepo.writeFeedIdentity(next, 1),
+        },
+        () => 'unexpected-mint',
+      ),
+      retention: { minAvailableSeq: () => bootRepo.minChangeSeq() },
+      subscriptions: new SubscriptionRegistry(),
+      diagnostics: () => [],
+    })
+    expect((await serving.identity()).feedId).toBe(held.feedId)
+    expect((await serving.identity()).epoch).not.toBe(held.epoch)
+    const received: ServerMessage[] = []
+    serving.attach(
+      {
+        id: 'reconnected',
+        wireVersion: CLIENT_WIRE_VERSION,
+        acceptsDelta: true,
+        send: (message: ServerMessage) => {
+          received.push(message)
+        },
+      },
+      DEVICE_GRADE_PRINCIPAL,
+      userClientPrincipal(
+        'reconnected',
+        UserId.parse(mintIdsIn('{{mint:mem_}}')),
+        'admin',
+      ),
+      held,
+    )
+    await serving.admissionSettled()
+    expect(received.map((frame) => frame.type)).toEqual(['feedResyncRequired'])
+    const bootstrap = await ledger.authority.bootstrap(DEVICE_GRADE_PRINCIPAL)
+    expect(bootstrap.changes.map((change) => change.value)).toEqual([
+      { sessionId: 'sess-1', ownerUserId: firstAdminId(db) },
+    ])
     db.close()
   })
 
   it('rolls the epoch back with the owner rewrite when the migration fails', async () => {
     const db = preMigrationDb()
-    const repo = new SyncRepository(createTestSyncQueries(db), testSyncServerTables)
-    const identity = { feedId: 'installation-feed', epoch: 'before-retirement' }
-    await repo.writeFeedIdentity(identity, 1)
-    await repo.appendChanges(
-      [
-        {
-          entity: 'session',
-          entityId: 'sess-1',
-          op: 'upsert',
-          payload: JSON.stringify({ ownerUserId: RETIRED }),
-        },
-      ],
-      1,
-    )
-    db.exec(`INSERT OR REPLACE INTO change_latest (entity, entity_id, seq, payload)
-      SELECT entity, entity_id, seq, payload FROM changes WHERE op = 'upsert' AND payload IS NOT NULL ORDER BY seq`)
+    seedOldFeed(db, JSON.stringify({ ownerUserId: RETIRED }))
+    const identity = oldIdentity(db)
     const migration = retirementMigration()
     expect(() =>
       runDrizzleMigrations(db, [
@@ -691,7 +680,7 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
         },
       ]),
     ).toThrow('retirement_failure')
-    expect(await repo.readFeedIdentity()).toEqual(identity)
+    expect(oldIdentity(db)).toEqual(identity)
     expect(firstAdminId(db)).toBe(RETIRED)
     for (const table of ['changes', 'change_latest']) {
       expect(

@@ -429,6 +429,14 @@ describe('async session port boundaries', () => {
           draftDocOf: async () => undefined,
         },
       },
+      // The draft row is written as a change-log commit (POD-6920); this fake
+      // runs the write and appends nothing.
+      liveWriter: {
+        commit: async ({ write }: { write: () => Promise<unknown> }) => ({
+          result: await write(),
+          changes: [],
+        }),
+      },
       getSession: () => f.session,
       writeSession: async (
         _writer: Parameters<SessionStatePorts['writeSession']>[0],

@@ -186,7 +186,8 @@ describe('steward subscription matching (POD-6208)', () => {
     // POD-6920: derived change capture. No build before the write; each
     // commit drains its capture (one statement) and builds the records the
     // write reached, after it: 83 at 9e858cc535 -> 77.
-    await expectConstantStatements(pin, 77)
+    // POD-6934: re-measured on integrate/6253-sync-log 46735ff09a and on the merge: 77 -> 76.
+    await expectConstantStatements(pin, 76)
   })
 
   it('reads the same subscription rows, however many cannot match', async () => {

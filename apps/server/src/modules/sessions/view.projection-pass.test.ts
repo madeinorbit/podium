@@ -420,9 +420,19 @@ describe('one projection pass', () => {
         view: f.view,
         now: () => Date.now(),
         runScheduledBroadcast: async () => {},
+        // A change-log commit (POD-6920): it runs the write and reports one
+        // session change per dirty row, which the slice persists in one write.
         writers: ((ledger) => ({ live: ledger, boot: ledger }))({
-          capture: async (specs: { entity: string; id: string; op: string; value: unknown }[]) =>
-            specs.map((s, i) => ({ ...s, entityId: s.id, seq: i + 1 })),
+          commit: async ({ write }: { write: (scope: unknown) => Promise<unknown> }) => ({
+            result: await write(fixtureWriteScope()),
+            changes: f.rows.map((row, i) => ({
+              entity: 'session',
+              entityId: row.sessionId,
+              op: 'upsert',
+              value: {},
+              seq: i + 1,
+            })),
+          }),
         }),
       } as never)
       try {

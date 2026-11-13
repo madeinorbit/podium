@@ -129,6 +129,12 @@ function allRows(db: SqlDatabase): Record<string, unknown[]> {
                 return [column, '<generated-installation-key>']
               }
             }
+            // The tenant feed's identity is minted per database when no older
+            // identity exists (tenant-sync-feed, POD-6253): shape, not value.
+            if (table === 'sync_feed' && (column === 'feed_id' || column === 'epoch')) {
+              expect(value).toMatch(new RegExp(`^${column === 'feed_id' ? 'feed' : 'epoch'}-[a-f0-9]{32}$`))
+              return [column, `<minted-${column}>`]
+            }
             if (table === 'meta' && row.key === 'installation_identity' && column === 'value') {
               const metadata = JSON.parse(String(value))
               const secret = db

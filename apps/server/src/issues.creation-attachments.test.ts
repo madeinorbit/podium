@@ -56,7 +56,8 @@ describe('creation attachments at review', () => {
     const reviewed = await svc.crud.update(svc.reports.store.serverWriter, issue.id, { stage: 'review' })
     expect(reviewed.stage).toBe('review')
     expect(reviewed.worktreePath).toBeUndefined()
-    const artifacts = reviewed.panel?.artifacts ?? []
+    // The panel lives in its own records, not on the issue row (POD-6764).
+    const artifacts = (await store.issues.panel.read(issue.id)).artifacts
     expect(artifacts).toHaveLength(6)
     for (const artifact of artifacts) {
       expect(artifact).toMatchObject({ sourceKind: 'creation-attachment', entry: 'image.png' })

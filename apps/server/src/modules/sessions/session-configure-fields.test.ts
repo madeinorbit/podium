@@ -42,16 +42,18 @@ const meta = (session: Session): { configureFields?: readonly string[] } =>
   session.toMeta() as { configureFields?: readonly string[] }
 
 describe('configureFields on the wire', () => {
+  // The record reads the STORED binding (POD-6764): what a daemon last bound,
+  // written with the bind, survives a restart; the live handle does not.
   it('publishes what the daemon reported', () => {
     const session = makeSession()
-    session.configureFields = ['model', 'effort']
+    session.boundDriverCapabilities = { configureFields: ['model', 'effort'] }
 
     expect(meta(session).configureFields).toEqual(['model', 'effort'])
   })
 
   it('publishes an EMPTY set as an empty set, not as silence', () => {
     const session = makeSession()
-    session.configureFields = []
+    session.boundDriverCapabilities = { configureFields: [] }
 
     /**
      * THE ASSERTION THAT COSTS THE MOST TO GET WRONG. A `...(x.length ? …)`
