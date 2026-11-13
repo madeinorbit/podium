@@ -34,6 +34,7 @@ import {
   provisional,
 } from './oracle-support'
 import { type SessionStatePrincipal, SessionStateRegistry } from './session-state/registry'
+import { seedRaw } from '../../test-support/seed-rows'
 
 afterEach(() => disposeOracles())
 
@@ -49,11 +50,15 @@ function seedUser(
 ): void {
   // User lifecycle writes are intentionally absent from UsersRepository.
   // @ts-expect-error test-only seed through SessionStore's private connection
-  store.db
-    .prepare(
-      "INSERT INTO users (id, display_name, role, created_at, disabled_at) VALUES (?, ?, 'member', '2026-08-01T00:00:00.000Z', NULL)",
-    )
-    .run(id, displayName)
+  const db = store.db as { exec(sql: string): void; prepare(sql: string): { run(...a: unknown[]): unknown } }
+  // A raw fixture write reaches the tables, not the log (POD-6920).
+  seedRaw(db, () =>
+    db
+      .prepare(
+        "INSERT INTO users (id, display_name, role, created_at, disabled_at) VALUES (?, ?, 'member', '2026-08-01T00:00:00.000Z', NULL)",
+      )
+      .run(id, displayName),
+  )
 }
 
 function delegatedAgent(sessionId: SessionId, onBehalfOf: UserId): AgentCommandPrincipal {
