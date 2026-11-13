@@ -47,22 +47,25 @@ export function memberFacts(store: SessionStore) {
       account: Omit<UserAccountRow, 'email'> & { email?: string | null },
       _unusedHash?: string,
     ) {
-      // Seed historical repository facts first, then publish through the one
-      // member writer. Fixture setup does not represent a membership joining.
-      // The historical row is seeded below the change log (POD-6920); the
-      // member writer's own commit then publishes what it changed.
-      await store.transact(async () => {
-        await seedRows(store, async () => {
+      // Historical repository facts first (the given creation time), then the
+      // one member writer. One change-log commit, as a member joining is (POD-6920): the row's
+      // capture reaches the machine access and per-user records, the member
+      // gets the global thread the joining hook makes, and the member writer
+      // joins the same commit.
+      const id = asUserId(account.id)
+      await store.grants.machineRecordWrites.compare(async () => {
+        await store.transact(async () => {
           await db.insert(users).values({
-            id: asUserId(account.id),
+            id,
             displayName: account.displayName,
             email: account.email == null ? null : LoginEmail.parse(account.email),
             role: account.role,
             createdAt: account.createdAt,
           })
+          await store.superagent.seedMemberGlobalThread(id)
+          await write(account.id, { role: account.role, status: 'active' })
+          if (account.disabledAt) await write(account.id, { status: 'disabled' })
         })
-        await write(account.id, { role: account.role, status: 'active' })
-        if (account.disabledAt) await write(account.id, { status: 'disabled' })
       })
     },
     async disable(id: UserId, _at?: string, actor?: UserId) {
