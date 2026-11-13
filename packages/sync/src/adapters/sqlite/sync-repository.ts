@@ -374,10 +374,10 @@ const appliedMutationWithFallback = prepared((db: StoreDrizzle) =>
     })
     .from(appliedMutations)
     .where(
-      inArray(appliedMutations.mutationId, [
-        param(appliedMutations.mutationId, 'mutationId'),
-        param(appliedMutations.mutationId, 'fallbackId'),
-      ]),
+      or(
+        eq(appliedMutations.mutationId, param(appliedMutations.mutationId, 'mutationId')),
+        eq(appliedMutations.mutationId, param(appliedMutations.mutationId, 'fallbackId')),
+      ),
     )
     .prepare(),
 )
