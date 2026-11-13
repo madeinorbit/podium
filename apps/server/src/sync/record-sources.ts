@@ -871,8 +871,13 @@ export const RECORD_SOURCES: RecordSources = {
     ),
   ],
   pendingInteraction: [
-    own(pendingInteractions, [pendingInteractions.sessionId, pendingInteractions.id], (key) =>
-      interactionRowId(str(key[0]), str(key[1])),
+    // An ask is on the feed while it is open: its answering takes it off,
+    // and what is written to it afterwards reaches no record.
+    own(
+      pendingInteractions,
+      [pendingInteractions.sessionId, pendingInteractions.id],
+      (key) => interactionRowId(str(key[0]), str(key[1])),
+      { rows: `{row}.${pendingInteractions.status.name} = 'asked'` },
     ),
   ],
   message: [
