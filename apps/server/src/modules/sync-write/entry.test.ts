@@ -385,6 +385,27 @@ describe('sync write entry point: dedup, provenance and the receipt', () => {
     expect(await rows(h)).toHaveLength(1)
   })
 
+  it('the same mutation id belongs to each authenticated member, including concurrent calls', async () => {
+    const h = await harness()
+    const runs = { count: 0 }
+    registerPut(h, { runs })
+    const other = userCommandPrincipal(asUserId('mem_other'), 'admin')
+    const [first, second] = await Promise.all([
+      h.entry.submit(envelope('shared-id', { id: 'a', note: 'first' }), h.admin, 'trpc'),
+      h.entry.submit(envelope('shared-id', { id: 'b', note: 'second' }), other, 'trpc'),
+    ])
+    expect(applied(first)).toMatchObject({ replayed: false, result: { stored: 'a' } })
+    expect(applied(second)).toMatchObject({ replayed: false, result: { stored: 'b' } })
+    // Each member retries their own persisted result, after the in-flight calls ended.
+    for (const [principal, id] of [[h.admin, 'a'], [other, 'b']] as const) {
+      expect(applied(await h.entry.submit(
+        envelope('shared-id', { id: 'unused', note: 'retry' }), principal, 'trpc',
+      ))).toMatchObject({ replayed: true, result: { stored: id } })
+    }
+    expect(runs.count).toBe(2)
+    expect(await rows(h)).toHaveLength(2)
+  })
+
   it('rows carry mutation_id = causation_id = M; the receipt seq is the head after commit', async () => {
     const h = await harness()
     registerPut(h)

@@ -94,7 +94,11 @@ describe('each transport resolves the caller’s own member', () => {
 
   it.each(['alice', 'bob'] as const)('tRPC: %s reads their own profile', async (name) => {
     const me = await f.as(name)
-    expect(await me.trpc.auth.profile.query()).toEqual({ email: me.member.email })
+    expect(await me.trpc.auth.profile.query()).toMatchObject({
+      id: me.member.id,
+      email: me.member.email,
+      role: me.member.role,
+    })
     // An input that names another member is not a way to become them.
     const input = encodeURIComponent(
       JSON.stringify({ userId: f.members[other(name)].id, memberId: f.members[other(name)].id }),

@@ -309,7 +309,14 @@ describe('a session’s unread-mail pointer counts only mail that would reach it
     const sent = await f
       .agent(alices, { machineId: f.machines.alice })
       .cli(['mail', 'send', String(task.seq), '--body', 'tarn-mail-from-alice'])
-    expect(sent).toContain('HELD')
+    expect(sent).toContain('QUEUED')
+    await f.handle.registry.modules.messages.sweep()
+    const messageId = /\(([^)\s]+)\)/.exec(sent)?.[1]
+    expect(messageId).toBeDefined()
+    expect(await f.handle.registry.sessionStore.messages.getMessage(messageId!)).toMatchObject({
+      deliveryStatus: 'stored',
+      deliveredTo: null,
+    })
     expect(await pending(task.id, bobs)).toBe(0)
   })
 

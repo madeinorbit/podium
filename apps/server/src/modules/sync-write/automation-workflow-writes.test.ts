@@ -131,7 +131,7 @@ describe('automations on the entry point', () => {
     expect(await rowsOf(o, 'mut_aut_past')).toEqual([])
   })
 
-  it("a member's write to someone else's automation is refused before the handler", async () => {
+  it("a member's write to someone else's automation answers like a missing one", async () => {
     const o = await makeOracle()
     const { id } = appliedReply(
       await submit(o, envelope('automations.create', nightly('admins'), 'mut_aut_admin')),
@@ -143,8 +143,11 @@ describe('automations on the entry point', () => {
       id,
       patch: { name: 'mine now' },
     })
-    expect(reply).toEqual({ outcome: 'rejected', refusal: { kind: 'unauthorized' } })
-    expect(update).not.toHaveBeenCalled()
+    expect(reply).toEqual({
+      outcome: 'rejected',
+      refusal: { kind: 'target-not-found', message: `unknown automation: ${id}` },
+    })
+    expect(update).toHaveBeenCalledOnce()
   })
 
   it('a member writes their own; once the account is disabled, the replay is refused', async () => {
