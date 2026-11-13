@@ -540,11 +540,14 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
     expect(replay.sessionId).toBe(first.sessionId)
     expect(o.daemon.filter((m) => m.type === 'spawn')).toHaveLength(1)
     expect(await o.reg.modules.sessions.listSessions(undefined, 'rpc')).toHaveLength(1)
-    // Create's outer command-plane ledger records the raw wire id, outside
-    // the actor-scoped sync write that creates its launch effect. This receipt
-    // is durable, so the replay survives a server restart too.
+    // The outer command-plane receipt is actor-scoped and durable, so a
+    // replay survives a restart without crossing into another member's result.
     expect(
-      JSON.parse((await o.store.sync.getAppliedMutation(asMutationId('m-create'))) as string),
+      JSON.parse(
+        (await o.store.sync.getAppliedMutation(
+          scopedMutationId(o.principal, asMutationId('m-create')),
+        )) as string,
+      ),
     ).toMatchObject({
       sessionId: first.sessionId,
     })

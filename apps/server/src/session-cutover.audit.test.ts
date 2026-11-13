@@ -369,8 +369,9 @@ describe('AC2 · framework idempotency is the single implementation', () => {
     expect(
       await o.store.sync.getAppliedMutation(scopedMutationId(o.principal, asMutationId('dup-1'))),
     ).toBeDefined()
-    // Create's outer command-plane ledger still records the raw wire id.
-    expect(await o.store.sync.getAppliedMutation(asMutationId('dup-2'))).toBeDefined()
+    expect(
+      await o.store.sync.getAppliedMutation(scopedMutationId(o.principal, asMutationId('dup-2'))),
+    ).toBeDefined()
   })
 
   it('carries the chat mutation id onto the durable message ledger row', async () => {
