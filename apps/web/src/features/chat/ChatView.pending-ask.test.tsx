@@ -257,7 +257,7 @@ describe('a pending question the transcript does not carry', () => {
         message: { content: [{ type: 'tool_result', tool_use_id: 'old-use', content: result }] },
       }),
     ]
-    await show(meta(), history)
+    await show(meta({}), history)
     const held = fakeStoreHandle
       .ownConversations({
         create: () => {
@@ -267,7 +267,7 @@ describe('a pending question the transcript does not carry', () => {
       .acquire(asSessionId('s1'), { activateTranscript: false })
     try {
       const publication = held.conversation.graph.rowPublication
-      storeSessions = [authority === 'need' ? waiting() : meta()]
+      storeSessions = [authority === 'need' ? waiting() : meta({})]
       storeInteractions =
         authority === 'interaction'
           ? [
@@ -332,7 +332,7 @@ describe('a pending question the transcript does not carry', () => {
             },
           }),
         ])
-        storeSessions = [meta()]
+        storeSessions = [meta({})]
         storeInteractions = []
         publishScreenPoolFixture()
       })
