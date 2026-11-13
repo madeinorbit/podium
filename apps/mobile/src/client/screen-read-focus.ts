@@ -4,13 +4,17 @@ import { NavigationContext } from 'expo-router/build/react-navigation/core/Navig
 import { useContext, useLayoutEffect } from 'react'
 import { useProjectionFocus } from './projection-focus'
 
-/** Phone navigation, rather than a remembered desktop workspace, owns focus. */
+/** Phone routes supply the current task/session focus. */
 export const noScreenFocus = () => null
 
 /** Focus includes the parent tab and the top stack route. Read the navigator
  * again at acknowledgement time, even if native freeze delays a React commit.
  * AppState visibility remains the shared runtime's existing platform input. */
-export function useScreenReadFocus(issueId?: string, sessionId?: SessionId): void {
+export function useScreenReadFocus(
+  issueId?: string,
+  sessionId?: SessionId,
+  mode: 'chat' | 'native' = 'chat',
+): void {
   const owner = useStoreHandle()
   const navigation = useContext(NavigationContext)
   const focused = useProjectionFocus()
@@ -23,13 +27,15 @@ export function useScreenReadFocus(issueId?: string, sessionId?: SessionId): voi
     }
     const focus = () => {
       if (release || !navigation.isFocused()) return
-      release = owner.attachScreenFocus(() =>
-        navigation.isFocused()
-          ? {
-              ...(issueId ? { issueId: issueId as IssueId } : {}),
-              ...(sessionId ? { focusedSessionId: sessionId } : {}),
-            }
-          : null,
+      release = owner.attachScreenFocus(
+        () =>
+          navigation.isFocused()
+            ? {
+                ...(issueId ? { issueId: issueId as IssueId } : {}),
+                ...(sessionId ? { focusedSessionId: sessionId } : {}),
+              }
+            : null,
+        mode,
       )
     }
     const offFocus = navigation.addListener('focus', focus)
@@ -40,5 +46,5 @@ export function useScreenReadFocus(issueId?: string, sessionId?: SessionId): voi
       offBlur()
       blur()
     }
-  }, [owner, navigation, focused, issueId, sessionId])
+  }, [owner, navigation, focused, issueId, sessionId, mode])
 }

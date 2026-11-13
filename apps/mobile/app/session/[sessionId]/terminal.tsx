@@ -31,7 +31,7 @@ export default function TerminalRoute() {
   const sessionId = raw ? asSessionId(raw) : undefined
   const session = useSession(sessionId)
   const issue = useIssue(session?.issueId)
-  useScreenReadFocus(issue?.id, session?.sessionId)
+  useScreenReadFocus(issue?.id, session?.sessionId, 'native')
 
   const [active, setActive] = useState(true)
   useFocusEffect(

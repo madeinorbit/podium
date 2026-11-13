@@ -119,6 +119,7 @@ import {
   overlayState,
   resolvedWorkspaceKey,
   userFocus,
+  visibleTabIds,
   type WorkspacePatch,
   workspaceFor,
   workspaceKeyForState,
@@ -251,8 +252,8 @@ export interface ClientRuntimeInit<TApi extends PodiumClientApi> {
    */
   /** Where visibility comes from. Default: `document.visibilityState`. */
   visibility?: VisibilitySource
-  /** Optional route-owned focus. null leaves automatic reads/presence empty
-   * until a focused screen attaches; omitted uses the desktop workspace. */
+  /** Optional route-owned focus. A null result leaves automatic reads/presence
+   * empty until a focused screen attaches; omitted uses the desktop workspace. */
   screenFocus?: () => UserFocus | null
   /** Connectivity transitions for the outbox. Default: the window's `online`. */
   onlineEvents?: OnlineEvents
@@ -320,16 +321,22 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private readonly visibility: VisibilitySource
   private screenFocus: ClientRuntimeInit<TApi>['screenFocus']
   private readonly defaultScreenFocus: ClientRuntimeInit<TApi>['screenFocus']
+  private screenMode?: 'chat' | 'native'
 
   /** A route's focus lifetime is independent of the remembered worklist row.
    * A late blur/unmount from the previous route cannot clear its successor. */
-  readonly attachScreenFocus = (read: () => UserFocus | null): (() => void) => {
+  readonly attachScreenFocus = (
+    read: () => UserFocus | null,
+    mode: 'chat' | 'native' = 'chat',
+  ): (() => void) => {
     if (this.destroyed) return () => {}
     this.screenFocus = read
+    this.screenMode = mode
     this.refreshScreenFocus()
     return () => {
       if (this.screenFocus !== read) return
       this.screenFocus = this.defaultScreenFocus
+      this.screenMode = undefined
       if (!this.destroyed) this.refreshScreenFocus()
     }
   }
@@ -519,6 +526,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       notices: this.notices,
       isVisible: () => this.visibility.isVisible(),
       screenFocus: () => this.screenFocus?.(),
+      screenMode: () => this.screenMode,
       markSessionRead: (sessionId, readAt) => this.services.markSessionRead(sessionId, readAt),
       markIssueRead: (issueId, readAt) => this.services.markIssueRead(issueId, readAt),
       ...(init.workspacePruneGraceMs !== undefined
@@ -1610,7 +1618,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private getUserFocus(): UserFocus {
     if (this.screenFocus) {
       if (!this.visibility.isVisible()) return { visibleSessionIds: [] }
-      return this.screenFocus() ?? { visibleSessionIds: [] }
+      const focus = this.screenFocus()
+      return focus
+        ? { ...focus, visibleSessionIds: visibleTabIds(this.state, focus) }
+        : { visibleSessionIds: [] }
     }
     return userFocus(this.state)
   }

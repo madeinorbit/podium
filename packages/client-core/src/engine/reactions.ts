@@ -121,6 +121,8 @@ export interface ReactionPorts {
   /** Native routes supply actual screen focus instead of desktop selection.
    * undefined keeps desktop behavior; null means no task/session is on top. */
   readonly screenFocus?: () => UserFocus | null | undefined
+  /** Rendered route mode is transient; never change the saved panel choice. */
+  readonly screenMode?: () => 'chat' | 'native' | undefined
   /** Test seam: overrides {@link WORKSPACE_PRUNE_GRACE_MS}. */
   readonly pruneGraceMs?: number
   /** The worktree a `?pane=` link named while its session has not arrived yet
@@ -472,7 +474,8 @@ export class Reactions {
     // Rendered mode (native/chat) for each visible session — default 'native'
     // until its AgentPanel reports its effective mode.
     const modes: Record<string, 'native' | 'chat'> = {}
-    for (const sid of visible) modes[sid] = st.panelMode[sid] ?? 'native'
+    for (const sid of visible)
+      modes[sid] = this.ports.screenMode?.() ?? st.panelMode[sid] ?? 'native'
     this.ports.hub.setViewState(visible, focused, modes)
     // Switch-latency trace [POD-701]: stamp when the view-state report carrying
     // the traced session went out (markSwitch no-ops for untraced sessions).

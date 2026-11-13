@@ -1,11 +1,14 @@
+import { ISSUE_SEL_KEY } from '@podium/client-core/ui-state'
 import { asRepoId, asSessionId, asUserId, type SessionMeta } from '@podium/model'
 import { act, cleanup } from '@testing-library/react'
 import { NavigationContext } from 'expo-router/build/react-navigation/core/NavigationContext'
 import { IsFocusedContext } from 'expo-router/build/react-navigation/core/useIsFocused'
 import { type ReactNode, useState } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { seedIssueFixtures } from './issue-fixtures'
 import { type AppStateStatus, createNativeConnectivity } from './native-connectivity'
 import { noScreenFocus, useScreenReadFocus } from './screen-read-focus'
+import { createMobileTestReplica } from './test-replica'
 import { renderWithMobileStore } from './test-support'
 
 const issueId = 'resume-task'
@@ -63,7 +66,15 @@ function navigation() {
   }
 }
 
-async function fixture(withSession = true) {
+async function fixture({
+  withSession = true,
+  mounted = true,
+  mode = 'chat',
+}: {
+  withSession?: boolean
+  mounted?: boolean
+  mode?: 'chat' | 'native'
+} = {}) {
   let appState: AppStateStatus = 'active'
   const listeners = new Set<(state: AppStateStatus) => void>()
   const connectivity = createNativeConnectivity({
@@ -79,6 +90,17 @@ async function fixture(withSession = true) {
     netInfo: { addEventListener: () => () => {} },
   })
   const nav = navigation()
+  // A prior app session left a task selected, but this app load opens on Work.
+  const replica = mounted ? undefined : createMobileTestReplica()
+  if (replica) {
+    seedIssueFixtures(replica, [issue as never], userId)
+    replica.applySnapshot('sessions', [session])
+    replica.applySnapshot('sessionUserStates', [
+      { userId, sessionId, readAt: stamp(), snoozedUntil: null },
+    ])
+    replica.uiState().set(ISSUE_SEL_KEY, issueId)
+    replica.finishBootstrap()
+  }
   let selectTab: (focused: boolean) => void = () => {}
   function NativeTab({ children }: { children: ReactNode }) {
     const [focused, setFocused] = useState(true)
@@ -86,18 +108,17 @@ async function fixture(withSession = true) {
     return <IsFocusedContext.Provider value={focused}>{children}</IsFocusedContext.Provider>
   }
   function MountedTask() {
-    useScreenReadFocus(issueId, withSession ? sessionId : undefined)
+    useScreenReadFocus(issueId, withSession ? sessionId : undefined, mode)
     return <div data-testid="mounted-task">Task screen retained under Work</div>
   }
   const view = await renderWithMobileStore(
     <NavigationContext.Provider value={nav as never}>
       {/* Keep the last React focus value, as a native frozen screen may do.
           Navigator events and isFocused must still revoke its read permission. */}
-      <NativeTab>
-        <MountedTask />
-      </NativeTab>
+      <NativeTab>{mounted ? <MountedTask /> : <div data-testid="work">Work</div>}</NativeTab>
     </NavigationContext.Provider>,
     {
+      replica,
       issues: [issue as never],
       sessions: [session],
       sessionUserStates: [{ userId, sessionId, readAt: stamp(), snoozedUntil: null }],
@@ -162,6 +183,7 @@ it.each([
       else f.selectTab(false)
     })
     expect(f.getByTestId('mounted-task')).toBeDefined()
+    expect(f.viewState).toHaveBeenLastCalledWith([], null, {})
     await f.go('inactive')
     await f.go('background')
     await f.advance(12 * 60_000)
@@ -184,6 +206,8 @@ it('reads the top task and session exactly once on resume, with no repeated read
   const f = await fixture()
   try {
     await f.go('background')
+    expect(f.viewState).toHaveBeenLastCalledWith([], null, {})
+    expect(f.runtime.access.getUserFocus().visibleSessionIds).toEqual([])
     await f.advance(12 * 60_000)
     await f.activity(1_000)
     await f.advance(12_000)
@@ -193,14 +217,18 @@ it('reads the top task and session exactly once on resume, with no repeated read
     await f.advance(15_000)
     expect(f.issueRead).toHaveBeenCalledExactlyOnceWith(issueId, stamp(1_000))
     expect(f.sessionRead).toHaveBeenCalledExactlyOnceWith(sessionId, stamp(1_000))
-    expect(f.viewState).toHaveBeenLastCalledWith([sessionId], sessionId, { [sessionId]: 'native' })
+    expect(f.viewState).toHaveBeenLastCalledWith([sessionId], sessionId, { [sessionId]: 'chat' })
+    expect(f.runtime.access.getUserFocus().visibleSessionIds).toEqual([sessionId])
   } finally {
     f.close()
   }
 })
 
-it('does not enqueue a read when the top task and session were already read before resume', async () => {
-  const f = await fixture()
+it.each([
+  'chat',
+  'native',
+] as const)('reports the focused %s route without saved-mode writes or reads for already-read content', async (mode) => {
+  const f = await fixture({ mode })
   try {
     await f.go('background')
     await f.advance(12 * 60_000)
@@ -209,6 +237,8 @@ it('does not enqueue a read when the top task and session were already read befo
     expect(f.issueRead).not.toHaveBeenCalled()
     expect(f.sessionRead).not.toHaveBeenCalled()
     expect(f.runtime.outbox.pending()).toEqual([])
+    expect(f.viewState).toHaveBeenLastCalledWith([sessionId], sessionId, { [sessionId]: mode })
+    expect(f.runtime.access.panelMode).toEqual({})
   } finally {
     f.close()
   }
@@ -232,12 +262,34 @@ it('rechecks navigator focus when a receipt timer fires before a frozen screen c
 })
 
 it('follows activity on a focused task page opened without a remembered Work selection', async () => {
-  const f = await fixture(false)
+  const f = await fixture({ withSession: false })
   try {
     await f.activity(1_000)
     await f.advance(50)
     expect(f.issueRead).toHaveBeenCalledExactlyOnceWith(issueId, stamp(1_000))
     expect(f.sessionRead).not.toHaveBeenCalled()
+  } finally {
+    f.close()
+  }
+})
+
+it('does not read a persisted task selection from an earlier app session when no task screen is mounted', async () => {
+  const f = await fixture({ mounted: false })
+  try {
+    expect(f.runtime.access.selectedIssueId).toBe(issueId)
+    expect(f.getByTestId('work').textContent).toBe('Work')
+    expect(f.queryByTestId('mounted-task')).toBeNull()
+    await f.go('background')
+    await f.advance(12 * 60_000)
+    await f.activity(1_000)
+    await f.go('active')
+    await f.advance(1_800)
+    await f.activity(2_000)
+    await f.advance(11_900)
+    expect(f.issueRead).not.toHaveBeenCalled()
+    expect(f.sessionRead).not.toHaveBeenCalled()
+    expect(f.runtime.outbox.pending()).toEqual([])
+    expect(f.viewState).toHaveBeenLastCalledWith([], null, {})
   } finally {
     f.close()
   }
