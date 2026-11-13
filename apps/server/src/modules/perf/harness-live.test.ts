@@ -82,8 +82,10 @@ async function drive(): Promise<{ registry: SessionRegistry; inbox: unknown[] }>
   // The feed's publish runs after the flush, asynchronously; since issue reads
   // come from the database (POD-6158) it can still be in flight here. Wait for
   // its frame phase rather than race it: a publish that never comes still fails.
+  // The live principal's own publish: one to another principal (the
+  // device-grade funnel) can land first.
   await expect
-    .poll(() => perf.snapshot().phases['feedPublish.frame']?.count ?? 0)
+    .poll(() => perf.snapshot().byPrincipal[LIVE.digest]?.phases['feedPublish.total']?.count ?? 0)
     .toBeGreaterThan(0)
   return { registry, inbox }
 }
@@ -153,8 +155,8 @@ describe('switch-latency harness observes the delta-feed path [POD-736]', () => 
     // failure this whole file exists to make impossible.
     for (const name of Object.keys(snap.phases).filter((n) => n.startsWith('feedPublish.'))) {
       expect(
-        slice?.phases[name]?.count,
-        `${name} is recorded deployment-wide but missing from the live principal's partition (partitions ${JSON.stringify(Object.fromEntries(Object.entries(snap.byPrincipal).map(([k, v]) => [k, Object.keys(v.phases)])))}, live ${LIVE.digest})`,
+        slice?.phases[name]?.count ?? 0,
+        `${name} is recorded deployment-wide but missing from the live principal's partition`,
       ).toBeGreaterThan(0)
     }
     // …and the aggregate really had those phases, so the loop above is not

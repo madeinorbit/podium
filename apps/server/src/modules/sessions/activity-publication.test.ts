@@ -333,10 +333,18 @@ describe('session activity publication', () => {
     // Accepted checkpoints are persisted with the exact Session row by the ingress funnel.
     f.session.applyObservationCheckpoint(checkpoint)
     await f.save()
+    // The save rewrites the row's state column, so its commit may append the
+    // record (POD-6920: the checkpoint above was seeded outside the log; the
+    // ingress funnel saves both in one commit). It never carries the
+    // checkpoint's activity: only the publisher moves the published time.
+    const saved = await f.changes(cursor)
+    expect(saved.map((change) => (change.value as { lastActiveAt?: string }).lastActiveAt)).toEqual(
+      saved.map(() => iso(0)),
+    )
+    const flushedFrom = await f.ledger.cursor()
     now = BASE + 60_000
     await f.publisher.flush()
-    const published = await f.changes(cursor)
-    expect(published, JSON.stringify(published)).toHaveLength(1)
+    expect(await f.changes(flushedFrom)).toHaveLength(1)
     expect(await f.built()).toMatchObject({ lastActiveAt: iso(20_000) })
   })
 
