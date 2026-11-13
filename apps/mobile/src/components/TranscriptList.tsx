@@ -7,6 +7,7 @@ import { useActivityDisclosure, useMailBody } from '@podium/client-core/react'
 import { dayKey, dayMarksByPosition } from '@podium/client-core/transcript-time'
 import {
   activitySingletonDisplay,
+  askQuestionAnswerText,
   askQuestionOutcome,
   type ChatBlock,
   formatClock,
@@ -60,7 +61,6 @@ import {
   appendedTranscriptArrivals,
   buildMobileTranscript,
   envelopePrincipal,
-  isChosenOption,
   liveAssistantRow,
   type MobileTranscriptRow,
   machineContextLabel,
@@ -860,22 +860,20 @@ function AskReceipt({ item }: { item: TranscriptItem }) {
   const skipped = askQuestionOutcome({ item }) === 'skipped'
   const questions = parseAskQuestions(item.toolInputJson)
   const first = questions[0]
-  const picked = first?.options
-    .filter((o) => isChosenOption(item.toolResult ?? '', o.label))
-    .map((o) => o.label)
-    .join(', ')
+  const answer = askQuestionAnswerText({ item })
+  const label = skipped ? 'Skipped' : answer ? `Answered: ${answer}` : 'Answered'
   return (
     <View
       style={styles.receipt}
       accessible
-      accessibilityLabel={`${skipped ? 'Skipped' : 'Answered'} question: ${first?.question ?? 'Question'} · ${picked || item.toolResult || ''}`}
+      accessibilityLabel={`${skipped ? 'Skipped' : 'Answered'} question: ${first?.question ?? 'Question'}${answer ? ` · ${answer}` : ''}`}
     >
       <Text style={styles.receiptGlyph}>?</Text>
       <Text style={styles.receiptQ} numberOfLines={2}>
         {first?.question ?? item.toolInput ?? 'Question'}
       </Text>
       <Text style={styles.receiptPick} numberOfLines={1}>
-        {picked || (skipped ? 'skipped' : item.toolResult) || 'answered'}
+        {label}
       </Text>
     </View>
   )

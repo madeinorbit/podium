@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { claudeRecordToItems } from '../../../harness/src/adapters/claude-code/transcript'
 import { TranscriptGraph } from '../conversation/transcript-graph'
 import {
+  askQuestionAnswerText,
   askQuestionOutcome,
   codexAsyncQuestionReply,
   isChosenOption,
@@ -47,6 +48,7 @@ it.each([
   const graph = new TranscriptGraph(items)
   const block = graph.block(items[0]!.id)!
   expect(askQuestionOutcome(block)).toBe('answered')
+  expect(askQuestionAnswerText(block)).toBe(answer)
   expect(graph.pendingQuestionId).toBeUndefined()
   expect(isChosenOption(result, answer)).toBe(true)
   expect(
@@ -277,6 +279,37 @@ it.each([
   const block = { item: ask('question'), result }
   expect(askQuestionOutcome(block)).toBe(outcome)
   expect(isPendingAskQuestion(block)).toBe(false)
+})
+
+it.each([
+  [
+    'The user answered your questions: "Which way?"="Medium custom". Continue with the answer.',
+    'Medium custom',
+  ],
+  [
+    'User has answered your questions: "Which way?"="Keep \\"warm\\"\\nC:\\\\cache".',
+    'Keep "warm"\nC:\\cache',
+  ],
+  ['User has answered your questions: "Which way?"="Keep\nthe cache".', 'Keep\nthe cache'],
+  ['You answered use another branch', 'use another branch'],
+  ['You selected "Left"', 'Left'],
+  ['Left', 'Left'],
+  ['{"answers":{"Which way?":"Medium custom"}}', 'Medium custom'],
+  ['{"answers":{"question":{"answers":["Left", "Right"]}}}', 'Left, Right'],
+  ['Error: answer could not be delivered', undefined],
+  ['User declined to answer the questions', undefined],
+  ['Unrecognized output', undefined],
+  ['{"accepted":true}', undefined],
+] as const)('shows only the classified answer from %j', (result, answer) => {
+  expect(askQuestionAnswerText({ item: ask('question'), result })).toBe(answer)
+})
+
+it('reads a Codex custom answer and omits its registration acknowledgement', () => {
+  const item = ask('async', { toolName: 'request_user_input_async' })
+  expect(askQuestionAnswerText({ item, result: '[{"answer":"Medium custom"}]' })).toBe(
+    'Medium custom',
+  )
+  expect(askQuestionAnswerText({ item, result: '{"accepted":true}' })).toBeUndefined()
 })
 
 it('refuses a rendered question whose text, options, or layout differs from its interaction', () => {

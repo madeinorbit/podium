@@ -275,6 +275,29 @@ it('collapses a paired answer into its receipt and removes successful hook noise
   expect(screen.getByText(/You picked Red/)).toBeTruthy()
   expect(screen.queryByText(/PreCompact/)).toBeNull()
   expect(screen.getByLabelText(/answered/i)).toBeTruthy()
+  expect(screen.getByText('Answered: Red')).toBeTruthy()
+})
+
+it('shows the custom answer in its receipt instead of the native result narration', () => {
+  render(
+    transcript([
+      {
+        id: 'question',
+        role: 'tool',
+        text: '',
+        toolName: 'AskUserQuestion',
+        toolInputJson: JSON.stringify({
+          questions: [{ question: 'Which colour?', options: [{ label: 'Red' }] }],
+        }),
+        toolResult:
+          'The user answered your questions: "Which colour?"="Medium custom". You can now continue.',
+      },
+    ]),
+  )
+  expect(screen.getByText('Answered: Medium custom')).toBeTruthy()
+  expect(screen.getByLabelText('Answered question: Which colour? · Medium custom')).toBeTruthy()
+  expect(screen.queryByText(/The user answered/)).toBeNull()
+  expect(screen.queryByTestId('ask-question-tile')).toBeNull()
 })
 
 it('omits successful PreCompact and PostCompact rows from text and accessibility, retaining failures', () => {
@@ -334,7 +357,7 @@ it('marks a delivered custom answer as answered even without a listed option mat
       },
     ]),
   )
-  expect(screen.getByText('You answered Purple')).toBeTruthy()
+  expect(screen.getByText('Answered: Purple')).toBeTruthy()
   expect(screen.queryByTestId('ask-question-tile')).toBeNull()
 })
 const note = (id: string, body: string, ask = false) =>

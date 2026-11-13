@@ -117,6 +117,8 @@ export function isPendingAskQuestion(block: { item: TranscriptItem; result?: str
   return isInterviewQuestion(block.item) && askQuestionResult(block) === undefined
 }
 
+const ANSWER_PAIR = /("(?:\\[\s\S]|[^"\\])+")\s*=\s*("(?:\\[\s\S]|[^"\\])+")/
+
 /** A tool finishing is not evidence that the human answered it. */
 export function askQuestionOutcome(block: {
   item: TranscriptItem
@@ -129,7 +131,7 @@ export function askQuestionOutcome(block: {
   if (!text || /^\[(?:Tool call interrupted|Request interrupted)/i.test(text)) return 'unknown'
   if (/^User (?:has )?(?:declined|skipped)\b/i.test(text)) return 'skipped'
   if (
-    /"(?:\\[\s\S]|[^"\\])+"\s*=\s*"(?:\\[\s\S]|[^"\\])+"/.test(text) ||
+    ANSWER_PAIR.test(text) ||
     /^(?:You (?:selected|answered|picked)|User selected)\s+\S/i.test(text)
   )
     return 'answered'
@@ -176,6 +178,47 @@ export function askQuestionOutcome(block: {
     /* Unrecognized results remain unresolved. */
   }
   return 'unknown'
+}
+
+/** The first question's classified answer, without the native result's narration. */
+export function askQuestionAnswerText(block: {
+  item: TranscriptItem
+  result?: string
+}): string | undefined {
+  if (askQuestionOutcome(block) !== 'answered') return undefined
+  const text = askQuestionResult(block)?.trim() ?? ''
+  const first = parseAskQuestions(block.item.toolInputJson)[0]
+  const unquote = (quoted: string): string => {
+    try {
+      return JSON.parse(quoted) as string
+    } catch {
+      return quoted.slice(1, -1)
+    }
+  }
+  for (const pair of text.matchAll(new RegExp(ANSWER_PAIR.source, 'g'))) {
+    if (!first || unquote(pair[1] ?? '') === first.question) return unquote(pair[2] ?? '')
+  }
+  try {
+    const result = JSON.parse(text)
+    if (isCodexAsyncQuestion(block.item) && Array.isArray(result)) return result[0]?.answer
+    const answers = result?.answers
+    if (answers && typeof answers === 'object') {
+      const answer = answers[first?.question ?? ''] ?? Object.values(answers)[0]
+      if (typeof answer === 'string') return answer
+      if (Array.isArray(answer?.answers)) return answer.answers.join(', ')
+    }
+  } catch {
+    // Native menus also report plain option labels and short answer sentences.
+  }
+  const picked = first?.options.filter((option) => isChosenOption(text, option.label))
+  if (picked?.length) return picked.map((option) => option.label).join(', ')
+  if (first?.options.some((option) => option.label === text)) return text
+  const phrase = /^(?:You (?:selected|answered|picked)|User selected)\s+([\s\S]+)$/i
+    .exec(text)?.[1]
+    ?.trim()
+  if (!phrase) return undefined
+  const quoted = /^("(?:\\[\s\S]|[^"\\])+")[.!]?$/.exec(phrase)?.[1]
+  return quoted ? unquote(quoted) : phrase
 }
 
 /** Answers ride the existing text-message route, never Claude's menu keystrokes. */
