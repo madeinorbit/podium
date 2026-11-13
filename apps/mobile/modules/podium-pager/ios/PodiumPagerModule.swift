@@ -13,9 +13,14 @@ import UIKit
 /// - The navigation stack's edge back swipe is required to fail first (react-
 ///   native-screens declares that for every scroll view). On the first page a
 ///   rightward drag never begins here, so the iOS 26 content back swipe gets it.
+///   Once the offset leaves the first page the pager switches the stack's back
+///   swipes off itself, in the same frame, so every left-to-right drag on the
+///   second page (from the edge too) pages back, however busy JS is.
 /// - Inner horizontal scrollers (code blocks, tables) that can still move in the
 ///   drag's direction scroll first; at their edge the next drag pages.
-/// - Row swipe actions must fail before the pager begins, and an active text
+/// - Row swipe actions must fail before the pager begins (and if UIKit's swipe
+///   recognizer cannot be identified, drags that start on a list row are left to
+///   the row), and an active text
 ///   selection, context menu or other gesture under the finger keeps it still.
 ///   Drags that start on the composer or a text input never page.
 public final class PodiumPagerModule: Module {
@@ -50,6 +55,8 @@ final class PodiumPagerView: ExpoView, UIScrollViewDelegate {
   /// Scrollers on the hidden page whose status-bar scroll-to-top this pager
   /// switched off, so only the visible page answers a status bar tap.
   private let mutedScrollers = NSHashTable<UIScrollView>.weakObjects()
+  /// The stack whose back swipes this pager switched off while away from page 0.
+  private weak var blockedStack: UINavigationController?
 
   required init(appContext: AppContext? = nil) {
     super.init(appContext: appContext)
@@ -111,6 +118,7 @@ final class PodiumPagerView: ExpoView, UIScrollViewDelegate {
   // MARK: UIScrollViewDelegate
 
   func scrollViewDidScroll(_ scrollView: UIScrollView) {
+    updateBackSwipe()
     let page = pageAt(scrollView.contentOffset.x)
     if page != nearest {
       nearest = page
@@ -136,7 +144,54 @@ final class PodiumPagerView: ExpoView, UIScrollViewDelegate {
     settle()
   }
 
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    // A screen pushed over this one (or this one popping) must get its back
+    // swipe: only a pager on screen, away from page 0, holds it off.
+    updateBackSwipe()
+  }
+
   // MARK: Private
+
+  /// The stack's edge and content back swipes belong to the chat page only.
+  /// React Native Screens never toggles these recognizers' `isEnabled` (it
+  /// answers through their delegate), so the pager owns that switch.
+  private func updateBackSwipe() {
+    let block = window != nil && scroller.contentOffset.x > 1
+    if block {
+      guard blockedStack == nil, let stack = navigationController() else { return }
+      // This screen re-enters the window during a pop back to it, which may be
+      // the interactive back swipe itself: switching its recognizer off then
+      // would strand the transition halfway. Decide once the transition ends.
+      if let transition = stack.transitionCoordinator {
+        transition.animate(alongsideTransition: nil) { [weak self] _ in self?.updateBackSwipe() }
+        return
+      }
+      blockedStack = stack
+      setBackSwipes(of: stack, enabled: false)
+    } else if let stack = blockedStack {
+      blockedStack = nil
+      setBackSwipes(of: stack, enabled: true)
+    }
+  }
+
+  private func setBackSwipes(of stack: UINavigationController, enabled: Bool) {
+    stack.interactivePopGestureRecognizer?.isEnabled = enabled
+    if #available(iOS 26.0, *) {
+      stack.interactiveContentPopGestureRecognizer?.isEnabled = enabled
+    }
+  }
+
+  private func navigationController() -> UINavigationController? {
+    var responder: UIResponder? = self
+    while let current = responder {
+      if let controller = current as? UIViewController, let stack = controller.navigationController {
+        return stack
+      }
+      responder = current.next
+    }
+    return nil
+  }
 
   private func pageAt(_ x: CGFloat) -> Int {
     let width = scroller.bounds.width
@@ -286,8 +341,7 @@ final class PagerScrollView: UIScrollView {
 
   private func isInnerRowSwipe(_ recognizer: UIGestureRecognizer) -> Bool {
     guard isInside(recognizer) else { return false }
-    let name = NSStringFromClass(type(of: recognizer))
-    return name.contains("SwipeAction") || name.contains("SwipeHandler")
+    return isRowSwipeName(NSStringFromClass(type(of: recognizer)))
   }
 
   private func somethingUnderFingerClaims(_ point: CGPoint, dx: CGFloat) -> Bool {
@@ -299,6 +353,14 @@ final class PagerScrollView: UIScrollView {
       if let textView = current as? UITextView, textView.isEditable { return true }
       if current is UITextField { return true }
       if let scrollView = current as? UIScrollView, canScroll(scrollView, dx: dx) { return true }
+      if current is UICollectionViewListCell, point.x - contentOffset.x > edgeBand,
+        let list = current.superview as? UICollectionView ?? enclosingCollectionView(of: current),
+        !hasRowSwipeRecognizer(list)
+      {
+        // Fallback for a UIKit whose swipe-actions recognizer no longer matches
+        // the names below: the row may have swipe actions, so leave it the drag.
+        return true
+      }
       for recognizer in current.gestureRecognizers ?? []
       where (recognizer.state == .began || recognizer.state == .changed) && holdsTouch(recognizer) {
         return true
@@ -306,6 +368,26 @@ final class PagerScrollView: UIScrollView {
       view = current.superview
     }
     return false
+  }
+
+  /// A drag starting this close to the leading screen edge is always a page-back.
+  private let edgeBand: CGFloat = 24
+
+  private func enclosingCollectionView(of view: UIView) -> UICollectionView? {
+    var next = view.superview
+    while let current = next, current !== self {
+      if let list = current as? UICollectionView { return list }
+      next = current.superview
+    }
+    return nil
+  }
+
+  private func hasRowSwipeRecognizer(_ list: UICollectionView) -> Bool {
+    (list.gestureRecognizers ?? []).contains { isRowSwipeName(NSStringFromClass(type(of: $0))) }
+  }
+
+  private func isRowSwipeName(_ name: String) -> Bool {
+    name.contains("SwipeAction") || name.contains("SwipeHandler")
   }
 
   /// Text selection (its loupe and handles) and long-press menus own the touch

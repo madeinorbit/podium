@@ -23,7 +23,8 @@ const navigation = vi.hoisted(() => ({
   dismissTo: vi.fn(),
   holdOpening: false,
   remembered: null as string | null,
-  options: [] as Record<string, unknown>[],
+  /** Hand the mounted route new params, as a link to the focused route does. */
+  reopen: (_params: Record<string, string | undefined>) => {},
 }))
 
 const MISSION_CHAT = 'mission/[missionId]'
@@ -108,7 +109,6 @@ afterEach(() => {
   navigation.platform = 'ios'
   navigation.holdOpening = false
   navigation.remembered = null
-  navigation.options = []
 })
 
 const options = {
@@ -144,6 +144,8 @@ function Navigator() {
     })
   }
   navigation.back.mockImplementation(() => dispatch(StackActions.pop(1)))
+  navigation.reopen = (params) =>
+    act(() => dispatch({ type: 'SET_PARAMS', payload: { params }, source: route.key }))
   navigation.push.mockImplementation((url: string) => {
     const [path, query] = url.split('?')
     dispatch(
@@ -166,7 +168,6 @@ function Navigator() {
     getState: () => state,
     dispatch,
     isFocused: () => true,
-    setOptions: (next: Record<string, unknown>) => navigation.options.push(next),
     addListener: (event: string, listener: (event: { data: { closing: boolean } }) => void) => {
       if (event !== 'transitionEnd') return () => {}
       transitionListeners.current.add(listener)
@@ -341,8 +342,6 @@ it('pins the chat page to the session the route names over a remembered pane', a
 
 const deckPage = () => screen.getByTestId('pager-deck-page')
 const onDeckPage = () => deckPage().getAttribute('aria-hidden') !== 'true'
-const backSwipe = () =>
-  navigation.options.filter((next) => 'gestureEnabled' in next).at(-1)?.gestureEnabled
 
 it('pages from the chat to its deck and swaps the chat to a seat or task picked there', async () => {
   await renderWithMobileStore(<Navigator />, {
@@ -369,7 +368,6 @@ it('pages from the chat to its deck and swaps the chat to a seat or task picked 
   // The deck is a page of this screen, not a screen underneath it: Back is Work.
   expect(navigation.state?.routes.map((route) => route.name)).toEqual(['(tabs)', MISSION_CHAT])
   expect(onDeckPage()).toBe(false)
-  expect(backSwipe()).toBe(true)
   await waitFor(() =>
     expect(screen.getByTestId('mission-bar').getAttribute('aria-label')).toMatch(
       /^Flight deck, 0\/\d+/,
@@ -378,10 +376,9 @@ it('pages from the chat to its deck and swaps the chat to a seat or task picked 
 
   await act(async () => fireEvent.click(screen.getByTestId('mission-bar')))
   expect(onDeckPage()).toBe(true)
-  // The header follows the page; the stack's back swipe yields to paging back.
+  // The header follows the page.
   expect(screen.getAllByText('Cloud factory strategy').length).toBeGreaterThan(0)
   expect(screen.getAllByText('Flight deck').length).toBeGreaterThan(0)
-  expect(backSwipe()).toBe(false)
   await waitFor(() =>
     expect(screen.getByTestId('deck-agent').getAttribute('aria-label')).toContain(
       'child-lead, Working, open',
@@ -415,7 +412,6 @@ it('pages from the chat to its deck and swaps the chat to a seat or task picked 
   await act(async () => fireEvent.click(screen.getByTestId('deck-seat')))
   await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('root-lead'))
   expect(onDeckPage()).toBe(false)
-  expect(backSwipe()).toBe(true)
   expect(navigation.push).not.toHaveBeenCalled()
 
   // The root coordinator is now the remembered workspace tab. A child task
@@ -537,4 +533,55 @@ it('opens an unseated child task in details instead of its parent conversation',
   await act(async () => fireEvent.click(screen.getByTestId('mission-bar')))
   await act(async () => fireEvent.click(screen.getByTestId('deck-task')))
   expect(navigation.push).toHaveBeenLastCalledWith('/issue/child')
+})
+
+const crewIssues = [
+  issue('root', { coordinatorSessionId: asSessionId('root-lead') }),
+  issue('child', {
+    parentId: asIssueId('root'),
+    coordinatorSessionId: asSessionId('child-lead'),
+  }),
+]
+const crewSessions = [
+  agent('root-lead', 'root'),
+  agent('child-lead', 'child'),
+  agent('child-helper', 'child'),
+]
+
+it('a link naming another seat reopens the mounted screen on its chat, from the deck page', async () => {
+  await renderWithMobileStore(<Navigator />, { issues: crewIssues, sessions: crewSessions })
+  await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('child-lead'))
+  const key = navigation.state?.routes.at(-1)?.key
+  await act(async () => fireEvent.click(screen.getByTestId('mission-bar')))
+  expect(onDeckPage()).toBe(true)
+  await navigation.reopen({ missionId: 'child', sessionId: 'child-helper' })
+  await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('child-helper'))
+  expect(onDeckPage()).toBe(false)
+  // The same mounted route took the params; nothing was pushed.
+  expect(navigation.state?.routes.at(-1)?.key).toBe(key)
+  expect(navigation.state?.routes.map((route) => route.name)).toEqual(['(tabs)', MISSION_CHAT])
+})
+
+it('a bare link after a helper pick reopens the mounted screen on the coordinator', async () => {
+  await renderWithMobileStore(<Navigator />, { issues: crewIssues, sessions: crewSessions })
+  await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('child-lead'))
+  await act(async () => fireEvent.click(screen.getByTestId('mission-bar')))
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: /^child-helper,/ })))
+  await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('child-helper'))
+  // The helper is now remembered and pinned; a bare link must still land on
+  // the coordinator, and from the deck page it must bring the chat back.
+  await act(async () => fireEvent.click(screen.getByTestId('mission-bar')))
+  expect(onDeckPage()).toBe(true)
+  await navigation.reopen({ missionId: 'child', sessionId: undefined })
+  await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('child-lead'))
+  expect(onDeckPage()).toBe(false)
+})
+
+it('a link with the seat already shown still brings the chat page back', async () => {
+  await renderWithMobileStore(<Navigator />, { issues: crewIssues, sessions: crewSessions })
+  await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('child-lead'))
+  await act(async () => fireEvent.click(screen.getByTestId('mission-bar')))
+  await navigation.reopen({ missionId: 'child', sessionId: 'child-lead' })
+  await waitFor(() => expect(onDeckPage()).toBe(false))
+  expect(screen.getByTestId('chat').textContent).toBe('child-lead')
 })

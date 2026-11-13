@@ -7,8 +7,9 @@ import { asIssueId, type SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
+import { NavigationRouteContext } from 'expo-router/build/react-navigation/core/NavigationProvider'
 import { observer } from 'mobx-react-lite'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Keyboard, type LayoutChangeEvent, Platform, StyleSheet, View } from 'react-native'
 import { useMissionOpening, useStoreActions, useTaskSeatMemory } from '../client/hooks'
 import { useMobilePool, useMobilePoolProjection } from '../client/mobile-pool'
@@ -33,7 +34,6 @@ import { EmptyState } from '../components/ui'
 import { WorkIssueMenu } from '../components/WorkIssueMenu'
 import { useHeaderInset } from '../navigation/header-inset'
 import { type DeckOpen, deckTaskOpen } from '../navigation/mission-deck-targets'
-import { usePageBackSwipe } from '../navigation/use-page-back-swipe'
 import { color } from '../theme/theme'
 
 /**
@@ -122,9 +122,6 @@ export const MissionScreen = observer(function MissionScreen() {
     // Wait for the root: its coordinator decides the pick.
     if (root && autoId) setPinnedSessionId(autoId as SessionId)
   }, [root, autoId])
-  useEffect(() => {
-    if (requestedSessionId) setPinnedSessionId(requestedSessionId as SessionId)
-  }, [requestedSessionId])
   // Whatever the screen shows is what reopening this task lands on next time.
   const currentId = current?.sessionId
   useEffect(() => {
@@ -146,7 +143,8 @@ export const MissionScreen = observer(function MissionScreen() {
   const pager = useRef<ChatDeckPagerHandle>(null)
   const [page, setPage] = useState<PagerPage>(0)
   const onDeck = paged && page === 1
-  usePageBackSwipe(!onDeck)
+  // The stack's back swipe belongs to the chat page; the native pager switches
+  // it off itself the moment its offset leaves page 0 (no JS round trip).
   // Paging with the keyboard up is allowed and never drops focus mid-drag (a
   // drag that snaps back keeps typing going). Coming to rest on the deck puts
   // the composer off screen, so the keyboard goes; the draft stays.
@@ -173,6 +171,19 @@ export const MissionScreen = observer(function MissionScreen() {
     (session: SessionView) => showSession(session.sessionId),
     [showSession],
   )
+  // A link or a Work tap that lands on this already mounted screen (the stack
+  // reuses the focused route and hands it new params) is a new opening: the
+  // seat it names, or with none the coordinator-first pick, replaces whatever
+  // was pinned, and the chat page comes back into view. Deck picks pin locally
+  // and never change the params.
+  const routeParams = use(NavigationRouteContext)?.params
+  const openedWith = useRef(routeParams)
+  useEffect(() => {
+    if (openedWith.current === routeParams) return
+    openedWith.current = routeParams
+    setPinnedSessionId(requestedSessionId ? (requestedSessionId as SessionId) : null)
+    pager.current?.setPage(0)
+  }, [routeParams, requestedSessionId])
 
   // The deck page reads the same shared deck; its taps change which session
   // the chat page shows and page back, or leave for another screen.
