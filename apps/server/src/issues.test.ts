@@ -3019,10 +3019,10 @@ describe('IssueService.action', () => {
     const row = await svc.reports.store.deps.store.issues.getIssue(id)
     if (!row) throw new Error('row missing')
     // Row-level free, through the table the map follows (POD-6155).
-    await svc.reports.store.deps.store.issues.upsertIssue(fixtureWriteScope(), {
+    await seedRows(svc.reports.store.deps.store, async () => await svc.reports.store.deps.store.issues.upsertIssue(fixtureWriteScope(), {
       ...row,
       worktreePath: null,
-    })
+    }))
     await svc.gitWorkflow.refreshGitState(id)
     const wire = await svc.reports.get(id)
     expect(wire?.landedAt).toEqual(expect.any(String))
@@ -3115,10 +3115,10 @@ describe('IssueService.action', () => {
     const row = await svc.reports.store.deps.store.issues.getIssue(id)
     if (!row) throw new Error('row missing')
     // Row-level free, through the table the map follows (POD-6155).
-    await svc.reports.store.deps.store.issues.upsertIssue(fixtureWriteScope(), {
+    await seedRows(svc.reports.store.deps.store, async () => await svc.reports.store.deps.store.issues.upsertIssue(fixtureWriteScope(), {
       ...row,
       worktreePath: null,
-    })
+    }))
     release()
     await refresh
     const wire = (await svc.reports.get(id))!
@@ -3140,10 +3140,10 @@ describe('IssueService.action', () => {
     if (!row) throw new Error('row missing')
     const freed = row.worktreePath as string
     // Row-level free, through the table the map follows (POD-6155).
-    await svc.reports.store.deps.store.issues.upsertIssue(fixtureWriteScope(), {
+    await seedRows(svc.reports.store.deps.store, async () => await svc.reports.store.deps.store.issues.upsertIssue(fixtureWriteScope(), {
       ...row,
       worktreePath: null,
-    })
+    }))
     calls.length = 0
     // Turn-end and git-activity refreshes pass the session's (deleted) cwd; two coalesce.
     await Promise.all([
@@ -5106,7 +5106,9 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
 
   it('throws on a seq that exists in several repos (per-repo counters collide)', async () => {
     const { svc, store } = await harness()
-    for (const path of ['/r1', '/r2']) await store.repos.addRepo(path, store.hostMachineId)
+    await seedRows(store, async () => {
+      for (const path of ['/r1', '/r2']) await store.repos.addRepo(path, store.hostMachineId)
+    })
     await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r1',
       title: 'A',
@@ -5387,7 +5389,7 @@ describe('IssueService worktree reconciliation and root safety (POD-2662)', () =
 
   it('rejects repository roots at the write seam and before any removal probe', async () => {
     const h = await harness()
-    await h.store.repos.addRepo('/r', h.store.hostMachineId)
+    await seedRows(h.store, async () => await h.store.repos.addRepo('/r', h.store.hostMachineId))
     const issue = await prepared(h)
     await expect(
       h.svc.crud.update(h.svc.reports.store.serverWriter, issue.id, { worktreePath: '/r' }),
@@ -5397,7 +5399,7 @@ describe('IssueService worktree reconciliation and root safety (POD-2662)', () =
     const row = (await h.store.issues.getIssue(issue.id))!
     row.worktreePath = '/r'
     row.branch = null
-    await h.store.issues.upsertIssue(fixtureWriteScope(), row)
+    await seedRows(h.store, async () => await h.store.issues.upsertIssue(fixtureWriteScope(), row))
     h.deps.repoOp = vi.fn(async (op) => {
       if (op === 'worktreeList') {
         return {
@@ -5422,12 +5424,12 @@ describe('IssueService worktree reconciliation and root safety (POD-2662)', () =
     const issue = await prepared(h)
     // The harness reports /r so the issue can be created (2b803efb5); this case is
     // about a free with NO repos-table match, so the report is withdrawn first.
-    await h.store.repos.removeRepo('/r', h.store.hostMachineId)
+    await seedRows(h.store, async () => await h.store.repos.removeRepo('/r', h.store.hostMachineId))
     // A historical row the write seam would now refuse, planted in the store.
     const row = (await h.store.issues.getIssue(issue.id))!
     row.worktreePath = '/r'
     row.branch = null
-    await h.store.issues.upsertIssue(fixtureWriteScope(), row)
+    await seedRows(h.store, async () => await h.store.issues.upsertIssue(fixtureWriteScope(), row))
     const calls: string[] = []
     h.deps.repoOp = vi.fn(async (op) => {
       calls.push(op)
@@ -8298,7 +8300,7 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
 
   it('reports a git worktree that no issue row claims as an orphan', async () => {
     const h = await gcHarness({ mode: 'propose', afterDays: 14 })
-    await h.store.repos.addRepo('/r', h.store.hostMachineId)
+    await seedRows(h.store, async () => await h.store.repos.addRepo('/r', h.store.hostMachineId))
     const claimed = await closedIssueWithCheckout(h, { path: '/r/.worktrees/claimed' })
     h.deps.repoOp = vi.fn(async (op) =>
       op === 'worktreeList'
@@ -8338,7 +8340,7 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
     String.raw`C:\repo`,
   ])('machine paths: worktree inventory recognizes claimed paths under %s', async (root) => {
     const h = await gcHarness({ mode: 'propose', afterDays: 14 })
-    await h.store.repos.addRepo(root, h.store.hostMachineId)
+    await seedRows(h.store, async () => await h.store.repos.addRepo(root, h.store.hostMachineId))
     const worktree = root + '/.worktrees/claimed'
     const claimed = await closedIssueWithCheckout(h, { path: worktree })
     h.deps.repoOp = vi.fn(async (op) =>
@@ -8764,7 +8766,7 @@ describe('landing verdict over real git (POD-2151)', () => {
     appendFileSync(join(root, '.git', 'info', 'exclude'), '.worktrees/\n')
     commit(root, 'base.txt', 'base')
     const h = await harness()
-    await h.store.repos.addRepo(root, h.store.hostMachineId)
+    await seedRows(h.store, async () => await h.store.repos.addRepo(root, h.store.hostMachineId))
     // The merge stamp reads the wall clock, so the service's must too.
     h.deps.now = () => new Date().toISOString()
     const calls: { op: string; cwd: string }[] = []
