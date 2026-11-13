@@ -1,21 +1,20 @@
 import type { TranscriptActivityRun, TranscriptLog } from '@podium/client-core/conversation'
-import { useActivityDisclosure } from '@podium/client-core/react'
+import { useActivityDisclosure, useMailBody } from '@podium/client-core/react'
+import { dayMarksByPosition } from '@podium/client-core/transcript-time'
 import {
   activitySingletonDisplay,
   type ChatBlock,
-  failLine,
   formatClock,
   isOperatorQuestion,
   mcpLabel,
+  noteSubject,
   type ParsedEnvelope,
   pointerFallbackBody,
   principalShortName,
-  resolveToolEdit,
   toolBatchTitles,
   toolCallPhrase,
   toolRunElapsedMs,
   toolRunFailures,
-  toolVerdict,
 } from '@podium/client-core/values'
 import type { MailReply } from '@podium/client-graph/mail-reply'
 import { machinePathBasename, type TranscriptItem } from '@podium/model'
@@ -87,14 +86,10 @@ import {
   ChevronRight,
   ChevronUp,
   FileText,
-  Globe,
   Layers,
   Mail,
   MessageCircleQuestion,
-  Search,
   Square,
-  SquareTerminal,
-  Users,
   X,
 } from './icons'
 import { MessageMenu } from './MessageMenu'
@@ -103,10 +98,10 @@ import { PendingDeliveryFailure } from './PendingDeliveryFailure'
 import { PendingFiles } from './PendingFiles'
 import { PressableScale } from './PressableScale'
 import { pendingFailure, pendingMetaLine } from './pending-delivery'
-import { RichMarkdown } from './RichMarkdown'
+import { RichMarkdown, RichMarkdownInline } from './RichMarkdown'
 import { SelectTextSheet } from './SelectTextSheet'
 import { SharedFiles } from './SharedFiles'
-import { ToolDescription } from './ToolDescription'
+import { ToolCallRow } from './ToolCallRow'
 import { TranscriptViewport } from './TranscriptViewport'
 import type { TranscriptViewportHandle } from './TranscriptViewport.types'
 import { WorkingMark } from './WorkingMark'
@@ -233,15 +228,14 @@ function EnvelopePrincipalLabel({
   )
 }
 
-/** An inbox pointer (POD-2143) carries no body. This list shows every envelope
- *  open, so fetching one here would load it unasked; say where it went instead. */
+/** A folded pointer says where it went; its opened well loads the body by ID. */
 function envelopeText(envelope: ParsedEnvelope): string {
   return envelope.pointer ? pointerFallbackBody(envelope) : envelope.body
 }
 
 /** A note's preview line: the body's first line, or what a pointer stands for. */
 function envelopeLine(envelope: ParsedEnvelope): string {
-  return envelopeText(envelope).replace(/\s+/g, ' ').trim()
+  return noteSubject(envelopeText(envelope))
 }
 
 /** The murmur column's clock (board Chat): the shared `m:ss` motion clock,
@@ -451,7 +445,6 @@ const EnvelopeRow = observer(function EnvelopeRow({
   const ask = isOperatorQuestion(envelope)
   const [open, setOpen] = useState(false)
   const answered = ask && mailReply?.message(envelope.id)?.answered === true
-  const replying = mailReply?.active === true && mailReply.target?.id === envelope.id
   useEffect(() => {
     if (ask && open) void mailReply?.load(envelope.id).catch(() => {})
   }, [ask, open, mailReply, envelope.id])
@@ -467,7 +460,8 @@ const EnvelopeRow = observer(function EnvelopeRow({
       glyph={ask ? disclosureGlyph(open) : <Icon as={Mail} size={14} color={color.textMicro} />}
       label={
         <>
-          <Text style={styles.murmurStrong}>{who}</Text> {summary}
+          <Text style={styles.murmurStrong}>{who}</Text>{' '}
+          {ask ? summary : <RichMarkdownInline text={summary} onRefPress={onRefPress} />}
         </>
       }
       clock={shortTime(ts)}
@@ -476,53 +470,171 @@ const EnvelopeRow = observer(function EnvelopeRow({
       onPress={() => setOpen((value) => !value)}
     >
       {open ? (
-        <>
-          <RichMarkdown
-            text={envelopeText(envelope)}
-            textStyle={styles.wellProse}
-            onRefPress={onRefPress}
-          />
-          {envelope.to ? (
-            <Text style={styles.wellMeta} numberOfLines={1}>
-              <EnvelopePrincipalLabel label={envelope.from} onRefPress={onRefPress} />
-              {' → '}
-              <EnvelopePrincipalLabel label={envelope.to} onRefPress={onRefPress} />
-              {envelope.expectsReply ? ' · reply requested' : null}
-            </Text>
-          ) : null}
-          {ask && (mailReply || onQuote) ? (
-            <View style={styles.wellActions}>
-              {mailReply && !answered ? (
-                <PressableScale
-                  accessibilityRole="button"
-                  accessibilityLabel={`Reply to ${who}`}
-                  accessibilityState={{ selected: replying }}
-                  onPress={() => mailReply.start(envelope)}
-                  style={({ pressed }) => [styles.wellButton, pressed && styles.murmurPressed]}
-                >
-                  <Text style={styles.wellButtonText}>{replying ? 'Replying' : 'Reply'}</Text>
-                </PressableScale>
-              ) : null}
-              {onQuote ? (
-                <PressableScale
-                  accessibilityRole="button"
-                  accessibilityLabel="Quote in your message"
-                  onPress={() => onQuote(quoteTranscriptText(envelopeText(envelope)))}
-                  style={({ pressed }) => [styles.wellButton, pressed && styles.murmurPressed]}
-                >
-                  <Text style={styles.wellButtonText}>Quote</Text>
-                </PressableScale>
-              ) : null}
-            </View>
-          ) : null}
-          {envelope.machineNote ? (
-            <Text style={styles.wellMeta}>{envelope.machineNote}</Text>
-          ) : null}
-        </>
+        <OpenedEnvelope
+          envelope={envelope}
+          onRefPress={onRefPress}
+          mailReply={mailReply}
+          onQuote={onQuote}
+        />
       ) : null}
     </MurmurLine>
   )
 })
+
+function PointerEnvelope({
+  envelope,
+  ...props
+}: {
+  envelope: ParsedEnvelope
+  onRefPress?: (ref: string) => void
+  mailReply?: MailReply
+  onQuote?: (text: string) => void
+}) {
+  const mail = useMailBody(envelope.id)
+  if (mail.status === 'ready')
+    return <EnvelopeContents envelope={envelope} body={mail.body} {...props} />
+  return (
+    <View style={{ gap: space.sm }}>
+      <Text style={styles.wellProse}>
+        {mail.status === 'loading'
+          ? 'Loading…'
+          : mail.status === 'denied'
+            ? "You can't view this message. Only its sender, recipients and an admin can open it."
+            : 'Could not load this message.'}
+      </Text>
+      {mail.status === 'error' ? (
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel="Retry loading note"
+          onPress={mail.retry}
+          style={styles.wellButton}
+        >
+          <Text style={styles.wellButtonText}>Retry</Text>
+        </PressableScale>
+      ) : null}
+    </View>
+  )
+}
+
+function OpenedEnvelope(props: {
+  envelope: ParsedEnvelope
+  onRefPress?: (ref: string) => void
+  mailReply?: MailReply
+  onQuote?: (text: string) => void
+}) {
+  return props.envelope.pointer === 'by-id' ? (
+    <PointerEnvelope {...props} />
+  ) : (
+    <EnvelopeContents {...props} body={envelopeText(props.envelope)} />
+  )
+}
+
+const EnvelopeContents = observer(function EnvelopeContents({
+  envelope,
+  body,
+  onRefPress,
+  mailReply,
+  onQuote,
+}: {
+  envelope: ParsedEnvelope
+  body: string
+  onRefPress?: (ref: string) => void
+  mailReply?: MailReply
+  onQuote?: (text: string) => void
+}) {
+  const who = envelopePrincipal(envelope.from).ref ?? principalShortName(envelope.from)
+  const ask = isOperatorQuestion(envelope)
+  const answered = ask && mailReply?.message(envelope.id)?.answered === true
+  const replying = mailReply?.active === true && mailReply.target?.id === envelope.id
+  return (
+    <>
+      <RichMarkdown text={body} textStyle={styles.wellProse} onRefPress={onRefPress} />
+      {envelope.to ? (
+        <Text style={styles.wellMeta} numberOfLines={1}>
+          <EnvelopePrincipalLabel label={envelope.from} onRefPress={onRefPress} />
+          {' → '}
+          <EnvelopePrincipalLabel label={envelope.to} onRefPress={onRefPress} />
+          {envelope.expectsReply ? ' · reply requested' : null}
+        </Text>
+      ) : null}
+      {ask && (mailReply || onQuote) ? (
+        <View style={styles.wellActions}>
+          {mailReply && !answered ? (
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel={`Reply to ${who}`}
+              accessibilityState={{ selected: replying }}
+              onPress={() => mailReply.start(envelope)}
+              style={({ pressed }) => [styles.wellButton, pressed && styles.murmurPressed]}
+            >
+              <Text style={styles.wellButtonText}>{replying ? 'Replying' : 'Reply'}</Text>
+            </PressableScale>
+          ) : null}
+          {onQuote ? (
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel="Quote in your message"
+              onPress={() => onQuote(quoteTranscriptText(body))}
+              style={({ pressed }) => [styles.wellButton, pressed && styles.murmurPressed]}
+            >
+              <Text style={styles.wellButtonText}>Quote</Text>
+            </PressableScale>
+          ) : null}
+        </View>
+      ) : null}
+      {envelope.machineNote ? <Text style={styles.wellMeta}>{envelope.machineNote}</Text> : null}
+    </>
+  )
+})
+
+function EnvelopeGroup({
+  envelopes,
+  ts,
+  onRefPress,
+  mailReply,
+  onQuote,
+  forceOpen = false,
+}: {
+  envelopes: readonly ParsedEnvelope[]
+  ts?: string
+  onRefPress?: (ref: string) => void
+  mailReply?: MailReply
+  onQuote?: (text: string) => void
+  forceOpen?: boolean
+}) {
+  const { open, toggle } = useActivityDisclosure({ forceOpen })
+  const notes = envelopes.filter((envelope) => !isOperatorQuestion(envelope))
+  const questions = envelopes.filter(isOperatorQuestion)
+  const row = (envelope: ParsedEnvelope) => (
+    <EnvelopeRow
+      key={envelope.id}
+      envelope={envelope}
+      ts={ts}
+      onRefPress={onRefPress}
+      mailReply={mailReply}
+      onQuote={onQuote}
+    />
+  )
+  return (
+    <>
+      {notes.length > 1 ? (
+        <MurmurLine
+          glyph={disclosureGlyph(open)}
+          label={`Read ${notes.length} notes`}
+          clock={shortTime(ts)}
+          expanded={open}
+          accessibilityLabel={`${open ? 'Collapse' : 'Expand'} ${notes.length} notes`}
+          onPress={toggle}
+        >
+          {open ? notes.map(row) : null}
+        </MurmurLine>
+      ) : (
+        notes.map(row)
+      )}
+      {questions.map(row)}
+    </>
+  )
+}
 
 /** A machine-authored context block in headless sessions. Keep the transcript
  * quiet by default, while preserving the complete source behind a disclosure. */
@@ -552,15 +664,6 @@ function MachineContextDisclosure({ item }: { item: TranscriptItem }) {
       ) : null}
     </View>
   )
-}
-
-/** The tool a work row stands for, as a glyph for the opened list. */
-function toolGlyph(item: TranscriptItem) {
-  if (item.toolName === 'Bash') return SquareTerminal
-  if (item.toolName === 'Task') return Users
-  if (item.toolName === 'WebFetch' || item.toolName === 'WebSearch') return Globe
-  if (item.toolName === 'Grep' || item.toolName === 'Glob') return Search
-  return FileText
 }
 
 /**
@@ -626,69 +729,14 @@ const ToolsRun = observer(function ToolsRun({
             if (display.kind === 'received-notes')
               return (
                 <View key={item.id}>
-                  {display.batch.envelopes.map((envelope) => (
-                    <EnvelopeRow
-                      key={envelope.id}
-                      envelope={envelope}
-                      ts={item.ts}
-                      onRefPress={onRefPress}
-                    />
-                  ))}
-                </View>
-              )
-            const mail =
-              display.kind === 'sent-note' || display.kind === 'inbox-read'
-                ? display.mail
-                : undefined
-            if (mail)
-              return (
-                <View key={item.id} style={styles.wellRow}>
-                  <Icon as={Mail} size={14} color={color.textMicro} />
-                  <Text style={styles.wellRowText} numberOfLines={1}>
-                    {mail.op === 'note'
-                      ? `Note to ${mail.to}`
-                      : mail.notes === undefined
-                        ? 'Read notes'
-                        : `Read ${mail.notes} notes`}
-                  </Text>
-                </View>
-              )
-            const result = b.result ?? item.toolResult
-            const verdict = toolVerdict(result)
-            const desc =
-              item.toolName === 'Bash'
-                ? (item.toolInput ?? item.toolTitle ?? '')
-                : (item.toolTitle ?? item.toolInput ?? '')
-            const files = item.toolPaths?.length ?? 0
-            const edit = resolveToolEdit(item)
-            const time = murmurClock(item.durationMs)
-            return (
-              <View key={item.id}>
-                <View style={styles.wellRow}>
-                  <Icon
-                    as={toolGlyph(item)}
-                    size={14}
-                    color={verdict === 'err' ? color.dangerText : color.textMicro}
+                  <EnvelopeGroup
+                    envelopes={display.batch.envelopes}
+                    ts={item.ts}
+                    onRefPress={onRefPress}
                   />
-                  <View style={styles.wellRowBody}>
-                    <ToolDescription toolName={item.toolName} command={desc} />
-                  </View>
-                  {edit && edit.added > 0 ? (
-                    <Text style={[styles.murmurClock, styles.editAdded]}>+{edit.added}</Text>
-                  ) : null}
-                  {edit && edit.removed > 0 ? (
-                    <Text style={[styles.murmurClock, styles.editRemoved]}>−{edit.removed}</Text>
-                  ) : null}
-                  {files > 1 ? <Text style={styles.murmurClock}>{files} files</Text> : null}
-                  {time ? <Text style={styles.murmurClock}>{time}</Text> : null}
                 </View>
-                {verdict === 'err' ? (
-                  <Text style={styles.wellFail} numberOfLines={2}>
-                    {failLine(result)}
-                  </Text>
-                ) : null}
-              </View>
-            )
+              )
+            return <ToolCallRow key={item.id} block={b} />
           })
         : null}
     </MurmurLine>
@@ -767,6 +815,39 @@ function TranscriptTail({ state }: { state?: TranscriptTailState }) {
     </View>
   )
 }
+
+/** A mounted row asks only about its own day and the preceding dated row. */
+const TranscriptDayMark = observer(function TranscriptDayMark({
+  entry,
+  index,
+  rows,
+  suffixRows = [],
+  presentation,
+}: {
+  entry: string | Row
+  index: number
+  rows: readonly (string | Row)[]
+  suffixRows?: readonly Row[]
+  presentation?: MobileConversationPresentation
+}) {
+  const timestamp = (entry: string | Row | undefined) => {
+    const row = typeof entry === 'string' ? presentation?.row(entry) : entry
+    const date = row?.item.ts ? new Date(row.item.ts) : undefined
+    return date && !Number.isNaN(date.getTime()) ? date : undefined
+  }
+  const current = timestamp(entry)
+  if (!current) return null
+  let previous: Date | undefined
+  for (let position = index - 1; position >= 0; position--) {
+    previous = timestamp(
+      position < rows.length ? rows[position] : suffixRows[position - rows.length],
+    )
+    if (previous) break
+  }
+  const dates = previous ? [previous, current] : [current]
+  const label = dayMarksByPosition(dates, new Date(), (date) => date).get(dates.length - 1)
+  return label ? <Text style={styles.dayMark}>{label}</Text> : null
+})
 
 function FeedRowFrame({
   row,
@@ -856,7 +937,7 @@ interface TranscriptFeedRowProps {
   onSendAgainPending?: (turn: PendingTurn) => void
   onRetractPending?: (id: string) => void
   /** Long-press menu result; no action opens the host's message sheet. */
-  onHold: (text: string, action?: MessageAction) => void
+  onHold: (text: string, action?: MessageAction, ts?: string) => void
 }
 
 function sameAssetContext(
@@ -958,7 +1039,7 @@ const TranscriptFeedRow = memo(
     onHold,
   }: TranscriptFeedRowProps) {
     const message = (text: string, child: ReactNode) => (
-      <MessageMenu text={text} canQuote={onQuoteText !== undefined} onAction={onHold}>
+      <MessageMenu text={text} canQuote={onQuoteText !== undefined} onAction={(text, action) => onHold(text, action, row.item.ts)}>
         {child}
       </MessageMenu>
     )
@@ -966,7 +1047,6 @@ const TranscriptFeedRow = memo(
     let content: ReactNode
     switch (row.kind) {
       case 'user': {
-        const time = shortTime(row.item.ts)
         content = message(
           row.item.text,
           <View style={styles.userWrap}>
@@ -978,7 +1058,6 @@ const TranscriptFeedRow = memo(
               />
               <SharedFiles item={row.item} context={assetContext} showHeader={false} />
             </View>
-            {time ? <Text style={styles.userMetaOutside}>{time}</Text> : null}
           </View>,
         )
         break
@@ -1068,30 +1147,37 @@ const TranscriptFeedRow = memo(
         content = <SharedFiles item={row.item} context={assetContext} />
         break
       case 'envelope':
-        content = row.envelope
-          ? message(
-              envelopeText(row.envelope),
-              <EnvelopeRow
-                envelope={row.envelope}
-                ts={row.item.ts}
-                onRefPress={onRefPress}
-                mailReply={mailReply}
-                onQuote={onQuoteText}
-              />,
-            )
-          : null
+        content = row.envelopes ? (
+          <EnvelopeGroup
+            envelopes={row.envelopes}
+            ts={row.item.ts}
+            onRefPress={onRefPress}
+            mailReply={mailReply}
+            onQuote={onQuoteText}
+            forceOpen={highlighted}
+          />
+        ) : row.envelope ? (
+          message(
+            envelopeText(row.envelope),
+            <EnvelopeRow
+              envelope={row.envelope}
+              ts={row.item.ts}
+              onRefPress={onRefPress}
+              mailReply={mailReply}
+              onQuote={onQuoteText}
+            />,
+          )
+        ) : null
         break
       case 'context':
         content = <MachineContextDisclosure item={row.item} />
         break
       case 'recap': {
-        const time = shortTime(row.item.ts)
         content = message(
           row.item.text,
           <View>
             <View style={styles.answerLabelRow}>
               <Text style={styles.answerLabel}>Recap</Text>
-              {time ? <Text style={styles.answerMeta}>{time}</Text> : null}
             </View>
             <MessageText
               text={row.item.text.trim()}
@@ -1418,7 +1504,8 @@ export const TranscriptList = observer(function TranscriptList({
   const [legacyCursor, setLegacyCursor] = useState(0)
   const cursor = find?.cursor ?? legacyCursor
   const setCursor = find?.setCursor ?? setLegacyCursor
-  const [actionText, setActionText] = useState<string | null>(null)
+  const [actionMessage, setActionMessage] = useState<{ text: string; ts?: string } | null>(null)
+  const actionText = actionMessage?.text
   const [atTail, setAtTail] = useState(true)
   /** Rows that arrived while the operator was reading further up. */
   const [unread, setUnread] = useState(0)
@@ -1677,8 +1764,8 @@ export const TranscriptList = observer(function TranscriptList({
     quoteRef.current?.(quoteTranscriptText(text))
   }, [])
   const holdMessage = useCallback(
-    (text: string, action?: MessageAction) => {
-      if (action === undefined) setActionText(text)
+    (text: string, action?: MessageAction, ts?: string) => {
+      if (action === undefined) setActionMessage({ text, ts })
       else if (action === 'copy') copyText(text)
       else if (action === 'quote') quoteText(text)
       else setSelectText(text)
@@ -1738,31 +1825,39 @@ export const TranscriptList = observer(function TranscriptList({
         keyboardShouldPersistTaps="handled"
         ListFooterComponent={
           <>
-            {suffixRows.map((row) => (
-              <TranscriptFeedRow
-                key={row.key}
-                row={row}
-                arrived={suffixArrivedKeys.has(row.key)}
-                highlighted={false}
-                dimmed={query.trim().length > 0}
-                reduceMotion={reduceMotion}
-                liveQuestion={
-                  statePendingKey === row.key ||
-                  (live && pendingKey !== null && pendingKey === row.key)
-                }
-                streaming={streaming && row.key === liveRow?.key}
-                mailReply={mailReply}
-                onQuoteText={onQuote}
-                assetContext={assetContext}
-                onAnswer={answerRow}
-                answerInteractionId={answerInteractionId}
-                onRefPress={onRefPress ? pressRowRef : undefined}
-                onRetryPending={onRetryPending ? retryPendingRow : undefined}
-                onDiscardPending={onDiscardPending ? discardPendingRow : undefined}
-                onSendAgainPending={onSendAgainPending ? sendAgainPendingRow : undefined}
-                onRetractPending={onRetractPending ? retractPendingRow : undefined}
-                onHold={holdMessage}
-              />
+            {suffixRows.map((row, index) => (
+              <View key={row.key}>
+                <TranscriptDayMark
+                  entry={row}
+                  index={rows.length + index}
+                  rows={rows}
+                  suffixRows={suffixRows}
+                  presentation={presentation}
+                />
+                <TranscriptFeedRow
+                  row={row}
+                  arrived={suffixArrivedKeys.has(row.key)}
+                  highlighted={false}
+                  dimmed={query.trim().length > 0}
+                  reduceMotion={reduceMotion}
+                  liveQuestion={
+                    statePendingKey === row.key ||
+                    (live && pendingKey !== null && pendingKey === row.key)
+                  }
+                  streaming={streaming && row.key === liveRow?.key}
+                  mailReply={mailReply}
+                  onQuoteText={onQuote}
+                  assetContext={assetContext}
+                  onAnswer={answerRow}
+                  answerInteractionId={answerInteractionId}
+                  onRefPress={onRefPress ? pressRowRef : undefined}
+                  onRetryPending={onRetryPending ? retryPendingRow : undefined}
+                  onDiscardPending={onDiscardPending ? discardPendingRow : undefined}
+                  onSendAgainPending={onSendAgainPending ? sendAgainPendingRow : undefined}
+                  onRetractPending={onRetractPending ? retractPendingRow : undefined}
+                  onHold={holdMessage}
+                />
+              </View>
             ))}
             <TranscriptTail state={liveRunKey === undefined ? tail : undefined} />
             {footer ? <View style={styles.footer}>{footer}</View> : null}
@@ -1791,16 +1886,28 @@ export const TranscriptList = observer(function TranscriptList({
             onRetractPending: onRetractPending ? retractPendingRow : undefined,
             onHold: holdMessage,
           }
-          return presentation && typeof entry === 'string' ? (
-            <RetainedTranscriptRow presentation={presentation} rowKey={entry} {...props} />
-          ) : (
-            <ObservedTranscriptRow
-              transcript={transcript}
-              collapseContext={collapseContext}
-              sourceIds={rowSources.get(key)}
-              row={entry as Row}
-              {...props}
-            />
+          const content =
+            presentation && typeof entry === 'string' ? (
+              <RetainedTranscriptRow presentation={presentation} rowKey={entry} {...props} />
+            ) : (
+              <ObservedTranscriptRow
+                transcript={transcript}
+                collapseContext={collapseContext}
+                sourceIds={rowSources.get(key)}
+                row={entry as Row}
+                {...props}
+              />
+            )
+          return (
+            <View>
+              <TranscriptDayMark
+                entry={entry}
+                index={index}
+                rows={rows}
+                presentation={presentation}
+              />
+              {content}
+            </View>
           )
         }}
       />
@@ -1865,10 +1972,18 @@ export const TranscriptList = observer(function TranscriptList({
       />
 
       <ActionSheet
-        visible={actionText !== null}
+        visible={actionMessage !== null}
         title="Message"
+        subtitle={
+          actionMessage?.ts && !Number.isNaN(Date.parse(actionMessage.ts))
+            ? new Date(actionMessage.ts).toLocaleString(undefined, {
+                dateStyle: 'full',
+                timeStyle: 'long',
+              })
+            : undefined
+        }
         actions={messageActions}
-        onClose={() => setActionText(null)}
+        onClose={() => setActionMessage(null)}
       />
       <SelectTextSheet
         text={selectText}
@@ -2032,8 +2147,8 @@ const styles = StyleSheet.create({
   proseText: {
     ...sans(400),
     color: color.body,
-    fontSize: font.body,
-    lineHeight: leading(font.body, 'prose'),
+    fontSize: 16,
+    lineHeight: 24,
   },
   // System/interrupt/churn — quiet mono line.
   quiet: {
@@ -2050,11 +2165,13 @@ const styles = StyleSheet.create({
     ...monoLabel(),
     color: color.accentTint,
   },
-  answerMeta: {
-    ...mono(400),
-    marginLeft: 'auto',
+  dayMark: {
+    ...sans(600),
     color: color.textMicro,
-    fontSize: font.micro,
+    fontSize: 12,
+    lineHeight: 16,
+    textAlign: 'center',
+    marginBottom: space.md,
   },
   // Answered ask — one-line receipt.
   receipt: {
@@ -2228,13 +2345,6 @@ const styles = StyleSheet.create({
     color: color.textMicro,
     fontVariant: ['tabular-nums'],
   },
-  // Board ChatAsk: "Edited X.tsx +18 −6" — the edit's size beside its row.
-  editAdded: {
-    color: color.workingText,
-  },
-  editRemoved: {
-    color: color.dangerText,
-  },
   // The opened fold: a quaternary-fill well, card radius 8, 8/12 inset.
   well: {
     backgroundColor: color.quaternaryFill,
@@ -2242,23 +2352,6 @@ const styles = StyleSheet.create({
     paddingVertical: space.sm,
     paddingHorizontal: space.md,
     gap: space.xs,
-  },
-  wellRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 24 },
-  wellRowBody: { flex: 1, minWidth: 0 },
-  wellRowText: {
-    flex: 1,
-    minWidth: 0,
-    ...sans(),
-    fontSize: font.tiny,
-    lineHeight: 16,
-    color: color.textDim,
-  },
-  wellFail: {
-    ...mono(),
-    fontSize: font.micro,
-    lineHeight: 16,
-    color: color.dangerText,
-    paddingLeft: 14 + space.sm,
   },
   wellProse: { fontSize: font.small, lineHeight: 20, color: color.text },
   wellMeta: { ...sans(), fontSize: font.tiny, lineHeight: 16, color: color.textMicro },

@@ -29,11 +29,13 @@ export function OfferArtifactStrip({
   issue,
   lastInputAt,
   onShowAll,
+  presentation,
 }: {
   offer: SessionOffer
   issue: IssueViewModel | undefined
   lastInputAt?: string
   onShowAll?: () => void
+  presentation?: 'tile'
 }) {
   const httpOrigin = useHttpOrigin()
   const { bearer, config } = useServerProfile()
@@ -42,15 +44,12 @@ export function OfferArtifactStrip({
   const [broken, setBroken] = useState<readonly string[]>([])
   const [width, setWidth] = useState(0)
   const compact = width <= 520
-  const tileWidth = compact ? 112 : 148
-  const previewHeight = compact ? 70 : 92
+  const tileWidth = presentation === 'tile' ? 64 : compact ? 112 : 148
+  const previewHeight = presentation === 'tile' ? 80 : compact ? 70 : 92
+  const gap = presentation === 'tile' ? 6 : TILE_GAP
+  const max = presentation === 'tile' ? 3 : OFFER_STRIP_MAX
   const slots =
-    width > 0
-      ? Math.max(
-          1,
-          Math.min(OFFER_STRIP_MAX, Math.floor((width + TILE_GAP) / (tileWidth + TILE_GAP))),
-        )
-      : OFFER_STRIP_MAX
+    width > 0 ? Math.max(1, Math.min(max, Math.floor((width + gap) / (tileWidth + gap)))) : max
 
   const { rows, extra, allRows } = offerArtifactRows({
     offer,
@@ -69,7 +68,7 @@ export function OfferArtifactStrip({
   return (
     <>
       <View
-        style={styles.strip}
+        style={[styles.strip, presentation === 'tile' && { gap: 6, marginTop: 0 }]}
         testID="offer-artifacts"
         onLayout={(event) => {
           const measured = event.nativeEvent.layout.width
@@ -119,7 +118,9 @@ export function OfferArtifactStrip({
                 ) : (
                   <View style={styles.kind}>
                     <Icon as={glyphFor(row.preview)} size={20} color={color.textDim} />
-                    <Text style={styles.kindLabel}>{row.kind}</Text>
+                    {presentation !== 'tile' ? (
+                      <Text style={styles.kindLabel}>{row.kind}</Text>
+                    ) : null}
                   </View>
                 )}
               </View>

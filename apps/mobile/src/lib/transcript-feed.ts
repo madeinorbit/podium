@@ -9,6 +9,7 @@ import {
   isAskUserQuestion,
   isChosenOption,
   isInteractiveTool,
+  isOperatorQuestion,
   MACHINE_CONTEXT_RE,
   machineContextLabel,
   type ParsedEnvelope,
@@ -44,6 +45,7 @@ export interface MobileTranscriptRow {
   blocks?: ChatBlock[]
   readonly run?: TranscriptActivityRun
   blockIndices: number[]
+  envelopes?: readonly ParsedEnvelope[]
   envelope?: ParsedEnvelope
   quietText?: string
   turn: MobileTurnPosition
@@ -214,12 +216,17 @@ export function shapeMobileChatRow(
   if (item.role === 'user') {
     const batch = transcriptActivityFacts(item).envelopes
     if (batch) {
-      batch.envelopes.forEach((envelope, index) => {
+      const notes = batch.envelopes.filter((envelope) => !isOperatorQuestion(envelope))
+      const questions = batch.envelopes.filter(isOperatorQuestion)
+      const visible =
+        notes.length > 1 ? [...notes.slice(0, 1), ...questions] : [...notes, ...questions]
+      visible.forEach((envelope, index) => {
         append({
           key: `${transcriptItemKey(item)}:message:${envelope.id}`,
           kind: 'envelope',
           item,
           envelope,
+          ...(index === 0 && notes.length > 1 ? { envelopes: notes } : {}),
           blockIndices,
           turn: index === 0 ? 'open' : 'bind',
         })

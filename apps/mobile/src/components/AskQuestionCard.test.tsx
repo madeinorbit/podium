@@ -129,13 +129,43 @@ describe('AskQuestionCard', () => {
   })
 })
 
-
 it('submits the identity and content captured by the rendered card', async () => {
   const onAnswer = vi.fn(async () => {})
   render(<AskQuestionCard item={single} live interactionId="ask:rendered" onAnswer={onAnswer} />)
   fireEvent.click(screen.getByLabelText('SQLite'))
-  await waitFor(() => expect(onAnswer).toHaveBeenCalledWith({
-    interactionId: 'ask:rendered', question: single.toolInputJson,
-    choices: [{ optionIndices: [2] }],
-  }))
+  await waitFor(() =>
+    expect(onAnswer).toHaveBeenCalledWith({
+      interactionId: 'ask:rendered',
+      question: single.toolInputJson,
+      choices: [{ optionIndices: [2] }],
+    }),
+  )
+})
+
+it('keeps long pinned options readable and retains the custom-answer path', async () => {
+  const label = 'Keep the wordmark and place the longer description underneath it'
+  const onAnswer = vi.fn(async () => {})
+  render(
+    <AskQuestionCard
+      item={ask([
+        { question: 'Which wordmark should stay?', options: [{ label }, { label: 'None' }] },
+      ])}
+      presentation="band"
+      live
+      onAnswer={onAnswer}
+    />,
+  )
+  const option = screen.getByLabelText(label)
+  expect(option.textContent).toBe(label)
+  expect(screen.queryByText('CLAUDE IS ASKING')).toBeNull()
+  fireEvent.click(screen.getByLabelText('Write a different answer'))
+  fireEvent.change(screen.getByLabelText('Type your own answer'), {
+    target: { value: 'Use the small mark' },
+  })
+  fireEvent.click(screen.getByLabelText('Send answer'))
+  await waitFor(() =>
+    expect(onAnswer).toHaveBeenCalledWith({
+      choices: [{ freeText: 'Use the small mark', otherIndex: 3 }],
+    }),
+  )
 })

@@ -5,10 +5,10 @@ import {
   parseAskQuestions,
 } from '@podium/client-core/values'
 import type { TranscriptItem } from '@podium/model'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
-import { alpha } from '../theme/mix'
-import { color, font, leading, mono, monoLabel, radius, sans, space } from '../theme/theme'
+import { color, font, leading, radius, sans, space } from '../theme/theme'
+import { decisionTile } from './decision-tile'
 import { Icon } from './Icon'
 import { Pencil } from './icons'
 import { PressableScale } from './PressableScale'
@@ -41,7 +41,6 @@ export function AskQuestionCard({
   onAnswer,
   interactionId,
   presentation = 'card',
-  askedAt,
 }: {
   item: TranscriptItem
   live: boolean
@@ -59,7 +58,6 @@ export function AskQuestionCard({
   const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle')
   const [editing, setEditing] = useState<Record<number, boolean>>({})
   const band = presentation === 'band'
-  const asked = askedAt ?? item.ts
   const locked = !live || state === 'sending' || state === 'sent'
 
   const typed = (source: Record<number, string>, qi: number) => source[qi]?.trim() ?? ''
@@ -168,13 +166,7 @@ export function AskQuestionCard({
 
   if (questions.length === 0) {
     return (
-      <View style={[styles.card, band && styles.band]}>
-        <View style={[styles.headerRow, band && styles.bandHeader]}>
-          {band ? <View style={styles.askDot} /> : null}
-          <Text style={styles.badge}>{band ? 'CLAUDE IS ASKING' : 'QUESTION FOR YOU'}</Text>
-          {band ? <View style={styles.askRule} /> : null}
-          {band ? <AskedAge at={asked} /> : null}
-        </View>
+      <View testID="ask-question-tile" style={[styles.card, band && styles.band]}>
         <Text style={styles.question}>
           {item.toolInput || 'AskUserQuestion (unparseable input)'}
         </Text>
@@ -183,16 +175,19 @@ export function AskQuestionCard({
   }
 
   return (
-    <View style={[styles.card, band && styles.band]}>
-      <View style={[styles.headerRow, band && styles.bandHeader]}>
-        {band ? <View style={styles.askDot} /> : null}
-        <Text style={styles.badge}>{band ? 'CLAUDE IS ASKING' : 'QUESTION FOR YOU'}</Text>
-        {band ? <View style={styles.askRule} /> : null}
-        {state === 'sending' ? <Text style={styles.meta}>sending…</Text> : null}
-        {state === 'sent' ? <Text style={styles.meta}>answer sent</Text> : null}
-        {state === 'failed' ? <Text style={styles.metaError}>not delivered — retry</Text> : null}
-        {band && state === 'idle' ? <AskedAge at={asked} /> : null}
-      </View>
+    <View testID="ask-question-tile" style={[styles.card, band && styles.band]}>
+      {state !== 'idle' ? (
+        <Text
+          style={state === 'failed' ? styles.metaError : styles.meta}
+          accessibilityLiveRegion="polite"
+        >
+          {state === 'sending'
+            ? 'Sending…'
+            : state === 'sent'
+              ? 'Answer sent'
+              : 'Not delivered. Try again.'}
+        </Text>
+      ) : null}
       {questions.map((q, qi) => (
         <View key={q.question} style={[styles.questionBlock, band && styles.questionBlockBand]}>
           <Text style={[styles.question, band && styles.questionBand]}>{q.question}</Text>
@@ -207,22 +202,16 @@ export function AskQuestionCard({
                   accessibilityRole="button"
                   accessibilityLabel={opt.label}
                   disabled={locked && !chosen}
+                  hitSlop={band ? 6 : undefined}
                   onPress={() => onOption(qi, oi, q.multiSelect === true)}
                   style={({ pressed }) => [
                     styles.option,
                     band && styles.optionBand,
                     highlighted && styles.optionPicked,
-                    band && oi === 0 && styles.optionBandPrimary,
                     pressed && !locked && styles.optionPressed,
                   ]}
                 >
-                  <Text
-                    style={[
-                      styles.optionLabel,
-                      highlighted && styles.optionLabelPicked,
-                      band && oi === 0 && styles.optionBandPrimaryText,
-                    ]}
-                  >
+                  <Text style={[styles.optionLabel, highlighted && styles.optionLabelPicked]}>
                     {opt.label}
                   </Text>
                   {opt.description && !band ? (
@@ -237,6 +226,7 @@ export function AskQuestionCard({
               <PressableScale
                 accessibilityRole="button"
                 accessibilityLabel="Write a different answer"
+                hitSlop={6}
                 disabled={locked}
                 onPress={() => setEditing({ ...editing, [qi]: true })}
                 style={({ pressed }) => [
@@ -299,75 +289,13 @@ export function AskQuestionCard({
   )
 }
 
-function AskedAge({ at }: { at: string | undefined }) {
-  const [now, setNow] = useState(Date.now())
-  useEffect(() => {
-    if (!at) return
-    const timer = setInterval(() => setNow(Date.now()), 20_000)
-    return () => clearInterval(timer)
-  }, [at])
-  if (!at) return null
-  const start = Date.parse(at)
-  if (!Number.isFinite(start)) return null
-  const minutes = Math.max(0, Math.floor((now - start) / 60_000))
-  const age =
-    minutes < 1 ? 'now' : minutes < 60 ? `${minutes}m ago` : `${Math.floor(minutes / 60)}h ago`
-  return <Text style={styles.askedAge}>{`asked ${age}`}</Text>
-}
-
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: color.card,
-    borderColor: color.needsYouBorder,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.card,
-    padding: space.md,
-    gap: space.md,
-  },
-  band: {
-    borderRadius: 0,
-    borderLeftWidth: 0,
-    borderRightWidth: 0,
-    backgroundColor: alpha(color.needsYou, 0.05),
-    paddingTop: 15,
-    paddingRight: 11,
-    paddingBottom: 15,
-    paddingLeft: 13,
-    gap: space.sm,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  bandHeader: {
-    justifyContent: 'flex-start',
-    gap: 6,
-  },
-  askDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: color.needsYou,
-  },
-  askRule: {
-    flex: 1,
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: color.needsYouBorder,
-  },
-  badge: {
-    ...monoLabel(),
-    color: color.needsYouText,
-  },
+  card: { ...decisionTile.card, ...decisionTile.signal },
+  band: { marginHorizontal: space.lg, marginVertical: space.sm },
   meta: {
     ...sans(400),
     color: color.textDim,
     fontSize: font.tiny,
-  },
-  askedAge: {
-    ...mono(400),
-    color: color.textMicro,
-    fontSize: 11,
   },
   metaError: {
     ...sans(400),
@@ -383,9 +311,8 @@ const styles = StyleSheet.create({
   question: {
     ...sans(600),
     color: color.text,
-    fontSize: font.body,
-    lineHeight: leading(font.body, 'prose'),
-    letterSpacing: -0.1,
+    fontSize: 15,
+    lineHeight: 20,
   },
   questionBand: {
     fontSize: font.small,
@@ -395,7 +322,7 @@ const styles = StyleSheet.create({
   },
   optionsBand: {
     flexDirection: 'row',
-    flexWrap: 'nowrap',
+    flexWrap: 'wrap',
   },
   option: {
     backgroundColor: color.surfaceHigh,
@@ -406,34 +333,10 @@ const styles = StyleSheet.create({
     paddingVertical: space.md + 1,
     gap: 3,
   },
-  optionBand: {
-    flex: 1,
-    height: 38,
-    paddingHorizontal: space.md,
-    paddingVertical: 0,
-    borderRadius: radius.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  /**
-   * The suggested answer leads, but QUIETLY (2026-08-28 device feedback: the
-   * filled bisque chip read as a warning light over the composer). The band's
-   * header already spends the attention accent — dot, mono label, hairline —
-   * so the primary option earns its rank the way the app's accent language
-   * does everywhere else: a bisque keyline and tinted label over a soft wash,
-   * not a solid fill. Siblings keep the neutral border, so the ranking reads
-   * without either of them shouting.
-   */
-  optionBandPrimary: {
-    borderColor: color.accentBorder,
-    backgroundColor: color.accentSoft,
-  },
-  optionBandPrimaryText: {
-    color: color.accentTint,
-  },
+  optionBand: { ...decisionTile.button, borderWidth: 0, alignItems: 'center' },
   editAnswer: {
-    width: 44,
-    height: 38,
+    width: 32,
+    height: 32,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: color.surfaceHigh,
@@ -449,9 +352,10 @@ const styles = StyleSheet.create({
     backgroundColor: color.accentSoft,
   },
   optionLabel: {
-    ...sans(600),
+    ...sans(500),
     color: color.text,
-    fontSize: font.small,
+    fontSize: 14,
+    lineHeight: 20,
   },
   optionLabelPicked: {
     color: color.accentTint,

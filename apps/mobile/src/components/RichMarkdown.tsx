@@ -509,6 +509,17 @@ function Blocks({
   })
 }
 
+/** Text-only markdown leaves for a note subject inside its single-line label. */
+export function RichMarkdownInline({ text, onRefPress }: RichMarkdownProps) {
+  const tokens = useMemo(() => parseMarkdown(text), [text])
+  const ctx = { onRefPress, selectable: false }
+  return renderInline(
+    tokens.flatMap((token) => token.tokens ?? [token]),
+    ctx,
+    'subject',
+  )
+}
+
 /** Native GFM transcript renderer. The native shell retains scrolling and interactions. */
 export function RichMarkdown({
   text,
@@ -542,8 +553,8 @@ const styles = StyleSheet.create({
     ...sans(400),
     // Keep UIKit label adaptation, including Increase Contrast, for reading text.
     color: color.body,
-    fontSize: font.body,
-    lineHeight: leading(font.body, 'prose'),
+    fontSize: 16,
+    lineHeight: 24,
   },
   paragraph: { marginVertical: 4 },
   // UIKit primary label can already be black/white: emphasis adds weight there.

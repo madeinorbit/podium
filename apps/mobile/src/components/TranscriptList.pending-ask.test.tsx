@@ -61,6 +61,7 @@ vi.mock('./TranscriptViewport', async (importOriginal) => {
   return { ...actual, TranscriptViewport: CapturingViewport }
 })
 vi.mock('./RichMarkdown', () => ({
+  RichMarkdownInline: ({ text }: { text: string }) => <>{text}</>,
   RichMarkdown: ({ text }: { text: string }) => {
     markdownRenders.set(text, (markdownRenders.get(text) ?? 0) + 1)
     return <span>{text}</span>
@@ -124,6 +125,10 @@ vi.mock('../lib/transcript-feed', async (importOriginal) => {
     },
   }
 })
+vi.mock('@podium/client-core/react', async (original) => ({
+  ...(await original<object>()),
+  useMailBody: () => ({ status: 'ready', body: 'Fetched pointer body' }),
+}))
 vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => true }))
 vi.mock('../client/hooks', () => ({
   useUiState: () => ({ get: () => null, set: () => {}, subscribe: () => () => {} }),
@@ -544,7 +549,7 @@ it('renders the Bash input as coloured inline text when a work run opens', () =>
 // POD-2143: an oversized mail reaches the agent as a one-line inbox pointer
 // with no body. The phone shows it as an envelope that says where the body
 // went — never an empty card, never the person's own bubble.
-it('renders an inbox pointer as an envelope that says where its body went', () => {
+it('renders an inbox pointer as a note whose opened well loads the body', () => {
   render(
     <TranscriptList
       transcriptQuestion={null}
@@ -563,10 +568,9 @@ it('renders an inbox pointer as an envelope that says where its body went', () =
       ]}
     />,
   )
-  // A murmur line; opening it shows where the body went.
+  // The preview stays quiet; disclosure mounts the shared body reader.
   fireEvent.click(screen.getByLabelText(/^Open note from POD-2128/))
-  expect(screen.getAllByText(/Delivered via the inbox/).length).toBeGreaterThan(0)
-  expect(screen.getAllByText(/podium mail show msg_big/).length).toBeGreaterThan(0)
+  expect(screen.getByText('Fetched pointer body')).toBeTruthy()
   expect(screen.queryByText(/podium issue mail inbox/)).toBeNull()
 })
 
@@ -827,8 +831,10 @@ it('discloses note members of a mixed stretch on the phone', () => {
   )
   expect(screen.queryByText(/needle in the note/)).toBeNull()
   fireEvent.click(screen.getByLabelText(/Expand work run: Ran git status, read a note/))
+  expect(screen.queryByText(/needle in the note/)).toBeNull()
+  fireEvent.click(screen.getByLabelText(/^Open note from system:steward|^Open note from steward/))
   expect(screen.getByText(/needle in the note/)).toBeTruthy()
   expect(
-    screen.getByLabelText(/^Open note from system:steward|^Open note from steward/),
+    screen.getByLabelText(/^Close note from system:steward|^Close note from steward/),
   ).toBeTruthy()
 })

@@ -3,7 +3,7 @@ import { processColor } from 'react-native'
 import { afterEach, expect, it, vi } from 'vitest'
 import { prosePalette } from '../theme/syntax'
 import { color } from '../theme/theme'
-import { RichMarkdown } from './RichMarkdown'
+import { RichMarkdown, RichMarkdownInline } from './RichMarkdown'
 
 // A distinct resolved label catches substitutions with fixed palette inks.
 vi.mock('../theme/platform-colors', async (original) => ({
@@ -85,4 +85,15 @@ it('draws an image on its own line inline and keeps a link for one inside prose'
   expect(getByLabelText('Open login screen')).toBeTruthy()
   expect(container.textContent).not.toContain('[image: login screen]')
   expect(container.textContent).toContain('[image: chart]')
+})
+
+it('renders note preview emphasis, code and links as inline markdown leaves', () => {
+  const { container } = render(
+    <span>
+      <RichMarkdownInline text="Ready **for review** in `chat.ts` with [evidence](https://example.com)." />
+    </span>,
+  )
+  expect(container.textContent).toBe('Ready for review in chat.ts with evidence.')
+  expect(container.querySelector('[role="link"]')?.textContent).toBe('evidence')
+  expect(container.textContent).not.toContain('**')
 })

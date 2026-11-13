@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { AccessibilityInfo, StyleSheet, Text, TextInput, View } from 'react-native'
 import { followPodiumLink } from '../lib/podium-link'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
+import { decisionTile } from './decision-tile'
 import { Icon } from './Icon'
 import { X } from './icons'
 import { OfferArtifactStrip } from './OfferArtifactStrip'
@@ -19,33 +20,7 @@ function errorText(error: unknown, fallback: string): string {
   return (message || fallback).replace(/[.!?]+$/, '')
 }
 
-/**
- * A session-owned offer, kept in the transcript flow. This is deliberately a
- * compact action block rather than a Tray card or persistent bottom accessory:
- * the session is both the source of the decision and where its answer goes.
- *
- * A BLOCK IN THE DOCUMENT, NOT A CARD — the same move the desktop bar made
- * [POD-725], arrived at here for the same reason. This was an accent-rimmed,
- * accent-washed, rounded panel: a 3pt accent edge, an accent wash and an accent
- * button, three signals for one request, in an app whose whole palette spends
- * the accent exactly once. The block now earns its weight typographically — a
- * rule marking where the answer ended and the question began, a bisque eyebrow,
- * and a headline set larger than the transcript prose above it — and the single
- * accented object left on screen is the button the operator is meant to press.
- *
- * `onDismiss` is the THIRD answer, matching the web bar's x [POD-771]: none of
- * these. Without it the phone could only answer an offer or wait for the
- * conversation to move past it, so a question already decided against sat at the
- * end of the transcript — and on a session that can no longer take a turn, it sat
- * there with no reachable exit at all.
- *
- * THE EVIDENCE IS IN THE BLOCK, not behind a link [POD-120]. The offered
- * artifacts used to be a "2 artifacts →" control that opened the task peek —
- * the whole issue, to look at two files the agent had already named. The
- * desktop answers this with {@link OfferArtifactStrip} inside the offer itself,
- * and so does this now; `onOpenEvidence` survives as the strip's overflow
- * target, which is the one case where the full list still beats the strip.
- */
+/** A session offer uses the approved ChatAsk tile, with evidence above its actions. */
 export function SessionActionCard({
   offer,
   issue,
@@ -158,6 +133,7 @@ export function SessionActionCard({
       ) : null}
       {issue ? (
         <OfferArtifactStrip
+          presentation="tile"
           offer={offer}
           issue={issue}
           {...(lastInputAt ? { lastInputAt } : {})}
@@ -252,12 +228,7 @@ export function SessionActionCard({
 
 const styles = StyleSheet.create({
   // Card colour, card radius 8, 12pt inset: the board's .tile.
-  block: {
-    backgroundColor: color.card,
-    borderRadius: 8,
-    padding: space.md,
-    gap: space.sm,
-  },
+  block: decisionTile.card,
   titleRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -295,23 +266,8 @@ const styles = StyleSheet.create({
     color: color.info,
     textDecorationLine: 'underline',
   },
-  actions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: space.sm,
-  },
-  // The board's .btn: 32pt tall, control radius 6, 12pt sides; hitSlop takes
-  // the target to 44.
-  button: {
-    height: 32,
-    borderRadius: radius.sm,
-    paddingHorizontal: space.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: space.xs,
-  },
+  actions: decisionTile.actions,
+  button: { ...decisionTile.button, flexDirection: 'row', alignItems: 'center', gap: space.xs },
   primary: {
     backgroundColor: color.accent,
   },
@@ -322,11 +278,15 @@ const styles = StyleSheet.create({
     ...sans(500),
     color: color.onAccent,
     fontSize: 14,
+    lineHeight: 20,
+    flexShrink: 1,
   },
   secondaryText: {
     ...sans(500),
     color: color.text,
     fontSize: 14,
+    lineHeight: 20,
+    flexShrink: 1,
   },
   inputMark: {
     color: color.textDim,

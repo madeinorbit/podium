@@ -164,3 +164,21 @@ describe('OfferArtifactStrip', () => {
     expect(container.firstChild).toBeNull()
   })
 })
+
+it('uses the board thumbnail size in a session tile and keeps overflow reachable', () => {
+  const paths = ['a.png', 'b.png', 'c.png', 'd.png']
+  const onShowAll = vi.fn()
+  render(
+    <OfferArtifactStrip
+      presentation="tile"
+      offer={offer(paths)}
+      issue={issue(paths.map((path) => art(path)))}
+      onShowAll={onShowAll}
+    />,
+  )
+  const preview = screen.getAllByTestId('offer-artifact-preview')[0]
+  expect(preview && getComputedStyle(preview).height).toBe('80px')
+  expect(screen.getAllByTestId('offer-artifact')).toHaveLength(2)
+  fireEvent.click(screen.getByTestId('offer-artifact-extra'))
+  expect(onShowAll).toHaveBeenCalledOnce()
+})
