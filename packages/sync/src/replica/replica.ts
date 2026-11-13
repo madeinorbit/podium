@@ -169,6 +169,8 @@ export class Replica {
    * construction rather than by remembering to list them (D6.3 / D15.2).
    */
   private buffer: DeltaFrame[] = []
+  /** Later live frames queue behind an asynchronous buffered commit. */
+  private liveDrainGeneration: number | undefined
   /** How each entity left the view. The model-level remove-vs-evict distinction (D14.5). */
   private readonly exits = new Map<string, ExitKind>()
   /** Set while a bootstrap walk is in flight; bumped to abandon a superseded walk. */
@@ -411,7 +413,11 @@ export class Replica {
       return this.outcome('D7-4-EPOCH', from)
     }
 
-    if (this.state === 'bootstrapping' || this.state === 'healing') {
+    if (
+      this.state === 'bootstrapping' ||
+      this.state === 'healing' ||
+      this.liveDrainGeneration === this.walkGeneration
+    ) {
       // Validate BEFORE buffering. Buffering first meant a malformed frame
       // received during a heal or a walk was applied later without ever passing
       // rung 3 — the cursor advanced over a corrupt payload. Rung 3 must be
@@ -829,21 +835,20 @@ export class Replica {
         }
       }
       this.counters.pendingGap = false
-      // Stay healing while the live tail commits. New socket frames must join
-      // the buffer behind that tail, and consumers publish the whole catch-up
-      // only when the final live posture arrives.
+      // Hold only the finite tail already present at range completion. Frames
+      // arriving during these commits remain ordered behind it, but must not
+      // keep the catch-up publication waiting for a quiet socket.
+      const heldTailFrames = this.buffer.length
       try {
-        do {
-          await this.drainBuffer(generation)
-          if (generation !== this.walkGeneration) return
-        } while (this.buffer.length > 0)
+        await this.drainBuffer(generation, heldTailFrames)
+        if (generation !== this.walkGeneration) return
+        this.note('D7-1-HEALED')
+        await this.drainLiveBuffer(generation, () => this.setPosture('live'))
       } catch (error) {
         if (generation !== this.walkGeneration) return
         if (!(error instanceof ReplicaStoreCorruptError)) this.setPosture('stale')
         throw error
       }
-      this.note('D7-1-HEALED')
-      this.setPosture('live')
     })
   }
 
@@ -856,7 +861,10 @@ export class Replica {
    * from it and nothing to lose by discarding it. That is not the acceptance of
    * an overlapping frame — nothing from it reaches the store.
    */
-  private async drainBuffer(generation = this.walkGeneration): Promise<void> {
+  private async drainBuffer(
+    generation = this.walkGeneration,
+    frameLimit = Number.POSITIVE_INFINITY,
+  ): Promise<void> {
     // A FRAME IS CONSUMED ONLY AFTER ITS COMMIT IS DURABLE (POD-1161). This used to
     // take the whole buffer and empty it up front, so a commit that aborted part-way
     // dropped every remaining frame — and with them the retirements they were the only
@@ -873,7 +881,7 @@ export class Replica {
     // BOUNDED AND LOUD (POD-1140): the loop consumes from a buffer that concurrent
     // frames can grow, so it needs a bound that is not "until it is empty". An
     // unbounded drain here is the shape that once produced zero bytes and hung forever.
-    for (let guard = 0; this.buffer.length > 0; guard += 1) {
+    for (let guard = 0; this.buffer.length > 0 && guard < frameLimit; guard += 1) {
       if (generation !== this.walkGeneration) return
       if (guard > DRAIN_BUFFER_LIMIT) {
         throw new Error(
@@ -906,6 +914,20 @@ export class Replica {
       if (generation !== this.walkGeneration) return
       this.buffer.shift()
       this.note(applied.row)
+    }
+  }
+
+  /** Publish the finite catch-up, then stream newer frames without overtaking. */
+  private async drainLiveBuffer(generation: number, publishLive: () => void): Promise<void> {
+    this.liveDrainGeneration = generation
+    try {
+      publishLive()
+      do {
+        await this.drainBuffer(generation)
+        if (generation !== this.walkGeneration) return
+      } while (this.buffer.length > 0)
+    } finally {
+      if (this.liveDrainGeneration === generation) this.liveDrainGeneration = undefined
     }
   }
 

@@ -2334,7 +2334,82 @@ describe('incremental range healing', () => {
     expect(h.replica.cursor?.seq).toBe(13)
     expect(h.replica.view('session', 'tail')).toEqual({ name: 'latest' })
     expect(h.store.outbox.list()).toHaveLength(0)
-    expect(h.events.at(-1)).toMatchObject({ type: 'posture', posture: 'live' })
+    const liveAt = h.events.findIndex(
+      (event) => event.type === 'posture' && event.posture === 'live',
+    )
+    const laterAt = h.events.findIndex(
+      (event) => event.type === 'upserted' && event.record.provenance.seq === 13,
+    )
+    expect(liveAt).toBeGreaterThan(-1)
+    if (action === 'continue') expect(laterAt).toBeGreaterThan(liveAt)
+    else expect(laterAt).toBeLessThan(liveAt) // included in the restarted HTTP range
+  })
+
+  it('publishes a finite catch-up tail while live frames keep arriving, then drains them in order', async () => {
+    const entered = [latch(), latch(), latch()]
+    const commits = [latch(), latch(), latch()]
+    let retirements = 0
+    const h = harness({
+      overlay: (store) => ({
+        pending: () => [],
+        reduce: () => ({ kind: 'no-reducer' }),
+        retire: async (matches, span) => {
+          const index = retirements++
+          entered[index]?.release()
+          await commits[index]?.promise
+          store.outbox.retireBatch(matches, span)
+        },
+      }),
+    })
+    await bootstrapped(h, 10, [])
+    h.events.length = 0
+    for (let n = 1; n <= 3; n++)
+      h.store.outbox.enqueue({
+        mutationId: asMutationId(`m${n}`),
+        entity: 'session',
+        entityId: 'tail',
+        command: {},
+      })
+    const tail = (from: number, mutation?: string) =>
+      deltaFrame(from, from + 1, [
+        session(
+          from + 1,
+          'tail',
+          `seq-${from + 1}`,
+          mutation ? { mutationId: asMutationId(mutation) } : {},
+        ),
+      ])
+    h.authority.changesRangeQueue = [deltaFrame(10, 11, [])]
+    const releaseHeal = holdHeal(h.authority)
+    h.replica.disconnect()
+    h.replica.connect()
+    await h.replica.receive(tail(11, 'm1'))
+    releaseHeal()
+    await entered[0]?.promise
+    await h.replica.receive(tail(12, 'm2'))
+    await h.replica.receive(tail(13, 'm3'))
+    commits[0]?.release()
+    await entered[1]?.promise
+    // Only seq 12 was buffered at HTTP completion. Publication cannot wait for
+    // the growing socket tail, even though its next durable commit is blocked.
+    expect(h.replica.posture).toBe('live')
+    expect(h.replica.cursor?.seq).toBe(12)
+    expect((await h.replica.receive(tail(14))).rowId).toBe('D6-BUFFER')
+    commits[1]?.release()
+    await entered[2]?.promise
+    expect(h.replica.posture).toBe('live')
+    expect(h.replica.cursor?.seq).toBe(13)
+    expect((await h.replica.receive(tail(15))).rowId).toBe('D6-BUFFER')
+    commits[2]?.release()
+    await h.replica.settled()
+    expect(h.replica.cursor?.seq).toBe(16)
+    expect(
+      h.events.filter((event) => event.type === 'cursor').map((event) => event.cursor.seq),
+    ).toEqual([11, 12, 13, 14, 15, 16])
+    expect(
+      h.events.filter((event) => event.type === 'posture' && event.posture === 'live'),
+    ).toHaveLength(1)
+    expect(h.replica.view('session', 'tail')).toEqual({ name: 'seq-16' })
   })
 
   it('commits before pulling again, buffers live overlap, and stays healing through completion', async () => {

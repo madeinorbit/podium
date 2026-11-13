@@ -170,7 +170,8 @@ export const REPLICA_TRANSITIONS: readonly TransitionRow[] = [
     from: ['healing'],
     input: 'normal range completion',
     condition: 'every frame committed and source completed normally',
-    effect: 'Drain buffered frames while contiguous, then leave healing and publish the catch-up.',
+    effect:
+      'Drain the buffered tail present at range completion, then publish live; newer frames drain in order as live updates.',
     to: ['live'],
     rung: 1,
     adr: 'ADR 2 D7 rung 1',
@@ -307,12 +308,12 @@ export const REPLICA_TRANSITIONS: readonly TransitionRow[] = [
   // ─── Bootstrap walk (D6 shape, D15 slice) ──────────────────────────────────
   {
     id: 'D6-BUFFER',
-    from: ['bootstrapping', 'healing'],
+    from: ['bootstrapping', 'healing', 'live'],
     input: 'delta frame',
-    condition: 'a bootstrap walk or a heal is in flight',
+    condition: 'a bootstrap walk, heal, or buffered live commit is in flight',
     effect:
       'Buffer the frame, PRESERVING the current posture. The rule is stated over FRAMES, not over ops, so watermarks and evicts buffer exactly like ordinary changes and no op kind can be forgotten. Frame shape and known-kind validation run BEFORE the frame is buffered.',
-    to: ['bootstrapping', 'healing'],
+    to: ['bootstrapping', 'healing', 'live'],
     rung: null,
     adr: 'ADR 2 D6.3; Amendment 1 D15.2',
   },
