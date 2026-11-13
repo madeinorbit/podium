@@ -97,13 +97,7 @@ describe('MobX sends over synced records', () => {
     })
     controller.start()
     await controller.submit({ text: '/compact' })
-    synced.set([
-      record('compact-send', {
-        body: '/compact',
-        status: 'unknown',
-        transcriptItem: { id: 'compaction' },
-      }),
-    ])
+    synced.set([record('compact-send', { body: '/compact', status: 'unknown' })])
     expect(states(controller)).toEqual(['compact-send:unknown'])
     const compact: TranscriptItem = {
       id: 'compaction',
@@ -114,6 +108,14 @@ describe('MobX sends over synced records', () => {
       ts: '2026-09-29T10:00:02Z',
     }
     feed.set([compact])
+    expect(states(controller)).toEqual(['compact-send:unknown'])
+    synced.set([
+      record('compact-send', {
+        body: '/compact',
+        status: 'unknown',
+        transcriptItem: { id: 'compaction' },
+      }),
+    ])
     expect(controller.getSnapshot().bubbles).toEqual([])
     expect(controller.getSnapshot().pending).toEqual([])
     synced.set([
@@ -212,6 +214,8 @@ describe('MobX sends over synced records', () => {
       },
     ])
     expect(states(controller)).toEqual([])
+    feed.set([user('later', 'A later prompt')])
+    expect(states(controller)).toEqual([])
     synced.set([
       record('attempt', {
         body: '/compact',
@@ -227,12 +231,14 @@ describe('MobX sends over synced records', () => {
   })
 
   it.each([
-    'auto',
-    'manual',
-  ] as const)('uses the grouped %s trigger across real Claude boundary and summary records', (trigger) => {
+    ['auto', 'boundary'],
+    ['auto', 'summary'],
+    ['manual', 'boundary'],
+    ['manual', 'summary'],
+  ] as const)('uses the grouped %s trigger for a %s receipt across real Claude records', (trigger, receipt) => {
     const feed = transcript(),
       synced = records([
-        record('bound', { body: '/compact', status: 'unknown', transcriptItem: { id: 'summary' } }),
+        record('bound', { body: '/compact', status: 'unknown', transcriptItem: { id: receipt } }),
         record('unrelated', { body: '/compact', status: 'unknown' }),
       ])
     const controller = createSendsFixture({
