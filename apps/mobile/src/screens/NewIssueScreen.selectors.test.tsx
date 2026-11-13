@@ -22,6 +22,7 @@ const seams = vi.hoisted(() => ({
   params: {} as { repoPath?: string; backTo?: string },
   attachments: null as ComposerAttachmentsApi | null,
   close: undefined as (() => void) | undefined,
+  agentItems: [] as readonly ComposeMenuItem[],
 }))
 vi.mock('expo-router', () => ({
   useRouter: () => ({
@@ -64,15 +65,16 @@ vi.mock('../components/compose/ComposeMenu', () => ({
     items: readonly ComposeMenuItem[]
     children: (open: () => void) => ReactElement
   }) => {
+    if (label === 'Agent') seams.agentItems = items
     // Match the native UIMenu and ActionSheet: capture items per presentation.
     const [presented, setPresented] = useState<readonly ComposeMenuItem[] | null>(null)
-    const choices = (entries: readonly ComposeMenuItem[]): ReactElement[] =>
+    const choices = (entries: readonly ComposeMenuItem[], parent = ''): ReactElement[] =>
       entries.flatMap((item) =>
         item.items
-          ? choices(item.items)
+          ? choices(item.items, `${parent}/${item.id}`)
           : [
               <button
-                key={item.id}
+                key={`${parent}/${item.id}`}
                 type="button"
                 role="menuitemradio"
                 aria-checked={item.selected}
@@ -109,13 +111,6 @@ vi.mock('../components/useComposerAttachments', async (original) => {
     },
   }
 })
-vi.mock('@podium/client-core/react', async (original) => ({
-  ...(await original<typeof import('@podium/client-core/react')>()),
-  useModelCatalog: () => ({
-    'claude-code': [{ value: 'reported-model', label: 'Reported Model', efforts: ['low', 'high'] }],
-  }),
-  useHarnessDescriptors: () => ({ served: undefined }),
-}))
 const { NewIssueScreen } = await import('./NewIssueScreen')
 // Transform the real lazy sources before the fixture's bounded attach deadline.
 await Promise.all([
@@ -175,10 +170,185 @@ async function mount(
   extra: Parameters<typeof renderWithMobileStore>[1] = {},
   child = <NewIssueScreen />,
 ) {
-  return renderWithMobileStore(child, { repos: [repository()], machines: [machine()], ...extra })
+  return renderWithMobileStore(child, {
+    repos: [repository()],
+    machines: [machine()],
+    ...extra,
+    api: {
+      models: {
+        catalog: {
+          query: async () => ({
+            machineId: 'host',
+            fetchedAt: Date.now(),
+            byAgent: {
+              'claude-code': [
+                { value: 'reported-model', label: 'Reported Model', efforts: ['low', 'high'] },
+              ],
+              codex: [{ value: 'codex-model', label: 'Codex Model', efforts: ['medium', 'xhigh'] }],
+            },
+          }),
+        },
+      },
+      ...extra.api,
+    },
+  })
 }
 
 describe('native New Task sheet logic', () => {
+  it('offers Auto and Shell for an empty catalog and no Effort for models that report none', async () => {
+    await mount({
+      api: {
+        models: {
+          catalog: {
+            query: async () => ({ machineId: 'host', fetchedAt: Date.now(), byAgent: {} }),
+          },
+        },
+      },
+    })
+    await ready()
+    const configuration = () => seams.agentItems.find((row) => row.id === 'configuration')?.items
+    expect(configuration()?.map((row) => row.id)).toEqual(['model'])
+    expect(configuration()?.[0]?.items?.map((row) => row.id)).toEqual(['auto', 'shell'])
+    cleanup()
+    await mount({
+      api: {
+        models: {
+          catalog: {
+            query: async () => ({
+              machineId: 'host',
+              fetchedAt: Date.now(),
+              byAgent: {
+                'claude-code': [{ value: 'no-effort', label: 'Without effort', efforts: [] }],
+              },
+            }),
+          },
+        },
+      },
+    })
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: /^Agent, / }))
+    fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Without effort' }))
+    expect(configuration()?.map((row) => row.id)).toEqual(['model'])
+  })
+
+  it('uses each harness catalog and keeps a selected agent, model and effort across reopening', async () => {
+    function Harness() {
+      const [open, setOpen] = useState(true)
+      seams.close = () => setOpen(false)
+      return open ? (
+        <NewIssueScreen />
+      ) : (
+        <button type="button" onClick={() => setOpen(true)}>
+          Reopen
+        </button>
+      )
+    }
+    const { runtime } = await mount(
+      {
+        machines: [
+          machine({
+            inventory: {
+              os: 'linux',
+              arch: 'x64',
+              tools: [],
+              agents: [
+                { kind: 'claude-code', installed: true, login: { state: 'in' } },
+                { kind: 'codex', installed: true, login: { state: 'in' } },
+              ],
+            },
+          }),
+        ],
+      },
+      <Harness />,
+    )
+    await ready()
+    const open = () => fireEvent.click(screen.getByRole('button', { name: /^Agent, / }))
+    const pick = (name: string) =>
+      fireEvent.click(screen.getByRole('menuitemradio', { name, exact: true }))
+    open()
+    pick('Codex')
+    expect(screen.getByRole('button', { name: /^Agent, Codex/ })).toBeTruthy()
+    open()
+    expect(screen.queryByRole('menuitemradio', { name: 'Reported Model' })).toBeNull()
+    pick('Codex Model')
+    await waitFor(() => expect(screen.getByRole('button', { name: /Codex Model/ })).toBeTruthy())
+    open()
+    pick('Extra high')
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Codex Model · Extra high/ })).toBeTruthy(),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reopen' }))
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /Agent, Codex, Codex Model · Extra high/ }),
+      ).toBeTruthy(),
+    )
+    open()
+    pick('Claude Code')
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /^Agent, Claude Code/ })).toBeTruthy(),
+    )
+    open()
+    pick('Reported Model')
+    await waitFor(() => expect(screen.getByRole('button', { name: /Reported Model/ })).toBeTruthy())
+    open()
+    pick('High')
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reopen' }))
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /Agent, Claude Code, Reported Model · High/ }),
+      ).toBeTruthy(),
+    )
+    expect(
+      readFirstTaskDraft(runtime.access.uiState.get(FIRST_TASK_ACTIVATION_DRAFT_KEY)),
+    ).toMatchObject({ agent: 'claude-code', model: 'reported-model', effort: 'high' })
+    expect(runtime.access.uiState.get(LAST_LAUNCH_PICK_KEY)).toBeNull()
+  })
+
+  it('discovers an originless repo synced after app start without a manual refresh', async () => {
+    let repos = [repository('/repo/alpha')]
+    const refresh = vi.fn(async () => ({
+      repositories: repos,
+      diagnostics: [],
+      machines: [machine()],
+    }))
+    const app = await mount({ api: { discovery: { refreshRepos: { mutate: refresh } } } })
+    await ready()
+    const beforeAdd = refresh.mock.calls.length
+    const added = { ...repository('/tmp/new-local-project'), repoId: asRepoId('local-project') }
+    repos = [...repos, added]
+    await act(async () => {
+      app.replica.applyChanges(
+        'repos',
+        [
+          {
+            id: added.repoId,
+            path: added.path,
+            machineId: added.machineId,
+            originUrl: null,
+            prefix: null,
+            createdAt: '2026-01-01T00:00:00Z',
+          },
+        ],
+        [],
+      )
+    })
+    await waitFor(() => expect(refresh.mock.calls.length).toBeGreaterThan(beforeAdd))
+    await waitFor(() =>
+      expect(app.runtime.access.repos.some((repo) => repo.path === added.path)).toBe(true),
+    )
+    fireEvent.click(screen.getByRole('button', { name: /^Project, / }))
+    await waitFor(() =>
+      expect(screen.getByRole('menuitemradio', { name: 'new-local-project' })).toBeTruthy(),
+    )
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'new-local-project' }))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Project, new-local-project' })).toBeTruthy(),
+    )
+  })
+
   it('starts an empty prompt through sessions.create and opens the terminal without filing a named task', async () => {
     const create = vi.fn(async (input: { sessionId: string }) => ({ sessionId: input.sessionId }))
     const file = vi.fn()

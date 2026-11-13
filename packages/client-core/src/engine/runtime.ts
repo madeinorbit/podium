@@ -713,6 +713,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // A daemon-created worktree is otherwise invisible in every repo menu until
     // reload (POD-665) — re-fetch through the same path used at boot.
     offs.push(this.hub.on('worktreesChanged', () => void this.boot.refreshRepos().catch(() => {})))
+    // Registration publishes the repos feed, without a machine/worktree event.
+    // Discovery supplies the checkout metadata used by every client's picker.
+    offs.push(
+      this.replica.subscribeRows('repos', () => void this.boot.refreshRepos().catch(() => {})),
+    )
     // Reconnect drains the outbox: the browser 'online' event (the outbox's own
     // trigger) misses a server restart behind a healthy network, but the hub's
     // heartbeat-derived health catches both.

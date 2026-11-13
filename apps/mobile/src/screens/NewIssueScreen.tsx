@@ -430,18 +430,20 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
             },
           ],
         },
-        {
-          id: 'effort',
-          label: `Effort · ${effortLabel(agent, draft.effort)}`,
-          items: shell
-            ? []
-            : efforts.map((row) => ({
-                id: row.value,
-                label: row.label,
-                selected: draft.effort === row.value,
-                onPress: () => write({ effort: row.value, launchPickTouched: true }),
-              })),
-        },
+        ...(!shell && efforts.length
+          ? [
+              {
+                id: 'effort',
+                label: `Effort · ${effortLabel(agent, draft.effort)}`,
+                items: efforts.map((row) => ({
+                  id: row.value,
+                  label: row.label,
+                  selected: draft.effort === row.value,
+                  onPress: () => write({ effort: row.value, launchPickTouched: true }),
+                })),
+              },
+            ]
+          : []),
       ],
     },
   ]
