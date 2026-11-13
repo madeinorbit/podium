@@ -27,6 +27,7 @@ import {
   startTwoMemberInstance,
   type TwoMemberInstance,
 } from './test-support/two-member-instance'
+import { seedRows } from './test-support/seed-rows'
 
 let f: TwoMemberInstance
 
@@ -228,14 +229,14 @@ describe('archiving a shared task archives only the archiver’s own sessions', 
     const bobs = await sessionOn('bob', task.id, 'bob-nunatak-atlas')
     await (await trpc('alice')).issues.close.mutate({ id: task.id } as never)
     // Alice read it after its last activity; ten days later it is due.
-    await f.handle.registry.sessionStore.issues.setIssueUserState(
+    await seedRows(f.handle.registry.sessionStore, async () => await f.handle.registry.sessionStore.issues.setIssueUserState(
       fixtureWriteScope(),
       MEMBERS.alice.id,
       asIssueId(task.id),
       {
         readAt: new Date(Date.now() + 1000).toISOString(),
       },
-    )
+    ))
     const later = Date.now() + 10 * 86_400_000
     const swept = await f.handle.registry.issues.attention.sweepAutoArchive(later)
     expect(swept.map((w) => w.id)).toContain(task.id)

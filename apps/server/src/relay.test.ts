@@ -41,6 +41,7 @@ import { attachTestClient } from './test-support/client-transport'
 import { attachDaemonWithInventory, fixtureInventory } from './test-support/daemon-inventory'
 import { assignHostMachine, attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
+import { seedRows } from './test-support/seed-rows'
 
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
@@ -1360,7 +1361,7 @@ describe('SessionRegistry', () => {
   it('the boot probe carries the owner so the daemon can adopt a pre-binding survivor', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
     const id = 'orphan-adopt'
-    await store.sessions.upsertSession(fixtureWriteScope(), exitedRow(id))
+    await seedRows(store, async () => await store.sessions.upsertSession(fixtureWriteScope(), exitedRow(id)))
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
     const rows = await reg.modules.machines.ownershipRows()
@@ -1394,7 +1395,7 @@ describe('SessionRegistry', () => {
   it('probes an exited session on boot and reattaches it when the master is alive', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
     const id = 'orphan-1'
-    await store.sessions.upsertSession(fixtureWriteScope(), exitedRow(id))
+    await seedRows(store, async () => await store.sessions.upsertSession(fixtureWriteScope(), exitedRow(id)))
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
     await attachHostDaemon(reg, (m) => daemon.push(m))
@@ -1435,7 +1436,7 @@ describe('SessionRegistry', () => {
   it('leaves a dead exited session exited and untouched when its master is gone', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
     const id = 'dead-1'
-    await store.sessions.upsertSession(fixtureWriteScope(), exitedRow(id))
+    await seedRows(store, async () => await store.sessions.upsertSession(fixtureWriteScope(), exitedRow(id)))
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     await attachHostDaemon(reg, () => {})
     // The durable host has no such session → reattachFailed. An already-exited row
@@ -1455,7 +1456,7 @@ describe('SessionRegistry', () => {
 
   it('does not probe an archived exited session', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
-    await store.sessions.upsertSession(fixtureWriteScope(), exitedRow('arch-1', { archived: true }))
+    await seedRows(store, async () => await store.sessions.upsertSession(fixtureWriteScope(), exitedRow('arch-1', { archived: true })))
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
     await attachHostDaemon(reg, (m) => daemon.push(m))
@@ -2428,7 +2429,7 @@ describe('SessionRegistry', () => {
 
   it('skips a persisted session with an invalid agentKind on load', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
-    await store.sessions.upsertSession(fixtureWriteScope(), {
+    await seedRows(store, async () => await store.sessions.upsertSession(fixtureWriteScope(), {
       id: asSessionId('good'),
       ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
@@ -2450,11 +2451,11 @@ describe('SessionRegistry', () => {
       lastOutputAt: null,
       lastInputAt: null,
       lastResumedAt: null,
-    })
+    }))
     // upsertSession now refuses an out-of-enum agentKind (write-side guard), so a
     // legacy/externally-corrupted row is simulated by writing a valid row and then
     // corrupting the persisted agent_kind directly — the exact loadFromStore scenario.
-    await store.sessions.upsertSession(fixtureWriteScope(), {
+    await seedRows(store, async () => await store.sessions.upsertSession(fixtureWriteScope(), {
       id: asSessionId('bad'),
       ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
@@ -2476,7 +2477,7 @@ describe('SessionRegistry', () => {
       lastOutputAt: null,
       lastInputAt: null,
       lastResumedAt: null,
-    })
+    }))
     ;(store as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }).db
       .prepare("UPDATE sessions SET agent_kind = 'bogus-agent' WHERE id = 'bad'")
       .run()
@@ -5546,10 +5547,10 @@ describe('hibernation', () => {
     // 'bound' back — see `store.test.ts`.)
     const stored = await store.sessions.getSession(sessionId)
     if (!stored) throw new Error('the forged row went missing')
-    await store.sessions.upsertSession(fixtureWriteScope(), {
+    await seedRows(store, async () => await store.sessions.upsertSession(fixtureWriteScope(), {
       ...stored,
       conversationBinding: null,
-    })
+    }))
 
     await reg.dispose()
     await reg.sessionStore.close()
@@ -6713,7 +6714,7 @@ describe('SessionRegistry snooze', () => {
 
   it('seeds snoozedUntil from the store at load', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
-    await store.sessions.upsertSession(fixtureWriteScope(), {
+    await seedRows(store, async () => await store.sessions.upsertSession(fixtureWriteScope(), {
       id: asSessionId('s1'),
       ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
@@ -6735,7 +6736,7 @@ describe('SessionRegistry snooze', () => {
       lastResumedAt: null,
       archived: false,
       workState: null,
-    })
+    }))
     await store.sessions.setSnooze(
       fixtureWriteScope(),
       firstAdminMemberId(),
@@ -6751,7 +6752,7 @@ describe('SessionRegistry boot over model rows at feed head 0', () => {
   it('raises the head to 1 so the start-up load carries the rows (ADR 2 D12)', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
     // Written without an append, as setup, migrations and backfills may: head stays 0.
-    await store.sessions.upsertSession(fixtureWriteScope(), {
+    await seedRows(store, async () => await store.sessions.upsertSession(fixtureWriteScope(), {
       id: asSessionId('s1'),
       ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
@@ -6773,7 +6774,7 @@ describe('SessionRegistry boot over model rows at feed head 0', () => {
       lastResumedAt: null,
       archived: false,
       workState: null,
-    })
+    }))
     await store.sessions.setSnooze(
       fixtureWriteScope(),
       firstAdminMemberId(),

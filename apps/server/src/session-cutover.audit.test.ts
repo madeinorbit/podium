@@ -73,6 +73,7 @@ import { SessionStateRegistry } from './modules/sessions/session-state/registry'
 import { sessionSurfaceManifest } from './modules/sessions/trpc'
 import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
+import { seedRows } from './test-support/seed-rows'
 
 /** One person's pins by kind, read the way the boot reconcile reads them. */
 async function pinsOf(
@@ -562,8 +563,8 @@ describe('AC4 · the per-user split actually happened', () => {
     // `userId` parameter that the store ignored would pass any signature test.
     const o = await makeOracle()
     const store = o.store.sessions
-    await store.addPin(asUserId('user:alice'), 'panel', 's-1', '2026-11-08T00:00:00.000Z')
-    await store.setSnooze(fixtureWriteScope(), asUserId('user:alice'), asSessionId('s-1'), null)
+    await seedRows(o.store, async () => await store.addPin(asUserId('user:alice'), 'panel', 's-1', '2026-11-08T00:00:00.000Z'))
+    await seedRows(o.store, async () => await store.setSnooze(fixtureWriteScope(), asUserId('user:alice'), asSessionId('s-1'), null))
     await store.setTabOrder(asUserId('user:alice'), '/w', ['s-1'])
 
     // Alice's rows exist; Bob's are EMPTY — asserted on the values, because a

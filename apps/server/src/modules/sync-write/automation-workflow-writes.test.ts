@@ -33,6 +33,7 @@ import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-supp
 import { workflowRelayWrite } from '../workflows/rpc'
 import type { WorkflowServiceDeps } from '../workflows/service'
 import { appliedReply, envelope, expectAppliedOnPath, rowsOf, submit } from './outbox-test-support'
+import { seedRows } from '../../test-support/seed-rows'
 
 afterEach(() => disposeOracles())
 
@@ -400,7 +401,7 @@ describe("a worker's checkpoint and its coordinator notice", () => {
       revisionId: revision.id,
       onBehalfOf: firstAdminMemberId(),
     })
-    await o.store.workflows.assignStep(run.id, 'build', worker)
+    await seedRows(o.store, async () => await o.store.workflows.assignStep(run.id, 'build', worker))
     const principal = await resolvePrincipalAsync(
       await o.reg.modules.sessions.capabilityForSession(worker),
       { parentSessionOf: async () => undefined, onBehalfOfFor: async () => firstAdminMemberId() },

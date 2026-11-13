@@ -27,6 +27,7 @@ import {
   startTwoMemberInstance,
   type TwoMemberInstance,
 } from './test-support/two-member-instance'
+import { seedRows } from './test-support/seed-rows'
 
 let f: TwoMemberInstance
 
@@ -146,12 +147,12 @@ describe('Bob’s feed and Bob’s view of a task never carry Alice’s per-user
     // Alice read it after its last activity, ten days before the sweep: on
     // her read alone the task is due. It is Bob's task, so her read decides nothing.
     const readAfterActivity = new Date(Date.now() + 1000).toISOString()
-    await store.setIssueUserState(fixtureWriteScope(), MEMBERS.alice.id, id, { readAt: readAfterActivity })
+    await seedRows(f.handle.registry.sessionStore, async () => await store.setIssueUserState(fixtureWriteScope(), MEMBERS.alice.id, id, { readAt: readAfterActivity }))
     const later = Date.now() + 10 * 86_400_000
     expect((await issues.attention.sweepAutoArchive(later)).map((w) => w.id)).not.toContain(id)
     expect((await issues.reports.get(id))?.archived).toBe(false)
     // Bob's own read, the same moment, makes it due.
-    await store.setIssueUserState(fixtureWriteScope(), MEMBERS.bob.id, id, { readAt: readAfterActivity })
+    await seedRows(f.handle.registry.sessionStore, async () => await store.setIssueUserState(fixtureWriteScope(), MEMBERS.bob.id, id, { readAt: readAfterActivity }))
     expect((await issues.attention.sweepAutoArchive(later)).map((w) => w.id)).toContain(id)
   })
 })

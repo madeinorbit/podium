@@ -50,6 +50,7 @@ import type { SessionStore } from './store'
 import { issueRowFixture } from './test-support/issue-row'
 import { statementBudget } from './test-support/statement-budget'
 import type { WriteContexts } from './write-contexts'
+import { seedRows } from './test-support/seed-rows'
 
 const OWNER = firstAdminMemberId()
 
@@ -222,13 +223,13 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
     await store.repos.addRepo('/r', store.hostMachineId)
     await store.transact(async () => {
       for (const [index, id] of ['i1', 'i2'].entries()) {
-        await store.issues.upsertIssue(fixtureWriteScope(), {
+        await seedRows(store, async () => await store.issues.upsertIssue(fixtureWriteScope(), {
           ...issueRowFixture({ id, repoPath: '/r', seq: index + 1, ownerUserId: OWNER }),
           repoId: undefined,
           machineId: store.hostMachineId,
           parentId: null,
           worktreePath: null,
-        } as never)
+        } as never))
       }
     })
     // RE-POINTED, NOT RELAXED [POD-3261]. The conserved quantity this test names
@@ -372,13 +373,13 @@ async function seedGrantedIssues(reg: SessionRegistry, count: number): Promise<n
   }
   await store.transact(async () => {
     for (const [index, id] of ids.entries()) {
-      await store.issues.upsertIssue(fixtureWriteScope(), {
+      await seedRows(store, async () => await store.issues.upsertIssue(fixtureWriteScope(), {
         ...issueRowFixture({ id, repoPath: '/r', seq: index + 1, ownerUserId: OTHER_OWNER }),
         repoId: undefined,
         machineId: store.hostMachineId,
         parentId: null,
         worktreePath: null,
-      } as never)
+      } as never))
     }
   })
   // The feed's head: the load is stamped with it.

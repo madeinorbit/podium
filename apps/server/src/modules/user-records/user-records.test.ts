@@ -26,6 +26,7 @@ import { openTestStore } from '../../test-support/open-test-store'
 import { logStoreRecords, testStoreRecords } from '../../test-support/record-writer'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import { envelope, expectAppliedOnPath, rowsOf, submit } from '../sync-write/outbox-test-support'
+import { seedRows } from '../../test-support/seed-rows'
 
 afterEach(() => disposeOracles())
 
@@ -580,7 +581,7 @@ describe('the per-user records reach their owner only', () => {
 describe('bootstrap streams stored personal records', () => {
   it('stored pins, orders and preferences need no log seed', async () => {
     const { store, authority } = await feedFixture()
-    await store.sessions.addPin(ALICE, 'repo', '/r', '2026-01-01T00:00:00.000Z')
+    await seedRows(store, async () => await store.sessions.addPin(ALICE, 'repo', '/r', '2026-01-01T00:00:00.000Z'))
     await store.sessions.setTabOrder(ALICE, '/w', ['s1', 's2'])
     await store.settings.applyPreferencePatch(ALICE, { 'sidebar.repoSort': 'custom' }, 't')
 

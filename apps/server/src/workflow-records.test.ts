@@ -28,6 +28,7 @@ import {
   submit,
 } from './modules/sync-write/outbox-test-support'
 import { withWriteProvenance } from './write-provenance'
+import { seedRows } from './test-support/seed-rows'
 
 afterEach(() => disposeOracles())
 
@@ -294,7 +295,7 @@ describe('the boot back-fill', () => {
   it('puts every stored workflow, revision, binding and run on the log, once', async () => {
     const o = await makeOracle()
     const store = o.store.workflows
-    await store.insertWorkflow({
+    await seedRows(o.store, async () => await store.insertWorkflow({
       id: 'wf_old',
       name: 'Old',
       description: '',
@@ -303,15 +304,15 @@ describe('the boot back-fill', () => {
       actor: { kind: 'operator', id: null },
       ownerUserId: firstAdminMemberId(),
       now: AT,
-    })
-    await store.insertRevision({
+    }))
+    await seedRows(o.store, async () => await store.insertRevision({
       id: 'wfr_old',
       workflowId: 'wf_old',
       instructions: '',
       steps: [],
       actor: { kind: 'operator', id: null },
       now: AT,
-    })
+    }))
     const seen: Array<[string, string[]]> = []
     const builders = serverRecordBuilders()
     for (const kind of ['workflow', 'workflowRevision', 'workflowBinding', 'workflowRun'] as const) {

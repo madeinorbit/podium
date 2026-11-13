@@ -15,6 +15,7 @@ import { fixtureInventory } from './test-support/daemon-inventory'
 import { attachHostDaemon, confirmingRetirement } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
 import { countStatements, quietShipping, type StatementTally } from './test-support/statement-count'
+import { seedRows } from './test-support/seed-rows'
 
 // Omni-search reads the full-text index, and whether a boot HAS one is the
 // `command-palette` flag (PDM-25). These tests are about the indexed path, so
@@ -161,7 +162,7 @@ describe('MemoryService omni-search', () => {
       sessionId: conversationSessionId,
       resume: { kind: 'claude-session', value: 'native-conv' },
     })
-    await store.conversations.index.upsert(fixtureWriteScope(), [
+    await seedRows(store, async () => await store.conversations.index.upsert(fixtureWriteScope(), [
       {
         id: 'native-conv',
         agentKind: 'claude-code',
@@ -170,7 +171,7 @@ describe('MemoryService omni-search', () => {
         updatedAt: '2026-07-01T09:00:00.000Z',
         machineId: asMachineId('m1'),
       },
-    ])
+    ]))
 
     // Lake-indexed transcript messages (what the mirror-fed indexer writes).
     await store.conversations.registry.ensure({
@@ -358,7 +359,7 @@ describe('MemoryService omni-search', () => {
         sessionId,
         resume: { kind: 'claude-session', value: nativeId },
       })
-      await store.conversations.index.upsert(fixtureWriteScope(), [
+      await seedRows(store, async () => await store.conversations.index.upsert(fixtureWriteScope(), [
         {
           id: nativeId,
           agentKind: 'claude-code',
@@ -366,7 +367,7 @@ describe('MemoryService omni-search', () => {
           projectPath: '/repo',
           machineId: asMachineId('m1'),
         },
-      ])
+      ]))
       await store.conversations.registry.ensure({
         machineId: asMachineId('m1'),
         nativeId,
@@ -445,7 +446,7 @@ describe('search.query tRPC', () => {
       sessionId,
       resume: { kind: 'claude-session', value: 'classified-native' },
     })
-    await store.conversations.index.upsert(fixtureWriteScope(), [
+    await seedRows(store, async () => await store.conversations.index.upsert(fixtureWriteScope(), [
       {
         id: 'classified-native',
         agentKind: 'claude-code',
@@ -453,7 +454,7 @@ describe('search.query tRPC', () => {
         machineId: asMachineId(BOB_MACHINE),
         title: 'classifiedneedle conversation',
       },
-    ])
+    ]))
     await store.conversations.transcriptIndex.append(
       asMachineId(BOB_MACHINE),
       'classified-native',
@@ -473,13 +474,13 @@ describe('search.query tRPC', () => {
     })
     const issueRow = await store.issues.getIssue(issue.id)
     if (!issueRow) throw new Error('issue seed missing')
-    await store.issues.upsertIssue(fixtureWriteScope(), {
+    await seedRows(store, async () => await store.issues.upsertIssue(fixtureWriteScope(), {
       ...issueRow,
       id: asIssueId('iss_bob_private'),
       seq: issueRow.seq + 1,
       ownerUserId: bob,
       title: 'classifiedneedle issue',
-    })
+    }))
     await store.superagent.upsertSuperagentThread({
       id: 'private-thread',
       ownerUserId: bob,

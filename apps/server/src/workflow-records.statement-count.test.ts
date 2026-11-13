@@ -31,6 +31,7 @@ import {
   expectConstantStatements,
   type StatementPin,
 } from './test-support/statement-count'
+import { seedRows } from './test-support/seed-rows'
 
 afterEach(() => disposeOracles())
 
@@ -43,7 +44,7 @@ let seq = 0
 /** `size` workflows, each with a revision, a binding on its own task and a run. */
 async function seedWorkflows(store: SessionStore, size: number, who = owner): Promise<void> {
   for (let i = 0; i < size; i++) {
-    await store.workflows.insertWorkflow({
+    await seedRows(store, async () => await store.workflows.insertWorkflow({
       id: `wf_${i}`,
       name: `Workflow ${i}`,
       description: '',
@@ -52,15 +53,15 @@ async function seedWorkflows(store: SessionStore, size: number, who = owner): Pr
       actor,
       ownerUserId: who,
       now: AT,
-    })
-    await store.workflows.insertRevision({
+    }))
+    await seedRows(store, async () => await store.workflows.insertRevision({
       id: `wfr_${i}`,
       workflowId: `wf_${i}`,
       instructions: 'x',
       steps: [],
       actor,
       now: AT,
-    })
+    }))
     await store.workflows.setBinding({
       targetKind: 'issue',
       targetId: `iss_${i}`,
