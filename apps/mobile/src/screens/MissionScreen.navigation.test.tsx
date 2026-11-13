@@ -9,7 +9,7 @@ import { NavigationContext } from 'expo-router/build/react-navigation/core/Navig
 import { NavigationRouteContext } from 'expo-router/build/react-navigation/core/NavigationProvider'
 import { StackActions, StackRouter } from 'expo-router/build/react-navigation/routers/StackRouter'
 import type { NavigationState } from 'expo-router/react-navigation'
-import { type ReactNode, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { renderWithMobileStore } from '../client/test-support'
 import { MISSION_CHAT, MISSION_DECK } from '../navigation/mission-stack'
@@ -22,6 +22,7 @@ const navigation = vi.hoisted(() => ({
   push: vi.fn(),
   replace: vi.fn(),
   dismissTo: vi.fn(),
+  holdOpening: false,
 }))
 vi.mock('react-native', async (original) => {
   const real = await original<typeof import('react-native')>()
@@ -47,6 +48,16 @@ vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
 }))
 vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => true }))
+vi.mock('../client/hooks', async (original) => {
+  const real = await original<typeof import('../client/hooks')>()
+  return {
+    ...real,
+    useMissionOpening: (id: string) => {
+      const opening = real.useMissionOpening(id)
+      return navigation.holdOpening ? { ...opening, resolved: false } : opening
+    },
+  }
+})
 vi.mock('../client/screen-read-focus', () => ({ useScreenReadFocus: () => {} }))
 vi.mock('../components/SessionConversation', () => ({
   SessionConversation: ({ session }: { session: SessionView }) => (
@@ -87,6 +98,7 @@ afterEach(() => {
   cleanup()
   vi.clearAllMocks()
   navigation.platform = 'ios'
+  navigation.holdOpening = false
 })
 
 const options = {
@@ -109,6 +121,11 @@ function Navigator() {
   navigation.state = state
   const route = state.routes[state.index]
   if (!route) throw new Error('Missing screen')
+  const transitionListeners = useRef(new Set<(event: { data: { closing: boolean } }) => void>())
+  // biome-ignore lint/correctness/useExhaustiveDependencies: emulate native appearance once for each pushed route
+  useEffect(() => {
+    for (const listener of transitionListeners.current) listener({ data: { closing: false } })
+  }, [route.key])
   navigation.params = route.params as Record<string, string>
   const dispatch = (action: Parameters<typeof stack.getStateForAction>[1]) => {
     setState((current) => {
@@ -139,7 +156,11 @@ function Navigator() {
     getState: () => state,
     dispatch,
     isFocused: () => true,
-    addListener: () => () => {},
+    addListener: (event: string, listener: (event: { data: { closing: boolean } }) => void) => {
+      if (event !== 'transitionEnd') return () => {}
+      transitionListeners.current.add(listener)
+      return () => transitionListeners.current.delete(listener)
+    },
   } as unknown as NonNullable<React.ContextType<typeof NavigationContext>>
   return (
     <NavigationContext value={owner}>
@@ -189,6 +210,66 @@ const agent = (id: string, issueId: string) =>
     lastActiveAt: '2026-11-13T07:00:00Z',
     agentState: { phase: 'working', since: '2026-11-13T07:00:00Z' },
   }) as SessionView
+
+it('names the opening chat from the pool and shows a transcript skeleton while the deck loads', async () => {
+  navigation.holdOpening = true
+  navigation.params = { missionId: 'child' }
+  function Entry() {
+    const [open, setOpen] = useState(false)
+    return open ? (
+      <MissionScreen />
+    ) : (
+      <button type="button" onClick={() => setOpen(true)}>
+        Open chat
+      </button>
+    )
+  }
+  await renderWithMobileStore(<Entry />, {
+    issues: [issue('child', { title: 'Pricing page draft' })],
+  })
+  // A Work/Tasks row is already drawn from this pool. Check the very first
+  // chat commit after the tap, while full mission readiness stays pending.
+  fireEvent.click(screen.getByRole('button', { name: 'Open chat' }))
+  expect(screen.getByText('Pricing page draft')).toBeTruthy()
+  expect(screen.getByLabelText('Loading transcript')).toBeTruthy()
+  expect(screen.queryByLabelText('Loading task detail')).toBeNull()
+  expect(screen.queryByText('Mission')).toBeNull()
+  expect(navigation.push).not.toHaveBeenCalled()
+  const capture = process.env.PODIUM_MOBILE_CHAT_LOADING_CAPTURE
+  if (capture) {
+    const css = Array.from(document.styleSheets)
+      .flatMap((sheet) => Array.from(sheet.cssRules, (rule) => rule.cssText))
+      .join('\n')
+    const fonts = [
+      ['Geist_400Regular', 'geist/400Regular/Geist_400Regular.ttf'],
+      ['Geist_600SemiBold', 'geist/600SemiBold/Geist_600SemiBold.ttf'],
+    ]
+      .map(
+        ([name, path]) =>
+          `@font-face{font-family:${name};src:url(data:font/ttf;base64,${readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../node_modules/@expo-google-fonts', path ?? '')).toString('base64')})}`,
+      )
+      .join('\n')
+    writeFileSync(
+      capture,
+      `<!doctype html><html><head><meta charset="utf-8"><title>Chat loading web layout</title><style>${fonts}\n${css}\nhtml,body{width:402px;height:874px;margin:0;background:#16171a}body{display:flex}body>div{display:flex;flex:1;min-width:0}</style></head><body>${document.body.innerHTML}</body></html>`,
+    )
+  }
+})
+
+it('uses the requested session task title before mission membership resolves', async () => {
+  navigation.holdOpening = true
+  navigation.params = { missionId: 'root', sessionId: 'child-lead' }
+  await renderWithMobileStore(<MissionScreen />, {
+    issues: [
+      issue('root'),
+      issue('child', { parentId: asIssueId('root'), title: 'Pricing page draft' }),
+    ],
+    sessions: [agent('child-lead', 'child')],
+  })
+  expect(screen.getByText('Pricing page draft')).toBeTruthy()
+  expect(screen.getByLabelText('Loading transcript')).toBeTruthy()
+  expect(screen.queryByText('Mission')).toBeNull()
+})
 
 it('opens the task coordinator chat, opens its highlighted deck from the menu, and pushes another seat', async () => {
   await renderWithMobileStore(<Navigator />, {

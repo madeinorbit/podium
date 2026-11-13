@@ -1,4 +1,4 @@
-import { cleanup, render } from '@testing-library/react'
+import { act, cleanup, render } from '@testing-library/react'
 import { NavigationContext } from 'expo-router/build/react-navigation/core/NavigationContext'
 import { NavigationRouteContext } from 'expo-router/build/react-navigation/core/NavigationProvider'
 import { StackActions, StackRouter } from 'expo-router/build/react-navigation/routers/StackRouter'
@@ -99,11 +99,87 @@ it('installs the history from the mounted chat without navigating away or remoun
   const state = push(initial(), MISSION_CHAT, { missionId: 'child' })
   const route = focused(state)
   const dispatch = vi.fn()
-  const navigation = { getState: () => state, dispatch } as unknown as NonNullable<
-    React.ContextType<typeof NavigationContext>
-  >
+  let transitionEnd: ((event: { data: { closing: boolean } }) => void) | undefined
+  const unsubscribe = vi.fn()
+  const navigation = {
+    getState: () => state,
+    dispatch,
+    addListener: (event: string, callback: typeof transitionEnd) => {
+      expect(event).toBe('transitionEnd')
+      transitionEnd = callback
+      return unsubscribe
+    },
+  } as unknown as NonNullable<React.ContextType<typeof NavigationContext>>
   function Chat() {
     useMissionDeckReturn('root', 'remembered')
+    return <div>Chat</div>
+  }
+  const view = render(
+    <NavigationContext value={navigation}>
+      <NavigationRouteContext value={route}>
+        <Chat />
+      </NavigationRouteContext>
+    </NavigationContext>,
+  )
+  // Installing a controller underneath a chat mid-push can present that deck
+  // briefly. Nothing changes the stack until the chat has appeared.
+  expect(dispatch).not.toHaveBeenCalled()
+  act(() => transitionEnd?.({ data: { closing: true } }))
+  expect(dispatch).not.toHaveBeenCalled()
+  act(() => transitionEnd?.({ data: { closing: false } }))
+  expect(dispatch).toHaveBeenCalledWith({
+    type: 'RESET',
+    payload: expect.objectContaining({ index: 2 }),
+  })
+  expect(dispatch.mock.calls[0]?.[0].payload.routes[2]).toBe(route)
+  expect(dispatch.mock.calls[0]?.[0].payload.routes[1].params.sessionId).toBe('remembered')
+  view.unmount()
+  expect(unsubscribe).toHaveBeenCalledOnce()
+})
+
+it('installs the deck when mission data arrives after the chat push ends', () => {
+  const state = push(initial(), MISSION_CHAT, { missionId: 'child' })
+  const route = focused(state)
+  const dispatch = vi.fn()
+  let transitionEnd: ((event: { data: { closing: boolean } }) => void) | undefined
+  const navigation = {
+    getState: () => state,
+    dispatch,
+    addListener: (_event: string, callback: typeof transitionEnd) => {
+      transitionEnd = callback
+      return () => {}
+    },
+  } as unknown as NonNullable<React.ContextType<typeof NavigationContext>>
+  function Chat({ ready }: { ready: boolean }) {
+    useMissionDeckReturn(ready ? 'root' : undefined, ready ? 'lead' : undefined)
+    return <div>Chat</div>
+  }
+  const content = (ready: boolean) => (
+    <NavigationContext value={navigation}>
+      <NavigationRouteContext value={route}>
+        <Chat ready={ready} />
+      </NavigationRouteContext>
+    </NavigationContext>
+  )
+  const view = render(content(false))
+  act(() => transitionEnd?.({ data: { closing: false } }))
+  expect(dispatch).not.toHaveBeenCalled()
+  view.rerender(content(true))
+  expect(dispatch).toHaveBeenCalledOnce()
+  expect(dispatch.mock.calls[0]?.[0].payload.routes[2]).toBe(route)
+})
+
+it('installs a cold deep link return stack without waiting for a push event', () => {
+  const route = { name: MISSION_CHAT, key: 'cold', params: { missionId: 'root' } }
+  const state = { ...initial(), routes: [route], index: 0 }
+  const dispatch = vi.fn()
+  const navigation = {
+    getState: () => state,
+    dispatch,
+    addListener: () => () => {},
+  } as unknown as NonNullable<React.ContextType<typeof NavigationContext>>
+  function Chat() {
+    useMissionDeckReturn('root', 'lead')
     return <div>Chat</div>
   }
   render(
@@ -113,12 +189,9 @@ it('installs the history from the mounted chat without navigating away or remoun
       </NavigationRouteContext>
     </NavigationContext>,
   )
-  expect(dispatch).toHaveBeenCalledWith({
-    type: 'RESET',
-    payload: expect.objectContaining({ index: 2 }),
-  })
-  expect(dispatch.mock.calls[0]?.[0].payload.routes[2]).toBe(route)
-  expect(dispatch.mock.calls[0]?.[0].payload.routes[1].params.sessionId).toBe('remembered')
+  expect(
+    dispatch.mock.calls[0]?.[0].payload.routes.map((entry: { name: string }) => entry.name),
+  ).toEqual(['(tabs)', MISSION_DECK, MISSION_CHAT])
 })
 
 it('leaves web navigation history unchanged instead of inserting an unfocused deck URL', () => {

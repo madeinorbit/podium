@@ -12,11 +12,15 @@ import { Platform, StyleSheet, View } from 'react-native'
 import { useMissionOpening, useStoreActions, useTaskSeatMemory } from '../client/hooks'
 import { useMobilePool } from '../client/mobile-pool'
 import { useScreenReadFocus } from '../client/screen-read-focus'
+import {
+  useSessionContextChromeIssue,
+  useSessionContextSession,
+} from '../client/use-session-context'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
 import { Icon } from '../components/Icon'
 import { MoreVertical } from '../components/icons'
-import { BootstrapCrossfade, DetailSkeleton } from '../components/LaunchPlaceholders'
+import { BootstrapCrossfade, TranscriptSkeleton } from '../components/LaunchPlaceholders'
 import { HeaderButton, Screen } from '../components/Screen'
 import { SessionConversation } from '../components/SessionConversation'
 import { TaskSheet } from '../components/TaskSheet'
@@ -64,6 +68,10 @@ export const MissionScreen = observer(function MissionScreen() {
   const requestedSessionId = Array.isArray(params.sessionId)
     ? params.sessionId[0]
     : params.sessionId
+  // The opening task/session is already in the pool when a row is tapped.
+  // Naming a chat must not wait for every member of its flight deck to load.
+  const requestedSession = useSessionContextSession(requestedSessionId as SessionId | undefined)
+  const openingIssue = useSessionContextChromeIssue(requestedSession?.issueId ?? selectedId)
   const [pinnedSessionId, setPinnedSessionId] = useState<SessionId | null>(
     requestedSessionId ? (requestedSessionId as SessionId) : null,
   )
@@ -122,7 +130,7 @@ export const MissionScreen = observer(function MissionScreen() {
       ? screen.reader.issue(current.issueId)
       : undefined
   const currentIssue = currentValue && currentValue !== LOADING ? currentValue : root
-  const headerIssue = currentIssue ?? root
+  const headerIssue = currentIssue ?? root ?? openingIssue
   useScreenReadFocus(headerIssue?.id, current?.sessionId)
 
   const openSession = useCallback((session: SessionView) => {
@@ -188,21 +196,25 @@ export const MissionScreen = observer(function MissionScreen() {
 
   return (
     <Screen
-      title={headerIssue ? headerIssue.title : 'Mission'}
+      title={headerIssue?.title ?? (requestedSession ? sessionTitle(requestedSession) : '')}
       onBack={() => (router.canGoBack() ? router.back() : router.replace('/work'))}
       backLabel={Platform.OS === 'web' ? 'Back' : 'Flight deck'}
       bareBack
       underHeader
       subtitle={seat ?? (root ? 'No agent on this mission' : undefined)}
       // One tap to the task page, as Messages opens a contact from its name.
-      onTitlePress={root ? () => router.push(`/issue/${encodeURIComponent(root.id)}`) : undefined}
+      onTitlePress={
+        headerIssue
+          ? () => router.push(`/issue/${encodeURIComponent(root?.id ?? selectedId)}`)
+          : undefined
+      }
       right={
         <HeaderButton label="Mission actions" onPress={() => setMenuOpen(true)} size={32} bare>
           <Icon as={MoreVertical} size={17} color={color.textDim} />
         </HeaderButton>
       }
     >
-      <BootstrapCrossfade resolved={resolved} placeholder={<DetailSkeleton />}>
+      <BootstrapCrossfade resolved={resolved} placeholder={<TranscriptSkeleton />}>
         {root && screen ? (
           <MissionBody current={current} currentIssue={currentIssue} findRequest={findRequest} />
         ) : (
@@ -246,8 +258,8 @@ function MissionBody({
 }) {
   const headerInset = useHeaderInset()
   return (
-    <View style={styles.body}>
-      <View style={styles.stage}>
+    <View style={styles.body} collapsable={false}>
+      <View style={styles.stage} collapsable={false}>
         {current ? (
           <SessionConversation
             key={current.sessionId}
