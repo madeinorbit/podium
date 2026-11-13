@@ -1,29 +1,22 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { sessionTitle, taskOpenSeat } from '@podium/client-core/values'
-import type { FullDeck } from '@podium/client-graph/mission-full-deck'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asIssueId, type SessionId } from '@podium/model'
-import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { type LayoutChangeEvent, Platform, StyleSheet, View } from 'react-native'
+import { Platform, StyleSheet, View } from 'react-native'
 import { useMissionOpening, useStoreActions, useTaskSeatMemory } from '../client/hooks'
 import { useMobilePool } from '../client/mobile-pool'
 import { useScreenReadFocus } from '../client/screen-read-focus'
-import type { MobileTrpc } from '../client/trpc'
-import { useIssueCloseGuard } from '../client/use-issue-close'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
-import { Glass } from '../components/Glass'
 import { Icon } from '../components/Icon'
-import { IssueCloseSheet } from '../components/IssueCloseSheet'
 import { MoreVertical } from '../components/icons'
 import { BootstrapCrossfade, DetailSkeleton } from '../components/LaunchPlaceholders'
-import { MissionBar } from '../components/MissionBar'
 import { HeaderButton, Screen } from '../components/Screen'
 import { SessionConversation } from '../components/SessionConversation'
 import { TaskSheet } from '../components/TaskSheet'
@@ -59,7 +52,6 @@ export const MissionScreen = observer(function MissionScreen() {
   const selectedId = asIssueId(decodeURIComponent(raw))
   const router = useRouter()
   const store = useStoreActions()
-  const hasCloseBlockers = useIssueCloseGuard()
   // The mission is the whole subtree above and below the selected task, exactly
   // as the desktop resolves it — open a child from a notification and you land
   // on the same deck the sidebar would have given you.
@@ -78,7 +70,6 @@ export const MissionScreen = observer(function MissionScreen() {
   const [peek, setPeek] = useState<IssueViewModel | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [launchOpen, setLaunchOpen] = useState(false)
-  const [fileRootPending, setFileRootPending] = useState(false)
   const [findRequest, setFindRequest] = useState(0)
 
   // An explicit pick from the deck outranks the automatic one, but only while it
@@ -139,30 +130,19 @@ export const MissionScreen = observer(function MissionScreen() {
     void Haptics.selectionAsync().catch(() => {})
   }, [])
 
-  const closeAndTuckRoot = useCallback(() => {
-    if (!root) return
-    setFileRootPending(false)
-    void store
-      .closeIssue(root.id, 'done')
-      .then(() => store.setIssueTucked(root.id, true))
-      .catch(() => {})
-  }, [root, store])
-  const fileRoot = useCallback(() => {
-    if (!root) return
-    if (isFinished(root)) {
-      void store.setIssueTucked(root.id, true).catch(() => {})
-      return
-    }
-    if (hasCloseBlockers(root.id)) {
-      setFileRootPending(true)
-      return
-    }
-    closeAndTuckRoot()
-  }, [closeAndTuckRoot, root, hasCloseBlockers, store])
-
   const menuActions = useMemo<SheetAction[]>(() => {
     if (!root) return []
     return [
+      {
+        label: 'Flight deck',
+        onPress: () => {
+          if (Platform.OS === 'web') {
+            router.push(
+              `/mission/${encodeURIComponent(root.id)}/details${current ? `?sessionId=${encodeURIComponent(current.sessionId)}` : ''}`,
+            )
+          } else router.back()
+        },
+      },
       {
         label: 'Task details',
         hint: 'The full task page',
@@ -224,19 +204,7 @@ export const MissionScreen = observer(function MissionScreen() {
     >
       <BootstrapCrossfade resolved={resolved} placeholder={<DetailSkeleton />}>
         {root && screen ? (
-          <MissionBody
-            current={current}
-            currentIssue={currentIssue}
-            full={screen.full}
-            findRequest={findRequest}
-            onOpenDetails={() => {
-              if (Platform.OS === 'web') {
-                router.push(
-                  `/mission/${encodeURIComponent(root.id)}/details${current ? `?sessionId=${encodeURIComponent(current.sessionId)}` : ''}`,
-                )
-              } else router.back()
-            }}
-          />
+          <MissionBody current={current} currentIssue={currentIssue} findRequest={findRequest} />
         ) : (
           <EmptyState title="Mission not found." />
         )}
@@ -263,14 +231,6 @@ export const MissionScreen = observer(function MissionScreen() {
         issue={launchOpen ? (root ?? null) : null}
         onClose={() => setLaunchOpen(false)}
       />
-      {root ? (
-        <IssueCloseSheet
-          issue={root}
-          reason={fileRootPending ? 'done' : null}
-          onConfirm={closeAndTuckRoot}
-          onClose={() => setFileRootPending(false)}
-        />
-      ) : null}
     </Screen>
   )
 })
@@ -278,33 +238,15 @@ export const MissionScreen = observer(function MissionScreen() {
 function MissionBody({
   current,
   currentIssue,
-  full,
   findRequest,
-  onOpenDetails,
 }: {
   current: SessionView | undefined
   currentIssue: IssueViewModel | undefined
-  full: FullDeck
   findRequest: number
-  onOpenDetails: () => void
 }) {
-  // The deck bar floats over the feed so the chat scrolls under it (board
-  // DeckA); its measured height is the transcript's top inset.
-  // The screen runs under the transparent nav bar: the deck bar rests just
-  // below it, and the transcript below both.
   const headerInset = useHeaderInset()
-  const [barHeight, setBarHeight] = useState(0)
-  const onBarLayout = (event: LayoutChangeEvent) => {
-    const next = Math.round(event.nativeEvent.layout.height)
-    setBarHeight((prev) => (prev === next ? prev : next))
-  }
   return (
     <View style={styles.body}>
-      <Glass style={[styles.deck, { top: headerInset }]}>
-        <View onLayout={onBarLayout}>
-          <MissionBar full={full} onOpen={onOpenDetails} />
-        </View>
-      </Glass>
       <View style={styles.stage}>
         {current ? (
           <SessionConversation
@@ -312,7 +254,7 @@ function MissionBody({
             session={current}
             issue={currentIssue}
             findRequest={findRequest}
-            topInset={headerInset + barHeight}
+            topInset={headerInset}
           />
         ) : (
           <EmptyState
@@ -330,16 +272,6 @@ const styles = StyleSheet.create({
   body: {
     flex: 1,
     minHeight: 0,
-  },
-  deck: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 1,
-    // A full-width strip, not a chip: square corners, no outline.
-    borderRadius: 0,
-    borderWidth: 0,
   },
   stage: {
     flex: 1,

@@ -1,4 +1,5 @@
-import type { IssueNavigationModel } from '@podium/client-core/values'
+import type { SessionView } from '@podium/client-core/session-values'
+import { type IssueNavigationModel, taskOpenSeat } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asIssueId } from '@podium/model'
@@ -6,7 +7,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { useCallback, useEffect, useState } from 'react'
 import { Platform } from 'react-native'
-import { useMissionOpening } from '../client/hooks'
+import { useMissionOpening, useTaskSeatMemory } from '../client/hooks'
 import { useMobilePoolProjection } from '../client/mobile-pool'
 import { useScreenReadFocus } from '../client/screen-read-focus'
 import { DetailSkeleton } from '../components/LaunchPlaceholders'
@@ -33,6 +34,7 @@ export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
   const root = rootValue && rootValue !== LOADING ? rootValue : undefined
   useScreenReadFocus(root?.id)
   const router = useRouter()
+  const seatMemory = useTaskSeatMemory()
   const [menuIssue, setMenuIssue] = useState<IssueNavigationModel | null>(null)
   const menuIssueId = menuIssue?.id
   const readSessionCount = useCallback(
@@ -55,6 +57,7 @@ export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
 
   return (
     <Screen
+      grouped
       title={root?.title ?? 'Flight deck'}
       subtitle="Flight deck"
       underHeader
@@ -79,13 +82,30 @@ export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
                   `/mission/${encodeURIComponent(root.id)}?sessionId=${encodeURIComponent(session.sessionId)}`,
                 )
           }
-          onOpenTask={(issue) =>
-            Platform.OS === 'web'
-              ? router.replace(`/inspect/${encodeURIComponent(issue.id)}`)
-              : router.push(
-                  `/${issue.stage === 'proposed' ? 'inspect' : 'mission'}/${encodeURIComponent(issue.id)}`,
-                )
-          }
+          onOpenTask={(issue) => {
+            if (Platform.OS === 'web' || issue.stage === 'proposed') {
+              const path = `/inspect/${encodeURIComponent(issue.id)}` as const
+              if (Platform.OS === 'web') router.replace(path)
+              else router.push(path)
+              return
+            }
+            // A task tap chooses from that task's own open seats. Restoring the
+            // mission workspace without an explicit seat can reopen its parent.
+            const task = screen.full.task(issue.id)
+            const target = taskOpenSeat({
+              members: task.sessionIds.map(
+                (id) => screen.pool.sessionObject(id) as unknown as SessionView,
+              ),
+              remembered: seatMemory.recall(root.id),
+              taskCoordinatorSessionId: issue.coordinatorSessionId,
+              rootCoordinatorSessionId: null,
+            })
+            router.push(
+              target
+                ? `/mission/${encodeURIComponent(issue.id)}?sessionId=${encodeURIComponent(target)}`
+                : `/issue/${encodeURIComponent(issue.id)}`,
+            )
+          }}
           onOpenTaskMenu={setMenuIssue}
           onScreenProposals={() =>
             Platform.OS === 'web'

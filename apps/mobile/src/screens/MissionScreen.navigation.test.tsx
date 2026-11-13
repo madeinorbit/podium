@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { asIssueId, asSessionId } from '@podium/model'
-import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { NavigationContext } from 'expo-router/build/react-navigation/core/NavigationContext'
 import { NavigationRouteContext } from 'expo-router/build/react-navigation/core/NavigationProvider'
 import { StackActions, StackRouter } from 'expo-router/build/react-navigation/routers/StackRouter'
@@ -57,7 +57,24 @@ vi.mock('../components/Glass', () => ({
   Glass: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }))
 vi.mock('../components/TaskSheet', () => ({ TaskSheet: () => null }))
-vi.mock('../components/ActionSheet', () => ({ ActionSheet: () => null }))
+vi.mock('../components/ActionSheet', () => ({
+  ActionSheet: ({
+    visible,
+    actions,
+  }: {
+    visible: boolean
+    actions: { label: string; onPress: () => void }[]
+  }) =>
+    visible ? (
+      <div data-testid="mission-actions-sheet">
+        {actions.map((action) => (
+          <button type="button" key={action.label} onClick={action.onPress}>
+            {action.label}
+          </button>
+        ))}
+      </div>
+    ) : null,
+}))
 vi.mock('../components/IssueCloseSheet', () => ({ IssueCloseSheet: () => null }))
 vi.mock('../components/ConfiguredIssueLaunchSheet', () => ({
   ConfiguredIssueLaunchSheet: () => null,
@@ -173,7 +190,7 @@ const agent = (id: string, issueId: string) =>
     agentState: { phase: 'working', since: '2026-11-13T07:00:00Z' },
   }) as SessionView
 
-it('opens the task coordinator chat, pops the mission strip to its highlighted deck, and pushes another seat', async () => {
+it('opens the task coordinator chat, opens its highlighted deck from the menu, and pushes another seat', async () => {
   await renderWithMobileStore(<Navigator />, {
     issues: [
       issue('root', {
@@ -200,7 +217,15 @@ it('opens the task coordinator chat, pops the mission strip to its highlighted d
     MISSION_DECK,
     MISSION_CHAT,
   ])
-  await act(async () => fireEvent.click(screen.getByTestId('mission-bar')))
+  expect(screen.queryByTestId('mission-bar')).toBeNull()
+  await act(async () => fireEvent.click(screen.getByLabelText('Mission actions')))
+  await act(async () =>
+    fireEvent.click(
+      within(screen.getByTestId('mission-actions-sheet')).getByRole('button', {
+        name: 'Flight deck',
+      }),
+    ),
+  )
   await waitFor(() =>
     expect(screen.getByTestId('deck-agent').getAttribute('aria-label')).toContain(
       'child-lead, Working, open',
@@ -237,6 +262,11 @@ it('opens the task coordinator chat, pops the mission strip to its highlighted d
       'Coordinator, Working, open',
     ),
   )
+  // The root coordinator is now the remembered workspace tab. A child task
+  // tap must still open that child's own coordinator.
+  await act(async () => fireEvent.click(screen.getByTestId('deck-task')))
+  expect(navigation.push).toHaveBeenLastCalledWith('/mission/child?sessionId=child-lead')
+  await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('child-lead'))
 })
 
 it('web keeps an explicit chat-to-deck URL push and returns to the selected conversation', async () => {
@@ -258,7 +288,15 @@ it('web keeps an explicit chat-to-deck URL push and returns to the selected conv
   })
   await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('child-lead'))
   expect(navigation.state?.routes.map((route) => route.name)).toEqual(['(tabs)', MISSION_CHAT])
-  await act(async () => fireEvent.click(screen.getByTestId('mission-bar')))
+  expect(screen.queryByTestId('mission-bar')).toBeNull()
+  await act(async () => fireEvent.click(screen.getByLabelText('Mission actions')))
+  await act(async () =>
+    fireEvent.click(
+      within(screen.getByTestId('mission-actions-sheet')).getByRole('button', {
+        name: 'Flight deck',
+      }),
+    ),
+  )
   expect(navigation.push).toHaveBeenCalledWith('/mission/root/details?sessionId=child-lead')
   await waitFor(() => expect(screen.getByTestId('deck-seat')).toBeTruthy())
   expect(screen.getByRole('button', { name: 'Back' })).toBeTruthy()
@@ -271,10 +309,57 @@ it('web keeps an explicit chat-to-deck URL push and returns to the selected conv
   expect(navigation.dismissTo).toHaveBeenCalledWith('/mission/root?sessionId=root-lead')
   await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('root-lead'))
   expect(navigation.state?.routes.map((route) => route.name)).toEqual(['(tabs)', MISSION_CHAT])
-  await act(async () => fireEvent.click(screen.getByTestId('mission-bar')))
+  expect(screen.queryByTestId('mission-bar')).toBeNull()
+  await act(async () => fireEvent.click(screen.getByLabelText('Mission actions')))
+  await act(async () =>
+    fireEvent.click(
+      within(screen.getByTestId('mission-actions-sheet')).getByRole('button', {
+        name: 'Flight deck',
+      }),
+    ),
+  )
   await waitFor(() => expect(screen.getByTestId('deck-seat')).toBeTruthy())
   fireEvent.click(screen.getByLabelText('Screen proposals'))
   expect(navigation.replace).toHaveBeenCalledWith('/screen-proposed')
   fireEvent.click(screen.getByTestId('deck-task'))
   expect(navigation.replace).toHaveBeenCalledWith('/inspect/child')
+})
+
+it('keeps a remembered child helper when opening that task from the deck', async () => {
+  await renderWithMobileStore(<Navigator />, {
+    issues: [
+      issue('root', { coordinatorSessionId: asSessionId('root-lead') }),
+      issue('child', {
+        parentId: asIssueId('root'),
+        coordinatorSessionId: asSessionId('child-lead'),
+      }),
+    ],
+    sessions: [
+      agent('root-lead', 'root'),
+      agent('child-lead', 'child'),
+      agent('child-helper', 'child'),
+    ],
+  })
+  await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('child-lead'))
+  await act(async () => fireEvent.click(screen.getByLabelText('Flight deck')))
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: /^child-helper,/ })))
+  await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('child-helper'))
+  await act(async () => fireEvent.click(screen.getByLabelText('Flight deck')))
+  await act(async () => fireEvent.click(screen.getByTestId('deck-task')))
+  expect(navigation.push).toHaveBeenLastCalledWith('/mission/child?sessionId=child-helper')
+  await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('child-helper'))
+})
+
+it('opens an unseated child task in details instead of its parent conversation', async () => {
+  await renderWithMobileStore(<Navigator />, {
+    issues: [
+      issue('root', { coordinatorSessionId: asSessionId('root-lead') }),
+      issue('child', { parentId: asIssueId('root') }),
+    ],
+    sessions: [agent('root-lead', 'root')],
+  })
+  await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('root-lead'))
+  await act(async () => fireEvent.click(screen.getByLabelText('Flight deck')))
+  await act(async () => fireEvent.click(screen.getByTestId('deck-task')))
+  expect(navigation.push).toHaveBeenLastCalledWith('/issue/child')
 })
