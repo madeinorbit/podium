@@ -1,4 +1,3 @@
-import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
@@ -81,12 +80,7 @@ export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
             }
             // A task tap chooses from that task's own open seats. Restoring the
             // mission workspace without an explicit seat can reopen its parent.
-            const open = deckTaskOpen(
-              issue,
-              screen,
-              screen.crew as unknown as readonly SessionView[],
-              seatMemory.recall(root.id),
-            )
+            const open = deckTaskOpen(issue, screen, seatMemory.recall(root.id))
             router.push(
               open.kind === 'chat'
                 ? `/mission/${encodeURIComponent(issue.id)}?sessionId=${encodeURIComponent(open.sessionId)}`

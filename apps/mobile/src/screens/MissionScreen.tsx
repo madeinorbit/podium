@@ -32,7 +32,7 @@ import { TaskSheet } from '../components/TaskSheet'
 import { EmptyState } from '../components/ui'
 import { WorkIssueMenu } from '../components/WorkIssueMenu'
 import { useHeaderInset } from '../navigation/header-inset'
-import { type DeckOpen, deckSessionOpen, deckTaskOpen } from '../navigation/mission-deck-targets'
+import { type DeckOpen, deckTaskOpen } from '../navigation/mission-deck-targets'
 import { usePageBackSwipe } from '../navigation/use-page-back-swipe'
 import { color } from '../theme/theme'
 
@@ -183,18 +183,18 @@ export const MissionScreen = observer(function MissionScreen() {
     },
     [router, showSession],
   )
+  // The deck lists only this mission's crew, so a seat it offers is always
+  // one the chat page can show.
   const openDeckSession = useCallback(
-    (session: SessionView) => {
-      if (rootId) follow(deckSessionOpen(rootId, session.sessionId, missionSessions))
-    },
-    [follow, missionSessions, rootId],
+    (session: SessionView) => showSession(session.sessionId),
+    [showSession],
   )
   const openDeckTask = useCallback(
     (issue: IssueNavigationModel) => {
       if (!rootId || !screen?.ready) return
-      follow(deckTaskOpen(issue, screen, missionSessions, seatMemory.recall(rootId)))
+      follow(deckTaskOpen(issue, screen, seatMemory.recall(rootId)))
     },
-    [follow, missionSessions, rootId, screen, seatMemory],
+    [follow, rootId, screen, seatMemory],
   )
   const screenProposals = useCallback(() => router.push('/screen-proposed'), [router])
   const [menuIssue, setMenuIssue] = useState<IssueNavigationModel | null>(null)

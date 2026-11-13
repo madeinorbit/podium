@@ -2,7 +2,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import { asIssueId, asSessionId } from '@podium/model'
 import { expect, it } from 'vitest'
-import { type DeckSeats, deckSessionOpen, deckTaskOpen } from './mission-deck-targets'
+import { type DeckSeats, deckTaskOpen } from './mission-deck-targets'
 
 const session = (id: string, issueId: string, lastActiveAt = '2026-11-13T07:00:00Z') =>
   ({
@@ -33,22 +33,10 @@ const seats = (byTask: Record<string, string[]>): DeckSeats => ({
   pool: { sessionObject: (id) => crew.find((s) => s.sessionId === id) },
 })
 
-it('opens a crew seat on the chat page and anything else as its own mission chat', () => {
-  expect(deckSessionOpen('root', asSessionId('child-lead'), crew)).toEqual({
-    kind: 'chat',
-    sessionId: 'child-lead',
-  })
-  expect(deckSessionOpen('root', asSessionId('gone'), crew)).toEqual({
-    kind: 'push',
-    href: '/mission/root?sessionId=gone',
-  })
-})
-
 it('opens a task on its own coordinator through the shared desktop pick', () => {
   const open = deckTaskOpen(
     task('child', { coordinatorSessionId: asSessionId('child-lead') }),
     seats({ child: ['child-lead', 'child-helper'] }),
-    crew,
     'root-lead',
   )
   // The mission-wide remembered tab (the root's lead) is not one of this
@@ -61,18 +49,17 @@ it('keeps a remembered seat when it belongs to the tapped task', () => {
     deckTaskOpen(
       task('child', { coordinatorSessionId: asSessionId('child-lead') }),
       seats({ child: ['child-lead', 'child-helper'] }),
-      crew,
       'child-helper',
     ),
   ).toEqual({ kind: 'chat', sessionId: 'child-helper' })
 })
 
 it('sends proposals to the inspector and unseated tasks to their details', () => {
-  expect(deckTaskOpen(task('idea', { stage: 'proposed' }), seats({}), crew, null)).toEqual({
+  expect(deckTaskOpen(task('idea', { stage: 'proposed' }), seats({}), null)).toEqual({
     kind: 'push',
     href: '/inspect/idea',
   })
-  expect(deckTaskOpen(task('child'), seats({}), crew, null)).toEqual({
+  expect(deckTaskOpen(task('child'), seats({}), null)).toEqual({
     kind: 'push',
     href: '/issue/child',
   })
