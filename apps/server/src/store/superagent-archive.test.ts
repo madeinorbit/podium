@@ -24,6 +24,12 @@ let superagent: SuperagentRepository
 
 const OWNER = firstAdminMemberId()
 
+/** The owner's listed thread ids, less the first admin's `global` thread the
+ *  migration seeds in every migrated database (POD-6675, sync without boot
+ *  reconcile). */
+const listed = async () =>
+  (await superagent.listSuperagentThreads(OWNER)).map((t) => t.id).filter((id) => id !== 'global')
+
 beforeEach(async () => {
   superagent = new SuperagentRepository(syncQueriesOver(openMigratedTestDatabase()))
   await superagent.upsertSuperagentThread({
@@ -38,13 +44,13 @@ beforeEach(async () => {
 
 describe('SuperagentRepository.archiveSuperagentThread', () => {
   it('takes the thread out of the owner list', async () => {
-    expect((await superagent.listSuperagentThreads(OWNER)).map((t) => t.id)).toEqual(
+    expect(await listed()).toEqual(
       expect.arrayContaining(['thread-1', 'thread-2']),
     )
 
     await superagent.archiveSuperagentThread('thread-1')
 
-    expect((await superagent.listSuperagentThreads(OWNER)).map((t) => t.id)).toEqual(['thread-2'])
+    expect(await listed()).toEqual(['thread-2'])
   })
 
   it('leaves the thread readable by id', async () => {
@@ -74,22 +80,22 @@ describe('SuperagentRepository.archiveSuperagentThread', () => {
   it('archives only the named thread', async () => {
     await superagent.archiveSuperagentThread('thread-1')
 
-    expect((await superagent.listSuperagentThreads(OWNER)).map((t) => t.id)).toEqual(['thread-2'])
+    expect(await listed()).toEqual(['thread-2'])
   })
 
   it('does nothing for a thread that is not there', async () => {
     await superagent.archiveSuperagentThread('thread-missing')
 
-    expect(await superagent.listSuperagentThreads(OWNER)).toHaveLength(2)
+    expect(await listed()).toHaveLength(2)
   })
 
   it('is undone by a later upsert of the same thread', async () => {
     await superagent.archiveSuperagentThread('thread-1')
-    expect((await superagent.listSuperagentThreads(OWNER)).map((t) => t.id)).toEqual(['thread-2'])
+    expect(await listed()).toEqual(['thread-2'])
 
     await superagent.upsertSuperagentThread({ id: 'thread-1', ownerUserId: OWNER, kind: 'btw' })
 
-    expect((await superagent.listSuperagentThreads(OWNER)).map((t) => t.id)).toEqual(
+    expect(await listed()).toEqual(
       expect.arrayContaining(['thread-1', 'thread-2']),
     )
   })

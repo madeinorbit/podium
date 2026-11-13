@@ -1,6 +1,5 @@
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
-import { serverRecordBuilders } from '../sync/record-builders'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { runDrizzleMigrations } from './index'
 
@@ -125,7 +124,14 @@ describe('the upgrade without boot reconcile', () => {
         kind: string
         generation: number
       }[]
-      expect(generations.map((r) => r.kind)).toEqual([...serverRecordBuilders().kinds()].sort())
+      // Every kind synced when this migration was written: later kinds (the
+      // issue bodies split into issueBrief and issueDescription) are not its
+      // business, so the list is the migration's own, not today's builders.
+      const migrationKinds = [
+        ...(DRIZZLE_MIGRATIONS[cut]?.sql ?? '').matchAll(/\('([A-Za-z]+)', 1\)/g),
+      ].map((m) => m[1])
+      expect(migrationKinds.length).toBeGreaterThan(30)
+      expect(generations.map((r) => r.kind)).toEqual([...migrationKinds].sort())
       expect(generations.find((r) => r.kind === 'pendingInteraction')?.generation).toBe(8)
       expect(
         generations.filter((r) => r.kind !== 'pendingInteraction').every((r) => r.generation === 1),
