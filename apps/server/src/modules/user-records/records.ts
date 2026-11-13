@@ -46,7 +46,6 @@ import { USER_PREFERENCES_EDIT } from '../settings/audit'
 import { SettingsPatchRefused, type SettingsService } from '../settings/service'
 import { SyncWriteRefused } from '../sync-write/entry'
 import type { SyncWriteContext, SyncWriteRegistry, SyncWriteTarget } from '../sync-write/registry'
-import { pinRecord, tabOrderRecord } from './changes'
 
 export interface UserRecordDeps {
   readonly sessions: () => Pick<

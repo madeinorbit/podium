@@ -28,7 +28,7 @@ import {
   type SessionId,
   type UserId,
 } from '@podium/model'
-import type { AffectedRecordSpec, LedgerCommitOp } from '@podium/sync'
+import type { LedgerCommitOp } from '@podium/sync'
 import type { AgentProfilesRepository } from '../../store/agent-profiles'
 
 /** A refusal the caller can act on; the entry point answers it with this text. */
@@ -47,12 +47,6 @@ export interface AgentProfileRecordFields {
   /** A machine id (a visible machine's name is resolved to its id), or null. */
   machineId?: string | null
   instructions?: string
-}
-
-/** One profile's record: what a create, an edit or a remove may affect. The
- *  Authority builds it before and after the write (compare at save, POD-6769). */
-function agentProfileRecord(id: string): AffectedRecordSpec {
-  return { entity: 'agentProfile', id }
 }
 
 /** Who is asking: a person, or an agent session acting for one. */

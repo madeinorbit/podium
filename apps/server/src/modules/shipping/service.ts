@@ -35,7 +35,6 @@ import {
   shippingTrainSubsetFingerprint,
 } from '@podium/protocol/daemon'
 import type {
-  AffectedRecordSpec,
   BaselineFoldPort,
   EntityChangeSpec,
   LedgerCommitOp,
@@ -63,7 +62,6 @@ import {
   GreenPrefixCache,
   isolateShippingTrain,
   type ShippingTrain,
-  shipLaneIdOf,
   shipLaneSchedule,
   shippingCompatibilityKey,
   shippingSchedule,
@@ -1498,10 +1496,6 @@ export class ShippingService {
               summary,
             },
           }),
-        // The row can move the projection of the order and of its train's members
-        // (an order's activity is its latest step; a train moves together); an
-        // unchanged projection is dropped by the ledger's dedup.
-        ...this.shipRecords(async () => await this.trainOrderIds(intentOrder.id)),
       })
       await this.settleCancellation(
         writer,
@@ -1846,7 +1840,6 @@ export class ShippingService {
           expectedStage: 'shipping',
           ...(nextState === 'cancelled' ? { nextStage: 'review' as const } : {}),
           needsHuman: false,
-          shipRecords: this.shipRecords(async () => [order.id]),
           event: {
             kind: 'issue.ship_hold_resolved',
             payload: {
@@ -1978,7 +1971,6 @@ export class ShippingService {
               }
             }),
           }),
-        ...this.shipRecords(async () => train.orders),
       })
     ).result
     const expiresAt = Date.now() + LEASE_MS
@@ -2513,7 +2505,6 @@ export class ShippingService {
       if (affected.size === 0) {
         await this.deps.ledger.commit({
           write,
-          ...this.shipRecords(async () => discovered.map((edge) => edge.upper.id)),
         })
       } else {
         await this.commitMany(
@@ -2544,7 +2535,6 @@ export class ShippingService {
             },
           })),
           write,
-          discovered.map((edge) => edge.upper.id),
         )
       }
     }
@@ -2628,7 +2618,6 @@ export class ShippingService {
             machineId: await this.deps.machineFor(issue),
             startedAt,
           }),
-        ...this.shipRecords(async () => [order.id]),
       })
     ).result
     const refused = this.leases.installIfUnchanged(pinned, [
@@ -2666,7 +2655,6 @@ export class ShippingService {
       await this.deps.ledger.commit({
         write: async (scope) =>
           await this.deps.repository.transitionOrder(scope, order.id, order.state, next, at),
-        ...this.shipRecords(async () => [order.id]),
       })
     ).result
     this.audit('shipping.order_state_changed', order.issueId, {
@@ -2697,10 +2685,6 @@ export class ShippingService {
               scope,
               this.step(order, attempt, effectKey, operation, 'planned', startedAt),
             ),
-          // The row can move the projection of the order and of its train's members
-          // (an order's activity is its latest step; a train moves together); an
-          // unchanged projection is dropped by the ledger's dedup.
-          ...this.shipRecords(async () => await this.trainOrderIds(order.id)),
         })
       ).result
     }
@@ -2713,10 +2697,6 @@ export class ShippingService {
               scope,
               this.step(order, attempt, effectKey, operation, 'running', startedAt),
             ),
-          // The row can move the projection of the order and of its train's members
-          // (an order's activity is its latest step; a train moves together); an
-          // unchanged projection is dropped by the ledger's dedup.
-          ...this.shipRecords(async () => await this.trainOrderIds(order.id)),
         })
       ).result
     }
@@ -2807,10 +2787,6 @@ export class ShippingService {
             result,
             recordedAt: result.finishedAt ?? this.now(),
           }),
-        // The row can move the projection of the order and of its train's members
-        // (an order's activity is its latest step; a train moves together); an
-        // unchanged projection is dropped by the ledger's dedup.
-        ...this.shipRecords(async () => await this.trainOrderIds(order.id)),
       })
     }
     const effect = await this.effectCommit(order, attempt, operation, result, startedAt, request)
@@ -2831,7 +2807,6 @@ export class ShippingService {
                 stateChangedAt: changedAt,
               },
             }),
-          ...this.shipRecords(async () => [order.id]),
         })
       } catch (error) {
         if (this.isEffectCustodyRefusal(error)) return null
@@ -3233,7 +3208,6 @@ export class ShippingService {
             repairCandidate,
             outcome: { kind: 'transition', nextState: 'repairing', stateChangedAt: changedAt },
           }),
-        ...this.shipRecords(async () => [order.id]),
       })
       this.audit('shipping.order_state_changed', order.issueId, {
         orderId: order.id,
@@ -4098,117 +4072,18 @@ export class ShippingService {
     return row.value as ShipOrderProjection
   }
 
-  /**
-   * THE ORDER PLANE'S CHANGES FOR ONE COMMIT (POD-4974 O2): the rows of the
-   * orders the commit wrote, every queued order in their lanes, and those
-   * lanes' rows. Nothing else is read, so the cost follows the touched lanes and
-   * never the orders stored elsewhere.
-   *
-   * A lane is touched by a written order, and by a written order that has
-   * SHIPPED for every queued order that names it: a shipped dependency unblocks
-   * its dependents, and an explicit policy edge may cross lanes. Lane ranks come from
-   * {@link shipLaneSchedule}, the per-lane plan the tick runs, over the recorded
-   * native-stack edges the tick schedules with.
-   *
-   * Callers name the orders they wrote; {@link commitMany} derives them from the
-   * batch, so a batch cannot forget one. A lane with no queued order left is
-   * REMOVED: empty lanes are not kept, and the readers who lose it are evicted
-   * by the feed's visibility anchor, not by this row.
-   */
-  /** The orders a lane write can move: `orderId` and its active train's members. */
-  private async trainOrderIds(orderId: ShipOrderId): Promise<ShipOrderId[]> {
-    const train = await this.deps.repository.activeTrainForOrder(orderId)
-    return [orderId, ...(train?.members.map((member) => member.orderId) ?? [])]
-  }
-
-  /**
-   * The lanes a write of these orders can move, as the database holds them
-   * now: each order's own lane, and the lane of every queued order that names
-   * one of them (a dependency that ships unblocks its dependents, and a policy
-   * edge may cross lanes).
-   */
-  private async lanesOfOrders(
-    ids: readonly ShipOrderId[],
-  ): Promise<Map<string, { repoId: ShipOrder['repoId']; destination: string }>> {
-    const lanes = new Map<string, { repoId: ShipOrder['repoId']; destination: string }>()
-    const noteLane = (order: ShipOrder): void => {
-      const destination = canonicalShippingDestination(order.destination, order.targetBranch)
-      lanes.set(shipLaneIdOf(order), { repoId: order.repoId, destination })
-    }
-    for (const order of await this.deps.repository.ordersByIds(ids)) noteLane(order)
-    for (const dependent of await this.deps.repository.queuedDependentsOf(ids)) noteLane(dependent)
-    return lanes
-  }
-
-  /**
-   * COMPARE AT SAVE (POD-6769): the ship order and ship lane records a write
-   * of these orders may affect. The Authority builds each from the database
-   * before the write and again after it, and appends the ones that differ; a
-   * lane with no queued order left has no record, so it is removed.
-   *
-   *  - `affects`, read before the write: the written orders, their lanes as
-   *    they stand, and every order queued in those lanes (an order's record
-   *    carries no rank, so these do not change; they are named so a write that
-   *    moved one without saying so is still found).
-   *  - `creates`, read after it: the written orders and their lanes again. A
-   *    lane named only now is one the write formed or moved an order into, so
-   *    it did change.
-   */
-  private shipRecords(
-    touched: () => Promise<Iterable<ShipOrder | ShipOrderId>>,
-  ): NonNullable<ShippingIssueMutation['shipRecords']> {
-    const ids = async (): Promise<ShipOrderId[]> => [
-      ...new Set(
-        [...(await touched())].map((order) => (typeof order === 'string' ? order : order.id)),
-      ),
-    ]
-    const order = (id: string): AffectedRecordSpec => ({ entity: 'shipOrder', id })
-    const lane = (id: string): AffectedRecordSpec => ({ entity: 'shipLane', id })
-    return {
-      affects: async () => {
-        const written = await ids()
-        const lanes = await this.lanesOfOrders(written)
-        const queued: ShipOrderId[] = []
-        for (const { repoId, destination } of lanes.values()) {
-          for (const member of await this.deps.repository.queuedLaneOrders(repoId, destination))
-            queued.push(member.id)
-        }
-        return [...[...lanes.keys()].map(lane), ...queued.map(order), ...written.map(order)]
-      },
-      creates: async () => {
-        const written = await ids()
-        return [...[...(await this.lanesOfOrders(written)).keys()].map(lane), ...written.map(order)]
-      },
-    }
-  }
-
-  /**
-   * One shipping batch, its order-plane changes computed ONCE.
-   *
-   * `shippingCommitMany` asks every entry for its changes and keeps the last
-   * spec per id, so handing each entry the same projection recomputed it once
-   * per issue (POD-4974 O2). The first entry carries the batch's projection over
-   * every entry's order plus `alsoTouched`; the others carry none.
-   */
+  /** One shipping batch: every entry's issue mutation, one commit. */
   private async commitMany<T>(
     writer: ShippingWriter,
     entries: readonly {
       order: Pick<ShipOrder, 'id' | 'issueId'>
-      mutation: Omit<ShippingIssueMutation, 'shipRecords'>
+      mutation: ShippingIssueMutation
     }[],
     write: (scope: WriteScope) => T | Promise<T>,
-    alsoTouched: readonly ShipOrderId[] = [],
   ): Promise<{ issues: IssueProjection[]; result: T }> {
-    const touched = [...entries.map((entry) => entry.order.id), ...alsoTouched]
     return await this.deps.issues.shippingCommitMany(
       writer,
-      entries.map((entry, index) => ({
-        id: entry.order.issueId,
-        mutation: {
-          ...entry.mutation,
-          ...(index === 0 ? { shipRecords: this.shipRecords(async () => touched) } : {}),
-        },
-      })),
+      entries.map((entry) => ({ id: entry.order.issueId, mutation: entry.mutation })),
       write,
     )
   }

@@ -20,7 +20,6 @@ import { isMemberCwd } from '../../../issue-util'
 import type { IssueRow, Subscription } from '../../../store'
 import type { SubscriptionPageCursor } from '../../../store/events'
 import { afterCommit } from '../../../store/executor/executor'
-import { subscriptionRecord } from '../subscription-changes'
 import type { IssueCollaborator, IssueStore } from './core'
 import type { IssueCrudModule } from './crud'
 import type { IssueReportsModule } from './reads'
@@ -653,11 +652,6 @@ export class IssueAttentionModule {
   ): Promise<{ updated: boolean }> {
     const events = this.store.deps.store.events
     const { result } = await writer.commit({
-      // The feed id carries the subscriber, so the row is read to name it.
-      affects: async () => {
-        const sub = await events.getSubscription(id)
-        return sub === undefined ? [] : [subscriptionRecord(sub)]
-      },
       write: async () =>
         (await events.setSubscriptionEnabled(id, enabled))
           ? await events.getSubscription(id)

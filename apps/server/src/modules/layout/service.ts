@@ -13,7 +13,7 @@
 
 import { createLogger } from '@podium/logger'
 import { type LayoutSnapshot, layoutRowId, type UserId } from '@podium/model'
-import type { AffectedRecordSpec, LedgerWriter } from '@podium/sync'
+import type { LedgerWriter } from '@podium/sync'
 
 /** What a layout write is made through: the command's own writer. */
 export type LayoutCommandWriter = Pick<LedgerWriter, 'commit'>
@@ -92,10 +92,4 @@ export class LayoutService {
     }
     return changed
   }
-
-}
-
-/** The layout rows of these keys: the records a set or a clear may affect. */
-function layoutRecords(userId: UserId, keys: readonly string[]): AffectedRecordSpec[] {
-  return keys.map((key) => ({ entity: 'userLayout', id: layoutRowId(userId, key) }))
 }

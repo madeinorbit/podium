@@ -28,7 +28,7 @@ import {
   type UserId,
 } from '@podium/model'
 import { automationOccurrenceRunId } from '@podium/protocol'
-import type { AffectedRecordSpec, LedgerWriter } from '@podium/sync'
+import type { LedgerWriter } from '@podium/sync'
 import { attributionOf, type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import type {
   AutomationRow,
@@ -136,12 +136,6 @@ export class AutomationRefusal extends Error {
     this.name = 'AutomationRefusal'
   }
 }
-
-// The records an automation write may affect. The Authority builds each before
-// and after the write (compare at save, POD-6769): a tombstoned automation or
-// run is no record, so its removal is found the same way as an edit.
-const automationRecord = (id: string): AffectedRecordSpec => ({ entity: 'automation', id })
-const automationRunRecord = (id: string): AffectedRecordSpec => ({ entity: 'automationRun', id })
 
 const invalid = (message: string): AutomationRefusal => new AutomationRefusal('invalid', message)
 const unknownAutomation = (id: string): AutomationRefusal =>
