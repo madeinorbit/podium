@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { fixtureWriteScope } from '@podium/sync/testing'
 /**
  * EACH MEMBER'S APPS RECEIVE ONLY WHAT THAT MEMBER MAY SEE (POD-6291;
@@ -238,24 +239,25 @@ describe('MU-13: artifact entries and the rest of the event log, per member', ()
   it('a legacy artifact entry’s absolute worktree path reaches only the machine’s custodian', async () => {
     const id = f.tasks.alice
     const store = f.handle.registry.issues.reports.store
-    // As a server before artifact snapshots stored it: the file's absolute path.
-    const draft = await store.draft(id)
-    if (!draft) throw new Error('alice task missing')
-    draft.panel = JSON.stringify({
-      todos: [],
-      deferred: [],
-      artifacts: [
-        {
-          path: '/wt/alice-task/docs/shot.png',
-          title: 'shot',
-          addedAt: '2026-11-01T00:00:00.000Z',
-        },
-        { path: '/home/alice/notes/plan.md', addedAt: '2026-11-01T00:00:00.000Z' },
-      ],
-    })
+    const row = await store.draft(id)
+    if (!row) throw new Error('alice task missing')
+    // As a server before artifact snapshots stored it: the file's absolute
+    // path, on the task's panel artifact records (POD-6764).
+    const legacy = [
+      { path: '/wt/alice-task/docs/shot.png', title: 'shot', addedAt: '2026-11-01T00:00:00.000Z' },
+      { path: '/home/alice/notes/plan.md', addedAt: '2026-11-01T00:00:00.000Z' },
+    ]
     const bobFeed = await (await f.as('bob')).feed()
     try {
-      await store.persist(store.serverWriter, draft)
+      await store.persistWith(store.serverWriter, row, async (scope) => {
+        for (const [position, artifact] of legacy.entries())
+          await f.handle.registry.sessionStore.issues.panel.save(scope, 'issuePanelArtifact', {
+            ...artifact,
+            id: randomUUID(),
+            issueId: id,
+            position,
+          })
+      })
       const paths = (value: unknown) =>
         ((value as { panel?: { artifacts?: Array<{ path: string }> } }).panel?.artifacts ?? []).map(
           (artifact) => artifact.path,
@@ -267,13 +269,15 @@ describe('MU-13: artifact entries and the rest of the event log, per member', ()
         '/home/alice/notes/plan.md',
       ])
       expect(paths(await get('bob'))).toEqual(['docs/shot.png', 'plan.md'])
-      // The feed: Bob's bootstrap and the delta the write pushed.
+      // The feed: Bob's start-up load and the delta the write pushed.
       expect(
-        paths((await bobFeed.bootstrap()).issueProjections?.find((issue) => issue.id === id)),
+        (await bobFeed.bootstrap()).issuePanelArtifacts
+          .filter((record) => record.issueId === id)
+          .map((record) => record.path),
       ).toEqual(['docs/shot.png', 'plan.md'])
-      await bobFeed.until(() => changedIds(bobFeed.deltas(), 'issueProjection').includes(id))
+      await bobFeed.until(() => changedIds(bobFeed.deltas(), 'issuePanelArtifact').length >= 2)
       for (const change of bobFeed.deltas()) {
-        if (change.entity === 'issueProjection' && change.entityId === id) {
+        if (change.entity === 'issuePanelArtifact') {
           expect(JSON.stringify((change as { value?: unknown }).value)).not.toMatch(
             /\/wt\/|\/home\//,
           )
