@@ -1,0 +1,89 @@
+import type { FullDeck } from '@podium/client-graph/mission-full-deck'
+import { StyleSheet, Text, View } from 'react-native'
+import { color, font, leading, mono, sans } from '../theme/theme'
+import { deckColor } from './deck-colors'
+
+export interface DeckVitals {
+  done: number
+  total: number
+  needsYou: number
+  working: number
+  waiting: number
+  todo: number
+  upNext: number
+}
+
+/** Shared FullDeck execution buckets and attention counts, independent of visible filters. */
+export function deckVitals(full: FullDeck): DeckVitals | null {
+  if (!full.ready) return null
+  const { buckets, counts } = full
+  return {
+    done: buckets.done,
+    total: buckets.total,
+    needsYou: counts['needs-you'],
+    working: buckets.working,
+    waiting: buckets.waiting,
+    todo: buckets.todo,
+    upNext: counts['up-next'],
+  }
+}
+
+/** The full deck's counts line, coloured per part. */
+export function DeckVitalsLine({ vitals }: { vitals: DeckVitals }) {
+  return (
+    <Text style={styles.line}>
+      <Text style={styles.fraction}>{`${vitals.done}/${vitals.total}`}</Text>
+      {vitals.needsYou > 0 ? (
+        <Text style={styles.needs}>{`  ·  ${vitals.needsYou} needs you`}</Text>
+      ) : null}
+      {vitals.working > 0 ? (
+        <Text style={styles.working}>{`  ·  ${vitals.working} working`}</Text>
+      ) : null}
+      {vitals.upNext > 0 ? <Text>{`  ·  ${vitals.upNext} up next`}</Text> : null}
+    </Text>
+  )
+}
+
+/** Disjoint done, working and waiting segments over a track; the rest is to do. */
+export function DeckGauge({ vitals, height = 8 }: { vitals: DeckVitals; height?: number }) {
+  const total = Math.max(1, vitals.total)
+  const parts = [
+    ['done', vitals.done, deckColor.gaugeDone],
+    ['working', vitals.working, deckColor.gaugeWorking],
+    ['waiting', vitals.waiting, deckColor.gaugeWaiting],
+    ['todo', vitals.todo, deckColor.gaugeTodo],
+  ] as const
+  return (
+    <View style={[styles.gauge, { height }]} testID="deck-gauge" aria-hidden>
+      {parts
+        .filter(([, count]) => count > 0)
+        .map(([key, count, tone]) => (
+          <View
+            key={key}
+            testID={`deck-gauge-${key}`}
+            style={{ flex: count / total, minWidth: 2, backgroundColor: tone }}
+          />
+        ))}
+    </View>
+  )
+}
+
+const styles = StyleSheet.create({
+  line: {
+    ...sans(400),
+    color: color.textDim,
+    fontSize: font.tiny,
+    lineHeight: leading(font.tiny),
+  },
+  fraction: { ...mono(500), color: color.text, fontVariant: ['tabular-nums'] },
+  needs: { color: deckColor.needsYou },
+  working: { color: deckColor.working },
+  gauge: {
+    flexDirection: 'row',
+    gap: 2,
+    borderRadius: 0,
+    flexShrink: 0,
+    overflow: 'hidden',
+    backgroundColor: color.clear,
+  },
+})

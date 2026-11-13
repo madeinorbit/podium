@@ -40,14 +40,11 @@ export const MissionProposalRow = observer(function MissionProposalRow({
       >
         <View style={styles.ring} />
         <View style={styles.body}>
-          <Text style={styles.title} numberOfLines={1}>
-            {facts.title}
-          </Text>
-          {facts.author ? (
-            <Text style={styles.author} numberOfLines={1}>{`by ${facts.author}`}</Text>
-          ) : null}
+          <Text style={styles.title}>{facts.title}</Text>
+          <Text
+            style={styles.author}
+          >{`${facts.ref}${facts.author ? ` · by ${facts.author}` : ''}`}</Text>
         </View>
-        <Text style={styles.ref}>{facts.ref}</Text>
       </PressableScale>
       {status ? (
         <Text
@@ -84,17 +81,24 @@ export const MissionProposalRow = observer(function MissionProposalRow({
 const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     minHeight: 44,
     gap: space.sm,
     paddingHorizontal: space.md,
+    paddingVertical: space.md,
   },
   separated: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: deckColor.proposalRing },
-  ring: { width: 8, height: 8, borderRadius: 4, borderWidth: 1.5, borderColor: deckColor.proposal },
-  title: { ...sans(400), flex: 1, color: color.text, fontSize: font.small },
-  body: { flex: 1, minWidth: 0, paddingVertical: space.xs },
-  author: { ...sans(400), color: color.textDim, fontSize: font.micro },
-  ref: { ...sans(400), color: deckColor.proposalText, fontSize: font.micro },
+  ring: {
+    width: 12,
+    height: 12,
+    marginTop: 4,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: deckColor.proposal,
+  },
+  title: { ...sans(400), color: color.text, fontSize: font.small, lineHeight: 20 },
+  body: { flex: 1, minWidth: 0, gap: space.xs },
+  author: { ...sans(400), color: color.textDim, fontSize: font.tiny, lineHeight: 18 },
   receipt: {
     ...sans(400),
     color: color.textDim,

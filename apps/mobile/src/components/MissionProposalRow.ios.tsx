@@ -1,13 +1,4 @@
-import {
-  Button,
-  ContextMenu,
-  HStack,
-  Image,
-  Spacer,
-  SwipeActions,
-  Text,
-  VStack,
-} from '@expo/ui/swift-ui'
+import { Button, ContextMenu, HStack, Image, SwipeActions, Text, VStack } from '@expo/ui/swift-ui'
 import {
   accessibilityElement,
   accessibilityHint,
@@ -15,10 +6,11 @@ import {
   accessibilityLabel,
   buttonStyle,
   contentShape,
+  fixedSize,
   font,
   foregroundStyle,
   frame,
-  lineLimit,
+  padding,
   shapes,
   tint,
 } from '@expo/ui/swift-ui/modifiers'
@@ -70,53 +62,56 @@ export const MissionProposalRow = observer(function MissionProposalRow({
               ),
             ]}
           >
-            <VStack
-              alignment="leading"
-              spacing={4}
+            <HStack
+              alignment="top"
+              spacing={8}
               modifiers={[
                 frame({ minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
+                padding({ vertical: 12 }),
                 contentShape(shapes.rectangle()),
               ]}
             >
-              <HStack spacing={8}>
-                <Image systemName="circle" size={8} color={deckColor.proposal} />
+              <Image
+                systemName="circle"
+                size={12}
+                color={deckColor.proposal}
+                modifiers={[padding({ top: 4 })]}
+              />
+              <VStack
+                alignment="leading"
+                spacing={4}
+                modifiers={[frame({ maxWidth: Infinity, alignment: 'leading' })]}
+              >
                 <Text
                   modifiers={[
                     font({ textStyle: 'subheadline' }),
                     foregroundStyle(color.text),
-                    lineLimit(2),
+                    fixedSize({ horizontal: false, vertical: true }),
                   ]}
                 >
                   {facts.title}
                 </Text>
-                <Spacer />
-                <Text
-                  modifiers={[
-                    font({ textStyle: 'caption2', design: 'monospaced' }),
-                    foregroundStyle(deckColor.proposalText),
-                    lineLimit(1),
-                  ]}
-                >
-                  {facts.ref}
-                </Text>
-              </HStack>
-              {facts.author ? (
-                <Text
-                  modifiers={[font({ textStyle: 'caption2' }), foregroundStyle(color.textDim)]}
-                >{`by ${facts.author}`}</Text>
-              ) : null}
-              {receipt ? (
                 <Text
                   modifiers={[
                     font({ textStyle: 'caption' }),
-                    foregroundStyle(status?.phase === 'error' ? color.dangerText : color.textDim),
-                    accessibilityIdentifier('deck-proposal-receipt'),
+                    foregroundStyle(color.textDim),
+                    fixedSize({ horizontal: false, vertical: true }),
                   ]}
-                >
-                  {receipt}
-                </Text>
-              ) : null}
-            </VStack>
+                >{`${facts.ref}${facts.author ? ` · by ${facts.author}` : ''}`}</Text>
+                {receipt ? (
+                  <Text
+                    modifiers={[
+                      font({ textStyle: 'caption' }),
+                      foregroundStyle(status?.phase === 'error' ? color.dangerText : color.textDim),
+                      accessibilityIdentifier('deck-proposal-receipt'),
+                      fixedSize({ horizontal: false, vertical: true }),
+                    ]}
+                  >
+                    {receipt}
+                  </Text>
+                ) : null}
+              </VStack>
+            </HStack>
           </Button>
         </ContextMenu.Trigger>
         {busy ? null : (

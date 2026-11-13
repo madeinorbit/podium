@@ -5,6 +5,7 @@ import {
   accessibilityIdentifier,
   animation,
   background,
+  frame,
   listRowBackground,
   listRowInsets,
   listRowSeparator,
@@ -28,7 +29,7 @@ export function MissionDeckList({ children }: { children: ReactNode }) {
           listStyle('insetGrouped'),
           listSectionSpacing(0),
           scrollContentBackground('hidden'),
-          background(color.bg),
+          background(color.groupedBg),
           accessibilityIdentifier('mission-deck'),
         ]}
       >
@@ -38,27 +39,80 @@ export function MissionDeckList({ children }: { children: ReactNode }) {
   )
 }
 
+/** Non-card content is a section header so List never rounds or clips its gauge. */
 export function DeckContent({ children }: { children: ReactNode }) {
+  return (
+    <Section header={<Content>{children}</Content>} modifiers={sectionMargins}>
+      {null}
+    </Section>
+  )
+}
+
+function Content({ children }: { children: ReactNode }) {
+  return (
+    <RNHostView matchContents={{ vertical: true }}>
+      <View collapsable={false} style={styles.content}>
+        {children}
+      </View>
+    </RNHostView>
+  )
+}
+
+export function DeckGroup({
+  children,
+  header,
+  testID,
+}: {
+  children: ReactNode
+  header?: ReactNode
+  testID: string
+}) {
+  return (
+    <Section
+      header={header ? <Content>{header}</Content> : undefined}
+      modifiers={[...sectionMargins, accessibilityIdentifier(testID)]}
+    >
+      {children}
+    </Section>
+  )
+}
+
+/** Each accepted task/seat has its own non-collapsable Yoga measurement root.
+ * A mission-sized RNHostView cell is recycled/clipped as one UIKit list item.
+ * Keeping rows separate also lets SwiftUI measure catch-up inserts independently. */
+export function DeckRow({ children }: { children: ReactNode }) {
   return (
     <VStack
       modifiers={[
+        frame({ maxWidth: Infinity, alignment: 'leading' }),
         listRowInsets({ leading: 0, trailing: 0, top: 0, bottom: 0 }),
         listRowSeparator('hidden'),
-        listRowBackground(color.bg),
+        listRowBackground(color.groupedCard),
       ]}
     >
       <RNHostView matchContents={{ vertical: true }}>
-        <View style={styles.content}>{children}</View>
+        <View collapsable={false}>{children}</View>
       </RNHostView>
     </VStack>
   )
 }
 
-export function DeckProposals({ children, ids }: { children: ReactNode; ids: readonly string[] }) {
+const sectionMargins = [listSectionMargins({ edges: 'vertical', length: 0 })]
+
+export function DeckProposals({
+  children,
+  ids,
+  header,
+}: {
+  children: ReactNode
+  ids: readonly string[]
+  header?: ReactNode
+}) {
   const reduceMotion = useReduceMotion()
   const revision = listOrderRevision([{ key: 'proposals', folded: false, ids }])
   return (
     <Section
+      header={header ? <Content>{header}</Content> : undefined}
       modifiers={[
         listSectionMargins({ edges: 'vertical', length: 0 }),
         accessibilityIdentifier('deck-proposals'),
@@ -72,4 +126,7 @@ export function DeckProposals({ children, ids }: { children: ReactNode; ids: rea
   )
 }
 
-const styles = StyleSheet.create({ host: { flex: 1 }, content: { gap: space.md } })
+const styles = StyleSheet.create({
+  host: { flex: 1 },
+  content: { gap: space.md, paddingVertical: space.sm },
+})

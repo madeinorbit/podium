@@ -29,6 +29,8 @@ vi.mock('@expo/ui/swift-ui/modifiers', () => ({
       'foregroundStyle',
       'frame',
       'lineLimit',
+      'fixedSize',
+      'padding',
       'listRowBackground',
       'listRowInsets',
       'listRowSeparator',
@@ -53,16 +55,21 @@ vi.mock('@expo/ui', () => ({
 }))
 
 vi.mock('@expo/ui/swift-ui', () => {
-  type Props = { children?: ReactNode; modifiers?: { name: string; value: unknown }[] }
+  type Props = {
+    children?: ReactNode
+    header?: ReactNode
+    modifiers?: { name: string; value: unknown }[]
+  }
   const Box = ({ children }: Props) => <div>{children}</div>
   return {
     List: Box,
-    RNHostView: Box,
-    Section: ({ children, modifiers }: Props) => (
+    RNHostView: ({ children }: Props) => <div data-native-rn-host>{children}</div>,
+    Section: ({ children, header, modifiers }: Props) => (
       <div
         data-testid={modifiers?.find((m) => m.name === 'accessibilityIdentifier')?.value as string}
         data-animation-value={modifiers?.find((m) => m.name === 'animation')?.value as number}
       >
+        {header ? <div data-testid="native-section-header">{header}</div> : null}
         {children}
       </div>
     ),
@@ -158,7 +165,7 @@ afterEach(() => {
   native.measure.clear()
 })
 
-async function mount(count = 1, reduceMotion = false) {
+async function mount(count = 1, reduceMotion = false, accepted = 0) {
   const root = {
     id: asIssueId('root'),
     seq: 1,
@@ -198,6 +205,13 @@ async function mount(count = 1, reduceMotion = false) {
     {
       issues: [
         root,
+        ...Array.from({ length: accepted }, (_, index) => ({
+          ...root,
+          id: asIssueId(`accepted-${index}`),
+          parentId: root.id,
+          title: `Accepted task ${index}`,
+          seq: index + 2,
+        })),
         ...Array.from({ length: count }, (_, index) =>
           count === 1
             ? proposal
@@ -285,7 +299,9 @@ it.each([
   vi.useFakeTimers()
   const slot = screen.getByTestId('deck-proposal-slot-proposal-1')
   const section = screen.getByTestId('deck-proposals')
-  const originalOrder = [...section.children]
+  const originalOrder = [...section.children].filter(
+    (child) => child.getAttribute('data-testid') !== 'native-section-header',
+  )
   const revision = section.dataset.animationValue
   let resolve = () => {}
   f.commands.issues[command].mutate.mockImplementationOnce(
@@ -317,7 +333,11 @@ it.each([
     )
   })
   expect(screen.getByTestId('deck-proposal-slot-proposal-1')).toBe(slot)
-  expect([...screen.getByTestId('deck-proposals').children]).toEqual(originalOrder)
+  expect(
+    [...screen.getByTestId('deck-proposals').children].filter(
+      (child) => child.getAttribute('data-testid') !== 'native-section-header',
+    ),
+  ).toEqual(originalOrder)
   expect(section.dataset.animationValue).toBe(revision)
   // The accepted tree above Proposed must not grow until the receipt expires.
   expect(screen.getAllByText('Proposal 1')).toHaveLength(1)
@@ -326,7 +346,11 @@ it.each([
   expect(within(slot).getByText(receipt)).toBeTruthy()
   await act(async () => vi.advanceTimersByTime(1799))
   expect(slot.isConnected).toBe(true)
-  expect([...screen.getByTestId('deck-proposals').children]).toEqual(originalOrder)
+  expect(
+    [...screen.getByTestId('deck-proposals').children].filter(
+      (child) => child.getAttribute('data-testid') !== 'native-section-header',
+    ),
+  ).toEqual(originalOrder)
   await act(async () => vi.advanceTimersByTime(1))
   expect(screen.queryByTestId('deck-proposal-slot-proposal-1')).toBeNull()
   expect(screen.getByTestId('deck-proposals')).toBe(section)
@@ -402,4 +426,42 @@ it('keeps native proposal action trees inside the shared 40-row window', async (
   const group = within(screen.getByTestId('deck-proposal-slot-proposal-500'))
   fireEvent.click(within(group.getByTestId('swipe-leading')).getByRole('button', { name: 'Start' }))
   expect(await group.findByText('Started')).toBeTruthy()
+})
+
+it('gives each accepted task a separate native measurement root and keeps the gauge outside rounded cells', async () => {
+  const f = await mount(48, false, 60)
+  const tasks = screen.getAllByTestId('deck-task')
+  expect(tasks).toHaveLength(60)
+  const hosts = tasks.map((task) => task.closest('[data-native-rn-host]'))
+  expect(new Set(hosts).size).toBe(60)
+  for (const host of hosts)
+    expect(host?.querySelectorAll('[data-testid="deck-task"]')).toHaveLength(1)
+  expect(
+    screen.getByTestId('deck-gauge').closest('[data-testid="native-section-header"]'),
+  ).toBeTruthy()
+  expect(
+    screen
+      .getByTestId('deck-gauge')
+      .closest('[data-native-rn-host]')
+      ?.querySelector('[data-testid="deck-task"]'),
+  ).toBeNull()
+  const rows = f.replica.rows('issueProjections')
+  // Resume catch-up can replace every projection while retaining the same native rows.
+  await act(async () =>
+    f.replica.applySnapshot(
+      'issueProjections',
+      rows.map((row) => ({
+        ...row,
+        ...(row.id === 'accepted-50'
+          ? { title: 'Caught-up accepted task', stage: 'review' as const }
+          : {}),
+      })),
+    ),
+  )
+  expect(screen.getAllByTestId('deck-task')).toHaveLength(60)
+  const updated = screen.getByText('Caught-up accepted task').closest('[data-testid="deck-task"]')
+  expect(updated?.closest('[data-native-rn-host]')).toBe(hosts[50])
+  fireEvent.click(screen.getByTestId('deck-filter-active'))
+  fireEvent.click(screen.getByTestId('deck-filter-all'))
+  expect(screen.getAllByTestId('deck-task')).toHaveLength(60)
 })

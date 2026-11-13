@@ -1,10 +1,11 @@
 import { MissionScreen } from '@podium/client-graph/mission-screen'
 import { attachMissionTestPreferences } from '@podium/client-graph/mission-screen.test.fixture'
 import { MobxPool } from '@podium/client-graph/pool'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen } from '@testing-library/react'
+import { observer } from 'mobx-react-lite'
 import { afterEach, expect, it, vi } from 'vitest'
 import { worklistRowStatus } from '../lib/work-sections'
-import { deckVitals, deckVitalsLabel, MissionBar } from './MissionBar'
+import { DeckGauge, DeckVitalsLine, deckVitals } from './MissionGauge'
 import { RowProgressMeter } from './WorkRowParts'
 
 vi.mock('expo-haptics', () => ({ ImpactFeedbackStyle: { Light: 'light' } }))
@@ -64,10 +65,23 @@ function open(issues: Record<string, unknown>[], sessions: Record<string, unknow
   return opening
 }
 
+const Readout = observer(function Readout({ opening }: { opening: MissionScreen }) {
+  const vitals = deckVitals(opening.full)
+  return (
+    <div role="status">
+      {vitals ? (
+        <>
+          <DeckGauge vitals={vitals} />
+          <DeckVitalsLine vitals={vitals} />
+        </>
+      ) : (
+        'Loading tasks…'
+      )}
+    </div>
+  )
+})
 function mount(opening: MissionScreen) {
-  const onOpen = vi.fn()
-  const view = render(<MissionBar full={opening.full} onOpen={onOpen} />)
-  return { ...view, onOpen }
+  return render(<Readout opening={opening} />)
 }
 
 it('reads one vitals line from the Full deck and follows working to waiting', () => {
@@ -83,16 +97,13 @@ it('reads one vitals line from the Full deck and follows working to waiting', ()
     ],
     [session('worker', 'busy', 'working'), session('coordinator', 'root', 'working')],
   )
-  const { onOpen } = mount(opening)
-  const button = screen.getByRole('button', { name: /^Open flight deck/ })
-  expect(button.getAttribute('aria-label')).toBe(
-    `Open flight deck, ${deckVitalsLabel(deckVitals(opening.full)!)}`,
-  )
+  mount(opening)
+  const button = screen.getByRole('status')
   expect(button.textContent).toContain('1/4')
   expect(button.textContent).toContain('1 working')
   expect(button.textContent).toContain(`${opening.full.counts['up-next']} up next`)
-  expect(screen.getByTestId('deck-gauge-done').style.width).toBe('25%')
-  expect(screen.getByTestId('deck-gauge-working').style.width).toBe('25%')
+  expect(screen.getByTestId('deck-gauge-done').style.flexGrow).toBe('0.25')
+  expect(screen.getByTestId('deck-gauge-working').style.flexGrow).toBe('0.25')
   const row = opening.pool.worklistRow('root')
   if (!row) throw new Error('The mission root must have a work row')
   expect(worklistRowStatus(row)).toBe('1/4 subtasks done · 1 working')
@@ -108,17 +119,25 @@ it('reads one vitals line from the Full deck and follows working to waiting', ()
   )
   expect(button.textContent).not.toContain('working')
   expect(screen.queryByTestId('deck-gauge-working')).toBeNull()
-  fireEvent.click(button)
-  expect(onOpen).toHaveBeenCalledOnce()
 })
 
-it('labels zero parts away', () => {
+it('draws all four desktop buckets in a straight bar with proportional gaps', () => {
+  render(
+    <DeckGauge
+      vitals={{ done: 1, total: 10, needsYou: 2, working: 2, waiting: 3, todo: 4, upNext: 4 }}
+    />,
+  )
+  const gauge = screen.getByTestId('deck-gauge')
+  expect(getComputedStyle(gauge).borderRadius).toBe('0px')
+  expect([...gauge.children].map((part) => (part as HTMLElement).style.flexGrow)).toEqual([
+    '0.1',
+    '0.2',
+    '0.3',
+    '0.4',
+  ])
   expect(
-    deckVitalsLabel({ done: 8, total: 14, needsYou: 1, working: 3, waiting: 1, upNext: 2 }),
-  ).toBe('8/14 · 1 needs you · 3 working · 2 up next')
-  expect(
-    deckVitalsLabel({ done: 0, total: 2, needsYou: 0, working: 0, waiting: 0, upNext: 2 }),
-  ).toBe('0/2 · 2 up next')
+    new Set([...gauge.children].map((part) => (part as HTMLElement).style.backgroundColor)).size,
+  ).toBe(4)
 })
 
 it('keeps cold task counts pending', () => {
@@ -132,7 +151,7 @@ it('shows no accepted tasks without a filled gauge', () => {
   mount(
     open([issue('root', 'in_progress'), issue('cancelled', 'done', { closedReason: 'cancelled' })]),
   )
-  expect(screen.getByRole('button').textContent).toContain('0/')
+  expect(screen.getByRole('status').textContent).toContain('0/')
   expect(screen.queryByTestId('deck-gauge-done')).toBeNull()
 })
 
@@ -157,7 +176,7 @@ it('keeps attention counts out of the disjoint execution gauge', () => {
   )
   mount(opening)
   expect(opening.full.counts['needs-you']).toBe(1)
-  expect(screen.getByRole('button').textContent).toContain('1 needs you')
-  expect(screen.getByTestId('deck-gauge-working').style.width).toBe('100%')
+  expect(screen.getByRole('status').textContent).toContain('1 needs you')
+  expect(screen.getByTestId('deck-gauge-working').style.flexGrow).toBe('1')
   expect(screen.queryByTestId('deck-gauge-waiting')).toBeNull()
 })

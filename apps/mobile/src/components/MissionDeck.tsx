@@ -18,6 +18,7 @@ import { settled } from '@podium/client-graph/mission-view'
 import type { SessionModel } from '@podium/client-graph/models'
 import { ROW_WINDOW_SIZE } from '@podium/client-graph/row-window'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { issueStatusOf } from '@podium/model'
 import {
   SESSION_WORD_LABEL,
   type SessionWord,
@@ -29,15 +30,16 @@ import { Fragment, type ReactNode, useEffect, useMemo, useState } from 'react'
 import { AppState, StyleSheet, Text, View } from 'react-native'
 import { useTrpc } from '../client/hooks'
 import { color, font, leading, mono, sans, space } from '../theme/theme'
-import { deckColor } from './deck-colors'
+import { deckColor, deckWordColor } from './deck-colors'
 import { Icon } from './Icon'
 import { Check, ChevronDown, ChevronRight } from './icons'
-import { DeckGauge, DeckVitalsLine, deckVitals } from './MissionBar'
-import { DeckContent, DeckProposals, MissionDeckList } from './MissionDeckList'
+import { DeckContent, DeckGroup, DeckProposals, DeckRow, MissionDeckList } from './MissionDeckList'
+import { DeckGauge, DeckVitalsLine, deckVitals } from './MissionGauge'
 import { MissionProposalRow } from './MissionProposalRow'
 import { MissionProposalSlot } from './MissionProposalSlot'
 import type { MissionProposalRowProps } from './mission-proposal-row.types'
 import { PressableScale } from './PressableScale'
+import { StageGlyph } from './StageGlyph'
 import { EmptyState } from './ui'
 import { WorkingMark } from './WorkingMark'
 
@@ -111,90 +113,100 @@ export const MissionDeck = observer(function MissionDeck({
           ) : null}
           {vitals ? (
             <>
-              <DeckGauge vitals={vitals} height={4} />
+              <DeckGauge vitals={vitals} />
               <DeckVitalsLine vitals={vitals} />
             </>
           ) : (
             <Text style={styles.sub}>Loading tasks…</Text>
           )}
         </View>
-
-        {rootSeats.length > 0 ? (
-          <View style={styles.group} testID="deck-crew">
-            {rootSeats.map((id, index) => (
+      </DeckContent>
+      {rootSeats.length > 0 ? (
+        <DeckGroup testID="deck-crew">
+          {rootSeats.map((id, index) => (
+            <DeckRow key={id}>
               <SeatRow
-                key={id}
                 task={full.root}
                 sessionId={id}
                 first={index === 0}
                 current={id === currentSessionId}
                 onPress={() => openSession(id)}
               />
-            ))}
-          </View>
-        ) : null}
+            </DeckRow>
+          ))}
+        </DeckGroup>
+      ) : null}
 
-        {acceptedTree?.filterable ? <Filters full={full} /> : null}
+      {acceptedTree?.filterable ? (
+        <DeckContent>
+          <Filters full={full} />
+        </DeckContent>
+      ) : null}
 
-        <DeckRows
-          full={full}
-          rowIds={rowIds}
-          currentSessionId={currentSessionId}
-          onOpenSession={openSession}
-          onOpenTask={(id) => {
-            const issue = issueOf(id)
-            if (issue) onOpenTask(issue)
-          }}
-          onOpenTaskMenu={(id) => {
-            const issue = issueOf(id)
-            if (issue) onOpenTaskMenu(issue)
-          }}
-        />
+      <DeckRows
+        full={full}
+        rowIds={rowIds}
+        currentSessionId={currentSessionId}
+        onOpenSession={openSession}
+        onOpenTask={(id) => {
+          const issue = issueOf(id)
+          if (issue) onOpenTask(issue)
+        }}
+        onOpenTaskMenu={(id) => {
+          const issue = issueOf(id)
+          if (issue) onOpenTaskMenu(issue)
+        }}
+      />
 
-        {full.ready && rowIds.length === 0 && acceptedTree?.filterable && full.filter !== 'all' ? (
+      {full.ready && rowIds.length === 0 && acceptedTree?.filterable && full.filter !== 'all' ? (
+        <DeckContent>
           <Text style={styles.empty}>
             Nothing {FILTER_LABEL[full.filter].toLowerCase()} right now.
           </Text>
-        ) : null}
-        {full.ready &&
-        !acceptedTree?.filterable &&
-        rootSeats.length === 0 &&
-        proposalIds.length === 0 ? (
-          <EmptyState title="No tasks or agents on this mission yet." />
-        ) : null}
-      </DeckContent>
-      {proposalIds.length > 0 ? (
-        <DeckContent>
-          <View style={styles.section}>
-            <PressableScale
-              accessibilityRole="button"
-              accessibilityLabel={`Proposals, ${proposalIds.length}`}
-              accessibilityState={{ expanded: proposalsOpen }}
-              haptic={false}
-              onPress={() => setProposalsOpen((open) => !open)}
-              style={styles.sectionToggle}
-            >
-              <Icon
-                as={proposalsOpen ? ChevronDown : ChevronRight}
-                size={12}
-                color={deckColor.proposalText}
-              />
-              <Text style={[styles.sectionTitle, styles.proposalText]}>Proposed</Text>
-              <Text style={styles.sectionCount}>{proposalIds.length}</Text>
-            </PressableScale>
-            <PressableScale
-              accessibilityRole="button"
-              accessibilityLabel="Screen proposals"
-              haptic={false}
-              onPress={onScreenProposals}
-              style={styles.sectionAction}
-            >
-              <Text style={styles.sectionActionLabel}>Screen</Text>
-            </PressableScale>
-          </View>
         </DeckContent>
       ) : null}
-      <DeckProposals ids={proposalsOpen ? proposalIds : []}>
+      {full.ready &&
+      !acceptedTree?.filterable &&
+      rootSeats.length === 0 &&
+      proposalIds.length === 0 ? (
+        <DeckContent>
+          <EmptyState title="No tasks or agents on this mission yet." />
+        </DeckContent>
+      ) : null}
+      <DeckProposals
+        ids={proposalsOpen ? proposalIds : []}
+        header={
+          proposalIds.length > 0 ? (
+            <View style={styles.section}>
+              <PressableScale
+                accessibilityRole="button"
+                accessibilityLabel={`Proposals, ${proposalIds.length}`}
+                accessibilityState={{ expanded: proposalsOpen }}
+                haptic={false}
+                onPress={() => setProposalsOpen((open) => !open)}
+                style={styles.sectionToggle}
+              >
+                <Icon
+                  as={proposalsOpen ? ChevronDown : ChevronRight}
+                  size={12}
+                  color={deckColor.proposalText}
+                />
+                <Text style={[styles.sectionTitle, styles.proposalText]}>Proposed</Text>
+                <Text style={styles.sectionCount}>{proposalIds.length}</Text>
+              </PressableScale>
+              <PressableScale
+                accessibilityRole="button"
+                accessibilityLabel="Screen proposals"
+                haptic={false}
+                onPress={onScreenProposals}
+                style={styles.sectionAction}
+              >
+                <Text style={styles.sectionActionLabel}>Screen</Text>
+              </PressableScale>
+            </View>
+          ) : undefined
+        }
+      >
         {proposalsOpen
           ? proposalIds.map((id, index) => (
               <MissionProposalSlot
@@ -318,55 +330,59 @@ const DeckRows = observer(function DeckRows({
       {blocks.map(({ phase, tasks, phaseStart }) => {
         const phaseSeats =
           phase && phaseStart ? settled(() => (phase.open ? phase.sessionIds : [])) : []
-        const seats = phaseSeats === LOADING ? [] : phaseSeats
+        const leadingSeats = phaseSeats === LOADING ? [] : phaseSeats
         return (
           <Fragment key={`${phase?.id ?? 'loose'}-${tasks[0]?.id ?? 'heading'}`}>
-            {phase ? <PhaseHeading phase={phase} /> : null}
-            {tasks.length > 0 || seats.length > 0 ? (
-              <View style={styles.group} testID={`deck-group-${phase?.id ?? 'loose'}`}>
-                {phase &&
-                  seats.map((id) => (
+            <DeckGroup
+              testID={`deck-group-${phase?.id ?? 'loose'}`}
+              header={phase ? <PhaseHeading phase={phase} /> : undefined}
+            >
+              {phase &&
+                leadingSeats.map((id) => (
+                  <DeckRow key={id}>
                     <AgentLine
-                      key={id}
                       task={phase}
                       sessionId={id}
                       indent={0}
                       current={id === currentSessionId}
                       onPress={() => onOpenSession(id)}
                     />
-                  ))}
-                {tasks.map((task, row) => {
-                  const shape = settled(() => ({
-                    depth: task.depth,
-                    base: phase ? phase.depth + 1 : 0,
-                    seats: task.open ? task.sessionIds : [],
-                  }))
-                  const indent = shape === LOADING ? 0 : Math.max(0, shape.depth - shape.base)
-                  const seats = shape === LOADING ? [] : shape.seats
-                  return (
-                    <Fragment key={task.id}>
+                  </DeckRow>
+                ))}
+              {tasks.map((task, row) => {
+                const shape = settled(() => ({
+                  depth: task.depth,
+                  base: phase ? phase.depth + 1 : 0,
+                  seats: task.open ? task.sessionIds : [],
+                }))
+                const indent = shape === LOADING ? 0 : Math.max(0, shape.depth - shape.base)
+                const seats = shape === LOADING ? [] : shape.seats
+                return (
+                  <Fragment key={task.id}>
+                    <DeckRow>
                       <TaskLine
                         task={task}
                         indent={indent}
-                        first={row === 0 && seats.length === 0}
+                        first={row === 0 && leadingSeats.length === 0}
                         onPress={() => onOpenTask(task.id)}
                         onLongPress={() => onOpenTaskMenu(task.id)}
                       />
-                      {seats.map((id) => (
+                    </DeckRow>
+                    {seats.map((id) => (
+                      <DeckRow key={id}>
                         <AgentLine
-                          key={id}
                           task={task}
                           sessionId={id}
                           indent={indent}
                           current={id === currentSessionId}
                           onPress={() => onOpenSession(id)}
                         />
-                      ))}
-                    </Fragment>
-                  )
-                })}
-              </View>
-            ) : null}
+                      </DeckRow>
+                    ))}
+                  </Fragment>
+                )
+              })}
+            </DeckGroup>
           </Fragment>
         )
       })}
@@ -379,6 +395,9 @@ const PhaseHeading = observer(function PhaseHeading({ phase }: { phase: FullDeck
     counter: phase.counter,
     title: phase.row.title,
     open: phase.open,
+    status: phase.row.status,
+    word: phase.word,
+    complete: phase.workComplete,
   }))
   if (facts === LOADING) return <View style={styles.section} accessibilityLabel="Loading phase" />
   const {
@@ -389,18 +408,24 @@ const PhaseHeading = observer(function PhaseHeading({ phase }: { phase: FullDeck
   return (
     <PressableScale
       accessibilityRole="button"
-      accessibilityLabel={`${title}, ${done} of ${total} done`}
+      accessibilityLabel={`${title}, ${TASK_WORD_LABEL[facts.word]}, ${done} of ${total} done`}
       accessibilityState={{ expanded: open }}
       haptic={false}
       onPress={() => phase.deck.toggleFold(phase.id)}
       style={styles.section}
       testID="deck-phase"
     >
-      <Icon as={open ? ChevronDown : ChevronRight} size={12} color={color.textFaint} />
-      <Text style={styles.sectionTitle} numberOfLines={1}>
+      <StageGlyph
+        stage={facts.complete ? 'done' : issueStatusOf(facts.status)}
+        ground={color.groupedBg}
+      />
+      <Text style={[styles.sectionTitle, { color: deckWordColor(facts.word) }]} numberOfLines={2}>
         {title}
       </Text>
-      <Text style={styles.sectionCount}>{`${done}/${total}`}</Text>
+      <Text
+        style={[styles.sectionCount, { color: deckWordColor(facts.word) }]}
+      >{`${done}/${total}`}</Text>
+      <Icon as={open ? ChevronDown : ChevronRight} size={12} color={color.textFaint} />
     </PressableScale>
   )
 })
@@ -428,6 +453,7 @@ const TaskLine = observer(function TaskLine({
   // A cold row's facts are still loading: draw its place, not a throw.
   const facts = settled(() => ({
     word: task.word,
+    status: task.row.status,
     title: task.row.title,
     ref: task.row.displayRef,
     foldable: task.foldable,
@@ -448,21 +474,22 @@ const TaskLine = observer(function TaskLine({
   const label = taskWordText(word, blockers === LOADING ? 0 : blockers)
   return (
     <View style={styles.line}>
-      <View style={[styles.gutter, { marginLeft: indent * space.md }]}>
+      <View style={[styles.taskMarks, { marginLeft: Math.min(indent, 3) * space.sm }]}>
         {foldable ? (
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel={`${open ? 'Collapse' : 'Expand'} ${title}`}
-            accessibilityState={{ expanded: open }}
-            hitSlop={8}
-            style={styles.foldToggle}
-            onPress={() => task.deck.toggleFold(task.id)}
-          >
-            <Icon as={open ? ChevronDown : ChevronRight} size={16} color={color.textDim} />
-          </PressableScale>
-        ) : (
-          <WordGlyph word={word} />
-        )}
+          <View style={styles.disclosure}>
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel={`${open ? 'Collapse' : 'Expand'} ${title}`}
+              accessibilityState={{ expanded: open }}
+              hitSlop={8}
+              style={styles.foldToggle}
+              onPress={() => task.deck.toggleFold(task.id)}
+            >
+              <Icon as={open ? ChevronDown : ChevronRight} size={12} color={color.textDim} />
+            </PressableScale>
+          </View>
+        ) : null}
+        <StageGlyph stage={issueStatusOf(facts.status)} ground={color.groupedCard} />
       </View>
       <PressableScale
         accessibilityRole="button"
@@ -478,12 +505,17 @@ const TaskLine = observer(function TaskLine({
         ]}
         testID="deck-task"
       >
-        <Text style={[styles.lineTitle, word === 'done' && styles.doneTitle]} numberOfLines={1}>
-          {title}
-        </Text>
-        <Text style={[styles.word, wordTone(word)]} numberOfLines={1}>
-          {label}
-        </Text>
+        <View style={styles.taskText}>
+          <Text style={[styles.lineTitle, word === 'done' && styles.doneTitle]} numberOfLines={2}>
+            {title}
+          </Text>
+          <View style={styles.taskMeta}>
+            <Text style={styles.taskRef}>{ref}</Text>
+            <Text style={[styles.word, wordTone(word)]} numberOfLines={1}>
+              {label}
+            </Text>
+          </View>
+        </View>
       </PressableScale>
     </View>
   )
@@ -522,17 +554,18 @@ const AgentLine = observer(function AgentLine({
       ]}
       testID="deck-agent"
     >
-      <View style={[styles.gutter, { marginLeft: space.lg + indent * space.md }]}>
+      <View style={[styles.gutter, { marginLeft: space.lg + Math.min(indent, 3) * space.sm }]}>
         <SessionGlyph word={session.word} />
       </View>
-      <Text style={styles.agentName} numberOfLines={1}>
-        {name}
-      </Text>
-      {model ? (
-        <Text style={styles.agentModel} numberOfLines={1}>
-          {model}
+      <View style={styles.seatText}>
+        <Text style={styles.agentName} numberOfLines={2}>
+          {name}
         </Text>
-      ) : null}
+        <Text style={styles.agentModel} numberOfLines={2}>
+          <Text style={wordTone(session.word)}>{SESSION_WORD_LABEL[session.word]}</Text>
+          {model ? ` · ${model}` : ''}
+        </Text>
+      </View>
     </PressableScale>
   )
 })
@@ -576,10 +609,10 @@ const SeatRow = observer(function SeatRow({
       </View>
       <View style={[styles.seatBody, !first && styles.separated]}>
         <View style={styles.seatText}>
-          <Text style={styles.seatName} numberOfLines={1}>
+          <Text style={styles.seatName} numberOfLines={2}>
             {name}
           </Text>
-          <Text style={styles.seatSub} numberOfLines={1}>
+          <Text style={styles.seatSub} numberOfLines={2}>
             <Text style={wordTone(session.word)}>{word}</Text>
             {model ? ` · ${model}` : ''}
           </Text>
@@ -604,50 +637,33 @@ function sessionModelLabel(session: SessionModel): string | null {
 }
 
 function wordTone(word: TaskWord | SessionWord) {
-  if (word === 'error') return styles.errorText
-  if (word === 'needs-you') return styles.needsText
-  if (word === 'working') return styles.workingText
-  return null
-}
-
-function WordGlyph({ word }: { word: TaskWord }): ReactNode {
-  if (word === 'working') return <WorkingMark size={10} />
-  if (word === 'needs-you') return <View style={styles.dot} />
-  if (word === 'error') return <View style={[styles.dot, styles.errorDot]} />
-  if (word === 'done') return <Icon as={Check} size={13} color={color.workingText} />
-  return <View style={styles.ring} />
+  return { color: deckWordColor(word) }
 }
 
 function SessionGlyph({ word }: { word: SessionWord }): ReactNode {
   if (word === 'working') return <WorkingMark size={10} />
   if (word === 'needs-you') return <View style={styles.dot} />
   if (word === 'error') return <View style={[styles.dot, styles.errorDot]} />
-  if (word === 'done') return <Icon as={Check} size={13} color={color.textFaint} />
+  if (word === 'done') return <Icon as={Check} size={13} color={deckColor.done} />
   return <View style={styles.ring} />
 }
 
-/** Rows: 12 inset, 14 status column, 8 gap — every title starts at x=34. */
+/** Keep the disclosure separate from the stage glyph, including on collapsed tasks. */
 const GUTTER = 16
-const INSET = space.md
+const INSET = space.lg
 const ROW_H = 44
 
 const CHIP_SLOP = { top: 6, bottom: 6 }
 
 const styles = StyleSheet.create({
-  head: { gap: 6, paddingBottom: space.xs },
+  head: { gap: space.sm },
   title: {
     ...sans(600),
-    flex: 1,
     color: color.text,
     fontSize: font.body,
     lineHeight: 24,
   },
   sub: { ...sans(400), color: color.textDim, fontSize: font.tiny, lineHeight: leading(font.tiny) },
-  group: {
-    backgroundColor: color.quaternaryFill,
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
   seat: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -675,7 +691,7 @@ const styles = StyleSheet.create({
   seatText: { flex: 1, minWidth: 0 },
   seatName: { ...sans(600), color: color.text, fontSize: font.small, lineHeight: 20 },
   seatSub: { ...sans(400), color: color.textDim, fontSize: font.tiny, lineHeight: 17 },
-  filters: { flexDirection: 'row', gap: space.xs },
+  filters: { flexWrap: 'wrap', flexDirection: 'row', gap: space.xs },
   filter: {
     flexGrow: 1,
     flexShrink: 1,
@@ -698,7 +714,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
-    minHeight: 28,
+    minHeight: 44,
     paddingHorizontal: INSET,
     marginTop: space.sm,
   },
@@ -707,9 +723,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
-    minHeight: 28,
+    minHeight: 44,
   },
-  sectionTitle: { ...sans(600), color: color.textDim, fontSize: font.tiny, flexShrink: 1 },
+  sectionTitle: {
+    ...sans(600),
+    color: color.textDim,
+    fontSize: font.small,
+    lineHeight: leading(font.small),
+    flex: 1,
+  },
   sectionCount: {
     ...mono(400),
     color: color.textFaint,
@@ -728,7 +750,18 @@ const styles = StyleSheet.create({
   },
   pressed: { backgroundColor: color.tertiaryFill },
   gutter: { width: GUTTER, alignItems: 'center', justifyContent: 'center' },
-  foldToggle: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  taskMarks: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
+  disclosure: { width: 16, alignItems: 'center' },
+  foldToggle: {
+    width: 20,
+    minWidth: 20,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  taskText: { flex: 1, minWidth: 0, paddingVertical: space.sm, gap: space.xs },
+  taskMeta: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, alignItems: 'center' },
+  taskRef: { ...mono(400), color: color.textFaint, fontSize: font.micro },
   lineBody: {
     flex: 1,
     minWidth: 0,
@@ -742,25 +775,30 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: color.hairline,
   },
-  lineTitle: { ...sans(400), flex: 1, minWidth: 0, color: color.text, fontSize: font.small },
+  lineTitle: {
+    ...sans(400),
+    minWidth: 0,
+    color: color.text,
+    fontSize: font.small,
+    lineHeight: leading(font.small),
+  },
   doneTitle: { color: color.textDim },
   word: { ...sans(400), color: color.textFaint, fontSize: 12, flexShrink: 0, textAlign: 'right' },
   agent: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
-    minHeight: 36,
+    minHeight: 44,
+    paddingVertical: space.sm,
     paddingLeft: INSET,
     paddingRight: INSET,
   },
-  agentName: { ...sans(400), flex: 1, minWidth: 0, color: color.textDim, fontSize: font.tiny },
+  agentName: { ...sans(400), minWidth: 0, color: color.textDim, fontSize: font.tiny },
   agentModel: { ...mono(400), color: color.textFaint, fontSize: font.micro },
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: color.needsYou },
   errorDot: { backgroundColor: color.danger },
   ring: { width: 8, height: 8, borderRadius: 4, borderWidth: 1.5, borderColor: color.textFaint },
-  needsText: { color: color.needsYouText },
-  workingText: { color: color.workingText },
-  errorText: { color: color.dangerText },
+  needsText: { color: deckColor.needsYou },
   empty: {
     ...sans(400),
     color: color.textDim,

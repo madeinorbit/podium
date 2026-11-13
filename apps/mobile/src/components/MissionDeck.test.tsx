@@ -1,3 +1,6 @@
+import { readFileSync, writeFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { asIssueId, asSessionId } from '@podium/model'
@@ -330,4 +333,73 @@ it('draws each phase crew once when an outer phase resumes after a nested phase'
   expect(screen.getAllByText('Outer helper')).toHaveLength(1)
   expect(screen.getAllByText('Nested helper')).toHaveLength(1)
   expect(screen.getByText('After nested')).toBeTruthy()
+})
+
+it('keeps dozens of wrapped proposals readable after filtering a long mission', async () => {
+  const phase = issue({
+    id: asIssueId('phase-long'),
+    parentId: root.id,
+    type: 'phase',
+    title: 'Delivery',
+    seq: 2,
+  })
+  const tasks = Array.from({ length: 60 }, (_, index) =>
+    issue({
+      id: asIssueId(`long-${index}`),
+      parentId: phase.id,
+      seq: index + 3,
+      title:
+        index % 3 === 0
+          ? `Task ${index}: preserve conversation selection through background catch-up`
+          : `Delivery task ${index}`,
+      stage:
+        index % 4 === 0
+          ? 'done'
+          : index % 4 === 1
+            ? 'backlog'
+            : index % 4 === 2
+              ? 'review'
+              : 'in_progress',
+    }),
+  )
+  const proposals = Array.from({ length: 48 }, (_, index) =>
+    issue({
+      id: asIssueId(`proposed-${index}`),
+      parentId: root.id,
+      seq: index + 100,
+      title: `Proposal ${index}: preserve task titles and metadata when a proposal wraps over multiple lines`,
+      stage: 'proposed',
+    }),
+  )
+  const sessions = tasks
+    .filter((_, index) => index % 4 === 3)
+    .map((task, index) => agent(`worker-${index}`, task.id, `Agent ${index}`, 'working'))
+  await mount([root, phase, ...tasks, ...proposals], sessions)
+  expect(screen.getAllByTestId('deck-task')).toHaveLength(60)
+  expect(screen.getAllByTestId('deck-proposal')).toHaveLength(48)
+  await act(async () => fireEvent.click(screen.getByTestId('deck-filter-up-next')))
+  await act(async () => fireEvent.click(screen.getByTestId('deck-filter-all')))
+  expect(screen.getAllByTestId('deck-task')).toHaveLength(60)
+  expect(screen.getAllByTestId('deck-proposal')).toHaveLength(48)
+  const capture = process.env.PODIUM_MOBILE_DECK_CAPTURE
+  if (capture) {
+    const css = Array.from(document.styleSheets)
+      .flatMap((sheet) => Array.from(sheet.cssRules, (rule) => rule.cssText))
+      .join('\n')
+    const fonts = [
+      ['Geist_400Regular', 'geist/400Regular/Geist_400Regular.ttf'],
+      ['Geist_500Medium', 'geist/500Medium/Geist_500Medium.ttf'],
+      ['Geist_600SemiBold', 'geist/600SemiBold/Geist_600SemiBold.ttf'],
+      ['GeistMono_400Regular', 'geist-mono/400Regular/GeistMono_400Regular.ttf'],
+    ]
+      .map(
+        ([name, path]) =>
+          `@font-face{font-family:${name};src:url(data:font/ttf;base64,${readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../node_modules/@expo-google-fonts', path ?? '')).toString('base64')})}`,
+      )
+      .join('\n')
+    writeFileSync(
+      capture.replace(/\.html$/, '-long.html'),
+      `<!doctype html><html><head><meta charset="utf-8"><title>Flight deck layout, 60 tasks and 48 proposals</title><style>${fonts}\n${css}\nhtml,body{width:402px;height:874px;margin:0;background:#16171a}body{display:flex}body>div{display:flex;flex:1;min-width:0}</style></head><body>${document.body.innerHTML}</body></html>`,
+    )
+  }
 })
