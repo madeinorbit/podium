@@ -1505,6 +1505,7 @@ Files more than one task edits, and who goes first:
 
 - `session-start.ts`, `session-revival.ts`, `launch-config.ts`: 3, then 5, then 10, then 11.
 - `apps/server/src/modules/credentials/may-use.ts`: 3 and 4; the first to land creates it.
+- `packages/model/src/ids/keys.ts` (`credential` in `EntityKind`): 16 adds it, 4 rebases onto it.
 - `apps/server/src/modules/credentials/legacy-import.ts`: 2, then 4 (one function), then 21.
 - `apps/server/src/gateway/ws-server.ts`: 23, then 5.
 - `apps/daemon/src/control/session.ts`, `host-runtime.ts`: 5, then 8, then 15.
