@@ -453,10 +453,12 @@ describe('one projection pass', () => {
         await f.store.close()
       }
     }
-    // Repo registry is warm from fixture creation. Two physical reads: issues
-    // and queue counts; no grant read (sessions are private, POD-6283) and no
-    // personal overlays. Calibration accounts for POD-3852 double recording.
-    expect(counts[0]).toBe(2)
+    // Repo registry is warm from fixture creation. No grant read (sessions are
+    // private, POD-6283) and no personal overlays. Calibration accounts for
+    // POD-3852 double recording. Since POD-6920 the change-log commit builds
+    // the session records (the fake commit here builds none), so the issue
+    // and queue-count reads left this slice: one physical read remains.
+    expect(counts[0]).toBe(1)
     expect(counts).toEqual([counts[0], counts[0], counts[0]])
   })
 

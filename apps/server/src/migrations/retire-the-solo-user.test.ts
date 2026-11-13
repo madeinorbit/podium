@@ -604,10 +604,16 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
     ])
     expect(oldIdentity(db)).toEqual(identity)
 
-    // Today's server on the upgraded database: the client holding the old
+    db.close()
+
+    // Today's server on a database upgraded through the whole chain (the
+    // replay above is no migration of this build): the client holding the old
     // generation is told to reload, and the load carries the new owner.
-    runDrizzleMigrations(db, ALL_MIGRATIONS)
-    const queries = createTestSyncQueries(db)
+    const upgraded = preMigrationDb()
+    seedOldFeed(upgraded, JSON.stringify({ sessionId: 'sess-1', ownerUserId: RETIRED }))
+    if (compacted) upgraded.exec('DELETE FROM changes')
+    runDrizzleMigrations(upgraded, ALL_MIGRATIONS)
+    const queries = createTestSyncQueries(upgraded)
     const bootRepo = new SyncRepository(queries, testSyncServerTables)
     const records = new ModelRecords()
     records.set([
@@ -615,7 +621,7 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
         entity: 'session',
         entityId: 'sess-1',
         op: 'upsert',
-        value: { sessionId: 'sess-1', ownerUserId: firstAdminId(db) },
+        value: { sessionId: 'sess-1', ownerUserId: firstAdminId(upgraded) },
       },
     ])
     const ledger = new Ledger({
@@ -661,9 +667,9 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
     expect(received.map((frame) => frame.type)).toEqual(['feedResyncRequired'])
     const bootstrap = await ledger.authority.bootstrap(DEVICE_GRADE_PRINCIPAL)
     expect(bootstrap.changes.map((change) => change.value)).toEqual([
-      { sessionId: 'sess-1', ownerUserId: firstAdminId(db) },
+      { sessionId: 'sess-1', ownerUserId: firstAdminId(upgraded) },
     ])
-    db.close()
+    upgraded.close()
   })
 
   it('rolls the epoch back with the owner rewrite when the migration fails', async () => {
