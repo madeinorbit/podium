@@ -4,13 +4,13 @@ import * as FileSystem from 'expo-file-system/legacy'
 import * as ImagePicker from 'expo-image-picker'
 import { ActionSheetIOS, Platform } from 'react-native'
 import {
+  type AttachmentReadSource,
   checkedClipboardImage,
   readAttachmentsSequentially,
-  type AttachmentReadSource,
 } from './composer-media-limits'
-import { openNativePicker } from './composer-picker-errors'
 import type { PickedFile } from './composer-media-types'
 import { ORIGINAL_PHOTO_PICKER_POLICY, photoUploadMetadata } from './composer-photo-policy'
+import { openNativePicker } from './composer-picker-errors'
 
 export type { PickedFile } from './composer-media-types'
 
@@ -55,7 +55,7 @@ async function readPicked(sources: readonly AttachmentReadSource[]): Promise<Pic
   })
 }
 
-async function pickPhotos(): Promise<PickedFile[]> {
+export async function pickPhotos(): Promise<PickedFile[]> {
   const assets = await openNativePicker('Photos', async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
@@ -79,7 +79,7 @@ async function pickPhotos(): Promise<PickedFile[]> {
   )
 }
 
-async function pickDocuments(): Promise<PickedFile[]> {
+export async function pickDocuments(): Promise<PickedFile[]> {
   const assets = await openNativePicker('Files', async () => {
     const result = await DocumentPicker.getDocumentAsync({
       type: '*/*',
@@ -100,6 +100,24 @@ async function pickDocuments(): Promise<PickedFile[]> {
         ...(asset.size === undefined ? {} : { size: asset.size }),
       }
     }),
+  )
+}
+
+export async function takePhoto(): Promise<PickedFile[]> {
+  const assets = await openNativePicker('Camera', async () => {
+    const permission = await ImagePicker.requestCameraPermissionsAsync()
+    if (!permission.granted) throw new Error('Allow camera access in Settings to take a photo.')
+    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 1 })
+    return { cancelled: result.canceled, value: result.assets }
+  })
+  if (!assets) return []
+  return readPicked(
+    assets.map((asset, index) => ({
+      uri: asset.uri,
+      ...photoUploadMetadata(index, asset.fileName, asset.mimeType),
+      previewUri: asset.uri,
+      ...(asset.fileSize === undefined ? {} : { size: asset.fileSize }),
+    })),
   )
 }
 

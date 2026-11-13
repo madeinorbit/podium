@@ -38,6 +38,7 @@ import { pickedFileReady } from '../lib/composer-media-types'
 export interface ComposerAttachment {
   id: string
   name: string
+  size?: number
   /** A local data URI while the bytes are in hand, or '' for a file with no
    *  preview — the chip then shows its name and a document glyph. */
   previewUri: string
@@ -64,6 +65,8 @@ export interface ComposerAttachmentsApi {
   paste?: () => void
   /** Wired by the composer to its own text node: a browser paste or drop. */
   accept: (files: PickedFile[]) => void
+  /** Explicit Photos/Camera/Files intake uses the same serialized upload queue. */
+  fromSource: (source: () => Promise<PickedFile[]>) => void
   remove: (id: string) => void
   clear: () => void
   /** The uploaded files ready to ride into the prompt, in the order attached. */
@@ -98,6 +101,8 @@ export function useComposerAttachments(
     prepareSession?: () => Promise<SessionId>
     /** Testable platform seam; production uses the native/web picker module. */
     pickMedia?: () => Promise<PickedFile[]>
+    /** The New Task composer holds uploads until sessions.create claims them. */
+    destination?: 'session' | 'issue'
   } = {},
 ): ComposerAttachmentsApi {
   const trpc = useTrpc()
@@ -147,6 +152,7 @@ export function useComposerAttachments(
           filename: file.name,
           mimeType: file.mimeType,
           dataBase64: file.dataBase64,
+          ...(options.destination === 'issue' ? { pending: true as const } : {}),
         })
         if (!result || !('path' in result)) throw new Error('upload refused')
         // A held upload answers its ref with no path (POD-2148). Otherwise an
@@ -168,7 +174,7 @@ export function useComposerAttachments(
         )
       }
     },
-    [trpc],
+    [trpc, options.destination],
   )
 
   const accept = useCallback(
@@ -179,6 +185,7 @@ export function useComposerAttachments(
           id: `att-${++seq}`,
           name: file.name,
           previewUri: file.previewUri,
+          ...(file.size === undefined ? {} : { size: file.size }),
           state: pickedFileReady(file) ? ('uploading' as const) : ('failed' as const),
           ...(file.error ? { error: file.error } : {}),
         },
@@ -240,6 +247,7 @@ export function useComposerAttachments(
     ...(canPickFiles ? { pick: () => fromSource(pickMediaRef.current) } : {}),
     ...(canPasteMedia ? { paste: () => fromSource(pasteMedia) } : {}),
     accept,
+    fromSource,
     remove: useCallback(
       (id: string) => setAttachments((prev) => prev.filter((a) => a.id !== id)),
       [],

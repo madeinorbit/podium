@@ -1,297 +1,431 @@
-import { headerEntities } from '@podium/client-graph/header-entities'
-import { readStoreStats, storeStats } from '@podium/client-core/perf'
-import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, StoreStatsProfiler } from '@podium/client-core/react'
-import type { SessionView } from '@podium/client-core/session-values'
-import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
-import { createSubscriptionStore } from '@podium/client-core/test-support/local-store'
-import type { ReferenceState as Store } from '../../../../tests/worklist/diagnostics/reference-state'
-import { MobxPool } from '@podium/client-graph/pool'
-import { createPoolProjection } from '@podium/client-graph/runtime-pool'
-import { asUserId, type GitRepositoryWire, type MachineWire } from '@podium/model'
-import { act, cleanup, fireEvent, render } from '@testing-library/react'
-import type { ReactNode } from 'react'
-import { useMemo, useSyncExternalStore } from 'react'
-import { afterEach, expect, it, vi } from 'vitest'
-import { startCensus } from '../../../../tests/worklist/harness/src/mobx-census'
-import type { MobileTrpc } from '../client/trpc'
-import { NewIssueScreen } from './NewIssueScreen'
+import { EMPTY_FIRST_TASK_DRAFT, readFirstTaskDraft } from '@podium/client-core/first-task-draft'
+import { COORDINATOR_PROMPT } from '@podium/client-core/new-task'
+import { FIRST_TASK_ACTIVATION_DRAFT_KEY, LAST_LAUNCH_PICK_KEY } from '@podium/client-core/ui-state'
+import type { GitRepositoryWire, MachineWire } from '@podium/model'
+import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import { type ReactElement, useState } from 'react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { renderWithMobileStore } from '../client/test-support'
+import type { ComposeMenuItem } from '../components/compose/ComposeMenu'
+import type { ComposeSheetHeaderProps } from '../components/compose/ComposeStartButton'
+import type { ComposerAttachmentsApi } from '../components/useComposerAttachments'
 
-const fixture = vi.hoisted(() => ({
-  handle: null as unknown,
-  pool: null as MobxPool | null,
-  sessions: [] as SessionView[],
+const seams = vi.hoisted(() => ({
+  replace: vi.fn(),
+  back: vi.fn(),
+  params: {} as { repoPath?: string; backTo?: string },
+  attachments: null as ComposerAttachmentsApi | null,
+  close: undefined as (() => void) | undefined,
 }))
-vi.mock('../../../../packages/client-core/src/engine/runtime', () => ({
-  createClientRuntime: () => fixture.handle,
+vi.mock('expo-router', () => ({
+  useRouter: () => ({
+    replace: seams.replace,
+    back: () => {
+      seams.back()
+      seams.close?.()
+    },
+  }),
+  useLocalSearchParams: () => seams.params,
 }))
-vi.mock('expo-router', () => ({ useRouter: () => ({ back() {}, replace() {} }) }))
-vi.mock('../hooks/useContentBottomInset', () => ({ useContentBottomInset: () => 0 }))
-vi.mock('../components/Screen', () => ({
-  Screen: ({ children }: { children: ReactNode }) => <>{children}</>,
+vi.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 0, bottom: 34, left: 0, right: 0 }),
 }))
-vi.mock('../components/LaunchConfigurationFields', () => ({
-  LaunchConfigurationFields: () => null,
+vi.mock('../hooks/useKeyboardHeight', () => ({ useKeyboardLift: () => 0 }))
+vi.mock('../components/compose/ComposeSheetHeader', () => ({
+  ComposeSheetHeader: (props: ComposeSheetHeaderProps) => (
+    <header>
+      <button type="button" onClick={props.onCancel}>
+        Cancel
+      </button>
+      <button type="button" disabled={!props.canStart} onClick={props.onStart}>
+        Start Task
+      </button>
+      <button type="button" disabled={!props.canSave} onClick={props.onSave}>
+        Save to Backlog
+      </button>
+      {props.saveReason}
+    </header>
+  ),
 }))
-vi.mock('../client/hooks', async (original) => {
-  const real = await original<typeof import('../client/hooks')>()
-  return { ...real, useSessions: () => fixture.sessions }
-})
-vi.mock('../client/mobile-pool', () => ({
-  useMobilePool: () => fixture.pool,
-  useMobilePoolProjection: <T,>(read: (pool: MobxPool) => T) => {
-    const view = useMemo(() => createPoolProjection(fixture.pool!, read), [read])
-    return useSyncExternalStore(view.subscribe, view.getSnapshot)
+// Only native menu presentation is replaced. The screen reads the real pool and calls real store actions.
+vi.mock('../components/compose/ComposeMenu', () => ({
+  ComposeMenu: ({
+    label,
+    items,
+    children,
+  }: {
+    label: string
+    items: readonly ComposeMenuItem[]
+    children: (open: () => void) => ReactElement
+  }) => {
+    const [open, setOpen] = useState(false)
+    const choices = (entries: readonly ComposeMenuItem[]): ReactElement[] =>
+      entries.flatMap((item) =>
+        item.items
+          ? choices(item.items)
+          : [
+              <button
+                key={item.id}
+                type="button"
+                role="menuitemradio"
+                aria-checked={item.selected}
+                disabled={item.disabled}
+                onClick={() => {
+                  item.onPress?.()
+                  setOpen(false)
+                }}
+              >
+                {item.label}
+                {item.subtitle}
+              </button>,
+            ],
+      )
+    return (
+      <>
+        {children(() => setOpen(!open))}
+        {open ? (
+          <div role="menu" aria-label={label}>
+            {choices(items)}
+          </div>
+        ) : null}
+      </>
+    )
   },
 }))
-afterEach(() => {
-  cleanup()
-  storeStats.enable(false)
-  storeStats.reset()
-  fixture.sessions = []
+vi.mock('../components/useComposerAttachments', async (original) => {
+  const real = await original<typeof import('../components/useComposerAttachments')>()
+  return {
+    ...real,
+    useComposerAttachments: (...args: Parameters<typeof real.useComposerAttachments>) => {
+      seams.attachments = real.useComposerAttachments(...args)
+      return seams.attachments
+    },
+  }
 })
+vi.mock('@podium/client-core/react', async (original) => ({
+  ...(await original<typeof import('@podium/client-core/react')>()),
+  useModelCatalog: () => ({
+    'claude-code': [{ value: 'reported-model', label: 'Reported Model', efforts: ['low', 'high'] }],
+  }),
+  useHarnessDescriptors: () => ({ served: undefined }),
+}))
+const { NewIssueScreen } = await import('./NewIssueScreen')
+// Transform the real lazy sources before the fixture's bounded attach deadline.
+await Promise.all([
+  import('@podium/client-graph/mobile-screens'),
+  import('@podium/client-graph/issue-page-source'),
+  import('@podium/client-graph/command-launch-source'),
+  import('@podium/client-graph/command-launch-views'),
+  import('@podium/client-graph/mobile-settings'),
+  import('@podium/client-graph/mobile-inbox-source'),
+  import('@podium/client-graph/mobile-inbox-views'),
+  import('@podium/client-graph/mobile-session-context'),
+])
 
-it('keeps new-task repository order and open, keystroke and machine-update work flat at 1x and 4x', async () => {
-  const cells: {
-    scale: number
-    action: string
-    rowReads: number
-    derivations: number
-    neighbours: number
-  }[] = []
-  const now = Date.parse('2026-10-03T08:00:00Z')
-  for (const scale of [1, 4]) {
-    let rowReads = 0,
-      machineReads = 0,
-      measuring = false
-    const repositories = ['z', 'a', 'm'].map((name) => ({
-      path: `/repo/${name}`,
-      kind: 'repository',
-      worktrees: [{ path: `/work/${name}`, branch: 'main' }],
-    })) as unknown as GitRepositoryWire[]
-    const sessions = Array.from({ length: 1_200 * scale }, (_, index) => ({
-      sessionId: `repository-history-${index}`,
+afterEach(cleanup)
+beforeEach(() => {
+  vi.clearAllMocks()
+  seams.params = {}
+  seams.close = undefined
+})
+const repository = (path = '/repo/podium', machineId = 'host'): GitRepositoryWire =>
+  ({
+    path,
+    kind: 'repository',
+    branch: 'main',
+    repoId: path,
+    machineId,
+    worktrees: [],
+  }) as GitRepositoryWire
+function machine(patch: Partial<MachineWire> = {}): MachineWire {
+  return {
+    id: 'host',
+    name: 'Studio',
+    hostname: 'studio',
+    online: true,
+    use: 'granted',
+    serviceAssignment: { server: false, agentExecution: true },
+    availability: { epoch: 'boot', server: false, daemon: true, supervisor: true },
+    lastSeenAt: '2026-01-01T00:00:00Z',
+    inventory: {
+      os: 'linux',
+      arch: 'x64',
+      agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
+      tools: [],
+    },
+    ...patch,
+  } as MachineWire
+}
+const prompt = () => screen.getByRole('textbox', { name: 'Task prompt' }) as HTMLTextAreaElement
+async function ready() {
+  await waitFor(() =>
+    expect((screen.getByRole('button', { name: 'Start Task' }) as HTMLButtonElement).disabled).toBe(
+      false,
+    ),
+  )
+}
+async function mount(
+  extra: Parameters<typeof renderWithMobileStore>[1] = {},
+  child = <NewIssueScreen />,
+) {
+  return renderWithMobileStore(child, { repos: [repository()], machines: [machine()], ...extra })
+}
+
+describe('native New Task sheet logic', () => {
+  it('starts an empty prompt through sessions.create and opens the terminal without filing a named task', async () => {
+    const create = vi.fn(async (input: { sessionId: string }) => ({ sessionId: input.sessionId }))
+    const file = vi.fn()
+    await mount({
+      api: { sessions: { create: { mutate: create } }, issues: { create: { mutate: file } } },
+    })
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: 'Start Task' }))
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+    expect(create.mock.calls[0]?.[0]).toMatchObject({
+      cwd: '/repo/podium',
       agentKind: 'claude-code',
-      status: 'exited',
-      archived: true,
-      cwd: `/work/${['z', 'a', 'm'][index % 3]}/nested`,
-      lastActiveAt: new Date(now - (index % 3) * 60_000 - 86_400_000).toISOString(),
-      stoppedAt: new Date(now - 86_400_000).toISOString(),
-    })) as unknown as SessionView[]
-    fixture.pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
-      load: (_kind, id) => sessions.find((session) => session.sessionId === id),
-      summaries: { session: ['sessionId', 'cwd', 'lastActiveAt', 'archived', 'status'] },
+      draftIssue: { repoPath: '/repo/podium' },
     })
-    fixture.pool.apply({
-      type: 'replace',
-      rows: sessions.map((session) => ({ kind: 'session', id: session.sessionId, value: session })),
+    expect(create.mock.calls[0]?.[0]).not.toHaveProperty('initialPrompt')
+    expect(file).not.toHaveBeenCalled()
+    expect(seams.replace.mock.calls[0]?.[0]).toMatchObject({
+      pathname: '/session/[sessionId]/terminal',
     })
-    expect(fixture.pool.tables.session.size, 'historical sessions stay cold').toBe(0)
-    headerEntities(fixture.pool).apply(
-      repositories.map((value) => ({ kind: 'repository', id: value.path, value })),
+  })
+
+  it('starts a written prompt through the desktop draft-session procedure and opens its chat', async () => {
+    const create = vi.fn(async (input: { sessionId: string }) => ({ sessionId: input.sessionId }))
+    await mount({ api: { sessions: { create: { mutate: create } } } })
+    await ready()
+    fireEvent.change(prompt(), { target: { value: 'Fix the jump\n\nKeep context.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Start Task' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start Task' }))
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+    expect(create.mock.calls[0]?.[0]).toMatchObject({
+      initialPrompt: 'Fix the jump\n\nKeep context.',
+    })
+    expect(seams.replace.mock.calls[0]?.[0]).toMatchObject({ pathname: '/session/[sessionId]' })
+  })
+
+  it('saves to Backlog with the shared first-line title and never starts a session', async () => {
+    const create = vi.fn(async (_input: Record<string, unknown>) => ({ id: 'iss_saved' }))
+    const start = vi.fn()
+    await mount({
+      api: { issues: { create: { mutate: create } }, sessions: { create: { mutate: start } } },
+    })
+    await ready()
+    fireEvent.change(prompt(), { target: { value: '\n  Fix the jump  \n\nKeep exact context. ' } })
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'Save to Backlog' }) as HTMLButtonElement).disabled,
+      ).toBe(false),
     )
-    headerEntities(fixture.pool).order(
-      'repository',
-      repositories.map((value) => value.path),
+    fireEvent.click(screen.getByRole('button', { name: 'Save to Backlog' }))
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+    expect(create.mock.calls[0]?.[0]).toMatchObject({
+      title: 'Fix the jump',
+      description: '\n  Fix the jump  \n\nKeep exact context. ',
+      startNow: false,
+    })
+    expect(create.mock.calls[0]?.[0]).not.toHaveProperty('defaultModel')
+    expect(start).not.toHaveBeenCalled()
+  })
+
+  it('retries an ambiguous backlog save with the same issue and mutation identities', async () => {
+    const create = vi
+      .fn(async (_input: Record<string, unknown>) => ({ id: 'iss_saved' }))
+      .mockRejectedValueOnce(new Error('Connection interrupted'))
+    await mount({ api: { issues: { create: { mutate: create } } } })
+    await ready()
+    fireEvent.change(prompt(), { target: { value: 'Keep one backlog task' } })
+    const save = () => screen.getByRole('button', { name: 'Save to Backlog' }) as HTMLButtonElement
+    await waitFor(() => expect(save().disabled).toBe(false))
+    fireEvent.click(save())
+    await waitFor(() => expect(screen.getByText(/Connection interrupted/)).toBeTruthy())
+    await waitFor(() => expect(save().disabled).toBe(false))
+    fireEvent.click(save())
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2))
+    expect(create.mock.calls[1]?.[0]).toEqual(create.mock.calls[0]?.[0])
+  })
+
+  it('opens Shell from the Model submenu through the same session launch', async () => {
+    const create = vi.fn(async (input: { sessionId: string }) => ({ sessionId: input.sessionId }))
+    await mount({ api: { sessions: { create: { mutate: create } } } })
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: /Agent, Claude Code/ }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Shell' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Agent, Shell' })).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'Start Task' }))
+    await waitFor(() => expect(create.mock.calls[0]?.[0]).toMatchObject({ agentKind: 'shell' }))
+    expect(seams.replace.mock.calls[0]?.[0]).toMatchObject({
+      pathname: '/session/[sessionId]/terminal',
+    })
+  })
+
+  it('seeds a project entry point and resolves that project’s usable checkout on its machine', async () => {
+    seams.params = { repoPath: '/repo/second' }
+    const create = vi.fn(async (input: { sessionId: string }) => ({ sessionId: input.sessionId }))
+    await mount({
+      repos: [repository(), repository('/repo/second', 'remote')],
+      machines: [machine(), machine({ id: 'remote' as MachineWire['id'], name: 'Remote' })],
+      api: { sessions: { create: { mutate: create } } },
+    })
+    await ready()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Project, second' })).toBeTruthy(),
     )
-    const machines = Array.from(
-      { length: 128 * scale },
-      (_, index) =>
-        ({
-          id: `unrelated-machine-${index}`,
-          name: `Unrelated ${index}`,
-        }) as MachineWire,
+    expect(screen.getByRole('button', { name: 'Machine, Remote' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Start Task' }))
+    await waitFor(() =>
+      expect(create.mock.calls[0]?.[0]).toMatchObject({ cwd: '/repo/second', machineId: 'remote' }),
     )
-    headerEntities(fixture.pool).apply(machines.map((value) => ({ kind: 'machine', id: value.id, value })))
-    fixture.sessions = sessions.map(
-      (session) =>
-        new Proxy(session, {
-          get(target, key, receiver) {
-            if (measuring && key === 'cwd') rowReads++
-            return Reflect.get(target, key, receiver)
-          },
-        }),
-    )
-    const row = fixture.pool.row.bind(fixture.pool)
-    const spy = vi.spyOn(fixture.pool, 'row').mockImplementation(((
-      ...args: Parameters<MobxPool['row']>
-    ) => {
-      if (measuring) {
-        rowReads++
-        if (String(args[0]) === 'machine') machineReads++
-      }
-      return row(...args)
-    }) as MobxPool['row'])
-    const owner = { start() {}, dispose() {}, destroy() {} }
-    const trpc = { settings: { get: { query: async () => ({}) } } } as unknown as MobileTrpc
-    fixture.handle = Object.assign(
-      owner,
-      createSubscriptionStore(
-        {
-          repos: repositories,
-          sessions: fixture.sessions,
-          trpc,
-          coarseNow: now,
-        } as unknown as Store<MobileTrpc>,
-        undefined,
-        owner,
-      ),
-      { access: { trpc } },
-    )
-    const census = startCensus({ sample: () => ({ rowReads }) })
-    census.enter('open new task')
-    measuring = true
-    const view = render(
-      <StoreProvider
-        principal={asClientPrincipal(asUserId('test'))}
-        config={{ httpOrigin: 'http://test', wsClientUrl: 'ws://test' }}
-        api={trpc}
-        onFatalError={() => {}}
-        createReplicaFn={() => {
-          throw new Error('mock runtime')
-        }}
-      >
+  })
+
+  it('keeps prompt and picks on cancel and restores them from the same UI-state key on reopen', async () => {
+    function Harness() {
+      const [open, setOpen] = useState(true)
+      seams.close = () => setOpen(false)
+      return open ? (
         <NewIssueScreen />
-      </StoreProvider>,
-    )
-    try {
-      await act(async () => {})
-      const choices = view.getAllByRole('radio', { name: /^Repository / })
-      expect(choices.map((choice) => choice.getAttribute('aria-label'))).toEqual([
-        'Repository z',
-        'Repository a',
-        'Repository m',
-      ])
-      expect(choices[0]?.getAttribute('aria-checked')).toBe('true')
-      census.exit()
-      const phase = census.snapshot().phases['open new task']!
-      cells.push({
-        scale,
-        action: 'open',
-        rowReads,
-        derivations: phase.computedRuns + phase.reactionRuns,
-        neighbours: choices.length,
-      })
-      expect(machineReads, 'repository paths and count never demand machine rows').toBe(0)
-      for (const action of ['keystroke', 'machine update'] as const) {
-        rowReads = 0
-        census.enter(action)
-        act(() => {
-          if (action === 'keystroke') {
-            fireEvent.change(view.getByPlaceholderText('What needs doing?'), {
-              target: { value: 'A task' },
-            })
-          } else {
-            headerEntities(fixture.pool!).apply([
-              {
-                kind: 'machine',
-                id: machines[0]!.id,
-                value: { ...machines[0]!, name: 'Renamed while creating' },
-              },
-            ])
-          }
-        })
-        await act(async () => {})
-        census.exit()
-        const work = census.snapshot().phases[action]!
-        expect(machineReads).toBe(0)
-        expect(rowReads).toBe(0)
-        cells.push({
-          scale,
-          action,
-          rowReads,
-          derivations: work.computedRuns + work.reactionRuns,
-          neighbours: choices.length,
-        })
-      }
-    } finally {
-      measuring = false
-      census.stop()
-      spy.mockRestore()
-      view.unmount()
-      fixture.pool.dispose()
-    }
-  }
-  console.info('[new task open work]', JSON.stringify(cells))
-  for (const action of ['open', 'keystroke', 'machine update']) {
-    const base = cells.find((cell) => cell.scale === 1 && cell.action === action)!
-    const larger = cells.find((cell) => cell.scale === 4 && cell.action === action)!
-    for (const metric of ['rowReads', 'derivations'] as const)
-      expect(larger[metric], `new task ${action}: 4x/1x ${metric}`).toBe(base[metric])
-  }
-})
-
-const repo = (path: string) =>
-  ({ path, kind: 'repository', worktrees: [] }) as unknown as GitRepositoryWire
-
-it('isolates NewIssueScreen from unrelated publishes while still painting repository updates', async () => {
-  const results = []
-  {
-    fixture.pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
-    headerEntities(fixture.pool).apply([{ kind: 'repository', id: '/before', value: repo('/before') }])
-    headerEntities(fixture.pool).order('repository', ['/before'])
-    const owner = { start() {}, dispose() {}, destroy() {} }
-    const trpc = { settings: { get: { query: async () => ({}) } } } as unknown as MobileTrpc
-    const store = createSubscriptionStore(
-      {
-        repos: [repo('/before')],
-        sessions: [],
-        trpc,
-        coarseNow: 0,
-      } as unknown as Store<MobileTrpc>,
-      undefined,
-      owner,
-    )
-    fixture.handle = Object.assign(owner, store, { access: { trpc } })
-    const view = render(
-      <StoreProvider
-        principal={asClientPrincipal(asUserId('test'))}
-        config={{ httpOrigin: 'http://test', wsClientUrl: 'ws://test' }}
-        api={trpc}
-        onFatalError={() => {}}
-        createReplicaFn={() => {
-          throw new Error('mock runtime')
-        }}
-      >
-        <StoreStatsProfiler>
-          <NewIssueScreen />
-        </StoreStatsProfiler>
-      </StoreProvider>,
-    )
-    await act(async () => {})
-    expect(view.getByRole('radio', { name: 'Repository before' })).toBeTruthy()
-    storeStats.enable()
-    storeStats.reset()
-    const window = storeStats.begin('feed')
-    for (const coarseNow of [1, 2, 3]) {
-      act(() => store.publish({ ...store.getSnapshot(), coarseNow }, new Set(['coarseNow'])))
-    }
-    storeStats.end(window)
-    const unrelated = readStoreStats().runtimes[0]!
-    storeStats.reset()
-    // Same selected path avoids a separate local selection effect; the added
-    // option must appear in both arms and requires a real selected-field update.
-    act(() => {
-      store.publish(
-        { ...store.getSnapshot(), repos: [repo('/before'), repo('/after')] },
-        new Set(['repos']),
+      ) : (
+        <button type="button" onClick={() => setOpen(true)}>
+          Reopen
+        </button>
       )
-      headerEntities(fixture.pool!).apply([{ kind: 'repository', id: '/after', value: repo('/after') }])
-      headerEntities(fixture.pool!).order('repository', ['/before', '/after'])
+    }
+    const { runtime } = await mount({}, <Harness />)
+    await ready()
+    act(() =>
+      runtime.access.uiState.set(
+        FIRST_TASK_ACTIVATION_DRAFT_KEY,
+        JSON.stringify({
+          ...EMPTY_FIRST_TASK_DRAFT,
+          title: 'A saved prompt\nContext.',
+          repoPath: '/repo/podium',
+          machineId: 'host',
+          agent: 'claude-code',
+          model: 'reported-model',
+          effort: 'high',
+          launchPickTouched: true,
+        }),
+      ),
+    )
+    await waitFor(() => expect(prompt().value).toBe('A saved prompt\nContext.'))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reopen' }))
+    await waitFor(() => expect(prompt().value).toBe('A saved prompt\nContext.'))
+    expect(
+      screen.getByRole('button', { name: /Agent, Claude Code, Reported Model · High/ }),
+    ).toBeTruthy()
+    expect(
+      readFirstTaskDraft(runtime.access.uiState.get(FIRST_TASK_ACTIVATION_DRAFT_KEY)).effort,
+    ).toBe('high')
+  })
+
+  it('restores the last launch picks per machine and harness without writing them on dismissal', async () => {
+    const { runtime } = await mount()
+    await ready()
+    act(() => {
+      runtime.access.uiState.set(
+        LAST_LAUNCH_PICK_KEY,
+        JSON.stringify({ host: { 'claude-code': { model: 'reported-model', effort: 'high' } } }),
+      )
+      runtime.access.uiState.set(
+        FIRST_TASK_ACTIVATION_DRAFT_KEY,
+        JSON.stringify(EMPTY_FIRST_TASK_DRAFT),
+      )
     })
-    const relevant = readStoreStats().runtimes[0]!
-    expect(view.getByRole('radio', { name: 'Repository after' })).toBeTruthy()
-    results.push({
-      publishes: unrelated.publishes,
-      unrelatedCommits: unrelated.reactCommits,
-      relevantPublishes: relevant.publishes,
-      relevantCommits: relevant.reactCommits,
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /Agent, Claude Code, Reported Model · High/ }),
+      ).toBeTruthy(),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(JSON.parse(runtime.access.uiState.get(LAST_LAUNCH_PICK_KEY) ?? '{}')).toEqual({
+      host: { 'claude-code': { model: 'reported-model', effort: 'high' } },
     })
-    view.unmount()
-    fixture.pool.dispose()
-    storeStats.enable(false)
-  }
-  expect(results).toEqual([
-    { publishes: 3, unrelatedCommits: 0, relevantPublishes: 1, relevantCommits: 1 },
-  ])
+  })
+
+  it('keeps Start enabled for headed sign-in, shows desktop copy, and opens the terminal', async () => {
+    const host = machine()
+    const reportedAgent = host.inventory?.agents[0]
+    if (!reportedAgent) throw new Error('Missing fixture agent')
+    reportedAgent.login = { state: 'out' }
+    await mount({ machines: [host] })
+    await ready()
+    fireEvent.change(prompt(), { target: { value: 'Start after signing in' } })
+    expect(
+      screen.getByText(
+        'Claude Code is not signed in on Studio. It opens in its terminal, where you can sign in.',
+      ),
+    ).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Start Task' }))
+    expect(seams.replace.mock.calls[0]?.[0]).toMatchObject({
+      pathname: '/session/[sessionId]/terminal',
+    })
+  })
+
+  it('shows desktop permission copy and permits Save while Start is blocked', async () => {
+    await mount({ machines: [machine({ use: 'denied' })] })
+    fireEvent.change(prompt(), { target: { value: 'File this for later' } })
+    expect(
+      screen.getByText(
+        'You do not have access to run work on this machine. Ask its owner for access, or pick another machine.',
+      ),
+    ).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Start Task' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'Save to Backlog' }) as HTMLButtonElement).disabled,
+      ).toBe(false),
+    )
+  })
+
+  it('holds attachments with pending:true and passes their refs through Start', async () => {
+    const ref = {
+      id: 'held-upload',
+      filename: 'shot.png',
+      mediaType: 'image/png',
+      kind: 'image' as const,
+    }
+    const upload = vi.fn(async (_input: Record<string, unknown>) => ({ path: '', attachment: ref }))
+    const create = vi.fn(async (input: { sessionId: string }) => ({ sessionId: input.sessionId }))
+    await mount({
+      api: { sessions: { uploadImage: { mutate: upload }, create: { mutate: create } } },
+    })
+    await ready()
+    fireEvent.change(prompt(), { target: { value: 'Fix the attached issue' } })
+    act(() =>
+      seams.attachments?.accept([
+        {
+          name: 'shot.png',
+          mimeType: 'image/png',
+          dataBase64: 'aGVsbG8=',
+          previewUri: 'data:image/png;base64,aGVsbG8=',
+        },
+      ]),
+    )
+    await waitFor(() => expect(seams.attachments?.attachments[0]?.state).toBe('ready'))
+    expect(upload.mock.calls[0]?.[0]).toMatchObject({ pending: true })
+    expect(
+      (screen.getByRole('button', { name: 'Save to Backlog' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+    expect(screen.getByText('Attachments go with Start')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Start Task' }))
+    await waitFor(() => expect(create.mock.calls[0]?.[0]).toMatchObject({ attachments: [ref] }))
+  })
+
+  it('inserts the coordinator prompt once and treats Return as a newline', async () => {
+    await mount()
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: 'Try adding a coordinator prompt' }))
+    await waitFor(() => expect(prompt().value).toBe(COORDINATOR_PROMPT))
+    expect(screen.queryByRole('button', { name: 'Try adding a coordinator prompt' })).toBeNull()
+    fireEvent.keyDown(prompt(), { key: 'Enter' })
+    expect(seams.replace).not.toHaveBeenCalled()
+    fireEvent.keyDown(prompt(), { key: 'Enter', metaKey: true })
+    expect(seams.replace).toHaveBeenCalledTimes(1)
+  })
 })

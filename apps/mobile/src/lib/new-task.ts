@@ -1,5 +1,36 @@
-import type { IssueType, MachineId } from '@podium/model'
 import { AUTO } from '@podium/client-core/agent-models'
+import type { IssueType, MachineId } from '@podium/model'
+
+/** Submit affordances: writing nothing is a valid plain-session launch. */
+export function newTaskSubmitState(args: {
+  busy: boolean
+  draftLoading: boolean
+  hasProject: boolean
+  hasMachine: boolean
+  hasCheckout: boolean
+  machineDenied: boolean
+  ready: boolean
+  prompt: string
+  attachmentCount: number
+  uploading: boolean
+  driverUnavailable?: boolean
+}) {
+  const hasPrompt = args.prompt.trim().length > 0
+  const idle = !args.busy && !args.draftLoading && !args.uploading
+  return {
+    canStart:
+      idle &&
+      args.hasProject &&
+      args.hasMachine &&
+      args.hasCheckout &&
+      !args.machineDenied &&
+      args.ready &&
+      !args.driverUnavailable &&
+      (hasPrompt || args.attachmentCount === 0),
+    canSave: idle && args.hasProject && hasPrompt && args.attachmentCount === 0,
+    ...(args.attachmentCount ? { saveReason: 'Attachments go with Start' } : {}),
+  }
+}
 
 export interface NewTaskInput {
   repoPath: string

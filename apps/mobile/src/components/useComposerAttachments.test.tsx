@@ -16,6 +16,46 @@ const picked = (name: string): PickedFile => ({
 })
 
 describe('composer attachment session boundary', () => {
+  it('holds New Task uploads without creating a session and keeps chat uploads unchanged', async () => {
+    const uploadImage = vi.fn(async (_input: Record<string, unknown>) => ({
+      path: '',
+      attachment: {
+        id: 'held-new-task',
+        filename: 'one.png',
+        mediaType: 'image/png',
+        kind: 'image' as const,
+      },
+    }))
+    let compose: ComposerAttachmentsApi | undefined
+    let chat: ComposerAttachmentsApi | undefined
+    function Harness() {
+      compose = useComposerAttachments(asSessionId('coldstart-compose'), { destination: 'issue' })
+      chat = useComposerAttachments(asSessionId('chat-session'))
+      return null
+    }
+    await renderWithMobileStore(<Harness />, {
+      api: { sessions: { uploadImage: { mutate: uploadImage } } },
+    })
+    act(() => compose?.fromSource(async () => [picked('one.png')]))
+    await waitFor(() => expect(compose?.attachments[0]?.state).toBe('ready'))
+    act(() => chat?.accept([picked('chat.png')]))
+    await waitFor(() => expect(chat?.attachments[0]?.state).toBe('ready'))
+    expect(uploadImage.mock.calls[0]?.[0]).toEqual({
+      sessionId: 'coldstart-compose',
+      filename: 'one.png',
+      mimeType: 'image/png',
+      dataBase64: 'bytes:one.png',
+      pending: true,
+    })
+    expect(uploadImage.mock.calls[1]?.[0]).toEqual({
+      sessionId: 'chat-session',
+      filename: 'chat.png',
+      mimeType: 'image/png',
+      dataBase64: 'bytes:chat.png',
+    })
+    expect(compose?.ready()[0]?.ref?.id).toBe('held-new-task')
+  })
+
   it('keeps a server refusal on the failed attachment chip', async () => {
     const uploadImage = vi.fn(async () => ({
       refusal: { reason: 'busy', detail: 'The session is still starting.' },

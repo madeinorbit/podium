@@ -43,12 +43,14 @@ async function readAll(files: readonly File[]): Promise<PickedFile[]> {
 
 export const canPickFiles = true
 
-export function pickFiles(): Promise<PickedFile[]> {
+function pickWebFiles(options?: { accept?: string; capture?: string }): Promise<PickedFile[]> {
   if (typeof document === 'undefined') return Promise.resolve([])
   return new Promise((resolve) => {
     const input = document.createElement('input')
     input.type = 'file'
     input.multiple = true
+    if (options?.accept) input.accept = options.accept
+    if (options?.capture) input.setAttribute('capture', options.capture)
     input.style.display = 'none'
     // `change` never fires on cancel in any browser, so the promise would hang
     // on a dismissed dialog; `cancel` is the modern signal and the focus
@@ -63,6 +65,11 @@ export function pickFiles(): Promise<PickedFile[]> {
     input.click()
   })
 }
+
+export const pickFiles = () => pickWebFiles()
+export const pickDocuments = pickFiles
+export const pickPhotos = () => pickWebFiles({ accept: 'image/*' })
+export const takePhoto = () => pickWebFiles({ accept: 'image/*', capture: 'environment' })
 
 /** True when this transfer carries FILES rather than only text. Copied prose
  *  arrives as `'string'` items and must fall through to the field untouched —
