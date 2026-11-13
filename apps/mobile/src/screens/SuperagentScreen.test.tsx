@@ -233,7 +233,10 @@ describe('SuperagentScreen chrome', () => {
       ...base,
       api: {
         ...base.api,
-        sessions: { ...base.api?.sessions, answerAskUserQuestion: { mutate: nativeAnswer } },
+        sessions: {
+          ...(base.api as { sessions?: object } | undefined)?.sessions,
+          answerAskUserQuestion: { mutate: nativeAnswer },
+        },
       },
     })
     await waitFor(() => expect(transcriptProps.at(-1)?.onAnswer).toBeTypeOf('function'))
