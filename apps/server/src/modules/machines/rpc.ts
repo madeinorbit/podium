@@ -1983,6 +1983,8 @@ export class DaemonRpcService {
     bindHost: ServerBindHost,
     machineId: MachineId,
     port: number,
+    // SECRET when it holds a key: the request is built here and sent, never logged or kept.
+    vault: { vaultDataKey?: string | null; vaultCheck?: string } = {},
   ): Promise<Payload<ServerTransferResultMessage>> {
     this.serverTransferDigests.set(machineId + ':' + transferId, manifestDigest)
     return await this.request(
@@ -2006,6 +2008,7 @@ export class DaemonRpcService {
         port,
         targetMode: 'server',
         idempotencyKey: transferId,
+        ...vault,
       }),
       machineId,
     )

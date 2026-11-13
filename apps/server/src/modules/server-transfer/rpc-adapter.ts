@@ -39,6 +39,7 @@ interface WireOwnedRpc {
     bindHost: ServerBindHost,
     machineId: MachineId,
     port: number,
+    vault?: { vaultDataKey?: string | null; vaultCheck?: string },
   ): Promise<WireReply>
   serverTransferAbort(
     id: string,
@@ -188,6 +189,10 @@ export function serverTransferRpcAdapter(wire: WireOwnedRpc): ServerTransferRpc 
         input.bindHost,
         targetMachineId,
         input.port,
+        {
+          ...(input.vaultDataKey !== undefined ? { vaultDataKey: input.vaultDataKey } : {}),
+          ...(input.vaultCheck !== undefined ? { vaultCheck: input.vaultCheck } : {}),
+        },
       )
       if (
         !reply.ok ||
@@ -195,12 +200,16 @@ export function serverTransferRpcAdapter(wire: WireOwnedRpc): ServerTransferRpc 
         reply.transferId !== input.transferId ||
         reply.manifestDigest !== input.manifestDigest
       ) {
-        return failure(reply, 'uncertain-commit', 'target promotion failed')
+        return {
+          ...failure(reply, 'uncertain-commit', 'target promotion failed'),
+          ...(reply.vaultCheck ? { vaultCheck: reply.vaultCheck } : {}),
+        }
       }
       return {
         ok: true,
         state: 'promoted',
         ...(reply.servingProof ? { proof: reply.servingProof } : {}),
+        ...(reply.vaultCheck ? { vaultCheck: reply.vaultCheck } : {}),
       }
     },
 
@@ -272,6 +281,7 @@ export function serverTransferRpcAdapter(wire: WireOwnedRpc): ServerTransferRpc 
         ...(reply.servingProof ? { proof: reply.servingProof } : {}),
         ...(reply.publicUrl ? { publicUrl: reply.publicUrl } : {}),
         ...(reply.port ? { port: reply.port } : {}),
+        ...(reply.vaultCheck ? { vaultCheck: reply.vaultCheck } : {}),
         sourceConnected: false,
       }
     },

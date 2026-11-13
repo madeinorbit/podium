@@ -523,12 +523,14 @@
         "bindHost": "127.0.0.1",
         "port": 1,
         "targetMode": "server",
-        "idempotencyKey": "idempotencyKey"
+        "idempotencyKey": "idempotencyKey",
+        "vaultDataKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "vaultCheck": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"serverTransferPromoteRequest\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"publicUrl\":\"publicUrl\",\"bindHost\":\"127.0.0.1\",\"port\":1,\"targetMode\":\"server\",\"idempotencyKey\":\"idempotencyKey\"}"
+      "encoded": "{\"type\":\"serverTransferPromoteRequest\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"publicUrl\":\"publicUrl\",\"bindHost\":\"127.0.0.1\",\"port\":1,\"targetMode\":\"server\",\"idempotencyKey\":\"idempotencyKey\",\"vaultDataKey\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\",\"vaultCheck\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
     },
     {
       "schema": "ServerTransferProof",
@@ -633,13 +635,14 @@
           "port": 1,
           "health": "serving"
         },
+        "vaultCheck": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "errorCode": "unknown-transfer",
         "error": "error"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"serverTransferResult\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"operation\":\"prepare\",\"ok\":true,\"state\":\"prepared\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sourceMachineId\":\"sourceMachineId\",\"publicUrl\":\"publicUrl\",\"port\":1,\"path\":\"path\",\"offset\":1,\"receivedBytes\":1,\"idempotent\":true,\"cleaned\":true,\"acknowledged\":true,\"targetCapability\":\"server-only\",\"buildVersion\":\"buildVersion\",\"wireSchemaDigest\":\"wireSchemaDigest\",\"space\":{\"availableBytes\":1,\"requiredBytes\":1,\"sufficient\":true},\"proof\":{\"operationId\":\"proof.operationId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"targetMachineId\":\"proof.targetMachineId\",\"feedId\":\"proof.feedId\",\"feedEpoch\":\"proof.feedEpoch\",\"schemaVersion\":\"proof.schemaVersion\",\"buildVersion\":\"proof.buildVersion\"},\"servingProof\":{\"operationId\":\"servingProof.operationId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"targetMachineId\":\"servingProof.targetMachineId\",\"feedId\":\"servingProof.feedId\",\"feedEpoch\":\"servingProof.feedEpoch\",\"schemaVersion\":\"servingProof.schemaVersion\",\"buildVersion\":\"servingProof.buildVersion\",\"publicUrl\":\"servingProof.publicUrl\",\"bindHost\":\"127.0.0.1\",\"port\":1,\"health\":\"serving\"},\"errorCode\":\"unknown-transfer\",\"error\":\"error\"}"
+      "encoded": "{\"type\":\"serverTransferResult\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"operation\":\"prepare\",\"ok\":true,\"state\":\"prepared\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sourceMachineId\":\"sourceMachineId\",\"publicUrl\":\"publicUrl\",\"port\":1,\"path\":\"path\",\"offset\":1,\"receivedBytes\":1,\"idempotent\":true,\"cleaned\":true,\"acknowledged\":true,\"targetCapability\":\"server-only\",\"buildVersion\":\"buildVersion\",\"wireSchemaDigest\":\"wireSchemaDigest\",\"space\":{\"availableBytes\":1,\"requiredBytes\":1,\"sufficient\":true},\"proof\":{\"operationId\":\"proof.operationId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"targetMachineId\":\"proof.targetMachineId\",\"feedId\":\"proof.feedId\",\"feedEpoch\":\"proof.feedEpoch\",\"schemaVersion\":\"proof.schemaVersion\",\"buildVersion\":\"proof.buildVersion\"},\"servingProof\":{\"operationId\":\"servingProof.operationId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"targetMachineId\":\"servingProof.targetMachineId\",\"feedId\":\"servingProof.feedId\",\"feedEpoch\":\"servingProof.feedEpoch\",\"schemaVersion\":\"servingProof.schemaVersion\",\"buildVersion\":\"servingProof.buildVersion\",\"publicUrl\":\"servingProof.publicUrl\",\"bindHost\":\"127.0.0.1\",\"port\":1,\"health\":\"serving\"},\"vaultCheck\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"errorCode\":\"unknown-transfer\",\"error\":\"error\"}"
     },
     {
       "schema": "ServerTransferServingProof",

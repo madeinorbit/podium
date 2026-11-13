@@ -319,7 +319,10 @@ attachAccess(deps: AttachAccessDeps, plan: SessionAccess,
 //   session's access from memory; no separate wire message)
 //   AgentInventory.logins?: { homeId: string; state; identity?; freshness? }[]
 //   homeEnsureRequest/Result, homeRemoveRequest/Result, oauthLoopbackRequest/Result
-//   server transfer promote request: vaultDataKey?: string | null ; promote result: vaultCheck?: string
+//   server transfer promote request: vaultDataKey?: string | null, vaultCheck?: string (the source's
+//     expected value; the target refuses a key that does not match it before changing anything)
+//   promote result and inspect result: vaultCheck?: string
+//   daemon capability SERVER_MOVE_VAULT_KEY_CAPABILITY = 'server-move.vault-key.v1' (deliveryCaps)
 
 // packages/commands/src/credentials/contracts.ts
 //   credentials.add | rename | renew | remove | share | unshare | allowMachine | disallowMachine

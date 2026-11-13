@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
+import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createLogger, describeError } from '@podium/logger'
 import { asMachineId, type MachineId } from '@podium/model'
 import { validatePublicUrl } from '@podium/runtime/setup'
+import { vaultCheckValue } from '@podium/runtime/vault-key'
+import type { DaemonLinkKind } from '../../gateway/daemon-link-kind'
 import { afterCommit } from '../../store/executor/executor'
 import { isActiveTransfer, TransferJournal } from './journal'
 import { TransferLock } from './lock'
@@ -29,6 +32,7 @@ import {
   type TransferFailureCode,
   type TransferProof,
   type TransferRecord,
+  type TransferVault,
 } from './types'
 
 const log = createLogger('server:server-transfer')
@@ -48,6 +52,11 @@ export interface ServerTransferTargetState {
    * recorded components.
    */
   hasDaemon: boolean
+  /**
+   * The target's daemon advertises `SERVER_MOVE_VAULT_KEY_CAPABILITY`: it can take
+   * the vault's data key in promotion (epic Task 22). Absent reads as no.
+   */
+  vaultKeyHandover?: boolean
 }
 
 export interface ServerTransferDeps {
@@ -98,6 +107,16 @@ export interface ServerTransferDeps {
   /** Restarts a recovery-only source after a proven pre-promotion abort. */
   afterRecoveredAbort?(): void
   snapshotAvailableBytes?: () => number | Promise<number>
+  /**
+   * The source vault (credential management design §7, "Moving the server"). Its
+   * data key goes to the target in promotion, and its key file is deleted when the
+   * transfer finalizes. Absent only in narrow legacy unit seams.
+   */
+  vault?: TransferVault
+  /** How the target's daemon reaches this server, as the server judged it (§8). */
+  targetLinkKind?(machineId: MachineId): DaemonLinkKind | undefined
+  /** Deletes the source's key file at finalize. Default: remove it; absent is fine. */
+  removeVaultKeyFile?(path: string): Promise<void>
   now?: () => Date
   uuid?: () => string
 }
@@ -156,6 +175,18 @@ function healthProofMatches(
     proof.bindHost === bindHost &&
     proof.port === port
   )
+}
+
+/** A key that was sent must come back proven; none sent, nothing to prove. */
+function vaultCheckHolds(expected: string | undefined, observed: string | undefined): boolean {
+  return expected === undefined || observed === expected
+}
+
+function pendingCleanup(
+  ...parts: Array<{ result: 'pending'; detail: string } | undefined>
+): { result: 'pending'; detail: string } | undefined {
+  const details = parts.flatMap((part) => (part ? [part.detail] : []))
+  return details.length > 0 ? { result: 'pending', detail: details.join('; ') } : undefined
 }
 
 export function normalizedPublicUrl(input: ServerTransferInput): string {
@@ -649,6 +680,7 @@ export class ServerTransferService {
         await this.assertTarget(input.targetMachineId)
         this.journal.transition('committing')
         await hooks.crash?.('after-committing')
+        const vault = this.vaultFields(finalManifest.transferId)
         const promoted = await this.deps.rpc.serverTransferPromote(
           {
             transferId: finalManifest.transferId,
@@ -658,9 +690,23 @@ export class ServerTransferService {
             port,
             targetMode: 'server',
             idempotencyKey: record.idempotencyKey,
+            ...vault,
           },
           input.targetMachineId,
         )
+        if (
+          !promoted.ok &&
+          vault.vaultCheck !== undefined &&
+          promoted.state === 'validated' &&
+          promoted.vaultCheck !== undefined &&
+          promoted.vaultCheck !== vault.vaultCheck
+        ) {
+          // The target refused before changing anything: the commit never began.
+          throw fail(
+            TRANSFER_FAILURE_CODES.VAULT_CHECK_FAILED,
+            'the target could not open the vault key it was given, so the server stays here',
+          )
+        }
         if (
           !promoted.ok ||
           promoted.state !== 'promoted' ||
@@ -678,6 +724,12 @@ export class ServerTransferService {
             promoted.ok ? 'target promotion proof is missing' : promoted.error.detail,
           )
         }
+        if (!vaultCheckHolds(vault.vaultCheck, promoted.vaultCheck)) {
+          throw fail(
+            TRANSFER_FAILURE_CODES.COMMIT_UNCERTAIN,
+            'the promoted target did not prove it holds the vault key',
+          )
+        }
 
         await hooks.crash?.('after-promote')
         record = await this.commitEndpointHandoff(record)
@@ -690,17 +742,25 @@ export class ServerTransferService {
         record = { ...record, targetProof: true, sourceConnected: false }
         this.journal.commit(record)
         this.deps.afterJournalCommitted?.()
+        const keyFileCleanup = await this.retireVaultKeyFile()
         await hooks.crash?.('after-commit')
         fenceHeld = false
         const acknowledgementCleanup = this.persistAcknowledgementCleanup(
-          await this.acknowledgePromotedWithinDeadline(finalManifest, input.targetMachineId),
+          pendingCleanup(
+            await this.acknowledgePromotedWithinDeadline(finalManifest, input.targetMachineId),
+            keyFileCleanup,
+          ),
         )
         this.deps.afterCommitted?.({ serverUrl: publicUrl })
         return this.outcome(record, true, 'committed', undefined, acknowledgementCleanup)
       } catch (error) {
         const current = this.journal.read()
         const detail = classified(error)
-        if (current?.state === 'committing') {
+        const refusedPromotion =
+          current?.state === 'committing' &&
+          error instanceof ServerTransferError &&
+          error.code === TRANSFER_FAILURE_CODES.VAULT_CHECK_FAILED
+        if (current?.state === 'committing' && !refusedPromotion) {
           this.journal.commitUncertain({
             code: TRANSFER_FAILURE_CODES.COMMIT_UNCERTAIN,
             message: detail.message,
@@ -729,7 +789,8 @@ export class ServerTransferService {
             cleanup = { result: 'pending', detail: classified(releaseError).message }
           }
         }
-        this.journal.abort(detail, cleanup)
+        if (refusedPromotion) this.journal.abortRefusedPromotion(detail, cleanup)
+        else this.journal.abort(detail, cleanup)
         return this.outcome(record, false, 'aborted', detail, cleanup)
       }
     } finally {
@@ -1068,6 +1129,69 @@ export class ServerTransferService {
         'target does not support server transfer',
       )
     }
+    // The server judged this link itself; nothing the daemon says about it counts.
+    if (this.deps.targetLinkKind?.(targetMachineId) === 'plain') {
+      throw fail(
+        TRANSFER_FAILURE_CODES.TARGET_LINK_NOT_ENCRYPTED,
+        "the target machine's connection to this server is not encrypted, so the server and its stored credentials do not move to it. Connect it over wss, or declare its network trusted.",
+      )
+    }
+    if (this.deps.vault?.state() === 'ready' && target.vaultKeyHandover !== true) {
+      throw fail(
+        TRANSFER_FAILURE_CODES.TARGET_UNSUPPORTED,
+        'the target cannot take over the key to the stored credentials; update Podium on it first',
+      )
+    }
+  }
+
+  /**
+   * The vault fields of one promote request (credential management design §7).
+   * The data key is read for this request only and wiped here; the base64 copy
+   * lives in the request alone, never in the record or the journal.
+   */
+  private vaultFields(transferId: string): { vaultDataKey?: string | null; vaultCheck?: string } {
+    const vault = this.deps.vault
+    if (!vault) return {}
+    const dataKey = vault.exportDataKey()
+    if (!dataKey) return { vaultDataKey: null }
+    try {
+      return {
+        vaultDataKey: dataKey.toString('base64'),
+        vaultCheck: vaultCheckValue(dataKey, transferId),
+      }
+    } finally {
+      dataKey.fill(0)
+    }
+  }
+
+  /**
+   * The old server keeps no way into the vault: once the transfer is committed,
+   * its key file goes. One it cannot delete (a mounted secret) is reported and
+   * does not fail the transfer. A locked vault's file opens nothing and stays.
+   */
+  private async retireVaultKeyFile(): Promise<{ result: 'pending'; detail: string } | undefined> {
+    const vault = this.deps.vault
+    if (!vault) return undefined
+    try {
+      if (vault.state() === 'locked') return undefined
+      const path = vault.status().keyPath
+      try {
+        await (this.deps.removeVaultKeyFile ?? ((file) => rm(file, { force: true })))(path)
+        return undefined
+      } catch (error) {
+        const reason = describeError(error)
+        log.warn('server transfer could not delete the vault key file', { path, reason })
+        return {
+          result: 'pending',
+          detail: `the vault key file ${path} could not be deleted (${reason}); this machine no longer needs it, delete it by hand`,
+        }
+      }
+    } catch (error) {
+      return {
+        result: 'pending',
+        detail: `the vault key file was not checked: ${describeError(error)}`,
+      }
+    }
   }
 
   private async inspectUncertain(
@@ -1076,6 +1200,7 @@ export class ServerTransferService {
   ): Promise<ServerTransferOutcome> {
     await authorization.reauthorize('commit')
     if (record.manifest) {
+      const vault = this.vaultFields(record.transferId)
       try {
         const status = await this.deps.rpc.inspectServerTransfer(
           { transferId: record.transferId, manifestDigest: record.manifest.digest },
@@ -1100,12 +1225,14 @@ export class ServerTransferService {
               port: record.port,
               targetMode: 'server',
               idempotencyKey: record.idempotencyKey,
+              ...vault,
             },
             record.targetMachineId,
           )
           if (
             replay.ok &&
             replay.state === 'promoted' &&
+            vaultCheckHolds(vault.vaultCheck, replay.vaultCheck) &&
             healthProofMatches(
               replay.proof,
               record.manifest,
@@ -1124,6 +1251,7 @@ export class ServerTransferService {
           status.state === 'promoted' &&
           status.transferId === record.transferId &&
           status.manifestDigest === record.manifest.digest &&
+          vaultCheckHolds(vault.vaultCheck, status.vaultCheck) &&
           healthProofMatches(
             status.proof,
             record.manifest,
@@ -1164,8 +1292,12 @@ export class ServerTransferService {
     }
     this.journal.resolveCommitted(committed)
     this.deps.afterJournalCommitted?.()
+    const keyFileCleanup = await this.retireVaultKeyFile()
     this.persistAcknowledgementCleanup(
-      await this.acknowledgePromotedWithinDeadline(record.manifest, record.targetMachineId),
+      pendingCleanup(
+        await this.acknowledgePromotedWithinDeadline(record.manifest, record.targetMachineId),
+        keyFileCleanup,
+      ),
     )
     this.deps.afterCommitted?.({ serverUrl: record.publicUrl })
     return committed

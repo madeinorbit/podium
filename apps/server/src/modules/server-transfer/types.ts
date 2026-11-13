@@ -134,6 +134,29 @@ export type ServerTransferRpcResult<T> =
   | ({ ok: true } & T)
   | { ok: false; state: string; error: ServerTransferFailure }
 
+/**
+ * A promote refusal can carry the target's check value for the key it was given:
+ * a target that refused while still `validated` changed nothing, so the source may
+ * abort cleanly (epic Task 22).
+ */
+export type ServerTransferPromoteRefusal = {
+  ok: false
+  state: string
+  error: ServerTransferFailure
+  vaultCheck?: string
+}
+
+/**
+ * The source vault, as far as a transfer needs it; the store's `Vault` satisfies
+ * it (credential management design §7, "Moving the server").
+ */
+export interface TransferVault {
+  state(): 'ready' | 'empty' | 'locked'
+  status(): { keyPath: string }
+  /** The data key; null when the vault has none it can open. The caller wipes it. */
+  exportDataKey(): Buffer | null
+}
+
 /** Dedicated machine-scoped port. POD-1748 owns its protocol implementation. */
 export interface ServerTransferRpc {
   serverTransferPrepare(
@@ -192,13 +215,20 @@ export interface ServerTransferRpc {
       port: number
       targetMode: 'server'
       idempotencyKey: string
+      /** SECRET: the vault's data key, base64; null when the vault has none to hand over. */
+      vaultDataKey?: string | null
+      /** `vaultCheckValue(dataKey, transferId)`; present exactly when a key is sent. */
+      vaultCheck?: string
     },
     targetMachineId: MachineId,
   ): Promise<
-    ServerTransferRpcResult<{
-      state: 'prepared' | 'promoted' | 'uncertain'
-      proof?: TargetHealthProof
-    }>
+    | {
+        ok: true
+        state: 'prepared' | 'promoted' | 'uncertain'
+        proof?: TargetHealthProof
+        vaultCheck?: string
+      }
+    | ServerTransferPromoteRefusal
   >
   serverTransferAcknowledge(
     input: { transferId: string; manifestDigest: string },
@@ -234,6 +264,8 @@ export interface ServerTransferRpc {
       publicUrl?: string
       port?: number
       sourceConnected: boolean
+      /** The check value of the data key a promoted target stored. */
+      vaultCheck?: string
     }>
   >
 }
@@ -284,6 +316,11 @@ export const TRANSFER_FAILURE_CODES = {
    *  drive. Distinct from `TARGET_OFFLINE` because waiting cannot fix it. */
   TARGET_NO_DAEMON: 'target-no-daemon',
   TARGET_UNSUPPORTED: 'target-unsupported',
+  /** The target's daemon link is `plain`: the server, its database and the vault key do
+   *  not cross it (credential management design §8). */
+  TARGET_LINK_NOT_ENCRYPTED: 'target-link-not-encrypted',
+  /** The target refused the vault data key before promoting: its check value differs. */
+  VAULT_CHECK_FAILED: 'vault-check-failed',
   SOURCE_UNHEALTHY: 'source-unhealthy',
   DISK_FULL: 'disk-full',
   SNAPSHOT_FAILED: 'snapshot-failed',

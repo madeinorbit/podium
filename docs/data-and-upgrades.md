@@ -48,8 +48,27 @@ at start; their old plain copies stay in the database until a later release
 removes them.
 
 **Back the key file up separately from the state directory.** A backup that holds
-both is as sensitive as the keys themselves. When you move the server by hand,
-copy the key file too.
+both is as sensitive as the keys themselves.
+
+**Moving the server.** Podium's own server transfer moves the key for you. It
+copies the database to the new machine, then hands the vault's key over in the
+final step, the one that makes the new machine the server. The key travels in that
+message only, never as a file in the copied package, and the new machine writes it
+into the database wrapped by its own key file (created there with mode `0600` if
+it has none). Before the old server gives up its role, the new machine proves that
+it can open the vault. If it cannot, the transfer stops: the old server stays the
+server and keeps its key, and the new machine removes what it received. When the
+transfer completes, the old server deletes its own key file, so it keeps no way
+into the vault. If that file cannot be deleted (a mounted secret, say), the
+transfer still completes and reports the file; delete it yourself. A transfer to a
+machine whose connection to the server is not encrypted (plain `ws` to another
+computer, outside a network declared trusted) is refused before anything is
+copied, and so is a transfer to a machine running a Podium too old to take the key.
+
+**Moving the server by hand.** Copy the state directory and the key file, and put
+the key file at the path the new machine expects (above). Then delete the old
+copy of the key file. A database that arrives without its key file starts locked,
+as described next.
 
 If the server starts without its key (a database restored on another machine, a
 lost file), it still starts. `podium vault status` shows the vault as **locked**

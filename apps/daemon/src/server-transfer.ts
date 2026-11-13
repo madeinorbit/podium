@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { constants, createReadStream } from 'node:fs'
+import { constants, createReadStream, existsSync } from 'node:fs'
 import {
   chmod,
   copyFile,
@@ -34,6 +34,7 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { configPath, stateDir } from '@podium/runtime/config'
 import { fsyncPathAsync } from '@podium/runtime/fsync'
 import { bumpInstallationGeneration } from '@podium/runtime/installation-identity'
+import { resolveInstanceId } from '@podium/runtime/instance'
 import { validatePublicUrl } from '@podium/runtime/setup'
 import { openDatabase } from '@podium/runtime/sqlite'
 import {
@@ -42,6 +43,14 @@ import {
   finalizeTargetServerPromotion,
   MachineIdentityConflictError,
 } from '@podium/runtime/transfer-lifecycle'
+import {
+  fileKeyProvider,
+  type KeyProvider,
+  readWrappedDataKey,
+  resolveVaultKeyPath,
+  vaultCheckValue,
+  writeWrappedDataKey,
+} from '@podium/runtime/vault-key'
 import type { ControlHandlers, DaemonContext } from './control/context'
 
 const TRANSFER_DIR = '.server-transfer'
@@ -79,7 +88,17 @@ interface StageMeta {
     bindHost: ServerBindHost
     port: number
     targetMode: 'server'
+    /** The source's check value for the data key; an HMAC, never the key. */
+    vaultCheck?: string
   }
+  /**
+   * The vault key file this machine wraps a handed-over data key with. Recorded
+   * BEFORE a missing file is created, so an abort or a failed promotion can delete
+   * exactly the file this transfer created and never one the machine already had.
+   */
+  vault?: { keyPath: string; keyFileCreated: boolean }
+  /** The check value of the data key this target stored; returned on a repeat. */
+  vaultCheck?: string
   publicUrl?: string
   bindHost?: ServerBindHost
   port?: number
@@ -208,7 +227,8 @@ function assertPortablePath(path: string): void {
   const allowed =
     PORTABLE_ROOT_FILES.includes(path as (typeof PORTABLE_ROOT_FILES)[number]) ||
     PORTABLE_ROOTS.some((prefix) => path.startsWith(`${prefix}/`))
-  if (!allowed || posix.normalize(path) !== path) fail('unsafe-path', `path is not portable: ${path}`)
+  if (!allowed || posix.normalize(path) !== path)
+    fail('unsafe-path', `path is not portable: ${path}`)
 }
 
 function stagePath(transferId: string, path: string): string {
@@ -921,6 +941,132 @@ function exactServingProof(
     fail('identity-mismatch', 'serving callback proof does not match the promoted transfer')
 }
 
+/**
+ * THE VAULT HAND-OVER, TARGET SIDE (credential management design §7, "Moving the
+ * server"). The source hands its vault's data key over in the promote request,
+ * with its check value `vaultCheckValue(dataKey, transferId)`. This machine wraps
+ * the key under its OWN outside key (its key file, created 0600 when missing),
+ * proves it opens again to the same check value, and only then changes anything:
+ *
+ *  1. before any live file is touched: wrap, unwrap, compare the check. A wrong
+ *     key is refused with this machine's own check value and the stage stays
+ *     `validated`, so the source can abort cleanly.
+ *  2. after the portable files are installed: write the wrapped key into the
+ *     installed database and read it back.
+ *
+ * A failure after (2) and before `promoted` puts the copied `vault_key` row back
+ * and deletes a key file this transfer created. The data key itself lives only in
+ * memory here: it is never written to the stage meta, the promotion input, a log
+ * line or an error message.
+ */
+interface VaultHandover {
+  dataKey: Buffer
+  provider: KeyProvider
+  check: string
+}
+
+class VaultCheckRefusal extends Error {
+  constructor(readonly check: string) {
+    super('the vault data key does not open to the check value the source sent')
+    this.name = 'VaultCheckRefusal'
+  }
+}
+
+/** Delete the key file this transfer created; never one the machine already had. */
+async function removeCreatedKeyFile(meta: StageMeta): Promise<void> {
+  if (!meta.vault?.keyFileCreated) return
+  await rm(meta.vault.keyPath, { force: true })
+}
+
+async function prepareVaultHandover(
+  meta: StageMeta,
+  msg: Extract<ControlMessage, { type: 'serverTransferPromoteRequest' }>,
+): Promise<VaultHandover | null> {
+  if (msg.vaultDataKey === undefined || msg.vaultDataKey === null) {
+    if (msg.vaultCheck !== undefined)
+      fail('invalid-request', 'a vault check value was sent without a data key')
+    return null
+  }
+  if (msg.vaultCheck === undefined)
+    fail('invalid-request', 'a vault data key was sent without its check value')
+  const dataKey = Buffer.from(msg.vaultDataKey, 'base64')
+  try {
+    if (dataKey.length !== 32) fail('invalid-request', 'the vault data key has the wrong length')
+    const keyPath = resolveVaultKeyPath(process.env, resolveInstanceId(process.env))
+    if (meta.vault?.keyPath !== keyPath) {
+      await removeCreatedKeyFile(meta)
+      // Durable BEFORE the first wrap creates the file.
+      meta.vault = { keyPath, keyFileCreated: !existsSync(keyPath) }
+      await writeJson(metaPath(meta.transferId), meta)
+    }
+    let provider: KeyProvider
+    try {
+      provider = await fileKeyProvider(keyPath)
+    } catch (error) {
+      fail(
+        'refused',
+        `the vault key file on this machine cannot be used: ${error instanceof Error ? error.message : 'unreadable'}`,
+      )
+    }
+    const opened = await provider.unwrap(await provider.wrap(dataKey))
+    const check = vaultCheckValue(opened, msg.transferId)
+    opened.fill(0)
+    if (check !== msg.vaultCheck) throw new VaultCheckRefusal(check)
+    return { dataKey, provider, check }
+  } catch (error) {
+    dataKey.fill(0)
+    // Nothing live was touched yet: a key file made for this attempt goes again.
+    if (meta.state === 'validated') await removeCreatedKeyFile(meta)
+    throw error
+  }
+}
+
+type CopiedVaultRow = { keyId: string; wrapped: Buffer } | null
+
+/** Write the wrapped key into the installed database and prove it opens. */
+async function installVaultKey(
+  handover: VaultHandover,
+  transferId: string,
+  copied: (row: CopiedVaultRow) => void,
+): Promise<void> {
+  const db = openDatabase(join(stateDir(), 'podium.db'))
+  try {
+    copied(readWrappedDataKey(db))
+    await writeWrappedDataKey(db, handover.provider, handover.dataKey)
+    const stored = readWrappedDataKey(db)
+    if (!stored || stored.keyId !== handover.provider.keyId)
+      fail('internal', 'the installed database does not hold the wrapped vault data key')
+    const opened = await handover.provider.unwrap(stored.wrapped)
+    const check = vaultCheckValue(opened, transferId)
+    opened.fill(0)
+    if (check !== handover.check)
+      fail('internal', 'the stored vault data key does not open to the handed-over key')
+  } finally {
+    db.close()
+  }
+}
+
+/** Undo the hand-over: the copied row back, a key file this transfer created gone. */
+async function rollBackVaultHandover(
+  meta: StageMeta,
+  copied: CopiedVaultRow | undefined,
+): Promise<void> {
+  if (copied !== undefined) {
+    const db = openDatabase(join(stateDir(), 'podium.db'))
+    try {
+      if (copied)
+        db.prepare('UPDATE vault_key SET key_id = ?, wrapped_data_key = ? WHERE id = 1').run(
+          copied.keyId,
+          copied.wrapped.toString('base64'),
+        )
+      else db.prepare('DELETE FROM vault_key').run()
+    } finally {
+      db.close()
+    }
+  }
+  await removeCreatedKeyFile(meta)
+}
+
 async function promote(
   ctx: DaemonContext,
   msg: Extract<ControlMessage, { type: 'serverTransferPromoteRequest' }>,
@@ -945,6 +1091,7 @@ async function promote(
     bindHost: msg.bindHost,
     port: msg.port,
     targetMode: msg.targetMode,
+    ...(msg.vaultCheck !== undefined ? { vaultCheck: msg.vaultCheck } : {}),
   } as const
 
   if (meta.state === 'promoted') {
@@ -960,6 +1107,7 @@ async function promote(
       acknowledged: meta.acknowledged,
       proof: meta.proof,
       servingProof: meta.servingProof,
+      ...(meta.vaultCheck ? { vaultCheck: meta.vaultCheck } : {}),
       idempotent: true,
     })
   }
@@ -981,15 +1129,43 @@ async function promote(
   if (meta.promotion && JSON.stringify(meta.promotion) !== JSON.stringify(promotion))
     fail('conflicting-digest', 'promotion idempotency key or input conflicts')
 
+  let handover: VaultHandover | null
+  try {
+    handover = await prepareVaultHandover(meta, msg)
+  } catch (error) {
+    if (!(error instanceof VaultCheckRefusal)) throw error
+    await releaseLock(msg.transferId)
+    return result(msg.requestId, msg.transferId, 'promote', {
+      ok: false,
+      state: meta.state,
+      manifestDigest: meta.manifestDigest,
+      vaultCheck: error.check,
+      errorCode: meta.state === 'promoting' ? 'uncertain-commit' : 'refused',
+      error: error.message,
+    })
+  }
+  // undefined: the installed database's vault row was not touched in this attempt.
+  let copiedVaultRow: CopiedVaultRow | undefined
+
   meta.promotion = promotion
   meta.publicUrl = checked.normalized
   meta.port = msg.port
-  meta.promotionPlan ??= await buildPromotionInventory(meta)
-  await writeJson(metaPath(msg.transferId), meta)
+  try {
+    meta.promotionPlan ??= await buildPromotionInventory(meta)
+    await writeJson(metaPath(msg.transferId), meta)
+  } catch (error) {
+    handover?.dataKey.fill(0)
+    if (meta.state === 'validated') await removeCreatedKeyFile(meta)
+    throw error
+  }
 
   try {
     await persistRecoveryBackups(ctx, meta)
     for (const entry of meta.manifest.files) await installPortableFile(meta, entry)
+    if (handover)
+      await installVaultKey(handover, msg.transferId, (row) => {
+        copiedVaultRow = row
+      })
     // Each retry restores the original snapshot first, so this always advances
     // source generation N to N+1, even after config was saved before a crash.
     // Older snapshots have no installation identity to advance.
@@ -1025,6 +1201,7 @@ async function promote(
     await crashPoint(ctx, 'after-health-before-proof')
 
     meta.servingProof = observed
+    if (handover) meta.vaultCheck = handover.check
     meta.state = 'promoted'
     await writeJson(metaPath(msg.transferId), meta)
     await releaseLock(msg.transferId)
@@ -1035,10 +1212,16 @@ async function promote(
       publicUrl: meta.publicUrl,
       proof: meta.proof,
       servingProof: meta.servingProof,
+      ...(meta.vaultCheck ? { vaultCheck: meta.vaultCheck } : {}),
       idempotent: false,
     })
   } catch (error) {
     if (error instanceof SimulatedPromotionCrash) throw error
+    if (handover) {
+      // The promotion did not complete: no wrapped key from this transfer and no
+      // key file it created may stay behind.
+      await rollBackVaultHandover(meta, copiedVaultRow).catch(() => {})
+    }
     if (meta.state === 'promoting') {
       meta.state = 'uncertain'
       await writeJson(metaPath(msg.transferId), meta).catch(() => {})
@@ -1055,6 +1238,8 @@ async function promote(
       })
     }
     throw error
+  } finally {
+    handover?.dataKey.fill(0)
   }
 }
 
@@ -1083,6 +1268,8 @@ async function abort(
     })
   }
   await stopCandidateListener(msg.transferId)
+  // Before the stage (and its record of what was created) goes.
+  if (meta) await removeCreatedKeyFile(meta)
   await rm(stageRoot(msg.transferId), { recursive: true, force: true })
   await ensureRealDirectory(root())
   await fsyncPathAsync(root())
@@ -1182,6 +1369,7 @@ async function status(
     publicUrl: meta.publicUrl,
     port: meta.port,
     acknowledged: meta.acknowledged,
+    ...(meta.vaultCheck ? { vaultCheck: meta.vaultCheck } : {}),
     ...(meta.state === 'uncertain' || meta.state === 'promoting'
       ? { errorCode: 'uncertain-commit' as const, error: 'transfer requires recovery' }
       : {}),

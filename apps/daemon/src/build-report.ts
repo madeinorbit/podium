@@ -1,6 +1,11 @@
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { SERVER_MOVE_CAPABILITY, type PeerBuild, wireSchemaDigest } from '@podium/protocol'
+import {
+  type PeerBuild,
+  SERVER_MOVE_CAPABILITY,
+  SERVER_MOVE_VAULT_KEY_CAPABILITY,
+  wireSchemaDigest,
+} from '@podium/protocol'
 import { ARTIFACT_PROBE_CAPABILITY, SHIPPING_TRAIN_CAPABILITY } from '@podium/protocol/daemon'
 import { developmentSourceVersion } from '@podium/runtime/source-version'
 
@@ -89,6 +94,12 @@ export function captureDaemonBootBuild(
  */
 export function deliveryCaps(build: Pick<PeerBuild, 'installKind' | 'supervised'>): string[] {
   return build.installKind === 'source'
-    ? [SHIPPING_TRAIN_CAPABILITY, SERVER_MOVE_CAPABILITY]
-    : ['update.delivery.feed', ARTIFACT_PROBE_CAPABILITY, SHIPPING_TRAIN_CAPABILITY, SERVER_MOVE_CAPABILITY]
+    ? [SHIPPING_TRAIN_CAPABILITY, SERVER_MOVE_CAPABILITY, SERVER_MOVE_VAULT_KEY_CAPABILITY]
+    : [
+        'update.delivery.feed',
+        ARTIFACT_PROBE_CAPABILITY,
+        SHIPPING_TRAIN_CAPABILITY,
+        SERVER_MOVE_CAPABILITY,
+        SERVER_MOVE_VAULT_KEY_CAPABILITY,
+      ]
 }

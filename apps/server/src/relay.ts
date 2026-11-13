@@ -49,6 +49,7 @@ import {
   parseCheckoutTopicId,
   platformTargetFor,
   SERVER_MOVE_CAPABILITY,
+  SERVER_MOVE_VAULT_KEY_CAPABILITY,
   SubscriptionRegistry,
   wireSchemaDigest,
 } from '@podium/protocol'
@@ -1683,6 +1684,8 @@ export class SessionRegistry {
           hasDaemon:
             machine?.serviceAssignment?.agentExecution === true &&
             machine.availability?.daemon === true,
+          vaultKeyHandover:
+            machine?.deliveryCaps?.includes(SERVER_MOVE_VAULT_KEY_CAPABILITY) === true,
         }
       }
     }
@@ -1708,6 +1711,16 @@ export class SessionRegistry {
         )
       },
       rpc: serverTransferRpcAdapter(rpc),
+      // Credential management design §7: the data key moves in promotion, only to a
+      // target the server itself judged not `plain`.
+      // Read through at each use: the store opens its vault at boot, after which
+      // this always answers; a registry built over a bare store still constructs.
+      vault: {
+        state: () => this.store.vault.state(),
+        status: () => this.store.vault.status(),
+        exportDataKey: () => this.store.vault.exportDataKey(),
+      },
+      targetLinkKind: (machineId) => this.daemonLinks.daemonLinkKind(machineId),
       localPromotedTransfer: () => readPromotedTargetMetadata(stateDir()),
       // ONE machines read for the whole fleet (POD-3257). The per-machine form
       // delegates to it: asking `targetState` inside a loop is what re-read the
