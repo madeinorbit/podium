@@ -5,7 +5,7 @@ import { compareStructural } from 'mobx'
 import { debugName } from './debug-name'
 import { omitGone } from './lookup'
 import type { MobxPool } from './pool'
-import { type SetupSession, setupSessionSummary } from './settings-schema'
+import { type SettingsRows, type SetupSession, setupSessionSummary } from './settings-schema'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 /** Observed summaries suspend when settings/setup unmounts. No full-session
@@ -61,8 +61,21 @@ export function createSettingsViews(pool: MobxPool) {
   function sessionPresent(id: string) {
     return pool.queries.setupSessionPresent(id)
   }
+  function setupCatalog() {
+    return memo('setup:catalog', () => {
+      const catalog = omitGone(pool.row('settingsCatalog', 'catalog'))
+      const repos = loaded(catalog) ? readCatalogRepositories(pool, catalog) : []
+      const paths = [
+        ...new Set(
+          repos.flatMap((repo) => [repo.path, ...repo.worktrees.map((tree) => tree.path)]),
+        ),
+      ]
+      return setup(paths)
+    })
+  }
   return {
     setup,
+    setupCatalog,
     sessions,
     sessionPresent,
     sessionCount: () => pool.queries.setupSessionCount(),
@@ -114,9 +127,16 @@ export function readSettingsCatalog(pool: MobxPool): {
       const row = omitGone(pool.row('settingsMachine', id))
       return loaded(row) ? [row] : []
     }),
-    repos: catalog.repositories.flatMap((id) => {
-      const row = omitGone(pool.row('settingsRepository', id))
-      return loaded(row) ? [row] : []
-    }),
+    repos: readCatalogRepositories(pool, catalog),
   }
+}
+
+function readCatalogRepositories(
+  pool: MobxPool,
+  catalog: SettingsRows['settingsCatalog'],
+): GitRepositoryWire[] {
+  return catalog.repositories.flatMap((id) => {
+    const row = omitGone(pool.row('settingsRepository', id))
+    return loaded(row) ? [row] : []
+  })
 }

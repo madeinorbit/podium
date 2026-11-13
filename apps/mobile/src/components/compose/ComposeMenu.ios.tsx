@@ -49,7 +49,9 @@ function Entry({ item }: { item: ComposeMenuItem }) {
       <Toggle
         isOn={item.selected}
         systemImage={item.symbol as SFSymbol | undefined}
-        onIsOnChange={() => item.onPress?.()}
+        onIsOnChange={(selected) => {
+          if (selected) item.onPress?.()
+        }}
         modifiers={modifiers}
       >
         <Text>{item.label}</Text>

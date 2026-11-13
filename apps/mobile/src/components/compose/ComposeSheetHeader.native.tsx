@@ -19,7 +19,12 @@ export function ComposeSheetHeader(props: ComposeSheetHeaderProps) {
         }}
       />
       <Stack.Toolbar placement="left">
-        <Stack.Toolbar.Button icon="xmark" accessibilityLabel="Cancel" onPress={props.onCancel} />
+        <Stack.Toolbar.Button
+          icon="xmark"
+          accessibilityLabel="Cancel"
+          tintColor={color.text}
+          onPress={props.onCancel}
+        />
       </Stack.Toolbar>
       <Stack.Toolbar placement="right">
         <Stack.Toolbar.View hidesSharedBackground>

@@ -98,12 +98,7 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
   const pool = useMobilePool()
   const view = useOpeningView(pool, createSettingsViews)
   const { repos, machines } = useMobilePoolProjection(readSettingsCatalog, EMPTY_CATALOG)
-  const paths = repos.flatMap((repo) => [repo.path, ...repo.worktrees.map((tree) => tree.path)])
-  const pathKey = JSON.stringify(paths)
-  const readSetup = useCallback(
-    () => view?.setup(JSON.parse(pathKey) as string[]) ?? EMPTY_SETUP,
-    [view, pathKey],
-  )
+  const readSetup = useCallback(() => view?.setupCatalog() ?? EMPTY_SETUP, [view])
   const setup = useMobilePoolProjection(readSetup, EMPTY_SETUP)
   const { repoChoices, onOpenChange } = useFirstTaskRepositoryPicker(repos, setup.usage)
   const frozenOrder = useRef(false)

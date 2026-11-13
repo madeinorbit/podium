@@ -66,7 +66,7 @@ export function ComposeMenu({
             if (item.items) setPage({ label: item.label, items: item.items })
             else {
               close()
-              item.onPress?.()
+              if (!item.selected) item.onPress?.()
             }
           },
         }))}

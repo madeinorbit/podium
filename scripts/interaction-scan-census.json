@@ -386,18 +386,18 @@
       "file": "apps/mobile/src/components/SessionConversation.tsx",
       "holder": "SessionConversationBody/SessionConversationBody/attachments",
       "rule": "reader-summary",
-      "tokens": "fb57c2167b486fff288cb2162ae2aa93cc774205797a8f1cd38aeec763816f4f",
+      "tokens": "b104c6c46d3046a3bfdec0806eb074fa21d1bf64b80bd75527db7fe435c65e79",
       "gate": [],
       "origin": [
         "93593033daf4cfa2087a7486e7e685db62ce6e35b7237cb60e2a28bb26591785"
       ],
-      "fingerprint": "9d571c2b00599bd48341ef94374f583f16106a4b6d805d96a1a01922db8c4a69",
+      "fingerprint": "13c3494bfee2c20c01eed0a9aeb67d34429c50582037517e3e599ae0c246047f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of SessionConversationBody/SessionConversationBody/attachments",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 9687cdb4833a12007ee7dc6eabde1cbe82b55ebd8b3c130c19a1b8499e07727f.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 9687cdb4833a12007ee7dc6eabde1cbe82b55ebd8b3c130c19a1b8499e07727f. POD-2441: shared compose helper extraction and the opt-in pending-attachment intake changed this summary fingerprint; existing collection demand and REQUIRED REPAIR debt are retained. Predecessor: 9d571c2b00599bd48341ef94374f583f16106a4b6d805d96a1a01922db8c4a69.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -1225,18 +1225,18 @@
       "file": "apps/mobile/src/screens/SuperagentScreen.tsx",
       "holder": "SuperagentScreen/SuperagentScreen/attachments",
       "rule": "reader-summary",
-      "tokens": "0a50186b1554198b96dafa9430f450e0aa3032ea2c08fa6b5ec30a3fdfcb34a9",
+      "tokens": "971b2d2a42b86111e5e5ea859ee8cda3875607c5a63d2dca1ec027cf189f2657",
       "gate": [],
       "origin": [
         "93593033daf4cfa2087a7486e7e685db62ce6e35b7237cb60e2a28bb26591785"
       ],
-      "fingerprint": "203dba2c323f1404b69cf00aa7d511f923efcb4ae222b84405b4722aee392ed1",
+      "fingerprint": "a30fe2cc4820779b03e2eebd4e85b5ab7b3e7fe715abe0ab416ea27f178a6647",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of SuperagentScreen/SuperagentScreen/attachments",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 2e90eaf50fb3f936f1f8d30fa5d5346b752d324de04f88220d4fff9009fd9a19.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 2e90eaf50fb3f936f1f8d30fa5d5346b752d324de04f88220d4fff9009fd9a19. POD-2441: shared compose helper extraction and the opt-in pending-attachment intake changed this summary fingerprint; existing collection demand and REQUIRED REPAIR debt are retained. Predecessor: 203dba2c323f1404b69cf00aa7d511f923efcb4ae222b84405b4722aee392ed1.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -8745,19 +8745,19 @@
       "file": "apps/web/src/features/setup/ColdStartComposer.tsx",
       "holder": "ColdStartComposer",
       "rule": "reader-summary",
-      "tokens": "f5d82c75d2def14132e4d8a697efce1713b44ab17d471ee31e7151aae8473d67",
+      "tokens": "37c0299a05659be83e8b5705a5a87839f9f9daa160a3900b62d23d9c7c7fed44",
       "gate": [],
       "origin": [
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "11565b3b5a9f64d1852f7b2851b5c0da57f8df0415ff9fbefe3c387c326d9b72",
+      "fingerprint": "564e08362e5e4b47f3ecbee23603e2c0853e204740bbe1c9bb642554324f0308",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5833",
       "trigger": "ColdStartComposer",
       "bound": "Opening catalog or repository choices; no cardinality cap is claimed.",
-      "reason": "This path retains declared catalog traversal. Moving it into the opening action does not establish an addressed or capped acquisition.",
+      "reason": "This path retains declared catalog traversal. Moving it into the opening action does not establish an addressed or capped acquisition. POD-2441: shared compose helper extraction and the opt-in pending-attachment intake changed this summary fingerprint; existing collection demand and REQUIRED REPAIR debt are retained. Predecessor: 11565b3b5a9f64d1852f7b2851b5c0da57f8df0415ff9fbefe3c387c326d9b72.",
       "guard": "ColdStartComposer.order.test.tsx and CommandPalette.runtime.test.tsx prove frozen opening order, live visible labels and closed-view isolation; this entry makes no scan repair claim."
     },
     {
@@ -10800,6 +10800,7 @@
         "817ecc6bbfcc0faf265ba91310e86a6477735cbdd6c698786fa50f3e3c863de2",
         "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
         "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad",
+        "8cb1b96509099a87aacd3c48bc55db860a9721af1b5019861b49a4f556549624",
         "9dfb06e77c1bd8121fdaeed0ee36f80419d2f4c9c0fcdcc0be6052b2bbe941e1",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
@@ -10814,14 +10815,14 @@
         "ee146fea4afb84b56b3e0b90929f3fa73313f6e9d06d70719b0415c24524c64f",
         "f35fbf75a9191b6b6b2796aba1314c0b716360ad6ffbe40bb2a13c777d8a0061"
       ],
-      "fingerprint": "0181a22919eb8bc09ec6edaa42f1b84b23e622bbc52d9d313b43c3fbedfea644",
+      "fingerprint": "572d2c4418bd67d9cae4c3b680efcb0bdb2f4aad23c6ff817e7f30cd82ec6bbd",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation or observation of mock:callback/useWorklistPoolProjection/pool",
       "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
-      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored.",
-      "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 3567d73357a9192d6f08d7b563f9ccbab2f60168606daccda93a6aaf4bdc14a4. POD-5866 pilot reconciliation preserves the classification while moving opening ownership or adopting the landed model reader; predecessor: 8df29ca50a83bb38241f643f9d6f0263a5826f95c43e332db32155dcd7ff9b1a. POD-5872: The test adapter now publishes session rows into canonical models and borrows the existing draft owner; its fixture catalogue demand is unchanged. Predecessor: 339be345c8e21996547dfd544e83c4fd554a3beee76e3af67ca1f8604f857cf7."
+      "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 3567d73357a9192d6f08d7b563f9ccbab2f60168606daccda93a6aaf4bdc14a4. POD-5866 pilot reconciliation preserves the classification while moving opening ownership or adopting the landed model reader; predecessor: 8df29ca50a83bb38241f643f9d6f0263a5826f95c43e332db32155dcd7ff9b1a. POD-5872: The test adapter now publishes session rows into canonical models and borrows the existing draft owner; its fixture catalogue demand is unchanged. Predecessor: 339be345c8e21996547dfd544e83c4fd554a3beee76e3af67ca1f8604f857cf7. POD-2441: shared compose helper extraction and the opt-in pending-attachment intake changed this summary fingerprint; existing collection demand and REQUIRED REPAIR debt are retained. Predecessor: 0181a22919eb8bc09ec6edaa42f1b84b23e622bbc52d9d313b43c3fbedfea644.",
+      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
     },
     {
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
@@ -36519,6 +36520,133 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "helper-consumer carries the members taint of pickPaneSession, which taskOpenSeat forwards to unchanged (POD-2432); a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/mobile/src/screens/NewIssueScreen.tsx",
+      "holder": "NewIssueScreen/NewIssueScreen",
+      "rule": "reader-summary",
+      "tokens": "6aba2acf523180e9e03ee39126979d5c5a06cf4dac37e56014ddd7c49c68f26c",
+      "gate": [],
+      "origin": [
+        "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
+        "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
+      ],
+      "fingerprint": "ea7400e9d0d1db74a48e2933ff0f5cc10404cf5ebd2c97c7a6f26ff390fff1e3",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-2441",
+      "trigger": "The visible New Task compose sheet reads its existing shared catalog and local attachment intake.",
+      "bound": "Registered project/worktree catalog for the visible compose opening; no fixed catalog cardinality cap is claimed.",
+      "reason": "The approved recent-first project picker still traverses its registered catalog. Path collection now belongs to the existing shared opening reader, whose memo retains the same setup query answers; this is not an addressed-demand repair.",
+      "guard": "settings-compose-catalog.test.ts proves shared answer parity, cached repeated demand and flat 1x/4x unrelated-history work. ColdStartComposer.order.test.tsx covers frozen ordering. No catalog bound or repair is asserted."
+    },
+    {
+      "file": "apps/mobile/src/screens/NewIssueScreen.tsx",
+      "holder": "NewIssueScreen/NewIssueScreen/attachments",
+      "rule": "reader-summary",
+      "tokens": "7aaa964ec06c0794e700024458441add0ea68368afa85382d83bf71c943e883b",
+      "gate": [],
+      "origin": [
+        "93593033daf4cfa2087a7486e7e685db62ce6e35b7237cb60e2a28bb26591785"
+      ],
+      "fingerprint": "c6ea3e5b7bca90bf7c66917385c10edfe01b2c83e5cf22702b9ea85c7bf90767",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-2441",
+      "trigger": "The visible New Task compose sheet reads its existing shared catalog and local attachment intake.",
+      "bound": "Current compose attachment chips and the existing upload procedure; no new global attachment enumeration is introduced.",
+      "reason": "The pending upload option reuses useComposerAttachments and its existing reader-summary taint. It adds no record store or new global read, and no repair of inherited collection debt is claimed.",
+      "guard": "NewIssueScreen.selectors.test.tsx covers dismissal, submit paths and held attachment refs; useComposerAttachments.test.tsx compares issue and unchanged chat payloads."
+    },
+    {
+      "file": "packages/client-graph/src/settings-views.ts",
+      "holder": "createSettingsViews/setupCatalog/memo:callback",
+      "rule": "helper-consumer",
+      "tokens": "e0375200a1ebf464f166a70126d62455c6b846d41b97ddbfaa45cddb55b76f06",
+      "gate": [],
+      "origin": [
+        "8cb1b96509099a87aacd3c48bc55db860a9721af1b5019861b49a4f556549624"
+      ],
+      "fingerprint": "d86ce8a6701533556cc8921e8c9ee6e3d8e02100b6034f1c24d25b209f098f53",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-2441",
+      "trigger": "The compose opening requests recent use for its registered repository and worktree catalog.",
+      "bound": "Registered project/worktree catalog for the visible compose opening; no fixed catalog cardinality cap is claimed.",
+      "reason": "The approved recent-first project picker still traverses its registered catalog. Path collection now belongs to the existing shared opening reader, whose memo retains the same setup query answers; this is not an addressed-demand repair.",
+      "guard": "settings-compose-catalog.test.ts proves shared answer parity, cached repeated demand and flat 1x/4x unrelated-history work. ColdStartComposer.order.test.tsx covers frozen ordering. No catalog bound or repair is asserted."
+    },
+    {
+      "file": "packages/client-graph/src/settings-views.ts",
+      "holder": "createSettingsViews/setupCatalog/memo:callback/paths",
+      "rule": "materialize:Set",
+      "tokens": "c139325c3c0daf395ffb693b66b3de059af85b6a6e2855b19d2377a5a7c00a97",
+      "gate": [],
+      "origin": [
+        "8cb1b96509099a87aacd3c48bc55db860a9721af1b5019861b49a4f556549624"
+      ],
+      "fingerprint": "d3d59b2624098e7587d03e0bc415eb44fea5138bef67ea14f6b0eddce9844656",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-2441",
+      "trigger": "The compose opening requests recent use for its registered repository and worktree catalog.",
+      "bound": "Registered project/worktree catalog for the visible compose opening; no fixed catalog cardinality cap is claimed.",
+      "reason": "The approved recent-first project picker still traverses its registered catalog. Path collection now belongs to the existing shared opening reader, whose memo retains the same setup query answers; this is not an addressed-demand repair.",
+      "guard": "settings-compose-catalog.test.ts proves shared answer parity, cached repeated demand and flat 1x/4x unrelated-history work. ColdStartComposer.order.test.tsx covers frozen ordering. No catalog bound or repair is asserted."
+    },
+    {
+      "file": "packages/client-graph/src/settings-views.ts",
+      "holder": "createSettingsViews/setupCatalog/memo:callback/paths",
+      "rule": "spread",
+      "tokens": "2414a56ec0fb7a99908afccd32a53c39af6f9c967db1579631c4a53b7f869b2f",
+      "gate": [],
+      "origin": [
+        "8cb1b96509099a87aacd3c48bc55db860a9721af1b5019861b49a4f556549624"
+      ],
+      "fingerprint": "e7325752bf86a3098b7927fb0b4c86d8318c7b469dd1dc15dfa2753b6b12b802",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-2441",
+      "trigger": "The compose opening requests recent use for its registered repository and worktree catalog.",
+      "bound": "Registered project/worktree catalog for the visible compose opening; no fixed catalog cardinality cap is claimed.",
+      "reason": "The approved recent-first project picker still traverses its registered catalog. Path collection now belongs to the existing shared opening reader, whose memo retains the same setup query answers; this is not an addressed-demand repair.",
+      "guard": "settings-compose-catalog.test.ts proves shared answer parity, cached repeated demand and flat 1x/4x unrelated-history work. ColdStartComposer.order.test.tsx covers frozen ordering. No catalog bound or repair is asserted."
+    },
+    {
+      "file": "packages/client-graph/src/settings-views.ts",
+      "holder": "createSettingsViews/setupCatalog/memo:callback/paths/flatMap:callback",
+      "rule": "consume:map",
+      "tokens": "b8069e3666e20f1de7c3946d9e855c781c46ba49fb51ae0abcced50ab4732fbe",
+      "gate": [],
+      "origin": [
+        "8cb1b96509099a87aacd3c48bc55db860a9721af1b5019861b49a4f556549624"
+      ],
+      "fingerprint": "44dfa2e8e3c2735b5bd1495ed76bba9cfc7cdea96ce7b09dfb435e5dfab3c710",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-2441",
+      "trigger": "The compose opening requests recent use for its registered repository and worktree catalog.",
+      "bound": "Registered project/worktree catalog for the visible compose opening; no fixed catalog cardinality cap is claimed.",
+      "reason": "The approved recent-first project picker still traverses its registered catalog. Path collection now belongs to the existing shared opening reader, whose memo retains the same setup query answers; this is not an addressed-demand repair.",
+      "guard": "settings-compose-catalog.test.ts proves shared answer parity, cached repeated demand and flat 1x/4x unrelated-history work. ColdStartComposer.order.test.tsx covers frozen ordering. No catalog bound or repair is asserted."
+    },
+    {
+      "file": "packages/client-graph/src/settings-views.ts",
+      "holder": "createSettingsViews/setupCatalog/memo:callback/paths/flatMap:callback",
+      "rule": "spread",
+      "tokens": "fe874906964eeb09b257a384067d586316465a21fa855ef6d3ecbfd3297f3e0c",
+      "gate": [],
+      "origin": [
+        "8cb1b96509099a87aacd3c48bc55db860a9721af1b5019861b49a4f556549624"
+      ],
+      "fingerprint": "ec0115e2beb06cb253c44adf7d3da6d0f29822e1e68c02654018bd28321582a8",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-2441",
+      "trigger": "The compose opening requests recent use for its registered repository and worktree catalog.",
+      "bound": "Registered project/worktree catalog for the visible compose opening; no fixed catalog cardinality cap is claimed.",
+      "reason": "The approved recent-first project picker still traverses its registered catalog. Path collection now belongs to the existing shared opening reader, whose memo retains the same setup query answers; this is not an addressed-demand repair.",
+      "guard": "settings-compose-catalog.test.ts proves shared answer parity, cached repeated demand and flat 1x/4x unrelated-history work. ColdStartComposer.order.test.tsx covers frozen ordering. No catalog bound or repair is asserted."
     }
   ]
 }
