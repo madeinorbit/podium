@@ -1,6 +1,6 @@
 import type { TranscriptActivityRun, TranscriptLog } from '@podium/client-core/conversation'
 import { useActivityDisclosure, useMailBody } from '@podium/client-core/react'
-import { dayMarksByPosition } from '@podium/client-core/transcript-time'
+import { dayKey, dayMarksByPosition } from '@podium/client-core/transcript-time'
 import {
   activitySingletonDisplay,
   type ChatBlock,
@@ -45,7 +45,7 @@ import {
 } from 'react-native'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import type { RefreshAccessibilityProps } from '../hooks/useRefreshableTab'
-import { useAgeNow } from '../lib/clock-hooks'
+import { useAgeNow, useClock } from '../lib/clock-hooks'
 import {
   type MobileConversationPresentation,
   MobileTranscriptSearch,
@@ -844,10 +844,16 @@ const TranscriptDayMark = observer(function TranscriptDayMark({
     )
     if (previous) break
   }
-  const dates = previous ? [previous, current] : [current]
-  const label = dayMarksByPosition(dates, new Date(), (date) => date).get(dates.length - 1)
-  return label ? <Text style={styles.dayMark}>{label}</Text> : null
+  if (previous && dayKey(previous) === dayKey(current)) return null
+  return <DayMarkLabel dates={previous ? [previous, current] : [current]} />
 })
+
+/** Only boundary labels observe the clock; ordinary transcript rows do not. */
+function DayMarkLabel({ dates }: { dates: Date[] }) {
+  const now = useClock(60_000)
+  const label = dayMarksByPosition(dates, new Date(now), (date) => date).get(dates.length - 1)
+  return label ? <Text style={styles.dayMark}>{label}</Text> : null
+}
 
 function FeedRowFrame({
   row,

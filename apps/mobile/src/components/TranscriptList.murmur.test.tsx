@@ -5,9 +5,10 @@
  */
 import { renderMailPointer } from '@podium/commands/mail-pointer-nudge'
 import type { TranscriptItem } from '@podium/model'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
+const markdownRenders = vi.hoisted(() => vi.fn())
 const mailBody = vi.hoisted(() =>
   vi.fn((): { status: string; body?: string; retry?: () => void } => ({
     status: 'ready',
@@ -29,7 +30,10 @@ vi.mock('expo-haptics', () => ({
 }))
 vi.mock('expo-clipboard', () => ({ setStringAsync: vi.fn(async () => {}) }))
 vi.mock('./RichMarkdown', () => ({
-  RichMarkdown: ({ text }: { text: string }) => <span>{text}</span>,
+  RichMarkdown: ({ text }: { text: string }) => {
+    markdownRenders(text)
+    return <span>{text}</span>
+  },
   RichMarkdownInline: ({ text }: { text: string }) => <>{text}</>,
 }))
 vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => true }))
@@ -58,8 +62,12 @@ vi.mock('react-native-svg', async () => {
   return { default: Svg, Svg, Circle: () => null }
 })
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+})
 beforeEach(() => {
+  markdownRenders.mockClear()
   mailBody.mockReset()
   mailBody.mockReturnValue({ status: 'ready', body: 'The complete pointer body.' })
 })
@@ -344,4 +352,23 @@ it('centres one mark per day change without per-bubble clocks', () => {
   expect(screen.getAllByText('Yesterday')).toHaveLength(1)
   expect(screen.getAllByText('Today')).toHaveLength(1)
   expect(screen.queryByText(/^\d{2}:\d{2}$/)).toBeNull()
+})
+
+it('updates a day label at midnight without rendering message prose again', () => {
+  vi.useFakeTimers()
+  vi.setSystemTime(new Date(2026, 10, 13, 23, 59, 30))
+  const ts = new Date().toISOString()
+  render(
+    transcript([
+      { id: 'one', role: 'assistant', text: 'Earlier today', ts },
+      { id: 'two', role: 'assistant', text: 'Still today', ts },
+    ]),
+  )
+  expect(screen.queryByText('Yesterday')).toBeNull()
+  const renders = markdownRenders.mock.calls.length
+  act(() => {
+    vi.advanceTimersByTime(61_000)
+  })
+  expect(screen.getByText('Yesterday')).toBeTruthy()
+  expect(markdownRenders).toHaveBeenCalledTimes(renders)
 })
