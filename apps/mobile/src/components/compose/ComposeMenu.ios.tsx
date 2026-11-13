@@ -1,7 +1,13 @@
 import { Host } from '@expo/ui'
 import { Button, Menu, RNHostView, Section, Text, Toggle } from '@expo/ui/swift-ui'
-import { disabled } from '@expo/ui/swift-ui/modifiers'
+import {
+  buttonStyle,
+  disabled,
+  frame,
+  menuActionDismissBehavior,
+} from '@expo/ui/swift-ui/modifiers'
 import type { SFSymbol } from 'expo-symbols'
+import { Keyboard, View } from 'react-native'
 import type { ComposeMenuItem, ComposeMenuProps } from './ComposeMenu'
 
 /** The app's SwiftUI Menu/RNHostView pattern, with nested choices and primary actions. */
@@ -13,17 +19,24 @@ export function ComposeMenu({
   style,
 }: ComposeMenuProps) {
   return (
-    <Host matchContents={{ vertical: true }} style={style}>
-      <Menu
-        label={<RNHostView matchContents>{children()}</RNHostView>}
-        onPrimaryAction={onPrimaryAction}
-        modifiers={unavailable ? [disabled(true)] : []}
-      >
-        {items.map((item) => (
-          <Entry key={item.id} item={item} />
-        ))}
-      </Menu>
-    </Host>
+    <View style={style} onTouchStart={Keyboard.dismiss}>
+      <Host matchContents={{ vertical: true }} style={{ alignSelf: 'stretch' }}>
+        <Menu
+          label={<RNHostView matchContents={{ vertical: true }}>{children()}</RNHostView>}
+          onPrimaryAction={onPrimaryAction}
+          modifiers={[
+            buttonStyle('plain'),
+            frame({ maxWidth: Infinity, alignment: 'leading' }),
+            menuActionDismissBehavior('enabled'),
+            ...(unavailable ? [disabled(true)] : []),
+          ]}
+        >
+          {items.map((item) => (
+            <Entry key={item.id} item={item} />
+          ))}
+        </Menu>
+      </Host>
+    </View>
   )
 }
 

@@ -3,6 +3,7 @@ import { type ReactNode, type RefObject, useCallback, useRef, useState } from 'r
 import {
   ActivityIndicator,
   Image,
+  Keyboard,
   type NativeSyntheticEvent,
   Platform,
   ScrollView,
@@ -128,6 +129,13 @@ export function ComposeBody({
   const inputRef = promptRef ?? ownRef
   const [promptHeight, setPromptHeight] = useState<number>()
   const [promptWidth, setPromptWidth] = useState(0)
+  const [viewportHeight, setViewportHeight] = useState(0)
+  const [scrollInset, setScrollInset] = useState(0)
+  const [headerHeight, setHeaderHeight] = useState(0)
+  const [footerHeight, setFooterHeight] = useState(0)
+  const maxPromptHeight = viewportHeight
+    ? Math.max(72, viewportHeight - scrollInset - headerHeight - footerHeight - 16)
+    : undefined
   const measure = useCallback((height: number) => setPromptHeight(Math.max(72, height)), [])
   useComposerMeasure(inputRef, prompt, promptWidth, measure)
   const onKeyPress = (event: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
@@ -147,26 +155,38 @@ export function ComposeBody({
   return (
     <View style={[styles.body, { paddingBottom: keyboardLift }]}>
       <ScrollView
+        testID="compose-scroll"
         style={styles.scroll}
         contentInsetAdjustmentBehavior="automatic"
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
         contentContainerStyle={styles.content}
+        onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}
+        onScroll={(event) => {
+          const { top = 0, bottom = 0 } = event.nativeEvent.contentInset ?? {}
+          setScrollInset(top + bottom)
+        }}
+        scrollEventThrottle={16}
       >
-        {fields}
-        {note ? (
-          <View style={styles.note}>
-            <Icon as="exclamationmark.triangle" size={16} color={color.accentTint} />
-            <Text selectable accessibilityLiveRegion="polite" style={styles.noteText}>
-              {note}
-            </Text>
-          </View>
-        ) : null}
+        <View
+          testID="compose-fields"
+          onLayout={(event) => setHeaderHeight(event.nativeEvent.layout.height)}
+        >
+          {fields}
+          {note ? (
+            <View style={styles.note}>
+              <Icon as="exclamationmark.triangle" size={16} color={color.accentTint} />
+              <Text selectable accessibilityLiveRegion="polite" style={styles.noteText}>
+                {note}
+              </Text>
+            </View>
+          ) : null}
+        </View>
         <TextInput
           ref={inputRef}
           autoFocus
           multiline
-          scrollEnabled={false}
+          scrollEnabled={maxPromptHeight !== undefined && (promptHeight ?? 0) >= maxPromptHeight}
           editable={!busy}
           accessibilityLabel="Task prompt"
           placeholder="What should change, and why?"
@@ -180,78 +200,103 @@ export function ComposeBody({
               ? undefined
               : (event) => measure(event.nativeEvent.contentSize.height)
           }
-          style={[styles.prompt, promptHeight === undefined ? undefined : { height: promptHeight }]}
+          // Native must keep its intrinsic height. Feeding its last measurement
+          // back as height caps UIKit's next measurement and clips later lines.
+          style={[
+            styles.prompt,
+            { maxHeight: maxPromptHeight },
+            Platform.OS === 'web' && promptHeight !== undefined
+              ? { height: Math.min(promptHeight, maxPromptHeight ?? promptHeight) }
+              : undefined,
+          ]}
           textAlignVertical="top"
           selectionColor={color.accentTint}
         />
-        {attachments.length ? (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={styles.attachments}
-          >
-            {attachments.map((file) => (
-              <View key={file.id} style={[styles.attachment, !file.previewUri && styles.document]}>
-                {file.previewUri ? (
-                  <Image
-                    accessibilityLabel={file.name}
-                    source={{ uri: file.previewUri }}
-                    resizeMode="cover"
-                    style={styles.preview}
-                  />
-                ) : (
-                  <>
-                    <Icon as="doc" size={18} color={color.textDim} />
-                    <Text style={styles.filename} numberOfLines={2}>
-                      {file.name}
-                    </Text>
-                  </>
-                )}
-                {file.state === 'uploading' ? (
-                  <View style={styles.uploading}>
-                    <ActivityIndicator size="small" color={color.text} />
-                  </View>
-                ) : null}
-                {file.error ? (
-                  <Text accessibilityRole="alert" style={styles.fileError} numberOfLines={3}>
-                    {file.error}
-                  </Text>
-                ) : null}
-                <PressableScale
-                  accessibilityRole="button"
-                  accessibilityLabel={`Remove ${file.name}`}
-                  disabled={busy}
-                  onPress={() => onRemoveAttachment(file.id)}
-                  hitSlop={8}
-                  style={styles.remove}
-                >
-                  <Icon as="xmark" size={10} color="#ffffff" />
-                </PressableScale>
-              </View>
-            ))}
-          </ScrollView>
-        ) : null}
-        {!busy && !prompt.includes(COORDINATOR_PROMPT) ? (
-          <Text style={styles.tip}>
-            Something big?{' '}
-            <Text
-              accessibilityRole="button"
-              accessibilityLabel="Try adding a coordinator prompt"
-              onPress={onCoordinator}
-              style={styles.tipLink}
+        <View
+          testID="compose-footer"
+          onLayout={(event) => setFooterHeight(event.nativeEvent.layout.height)}
+        >
+          {attachments.length ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={styles.attachments}
             >
-              Try adding a coordinator prompt
+              {attachments.map((file) => (
+                <View
+                  key={file.id}
+                  style={[styles.attachment, !file.previewUri && styles.document]}
+                >
+                  {file.previewUri ? (
+                    <Image
+                      accessibilityLabel={file.name}
+                      source={{ uri: file.previewUri }}
+                      resizeMode="cover"
+                      style={styles.preview}
+                    />
+                  ) : (
+                    <>
+                      <Icon as="doc" size={18} color={color.textDim} />
+                      <Text style={styles.filename} numberOfLines={2}>
+                        {file.name}
+                      </Text>
+                    </>
+                  )}
+                  {file.state === 'uploading' ? (
+                    <View style={styles.uploading}>
+                      <ActivityIndicator size="small" color={color.text} />
+                    </View>
+                  ) : null}
+                  {file.error ? (
+                    <Text accessibilityRole="alert" style={styles.fileError} numberOfLines={3}>
+                      {file.error}
+                    </Text>
+                  ) : null}
+                  <PressableScale
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove ${file.name}`}
+                    disabled={busy}
+                    onPress={() => onRemoveAttachment(file.id)}
+                    hitSlop={8}
+                    style={styles.remove}
+                  >
+                    <View pointerEvents="none" style={styles.removeBadge}>
+                      <Icon as="xmark.circle.fill" size={20} color={color.text} />
+                    </View>
+                  </PressableScale>
+                </View>
+              ))}
+            </ScrollView>
+          ) : null}
+          {!busy && !prompt.includes(COORDINATOR_PROMPT) ? (
+            <Text style={styles.tip}>
+              Something big?{' '}
+              <Text
+                accessibilityRole="button"
+                accessibilityLabel="Try adding a coordinator prompt"
+                onPress={onCoordinator}
+                style={styles.tipLink}
+              >
+                Try adding a coordinator prompt
+              </Text>
             </Text>
-          </Text>
-        ) : null}
-        {error ? (
-          <Text selectable accessibilityRole="alert" style={styles.error}>
-            {error} Your request and selections are still saved.
-          </Text>
-        ) : null}
+          ) : null}
+          {error ? (
+            <Text selectable accessibilityRole="alert" style={styles.error}>
+              {error} Your request and selections are still saved.
+            </Text>
+          ) : null}
+        </View>
+        <PressableScale
+          testID="compose-dismiss-keyboard"
+          accessible={false}
+          onPress={Keyboard.dismiss}
+          style={styles.dismissArea}
+        />
       </ScrollView>
       <View
+        onTouchStart={Keyboard.dismiss}
         style={[styles.toolbar, { paddingBottom: keyboardLift > 0 ? 8 : Math.max(8, bottomInset) }]}
       >
         <Glass interactive style={styles.tools}>
@@ -297,8 +342,11 @@ function Tool({
 const styles = StyleSheet.create({
   body: { flex: 1, minHeight: 0 },
   scroll: { flex: 1 },
-  content: { paddingBottom: 16 },
+  content: { flexGrow: 1, paddingBottom: 16 },
+  dismissArea: { flex: 1, minHeight: 0 },
   field: {
+    width: '100%',
+    alignSelf: 'stretch',
     minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
@@ -351,12 +399,19 @@ const styles = StyleSheet.create({
   filename: { fontWeight: '400', fontSize: 13, lineHeight: 16, color: color.text },
   remove: {
     position: 'absolute',
-    top: 4,
-    right: 4,
+    top: 0,
+    right: 0,
+    width: 44,
+    height: 44,
+    paddingTop: 4,
+    paddingRight: 4,
+    alignItems: 'flex-end',
+  },
+  removeBadge: {
     width: 20,
     height: 20,
     borderRadius: 10,
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    backgroundColor: color.groupedCard,
     alignItems: 'center',
     justifyContent: 'center',
   },
