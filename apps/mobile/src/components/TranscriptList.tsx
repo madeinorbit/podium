@@ -1,4 +1,8 @@
-import type { TranscriptActivityRun, TranscriptLog } from '@podium/client-core/conversation'
+import {
+  conversationBubblePosition,
+  type TranscriptActivityRun,
+  type TranscriptLog,
+} from '@podium/client-core/conversation'
 import { useActivityDisclosure, useMailBody } from '@podium/client-core/react'
 import { dayKey, dayMarksByPosition } from '@podium/client-core/transcript-time'
 import {
@@ -136,6 +140,8 @@ export interface PendingTurn {
   id: string
   /** Existing send instant, so its day mark stays put when the echo arrives. */
   at?: number
+  afterTranscriptId?: string | null
+  beforeTranscriptId?: string
   /** The PROSE, without the attachment paths that ride with it — the paths are
    *  rendered as files below, exactly as they will be once the server echoes
    *  this turn back. */
@@ -387,12 +393,14 @@ function SystemMurmur({
   const clock = shortTime(item.ts)
   if (item.event === 'interrupt') {
     return (
-      <MurmurLine
-        glyph={<Icon as={Square} size={14} color={color.textMicro} />}
-        label="Interrupted by you"
-        clock={clock}
-        accessibilityLabel={`Interrupted by you${clock ? ` at ${clock}` : ''}`}
-      />
+      <View testID="interrupted-row" style={styles.systemRow}>
+        <MurmurLine
+          glyph={<Icon as={Square} size={14} color={color.textMicro} />}
+          label="Interrupted by you"
+          clock={clock}
+          accessibilityLabel={`Interrupted by you${clock ? ` at ${clock}` : ''}`}
+        />
+      </View>
     )
   }
   if (item.role === 'system' && item.systemKind === 'compaction') {
@@ -430,9 +438,11 @@ function SystemMurmur({
     )
   }
   return (
-    <Text style={styles.quiet} numberOfLines={2}>
-      {quietText}
-    </Text>
+    <View style={styles.systemRow}>
+      <Text style={styles.quiet} numberOfLines={2}>
+        {quietText}
+      </Text>
+    </View>
   )
 }
 
@@ -939,12 +949,14 @@ const TranscriptDayMark = observer(function TranscriptDayMark({
   rows,
   suffixRows = [],
   presentation,
+  preceding = [],
 }: {
   entry: string | Row
   index: number
   rows: readonly (string | Row)[]
   suffixRows?: readonly Row[]
   presentation?: MobileConversationPresentation
+  preceding?: readonly Row[]
 }) {
   const timestamp = (entry: string | Row | undefined) => {
     const item = typeof entry === 'string' ? presentation?.sourceItem(entry) : entry?.item
@@ -954,8 +966,12 @@ const TranscriptDayMark = observer(function TranscriptDayMark({
   const current = timestamp(entry)
   if (!current) return null
   let previous: Date | undefined
+  for (let position = preceding.length - 1; position >= 0; position--) {
+    previous = timestamp(preceding[position])
+    if (previous) break
+  }
   const start = Math.max(0, index - DAY_MARK_LOOKBACK)
-  for (let position = index - 1; position >= start; position--) {
+  for (let position = index - 1; !previous && position >= start; position--) {
     previous = timestamp(
       position < rows.length ? rows[position] : suffixRows[position - rows.length],
     )
@@ -1731,7 +1747,7 @@ export const TranscriptList = observer(function TranscriptList({
   // The settled rows remain stable viewport data while transport text changes.
   // Tail-only rows are a bounded suffix rendered in the footer, in the same
   // order they had when all rows shared one array.
-  const suffixRows = useMemo(() => {
+  const tailRows = useMemo(() => {
     const built: Row[] = liveRow ? [liveRow] : []
     for (const turn of pendingTurns ?? []) {
       built.push({
@@ -1772,6 +1788,26 @@ export const TranscriptList = observer(function TranscriptList({
     return built
   }, [hidePendingQuestion, liveRow, pendingAsk, pendingTurns])
   const rows: readonly (string | Row)[] = presentation ? presentation.keys : model!.rows
+  // biome-ignore lint/correctness/useExhaustiveDependencies: positionOfKey reads the source-owned membership version; its observable keys retain their identity.
+  const { suffixRows, placedPendingRows } = useMemo(() => {
+    const suffixRows: Row[] = []
+    const placedPendingRows = new Map<number, PendingRow[]>()
+    const positionOfItem = presentation?.positionOfKey ?? model!.positionOfKey
+    for (const row of tailRows) {
+      const position =
+        row.kind === 'pending'
+          ? conversationBubblePosition(row.pendingTurn, positionOfItem)
+          : undefined
+      // Tail positions stay in the footer alongside live transport rows.
+      if (position === undefined || position >= rows.length) suffixRows.push(row)
+      else {
+        const placed = placedPendingRows.get(position) ?? []
+        placed.push(row as PendingRow)
+        placedPendingRows.set(position, placed)
+      }
+    }
+    return { suffixRows, placedPendingRows }
+  }, [tailRows, presentation, model, rows.length, membershipVersion])
   const searchModel =
     !presentation && searching && transcript
       ? buildMobileTranscript(
@@ -1938,6 +1974,41 @@ export const TranscriptList = observer(function TranscriptList({
     return actions
   }, [actionText, copyText, onQuote, quoteText])
 
+  const renderTailRow = (row: Row, index: number, preceding?: readonly Row[]) => (
+    <View key={row.key}>
+      <TranscriptDayMark
+        entry={row}
+        index={index}
+        rows={rows}
+        suffixRows={suffixRows}
+        presentation={presentation}
+        preceding={preceding}
+      />
+      <TranscriptFeedRow
+        row={row}
+        arrived={suffixArrivedKeys.has(row.key)}
+        highlighted={false}
+        dimmed={query.trim().length > 0}
+        reduceMotion={reduceMotion}
+        liveQuestion={
+          statePendingKey === row.key || (live && pendingKey !== null && pendingKey === row.key)
+        }
+        streaming={streaming && row.key === liveRow?.key}
+        mailReply={mailReply}
+        onQuoteText={onQuote}
+        assetContext={assetContext}
+        onAnswer={answerRow}
+        answerInteractionId={answerInteractionId}
+        onRefPress={onRefPress ? pressRowRef : undefined}
+        onRetryPending={onRetryPending ? retryPendingRow : undefined}
+        onDiscardPending={onDiscardPending ? discardPendingRow : undefined}
+        onSendAgainPending={onSendAgainPending ? sendAgainPendingRow : undefined}
+        onRetractPending={onRetractPending ? retractPendingRow : undefined}
+        onHold={holdMessage}
+      />
+    </View>
+  )
+
   return (
     <View style={styles.listFrame}>
       <TranscriptViewport
@@ -1977,40 +2048,7 @@ export const TranscriptList = observer(function TranscriptList({
         keyboardShouldPersistTaps="handled"
         ListFooterComponent={
           <>
-            {suffixRows.map((row, index) => (
-              <View key={row.key}>
-                <TranscriptDayMark
-                  entry={row}
-                  index={rows.length + index}
-                  rows={rows}
-                  suffixRows={suffixRows}
-                  presentation={presentation}
-                />
-                <TranscriptFeedRow
-                  row={row}
-                  arrived={suffixArrivedKeys.has(row.key)}
-                  highlighted={false}
-                  dimmed={query.trim().length > 0}
-                  reduceMotion={reduceMotion}
-                  liveQuestion={
-                    statePendingKey === row.key ||
-                    (live && pendingKey !== null && pendingKey === row.key)
-                  }
-                  streaming={streaming && row.key === liveRow?.key}
-                  mailReply={mailReply}
-                  onQuoteText={onQuote}
-                  assetContext={assetContext}
-                  onAnswer={answerRow}
-                  answerInteractionId={answerInteractionId}
-                  onRefPress={onRefPress ? pressRowRef : undefined}
-                  onRetryPending={onRetryPending ? retryPendingRow : undefined}
-                  onDiscardPending={onDiscardPending ? discardPendingRow : undefined}
-                  onSendAgainPending={onSendAgainPending ? sendAgainPendingRow : undefined}
-                  onRetractPending={onRetractPending ? retractPendingRow : undefined}
-                  onHold={holdMessage}
-                />
-              </View>
-            ))}
+            {suffixRows.map((row, index) => renderTailRow(row, rows.length + index))}
             <TranscriptTail state={liveRunKey === undefined ? tail : undefined} />
             {footer ? <View style={styles.footer}>{footer}</View> : null}
           </>
@@ -2052,11 +2090,17 @@ export const TranscriptList = observer(function TranscriptList({
             )
           return (
             <View>
+              {placedPendingRows
+                .get(index)
+                ?.map((row, pendingIndex, pending) =>
+                  renderTailRow(row, index, pending.slice(0, pendingIndex)),
+                )}
               <TranscriptDayMark
                 entry={entry}
                 index={index}
                 rows={rows}
                 presentation={presentation}
+                preceding={placedPendingRows.get(index)}
               />
               {content}
             </View>
@@ -2297,6 +2341,7 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
   // System/interrupt/churn — quiet mono line.
+  systemRow: { paddingTop: space.sm, flexShrink: 0 },
   quiet: {
     ...mono(400),
     color: color.textMicro,

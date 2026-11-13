@@ -559,7 +559,7 @@ const headingStyles = StyleSheet.create({
 })
 
 const styles = StyleSheet.create({
-  root: { minWidth: 0, width: '100%', maxWidth: '100%' },
+  root: { minWidth: 0, width: '100%', maxWidth: '100%', flexShrink: 0 },
   body: {
     ...sans(400),
     // Keep UIKit label adaptation, including Increase Contrast, for reading text.

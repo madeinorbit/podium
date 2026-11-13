@@ -56,6 +56,58 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
+it('keeps a confirmed message below an older unresolved /compact without moving older rows', () => {
+  const history = { id: 'earlier', role: 'assistant' as const, text: 'Older answer' }
+  const old = {
+    id: 'compact',
+    text: '/compact',
+    afterTranscriptId: 'earlier',
+    delivery: 'unknown' as const,
+  }
+  const props = { live: true, transcriptQuestion: null, onAnswer: async () => {} }
+  const view = render(
+    <TranscriptList
+      {...props}
+      items={[history]}
+      pendingTurns={[old, { id: 'new', text: 'New message', afterTranscriptId: 'earlier' }]}
+    />,
+  )
+  const bubbles = () => screen.getAllByTestId('operator-message').map((node) => node.textContent)
+  expect(bubbles()[0]).toContain('/compact')
+  expect(bubbles()[1]).toContain('New message')
+  view.rerender(
+    <TranscriptList
+      {...props}
+      items={[history, { id: 'echo', role: 'user', text: 'New message' }]}
+      pendingTurns={[old]}
+    />,
+  )
+  expect(bubbles()).toHaveLength(2)
+  expect(bubbles()[0]).toContain('/compact')
+  expect(bubbles()[1]).toContain('New message')
+})
+
+it('gives the interrupted marker its own padded row after cut-off streamed text', () => {
+  const view = render(
+    <TranscriptList
+      items={[
+        { id: 'long', role: 'assistant', text: `${'A streamed line\n'.repeat(600)}five h` },
+        { id: 'stop', role: 'user', event: 'interrupt', text: '' },
+      ]}
+      live
+      transcriptQuestion={null}
+      onAnswer={async () => {}}
+    />,
+  )
+  const marker = screen.getByTestId('interrupted-row')
+  expect(Number.parseFloat(getComputedStyle(marker).paddingTop)).toBeGreaterThanOrEqual(8)
+  expect(marker.textContent).toContain('Interrupted by you')
+  expect(marker.textContent).not.toContain('five h')
+  expect(view.container.textContent?.indexOf('five h')).toBeLessThan(
+    view.container.textContent?.indexOf('Interrupted by you'),
+  )
+})
+
 it('removes Newest immediately when a send pins, before any viewport callback', () => {
   const props = { items: [], live: true, transcriptQuestion: null, onAnswer: async () => {} }
   const view = render(<TranscriptList {...props} pinRequest={0} />)

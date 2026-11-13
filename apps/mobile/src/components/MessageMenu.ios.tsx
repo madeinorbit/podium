@@ -22,6 +22,7 @@ export function MessageMenu({
 }: MessageMenuProps) {
   const window = useWindowDimensions()
   const [measuredWidth, setWidth] = useState<number>()
+  const [contentHeight, setContentHeight] = useState(0)
   const width = measuredWidth ?? window.width - space.lg * 2
   const actions = (
     <>
@@ -41,14 +42,26 @@ export function MessageMenu({
     </>
   )
   return (
-    <View style={styles.host} onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
-      <Host matchContents={{ vertical: true }} style={{ width }}>
+    <View
+      testID="message-menu-host"
+      style={[styles.host, { minHeight: contentHeight }]}
+      onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
+    >
+      {/* The transcript owns safe areas. SwiftUI's size notification can lag
+          a growing RN subtree; reserve its measured height before the next row. */}
+      <Host
+        ignoreSafeArea="all"
+        matchContents={{ vertical: true }}
+        style={{ width, minHeight: contentHeight }}
+      >
         <ContextMenu key={messageId ?? text}>
           <ContextMenu.Trigger>
             <RNHostView matchContents={{ vertical: true }}>
               <View
+                testID="message-menu-body"
                 collapsable={false}
                 style={{ width }}
+                onLayout={(event) => setContentHeight(event.nativeEvent.layout.height)}
                 accessibilityActions={[
                   { name: 'copy', label: 'Copy message' },
                   ...(canQuote ? [{ name: 'quote', label: 'Quote in reply' }] : []),
