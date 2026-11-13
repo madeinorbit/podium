@@ -42,6 +42,7 @@ import type { LedgerWriter } from '@podium/sync'
 import { z } from 'zod'
 import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import { asSystemWrite } from '../../plain-command-scope'
+import { changeLogCommitOpen } from '../../store/commit-open'
 import type { InstancePreferencesFeedCapture } from '../../store/settings'
 import { registerRecordKind } from '../records/generic'
 import { SyncWriteRefused } from '../sync-write/entry'
@@ -62,7 +63,10 @@ export function makeInstancePreferencesFeedCapture(
   //
   // The commit runs the blob write; the capture fires only when the blob
   // changed, and the Authority appends the record built from it (POD-6920).
+  // Inside a commit already running (a preference patch on its command's
+  // writer) the blob write joins it.
   return async (write) => {
+    if (changeLogCommitOpen()) return await write()
     await asSystemWrite(
       async () =>
         await ledger.commit({

@@ -101,7 +101,7 @@ const upsertMeta = prepared((db: StoreDrizzle) =>
  */
 export type InstancePreferencesFeedCapture = (
   write: () => Promise<void>,
-  next: PodiumSettings,
+  next?: PodiumSettings,
 ) => Promise<void>
 
 export class SettingsRepository {
@@ -402,6 +402,30 @@ export class SettingsRepository {
     next: PodiumSettings,
     updatedAt: string,
   ): Promise<PodiumSettings> {
+    return await this.inSettingsCommit(async () => await this.writeSettingsFor(userId, next, updatedAt))
+  }
+
+  /**
+   * A preference write as one change-log commit (POD-6920): the person's
+   * preference rows and the instance blob reach the log together. Without a
+   * capture installed (a store-level test) the write runs as is.
+   */
+  private async inSettingsCommit<T>(write: () => Promise<T>): Promise<T> {
+    const capture = this.instanceFeedCapture
+    if (capture === undefined) return await write()
+    let result: { value: T } | undefined
+    await capture(async () => {
+      result = { value: await write() }
+    })
+    if (result === undefined) throw new Error('settings: the change-log commit did not run its write')
+    return result.value
+  }
+
+  private async writeSettingsFor(
+    userId: UserId,
+    next: PodiumSettings,
+    updatedAt: string,
+  ): Promise<PodiumSettings> {
     const resolved = await this.getSettingsFor(userId)
     const instancePatch: Record<string, unknown> = {}
     for (const leaf of changedSettingsLeaves(resolved, next)) {
@@ -438,6 +462,7 @@ export class SettingsRepository {
     values: Readonly<Record<string, unknown>>,
     updatedAt: string,
   ): Promise<PodiumSettings> {
+    return await this.inSettingsCommit(async () => {
     const instancePatch: Record<string, unknown> = {}
     for (const [path, value] of Object.entries(values)) {
       if (isPersonalPreferenceKey(path)) {
@@ -452,6 +477,7 @@ export class SettingsRepository {
       )
     }
     return await this.getSettingsFor(userId)
+    })
   }
 
   /** One person's `userPreferences` record: the leaves they chose (POD-6673). */

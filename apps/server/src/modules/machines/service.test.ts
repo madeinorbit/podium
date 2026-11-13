@@ -18,6 +18,7 @@ import { machinesForPrincipal } from '../sessions/command-ctx'
 import type { Send } from '../sessions/session'
 import { sha256 } from './enrollment'
 import { type MachinesDeps, MachinesService, type PairingGrant } from './service'
+import { seedRows } from '../../test-support/seed-rows'
 
 /** Only the socket bookkeeping is exercised here — none of these paths touch the store. */
 function makeService(): MachinesService {
@@ -1031,7 +1032,8 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       // owner here is the load-bearing part: a write made before the custody
       // change lands a stale entry in this array.
       compareMachineRecords: async (write) => {
-        const result = await store.transact(write)
+        // The write's own transaction; this test reads no log (POD-6920).
+        const result = await seedRows(store, write)
         broadcasts.push(await svc.effectiveOwner(MACHINE))
         return result
       },

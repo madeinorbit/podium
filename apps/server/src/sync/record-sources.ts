@@ -773,8 +773,23 @@ export const RECORD_SOURCES: RecordSources = {
     ),
   ],
   superagentThread: [
-    own(superagentThreads, [superagentThreads.ownerUserId, superagentThreads.id], (key) =>
-      superagentThreadRowId(key[0] as UserId, str(key[1])),
+    // Never on the record: the watermarks, the harness's own session id (the
+    // record says only whether there is one) and the terminal lock.
+    own(
+      superagentThreads,
+      [superagentThreads.ownerUserId, superagentThreads.id],
+      (key) => superagentThreadRowId(key[0] as UserId, str(key[1])),
+      {
+        reads: {
+          allBut: [
+            superagentThreads.watermarkItemId,
+            superagentThreads.watermarkTs,
+            superagentThreads.harnessSessionId,
+            superagentThreads.terminalSessionId,
+          ],
+        },
+        derived: [`{row}.${superagentThreads.harnessSessionId.name} IS NOT NULL`],
+      },
     ),
   ],
   agentProfile: [byId(agentProfiles, agentProfiles.id)],
