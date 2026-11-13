@@ -111,7 +111,15 @@ it.each([
   const stopResume = watchSyncResume(assembly.progress, connectivity)
   const detach = connectivity.attachHub(hub)
   try {
+    // A cached launch is catching up before the first dial has failed. Desktop
+    // and native both read this assembly's phase before the socket opens.
+    expect(assembly.progress.getSnapshot()).toMatchObject({
+      phase: 'reconnecting',
+      attempt: 0,
+      hasInstalled: true,
+    })
     hub.connect()
+    expect(assembly.progress.getSnapshot().phase).toBe('reconnecting')
     sockets[0]?.open()
     await vi.waitFor(() => expect(assembly.progress.getSnapshot().phase).toBe('ready'))
     go('background')
