@@ -260,6 +260,17 @@ export class SettingsRepository {
     return row?.value ? asUserId(row.value) : null
   }
 
+  /** Immutable upgrade boundary: later raw receipts are never treated as solo-era receipts. */
+  async legacyMutationReceiptCutoff(now: number): Promise<number> {
+    return await this.createOrJoinTransaction(async () => {
+      const key = 'legacy_mutation_receipt_cutoff'
+      const row = await metaValue(this.db).get({ key })
+      if (row !== undefined) return Number(row.value)
+      await this.writeMeta(key, String(now))
+      return now
+    })
+  }
+
   /** Setup enrollment receipts share the database transaction with their machine row. */
   async setupEnrollmentReceipt(key: string): Promise<string | undefined> {
     return (await metaValue(this.db).get({ key: `setup_enrollment:${key}` }))?.value

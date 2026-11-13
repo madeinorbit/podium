@@ -71,9 +71,18 @@ import type { MutationId } from '@podium/model'
  * ledger is also constructed over an in-memory double in tests, and because the
  * whole point of the relocation is that the ledger does not know what a store is.
  */
+/** A prior storage key eligible only before an immutable upgrade boundary. */
+export interface AppliedMutationFallback {
+  readonly mutationId: MutationId
+  readonly before: number
+}
+
 export interface AppliedMutationStore {
   /** The stored result of an already-applied mutation, or undefined if new. */
-  getAppliedMutation(mutationId: MutationId): string | undefined | Promise<string | undefined>
+  getAppliedMutation(
+    mutationId: MutationId,
+    fallback?: AppliedMutationFallback,
+  ): string | undefined | Promise<string | undefined>
   recordAppliedMutation(
     mutationId: MutationId,
     proc: string,
@@ -97,6 +106,8 @@ export interface MutationApplication<T> {
 export type MutationUnitOfWork = <T>(fn: () => Promise<T>) => Promise<T>
 
 export interface MutationApplyOptions {
+  /** An authorized legacy key, looked up with the current key in one statement. */
+  readonly fallback?: AppliedMutationFallback
   /**
    * THE DEDUP RECORD INSIDE THE UNIT (ADR 2 D10, ADR 12 D2 step 7; POD-6273).
    *
@@ -156,7 +167,7 @@ export class MutationLedger {
     // Establish the join point BEFORE the durable lookup yields. Two deliveries
     // arriving together must not both observe a missing row and run the body.
     const owner = (async (): Promise<MutationApplication<Awaited<T>>> => {
-      const prior = await this.store.getAppliedMutation(mutationId)
+      const prior = await this.store.getAppliedMutation(mutationId, options.fallback)
       if (prior !== undefined) {
         return { outcome: 'replayed', value: JSON.parse(prior) as Awaited<T> }
       }

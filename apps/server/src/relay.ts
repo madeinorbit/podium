@@ -270,6 +270,7 @@ import {
 } from './modules/superagent/thread-records'
 import { SyncWriteEntry } from './modules/sync-write/entry'
 import { registerFamilyCommands } from './modules/sync-write/family-commands'
+import { legacyMutationFallback } from './modules/sync-write/legacy-receipt'
 import { registerOutboxCommands } from './modules/sync-write/outbox-commands'
 import { SyncWriteRegistry } from './modules/sync-write/registry'
 import { GRANT_EVENT_KIND } from './modules/updates/grant-cause'
@@ -326,6 +327,8 @@ export type { MemoryBreakdown }
  * when the closure is made.
  */
 interface SessionRegistryBoot {
+  readonly legacyReceiptCutoff: number
+  readonly legacyReceiptOwner: UserId | null
   readonly settings: Awaited<ReturnType<SessionStore['settings']['getSettings']>>
 }
 
@@ -842,6 +845,10 @@ export class SessionRegistry {
     const resolvedStore = store ?? (await SessionStore.open(':memory:'))
     const registry = new SessionRegistry(resolvedStore, notificationPushers, options, {
       settings: await resolvedStore.settings.getSettings(),
+      legacyReceiptOwner: await resolvedStore.settings.retiredSoloMemberId(),
+      legacyReceiptCutoff: await resolvedStore.settings.legacyMutationReceiptCutoff(
+        (options.now ?? Date.now)(),
+      ),
     })
     await registry.hydrate(options.rehearseBoot)
     return registry
@@ -4340,6 +4347,11 @@ export class SessionRegistry {
     const syncWrite = new SyncWriteEntry({
       registry: new SyncWriteRegistry(),
       mutations,
+      legacyFallback: (id, human) =>
+        legacyMutationFallback(id, human, {
+          owner: boot.legacyReceiptOwner,
+          before: boot.legacyReceiptCutoff,
+        }),
       unitOfWork: async (fn) => await this.store.transact(fn),
       afterCommit: (step, label) => this.store.effect(step, label),
       spanOpen,

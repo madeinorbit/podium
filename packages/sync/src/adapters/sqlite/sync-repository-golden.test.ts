@@ -496,6 +496,17 @@ describe('the applied-mutation receipts', () => {
     expect(await repo.getAppliedMutation(id)).toBe('{"ok":true}')
   })
 
+  it('a legacy lookup excludes receipts at or after the cutoff and prefers the scoped receipt', async () => {
+    const scoped = asMutationId('scoped-1')
+    await repo.recordAppliedMutation(id, 'sendText', 'legacy', 100)
+    expect(await repo.getAppliedMutation(scoped, { mutationId: id, before: 101 })).toBe('legacy')
+    expect(await repo.getAppliedMutation(scoped, { mutationId: id, before: 100 })).toBeUndefined()
+    expect(await repo.getAppliedMutation(scoped, { mutationId: id, before: 99 })).toBeUndefined()
+    await repo.recordAppliedMutation(scoped, 'sendText', 'scoped', 200)
+    expect(await repo.getAppliedMutation(scoped, { mutationId: id, before: 101 })).toBe('scoped')
+    expect(await repo.getAppliedMutation(id)).toBe('legacy')
+  })
+
   it('IGNORES a replay rather than overwriting the first result', async () => {
     // The `INSERT OR IGNORE` -> `onConflictDoNothing()` arm. The happy path never
     // walks it, and an upsert-shaped conversion would pass every other assertion

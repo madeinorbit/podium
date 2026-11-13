@@ -129,13 +129,16 @@ export class SessionTeardown {
    * Fail those messages and drop their queue rows, like a removal does —
    * the row stays inspectable. Hibernated sessions (resumable) keep theirs.
    */
-  private async failUnresumableMessages(sessionId: SessionId): Promise<void> {
+  private async failUnresumableMessages(
+    writer: SessionWriter,
+    sessionId: SessionId,
+  ): Promise<void> {
     const parked = this.ports.sessions.get(sessionId)
     if (!parked || parked.status !== 'exited' || parked.agentKind === 'shell') return
     const fail = this.ports.failMessagesToRemovedSessions
     if (fail) {
-      // The server's own write (`sessions.lifecycle`): the park was its decision.
-      await this.ports.writer.commit({
+      // Orphaned mail is part of the park's decision, including a client archive.
+      await writer.commit({
         write: async (scope) => await fail(scope, [sessionId]),
         changes: () => [],
       })
@@ -157,9 +160,7 @@ export class SessionTeardown {
   async parkArchivedSession(writer: SessionWriter, sessionId: SessionId): Promise<void> {
     const session = this.ports.sessions.get(sessionId)
     if (!session) return
-    const running =
-      session.status === 'live' ||
-      session.status === 'starting'
+    const running = session.status === 'live' || session.status === 'starting'
     if (!running) return
     this.ports.autoContinue.onSessionGone(sessionId)
     // Unlike stopSession, readAt is left alone: archiving IS the acknowledgment —
@@ -179,7 +180,7 @@ export class SessionTeardown {
       draft.stoppedAt = new Date(this.ports.now()).toISOString()
       draft.stopReason = 'parent'
     })
-    await this.failUnresumableMessages(sessionId)
+    await this.failUnresumableMessages(writer, sessionId)
     // THE STOP WAITS FOR THE COMMIT [POD-6349]. It is a round trip to the
     // agent's machine, and from inside a unit of work it would retire an agent
     // for an archive that can still roll back, while holding the write
@@ -230,9 +231,7 @@ export class SessionTeardown {
     if (session.agentKind !== 'shell') {
       return { ok: false, reason: 'not a shell session' }
     }
-    const running =
-      session.status === 'live' ||
-      session.status === 'starting'
+    const running = session.status === 'live' || session.status === 'starting'
     if (!running) return { ok: false, reason: 'not running' }
     this.ports.autoContinue.onSessionGone(sessionId)
     await this.ports.rearmUnread(sessionId)
@@ -270,9 +269,7 @@ export class SessionTeardown {
   }): Promise<{ ok: boolean; reason?: string }> {
     const session = this.ports.sessions.get(sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
-    const running =
-      session.status === 'live' ||
-      session.status === 'starting'
+    const running = session.status === 'live' || session.status === 'starting'
     if (!running) return { ok: false, reason: 'not running' }
     this.ports.autoContinue.onSessionGone(sessionId)
     await this.ports.repository.write(this.ports.writer, session, (draft) => {
@@ -285,7 +282,7 @@ export class SessionTeardown {
       draft.stoppedAt = new Date(this.ports.now()).toISOString()
       draft.stopReason = 'parent'
     })
-    await this.failUnresumableMessages(sessionId)
+    await this.failUnresumableMessages(this.ports.writer, sessionId)
     const retired = await this.gracefulStopThenKill(session)
     this.ports.broadcastSessions()
     return retired ? { ok: true } : { ok: false, reason: 'process retirement was not confirmed' }
@@ -414,9 +411,7 @@ export class SessionTeardown {
       }
     }
 
-    const wasRunning =
-      session.status === 'live' ||
-      session.status === 'starting'
+    const wasRunning = session.status === 'live' || session.status === 'starting'
 
     // Park the row first (keep resume ref + transcript). Shells have no resume
     // ref — stop still parks them as exited so they stay inspectable.
@@ -448,7 +443,7 @@ export class SessionTeardown {
           await this.ports.store.observationCheckpoints.cancelTerminalCandidate(input.sessionId),
       )
       this.ports.broadcastSessions()
-      await this.failUnresumableMessages(input.sessionId)
+      await this.failUnresumableMessages(this.ports.writer, input.sessionId)
     } else if (session.status !== 'hibernated' && session.status !== 'exited') {
       return { ok: false, reason: `cannot stop session in status '${session.status}'` }
     }
@@ -638,9 +633,7 @@ export class SessionTeardown {
     // human ref/seq that getMeta resolved above but a raw string compare would miss [POD-985].
     const all = await this.ports.view.listForIssue(issue.worktreePath ?? null, issue.id)
     const members =
-      input.ownedBy === undefined
-        ? all
-        : await ownedSessions(this.ports.store, all, input.ownedBy)
+      input.ownedBy === undefined ? all : await ownedSessions(this.ports.store, all, input.ownedBy)
     const stopped: string[] = []
     let deferredKill = false
     const principal = input.principal ?? systemPrincipal('stop')
@@ -722,8 +715,7 @@ export class SessionTeardown {
   }): Promise<{ ok: boolean; reason?: string }> {
     const session = this.ports.sessions.get(sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
-    if (session.status !== 'live')
-      return { ok: false, reason: 'not running' }
+    if (session.status !== 'live') return { ok: false, reason: 'not running' }
     if (!session.resume) {
       return { ok: false, reason: 'no resume ref yet — the agent has not reported one' }
     }

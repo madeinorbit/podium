@@ -304,10 +304,14 @@ describe('Q4: a task keeps one worktree on one machine', () => {
   /** A task of Alice's with its worktree on her machine, homed as the fixture homes hers. */
   async function aliceHomedTask(title: string): Promise<Wire> {
     const task = await taskOf('alice', title)
-    await f.handle.registry.issues.crud.update(f.handle.registry.issues.reports.store.serverWriter, task.id, {
-      worktreePath: `/wt/alice-${task.seq}`,
-      machineId: f.machines.alice,
-    })
+    await f.handle.registry.issues.crud.update(
+      f.handle.registry.issues.reports.store.serverWriter,
+      task.id,
+      {
+        worktreePath: `/wt/alice-${task.seq}`,
+        machineId: f.machines.alice,
+      },
+    )
     return task
   }
 
@@ -319,9 +323,7 @@ describe('Q4: a task keeps one worktree on one machine', () => {
       () => bobs.issues.addSession.mutate({ id: task.id } as never),
       () => bobs.issues.addShell.mutate({ id: task.id } as never),
     ]) {
-      await expect(attempt()).rejects.toThrow(
-        "unknown machine 'machine-alice'",
-      )
+      await expect(attempt()).rejects.toThrow("unknown machine 'machine-alice'")
     }
     const viaAgent = actor(await sessionOn('bob', task.id, 'bob-terminus'))
     await expect(viaAgent.cli(['add-shell', String(task.seq)])).rejects.toThrow(
@@ -426,7 +428,7 @@ describe('MU-21: Bob’s edits, comments and mentions create no effect under Ali
     for (const body of ['esker-mail-one', 'esker-mail-two']) {
       const sent = await bobs.cli(['mail', 'send', String(task.seq), '--body', body])
       expect(sent).toContain('QUEUED')
-    await f.handle.registry.modules.messages.sweep()
+      await f.handle.registry.modules.messages.sweep()
       expect(await deliveryOf(sent)).toMatchObject({ deliveryStatus: 'stored', deliveredTo: null })
     }
     await new Promise((resolve) => setTimeout(resolve, 200))

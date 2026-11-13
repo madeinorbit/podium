@@ -46,6 +46,7 @@ import {
 import { alias, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import type { ChangeLogReadRow, ChangeLogWriteRow } from '../../authority/change-lifecycle'
 import type { ChangePrunePlan } from '../../change-log'
+import type { AppliedMutationFallback } from '../../mutation-ledger'
 import {
   inListOf,
   inListSize,
@@ -360,6 +361,24 @@ const appliedMutationResult = prepared((db: StoreDrizzle) =>
     .select({ result: appliedMutations.result })
     .from(appliedMutations)
     .where(eq(appliedMutations.mutationId, param(appliedMutations.mutationId, 'mutationId')))
+    .prepare(),
+)
+
+/** At most two primary-key hits; choose the current key before the legacy key. */
+const appliedMutationWithFallback = prepared((db: StoreDrizzle) =>
+  db
+    .select({
+      mutationId: appliedMutations.mutationId,
+      result: appliedMutations.result,
+      appliedAt: appliedMutations.appliedAt,
+    })
+    .from(appliedMutations)
+    .where(
+      inArray(appliedMutations.mutationId, [
+        param(appliedMutations.mutationId, 'mutationId'),
+        param(appliedMutations.mutationId, 'fallbackId'),
+      ]),
+    )
     .prepare(),
 )
 
@@ -960,9 +979,20 @@ export class SyncRepository {
   // ---- outbox write path (docs/spec/outbox-write-path.md) ----
 
   /** The stored result of an already-applied mutation, or undefined if new. */
-  async getAppliedMutation(mutationId: MutationId): Promise<string | undefined> {
-    const row = await appliedMutationResult(this.db).get({ mutationId })
-    return row?.result
+  async getAppliedMutation(
+    mutationId: MutationId,
+    fallback?: AppliedMutationFallback,
+  ): Promise<string | undefined> {
+    if (fallback === undefined)
+      return (await appliedMutationResult(this.db).get({ mutationId }))?.result
+    const rows = await appliedMutationWithFallback(this.db).all({
+      mutationId,
+      fallbackId: fallback.mutationId,
+    })
+    const current = rows.find((row) => row.mutationId === mutationId)
+    if (current !== undefined) return current.result
+    const legacy = rows.find((row) => row.mutationId === fallback.mutationId)
+    return legacy !== undefined && legacy.appliedAt < fallback.before ? legacy.result : undefined
   }
 
   async recordAppliedMutation(
