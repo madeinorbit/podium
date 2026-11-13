@@ -3,5 +3,9 @@ import { tabStackOptions } from '../../../src/navigation/native-stack'
 import { noticeScreenLayout } from '../../../src/navigation/notice-screen-layout'
 
 export default function WorkLayout() {
-  return <Stack screenOptions={tabStackOptions} screenLayout={noticeScreenLayout} />
+  return (
+    <Stack screenOptions={tabStackOptions} screenLayout={noticeScreenLayout}>
+      <Stack.Screen name="index" options={{ title: 'Work' }} />
+    </Stack>
+  )
 }
