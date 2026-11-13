@@ -180,6 +180,11 @@ export class TranscriptGraph {
     const record = this.record(id)
     return record === undefined ? undefined : this.presentation(record).block
   }
+  /** The existing compaction group owning this exact history receipt. */
+  compaction(id: string): TranscriptItem | undefined {
+    const item = this.block(this.owners.get(id) ?? id)?.item
+    return item && isCompactionPart(item) ? item : undefined
+  }
   row(id: string): ChatRow | undefined {
     const record = this.record(id)
     return record === undefined ? undefined : this.presentation(record).row

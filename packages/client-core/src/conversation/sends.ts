@@ -38,6 +38,7 @@ import type { TranscriptChange, TranscriptLog } from './transcript-log'
 
 export interface SendsOptions extends ConversationSendOptions {
   transcript: TranscriptLog
+  compactionFor?: (receiptId: string) => TranscriptItem | undefined
   drafts: Pick<DraftStore, 'get' | 'set'>
   /** Reads the observable pool session row; no updateContext pushes. */
   readContext: () => ConversationContext
@@ -154,6 +155,7 @@ export class Sends {
       transcriptIds: this.options.transcript.byId,
       seenOpen: this.seenOpen,
       seenHistory: this.seenUserIds,
+      receiptIsProven: (record) => this.receiptIsProven(record),
       hidden: new Set(this.hidden.keys()),
       retracting: this.retracting,
     })
@@ -863,11 +865,6 @@ export class Sends {
   /** Called by TranscriptLog inside the append/read action, never by a reaction.
    * A delta examines only its changed entries; reads/resets may establish a baseline. */
   @action reconcile(change: TranscriptChange, baseline = false): void {
-    const completed = this.consumeConfirmedTranscript()
-    this.settleCompaction(completed, change.changed)
-    const retained = this.pending.filter(
-      (turn) => turn.state === 'retracted' || !completed.has(turn.deliveryId),
-    )
     const users = change.changed
       .filter((item) => item.role === 'user')
       .sort(
@@ -875,8 +872,16 @@ export class Sends {
           (this.options.transcript.position(left.id) ?? -1) -
           (this.options.transcript.position(right.id) ?? -1),
       )
-    if (baseline || !this.userBaselineReady) {
+    const establishBaseline = baseline || !this.userBaselineReady
+    if (establishBaseline) {
       this.seenUserIds.replace(users.map((item) => item.id))
+    }
+    const completed = this.consumeConfirmedTranscript()
+    this.settleCompaction(completed)
+    const retained = this.pending.filter(
+      (turn) => turn.state === 'retracted' || !completed.has(turn.deliveryId),
+    )
+    if (establishBaseline) {
       this.seenUserTailId = this.options.transcript.latestUserId
       this.userBaselineReady = true
       this.patch(retained.length === this.pending.length ? {} : { pending: retained })
@@ -930,47 +935,35 @@ export class Sends {
     return completed
   }
 
-  /** /compact is a local harness command, so its completion may have no user
-   * echo. A later manual compaction proves delivery for both phone and desktop.
-   * Reuse the existing hidden-send set; never rewrite the authority's record. */
-  private settleCompaction(completed: Set<string>, changed?: readonly TranscriptItem[]): void {
-    const candidates = this.currentRecords().filter(
-      (record) =>
-        !this.hidden.has(record.id) &&
-        /^\/compact(?:\s|$)/.test(record.body.trim()) &&
-        ['dispatched', 'typing', 'typed', 'accepted', 'unknown', 'confirmed'].includes(
-          record.status,
-        ),
-    )
-    const local = this.pending.filter(
-      (turn) =>
-        !this.hidden.has(turn.deliveryId) &&
-        /^\/compact(?:\s|$)/.test(turn.text.trim()) &&
-        (turn.state === 'sent' || turn.state === 'sending'),
-    )
-    if (!candidates.length && !local.length) return
-    const items = changed ?? this.options.transcript.items
-    const at = items.reduce(
-      (latest, item) =>
-        item.role === 'system' &&
-        item.systemKind === 'compaction' &&
-        item.compaction?.trigger !== 'auto' &&
-        item.ts
-          ? Math.max(latest, Date.parse(item.ts) || 0)
-          : latest,
-      0,
-    )
-    if (!at) return
-    for (const record of candidates)
-      if (Date.parse(record.createdAt) <= at) {
-        this.hidden.set(record.id, null)
-        completed.add(record.id)
-      }
-    for (const turn of local)
-      if (turn.at <= at) {
-        this.hidden.set(turn.deliveryId, null)
-        completed.add(turn.deliveryId)
-      }
+  private receiptIsProven(record: ConversationMessage): boolean {
+    const id = record.transcriptItem?.id
+    if (!id) return false
+    const item = this.options.transcript.byId.get(id)
+    if (item?.systemKind !== 'compaction') return true
+    const group = this.options.compactionFor?.(id)
+    return group?.compaction?.trigger === 'manual' && Boolean(group.text.trim())
+  }
+
+  /** A compaction acknowledges only the authority's exact history receipt.
+   * A later boundary, a local sent state or missing metadata proves nothing.
+   * Retain proven receipt IDs in the existing history-membership set; do not
+   * suppress notices, so authoritative failure/cancellation always wins. */
+  private settleCompaction(completed: Set<string>): void {
+    for (const record of this.currentRecords()) {
+      const id = record.transcriptItem?.id
+      if (
+        !id ||
+        !/^\/compact(?:\s|$)/.test(record.body.trim()) ||
+        record.status === 'failed' ||
+        record.status === 'expired' ||
+        record.status === 'cancelled'
+      )
+        continue
+      const group = this.options.compactionFor?.(id)
+      if (group?.compaction?.trigger !== 'manual' || !group.text.trim()) continue
+      this.seenUserIds.add(id)
+      completed.add(record.id)
+    }
   }
 
   private markSent(): number {

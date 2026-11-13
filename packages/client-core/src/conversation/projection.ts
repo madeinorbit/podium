@@ -1,7 +1,7 @@
-import type { ConversationFile, ConversationMessage } from './contracts'
 import type { TranscriptTag } from '@podium/model'
 import { deadLetterDeliveryLine, MessageDelivery, readDeliveryStatus } from '@podium/model'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
+import type { ConversationFile, ConversationMessage } from './contracts'
 
 /**
  * A message this device is sending, from the composer until the server's
@@ -99,6 +99,8 @@ export interface ConversationProjectionInput {
   readonly seenOpen: ReadonlySet<string>
   /** Entries this view already rendered remain acknowledged after windowing. */
   readonly seenHistory?: ReadonlySet<string>
+  /** A named compaction receipt also needs its grouped manual trigger. */
+  readonly receiptIsProven?: (record: ConversationMessage) => boolean
   /** Message ids being dismissed right now: hidden meanwhile. */
   readonly hidden: ReadonlySet<string>
   /** This device's retracts still waiting for their answer to reach the record,
@@ -162,12 +164,18 @@ function recordShows(
   onScreen: Pick<ReadonlySet<string>, 'has'>,
   seenOpen: ReadonlySet<string>,
   seenHistory?: ReadonlySet<string>,
+  receiptIsProven?: (record: ConversationMessage) => boolean,
 ): boolean {
   // Only a read by id carries a dismissal (POD-4811): the feed lets one go.
   if (record.noticeDismissedAt !== undefined) return false
+  // The authoritative terminal outcome wins even if a history receipt was
+  // previously shown. A contradictory receipt must never erase a failure.
+  if (record.status === 'failed' || record.status === 'expired' || record.status === 'cancelled')
+    return true
   if (
     record.transcriptItem &&
-    (onScreen.has(record.transcriptItem.id) || seenHistory?.has(record.transcriptItem.id))
+    (seenHistory?.has(record.transcriptItem.id) ||
+      (onScreen.has(record.transcriptItem.id) && receiptIsProven?.(record) !== false))
   )
     return false
   if (record.status !== 'confirmed') return true
@@ -244,13 +252,16 @@ export function projectConversation(input: ConversationProjectionInput): Convers
       continue
     }
     if (record === undefined) {
-      bubbles.push(withLocalRetract({
-        ...turn,
-        retractable: turn.reconcile !== 'initial-prompt' && LOCAL_RETRACTABLE.has(turn.state),
-      }))
+      bubbles.push(
+        withLocalRetract({
+          ...turn,
+          retractable: turn.reconcile !== 'initial-prompt' && LOCAL_RETRACTABLE.has(turn.state),
+        }),
+      )
       continue
     }
-    if (!recordShows(record, onScreen, input.seenOpen, input.seenHistory)) continue
+    if (!recordShows(record, onScreen, input.seenOpen, input.seenHistory, input.receiptIsProven))
+      continue
     const fromServer = withLocalRetract(fromRecord(record))
     bubbles.push(
       turn.state === 'interrupted'
@@ -273,7 +284,8 @@ export function projectConversation(input: ConversationProjectionInput): Convers
   }
   for (const record of input.records) {
     if (covered.has(record.id) || input.hidden.has(record.id)) continue
-    if (!recordShows(record, onScreen, input.seenOpen, input.seenHistory)) continue
+    if (!recordShows(record, onScreen, input.seenOpen, input.seenHistory, input.receiptIsProven))
+      continue
     bubbles.push(withLocalRetract(fromRecord(record)))
   }
   return bubbles.sort((left, right) => left.at - right.at || left.id.localeCompare(right.id))

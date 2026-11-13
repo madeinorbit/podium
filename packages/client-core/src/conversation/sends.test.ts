@@ -5,6 +5,7 @@ import {
   type TranscriptItem,
 } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
+import { claudeRecordToItems } from '../../../harness/src/adapters/claude-code/transcript'
 import type { OutboxChatSend } from '../engine/chat-send'
 import { createSendsFixture } from './model-test-support'
 import type { ConversationPendingTurn } from './projection'
@@ -79,7 +80,7 @@ const states = (controller: {
  * screen. No ledger poll, and no transcript text is ever compared.
  */
 describe('MobX sends over synced records', () => {
-  it('settles a /compact notice on a later compaction, including a record arriving after the event', async () => {
+  it('settles only the send bound to a completed manual compaction, including late records', async () => {
     const feed = transcript()
     const synced = records()
     const controller = createSendsFixture({
@@ -96,7 +97,13 @@ describe('MobX sends over synced records', () => {
     })
     controller.start()
     await controller.submit({ text: '/compact' })
-    synced.set([record('compact-send', { body: '/compact', status: 'unknown' })])
+    synced.set([
+      record('compact-send', {
+        body: '/compact',
+        status: 'unknown',
+        transcriptItem: { id: 'compaction' },
+      }),
+    ])
     expect(states(controller)).toEqual(['compact-send:unknown'])
     const compact: TranscriptItem = {
       id: 'compaction',
@@ -110,19 +117,183 @@ describe('MobX sends over synced records', () => {
     expect(controller.getSnapshot().bubbles).toEqual([])
     expect(controller.getSnapshot().pending).toEqual([])
     synced.set([
-      record('compact-send', { body: '/compact', status: 'typed' }),
+      record('compact-send', {
+        body: '/compact',
+        status: 'typed',
+        transcriptItem: { id: 'compaction' },
+      }),
       record('late-compact', { body: '/compact keep tests', status: 'unknown' }),
     ])
-    expect(controller.getSnapshot().bubbles).toEqual([])
+    expect(states(controller)).toEqual(['late-compact:unknown'])
     const transcriptReads = vi.spyOn(controller.transcript, 'items', 'get')
     synced.set([
-      record('compact-send', { body: '/compact', status: 'accepted' }),
+      record('compact-send', {
+        body: '/compact',
+        status: 'accepted',
+        transcriptItem: { id: 'compaction' },
+      }),
       record('late-compact', { body: '/compact keep tests', status: 'typed' }),
       record('ordinary', { body: 'ordinary prompt', status: 'unknown' }),
     ])
-    expect(states(controller)).toEqual(['ordinary:unknown'])
+    expect(states(controller)).toEqual(['late-compact:sent', 'ordinary:unknown'])
     expect(transcriptReads).not.toHaveBeenCalled()
     transcriptReads.mockRestore()
+    controller.dispose()
+  })
+
+  it.each([
+    'failed',
+    'expired',
+    'cancelled',
+  ] as const)('preserves authoritative %s before a later manual compaction', async (status) => {
+    const feed = transcript(),
+      synced = records()
+    const controller = createSendsFixture({
+      sessionId: asSessionId('s1'),
+      transcript: feed.port,
+      records: synced.port,
+      createDeliveryId: () => 'attempt',
+      deliver: async () => ({ state: 'sent' }),
+      clock: {
+        now: () => Date.parse('2026-09-29T10:00:00Z'),
+        setTimeout: () => 0,
+        clearTimeout() {},
+      },
+    })
+    controller.start()
+    await controller.submit({ text: '/compact' })
+    synced.set([record('attempt', { body: '/compact', status, reason: 'delivery failed' })])
+    feed.set([
+      {
+        id: 'later',
+        role: 'system',
+        systemKind: 'compaction',
+        compaction: { trigger: 'manual' },
+        text: 'Summary',
+        ts: '2026-09-29T10:00:02Z',
+      },
+    ])
+    expect(states(controller)).toEqual([
+      `attempt:${status === 'cancelled' ? 'retracted' : 'failed'}`,
+    ])
+    if (status !== 'cancelled') expect(controller.getSnapshot().bubbles[0]?.notice).toBe('failed')
+    controller.dispose()
+  })
+
+  it.each([
+    'failed',
+    'expired',
+    'cancelled',
+  ] as const)('lets authoritative %s override a previously proven compaction', (status) => {
+    const feed = transcript(),
+      synced = records([
+        record('attempt', {
+          body: '/compact',
+          status: 'unknown',
+          transcriptItem: { id: 'manual' },
+        }),
+      ])
+    const controller = createSendsFixture({
+      sessionId: asSessionId('s1'),
+      transcript: feed.port,
+      records: synced.port,
+      createDeliveryId: () => 'new',
+      deliver: vi.fn(),
+    })
+    controller.start()
+    feed.set([
+      {
+        id: 'manual',
+        role: 'system',
+        systemKind: 'compaction',
+        compaction: { trigger: 'manual' },
+        text: 'Summary',
+        ts: '2026-09-29T10:00:02Z',
+      },
+    ])
+    expect(states(controller)).toEqual([])
+    synced.set([
+      record('attempt', {
+        body: '/compact',
+        status,
+        reason: 'delivery failed',
+        transcriptItem: { id: 'manual' },
+      }),
+    ])
+    expect(states(controller)).toEqual([
+      `attempt:${status === 'cancelled' ? 'retracted' : 'failed'}`,
+    ])
+    controller.dispose()
+  })
+
+  it.each([
+    'auto',
+    'manual',
+  ] as const)('uses the grouped %s trigger across real Claude boundary and summary records', (trigger) => {
+    const feed = transcript(),
+      synced = records([
+        record('bound', { body: '/compact', status: 'unknown', transcriptItem: { id: 'summary' } }),
+        record('unrelated', { body: '/compact', status: 'unknown' }),
+      ])
+    const controller = createSendsFixture({
+      sessionId: asSessionId('s1'),
+      transcript: feed.port,
+      records: synced.port,
+      createDeliveryId: () => 'new',
+      deliver: vi.fn(),
+    })
+    controller.start()
+    const boundary = claudeRecordToItems({
+      type: 'system',
+      subtype: 'compact_boundary',
+      uuid: 'boundary',
+      timestamp: '2026-09-29T10:00:02Z',
+      compactMetadata: { trigger },
+    })
+    feed.set(boundary)
+    expect(states(controller)).toEqual(['bound:unknown', 'unrelated:unknown'])
+    const summary = claudeRecordToItems({
+      type: 'user',
+      uuid: 'summary',
+      timestamp: '2026-09-29T10:00:03Z',
+      isCompactSummary: true,
+      message: { content: 'Summary' },
+    })
+    expect(summary[0]?.compaction).toBeUndefined()
+    feed.set([...boundary, ...summary])
+    expect(states(controller)).toEqual(
+      trigger === 'manual' ? ['unrelated:unknown'] : ['bound:unknown', 'unrelated:unknown'],
+    )
+    controller.dispose()
+  })
+
+  it('does not use a triggerless Codex summary as manual-command proof', () => {
+    const feed = transcript(),
+      synced = records([
+        record('attempt', {
+          body: '/compact',
+          status: 'unknown',
+          transcriptItem: { id: 'summary' },
+        }),
+      ])
+    const controller = createSendsFixture({
+      sessionId: asSessionId('s1'),
+      transcript: feed.port,
+      records: synced.port,
+      createDeliveryId: () => 'new',
+      deliver: vi.fn(),
+    })
+    controller.start()
+    feed.set([
+      {
+        id: 'summary',
+        role: 'system',
+        systemKind: 'compaction',
+        text: 'Summary',
+        ts: '2026-09-29T10:00:02Z',
+      },
+    ])
+    expect(states(controller)).toEqual(['attempt:unknown'])
     controller.dispose()
   })
 

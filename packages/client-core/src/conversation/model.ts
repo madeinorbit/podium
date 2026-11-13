@@ -45,7 +45,10 @@ export interface ConversationOptions {
   sessionId: SessionId
   drafts: Pick<DraftStore, 'get' | 'set'>
   transcript: Omit<TranscriptLogOptions, 'sessionId' | 'enqueueFrame' | 'onChange' | 'connection'>
-  sends: Omit<SendsOptions, 'sessionId' | 'transcript' | 'drafts' | 'connection' | 'readContext'>
+  sends: Omit<
+    SendsOptions,
+    'sessionId' | 'transcript' | 'drafts' | 'connection' | 'readContext' | 'compactionFor'
+  >
   readSession?: () => ConversationSession | undefined
   streamSessionId?: () => SessionId | undefined
   readTurnRunning?: () => boolean | undefined
@@ -102,6 +105,7 @@ export class ConversationService {
       ...options.sends,
       sessionId: options.sessionId,
       transcript: this.transcript,
+      compactionFor: (id) => this.graph.compaction(id),
       drafts: options.drafts,
       connection: options.connection,
       readContext: () => this.context,
