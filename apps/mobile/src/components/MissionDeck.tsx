@@ -43,7 +43,25 @@ import { StageGlyph } from './StageGlyph'
 import { EmptyState } from './ui'
 import { WorkingMark } from './WorkingMark'
 
-/** The shared FullDeck projection in a full-screen native list beneath chat. */
+/** The shared FullDeck projection in a full-screen native list: the page right of the chat. */
+
+/**
+ * Reveal the selected seat using the deck's existing fold actions. A user can
+ * fold it again without the selection continually reopening it.
+ */
+export function useRevealSeat(screen: MissionScreen | null | undefined, sessionId?: string) {
+  const ready = screen?.ready === true
+  useEffect(() => {
+    if (!ready || !screen || !sessionId) return
+    let id: string | null =
+      screen.crew.find((session) => session.sessionId === sessionId)?.issueId ?? null
+    while (id && screen.members.has(id)) {
+      const task = screen.full.task(id)
+      if (task.foldable && !task.open) screen.full.toggleFold(id)
+      id = task.parentId
+    }
+  }, [ready, screen, sessionId])
+}
 
 const FILTER_LABEL: Readonly<Record<FullDeckFilter, string>> = {
   all: 'All',

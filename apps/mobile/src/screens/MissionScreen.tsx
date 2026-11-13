@@ -1,31 +1,39 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { sessionTitle, taskOpenSeat } from '@podium/client-core/values'
+import { type IssueNavigationModel, sessionTitle, taskOpenSeat } from '@podium/client-core/values'
+import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asIssueId, type SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Platform, StyleSheet, View } from 'react-native'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Keyboard, type LayoutChangeEvent, Platform, StyleSheet, View } from 'react-native'
 import { useMissionOpening, useStoreActions, useTaskSeatMemory } from '../client/hooks'
-import { useMobilePool } from '../client/mobile-pool'
+import { useMobilePool, useMobilePoolProjection } from '../client/mobile-pool'
 import { useScreenReadFocus } from '../client/screen-read-focus'
 import {
   useSessionContextChromeIssue,
   useSessionContextSession,
 } from '../client/use-session-context'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
+import { ChatDeckPager } from '../components/ChatDeckPager'
 import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
+import type { ChatDeckPagerHandle, PagerPage } from '../components/chat-deck-pager.types'
+import { Glass } from '../components/Glass'
 import { Icon } from '../components/Icon'
 import { MoreVertical } from '../components/icons'
+import { MissionBar } from '../components/MissionBar'
+import { MissionDeck, useRevealSeat } from '../components/MissionDeck'
 import { HeaderButton, Screen } from '../components/Screen'
 import { SessionConversation } from '../components/SessionConversation'
 import { TaskSheet } from '../components/TaskSheet'
 import { EmptyState } from '../components/ui'
+import { WorkIssueMenu } from '../components/WorkIssueMenu'
 import { useHeaderInset } from '../navigation/header-inset'
-import { useMissionDeckReturn } from '../navigation/use-mission-deck-return'
+import { type DeckOpen, deckSessionOpen, deckTaskOpen } from '../navigation/mission-deck-targets'
+import { usePageBackSwipe } from '../navigation/use-page-back-swipe'
 import { color } from '../theme/theme'
 
 /**
@@ -39,8 +47,9 @@ import { color } from '../theme/theme'
  * ends in the transcript, and every one of them was paying two navigations for
  * it.
  *
- * The conversation opens first. The full deck sits beneath it in the native
- * stack, so the system back button and iOS 26 content swipe reveal the deck.
+ * The conversation opens first. The full deck is the page to its right: a
+ * swipe from right to left, or a tap on the status bar under the nav bar, pages
+ * over to it, and a tap on any seat there brings that conversation back here.
  */
 
 const NO_SESSIONS: readonly SessionView[] = []
@@ -77,35 +86,32 @@ export const MissionScreen = observer(function MissionScreen() {
 
   // An explicit pick from the deck outranks the automatic one, but only while it
   // still names a session on THIS mission — a mission you return to hours later
-  // must not open on an agent that has since been archived. The automatic one
-  // is the desktop sidebar's (`taskOpenSeat`: the session this phone last showed
-  // on the mission, else the tapped task's coordinator, the root's, the most
-  // recently active), and it is pinned the moment it is shown: the seat changes
-  // only when the operator picks another, never because a sibling spoke last
-  // while they read.
+  // must not open on an agent that has since been archived. Opening follows the
+  // routing contract shared with Work, Tasks and search: a seat named in the
+  // route is shown; otherwise the desktop's pick (`taskOpenSeat`) with no
+  // remembered pane, so the tapped task's coordinator wins, then the root's,
+  // then the most recently active. The pick is pinned the moment it is shown:
+  // the seat changes only when the operator picks another, never because a
+  // sibling spoke last while they read. The remembered pane still steers task
+  // taps on the deck, as on the desktop.
   const seatMemory = useTaskSeatMemory()
   const rootId = root?.id
-  const openingRootId = screen?.rootId
-  // Read once per mission: the seat written below must not feed back into it.
-  const remembered = useMemo(
-    () => (openingRootId ? seatMemory.recall(openingRootId) : null),
-    [openingRootId, seatMemory],
-  )
-  // Name the requested or remembered chat from the existing pool before the
-  // full deck settles. A remembered helper can belong to another task here.
-  const openingSession = useSessionContextSession(
-    (requestedSessionId ?? remembered ?? undefined) as SessionId | undefined,
-  )
+  // Name the requested chat from the existing pool before the full deck settles.
+  const openingSession = useSessionContextSession(requestedSessionId as SessionId | undefined)
   const openingIssue = useSessionContextChromeIssue(openingSession?.issueId ?? selectedId)
   const selectedValue = ready ? screen.reader.issue(selectedId) : undefined
   const selected = selectedValue && selectedValue !== LOADING ? selectedValue : undefined
   const pinned = missionSessions.find((s) => s.sessionId === pinnedSessionId)
+  // An explicit session in the route (Work, Tasks, search and notifications
+  // name the seat they picked) stands in for the remembered pane, so the
+  // shared pick lands on it whenever it is a member, and a remembered helper
+  // can never outrank it.
   const autoSeat =
     pinned || !root
       ? null
       : taskOpenSeat({
           members: missionSessions,
-          remembered,
+          remembered: requestedSessionId ?? null,
           taskCoordinatorSessionId: selected?.coordinatorSessionId,
           rootCoordinatorSessionId: root.coordinatorSessionId,
         })
@@ -121,7 +127,6 @@ export const MissionScreen = observer(function MissionScreen() {
   }, [requestedSessionId])
   // Whatever the screen shows is what reopening this task lands on next time.
   const currentId = current?.sessionId
-  useMissionDeckReturn(rootId, currentId)
   useEffect(() => {
     if (rootId && currentId) seatMemory.remember(rootId, currentId as SessionId)
   }, [rootId, currentId, seatMemory])
@@ -135,24 +140,79 @@ export const MissionScreen = observer(function MissionScreen() {
   const headerIssue = currentIssue ?? root ?? openingIssue
   useScreenReadFocus(headerIssue?.id, current?.sessionId)
 
-  const openSession = useCallback((session: SessionView) => {
-    setPinnedSessionId(session.sessionId)
+  // Native shows the deck as the page right of the chat. The web build keeps
+  // the deck as its own URL, because its history records only focused screens.
+  const paged = Platform.OS !== 'web'
+  const pager = useRef<ChatDeckPagerHandle>(null)
+  const [page, setPage] = useState<PagerPage>(0)
+  const onDeck = paged && page === 1
+  usePageBackSwipe(!onDeck)
+  // Paging with the keyboard up is allowed and never drops focus mid-drag (a
+  // drag that snaps back keeps typing going). Coming to rest on the deck puts
+  // the composer off screen, so the keyboard goes; the draft stays.
+  const settlePage = useCallback((next: PagerPage) => {
+    setPage(next)
+    if (next === 1) Keyboard.dismiss()
+  }, [])
+  const openDeck = useCallback(() => {
+    if (!rootId) return
+    if (paged) {
+      pager.current?.setPage(1)
+      return
+    }
+    router.push(
+      `/mission/${encodeURIComponent(rootId)}/details${currentId ? `?sessionId=${encodeURIComponent(currentId)}` : ''}`,
+    )
+  }, [currentId, paged, rootId, router])
+  const showSession = useCallback((sessionId: SessionId) => {
+    setPinnedSessionId(sessionId)
+    pager.current?.setPage(0)
     void Haptics.selectionAsync().catch(() => {})
   }, [])
+  const openSession = useCallback(
+    (session: SessionView) => showSession(session.sessionId),
+    [showSession],
+  )
+
+  // The deck page reads the same shared deck; its taps change which session
+  // the chat page shows and page back, or leave for another screen.
+  const follow = useCallback(
+    (open: DeckOpen) => {
+      if (open.kind === 'chat') showSession(open.sessionId)
+      else router.push(open.href)
+    },
+    [router, showSession],
+  )
+  const openDeckSession = useCallback(
+    (session: SessionView) => {
+      if (rootId) follow(deckSessionOpen(rootId, session.sessionId, missionSessions))
+    },
+    [follow, missionSessions, rootId],
+  )
+  const openDeckTask = useCallback(
+    (issue: IssueNavigationModel) => {
+      if (!rootId || !screen?.ready) return
+      follow(deckTaskOpen(issue, screen, missionSessions, seatMemory.recall(rootId)))
+    },
+    [follow, missionSessions, rootId, screen, seatMemory],
+  )
+  const screenProposals = useCallback(() => router.push('/screen-proposed'), [router])
+  const [menuIssue, setMenuIssue] = useState<IssueNavigationModel | null>(null)
+  const menuIssueId = menuIssue?.id
+  const readSessionCount = useCallback(
+    (source: MobxPool) =>
+      menuIssueId ? source.graph.size('issue', menuIssueId, 'pageSessions') : 0,
+    [menuIssueId],
+  )
+  const sessionCount = useMobilePoolProjection(readSessionCount, 0)
+  useRevealSeat(paged ? screen : null, currentId)
 
   const menuActions = useMemo<SheetAction[]>(() => {
     if (!root) return []
     return [
-      {
-        label: 'Flight deck',
-        onPress: () => {
-          if (Platform.OS === 'web') {
-            router.push(
-              `/mission/${encodeURIComponent(root.id)}/details${current ? `?sessionId=${encodeURIComponent(current.sessionId)}` : ''}`,
-            )
-          } else router.back()
-        },
-      },
+      onDeck
+        ? { label: 'Chat', onPress: () => pager.current?.setPage(0) }
+        : { label: 'Flight deck', onPress: openDeck },
       {
         label: 'Task details',
         hint: 'The full task page',
@@ -171,7 +231,7 @@ export const MissionScreen = observer(function MissionScreen() {
         },
       },
       { label: 'Launch an agent…', onPress: () => setLaunchOpen(true) },
-      ...(current
+      ...(current && !onDeck
         ? [
             {
               label: 'Find in transcript',
@@ -185,25 +245,59 @@ export const MissionScreen = observer(function MissionScreen() {
           ]
         : []),
     ]
-  }, [current, headerIssue, root, router, store])
+  }, [current, headerIssue, onDeck, openDeck, root, router, store])
 
   // The nav bar names the task and, beneath it, whose conversation this is:
   // "Coordinator" for the mission's own lead, else the agent and its task.
+  // On the deck page it names the mission and the page, as the deck screen did.
   const coordinatorId = ready && screen.full.ready ? screen.full.coordinatorSessionId : null
   const seat = current
     ? current.sessionId === coordinatorId
       ? 'Coordinator'
       : `${sessionTitle(current)}${currentIssue && currentIssue.id !== root?.id ? ` · ${issueDisplayRef(currentIssue)}` : ''}`
     : null
+  const chatTitle = headerIssue?.title ?? (openingSession ? sessionTitle(openingSession) : '')
+
+  // Page contents are built once per input, so a page change (which renders
+  // this screen for the header) never renders the transcript or the deck.
+  const chatPage = useMemo(
+    () =>
+      root && screen ? (
+        <MissionChat
+          current={current}
+          currentIssue={currentIssue}
+          findRequest={findRequest}
+          bar={<MissionBar full={screen.full} onOpen={openDeck} />}
+        />
+      ) : null,
+    [current, currentIssue, findRequest, openDeck, root, screen],
+  )
+  const deckPage = useMemo(
+    () =>
+      paged && root && screen?.ready ? (
+        <View style={styles.deck} collapsable={false}>
+          <MissionDeck
+            screen={screen}
+            showTitle={false}
+            currentSessionId={currentId}
+            onOpenSession={openDeckSession}
+            onOpenTask={openDeckTask}
+            onOpenTaskMenu={setMenuIssue}
+            onScreenProposals={screenProposals}
+          />
+        </View>
+      ) : null,
+    [currentId, openDeckSession, openDeckTask, paged, root, screen, screenProposals],
+  )
 
   return (
     <Screen
-      title={headerIssue?.title ?? (openingSession ? sessionTitle(openingSession) : '')}
+      title={onDeck ? (root?.title ?? 'Flight deck') : chatTitle}
       onBack={() => (router.canGoBack() ? router.back() : router.replace('/work'))}
-      backLabel={Platform.OS === 'web' ? 'Back' : 'Flight deck'}
+      backLabel={Platform.OS === 'web' ? 'Back' : 'Work'}
       bareBack
       underHeader
-      subtitle={seat ?? (root ? 'No agent on this mission' : undefined)}
+      subtitle={onDeck ? 'Flight deck' : (seat ?? (root ? 'No agent on this mission' : undefined))}
       // One tap to the task page, as Messages opens a contact from its name.
       onTitlePress={
         headerIssue
@@ -219,7 +313,17 @@ export const MissionScreen = observer(function MissionScreen() {
       {/* The conversation owns transcript readiness. Deck metadata can still be
           loading while that conversation already has history in the pool. */}
       {root && screen ? (
-        <MissionBody current={current} currentIssue={currentIssue} findRequest={findRequest} />
+        paged ? (
+          <ChatDeckPager
+            ref={pager}
+            chat={chatPage}
+            deck={deckPage}
+            onPageChange={setPage}
+            onPageSettle={settlePage}
+          />
+        ) : (
+          chatPage
+        )
       ) : resolved ? (
         <EmptyState title="Mission not found." />
       ) : null}
@@ -245,22 +349,42 @@ export const MissionScreen = observer(function MissionScreen() {
         issue={launchOpen ? (root ?? null) : null}
         onClose={() => setLaunchOpen(false)}
       />
+      {menuIssue ? (
+        <WorkIssueMenu
+          target={{ issue: menuIssue, lane: 'live', sessionCount }}
+          onClose={() => setMenuIssue(null)}
+        />
+      ) : null}
     </Screen>
   )
 })
 
-function MissionBody({
+/**
+ * The chat page: the deck's status bar pinned under the transparent nav bar,
+ * and the transcript scrolling under both.
+ */
+function MissionChat({
   current,
   currentIssue,
   findRequest,
+  bar,
 }: {
   current: SessionView | undefined
   currentIssue: IssueViewModel | undefined
   findRequest: number
+  bar: React.ReactNode
 }) {
   const headerInset = useHeaderInset()
+  const [barHeight, setBarHeight] = useState(0)
+  const onBarLayout = (event: LayoutChangeEvent) => {
+    const next = Math.round(event.nativeEvent.layout.height)
+    setBarHeight((prev) => (prev === next ? prev : next))
+  }
   return (
     <View style={styles.body} collapsable={false}>
+      <Glass style={[styles.bar, { top: headerInset }]}>
+        <View onLayout={onBarLayout}>{bar}</View>
+      </Glass>
       <View style={styles.stage} collapsable={false}>
         {current ? (
           <SessionConversation
@@ -268,13 +392,13 @@ function MissionBody({
             session={current}
             issue={currentIssue}
             findRequest={findRequest}
-            topInset={headerInset}
+            topInset={headerInset + barHeight}
           />
         ) : (
           <EmptyState
             fill
             title="No agent on this task yet"
-            body="Open the flight deck to review the tasks, or launch an agent to get it moving."
+            body="Swipe left for the flight deck to review the tasks, or launch an agent to get it moving."
           />
         )}
       </View>
@@ -287,9 +411,24 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
   },
+  bar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 1,
+    // A full-width strip, not a chip: square corners, no outline.
+    borderRadius: 0,
+    borderWidth: 0,
+  },
   stage: {
     flex: 1,
     minHeight: 0,
     overflow: 'hidden',
+  },
+  deck: {
+    flex: 1,
+    minHeight: 0,
+    backgroundColor: color.groupedBg,
   },
 })

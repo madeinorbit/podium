@@ -1,24 +1,25 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import { type IssueNavigationModel, taskOpenSeat } from '@podium/client-core/values'
+import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asIssueId } from '@podium/model'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Platform } from 'react-native'
 import { useMissionOpening, useTaskSeatMemory } from '../client/hooks'
 import { useMobilePoolProjection } from '../client/mobile-pool'
 import { useScreenReadFocus } from '../client/screen-read-focus'
 import { DetailSkeleton } from '../components/LaunchPlaceholders'
-import { MissionDeck } from '../components/MissionDeck'
+import { MissionDeck, useRevealSeat } from '../components/MissionDeck'
 import { Screen } from '../components/Screen'
 import { EmptyState } from '../components/ui'
 import { WorkIssueMenu } from '../components/WorkIssueMenu'
+import { deckTaskOpen } from '../navigation/mission-deck-targets'
 
 /**
- * The flight deck beneath chat. Each seat pushes its conversation; the system
- * back gesture returns to this opening with that seat selected.
+ * The flight deck as its own URL, for the web build whose history records only
+ * focused screens. Native shows the same deck as the page right of the chat.
  */
 export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
   const params = useLocalSearchParams<{
@@ -42,18 +43,7 @@ export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
     [menuIssueId],
   )
   const sessionCount = useMobilePoolProjection(readSessionCount, 0)
-  useEffect(() => {
-    if (!ready || !screen || !rawSession) return
-    let id: string | null =
-      screen.crew.find((session) => session.sessionId === rawSession)?.issueId ?? null
-    // Reveal the selected seat using the deck's existing fold actions. A user
-    // can fold it again without selection continually reopening it.
-    while (id && screen.members.has(id)) {
-      const task = screen.full.task(id)
-      if (task.foldable && !task.open) screen.full.toggleFold(id)
-      id = task.parentId
-    }
-  }, [ready, screen, rawSession])
+  useRevealSeat(screen, rawSession)
 
   return (
     <Screen
@@ -91,19 +81,16 @@ export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
             }
             // A task tap chooses from that task's own open seats. Restoring the
             // mission workspace without an explicit seat can reopen its parent.
-            const task = screen.full.task(issue.id)
-            const target = taskOpenSeat({
-              members: task.sessionIds.map(
-                (id) => screen.pool.sessionObject(id) as unknown as SessionView,
-              ),
-              remembered: seatMemory.recall(root.id),
-              taskCoordinatorSessionId: issue.coordinatorSessionId,
-              rootCoordinatorSessionId: null,
-            })
+            const open = deckTaskOpen(
+              issue,
+              screen,
+              screen.crew as unknown as readonly SessionView[],
+              seatMemory.recall(root.id),
+            )
             router.push(
-              target
-                ? `/mission/${encodeURIComponent(issue.id)}?sessionId=${encodeURIComponent(target)}`
-                : `/issue/${encodeURIComponent(issue.id)}`,
+              open.kind === 'chat'
+                ? `/mission/${encodeURIComponent(issue.id)}?sessionId=${encodeURIComponent(open.sessionId)}`
+                : open.href,
             )
           }}
           onOpenTaskMenu={setMenuIssue}

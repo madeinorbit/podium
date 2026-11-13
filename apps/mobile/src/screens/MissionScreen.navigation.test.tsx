@@ -12,7 +12,6 @@ import type { NavigationState } from 'expo-router/react-navigation'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { renderWithMobileStore } from '../client/test-support'
-import { MISSION_CHAT, MISSION_DECK } from '../navigation/mission-stack'
 
 const navigation = vi.hoisted(() => ({
   platform: 'ios',
@@ -24,7 +23,11 @@ const navigation = vi.hoisted(() => ({
   dismissTo: vi.fn(),
   holdOpening: false,
   remembered: null as string | null,
+  options: [] as Record<string, unknown>[],
 }))
+
+const MISSION_CHAT = 'mission/[missionId]'
+const MISSION_DECK = 'mission/[missionId]/details'
 vi.mock('react-native', async (original) => {
   const real = await original<typeof import('react-native')>()
   return {
@@ -105,6 +108,7 @@ afterEach(() => {
   navigation.platform = 'ios'
   navigation.holdOpening = false
   navigation.remembered = null
+  navigation.options = []
 })
 
 const options = {
@@ -162,6 +166,7 @@ function Navigator() {
     getState: () => state,
     dispatch,
     isFocused: () => true,
+    setOptions: (next: Record<string, unknown>) => navigation.options.push(next),
     addListener: (event: string, listener: (event: { data: { closing: boolean } }) => void) => {
       if (event !== 'transitionEnd') return () => {}
       transitionListeners.current.add(listener)
@@ -278,7 +283,7 @@ it('uses the requested session task title before mission membership resolves', a
   expect(screen.queryByText('Mission')).toBeNull()
 })
 
-it('names a remembered helper task before the mission deck resolves', async () => {
+it('names the opened task, not a remembered helper, before the mission deck resolves', async () => {
   navigation.holdOpening = true
   navigation.remembered = 'child-helper'
   navigation.params = { missionId: 'root' }
@@ -289,12 +294,57 @@ it('names a remembered helper task before the mission deck resolves', async () =
     ],
     sessions: [agent('child-helper', 'child')],
   })
-  expect(screen.getByText('Pricing page draft')).toBeTruthy()
-  expect(screen.queryByText('Cloud factory strategy')).toBeNull()
+  expect(screen.getByText('Cloud factory strategy')).toBeTruthy()
+  expect(screen.queryByText('Pricing page draft')).toBeNull()
   expect(screen.queryByLabelText('Loading transcript')).toBeNull()
 })
 
-it('opens the task coordinator chat, opens its highlighted deck from the menu, and pushes another seat', async () => {
+it('opens a bare mission on the coordinator even when a helper pane is remembered', async () => {
+  navigation.remembered = 'child-helper'
+  navigation.params = { missionId: 'child' }
+  await renderWithMobileStore(<MissionScreen />, {
+    issues: [
+      issue('root', { coordinatorSessionId: asSessionId('root-lead') }),
+      issue('child', {
+        parentId: asIssueId('root'),
+        coordinatorSessionId: asSessionId('child-lead'),
+      }),
+    ],
+    sessions: [
+      agent('root-lead', 'root'),
+      agent('child-lead', 'child'),
+      agent('child-helper', 'child'),
+    ],
+  })
+  await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('child-lead'))
+})
+
+it('pins the chat page to the session the route names over a remembered pane', async () => {
+  navigation.remembered = 'child-helper'
+  navigation.params = { missionId: 'child', sessionId: 'root-lead' }
+  await renderWithMobileStore(<MissionScreen />, {
+    issues: [
+      issue('root', { coordinatorSessionId: asSessionId('root-lead') }),
+      issue('child', {
+        parentId: asIssueId('root'),
+        coordinatorSessionId: asSessionId('child-lead'),
+      }),
+    ],
+    sessions: [
+      agent('root-lead', 'root'),
+      agent('child-lead', 'child'),
+      agent('child-helper', 'child'),
+    ],
+  })
+  await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('root-lead'))
+})
+
+const deckPage = () => screen.getByTestId('pager-deck-page')
+const onDeckPage = () => deckPage().getAttribute('aria-hidden') !== 'true'
+const backSwipe = () =>
+  navigation.options.filter((next) => 'gestureEnabled' in next).at(-1)?.gestureEnabled
+
+it('pages from the chat to its deck and swaps the chat to a seat or task picked there', async () => {
   await renderWithMobileStore(<Navigator />, {
     issues: [
       issue('root', {
@@ -316,20 +366,22 @@ it('opens the task coordinator chat, opens its highlighted deck from the menu, a
     sessions: [agent('root-lead', 'root'), agent('child-lead', 'child')],
   })
   await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('child-lead'))
-  expect(navigation.state?.routes.map((route) => route.name)).toEqual([
-    '(tabs)',
-    MISSION_DECK,
-    MISSION_CHAT,
-  ])
-  expect(screen.queryByTestId('mission-bar')).toBeNull()
-  await act(async () => fireEvent.click(screen.getByLabelText('Mission actions')))
-  await act(async () =>
-    fireEvent.click(
-      within(screen.getByTestId('mission-actions-sheet')).getByRole('button', {
-        name: 'Flight deck',
-      }),
+  // The deck is a page of this screen, not a screen underneath it: Back is Work.
+  expect(navigation.state?.routes.map((route) => route.name)).toEqual(['(tabs)', MISSION_CHAT])
+  expect(onDeckPage()).toBe(false)
+  expect(backSwipe()).toBe(true)
+  await waitFor(() =>
+    expect(screen.getByTestId('mission-bar').getAttribute('aria-label')).toMatch(
+      /^Flight deck, 0\/\d+/,
     ),
   )
+
+  await act(async () => fireEvent.click(screen.getByTestId('mission-bar')))
+  expect(onDeckPage()).toBe(true)
+  // The header follows the page; the stack's back swipe yields to paging back.
+  expect(screen.getAllByText('Cloud factory strategy').length).toBeGreaterThan(0)
+  expect(screen.getAllByText('Flight deck').length).toBeGreaterThan(0)
+  expect(backSwipe()).toBe(false)
   await waitFor(() =>
     expect(screen.getByTestId('deck-agent').getAttribute('aria-label')).toContain(
       'child-lead, Working, open',
@@ -358,19 +410,45 @@ it('opens the task coordinator chat, opens its highlighted deck from the menu, a
       `<!doctype html><html><head><meta charset="utf-8"><title>Flight deck web layout</title><style>${fonts}\n${css}\nhtml,body{width:402px;height:874px;margin:0;background:#16171a}body{display:flex}body>div{display:flex;flex:1;min-width:0}</style></head><body>${document.body.innerHTML}</body></html>`,
     )
   }
-  fireEvent.click(screen.getByTestId('deck-seat'))
+
+  // A seat on the deck swaps the chat page and pages back to it, in place.
+  await act(async () => fireEvent.click(screen.getByTestId('deck-seat')))
   await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('root-lead'))
-  await act(async () => fireEvent.click(screen.getByLabelText('Flight deck')))
+  expect(onDeckPage()).toBe(false)
+  expect(backSwipe()).toBe(true)
+  expect(navigation.push).not.toHaveBeenCalled()
+
+  // The root coordinator is now the remembered workspace tab. A child task
+  // tap must still open that child's own coordinator, on the same chat page.
+  await act(async () => fireEvent.click(screen.getByTestId('mission-bar')))
   await waitFor(() =>
     expect(screen.getByTestId('deck-seat').getAttribute('aria-label')).toContain(
       'Coordinator, Working, open',
     ),
   )
-  // The root coordinator is now the remembered workspace tab. A child task
-  // tap must still open that child's own coordinator.
   await act(async () => fireEvent.click(screen.getByTestId('deck-task')))
-  expect(navigation.push).toHaveBeenLastCalledWith('/mission/child?sessionId=child-lead')
   await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('child-lead'))
+  expect(onDeckPage()).toBe(false)
+  expect(navigation.push).not.toHaveBeenCalled()
+  expect(navigation.state?.routes.map((route) => route.name)).toEqual(['(tabs)', MISSION_CHAT])
+
+  // The actions menu offers the deck from the chat and the chat from the deck.
+  await act(async () => fireEvent.click(screen.getByLabelText('Mission actions')))
+  await act(async () =>
+    fireEvent.click(
+      within(screen.getByTestId('mission-actions-sheet')).getByRole('button', {
+        name: 'Flight deck',
+      }),
+    ),
+  )
+  expect(onDeckPage()).toBe(true)
+  await act(async () => fireEvent.click(screen.getByLabelText('Mission actions')))
+  await act(async () =>
+    fireEvent.click(
+      within(screen.getByTestId('mission-actions-sheet')).getByRole('button', { name: 'Chat' }),
+    ),
+  )
+  expect(onDeckPage()).toBe(false)
 })
 
 it('web keeps an explicit chat-to-deck URL push and returns to the selected conversation', async () => {
@@ -392,15 +470,8 @@ it('web keeps an explicit chat-to-deck URL push and returns to the selected conv
   })
   await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('child-lead'))
   expect(navigation.state?.routes.map((route) => route.name)).toEqual(['(tabs)', MISSION_CHAT])
-  expect(screen.queryByTestId('mission-bar')).toBeNull()
-  await act(async () => fireEvent.click(screen.getByLabelText('Mission actions')))
-  await act(async () =>
-    fireEvent.click(
-      within(screen.getByTestId('mission-actions-sheet')).getByRole('button', {
-        name: 'Flight deck',
-      }),
-    ),
-  )
+  expect(screen.queryByTestId('pager-deck-page')).toBeNull()
+  await act(async () => fireEvent.click(screen.getByTestId('mission-bar')))
   expect(navigation.push).toHaveBeenCalledWith('/mission/root/details?sessionId=child-lead')
   await waitFor(() => expect(screen.getByTestId('deck-seat')).toBeTruthy())
   expect(screen.getByRole('button', { name: 'Back' })).toBeTruthy()
@@ -413,7 +484,6 @@ it('web keeps an explicit chat-to-deck URL push and returns to the selected conv
   expect(navigation.dismissTo).toHaveBeenCalledWith('/mission/root?sessionId=root-lead')
   await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('root-lead'))
   expect(navigation.state?.routes.map((route) => route.name)).toEqual(['(tabs)', MISSION_CHAT])
-  expect(screen.queryByTestId('mission-bar')).toBeNull()
   await act(async () => fireEvent.click(screen.getByLabelText('Mission actions')))
   await act(async () =>
     fireEvent.click(
@@ -445,13 +515,14 @@ it('keeps a remembered child helper when opening that task from the deck', async
     ],
   })
   await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('child-lead'))
-  await act(async () => fireEvent.click(screen.getByLabelText('Flight deck')))
+  await act(async () => fireEvent.click(screen.getByTestId('mission-bar')))
   await act(async () => fireEvent.click(screen.getByRole('button', { name: /^child-helper,/ })))
   await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('child-helper'))
-  await act(async () => fireEvent.click(screen.getByLabelText('Flight deck')))
+  await act(async () => fireEvent.click(screen.getByTestId('mission-bar')))
   await act(async () => fireEvent.click(screen.getByTestId('deck-task')))
-  expect(navigation.push).toHaveBeenLastCalledWith('/mission/child?sessionId=child-helper')
-  await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('child-helper'))
+  expect(navigation.push).not.toHaveBeenCalled()
+  expect(screen.getByTestId('chat').textContent).toBe('child-helper')
+  expect(onDeckPage()).toBe(false)
 })
 
 it('opens an unseated child task in details instead of its parent conversation', async () => {
@@ -463,7 +534,7 @@ it('opens an unseated child task in details instead of its parent conversation',
     sessions: [agent('root-lead', 'root')],
   })
   await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('root-lead'))
-  await act(async () => fireEvent.click(screen.getByLabelText('Flight deck')))
+  await act(async () => fireEvent.click(screen.getByTestId('mission-bar')))
   await act(async () => fireEvent.click(screen.getByTestId('deck-task')))
   expect(navigation.push).toHaveBeenLastCalledWith('/issue/child')
 })
