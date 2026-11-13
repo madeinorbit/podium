@@ -56,8 +56,14 @@ export function BootstrapCrossfade({
   return (
     // `aria-busy` beside `accessibilityState`: react-native-web 0.21 reads only
     // the former, so the web build announced no state at all. [POD-1664]
-    <View style={styles.fill} accessibilityState={{ busy: !settled }} aria-busy={!settled}>
+    <View
+      style={styles.fill}
+      collapsable={false}
+      accessibilityState={{ busy: !settled }}
+      aria-busy={!settled}
+    >
       <Animated.View
+        collapsable={false}
         pointerEvents={settled ? 'auto' : 'none'}
         importantForAccessibility={settled ? 'auto' : 'no-hide-descendants'}
         style={[styles.fill, { opacity: contentOpacity }]}
@@ -110,8 +116,8 @@ function Row({ compact = false }: { compact?: boolean }) {
  * Page placeholders owe the same native scroll insets as the page they cover.
  * A plain View starts behind a transparent header. Let UIKit adjust this scroll
  * container, including large titles and safe areas, without padding the screen
- * itself. Transcripts instead supply the inset of their inverted list, which
- * includes any pinned deck strip; automatic adjustment would charge it twice.
+ * itself. Transcripts instead supply their measured header inset; automatic
+ * adjustment would charge it twice.
  */
 function SkeletonViewport({
   children,
@@ -265,6 +271,6 @@ const styles = StyleSheet.create({
   },
   bubble: { gap: 10, padding: space.md, borderRadius: radius.lg },
   bubbleAssistant: { width: '84%', backgroundColor: color.surface },
-  bubbleUser: { width: '69%', alignSelf: 'flex-end', backgroundColor: color.userBubble },
+  bubbleUser: { width: '69%', alignSelf: 'flex-end', backgroundColor: color.surface },
   bubbleDim: { opacity: 0.58 },
 })
