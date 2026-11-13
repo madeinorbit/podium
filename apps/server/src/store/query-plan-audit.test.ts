@@ -143,6 +143,10 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/events.ts:feedEventsOfSubjects', SIZES],
   ['apps/server/src/store/events.ts:feedEventsOfIds', SIZES],
   ['apps/server/src/store/sessions.ts:pinsOfUsers', SIZES],
+  // The change capture's mappings (POD-6920): a captured row to its records.
+  ['apps/server/src/store/sessions.ts:personalRecordKeysOfUsers', SIZES],
+  ['apps/server/src/store/issues.ts:issuesOfLabels', SIZES],
+  ['apps/server/src/store/workflows.ts:runIdsOfRevisions', SIZES],
   ['apps/server/src/store/sessions.ts:tabOrdersOfUsers', SIZES],
   ['apps/server/src/store/superagent.ts:threadsOfIds', SIZES],
   ['apps/server/src/store/workflows.ts:workflowsOfIds', SIZES],
@@ -522,10 +526,6 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
   [
     'apps/server/src/store/events.ts:eventIdBeyondCap',
     'Walks the newest `cap` events by primary key to find where pruning starts; it reads the cap, not the table.',
-  ],
-  [
-    'apps/server/src/store/events.ts:pruneRuntimeSessions',
-    'The same retention candidate query as deletePruneBatch, limited to one batch before the source delete to name its dependent sessions.',
   ],
   [
     'apps/server/src/store/events.ts:deletePruneBatch',
