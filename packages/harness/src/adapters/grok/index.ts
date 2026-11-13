@@ -310,9 +310,9 @@ export const grokManifest: AgentManifest = {
             ? ['--resume', opts.resumeValue]
             : ['--session-id', opts.sessionId ?? '']),
           ...(model ? ['--model', model] : []),
-          ...(opts.permissionMode === 'auto' && opts.toolPolicy !== 'none'
-            ? ['--permission-mode', 'auto']
-            : []),
+          // The mode and the allow rules are the posture section's
+          // (POD-6858). A tool-less turn runs on no-agent terms, so its own
+          // `dontAsk` below is the only mode it carries.
           ...(opts.toolPolicy === 'none'
             ? [
                 '--tools',

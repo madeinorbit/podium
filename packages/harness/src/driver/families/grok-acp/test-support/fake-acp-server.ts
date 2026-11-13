@@ -65,6 +65,8 @@ export interface FakeGrokAcpServer {
   prompts: Record<string, unknown>[]
   /** Every `session/new` request's params, in order. */
   sessionNews: Record<string, unknown>[]
+  /** Every `session/set_mode` request's params, in order. */
+  setModes: Record<string, unknown>[]
   /** The prompt Grok is running, by its `promptId`. */
   runningPromptId: string | undefined
   /** `session/cancel` notifications received. */
@@ -303,6 +305,7 @@ export function startFakeGrokAcpServer(
               return
             }
             case 'session/set_mode':
+              server.setModes.push(frame.params ?? {})
               response(frame.id, {})
               return
             case 'session/prompt': {
@@ -389,6 +392,7 @@ export function startFakeGrokAcpServer(
     promptCount: 0,
     prompts: [],
     sessionNews: [],
+    setModes: [],
     runningPromptId: undefined,
     cancels: 0,
     answers: new Map(),

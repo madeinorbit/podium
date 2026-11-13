@@ -929,7 +929,9 @@ describe('the client terminal a server-family attach produces', () => {
     expect(grok.state.spawns[0]).toMatchObject({
       label: requireClientTerminalLabel(SESSION, 'grok'),
       cmd: '/opt/rig/bin/grok',
-      args: ['--resume', 'grok-9'],
+      // Moved to posture (POD-6858): Grok's attached TUI runs the tools of a
+      // turn typed into it itself, so it gets the terminal's mode and rule.
+      args: ['--resume', 'grok-9', '--permission-mode', 'auto', '--allow', 'Bash(podium *)'],
       stripEnv: ['XAI_API_KEY'],
     })
   })

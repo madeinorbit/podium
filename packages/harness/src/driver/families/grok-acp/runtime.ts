@@ -133,6 +133,13 @@ export interface GrokAcpEndpoint {
    * while the engine is alive or when no host holds it.
    */
   engineExit?(): { code: number; signal: number } | undefined
+  /**
+   * The Grok mode the engine's launch terms asked for (POD-6858): `auto`,
+   * `default` or a native pick. `grok agent stdio` takes no mode flag, so the
+   * session's initial mode is set over ACP from this. Absent or null: the
+   * interactive `default`, as before the terms existed.
+   */
+  requestedMode?: string | null
 }
 
 export interface GrokAcpRuntimeHost {
@@ -2405,13 +2412,27 @@ export function createGrokAcpRuntime(
     return connection
   }
 
-  async function setInteractivePermissionMode(session: DriverSession): Promise<void> {
+  /**
+   * THE SESSION'S INITIAL MODE, FROM ITS LAUNCH TERMS (POD-6858 §4.8).
+   *
+   * Grok's `auto` is the `_meta.autoMode` option of `session/new` and
+   * `session/load` (measured on `session/new`, 1.0.70: its classifier ran
+   * `podium --version` with no ask). Every other mode is set with
+   * `session/set_mode`; with no requested mode that is `default`, so a user's
+   * config that defaults to auto-approve cannot silently govern a session
+   * whose asks Podium routes to chat.
+   */
+  function autoModeMeta(endpoint: GrokAcpEndpoint): { autoMode?: true } {
+    return endpoint.requestedMode === 'auto' ? { autoMode: true } : {}
+  }
+
+  async function setInitialPermissionMode(session: DriverSession): Promise<void> {
+    const requested = session.endpoint.requestedMode
+    if (requested === 'auto') return
     try {
-      // A user's config may default to auto-approve. `default` makes the
-      // server→client permission channel authoritative for this session.
       await session.client.call(GROK_ACP_METHODS.sessionSetMode, {
         sessionId: session.grokSessionId,
-        modeId: 'default',
+        modeId: requested ?? 'default',
       })
     } catch {
       // Older admitted builds may omit the optional mode switch. The ACP
@@ -2427,9 +2448,18 @@ export function createGrokAcpRuntime(
    * and `_meta.systemPrompt`/`_meta.instructions` reach nothing. `session/load`
    * sends the same field, so a reloaded session asks for its rules too.
    */
-  function sessionRules(spec: EngineSessionSpec): { _meta?: { rules: string } } {
+  function sessionRules(spec: EngineSessionSpec): { rules?: string } {
     const rules = instructionsText(spec)
-    return rules ? { _meta: { rules } } : {}
+    return rules ? { rules } : {}
+  }
+
+  /** The `_meta` of `session/new` and `session/load`: the rules and the mode. */
+  function sessionMeta(
+    spec: EngineSessionSpec,
+    endpoint: GrokAcpEndpoint,
+  ): { _meta?: { rules?: string; autoMode?: true } } {
+    const meta = { ...sessionRules(spec), ...autoModeMeta(endpoint) }
+    return Object.keys(meta).length > 0 ? { _meta: meta } : {}
   }
 
   async function createWithId(
@@ -2449,7 +2479,7 @@ export function createGrokAcpRuntime(
       await connection.client.call(GROK_ACP_METHODS.sessionNew, {
         cwd: spec.workdir,
         mcpServers: [],
-        ...sessionRules(spec),
+        ...sessionMeta(spec, endpoint),
       }),
     )
     const handle = attachSession({
@@ -2462,7 +2492,7 @@ export function createGrokAcpRuntime(
       observerGeneration: 1,
     })
     const session = sessions.get(sessionId)
-    if (session) await setInteractivePermissionMode(session)
+    if (session) await setInitialPermissionMode(session)
     if (spec.initialPrompt) {
       await handle.send({ text: spec.initialPrompt }, { origin: 'human', delivery: 'when-ready' })
     }
@@ -2504,10 +2534,10 @@ export function createGrokAcpRuntime(
         sessionId: input.grokSessionId,
         cwd: input.spec.workdir,
         mcpServers: [],
-        ...sessionRules(input.spec),
+        ...sessionMeta(input.spec, endpoint),
       })
       await session.ingestChain
-      await setInteractivePermissionMode(session)
+      await setInitialPermissionMode(session)
       return handle
     } catch (error) {
       /**

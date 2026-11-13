@@ -480,6 +480,9 @@ export function createGrokEngineHost(
         alive: () => held.exit === undefined,
         /** The host's EXITED frame, when the engine has reported its own exit. */
         engineExit: () => held.exit ?? engines.get(input.sessionId)?.exit,
+        // `grok agent stdio` takes no mode flag: the runtime sets the
+        // session's initial mode from what the terms asked for (POD-6858).
+        requestedMode: command.terms.requestedMode,
       }
       return endpoint
     },

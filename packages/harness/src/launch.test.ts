@@ -139,6 +139,22 @@ function opencodePlain(spec: LaunchSpec): Record<string, unknown> {
   }
 }
 
+/**
+ * What Grok's posture section adds to every terminal launch under the default
+ * posture (POD-6858 §4.8), ahead of any `--` prompt boundary. Moved to
+ * posture: these used to be absent from the terminal launch.
+ */
+const GROK_POSTURE_ARGS = ['--permission-mode', 'auto', '--allow', 'Bash(podium *)']
+
+/** A Grok terminal launch with its terms checked, shaped like {@link plain}. */
+function grokPlain(spec: LaunchSpec): Record<string, unknown> {
+  if (!('terms' in spec)) throw new Error('a Grok launch always carries terms')
+  const { env, files, terms, ...rest } = spec
+  expect(terms).toEqual({ homeEdits: [], requestedMode: 'auto', unmet: [] })
+  expect(env).toEqual({})
+  expect(files).toEqual([])
+  return rest
+}
 describe('agentLaunchCommand', () => {
   it('spawns claude fresh', () => {
     expect(
@@ -191,9 +207,9 @@ describe('agentLaunchCommand', () => {
   })
 
   it('spawns grok fresh', () => {
-    expect(plain(agentLaunchCommand('grok', { ...ctx('grok'), cwd: '/w' }))).toEqual({
+    expect(grokPlain(agentLaunchCommand('grok', { ...ctx('grok'), cwd: '/w' }))).toEqual({
       cmd: exe('grok'),
-      args: [],
+      args: GROK_POSTURE_ARGS,
       cwd: '/w',
     })
   })
@@ -213,14 +229,14 @@ describe('agentLaunchCommand', () => {
 
   it('resumes grok by session id', () => {
     expect(
-      plain(
+      grokPlain(
         agentLaunchCommand('grok', {
           ...ctx('grok'),
           cwd: '/w',
           resume: { kind: 'grok-session', value: 'g9' },
         }),
       ),
-    ).toEqual({ cmd: exe('grok'), args: ['--resume', 'g9'], cwd: '/w' })
+    ).toEqual({ cmd: exe('grok'), args: ['--resume', 'g9', ...GROK_POSTURE_ARGS], cwd: '/w' })
   })
 
   // A bare `grok` writes no session directory until its first turn, so naming the
@@ -228,7 +244,7 @@ describe('agentLaunchCommand', () => {
   it('names the new grok session so it exists from boot', () => {
     expect(
       agentLaunchCommand('grok', { ...ctx('grok'), cwd: '/w', newSessionId: 'g-new' }).args,
-    ).toEqual(['--session-id', 'g-new'])
+    ).toEqual(['--session-id', 'g-new', ...GROK_POSTURE_ARGS])
   })
 
   // `--session-id` is new-session only: with --resume grok rejects it unless
@@ -241,16 +257,16 @@ describe('agentLaunchCommand', () => {
         resume: { kind: 'grok-session', value: 'g9' },
         newSessionId: 'g-new',
       }).args,
-    ).toEqual(['--resume', 'g9'])
+    ).toEqual(['--resume', 'g9', ...GROK_POSTURE_ARGS])
   })
 
   it.each([
     'grok-4.5',
     'grok-composer-2.5-fast',
   ])('passes the supported Grok model override %s', (model) => {
-    expect(plain(agentLaunchCommand('grok', { ...ctx('grok'), cwd: '/w', model }))).toEqual({
+    expect(grokPlain(agentLaunchCommand('grok', { ...ctx('grok'), cwd: '/w', model }))).toEqual({
       cmd: exe('grok'),
-      args: ['--model', model],
+      args: ['--model', model, ...GROK_POSTURE_ARGS],
       cwd: '/w',
     })
   })
@@ -403,10 +419,10 @@ describe('agentLaunchCommand', () => {
         cwd: '/w',
       })
       expect(
-        plain(agentLaunchCommand('grok', { ...ctx('grok'), cwd: '/w', initialPrompt: 'do X' })),
+        grokPlain(agentLaunchCommand('grok', { ...ctx('grok'), cwd: '/w', initialPrompt: 'do X' })),
       ).toEqual({
         cmd: exe('grok'),
-        args: ['--', 'do X'],
+        args: [...GROK_POSTURE_ARGS, '--', 'do X'],
         cwd: '/w',
       })
     })
@@ -596,6 +612,7 @@ describe('agentLaunchCommand', () => {
       expect(agentLaunchCommand('grok', { ...ctx('grok'), cwd: '/w', instructions }).args).toEqual([
         '--rules',
         'Follow the pinned workflow.',
+        ...GROK_POSTURE_ARGS,
       ])
     })
 
@@ -650,7 +667,7 @@ describe('agentLaunchCommand', () => {
     it('grok takes --effort', () => {
       expect(
         agentLaunchCommand('grok', { ...ctx('grok'), cwd: '/w', effort: 'xhigh' }).args,
-      ).toEqual(['--effort', 'xhigh'])
+      ).toEqual(['--effort', 'xhigh', ...GROK_POSTURE_ARGS])
     })
 
     it('codex maps effort to a reasoning-effort config override', () => {

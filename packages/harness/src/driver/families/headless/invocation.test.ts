@@ -29,6 +29,10 @@ const CODEX_TURN_POSTURE_ARGS = [
   'sandbox_workspace_write.network_access=true',
   '--approve-for-me',
 ]
+/** What Grok's posture section puts before `--single` on a turn under the
+ *  default posture (POD-6858 §4.8). Moved to posture: a turn carried none. */
+const GROK_TURN_POSTURE_ARGS = ['--permission-mode', 'auto', '--allow', 'Bash(podium *)']
+
 const identity = {
   launchPosture: POSTURE,
   accountId: asAccountId('native:claude-code:test'),
@@ -146,14 +150,30 @@ describe('buildHeadlessExec argv shapes', () => {
       POSTURE,
     )
     expect(cmd).toBe('/opt/grok')
-    expect(args).toEqual(['--session-id', 'uuid-1', '--model', 'grok-4', '--single', 'hello'])
+    // Moved to posture (POD-6858): the mode and the CLI rule, also before
+    // --single.
+    expect(args).toEqual([
+      '--session-id',
+      'uuid-1',
+      '--model',
+      'grok-4',
+      ...GROK_TURN_POSTURE_ARGS,
+      '--single',
+      'hello',
+    ])
     const resumed = buildHeadlessExec(
       'grok',
       { prompt: 'again', resumeValue: 'uuid-1' },
       harnessInstallation(snapshot, 'grok'),
       POSTURE,
     )
-    expect(resumed.args).toEqual(['--resume', 'uuid-1', '--single', 'again'])
+    expect(resumed.args).toEqual([
+      '--resume',
+      'uuid-1',
+      ...GROK_TURN_POSTURE_ARGS,
+      '--single',
+      'again',
+    ])
   })
 
   it('refuses Grok repair turns because hook/config isolation is not proven', () => {
