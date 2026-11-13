@@ -151,7 +151,7 @@ it('acknowledges a fast pull that changes nothing in the shared sync phase', asy
   expect(result.current.subtitle).toBeUndefined()
 })
 
-it('briefly shows the offline text when a pull ends without a live replica', () => {
+it('keeps the offline text after a failed pull until shared sync recovers', () => {
   vi.useFakeTimers()
   const store = new SyncProgressStore()
   store.begin('stale')
@@ -165,8 +165,49 @@ it('briefly shows the offline text when a pull ends without a live replica', () 
   expect(result.current.subtitle).toBe(UPDATING_SUBTITLE)
   act(() => vi.advanceTimersByTime(MIN_REFRESH_CONFIRMATION_MS))
   expect(result.current.subtitle).toBe(OFFLINE_SUBTITLE)
+  act(() => vi.advanceTimersByTime(UPDATED_SUBTITLE_MS + 1))
+  expect(store.getSnapshot().phase).toBe('error')
+  expect(result.current.subtitle).toBe(OFFLINE_SUBTITLE)
+  act(() => store.noteReady())
+  expect(result.current.subtitle).toBe(UPDATED_SUBTITLE)
   act(() => vi.advanceTimersByTime(UPDATED_SUBTITLE_MS))
   expect(result.current.subtitle).toBeUndefined()
+})
+
+it('replaces a failed pull acknowledgement as soon as shared sync recovers', () => {
+  vi.useFakeTimers()
+  const store = new SyncProgressStore()
+  store.begin('live')
+  const { result } = renderPulledTab(store)
+
+  act(() => {
+    void result.current.list.onRefresh()
+    store.noteDisconnected()
+  })
+  act(() => vi.advanceTimersByTime(MIN_REFRESH_CONFIRMATION_MS))
+  expect(result.current.subtitle).toBe(OFFLINE_SUBTITLE)
+  act(() => store.noteReady())
+  expect(result.current.subtitle).toBe(UPDATED_SUBTITLE)
+  act(() => vi.advanceTimersByTime(UPDATED_SUBTITLE_MS))
+  expect(result.current.subtitle).toBeUndefined()
+})
+
+it('shows a shared failure even while a successful pull acknowledgement is visible', () => {
+  vi.useFakeTimers()
+  connection.connected = true
+  const store = new SyncProgressStore()
+  store.begin('live')
+  const { result } = renderPulledTab(store)
+
+  act(() => {
+    void result.current.list.onRefresh()
+  })
+  act(() => vi.advanceTimersByTime(MIN_REFRESH_CONFIRMATION_MS))
+  expect(result.current.subtitle).toBe(UPDATED_SUBTITLE)
+  act(() => store.noteDisconnected())
+  expect(result.current.subtitle).toBe(OFFLINE_SUBTITLE)
+  act(() => vi.advanceTimersByTime(UPDATED_SUBTITLE_MS + 1))
+  expect(result.current.subtitle).toBe(OFFLINE_SUBTITLE)
 })
 
 it('clears the pull status when the pulling list unmounts mid-refresh', () => {

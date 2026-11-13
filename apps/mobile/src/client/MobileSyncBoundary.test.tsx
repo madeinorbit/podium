@@ -119,6 +119,51 @@ describe('MobileSyncBoundary', () => {
     }
   })
 
+  it.each([
+    'offline',
+    'error',
+  ] as const)('keeps a failed online resume visible past the completion timer while %s persists', (phase) => {
+    vi.useFakeTimers()
+    const store = new MobileSyncProgressStore()
+    store.begin('live')
+    const phone = phoneLifecycle(store)
+    const view = render(
+      <MobileSyncBoundary store={store} visibility={phone.visibility}>
+        <Subtitle />
+      </MobileSyncBoundary>,
+    )
+    try {
+      act(() => {
+        phone.show(false)
+        store.noteEvent({ type: 'posture', previous: 'live', posture: 'stale' })
+      })
+      act(() => vi.advanceTimersByTime(60_000))
+      act(() => phone.show(true))
+      expect(phone.isOnline()).toBe(true)
+      expect(store.shared.getSnapshot().phase).toBe('reconnecting')
+      expect(view.getByText('Updating…')).toBeTruthy()
+
+      act(() => {
+        if (phase === 'offline') store.shared.noteDisconnected()
+        else store.shared.noteError('network', 'server unreachable')
+      })
+      expect(view.getByText('Offline · Showing saved data')).toBeTruthy()
+      act(() => vi.advanceTimersByTime(UPDATED_SUBTITLE_MS + 1))
+      expect(store.shared.getSnapshot().phase).toBe(phase)
+      expect(view.getByText('Offline · Showing saved data')).toBeTruthy()
+      expect(view.queryByText('11 need you')).toBeNull()
+
+      act(() => store.shared.noteReconnecting())
+      expect(view.getByText('Updating…')).toBeTruthy()
+      act(() => store.shared.noteReady())
+      expect(view.getByText('Updated just now')).toBeTruthy()
+      act(() => vi.advanceTimersByTime(UPDATED_SUBTITLE_MS))
+      expect(view.getByText('11 need you')).toBeTruthy()
+    } finally {
+      phone.stop()
+    }
+  })
+
   it('uses the launch surface as an intentional cold-start input gate', () => {
     const store = new MobileSyncProgressStore()
     store.begin('cold')

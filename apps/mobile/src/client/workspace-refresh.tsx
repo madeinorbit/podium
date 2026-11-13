@@ -44,7 +44,7 @@ const isSettled = (phase: SyncPhase): boolean =>
  * replica changes nothing in the shared sync lifecycle, yet the person who
  * pulled still expects the header to acknowledge it.
  */
-export type WorkspacePullStatus = 'idle' | 'running' | 'updated' | 'offline'
+export type WorkspacePullStatus = 'idle' | 'running' | 'updated'
 
 interface WorkspacePull {
   readonly status: WorkspacePullStatus
@@ -74,7 +74,7 @@ export function WorkspaceRefreshProvider({
   const [status, setStatus] = useState<WorkspacePullStatus>('idle')
   const begin = useCallback(() => setStatus('running'), [])
   const settle = useCallback(
-    (phase: SyncPhase) => setStatus(phase === 'ready' ? 'updated' : 'offline'),
+    (phase: SyncPhase) => setStatus(phase === 'ready' ? 'updated' : 'idle'),
     [],
   )
   const cancel = useCallback(
@@ -83,7 +83,7 @@ export function WorkspaceRefreshProvider({
   )
 
   useEffect(() => {
-    if (status !== 'updated' && status !== 'offline') return
+    if (status !== 'updated') return
     const timer = setTimeout(() => setStatus('idle'), UPDATED_SUBTITLE_MS)
     return () => clearTimeout(timer)
   }, [status])
@@ -114,16 +114,16 @@ export function useWorkspaceRefreshSubtitle(): string | undefined {
   const pullStatus = useContext(WorkspacePullContext)?.status ?? 'idle'
   const previous = useRef(phase)
   const wasVisible = useRef(visible)
-  const [showResult, setShowResult] = useState(false)
+  const [showUpdated, setShowUpdated] = useState(false)
 
   useEffect(() => {
     const completed =
-      visible && isSettled(phase) && (phase !== previous.current || !wasVisible.current)
+      visible && phase === 'ready' && (phase !== previous.current || !wasVisible.current)
     previous.current = phase
     wasVisible.current = visible
-    setShowResult(completed)
+    setShowUpdated(completed)
     if (completed) {
-      const timer = setTimeout(() => setShowResult(false), UPDATED_SUBTITLE_MS)
+      const timer = setTimeout(() => setShowUpdated(false), UPDATED_SUBTITLE_MS)
       return () => clearTimeout(timer)
     }
   }, [phase, visible])
@@ -135,13 +135,9 @@ export function useWorkspaceRefreshSubtitle(): string | undefined {
 
   // A user pull is acknowledged regardless of whether the shared phase moved.
   if (pullStatus === 'running') return UPDATING_SUBTITLE
-  if (pullStatus === 'updated') return UPDATED_SUBTITLE
-  if (pullStatus === 'offline') return OFFLINE_SUBTITLE
 
-  // Background catch-up the user did not ask for.
-  if (phase === 'offline' || phase === 'error') {
-    return showResult ? OFFLINE_SUBTITLE : undefined
-  }
-  if (phase !== 'ready') return UPDATING_SUBTITLE
-  return showResult ? UPDATED_SUBTITLE : undefined
+  // A failure is current sync state, so it lasts until the shared phase changes.
+  if (phase === 'offline' || phase === 'error') return OFFLINE_SUBTITLE
+  if (pullStatus === 'updated') return UPDATED_SUBTITLE
+  return showUpdated ? UPDATED_SUBTITLE : undefined
 }
