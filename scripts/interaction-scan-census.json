@@ -8615,18 +8615,18 @@
       "file": "apps/web/src/features/settings/readers.ts",
       "holder": "useSettingsSetupSummary/readSetup/useCallback:callback",
       "rule": "helper-consumer",
-      "tokens": "43fbd0e56a990baec5512fdcbee6a15b3132e00e053c965016c0cfaacd0602ad",
+      "tokens": "2c1c5fd0b1048c203a0024b3c434ce96d654bbbf6e8525a0779c43fd5293e7a9",
       "gate": [],
       "origin": [
         "9b2f48b69340eefabbe81f6a2cd6894a6ee05f222883bdfe7c9f326396786763"
       ],
-      "fingerprint": "1990846de0e7b72a4706fb51cd176254048072e85ffd9d22f799b6ace9540c7c",
+      "fingerprint": "7896a16be8701ee154aad85451782d1156ea83f0c480be1df63763c6cafdaf90",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of useSettingsSetupSummary/readSetup/useCallback:callback through the direct screen factory.",
       "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
+      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. POD-2474: opening-owned catalog memoization and separated path/activity dependencies change this fingerprint. Existing collection demand, ownership and REQUIRED REPAIR classification remain. Predecessor: 1990846de0e7b72a4706fb51cd176254048072e85ffd9d22f799b6ace9540c7c.",
       "guard": "scripts/check-interaction-scans.ts"
     },
     {
@@ -10788,6 +10788,7 @@
         "1fc626feccb53ee2b2b821f5e6e8279424c0631fe987ccda5bf4a1814b63214e",
         "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
         "2f21c1a16a33aa1af68ac41438be3dcdaae05214738bf40f0cd9fa54f7571f0c",
+        "34bd4c883db9c1f927d8af84fa34d8b18d640f53da6bbf0faaf65fc0d997149d",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "3d88b8744feb26fcef65cae3c1dc4e12be50ef79b42663df6cda8a7eb046d1f8",
         "522222df4b110bbc58c138b5035fd6d69b2bbdd11547e6c02142faf1cb77e36f",
@@ -10800,7 +10801,6 @@
         "817ecc6bbfcc0faf265ba91310e86a6477735cbdd6c698786fa50f3e3c863de2",
         "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
         "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad",
-        "8cb1b96509099a87aacd3c48bc55db860a9721af1b5019861b49a4f556549624",
         "9dfb06e77c1bd8121fdaeed0ee36f80419d2f4c9c0fcdcc0be6052b2bbe941e1",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
@@ -10815,13 +10815,13 @@
         "ee146fea4afb84b56b3e0b90929f3fa73313f6e9d06d70719b0415c24524c64f",
         "f35fbf75a9191b6b6b2796aba1314c0b716360ad6ffbe40bb2a13c777d8a0061"
       ],
-      "fingerprint": "572d2c4418bd67d9cae4c3b680efcb0bdb2f4aad23c6ff817e7f30cd82ec6bbd",
+      "fingerprint": "25ecc7ed3c13cd4990f1e0af71ad128a4b5c4ffd6d8f94ca1054946df7855dd8",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation or observation of mock:callback/useWorklistPoolProjection/pool",
       "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
-      "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 3567d73357a9192d6f08d7b563f9ccbab2f60168606daccda93a6aaf4bdc14a4. POD-5866 pilot reconciliation preserves the classification while moving opening ownership or adopting the landed model reader; predecessor: 8df29ca50a83bb38241f643f9d6f0263a5826f95c43e332db32155dcd7ff9b1a. POD-5872: The test adapter now publishes session rows into canonical models and borrows the existing draft owner; its fixture catalogue demand is unchanged. Predecessor: 339be345c8e21996547dfd544e83c4fd554a3beee76e3af67ca1f8604f857cf7. POD-2441: shared compose helper extraction and the opt-in pending-attachment intake changed this summary fingerprint; existing collection demand and REQUIRED REPAIR debt are retained. Predecessor: 0181a22919eb8bc09ec6edaa42f1b84b23e622bbc52d9d313b43c3fbedfea644.",
+      "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 3567d73357a9192d6f08d7b563f9ccbab2f60168606daccda93a6aaf4bdc14a4. POD-5866 pilot reconciliation preserves the classification while moving opening ownership or adopting the landed model reader; predecessor: 8df29ca50a83bb38241f643f9d6f0263a5826f95c43e332db32155dcd7ff9b1a. POD-5872: The test adapter now publishes session rows into canonical models and borrows the existing draft owner; its fixture catalogue demand is unchanged. Predecessor: 339be345c8e21996547dfd544e83c4fd554a3beee76e3af67ca1f8604f857cf7. POD-2441: shared compose helper extraction and the opt-in pending-attachment intake changed this summary fingerprint; existing collection demand and REQUIRED REPAIR debt are retained. Predecessor: 0181a22919eb8bc09ec6edaa42f1b84b23e622bbc52d9d313b43c3fbedfea644. POD-2474: opening-owned catalog memoization and separated path/activity dependencies change this fingerprint. Existing collection demand, ownership and REQUIRED REPAIR classification remain. Predecessor: 572d2c4418bd67d9cae4c3b680efcb0bdb2f4aad23c6ff817e7f30cd82ec6bbd.",
       "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
     },
     {
@@ -36638,92 +36638,92 @@
     },
     {
       "file": "packages/client-graph/src/settings-views.ts",
-      "holder": "createSettingsViews/setupCatalog/memo:callback",
+      "holder": "createSettingsViews/setupCatalog",
       "rule": "helper-consumer",
-      "tokens": "e0375200a1ebf464f166a70126d62455c6b846d41b97ddbfaa45cddb55b76f06",
+      "tokens": "f541d81e3e1c1c0c997f9d90396370c4a4ce1cee3ce5cc6e9b95e547c83b6537",
       "gate": [],
       "origin": [
-        "8cb1b96509099a87aacd3c48bc55db860a9721af1b5019861b49a4f556549624"
+        "34bd4c883db9c1f927d8af84fa34d8b18d640f53da6bbf0faaf65fc0d997149d"
       ],
-      "fingerprint": "d86ce8a6701533556cc8921e8c9ee6e3d8e02100b6034f1c24d25b209f098f53",
+      "fingerprint": "9db017edefb01695eabb49f4a1805b2716825e0dd13343533d4bbfa40ce7539f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-2441",
       "trigger": "The compose opening requests recent use for its registered repository and worktree catalog.",
       "bound": "Registered project/worktree catalog for the visible compose opening; no fixed catalog cardinality cap is claimed.",
-      "reason": "The approved recent-first project picker still traverses its registered catalog. Path collection now belongs to the existing shared opening reader, whose memo retains the same setup query answers; this is not an addressed-demand repair.",
+      "reason": "The approved recent-first project picker still traverses its registered catalog. Path collection now belongs to the existing shared opening reader, whose memo retains the same setup query answers; this is not an addressed-demand repair. POD-2474: opening-owned catalog memoization and separated path/activity dependencies change this fingerprint. Existing collection demand, ownership and REQUIRED REPAIR classification remain. Predecessor: d86ce8a6701533556cc8921e8c9ee6e3d8e02100b6034f1c24d25b209f098f53.",
       "guard": "settings-compose-catalog.test.ts proves shared answer parity, cached repeated demand and flat 1x/4x unrelated-history work. ColdStartComposer.order.test.tsx covers frozen ordering. No catalog bound or repair is asserted."
     },
     {
       "file": "packages/client-graph/src/settings-views.ts",
-      "holder": "createSettingsViews/setupCatalog/memo:callback/paths",
+      "holder": "createSettingsViews/setupCatalog/paths/memo:callback",
       "rule": "materialize:Set",
       "tokens": "c139325c3c0daf395ffb693b66b3de059af85b6a6e2855b19d2377a5a7c00a97",
       "gate": [],
       "origin": [
-        "8cb1b96509099a87aacd3c48bc55db860a9721af1b5019861b49a4f556549624"
+        "34bd4c883db9c1f927d8af84fa34d8b18d640f53da6bbf0faaf65fc0d997149d"
       ],
-      "fingerprint": "d3d59b2624098e7587d03e0bc415eb44fea5138bef67ea14f6b0eddce9844656",
+      "fingerprint": "51ce1aaf949c405cc4dbd9d38ca5cb2517ba93e982a3ad690e890da76a35de79",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-2441",
       "trigger": "The compose opening requests recent use for its registered repository and worktree catalog.",
       "bound": "Registered project/worktree catalog for the visible compose opening; no fixed catalog cardinality cap is claimed.",
-      "reason": "The approved recent-first project picker still traverses its registered catalog. Path collection now belongs to the existing shared opening reader, whose memo retains the same setup query answers; this is not an addressed-demand repair.",
+      "reason": "The approved recent-first project picker still traverses its registered catalog. Path collection now belongs to the existing shared opening reader, whose memo retains the same setup query answers; this is not an addressed-demand repair. POD-2474: opening-owned catalog memoization and separated path/activity dependencies change this fingerprint. Existing collection demand, ownership and REQUIRED REPAIR classification remain. Predecessor: d3d59b2624098e7587d03e0bc415eb44fea5138bef67ea14f6b0eddce9844656.",
       "guard": "settings-compose-catalog.test.ts proves shared answer parity, cached repeated demand and flat 1x/4x unrelated-history work. ColdStartComposer.order.test.tsx covers frozen ordering. No catalog bound or repair is asserted."
     },
     {
       "file": "packages/client-graph/src/settings-views.ts",
-      "holder": "createSettingsViews/setupCatalog/memo:callback/paths",
+      "holder": "createSettingsViews/setupCatalog/paths/memo:callback",
       "rule": "spread",
       "tokens": "2414a56ec0fb7a99908afccd32a53c39af6f9c967db1579631c4a53b7f869b2f",
       "gate": [],
       "origin": [
-        "8cb1b96509099a87aacd3c48bc55db860a9721af1b5019861b49a4f556549624"
+        "34bd4c883db9c1f927d8af84fa34d8b18d640f53da6bbf0faaf65fc0d997149d"
       ],
-      "fingerprint": "e7325752bf86a3098b7927fb0b4c86d8318c7b469dd1dc15dfa2753b6b12b802",
+      "fingerprint": "f31016b9a5ebdef00f3b3683d48750cce2931c7e4521155054e522e3980bfa8f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-2441",
       "trigger": "The compose opening requests recent use for its registered repository and worktree catalog.",
       "bound": "Registered project/worktree catalog for the visible compose opening; no fixed catalog cardinality cap is claimed.",
-      "reason": "The approved recent-first project picker still traverses its registered catalog. Path collection now belongs to the existing shared opening reader, whose memo retains the same setup query answers; this is not an addressed-demand repair.",
+      "reason": "The approved recent-first project picker still traverses its registered catalog. Path collection now belongs to the existing shared opening reader, whose memo retains the same setup query answers; this is not an addressed-demand repair. POD-2474: opening-owned catalog memoization and separated path/activity dependencies change this fingerprint. Existing collection demand, ownership and REQUIRED REPAIR classification remain. Predecessor: e7325752bf86a3098b7927fb0b4c86d8318c7b469dd1dc15dfa2753b6b12b802.",
       "guard": "settings-compose-catalog.test.ts proves shared answer parity, cached repeated demand and flat 1x/4x unrelated-history work. ColdStartComposer.order.test.tsx covers frozen ordering. No catalog bound or repair is asserted."
     },
     {
       "file": "packages/client-graph/src/settings-views.ts",
-      "holder": "createSettingsViews/setupCatalog/memo:callback/paths/flatMap:callback",
+      "holder": "createSettingsViews/setupCatalog/paths/memo:callback/flatMap:callback",
       "rule": "consume:map",
       "tokens": "b8069e3666e20f1de7c3946d9e855c781c46ba49fb51ae0abcced50ab4732fbe",
       "gate": [],
       "origin": [
-        "8cb1b96509099a87aacd3c48bc55db860a9721af1b5019861b49a4f556549624"
+        "34bd4c883db9c1f927d8af84fa34d8b18d640f53da6bbf0faaf65fc0d997149d"
       ],
-      "fingerprint": "44dfa2e8e3c2735b5bd1495ed76bba9cfc7cdea96ce7b09dfb435e5dfab3c710",
+      "fingerprint": "a7914e4b0a9e20b74e2da1dc13bee58e90b204004b560f5480c2f08e3007109f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-2441",
       "trigger": "The compose opening requests recent use for its registered repository and worktree catalog.",
       "bound": "Registered project/worktree catalog for the visible compose opening; no fixed catalog cardinality cap is claimed.",
-      "reason": "The approved recent-first project picker still traverses its registered catalog. Path collection now belongs to the existing shared opening reader, whose memo retains the same setup query answers; this is not an addressed-demand repair.",
+      "reason": "The approved recent-first project picker still traverses its registered catalog. Path collection now belongs to the existing shared opening reader, whose memo retains the same setup query answers; this is not an addressed-demand repair. POD-2474: opening-owned catalog memoization and separated path/activity dependencies change this fingerprint. Existing collection demand, ownership and REQUIRED REPAIR classification remain. Predecessor: 44dfa2e8e3c2735b5bd1495ed76bba9cfc7cdea96ce7b09dfb435e5dfab3c710.",
       "guard": "settings-compose-catalog.test.ts proves shared answer parity, cached repeated demand and flat 1x/4x unrelated-history work. ColdStartComposer.order.test.tsx covers frozen ordering. No catalog bound or repair is asserted."
     },
     {
       "file": "packages/client-graph/src/settings-views.ts",
-      "holder": "createSettingsViews/setupCatalog/memo:callback/paths/flatMap:callback",
+      "holder": "createSettingsViews/setupCatalog/paths/memo:callback/flatMap:callback",
       "rule": "spread",
       "tokens": "fe874906964eeb09b257a384067d586316465a21fa855ef6d3ecbfd3297f3e0c",
       "gate": [],
       "origin": [
-        "8cb1b96509099a87aacd3c48bc55db860a9721af1b5019861b49a4f556549624"
+        "34bd4c883db9c1f927d8af84fa34d8b18d640f53da6bbf0faaf65fc0d997149d"
       ],
-      "fingerprint": "ec0115e2beb06cb253c44adf7d3da6d0f29822e1e68c02654018bd28321582a8",
+      "fingerprint": "bcd3e2a48cd9dbb561c38df3dd505c0313b2ad163a2636f9b4a4aea6a2aba775",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-2441",
       "trigger": "The compose opening requests recent use for its registered repository and worktree catalog.",
       "bound": "Registered project/worktree catalog for the visible compose opening; no fixed catalog cardinality cap is claimed.",
-      "reason": "The approved recent-first project picker still traverses its registered catalog. Path collection now belongs to the existing shared opening reader, whose memo retains the same setup query answers; this is not an addressed-demand repair.",
+      "reason": "The approved recent-first project picker still traverses its registered catalog. Path collection now belongs to the existing shared opening reader, whose memo retains the same setup query answers; this is not an addressed-demand repair. POD-2474: opening-owned catalog memoization and separated path/activity dependencies change this fingerprint. Existing collection demand, ownership and REQUIRED REPAIR classification remain. Predecessor: ec0115e2beb06cb253c44adf7d3da6d0f29822e1e68c02654018bd28321582a8.",
       "guard": "settings-compose-catalog.test.ts proves shared answer parity, cached repeated demand and flat 1x/4x unrelated-history work. ColdStartComposer.order.test.tsx covers frozen ordering. No catalog bound or repair is asserted."
     },
     {
@@ -36768,6 +36768,122 @@
       "bound": "Only Markdown table tokens parsed from that one selected message; these are not session, issue or database table rows.",
       "reason": "The table header and body cells must be emitted in reading order so native selection and quoted text contain the rendered words. POD-2450 review correction: inline HTML br tokens now emit a newline. This changes text conversion, not the selected-message table-cell membership.",
       "guard": "packages/client-core/src/values/markdown-plain-text.test.ts covers table cell order, inline formatting, task states and hidden raw HTML; SelectTextSheet.test.tsx covers selection offsets and quote output on the plain rendering."
+    },
+    {
+      "file": "packages/client-graph/src/settings-views.ts",
+      "holder": "createSettingsViews/cache/keyedComputed:callback",
+      "rule": "reader-summary",
+      "tokens": "6d2d07a80cdbaacfd88384053a1b3edb39822d87f19b33f2a6dea440db0bf45b",
+      "gate": [],
+      "origin": [
+        "34bd4c883db9c1f927d8af84fa34d8b18d640f53da6bbf0faaf65fc0d997149d"
+      ],
+      "fingerprint": "ad3510cac97e3d4719aa176616b2e8c73aa66a262e39f47636ebe4705fa97c48",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-2441",
+      "trigger": "The visible compose opening reads its existing registered repository/worktree catalog through the shared opening memo.",
+      "bound": "Registered catalog for the visible opening; no fixed catalog cardinality cap is claimed.",
+      "reason": "POD-2474 exposes the existing catalog return through memo callbacks and the cached path binding. These reader-summary boundaries inherit the same catalog taint; the underlying traversal remains REQUIRED REPAIR. Predecessor collection fingerprint: d86ce8a6701533556cc8921e8c9ee6e3d8e02100b6034f1c24d25b209f098f53.",
+      "guard": "open-launcher-work.test.tsx retains the 12-row ceiling and exact 1x/4x row equality for metadata and session deltas. ColdStartComposer.activity.test.tsx checks desktop output parity and one activity query at both scales. These guards do not claim a bound or repair for full catalog traversal."
+    },
+    {
+      "file": "packages/client-graph/src/settings-views.ts",
+      "holder": "createSettingsViews/memo/callback",
+      "rule": "reader-summary",
+      "tokens": "8c3fbe32500365c237ea6a5507e3c149695293bb7520544c29db768b4092cf1a",
+      "gate": [],
+      "origin": [
+        "34bd4c883db9c1f927d8af84fa34d8b18d640f53da6bbf0faaf65fc0d997149d"
+      ],
+      "fingerprint": "b220d777afee4b4ce6af25a615fde11750503f5aa2aa09008cd97d8be0a17b79",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-2441",
+      "trigger": "The visible compose opening reads its existing registered repository/worktree catalog through the shared opening memo.",
+      "bound": "Registered catalog for the visible opening; no fixed catalog cardinality cap is claimed.",
+      "reason": "POD-2474 exposes the existing catalog return through memo callbacks and the cached path binding. These reader-summary boundaries inherit the same catalog taint; the underlying traversal remains REQUIRED REPAIR. Predecessor collection fingerprint: d86ce8a6701533556cc8921e8c9ee6e3d8e02100b6034f1c24d25b209f098f53.",
+      "guard": "open-launcher-work.test.tsx retains the 12-row ceiling and exact 1x/4x row equality for metadata and session deltas. ColdStartComposer.activity.test.tsx checks desktop output parity and one activity query at both scales. These guards do not claim a bound or repair for full catalog traversal."
+    },
+    {
+      "file": "packages/client-graph/src/settings-views.ts",
+      "holder": "createSettingsViews/setupCatalog/paths",
+      "rule": "reader-summary",
+      "tokens": "62ffc189cfc9166b5bc82a9bb3d1fdd9b2f6b738020674d44494e060227e4996",
+      "gate": [],
+      "origin": [
+        "34bd4c883db9c1f927d8af84fa34d8b18d640f53da6bbf0faaf65fc0d997149d"
+      ],
+      "fingerprint": "8bda69fce2236bc889594c2a3be668ad08b305276580cab250cb077e0e19596c",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-2441",
+      "trigger": "The visible compose opening reads its existing registered repository/worktree catalog through the shared opening memo.",
+      "bound": "Registered catalog for the visible opening; no fixed catalog cardinality cap is claimed.",
+      "reason": "POD-2474 exposes the existing catalog return through memo callbacks and the cached path binding. These reader-summary boundaries inherit the same catalog taint; the underlying traversal remains REQUIRED REPAIR. Predecessor collection fingerprint: d86ce8a6701533556cc8921e8c9ee6e3d8e02100b6034f1c24d25b209f098f53.",
+      "guard": "open-launcher-work.test.tsx retains the 12-row ceiling and exact 1x/4x row equality for metadata and session deltas. ColdStartComposer.activity.test.tsx checks desktop output parity and one activity query at both scales. These guards do not claim a bound or repair for full catalog traversal."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback",
+      "rule": "reader-summary",
+      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
+      "gate": [
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e",
+        "then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d"
+      ],
+      "origin": [
+        "34bd4c883db9c1f927d8af84fa34d8b18d640f53da6bbf0faaf65fc0d997149d"
+      ],
+      "fingerprint": "17f35d58ca182b1c720860aa9bf9468d81090b6e1e9c3a2213da1aba7faae479",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-2441",
+      "trigger": "The visible compose opening reads its existing registered repository/worktree catalog through the shared opening memo.",
+      "bound": "Registered catalog for the visible opening; no fixed catalog cardinality cap is claimed.",
+      "reason": "POD-2474 exposes the existing catalog return through memo callbacks and the cached path binding. These reader-summary boundaries inherit the same catalog taint; the underlying traversal remains REQUIRED REPAIR. Predecessor collection fingerprint: d86ce8a6701533556cc8921e8c9ee6e3d8e02100b6034f1c24d25b209f098f53.",
+      "guard": "open-launcher-work.test.tsx retains the 12-row ceiling and exact 1x/4x row equality for metadata and session deltas. ColdStartComposer.activity.test.tsx checks desktop output parity and one activity query at both scales. These guards do not claim a bound or repair for full catalog traversal."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback/derive/callback",
+      "rule": "reader-summary",
+      "tokens": "17a23fe41db751637eff783db7d8434821df7dd58be2f63141ae093ecfbb74e3",
+      "gate": [
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
+      ],
+      "origin": [
+        "34bd4c883db9c1f927d8af84fa34d8b18d640f53da6bbf0faaf65fc0d997149d"
+      ],
+      "fingerprint": "34062221af954034b5bae7124d7e4f9738c4e802b5db743b0ad5bd32ff81f881",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-2441",
+      "trigger": "The visible compose opening reads its existing registered repository/worktree catalog through the shared opening memo.",
+      "bound": "Registered catalog for the visible opening; no fixed catalog cardinality cap is claimed.",
+      "reason": "POD-2474 exposes the existing catalog return through memo callbacks and the cached path binding. These reader-summary boundaries inherit the same catalog taint; the underlying traversal remains REQUIRED REPAIR. Predecessor collection fingerprint: d86ce8a6701533556cc8921e8c9ee6e3d8e02100b6034f1c24d25b209f098f53.",
+      "guard": "open-launcher-work.test.tsx retains the 12-row ceiling and exact 1x/4x row equality for metadata and session deltas. ColdStartComposer.activity.test.tsx checks desktop output parity and one activity query at both scales. These guards do not claim a bound or repair for full catalog traversal."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback/value/computed:callback",
+      "rule": "reader-summary",
+      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
+      "gate": [
+        "exit:then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d",
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
+      ],
+      "origin": [
+        "34bd4c883db9c1f927d8af84fa34d8b18d640f53da6bbf0faaf65fc0d997149d"
+      ],
+      "fingerprint": "9da59e126fabbc79e00cb513515a92cb2ee569232d8d5e6a7a0ee4da700df384",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-2441",
+      "trigger": "The visible compose opening reads its existing registered repository/worktree catalog through the shared opening memo.",
+      "bound": "Registered catalog for the visible opening; no fixed catalog cardinality cap is claimed.",
+      "reason": "POD-2474 exposes the existing catalog return through memo callbacks and the cached path binding. These reader-summary boundaries inherit the same catalog taint; the underlying traversal remains REQUIRED REPAIR. Predecessor collection fingerprint: d86ce8a6701533556cc8921e8c9ee6e3d8e02100b6034f1c24d25b209f098f53.",
+      "guard": "open-launcher-work.test.tsx retains the 12-row ceiling and exact 1x/4x row equality for metadata and session deltas. ColdStartComposer.activity.test.tsx checks desktop output parity and one activity query at both scales. These guards do not claim a bound or repair for full catalog traversal."
     }
   ]
 }
