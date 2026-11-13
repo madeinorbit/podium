@@ -479,6 +479,35 @@ async function lanesOfUpperOrders(
 // The kinds
 // ---------------------------------------------------------------------------
 
+/**
+ * What the machine and access records read of a machine row
+ * (`record-facts.ts`): every column but its credential, its heartbeat and
+ * presence times, its availability and assignment evidence; of the service
+ * report and the harness versions, everything but their observation times,
+ * which move every few seconds and are on no record.
+ */
+const MACHINE_ROW_READS = {
+  reads: {
+    allBut: [
+      machines.tokenHash,
+      machines.credentialKind,
+      machines.publicKey,
+      machines.createdAt,
+      machines.lastSeenAt,
+      machines.presenceSource,
+      machines.availabilityJson,
+      machines.assignmentEvidenceJson,
+      machines.buildReportedAt,
+      machines.serviceReportJson,
+      machines.harnessVersionsJson,
+    ],
+  },
+  derived: [
+    `CASE WHEN json_valid({row}.${machines.serviceReportJson.name}) THEN json_remove({row}.${machines.serviceReportJson.name}, '$.server.observedAt', '$.agentExecution.observedAt') ELSE {row}.${machines.serviceReportJson.name} END`,
+    `CASE WHEN json_valid({row}.${machines.harnessVersionsJson.name}) THEN (SELECT json_group_array(json_remove(report.value, '$.lastSeen')) FROM json_each({row}.${machines.harnessVersionsJson.name}) AS report) ELSE {row}.${machines.harnessVersionsJson.name} END`,
+  ],
+} as const satisfies Partial<RecordSource>
+
 /** The fleet's update channel and published targets (`machine-record-context.ts`). */
 const MACHINE_CONTEXT_ROWS = `{row}.${meta.key.name} IN ('machines.fleet-channel.v1', 'updates.execution.v1')`
 
@@ -531,7 +560,7 @@ export const RECORD_SOURCES: RecordSources = {
     issueDeletion((issueIds) => issueIds),
   ],
   machine: [
-    byId(machines, machines.id),
+    byId(machines, machines.id, MACHINE_ROW_READS),
     // The custodian is read from the machine's grant edges.
     via(grants, [grants.resourceKind, grants.resourceId], 'all', (changes) =>
       unique(keysOf(changes).flatMap((key) => (key[0] === 'machine' ? [str(key[1])] : []))),
@@ -543,7 +572,13 @@ export const RECORD_SOURCES: RecordSources = {
     ),
   ],
   machineAccess: [
-    via(machines, [machines.id], 'all', (changes, reads) => accessIds(firstKeys(changes), 'all', reads)),
+    via(
+      machines,
+      [machines.id],
+      MACHINE_ROW_READS.reads,
+      (changes, reads) => accessIds(firstKeys(changes), 'all', reads),
+      { derived: MACHINE_ROW_READS.derived },
+    ),
     via(grants, [grants.resourceKind, grants.resourceId], 'all', (changes, reads) =>
       accessIds(
         unique(keysOf(changes).flatMap((key) => (key[0] === 'machine' ? [str(key[1])] : []))),
@@ -552,7 +587,10 @@ export const RECORD_SOURCES: RecordSources = {
       ),
       { rows: `{row}.${grants.resourceKind.name} = 'machine'` },
     ),
-    via(users, [users.id], 'all', (changes, reads) => accessIds('all', firstKeys(changes), reads)),
+    // A member is in the fleet's access while enabled with a role (`recordMembers`).
+    via(users, [users.id], [users.role, users.disabledAt], (changes, reads) =>
+      accessIds('all', firstKeys(changes), reads),
+    ),
     machineContext((_changes, reads) => accessIds('all', 'all', reads)),
   ],
   // A repo is a fold of its registrations: a change to one reaches the

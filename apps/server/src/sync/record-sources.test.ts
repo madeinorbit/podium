@@ -363,11 +363,13 @@ async function missedChanges(
   sources: RecordSources,
   tables: readonly string[] = MODEL_TABLES,
   rowsPerTable = 3,
-): Promise<{ missed: string[]; tried: number }> {
+): Promise<{ missed: string[]; tried: number; unread: string[] }> {
   const { store, reads } = corpus
   const db = (store as unknown as { queries: { rootDb: StoreDrizzle } }).queries.rootDb
   const baseline = await store.transact(async () => await snapshot(reads))
   const missed: string[] = []
+  /** Kinds a column's change was captured for without changing any of their records. */
+  const unread = new Set<string>()
   let tried = 0
   for (const table of tables) {
     let rows: Record<string, unknown>[]
@@ -423,6 +425,15 @@ async function missedChanges(
                 if (baseline.get(key) === after.get(key) || named.has(key)) continue
                 missed.push(`${edit.label} -> ${key.replace('\u0000', '/')}`)
               }
+              if (!edit.label.endsWith(' delete')) {
+                for (const [kind, ids] of touched) {
+                  const changed = ids.some((id) => {
+                    const key = recordKey(kind, id)
+                    return baseline.get(key) !== after?.get(key)
+                  })
+                  if (!changed) unread.add(`${edit.label} -> ${kind}`)
+                }
+              }
             }
             throw new Rollback('done')
           })
@@ -432,7 +443,7 @@ async function missedChanges(
       }
     }
   }
-  return { missed, tried }
+  return { missed, tried, unread: [...unread].sort() }
 }
 
 async function withSources<T>(
@@ -512,7 +523,11 @@ describe('record sources (POD-6920)', () => {
   })
 
   it('every change to a row a record reads is captured for that record', async () => {
-    const { missed, tried } = await missedChanges(corpus, RECORD_SOURCES)
+    const { missed, tried, unread } = await missedChanges(corpus, RECORD_SOURCES)
+    // Over-declaration costs redundant log rows, not lost changes: reported,
+    // not failed. A row the corpus holds may simply not move the record's
+    // value for this perturbation.
+    console.log('record-sources: captured without a record change', JSON.stringify(unread, null, 1))
     expect(tried).toBeGreaterThan(100)
     expect(missed).toEqual([])
   }, 300_000)
