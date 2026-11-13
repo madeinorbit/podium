@@ -797,7 +797,7 @@ export class UsersRepository {
     at: string,
     actor?: UserId,
   ): Promise<void> {
-    await this.machinesRepository.machineRecordWrites.compare({ member: userId }, async () => {
+    await this.machinesRepository.machineRecordWrites.compare(async () => {
       await this.claimTransaction(async () => {
         if (actor) await this.requireActiveAdmin(actor)
         const existing = await accountById(this.db).get({ id: userId })
@@ -868,7 +868,6 @@ export class UsersRepository {
     passwordHash: string,
   ): Promise<void> {
     await this.machinesRepository.machineRecordWrites.compare(
-      { member: asUserId(account.id) },
       async () => {
         // The write invalidates the account loaders, so the read after a mint sees
         // the account rather than a memoised "no account"; a rollback takes what
@@ -924,7 +923,6 @@ export class UsersRepository {
 
   async createUnclaimed(account: UserAccountRow): Promise<void> {
     await this.machinesRepository.machineRecordWrites.compare(
-      { member: asUserId(account.id) },
       async () => {
         await this.createOrJoinTransaction(async () => {
           await insertUser(this.db).run({
@@ -960,10 +958,6 @@ export class UsersRepository {
 
   async removeMember(userId: UserId, actor: UserId): Promise<void> {
     await this.machinesRepository.machineRecordWrites.compare(
-      {
-        member: userId,
-        machines: async () => await this.grantsRepository.machineIdsForGrantee(userId),
-      },
       async () => {
         await this.claimTransaction(async () => {
           await this.requireActiveAdmin(actor)
@@ -1012,7 +1006,7 @@ export class UsersRepository {
    * The last enabled admin cannot be demoted, so the instance always keeps one.
    */
   async setRole(userId: UserId, role: UserRole, actor?: UserId): Promise<void> {
-    await this.machinesRepository.machineRecordWrites.compare({ member: userId }, async () => {
+    await this.machinesRepository.machineRecordWrites.compare(async () => {
       await this.claimTransaction(async () => {
         if (actor) await this.requireActiveAdmin(actor)
         const existing = await accountById(this.db).get({ id: userId })

@@ -90,7 +90,7 @@ export async function machineTransition(
     )()
   const save = () =>
     host.deps.compareMachineRecords
-      ? host.deps.compareMachineRecords({ machines: ids }, write)
+      ? host.deps.compareMachineRecords(write)
       : write()
   if (spanOpen()) {
     await save()

@@ -80,7 +80,6 @@ export class IssueHierarchyModule {
       writer,
       row,
       async () => await this.store.deps.store.issues.addIssueDep(fromId, toId, type),
-      { extraAffects: this.store.depRecords([{ fromId, toId, type }]) },
     )
 
     return wire
@@ -97,14 +96,10 @@ export class IssueHierarchyModule {
     const fromId = await this.store.resolveRef(fromRef)
     const toId = await this.store.resolveRef(toRef)
     const row = await this.store.draftOrThrow(fromId)
-    const removed = (await this.store.deps.store.issues.listIssueDeps(fromId))
-      .filter((d) => d.toId === toId && (type === undefined || d.type === type))
-      .map((d) => ({ fromId, toId, type: d.type }))
     const wire = await this.store.persistWith(
       writer,
       row,
       async () => await this.store.deps.store.issues.removeIssueDep(fromId, toId, type),
-      { extraAffects: this.store.depRecords(removed) },
     )
 
     return wire

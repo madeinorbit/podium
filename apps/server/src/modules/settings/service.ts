@@ -591,12 +591,6 @@ export class SettingsService {
       (personal || tiers.has('instance-preference')) && writer !== undefined
         ? (
             await writer.commit({
-              // The person's preferences record, when the patch has a personal
-              // leaf: built before and after the write (compare at save,
-              // POD-6769).
-              affects: personal
-                ? [{ entity: 'userPreferences', id: userPreferencesRowId(actor) }]
-                : [],
               write: async () => await this.store.applyPreferencePatch(actor, patch, at),
             })
           ).result

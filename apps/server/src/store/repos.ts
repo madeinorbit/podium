@@ -177,8 +177,9 @@ interface RegistryRow {
 }
 
 export class ReposRepository {
-  /** Registry roots change the repo identity a session's permanent draft ref carries. */
-  sessionRecordWrite?: <T>(path: string, write: () => Promise<T>) => Promise<T>
+  /** Registry roots change the repo identity a session's permanent draft ref
+   *  carries: a registry write runs as a change-log commit (POD-6920). */
+  sessionRecordWrite?: <T>(write: () => Promise<T>) => Promise<T>
   /**
    * The registry read, held for the duration of a pass (POD-1638).
    *
@@ -574,7 +575,7 @@ export class ReposRepository {
     prefix?: string,
   ): Promise<void> {
     return this.sessionRecordWrite
-      ? await this.sessionRecordWrite(path, () =>
+      ? await this.sessionRecordWrite(() =>
           this.addRepoRows(path, machineId, originUrl, prefix),
         )
       : await this.addRepoRows(path, machineId, originUrl, prefix)
@@ -666,7 +667,7 @@ export class ReposRepository {
    */
   async updateRepoOrigin(machineId: MachineId, path: string, originUrl: string): Promise<void> {
     return this.sessionRecordWrite
-      ? await this.sessionRecordWrite(path, () =>
+      ? await this.sessionRecordWrite(() =>
           this.updateRepoOriginRows(machineId, path, originUrl),
         )
       : await this.updateRepoOriginRows(machineId, path, originUrl)
@@ -994,7 +995,7 @@ export class ReposRepository {
 
   async removeRepo(path: string, machineId: MachineId): Promise<void> {
     return this.sessionRecordWrite
-      ? await this.sessionRecordWrite(path, () => this.removeRepoRows(path, machineId))
+      ? await this.sessionRecordWrite(() => this.removeRepoRows(path, machineId))
       : await this.removeRepoRows(path, machineId)
   }
 

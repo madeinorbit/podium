@@ -1,24 +1,18 @@
-import type { UserId } from '@podium/model'
 import type { LedgerWriter } from '@podium/sync'
 
-type MachineIds = readonly string[] | (() => Promise<readonly string[]>)
-
-export interface MachineRecordWriteScope {
-  /** The display and every enabled member's access for these machines. */
-  readonly machines?: MachineIds
-  /** Only the display, for changes to the fleet default or update targets. */
-  readonly display?: MachineIds
-  /** This member's access across the fleet, including a member about to join or leave. */
-  readonly member?: UserId
-}
-
+/**
+ * Run a machine, grant or member write as one change-log commit (POD-6920):
+ * the database captures the rows it changed, and the commit appends the
+ * machine and access records they reach. A write inside another such write
+ * joins it, so a compound transition (custody, enrollment) publishes its
+ * final records once.
+ */
 export type CompareMachineRecords = <T>(
-  scope: MachineRecordWriteScope,
   write: () => Promise<T>,
   writer?: Pick<LedgerWriter, 'commit'>,
 ) => Promise<T>
 
 /** The composition root connects source repositories to the Ledger here. */
 export class MachineRecordWrites {
-  compare: CompareMachineRecords = async (_scope, write) => await write()
+  compare: CompareMachineRecords = async (write) => await write()
 }

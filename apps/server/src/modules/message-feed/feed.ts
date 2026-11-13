@@ -56,23 +56,25 @@
  * must be able to see and dismiss, and an ended session is exactly where one
  * is likely. Each leaves when it settles or is dismissed, as anywhere else.
  *
- * Session row writes pass {@link MessageFeedPublisher.writeSessions}. Before
- * the write, it names the confirmed tail, and the Authority compares those
- * records around the write. A liveness change and its window changes commit
- * together. An unchanged conversation appends nothing. A device still showing
- * a removed bubble settles it by id (`mail.records`) when it next reconnects.
+ * Session row writes pass {@link MessageFeedPublisher.writeSessions}, one
+ * commit: the capture fires only when the session's liveness changed, and
+ * then names its confirmed tail (POD-6920). A liveness change and its window
+ * changes commit together; an unchanged conversation appends nothing. A
+ * device still showing a removed bubble settles it by id (`mail.records`)
+ * when it next reconnects.
  *
  * ---------------------------------------------------------------------------
  * IT RUNS INSIDE THE WRITE
  * ---------------------------------------------------------------------------
  * `capture` is installed on the messages repository and runs inside the
- * transaction of every write to the table, with the rows the write returned.
- * The feed and the table commit or roll back together, so a status the table
- * never held never reaches a device, and no move escapes the feed — whichever
- * module made it. The window is read inside that transaction, so it is the
- * window the write leaves: each row the write touched is carried when it is
- * open or in its session's window and removed otherwise, and what the write's
- * confirmations pushed past the window is removed.
+ * transaction of every write to the table that changed rows. The feed and the
+ * table commit or roll back together, so a status the table never held never
+ * reaches a device, and no move escapes the feed — whichever module made it.
+ * The database captures the rows the write changed, and the capture's mapping
+ * (`sync/record-sources.ts`) reads the window the write leaves: each row the
+ * write touched is carried when it is open or in its session's window and
+ * removed otherwise, and what the write's confirmations pushed past the window
+ * is removed (POD-6920).
  *
  * ---------------------------------------------------------------------------
  * BOOT
@@ -100,9 +102,6 @@ export const CONFIRMED_PER_SESSION = 20
 
 export interface MessageFeedDeps {
   readonly ledger: Pick<LedgerWriter, 'commit'>
-  readonly messages: Pick<MessagesRepository, 'confirmedChatTail'>
-  /** Defaults to {@link CONFIRMED_PER_SESSION}. */
-  readonly confirmedPerSession?: number
 }
 
 /** The feed record for a row, or null when the row is not a person's chat message. */
@@ -195,99 +194,24 @@ export async function messageWindow(
   return messageRecords([...open, ...confirmed])
 }
 
-/** Group a tail read (newest first within a session) by session. */
-function tailsBySession(rows: readonly MessageRow[]): Map<string, MessageRow[]> {
-  const out = new Map<string, MessageRow[]>()
-  for (const row of rows) {
-    if (row.toId === null) continue
-    const tail = out.get(row.toId) ?? []
-    tail.push(row)
-    out.set(row.toId, tail)
-  }
-  return out
-}
 
 export class MessageFeedPublisher {
-  private readonly perSession: number
-
-  constructor(private readonly deps: MessageFeedDeps) {
-    this.perSession = deps.confirmedPerSession ?? CONFIRMED_PER_SESSION
-  }
-
-  /** The repository's capture port. Runs inside the write's transaction. */
-  readonly capture: MessageFeedCapture = async (rows, confirms) => {
-    await this.publish(rows, confirms)
-  }
-
-  /** Session writes know their ids first. Compare their existing confirmed
-   *  tails around the row write, including tails a revival will admit. */
-  readonly writeSessions: SessionMessageWindowWrite = async (ids, write) => {
-    await this.deps.ledger.commit({
-      affects: async () =>
-        [
-          ...messageRecords(
-            await this.deps.messages.confirmedChatTail(this.perSession, ids, 'any'),
-          ),
-        ].map(([id]) => ({ entity: 'message' as const, id })),
-      write,
-    })
-  }
+  constructor(private readonly deps: MessageFeedDeps) {}
 
   /**
-   * The changes one write makes to the feed, decided from the tables as the
-   * write left them. Every row it wrote is carried if it is open or in its
-   * session's window, and removed otherwise; and each session it confirmed
-   * into pushes out the oldest previously confirmed records. Stamps preserve
-   * the window. The Authority builds every named value from the tables inside
-   * the source write's transaction.
+   * The repository's capture port. Runs inside the write's transaction once
+   * it changed rows: this commit drains the database's change capture, and
+   * the capture's mapping names every written record and the records the
+   * write's confirmations moved into or out of their session's window
+   * (POD-6920).
    */
-  private async publish(rows: readonly MessageRow[], confirms: boolean): Promise<void> {
-    const written = new Map<string, { row: MessageRow; record: MessageRecordWire }>()
-    for (const row of rows) {
-      const record = messageRecordOf(row)
-      if (record !== null) written.set(rowIdOf(record), { row, record })
-    }
-    if (written.size === 0) return
-    /** Per session, the confirmed rows this write returned. */
-    const confirmedIn = new Map<string, number>()
-    for (const { row, record } of written.values()) {
-      if (row.deliveryStatus !== 'confirmed') continue
-      confirmedIn.set(record.sessionId, (confirmedIn.get(record.sessionId) ?? 0) + 1)
-    }
-    const inWindow = new Set<string>()
-    const pushedOut: MessageRecordWire[] = []
-    if (confirmedIn.size > 0) {
-      // A row can only have been pushed out by a row this write confirmed
-      // above it, so what left ranks at most that many places past the window.
-      const reach = this.perSession + (confirms ? Math.max(...confirmedIn.values()) : 0)
-      const tails = tailsBySession(
-        await this.deps.messages.confirmedChatTail(reach, [...confirmedIn.keys()], 'live'),
-      )
-      const confirmedIds = new Set(rows.map((row) => row.id))
-      for (const tail of tails.values()) {
-        const current = messageRecords(tail.slice(0, this.perSession))
-        for (const id of current.keys()) inWindow.add(id)
-        if (!confirms) continue
-        // New confirmations were absent from the previous tail. A late
-        // confirmation below the window displaces no carried record.
-        const previous = messageRecords(
-          tail.filter((row) => !confirmedIds.has(row.id)).slice(0, this.perSession),
-        )
-        for (const [id, record] of previous) {
-          if (!current.has(id)) pushedOut.push(record)
-        }
-      }
-    }
-    const named = [...written]
-      .filter(([id, { row }]) => row.deliveryStatus !== 'confirmed' || confirms || inWindow.has(id))
-      .map(([id]) => ({ entity: 'message' as const, id, removed: true }))
-    for (const record of pushedOut) {
-      const id = rowIdOf(record)
-      if (!written.has(id)) named.push({ entity: 'message', id, removed: true })
-    }
-    await this.deps.ledger.commit({
-      write: async () => {},
-      wrote: () => named,
-    })
+  readonly capture: MessageFeedCapture = async () => {
+    await this.deps.ledger.commit({ write: async () => {} })
+  }
+
+  /** Session writes run as one commit: a liveness change moves the session's
+   *  confirmed window, and the capture names its records (POD-6920). */
+  readonly writeSessions: SessionMessageWindowWrite = async (write) => {
+    await this.deps.ledger.commit({ write })
   }
 }

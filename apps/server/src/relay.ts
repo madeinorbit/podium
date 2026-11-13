@@ -898,8 +898,8 @@ export class SessionRegistry {
     // further down, after everything it announces changes to.
     let operations: OperationsModule | undefined
     const machines = new MachinesService({
-      compareMachineRecords: async (scope, write, writer) =>
-        await this.store.grants.machineRecordWrites.compare(scope, write, writer),
+      compareMachineRecords: async (write, writer) =>
+        await this.store.grants.machineRecordWrites.compare(write, writer),
       conditionChanged: (machineId) => machineConditionChanged?.(machineId),
       instanceId,
       ...(options.updatePubkey ? { updatePubkey: options.updatePubkey } : {}),
@@ -1234,8 +1234,8 @@ export class SessionRegistry {
       writes.system('machines.records'),
       this.machineRecordsDeps().reach!,
     )
-    this.store.grants.machineRecordWrites.compare = async (scope, write, writer) =>
-      await asSystemWrite(async () => await compareMachineRecords(scope, write, writer))
+    this.store.grants.machineRecordWrites.compare = async (write, writer) =>
+      await asSystemWrite(async () => await compareMachineRecords(write, writer))
     installSessionSourceWrites(this.store, writes.system('sessions.live'))
     // ONE HOOK ON THE ONE APPEND (POD-1772): every orchestrator event write in
     // the server goes through `store.events.appendEvent`, and every retention
@@ -1251,10 +1251,7 @@ export class SessionRegistry {
     // table hands its rows to the chat message feed inside its own
     // transaction, so a person's messages and their delivery status reach every
     // device from the write path, whichever module moved them.
-    const messageFeed = new MessageFeedPublisher({
-      ledger: writes.system('feed.messages'),
-      messages: this.store.messages,
-    })
+    const messageFeed = new MessageFeedPublisher({ ledger: writes.system('feed.messages') })
     this.store.messages.setFeedCapture(messageFeed.capture)
     this.store.sessions.setMessageWindowWrite(messageFeed.writeSessions)
     // ONE HOOK ON THE THREAD WRITE FUNNEL (POD-6675): every write to

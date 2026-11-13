@@ -170,13 +170,9 @@ export class MemoryService {
       for (const conversation of children) podiumIds.set(conversation.id, ids.get(conversation.id)!)
     }
 
+    // The capture names the scanned conversations the write changed and the
+    // ones the scan no longer lists (POD-6920).
     await this.deps.ledger.commit({
-      // The scanned conversations and the ones the scan no longer lists:
-      // each record is built around the write (compare at save, POD-6770).
-      affects: [...conversations.map(({ id }) => id), ...removed].map((id) => ({
-        entity: 'conversation' as const,
-        id,
-      })),
       write: async (scope) => {
         await this.deps.store.conversations.index.upsert(
           scope,

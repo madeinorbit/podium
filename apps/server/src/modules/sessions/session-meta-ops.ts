@@ -615,8 +615,6 @@ export class SessionMetaOps {
         await this.ports.store.sessions.restoreDeletedForIssue(scope, issueId)
         for (const install of installs) await install.write(scope)
       },
-      affects: async () =>
-        await this.ports.store.sessions.recordIds(restored.map(({ session }) => session.sessionId)),
       apply: (changes, ledgerCursor) => {
         installDrafts()
         for (const install of installs) install.apply()

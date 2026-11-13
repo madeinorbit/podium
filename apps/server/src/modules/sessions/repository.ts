@@ -21,7 +21,7 @@ import { firstAdminMemberId } from '@podium/model'
 import type { DaemonPtyInputBatch, MetadataChange } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import type { WriteScope } from '@podium/sync'
-import { type AffectedRecordSpec, type BaselineFoldPort, StagedOverlay } from '@podium/sync'
+import { type BaselineFoldPort, StagedOverlay } from '@podium/sync'
 import type { AutoContinueController } from '../../auto-continue'
 import { isFeatureEnabled } from '../../features'
 import type { SessionRow, SessionStore } from '../../store'
@@ -499,7 +499,6 @@ export class SessionRepository {
             this.ports.writers.live,
             candidates.map((session) => ({ session, draft: this.draft(session) })),
             async () => {},
-            async () => [],
             false,
           ),
       )
@@ -667,14 +666,13 @@ export class SessionRepository {
    * frequent counter-only flushes, whose lastOutputAt/lastInputAt live in the
    * row but not in SessionMeta. The exact lastActiveAt stays on the live Session
    * and row; the upsert throttles its stored publication value to once a minute.
-   * A trailing activity tick publishes the final value, and compare-at-save
-   * appends a log row only when the built record differs.
+   * A trailing activity tick publishes the final value, and the capture fires
+   * only when a column the record reads changed (POD-6920).
    */
   async persist(
     writer: SessionWriter,
     session: Session,
     additionalWrite: SessionAdditionalWrite = async () => {},
-    additionalAffects: () => Promise<readonly AffectedRecordSpec[]> = async () => [],
   ): Promise<void> {
     // NOTHING DURABLE CHANGED, so the draft is the live state [POD-3330]. This
     // is the write the activity flush, the volatile sweep and the boot install
@@ -694,7 +692,6 @@ export class SessionRepository {
         session,
         session.captureDurableState(),
         additionalWrite,
-        additionalAffects,
       )
     })
   }
@@ -762,13 +759,11 @@ export class SessionRepository {
     session: Session,
     draft: SessionDurableState,
     additionalWrite: SessionAdditionalWrite = async () => {},
-    additionalAffects: () => Promise<readonly AffectedRecordSpec[]> = async () => [],
   ): Promise<void> {
     await this.persistDraftsUnlocked(
       writer,
       [{ session, draft }],
       additionalWrite,
-      additionalAffects,
     )
   }
 
@@ -785,7 +780,6 @@ export class SessionRepository {
     writer: SessionWriter,
     entries: readonly { session: Session; draft: SessionDurableState }[],
     additionalWrite: SessionAdditionalWrite = async () => {},
-    additionalAffects: () => Promise<readonly AffectedRecordSpec[]> = async () => [],
     restoreOnFailure = true,
   ): Promise<MetadataChange[]> {
     if (entries.length === 0) return []
@@ -807,10 +801,6 @@ export class SessionRepository {
     let changes: MetadataChange[]
     try {
       const committed = await writer.commit({
-        affects: async () => [
-          ...entries.map(({ session }) => ({ entity: 'session' as const, id: session.sessionId })),
-          ...(await additionalAffects()),
-        ],
         write: async (scope) => {
           await additionalWrite(scope)
           // AFTER additionalWrite: D-txn sites assign into `draft` inside the

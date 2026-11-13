@@ -521,22 +521,15 @@ function mapChangeLogReadRow(r: {
 }
 
 export class SyncRepository {
-  /** Queue membership changes the dependent session record, in the source commit. */
-  sessionRecordWrite?: <T>(
-    ids: () => Promise<readonly SessionId[]>,
-    write: () => Promise<T>,
-  ) => Promise<T>
+  /**
+   * Queue membership changes the dependent session record: a queue write runs
+   * as a change-log commit, which drains the database's change capture in the
+   * source transaction (POD-6920). Installed by composition.
+   */
+  sessionRecordWrite?: <T>(write: () => Promise<T>) => Promise<T>
 
-  private async writeQueue<T>(
-    ids: () => Promise<readonly SessionId[]>,
-    write: () => Promise<T>,
-  ): Promise<T> {
-    return this.sessionRecordWrite ? await this.sessionRecordWrite(ids, write) : await write()
-  }
-
-  private async queuedSessionIds(id: string): Promise<SessionId[]> {
-    const row = await this.serverTables.queuedSessionOf(this.db).get({ id })
-    return row ? [row.sessionId] : []
+  private async writeQueue<T>(write: () => Promise<T>): Promise<T> {
+    return this.sessionRecordWrite ? await this.sessionRecordWrite(write) : await write()
   }
 
   /**
@@ -815,7 +808,6 @@ export class SyncRepository {
     // agrees with the shipped DDL, which is what `schema.test.ts` pins. Printed
     // to confirm, rather than reasoned from the builder.
     return await this.writeQueue(
-      async () => [row.sessionId],
       async () => {
         const r = await this.serverTables.insertQueued(this.db).run({
           id: row.id,
@@ -911,7 +903,6 @@ export class SyncRepository {
 
   async deleteQueuedMessage(id: string): Promise<void> {
     await this.writeQueue(
-      () => this.queuedSessionIds(id),
       async () => {
         await this.serverTables.deleteQueued(this.db).run({ id })
       },
@@ -923,7 +914,6 @@ export class SyncRepository {
    *  exactly one of them wins. Answers whether THIS call deleted it. */
   async deleteUnreservedQueuedMessage(id: string): Promise<boolean> {
     return await this.writeQueue(
-      () => this.queuedSessionIds(id),
       async () => {
         const r = await this.serverTables.deleteUnreservedQueued(this.db).run({ id })
         return Number(r.changes) > 0
@@ -969,7 +959,6 @@ export class SyncRepository {
   /** Drop a dead session's queue (kill without resume ref, permanent delete). */
   async deleteQueuedMessagesForSession(sessionId: SessionId): Promise<void> {
     await this.writeQueue(
-      async () => [sessionId],
       async () => {
         await this.serverTables.deleteQueuedOfSession(this.db).run({ sessionId })
       },

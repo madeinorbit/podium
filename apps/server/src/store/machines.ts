@@ -601,7 +601,7 @@ export class MachinesRepository {
     assignment?: MachineServiceAssignment
     assignmentEvidence?: z.infer<typeof AssignmentEvidence>
   }): Promise<void> {
-    await this.machineRecordWrites.compare({ machines: [m.id] }, async () => {
+    await this.machineRecordWrites.compare(async () => {
       await this.createOrJoinTransaction(async () => {
         const now = new Date().toISOString()
         const result = await this.committed.write(
@@ -695,7 +695,7 @@ export class MachinesRepository {
       probedAt: string
     },
   ): Promise<void> {
-    await this.machineRecordWrites.compare({ machines: [id] }, async () => {
+    await this.machineRecordWrites.compare(async () => {
       const path = `$."${report.harness}"`
       await this.committed.write(
         async () =>
@@ -716,7 +716,7 @@ export class MachinesRepository {
 
   /** Persist a daemon-reported inventory (#222) as the raw JSON blob. */
   async setMachineInventory(id: string, inventoryJson: string): Promise<void> {
-    await this.machineRecordWrites.compare({ machines: [id] }, async () => {
+    await this.machineRecordWrites.compare(async () => {
       await this.committed.write(
         async () => await setInventoryOf(this.db).all({ id: id as MachineId, inventoryJson }),
         'upsert',
@@ -732,7 +732,7 @@ export class MachinesRepository {
     at: string,
     source?: MachinePresenceSource,
   ): Promise<void> {
-    await this.machineRecordWrites.compare({ machines: [id] }, async () => {
+    await this.machineRecordWrites.compare(async () => {
       await this.committed.write(
         async () =>
           await setBuildOf(this.db).all({
@@ -757,7 +757,7 @@ export class MachinesRepository {
     services: MachineServiceReport,
     at: string,
   ): Promise<void> {
-    await this.machineRecordWrites.compare({ machines: [id] }, async () => {
+    await this.machineRecordWrites.compare(async () => {
       await this.committed.write(
         async () =>
           await setSupervisorPresenceOf(this.db).all({
@@ -783,7 +783,7 @@ export class MachinesRepository {
       requestId: id,
     },
   ): Promise<void> {
-    await this.machineRecordWrites.compare({ machines: [id] }, async () => {
+    await this.machineRecordWrites.compare(async () => {
       MachineServiceAssignment.parse(assignment)
       AssignmentEvidence.parse(evidence)
       await this.committed.write(
@@ -895,7 +895,7 @@ export class MachinesRepository {
    */
   async adoptLegacyHostCredential(id: MachineId, publicKey: string,
     assignment: MachineServiceAssignment, evidence: z.infer<typeof AssignmentEvidence>): Promise<boolean> {
-    return await this.machineRecordWrites.compare({ machines: [id] }, async () => {
+    return await this.machineRecordWrites.compare(async () => {
       MachineServiceAssignment.parse(assignment)
       AssignmentEvidence.parse(evidence)
       const row = await machineRowById(this.db).get({ id })
@@ -921,7 +921,6 @@ export class MachinesRepository {
     writer?: Pick<LedgerWriter, 'commit'>,
   ): Promise<void> {
     await this.machineRecordWrites.compare(
-      { machines: [id] },
       async () => {
         await this.committed.write(
           async () => await setUpdateChannelOf(this.db).all({ id: id as MachineId, channel }),
@@ -938,7 +937,6 @@ export class MachinesRepository {
     writer?: Pick<LedgerWriter, 'commit'>,
   ): Promise<void> {
     await this.machineRecordWrites.compare(
-      { machines: [id] },
       async () => {
         await this.committed.write(
           async () => await renameMachineOf(this.db).all({ id: id as MachineId, name }),
@@ -963,7 +961,7 @@ export class MachinesRepository {
   /** Change personal custody and its rights in the same transaction. Existing
    * shares remain records; without a custody edge they confer no machine access. */
   async setMachineOwner(id: string, grantee: UserId | null): Promise<void> {
-    await this.machineRecordWrites.compare({ machines: [id] }, async () => {
+    await this.machineRecordWrites.compare(async () => {
       await this.createOrJoinTransaction(async () => {
         const machine = await this.getMachine(id)
         if (!machine || machine.revokedAt) return
@@ -1023,7 +1021,7 @@ export class MachinesRepository {
     replaceRevokedAt?: string,
     replaceIncarnation?: string,
   ): Promise<boolean> {
-    return this.machineRecordWrites.compare({ machines: [m.id] }, async () => {
+    return this.machineRecordWrites.compare(async () => {
       const now = new Date().toISOString()
       return this.createOrJoinTransaction(async () => {
         const { assignment, assignmentEvidence, ownerUserId, ...identity } = m
@@ -1068,7 +1066,7 @@ export class MachinesRepository {
 
   /** Supersession is terminal, including for previously issued replacement codes. */
   async supersedeMachine(id: MachineId, replacementId: MachineId): Promise<void> {
-    await this.machineRecordWrites.compare({ machines: [id] }, async () => {
+    await this.machineRecordWrites.compare(async () => {
       await this.committed.write(
         async () =>
           await supersedeMachineOf(this.db).all({
@@ -1083,7 +1081,7 @@ export class MachinesRepository {
 
   /** Retain identity and attribution while permanently refusing this credential. */
   async revokeMachine(id: MachineId): Promise<void> {
-    await this.machineRecordWrites.compare({ machines: [id] }, async () => {
+    await this.machineRecordWrites.compare(async () => {
       await this.committed.write(
         async () => await revokeMachineOf(this.db).all({ id, now: new Date().toISOString() }),
         'upsert',
@@ -1092,7 +1090,7 @@ export class MachinesRepository {
   }
 
   async deleteMachine(id: string): Promise<void> {
-    await this.machineRecordWrites.compare({ machines: [id] }, async () => {
+    await this.machineRecordWrites.compare(async () => {
       await this.committed.write(
         async () => await deleteMachineOf(this.db).all({ id: id as MachineId }),
         'delete',
@@ -1101,7 +1099,7 @@ export class MachinesRepository {
   }
 
   async touchMachine(id: string, hostname: string): Promise<void> {
-    await this.machineRecordWrites.compare({ machines: [id] }, async () => {
+    await this.machineRecordWrites.compare(async () => {
       await this.committed.write(
         async () =>
           await touchMachineOf(this.db).all({

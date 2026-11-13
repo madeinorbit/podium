@@ -1291,11 +1291,10 @@ export class IssuesRepository {
   readonly panel: IssuePanelRepository
   readonly gitStates: IssueGitStatesRepository
   readonly committed: CommittedRows<typeof issues.$inferSelect>
-  private sessionRefWrite:
-    | (<T>(ids: readonly IssueId[], write: () => Promise<T>) => Promise<T>)
-    | undefined
+  private sessionRefWrite: (<T>(write: () => Promise<T>) => Promise<T>) | undefined
 
-  /** Compare dependent session refs around the source issue write. */
+  /** Run an issue write that sessions reference as a change-log commit, so
+   *  their records are appended in the source transaction (POD-6920). */
   setSessionRefWrite(write: NonNullable<IssuesRepository['sessionRefWrite']>): void {
     this.sessionRefWrite = write
   }
@@ -1461,13 +1460,13 @@ export class IssuesRepository {
   ): Promise<{ changes: number }> {
     const write = async () => {
       const result = await this.committed.write(query, operation)
-      // The before-build may have memoized the old issue. Invalidate inside
-      // the source write, before its dependent session is built again.
+      // A frame cache may hold the old issue. Invalidate inside the source
+      // write, before its dependent session is built.
       this.rowsWritten()
       return result
     }
     return refIssueIds.length > 0 && this.sessionRefWrite
-      ? await this.sessionRefWrite(refIssueIds, write)
+      ? await this.sessionRefWrite(write)
       : await write()
   }
 

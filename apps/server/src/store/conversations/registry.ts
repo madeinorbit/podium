@@ -311,12 +311,9 @@ const segmentsOfConversation = prepared((db: StoreDrizzle) =>
  * RETAINED ID MINT: new ConversationIds are created from UUID-backed strings;
  * selected registry ids flow from the schema without re-entry casts. */
 export class ConversationRegistryRepository {
-  /** Installed by composition: a native-id mapping is a session record source. */
-  sessionRecordWrite?: <T>(
-    machineId: MachineId,
-    nativeIds: readonly string[],
-    write: () => Promise<T>,
-  ) => Promise<T>
+  /** Installed by composition: a native-id mapping is a session record
+   *  source, so its write runs as a change-log commit (POD-6920). */
+  sessionRecordWrite?: <T>(write: () => Promise<T>) => Promise<T>
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
@@ -448,7 +445,7 @@ export class ConversationRegistryRepository {
     sizeBytes?: number
   }): Promise<ConversationId> {
     return this.sessionRecordWrite
-      ? await this.sessionRecordWrite(opts.machineId, [opts.nativeId], () => this.ensureRows(opts))
+      ? await this.sessionRecordWrite(() => this.ensureRows(opts))
       : await this.ensureRows(opts)
   }
 
@@ -514,11 +511,7 @@ export class ConversationRegistryRepository {
     }[],
   ): Promise<Map<string, ConversationId>> {
     return this.sessionRecordWrite
-      ? await this.sessionRecordWrite(
-          machineId,
-          entries.map((entry) => entry.nativeId),
-          () => this.ensureManyRows(machineId, entries),
-        )
+      ? await this.sessionRecordWrite(() => this.ensureManyRows(machineId, entries))
       : await this.ensureManyRows(machineId, entries)
   }
 
@@ -620,9 +613,7 @@ export class ConversationRegistryRepository {
     providerId: string
   }): Promise<ConversationId> {
     return this.sessionRecordWrite
-      ? await this.sessionRecordWrite(opts.machineId, [opts.newNativeId], () =>
-          this.linkSegmentRows(opts),
-        )
+      ? await this.sessionRecordWrite(() => this.linkSegmentRows(opts))
       : await this.linkSegmentRows(opts)
   }
 

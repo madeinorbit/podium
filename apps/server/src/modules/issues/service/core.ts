@@ -2,12 +2,10 @@ import { createLogger } from '@podium/logger'
 import {
   asIssueId,
   type Instant,
-  ISSUE_PANEL_KINDS,
   type IssueGitState,
   type IssueId,
   type IssueJoinVia,
   type IssuePanel,
-  type IssuePanelKind,
   type IssueProjection,
   type IssueUserOverlay,
   isCollaboratorRecord,
@@ -18,7 +16,6 @@ import {
   isReadyIssueStage,
   isSystemOwnedIssueStage,
   issueOverlayOf,
-  issueUserStateRowId,
   type MachineId,
   machinePathHasSuffix,
   requireInstant,
@@ -26,17 +23,15 @@ import {
   type UserId,
 } from '@podium/model'
 import { parseIssueRef } from '@podium/protocol'
-import type { AffectedRecordSpec, WriteScope } from '@podium/sync'
+import type { WriteScope } from '@podium/sync'
 import { slugifyBranch } from '../../../issue-util'
 import type { IssueRow, StoredIssueUserState } from '../../../store'
 import { afterCommit } from '../../../store/executor/executor'
 import type { SessionFacts } from '../../sessions/facts'
 import { normalizeBlankIssueText } from '../blank-text'
 import {
-  issueDepToProjection,
   issueProjectionRows,
   issueRowToProjection,
-  repoProjectionRows,
 } from '../projection'
 import { IssueNotFound } from './not-found'
 import { IssueRefusal } from './refusal'
@@ -242,9 +237,6 @@ export class IssueStore {
         (state) => state[marker] != null,
       )
     await this.arbitrated(writer).commit({
-      // The holders are read to name their records, before the write clears them.
-      affects: async () =>
-        (await holdersOf()).map((state) => issueUserStateRecord(state.userId, issueId)),
       write: async (scope) => {
         for (const state of await holdersOf()) {
           await this.deps.store.issues.setIssueUserState(scope, state.userId, issueId, {
@@ -689,37 +681,11 @@ export class IssueStore {
   }
 
   /**
-   * Panel writes name only their own tiny records, never the issue row
-   * (compare at save, POD-6770): `affects` reads the items the write may
-   * touch inside the transaction, `creates` names the items it added.
+   * A panel write: it touches only its own tiny records, never the issue row,
+   * and the capture names them (POD-6920).
    */
-  async commitPanel<T>(
-    writer: IssueWriter,
-    write: (scope: WriteScope) => Promise<T>,
-    affects: readonly AffectedRecordSpec[] | (() => Promise<readonly AffectedRecordSpec[]>),
-    creates?: () => readonly AffectedRecordSpec[],
-  ): Promise<T> {
-    return (
-      await this.arbitrated(writer).commit({
-        write,
-        affects,
-        ...(creates === undefined ? {} : { creates: async () => creates() }),
-      })
-    ).result
-  }
-
-  /** The panel items of these issues, as records to name: every kind, or one. */
-  async panelRecords(
-    issueIds: readonly string[],
-    kinds: readonly IssuePanelKind[] = ISSUE_PANEL_KINDS,
-  ): Promise<AffectedRecordSpec[]> {
-    if (issueIds.length === 0) return []
-    const out: AffectedRecordSpec[] = []
-    for (const entity of kinds) {
-      for (const value of await this.deps.store.issues.panel.forIssues(entity, issueIds))
-        out.push({ entity, id: value.id })
-    }
-    return out
+  async commitPanel<T>(writer: IssueWriter, write: (scope: WriteScope) => Promise<T>): Promise<T> {
+    return (await this.arbitrated(writer).commit({ write })).result
   }
 
   /** True when `row` belongs to the repo identified by `repoPath`, compared by the
@@ -868,43 +834,6 @@ export class IssueStore {
 
   // ---- The normalized issue projection [POD-796, ADR 4 D7.1] ----
   //
-  /**
-   * The records an issue write may affect: the issue's own record and every
-   * member's personal record of it. Named before the write, and again after
-   * it for the personal records the write created (a start writes its
-   * starter's): the Authority builds each from the database both times and
-   * appends what differs (compare at save, POD-6769).
-   */
-  async issueRecords(issueId: string): Promise<AffectedRecordSpec[]> {
-    const states = await this.deps.store.issues.listIssueUserStateRows(issueId as IssueId)
-    return [
-      { entity: 'issueProjection', id: issueId },
-      // Its brief and description are records of their own (POD-6921).
-      { entity: 'issueBrief', id: issueId },
-      { entity: 'issueDescription', id: issueId },
-      // Its git observation: a record only while the issue is not deleted, so
-      // a delete removes it and a restore brings it back (POD-6770).
-      { entity: 'issueGitState', id: issueId },
-      ...states.map((state) => issueUserStateRecord(state.userId, state.entityId)),
-    ]
-  }
-
-  /** {@link issueRecords} of several issues. */
-  async issueRecordsOf(rows: readonly IssueRow[]): Promise<AffectedRecordSpec[]> {
-    return (await Promise.all(rows.map(async (row) => await this.issueRecords(row.id)))).flat()
-  }
-
-  /**
-   * What a write of these drafts may take off the feed besides
-   * {@link issueRecords}: the panel items of each draft that is deleted. A
-   * deleted issue has no panel records, so they are read and named before the
-   * write and found gone after it. (A restore names them after its write:
-   * `prepareRestore`.)
-   */
-  async deletedPanelRecords(rows: readonly IssueRow[]): Promise<AffectedRecordSpec[]> {
-    return await this.panelRecords(rows.filter((row) => row.deletedAt).map((row) => row.id))
-  }
-
   /** Full LOCAL projection truth for a reconcile. `undefined` = do not reconcile
    *  this kind (a row that cannot be projected — see {@link issueProjectionRows}
    *  on why that is all-or-nothing). Flag off returns EMPTY, not undefined, and
@@ -935,15 +864,6 @@ export class IssueStore {
   // `blocked` / `ready` / `dependents` / `displayRef` are joined replica-side
   // (D7.3). The normalized kinds are emitted unconditionally.
 
-  /** The `issueDep` records an edge write may affect, one per edge: named in
-   *  the same commit as the edge's row, so the row and its change entry commit
-   *  or roll back together (compare at save, POD-6769). O(1) per edge. */
-  depRecords(
-    deps: readonly { fromId: string; toId: string; type: string }[],
-  ): AffectedRecordSpec[] {
-    return deps.map((dep) => ({ entity: 'issueDep' as const, id: issueDepToProjection(dep).id }))
-  }
-
   /**
    * One repository registry write and the repo rows it moves, in ONE commit
    * (POD-6524). The registry's writes (add, remove, prefix, base branch,
@@ -957,15 +877,7 @@ export class IssueStore {
    * which logical repo a checkout write touches.
    */
   async commitRepoWrite<T>(writer: IssueWriter, write: () => Promise<T>): Promise<T> {
-    // Every logical repo is named before the write, and the set again after it
-    // for one the write created (compare at save, POD-6769): the Authority
-    // builds each both times, appends the ones that differ and removes one
-    // that is gone. O(repos), a handful of rows.
-    const repoRecords = async (): Promise<AffectedRecordSpec[]> =>
-      repoProjectionRows(await this.deps.store.repos.listRepos()).map((r) => ({
-        entity: 'repo' as const,
-        id: r.id,
-      }))
+    // The capture names the logical repos the registry write reached (POD-6920).
     const { result } = await this.arbitrated(writer).commit({
       write: async () => await write(),
     })
@@ -1009,16 +921,6 @@ export class IssueStore {
     extraWrite?: (scope: WriteScope) => unknown | Promise<unknown>,
     opts?: {
       touch?: boolean
-      /**
-       * Records of other kinds this write may affect, named with the issue's
-       * own: the `issueDep` edges an edge write adds or removes
-       * ({@link depRecords}). They are built in the same span as the row
-       * upsert and the `extraWrite` that changes them.
-       */
-      extraAffects?: readonly AffectedRecordSpec[] | (() => Promise<readonly AffectedRecordSpec[]>)
-      /** Records of other kinds this write created and could not name before
-       *  it ran (a ship lane that forms with the write): built once, after. */
-      extraCreates?: () => Promise<readonly AffectedRecordSpec[]>
       /** This write moves the task's owner, its assignee (POD-6287). Refused
        *  for a row that is not a pinned draft: a reassignment is always
        *  revision-checked. */
@@ -1054,17 +956,6 @@ export class IssueStore {
     // the ledger's own failure.
     const wire = (
       await this.arbitrated(writer).commit({
-        affects: async () => [
-          ...(await this.issueRecords(row.id)),
-          ...(await this.deletedPanelRecords([row])),
-          ...(typeof opts?.extraAffects === 'function'
-            ? await opts.extraAffects()
-            : (opts?.extraAffects ?? [])),
-        ],
-        creates: async () => [
-          ...(await this.issueRecords(row.id)),
-          ...((await opts?.extraCreates?.()) ?? []),
-        ],
         write: async (scope) => {
           await extraWrite?.(scope)
           const worktreeWas = await this.worktreeBefore(row)
@@ -1112,11 +1003,6 @@ export class IssueStore {
         > = () => [],
     opts?: {
       touch?: boolean
-      /** Records of other kinds the batch may affect, named with the issues'
-       *  own (the ship orders and lanes a shipping batch moves). */
-      extraAffects?: () => Promise<readonly AffectedRecordSpec[]>
-      /** Records of other kinds the batch created: built once, after it. */
-      extraCreates?: () => Promise<readonly AffectedRecordSpec[]>
     },
   ): Promise<{ issues: IssueProjection[]; result: T }> {
     // Drafts, as in {@link persistWith} (POD-3259): every row here is pinned to
@@ -1138,15 +1024,6 @@ export class IssueStore {
     // carry this write, so a throw has nothing to undo.
     const committed = (
       await this.arbitrated(writer).commit({
-        affects: async () => [
-          ...(await this.issueRecordsOf(rows)),
-          ...(await this.deletedPanelRecords(rows)),
-          ...((await opts?.extraAffects?.()) ?? []),
-        ],
-        creates: async () => [
-          ...(await this.issueRecordsOf(rows)),
-          ...((await opts?.extraCreates?.()) ?? []),
-        ],
         write: async (scope) => {
           result = await write(scope)
           for (const row of rows) {
@@ -1241,11 +1118,6 @@ export class IssueStore {
  * (UTF-8 byte order), then id: the order the full-truth reconcile appends in,
  * kept from when it read the in-memory issue map (POD-6158).
  */
-/** One member's personal record of one issue: what a marker write may affect. */
-function issueUserStateRecord(userId: UserId, issueId: string): AffectedRecordSpec {
-  return { entity: 'issueUserState', id: issueUserStateRowId(userId, issueId as IssueId) }
-}
-
 function inRepositoryOrder<T>(entries: readonly T[], rowOf: (entry: T) => IssueRow): T[] {
   const keyed = entries.map((entry) => ({ entry, row: rowOf(entry) }))
   keyed.sort(

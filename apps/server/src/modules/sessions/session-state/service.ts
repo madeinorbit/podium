@@ -41,7 +41,6 @@ import {
   type MachineId,
   type SessionId,
   type SessionUserOverlay,
-  sessionUserStateRowId,
   type UserId,
   type WorkState,
 } from '@podium/model'
@@ -51,7 +50,6 @@ import type {
   RuntimeDraftResultMessage,
   RuntimeSnapshotResultMessage,
 } from '@podium/protocol/daemon'
-import type { AffectedRecordSpec } from '@podium/sync'
 import type { ClientConn } from '../../../gateway/client-registry'
 import { mayReachPrivate } from '../../../issue-authz'
 import type { SessionStore, SnoozeMap } from '../../../store'
@@ -165,7 +163,6 @@ export interface SessionStatePorts {
     writer: SessionWriter,
     sessionId: SessionId,
     additionalWrite?: (scope: WriteScope) => void | Promise<void>,
-    additionalAffects?: () => Promise<AffectedRecordSpec[]>,
   ) => Promise<void>
   /** {@link persistSession} with a durable-field write applied to the draft the
    *  commit persists [POD-3330]. Persist-only, like the method it sits beside:
@@ -503,20 +500,9 @@ export class SessionStateService {
       async (scope) => {
         await write(scope)
       },
-      () => this.userStateRecords(sessionId, [userId]),
     )
     this.ports.broadcastSessions()
     return true
-  }
-
-  private async userStateRecords(
-    sessionId: SessionId,
-    users: readonly UserId[],
-  ): Promise<AffectedRecordSpec[]> {
-    return users.map((userId) => ({
-      entity: 'sessionUserState' as const,
-      id: sessionUserStateRowId(userId, sessionId),
-    }))
   }
 
   async markRead(
@@ -603,13 +589,6 @@ export class SessionStateService {
       async (scope) => {
         await this.ports.store.sessions.clearAllReadAt(scope, sessionId)
       },
-      async () =>
-        this.userStateRecords(
-          sessionId,
-          (
-            await this.ports.store.sessions.listSessionUserStateRows(sessionId, this.ports.now())
-          ).map((row) => row.userId),
-        ),
     )
     this.ports.broadcastSessions()
   }
@@ -655,13 +634,6 @@ export class SessionStateService {
       async (scope) => {
         await this.ports.store.sessions.clearAllSnoozes(scope, sessionId)
       },
-      async () =>
-        this.userStateRecords(
-          sessionId,
-          (
-            await this.ports.store.sessions.listSessionUserStateRows(sessionId, this.ports.now())
-          ).map((row) => row.userId),
-        ),
     )
     this.ports.broadcastSessions()
   }

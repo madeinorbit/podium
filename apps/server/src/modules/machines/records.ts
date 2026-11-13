@@ -25,7 +25,6 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks'
 import {
-  asMachineId,
   type MachineAccessWire,
   type MachineGrantEntry,
   type MachineId,
@@ -35,7 +34,7 @@ import {
   type UserRole,
 } from '@podium/model'
 import type { MetadataChange } from '@podium/protocol'
-import type { AffectedRecordSpec, EntityChangeSpec, LedgerWriter } from '@podium/sync'
+import type { EntityChangeSpec, LedgerWriter } from '@podium/sync'
 import {
   type CheckoutReach,
   type CheckoutReaders,
@@ -244,58 +243,27 @@ export async function machineRecordSpecs(
   return specs
 }
 
-/** Compare each source write inside its transaction, including checkout reach.
- * Nested writes leave records already named by their enclosing write to that
- * enclosing comparison. Custody and enrollment therefore publish their final
- * rows together, even though they write several grant edges along the way.
+/**
+ * Run each source write as one change-log commit inside its transaction, and
+ * record the checkout reach its appended access changes moved (POD-6920: the
+ * capture names the records). A write nested in another joins it, so custody
+ * and enrollment publish their final rows together, even though they write
+ * several grant edges along the way.
  */
 export function makeMachineRecordCompare(
-  store: Pick<SessionStore, 'machines' | 'users' | 'transact'>,
+  store: Pick<SessionStore, 'transact'>,
   writer: Pick<LedgerWriter, 'commit'>,
   reach: NonNullable<MachineRecordsDeps['reach']>,
 ): CompareMachineRecords {
-  const scopes = new AsyncLocalStorage<{ readonly keys: ReadonlySet<string>; open: boolean }>()
-  const keyOf = (record: AffectedRecordSpec) => `${record.entity}\0${record.id}`
-  const resolve = async (ids: NonNullable<Parameters<CompareMachineRecords>[0]['machines']>) =>
-    typeof ids === 'function' ? await ids() : ids
-  return async (scope, write, commandWriter = writer) => {
-    if (!scope.member && !scope.display && Array.isArray(scope.machines) && !scope.machines.length)
-      return await write()
-    const inherited = scopes.getStore()
+  const open = new AsyncLocalStorage<{ open: boolean }>()
+  return async (write, commandWriter = writer) => {
+    if (open.getStore()?.open) return await write()
     return await store.transact(async () => {
-      let names: AffectedRecordSpec[] = []
+      const held = { open: true }
       const { result, changes } = await commandWriter.commit({
-        affects: async () => {
-          const machines = scope.machines ? await resolve(scope.machines) : []
-          const display = scope.display ? await resolve(scope.display) : []
-          const members = machines.length ? await store.users.recordMembers() : []
-          names = machines.flatMap((id): AffectedRecordSpec[] => [
-            { entity: 'machine', id },
-            ...members.map((member) => ({
-              entity: 'machineAccess' as const,
-              id: machineAccessRowId(member.id, asMachineId(id)),
-            })),
-          ])
-          names.push(...display.map((id) => ({ entity: 'machine' as const, id })))
-          if (scope.member) {
-            const member = scope.member
-            names.push(
-              ...(await store.machines.recordIds()).map((id) => ({
-                entity: 'machineAccess' as const,
-                id: machineAccessRowId(member, id),
-              })),
-            )
-          }
-          names = names.filter((record) => !inherited?.open || !inherited.keys.has(keyOf(record)))
-          return names
-        },
         write: async () => {
-          const held = {
-            keys: new Set([...(inherited?.open ? inherited.keys : []), ...names.map(keyOf)]),
-            open: true,
-          }
           try {
-            return await scopes.run(held, write)
+            return await open.run(held, write)
           } finally {
             held.open = false
           }

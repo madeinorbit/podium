@@ -17,7 +17,6 @@ import type {
 import type { MetadataChange, SubscriptionRegistry } from '@podium/protocol'
 import type { QueueDrainAbandonedReason, RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import type {
-  AffectedRecordSpec,
   LedgerCommitOp,
   LedgerCommitResult,
   MutationLedgerPort,
@@ -65,7 +64,6 @@ export interface SessionDeletePlan {
   sessionIds: string[]
   /** Inside the issue delete's commit, with its scope. */
   write(scope: WriteScope): Promise<void>
-  affects(): Promise<readonly AffectedRecordSpec[]>
   apply(changes: MetadataChange[], ledgerCursor: number): void
 }
 
@@ -74,7 +72,6 @@ export interface SessionRestorePlan {
   sessionIds: string[]
   /** Inside the issue restore's commit, with its scope. */
   write(scope: WriteScope): Promise<void>
-  affects(): Promise<readonly AffectedRecordSpec[]>
   apply(changes: MetadataChange[], ledgerCursor: number): void
 }
 

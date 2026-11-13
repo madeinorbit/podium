@@ -193,7 +193,6 @@ export class IssueAssistantDigestModule {
       async (scope) => {
         await this.store.deps.store.issues.panel.save(scope, 'issuePanelState', state)
       },
-      { extraAffects: [{ entity: 'issuePanelState', id: row.id }] },
     )
   }
 }

@@ -446,7 +446,6 @@ export class GrantsRepository {
    */
   async upsert(row: GrantRow): Promise<void> {
     await this.machineRecordWrites.compare(
-      { machines: row.resourceKind === 'machine' ? [row.resourceId] : [] },
       async () => {
         if (row.custody && (row.resourceKind !== 'machine' || row.verb !== 'manage')) {
           throw new Error('Custody requires a machine manage edge')
@@ -485,7 +484,6 @@ export class GrantsRepository {
     verb: GrantVerb,
   ): Promise<boolean> {
     return this.machineRecordWrites.compare(
-      { machines: resourceKind === 'machine' ? [resourceId] : [] },
       async () => {
         const edge = { resourceKind, resourceId, grantee, verb }
         const before = await countEdge(this.db).get(edge)
@@ -504,7 +502,6 @@ export class GrantsRepository {
   /** Member removal revokes their incoming rights, preserving everyone else's shares. */
   async removeAllForGrantee(grantee: string): Promise<void> {
     await this.machineRecordWrites.compare(
-      { machines: async () => await this.machineIdsForGrantee(grantee) },
       async () => {
         const result = await this.committed.write(
           async () => await deleteGrantsOfGrantee(this.db).all({ grantee }),
@@ -530,7 +527,6 @@ export class GrantsRepository {
     retainCustody = false,
   ): Promise<void> {
     await this.machineRecordWrites.compare(
-      { machines: resourceKind === 'machine' ? [resourceId] : [] },
       async () => {
         const result = await this.committed.write(
           async () =>
