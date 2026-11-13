@@ -31,7 +31,7 @@ function session(over: Partial<SessionMeta>): SessionMeta {
 }
 
 describe('mobile session lifecycle surface', () => {
-  it('shows the parked banner and invokes Resume', async () => {
+  it('shows the hibernated system note and invokes Resume', async () => {
     const onResume = vi.fn(async () => ({ ok: true as const }))
     render(
       <MobileSessionLifecycle
@@ -42,23 +42,20 @@ describe('mobile session lifecycle surface', () => {
       />,
     )
 
-    const banner = screen.getByTestId('lifecycle-banner')
-    expect(banner.textContent).toContain('Hibernated — transcript is read-only until you resume.')
+    const notice = screen.getByTestId('hibernated-notice')
+    expect(notice.textContent).toContain('Hibernated')
+    expect(notice.textContent?.replace(/\s+/g, ' ')).toContain(
+      'Its process was stopped to free memory. The conversation is intact.',
+    )
+    expect(screen.queryByTestId('lifecycle-banner')).toBeNull()
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Resume' })))
     expect(onResume).toHaveBeenCalledWith('session-1')
   })
 
-  // THE STATE BAR SPENDS NO SIGNAL (POD-1251, matching web's POD-747): a parked
-  // or ended session is reporting a state, not asking for anything, so the bar
-  // takes the chrome ground and neither the bisque that means "waiting on you"
-  // nor the red that means destruction may appear as a fill.
-  it.each([
-    ['hibernated', 'parked'],
-    ['exited', 'ended'],
-  ] as const)('paints the %s bar in chrome, not in a signal fill', (status, _word) => {
+  it('keeps the exited recovery bar on its existing chrome ground', () => {
     render(
       <MobileSessionLifecycle
-        session={session({ status })}
+        session={session({ status: 'exited' })}
         hasTranscript
         onResume={vi.fn(async () => ({ ok: true as const }))}
         onRemove={vi.fn(async () => {})}
@@ -69,11 +66,41 @@ describe('mobile session lifecycle surface', () => {
     expect(ground).toBe('rgba(27, 29, 33, 1.00)') // color.bar
   })
 
-  it('keeps a failed resume visible and retryable', async () => {
+  it('shows Waking while the existing resume action runs and prevents another press', async () => {
+    let finish: ((result: { ok: true }) => void) | undefined
+    const onResume = vi.fn(
+      () =>
+        new Promise<{ ok: true }>((resolve) => {
+          finish = resolve
+        }),
+    )
+    render(
+      <MobileSessionLifecycle
+        session={session({ status: 'hibernated' })}
+        hasTranscript
+        onResume={onResume}
+        onRemove={vi.fn(async () => {})}
+      />,
+    )
+
+    const button = screen.getByRole('button', { name: 'Resume' })
+    fireEvent.click(button)
+    expect(button.textContent).toBe('Waking…')
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(button)
+    expect(onResume).toHaveBeenCalledTimes(1)
+    await act(async () => finish?.({ ok: true }))
+    expect(button.textContent).toBe('Resume')
+  })
+
+  it.each([
+    'hibernated',
+    'exited',
+  ] as const)('keeps a failed %s resume visible and retryable', async (status) => {
     const onResume = vi.fn(async () => ({ ok: false as const, reason: 'process still running' }))
     render(
       <MobileSessionLifecycle
-        session={session({ status: 'exited' })}
+        session={session({ status })}
         hasTranscript
         onResume={onResume}
         onRemove={vi.fn(async () => {})}

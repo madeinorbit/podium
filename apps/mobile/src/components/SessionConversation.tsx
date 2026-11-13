@@ -658,9 +658,8 @@ const SessionConversationBody = observer(function SessionConversationBody({
   const activity = conversation.activity
   // A newly spawned process is working before its first agent-state frame.
   const warming = session.status === 'starting' || activity?.tone === 'working'
-  // A parked or ended session is present but has no process. It gets the
-  // recovery banner; when there is also no conversation to show, the banner is
-  // the WHOLE screen rather than a header over an empty transcript [POD-1758].
+  // Hibernation lives at the transcript's end. Sessions without a transcript
+  // retain the full recovery pane [POD-1758].
   const hasTranscript = session.transcriptAvailable ?? defaultChatCapable(session.agentKind)
   const composer = conversation.composer
   const readOnly = session.status === 'hibernated' || session.status === 'exited'
@@ -775,10 +774,15 @@ const SessionConversationBody = observer(function SessionConversationBody({
   const streamingActive = activity?.tone === 'working'
   const emptyState = useMemo(
     () =>
-      loaded && itemCount === 0 && pendingTurns.length === 0 && !offer && !pendingQuestion ? (
+      loaded &&
+      session.status !== 'hibernated' &&
+      itemCount === 0 &&
+      pendingTurns.length === 0 &&
+      !offer &&
+      !pendingQuestion ? (
         <EmptyTranscript warming={warming} />
       ) : undefined,
-    [loaded, itemCount, pendingTurns.length, offer, pendingQuestion, warming],
+    [loaded, session.status, itemCount, pendingTurns.length, offer, pendingQuestion, warming],
   )
   const footerNode = useMemo(
     () =>
@@ -800,12 +804,14 @@ const SessionConversationBody = observer(function SessionConversationBody({
 
   return (
     <View style={styles.flex}>
-      <MobileSessionLifecycle
-        session={session}
-        hasTranscript={hasTranscript}
-        onResume={store.resurrectSession}
-        onRemove={store.killSession}
-      />
+      {session.status !== 'hibernated' || !hasTranscript ? (
+        <MobileSessionLifecycle
+          session={session}
+          hasTranscript={hasTranscript}
+          onResume={store.resurrectSession}
+          onRemove={store.killSession}
+        />
+      ) : null}
       {offlineMachineName ? (
         <View
           style={[styles.offlineBanner, topInset > 0 && { marginTop: topInset }]}
@@ -857,7 +863,21 @@ const SessionConversationBody = observer(function SessionConversationBody({
               find={model.find}
               onSearchChange={searchTranscript}
               onRefPress={setRequestedRef}
-              footer={footerNode}
+              footer={
+                session.status === 'hibernated' ? (
+                  <>
+                    {footerNode}
+                    <MobileSessionLifecycle
+                      session={session}
+                      hasTranscript={hasTranscript}
+                      onResume={store.resurrectSession}
+                      onRemove={store.killSession}
+                    />
+                  </>
+                ) : (
+                  footerNode
+                )
+              }
             />
           </PullToRefreshBoundary>
         </BootstrapCrossfade>
@@ -893,7 +913,9 @@ const SessionConversationBody = observer(function SessionConversationBody({
           ) : null}
           <SessionComposer
             conversation={model}
-            placeholder={composer.placeholder}
+            placeholder={
+              session.status === 'hibernated' ? 'Message to wake it' : composer.placeholder
+            }
             onSend={send}
             caption={composerCaption}
             captionTone={captionTone}

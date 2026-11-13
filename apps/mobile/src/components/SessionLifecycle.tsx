@@ -1,11 +1,11 @@
 import type { SessionResurrectionResult } from '@podium/client-core/engine'
 import { type ExitedAction, exitedRecovery } from '@podium/client-core/values'
 import type { SessionMeta } from '@podium/model'
-import { Moon, RotateCcw } from './icons'
 import { type JSX, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { color, font, leading, mono, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
+import { Moon, RotateCcw } from './icons'
 import { PressableScale } from './PressableScale'
 
 type RecoveryActionId = 'resume' | 'restart' | 'relaunch' | 'remove'
@@ -79,12 +79,17 @@ function LifecycleButton({
   onResume,
   onRemove,
   compact,
+  notice = false,
 }: {
   action: RecoveryAction
-  session: Pick<SessionMeta, 'sessionId' | 'status' | 'exitCode' | 'spawnFailure' | 'agentKind' | 'resumable' | 'neverBound'>
+  session: Pick<
+    SessionMeta,
+    'sessionId' | 'status' | 'exitCode' | 'spawnFailure' | 'agentKind' | 'resumable' | 'neverBound'
+  >
   onResume: (sessionId: SessionMeta['sessionId']) => Promise<SessionResurrectionResult>
   onRemove: (sessionId: SessionMeta['sessionId']) => Promise<void>
   compact: boolean
+  notice?: boolean
 }): JSX.Element {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -119,22 +124,25 @@ function LifecycleButton({
       <PressableScale
         accessibilityRole="button"
         accessibilityLabel={label}
+        accessibilityState={{ disabled: busy, busy }}
         disabled={busy}
         testID={['lifecycle-', action.id].join('')}
         onPress={() => void run()}
         style={({ pressed }) => [
-          compact ? styles.barAction : styles.action,
+          notice ? styles.noticeAction : compact ? styles.barAction : styles.action,
           !compact && action.id === 'remove' ? styles.removeAction : null,
-          pressed ? (compact ? styles.barActionPressed : styles.actionPressed) : null,
+          pressed ? (notice || compact ? styles.barActionPressed : styles.actionPressed) : null,
         ]}
       >
         <Text
           style={
-            compact
-              ? styles.barActionText
-              : action.id === 'remove'
-                ? styles.removeText
-                : styles.actionText
+            notice
+              ? styles.noticeActionText
+              : compact
+                ? styles.barActionText
+                : action.id === 'remove'
+                  ? styles.removeText
+                  : styles.actionText
           }
         >
           {busy && action.busyLabel ? action.busyLabel : label}
@@ -155,7 +163,10 @@ export function MobileSessionLifecycle({
   onResume,
   onRemove,
 }: {
-  session: Pick<SessionMeta, 'sessionId' | 'status' | 'exitCode' | 'spawnFailure' | 'agentKind' | 'resumable' | 'neverBound'>
+  session: Pick<
+    SessionMeta,
+    'sessionId' | 'status' | 'exitCode' | 'spawnFailure' | 'agentKind' | 'resumable' | 'neverBound'
+  >
   hasTranscript: boolean
   onResume: (sessionId: SessionMeta['sessionId']) => Promise<SessionResurrectionResult>
   onRemove: (sessionId: SessionMeta['sessionId']) => Promise<void>
@@ -177,6 +188,28 @@ export function MobileSessionLifecycle({
     : recoveryAction('ended', ended?.action ?? 'remove')
   const detail = ended?.detail ?? ''
 
+  if (parked && hasTranscript) {
+    return (
+      <View style={styles.notice} testID="hibernated-notice">
+        <View style={styles.noticeHeading}>
+          <Icon as={Moon} size={13} color={color.textDim} />
+          <Text style={styles.noticeTitle}>Hibernated</Text>
+        </View>
+        <Text style={styles.noticeCopy}>
+          {'Its process was stopped to free memory.\nThe conversation is intact.'}
+        </Text>
+        <LifecycleButton
+          action={action}
+          session={session}
+          onResume={onResume}
+          onRemove={onRemove}
+          compact
+          notice
+        />
+      </View>
+    )
+  }
+
   if (!hasTranscript) {
     return (
       <View style={styles.pane} testID="lifecycle-pane">
@@ -196,26 +229,13 @@ export function MobileSessionLifecycle({
   return (
     <View
       accessibilityRole="summary"
-      style={[styles.banner, parked ? null : styles.faultBanner]}
+      style={[styles.banner, styles.faultBanner]}
       testID="lifecycle-banner"
     >
-      <View style={parked ? styles.mark : [styles.mark, styles.faultMark]}>
-        <Icon
-          as={parked ? Moon : RotateCcw}
-          size={14}
-          color={parked ? color.textFaint : color.accentTint}
-        />
+      <View style={[styles.mark, styles.faultMark]}>
+        <Icon as={RotateCcw} size={14} color={color.accentTint} />
       </View>
-      <Text style={styles.bannerText}>
-        {parked ? (
-          <>
-            <Text style={styles.stateWord}>Hibernated</Text> — transcript is read-only until you
-            resume.
-          </>
-        ) : (
-          `${detail} Transcript is read-only.`
-        )}
-      </Text>
+      <Text style={styles.bannerText}>{`${detail} Transcript is read-only.`}</Text>
       <LifecycleButton
         action={action}
         session={session}
@@ -228,21 +248,42 @@ export function MobileSessionLifecycle({
 }
 
 const styles = StyleSheet.create({
-  /**
-   * THE STATE BAR — the phone's copy of web's `.pane-state-bar` (POD-747,
-   * brought over in POD-1251).
-   *
-   * It used to be a tinted slab: an accent ground with accent copy for a parked
-   * session and a RED one for an ended session, which is the enterprise-console
-   * look the design system opens by rejecting — and which spends The Signal
-   * Rule's accent on a state that is asking nothing of anyone. Hibernation is a
-   * STATE, not a request.
-   *
-   * What it is instead, exactly as on web: the `bar` chrome tier, one hairline
-   * seam, machine voice, the state's own word in strong ink and nothing else
-   * emphasised, its glyph carrying the tone. A fault (exited, crashed) tints
-   * that glyph and NOTHING ELSE — never a fill.
-   */
+  notice: {
+    alignItems: 'center',
+    paddingTop: space.lg,
+    paddingBottom: space.xs,
+  },
+  noticeHeading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.xs,
+  },
+  noticeTitle: {
+    ...sans(600),
+    color: color.textDim,
+    fontSize: font.tiny,
+    lineHeight: leading(font.tiny, 'prose'),
+  },
+  noticeCopy: {
+    ...sans(400),
+    color: color.textDim,
+    fontSize: font.tiny,
+    lineHeight: leading(font.tiny, 'prose'),
+    textAlign: 'center',
+  },
+  noticeAction: {
+    alignSelf: 'center',
+    minHeight: 44,
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    paddingHorizontal: space.md,
+  },
+  noticeActionText: {
+    ...sans(600),
+    color: color.accentTint,
+    fontSize: font.small,
+  },
+  // Exited sessions retain their recovery bar above the transcript.
   banner: {
     flexShrink: 0,
     flexDirection: 'row',
@@ -272,13 +313,6 @@ const styles = StyleSheet.create({
     color: color.textDim,
     fontSize: font.tiny,
     lineHeight: leading(font.tiny, 'prose'),
-  },
-  /** The state's own word, and nothing else, steps up to strong ink — it is
-   *  what the reader is scanning for; the consequence after it stays in the
-   *  machine voice. */
-  stateWord: {
-    ...mono(500),
-    color: color.text,
   },
   /** The bar's control is chrome inside chrome: an outline cell, not the
    *  filled-accent primary the pane below uses. */
