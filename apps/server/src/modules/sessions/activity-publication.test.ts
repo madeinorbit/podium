@@ -99,6 +99,8 @@ describe('session activity publication', () => {
       db.exec(
         'CREATE TABLE sessions (id TEXT PRIMARY KEY, last_active_at TEXT NOT NULL, deleted_at TEXT)',
       )
+      // The migration bumps the session kind's generation, a table of its time.
+      db.exec('CREATE TABLE sync_kind (kind TEXT PRIMARY KEY, generation INTEGER NOT NULL)')
       db.prepare('INSERT INTO sessions (id, last_active_at) VALUES (?, ?)').run('existing', iso(0))
       const migration = DRIZZLE_MIGRATIONS.find((m) =>
         m.name.endsWith('_session-activity-publication'),
