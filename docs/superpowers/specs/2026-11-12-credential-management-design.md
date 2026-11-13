@@ -569,10 +569,34 @@ A **home** is that directory, managed by Podium:
   terminal. The login stays in the home and the harness renews it there. The home is the
   keeper.
 - A session on that credential starts with the harness's directory variable pointed at the
-  home. Podium installs its hooks there, as it does in the default directory today.
+  home. Podium's hooks reach it at launch, never as a file in the home (S2):
+  - Claude Code takes them per session through `--settings`, as today.
+  - Codex runs a handler only if it is trusted, and keys trust by the absolute path of the file
+    that declares it, so a `hooks.json` in a new home is untrusted and silent. Podium therefore
+    passes its handlers as `-c hooks.<Event>=[…]` and their trust as
+    `-c hooks.state={"/<session-flags>/config.toml:<event>:<group>:<handler>"={trusted_hash=…}}`.
+    Nothing is written to disk. The hash is Codex's own; the daemon reads it as `currentHash`
+    from `hooks/list` once per Codex version and caches it. **Exception to POD-4076:** Podium
+    supplies trust only for its own handlers, only at launch, and only in homes Podium
+    created; in the person's default directory it still detects and reports, and never trusts.
 - A home shares the person's harness settings, instructions, skills and plugins with the
-  default directory, so a second account does not behave like a fresh install. Whether that is
-  done by linking or by copying at launch is per harness and is measured first (S2).
+  default directory by linking, so a second account does not behave like a fresh install.
+  Both harnesses read through the links and write through them without replacing them
+  (measured, S2). Linked from the default directory:
+  - Claude Code: `settings.json`, `CLAUDE.md`, `skills/`, `agents/`, `commands/`, and
+    `plugins/` as a whole (its records hold absolute paths into the default directory, so a
+    copy would point back there anyway).
+  - Codex: `config.toml` (which also carries MCP servers and project trust), `AGENTS.md` and
+    `skills/`.
+
+  Not linked:
+  - Logins (`.credentials.json`, `auth.json`): they are what the home is for.
+  - Conversations and harness state.
+  - Claude Code's `.claude.json`. It holds the signed-in identity as well as onboarding state,
+    folder trust and the person's user-scope MCP servers. Podium seeds a new home's copy with
+    onboarding done and the folder trusted, which is otherwise a theme picker and trust prompt
+    in front of the first turn. At each launch Podium copies the person's `mcpServers` into
+    it.
 - Conversations live in the home that ran them. Podium reads transcripts from every home and
   copies a conversation into the target home when a session switches (section 9).
 - Each home reports its own login state, identity, quota and model list.
