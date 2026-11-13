@@ -542,7 +542,7 @@ describe('record sources (POD-6920)', () => {
       store.transact(async () => {
         await db.run(sql`UPDATE issues SET title = 'bypassed' WHERE seq = (SELECT min(seq) FROM issues)`)
       }),
-    ).rejects.toThrow(/FOREIGN KEY/)
+    ).rejects.toThrow(/outside a change-log commit/)
     await expect(
       db.run(sql`UPDATE issues SET title = 'bypassed' WHERE seq = (SELECT min(seq) FROM issues)`),
     ).rejects.toThrow()

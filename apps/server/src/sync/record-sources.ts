@@ -459,7 +459,7 @@ async function lanesOfOrders(
   return unique(out)
 }
 
-/** The lanes of the upper orders of these stack edges. */
+/** The lanes of the orders these rows belong to (first key column: an order id). */
 async function lanesOfUpperOrders(
   changes: readonly SourceChange[],
   reads: RecordReads,
@@ -554,7 +554,17 @@ const panelSources = Object.fromEntries(
 ) as unknown as Record<(typeof ISSUE_PANEL_KINDS)[number], readonly RecordSource[]>
 
 export const RECORD_SOURCES: RecordSources = {
-  conversation: [byId(conversations, conversations.id)],
+  conversation: [
+    byId(conversations, conversations.id),
+    // The record carries the Podium id of the segment the conversation is
+    // (same machine, native id = conversation id).
+    via(
+      conversationSegments,
+      [conversationSegments.machineId, conversationSegments.nativeId],
+      [conversationSegments.podiumId],
+      (changes) => unique(keysOf(changes).flatMap((key) => (key[1] == null ? [] : [str(key[1])]))),
+    ),
+  ],
   issueGitState: [
     byId(issueGitStates, issueGitStates.issueId),
     issueDeletion((issueIds) => issueIds),
@@ -640,17 +650,26 @@ export const RECORD_SOURCES: RecordSources = {
       lanesOfOrders,
     ),
     via(shipOrderStackEdges, [shipOrderStackEdges.upperOrderId], 'all', lanesOfUpperOrders),
+    // A lane's plan reads its orders' open holds and delivery receipts.
+    via(shipHolds, [shipHolds.orderId], 'all', lanesOfUpperOrders),
+    via(deliveryReceipts, [deliveryReceipts.orderId], 'all', lanesOfUpperOrders),
   ],
   automation: [byId(automations, automations.id)],
   automationRun: [byId(automationRuns, automationRuns.id)],
   userLayout: [
-    own(userLayout, [userLayout.userId, userLayout.key], (key) =>
-      layoutRowId(key[0] as UserId, str(key[1])),
+    own(
+      userLayout,
+      [userLayout.userId, userLayout.key],
+      (key) => layoutRowId(key[0] as UserId, str(key[1])),
+      { reads: { allBut: [userLayout.updatedAt] } },
     ),
   ],
   userReadPosition: [
-    own(userReadPosition, [userReadPosition.userId, userReadPosition.streamId], (key) =>
-      readPositionRowId(key[0] as UserId, str(key[1])),
+    own(
+      userReadPosition,
+      [userReadPosition.userId, userReadPosition.streamId],
+      (key) => readPositionRowId(key[0] as UserId, str(key[1])),
+      { reads: { allBut: [userReadPosition.updatedAt] } },
     ),
   ],
   pin: [
@@ -659,8 +678,11 @@ export const RECORD_SOURCES: RecordSources = {
     ),
   ],
   tabOrder: [
-    own(tabOrder, [tabOrder.userId, tabOrder.worktree], (key) =>
-      tabOrderRowId(key[0] as UserId, str(key[1])),
+    own(
+      tabOrder,
+      [tabOrder.userId, tabOrder.worktree],
+      (key) => tabOrderRowId(key[0] as UserId, str(key[1])),
+      { reads: { allBut: [tabOrder.updatedAt] } },
     ),
   ],
   // One record per person, folding all of the person's leaves.
@@ -675,7 +697,7 @@ export const RECORD_SOURCES: RecordSources = {
       sessionUserStateRowId(key[0] as UserId, key[1] as SessionId),
     ),
     // A disabled person's markers leave the feed; a deleted session's too.
-    via(users, [users.id], [users.disabledAt], async (changes, reads) =>
+    via(users, [users.id], [users.disabledAt, users.role], async (changes, reads) =>
       await reads.store.sessions.sessionUserStateIdsOf({ userIds: firstKeys(changes) }),
     ),
     via(sessions, [sessions.id], [sessions.deletedAt], async (changes, reads) =>
@@ -688,7 +710,13 @@ export const RECORD_SOURCES: RecordSources = {
     ),
   ],
   agentProfile: [byId(agentProfiles, agentProfiles.id)],
-  workflow: [byId(workflows, workflows.id)],
+  workflow: [
+    byId(workflows, workflows.id),
+    // The workflow's record reads its revisions (its latest one).
+    own(workflowRevisions, [workflowRevisions.workflowId], (key) =>
+      key[0] == null ? null : str(key[0]),
+    ),
+  ],
   workflowRevision: [byId(workflowRevisions, workflowRevisions.id)],
   workflowBinding: [
     own(workflowBindings, [workflowBindings.targetKind, workflowBindings.targetId], (key) =>
@@ -724,9 +752,16 @@ export const RECORD_SOURCES: RecordSources = {
     ),
   ],
   message: [
-    via(messages, MESSAGE_KEYS, 'all', messageIds, {
-      rows: `{row}.${messages.fromKind.name} = 'operator' AND {row}.${messages.toKind.name} = 'session'`,
-    }),
+    // Not its delivery bookkeeping: the record carries the status.
+    via(
+      messages,
+      MESSAGE_KEYS,
+      { allBut: [messages.deliveredAt, messages.deliveredTo, messages.injectedAt, messages.hop] },
+      messageIds,
+      {
+        rows: `{row}.${messages.fromKind.name} = 'operator' AND {row}.${messages.toKind.name} = 'session'`,
+      },
+    ),
     // A session that stops (or starts again) being a live conversation takes
     // its confirmed tail off the feed (or back).
     via(sessions, [sessions.id], [], async (changes, reads) =>
@@ -735,7 +770,22 @@ export const RECORD_SOURCES: RecordSources = {
     ),
   ],
   session: [
-    byId(sessions, sessions.id),
+    // Not the activity and terminal counters, the unpublished activity time
+    // or the terminal size: the record carries the published activity time,
+    // and size and counts are live topics, not record fields (POD-6764).
+    byId(sessions, sessions.id, {
+      reads: {
+        allBut: [
+          sessions.lastActiveAt,
+          sessions.lastActivePublishAfter,
+          sessions.terminalCols,
+          sessions.terminalRows,
+          sessions.inputCount,
+          sessions.outputCount,
+          sessions.activityCount,
+        ],
+      },
+    }),
     own(offers, [offers.sessionId], (key) => str(key[0])),
     own(sessionDrafts, [sessionDrafts.sessionId], (key) => str(key[0])),
     // The record reads a lease's checkpoint only (`checkpointsOf`): a lease
