@@ -23,7 +23,7 @@ import { userCommandPrincipal } from '../../command-principal'
 import { makeFeedVisibility } from '../../feed-visibility'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
-import { testStoreRecords } from '../../test-support/record-writer'
+import { logStoreRecords, testStoreRecords } from '../../test-support/record-writer'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import { envelope, expectAppliedOnPath, rowsOf, submit } from '../sync-write/outbox-test-support'
 
@@ -396,7 +396,7 @@ async function feedFixture() {
   })
   const authority = new Authority({
     store: store.sync,
-    records: testStoreRecords(store),
+    records: await logStoreRecords(store),
     now: () => 1_000,
     transact: async (fn) => await store.transact(fn),
     visibility: new GrantEdgeVisibilityPolicy(policy.state, new NoDelegationsGranted()),

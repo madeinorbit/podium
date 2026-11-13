@@ -34,7 +34,7 @@ import { afterCommit, applyAfterCommit, spanOpen } from '../../store/executor/ex
 import type { MessageRow, SessionRow } from '../../store/types'
 import { openTestStore } from '../../test-support/open-test-store'
 import { expectRecordLogParity } from '../../test-support/record-log-parity'
-import { testStoreRecords } from '../../test-support/record-writer'
+import { logStoreRecords } from '../../test-support/record-writer'
 import { expectConstantStatements } from '../../test-support/statement-count'
 import { isLiveConversation, MessageFeedPublisher } from './feed'
 
@@ -57,7 +57,7 @@ async function harness(
       repo: store.sync,
       // The message kind is named after the write and built from the tables
       // (POD-6770), with the window this harness runs.
-      records: testStoreRecords(store, window === undefined ? {} : { confirmedPerSession: window }),
+      records: await logStoreRecords(store, window === undefined ? {} : { confirmedPerSession: window }),
       now: Date.now,
       transact: async (fn) => await store.transact(fn),
       // As relay.ts wires it: subscribers hear a change once it has committed.

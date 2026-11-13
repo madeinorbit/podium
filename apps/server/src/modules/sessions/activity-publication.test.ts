@@ -13,7 +13,7 @@ import type { SessionStore } from '../../store'
 import { serverRecordBuilders } from '../../sync/record-builders'
 import { testClientPrincipal } from '../../test-support/client-principal'
 import { openTestStore } from '../../test-support/open-test-store'
-import { testStoreRecords } from '../../test-support/record-writer'
+import { logStoreRecords } from '../../test-support/record-writer'
 import { countStatements, expectConstantStatements } from '../../test-support/statement-count'
 import { SessionActivityPublication } from './activity-publication'
 import { disposeOracles, makeOracle } from './oracle-support'
@@ -41,7 +41,7 @@ afterEach(async () => {
 function publication(store: SessionStore) {
   const ledger = new Ledger({
     repo: store.sync,
-    records: testStoreRecords(store),
+    records: await logStoreRecords(store),
     now: () => now,
     transact: (fn) => store.transact(fn),
   })

@@ -6,7 +6,7 @@ import type { SessionStore } from '../../store'
 import { afterCommit, applyAfterCommit, spanOpen } from '../../store/executor/executor'
 import { openTestStore } from '../../test-support/open-test-store'
 import { expectRecordLogParity } from '../../test-support/record-log-parity'
-import { testStoreRecords } from '../../test-support/record-writer'
+import { logStoreRecords } from '../../test-support/record-writer'
 import { InteractionFeedPublisher } from './feed'
 import { InteractionService, interactionWireOf } from './service'
 
@@ -21,7 +21,7 @@ async function harness() {
   stores.push(store)
   const ledger = new Ledger({
     repo: store.sync,
-    records: testStoreRecords(store),
+    records: await logStoreRecords(store),
     now: Date.now,
     transact: async (fn) => await store.transact(fn),
     postCommit: (step, label) => afterCommit(step, label),

@@ -25,7 +25,7 @@ import {
 import { serverRecordBuilders } from '../../sync/record-builders'
 import { openTestStore } from '../../test-support/open-test-store'
 import { expectRecordLogParity } from '../../test-support/record-log-parity'
-import { testStoreRecords } from '../../test-support/record-writer'
+import { logStoreRecords } from '../../test-support/record-writer'
 import { issueEventWindow } from './feed'
 
 const stores: SessionStore[] = []
@@ -42,7 +42,7 @@ async function harness(opts: { windowSize?: number } = {}) {
     repo: store.sync,
     // The capture names the window's changes and they are built from the
     // table (POD-6920), with the window this harness runs.
-    records: testStoreRecords(
+    records: await logStoreRecords(
       store,
       opts.windowSize === undefined ? {} : { eventWindow: opts.windowSize },
     ),

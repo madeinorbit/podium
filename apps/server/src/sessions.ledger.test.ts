@@ -22,7 +22,7 @@ import { attachTestClient } from './test-support/client-transport'
 import { feedDelta } from './test-support/feed-delta'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
-import { testStoreRecords } from './test-support/record-writer'
+import { logStoreRecords } from './test-support/record-writer'
 import { clientSessionViews } from './test-support/session-views'
 
 type ProjectionEvent = {
@@ -175,7 +175,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const store = await openTestStore(':memory:')
     const ledger = new Ledger({
       repo: store.sync,
-      records: testStoreRecords(store),
+      records: await logStoreRecords(store),
       now: () => 1_000,
       transact: async (fn) => await store.transact(fn),
     })

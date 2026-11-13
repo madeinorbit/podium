@@ -3,7 +3,7 @@ import { Ledger } from '@podium/sync'
 import { testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { openTestStore } from '../../test-support/open-test-store'
-import { testStoreRecords } from '../../test-support/record-writer'
+import { logStoreRecords } from '../../test-support/record-writer'
 import { SessionRepository } from './repository'
 import { Session } from './session'
 
@@ -35,7 +35,7 @@ async function fixture(count: number) {
   const writer = testLedgerWriter(
     new Ledger({
       repo: store.sync,
-      records: testStoreRecords(store),
+      records: await logStoreRecords(store),
       now: () => Date.now(),
       transact: (fn) => store.transact(fn),
     }),

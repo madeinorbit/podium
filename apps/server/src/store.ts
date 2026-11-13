@@ -277,7 +277,17 @@ export class SessionStore {
   static async open(
     path: string = defaultDbPath(),
     hostMachineId: MachineId = asMachineId(randomUUID()),
-    options: SnapshotVerifierDeps & { queryOnly?: boolean } = {},
+    options: SnapshotVerifierDeps & {
+      queryOnly?: boolean
+      /**
+       * `whenLogAttaches` is a test store's (`openTestStore`): no change is
+       * captured until a change log attaches to the store
+       * ({@link SessionStore.attachChangeLog}), so a fixture that seeds rows
+       * with no log in the test has nothing to drain. Production captures
+       * from the end of the boot (POD-6920).
+       */
+      changeCapture?: 'atBoot' | 'whenLogAttaches'
+    } = {},
     watchdog: WatchdogOptions = {
       report: (report) => log.warn('transaction lease exceeded idle budget', { ...report }),
       onReportFailure: (error) => log.error('transaction watchdog sink failed', { err: error }),
@@ -359,9 +369,9 @@ export class SessionStore {
       // DERIVED CHANGE CAPTURE (POD-6920): from here every write of a row a
       // synced record reads is captured, and a transaction that does not drain
       // its capture into the log cannot commit.
-      if (!options.queryOnly) {
+      if (!options.queryOnly && options.changeCapture !== 'whenLogAttaches') {
         const captureStarted = performance.now()
-        await executor.exclusive(async (session) => await installChangeCapture(session))
+        await store.attachChangeLog()
         bootStage('change capture', captureStarted)
       }
       // After the migrations and the boot repairs, so the statistics describe
@@ -668,6 +678,22 @@ export class SessionStore {
       await setStoreTransferFence(session, false)
       this.transferFenceHeld = false
     })
+  }
+
+  /** Whether the change capture is installed (POD-6920). */
+  private changeLogAttached = false
+
+  /**
+   * DERIVED CHANGE CAPTURE (POD-6920): from here every write of a row a
+   * synced record reads is captured, and a transaction that does not drain
+   * its capture into the log cannot commit. The boot does this for every
+   * server store; a test store does it when its test wires a change log over
+   * the store (`SessionRegistry.create`, `testStoreRecords`). Idempotent.
+   */
+  async attachChangeLog(): Promise<void> {
+    if (this.changeLogAttached) return
+    this.changeLogAttached = true
+    await this.executor.exclusive(async (session) => await installChangeCapture(session))
   }
 
   /** Run `fn` atomically on the shared connection (nesting-safe: BEGIN at depth

@@ -6,7 +6,7 @@ import { Session } from '../modules/sessions/session'
 import { RUNTIME_EVENT_LOG_KIND } from '../store/events'
 import { issueRowFixture } from '../test-support/issue-row'
 import { openTestStore } from '../test-support/open-test-store'
-import { testStoreRecords } from '../test-support/record-writer'
+import { logStoreRecords } from '../test-support/record-writer'
 import { installSessionSourceWrites } from './session-source-writes'
 
 const stores: Awaited<ReturnType<typeof openTestStore>>[] = []
@@ -20,7 +20,7 @@ async function fixture() {
   stores.push(store)
   const ledger = new Ledger({
     repo: store.sync,
-    records: testStoreRecords(store),
+    records: await logStoreRecords(store),
     now: () => Date.parse('2026-11-11T00:00:00Z'),
     transact: (fn) => store.transact(fn),
   })

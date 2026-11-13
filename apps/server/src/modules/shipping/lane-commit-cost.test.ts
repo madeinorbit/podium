@@ -21,7 +21,7 @@ import { sessionReadPorts } from '../../test-support/session-facts'
 import { IssueService } from '../issues/service'
 import { CompatibilityShippingPolicyResolver } from './policy'
 import { ShippingService } from './service'
-import { testStoreRecords } from '../../test-support/record-writer'
+import { logStoreRecords } from '../../test-support/record-writer'
 
 const stores: SessionStore[] = []
 afterEach(async () => {
@@ -45,7 +45,7 @@ async function world(outside: number, laneSize: number, outsideQueued = true) {
   stores.push(store)
   const ledger = new Ledger({
     repo: store.sync,
-    records: testStoreRecords(store),
+    records: await logStoreRecords(store),
     now: Date.now,
     transact: async (fn) => await store.transact(fn),
   })

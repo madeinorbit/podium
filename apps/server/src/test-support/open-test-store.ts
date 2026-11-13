@@ -44,7 +44,12 @@ export async function openTestStore(
   // selects it, so forwarding all three keeps the state-dir path, the freshly
   // minted machine id and the real verifier exactly as a bare `await SessionStore.open()`
   // would have them.
-  const store = await SessionStore.open(path, hostMachineId, snapshotVerifierDeps)
+  // No change capture until the test attaches a change log (POD-6920): a
+  // store-level fixture seeds with no log to bypass.
+  const store = await SessionStore.open(path, hostMachineId, {
+    ...snapshotVerifierDeps,
+    changeCapture: 'whenLogAttaches',
+  })
   primeFirstAdminMember(await firstAdminMemberId(store))
   return store
 }

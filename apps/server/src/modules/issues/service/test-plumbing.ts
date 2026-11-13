@@ -52,10 +52,17 @@ export function issueTestPlumbing(
   readonly changeLog: Ledger
 } {
   const emptyRecords = new ModelRecords()
+  // The Ledger reads the store's change capture, so the change log attaches
+  // to the store now (POD-6920); the first commit waits for it.
+  const attached = opts.store?.attachChangeLog()
+  const transact = opts.transact ?? (async (fn) => await fn())
   const ledger = new Ledger({
     repo: memoryChangeLogStore(),
     now: Date.now,
-    transact: opts.transact ?? (async (fn) => await fn()),
+    transact: async (fn) => {
+      await attached
+      return await transact(fn)
+    },
     records: opts.store === undefined ? emptyRecords : testStoreRecords(opts.store),
   })
   ledger.onAppended((changes) => {

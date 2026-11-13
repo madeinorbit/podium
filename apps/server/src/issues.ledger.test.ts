@@ -8,7 +8,7 @@ import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { applyAfterCommit, spanOpen } from './store/executor/executor'
 import { openTestStore } from './test-support/open-test-store'
-import { testStoreRecords } from './test-support/record-writer'
+import { logStoreRecords } from './test-support/record-writer'
 import { sessionReadPorts } from './test-support/session-facts'
 
 /**
@@ -29,7 +29,7 @@ async function harness() {
   const applyCommit = { spanOpen, onCommit: applyAfterCommit }
   const ledger = new Ledger({
     repo: store.sync,
-    records: testStoreRecords(store),
+    records: await logStoreRecords(store),
     now: () => 1_000,
     transact: async (fn) => await store.transact(fn),
     applyCommit,
@@ -620,7 +620,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     await store.issues.upsertIssue(fixtureWriteScope(), { ...row, title: 'changed offline' })
     const ledger2 = new Ledger({
       repo: store.sync,
-      records: testStoreRecords(store),
+      records: await logStoreRecords(store),
       now: () => 2_000,
       transact: async (fn) => await store.transact(fn),
     })

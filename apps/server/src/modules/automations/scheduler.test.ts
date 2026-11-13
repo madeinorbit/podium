@@ -8,7 +8,7 @@ import { openTestStore } from '../../test-support/open-test-store'
 import { type AutomationDecision, decideTick, GRACE_MS, type Schedulable } from './decide'
 import type { AutomationPrompt } from './prompt'
 import { type AutomationCommandWriter, type AutomationInput, AutomationsService } from './service'
-import { testStoreRecords } from '../../test-support/record-writer'
+import { logStoreRecords } from '../../test-support/record-writer'
 
 const TEST_PRINCIPAL = userCommandPrincipal(firstAdminMemberId(), 'admin')
 
@@ -197,7 +197,7 @@ async function harness(
   let authorized = true
   const ledger = new Ledger({
     repo: store.sync,
-    records: testStoreRecords(store),
+    records: await logStoreRecords(store),
     now: () => clock.getTime(),
     transact: async (fn) => await store.transact(fn),
   })

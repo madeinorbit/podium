@@ -86,7 +86,8 @@ export async function dropChangeCapture(session: DriverSession): Promise<void> {
 /**
  * Replace the capture triggers with the ones the declarations call for, and
  * empty the capture table (a transaction can only have left rows in it with
- * foreign keys off). One atomic batch.
+ * foreign keys off) and its guard (which must stay empty for the guard to
+ * refuse). One atomic batch.
  */
 export async function installChangeCapture(
   session: DriverSession,
@@ -95,6 +96,7 @@ export async function installChangeCapture(
   await dropChangeCapture(session)
   await session.executeBatch([
     statement('DELETE FROM sync_capture'),
+    statement('DELETE FROM sync_capture_guard'),
     ...captureTriggerStatements(sources).map(statement),
   ])
 }

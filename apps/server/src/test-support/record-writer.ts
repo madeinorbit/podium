@@ -17,12 +17,14 @@ import {
 } from '@podium/sync'
 import { authorityCommitWriter, memoryChangeLog } from '@podium/sync/testing'
 import { databaseRecords } from '../sync/record-source'
+import type { SessionStore } from '../store'
 import type { RecordReads } from '../sync/record-builders'
 
 /**
- * The record source of a test's own Ledger over a real store: what
- * `relay.ts` gives the production Ledger, so a service under test has its
- * writes captured and built the same way.
+ * The record source over a real store, for a test that READS records (a
+ * visibility port's current values, a parity check). It attaches no change
+ * log: a test whose Ledger drains the store's capture takes
+ * {@link logStoreRecords}.
  */
 export function testStoreRecords(
   store: RecordReads['store'],
@@ -42,6 +44,21 @@ export function testStoreRecords(
       : { confirmedPerSession: opts.confirmedPerSession }),
     ...(opts.eventWindow === undefined ? {} : { eventWindow: opts.eventWindow }),
   })
+}
+
+/**
+ * The record source of a test's own Ledger over a real store: what
+ * `relay.ts` gives the production Ledger, so a service under test has its
+ * writes captured and built the same way. It attaches the change log to the
+ * store (POD-6920): from here every write of a synced row is captured, and a
+ * transaction that leaves its capture undrained is refused.
+ */
+export async function logStoreRecords(
+  store: RecordReads['store'],
+  opts: Parameters<typeof testStoreRecords>[1] = {},
+): Promise<RecordSourcePort> {
+  await (store as Partial<Pick<SessionStore, 'attachChangeLog'>>).attachChangeLog?.()
+  return testStoreRecords(store, opts)
 }
 
 export interface RecordTestWriter {
@@ -65,10 +82,17 @@ export function recordTestWriter(
   } = {},
 ): RecordTestWriter {
   const appended: EntityChangeSpec[] = []
+  // The writer drains the store's change capture, so the change log attaches
+  // to a real store now (POD-6920); the first commit waits for it.
+  const attached = (store as Partial<Pick<SessionStore, 'attachChangeLog'>>).attachChangeLog?.()
+  const transact = opts.transact ?? ((fn) => fn())
   const authority = new Authority({
     store: memoryChangeLog(),
     now: opts.now ?? (() => 1_000),
-    transact: opts.transact ?? ((fn) => fn()),
+    transact: async (fn) => {
+      await attached
+      return await transact(fn)
+    },
     visibility: new DeviceGradeUnscopedPolicy(),
     anchors: new DeviceGradeNoAnchors(),
     records: databaseRecords(

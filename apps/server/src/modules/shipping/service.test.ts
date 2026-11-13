@@ -18,7 +18,7 @@ import { fixtureWriteScope, testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
-import { testStoreRecords } from '../../test-support/record-writer'
+import { logStoreRecords } from '../../test-support/record-writer'
 import { sessionReadPorts } from '../../test-support/session-facts'
 import {
   countStatements,
@@ -88,7 +88,7 @@ async function harness(
   stores.push(store)
   const ledger = new Ledger({
     repo: store.sync,
-    records: testStoreRecords(store),
+    records: await logStoreRecords(store),
     now: Date.now,
     transact: async (fn) => await store.transact(fn),
   })

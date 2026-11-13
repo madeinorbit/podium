@@ -56,7 +56,17 @@ export class StoreModelLedger extends Ledger {
         return kind === entity ? [{ id, value }] : []
       })
     }
-    super({ ...deps, records })
+    // The fixture rows' writes are captured, so the change log attaches to
+    // the store now (POD-6920); the first commit waits for it.
+    const attached = store.attachChangeLog()
+    super({
+      ...deps,
+      records,
+      transact: async (fn) => {
+        await attached
+        return await deps.transact(fn)
+      },
+    })
     this.modelStore = store
   }
 

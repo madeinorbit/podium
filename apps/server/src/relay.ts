@@ -759,6 +759,8 @@ export class SessionRegistry {
     options: SessionRegistryOptions,
   ): Promise<SessionRegistry> {
     const resolvedStore = store ?? (await SessionStore.open(':memory:'))
+    // The registry's Ledger reads the store's change capture (POD-6920).
+    await resolvedStore.attachChangeLog()
     const registry = new SessionRegistry(resolvedStore, notificationPushers, options, {
       settings: await resolvedStore.settings.getSettings(),
       updateRecovery: await resolvedStore.updateRecovery.read(),
