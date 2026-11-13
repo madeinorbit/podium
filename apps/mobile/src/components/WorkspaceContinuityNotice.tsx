@@ -46,30 +46,32 @@ function ContinuityNoticeBody({
 
   return (
     <NoticeLayout>
-      <PressableScale
-        accessibilityRole="button"
-        accessibilityLabel={`${lines.join(' ')} Open Settings.`}
-        onPress={() => router.push('/settings')}
-        style={({ pressed }) => [styles.notice, pressed && styles.pressed]}
-        testID="workspace-continuity-notice"
-      >
-        <Icon as={AlertTriangle} size={17} color={color.needsYouText} />
-        <View style={styles.copy}>
-          {lines.map((line) => (
-            <Text key={line} style={styles.text}>
-              {line}
-            </Text>
-          ))}
-        </View>
-        <View style={styles.action}>
+      <View style={styles.container}>
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={`${lines.join(' ')} Open Settings.`}
+          onPress={() => router.push('/settings')}
+          style={({ pressed }) => [styles.notice, pressed && styles.pressed]}
+          testID="workspace-continuity-notice"
+        >
+          <Icon as={AlertTriangle} size={17} color={color.needsYouText} />
+          <View style={styles.copy}>
+            {lines.map((line) => (
+              <Text key={line} style={styles.text}>
+                {line}
+              </Text>
+            ))}
+          </View>
           <Text style={styles.link}>Settings</Text>
-        </View>
-      </PressableScale>
+        </PressableScale>
+      </View>
     </NoticeLayout>
   )
 }
 
 const styles = StyleSheet.create({
+  // The hosted root fills the native row; its padding keeps the card inside it.
+  container: { paddingHorizontal: space.md, paddingBottom: space.sm },
   notice: {
     minHeight: 52,
     flexDirection: 'row',
@@ -79,15 +81,18 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: color.borderStrong,
-    backgroundColor: color.surface,
-    marginHorizontal: space.md,
-    marginBottom: space.sm,
+    backgroundColor: color.groupedCard,
     paddingHorizontal: space.md,
     paddingVertical: space.md,
   },
   pressed: { opacity: 0.84 },
   copy: { flex: 1, minWidth: 0, gap: space.xs },
   text: { color: color.body, fontSize: font.tiny, lineHeight: leading(font.tiny, 'prose') },
-  action: { flexShrink: 0, alignSelf: 'center', justifyContent: 'center', minHeight: 44 },
-  link: { color: color.needsYouText, ...sans(600), fontSize: font.tiny },
+  link: {
+    flexShrink: 0,
+    alignSelf: 'center',
+    color: color.needsYouText,
+    ...sans(600),
+    fontSize: font.tiny,
+  },
 })
