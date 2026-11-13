@@ -500,6 +500,7 @@ const TaskLine = observer(function TaskLine({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${ref} ${title}, ${label}`}
+        pressRetentionOffset={12}
         onPress={onPress}
         onLongPress={onLongPress}
         style={({ pressed }) => [
@@ -547,6 +548,7 @@ const AgentLine = observer(function AgentLine({
       accessibilityRole="button"
       accessibilityLabel={`${name}, ${SESSION_WORD_LABEL[session.word]}${current ? ', open' : ''}`}
       accessibilityState={{ selected: current }}
+      pressRetentionOffset={12}
       onPress={onPress}
       style={({ pressed }) => [
         styles.agent,
@@ -595,6 +597,7 @@ const SeatRow = observer(function SeatRow({
       accessibilityRole="button"
       accessibilityLabel={`${name}, ${word}${current ? ', open' : ''}`}
       accessibilityState={{ selected: current }}
+      pressRetentionOffset={12}
       onPress={onPress}
       style={({ pressed }) => [
         styles.seat,
