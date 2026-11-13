@@ -73,12 +73,18 @@ async function drive(): Promise<{ registry: SessionRegistry; inbox: unknown[] }>
   })
   await expect.poll(() => inbox).toContainEqual(expect.objectContaining({ type: 'feedResume' }))
   // A real write through the real funnel, then the deterministic flush seam.
-  await registry.issues.crud.create(registry.issues.reports.store.serverWriter, { repoPath: '/r', title: 'switch-latency probe', startNow: false })
+  await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+    repoPath: '/r',
+    title: 'switch-latency probe',
+    startNow: false,
+  })
   registry.modules.funnel.flushDeltas()
   // The feed's publish runs after the flush, asynchronously; since issue reads
   // come from the database (POD-6158) it can still be in flight here. Wait for
   // its frame phase rather than race it: a publish that never comes still fails.
-  await expect.poll(() => perf.snapshot().phases['feedPublish.frame']?.count ?? 0).toBeGreaterThan(0)
+  await expect
+    .poll(() => perf.snapshot().phases['feedPublish.frame']?.count ?? 0)
+    .toBeGreaterThan(0)
   return { registry, inbox }
 }
 
@@ -148,7 +154,7 @@ describe('switch-latency harness observes the delta-feed path [POD-736]', () => 
     for (const name of Object.keys(snap.phases).filter((n) => n.startsWith('feedPublish.'))) {
       expect(
         slice?.phases[name]?.count,
-        `${name} is recorded deployment-wide but missing from the live principal's partition`,
+        `${name} is recorded deployment-wide but missing from the live principal's partition (partitions ${JSON.stringify(Object.fromEntries(Object.entries(snap.byPrincipal).map(([k, v]) => [k, Object.keys(v.phases)])))}, live ${LIVE.digest})`,
       ).toBeGreaterThan(0)
     }
     // …and the aggregate really had those phases, so the loop above is not

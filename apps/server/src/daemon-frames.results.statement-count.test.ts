@@ -276,8 +276,9 @@ describe('daemon *Result frames: pinned statement counts at 5 and 200', () => {
   // A report of conversations the server knows writes nothing: every row is
   // unchanged, so no change is appended either.
   it('scanResult that reports as many known conversations as the size', async () => {
-    // POD-6920: derived change capture (no build before the write; one drain after it): scanResult (known conversations) 6 -> 5.
-    await expectConstantStatements(scan(true), 5)
+    // POD-6920: derived change capture (no build before the write; one drain
+    // after it, the registry's writes inside the same commit): 6 -> 4.
+    await expectConstantStatements(scan(true), 4)
   })
 
   // The same discovery path, on the frame a daemon's watcher sends whenever its
@@ -294,8 +295,9 @@ describe('daemon *Result frames: pinned statement counts at 5 and 200', () => {
             diagnostics: [],
           }),
       },
-      // POD-6920: derived change capture (no build before the write; one drain after it): 6 -> 5.
-      5,
+      // POD-6920: derived change capture (no build before the write; one drain
+      // after it, the registry's writes inside the same commit): 6 -> 4.
+      4,
     )
   })
 

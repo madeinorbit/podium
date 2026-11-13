@@ -973,8 +973,12 @@ export const RECORD_SOURCES: RecordSources = {
           sessions.lastOutputAt,
           sessions.lastInputAt,
           sessions.workingMsTotal,
+          sessions.conversationBinding,
         ],
       },
+      // Of the conversation binding the record carries only `neverBound`
+      // (`isNeverBound`: 'never', with the resume columns watched as read).
+      derived: [`{row}.${sessions.conversationBinding.name} IS 'never'`],
       rows: notTombstoned(sessions.deletedAt),
     }),
     own(offers, [offers.sessionId], (key) => str(key[0]), {
