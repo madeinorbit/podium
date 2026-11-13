@@ -251,6 +251,46 @@ it('spawns the resolved executable headless under the session label', async () =
   expect(launched[0]?.stripEnv).toContain('ANTHROPIC_API_KEY')
 })
 
+it.each([
+  ['autonomous', {}],
+  ['supervised', { bash: { '*': 'ask' }, edit: 'ask' }],
+] as const)('runs serve on its engine terms, %s: the CLI and uploads rules ride the inline config, no --auto', async (level, modeRules) => {
+  const launched: TestEngineSpawn[] = []
+  const stopped = new Error('stop after env capture')
+  const host = engineHost({
+    // The terms' env is wiring: it reaches the child through this port.
+    buildEnv: (input) => ({ ...input.harnessEnv }),
+    ...fakePorts({
+      startEngine: async (opts) => {
+        launched.push(opts)
+        throw stopped
+      },
+    }),
+  })
+  const terms = testSessionTerms()
+  await expect(
+    host.launch({
+      sessionId: SESSION,
+      workdir: '/tmp',
+      secret: 'secret',
+      username: 'podium',
+      ...terms,
+      posture: { mode: level },
+      harnessContext: CONTEXT,
+    }),
+  ).rejects.toBe(stopped)
+
+  expect(launched[0]?.args).toEqual(['serve', '--port', '41234', '--hostname', '127.0.0.1'])
+  const config = JSON.parse(launched[0]?.env.OPENCODE_CONFIG_CONTENT ?? '{}')
+  expect(config).toEqual({
+    permission: {
+      ...modeRules,
+      bash: { ...('bash' in modeRules ? modeRules.bash : {}), 'podium *': 'allow' },
+      external_directory: { [`${terms.grants.uploadsDir}/*`]: 'allow' },
+    },
+  })
+})
+
 it('passes the isolated database path to the OpenCode 2 server process', async () => {
   const stopped = new Error('stop after env capture')
   const launched: TestEngineSpawn[] = []
