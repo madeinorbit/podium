@@ -905,9 +905,9 @@ export const RECORD_SOURCES: RecordSources = {
     ),
   ],
   session: [
-    // Not the activity and terminal counters, the unpublished activity time
-    // or the terminal size: the record carries the published activity time,
-    // and size and counts are live topics, not record fields (POD-6764).
+    // Not the activity and terminal counters and times, the unpublished
+    // activity time or the terminal size: the record carries the published
+    // activity time, and these are live topics, not record fields (POD-6764).
     byId(sessions, sessions.id, {
       reads: {
         allBut: [
@@ -918,6 +918,9 @@ export const RECORD_SOURCES: RecordSources = {
           sessions.inputCount,
           sessions.outputCount,
           sessions.activityCount,
+          sessions.lastOutputAt,
+          sessions.lastInputAt,
+          sessions.workingMsTotal,
         ],
       },
       rows: notTombstoned(sessions.deletedAt),
