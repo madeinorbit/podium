@@ -12,6 +12,7 @@ import { MOBILE_TASK_WINDOW_SIZE, MobileTasksBoard } from './mobile-tasks'
 import { ProposalScreening } from './mobile-triage'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
+import { worklistView } from './worklist/view-model'
 
 const now = Date.parse('2026-10-03T12:00:00Z')
 const options: MobileTasksOptions = {
@@ -81,6 +82,38 @@ const layout = (board: MobileTasksBoard) => {
   if (sections === LOADING) throw new Error('Tasks still loading')
   return sections.map((section) => ({ ...section, rows: section.rows.map((row) => ({ ...row })) }))
 }
+
+it('uses Work child-search results to annotate collapsed Tasks matches without changing saved expansion', async () => {
+  const { pool, load } = await setup([
+    issue('root', { title: 'Search parent' }),
+    issue('child', { seq: 2437, title: 'Nested task', parentId: 'root' }),
+    issue('grandchild', { seq: 2438, title: 'Deep match', parentId: 'child' }),
+    issue('unrelated', { title: 'Nested unrelated task' }),
+  ])
+  const board = new MobileTasksBoard(pool, { ...options, expanded: [] })
+  const phone = worklistView(pool).phone
+  disposals.push(autorun(() => board.groups))
+  for (const query of ['2437', '#2437', 'Nested task', '2438']) {
+    board.search(query)
+    phone.setQuery(query)
+    const expected = query === '2438' ? 'grandchild' : 'child'
+    expect(phone.childHit('root')).toBe(expected)
+    expect(board.task('root').childHit).toBe(phone.childHit('root'))
+  }
+  expect(load).not.toHaveBeenCalled()
+  board.toggleExpanded('root')
+  expect(board.task('root').childHit).toBeNull()
+  expect(board.task('child').childHit).toBe('grandchild')
+  board.search('')
+  expect(board.task('child').childHit).toBeNull()
+  expect(board.expanded).toEqual(['root'])
+  // A text filter uses the same board matches, including other active facets.
+  board.toggleExpanded('root')
+  board.setFilter({ text: '2437', projectPaths: ['/other'] })
+  expect(board.task('root').childHit).toBeNull()
+  board.clearFilter('projectPaths')
+  expect(board.task('root').childHit).toBe('child')
+})
 
 it('borrows cold board summaries for ID membership without loading rich rows or sessions', async () => {
   const { pool, load } = await setup([

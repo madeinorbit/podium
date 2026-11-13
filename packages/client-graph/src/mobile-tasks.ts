@@ -11,6 +11,7 @@ import { MOBILE_TASK_STAGES, type MobileTasksOptions } from './mobile-screens-sc
 import { ProposalQueue } from './mobile-triage'
 import type { IssueModel, ModelOf } from './models'
 import type { MobxPool } from './pool'
+import { firstResidentChildMatch } from './resident-child-match'
 import { RowWindow } from './row-window'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -205,6 +206,16 @@ class BoardTask {
 
   @lazy get expanded(): boolean {
     return this.childIds.length > 0 && this.board.expanded.includes(this.id)
+  }
+
+  /** A collapsed search result names the matching child using Work's resident walk. */
+  @lazy get childHit(): string | null {
+    if (!this.board.searching || this.expanded) return null
+    return firstResidentChildMatch(
+      this.board.pool,
+      this.id,
+      (issue) => this.board.task(issue.id).matched,
+    )
   }
 
   @lazy get depth(): number {

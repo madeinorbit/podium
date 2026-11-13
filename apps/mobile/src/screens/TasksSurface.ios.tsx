@@ -440,7 +440,11 @@ const TaskRow = taskObserver(function TaskRow({
   const issue = board.issue(row.id)
   if (!here(issue.row)) return null
   const finished = isFinished(issue)
-  const mark = board.task(issue.id).mark
+  const task = board.task(issue.id)
+  const mark = task.mark
+  const childHit = task.childHit
+  const child = childHit ? board.issue(childHit) : null
+  const match = child && here(child.row) ? child : null
   const ref = issueDisplayRef(issue)
   const unread = Boolean((issue as unknown as { unread?: boolean }).unread)
   const notSaved = pool?.notSaved('issue', issue.id) ?? false
@@ -488,64 +492,73 @@ const TaskRow = taskObserver(function TaskRow({
               buttonStyle('plain'),
               accessibilityElement('ignore'),
               accessibilityLabel(
-                `${issue.title}. ${ref}. ${progress}${unread ? '. Unread' : ''}${notSaved ? '. Not saved' : ''}`,
+                `${issue.title}. ${ref}. ${progress}${match ? `. Matching sub-task ${match.displayRef}. ${match.title}` : ''}${unread ? '. Unread' : ''}${notSaved ? '. Not saved' : ''}`,
               ),
               accessibilityHint('Opens the task. Swipe or long press for actions.'),
             ]}
           >
-            <HStack
-              spacing={8}
-              modifiers={[
-                // Keep the native list minimum; this padding lets larger text
-                // grow the content before it reaches the separators.
-                padding({ vertical: 6 }),
-                frame({ minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
-                contentShape(shapes.rectangle()),
-              ]}
-            >
-              {row.depth > 0 ? <Spacer modifiers={[frame({ width: row.depth * 16 - 8 })]} /> : null}
-              <Image
-                systemName={MARK_SYMBOL[mark]}
-                size={mark === 'needs' ? 8 : 10}
-                color={MARK_COLOR[mark]}
-                modifiers={[frame({ width: 14 }), accessibilityHidden()]}
-              />
-              {accessible ? (
-                // Accessibility sizes (as Mail): the title takes the row's width and
-                // up to three lines; ID and figure wrap to their own line below it.
-                <VStack
-                  alignment="leading"
-                  spacing={2}
-                  modifiers={[frame({ maxWidth: Infinity, alignment: 'leading' })]}
-                >
-                  {title(3)}
-                  <HStack spacing={8}>
-                    {refText}
-                    <TaskFigure issue={issue} fontScale={fontScale} />
-                  </HStack>
-                </VStack>
-              ) : (
-                title(1)
-              )}
-              {unread ? (
+            <VStack alignment="leading" spacing={0}>
+              <HStack
+                spacing={8}
+                modifiers={[
+                  // Keep the native list minimum; this padding lets larger text
+                  // grow the content before it reaches the separators.
+                  padding({ vertical: 6 }),
+                  frame({ minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
+                  contentShape(shapes.rectangle()),
+                ]}
+              >
+                {row.depth > 0 ? (
+                  <Spacer modifiers={[frame({ width: row.depth * 16 - 8 })]} />
+                ) : null}
                 <Image
-                  systemName="circle.fill"
-                  size={6}
-                  color={color.workingText}
-                  modifiers={[accessibilityHidden()]}
+                  systemName={MARK_SYMBOL[mark]}
+                  size={mark === 'needs' ? 8 : 10}
+                  color={MARK_COLOR[mark]}
+                  modifiers={[frame({ width: 14 }), accessibilityHidden()]}
                 />
+                {accessible ? (
+                  // Accessibility sizes (as Mail): the title takes the row's width and
+                  // up to three lines; ID and figure wrap to their own line below it.
+                  <VStack
+                    alignment="leading"
+                    spacing={2}
+                    modifiers={[frame({ maxWidth: Infinity, alignment: 'leading' })]}
+                  >
+                    {title(3)}
+                    <HStack spacing={8}>
+                      {refText}
+                      <TaskFigure issue={issue} fontScale={fontScale} />
+                    </HStack>
+                  </VStack>
+                ) : (
+                  title(1)
+                )}
+                {unread ? (
+                  <Image
+                    systemName="circle.fill"
+                    size={6}
+                    color={color.workingText}
+                    modifiers={[accessibilityHidden()]}
+                  />
+                ) : null}
+                {notSaved ? (
+                  <Image
+                    systemName="exclamationmark.icloud"
+                    size={12}
+                    color={color.dangerText}
+                    modifiers={[accessibilityHidden()]}
+                  />
+                ) : null}
+                {accessible ? null : refText}
+                {accessible ? null : <TaskFigure issue={issue} fontScale={fontScale} />}
+              </HStack>
+              {match ? (
+                <HStack modifiers={[padding({ leading: 22 + row.depth * 16, bottom: 6 })]}>
+                  <TaskSearchHit issue={match} fontScale={fontScale} />
+                </HStack>
               ) : null}
-              {notSaved ? (
-                <Image
-                  systemName="exclamationmark.icloud"
-                  size={12}
-                  color={color.dangerText}
-                  modifiers={[accessibilityHidden()]}
-                />
-              ) : null}
-              {accessible ? null : refText}
-              {accessible ? null : <TaskFigure issue={issue} fontScale={fontScale} />}
-            </HStack>
+            </VStack>
           </Button>
         </ContextMenu.Trigger>
         <ContextMenu.Items>
@@ -624,6 +637,46 @@ const TaskRow = taskObserver(function TaskRow({
         />
       </SwipeActions.Actions>
     </SwipeActions>
+  )
+})
+
+/** The child that explains a collapsed parent's search result, as on Work. */
+const TaskSearchHit = observer(function TaskSearchHit({
+  issue,
+  fontScale,
+}: {
+  issue: MobileTaskIssue
+  fontScale: number
+}) {
+  return (
+    <HStack spacing={4}>
+      <Image
+        systemName="arrow.turn.down.right"
+        modifiers={[
+          font({ textStyle: 'caption2' }),
+          foregroundStyle(paper.tertiary),
+          accessibilityHidden(),
+        ]}
+      />
+      <Text
+        modifiers={[
+          font({ size: 11 * fontScale, design: 'monospaced' }),
+          foregroundStyle(paper.tertiary),
+          lineLimit(1),
+        ]}
+      >
+        {issue.displayRef}
+      </Text>
+      <Text
+        modifiers={[
+          font({ textStyle: 'footnote' }),
+          foregroundStyle(paper.secondary),
+          lineLimit(fontScale >= ACCESSIBILITY_SCALE ? 2 : 1),
+        ]}
+      >
+        {issue.title}
+      </Text>
+    </HStack>
   )
 })
 

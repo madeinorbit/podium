@@ -1,8 +1,7 @@
 import { boardTextMatcher } from '@podium/client-core/values'
 import { companion, lazy } from '@podium/mobx-helpers'
 import { action, compareShallow, compareStructural, observable, observableRef } from 'mobx'
-import { omitGone } from '../lookup'
-import type { IssueModel } from '../models'
+import { firstResidentChildMatch } from '../resident-child-match'
 import { RowWindow } from '../row-window'
 import { compareRank } from '../shared/row-view'
 import { type GroupNode, repoLabelOf, worklistGroups } from './groups'
@@ -319,21 +318,10 @@ class PhoneSearchHit {
   @lazy get childId(): string | null {
     const matches = this.phone.textMatcher
     if (!matches) return null
-    const pool = this.phone.worklist.pool
-    const seen = new Set<string>([this.row.id])
-    const queue = [...pool.graph.many('issue', this.row.id, 'treeChildren')]
-    for (let index = 0; index < queue.length; index++) {
-      const id = queue[index]!
-      if (seen.has(id)) continue
-      seen.add(id)
-      // A search never loads cold sub-tasks.
-      // untracked-read: work-search-child-peek
-      if (!omitGone(pool.row('issue', id, 'peek'))) continue
-      const issue = omitGone(pool.model('issue', id)) as IssueModel | undefined
-      if (!issue || typeof issue === 'symbol') continue
-      if (!issue.deletedAt && !issue.archived && matches(issue)) return id
-      queue.push(...pool.graph.many('issue', id, 'treeChildren'))
-    }
-    return null
+    return firstResidentChildMatch(
+      this.phone.worklist.pool,
+      this.row.id,
+      (issue) => !issue.deletedAt && !issue.archived && matches(issue),
+    )
   }
 }

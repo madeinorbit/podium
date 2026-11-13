@@ -632,9 +632,9 @@ it.each([
   for (const text of ['POD-123', 'pod 123', '#123', '123', 'nested task']) {
     act(() => changeSearchText(text))
     expect(screen.getByText('Search parent')).toBeTruthy()
+    expect(screen.getByText('Nested task')).toBeTruthy()
     expect(screen.queryByText('Other task')).toBeNull()
     if (tab === 'Work') {
-      expect(screen.getByText('Nested task')).toBeTruthy()
       expect(phone.query).toBe(text)
       expect(phone.childHit('parent')).toBe('child')
     } else expect(board.searchFilter.text).toBe(text)
