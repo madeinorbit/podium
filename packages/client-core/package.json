@@ -234,6 +234,16 @@
       "@podium/source": "./src/agent-models.ts",
       "types": "./src/agent-models.ts",
       "import": "./src/agent-models.ts"
+    },
+    "./new-task": {
+      "@podium/source": "./src/new-task.ts",
+      "types": "./src/new-task.ts",
+      "import": "./src/new-task.ts"
+    },
+    "./first-task-draft": {
+      "@podium/source": "./src/first-task-draft.ts",
+      "types": "./src/first-task-draft.ts",
+      "import": "./src/first-task-draft.ts"
     }
   },
   "scripts": {

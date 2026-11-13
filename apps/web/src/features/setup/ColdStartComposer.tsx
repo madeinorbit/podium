@@ -1,4 +1,19 @@
 import {
+  COORDINATOR_PROMPT,
+  checkoutForMachine,
+  countWords,
+  firstTaskLaunchNote,
+  firstTaskMachines,
+  promptTitle,
+  selectedFirstTaskMachine,
+  selectedFirstTaskRepository,
+} from '@podium/client-core/new-task'
+import { useFirstTaskRepositoryPicker } from '@podium/client-core/react'
+
+export { COORDINATOR_PROMPT, countWords } from '@podium/client-core/new-task'
+export { useFirstTaskRepositoryPicker } from '@podium/client-core/react'
+
+import {
   AUTO,
   draftForLaunchContext,
   draftForReportedModels,
@@ -13,25 +28,17 @@ import {
   SUPERAGENT_MODE_KEY,
 } from '@podium/client-core/ui-state'
 import {
-  AGENT_NOT_READY_COPY,
   activationAgentReadiness,
   agentCanLaunch,
-  indexedRepoUsageAt,
   launchAgentKind,
   machineViewsFromWire,
-  type RepoView,
-  reposToViews,
-  signInInTerminalCopy,
-  usableMachines,
 } from '@podium/client-core/values'
-import { asIssueId, asMutationId, asSessionId, type GitRepositoryWire } from '@podium/model'
+import { asIssueId, asMutationId, asSessionId } from '@podium/model'
 import {
   agentLoginCondition,
   asMachineId,
   DEFAULT_HARNESS_AGENT,
   machinePathBasename,
-  machinePathKey,
-  preferredMachineChoices,
 } from '@podium/model/browser'
 import { nativeAccountId, resolveRole } from '@podium/runtime'
 import { ChevronDown, Folder, LoaderCircle, Monitor, Paperclip } from 'lucide-react'
@@ -81,68 +88,12 @@ import {
   type FirstTaskDraft,
   readFirstTaskDraft,
   serializeFirstTaskDraft,
+  withoutCreateReservation,
 } from './first-task-draft'
 import { SetupError } from './SetupFeedback'
 
 function repoLabel(repo: { path: string; name?: string }): string {
   return repo.name ?? (machinePathBasename(repo.path) || repo.path)
-}
-
-/**
- * WHICH CHECKOUT ON DISK A PICKER ENTRY MEANS (POD-1582).
- *
- * A picker entry is a repo IDENTITY, not a directory: `reposToViews` groups by
- * `repoId`, which is derived from the origin URL alone, so two clones of one
- * origin on one machine arrive as a single entry carrying two `machines[]` rows
- * with the same `machineId`. Something has to choose between them, and the two
- * ways to get that wrong are both live:
- *
- *  - SCAN ORDER. `find` took whichever row the scanner happened to append
- *    first, so which clone a mission was created in could change between
- *    refreshes. The candidates are sorted, so the answer is at least the same
- *    answer twice.
- *  - THE OPERATOR'S OWN CHOICE. A draft's `repoPath` may already name one of
- *    those checkouts — that is how `selectedRepo` matched the entry. `prefer`
- *    honours it, which is the only way the second clone is reachable at all
- *    until the picker offers both (POD-1629).
- *
- * Returns undefined when the identity has no non-worktree checkout on that
- * machine; every caller treats that as "cannot launch here" rather than as a
- * repo that merely needs setup.
- */
-function checkoutForMachine(
-  repos: GitRepositoryWire[],
-  repo: RepoView,
-  machineId: string | undefined,
-  prefer?: string,
-): GitRepositoryWire | undefined {
-  const onMachine = (repo.machines ?? [])
-    .filter((candidate) => machineId === undefined || candidate.machineId === machineId)
-    .map((candidate) => candidate.path)
-    .sort()
-  const ordered = [
-    ...(prefer !== undefined && onMachine.includes(prefer) ? [prefer] : []),
-    ...onMachine,
-    repo.path,
-  ]
-  for (const path of ordered) {
-    const found = repos.find(
-      (candidate) =>
-        candidate.kind !== 'worktree' &&
-        candidate.path === path &&
-        (machineId === undefined || candidate.machineId === machineId),
-    )
-    if (found) return found
-  }
-  return undefined
-}
-
-function promptTitle(prompt: string): string {
-  const firstLine = prompt
-    .split('\n')
-    .map((line) => line.trim())
-    .find(Boolean)
-  return (firstLine ?? prompt.trim()).slice(0, 120)
 }
 
 /**
@@ -164,76 +115,6 @@ function attachmentBrief(paths: readonly string[]): string {
       : 'The operator attached these files to the mission:',
     ...paths,
   ].join('\n')
-}
-
-function withoutCreateReservation(draft: FirstTaskDraft): FirstTaskDraft {
-  return {
-    ...draft,
-    launchKind: '',
-    createIssueId: '',
-    createSessionId: '',
-    createMutationId: '',
-    attachmentPaths: [],
-    launchError: '',
-  }
-}
-
-/** The single first-task picker owns the order for each menu opening. */
-export function useFirstTaskRepositoryPicker(
-  repos: GitRepositoryWire[],
-  repositoryUsage: ReadonlyMap<string, number>,
-) {
-  // Stored on picker open: identities and recency stay still; metadata stays live.
-  const [repoOrder, setRepoOrder] = useState<readonly string[] | null>(null)
-  const repoIdentity = (repo: RepoView) =>
-    repo.repoId ??
-    (repo.originUrl ||
-      JSON.stringify([repo.machines?.[0]?.machineId ?? '', machinePathKey(repo.path)]))
-  const liveRepoChoices = useMemo(
-    () =>
-      reposToViews(repos).filter(
-        (view) => checkoutForMachine(repos, view, undefined) !== undefined,
-      ),
-    [repos],
-  )
-  const rankedRepoChoices = () => {
-    const usage = new Map<string, number>()
-    for (const repo of repos) usage.set(repo.path, indexedRepoUsageAt(repo, repositoryUsage))
-    const usageFor = (view: RepoView): number =>
-      Math.max(
-        usage.get(view.path) ?? 0,
-        ...(view.machines ?? []).map(({ path }) => usage.get(path) ?? 0),
-      )
-    return [...liveRepoChoices].sort(
-      (a, b) =>
-        usageFor(b) - usageFor(a) ||
-        a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
-    )
-  }
-  const rankingUsage = repoOrder === null ? repositoryUsage : undefined
-  const repoChoices = useMemo(() => {
-    if (repoOrder === null) return rankedRepoChoices()
-    const positions = new Map(repoOrder.map((id, position) => [id, position]))
-    const choices = new Array<RepoView | undefined>(repoOrder.length)
-    for (const repo of liveRepoChoices) {
-      const position = positions.get(repoIdentity(repo))
-      if (position !== undefined) choices[position] = repo
-    }
-    return choices.filter((repo): repo is RepoView => repo !== undefined)
-  }, [repoOrder, liveRepoChoices, rankingUsage])
-  const onOpenChange = (open: boolean) =>
-    setRepoOrder(open ? rankedRepoChoices().map(repoIdentity) : null)
-  return { repoChoices, onOpenChange }
-}
-
-/** Optional instructions for coordinating a complex epic. */
-export const COORDINATOR_PROMPT =
-  'This is a complex epic. You are the designated coordinator. Organize your work accordingly. Check with me on key decisions.'
-
-/** Words, as a person counts them: runs of non-space. */
-export function countWords(text: string): number {
-  const trimmed = text.trim()
-  return trimmed ? trimmed.split(/\s+/).length : 0
 }
 
 export function ColdStartComposer({
@@ -275,7 +156,10 @@ export function ColdStartComposer({
    * The pool maintains agent usage maxima by path as session keys change.
    * This picker asks only for its displayed repository/worktree roots.
    */
-  const { repoChoices, onOpenChange: onRepositoryPickerOpen } = useFirstTaskRepositoryPicker(repos, repositoryUsage)
+  const { repoChoices, onOpenChange: onRepositoryPickerOpen } = useFirstTaskRepositoryPicker(
+    repos,
+    repositoryUsage,
+  )
   /**
    * THE DRAFT IS SUBSCRIBED, NOT SEEDED (POD-1469).
    *
@@ -295,6 +179,7 @@ export function ColdStartComposer({
     FIRST_TASK_ACTIVATION_DRAFT_KEY,
     readFirstTaskDraft,
     serializeFirstTaskDraft,
+    withoutCreateReservation,
   )
   const [lastLaunchPicks] = usePersistedUiState(
     LAST_LAUNCH_PICK_KEY,
@@ -353,26 +238,16 @@ export function ColdStartComposer({
    */
   // Memoized on `machines` alone: this box re-renders on every keystroke in the
   // prompt, and neither set has anything to do with what was typed.
-  const { usable, authorized } = useMemo(() => {
+  const { authorized } = useMemo(() => {
     const views = machineViewsFromWire(machines)
     return {
-      usable: new Set(usableMachines(views).map((machine) => machine.id)),
       authorized: new Set(
         views.filter((view) => view.availability !== 'unauthorized').map((view) => view.machine.id),
       ),
     }
   }, [machines])
-  const selectedRepo =
-    repoChoices.find(
-      (repo) =>
-        repo.path === draft.repoPath || repo.machines?.some(({ path }) => path === draft.repoPath),
-    ) ?? repoChoices[0]
-  const repoMachineIds = new Set(selectedRepo?.machines?.map(({ machineId }) => machineId) ?? [])
-  const preferredMachines = preferredMachineChoices(machines)
-  const targetMachines =
-    repoMachineIds.size > 0
-      ? preferredMachines.filter((machine) => repoMachineIds.has(machine.id))
-      : preferredMachines
+  const selectedRepo = selectedFirstTaskRepository(repoChoices, draft.repoPath)
+  const targetMachines = firstTaskMachines(selectedRepo, machines)
   // AN UNAUTHORIZED HOST IS LISTED, NEVER DEFAULTED. Removing it would collapse
   // "ask its owner" into "that machine does not exist", which is the reading M5
   // spends its whole argument keeping apart — and the operator would have no way
@@ -385,13 +260,12 @@ export function ColdStartComposer({
   // is usable, or when nothing on the list is; a pick made in THIS box wins
   // outright, offline or not, so the picker never undoes the operator's click.
   const [pickedMachineId, setPickedMachineId] = useState<string>()
-  const selectedMachine =
-    targetMachines.find((machine) => machine.id === pickedMachineId) ??
-    targetMachines.find((machine) => machine.id === draft.machineId && usable.has(machine.id)) ??
-    targetMachines.find((machine) => usable.has(machine.id)) ??
-    targetMachines.find((machine) => machine.id === draft.machineId) ??
-    targetMachines.find((machine) => authorized.has(machine.id)) ??
-    targetMachines[0]
+  const selectedMachine = selectedFirstTaskMachine(
+    targetMachines,
+    draft.machineId,
+    pickedMachineId,
+    machines,
+  )
   const selectedCheckout = selectedRepo
     ? checkoutForMachine(repos, selectedRepo, selectedMachine?.id, draft.repoPath)
     : undefined
@@ -678,15 +552,8 @@ export function ColdStartComposer({
 
   const selectRepo = (repoPath: string): void => {
     const repo = repoChoices.find((candidate) => candidate.path === repoPath)
-    const repoMachines = new Set(repo?.machines?.map(({ machineId }) => machineId) ?? [])
-    const candidates =
-      repoMachines.size > 0
-        ? preferredMachineChoices(machines).filter((candidate) => repoMachines.has(candidate.id))
-        : preferredMachineChoices(machines)
-    const machine =
-      candidates.find((candidate) => usable.has(candidate.id)) ??
-      candidates.find((candidate) => authorized.has(candidate.id)) ??
-      candidates[0]
+    const candidates = firstTaskMachines(repo, machines)
+    const machine = selectedFirstTaskMachine(candidates, '', undefined, machines)
     setError(null)
     setPickedMachineId(undefined)
     setDraft({
@@ -1004,6 +871,16 @@ export function ColdStartComposer({
     })
   }
   const words = countWords(draft.title)
+  const launchNote = firstTaskLaunchNote({
+    machineDenied,
+    signInFirst,
+    ready,
+    hasCheckout: !!selectedCheckout,
+    readiness,
+    agentLabel: issueAgentLabel(agent),
+    projectLabel: selectedRepo ? repoLabel(selectedRepo) : 'This project',
+    machineLabel: selectedMachine?.name ?? 'this machine',
+  })
 
   /**
    * THE WHOLE EMPTY DECK TAKES A DROP (POD-1669).
@@ -1327,27 +1204,7 @@ export function ColdStartComposer({
               agent setup makes a host you have no grant on runnable. NEITHER IS
               A MISSING CHECKOUT: the machine picker is the control that fixes
               that one, so name it. */}
-          {machineDenied ? (
-            <p className="cold-start-note">
-              You do not have access to run work on this machine. Ask its owner for access, or pick
-              another machine.
-            </p>
-          ) : signInFirst ? (
-            <p className="cold-start-note">
-              {signInInTerminalCopy(readiness, issueAgentLabel(agent))}
-            </p>
-          ) : (
-            !ready &&
-            (selectedCheckout ? (
-              <p className="cold-start-note">{AGENT_NOT_READY_COPY}</p>
-            ) : (
-              <p className="cold-start-note">
-                {selectedRepo ? repoLabel(selectedRepo) : 'This project'} is not checked out on{' '}
-                {selectedMachine?.name ?? 'this machine'}. Pick another machine, or clone it there
-                first.
-              </p>
-            ))
-          )}
+          {launchNote ? <p className="cold-start-note">{launchNote}</p> : null}
           {draft.pendingIssueId && !error && (
             <p className="cold-start-note">
               The task is saved. Podium is retrying the same task, so it cannot create a duplicate.

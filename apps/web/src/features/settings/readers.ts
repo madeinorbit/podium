@@ -1,15 +1,15 @@
-import { useOpeningView } from '@podium/client-graph/react'
-import { useSettingsOpening } from './opening-context'
-import { omitGone } from '@podium/client-graph/lookup'
-import { createSettingsViews } from '@podium/client-graph/settings-views'
 import type { MachineModel, MobxPool } from '@podium/client-graph'
+import { omitGone } from '@podium/client-graph/lookup'
+import { preferenceSource } from '@podium/client-graph/preference-source'
+import { useOpeningView } from '@podium/client-graph/react'
 import type { SettingsRows } from '@podium/client-graph/settings-schema'
+import { createSettingsViews, readSettingsCatalog } from '@podium/client-graph/settings-views'
 import type { GitRepositoryWire } from '@podium/model'
 import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import { type Dispatch, type SetStateAction, useCallback, useMemo, useRef } from 'react'
 import type { Store } from '@/app/store'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
-import { preferenceSource } from '@podium/client-graph/preference-source'
+import { useSettingsOpening } from './opening-context'
 import { useSettingsClient } from './stable-access'
 
 const EMPTY_CATALOG: Pick<Store, 'machines' | 'repos'> = { machines: [], repos: [] }
@@ -22,23 +22,8 @@ const EMPTY_SETUP: { usage: ReadonlyMap<string, number>; defaultAgent: string; p
 const loaded = <T extends object>(row: T | symbol | undefined): row is T =>
   typeof row === 'object' && row !== null
 
-function readCatalog(pool: MobxPool): Pick<Store, 'machines' | 'repos'> {
-  const catalog = omitGone(pool.row('settingsCatalog', 'catalog'))
-  if (!loaded(catalog)) return EMPTY_CATALOG
-  return {
-    machines: catalog.machines.flatMap((id) => {
-      const row = omitGone(pool.row('settingsMachine', id))
-      return loaded(row) ? [row] : []
-    }),
-    repos: catalog.repositories.flatMap((id) => {
-      const row = omitGone(pool.row('settingsRepository', id))
-      return loaded(row) ? [row] : []
-    }),
-  }
-}
-
 export function useSettingsCatalog(): Pick<Store, 'machines' | 'repos'> {
-  return useWorklistPoolProjection(readCatalog, EMPTY_CATALOG)
+  return useWorklistPoolProjection(readSettingsCatalog, EMPTY_CATALOG)
 }
 
 const EMPTY_MACHINE_IDS: readonly string[] = []

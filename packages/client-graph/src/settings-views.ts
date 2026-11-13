@@ -1,10 +1,11 @@
-import { omitGone } from './lookup'
 import { keyedComputed } from '@podium/mobx-helpers'
+import type { GitRepositoryWire, MachineWire } from '@podium/model'
 import { DEFAULT_HARNESS_AGENT, machinePathKey } from '@podium/model/browser'
 import { compareStructural } from 'mobx'
 import { debugName } from './debug-name'
+import { omitGone } from './lookup'
 import type { MobxPool } from './pool'
-import { setupSessionSummary, type SetupSession } from './settings-schema'
+import { type SetupSession, setupSessionSummary } from './settings-schema'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 /** Observed summaries suspend when settings/setup unmounts. No full-session
@@ -96,4 +97,26 @@ function resumeRank(row: SetupSession): number {
 }
 export function settingsHasFirstTask(pool: MobxPool): Loaded<boolean> {
   return pool.undeletedIssueCount > 0
+}
+
+const EMPTY_LAUNCH_CATALOG = { machines: [] as MachineWire[], repos: [] as GitRepositoryWire[] }
+const loaded = <T extends object>(row: T | symbol | undefined): row is T =>
+  typeof row === 'object' && row !== null
+
+export function readSettingsCatalog(pool: MobxPool): {
+  machines: MachineWire[]
+  repos: GitRepositoryWire[]
+} {
+  const catalog = omitGone(pool.row('settingsCatalog', 'catalog'))
+  if (!loaded(catalog)) return EMPTY_LAUNCH_CATALOG
+  return {
+    machines: catalog.machines.flatMap((id) => {
+      const row = omitGone(pool.row('settingsMachine', id))
+      return loaded(row) ? [row] : []
+    }),
+    repos: catalog.repositories.flatMap((id) => {
+      const row = omitGone(pool.row('settingsRepository', id))
+      return loaded(row) ? [row] : []
+    }),
+  }
 }
