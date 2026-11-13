@@ -183,6 +183,14 @@ function shortTime(ts: string | undefined): string | undefined {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+/** Exact local instant for the message menu, formatted once for both hosts. */
+function messageTimeLabel(ts: string | undefined): string | undefined {
+  const date = ts ? new Date(ts) : undefined
+  return date && !Number.isNaN(date.getTime())
+    ? date.toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'long' })
+    : undefined
+}
+
 function MessageText({
   text,
   style,
@@ -943,7 +951,7 @@ interface TranscriptFeedRowProps {
   onSendAgainPending?: (turn: PendingTurn) => void
   onRetractPending?: (id: string) => void
   /** Long-press menu result; no action opens the host's message sheet. */
-  onHold: (text: string, action?: MessageAction, ts?: string) => void
+  onHold: (text: string, action?: MessageAction, timeLabel?: string) => void
 }
 
 function sameAssetContext(
@@ -1044,8 +1052,14 @@ const TranscriptFeedRow = memo(
     onRetractPending,
     onHold,
   }: TranscriptFeedRowProps) {
+    const timeLabel = messageTimeLabel(row.item.ts)
     const message = (text: string, child: ReactNode) => (
-      <MessageMenu text={text} canQuote={onQuoteText !== undefined} onAction={(text, action) => onHold(text, action, row.item.ts)}>
+      <MessageMenu
+        text={text}
+        timeLabel={timeLabel}
+        canQuote={onQuoteText !== undefined}
+        onAction={(text, action) => onHold(text, action, timeLabel)}
+      >
         {child}
       </MessageMenu>
     )
@@ -1510,7 +1524,9 @@ export const TranscriptList = observer(function TranscriptList({
   const [legacyCursor, setLegacyCursor] = useState(0)
   const cursor = find?.cursor ?? legacyCursor
   const setCursor = find?.setCursor ?? setLegacyCursor
-  const [actionMessage, setActionMessage] = useState<{ text: string; ts?: string } | null>(null)
+  const [actionMessage, setActionMessage] = useState<{ text: string; timeLabel?: string } | null>(
+    null,
+  )
   const actionText = actionMessage?.text
   const [atTail, setAtTail] = useState(true)
   /** Rows that arrived while the operator was reading further up. */
@@ -1770,8 +1786,8 @@ export const TranscriptList = observer(function TranscriptList({
     quoteRef.current?.(quoteTranscriptText(text))
   }, [])
   const holdMessage = useCallback(
-    (text: string, action?: MessageAction, ts?: string) => {
-      if (action === undefined) setActionMessage({ text, ts })
+    (text: string, action?: MessageAction, timeLabel?: string) => {
+      if (action === undefined) setActionMessage({ text, timeLabel })
       else if (action === 'copy') copyText(text)
       else if (action === 'quote') quoteText(text)
       else setSelectText(text)
@@ -1980,14 +1996,7 @@ export const TranscriptList = observer(function TranscriptList({
       <ActionSheet
         visible={actionMessage !== null}
         title="Message"
-        subtitle={
-          actionMessage?.ts && !Number.isNaN(Date.parse(actionMessage.ts))
-            ? new Date(actionMessage.ts).toLocaleString(undefined, {
-                dateStyle: 'full',
-                timeStyle: 'long',
-              })
-            : undefined
-        }
+        subtitle={actionMessage?.timeLabel}
         actions={messageActions}
         onClose={() => setActionMessage(null)}
       />

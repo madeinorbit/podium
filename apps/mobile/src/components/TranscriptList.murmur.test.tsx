@@ -8,6 +8,16 @@ import type { TranscriptItem } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
+const messageMenus = vi.hoisted(() => new Map<string, MessageMenuProps>())
+vi.mock('./MessageMenu', async (original) => {
+  const actual = await original<typeof import('./MessageMenu')>()
+  return {
+    MessageMenu: (props: MessageMenuProps) => {
+      messageMenus.set(props.text, props)
+      return <actual.MessageMenu {...props} />
+    },
+  }
+})
 const markdownRenders = vi.hoisted(() => vi.fn())
 const mailBody = vi.hoisted(() =>
   vi.fn((): { status: string; body?: string; retry?: () => void } => ({
@@ -20,6 +30,7 @@ vi.mock('@podium/client-core/react', async (original) => ({
   useMailBody: mailBody,
 }))
 
+import type { MessageMenuProps } from './message-menu.types'
 import { murmurClock, TranscriptList } from './TranscriptList'
 
 vi.mock('expo-haptics', () => ({
@@ -67,6 +78,7 @@ afterEach(() => {
   vi.useRealTimers()
 })
 beforeEach(() => {
+  messageMenus.clear()
   markdownRenders.mockClear()
   mailBody.mockReset()
   mailBody.mockReturnValue({ status: 'ready', body: 'The complete pointer body.' })
@@ -397,4 +409,19 @@ it('keeps a failed edit visible while its recorded diff is expanded', () => {
   fireEvent.click(screen.getByLabelText('Expand call: Edited LoginScreen.tsx'))
   expect(screen.getByText(/target text was not found/)).toBeTruthy()
   expect(screen.getByText(/−old/)).toBeTruthy()
+})
+
+it('passes the exact time to the native menu and JS sheet while preserving the action argument', async () => {
+  render(
+    transcript([{ id: 'timed', role: 'user', text: 'Timed message', ts: '2026-11-13T13:32:05Z' }]),
+  )
+  const menu = messageMenus.get('Timed message')
+  if (!menu) throw new Error('Missing message menu')
+  expect(menu.timeLabel).toContain('2026')
+  expect(menu.timeLabel).toContain(':32:05')
+  act(() => menu.onAction('Timed message'))
+  expect(screen.getByTestId('message-actions').textContent).toBe(menu.timeLabel)
+  const clipboard = await import('expo-clipboard')
+  act(() => menu.onAction('Timed message', 'copy'))
+  expect(clipboard.setStringAsync).toHaveBeenLastCalledWith('Timed message')
 })

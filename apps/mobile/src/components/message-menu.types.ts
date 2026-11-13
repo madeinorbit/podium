@@ -6,6 +6,8 @@ export type MessageAction = 'copy' | 'quote' | 'select'
 
 export interface MessageMenuProps {
   text: string
+  /** Exact local instant, already formatted by the transcript for its menu. */
+  timeLabel?: string
   /** The host can put a quote in the composer. */
   canQuote: boolean
   onAction: (text: string, action?: MessageAction) => void
