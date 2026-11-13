@@ -11,14 +11,18 @@
  */
 
 import type { SessionStore } from '../store'
+import { spanOpen } from '../store/executor/executor'
 
 export async function seedRows<T>(
   store: Pick<SessionStore, 'transact' | 'sync'>,
   write: () => Promise<T>,
 ): Promise<T> {
+  // Only what this write captured: a seed inside an open commit leaves the
+  // commit's own changes to it.
+  const mark = spanOpen() ? await store.sync.captureMark() : 0
   return await store.transact(async () => {
     const result = await write()
-    await store.sync.drainCapture()
+    await store.sync.drainCapture(mark)
     return result
   })
 }
