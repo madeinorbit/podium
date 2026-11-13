@@ -616,7 +616,20 @@ export const RECORD_SOURCES: RecordSources = {
     issueDeletion((issueIds) => issueIds),
   ],
   machine: [
-    byId(machines, machines.id, MACHINE_ROW_READS),
+    // The machine record (`record-facts.ts` MachineProjection): its name,
+    // logged-out harnesses (inventory), version, channel override and install
+    // kind; the rest of the row is the access rows'.
+    byId(machines, machines.id, {
+      reads: [
+        machines.name,
+        machines.inventoryJson,
+        machines.appVersion,
+        machines.updateChannelOverride,
+        machines.installKind,
+        machines.revokedAt,
+        machines.supersededBy,
+      ],
+    }),
     // The custodian is read from the machine's grant edges.
     via(
       grants,
