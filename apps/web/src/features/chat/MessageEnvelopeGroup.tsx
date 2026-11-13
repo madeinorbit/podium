@@ -3,6 +3,7 @@ import {
   type ActivityDisclosureProps,
   envelopePrincipal,
   isOperatorQuestion,
+  noteSubject,
   type ParsedEnvelope,
   pointerFallbackBody,
   principalShortName,
@@ -37,16 +38,6 @@ function PrincipalLabel({ label }: { label: string }): JSX.Element {
       {p.post}
     </>
   )
-}
-
-/** A folded preview only. Disclosure renders the complete original markdown. */
-function noteSubject(body: string): string {
-  return (body.trim().split('\n', 1)[0] ?? '')
-    .trim()
-    .replace(/^#{1,6}\s+/, '')
-    .replace(/^[-*+]\s+/, '')
-    .replace(/^\*\*(.*)\*\*$/, '$1')
-    .replace(/^`(.*)`$/, '$1')
 }
 
 /** Identical HTML must not replace text nodes while a reader selects a note. */

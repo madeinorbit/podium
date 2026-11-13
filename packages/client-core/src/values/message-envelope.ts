@@ -45,6 +45,16 @@ export interface ParsedEnvelope {
   pointer?: 'by-id' | 'legacy'
 }
 
+/** A folded preview only. Disclosure renders the complete original markdown. */
+export function noteSubject(body: string): string {
+  return (body.trim().split('\n', 1)[0] ?? '')
+    .trim()
+    .replace(/^#{1,6}\s+/, '')
+    .replace(/^[-*+]\s+/, '')
+    .replace(/^\*\*(.*)\*\*$/, '$1')
+    .replace(/^`(.*)`$/, '$1')
+}
+
 /** Only a question addressed to the operator needs the reader's attention. */
 export function isOperatorQuestion(envelope: ParsedEnvelope): boolean {
   return envelope.question && (envelope.to === 'the operator' || envelope.to === 'operator')

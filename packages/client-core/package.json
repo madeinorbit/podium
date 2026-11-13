@@ -244,6 +244,11 @@
       "@podium/source": "./src/first-task-draft.ts",
       "types": "./src/first-task-draft.ts",
       "import": "./src/first-task-draft.ts"
+    },
+    "./transcript-time": {
+      "@podium/source": "./src/transcript-time.ts",
+      "types": "./src/transcript-time.ts",
+      "import": "./src/transcript-time.ts"
     }
   },
   "scripts": {
