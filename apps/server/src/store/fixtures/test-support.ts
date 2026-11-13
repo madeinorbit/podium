@@ -1,5 +1,6 @@
 /** Member-row fixtures for repository tests. Transport tests use real memberships. */
 import { applyMembership, type MembershipSnapshot } from '@podium/identity'
+import { identityUser } from '@podium/identity/schema/sqlite'
 import { asUserId, LoginEmail, type UserId, type UserRole } from '@podium/model'
 import { eq } from 'drizzle-orm'
 import { memberInvites, userCredentials } from '../../migrations/identity-import-schema'
@@ -35,6 +36,12 @@ export function memberFacts(store: SessionStore) {
     })
   }
   return {
+    async verifyAccountEmail(accountId: string) {
+      await db
+        .update(identityUser)
+        .set({ emailVerified: true })
+        .where(eq(identityUser.id, accountId))
+    },
     async create(
       account: Omit<UserAccountRow, 'email'> & { email?: string | null },
       _unusedHash?: string,

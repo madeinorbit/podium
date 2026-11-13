@@ -1,12 +1,11 @@
 import { createIdentityCore, type WorkspaceIdentity } from '@podium/identity'
-import { identityUser } from '@podium/identity/schema/sqlite'
 import { asUserId, firstAdminMemberId, newMemberId } from '@podium/model'
 import { hashPassword, verifyPasswordHash } from '@podium/runtime/auth-store'
-import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { registerMemberRoutes } from './member-routes'
 import type { SessionStore } from './store'
+import { memberFacts } from './store/fixtures/test-support'
 import { openTestStore } from './test-support/open-test-store'
 import { openTestIdentity, type TestIdentity } from './test-support/test-identity'
 
@@ -145,12 +144,8 @@ test('revocation and configured identity mail retain a copyable link on provider
   // Local setup made this admin without a verified address; a shared-account
   // edition would have verified it.
   const adminAccount = (await store.users.get(firstAdminMemberId()))?.accountId
-  const database = store.identityDatabase()
-  if (!adminAccount || database.dialect !== 'sqlite') throw new Error('Expected a local admin')
-  await database.db
-    .update(identityUser)
-    .set({ emailVerified: true })
-    .where(eq(identityUser.id, adminAccount))
+  if (!adminAccount) throw new Error('Expected a local admin')
+  await memberFacts(store).verifyAccountEmail(adminAccount)
   const hono = app({ admin: true, workspace })
   const result = await (await post(hono, 'invite', { email: 'anna@example.com' })).json()
   expect(send).toHaveBeenCalledWith(
