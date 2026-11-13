@@ -2,6 +2,7 @@ import type { MetadataChange } from '@podium/protocol'
 import { Ledger, type LedgerDeps, type StoredChangeRow } from '@podium/sync'
 import { ModelRecords, testLedgerWriter } from '@podium/sync/testing'
 import type { SessionStore } from '../../../store'
+import { installChangeLogHooks } from '../../../test-support/change-log-hooks'
 import { testStoreRecords } from '../../../test-support/record-writer'
 import type { IssueDeps } from './types'
 
@@ -73,6 +74,8 @@ export function issueTestPlumbing(
   ledger.onAppended((changes) => {
     for (const change of changes) onPublished(change)
   })
+  // The store's own write funnels commit on this Ledger, as relay.ts wires them.
+  if (store !== undefined) installChangeLogHooks(store, testLedgerWriter(ledger))
   return {
     funnel: {
       run: async (op) => {

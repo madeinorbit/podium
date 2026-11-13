@@ -6,6 +6,7 @@
  * it (POD-6920). Checkpoints, runtime events and offers already run in the
  * persist funnel; draft documents run in their own commit.
  */
+import { changeLogCommit } from '../store/change-log-commit'
 import type { LedgerWriter } from '@podium/sync'
 import type { SessionStore } from '../store'
 
@@ -13,7 +14,8 @@ export function installSessionSourceWrites(
   store: SessionStore,
   writer: Pick<LedgerWriter, 'commit'>,
 ): void {
-  const commit = async <T>(write: () => Promise<T>) => (await writer.commit({ write })).result
+  // Joins a change-log commit already running (POD-6920).
+  const commit = changeLogCommit(writer)
   store.sync.sessionRecordWrite = commit
   store.repos.sessionRecordWrite = commit
   store.conversations.registry.sessionRecordWrite = commit

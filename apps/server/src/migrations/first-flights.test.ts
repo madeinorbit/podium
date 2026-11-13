@@ -12,6 +12,7 @@ import { openTestStore } from '../test-support/open-test-store'
 import type { WriteContexts } from '../write-contexts'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { runDrizzleMigrations } from './index'
+import { seedRows } from '../test-support/seed-rows'
 
 const index = DRIZZLE_MIGRATIONS.findIndex((m) => m.name.endsWith('_first-flights-seen-state'))
 const through = DRIZZLE_MIGRATIONS.slice(0, index + 1)
@@ -188,7 +189,7 @@ it('publishes upgraded tip rows before scoped bootstrap and keeps them through u
     // Bootstrap reads current rows without rebuilding the log.
     const before = await ledger.cursor()
     expect(await ledger.cursor()).toBe(before)
-    await store.layout.clear(fixtureWriteScope(), otherId, 'dockTab')
+    await seedRows(store, () => store.layout.clear(fixtureWriteScope(), otherId, 'dockTab'))
     expect(
       ((await ledger.authority.snapshot('userLayout')) as LayoutWire[]).some(
         (row) => row.userId === otherId && row.key === 'dockTab',

@@ -363,7 +363,7 @@ export class IssueStore {
     expectedLandedAt?: string | null,
   ): Promise<boolean> {
     const committed = await this.arbitrated(this.serverWriter).commit({
-      // The observation's own record, built around the write (POD-6770).
+      // The observation is captured and appended with the write (POD-6920).
       write: async (scope) => {
         const row = await this.row(id)
         if (

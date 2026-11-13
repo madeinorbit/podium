@@ -58,7 +58,15 @@
 
 import type { MutationId } from '@podium/model'
 import { sql } from 'drizzle-orm'
-import { check, index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import {
+  check,
+  foreignKey,
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+} from 'drizzle-orm/sqlite-core'
 
 /** One instance is one tenant, matching PDM-107's self-hosted identity workspace. */
 export const SELF_HOSTED_TENANT_ID = 'local'
@@ -212,19 +220,29 @@ export const syncCaptureGuard = sqliteTable('sync_capture_guard', {
   id: integer().primaryKey(),
 })
 
-export const syncCapture = sqliteTable('sync_capture', {
-  id: integer().primaryKey(),
-  kind: text().notNull(),
-  source: integer().notNull(),
-  /** `i`, `u` or `d`. */
-  op: text().notNull(),
-  oldKey: text('old_key'),
-  newKey: text('new_key'),
-  undrained: integer()
-    .notNull()
-    .default(0)
-    .references(() => syncCaptureGuard.id),
-})
+export const syncCapture = sqliteTable(
+  'sync_capture',
+  {
+    id: integer().primaryKey(),
+    kind: text().notNull(),
+    source: integer().notNull(),
+    /** `i`, `u` or `d`. */
+    op: text().notNull(),
+    oldKey: text('old_key'),
+    newKey: text('new_key'),
+    undrained: integer().notNull().default(0),
+  },
+  // Declared at table level (this package cannot take the server's
+  // `brandedRef`, and the key carries no brand); the migration adds the
+  // DEFERRABLE INITIALLY DEFERRED the guard needs.
+  (table) => [
+    foreignKey({
+      name: 'fk_sync_capture_undrained_sync_capture_guard_id_fk',
+      columns: [table.undrained],
+      foreignColumns: [syncCaptureGuard.id],
+    }),
+  ],
+)
 
 export const appliedMutations = sqliteTable(
   'applied_mutations',

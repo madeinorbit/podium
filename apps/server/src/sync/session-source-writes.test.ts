@@ -6,8 +6,10 @@ import { Session } from '../modules/sessions/session'
 import { RUNTIME_EVENT_LOG_KIND } from '../store/events'
 import { issueRowFixture } from '../test-support/issue-row'
 import { openTestStore } from '../test-support/open-test-store'
+import { installChangeLogHooks } from '../test-support/change-log-hooks'
 import { logStoreRecords } from '../test-support/record-writer'
 import { installSessionSourceWrites } from './session-source-writes'
+import { seedRows } from '../test-support/seed-rows'
 
 const stores: Awaited<ReturnType<typeof openTestStore>>[] = []
 afterEach(() => {
@@ -26,6 +28,7 @@ async function fixture() {
   })
   const writer = testLedgerWriter(ledger)
   installSessionSourceWrites(store, writer)
+  installChangeLogHooks(store, writer)
   const session = new Session({
     sessionId: asSessionId('source-session'),
     ownerUserId: await firstAdminMemberId(store),
@@ -109,12 +112,12 @@ describe('session source writes compare before they write', () => {
       parentId: null,
       ownerUserId: f.session.ownerUserId,
     })
-    await f.store.issues.upsertIssue(fixtureWriteScope(), issue)
+    await seedRows(f.store, () => f.store.issues.upsertIssue(fixtureWriteScope(), issue))
     f.session.refIssueId = issue.id
     f.session.refLetter = 'A'
     await f.save()
     const repoId = asRepoId('repo-upgraded')
-    await f.store.issues.upsertIssue(
+    await seedRows(f.store, () => f.store.issues.upsertIssue(
       fixtureWriteScope(),
       issueRowFixture({
         id: asIssueId('target-issue'),
@@ -124,7 +127,7 @@ describe('session source writes compare before they write', () => {
         parentId: null,
         ownerUserId: f.session.ownerUserId,
       }),
-    )
+    ))
     const cursor = await f.ledger.cursor()
     await f.store.issues.assignRepoIdToIssuesUnder(repoId, '/repo')
     expect(await f.changes(cursor)).toHaveLength(1)

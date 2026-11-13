@@ -15,7 +15,7 @@ import { makeFeedVisibility } from '../feed-visibility'
 import { produceBootstrap } from '../sync-worker/producer'
 import { issueRowFixture } from '../test-support/issue-row'
 import { openTestStore } from '../test-support/open-test-store'
-import { testStoreRecords } from '../test-support/record-writer'
+import { logStoreRecords } from '../test-support/record-writer'
 
 const kinds = ['issuePanelArtifact', 'issuePanelTodo', 'issuePanelDeferred'] as const
 
@@ -43,7 +43,7 @@ for (const kind of kinds) {
           }),
         )
         const principal = { ...DEVICE_GRADE_PRINCIPAL, user: owner }
-        const records = testStoreRecords(store)
+        const records = await logStoreRecords(store)
         const feed = makeFeedVisibility({
           store,
           currentRecords: records.build,
