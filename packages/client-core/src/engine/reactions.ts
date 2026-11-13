@@ -46,6 +46,7 @@ import {
   type PruningState,
   referencedTabIds,
   resolvedWorkspaceKey,
+  visibleScreenSessions,
   visibleTabIds,
   workspacesPatch,
   workspaceWritePatch,
@@ -339,8 +340,7 @@ export class Reactions {
       const moves = changes
         .filter((change) => change.before && change.after && change.before.cwd !== change.after.cwd)
         .sort((a, b) => {
-          const left = a.after?.order ?? '',
-            right = b.after?.order ?? ''
+          const left = a.after?.order ?? '', right = b.after?.order ?? ''
           return left < right ? -1 : left > right ? 1 : a.id.localeCompare(b.id)
         })
       for (const change of moves) {
@@ -348,21 +348,13 @@ export class Reactions {
         const to = st.navigation.worktreeForCwd(change.after!.cwd)
         if (from === NAVIGATION_LOADING || to === NAVIGATION_LOADING) return false
         if (from === to) continue
-        if (
-          follow === null &&
-          to != null &&
-          from != null &&
-          from === st.selectedWorktree &&
-          visible.has(change.id)
-        ) {
+        if (follow === null && to != null && from != null && from === st.selectedWorktree && visible.has(change.id)) {
           follow = to
         } else {
           const row = st.navigation.worktreeSession?.(change.id)
           if (row === NAVIGATION_LOADING) return false
-          notices.push({
-            title: `${row?.name || row?.title || 'A session'} moved worktree`,
-            destination: to ?? change.after?.cwd,
-          })
+          notices.push({ title: `${row?.name || row?.title || 'A session'} moved worktree`,
+            destination: to ?? change.after?.cwd })
         }
       }
       // Resolve the complete changed neighbourhood before producing effects,
@@ -408,11 +400,7 @@ export class Reactions {
   worktreeFallback(): boolean {
     const st = this.ports.state()
     if (!st.reposLoaded) return true
-    if (
-      st.navigation.registeredWorktree &&
-      st.navigation.hasWorktreeSession &&
-      st.navigation.firstWorktree
-    ) {
+    if (st.navigation.registeredWorktree && st.navigation.hasWorktreeSession && st.navigation.firstWorktree) {
       if (st.selectedWorktree) {
         const known = st.navigation.registeredWorktree(st.selectedWorktree)
         if (known === NAVIGATION_LOADING) return false
@@ -436,8 +424,8 @@ export class Reactions {
     if (known || st.selectedWorktree === this.ports.linkedWorktree?.()) return true
     const sessions = st.navigation.worktreeSessions?.()
     if (sessions === NAVIGATION_LOADING) return false
-    const hasSession = (sessions ?? []).some((s) =>
-      isMachinePathWithinRoot(selectedWorktree, s.cwd),
+    const hasSession = (sessions ?? []).some(
+      (s) => isMachinePathWithinRoot(selectedWorktree, s.cwd),
     )
     if (hasSession) return true
     this.ports.publish({ selectedWorktree: worktrees[0]?.path ?? null })
@@ -464,7 +452,7 @@ export class Reactions {
       ? [
           ...new Set(
             [
-              ...visibleTabIds(st, screenFocus),
+              ...visibleScreenSessions(st, screenFocus),
               ...(screenFocus === undefined ? [st.dockVisibleSession] : []),
             ].filter((x): x is SessionId => x != null),
           ),

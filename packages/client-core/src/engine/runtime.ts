@@ -119,7 +119,7 @@ import {
   overlayState,
   resolvedWorkspaceKey,
   userFocus,
-  visibleTabIds,
+  visibleScreenSessions,
   type WorkspacePatch,
   workspaceFor,
   workspaceKeyForState,
@@ -1450,7 +1450,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         canShow =
           worktrees.some((w) => machinePathsEqual(w.path, worktree)) ||
           crew === NAVIGATION_LOADING ||
-          (crew ?? []).some((s) => isMachinePathWithinRoot(worktree, s.cwd))
+          (crew ?? []).some(
+            (s) => isMachinePathWithinRoot(worktree, s.cwd),
+          )
       }
       if (canShow) patch.selectedWorktree = route.worktree
     }
@@ -1620,7 +1622,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       if (!this.visibility.isVisible()) return { visibleSessionIds: [] }
       const focus = this.screenFocus()
       return focus
-        ? { ...focus, visibleSessionIds: visibleTabIds(this.state, focus) }
+        ? { ...focus, visibleSessionIds: visibleScreenSessions(this.state, focus) }
         : { visibleSessionIds: [] }
     }
     return userFocus(this.state)

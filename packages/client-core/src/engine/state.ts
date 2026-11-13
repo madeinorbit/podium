@@ -156,12 +156,7 @@ export function visibleLeafPaneIds(st: EngineState): string[] {
  * layouts). Anything else reads the panes, so a hidden or third pane is
  * reported exactly as it is rendered.
  */
-export function visibleTabIds(st: EngineState, screenFocus?: UserFocus | null): SessionId[] {
-  if (screenFocus !== undefined)
-    return (
-      screenFocus?.visibleSessionIds ??
-      (screenFocus?.focusedSessionId ? [screenFocus.focusedSessionId] : [])
-    )
+export function visibleTabIds(st: EngineState): SessionId[] {
   const ws = currentWorkspace(st)
   if (allTabIds(ws).length === 0) {
     return [st.paneA, st.split ? st.paneB : null].filter((id): id is SessionId => id != null)
@@ -169,6 +164,18 @@ export function visibleTabIds(st: EngineState, screenFocus?: UserFocus | null): 
   return visibleLeafPaneIds(st)
     .map((paneId) => (ws.panes[paneId]?.activeTabId ?? null) as SessionId | null)
     .filter((id): id is SessionId => id != null)
+}
+
+/** Route-owned visibility is independent of remembered workspace tabs. */
+export function visibleScreenSessions(
+  st: EngineState,
+  screenFocus?: UserFocus | null,
+): SessionId[] {
+  if (screenFocus === undefined) return visibleTabIds(st)
+  return (
+    screenFocus?.visibleSessionIds ??
+    (screenFocus?.focusedSessionId ? [screenFocus.focusedSessionId] : [])
+  )
 }
 
 /**
@@ -493,7 +500,9 @@ export function workspaceMembership(
             else if (issue?.worktreePath) worktrees.push(issue.worktreePath)
           }
         }
-        return loading || worktrees.some((wt) => isMachinePathWithinRoot(wt, session.cwd))
+        return (
+          loading || worktrees.some((wt) => isMachinePathWithinRoot(wt, session.cwd))
+        )
       }
     }
   }
