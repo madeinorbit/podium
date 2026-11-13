@@ -1,9 +1,10 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import type { TranscriptItem } from '@podium/model'
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
-import { act, type ComponentProps, type ReactNode } from 'react'
+import { act, type ComponentProps, type ReactNode, useState } from 'react'
 import { Platform, type View } from 'react-native'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createMobileTestReplica } from '../client/test-replica'
 import { renderWithMobileStore } from '../client/test-support'
 
 const layout = vi.hoisted(() => ({
@@ -100,6 +101,65 @@ const session = {
 } as unknown as SessionView
 
 describe('native lifecycle footer first layout', () => {
+  it('shows cached replica history without a skeleton while the first network read is pending', async () => {
+    Platform.OS = 'ios'
+    const replica = createMobileTestReplica()
+    replica.applySnapshot('sessions', [session])
+    replica.putTranscriptWindow(session.sessionId, [
+      { id: 'saved', role: 'assistant', text: 'Saved history.' } as TranscriptItem,
+    ])
+    replica.finishBootstrap()
+    await renderWithMobileStore(<SessionConversation session={session} issue={undefined} />, {
+      replica,
+      api: { sessions: { transcriptRead: { query: () => new Promise(() => {}) } } },
+    })
+    expect(screen.getByTestId('measuring-composer')).toBeTruthy()
+    expect(layout.placeholderInsets).toEqual([])
+    act(() => layout.report?.(148))
+    expect(screen.getByTestId('transcript-list')).toBeTruthy()
+    expect(layout.placeholderInsets).toEqual([])
+  })
+
+  it('never paints a skeleton when reopening cached history before composer measurement', async () => {
+    Platform.OS = 'ios'
+    function Harness() {
+      const [open, setOpen] = useState(true)
+      return (
+        <>
+          <button type="button" onClick={() => setOpen((value) => !value)}>
+            Toggle chat
+          </button>
+          {open ? <SessionConversation session={session} issue={undefined} /> : null}
+        </>
+      )
+    }
+    await renderWithMobileStore(<Harness />, {
+      sessions: [session],
+      api: {
+        sessions: {
+          transcriptRead: {
+            query: async () => ({
+              items: [{ id: 'cached', role: 'assistant', text: 'Already here.' }],
+              hasMore: false,
+            }),
+          },
+        },
+      },
+    })
+    act(() => layout.report?.(148))
+    await screen.findByTestId('hibernated-notice')
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle chat' }))
+    layout.report = undefined
+    layout.placeholderInsets = []
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle chat' }))
+    expect(screen.getByTestId('measuring-composer')).toBeTruthy()
+    expect(screen.queryByTestId('transcript-list')).toBeNull()
+    expect(layout.placeholderInsets).toEqual([])
+    act(() => layout.report?.(148))
+    expect(screen.getByTestId('transcript-list')).toBeTruthy()
+    expect(layout.placeholderInsets).toEqual([])
+  })
+
   it('bounds an expanded pinned question and the composer between the header and keyboard', async () => {
     Platform.OS = 'ios'
     layout.keyboardLift = 336

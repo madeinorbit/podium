@@ -6,8 +6,8 @@ import { color, radius, space } from '../theme/theme'
 
 /**
  * Paint content in its final flex frame while a page-shaped placeholder sits
- * above it. When readiness resolves, only opacity moves: rows can materialize
- * behind the opaque placeholder without pushing the shell during the handoff.
+ * above it. Fade the placeholder away before revealing content, so placeholder
+ * bubbles and real transcript text never paint over one another.
  * Readiness is latched so a reconnect never resurrects first-launch chrome.
  */
 export function BootstrapCrossfade({
@@ -35,22 +35,24 @@ export function BootstrapCrossfade({
       setShowPlaceholder(false)
       return
     }
-    Animated.parallel([
+    const animation = Animated.sequence([
+      Animated.timing(placeholderOpacity, {
+        toValue: 0,
+        duration: 80,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
       Animated.timing(contentOpacity, {
         toValue: 1,
         duration: 160,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
-      Animated.timing(placeholderOpacity, {
-        toValue: 0,
-        duration: 160,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-    ]).start(({ finished }) => {
+    ])
+    animation.start(({ finished }) => {
       if (finished) setShowPlaceholder(false)
     })
+    return () => animation.stop()
   }, [contentOpacity, placeholderOpacity, reduceMotion, settled])
 
   return (

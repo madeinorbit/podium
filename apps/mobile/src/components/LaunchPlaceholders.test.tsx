@@ -1,5 +1,5 @@
-import { cleanup, render, waitFor } from '@testing-library/react'
-import { type ScrollViewProps, StyleSheet, Text } from 'react-native'
+import { act, cleanup, render, waitFor } from '@testing-library/react'
+import { Animated, type ScrollViewProps, StyleSheet, Text } from 'react-native'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { HeaderInsetContext } from '../navigation/header-inset'
 import {
@@ -11,6 +11,7 @@ import {
 } from './LaunchPlaceholders'
 
 const scroll = vi.hoisted(() => ({ props: {} as ScrollViewProps }))
+const motion = vi.hoisted(() => ({ reduce: true }))
 vi.mock('react-native', async (original) => {
   const rn = await original<typeof import('react-native')>()
   return {
@@ -24,8 +25,12 @@ vi.mock('react-native', async (original) => {
   }
 })
 
-vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => true }))
-afterEach(cleanup)
+vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => motion.reduce }))
+afterEach(() => {
+  cleanup()
+  motion.reduce = true
+  vi.restoreAllMocks()
+})
 
 describe('skeleton content insets', () => {
   it.each([
@@ -96,6 +101,55 @@ describe('skeleton content insets', () => {
 })
 
 describe('BootstrapCrossfade', () => {
+  it('keeps transcript text hidden until the placeholder finishes fading out', async () => {
+    motion.reduce = false
+    // RN web's testing sequence starts every child immediately. Exercise its
+    // real sequence so this test observes the native completion boundary.
+    const { default: implementation } = await vi.importActual<{ default: typeof Animated }>(
+      'react-native-web/dist/vendor/react-native/Animated/AnimatedImplementation',
+    )
+    vi.spyOn(Animated, 'sequence').mockImplementation(implementation.sequence)
+    const finishes: Array<() => void> = []
+    vi.spyOn(Animated, 'timing').mockImplementation((value, config) => {
+      let finish: (() => void) | undefined
+      return {
+        start: (callback) => {
+          finish = () => {
+            const opacity = value as Animated.Value
+            opacity.setValue(config.toValue as number)
+            callback?.({ finished: true })
+          }
+          finishes.push(finish)
+        },
+        stop: () => {
+          if (!finish) return
+          const index = finishes.indexOf(finish)
+          if (index >= 0) finishes.splice(index, 1)
+        },
+        reset: () => {},
+      }
+    })
+    const page = (resolved: boolean) => (
+      <BootstrapCrossfade resolved={resolved} placeholder={<TranscriptSkeleton />}>
+        <Text>real transcript</Text>
+      </BootstrapCrossfade>
+    )
+    const view = render(page(false))
+    const content = view.getByText('real transcript').parentElement as HTMLElement
+    const skeleton = view.getByTestId('bootstrap-placeholder')
+    expect(content.style.opacity).toBe('0')
+    view.rerender(page(true))
+    expect(finishes).toHaveLength(1)
+    expect(content.style.opacity).toBe('0')
+    act(() => finishes.shift()?.())
+    expect(skeleton.style.opacity).toBe('0')
+    expect(content.style.opacity).toBe('0')
+    expect(finishes).toHaveLength(1)
+    act(() => finishes.shift()?.())
+    expect(content.style.opacity).toBe('1')
+    expect(view.queryByTestId('bootstrap-placeholder')).toBeNull()
+  })
+
   it('covers unresolved content, then latches the resolved page across reconnects', async () => {
     const renderPage = (resolved: boolean) => (
       <BootstrapCrossfade resolved={resolved} placeholder={<WorkSkeleton />}>

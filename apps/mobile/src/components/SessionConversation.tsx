@@ -222,7 +222,9 @@ export function SessionConversation(
       model={view}
     />
   ) : (
-    <TranscriptSkeleton topInset={props.topInset ?? 0} />
+    // Acquisition runs in a layout effect. The body decides whether history is
+    // cold; painting a skeleton here would flash even for a warm conversation.
+    <View style={styles.flex} />
   )
 }
 
@@ -843,7 +845,9 @@ const SessionConversationBody = observer(function SessionConversationBody({
       ) : null}
       {readOnly && !hasTranscript ? null : (
         <BootstrapCrossfade
-          resolved={transcriptLayoutReady && (loaded || itemCount > 0)}
+          // Cached history is ready before the composer reports its height.
+          // Keep that layout gate on the list alone, never on the skeleton.
+          resolved={loaded || itemCount > 0}
           placeholder={
             <TranscriptSkeleton
               topInset={transcriptTopInset}

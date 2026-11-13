@@ -34,7 +34,6 @@ import {
   useSessionContextSpawnPrompt as useSpawnPrompt,
 } from '../client/use-session-context'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
-import { HarnessChip } from '../components/AgentMark'
 import { Icon } from '../components/Icon'
 import { MoreVertical, SquareTerminal } from '../components/icons'
 import { BootstrapCrossfade, DetailSkeleton } from '../components/LaunchPlaceholders'
@@ -201,7 +200,6 @@ export function SessionScreen() {
       backLabel="Back"
       bareBack
       underHeader
-      monoSubtitle
       // No `safeBottom`: the floating composer is the bottom-most thing on this
       // screen and pays that inset itself, so it can drop it when the keyboard
       // takes the bottom edge [POD-502].
@@ -327,7 +325,6 @@ const SessionChrome = observer(function SessionChrome({
       {...screen}
       title={issue?.title ?? sessionTitle(session)}
       subtitle={`${issue ? `${issueDisplayRef(issue)}   ` : ''}${provenance}`}
-      leading={<HarnessChip kind={session.agentKind} size={20} descriptors={served} />}
     >
       {children}
     </Screen>

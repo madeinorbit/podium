@@ -20,7 +20,6 @@ import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
 import { Icon } from '../components/Icon'
 import { MoreVertical } from '../components/icons'
-import { BootstrapCrossfade, TranscriptSkeleton } from '../components/LaunchPlaceholders'
 import { HeaderButton, Screen } from '../components/Screen'
 import { SessionConversation } from '../components/SessionConversation'
 import { TaskSheet } from '../components/TaskSheet'
@@ -217,13 +216,13 @@ export const MissionScreen = observer(function MissionScreen() {
         </HeaderButton>
       }
     >
-      <BootstrapCrossfade resolved={resolved} placeholder={<TranscriptSkeleton />}>
-        {root && screen ? (
-          <MissionBody current={current} currentIssue={currentIssue} findRequest={findRequest} />
-        ) : (
-          <EmptyState title="Mission not found." />
-        )}
-      </BootstrapCrossfade>
+      {/* The conversation owns transcript readiness. Deck metadata can still be
+          loading while that conversation already has history in the pool. */}
+      {root && screen ? (
+        <MissionBody current={current} currentIssue={currentIssue} findRequest={findRequest} />
+      ) : resolved ? (
+        <EmptyState title="Mission not found." />
+      ) : null}
 
       <TaskSheet
         pool={pool}

@@ -217,7 +217,7 @@ const agent = (id: string, issueId: string) =>
     agentState: { phase: 'working', since: '2026-11-13T07:00:00Z' },
   }) as SessionView
 
-it('names the opening chat from the pool and shows a transcript skeleton while the deck loads', async () => {
+it('names the opening chat from the pool without a deck-owned transcript skeleton', async () => {
   navigation.holdOpening = true
   navigation.params = { missionId: 'child' }
   function Entry() {
@@ -237,7 +237,8 @@ it('names the opening chat from the pool and shows a transcript skeleton while t
   // chat commit after the tap, while full mission readiness stays pending.
   fireEvent.click(screen.getByRole('button', { name: 'Open chat' }))
   expect(screen.getByText('Pricing page draft')).toBeTruthy()
-  expect(screen.getByLabelText('Loading transcript')).toBeTruthy()
+  expect(screen.queryByLabelText('Loading transcript')).toBeNull()
+  expect(screen.queryByText('Mission not found.')).toBeNull()
   expect(screen.queryByLabelText('Loading task detail')).toBeNull()
   expect(screen.queryByText('Mission')).toBeNull()
   expect(navigation.push).not.toHaveBeenCalled()
@@ -273,7 +274,7 @@ it('uses the requested session task title before mission membership resolves', a
     sessions: [agent('child-lead', 'child')],
   })
   expect(screen.getByText('Pricing page draft')).toBeTruthy()
-  expect(screen.getByLabelText('Loading transcript')).toBeTruthy()
+  expect(screen.queryByLabelText('Loading transcript')).toBeNull()
   expect(screen.queryByText('Mission')).toBeNull()
 })
 
@@ -290,7 +291,7 @@ it('names a remembered helper task before the mission deck resolves', async () =
   })
   expect(screen.getByText('Pricing page draft')).toBeTruthy()
   expect(screen.queryByText('Cloud factory strategy')).toBeNull()
-  expect(screen.getByLabelText('Loading transcript')).toBeTruthy()
+  expect(screen.queryByLabelText('Loading transcript')).toBeNull()
 })
 
 it('opens the task coordinator chat, opens its highlighted deck from the menu, and pushes another seat', async () => {
