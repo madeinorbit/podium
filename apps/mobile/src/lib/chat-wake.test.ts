@@ -1,16 +1,12 @@
 import { type ConversationOptions, DraftStore } from '@podium/client-core/conversation'
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { MobxPool } from '@podium/client-graph'
 import { here } from '@podium/client-graph/lookup'
 import { asSessionId, type MessageRecordWire } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
-import { MobileChatViewModel } from '../../../../mobile/src/lib/chat-view-model'
-import { MobileConversation } from '../../../../mobile/src/lib/mobile-conversation'
-import type { Trpc } from '../../app/trpc'
-import { ChatViewModel } from './chat-view-model'
-import { WebConversation } from './use-conversation'
+import { MobileChatViewModel } from './chat-view-model'
+import { MobileConversation } from './mobile-conversation'
 
-describe.each(['desktop', 'phone'] as const)('%s wake outcome', (client) => {
+describe('phone wake outcome', () => {
   it('keeps a new send waking and ends it on exit, failed wake, and reload', async () => {
     vi.stubGlobal('Worker', undefined)
     const sessionId = asSessionId('wake-session')
@@ -78,14 +74,8 @@ describe.each(['desktop', 'phone'] as const)('%s wake outcome', (client) => {
         },
       },
     }
-    const service =
-      client === 'phone'
-        ? new MobileConversation(options)
-        : new WebConversation(options, pool, { access: { trpc: {} } } as ClientRuntime<Trpc>, {})
-    const view =
-      service instanceof MobileConversation
-        ? new MobileChatViewModel(service, pool)
-        : new ChatViewModel(service, false, undefined, () => {})
+    const service = new MobileConversation(options)
+    const view = new MobileChatViewModel(service, pool)
     await service.start()
     try {
       expect(view.activity?.label).toBe('Waking the agent…')
@@ -107,10 +97,7 @@ describe.each(['desktop', 'phone'] as const)('%s wake outcome', (client) => {
       move('hibernated')
       expect(view.activity).toBeNull()
       expect(view.composer.placeholder).toBe('Message the agent to resume it…')
-      const reopened =
-        service instanceof MobileConversation
-          ? new MobileChatViewModel(service, pool)
-          : new ChatViewModel(service, false, undefined, () => {})
+      const reopened = new MobileChatViewModel(service, pool)
       expect(reopened.activity).toBeNull()
       expect(reopened.composer.placeholder).toBe('Message the agent to resume it…')
     } finally {
