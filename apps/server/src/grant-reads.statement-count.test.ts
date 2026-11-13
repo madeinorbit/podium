@@ -239,7 +239,8 @@ const RENAME = 21
 // POD-6791: measured on the integration base at 63. Sharing the issue and
 // body-header reads on both sides of the write removes two statements.
 // POD-6864: re-measured on integrate/6253-sync-log 964ad37114 at both sizes: 78 -> 79.
-// POD-6920: derived change capture: 79 -> 66.
-const ISSUE_UPDATE = 66
+// POD-6920: derived change capture: 79 -> 66. The issue's sessions watch only
+// its reference columns, so a priority edit rebuilds none of them: 66 -> 57.
+const ISSUE_UPDATE = 57
 // POD-6920: derived change capture: 24 -> 17.
 const OBSERVATION = 17

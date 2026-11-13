@@ -120,7 +120,8 @@ describe('issue writes that read other issues: pinned statement counts at 5 and 
       // POD-6791: the issue and its body headers share each read: 17 -> 15.
       // POD-6920: derived change capture. No build before the write; the
       // drain names only the records whose columns moved: 15 -> 12.
-      12,
+      // A sort key is no column of its sessions' records: 12 -> 11.
+      11,
     )
   })
 
