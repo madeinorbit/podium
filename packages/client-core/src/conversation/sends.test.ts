@@ -114,6 +114,15 @@ describe('MobX sends over synced records', () => {
       record('late-compact', { body: '/compact keep tests', status: 'unknown' }),
     ])
     expect(controller.getSnapshot().bubbles).toEqual([])
+    const transcriptReads = vi.spyOn(controller.transcript, 'items', 'get')
+    synced.set([
+      record('compact-send', { body: '/compact', status: 'accepted' }),
+      record('late-compact', { body: '/compact keep tests', status: 'typed' }),
+      record('ordinary', { body: 'ordinary prompt', status: 'unknown' }),
+    ])
+    expect(states(controller)).toEqual(['ordinary:unknown'])
+    expect(transcriptReads).not.toHaveBeenCalled()
+    transcriptReads.mockRestore()
     controller.dispose()
   })
 

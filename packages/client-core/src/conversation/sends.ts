@@ -936,6 +936,7 @@ export class Sends {
   private settleCompaction(completed: Set<string>, changed?: readonly TranscriptItem[]): void {
     const candidates = this.currentRecords().filter(
       (record) =>
+        !this.hidden.has(record.id) &&
         /^\/compact(?:\s|$)/.test(record.body.trim()) &&
         ['dispatched', 'typing', 'typed', 'accepted', 'unknown', 'confirmed'].includes(
           record.status,
@@ -943,6 +944,7 @@ export class Sends {
     )
     const local = this.pending.filter(
       (turn) =>
+        !this.hidden.has(turn.deliveryId) &&
         /^\/compact(?:\s|$)/.test(turn.text.trim()) &&
         (turn.state === 'sent' || turn.state === 'sending'),
     )

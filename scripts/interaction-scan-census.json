@@ -13418,56 +13418,56 @@
       "file": "packages/client-core/src/conversation/sends.ts",
       "holder": "Sends/currentRecords",
       "rule": "consume:filter",
-      "tokens": "f0fcb2223085b3234e4c48853847a3c8d98b938d046a4a2422b39c573c662042",
+      "tokens": "e5f75ae7e7781bbac6628c36116beeb8cee73237d9ae72da283d5e6016f2a2ad",
       "gate": [
         "then:45bfcc6f6ee2e713716049fe663f7a5e2c375e53ec864afd9bfe97bf6894240a"
       ],
       "origin": [
         "edaebc8c5dc4a9630cc25a1c6e1d30f49b3238bacb7c6c1b18f7ff26f1478e8d"
       ],
-      "fingerprint": "65fedce41254318a10c02ed23c76a8e150f504a997974366a2c8b24b2fc5b535",
+      "fingerprint": "83f867cb0ac8ad8a10cef2d3075aac7cf9d1a4b31927dae16c326794dd812ccc",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "The selected conversation observes its session message window.",
       "bound": "One session message membership; the existing conversation feed has no newly proven cardinality cap.",
-      "reason": "Moving facts into shared models preserves the selected-session traversal and its existing collection-bound debt. The standalone fallback makes one linear pass; shipped readers use addressed pool model reads.",
+      "reason": "Moving facts into shared models preserves the selected-session traversal and its existing collection-bound debt. The standalone fallback makes one linear pass; shipped readers use addressed pool model reads. POD-2450: refreshed formatting and parenthesization of the same traversal; its classification and cardinality claim are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. Sends and phone-reader parity tests verify behavior; they do not establish a new feed cardinality bound."
     },
     {
       "file": "packages/client-core/src/conversation/sends.ts",
       "holder": "Sends/observeRecords",
       "rule": "consume:map",
-      "tokens": "e20b99ab7120c4e029edc60dd4670a4a89bd0b6829f002800af5b931bdd6ef2d",
+      "tokens": "5481fb2ff0ae5626f73af9bd3b9fb138b9417040b38121d9a1b96b33131d735f",
       "gate": [],
       "origin": [
         "8c67b353d2857ce0d76b9f17107d713905703b26992fccdb9b1c82d33669d4ac"
       ],
-      "fingerprint": "a2df03388e09e4d9ee3a696c2d32ed985cabcfb39fed493ed5e17aab6be2c6b9",
+      "fingerprint": "296f1cf19b2ed162476f05a9bde6bfce9873b47ecb0e5a33c28ff84fe154656a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "The selected conversation observes its session message window.",
       "bound": "One session message membership; the existing conversation feed has no newly proven cardinality cap.",
-      "reason": "Moving facts into shared models preserves the selected-session traversal and its existing collection-bound debt. The standalone fallback makes one linear pass; shipped readers use addressed pool model reads.",
+      "reason": "Moving facts into shared models preserves the selected-session traversal and its existing collection-bound debt. The standalone fallback makes one linear pass; shipped readers use addressed pool model reads. POD-2450: refreshed formatting and parenthesization of the same traversal; its classification and cardinality claim are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. Sends and phone-reader parity tests verify behavior; they do not establish a new feed cardinality bound."
     },
     {
       "file": "packages/client-core/src/conversation/sends.ts",
       "holder": "Sends/observeRecords",
       "rule": "loop:for-of",
-      "tokens": "14d5b0ba71ff0b028b59ddc6a5e0ed133830c40fe9ea87523ce53142a06cd189",
+      "tokens": "c07662ce93adbd96514c401b537da9dc309a2a1c69a2a1a2b92976f4ed4f7a2c",
       "gate": [],
       "origin": [
         "8c67b353d2857ce0d76b9f17107d713905703b26992fccdb9b1c82d33669d4ac"
       ],
-      "fingerprint": "3c5ab34291509d880a4c435dd397ad0cc7dfe7061f6009877c5806d74de255e5",
+      "fingerprint": "105e962f77030970390d0cfd2a9a55036ad5fea3dafbc1d5222f16f8c6cbc6e0",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5621",
       "trigger": "Sends starts, reconnects, receives its conversation record snapshot or settles requested delivery lookups.",
       "bound": "Only the addressed conversation's record snapshot and this device's held delivery ids participate. Each lookup request is capped at CATCH_UP_BATCH (100); total catch-up work follows the number of held sends.",
-      "reason": "This ingests the supplied per-conversation record feed and own lookup answers; transcript membership is answered by byId.has and maintained seen-user ids. POD-2257: The existing ingestion loop also binds the startup placeholder when it visits the marked first record. No second traversal or new acquisition is added; first-prompt.test.ts covers existing and late records, attachments, cancellation and confirmation. Predecessor: fa84adfa99f68d3760b6d62439728b55c5e08c5085ae0756246016af717d0a78.",
+      "reason": "This ingests the supplied per-conversation record feed and own lookup answers; transcript membership is answered by byId.has and maintained seen-user ids. POD-2257: The existing ingestion loop also binds the startup placeholder when it visits the marked first record. No second traversal or new acquisition is added; first-prompt.test.ts covers existing and late records, attachments, cancellation and confirmation. Predecessor: fa84adfa99f68d3760b6d62439728b55c5e08c5085ae0756246016af717d0a78. POD-2450: refreshed formatting and parenthesization of the same traversal; its classification and cardinality claim are unchanged.",
       "guard": "conversation/sends.test.ts preserves send, lookup and reconciliation behavior; sends.work.test.ts proves unchanged context/offer/retract/draft work at 1x/4x transcript sizes with a negative control; model-observation.test.ts guards atomic retirement and disposed actions."
     },
     {
@@ -36665,6 +36665,69 @@
       "bound": "Registered project/worktree catalog for the visible compose opening; no fixed catalog cardinality cap is claimed.",
       "reason": "The approved recent-first project picker still traverses its registered catalog. Path collection now belongs to the existing shared opening reader, whose memo retains the same setup query answers; this is not an addressed-demand repair.",
       "guard": "settings-compose-catalog.test.ts proves shared answer parity, cached repeated demand and flat 1x/4x unrelated-history work. ColdStartComposer.order.test.tsx covers frozen ordering. No catalog bound or repair is asserted."
+    },
+    {
+      "file": "packages/client-core/src/conversation/sends.ts",
+      "holder": "Sends/settleCompaction/at",
+      "rule": "consume:reduce",
+      "tokens": "478cdfe1342e7b0b8695be1efa979d8c88545a9687c861b531cc47dc9d657795",
+      "gate": [
+        "exit:then:1cb317ef3b13ec523cbbe5cbde565319c8b438a33094b55e6087eb3d57141da0"
+      ],
+      "origin": [
+        "5a5205a4a4a8e405bdfb9566127c241aa8089a02bdf1550e691d418c8350289e"
+      ],
+      "fingerprint": "12a22f235df5fc67a4cb6fdb6bfe751712e6c14d49711e421f439a8f8c4ca695",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-2450",
+      "trigger": "Transcript ingestion supplies changed items; an incoming per-conversation message record can arrive after its compaction event.",
+      "bound": "One addressed conversation, only while a /compact send lacks completion proof. Transcript deltas examine change.changed; a record arriving later can examine the loaded transcript. Retained history is not a fixed cardinality cap.",
+      "reason": "A local /compact command may have no user echo. Its later manual or untagged compaction is delivery evidence. Existing hidden delivery IDs suppress further proof scans after settlement; no reader tick or ordinary render performs this ingestion.",
+      "guard": "packages/client-core/src/conversation/sends.test.ts covers option-free local command settlement, a record arriving after the event, rejection of automatic/older events, and zero transcript reads on later record updates once compact sends are settled."
+    },
+    {
+      "file": "packages/client-core/src/values/markdown-plain-text.ts",
+      "holder": "blocks/map:callback",
+      "rule": "spread",
+      "tokens": "4953287ea6a6682e04e6ba8f95cd92a65af49b4b5976da64c61bd57873a43d34",
+      "gate": [
+        "switch:2e9f66103e441e4b955d4daf18bf5c3cb838770b6fe0424ef39f6b9afb42d7c2",
+        "case:d6e9e07ac4a87af449f2c6c365761dd6e9a9b7192dfe78ecc17067eb73c83e14"
+      ],
+      "origin": [
+        "7ea6b6c4c41a6e547a301bfaf9a0a65661e348ccb3cb1c5e3d685a0c97420aae"
+      ],
+      "fingerprint": "d170adbcfb373ee50ecaa874a465ee98a3e8254dc1dd98d54ed7dfcb07c50598",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-2450",
+      "trigger": "Select Text renders the selected message as plain text.",
+      "bound": "Only Markdown table tokens parsed from that one selected message; these are not session, issue or database table rows.",
+      "reason": "The table header and body cells must be emitted in reading order so native selection and quoted text contain the rendered words.",
+      "guard": "packages/client-core/src/values/markdown-plain-text.test.ts covers table cell order, inline formatting, task states and hidden raw HTML; SelectTextSheet.test.tsx covers selection offsets and quote output on the plain rendering."
+    },
+    {
+      "file": "packages/client-core/src/values/markdown-plain-text.ts",
+      "holder": "blocks/map:callback",
+      "rule": "consume:map",
+      "tokens": "99c836d4c6726b67766a756bb2a96f0bcd54481de4fb9f4aad86b8750d9f302c",
+      "gate": [
+        "switch:2e9f66103e441e4b955d4daf18bf5c3cb838770b6fe0424ef39f6b9afb42d7c2",
+        "case:d6e9e07ac4a87af449f2c6c365761dd6e9a9b7192dfe78ecc17067eb73c83e14"
+      ],
+      "origin": [
+        "2e157c78584abd8c43f2d077dce2a6c1c33879e1f8410a894ba9ee53a2919606",
+        "7ea6b6c4c41a6e547a301bfaf9a0a65661e348ccb3cb1c5e3d685a0c97420aae"
+      ],
+      "fingerprint": "efab45ebdd958ecdfcd5ea1ae9126708f8d6b8ebd83bf2be4206b94a132cb6e8",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-2450",
+      "trigger": "Select Text renders the selected message as plain text.",
+      "bound": "Only Markdown table tokens parsed from that one selected message; these are not session, issue or database table rows.",
+      "reason": "The table header and body cells must be emitted in reading order so native selection and quoted text contain the rendered words.",
+      "guard": "packages/client-core/src/values/markdown-plain-text.test.ts covers table cell order, inline formatting, task states and hidden raw HTML; SelectTextSheet.test.tsx covers selection offsets and quote output on the plain rendering."
     }
   ]
 }
