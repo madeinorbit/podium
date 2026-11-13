@@ -19,6 +19,7 @@ import { feedDelta } from './test-support/feed-delta'
 import { openTestStore } from './test-support/open-test-store'
 import { logStoreRecords } from './test-support/record-writer'
 import type { WriteContexts } from './write-contexts'
+import { seedRows } from './test-support/seed-rows'
 
 /**
  * Conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257 — the LAST
@@ -167,9 +168,9 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
       transact: async (fn) => await store.transact(fn),
     })
     // Seed one row so the delete half of the batch has something to bite on.
-    await store.conversations.index.upsert(fixtureWriteScope(), [
+    await seedRows(store, () => store.conversations.index.upsert(fixtureWriteScope(), [
       { id: 'c-old', agentKind: 'claude-code', providerId: 'p', machineId: store.hostMachineId },
-    ])
+    ]))
     const cursorBefore = await ledger.cursor()
     await expect(
       testLedgerWriter(ledger).commit({

@@ -426,7 +426,7 @@ describe('the chat message feed', () => {
     await expectRecordLogParity(store, ledger, 'message')
   })
 
-  it('logs nothing when a session write preserves its carried window', async () => {
+  it('logs no message when a session write preserves its carried window', async () => {
     const { store, ledger, carried } = await harness()
     await confirm(store, 'msg_live')
     const cursor = await ledger.cursor()
@@ -434,7 +434,9 @@ describe('the chat message feed', () => {
       ...(await rowOf(store, S1)),
       title: 'a new title',
     })
-    expect(await ledger.cursor()).toBe(cursor)
+    // The session's own record changed (its title); no message record did.
+    const logged = ((await ledger.changesSince(cursor)) ?? []).map((change) => change.entity)
+    expect(logged).toEqual(['session'])
     expect((await carried()).get('msg_live')?.status).toBe('confirmed')
   })
 
@@ -467,7 +469,9 @@ describe('the chat message feed', () => {
         run: async ({ store, row }) => await store.sessions.upsertSession(fixtureWriteScope(), row),
         check: async (_, { ids }) => expect((await ids()).length).toBe(2),
       },
-      6,
+      // The commit and its empty drain: a write that changes no column a
+      // record reads is captured by nothing, so no window is read (POD-6920).
+      2,
     )
   })
 

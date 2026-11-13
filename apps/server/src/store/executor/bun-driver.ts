@@ -250,14 +250,17 @@ function session(
         db.exec('COMMIT')
       } catch (error) {
         // A refused COMMIT (a deferred constraint: an undrained change
-        // capture, POD-6920) leaves SQLite's transaction open. Roll it back so
-        // the connection is clean and nothing of it is kept.
+        // capture, POD-6920) leaves SQLite's transaction open. Name what was
+        // left undrained, then roll it back so the connection is clean and
+        // nothing of it is kept.
+        const undrained = undrainedCapture(db)
         try {
           db.exec('ROLLBACK')
         } catch {
           // Already rolled back by SQLite (a non-deferred failure).
         }
-        throw error
+        if (undrained === undefined) throw error
+        throw new UndrainedChangeCapture(undrained, error)
       }
     },
     async rollback() {
@@ -322,4 +325,34 @@ export function createBunStoreExecutor(
     ),
     ...executor,
   })
+}
+
+/**
+ * A write transaction changed rows a synced record reads and committed
+ * without draining the change capture into the log (POD-6920): the database
+ * refused it. The message names the first captured changes, which say what
+ * wrote outside a change-log commit.
+ */
+export class UndrainedChangeCapture extends Error {
+  constructor(rows: readonly string[], cause: unknown) {
+    super(
+      `write refused: it changed synced rows outside a change-log commit (undrained capture: ${rows.join('; ')})`,
+      { cause },
+    )
+    this.name = 'UndrainedChangeCapture'
+  }
+}
+
+/** The first captured changes of the open transaction, or undefined when
+ *  there are none (the refusal was something else). */
+function undrainedCapture(db: SqlDatabase): string[] | undefined {
+  try {
+    const rows = db
+      .prepare('SELECT kind, source, op, old_key, new_key FROM sync_capture ORDER BY id LIMIT 5')
+      .all() as { kind: string; source: number; op: string; old_key: string | null; new_key: string | null }[]
+    if (rows.length === 0) return undefined
+    return rows.map((row) => `${row.kind}#${row.source} ${row.op} ${row.old_key ?? '-'} -> ${row.new_key ?? '-'}`)
+  } catch {
+    return undefined
+  }
 }

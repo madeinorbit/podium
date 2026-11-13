@@ -10,6 +10,7 @@ import { applyAfterCommit, spanOpen } from './store/executor/executor'
 import { openTestStore } from './test-support/open-test-store'
 import { logStoreRecords } from './test-support/record-writer'
 import { sessionReadPorts } from './test-support/session-facts'
+import { seedRows } from './test-support/seed-rows'
 
 /**
  * Issue writes on the write-seam Ledger ([spec:SP-3fe2] #255): the REAL Ledger
@@ -144,10 +145,10 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
         startNow: false,
       })
       const other = asUserId('user:other')
-      await store.issues.setIssueUserState(fixtureWriteScope(), other, issue.id, {
+      await seedRows(store, () => store.issues.setIssueUserState(fixtureWriteScope(), other, issue.id, {
         readAt: '2026-07-02',
         tuckedAt: '2026-07-02',
-      })
+      }))
       await svc.reports.store.setGitState(issue.id, {
         updatedAt: '2026-07-02',
         branch: 'feature',
@@ -239,9 +240,9 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
         dirtyFiles: 0,
         merged: true,
       })
-      await store.issues.setIssueUserState(fixtureWriteScope(), user, issue.id, {
+      await seedRows(store, () => store.issues.setIssueUserState(fixtureWriteScope(), user, issue.id, {
         readAt: '2026-07-02',
-      })
+      }))
       const deleting = await svc.crud.prepareSoftDelete(issue.id)
       appended.length = 0
       await testLedgerWriter(ledger).commit({
@@ -259,9 +260,9 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
         },
       })
       expect(appended[0]?.find((c) => c.entity === 'issueGitState')).toMatchObject({ op: 'remove' })
-      await store.issues.setIssueUserState(fixtureWriteScope(), user, issue.id, {
+      await seedRows(store, () => store.issues.setIssueUserState(fixtureWriteScope(), user, issue.id, {
         tuckedAt: '2026-07-03',
-      })
+      }))
       const restoring = await svc.crud.prepareRestore(issue.id)
       appended.length = 0
       await testLedgerWriter(ledger).commit({
@@ -617,7 +618,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     // Simulate an offline mutation + restart: new ledger/service over the same store.
     const row = (await store.issues.listIssueRows()).find((r) => r.id === wire.id)
     if (!row) throw new Error('row missing')
-    await store.issues.upsertIssue(fixtureWriteScope(), { ...row, title: 'changed offline' })
+    await seedRows(store, () => store.issues.upsertIssue(fixtureWriteScope(), { ...row, title: 'changed offline' }))
     const ledger2 = new Ledger({
       repo: store.sync,
       records: await logStoreRecords(store),
