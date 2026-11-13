@@ -198,7 +198,7 @@ export function AskQuestionCard({
 
   if (resultDetail) {
     return (
-      <View testID="ask-question-history" style={styles.card}>
+      <View testID="ask-question-history" style={styles.history}>
         <Text style={styles.meta}>Not answered</Text>
         {questions.map((question) => (
           <Text key={question.question} style={styles.question}>
@@ -380,6 +380,11 @@ const styles = StyleSheet.create({
   compactButton: { minHeight: 44, justifyContent: 'center', paddingHorizontal: space.sm },
   compactLabel: { ...sans(600), color: color.accentTint, fontSize: font.small },
   card: { ...decisionTile.card, ...decisionTile.signal },
+  history: {
+    ...decisionTile.card,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.border,
+  },
   band: { marginHorizontal: space.lg, marginVertical: space.sm },
   meta: {
     ...sans(400),
