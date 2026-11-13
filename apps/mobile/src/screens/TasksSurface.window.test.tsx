@@ -51,7 +51,17 @@ vi.mock('expo-router', () => ({
     },
     SearchBar: (props: NonNullable<typeof state.search>) => {
       state.search = props
-      useImperativeHandle(props.ref, () => ({ setText: state.setSearchText }) as SearchBarCommands)
+      useImperativeHandle(
+        props.ref,
+        (): SearchBarCommands => ({
+          setText: state.setSearchText,
+          focus: () => {},
+          blur: () => {},
+          clearText: () => {},
+          cancelSearch: () => {},
+          toggleCancelButton: () => {},
+        }),
+      )
       return null
     },
     Toolbar: Object.assign(() => null, { Button: () => null }),
@@ -624,7 +634,7 @@ it.each([
     expect(screen.getByText('Search parent')).toBeTruthy()
     expect(screen.queryByText('Other task')).toBeNull()
     if (tab === 'Work') {
-        expect(screen.getByText('Nested task')).toBeTruthy()
+      expect(screen.getByText('Nested task')).toBeTruthy()
       expect(phone.query).toBe(text)
       expect(phone.childHit('parent')).toBe('child')
     } else expect(board.searchFilter.text).toBe(text)
