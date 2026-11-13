@@ -826,6 +826,7 @@ export class SocketHub {
       // A constructor throw before first contact is a config problem (bad URL) —
       // surface it; once we have connected successfully, retry like any other drop.
       log.warn('socket could not be opened', { err, everConnected: this.everConnected })
+      this.opts.feed?.disconnected()
       this.emit('link', 'lost')
       if (this.everConnected) this.scheduleReconnect()
       else this.opts.onError?.(errorMessage(err, 'WebSocket connection failed'), err)

@@ -81,6 +81,11 @@ export class SyncProgressStore {
       failure: null,
     })
   }
+  /** A failed dial may leave an already-stale kernel with no posture event. */
+  noteDisconnected(): void {
+    if (this.snapshot.error === 'auth' || this.snapshot.error === 'format') return
+    this.publish({ phase: 'offline' })
+  }
   beginAttempt(): void {
     this.walkSeq = null
     this.publish({
@@ -173,7 +178,7 @@ export class SyncProgressStore {
       // disconnect() also emits posture events; fatal causes survive them.
       if (this.snapshot.error === 'auth' || this.snapshot.error === 'format') return
       if (event.posture === 'live') this.noteReady()
-      else if (event.posture === 'stale') this.publish({ phase: 'offline' })
+      else if (event.posture === 'stale') this.noteDisconnected()
       else if (event.posture === 'healing' || event.posture === 'bootstrapping') {
         this.publish({
           phase: this.snapshot.blocking ? 'connecting' : 'updating',

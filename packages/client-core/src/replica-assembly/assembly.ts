@@ -31,8 +31,8 @@ import {
   SyncCancelledError,
   SyncNetworkError,
 } from '../sync-stream'
-import { ReplicaGateError } from './failure'
 import { decideLegacyAdoption, type LegacyIdentityEvidence } from './adoption'
+import { ReplicaGateError } from './failure'
 import { SyncProgressStore } from './progress'
 
 export const STORE_REFRESH_NOTICE = 'Refreshing your data after the upgrade — this happens once.'
@@ -168,10 +168,10 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
       signedInAs: options.principal,
       identitiesEverSignedIn: namespace.knownPrincipals,
     }
-    const adoption = decideLegacyAdoption(
-      evidence,
-      { kind: 'principal-scoped', writtenUnder: [options.principal] },
-    )
+    const adoption = decideLegacyAdoption(evidence, {
+      kind: 'principal-scoped',
+      writtenUnder: [options.principal],
+    })
     if (!adoption.adopt) {
       view.cache.discardCache()
       options.onDegraded?.({
@@ -285,7 +285,13 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
       connected: () => {
         if (!stopped) sink.connected()
       },
-      disconnected: () => sink.disconnected(),
+      disconnected: () => {
+        sink.disconnected()
+        // A socket that fails before opening never starts another heal. The
+        // kernel may already be stale, so no posture transition will report it.
+        // An independently running HTTP bootstrap still owns its progress.
+        if (replicaKernel.posture !== 'bootstrapping') progress.noteDisconnected()
+      },
       frame: (frame) => {
         if (!stopped) sink.frame(frame)
       },

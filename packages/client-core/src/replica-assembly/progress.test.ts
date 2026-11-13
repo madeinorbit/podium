@@ -26,6 +26,7 @@ describe('shared sync progress', () => {
     progress.beginAttempt()
     progress.noteError(cause, `first-${cause}`)
     progress.noteReconnecting()
+    progress.noteDisconnected()
     progress.noteEvent({ type: 'bootstrap-failed', cause: 'compacted', attempts: 3, error: 'late' })
     expect(progress.getSnapshot()).toMatchObject({
       phase: 'error',
