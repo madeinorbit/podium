@@ -143,7 +143,7 @@ describe('parent branch for a new issue (POD-2065)', () => {
       refs: ['main', 'tf.dev'],
     })
     const before = await h.svc.crud.create(h.svc.reports.store.serverWriter, { repoPath: '/r', title: 'Before', startNow: false })
-    await h.store.repos.setRepoDefaultParentBranch(h.store.hostMachineId, '/r', 'tf.dev')
+    await seedRows(h.store, () => h.store.repos.setRepoDefaultParentBranch(h.store.hostMachineId, '/r', 'tf.dev'))
     const after = await h.svc.crud.create(h.svc.reports.store.serverWriter, { repoPath: '/r', title: 'After', startNow: false })
     expect((await h.svc.reports.get(before.id))?.parentBranch).toBe('main')
     expect(after.parentBranch).toBe('tf.dev')

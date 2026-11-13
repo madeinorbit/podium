@@ -341,7 +341,7 @@ describe('attachSession', () => {
       sess(asSessionId('s1'), '/r/.worktrees/epic'),
       sess(asSessionId('s2'), '/r/.worktrees/epic'),
     ])
-    await store.repos.setRepoDefaultParentBranch(store.hostMachineId, '/r', 'release')
+    await seedRows(store, () => store.repos.setRepoDefaultParentBranch(store.hostMachineId, '/r', 'release'))
     const parent = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Epic',

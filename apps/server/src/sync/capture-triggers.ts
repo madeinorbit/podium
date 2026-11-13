@@ -53,10 +53,23 @@ export function sourceTriggers(kind: MetadataEntityKind, index: number, source: 
     `(${changed.join(' OR ')})`,
   ].join(' AND ')
   const when = (condition: string | undefined) => (condition === undefined ? '' : ` WHEN ${condition}`)
+  const ops = new Set(source.ops ?? ['i', 'u', 'd'])
   return [
-    `CREATE TRIGGER ${name('i')} AFTER INSERT ON ${table} FOR EACH ROW${when(rowsOf('NEW'))} BEGIN ${insert('i', 'NULL', keyArray(source, 'NEW'))} END`,
-    `CREATE TRIGGER ${name('u')} AFTER UPDATE ON ${table} FOR EACH ROW${when(updateWhen)} BEGIN ${insert('u', keyArray(source, 'OLD'), keyArray(source, 'NEW'))} END`,
-    `CREATE TRIGGER ${name('d')} AFTER DELETE ON ${table} FOR EACH ROW${when(rowsOf('OLD'))} BEGIN ${insert('d', keyArray(source, 'OLD'), 'NULL')} END`,
+    ...(ops.has('i')
+      ? [
+          `CREATE TRIGGER ${name('i')} AFTER INSERT ON ${table} FOR EACH ROW${when(rowsOf('NEW'))} BEGIN ${insert('i', 'NULL', keyArray(source, 'NEW'))} END`,
+        ]
+      : []),
+    ...(ops.has('u')
+      ? [
+          `CREATE TRIGGER ${name('u')} AFTER UPDATE ON ${table} FOR EACH ROW${when(updateWhen)} BEGIN ${insert('u', keyArray(source, 'OLD'), keyArray(source, 'NEW'))} END`,
+        ]
+      : []),
+    ...(ops.has('d')
+      ? [
+          `CREATE TRIGGER ${name('d')} AFTER DELETE ON ${table} FOR EACH ROW${when(rowsOf('OLD'))} BEGIN ${insert('d', keyArray(source, 'OLD'), 'NULL')} END`,
+        ]
+      : []),
   ]
 }
 

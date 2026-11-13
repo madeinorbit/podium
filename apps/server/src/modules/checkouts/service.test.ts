@@ -55,8 +55,10 @@ async function world(opts: { online?: boolean } = {}) {
     scan: async () => answer,
     online: () => opts.online ?? true,
     writer: () => records.writer,
+    // A repository registry write is a change-log commit, as the issue
+    // service runs it (POD-6920).
     commitRepoWrite: async (write) => {
-      await write()
+      await records.writer.commit({ write: async () => await write() })
       published.push(1)
     },
     now: () => '2026-11-09T00:00:00.000Z',

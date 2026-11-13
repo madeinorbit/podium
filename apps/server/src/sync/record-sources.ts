@@ -147,6 +147,12 @@ export interface RecordSource {
   readonly derived?: readonly string[]
   /** Only rows this holds for (SQL over `{row}`) can change the kind's records. */
   readonly rows?: string
+  /**
+   * The operations that can change the kind's records (default all three):
+   * a source that matters only when a column moves on an existing row (an
+   * issue's deletion) watches updates alone.
+   */
+  readonly ops?: readonly ('i' | 'u' | 'd')[]
   /** The record ids these changes can have changed. */
   ids(
     changes: readonly SourceChange[],
@@ -210,7 +216,7 @@ function via(
   keys: readonly Column[],
   reads: RecordSource['reads'],
   ids: RecordSource['ids'],
-  more: Partial<Pick<RecordSource, 'rows' | 'derived'>> = {},
+  more: Partial<Pick<RecordSource, 'rows' | 'derived' | 'ops'>> = {},
 ): RecordSource {
   return { table, keys, reads, ids, ...more }
 }
@@ -542,7 +548,11 @@ const panelTables = {
 const issueDeletion = (
   ids: (issueIds: readonly string[], reads: RecordReads) => Promise<Iterable<string>> | Iterable<string>,
 ): RecordSource =>
-  via(issues, [issues.id], [issues.deletedAt], (changes, reads) => ids(firstKeys(changes), reads))
+  via(issues, [issues.id], [issues.deletedAt], (changes, reads) => ids(firstKeys(changes), reads), {
+    // A new issue has none of these records yet, and a purged one's leave
+    // with their own rows.
+    ops: ['u'],
+  })
 
 const panelSources = Object.fromEntries(
   ISSUE_PANEL_KINDS.map((kind) => {

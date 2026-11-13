@@ -454,7 +454,7 @@ describe('AutomationsService.tick — spawn', () => {
       enabled: true,
       sessionMode: 'fresh',
     })
-    await seedRows(h.store, () => h.store.automations.update(fixtureWriteScope(), {
+    await seedRows(h.store, async () => await h.store.automations.update(fixtureWriteScope(), {
       ...(await h.store.automations.get(a.id))!,
       agentKind: 'not-a-harness',
     }))

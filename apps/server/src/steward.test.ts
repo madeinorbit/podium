@@ -2301,7 +2301,7 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     const ackFallback = vi.fn()
     h.deps.messaging = { ackFallback }
     const steward = new StewardService(h.deps)
-    await h.store.events.addSubscription({
+    await seedRows(h.store, async () => await h.store.events.addSubscription({
       id: 'stopped-child-finished',
       subscriberKind: 'session',
       subscriberId: 'parent',
@@ -2313,7 +2313,7 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
       origin: 'custom',
       enabled: true,
       createdAt: '2026-07-02T00:00:00.000Z',
-    })
+    }))
     await h.store.events.appendEvent({
       ts: '2026-07-02T15:14:56.000Z',
       kind: 'session.phase',
@@ -2383,7 +2383,7 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     const h = await harness({ sessions })
     const ackFallback = vi.fn()
     h.deps.messaging = { ackFallback }
-    await h.store.events.addSubscription({
+    await seedRows(h.store, async () => await h.store.events.addSubscription({
       id: 'queued-child-settled',
       subscriberKind: 'session',
       subscriberId: parentId,
@@ -2395,7 +2395,7 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
       origin: 'custom',
       enabled: true,
       createdAt: '2026-07-02T00:00:00.000Z',
-    })
+    }))
     // The event was produced while live. A ten-hour backlog makes the
     // steward see it only after the parent explicitly stopped the child.
     const eventId = await h.store.events.appendEvent({
