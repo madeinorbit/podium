@@ -210,6 +210,8 @@ export const MissionScreen = observer(function MissionScreen() {
       bareBack
       underHeader
       subtitle={seat ?? (root ? 'No agent on this mission' : undefined)}
+      // One tap to the task page, as Messages opens a contact from its name.
+      onTitlePress={root ? () => router.push(`/issue/${encodeURIComponent(root.id)}`) : undefined}
       right={
         <HeaderButton label="Mission actions" onPress={() => setMenuOpen(true)} size={32} bare>
           <Icon as={MoreVertical} size={17} color={color.textDim} />

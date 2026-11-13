@@ -33,6 +33,7 @@ export function Screen({
   safeBottom,
   bareBack = false,
   monoSubtitle = false,
+  onTitlePress,
 }: {
   title?: string
   /** Use the system grouped-list ground beneath content and navigation. */
@@ -67,9 +68,25 @@ export function Screen({
   monoSubtitle?: boolean
   /** Native only: content runs under the transparent iOS bar (see Screen.native). */
   underHeader?: boolean
+  /** Makes the compact title block one button (Messages' contact-name tap). */
+  onTitlePress?: () => void
 }) {
   const refreshSubtitle = useWorkspaceRefreshSubtitle()
   const subtitle = large ? (refreshSubtitle ?? normalSubtitle) : normalSubtitle
+  const compactTitles = (
+    <>
+      {title ? (
+        <Text style={styles.title} numberOfLines={1}>
+          {title}
+        </Text>
+      ) : null}
+      {subtitle ? (
+        <Text style={[styles.subtitle, monoSubtitle && styles.monoSubtitle]} numberOfLines={1}>
+          {subtitle}
+        </Text>
+      ) : null}
+    </>
+  )
   const insets = useSafeAreaInsets()
   const right =
     customRight ??
@@ -133,21 +150,19 @@ export function Screen({
               )
             ) : null}
             {leading}
-            <View style={styles.titles}>
-              {title ? (
-                <Text style={styles.title} numberOfLines={1}>
-                  {title}
-                </Text>
-              ) : null}
-              {subtitle ? (
-                <Text
-                  style={[styles.subtitle, monoSubtitle && styles.monoSubtitle]}
-                  numberOfLines={1}
-                >
-                  {subtitle}
-                </Text>
-              ) : null}
-            </View>
+            {onTitlePress ? (
+              <PressableScale
+                accessibilityRole="button"
+                accessibilityHint="Opens task details"
+                haptic={false}
+                onPress={onTitlePress}
+                style={styles.titles}
+              >
+                {compactTitles}
+              </PressableScale>
+            ) : (
+              <View style={styles.titles}>{compactTitles}</View>
+            )}
             {right ? <View style={styles.right}>{right}</View> : null}
           </View>
         )}

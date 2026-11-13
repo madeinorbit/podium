@@ -12,7 +12,8 @@ import {
   transparentDetailHeader,
 } from '../navigation/native-stack'
 import { color, font, mono, sans, space } from '../theme/theme'
-import type { AppIcon } from './icons'
+import { Icon } from './Icon'
+import { type AppIcon, ChevronRight } from './icons'
 import { PressableScale } from './PressableScale'
 import type { ScreenAction } from './screen-actions'
 
@@ -40,6 +41,7 @@ export function Screen({
   safeBottom,
   monoSubtitle,
   underHeader,
+  onTitlePress,
 }: {
   title?: string
   /** Use the system grouped-list ground beneath content and navigation. */
@@ -71,6 +73,11 @@ export function Screen({
    * transparent but has nothing scrolling under it.
    */
   underHeader?: boolean
+  /**
+   * Makes the pushed screen's title (and its subtitle) one button, the way
+   * Messages opens the contact card from the name in its bar.
+   */
+  onTitlePress?: () => void
 }) {
   const refreshSubtitle = useWorkspaceRefreshSubtitle()
   const subtitle = large ? (refreshSubtitle ?? normalSubtitle) : normalSubtitle
@@ -82,11 +89,13 @@ export function Screen({
   const barInset = transparentBar ? headerHeight : 0
 
   const subtitleText = typeof subtitle === 'string' && subtitle ? subtitle : undefined
+  const titleButton = onTitlePress !== undefined && !large && !noHeader
   const subtitleInBar =
+    !titleButton &&
     nativeSubtitleAvailable &&
     subtitleText != null &&
     (!monoSubtitle || !!(large && refreshSubtitle))
-  const stripSubtitle = subtitleInBar ? null : subtitle
+  const stripSubtitle = subtitleInBar || (titleButton && subtitleText) ? null : subtitle
   const hasContext = !noHeader && (leading != null || stripSubtitle != null)
   const [contextHeight, setContextHeight] = useState(hasContext ? 44 : 0)
   // The context strip pins under the bar, so content under it starts below both.
@@ -115,6 +124,17 @@ export function Screen({
           headerTitleStyle: { color: color.text },
           headerLargeTitleStyle: { color: color.text },
           ...headerSubtitleOptions(subtitleInBar ? subtitleText : undefined, { large }),
+          ...(titleButton
+            ? {
+                headerTitle: () => (
+                  <HeaderTitleButton
+                    title={title ?? ''}
+                    subtitle={subtitleText}
+                    onPress={onTitlePress}
+                  />
+                ),
+              }
+            : {}),
           ...(right ? { headerRight: () => <View style={styles.actions}>{right}</View> } : {}),
           ...(onBack && backAs === 'text'
             ? {
@@ -217,6 +237,41 @@ function ToolbarItems({
   )
 }
 
+/** The bar's title as one target: name, a small forward chevron, and the
+ *  subtitle beneath, in the system title and footnote styles. */
+function HeaderTitleButton({
+  title,
+  subtitle,
+  onPress,
+}: {
+  title: string
+  subtitle?: string | undefined
+  onPress: () => void
+}) {
+  return (
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel={subtitle ? `${title}, ${subtitle}` : title}
+      accessibilityHint="Opens task details"
+      haptic={false}
+      onPress={onPress}
+      style={styles.titleButton}
+    >
+      <View style={styles.titleRow}>
+        <Text style={styles.titleText} numberOfLines={1}>
+          {title}
+        </Text>
+        <Icon as={ChevronRight} size={11} color={color.textFaint} />
+      </View>
+      {subtitle ? (
+        <Text style={styles.titleSubtitle} numberOfLines={1}>
+          {subtitle}
+        </Text>
+      ) : null}
+    </PressableScale>
+  )
+}
+
 export function HeaderButton({
   label,
   onPress,
@@ -274,6 +329,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  titleButton: { alignItems: 'center', justifyContent: 'center', minHeight: 44, maxWidth: 240 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
+  titleText: { ...sans(600), flexShrink: 1, color: color.text, fontSize: font.body },
+  titleSubtitle: { ...sans(400), color: color.textDim, fontSize: font.tiny },
   textBack: { minWidth: 44, minHeight: 44, justifyContent: 'center' },
   textBackLabel: { ...sans(400), color: color.accentTint, fontSize: font.body },
 })
