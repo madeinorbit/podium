@@ -379,16 +379,6 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
     body: 'arg0',
     label: 'SyncUnitOfWork.transact',
   },
-  {
-    // The issue-event feed's transactional append and retention captures:
-    // composition binds it to `SessionStore.transact`, and the body reads the
-    // window from the events table and captures the feed's change in one unit
-    // of work.
-    file: 'apps/server/src/modules/issue-events/feed.ts',
-    symbol: 'transact',
-    body: 'arg0',
-    label: 'IssueEventFeedDeps.transact',
-  },
 ]
 
 /**
@@ -420,7 +410,7 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
   {
     file: 'packages/sync/src/ledger.ts',
     line: 95,
-    why: "the Ledger deps property; it is handed straight to the Authority, so every call goes through the port entry above. (Was 117; POD-6920 removed the record-naming types above it.)",
+    why: 'the Ledger deps property; it is handed straight to the Authority, so every call goes through the port entry above. (Was 117; POD-6920 removed the record-naming types above it.)',
   },
   {
     file: 'packages/sync/src/adapters/indexeddb/idb.ts',
@@ -647,6 +637,26 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   'packages/model/src/identity/first-admin.ts#<module>.firstAdminMemberId': {
     kind: 'contained',
     why: 'Resolves the active administrator through the owning store’s earliestAdmin query; it only reads database state, so rollback leaves no externally observed effect.',
+  },
+  'apps/server/src/store/change-log-commit.ts#ChangeLogCommit.ChangeLogCommit': {
+    kind: 'contained',
+    why: "a repository's change-log hook (POD-6920): inside an open change-log commit it runs the write as is; otherwise it runs it as a Ledger commit, a savepoint of the enclosing transaction whose delivery waits for the outermost commit (`postCommit`), so nothing outside the process sees it before then",
+  },
+  'apps/server/src/store/change-log-commit.ts#ChangeLogCommit.write': {
+    kind: 'contained',
+    why: "the repository write a change-log hook runs (POD-6920): the repository's own statements on the store connection, inside the span",
+  },
+  'apps/server/src/store/change-log-commit.ts#<module>.write': {
+    kind: 'contained',
+    why: "the repository write `throughChangeLog` and `inChangeLogTransaction` run (POD-6920): the repository's own statements on the store connection, inside the span",
+  },
+  'apps/server/src/store/change-log-commit.ts#<module>.transaction': {
+    kind: 'contained',
+    why: "the repository's own transaction runner, used by `inChangeLogTransaction` when no hook is installed (a store-level test): `createOrJoinTransaction` over the same connection",
+  },
+  'apps/server/src/store/settings.ts#SettingsRepository.write': {
+    kind: 'contained',
+    why: "the preference write `inSettingsCommit` runs inside the instance capture's change-log commit (POD-6920): the settings repository's own statements on the store connection",
   },
   'apps/server/src/store/messages.ts#MessagesRepository.query': {
     kind: 'opaque',
@@ -1272,17 +1282,13 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'opaque',
     why: "the commit's own write body; it is a SPAN ROOT in its own right",
   },
-  'packages/sync/src/authority/ports.ts#AuthorityCommit.affects': {
-    kind: 'opaque',
-    why: "the commit's read of the records its write may affect (compare at save, POD-6769), supplied by the caller and run before the write body in the same span; a rollback leaves nothing of it behind",
+  'packages/sync/src/authority/ports.ts#RecordSourcePort.drainCapture': {
+    kind: 'contained',
+    why: "derived change capture (POD-6920): deletes and returns the capture rows this transaction's triggers wrote, through the commit's own connection, and maps them to record ids with batched reads of the model tables; it runs inside the span and rolls back with it",
   },
-  'packages/sync/src/authority/ports.ts#AuthorityCommit.creates': {
-    kind: 'opaque',
-    why: 'the twin of `AuthorityCommit.affects`, read after the write body for the records the write created (POD-6769)',
-  },
-  'packages/sync/src/authority/ports.ts#AuthorityCommit.wrote': {
-    kind: 'opaque',
-    why: 'the twin of `AuthorityCommit.affects` for the closed list of kinds whose writer names its records after the write body (POD-6769); it only names records',
+  'packages/sync/src/authority/ports.ts#RecordSourcePort.inCommit': {
+    kind: 'contained',
+    why: 'runs the commit body inside an AsyncLocalStorage marker so a repository change-log hook joins the open commit instead of opening its own (POD-6920); it calls the body and does no I/O of its own',
   },
   'packages/sync/src/authority/ports.ts#RecordSourcePort.build': {
     kind: 'contained',
@@ -1291,22 +1297,6 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   'packages/sync/src/authority/ports.ts#RecordSourcePort.buildMany': {
     kind: 'contained',
     why: "The grouped builders read the model tables through the commit's store connection and map those rows within the same transaction (POD-6791).",
-  },
-  'packages/sync/src/authority/ports.ts#RecordSourcePort.comparesAtSave': {
-    kind: 'contained',
-    why: 'a lookup in the fixed list of kinds moved to compare at save (POD-6769); computation only',
-  },
-  'packages/sync/src/authority/ports.ts#RecordSourcePort.namedAfterWrite': {
-    kind: 'contained',
-    why: 'a lookup in the closed list of kinds named after the write (POD-6769); computation only',
-  },
-  'apps/server/src/modules/issues/service/core.ts#IssueStore.extraAffects': {
-    kind: 'opaque',
-    why: 'a persist-options callback, supplied at the call site inside the span (POD-6769: it names the dependency-edge and shipping records the write may affect)',
-  },
-  'apps/server/src/modules/issues/service/core.ts#IssueStore.extraCreates': {
-    kind: 'opaque',
-    why: 'a persist-options callback, supplied at the call site inside the span (POD-6769: it names the shipping records the write created)',
   },
   'apps/server/src/store/settings.ts#InstancePreferencesFeedCapture.write': {
     kind: 'opaque',
