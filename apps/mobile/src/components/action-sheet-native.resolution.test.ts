@@ -18,7 +18,7 @@ const { resolver } = require('../../metro.config.js')
 
 // Use Metro and the app's actual sourceExts. Vitest's web extension order
 // cannot catch a .ts fallback shadowing an .ios.tsx entry.
-function resolvePicker(platform: string) {
+function resolvePicker(platform: string, name = 'action-sheet-native') {
   return resolve(
     {
       ...resolver,
@@ -37,12 +37,18 @@ function resolvePicker(platform: string) {
             }
           : { exists: false },
     },
-    './action-sheet-native',
+    `./${name}`,
     platform,
   )
 }
 
 describe('native picker Metro resolution', () => {
+  it('resolves iOS New work to the mounted-root launcher', () => {
+    expect(resolvePicker('ios', 'NewWorkButton')).toEqual({
+      type: 'sourceFile',
+      filePath: join(componentDir, 'NewWorkButton.ios.tsx'),
+    })
+  })
   it('resolves iOS to the SwiftUI NativePicker with the real ts-before-tsx order', () => {
     expect(resolver.sourceExts.indexOf('ts')).toBeLessThan(resolver.sourceExts.indexOf('tsx'))
     const result = resolvePicker('ios')
