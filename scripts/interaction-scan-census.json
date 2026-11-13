@@ -16800,18 +16800,18 @@
       "file": "packages/client-core/src/values/ask-question.ts",
       "holder": "latestPendingQuestion",
       "rule": "loop",
-      "tokens": "aeb1ff0d120375d66b9097ee8e87f71a5e3bef80357314cb247f6d9bde0e4a50",
+      "tokens": "cfc5c401dc3aea332a29758c882d7f96080fbe3edef4ffebaec4d051d975dd0e",
       "gate": [],
       "origin": [
         "7afe8f2ee52a677a9ea139c03afcbb0f8f2c17662a21a6da7759bc4f1a149cc6"
       ],
-      "fingerprint": "bc1c1eb73bd24a9f68967e380ddb93ad168b7c7e501f2dbb3d499dadbb9b4b78",
+      "fingerprint": "bef6f42546b91f18fb3afd01dd08d6d97076b5d0278080cd4f4aa0f6a8bca687",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of latestPendingQuestion",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2450: the existing reverse scan now uses the shared question-outcome classifier. The inherited full-input collection bound and owner are unchanged.",
+      "reason": "loop carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2450: the existing reverse scan now uses the shared question-outcome classifier. The inherited full-input collection bound and owner are unchanged. POD-2450: the guarded caller now shares a private pending predicate so the legacy native reader does not repeat role reads. Both callers validate the interview shape first; classifications and collection bounds are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -36711,43 +36711,41 @@
     },
     {
       "file": "packages/client-core/src/values/ask-question.ts",
-      "holder": "isPendingAskQuestion/outcome",
+      "holder": "questionRemainsPending/outcome",
       "rule": "helper-consumer",
-      "tokens": "0f41df405769ab19c297658d9bb2a13a7020ee5b4580d4b906c89abd08fcfbb6",
-      "gate": [
-        "exit:then:807a98f87c5dfe3fd38fc9f800e5090c6dd4ba5d60b50d087a42f38da1e71c90"
-      ],
+      "tokens": "48c1324c825a63f8552c257b64a811c381409bedece3c57fd691ed3e65801f06",
+      "gate": [],
       "origin": [
         "7afe8f2ee52a677a9ea139c03afcbb0f8f2c17662a21a6da7759bc4f1a149cc6"
       ],
-      "fingerprint": "5c9598c0be0b9dea73ecc474de420cb0d5c78bc48605074c20b9f4a167d2bc58",
+      "fingerprint": "c8647b67fd61840b91f1223f934e6cc0d42c7d4de7632288c2456c2af7fe35f7",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2450",
       "trigger": "An addressed interview block is classified during ingestion or rendered as a question. Non-interview blocks return before classification.",
       "bound": "The one question tool result and its own parsed answer payload; no session, issue or database row collection is acquired.",
-      "reason": "Empty, rejected and interrupted results must stay unresolved. Positive answer evidence or an explicit skip settles the question. This consumes one document, not a history snapshot.",
+      "reason": "Empty, rejected and interrupted results must stay unresolved. Positive answer evidence or an explicit skip settles the question. This consumes one document, not a history snapshot. POD-2450: the guarded caller now shares a private pending predicate so the legacy native reader does not repeat role reads. Both callers validate the interview shape first; classifications and collection bounds are unchanged.",
       "guard": "values/ask-question.test.ts covers actual answer, error, interruption, empty and registration outcomes; transcript-graph.test.ts covers paired result updates; desktop and mobile tests preserve error details and pending pins."
     },
     {
       "file": "packages/client-core/src/values/ask-question.ts",
       "holder": "latestPendingQuestion",
       "rule": "helper-consumer",
-      "tokens": "ba438b3172ba0a353634c441de42be37efeb63f06771eddaea639687f8ce5843",
+      "tokens": "20fb58520fdcb27fc1d56d5a55d242da2c663db3b13886e783c0637afe0ea2f0",
       "gate": [
         "loop:0116553880cd273cff14407be8a201815b6fca7190084aafb293f8d5bd6d5bb5",
-        "then:27dd5a4129fc6497db4dc1b2792e5e679281b65d9f730e9005545b7d38bf8c24"
+        "then:ca8b0b6dd195606ec2e8352fe1526a030dc33ca73c5185940658650431f1a037"
       ],
       "origin": [
         "7afe8f2ee52a677a9ea139c03afcbb0f8f2c17662a21a6da7759bc4f1a149cc6"
       ],
-      "fingerprint": "cf661f7e804ca895b4a5e126f1440c715680e71cf1d53653176eadd483028fd9",
+      "fingerprint": "82dd1102ba9994a9d9cf3c31fc2e41669222dfaeb55de7197011ff175c7f12f3",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "The legacy latestPendingQuestion reader invokes shared outcome classification while walking its supplied transcript.",
       "bound": "No new cardinality cap is established for that existing full-input reader.",
-      "reason": "Outcome classification is shared with the addressed graph and checks one question result at this loop position. The enclosing legacy scan still carries its previous collection-bound debt.",
+      "reason": "Outcome classification is shared with the addressed graph and checks one question result at this loop position. The enclosing legacy scan still carries its previous collection-bound debt. POD-2450: the guarded caller now shares a private pending predicate so the legacy native reader does not repeat role reads. Both callers validate the interview shape first; classifications and collection bounds are unchanged.",
       "guard": "values/ask-question.test.ts verifies pending and settled behavior; this classification makes no bounded-history claim."
     }
   ]
