@@ -372,3 +372,29 @@ it('updates a day label at midnight without rendering message prose again', () =
   expect(screen.getByText('Yesterday')).toBeTruthy()
   expect(markdownRenders).toHaveBeenCalledTimes(renders)
 })
+
+it('keeps a failed edit visible while its recorded diff is expanded', () => {
+  render(
+    transcript([
+      {
+        id: 'failed-edit',
+        role: 'tool',
+        text: '',
+        toolName: 'Edit',
+        toolTitle: 'Edited LoginScreen.tsx',
+        toolResult: 'Error: the target text was not found',
+        toolInputJson: JSON.stringify({
+          kind: 'file-edit',
+          mode: 'replace',
+          hunks: [{ oldText: 'old', newText: 'new' }],
+          added: 1,
+          removed: 1,
+        }),
+      },
+    ]),
+  )
+  fireEvent.click(screen.getByLabelText(/^Expand work run:/))
+  fireEvent.click(screen.getByLabelText('Expand call: Edited LoginScreen.tsx'))
+  expect(screen.getByText(/target text was not found/)).toBeTruthy()
+  expect(screen.getByText(/−old/)).toBeTruthy()
+})

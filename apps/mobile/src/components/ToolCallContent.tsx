@@ -1,4 +1,9 @@
-import { type ChatBlock, resolveToolEdit, toolEditLines } from '@podium/client-core/values'
+import {
+  type ChatBlock,
+  resolveToolEdit,
+  toolEditLines,
+  toolVerdict,
+} from '@podium/client-core/values'
 import { StyleSheet, Text, View } from 'react-native'
 import { color, mono, radius, sans, space } from '../theme/theme'
 
@@ -18,6 +23,11 @@ export function ToolCallContent({
   const output = result ?? 'No output recorded.'
   return (
     <View style={styles.content}>
+      {!preview && edit && result && toolVerdict(result, item.toolEffects) === 'err' ? (
+        <Text selectable style={[styles.output, styles.removed]}>
+          {result}
+        </Text>
+      ) : null}
       {!preview && input && !edit ? (
         <>
           <Text style={styles.label}>Input</Text>

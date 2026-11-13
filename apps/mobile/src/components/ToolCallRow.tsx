@@ -74,7 +74,7 @@ export function ToolCallRow({ block }: { block: ChatBlock }) {
           <Text style={styles.meta}>{formatClock(item.durationMs)}</Text>
         ) : null}
       </PressableScale>
-      {!open && verdict === 'err' ? (
+      {verdict === 'err' && (!open || edit) ? (
         <Text style={styles.failure} numberOfLines={2}>
           {failLine(result)}
         </Text>
