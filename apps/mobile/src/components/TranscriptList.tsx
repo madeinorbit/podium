@@ -862,11 +862,9 @@ function AskReceipt({ item }: { item: TranscriptItem }) {
       <Text style={styles.receiptQ} numberOfLines={2}>
         {first?.question ?? item.toolInput ?? 'Question'}
       </Text>
-      {picked ? (
-        <Text style={styles.receiptPick} numberOfLines={1}>
-          {picked}
-        </Text>
-      ) : null}
+      <Text style={styles.receiptPick} numberOfLines={1}>
+        {picked || 'answered'}
+      </Text>
     </View>
   )
 }

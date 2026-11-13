@@ -267,6 +267,32 @@ it('uses the desktop short subject for file rows in an opened fold', () => {
   expect(screen.getByLabelText('Expand call: search.ts')).toBeTruthy()
   expect(screen.queryByText('/Users/till/project/.worktrees/issue-5/src/search.ts')).toBeNull()
 })
+
+it('marks a delivered custom answer as answered even without a listed option match', () => {
+  render(
+    transcript([
+      {
+        id: 'question',
+        role: 'tool',
+        text: '',
+        toolName: 'AskUserQuestion',
+        toolUseId: 'custom-use',
+        toolInputJson: JSON.stringify({
+          questions: [{ question: 'Which colour?', options: [{ label: 'Red' }] }],
+        }),
+      },
+      {
+        id: 'custom-result',
+        role: 'tool',
+        text: '',
+        toolUseId: 'custom-use',
+        toolResult: 'You answered Purple',
+      },
+    ]),
+  )
+  expect(screen.getByText('answered')).toBeTruthy()
+  expect(screen.queryByTestId('ask-question-tile')).toBeNull()
+})
 const note = (id: string, body: string, ask = false) =>
   `[podium message ${id} · from issue:POD-1906 · to ${ask ? 'operator' : 'issue:POD-1879'}]\n${body}\n${ask ? `[this is a question: reply with podium mail reply ${id}]\n` : ''}[end podium message ${id}]`
 
