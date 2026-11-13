@@ -7,6 +7,7 @@ import {
   menuActionDismissBehavior,
 } from '@expo/ui/swift-ui/modifiers'
 import type { SFSymbol } from 'expo-symbols'
+import { useState } from 'react'
 import { Keyboard, View } from 'react-native'
 import type { ComposeMenuItem, ComposeMenuProps } from './ComposeMenu'
 
@@ -18,11 +19,38 @@ export function ComposeMenu({
   disabled: unavailable,
   style,
 }: ComposeMenuProps) {
+  const [width, setWidth] = useState<number>()
+  const [contentHeight, setContentHeight] = useState(0)
   return (
-    <View style={style} onTouchStart={Keyboard.dismiss}>
-      <Host matchContents={{ vertical: true }} style={{ alignSelf: 'stretch' }}>
+    <View
+      testID="compose-menu-host"
+      style={[style, contentHeight > 0 && { minHeight: contentHeight }]}
+      onTouchStart={Keyboard.dismiss}
+      onLayout={(event) => {
+        if (event.nativeEvent.layout.width > 0) setWidth(event.nativeEvent.layout.width)
+      }}
+    >
+      <Host
+        ignoreSafeArea="all"
+        matchContents={{ vertical: true }}
+        style={{ alignSelf: 'stretch', width, minHeight: contentHeight }}
+      >
         <Menu
-          label={<RNHostView matchContents={{ vertical: true }}>{children()}</RNHostView>}
+          label={
+            <RNHostView matchContents={{ vertical: true }}>
+              <View
+                testID="compose-menu-label"
+                collapsable={false}
+                style={{ width }}
+                onLayout={(event) => {
+                  if (event.nativeEvent.layout.height > 0)
+                    setContentHeight(event.nativeEvent.layout.height)
+                }}
+              >
+                {children()}
+              </View>
+            </RNHostView>
+          }
           onPrimaryAction={onPrimaryAction}
           modifiers={[
             buttonStyle('plain'),

@@ -39,7 +39,12 @@ export function ComposeFieldRow({
   disabled?: boolean
 }) {
   return (
-    <ComposeMenu label={label} items={items} disabled={disabled} style={{ alignSelf: 'stretch' }}>
+    <ComposeMenu
+      label={label}
+      items={items}
+      disabled={disabled}
+      style={{ alignSelf: 'stretch', minHeight: 44 }}
+    >
       {(onPress) => {
         const content = (
           <>
