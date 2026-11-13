@@ -240,7 +240,6 @@ describe('importLegacyCredentials at server start', () => {
       users: store.users,
       credentials: store.credentials,
       vault: store.vault,
-      transaction: (run) => run(),
       log,
     })
     expect(again).toEqual({

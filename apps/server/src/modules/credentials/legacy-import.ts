@@ -47,7 +47,6 @@ export interface LegacyImportDeps {
   users: Pick<UsersRepository, 'earliestAdmin'>
   credentials: CredentialsRepository
   vault: Vault
-  transaction<T>(run: () => Promise<T>): Promise<T>
   /** Defaults to the server log. */
   log?: {
     info(message: string, fields: Record<string, unknown>): void
@@ -247,19 +246,17 @@ export async function importLegacyCredentials(deps: LegacyImportDeps): Promise<L
       !(await deps.credentials.findByLegacyKey(candidate.ownerUserId, candidate.legacyKey))
         ? candidate.legacyKey
         : null
-    await deps.transaction(async () => {
-      await deps.credentials.insert({
+    await deps.credentials.insertWithSecret(
+      {
         id,
         ownerUserId: candidate.ownerUserId,
         label: candidate.label,
         type: candidate.type,
         legacyId: candidate.legacyId,
         legacyKey,
-      })
-      if ((await deps.credentials.putSecret(id, sealed, 0)) !== 1) {
-        throw new Error(`moving ${candidate.legacyId} into the vault did not store its secret`)
-      }
-    })
+      },
+      sealed,
+    )
     const readBack = await withSecret(deps, id, async (secret) => secret === candidate.secret)
     if (!readBack) throw new Error(`moving ${candidate.legacyId} into the vault did not read back`)
     credentialOf.set(candidate.legacyId, { id, ownerUserId: candidate.ownerUserId })

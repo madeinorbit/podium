@@ -560,7 +560,6 @@ export class SessionStore {
         users: this.users,
         credentials: this.credentials,
         vault,
-        transaction: (run) => this.queries.createOrJoinTransaction(run),
       })
     } catch (error) {
       log.error('moving the old keys into the vault failed', { err: error })

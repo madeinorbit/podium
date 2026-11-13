@@ -3680,9 +3680,9 @@ export const credentials = sqliteTable(
 export const credentialSecrets = sqliteTable(
   'credential_secrets',
   {
-    credentialId: text('credential_id')
-      .notNull()
-      .references(() => credentials.id, { onDelete: 'cascade' }),
+    credentialId: brandedRef(text('credential_id'), () => credentials.id, {
+      onDelete: 'cascade',
+    }).notNull(),
     version: integer().notNull(),
     ciphertext: text().notNull(),
     nonce: text().notNull(),
@@ -3698,9 +3698,9 @@ export const credentialSecrets = sqliteTable(
 export const credentialPlacements = sqliteTable(
   'credential_placements',
   {
-    credentialId: text('credential_id')
-      .notNull()
-      .references(() => credentials.id, { onDelete: 'cascade' }),
+    credentialId: brandedRef(text('credential_id'), () => credentials.id, {
+      onDelete: 'cascade',
+    }).notNull(),
     machineId: text('machine_id').$type<MachineId>().notNull(),
     kind: text().notNull(),
     state: text().default('present').notNull(),
@@ -3721,9 +3721,9 @@ export const credentialPlacements = sqliteTable(
 export const credentialMachines = sqliteTable(
   'credential_machines',
   {
-    credentialId: text('credential_id')
-      .notNull()
-      .references(() => credentials.id, { onDelete: 'cascade' }),
+    credentialId: brandedRef(text('credential_id'), () => credentials.id, {
+      onDelete: 'cascade',
+    }).notNull(),
     machineId: text('machine_id').$type<MachineId>().notNull(),
     allowedBy: text('allowed_by').$type<UserId>().notNull(),
     createdAt: text('created_at').notNull(),

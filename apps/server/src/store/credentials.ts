@@ -490,6 +490,23 @@ export class CredentialsRepository {
     return this.rootDb
   }
 
+  /**
+   * Insert a credential and its first secret (version 1) in one transaction. The
+   * secret was sealed beforehand for `input.id`, so nothing inside waits on the key.
+   */
+  async insertWithSecret(
+    input: NewCredential & { id: CredentialId },
+    sealed: SealedSecret,
+  ): Promise<CredentialRecord> {
+    return await this.createOrJoinTransaction(async () => {
+      const record = await this.insert(input)
+      if ((await this.putSecret(input.id, sealed, 0)) !== 1) {
+        throw new Error('a new credential already had a stored secret')
+      }
+      return record
+    })
+  }
+
   async insert(input: NewCredential): Promise<CredentialRecord> {
     const identity = input.identity ?? {}
     const [row] = await insertCredential(this.db).all({
