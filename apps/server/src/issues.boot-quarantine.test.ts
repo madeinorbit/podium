@@ -42,8 +42,9 @@ function deps(store: SessionStore): IssueDeps {
 }
 
 /** White-box seam: reach the store's own SQLite connection to inject corrupt rows. */
-function rawDb(s: SessionStore): { prepare(q: string): { run(...a: unknown[]): unknown } } {
-  return (s as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }).db
+type RawDb = { prepare(q: string): { run(...a: unknown[]): unknown }; exec(q: string): void }
+function rawDb(s: SessionStore): RawDb {
+  return (s as unknown as { db: RawDb }).db
 }
 
 describe('IssueService boot quarantine', () => {

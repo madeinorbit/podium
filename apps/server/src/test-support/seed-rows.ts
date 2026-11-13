@@ -10,7 +10,6 @@
  * dropped, so it reaches the tables and not the log.
  */
 
-import type { SqlDatabase } from '@podium/runtime/sqlite'
 import type { SessionStore } from '../store'
 
 export async function seedRows<T>(
@@ -29,7 +28,7 @@ export async function seedRows<T>(
  * corrupt row, a hand-written value): one transaction whose capture is
  * dropped before it commits.
  */
-export function seedRaw(db: Pick<SqlDatabase, 'exec'>, write: () => void): void {
+export function seedRaw(db: { exec(sql: string): void }, write: () => void): void {
   db.exec('BEGIN')
   try {
     write()
