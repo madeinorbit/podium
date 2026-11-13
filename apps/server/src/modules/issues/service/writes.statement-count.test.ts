@@ -98,7 +98,11 @@ describe('issue writes that read other issues: pinned statement counts at 5 and 
       // POD-6770: the git observation compares at save too. Its one declared
       // read becomes a build before the write and one after: 22 -> 23.
       // POD-6791: the issue and its body headers share each read: 23 -> 21.
-      21,
+      // POD-6920: derived change capture. No list and no build before the
+      // write; after it, the drain (one statement), the mapping of the new
+      // issue row to the sessions that reference it, and the builds of the
+      // records it reached: 21 -> 23, constant in the number of issues.
+      23,
     )
   })
 
@@ -112,7 +116,9 @@ describe('issue writes that read other issues: pinned statement counts at 5 and 
       // POD-6770: the git observation is built before and after, where it
       // was read once: 16 -> 17.
       // POD-6791: the issue and its body headers share each read: 17 -> 15.
-      15,
+      // POD-6920: derived change capture. No build before the write; the
+      // drain names only the records whose columns moved: 15 -> 12.
+      12,
     )
   })
 

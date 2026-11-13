@@ -634,7 +634,7 @@ describe('AutomationsService.tick — spawn', () => {
     const firedAt = iso(new Date(2026, 6, 15, 9, 0))
     h.setNow(new Date(2026, 6, 15, 9, 0, 10))
     const runId = automationOccurrenceRunId(a.id, firedAt)
-    await h.store.automations.addRun(fixtureWriteScope(), {
+    await seedRows(h.store, async () => await h.store.automations.addRun(fixtureWriteScope(), {
       id: runId,
       automationId: a.id,
       firedAt,
@@ -643,7 +643,7 @@ describe('AutomationsService.tick — spawn', () => {
       detail: 'reserved',
       actor: `automation:${a.id}`,
       onBehalfOf: firstAdminMemberId(),
-    })
+    }))
 
     // Revocation happens after durable reservation and before startup replay.
     h.revokeOwner()

@@ -181,7 +181,10 @@ describe('steward subscription matching (POD-6208)', () => {
     // POD-6769: the poll's issue writes build the issue and its personal
     // records before and after (compare at save): +9 with the body headers
     // (POD-6767). The base ran 75 against its pin of 59 at ef26e79e4e.
-    await expectConstantStatements(pin, 84)
+    // POD-6920: derived change capture. No build before the write; each
+    // commit drains its capture (one statement) and builds the records the
+    // write reached, after it: 83 at 9e858cc535 -> 77.
+    await expectConstantStatements(pin, 77)
   })
 
   it('reads the same subscription rows, however many cannot match', async () => {
