@@ -215,6 +215,12 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
       ),
       row(
         'notifications',
+        'Notices on your phone',
+        'Which notices are also sent to your phone: mentions, credentials that need attention, credentials shared with you.',
+        'notice mention inbox bell credential shared push',
+      ),
+      row(
+        'notifications',
         'Telegram bot token',
         'One bot for the whole workspace. Each person connects their own chat to it.',
         'secret replace remove botfather',

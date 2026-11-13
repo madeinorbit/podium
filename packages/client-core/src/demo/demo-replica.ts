@@ -212,6 +212,7 @@ const DEMO_SLICE_KINDS = [
   'instancePreferences',
   'machineAccess',
   'checkouts',
+  'inboxNotices',
 ] as const
 
 /**

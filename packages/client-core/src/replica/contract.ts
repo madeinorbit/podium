@@ -22,6 +22,7 @@ import type {
   MachineAccessWire,
   MachineProjection,
   MessageRecordWire,
+  NoticeWire,
   PinWire,
   ReadPositionWire,
   RepoProjection,
@@ -160,6 +161,8 @@ export interface ReplicaRows {
    *  machines I may use. Kept, so an app started offline shows them. */
   machineAccess: MachineAccessWire
   checkouts: CheckoutWire
+  /** My open notices (POD-6881), keyed `noticeRowId`. */
+  inboxNotices: NoticeWire
 }
 export type ReplicaKind = keyof ReplicaRows
 
@@ -208,6 +211,7 @@ export interface ReplicaHydrateResult {
   instancePreferences: InstancePreferencesWire[]
   machineAccess: MachineAccessWire[]
   checkouts: CheckoutWire[]
+  inboxNotices: NoticeWire[]
   /** Last persisted oplog cursor, or null when never synced (cold client). */
   cursor: number | null
   /** The same cursor as the ADR 2 D1 TRIPLE — `COLD_CURSOR` when never synced.

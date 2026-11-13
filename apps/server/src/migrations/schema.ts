@@ -1728,6 +1728,10 @@ export const issueComments = sqliteTable(
     editedAt: text('edited_at'),
     editedBy: text('edited_by'),
     editedOnBehalfOf: text('edited_on_behalf_of'),
+    /** The members this comment mentions (POD-6881, spec §13): a JSON array of
+     *  user ids, matched against the member list when the comment was written
+     *  or last edited. NULL = written before mentions were stored. */
+    mentions: text('mentions'),
   },
   // Ordered as an issue's comments are read, so the read needs no sort (POD-6148).
   (table) => [index('idx_issue_comments_issue_time').on(table.issueId, table.createdAt, table.id)],
@@ -3762,4 +3766,47 @@ export const vaultKey = sqliteTable(
     createdAt: text('created_at').notNull(),
   },
   (table) => [check('vault_key_one_row', sql`id = 1`)],
+)
+
+
+/**
+ * THE NOTICE INBOX (POD-6881, credential management spec §13): one row per
+ * notice, for one person. Open notices (`resolved_at IS NULL`) stream to their
+ * recipient as the per-user record `inboxNotice`; a resolved one leaves the feed
+ * and stays here as history.
+ *
+ * No foreign key to `users`, like the other per-user tables: a notice follows
+ * its recipient, and the subject it names may be deleted before it is resolved.
+ */
+export const notices = sqliteTable(
+  'notices',
+  {
+    id: text().primaryKey(),
+    recipientUserId: text('recipient_user_id').$type<UserId>().notNull(),
+    kind: text().notNull(),
+    subjectKind: text('subject_kind').notNull(),
+    subjectId: text('subject_id').notNull(),
+    subjectAnchor: text('subject_anchor'),
+    title: text().notNull(),
+    body: text(),
+    dedupeKey: text('dedupe_key').notNull(),
+    createdAt: text('created_at').notNull(),
+    readAt: text('read_at'),
+    resolvedAt: text('resolved_at'),
+  },
+  (table) => [
+    // One open notice per person and key: a second emit of an open condition is a no-op.
+    uniqueIndex('notices_open_dedupe')
+      .on(table.recipientUserId, table.dedupeKey)
+      .where(sql`${table.resolvedAt} IS NULL`),
+    // resolveNotices(key) across every recipient.
+    index('idx_notices_dedupe_key').on(table.dedupeKey),
+    // A person's open notices, newest first.
+    index('idx_notices_recipient_open').on(
+      table.recipientUserId,
+      table.resolvedAt,
+      table.createdAt,
+      table.id,
+    ),
+  ],
 )

@@ -1,4 +1,4 @@
-import { FileCode2, FolderGit2, GitBranch, Hash, MessagesSquare } from 'lucide-react'
+import { AtSign, FileCode2, FolderGit2, GitBranch, Hash, MessagesSquare } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
@@ -29,6 +29,7 @@ const KIND_ICON: Record<AtMentionKind, typeof Hash> = {
   repo: FolderGit2,
   worktree: GitBranch,
   conversation: MessagesSquare,
+  member: AtSign,
 }
 
 export function AtMentionMenu({

@@ -2,7 +2,7 @@ import type { IssueBriefWire, IssueDescriptionWire, IssuePanelTodoWire, IssuePan
 import type { LayoutWire } from '@podium/model'
 import { type IssueNavigationModel, issuePendingDecision, missionTaskBucket, type MissionTaskBucket } from '@podium/client-core/values'
 import { type LiveStore, lastValue } from '@podium/client-core/live'
-import type { EffectError, EffectRecordWire, EffectStatus, InstancePreferences, IssueGitState, IssuePanel, IssuePanelArtifact, IssueProjection, PersonalPreferences, PinKind, PinWire, ReadPositionWire, SuperagentThreadWire, TabOrderWire } from '@podium/model'
+import type { EffectError, EffectRecordWire, EffectStatus, InstancePreferences, IssueGitState, IssuePanel, IssuePanelArtifact, IssueProjection, NoticeWire, PersonalPreferences, PinKind, PinWire, ReadPositionWire, SuperagentThreadWire, TabOrderWire } from '@podium/model'
 import { type PodiumSettings, resolveRole } from '@podium/runtime'
 import { here, isGone, type Lookup, omitGone } from './lookup'
 import type { MessageModel, PendingInteractionModel } from './message-models'
@@ -1520,6 +1520,22 @@ export class SuperagentThreadModel extends EntityModel {
 export interface SuperagentThreadModel extends Readonly<SuperagentThreadWire> {}
 
 /**
+ * ONE OF MY OPEN NOTICES (POD-6881, spec §13): a synced per-user record. The
+ * tray and the phone's inbox read it here; a notice resolved on the server
+ * leaves the pool on its own.
+ */
+export class InboxNoticeModel extends EntityModel {
+  constructor(id: string, host: ModelHost) {
+    super('inboxNotice', id, host)
+  }
+  /** Not read yet: counted on the tray. */
+  @lazy get unread(): boolean {
+    return this.readAt === undefined
+  }
+}
+export interface InboxNoticeModel extends Readonly<NoticeWire> {}
+
+/**
  * THE INSTANCE SETTINGS (POD-6677): one synced record for the whole instance,
  * every member's, resolved with defaults by the row source from its flat leaf
  * fields. Screens read it here, never `settings.get`; an admin's change on any
@@ -1632,6 +1648,7 @@ export type ModelOf = {
   userPreferences: UserPreferencesModel
   userReadPosition: UserReadPositionModel
   superagentThread: SuperagentThreadModel
+  inboxNotice: InboxNoticeModel
   agentProfile: AgentProfileModel
   workflow: WorkflowModel
   workflowRevision: WorkflowRevisionModel
@@ -1656,6 +1673,7 @@ export const MODEL_CLASSES: Readonly<Partial<Record<EntityName, ModelClass>>> = 
   userLayout: UserLayoutModel, tabOrder: TabOrderModel, userPreferences: UserPreferencesModel,
   userReadPosition: UserReadPositionModel,
   superagentThread: SuperagentThreadModel,
+  inboxNotice: InboxNoticeModel,
   instancePreferences: InstancePreferencesModel,
 }
 

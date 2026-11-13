@@ -405,6 +405,16 @@ export {
   modelsRefreshContract,
   modelsRefreshInput,
 } from './models/contracts'
+// The per-person notice inbox (POD-6881, credential management spec §13).
+export {
+  NOTICE_SYNC_COMMANDS,
+  type NoticeListInput,
+  type NoticeMarkReadInput,
+  noticeCommands,
+  noticeListInput,
+  noticeMarkAllReadInput,
+  noticeMarkReadInput,
+} from './notices/contracts'
 export {
   OPERATION_CONTRACT_NAMES,
   OPERATION_CONTRACTS,

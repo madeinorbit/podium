@@ -170,12 +170,26 @@ export type AutoContinuePreferences = z.infer<typeof AutoContinuePreferences>
  * anything acts on it, and UNKNOWN CHATS MUST FAIL CLOSED — never fall back to
  * an operator identity.
  */
+/**
+ * PUSH PER NOTICE KIND (POD-6881). A mention and a credential that needs
+ * attention are pushed by default; a credential someone shared is not.
+ */
+export const NoticePushPreferences = z.object({
+  mention: z.boolean().default(true),
+  credentialAttention: z.boolean().default(true),
+  credentialShared: z.boolean().default(false),
+})
+export type NoticePushPreferences = z.infer<typeof NoticePushPreferences>
+
 export const NotificationRouting = z.object({
   web: z.boolean().default(true),
   /** ntfy.sh topic for mobile push (empty = off). */
   ntfyTopic: z.string().default(''),
   /** Telegram chat id or @channelusername for global server push (empty = off). */
   telegramChatId: z.string().default(''),
+  /** Which notice kinds are pushed to the channels above (POD-6881, spec §13).
+   *  The inbox shows every kind; this only decides the push. */
+  notices: NoticePushPreferences.default({}),
 })
 export type NotificationRouting = z.infer<typeof NotificationRouting>
 

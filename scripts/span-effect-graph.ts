@@ -763,6 +763,14 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: "The effect record feed's capture [POD-6357]: it appends the rows' feed changes to the change log through Ledger.commit, which joins this same transaction and defers subscriber delivery past the outermost commit. The trigger is registered separately with afterCommit. A rollback takes the appended changes with it and nothing outside the process saw them.",
   },
+  'apps/server/src/store/notices.ts#NoticesRepository.query': {
+    kind: 'opaque',
+    why: "The notices repository's own write callback, handed to its write funnel (write) [POD-6881]; every caller's query is declared in the same file and is checked there, exactly as SuperagentRepository.query is.",
+  },
+  'apps/server/src/store/notices.ts#NoticeFeedCapture.NoticeFeedCapture': {
+    kind: 'contained',
+    why: "The inboxNotice record feed's capture [POD-6881]: it appends the written rows' inboxNotice changes to the change log through Ledger.capture, which joins this same transaction and defers subscriber delivery past the outermost commit. A rollback takes the appended changes with it and nothing outside the process saw them.",
+  },
   'apps/server/src/store/superagent.ts#SuperagentRepository.query': {
     kind: 'opaque',
     why: "The superagent repository's own thread write callback, handed to its write funnel (writeThreads) [POD-6675]; every caller's query is declared in the same file and is checked there, exactly as EffectsRepository.query is.",

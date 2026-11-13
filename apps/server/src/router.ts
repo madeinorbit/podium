@@ -78,6 +78,7 @@ import {
   USAGE_QUERIES,
 } from './modules/misc-queries'
 import { modelFamilyProcedures } from './modules/models/trpc'
+import { NOTICE_QUERIES } from './modules/notices/queries'
 import { operationProcedures } from './modules/operations/trpc'
 import { perfFamilyProcedures } from './modules/perf/trpc'
 import { SESSION_QUERIES, SNOOZE_QUERIES } from './modules/sessions/queries'
@@ -324,6 +325,9 @@ export const appRouter = t.router({
   // layout: sidebar/tab chrome that follows a person across devices (not device-local
   // route/selection/pane geometry — those stay in client ui-state, POD-403).
   layout: t.router(layoutFamilyProcedures()),
+  // A person's notice inbox (POD-6881): their own open notices. The read marks
+  // are `notices.markRead` / `notices.markAllRead` on `sync.submit`.
+  notices: t.router(queryProcedures('notices', NOTICE_QUERIES)),
   // shells: server-owned dock-shell mapping (POD-4436) — per user, per worktree
   // → shell session, so the same dock shell opens on every device. Tab shells
   // stay unmapped by design (SP-75b1) and go through sessions.create directly.

@@ -297,6 +297,8 @@ const NotificationSettings = z.object({
   ntfyTopic: NotificationRouting.shape.ntfyTopic,
   telegramBotToken: NotificationSecrets.shape.telegramBotToken,
   telegramChatId: NotificationRouting.shape.telegramChatId,
+  // Which notice kinds are pushed (POD-6881): a personal preference.
+  notices: NotificationRouting.shape.notices,
 })
 
 /**

@@ -1227,6 +1227,11 @@ export const NOT_YET_GENERIC: Readonly<
     reason: 'All status: written by the server from the machine’s scans, never client-written.',
     by: 'never (status)',
   },
+  inboxNotice: {
+    reason:
+      'All status: raised and resolved by the server (`emitNotice`, `resolveNotices`); the recipient marks it read with `notices.markRead` / `notices.markAllRead` (POD-6881).',
+    by: 'never (notices.*)',
+  },
   issueGitState: {
     reason: 'All status: observed by the server, never client-written.',
     by: 'never (status)',

@@ -22,6 +22,7 @@ import {
   MachineAccessWire,
   MachineProjection,
   MessageRecordWire,
+  NoticeWire,
   PinWire,
   ReadPositionWire,
   RepoProjection,
@@ -322,6 +323,12 @@ export const MetadataChange = z.discriminatedUnion('entity', [
   metadataChangeArm(z.literal('issuePanelArtifact'), IssuePanelArtifactWire),
   metadataChangeArm(z.literal('issuePanelDeferred'), IssuePanelDeferredWire),
   metadataChangeArm(z.literal('issuePanelState'), IssuePanelStateWire),
+  /** One open notice in one person's inbox (POD-6881, credential management
+   *  spec §13), keyed `noticeRowId` (recipient first). Class `per-user-state`:
+   *  its recipient's principals only. A resolved notice is a `remove`.
+   *  Additive: an older build parses these rows as {@link UnknownMetadataChange}
+   *  and advances. */
+  metadataChangeArm(z.literal('inboxNotice'), NoticeWire),
 ])
 export type MetadataChange = z.infer<typeof MetadataChange>
 export const MetadataEntityKind = z.enum([
@@ -363,6 +370,7 @@ export const MetadataEntityKind = z.enum([
   'issuePanelArtifact',
   'issuePanelDeferred',
   'issuePanelState',
+  'inboxNotice',
 ])
 export type MetadataEntityKind = z.infer<typeof MetadataEntityKind>
 

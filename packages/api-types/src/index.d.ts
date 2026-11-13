@@ -394,15 +394,38 @@ declare const PodiumSettings: z.ZodObject<{
         ntfyTopic: z.ZodDefault<z.ZodString>;
         telegramBotToken: z.ZodDefault<z.ZodString>;
         telegramChatId: z.ZodDefault<z.ZodString>;
+        notices: z.ZodDefault<z.ZodObject<{
+            mention: z.ZodDefault<z.ZodBoolean>;
+            credentialAttention: z.ZodDefault<z.ZodBoolean>;
+            credentialShared: z.ZodDefault<z.ZodBoolean>;
+        }, "strip", z.ZodTypeAny, {
+            mention: boolean;
+            credentialAttention: boolean;
+            credentialShared: boolean;
+        }, {
+            mention?: boolean | undefined;
+            credentialAttention?: boolean | undefined;
+            credentialShared?: boolean | undefined;
+        }>>;
     }, "strip", z.ZodTypeAny, {
         web: boolean;
         ntfyTopic: string;
         telegramChatId: string;
+        notices: {
+            mention: boolean;
+            credentialAttention: boolean;
+            credentialShared: boolean;
+        };
         telegramBotToken: string;
     }, {
         web?: boolean | undefined;
         ntfyTopic?: string | undefined;
         telegramChatId?: string | undefined;
+        notices?: {
+            mention?: boolean | undefined;
+            credentialAttention?: boolean | undefined;
+            credentialShared?: boolean | undefined;
+        } | undefined;
         telegramBotToken?: string | undefined;
     }>>;
     sidebar: z.ZodDefault<z.ZodObject<{
@@ -571,6 +594,11 @@ declare const PodiumSettings: z.ZodObject<{
         web: boolean;
         ntfyTopic: string;
         telegramChatId: string;
+        notices: {
+            mention: boolean;
+            credentialAttention: boolean;
+            credentialShared: boolean;
+        };
         telegramBotToken: string;
     };
     credentialDefaults: Partial<Record<"claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi", string & z.BRAND<"CredentialId">>>;
@@ -667,6 +695,11 @@ declare const PodiumSettings: z.ZodObject<{
         web?: boolean | undefined;
         ntfyTopic?: string | undefined;
         telegramChatId?: string | undefined;
+        notices?: {
+            mention?: boolean | undefined;
+            credentialAttention?: boolean | undefined;
+            credentialShared?: boolean | undefined;
+        } | undefined;
         telegramBotToken?: string | undefined;
     } | undefined;
     credentialDefaults?: Partial<Record<"claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi", string>> | undefined;
@@ -8138,6 +8171,26 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 machineId?: string | undefined;
             });
             output: ModelCatalogSnapshot;
+            meta: unknown;
+        }>;
+    };
+    "notices": {
+        "list": TRPC.TRPCQueryProcedure<{
+            input: {
+                before?: undefined | {
+                    createdAt: string;
+                    id: string;
+                };
+                limit?: number | undefined;
+            };
+            output: Array<_podium_model.NoticeWire>;
+            meta: unknown;
+        }>;
+        "unreadCount": TRPC.TRPCQueryProcedure<{
+            input: (undefined) | ({
+                [k: string]: unknown;
+            } & {});
+            output: number;
             meta: unknown;
         }>;
     };

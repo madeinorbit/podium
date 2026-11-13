@@ -42,10 +42,13 @@ describe('the blob walk, probed before it is believed', () => {
   it('finds a non-trivial number of leaves, nested ones included', () => {
     // The classification's 53 leaves before daemonLink.trustedNetworks, + that one,
     // + credentialDefaults (credential management §9), + RoleBackend.credentialId
-    // on each of the four roles.
+    // on each of the four roles,
+    // + the three notice push switches (notifications.notices.mention,
+    // .credentialAttention, .credentialShared; POD-6881).
     // Pinned to the classification count on purpose: the two walks must agree.
-    expect(blobLeaves().length).toBe(59)
+    expect(blobLeaves().length).toBe(62)
     expect(blobLeaves()).toContain('roles.background.credentialId')
+    expect(blobLeaves()).toContain('notifications.notices.credentialShared')
     expect(blobLeaves()).toContain('roles.coding.model')
     expect(blobLeaves()).toContain('roles.background.accountId')
     expect(blobLeaves()).toContain('roles.shipwright.accountId')
@@ -134,10 +137,12 @@ describe('the blob COMPOSES the model schemas — no restatement', () => {
       'ntfyTopic',
       'telegramBotToken',
       'telegramChatId',
+      'notices',
     ])
     expect(notif.shape.web).toBe(model.NotificationRouting.shape.web)
     expect(notif.shape.ntfyTopic).toBe(model.NotificationRouting.shape.ntfyTopic)
     expect(notif.shape.telegramChatId).toBe(model.NotificationRouting.shape.telegramChatId)
+    expect(notif.shape.notices).toBe(model.NotificationRouting.shape.notices)
     expect(notif.shape.telegramBotToken).toBe(model.NotificationSecrets.shape.telegramBotToken)
   })
 
@@ -187,7 +192,14 @@ describe('the composed blob still parses exactly as before', () => {
         idleShellMinutes: 60,
         backstopMinutes: 2880,
       },
-      notifications: { web: true, ntfyTopic: '', telegramBotToken: '', telegramChatId: '' },
+      notifications: {
+        web: true,
+        ntfyTopic: '',
+        telegramBotToken: '',
+        telegramChatId: '',
+        // POD-6881: which notice kinds are pushed.
+        notices: { mention: true, credentialAttention: true, credentialShared: false },
+      },
       sidebar: { repoSort: 'lastUsed', repoOrder: [] },
       gitWorkflow: { defaultParentBranch: '', autoRebaseBeforeMerge: true },
       issues: { assistantEnabled: true },
@@ -230,6 +242,7 @@ describe('the composed blob still parses exactly as before', () => {
       'ntfyTopic',
       'telegramBotToken',
       'telegramChatId',
+      'notices',
     ])
   })
 

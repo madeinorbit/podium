@@ -21,6 +21,7 @@ import { InteractionsRepository } from '../store/interactions'
 import { IssuesRepository } from '../store/issues'
 import { MachinesRepository } from '../store/machines'
 import { MessagesRepository } from '../store/messages'
+import { NoticesRepository } from '../store/notices'
 import { ObservationCheckpointsRepository } from '../store/observation-checkpoints'
 import { ReposRepository } from '../store/repos'
 import { SessionsRepository } from '../store/sessions'
@@ -63,6 +64,7 @@ export function recordReadsOf(
       agentProfiles: new AgentProfilesRepository(q),
       workflows: new WorkflowsRepository(q),
       checkouts: new CheckoutsRepository(q),
+      notices: new NoticesRepository(q),
       settings: new SettingsRepository(q),
       // The session record's satellites and joins (POD-6764): reads only.
       observationCheckpoints: new ObservationCheckpointsRepository(q),

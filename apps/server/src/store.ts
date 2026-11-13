@@ -99,6 +99,7 @@ import { MaintenanceRepository } from './store/maintenance'
 import { MessagesRepository } from './store/messages'
 import { MessagingSessionAttachmentsRepository } from './store/messaging-session-attachments'
 import { MessagingTopicsRepository } from './store/messaging-topics'
+import { NoticesRepository } from './store/notices'
 import { NotificationFactsRepository } from './store/notification-facts'
 import { ObservationCheckpointsRepository } from './store/observation-checkpoints'
 import { QuotaHistoryRepository } from './store/quota-history'
@@ -225,6 +226,8 @@ export class SessionStore {
   readonly events: EventsRepository
   /** Cross-producer notification deduplication [spec:SP-ba61]. */
   readonly notificationFacts: NotificationFactsRepository
+  /** Each person's notice inbox (POD-6881, credential management spec §13). */
+  readonly notices: NoticesRepository
   /** One row per run of a plan quota window (POD-1571) — the only place Podium
    *  keeps a quota number after the live read that produced it goes stale. */
   readonly quotaHistory: QuotaHistoryRepository
@@ -497,6 +500,7 @@ export class SessionStore {
     this.telegramBindings = new TelegramBindingsRepository(this.queries)
     this.events = new EventsRepository(this.queries)
     this.notificationFacts = new NotificationFactsRepository(this.queries)
+    this.notices = new NoticesRepository(this.queries)
     this.quotaHistory = new QuotaHistoryRepository(this.queries)
     this.transcriptCosts = new TranscriptCostsRepository(this.queries)
     this.messages = new MessagesRepository(this.queries)

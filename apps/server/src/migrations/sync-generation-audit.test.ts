@@ -47,6 +47,7 @@ const kindsByTable: Record<string, readonly string[]> = {
   meta: ['instancePreferences', 'machine'],
   agent_profiles: ['agentProfile'],
   superagent_threads: ['superagentThread'],
+  notices: ['inboxNotice'],
   effects: ['effect'],
   automations: ['automation'],
   automation_runs: ['automationRun'],

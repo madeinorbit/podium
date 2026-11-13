@@ -95,6 +95,8 @@ export * from './entities/message-delivery'
 export { MessageLedgerWire } from './entities/message-ledger'
 export * from './entities/message-record'
 export * from './entities/message-record-row'
+// The per-person notice inbox (credential management spec §13, POD-6881).
+export * from './entities/notice'
 export * from './entities/pending-interaction-row'
 export * from './entities/repo'
 export * from './entities/session'

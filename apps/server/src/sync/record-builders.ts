@@ -42,6 +42,7 @@
 
 import {
   asMachineId,
+  asUserId,
   checkoutRowId,
   INSTANCE_PREFERENCES_ROW_ID,
   ISSUE_PANEL_KINDS,
@@ -51,6 +52,7 @@ import {
   issueUserStateRowId,
   issueUserStateToWire,
   layoutRowId,
+  noticeRowId,
   parseCheckoutRowId,
   parseInteractionRowId,
   parseIssueDepId,
@@ -59,6 +61,7 @@ import {
   parseLayoutRowId,
   parseMachineAccessRowId,
   parseMessageRecordRowId,
+  parseNoticeRowId,
   parsePinRowId,
   parseReadPositionRowId,
   parseSessionUserStateRowId,
@@ -112,6 +115,7 @@ import {
   messageRecords,
   messageWindow,
 } from '../modules/message-feed/feed'
+import { noticeWireOf } from '../modules/notices/records'
 import { SessionRecords } from '../modules/sessions/records'
 import { sessionProjectionPass, wireRecord } from '../modules/sessions/view'
 import {
@@ -147,6 +151,7 @@ export interface RecordReads {
     | 'agentProfiles'
     | 'workflows'
     | 'checkouts'
+    | 'notices'
     | 'settings'
     | 'machines'
     | 'grants'
@@ -903,6 +908,28 @@ const checkout: Builder = {
     ),
 }
 
+/** A person's open notices (POD-6881): a resolved notice is no record. */
+const inboxNotice: Builder = {
+  kind: 'inboxNotice',
+  shape: 'row',
+  async build({ store }, ids) {
+    const noticeIds = parsed(ids, parseNoticeRowId).map((key) => key.noticeId)
+    return (await store.notices.openByIds(noticeIds)).map((row) => ({
+      id: noticeRowId(asUserId(row.recipientUserId), row.id),
+      value: noticeWireOf(row),
+    }))
+  },
+  streamAll: ({ store }) =>
+    pagesOf(
+      store.notices.allOpen().then((rows) =>
+        rows.map((row) => ({
+          id: noticeRowId(asUserId(row.recipientUserId), row.id),
+          value: noticeWireOf(row),
+        })),
+      ),
+    ),
+}
+
 // ---------------------------------------------------------------------------
 // Library records: agent profiles, workflows, instance preferences
 // ---------------------------------------------------------------------------
@@ -1108,6 +1135,7 @@ export const DATABASE_ONLY_BUILDERS: readonly Builder[] = [
   instancePreferences,
   effect,
   checkout,
+  inboxNotice,
   issueEvent,
   pendingInteraction,
   message,

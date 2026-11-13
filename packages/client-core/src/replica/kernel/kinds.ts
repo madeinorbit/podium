@@ -23,6 +23,7 @@ import {
   issueUserStateRowId,
   layoutRowId,
   machineAccessRowId,
+  noticeRowId,
   pinRowId,
   readPositionRowId,
   sessionUserStateRowId,
@@ -100,6 +101,8 @@ const ENTITY_TO_KIND = {
   // POD-6644: my machine access rows, and the checkouts I may see.
   machineAccess: 'machineAccess',
   checkout: 'checkouts',
+  // POD-6881: my open notices.
+  inboxNotice: 'inboxNotices',
 } as const satisfies Record<string, ReplicaKind>
 
 /** The entity names the engine's read model renders. */
@@ -165,6 +168,10 @@ export function rowKey<K extends ReplicaKind>(kind: K, row: ReplicaRows[K]): str
   if (kind === 'machineAccess') {
     const access = row as ReplicaRows['machineAccess']
     return machineAccessRowId(access.userId, access.machineId)
+  }
+  if (kind === 'inboxNotices') {
+    const notice = row as ReplicaRows['inboxNotices']
+    return noticeRowId(notice.recipientUserId, notice.noticeId)
   }
   if (kind === 'checkouts') {
     const checkout = row as ReplicaRows['checkouts']

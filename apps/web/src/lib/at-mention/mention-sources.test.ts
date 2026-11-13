@@ -4,7 +4,7 @@
 
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { describe, expect, it } from 'vitest'
-import { fileMentions, issueMentions } from './mention-sources'
+import { fileMentions, issueMentions, memberMentions } from './mention-sources'
 
 const issue = (over: Partial<IssueViewModel>): IssueViewModel =>
   ({
@@ -101,5 +101,39 @@ describe('fileMentions', () => {
       detail: '',
       insert: '`README.md`',
     })
+  })
+})
+
+describe('memberMentions (POD-6881)', () => {
+  const members = [
+    { id: 'mem_ann', displayName: 'Ann Lee' },
+    { id: 'mem_bob', displayName: 'Bob Stone' },
+    { id: 'mem_bo', displayName: 'Bo' },
+  ]
+
+  it('offers every member for a bare @, in roster order', () => {
+    expect(memberMentions(members, '', 8).map((o) => o.label)).toEqual([
+      'Ann Lee',
+      'Bob Stone',
+      'Bo',
+    ])
+  })
+
+  it('completes the start of any word of a name, case-insensitively', () => {
+    expect(memberMentions(members, 'sto', 8).map((o) => o.id)).toEqual(['member:mem_bob'])
+    expect(memberMentions(members, 'BO', 8).map((o) => o.id)).toEqual([
+      'member:mem_bob',
+      'member:mem_bo',
+    ])
+  })
+
+  it('inserts @ and the whole display name, which the server matches when the comment is written', () => {
+    const [bob] = memberMentions(members, 'bob', 8)
+    expect(bob).toMatchObject({ kind: 'member', label: 'Bob Stone', insert: '@Bob Stone' })
+  })
+
+  it('offers nothing for a name no member carries, and caps the list', () => {
+    expect(memberMentions(members, 'zed', 8)).toEqual([])
+    expect(memberMentions(members, '', 2)).toHaveLength(2)
   })
 })

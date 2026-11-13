@@ -93,6 +93,7 @@ import type {
   IssuePanelTodoWire,
   MachineAccessWire,
   MachineProjection,
+  NoticeWire,
   PersonalPreferences,
   PinWire,
   ReadPositionWire,
@@ -320,6 +321,8 @@ export interface PoolRows {
       Record<string, unknown>
     >
   /** POD-6675: one of my superagent threads, its feed id stamped as `id`. */
+  /** POD-6881: one of my open notices, its feed id stamped as `id`. */
+  inboxNotice: Readonly<NoticeWire> & { readonly id: string } & Readonly<Record<string, unknown>>
   superagentThread: Readonly<SuperagentThreadWire> & { readonly id: string } & Readonly<
       Record<string, unknown>
     >

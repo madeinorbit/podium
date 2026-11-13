@@ -109,3 +109,46 @@ export function fileMentions(paths: readonly string[]): AtOption[] {
     }
   })
 }
+
+/** A member a comment can mention: the roster's id and display name. */
+export interface MentionableMember {
+  readonly id: string
+  readonly displayName: string
+}
+
+/**
+ * Members matching `query` (POD-6881), in roster order: the start of the name,
+ * or of any word in it, so `@sto` finds Bob Stone. A bare `@` offers everyone.
+ * Inserts `@` and the WHOLE display name, which is what the server matches
+ * against the member list when the comment is written: the completion and the
+ * notice agree on one spelling.
+ */
+export function memberMentions(
+  members: readonly MentionableMember[],
+  query: string,
+  limit: number,
+): AtOption[] {
+  const q = query.trim().toLowerCase()
+  const out: AtOption[] = []
+  for (const member of members) {
+    const name = member.displayName.trim()
+    if (name === '') continue
+    const lower = name.toLowerCase()
+    if (
+      q !== '' &&
+      !lower.startsWith(q) &&
+      !lower.split(/\s+/).some((word) => word.startsWith(q))
+    ) {
+      continue
+    }
+    out.push({
+      kind: 'member',
+      id: `member:${member.id}`,
+      label: name,
+      detail: '',
+      insert: `@${name}`,
+    })
+    if (out.length >= limit) break
+  }
+  return out
+}

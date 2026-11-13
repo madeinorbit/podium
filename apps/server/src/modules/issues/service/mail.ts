@@ -8,6 +8,7 @@ import {
 } from '../../../command-principal'
 import type { IssueMessageRow } from '../../../store'
 import { settingsAuditAttribution } from '../../../store/settings-audit'
+import { mentionsColumn, parseMentionsColumn } from '../../notices/mentions'
 import type { IssueStore } from './core'
 import { countContextAwarePendingMail } from './mail-pending'
 import { IssueNotFound } from './not-found'
@@ -37,7 +38,7 @@ export function isCommentAuthor(
 export class IssueCommentsMailModule {
   constructor(
     readonly store: IssueStore,
-    private readonly reports: () => Pick<IssueReportsModule, 'comments' | 'get'>,
+    private readonly reports: () => Pick<IssueReportsModule, 'comments' | 'get' | 'niceRef'>,
   ) {}
 
   async comments(
@@ -70,20 +71,35 @@ export class IssueCommentsMailModule {
     const row = await this.store.draftOrThrow(issueId)
     // An effect's executor (POD-6394) has the stored attribution, not a live principal.
     const attribution = 'kind' in principal ? attributionOf(principal) : principal
-    return await this.store.persistWith(
-      writer,
-      row,
-      async () =>
-        await this.store.deps.store.issues.addIssueComment({
-          id: `cmt_${randomUUID()}`,
+    const mentions = this.store.deps.commentMentions
+    return await this.store.persistWith(writer, row, async () => {
+      const commentId = `cmt_${randomUUID()}`
+      // MENTIONS (POD-6881): matched against the members as the comment is
+      // written, stored with it, and told in the same transaction.
+      const mentioned = (await mentions?.find(body)) ?? []
+      await this.store.deps.store.issues.addIssueComment({
+        id: commentId,
+        issueId,
+        author,
+        body,
+        createdAt: this.store.now(),
+        actor: attribution.actor,
+        onBehalfOf: attribution.onBehalfOf,
+        mentions: mentionsColumn(mentioned),
+      })
+      if (mentions !== undefined && mentioned.length > 0) {
+        await mentions.raise({
           issueId,
-          author,
+          issueRef: await this.reports().niceRef(row),
+          issueTitle: row.title,
+          commentId,
+          authorName: author,
+          authorUserId: (attribution.onBehalfOf as UserId | null | undefined) ?? null,
           body,
-          createdAt: this.store.now(),
-          actor: attribution.actor,
-          onBehalfOf: attribution.onBehalfOf,
-        }),
-    )
+          mentioned,
+        })
+      }
+    })
   }
 
   /**
@@ -159,17 +175,41 @@ export class IssueCommentsMailModule {
     }
     const attribution = attributionOf(principal)
     const at = this.store.now()
+    const mentions = this.store.deps.commentMentions
     return await this.store.persistWith(writer, row, async () => {
+      // MENTIONS (POD-6881): only a name the edit ADDS is told; a name it drops,
+      // or every name of a deleted comment, has its notice resolved.
+      const before = parseMentionsColumn(comment.mentions)
       if (change.kind === 'edit') {
+        const after = (await mentions?.find(change.body)) ?? []
         await issues.editIssueComment({
           id: commentId,
           body: change.body,
           editedAt: at,
           editedBy: attribution.actor,
           editedOnBehalfOf: attribution.onBehalfOf,
+          mentions: mentionsColumn(after),
         })
+        if (mentions !== undefined) {
+          const added = after.filter((user) => !before.includes(user))
+          const dropped = before.filter((user) => !after.includes(user))
+          await mentions.resolve(commentId, dropped)
+          if (added.length > 0) {
+            await mentions.raise({
+              issueId,
+              issueRef: await this.reports().niceRef(row),
+              issueTitle: row.title,
+              commentId,
+              authorName: comment.author,
+              authorUserId: (comment.onBehalfOf as UserId | null | undefined) ?? null,
+              body: change.body,
+              mentioned: added,
+            })
+          }
+        }
       } else {
         await issues.deleteIssueComment(commentId)
+        await mentions?.resolve(commentId, before)
       }
       if (moderating) {
         await this.store.deps.store.settingsAudit.append({

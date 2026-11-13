@@ -40,6 +40,7 @@ import {
   type RepoProjection,
   type SessionMeta,
   type SessionUserStateWire,
+  type NoticeWire,
   type SuperagentThreadWire,
 } from '@podium/model'
 import { render, waitFor } from '@testing-library/react'
@@ -74,6 +75,8 @@ export interface MobileStoreFixture {
   messageRecords?: MessageRecordWire[]
   /** My synced superagent thread records (POD-6675), as the feed would carry them. */
   superagentThreads?: SuperagentThreadWire[]
+  /** My open notices (POD-6881), as the feed would carry them. */
+  inboxNotices?: NoticeWire[]
   repos?: GitRepositoryWire[]
   machines?: MachineWire[]
   principal?: string
@@ -189,6 +192,7 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
     replica.applySnapshot('messageRecords', fixture.messageRecords ?? [])
     if (fixture.superagentThreads)
       replica.applySnapshot('superagentThreads', fixture.superagentThreads)
+    if (fixture.inboxNotices) replica.applySnapshot('inboxNotices', fixture.inboxNotices)
     seedMachineRecords(seededReplica, fixture)
     // This fixture supplies a complete offline bootstrap, including known
     // absence of personal markers. Custom replicas control their own posture.

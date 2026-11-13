@@ -43,6 +43,7 @@ import {
   type MachineId,
   machineAccessRowId,
   messageRecordRowId,
+  noticeRowId,
   pinRowId,
   readPositionRowId,
   type SessionId,
@@ -81,6 +82,7 @@ import {
   machines,
   messages,
   meta,
+  notices,
   offers,
   pendingInteractions,
   pins,
@@ -946,6 +948,16 @@ export const RECORD_SOURCES: RecordSources = {
   checkout: [
     own(checkouts, [checkouts.machineId, checkouts.path], (key) =>
       checkoutRowId(key[0] as MachineId, str(key[1])),
+    ),
+  ],
+  // A notice is on its recipient's feed while it is open (POD-6881): resolving
+  // it takes it off, and what is written to it afterwards reaches no record.
+  inboxNotice: [
+    own(
+      notices,
+      [notices.recipientUserId, notices.id],
+      (key) => noticeRowId(key[0] as UserId, str(key[1])),
+      { rows: `{row}.${notices.resolvedAt.name} IS NULL` },
     ),
   ],
   issueEvent: [

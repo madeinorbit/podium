@@ -12,6 +12,8 @@ export const TAB_PATHS = {
     'notifications.ntfyTopic',
     'notifications.telegramChatId',
     'notifications.telegramBotToken',
+    // Which notice kinds are pushed (POD-6881).
+    'notifications.notices',
   ],
   appearance: ['sidebar.repoSort'],
   account: [],

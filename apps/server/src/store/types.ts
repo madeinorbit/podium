@@ -551,6 +551,9 @@ export interface IssueCommentRow {
   editedAt?: string | null
   editedBy?: string | null
   editedOnBehalfOf?: string | null
+  /** The member ids the comment mentions, as a JSON array (POD-6881). NULL =
+   *  written before mentions were stored. */
+  mentions?: string | null
 }
 
 /** The two task texts that keep a revision history (POD-6289). */

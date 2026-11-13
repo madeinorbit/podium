@@ -188,6 +188,9 @@ import { DELIVERY_RETRY_BACKSTOP_MS } from './modules/messages/scheduler'
 import { MessageDeliveryService } from './modules/messages/service'
 import { makeSpawnOnWake } from './modules/messages/spawn'
 import type { MessageWriter } from './modules/messages/writer'
+import { bindNoticeService, NoticeService } from './modules/notices/emit'
+import { CommentMentions } from './modules/notices/mentions'
+import { makeNoticeFeedCapture } from './modules/notices/records'
 import {
   DEFAULT_NOTIFICATION_PUSHERS,
   type NotificationPushers,
@@ -531,6 +534,8 @@ export interface RegistryModules {
    */
   superagent?: SuperagentService
   notify: NotifyService
+  /** Each person's notice inbox (POD-6881, credential management spec §13). */
+  notices: NoticeService
   issues: IssueService
   /** Named agent setups (POD-6107): the library and the launch resolver. */
   agentProfiles: AgentProfileService
@@ -1316,6 +1321,10 @@ export class SessionRegistry {
       async (userId) =>
         await asSystemWrite(async () => await this.store.superagent.seedMemberGlobalThread(userId)),
     )
+    // ONE HOOK ON THE NOTICE WRITE FUNNEL (POD-6881): every write to `notices`
+    // publishes the open notice (or its removal) to its recipient's devices
+    // inside its own transaction.
+    this.store.notices.setFeedCapture(makeNoticeFeedCapture(writes.system('feed.notices')))
     // ONE HOOK ON THE SETTINGS BLOB WRITE (POD-6677): every write of
     // `meta['settings']` publishes the instance settings record to every member
     // inside its own transaction, whoever made it.
@@ -2471,6 +2480,16 @@ export class SessionRegistry {
       notificationPushers,
       this.bus,
     )
+    // THE NOTICE INBOX (POD-6881, spec §13): the one way into a person's inbox,
+    // pushed through that person's own channels for the kinds they switched on.
+    const notices = new NoticeService({
+      notices: this.store.notices,
+      pushPreferences: async (user) =>
+        (await this.store.settings.getSettingsFor(user)).notifications.notices,
+      push: async (user, message) => await notify.notifyExternal(message, user),
+      now: () => new Date(this.now()).toISOString(),
+    })
+    bindNoticeService(notices)
     // releases its held locks and leaves every wait queue (the queue advances
     // with a grant-notification mail). Best-effort — the lazy expiry sweep is
     // the backstop if this listener ever misses a death.
@@ -2518,6 +2537,19 @@ export class SessionRegistry {
 
     const issues = IssueService.compose({
       store: this.store,
+      // MENTIONS IN COMMENTS (POD-6881): matched against the active members.
+      // Every member reads every task (design §2.2), so each active member
+      // mentioned may read it; a disabled account is no member.
+      commentMentions: new CommentMentions({
+        activeMembers: async () =>
+          (await this.store.users.list()).map((user) => ({
+            id: asUserId(user.id),
+            displayName: user.displayName,
+          })),
+        readersOf: async (_issueId, users) => [...users],
+        emitNotice: async (i) => await notices.emitNotice(i),
+        resolveNotices: async (key) => await notices.resolveNotices(key),
+      }),
       artifacts: issueArtifacts,
       pendingUploads,
       // The issue service's session reads since POD-6160: running sessions from
@@ -4649,6 +4681,7 @@ export class SessionRegistry {
       headless,
       reactions,
       notify,
+      notices,
       issues,
       agentProfiles,
       shipping,

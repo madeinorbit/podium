@@ -50,11 +50,12 @@ import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 import type { PhoneWorkLane, PhoneWorkSection } from '@podium/client-graph/worklist/phone'
 import { issueStatusMenuEntries, issueStatusValueOf, type SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
-import { Stack, useFocusEffect } from 'expo-router'
+import { Stack, useFocusEffect, useRouter } from 'expo-router'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { StyleSheet, useWindowDimensions, View } from 'react-native'
 import type { SearchBarCommands } from 'react-native-screens'
 import { NewWorkButton } from '../components/NewWorkButton'
+import { useUnreadNotices } from '../components/NoticeBell'
 import { MIN_REFRESH_CONFIRMATION_MS } from '../hooks/useRefreshableTab'
 import { useAgeNow } from '../lib/clock-hooks'
 import { workMenuActionIds } from '../lib/work-menu'
@@ -75,6 +76,8 @@ const quietRow = [...plainRow, listRowSeparator('hidden')]
 
 /** A real SwiftUI plain list. UIKit owns the stack, search, toolbar and tab bar. */
 export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps) {
+  const router = useRouter()
+  const unreadNotices = useUnreadNotices()
   const { phone } = props
   const searchRef = useRef<SearchBarCommands | null>(null)
   const nativeQuery = useRef<string | undefined>(undefined)
@@ -135,6 +138,16 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
             </Stack.Toolbar.MenuAction>
           ))}
         </Stack.Toolbar.Menu>
+      </Stack.Toolbar>
+      {/* My notices (POD-6881): the bell opens the inbox; badged while unread. */}
+      <Stack.Toolbar placement="right">
+        <Stack.Toolbar.Button
+          icon={unreadNotices > 0 ? 'bell.badge' : 'bell'}
+          accessibilityLabel={unreadNotices > 0 ? `Inbox, ${unreadNotices} unread` : 'Inbox'}
+          onPress={() => router.push('/inbox')}
+        >
+          Inbox
+        </Stack.Toolbar.Button>
       </Stack.Toolbar>
       <NewWorkButton
         renderTrigger={(open) => (
