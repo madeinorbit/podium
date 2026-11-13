@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 const projectRoot = resolve(import.meta.dirname, '../..')
 const app = JSON.parse(readFileSync(resolve(projectRoot, 'app.json'), 'utf8'))
 const hostSource = readFileSync(resolve(import.meta.dirname, 'ServerProfileGate.tsx'), 'utf8')
+const linksSource = readFileSync(resolve(import.meta.dirname, 'app-links.ts'), 'utf8')
 
 describe('native Podium link registration and delivery', () => {
   it('registers the podium scheme with Expo for the iOS application bundle', () => {
@@ -12,8 +13,12 @@ describe('native Podium link registration and delivery', () => {
   })
 
   it('keeps cold and warm native URLs on the same mobile host path', () => {
-    expect(hostSource).toContain('Linking.getInitialURL()')
-    expect(hostSource).toContain("Linking.addEventListener('url', ({ url }) => handleLink(url))")
+    expect(hostSource).toContain('await readInitialAppUrl()')
+    expect(hostSource).toContain('handleLink(initialUrl)')
+    expect(hostSource).toContain('subscribeAppUrls(handleLink)')
+    expect(linksSource).toContain('Linking.getInitialURL()')
+    expect(linksSource).toContain("Linking.addEventListener('url', ({ url }) => deliver(url))")
+    expect(linksSource).toContain("native.addListener('onURLReceived', ({ url }) => deliver(url))")
     const navigation = hostSource.indexOf('captureMobileHandoffUrl(raw)')
     const pairing = hostSource.indexOf('parsePairingLink(raw)', navigation)
     expect(navigation).toBeGreaterThan(-1)

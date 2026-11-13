@@ -1,8 +1,7 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import { attachPreferenceSource } from '@podium/client-graph/preference-source'
-import { preferenceSource } from '@podium/client-graph/preference-source'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { MobxPool } from '@podium/client-graph'
+import { omitGone } from '@podium/client-graph/lookup'
+import { attachPreferenceSource, preferenceSource } from '@podium/client-graph/preference-source'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { StrictMode, useMemo, useSyncExternalStore } from 'react'
@@ -23,6 +22,7 @@ vi.mock('../client/hooks', () => ({
   },
 }))
 vi.mock('../client/mobile-pool', () => ({
+  useMobilePool: () => state.pool,
   useMobilePoolProjection: <T,>(read: (pool: MobxPool) => T, empty: T): T => {
     const pool = state.pool
     // biome-ignore lint/correctness/useExhaustiveDependencies: This fixture changes the pool on explicit rerenders to model attachment and principal replacement.
@@ -254,7 +254,7 @@ it('batches all demanded keys, never falls back while attaching, and reports mat
   await flush()
   expect(result.current.value[0]).toBe('saved')
   expect([...result.current.set.collapsed]).toEqual(['repo'])
-  expect((preferenceSource(pool)?.counts ?? null)).toMatchObject({ batches: 1, loaded: 4 })
+  expect(preferenceSource(pool)?.counts ?? null).toMatchObject({ batches: 1, loaded: 4 })
   expect((preferenceSource(pool)?.keys() ?? []).length).toBe(4)
   expect(ui.listeners.size).toBe(1)
   const values = () =>
@@ -302,7 +302,7 @@ it('keeps pending writes with the old principal and drops its optimism and subsc
   expect(bob.set).not.toHaveBeenCalled()
   expect(result.current.collapsed.size).toBe(0)
   expect(alice.listeners.size).toBe(0)
-  expect((preferenceSource(alicePool)?.keys() ?? [])).toEqual([])
+  expect(preferenceSource(alicePool)?.keys() ?? []).toEqual([])
 })
 
 it('allows an authoritative replacement inside the post-write batch to win after local optimism ends', async () => {

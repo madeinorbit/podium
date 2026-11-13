@@ -15,6 +15,10 @@ import { issueRowToProjection } from '../../../server/src/modules/issues/project
 import { issueRowFixture } from '../../../server/src/test-support/issue-row'
 import type { StoreActions } from '../client/hooks'
 import { useBooting, useIssue, useIssues, useStoreActions } from '../client/hooks'
+import {
+  ServerProfileContext,
+  type ServerProfileContextValue,
+} from '../client/server-profile-context'
 
 afterEach(cleanup)
 
@@ -194,6 +198,30 @@ const fixture = {
   issueGitStates: [git],
   repoProjections: [repo],
 }
+const profile: ServerProfileContextValue = {
+  profile: {
+    id: 'normalized-fixture',
+    name: 'Normalized fixture',
+    httpOrigin: 'http://127.0.0.1:0',
+    mode: 'open',
+    transport: 'insecure-http',
+    createdAt: '2026-09-30T10:00:00Z',
+    updatedAt: '2026-09-30T10:00:00Z',
+  },
+  profiles: [],
+  config: { httpOrigin: 'http://127.0.0.1:0', wsClientUrl: 'ws://127.0.0.1:0/client' },
+  bearer: null,
+  activation: 'verified',
+  runtimeKey: 'normalized-fixture',
+  isEphemeralOverride: true,
+  beginAddServer: () => {},
+  switchProfile: async () => {},
+  renameProfile: async () => {},
+  removeProfile: async () => {},
+  updateCredential: async () => {},
+  recordUser: async () => {},
+  revalidateOfflineProfile: async () => {},
+}
 let latest: IssueViewModel | undefined
 let actions: StoreActions
 function Probe() {
@@ -210,7 +238,16 @@ describe('mobile normalized issue reads with no legacy issue rows', () => {
     ['mission', MissionScreen],
     ['issue detail', IssueScreen],
   ])('renders the %s screen from normalized homes', async (_name, Surface) => {
-    const mounted = await renderWithMobileStore(<Surface />, fixture)
+    const mounted = await renderWithMobileStore(
+      Surface === IssuesScreen ? (
+        <ServerProfileContext.Provider value={profile}>
+          <Surface />
+        </ServerProfileContext.Provider>
+      ) : (
+        <Surface />
+      ),
+      fixture,
+    )
     expect(await mounted.replica.hydrate()).not.toHaveProperty('issues')
     await waitFor(() =>
       expect(screen.getAllByText('Normalized mobile mission').length).toBeGreaterThan(0),
