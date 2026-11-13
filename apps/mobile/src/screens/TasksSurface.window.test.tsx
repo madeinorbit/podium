@@ -4,7 +4,8 @@ import { MOBILE_TASK_WINDOW_SIZE, MobileTasksBoard } from '@podium/client-graph/
 import { MobxPool } from '@podium/client-graph/pool'
 import { type Worklist, worklistView } from '@podium/client-graph/worklist/view-model'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { type ReactNode, useEffect } from 'react'
+import { type ReactNode, useEffect, useImperativeHandle } from 'react'
+import type { SearchBarCommands, SearchBarProps } from 'react-native-screens'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { ScreenAction } from '../components/screen-actions'
 import { ROW_PRIME_MS } from '../lib/use-row-prime'
@@ -19,10 +20,8 @@ const state = vi.hoisted(() => ({
   slot: vi.fn(),
   list: vi.fn(),
   listMount: vi.fn(),
-  search: null as {
-    onChangeText: (event: { nativeEvent: { text: string } }) => void
-    onCancelButtonPress: () => void
-  } | null,
+  search: null as SearchBarProps | null,
+  setSearchText: vi.fn(),
   folded: false,
   toggleFold: vi.fn(),
   work: null as Worklist | null,
@@ -52,6 +51,7 @@ vi.mock('expo-router', () => ({
     },
     SearchBar: (props: NonNullable<typeof state.search>) => {
       state.search = props
+      useImperativeHandle(props.ref, () => ({ setText: state.setSearchText }) as SearchBarCommands)
       return null
     },
     Toolbar: Object.assign(() => null, { Button: () => null }),
@@ -205,6 +205,7 @@ afterEach(() => {
   state.list.mockClear()
   state.listMount.mockClear()
   state.search = null
+  state.setSearchText.mockClear()
   state.toggleFold.mockClear()
   state.folded = false
   state.work = null
@@ -213,6 +214,25 @@ afterEach(() => {
 /** Freshly mounted rows draw themselves for ROW_PRIME_MS, then the viewport window rules. */
 const lapsePrime = () =>
   act(() => new Promise<void>((resolve) => setTimeout(resolve, ROW_PRIME_MS + 20)))
+
+const changeSearchText = (text: string) =>
+  state.search?.onChangeText?.({ nativeEvent: { text } } as Parameters<
+    NonNullable<SearchBarProps['onChangeText']>
+  >[0])
+
+const cancelSearch = () =>
+  state.search?.onCancelButtonPress?.(
+    {} as Parameters<NonNullable<SearchBarProps['onCancelButtonPress']>>[0],
+  )
+
+const expectPullDownSearch = () =>
+  expect(state.search).toMatchObject({
+    placement: 'stacked',
+    hideWhenScrolling: true,
+    allowToolbarIntegration: false,
+    obscureBackground: false,
+    placeholder: 'Search tasks or ID',
+  })
 
 it('Tasks aligns nested separators, pads scalable content and keeps cell traits outside slot observers', async () => {
   const stamp = '2026-10-03T12:00:00Z'
@@ -445,15 +465,16 @@ it('native placeholders activate a bounded window both ways; only age labels rea
   fireEvent.click(screen.getByTestId('group-header'))
   expect(state.toggleFold).toHaveBeenCalledTimes(1)
   // Cancel resets the native list even when UIKit clears the text first.
-  act(() => state.search?.onChangeText({ nativeEvent: { text: 'Task 150' } }))
+  expectPullDownSearch()
+  act(() => changeSearchText('Task 150'))
   const mounts = state.listMount.mock.calls.length
-  act(() => state.search?.onChangeText({ nativeEvent: { text: '' } }))
+  act(() => changeSearchText(''))
   expect(state.listMount).toHaveBeenCalledTimes(mounts)
-  act(() => state.search?.onCancelButtonPress())
+  act(cancelSearch)
   expect(state.listMount).toHaveBeenCalledTimes(mounts + 1)
   expect(board.query).toBe('')
   expect(screen.queryAllByTestId('slot')).toHaveLength(0)
-  act(() => state.search?.onCancelButtonPress())
+  act(cancelSearch)
   expect(state.listMount).toHaveBeenCalledTimes(mounts + 2)
 })
 
@@ -485,7 +506,6 @@ it('Work keeps its native list and unchanged slots quiet during a one-row scroll
   await attachMobileScreens(pool)
   state.work = worklistView(pool)
   const props = {
-    mode: 'search',
     phone: state.work.phone,
     collapsed: new Set(),
     refresh: { onRefresh: () => {} },
@@ -518,11 +538,11 @@ it('Work keeps its native list and unchanged slots quiet during a one-row scroll
     mods.findIndex((m: { name: string }) => m.name === 'listRowInsets'),
   )
 
-  // Search and Work share the phone model. Late disappearance from one
+  // Retained Work screens share the phone model. Late disappearance from one
   // presentation must not blank the other presentation's on-screen rows.
   const rowText = slots[31]!.textContent
   expect(rowText).toMatch(/^Work \d/)
-  const other = render(<WorkSurface {...props} mode="tab" />)
+  const other = render(<WorkSurface {...props} />)
   const otherSlots = other.container.querySelectorAll('[data-testid="slot"]')
   act(() => fireEvent.mouseEnter(otherSlots[31]!))
   act(() => fireEvent.mouseLeave(slots[31]!))
@@ -534,4 +554,93 @@ it('Work keeps its native list and unchanged slots quiet during a one-row scroll
   expect(state.work.phone.activeSections[0]?.window.visibleRows).toHaveLength(
     MOBILE_TASK_WINDOW_SIZE,
   )
+})
+
+it.each([
+  'Work',
+  'Tasks',
+] as const)('%s pull-down search uses its shared filter for titles and sub-task references, then Cancel restores the list', async (tab) => {
+  const stamp = '2026-10-03T12:00:00Z'
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
+  state.pool = pool
+  pool.apply({
+    type: 'replace',
+    rows: [
+      { kind: 'repo', id: 'repo', value: { id: 'repo', repoPath: '/fixture', prefix: 'POD' } },
+      ...[
+        { id: 'parent', seq: 1, title: 'Search parent' },
+        { id: 'child', seq: 123, title: 'Nested task', parentId: 'parent' },
+        { id: 'other', seq: 2, title: 'Other task' },
+      ].map((issue) => ({
+        kind: 'issue' as const,
+        id: issue.id,
+        value: {
+          ...issue,
+          stage: 'in_progress',
+          audience: 'human',
+          repoId: 'repo',
+          repoPath: '/fixture',
+          createdAt: stamp,
+          updatedAt: stamp,
+        },
+      })),
+    ],
+  })
+  await attachMobileScreens(pool)
+  state.work = worklistView(pool)
+  const phone = state.work.phone
+  const board = new MobileTasksBoard(pool, {
+    showDone: false,
+    expanded: [],
+    filter: {},
+    ordering: 'priority',
+    showAgentTasks: false,
+  })
+  const common = {
+    refresh: { onRefresh: () => {} },
+    bottomInset: 0,
+  }
+  render(
+    tab === 'Work' ? (
+      <WorkSurface
+        {...({
+          ...common,
+          phone,
+          collapsed: new Set(),
+          loading: false,
+          pendingNav: null,
+        } as unknown as WorkSurfaceProps)}
+      />
+    ) : (
+      <TasksSurface
+        {...({ ...common, board, chips: [], booting: false } as unknown as TasksSurfaceProps)}
+      />
+    ),
+  )
+  expectPullDownSearch()
+  expect(screen.getByText('Other task')).toBeTruthy()
+  for (const text of ['POD-123', 'pod 123', '#123', '123', 'nested task']) {
+    act(() => changeSearchText(text))
+    expect(screen.getByText('Search parent')).toBeTruthy()
+    expect(screen.queryByText('Other task')).toBeNull()
+    if (tab === 'Work') {
+        expect(screen.getByText('Nested task')).toBeTruthy()
+      expect(phone.query).toBe(text)
+      expect(phone.childHit('parent')).toBe('child')
+    } else expect(board.searchFilter.text).toBe(text)
+  }
+  act(cancelSearch)
+  expect(tab === 'Work' ? phone.query : board.searchFilter.text).toBeFalsy()
+  expect(screen.getByText('Other task')).toBeTruthy()
+
+  // A query restored outside the native control must also update its text.
+  act(() => {
+    if (tab === 'Work') phone.setQuery('POD-123')
+    else board.setFilter({ text: 'POD-123' })
+  })
+  expect(state.setSearchText).toHaveBeenLastCalledWith('POD-123')
+  expect(screen.queryByText('Other task')).toBeNull()
+  act(cancelSearch)
+  expect(tab === 'Work' ? phone.query : board.searchFilter.text).toBeFalsy()
+  expect(screen.getByText('Other task')).toBeTruthy()
 })

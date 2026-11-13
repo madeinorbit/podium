@@ -22,7 +22,7 @@ describe('mobile navigation', () => {
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name)
       .sort()
-    expect(routes).toEqual(['issues', 'pulse', 'superagent', 'work'])
+    expect(routes).toEqual(['issues', 'pulse', 'settings', 'superagent', 'work'])
     for (const route of routes) {
       expect(existsSync(resolve(tabsRoot, route, 'index.tsx'))).toBe(true)
       expect(existsSync(resolve(tabsRoot, route, '_layout.tsx'))).toBe(true)

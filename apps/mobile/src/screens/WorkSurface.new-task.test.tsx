@@ -11,6 +11,7 @@ vi.mock('expo-router', () => ({
   useFocusEffect: () => {},
   Stack: {
     Screen: () => null,
+    SearchBar: () => null,
     Toolbar: Object.assign(({ children }: { children: ReactNode }) => children, {
       Button: ({ onPress, children }: { onPress: () => void; children: ReactNode }) => (
         <button type="button" onClick={onPress}>
@@ -110,7 +111,6 @@ it('opens the tapped project from the real Work project header on the first and 
   } as unknown as WorkSurfaceProps['phone']
   render(
     <WorkSurface
-      mode="tab"
       phone={phone}
       collapsed={new Set()}
       scrollOffset={{ current: 0 }}

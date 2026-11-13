@@ -66,7 +66,6 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { issueStatusMenuEntries, issueStatusValueOf } from '@podium/model'
 import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
-import { Stack } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { Fragment, type ReactNode, useState } from 'react'
 import { StyleSheet, useWindowDimensions, View } from 'react-native'
@@ -74,6 +73,7 @@ import { issueObserver as taskObserver } from '../client/issue-observer'
 import { useMobilePool } from '../client/mobile-pool'
 import { ChevronDown, Filter, MoreHorizontal, Plus } from '../components/icons'
 import { ListNotices } from '../components/list-notices.ios'
+import { ListSearchBar } from '../components/list-search-bar.ios'
 import { NativeGroupHeader } from '../components/NativeGroupHeader.ios'
 import { RefreshOffer } from '../components/RefreshOffer'
 import { Screen } from '../components/Screen'
@@ -136,7 +136,7 @@ const MARK_COLOR: Record<TaskRowMark, string> = {
 
 /**
  * THE TASKS TAB ON iOS — a real SwiftUI inset-grouped list. UIKit owns the
- * navigation bar, its large title, the search magnifier and the tab bar; SwiftUI
+ * navigation bar, its large title, pull-down search and the tab bar; SwiftUI
  * owns the rows, their swipe actions and their context menus, so iOS draws the
  * Liquid Glass and the gestures itself.
  *
@@ -204,24 +204,20 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
           })),
         },
       ]}
-      // One native menu leaves room for the search button at accessibility sizes.
+      // One native menu leaves room for the inline title at accessibility sizes.
       actions={
         fontScale >= 1.6
           ? [{ label: 'Task actions', icon: MoreHorizontal, items: actions }]
           : actions
       }
     >
-      {/* Search the whole board (BoardFilter.text, backlog, done and proposals
-          included) from the native magnifier. Not the stacked field: a SwiftUI
-          List is not a scroll view UIKit's bar can track, so that field would
-          sit open under the title instead of hiding until pulled down. */}
-      <Stack.SearchBar
-        placement="integratedButton"
-        placeholder="Search tasks or ID"
-        autoCapitalize="none"
-        onChangeText={(event) => board?.search(event.nativeEvent.text)}
-        onCancelButtonPress={() => {
-          board?.search('')
+      <ListSearchBar
+        query={board?.searchFilter.text ?? ''}
+        onQueryChange={(query) => {
+          board?.search(query)
+          if (!query) board?.clearFilter('text')
+        }}
+        onCancel={() => {
           // SwiftUI otherwise anchors the restored groups to the last search
           // result. A fresh List returns to the top, including an empty search.
           setListRevision((revision) => revision + 1)

@@ -72,13 +72,13 @@ import {
 } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import * as Haptics from 'expo-haptics'
-import { Stack, useFocusEffect } from 'expo-router'
+import { Stack } from 'expo-router'
 import { type ComponentProps, Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { StyleSheet, useWindowDimensions, View } from 'react-native'
-import type { SearchBarCommands } from 'react-native-screens'
 import { useMobilePoolProjection } from '../client/mobile-pool'
 import { useWorkspaceRefreshSubtitle } from '../client/workspace-refresh'
 import { ListNotices } from '../components/list-notices.ios'
+import { ListSearchBar } from '../components/list-search-bar.ios'
 import { NativeGroupHeader } from '../components/NativeGroupHeader.ios'
 import { NewWorkButton } from '../components/NewWorkButton'
 import { WorkingMark } from '../components/WorkingMark'
@@ -130,21 +130,6 @@ const noteRow = [
 export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps) {
   startupTiming.mark('work.surface-render')
   const { phone } = props
-  const searchRef = useRef<SearchBarCommands | null>(null)
-  const nativeQuery = useRef<string | undefined>(undefined)
-  const restoreQuery = useCallback(() => {
-    if (searchRef.current && nativeQuery.current !== phone.query) {
-      searchRef.current.setText(phone.query)
-      nativeQuery.current = phone.query
-    }
-  }, [phone, phone.query])
-  useEffect(restoreQuery, [restoreQuery])
-  useFocusEffect(
-    useCallback(() => {
-      const frame = requestAnimationFrame(restoreQuery)
-      return () => cancelAnimationFrame(frame)
-    }, [restoreQuery]),
-  )
   const quiet = phone.quietSections
   const sections = (
     phone.quietExpanded && quiet.length ? [...phone.activeSections, ...quiet] : phone.activeSections
@@ -168,8 +153,7 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
   const needYou = useMobilePoolProjection(readNeedYouCount, 0)
   const working = useMobilePoolProjection(readWorkingCount, 0)
   const refreshSubtitle = useWorkspaceRefreshSubtitle()
-  const subtitle =
-    props.mode === 'tab' ? (refreshSubtitle ?? workSubtitle(needYou, working)) : undefined
+  const subtitle = refreshSubtitle ?? workSubtitle(needYou, working)
   // W8: one launcher for every project header's +, opened with that project picked.
   const openProjectWork = useRef<((repoPath: string) => void) | null>(null)
   const onNewInProject = useCallback((repoPath: string) => {
@@ -180,7 +164,7 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
     <View collapsable={false} style={styles.root}>
       <Stack.Screen
         options={{
-          title: props.mode === 'search' ? 'Search' : 'Work',
+          title: 'Work',
           headerLargeTitleEnabled: true,
           // Match Tasks: UIKit must not resize the hosting view as the large
           // title stretches/collapses. SwiftUI owns the list's safe-area inset.
@@ -195,45 +179,27 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
           ...headerSubtitleOptions(nativeSubtitleAvailable ? subtitle : undefined, { large: true }),
         }}
       />
-      {props.mode === 'tab' ? (
-        <NewWorkButton
-          renderTrigger={(open) => (
-            <Stack.Toolbar placement="right">
-              <Stack.Toolbar.Button
-                icon="square.and.pencil"
-                accessibilityLabel="New work"
-                onPress={() => open()}
-              >
-                New work
-              </Stack.Toolbar.Button>
-            </Stack.Toolbar>
-          )}
-        />
-      ) : (
-        <Stack.SearchBar
-          ref={searchRef}
-          placeholder="Search tasks or ID"
-          hideWhenScrolling={false}
-          autoCapitalize="none"
-          onChangeText={(event) => {
-            nativeQuery.current = event.nativeEvent.text
-            phone.setQuery(event.nativeEvent.text)
-          }}
-          onCancelButtonPress={() => {
-            nativeQuery.current = ''
-            phone.setQuery('')
-          }}
-        />
-      )}
-      {props.mode === 'tab' ? (
-        <NewWorkButton
-          renderTrigger={(open) => {
-            // No trigger of its own: the project headers' + buttons open it.
-            openProjectWork.current = open
-            return null
-          }}
-        />
-      ) : null}
+      <NewWorkButton
+        renderTrigger={(open) => (
+          <Stack.Toolbar placement="right">
+            <Stack.Toolbar.Button
+              icon="square.and.pencil"
+              accessibilityLabel="New work"
+              onPress={() => open()}
+            >
+              New work
+            </Stack.Toolbar.Button>
+          </Stack.Toolbar>
+        )}
+      />
+      <ListSearchBar query={phone.query} onQueryChange={(query) => phone.setQuery(query)} />
+      <NewWorkButton
+        renderTrigger={(open) => {
+          // No trigger of its own: the project headers' + buttons open it.
+          openProjectWork.current = open
+          return null
+        }}
+      />
       {/* Keep the Host first so UIKit can discover the List for tab reselect. */}
       <View style={styles.listContainer}>
         <Host style={styles.host} seedColor={color.accentTint}>
@@ -273,7 +239,7 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
                     section={section}
                     folded={folded}
                     onToggle={props.onToggle}
-                    onNew={props.mode === 'tab' ? onNewInProject : undefined}
+                    onNew={onNewInProject}
                   />
                 </Section>
                 {/* Rows animate per section, never the List itself: an animated

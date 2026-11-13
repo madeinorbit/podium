@@ -5,15 +5,10 @@ import type { MutableRefObject, ReactNode } from 'react'
 import type { useRefreshableTab } from '../hooks/useRefreshableTab'
 import type { WorkMenuActionId } from '../lib/work-menu'
 
-/** `tab` is the Work tab; `search` is the same list under the system search tab,
- * which owns the search field on iOS (POD-2376 renders it from its route). */
-export type WorkMode = 'tab' | 'search'
-
 export const WORK_LANES: readonly PhoneWorkLane[] = ['open', 'snoozed', 'closed']
 export const WORK_LANE_LABELS = { open: 'Open', snoozed: 'Snoozed', closed: 'Closed' } as const
 
 export interface WorkSurfaceProps {
-  mode: WorkMode
   scrollOffset: MutableRefObject<number>
   returnOffset: number
   returnFocus?: string

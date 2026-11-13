@@ -49,6 +49,7 @@ function NativeNavigation({ reduceMotion }: RootNavigationProps) {
           here so that first native frame has no header or replace animation. */}
       <Stack.Screen name="index" options={{ headerShown: false, animation: 'none' }} />
       <Stack.Screen name="signed-in" options={{ headerShown: false, animation: 'none' }} />
+      <Stack.Screen name="search" options={{ headerShown: false, animation: 'none' }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false, animation: 'none' }} />
       <Stack.Screen name="new-issue" options={{ presentation: 'modal' }} />
       <Stack.Screen

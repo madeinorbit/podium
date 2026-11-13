@@ -27,7 +27,6 @@ export default function TabsLayout() {
       />
       {/* Settings opens from the header on web; search lives in the Work header. */}
       <Tabs.Screen name="settings" options={{ href: null }} />
-      <Tabs.Screen name="search" options={{ href: null }} />
     </Tabs>
   )
 }

@@ -40,7 +40,6 @@ export default function TabsLayout() {
         <NativeTabs.Trigger.Icon sf="gearshape" md="settings" />
         <NativeTabs.Trigger.Label>Settings</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="search" hidden />
     </NativeTabs>
   )
 }
