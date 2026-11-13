@@ -298,6 +298,7 @@
         "@trpc/client": "^11.0.0",
         "@trpc/server": "^11.0.0",
         "highlight.js": "11.11.1",
+        "marked": "^18.0.5",
         "mobx": "7.0.3",
         "zod": "^3.24.0",
       },

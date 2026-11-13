@@ -28,6 +28,24 @@ it('quotes only the selected range', () => {
   expect(onQuote).toHaveBeenCalledWith('copies rows')
 })
 
+it('selects and quotes rendered words rather than markdown source offsets', () => {
+  const onQuote = vi.fn()
+  render(
+    <SelectTextSheet
+      text={'**Ready** in `chat.ts`\n\n```sh\nbun test\n```'}
+      onClose={() => {}}
+      onCopy={() => {}}
+      onQuote={onQuote}
+    />,
+  )
+  const field = screen.getByLabelText('Message text') as HTMLTextAreaElement
+  expect(field.value).toBe('Ready in chat.ts\n\nbun test')
+  field.setSelectionRange(9, 16)
+  fireEvent.select(field)
+  fireEvent.click(screen.getByLabelText('Quote selection'))
+  expect(onQuote).toHaveBeenCalledWith('chat.ts')
+})
+
 it('offers no quote where the host has no composer', () => {
   render(<SelectTextSheet text={text} onClose={() => {}} onCopy={() => {}} />)
   expect(screen.queryByLabelText('Quote message')).toBeNull()

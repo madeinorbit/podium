@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { markdownPlainText } from '@podium/client-core/markdown-plain-text'
+import { useEffect, useMemo, useState } from 'react'
 import { Modal, Platform, StyleSheet, Text, TextInput, View } from 'react-native'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
 import { PressableScale } from './PressableScale'
@@ -27,7 +28,7 @@ export function SelectTextSheet({
   useEffect(() => {
     setSelection({ start: 0, end: 0 })
   }, [text])
-  const body = text ?? ''
+  const body = useMemo(() => markdownPlainText(text ?? ''), [text])
   const selected = body.slice(selection.start, selection.end)
   const chosen = selected.trim().length > 0 ? selected : body
   const finish = (act: (value: string) => void) => {

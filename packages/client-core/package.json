@@ -249,6 +249,11 @@
       "@podium/source": "./src/transcript-time.ts",
       "types": "./src/transcript-time.ts",
       "import": "./src/transcript-time.ts"
+    },
+    "./markdown-plain-text": {
+      "@podium/source": "./src/values/markdown-plain-text.ts",
+      "types": "./src/values/markdown-plain-text.ts",
+      "import": "./src/values/markdown-plain-text.ts"
     }
   },
   "scripts": {
@@ -265,6 +270,7 @@
     "@podium/runtime": "workspace:*",
     "@podium/sync": "workspace:*",
     "highlight.js": "11.11.1",
+    "marked": "^18.0.5",
     "mobx": "7.0.3",
     "zod": "^3.24.0",
     "@trpc/client": "^11.0.0",
