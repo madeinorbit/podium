@@ -119,6 +119,7 @@ vi.mock('../components/LaunchPlaceholders', () => ({
   BootstrapCrossfade: ({ children }: { children: ReactNode }) => <>{children}</>,
   DetailSkeleton: () => null,
   TasksSkeleton: () => null,
+  TranscriptSkeleton: () => null,
 }))
 // The real composer is chat furniture tested elsewhere; here it only has to be
 // findable, so the test can say WHERE the page put it.
