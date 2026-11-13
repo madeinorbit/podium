@@ -124,25 +124,26 @@ describe('statement counts of the per-user record writes', () => {
   it('a pin does not grow with the pins the table holds', async () => {
     // Compare at save (POD-6769): the person's pins are read before the write
     // and again after it, in place of one read of the stored copy.
-    await expectConstantStatements(pinCreate, 11)
+    // POD-6920: each edit adds its commit's capture mark (+1).
+    await expectConstantStatements(pinCreate, 12)
   })
 
   it('a tab order does not grow with the orders the table holds', async () => {
-    await expectConstantStatements(tabOrderEdit, 9)
+    await expectConstantStatements(tabOrderEdit, 10)
   })
 
   it('a preference edit does not grow with the preferences the table holds', async () => {
-    await expectConstantStatements(preferencesEdit, 15)
+    await expectConstantStatements(preferencesEdit, 16)
   })
 
   it('a read position edit does not grow with the positions the table holds', async () => {
     // Compare at save (POD-6769): the person's positions are read before the
     // write and again after it, in place of one read of the stored copy.
-    await expectConstantStatements(readPositionEdit, 10)
+    await expectConstantStatements(readPositionEdit, 11)
   })
 
   it('is armed: a read per stored pin on the pin path fails it', async () => {
-    await expectArmed(pinCreate, 11, (f, size) => {
+    await expectArmed(pinCreate, 12, (f, size) => {
       const repo = f.o.store.sessions
       const original = repo.pinnedAt.bind(repo)
       repo.pinnedAt = async (user, kind, id) => {

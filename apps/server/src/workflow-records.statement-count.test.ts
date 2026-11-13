@@ -281,7 +281,8 @@ describe('statement counts of the profile, workflow and subscription records', (
         ),
       ),
       // POD-6769: the profile is built before and after the write (11 -> 12).
-      12,
+      // POD-6920: the commit's capture mark (12 -> 13).
+      13,
     )
   })
 
@@ -315,7 +316,8 @@ describe('statement counts of the profile, workflow and subscription records', (
       ),
       // POD-6769: a workflow record is named after the write and built once,
       // with no read of the stored copy (20 -> 19).
-      19,
+      // POD-6920: the capture mark and the binding read of the capture mapping (19 -> 21).
+      21,
     )
   })
 
@@ -328,7 +330,8 @@ describe('statement counts of the profile, workflow and subscription records', (
           `revise-${n}`,
         ),
       ),
-      22,
+      // POD-6920: the commit's capture mark (22 -> 23).
+      23,
     )
   })
 })

@@ -335,7 +335,8 @@ describe('session activity publication', () => {
     await f.save()
     now = BASE + 60_000
     await f.publisher.flush()
-    expect(await f.changes(cursor)).toHaveLength(1)
+    const published = await f.changes(cursor)
+    expect(published, JSON.stringify(published)).toHaveLength(1)
     expect(await f.built()).toMatchObject({ lastActiveAt: iso(20_000) })
   })
 

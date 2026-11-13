@@ -129,51 +129,53 @@ export class MemoryService {
     // top-level conversations, then any parent a child names that the report
     // left out, then the children with their parents' ids. Each is a fixed
     // number of statements, whatever the size of the report.
-    const registry = this.deps.store.conversations.registry
-    const fileOf = (conversation: ConversationDiscoveryWire) => ({
-      ...(conversation.path ? { path: conversation.path } : {}),
-      ...(conversation.sizeBytes !== undefined ? { sizeBytes: conversation.sizeBytes } : {}),
-    })
-    const roots = conversations.filter((conversation) => !conversation.parentConversationId)
-    const children = conversations.filter((conversation) => conversation.parentConversationId)
-    const podiumIds = await registry.ensureMany(
-      machineId,
-      roots.map((conversation) => ({
-        nativeId: conversation.id,
-        providerId: conversation.providerId,
-        ...fileOf(conversation),
-      })),
-    )
-    const unreported = children.filter(
-      (conversation) => !podiumIds.has(conversation.parentConversationId!),
-    )
-    if (unreported.length > 0) {
-      const parents = await registry.ensureMany(
-        machineId,
-        unreported.map((conversation) => ({
-          nativeId: conversation.parentConversationId!,
-          providerId: conversation.providerId,
-        })),
-      )
-      for (const [nativeId, podiumId] of parents) podiumIds.set(nativeId, podiumId)
-    }
-    if (children.length > 0) {
-      const ids = await registry.ensureMany(
-        machineId,
-        children.map((conversation) => ({
-          nativeId: conversation.id,
-          providerId: conversation.providerId,
-          parentPodiumId: podiumIds.get(conversation.parentConversationId!)!,
-          ...fileOf(conversation),
-        })),
-      )
-      for (const conversation of children) podiumIds.set(conversation.id, ids.get(conversation.id)!)
-    }
-
-    // The capture names the scanned conversations the write changed and the
-    // ones the scan no longer lists (POD-6920).
+    // One commit for the identities, segments and rows (POD-6920): the
+    // registry's writes join it, so each conversation the scan changed is
+    // appended once, and the ones the scan no longer lists leave with it.
     await this.deps.ledger.commit({
       write: async (scope) => {
+        const registry = this.deps.store.conversations.registry
+        const fileOf = (conversation: ConversationDiscoveryWire) => ({
+          ...(conversation.path ? { path: conversation.path } : {}),
+          ...(conversation.sizeBytes !== undefined ? { sizeBytes: conversation.sizeBytes } : {}),
+        })
+        const roots = conversations.filter((conversation) => !conversation.parentConversationId)
+        const children = conversations.filter((conversation) => conversation.parentConversationId)
+        const podiumIds = await registry.ensureMany(
+          machineId,
+          roots.map((conversation) => ({
+            nativeId: conversation.id,
+            providerId: conversation.providerId,
+            ...fileOf(conversation),
+          })),
+        )
+        const unreported = children.filter(
+          (conversation) => !podiumIds.has(conversation.parentConversationId!),
+        )
+        if (unreported.length > 0) {
+          const parents = await registry.ensureMany(
+            machineId,
+            unreported.map((conversation) => ({
+              nativeId: conversation.parentConversationId!,
+              providerId: conversation.providerId,
+            })),
+          )
+          for (const [nativeId, podiumId] of parents) podiumIds.set(nativeId, podiumId)
+        }
+        if (children.length > 0) {
+          const ids = await registry.ensureMany(
+            machineId,
+            children.map((conversation) => ({
+              nativeId: conversation.id,
+              providerId: conversation.providerId,
+              parentPodiumId: podiumIds.get(conversation.parentConversationId!)!,
+              ...fileOf(conversation),
+            })),
+          )
+          for (const conversation of children)
+            podiumIds.set(conversation.id, ids.get(conversation.id)!)
+        }
+
         await this.deps.store.conversations.index.upsert(
           scope,
           conversations.map((conversation) => ({

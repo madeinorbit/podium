@@ -9,15 +9,21 @@
  * query), a machine row, and a target's pending-mail count; at the backstop
  * also the retired session's grant edges and its machine and mail reads.
  */
-import { fixtureWriteScope } from '@podium/sync/testing'
+
 import { asIssueId, asMachineId, type SessionId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { issueRowFixture } from './test-support/issue-row'
 import { openTestStore } from './test-support/open-test-store'
-import { expectConstantStatements, quietShipping, type StatementPin } from './test-support/statement-count'
+import { seedRows } from './test-support/seed-rows'
+import {
+  expectConstantStatements,
+  quietShipping,
+  type StatementPin,
+} from './test-support/statement-count'
 
 interface Fixture {
   store: SessionStore
@@ -160,7 +166,9 @@ describe('host sample: pinned statement counts at 5 and 200 live shells', () => 
   it('a sample with nothing to retire', async () => {
     await expectConstantStatements(
       pin('host sample (steady)', false, async (f) => {
-        expect((await f.store.sessions.loadSessions()).map((s) => s.id).sort()).toEqual([...f.ids].sort())
+        expect((await f.store.sessions.loadSessions()).map((s) => s.id).sort()).toEqual(
+          [...f.ids].sort(),
+        )
       }),
       6,
     )
@@ -178,11 +186,21 @@ describe('host sample: pinned statement counts at 5 and 200 live shells', () => 
           for (let i = 0; i < size; i++) {
             // Worktrees outside every shell's folder. The folder-owner query's
             // own cost is pinned in folder-owner-parity.test.ts.
-            await f.store.issues.upsertIssue(fixtureWriteScope(), {
-              ...issueRowFixture({ id: asIssueId(`iss_sample_${i}`), repoPath: '/w', seq: i + 1 }),
-              repoId: undefined, machineId: f.store.hostMachineId, parentId: null,
-              worktreePath: `/elsewhere/${i}`,
-            } as never)
+            await seedRows(
+              f.store,
+              async () =>
+                await f.store.issues.upsertIssue(fixtureWriteScope(), {
+                  ...issueRowFixture({
+                    id: asIssueId(`iss_sample_${i}`),
+                    repoPath: '/w',
+                    seq: i + 1,
+                  }),
+                  repoId: undefined,
+                  machineId: f.store.hostMachineId,
+                  parentId: null,
+                  worktreePath: `/elsewhere/${i}`,
+                } as never),
+            )
           }
           return f
         },
@@ -196,7 +214,9 @@ describe('host sample: pinned statement counts at 5 and 200 live shells', () => 
       pin('host sample (backstop)', true, async (f) => {
         // The oldest quiet shell is retired, the rest are left for later samples.
         await expect
-          .poll(async () => (await f.store.sessions.loadSessions()).some((s) => s.id === f.ids.at(-1)))
+          .poll(async () =>
+            (await f.store.sessions.loadSessions()).some((s) => s.id === f.ids.at(-1)),
+          )
           .toBe(false)
       }),
       // POD-6920: derived change capture (no build before the write; one drain after it): 39 -> 46.

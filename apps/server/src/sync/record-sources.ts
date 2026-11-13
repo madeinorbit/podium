@@ -674,14 +674,17 @@ export const RECORD_SOURCES: RecordSources = {
       ],
       derived: [MACHINE_LOGGED_OUT],
     }),
-    // The custodian is read from the machine's grant edges.
+    // The custodian is read from the machine's custody edge
+    // (`custodianFromEdges`); its shares are the access rows'.
     via(
       grants,
       [grants.resourceKind, grants.resourceId],
       'all',
       (changes) =>
         unique(keysOf(changes).flatMap((key) => (key[0] === 'machine' ? [str(key[1])] : []))),
-      { rows: `{row}.${grants.resourceKind.name} = 'machine'` },
+      {
+        rows: `{row}.${grants.resourceKind.name} = 'machine' AND {row}.${grants.verb.name} = 'manage' AND {row}.${grants.custody.name} = 1`,
+      },
     ),
     // The fleet's update channel and published targets reach every machine.
     machineContext(async (_changes, reads) =>
@@ -746,8 +749,21 @@ export const RECORD_SOURCES: RecordSources = {
     ),
   ],
   // Each text is a record of its own, keyed by the issue (POD-6921).
-  issueBrief: [byId(issues, issues.id, { reads: [issues.brief] })],
-  issueDescription: [byId(issues, issues.id, { reads: [issues.description] })],
+  // An empty brief or description is no record (`issueBriefOf`,
+  // `issueDescriptionOf`): a row whose body is empty before and after the
+  // write (every new issue without one) reaches none.
+  issueBrief: [
+    byId(issues, issues.id, {
+      reads: [issues.brief],
+      rows: `coalesce({row}.${issues.brief.name}, '') <> ''`,
+    }),
+  ],
+  issueDescription: [
+    byId(issues, issues.id, {
+      reads: [issues.description],
+      rows: `coalesce({row}.${issues.description.name}, '') <> ''`,
+    }),
+  ],
   ...panelSources,
   issueDep: [
     own(issueDeps, [issueDeps.fromId, issueDeps.toId, issueDeps.type], (key) =>
