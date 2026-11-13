@@ -204,7 +204,7 @@ describe('buildHeadlessExec argv shapes', () => {
       'openai/gpt-5.5',
       '--thinking',
       'high',
-      '--no-approve',
+      '--approve',
     ])
     expect(first.stdin).toBe('hello')
     const resumed = buildHeadlessExec(
@@ -213,7 +213,7 @@ describe('buildHeadlessExec argv shapes', () => {
       harnessInstallation(snapshot, 'pi'),
       POSTURE,
     )
-    expect(resumed.args).toEqual(['-p', '--mode', 'json', '--session-id', 'uuid-1', '--no-approve'])
+    expect(resumed.args).toEqual(['-p', '--mode', 'json', '--session-id', 'uuid-1', '--approve'])
   })
 
   it('pi: a repair turn is accepted and runs tool-less', () => {

@@ -58,10 +58,6 @@ function systemPromptArgs(...parts: (string | undefined)[]): string[] {
   })
 }
 
-/** Modes in which Podium expects the harness to proceed without asking. Pi's
- *  only non-interactive gate is project trust, so these map to `--approve`. */
-const AUTO_PERMISSION_MODES = new Set(['auto', 'acceptEdits', 'bypassPermissions', 'dontAsk'])
-
 /** The flags that leave NOTHING but the model: no built-in or extension tools,
  *  no extensions, skills, prompt templates or AGENTS.md context. Verified: with
  *  `--no-tools` a model-emitted tool call is refused ("Tool bash not found"). */
@@ -280,11 +276,9 @@ export const piManifest: AgentManifest = {
           ...modelArgs(opts.model),
           ...thinkingArgs(opts.effort),
           ...systemPromptArgs(opts.systemPrompt, opts.contextPrompt),
-          ...(toolLess
-            ? NO_TOOLS_ARGS
-            : AUTO_PERMISSION_MODES.has(opts.permissionMode ?? '')
-              ? ['--approve']
-              : ['--no-approve']),
+          // Project trust (`--approve`) is the posture section's (POD-6858).
+          // A tool-less turn runs on no-agent terms and refuses it itself.
+          ...(toolLess ? NO_TOOLS_ARGS : []),
         ],
         stdin: opts.prompt,
       }
