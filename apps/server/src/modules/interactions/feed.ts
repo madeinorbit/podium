@@ -77,7 +77,6 @@ export class InteractionFeedPublisher {
    * anything else a `remove` (POD-6920). The source transaction cannot be
    * overtaken between its row change and this append.
    */
-  readonly capture: InteractionFeedCapture = async () => {
-    await this.deps.ledger.commit({ write: async () => {} })
-  }
+  readonly capture: InteractionFeedCapture = async (write) =>
+    (await this.deps.ledger.commit({ write: async () => await write() })).result
 }

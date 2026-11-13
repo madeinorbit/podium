@@ -42,11 +42,12 @@ import {
 import type { QueuedMessagesTable, SyncServerTables, UpstreamOutboxTable } from './server-tables'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './store-queries'
 
-/** Take the current transaction's captured rows (POD-6920). The table holds
- *  only what this transaction wrote since its last drain. */
+/** Take the current transaction's captured rows above a mark (POD-6920).
+ *  The table holds only what this transaction wrote since its last drain. */
 const drainCaptureRows = prepared((db: StoreDrizzle) =>
   db
     .delete(syncCapture)
+    .where(gt(syncCapture.id, sql.placeholder('after')))
     .returning({
       id: syncCapture.id,
       kind: syncCapture.kind,
@@ -68,6 +69,14 @@ export interface CapturedRow {
   readonly oldKey: readonly unknown[] | null
   readonly newKey: readonly unknown[] | null
 }
+
+/** The newest captured row of the current transaction, 0 when none. */
+const captureHead = prepared((db: StoreDrizzle) =>
+  db
+    .select({ head: sql<number>`coalesce(max(${syncCapture.id}), 0)` })
+    .from(syncCapture)
+    .prepare(),
+)
 
 // One row per registered kind in this tenant, independent of record count.
 const kindGenerations = prepared((db: StoreDrizzle) =>
@@ -630,11 +639,12 @@ export class SyncRepository {
 
   /**
    * DERIVED CHANGE CAPTURE (POD-6920): every row the capture triggers wrote
-   * in the current transaction since its last drain, oldest first, and the
-   * table left empty, so the transaction may commit. One statement.
+   * in the current transaction since its last drain and after `after` (a
+   * {@link captureMark}), oldest first, taken off the table. A transaction
+   * may commit once the table is empty. One statement.
    */
-  async drainCapture(): Promise<CapturedRow[]> {
-    const rows = await drainCaptureRows(this.db).all()
+  async drainCapture(after = 0): Promise<CapturedRow[]> {
+    const rows = await drainCaptureRows(this.db).all({ after })
     if (rows.length === 0) return []
     return rows
       .sort((a, b) => a.id - b.id)
@@ -646,6 +656,14 @@ export class SyncRepository {
         oldKey: row.oldKey === null ? null : (JSON.parse(row.oldKey) as unknown[]),
         newKey: row.newKey === null ? null : (JSON.parse(row.newKey) as unknown[]),
       }))
+  }
+
+  /**
+   * Where a commit nested in an open transaction starts: the newest row
+   * captured before it, which belongs to whoever wrote it (POD-6920).
+   */
+  async captureMark(): Promise<number> {
+    return (await captureHead(this.db).get())?.head ?? 0
   }
 
   /** Raise this tenant's head from 0 to 1 at writable boot, after migrations, so

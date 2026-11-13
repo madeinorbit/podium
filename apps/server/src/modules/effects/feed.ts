@@ -11,6 +11,7 @@
  * whole, with the input as its kind publishes it.
  */
 
+import { changeLogCommit } from '../../store/change-log-commit'
 import type { EffectRecordWire } from '@podium/model'
 import type { LedgerWriter } from '@podium/sync'
 import type { EffectFeedCapture, EffectRow } from '../../store/effects'
@@ -82,8 +83,5 @@ export function effectRecordOf(
  * so the repository does not call this and nothing is logged.
  */
 export function makeEffectFeedCapture(ledger: Pick<LedgerWriter, 'commit'>): EffectFeedCapture {
-  return async () => {
-    // The rows are already written, in this same transaction.
-    await ledger.commit({ write: async () => {} })
-  }
+  return changeLogCommit(ledger)
 }

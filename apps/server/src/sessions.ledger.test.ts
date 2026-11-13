@@ -23,6 +23,7 @@ import { feedDelta } from './test-support/feed-delta'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
 import { logStoreRecords } from './test-support/record-writer'
+import { seedRows } from './test-support/seed-rows'
 import { clientSessionViews } from './test-support/session-views'
 
 type ProjectionEvent = {
@@ -371,7 +372,12 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     // Offline mutation: rename the row behind the server's back.
     const row = (await store.sessions.loadSessions()).find((r) => r.id === sessionId)
     if (!row) throw new Error('row missing')
-    await store.sessions.upsertSession(fixtureWriteScope(), { ...row, name: 'changed offline' })
+    // The offline writer is another process: the stopped server's hooks are
+    // not on its path, and its write reaches no log.
+    store.sessions.setMessageWindowWrite(async (write) => await write())
+    await seedRows(store, () =>
+      store.sessions.upsertSession(fixtureWriteScope(), { ...row, name: 'changed offline' }),
+    )
     // Startup streams the tables. An out-of-band writer must invalidate the
     // kind generation; boot itself never repairs the log.
     const second = await makeRegistry(store)

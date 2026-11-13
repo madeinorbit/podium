@@ -17,6 +17,7 @@
  * expiry of a record that has started, a finish of one already settled.
  */
 
+import { type ChangeLogCommit, throughChangeLog } from './change-log-commit'
 import {
   type EffectDecision,
   EffectLifecycle,
@@ -90,7 +91,7 @@ export interface EffectAudience {
 }
 
 /** Run inside the write's transaction with the rows it returned. */
-export type EffectFeedCapture = (rows: readonly EffectRow[]) => Promise<void>
+export type EffectFeedCapture = ChangeLogCommit
 
 const parseJson = (text: string | null): unknown => {
   if (text === null) return undefined
@@ -626,10 +627,8 @@ export class EffectsRepository {
    */
   private async write(query: () => Promise<EffectSelect[]>): Promise<EffectRow[]> {
     return await this.transact(async () => {
-      const written = (await query()).map(rowToEffect)
+      const written = (await throughChangeLog(this.feedCapture, query)).map(rowToEffect)
       if (written.length === 0) return written
-      const capture = this.feedCapture
-      if (capture !== undefined) await capture(written)
       afterCommit(() => {
         for (const listener of this.listeners) listener(written)
       }, 'effects:committed')

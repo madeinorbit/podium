@@ -1,4 +1,5 @@
 import type { WriteScope } from '@podium/sync'
+import { type ChangeLogCommit, throughChangeLog } from './change-log-commit'
 import { CommittedRows } from './committed-rows'
 /**
  * Messages aggregate — owns the unified `messages` table (#237)
@@ -192,7 +193,7 @@ export interface PendingMessageSummary {
 /** Receives every message row a write touched, inside that write's transaction. */
 /** The change-log commit a message write runs in its own transaction once it
  *  changed rows: it drains the database's change capture (POD-6920). */
-export type MessageFeedCapture = () => Promise<void>
+export type MessageFeedCapture = ChangeLogCommit
 
 /** One `messages` row as the schema types it, before mapping. */
 type MessageSelect = typeof messagesTable.$inferSelect
@@ -1404,12 +1405,10 @@ export class MessagesRepository {
     query: () => Promise<MessageSelect[]>,
     operation: 'upsert' | 'delete',
   ): Promise<{ changes: number }> {
-    return await this.committed.write(async () => {
-      const rows = await query()
-      const capture = this.feedCapture
-      if (capture !== undefined && rows.length > 0) await capture()
-      return rows
-    }, operation)
+    return await this.committed.write(
+      async () => await throughChangeLog(this.feedCapture, query),
+      operation,
+    )
   }
 
   /**

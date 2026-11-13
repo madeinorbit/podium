@@ -555,7 +555,11 @@ const panelSources = Object.fromEntries(
 
 export const RECORD_SOURCES: RecordSources = {
   conversation: [
-    byId(conversations, conversations.id),
+    // Not its activity stamps: the index keeps them, the record does not
+    // carry them (POD-6768).
+    byId(conversations, conversations.id, {
+      reads: { allBut: [conversations.updatedAt, conversations.messageCount] },
+    }),
     // The record carries the Podium id of the segment the conversation is
     // (same machine, native id = conversation id).
     via(

@@ -26,6 +26,7 @@
  * provide. Rows are trimmed by age, never by status.
  */
 
+import { type ChangeLogCommit, throughChangeLog } from './change-log-commit'
 import type { SessionId } from '@podium/model'
 import {
   type InteractionAnswer,
@@ -324,7 +325,7 @@ const pruneResolvedInteractions = prepared((db: StoreDrizzle) =>
 )
 
 /** Successful writes of the open set, captured before their transaction commits. */
-export type InteractionFeedCapture = (rows: readonly InteractionRow[]) => Promise<void>
+export type InteractionFeedCapture = ChangeLogCommit
 
 export class InteractionsRepository {
   private readonly rootDb: StoreDrizzle
@@ -354,9 +355,7 @@ export class InteractionsRepository {
 
   private async write(query: () => Promise<InteractionSelect[]>): Promise<InteractionRow[]> {
     return await this.createOrJoinTransaction(async () => {
-      const rows = (await query()).map(toRow)
-      if (rows.length > 0) await this.feedCapture?.(rows)
-      return rows
+      return (await throughChangeLog(this.feedCapture, query)).map(toRow)
     })
   }
 

@@ -118,6 +118,7 @@ import { CheckoutsService } from './modules/checkouts/service'
 import { DaemonRequestBroker } from './modules/daemon-request'
 import { awaitEffectSettled } from './modules/effects/await'
 import { makeEffectFeedCapture } from './modules/effects/feed'
+import { changeLogCommit } from './store/change-log-commit'
 import { EffectExecutorRegistry } from './modules/effects/registry'
 import { EffectsRunner } from './modules/effects/runner'
 import { registerEffectCommands } from './modules/effects/sync-write'
@@ -1246,9 +1247,7 @@ export class SessionRegistry {
     // and a session's transcript flag reach the feed from the write path
     // (POD-6920).
     const eventLog = writes.system('feed.issueEvents')
-    this.store.events.setLogCommit(async () => {
-      await eventLog.commit({ write: async () => {} })
-    })
+    this.store.events.setLogCommit(changeLogCommit(eventLog))
     // ONE HOOK ON THE ONE WRITE FUNNEL (POD-4764): every write to the messages
     // table hands its rows to the chat message feed inside its own
     // transaction, so a person's messages and their delivery status reach every

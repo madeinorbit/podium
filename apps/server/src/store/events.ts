@@ -5,6 +5,7 @@
  * event-subscriptions design Phase B).
  */
 
+import { type ChangeLogCommit, throughChangeLog } from './change-log-commit'
 import { AgentRuntimeState, FEED_EVENT_KINDS, isFeedEventKind, type SessionId } from '@podium/model'
 import { ISSUE_EVENTS_DEFAULT_LIMIT, ProviderCursor } from '@podium/protocol'
 import { RuntimeEvent } from '@podium/protocol/daemon'
@@ -837,12 +838,12 @@ export type EventAppendListener = (
 ) => void | Promise<void>
 
 /**
- * The change-log commit an event write runs inside its own transaction: it
- * drains the database's change capture, so the records the insert or the
- * retention batch changed (the issue-event window, a session's transcript
- * flag) are appended with it (POD-6920). A failure rolls both back.
+ * The change-log commit an event write runs in: it drains what the insert or
+ * the retention batch captured, so the records they changed (the
+ * issue-event window, a session's transcript flag) are appended with them
+ * (POD-6920). A failure rolls both back.
  */
-export type EventLogCommit = () => Promise<void>
+export type EventLogCommit = ChangeLogCommit
 
 export class EventsRepository {
   /** Optional post-commit observer, separate from the transactional log commit. */
@@ -1051,20 +1052,21 @@ export class EventsRepository {
     options: { announce?: boolean } = {},
   ): Promise<number> {
     return await this.createOrJoinTransaction(async () => {
-      const r = await insertEvent(this.db).run({
-        ts: e.ts,
-        kind: e.kind,
-        subject: e.subject,
-        repoPath: e.repoPath ?? null,
-        payload: JSON.stringify(e.payload ?? {}),
-      })
-      const id = Number(r.lastInsertRowid)
+      const insert = async () =>
+        await insertEvent(this.db).run({
+          ts: e.ts,
+          kind: e.kind,
+          subject: e.subject,
+          repoPath: e.repoPath ?? null,
+          payload: JSON.stringify(e.payload ?? {}),
+        })
       // A feed-kind event moves the issue-event window, and a runtime event
       // may change its session's transcript flag: both are captured, and the
-      // capture is drained into the log in this transaction (POD-6920).
-      if ((e.subject !== '' && isFeedEventKind(e.kind)) || e.kind === RUNTIME_EVENT_LOG_KIND) {
-        await this.logCommit?.()
-      }
+      // insert runs as a change-log commit that appends them (POD-6920).
+      const logged =
+        (e.subject !== '' && isFeedEventKind(e.kind)) || e.kind === RUNTIME_EVENT_LOG_KIND
+      const r = logged ? await throughChangeLog(this.logCommit, insert) : await insert()
+      const id = Number(r.lastInsertRowid)
       // AFTER the insert, never before: the feed must not carry a row the log does
       // not have. The listener is documented as non-throwing, and this call is not
       // guarded here on purpose — a swallow at both ends hides a wiring fault
@@ -1402,11 +1404,14 @@ export class EventsRepository {
     return await this.createOrJoinTransaction(async () => {
       // The projector's head fences runtime rows (see deletePruneBatch).
       const params = { cutoff: plan.cutoff, capThroughId: plan.capThroughId, batchSize }
-      const deleted = await deletePruneBatch(this.db).all(params)
       // Retention can take events of the feed window and a session's
-      // transcript evidence: the capture names what moved, and it is drained
-      // into the log while this transaction still owns the window (POD-6920).
-      if (deleted.length > 0) await this.logCommit?.()
+      // transcript evidence: the batch runs as a change-log commit, so what
+      // moved is appended while this transaction still owns the window
+      // (POD-6920).
+      const deleted = await throughChangeLog(
+        this.logCommit,
+        async () => await deletePruneBatch(this.db).all(params),
+      )
       return deleted.length
     })
   }

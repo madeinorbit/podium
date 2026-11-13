@@ -279,6 +279,9 @@ export class Authority implements AuthorityPort {
     //    its own clock the only one a field-LWW row may arbitrate on, and the
     //    port has nowhere for a caller to supply a different one.
     const eventTime = this.deps.now()
+    // Where this commit starts in the capture: what an enclosing write
+    // captured before it is that write's to drain, not this commit's.
+    const mark = (await this.deps.records.captureMark?.()) ?? 0
     const committed = await this.deps.transact(async () => {
       if (op.arbitrate !== undefined) {
         const { current, ...request } = op.arbitrate
@@ -300,7 +303,7 @@ export class Authority implements AuthorityPort {
       // each is built as it is now, in this span, so nothing else can write
       // between the build and the append.
       const result = await op.write()
-      const rows = await this.stageTouched(await this.deps.records.drainCapture(), ambient)
+      const rows = await this.stageTouched(await this.deps.records.drainCapture(mark), ambient)
       const seqs = rows.length > 0 ? await this.append(rows, eventTime) : []
       const changes = await this.finalize(rows, seqs)
       return { outcome: 'committed', result, changes } as const

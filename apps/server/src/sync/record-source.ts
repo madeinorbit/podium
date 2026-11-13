@@ -13,6 +13,7 @@
 import type { MetadataEntityKind } from '@podium/protocol'
 import type { RecordSourcePort } from '@podium/sync'
 import { type RecordReads, serverRecordBuilders } from './record-builders'
+import { spanOpen } from '../store/executor/executor'
 import { touchedRecords } from './record-sources'
 
 /**
@@ -29,8 +30,10 @@ export function databaseRecords(
   const only = kinds === undefined ? undefined : new Set<MetadataEntityKind>(kinds)
   if (only) for (const kind of only) registry.get(kind)
   return {
-    drainCapture: async () =>
-      await touchedRecords(await reads.store.sync.drainCapture(), reads, only),
+    drainCapture: async (after) =>
+      await touchedRecords(await reads.store.sync.drainCapture(after), reads, only),
+    // Outside a transaction the capture is empty: no statement.
+    captureMark: async () => (spanOpen() ? await reads.store.sync.captureMark() : 0),
     build: async (kind, ids) => await registry.build(reads, kind, ids),
     buildMany: (idsByKind) => registry.buildMany(reads, idsByKind),
     kinds: () => registry.kinds(),

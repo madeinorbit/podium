@@ -4,6 +4,7 @@
  * 'concierge' intake threads).
  */
 
+import { type ChangeLogCommit, throughChangeLog } from './change-log-commit'
 import {
   asThreadId,
   firstAdminMemberId,
@@ -366,7 +367,7 @@ const deletePendingTurnRow = prepared((db: StoreDrizzle) =>
  * Called with the rows of every write to `superagent_threads`, inside that
  * write's transaction (POD-6675): the `superagentThread` feed capture.
  */
-export type SuperagentThreadFeedCapture = (rows: readonly SuperagentThreadRow[]) => Promise<void>
+export type SuperagentThreadFeedCapture = ChangeLogCommit
 
 type ThreadSelect = typeof superagentThreads.$inferSelect
 
@@ -411,10 +412,9 @@ export class SuperagentRepository {
    */
   private async writeThreads(query: () => Promise<ThreadSelect[]>): Promise<SuperagentThreadRow[]> {
     return await this.createOrJoinTransaction(async () => {
-      const written = (await query()).map((row) => this.mapSuperagentThread(row))
-      const capture = this.threadFeedCapture
-      if (written.length > 0 && capture !== undefined) await capture(written)
-      return written
+      return (await throughChangeLog(this.threadFeedCapture, query)).map((row) =>
+        this.mapSuperagentThread(row),
+      )
     })
   }
 

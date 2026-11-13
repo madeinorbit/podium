@@ -16,6 +16,7 @@ import { Ledger } from '@podium/sync'
 import { testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../store'
+import { changeLogCommit } from '../../store/change-log-commit'
 import { afterCommit, applyAfterCommit, spanOpen } from '../../store/executor/executor'
 import {
   probeStatements,
@@ -53,10 +54,7 @@ async function harness(opts: { windowSize?: number } = {}) {
   })
   /** The event log commit, installed as relay.ts installs it. */
   const boot = async (): Promise<void> => {
-    const writer = testLedgerWriter(ledger)
-    store.events.setLogCommit(async () => {
-      await writer.commit({ write: async () => {} })
-    })
+    store.events.setLogCommit(changeLogCommit(testLedgerWriter(ledger)))
   }
   await boot()
   /** Append an event and publish it, as the append listener does. */

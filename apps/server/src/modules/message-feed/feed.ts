@@ -205,9 +205,8 @@ export class MessageFeedPublisher {
    * write's confirmations moved into or out of their session's window
    * (POD-6920).
    */
-  readonly capture: MessageFeedCapture = async () => {
-    await this.deps.ledger.commit({ write: async () => {} })
-  }
+  readonly capture: MessageFeedCapture = async (write) =>
+    (await this.deps.ledger.commit({ write: async () => await write() })).result
 
   /** Session writes run as one commit: a liveness change moves the session's
    *  confirmed window, and the capture names its records (POD-6920). */

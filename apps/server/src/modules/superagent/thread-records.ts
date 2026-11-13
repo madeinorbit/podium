@@ -28,6 +28,7 @@
  * older build parses this kind's log rows as unknown and advances its cursor.
  */
 
+import { changeLogCommit } from '../../store/change-log-commit'
 import { SUPERAGENT_THREAD_RECORD } from '@podium/commands'
 import {
   parseSuperagentThreadRowId,
@@ -76,10 +77,7 @@ export function superagentThreadWireOf(row: SuperagentThreadRow): SuperagentThre
 export function makeThreadFeedCapture(
   ledger: Pick<LedgerWriter, 'commit'>,
 ): SuperagentThreadFeedCapture {
-  return async () => {
-    // The rows are already written, in this same transaction.
-    await ledger.commit({ write: async () => {} })
-  }
+  return changeLogCommit(ledger)
 }
 
 export interface ThreadRecordDeps {

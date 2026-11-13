@@ -130,7 +130,15 @@ export interface RecordSourcePort {
    * order first captured. An id may name a record the write removed or never
    * had: the caller builds it to find out.
    */
-  drainCapture(): Promise<RecordIdsByKind>
+  drainCapture(after?: number): Promise<RecordIdsByKind>
+  /**
+   * Where a commit starts in the capture, taken before its span opens: 0 when
+   * no transaction is open (the capture is empty), else the newest captured
+   * row so far. The commit drains only what was captured after it, so a commit
+   * nested in another write's transaction takes its own write's changes and
+   * leaves the enclosing write's to the enclosing commit. Absent: 0.
+   */
+  captureMark?(): Promise<number>
   build(kind: MetadataEntityKind, ids: readonly string[]): Promise<readonly BuiltRecord[]>
   /** Build several kinds at once, sharing reads across kinds. */
   buildMany(idsByKind: RecordIdsByKind): AsyncIterable<RecordPage>
