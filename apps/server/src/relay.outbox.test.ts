@@ -33,7 +33,7 @@ import { SessionRegistry } from './relay'
 import { attachTestClient } from './test-support/client-transport'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
-import { type RawSeedDatabase, seedRaw } from './test-support/seed-rows'
+import { seedRaw } from './test-support/seed-rows'
 
 // Outbox write path at the registry seam (docs/spec/outbox-write-path.md §2.1-2.2):
 // queueText wake + durable delivery, restart survival, FIFO + spacing, the
@@ -309,8 +309,9 @@ describe('queueText (durable outbox sends)', () => {
       )
       // User lifecycle writes intentionally have no repository API yet.
       // @ts-expect-error test-only revocation through SessionStore's private connection
-      const db = reg.sessionStore.db as RawSeedDatabase & {
-        prepare(sql: string): { run(...a: unknown[]): unknown }
+      const db = reg.sessionStore.db as {
+        exec(sql: string): void
+        prepare(sql: string): { run(...a: unknown[]): unknown; get(...a: unknown[]): unknown }
       }
       // A raw fixture write reaches the table, not the log (POD-6920).
       seedRaw(db, () =>
