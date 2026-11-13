@@ -78,32 +78,39 @@ function LifecycleButton({
   session,
   onResume,
   onRemove,
-  compact,
   notice = false,
 }: {
   action: RecoveryAction
   session: Pick<
     SessionMeta,
-    'sessionId' | 'status' | 'exitCode' | 'spawnFailure' | 'agentKind' | 'resumable' | 'neverBound'
+    | 'sessionId'
+    | 'status'
+    | 'stoppedAt'
+    | 'exitCode'
+    | 'spawnFailure'
+    | 'agentKind'
+    | 'resumable'
+    | 'neverBound'
   >
   onResume: (sessionId: SessionMeta['sessionId']) => Promise<SessionResurrectionResult>
   onRemove: (sessionId: SessionMeta['sessionId']) => Promise<void>
-  compact: boolean
   notice?: boolean
 }): JSX.Element {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const label = compact ? action.compactLabel : action.label
+  const label = notice ? action.compactLabel : action.label
 
   const run = async (): Promise<void> => {
     if (busy) return
     setBusy(true)
     setError(null)
+    let resumed = false
     try {
       if (action.id === 'remove') {
         await onRemove(session.sessionId)
       } else {
         const result = await onResume(session.sessionId)
+        resumed = result.ok
         if (!result.ok) {
           setError(`Couldn't resume the session — ${result.reason ?? 'unknown error'}`)
         }
@@ -115,7 +122,9 @@ function LifecycleButton({
           : `Couldn't resume the session — ${errorMessage(cause)}`,
       )
     } finally {
-      setBusy(false)
+      // Keep the same note until lifecycle sync replaces it. A fast success
+      // must not flash Resume between the busy label and the live transcript.
+      if (!resumed) setBusy(false)
     }
   }
 
@@ -129,20 +138,18 @@ function LifecycleButton({
         testID={['lifecycle-', action.id].join('')}
         onPress={() => void run()}
         style={({ pressed }) => [
-          notice ? styles.noticeAction : compact ? styles.barAction : styles.action,
-          !compact && action.id === 'remove' ? styles.removeAction : null,
-          pressed ? (notice || compact ? styles.barActionPressed : styles.actionPressed) : null,
+          notice ? styles.noticeAction : styles.action,
+          !notice && action.id === 'remove' ? styles.removeAction : null,
+          pressed ? (notice ? styles.noticeActionPressed : styles.actionPressed) : null,
         ]}
       >
         <Text
           style={
             notice
               ? styles.noticeActionText
-              : compact
-                ? styles.barActionText
-                : action.id === 'remove'
-                  ? styles.removeText
-                  : styles.actionText
+              : action.id === 'remove'
+                ? styles.removeText
+                : styles.actionText
           }
         >
           {busy && action.busyLabel ? action.busyLabel : label}
@@ -165,7 +172,14 @@ export function MobileSessionLifecycle({
 }: {
   session: Pick<
     SessionMeta,
-    'sessionId' | 'status' | 'exitCode' | 'spawnFailure' | 'agentKind' | 'resumable' | 'neverBound'
+    | 'sessionId'
+    | 'status'
+    | 'stoppedAt'
+    | 'exitCode'
+    | 'spawnFailure'
+    | 'agentKind'
+    | 'resumable'
+    | 'neverBound'
   >
   hasTranscript: boolean
   onResume: (sessionId: SessionMeta['sessionId']) => Promise<SessionResurrectionResult>
@@ -188,60 +202,40 @@ export function MobileSessionLifecycle({
     : recoveryAction('ended', ended?.action ?? 'remove')
   const detail = ended?.detail ?? ''
 
-  if (parked && hasTranscript) {
+  if (hasTranscript) {
     return (
-      <View style={styles.notice} testID="hibernated-notice">
+      <View style={styles.notice} testID={parked ? 'hibernated-notice' : 'exited-notice'}>
         <View style={styles.noticeHeading}>
-          <Icon as={Moon} size={13} color={color.textDim} />
-          <Text style={styles.noticeTitle}>Hibernated</Text>
+          <Icon as={parked ? Moon : RotateCcw} size={13} color={color.textDim} />
+          <Text style={styles.noticeTitle}>{parked ? 'Hibernated' : 'Exited'}</Text>
         </View>
         <Text style={styles.noticeCopy}>
-          {'Its process was stopped to free memory.\nThe conversation is intact.'}
+          {parked
+            ? 'Its process was stopped to free memory.\nThe conversation is intact.'
+            : `${detail} Transcript is read-only.`}
         </Text>
         <LifecycleButton
+          key={`${session.status}:${session.stoppedAt ?? session.exitCode ?? ''}`}
           action={action}
           session={session}
           onResume={onResume}
           onRemove={onRemove}
-          compact
           notice
         />
       </View>
     )
   }
 
-  if (!hasTranscript) {
-    return (
-      <View style={styles.pane} testID="lifecycle-pane">
-        <Icon as={parked ? Moon : RotateCcw} size={28} color={color.accentTint} />
-        <Text style={styles.paneCopy}>{parked ? action.hint : `${detail} ${action.hint}`}</Text>
-        <LifecycleButton
-          action={action}
-          session={session}
-          onResume={onResume}
-          onRemove={onRemove}
-          compact={false}
-        />
-      </View>
-    )
-  }
-
   return (
-    <View
-      accessibilityRole="summary"
-      style={[styles.banner, styles.faultBanner]}
-      testID="lifecycle-banner"
-    >
-      <View style={[styles.mark, styles.faultMark]}>
-        <Icon as={RotateCcw} size={14} color={color.accentTint} />
-      </View>
-      <Text style={styles.bannerText}>{`${detail} Transcript is read-only.`}</Text>
+    <View style={styles.pane} testID="lifecycle-pane">
+      <Icon as={parked ? Moon : RotateCcw} size={28} color={color.accentTint} />
+      <Text style={styles.paneCopy}>{parked ? action.hint : `${detail} ${action.hint}`}</Text>
       <LifecycleButton
+        key={`${session.status}:${session.stoppedAt ?? session.exitCode ?? ''}`}
         action={action}
         session={session}
         onResume={onResume}
         onRemove={onRemove}
-        compact
       />
     </View>
   )
@@ -283,54 +277,8 @@ const styles = StyleSheet.create({
     color: color.accentTint,
     fontSize: font.small,
   },
-  // Exited sessions retain their recovery bar above the transcript.
-  banner: {
-    flexShrink: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    backgroundColor: color.bar,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: color.hairlineBar,
-    paddingLeft: space.md,
-    paddingRight: space.sm,
-    paddingVertical: space.xs + 1,
-  },
-  /** A fault line can carry the daemon's diagnosis and run to two lines; the
-   *  mark and the control must not drift down the bar with it. */
-  faultBanner: {
-    alignItems: 'flex-start',
-  },
-  mark: {
-    flexShrink: 0,
-  },
-  faultMark: {
-    paddingTop: 2,
-  },
-  bannerText: {
-    ...mono(400),
-    flex: 1,
-    color: color.textDim,
-    fontSize: font.tiny,
-    lineHeight: leading(font.tiny, 'prose'),
-  },
-  /** The bar's control is chrome inside chrome: an outline cell, not the
-   *  filled-accent primary the pane below uses. */
-  barAction: {
-    alignSelf: 'flex-start',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.borderStrong,
-    borderRadius: radius.sm,
-    paddingHorizontal: space.sm,
-    paddingVertical: space.xs - 1,
-  },
-  barActionPressed: {
+  noticeActionPressed: {
     backgroundColor: color.surfacePressed,
-  },
-  barActionText: {
-    ...mono(500),
-    color: color.body,
-    fontSize: font.micro,
   },
   action: {
     alignSelf: 'flex-start',

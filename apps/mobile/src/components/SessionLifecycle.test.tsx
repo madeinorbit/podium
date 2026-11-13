@@ -52,21 +52,24 @@ describe('mobile session lifecycle surface', () => {
     expect(onResume).toHaveBeenCalledWith('session-1')
   })
 
-  it('keeps the exited recovery bar on its existing chrome ground', () => {
+  it('shows the exit outcome as a centred note with the same recovery action', () => {
     render(
       <MobileSessionLifecycle
-        session={session({ status: 'exited' })}
+        session={session({ status: 'exited', exitCode: 1 })}
         hasTranscript
         onResume={vi.fn(async () => ({ ok: true as const }))}
         onRemove={vi.fn(async () => {})}
       />,
     )
 
-    const ground = getComputedStyle(screen.getByTestId('lifecycle-banner')).backgroundColor
-    expect(ground).toBe('rgba(27, 29, 33, 1.00)') // color.bar
+    const note = screen.getByTestId('exited-notice')
+    expect(note.textContent).toContain('The agent process exited with code 1.')
+    expect(getComputedStyle(note).alignItems).toBe('center')
+    expect(note.contains(screen.getByRole('button', { name: 'Resume' }))).toBe(true)
+    expect(screen.queryByTestId('lifecycle-banner')).toBeNull()
   })
 
-  it('shows Waking while the existing resume action runs and prevents another press', async () => {
+  it('keeps Waking through a fast success until lifecycle sync removes the note', async () => {
     let finish: ((result: { ok: true }) => void) | undefined
     const onResume = vi.fn(
       () =>
@@ -74,7 +77,7 @@ describe('mobile session lifecycle surface', () => {
           finish = resolve
         }),
     )
-    render(
+    const { rerender } = render(
       <MobileSessionLifecycle
         session={session({ status: 'hibernated' })}
         hasTranscript
@@ -90,7 +93,85 @@ describe('mobile session lifecycle surface', () => {
     fireEvent.click(button)
     expect(onResume).toHaveBeenCalledTimes(1)
     await act(async () => finish?.({ ok: true }))
-    expect(button.textContent).toBe('Resume')
+    expect(button.textContent).toBe('Waking…')
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    rerender(
+      <MobileSessionLifecycle
+        session={session({ status: 'live' })}
+        hasTranscript
+        onResume={onResume}
+        onRemove={vi.fn(async () => {})}
+      />,
+    )
+    expect(screen.queryByTestId('hibernated-notice')).toBeNull()
+    expect(screen.queryByTestId('lifecycle-banner')).toBeNull()
+  })
+
+  it('replaces Waking with the exit outcome even before the wake request settles', async () => {
+    let finish: ((result: { ok: true }) => void) | undefined
+    const onResume = vi.fn(
+      () =>
+        new Promise<{ ok: true }>((resolve) => {
+          finish = resolve
+        }),
+    )
+    const props = { hasTranscript: true, onResume, onRemove: vi.fn(async () => {}) }
+    const { rerender } = render(
+      <MobileSessionLifecycle {...props} session={session({ status: 'hibernated' })} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Resume' }))
+    expect(screen.getByText('Waking…')).toBeTruthy()
+    rerender(
+      <MobileSessionLifecycle {...props} session={session({ status: 'exited', exitCode: 1 })} />,
+    )
+    expect(screen.queryByText('Waking…')).toBeNull()
+    expect(screen.getByTestId('exited-notice').textContent).toContain('exited with code 1')
+    expect(screen.getByRole('button', { name: 'Resume' }).getAttribute('aria-disabled')).not.toBe(
+      'true',
+    )
+    await act(async () => finish?.({ ok: true }))
+    expect(screen.queryByText('Waking…')).toBeNull()
+  })
+
+  it.each([
+    [{ agentKind: 'shell', resumable: false }, 'Restart'],
+    [{ resumable: false, neverBound: true }, 'Start again'],
+    [{ resumable: false }, 'Remove'],
+  ] as const)('keeps the existing exited recovery action for %o', (over, label) => {
+    render(
+      <MobileSessionLifecycle
+        session={session({ status: 'exited', ...over })}
+        hasTranscript
+        onResume={vi.fn(async () => ({ ok: true as const }))}
+        onRemove={vi.fn(async () => {})}
+      />,
+    )
+    expect(
+      screen.getByTestId('exited-notice').contains(screen.getByRole('button', { name: label })),
+    ).toBe(true)
+    expect(screen.queryByTestId('lifecycle-banner')).toBeNull()
+  })
+
+  it('ends resuming when another exit arrives without an observed starting frame', async () => {
+    const props = {
+      hasTranscript: true,
+      onResume: vi.fn(async () => ({ ok: true as const })),
+      onRemove: vi.fn(async () => {}),
+    }
+    const before = session({ status: 'exited', exitCode: 1, stoppedAt: '2026-11-13T06:00:00Z' })
+    const { rerender } = render(<MobileSessionLifecycle {...props} session={before} />)
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Resume' })))
+    expect(screen.getByText('Resuming…')).toBeTruthy()
+    rerender(
+      <MobileSessionLifecycle
+        {...props}
+        session={{ ...before, stoppedAt: '2026-11-13T06:00:10Z' }}
+      />,
+    )
+    expect(screen.queryByText('Resuming…')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Resume' }).getAttribute('aria-disabled')).not.toBe(
+      'true',
+    )
   })
 
   it.each([

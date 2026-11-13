@@ -127,7 +127,7 @@ describe('hibernated conversation notice', () => {
     expect(screen.getByPlaceholderText('Message to wake it')).toBeTruthy()
   })
 
-  it('calls resurrectSession through Resume and shows Waking until it settles', async () => {
+  it('calls resurrectSession and keeps Waking until the session becomes live', async () => {
     let finish: ((result: SessionResurrectionResult) => void) | undefined
     const resurrect = vi.fn(
       () =>
@@ -135,13 +135,15 @@ describe('hibernated conversation notice', () => {
           finish = resolve
         }),
     )
-    await openConversation({ resurrect })
+    const { replica } = await openConversation({ resurrect })
     const button = screen.getByRole('button', { name: 'Resume' })
     fireEvent.click(button)
     await waitFor(() => expect(resurrect).toHaveBeenCalledWith({ sessionId: parked.sessionId }))
     expect(button.textContent).toBe('Waking…')
     await act(async () => finish?.({ ok: true }))
-    expect(button.textContent).toBe('Resume')
+    expect(button.textContent).toBe('Waking…')
+    await act(async () => replica.applyChanges('sessions', [{ ...parked, status: 'live' }], []))
+    expect(screen.queryByTestId('hibernated-notice')).toBeNull()
   })
 
   it('keeps sending on the existing resumeAndSend path', async () => {
@@ -162,5 +164,24 @@ describe('hibernated conversation notice', () => {
     await openConversation({ session: { ...parked, status: 'live' } as SessionView })
     expect(screen.queryByTestId('hibernated-notice')).toBeNull()
     expect(screen.queryByPlaceholderText('Message to wake it')).toBeNull()
+  })
+
+  it.each([
+    { items: history },
+    { items: [] },
+  ])('keeps exited recovery in the transcript for %o', async ({ items }) => {
+    const { container } = await openConversation({
+      items,
+      session: { ...parked, status: 'exited', exitCode: 1 } as SessionView,
+    })
+    await waitFor(() => expect(screen.getByTestId('exited-notice')).toBeTruthy())
+    const footer = container.querySelector('[data-row-key="transcript:footer"]')
+    expect(footer?.contains(screen.getByTestId('exited-notice'))).toBe(true)
+    expect(screen.getAllByTestId('exited-notice')).toHaveLength(1)
+    expect(screen.getByTestId('exited-notice').textContent).toContain('exited with code 1')
+    expect(screen.getByRole('button', { name: 'Resume' })).toBeTruthy()
+    expect(screen.queryByTestId('lifecycle-banner')).toBeNull()
+    expect(screen.queryByTestId('lifecycle-pane')).toBeNull()
+    expect(screen.queryByTestId('transcript-empty')).toBeNull()
   })
 })

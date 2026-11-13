@@ -27,7 +27,7 @@ import * as Haptics from 'expo-haptics'
 import { action, observable, reaction, when } from 'mobx'
 import { observer } from 'mobx-react-lite'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { AppState, StyleSheet, Text, View } from 'react-native'
+import { AppState, Platform, StyleSheet, Text, View } from 'react-native'
 import Svg, { Circle } from 'react-native-svg'
 import { useMobilePool } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
@@ -525,9 +525,11 @@ const SessionConversationBody = observer(function SessionConversationBody({
   const attachments = useComposerAttachments(sessionId)
   const [draftInsertion, setDraftInsertion] = useState<{ id: number; text: string } | null>(null)
   const insertionSeq = useRef(0)
-  // What the feed owes the floating composer. Only ever the RESTING height, so
-  // growing the field does not relayout the transcript under the operator.
-  const [composerHeight, setComposerHeight] = useState(0)
+  // After the first measurement, only resting composer heights move the feed,
+  // so growing the field does not relayout the transcript under the operator.
+  // Mount native content only once its first layout can pay for the composer.
+  // Updating a zero inset later leaves short FlatList footers under the dock.
+  const [composerHeight, setComposerHeight] = useState<number | null>(null)
   const [askHeight, setAskHeight] = useState(0)
   /** Bumped by a send so the feed lands on the new bubble, the same request
    *  the Superagent thread makes; the list owns how it gets there. */
@@ -661,12 +663,13 @@ const SessionConversationBody = observer(function SessionConversationBody({
   const activity = conversation.activity
   // A newly spawned process is working before its first agent-state frame.
   const warming = session.status === 'starting' || activity?.tone === 'working'
-  // Hibernation lives at the transcript's end. Sessions without a transcript
+  // Lifecycle recovery lives at the transcript's end. Sessions without a transcript
   // retain the full recovery pane [POD-1758].
   const hasTranscript = session.transcriptAvailable ?? defaultChatCapable(session.agentKind)
   const composer = conversation.composer
   const readOnly = session.status === 'hibernated' || session.status === 'exited'
   const composerHidden = session.status === 'exited' || (readOnly && !hasTranscript)
+  const transcriptLayoutReady = composerHidden || Platform.OS === 'web' || composerHeight !== null
   /**
    * THE STOP CONTROL, ON THE DESKTOP'S TERMS [POD-4645]. Drawn while a turn is
    * running as far as this phone can tell — the agent is computing, or a send
@@ -790,14 +793,14 @@ const SessionConversationBody = observer(function SessionConversationBody({
   const emptyState = useMemo(
     () =>
       loaded &&
-      session.status !== 'hibernated' &&
+      !readOnly &&
       itemCount === 0 &&
       pendingTurns.length === 0 &&
       !offer &&
       !pendingQuestion ? (
         <EmptyTranscript warming={warming} />
       ) : undefined,
-    [loaded, session.status, itemCount, pendingTurns.length, offer, pendingQuestion, warming],
+    [loaded, readOnly, itemCount, pendingTurns.length, offer, pendingQuestion, warming],
   )
   const footerNode = useMemo(
     () =>
@@ -819,7 +822,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
 
   return (
     <View style={styles.flex}>
-      {session.status !== 'hibernated' || !hasTranscript ? (
+      {!hasTranscript ? (
         <MobileSessionLifecycle
           session={session}
           hasTranscript={hasTranscript}
@@ -839,64 +842,67 @@ const SessionConversationBody = observer(function SessionConversationBody({
         </View>
       ) : null}
       {readOnly && !hasTranscript ? null : (
-        <BootstrapCrossfade resolved={loaded || itemCount > 0} placeholder={<TranscriptSkeleton />}>
-          <PullToRefreshBoundary
-            connected={connected}
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-          >
-            <TranscriptList
-              transcript={transcript}
-              presentation={model.presentation}
-              transcriptQuestion={transcriptQuestion}
-              live={session.status === 'live'}
-              assetContext={assetContext}
-              pendingTurns={pendingTurns}
-              pinRequest={pinRequest}
-              hidePendingQuestion={!composerHidden}
-              findRequest={findRequest}
-              onRetryPending={retry}
-              onDiscardPending={discard}
-              onSendAgainPending={sendAgain}
-              onRetractPending={retractPending}
-              onQuote={composerHidden ? undefined : quoteIntoDraft}
-              mailReply={model.reply}
-              bottomInset={composerHidden ? 0 : composerHeight + askHeight + keyboardLift}
-              overlayInset={
-                composerHidden ? 0 : floatingHeight > 0 ? floatingHeight + keyboardLift : undefined
-              }
-              topInset={topInset}
-              streaming={streamingActive}
-              tail={tailState}
-              refreshControl={refreshControl}
-              refreshAccessibilityProps={refreshAccessibilityProps}
-              emptyComponent={emptyState}
-              onAnswer={answerAsk}
-              answerInteractionId={currentQuestion?.id}
-              onLoadOlder={loadOlder}
-              moreAbove={transcript.hasMoreOlder}
-              loadingOlder={transcript.loadingOlder}
-              onFollowChange={followTranscript}
-              find={model.find}
-              onSearchChange={searchTranscript}
-              onRefPress={setRequestedRef}
-              footer={
-                session.status === 'hibernated' ? (
-                  <>
-                    {footerNode}
-                    <MobileSessionLifecycle
-                      session={session}
-                      hasTranscript={hasTranscript}
-                      onResume={store.resurrectSession}
-                      onRemove={store.killSession}
-                    />
-                  </>
-                ) : (
-                  footerNode
-                )
-              }
-            />
-          </PullToRefreshBoundary>
+        <BootstrapCrossfade
+          resolved={transcriptLayoutReady && (loaded || itemCount > 0)}
+          placeholder={<TranscriptSkeleton />}
+        >
+          {transcriptLayoutReady ? (
+            <PullToRefreshBoundary
+              connected={connected}
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+            >
+              <TranscriptList
+                transcript={transcript}
+                presentation={model.presentation}
+                transcriptQuestion={transcriptQuestion}
+                live={session.status === 'live'}
+                assetContext={assetContext}
+                pendingTurns={pendingTurns}
+                pinRequest={pinRequest}
+                hidePendingQuestion={!composerHidden}
+                findRequest={findRequest}
+                onRetryPending={retry}
+                onDiscardPending={discard}
+                onSendAgainPending={sendAgain}
+                onRetractPending={retractPending}
+                onQuote={composerHidden ? undefined : quoteIntoDraft}
+                mailReply={model.reply}
+                bottomInset={composerHidden ? 0 : (composerHeight ?? 0) + askHeight + keyboardLift}
+                overlayInset={composerHidden ? 0 : floatingHeight > 0 ? floatingHeight + keyboardLift : undefined}
+                topInset={topInset}
+                streaming={streamingActive}
+                tail={tailState}
+                refreshControl={refreshControl}
+                refreshAccessibilityProps={refreshAccessibilityProps}
+                emptyComponent={emptyState}
+                onAnswer={answerAsk}
+                answerInteractionId={currentQuestion?.id}
+                onLoadOlder={loadOlder}
+                moreAbove={transcript.hasMoreOlder}
+                loadingOlder={transcript.loadingOlder}
+                onFollowChange={followTranscript}
+                find={model.find}
+                onSearchChange={searchTranscript}
+                onRefPress={setRequestedRef}
+                footer={
+                  readOnly ? (
+                    <>
+                      {footerNode}
+                      <MobileSessionLifecycle
+                        session={session}
+                        hasTranscript={hasTranscript}
+                        onResume={store.resurrectSession}
+                        onRemove={store.killSession}
+                      />
+                    </>
+                  ) : (
+                    footerNode
+                  )
+                }
+              />
+            </PullToRefreshBoundary>
+          ) : null}
         </BootstrapCrossfade>
       )}
       {/* The composer floats OVER the feed rather than ending it [POD-502]. The

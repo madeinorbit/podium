@@ -203,8 +203,8 @@ export function Composer({
    */
   bottomInset?: number
   /**
-   * The composer's total height whenever the field is at rest, so a list
-   * underneath can end its content above it. Deliberately not reported while
+   * The composer's first total height, then its height whenever the field is
+   * at rest, so a list underneath can end its content above it. Not reported while
    * the field is grown: the reference composers do not reflow the conversation
    * under you as you type, and doing so would relayout the feed on every
    * content-size update.
@@ -373,9 +373,11 @@ export function Composer({
   }
 
   const onLayout = (e: LayoutChangeEvent) => {
+    const firstLayout = lastDockHeight.current === null
     lastDockHeight.current = e.nativeEvent.layout.height
     if (Date.now() < collapsingUntil.current) return
-    if (atRest) onRestingHeight?.(e.nativeEvent.layout.height)
+    // A saved multiline draft still needs an initial feed inset.
+    if (firstLayout || atRest) onRestingHeight?.(e.nativeEvent.layout.height)
   }
 
   // The keyboard covers the home indicator AND the floating tab bar, so both
