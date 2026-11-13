@@ -76,7 +76,7 @@ function recorder(): { send: Send<ControlMessage>; got: ControlMessage[] } {
 async function storedService(
   recoveryOnly = false,
 ): Promise<{ svc: MachinesService; store: SessionStore }> {
-  const store = await SessionStore.open(':memory:')
+  const store = await SessionStore.open(':memory:', undefined, { changeCapture: 'whenLogAttaches' })
   await store.machines.upsertMachine({
     assignment: { server: false, agentExecution: true },
     id: MACHINE,
@@ -469,7 +469,7 @@ describe('promoted server host identity', () => {
   test('a server-only promoted host reuses its target row without minting another machine', async () => {
     const source = asMachineId('former-host')
     const target = asMachineId('promoted-host')
-    const store = await SessionStore.open(':memory:', target)
+    const store = await SessionStore.open(':memory:', target, { changeCapture: 'whenLogAttaches' })
     for (const id of [source, target]) {
       await store.machines.upsertMachine({
     assignment: { server: false, agentExecution: true },

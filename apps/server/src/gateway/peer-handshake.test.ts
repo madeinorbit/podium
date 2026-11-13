@@ -119,7 +119,8 @@ interface EnrollmentHandshakeWorldOptions {
 const enrollmentHandshakeWorld = async (options: EnrollmentHandshakeWorldOptions = {}) => {
   const stateRoot = handshakeTmp()
   const dbPath = join(stateRoot, 'podium.db')
-  const seeded = await SessionStore.open(dbPath)
+  // A seeding fixture: rows written below the commit layer (POD-6920).
+  const seeded = await SessionStore.open(dbPath, undefined, { changeCapture: 'whenLogAttaches' })
   const hostMachineId = seeded.hostMachineId
   const machineId = asMachineId('remote-machine')
   const enrollment = openEnrollmentLedger(stateRoot)
