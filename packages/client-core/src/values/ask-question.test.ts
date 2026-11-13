@@ -72,7 +72,12 @@ function ask(id: string, overrides: Partial<TranscriptItem> = {}): TranscriptIte
 it('keeps a matching unresolved transcript item and ignores non-native authority', () => {
   const item = ask('transcript-question')
   const questions = parseAskQuestions(item.toolInputJson)
-  const need = { kind: 'question' as const, interview: { questions } }
+  const need = {
+    kind: 'question' as const,
+    interview: {
+      questions: questions.map((question) => ({ ...question, options: [...question.options] })),
+    },
+  }
   expect(currentAskQuestion(item, need, 'live', 'needs_user')).toBe(item)
   const row = PendingInteractionWire.parse({
     id: 'current',
