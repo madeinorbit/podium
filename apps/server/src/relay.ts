@@ -1277,6 +1277,9 @@ export class SessionRegistry {
     const fixedFleetChannel =
       channelAboveSettings.source === 'default' ? undefined : channelAboveSettings.value
     this.store.settings.setInstanceFeedCapture(async (write, next) => {
+      // A preference write with no blob of its own (personal rows): its blob
+      // write, if any, comes back through here with `next`.
+      if (next === undefined) return await captureInstancePreferences(write)
       await this.store.machines.recordContext.writeFleetChannel(
         fixedFleetChannel ?? next.deployment.updateChannel ?? 'stable',
         async () => await captureInstancePreferences(write, next),
