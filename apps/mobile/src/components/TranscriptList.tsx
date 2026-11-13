@@ -899,7 +899,9 @@ function TranscriptTail({ state }: { state?: TranscriptTailState }) {
   )
 }
 
-/** A mounted row asks only about its own day and the preceding dated row. */
+const DAY_MARK_LOOKBACK = 80
+
+/** Day boundaries inspect a bounded source window without mounting older rows. */
 const TranscriptDayMark = observer(function TranscriptDayMark({
   entry,
   index,
@@ -914,19 +916,22 @@ const TranscriptDayMark = observer(function TranscriptDayMark({
   presentation?: MobileConversationPresentation
 }) {
   const timestamp = (entry: string | Row | undefined) => {
-    const row = typeof entry === 'string' ? presentation?.row(entry) : entry
-    const date = row?.item.ts ? new Date(row.item.ts) : undefined
+    const item = typeof entry === 'string' ? presentation?.sourceItem(entry) : entry?.item
+    const date = item?.ts ? new Date(item.ts) : undefined
     return date && !Number.isNaN(date.getTime()) ? date : undefined
   }
   const current = timestamp(entry)
   if (!current) return null
   let previous: Date | undefined
-  for (let position = index - 1; position >= 0; position--) {
+  const start = Math.max(0, index - DAY_MARK_LOOKBACK)
+  for (let position = index - 1; position >= start; position--) {
     previous = timestamp(
       position < rows.length ? rows[position] : suffixRows[position - rows.length],
     )
     if (previous) break
   }
+  // An unknown prefix is not a known date boundary. Undated rows stay transparent.
+  if (!previous && start > 0) return null
   if (previous && dayKey(previous) === dayKey(current)) return null
   return <DayMarkLabel dates={previous ? [previous, current] : [current]} />
 })

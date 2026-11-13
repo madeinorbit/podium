@@ -3,10 +3,13 @@
  * and the live turn speak in one quiet line each, and a question an agent asked
  * the operator opens with Reply, which hands the note to the composer's reply.
  */
+import { TranscriptGraph } from '@podium/client-core/conversation'
 import { renderMailPointer } from '@podium/commands/mail-pointer-nudge'
 import type { TranscriptItem } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { MobileConversationPresentation } from '../lib/conversation-presentation'
+import { shapeMobileChatRow } from '../lib/transcript-feed'
 
 const messageMenus = vi.hoisted(() => new Map<string, MessageMenuProps>())
 vi.mock('./MessageMenu', async (original) => {
@@ -368,6 +371,88 @@ it('centres one mark per day change without per-bubble clocks', () => {
   expect(screen.getAllByText('Yesterday')).toHaveLength(1)
   expect(screen.getAllByText('Today')).toHaveLength(1)
   expect(screen.queryByText(/^\d{2}:\d{2}$/)).toBeNull()
+})
+
+it.each([
+  1024, 4096,
+])('bounds day-mark reads through %i legacy rows without inventing a boundary', (length) => {
+  const yesterday = new Date()
+  yesterday.setDate(yesterday.getDate() - 1)
+  const older = new Date(yesterday)
+  older.setDate(older.getDate() - 1)
+  const items = Array.from(
+    { length },
+    (_, index): TranscriptItem => ({
+      id: `legacy-${index}`,
+      role: 'assistant',
+      text: `Legacy message ${index}`,
+      ...(index === 0
+        ? { ts: older.toISOString() }
+        : index === length - 1
+          ? { ts: yesterday.toISOString() }
+          : {}),
+    }),
+  )
+  const graph = new TranscriptGraph(items)
+  const presentation = new MobileConversationPresentation(graph, shapeMobileChatRow, (id) =>
+    graph.itemPosition(id),
+  )
+  const sourceReads = vi.spyOn(presentation, 'sourceItem')
+  const readRow = presentation.row.bind(presentation)
+  const rowReads = vi.spyOn(presentation, 'row').mockImplementation((key) => {
+    if (Number(key.replace('legacy-', '')) < length - 80)
+      throw new Error(`Resolved an offscreen presentation row: ${key}`)
+    return readRow(key)
+  })
+  try {
+    render(
+      <TranscriptList
+        presentation={presentation}
+        live={false}
+        transcriptQuestion={null}
+        onAnswer={async () => {}}
+      />,
+    )
+    expect(screen.getByText(`Legacy message ${length - 1}`)).toBeTruthy()
+    expect(screen.queryByText('Yesterday')).toBeNull()
+    expect(new Set(sourceReads.mock.calls.map(([key]) => key)).size).toBeLessThanOrEqual(160)
+    expect(new Set(rowReads.mock.calls.map(([key]) => key)).size).toBe(80)
+  } finally {
+    cleanup()
+    presentation.dispose()
+    graph.dispose()
+  }
+})
+
+it('keeps undated and invalid rows transparent between nearby day boundaries', () => {
+  const yesterday = new Date()
+  yesterday.setDate(yesterday.getDate() - 1)
+  const items: TranscriptItem[] = [
+    { id: 'yesterday', role: 'assistant', text: 'Yesterday prose', ts: yesterday.toISOString() },
+    { id: 'undated', role: 'assistant', text: 'Undated prose' },
+    { id: 'invalid', role: 'assistant', text: 'Invalid timestamp prose', ts: 'legacy-invalid' },
+    { id: 'today', role: 'assistant', text: 'Today prose', ts: new Date().toISOString() },
+  ]
+  const graph = new TranscriptGraph(items)
+  const presentation = new MobileConversationPresentation(graph, shapeMobileChatRow, (id) =>
+    graph.itemPosition(id),
+  )
+  try {
+    render(
+      <TranscriptList
+        presentation={presentation}
+        live={false}
+        transcriptQuestion={null}
+        onAnswer={async () => {}}
+      />,
+    )
+    expect(screen.getAllByText('Yesterday')).toHaveLength(1)
+    expect(screen.getAllByText('Today')).toHaveLength(1)
+  } finally {
+    cleanup()
+    presentation.dispose()
+    graph.dispose()
+  }
 })
 
 it('updates a day label at midnight without rendering message prose again', () => {
