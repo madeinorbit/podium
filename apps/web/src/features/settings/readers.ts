@@ -3,7 +3,7 @@ import { omitGone } from '@podium/client-graph/lookup'
 import { preferenceSource } from '@podium/client-graph/preference-source'
 import { useOpeningView } from '@podium/client-graph/react'
 import type { SettingsRows } from '@podium/client-graph/settings-schema'
-import { createSettingsViews, readSettingsCatalog } from '@podium/client-graph/settings-views'
+import { createSettingsViews } from '@podium/client-graph/settings-views'
 import type { GitRepositoryWire } from '@podium/model'
 import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import { type Dispatch, type SetStateAction, useCallback, useMemo, useRef } from 'react'
@@ -23,7 +23,12 @@ const loaded = <T extends object>(row: T | symbol | undefined): row is T =>
   typeof row === 'object' && row !== null
 
 export function useSettingsCatalog(): Pick<Store, 'machines' | 'repos'> {
-  return useWorklistPoolProjection(readSettingsCatalog, EMPTY_CATALOG)
+  const pool = useWorklistPool()
+  const inherited = useSettingsOpening()
+  const own = useOpeningView(pool, createSettingsViews, !inherited)
+  const view = inherited?.settings ?? own
+  const read = useCallback(() => view?.catalog() ?? EMPTY_CATALOG, [view])
+  return useWorklistPoolProjection(read, EMPTY_CATALOG)
 }
 
 const EMPTY_MACHINE_IDS: readonly string[] = []

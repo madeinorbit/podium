@@ -1,4 +1,3 @@
-
 import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 /** Real mobile StoreProvider + real pool + real RN-web SectionList. Only
  * platform/navigation chrome is stubbed; rows, launch inputs and folds are real. */
@@ -14,23 +13,17 @@ import {
   rowKey,
 } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph/pool'
-import type { MobileWorkSection } from '../lib/work-sections'
-import {
-  asIssueId,
-  asSessionId,
-  isSortKey,
-  issueDepId,
-  sortKeyBetween,
-} from '@podium/model'
+import { asIssueId, asSessionId, isSortKey, issueDepId, sortKeyBetween } from '@podium/model'
 import type { EntityRecord } from '@podium/sync/replica'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
-import { Profiler, type ReactNode } from 'react'
+import { Profiler, type ReactNode, useEffect, useState } from 'react'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildCorpus } from '../../../../tests/worklist/harness/src/fixture'
 import { startCensus } from '../../../../tests/worklist/harness/src/mobx-census'
 import type { MobilePool } from '../client/mobile-pool'
 import { renderWithMobileStore } from '../client/test-support'
 import type { MobileTrpc } from '../client/trpc'
+import type { MobileWorkSection } from '../lib/work-sections'
 
 const state = vi.hoisted(() => ({
   host: null as MobilePool | null,
@@ -43,7 +36,16 @@ const state = vi.hoisted(() => ({
   rowDerivations: 0,
   errors: [] as string[],
 }))
-const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn(), setParams: vi.fn() }))
+const router = vi.hoisted(() => ({
+  push: vi.fn(),
+  back: vi.fn(),
+  replace: vi.fn(),
+  setParams: vi.fn(),
+}))
+vi.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
+  useSafeAreaFrame: () => ({ x: 0, y: 0, width: 430, height: 900 }),
+}))
 vi.mock('expo-router', async () => {
   const { useEffect } = await import('react')
   return {
@@ -220,15 +222,20 @@ vi.mock('../components/WorkIssueMenu', () => ({
   }) => {
     const row = state.pool!.worklistRow(target.issue.id)!
     return (
-    <div
-      data-testid="menu"
-      data-issue={target.issue.id}
-      data-issues={1 + row.visibleDescendantIds.length}
-      data-sessions={state.pool!.graph.subsetSize('issue', target.issue.id, 'pageSessions', 'unarchived')}
-      data-session-count={target.sessionCount}
-    >
-      <button type="button" aria-label="Close row menu" onClick={onClose} />
-    </div>
+      <div
+        data-testid="menu"
+        data-issue={target.issue.id}
+        data-issues={1 + row.visibleDescendantIds.length}
+        data-sessions={state.pool!.graph.subsetSize(
+          'issue',
+          target.issue.id,
+          'pageSessions',
+          'unarchived',
+        )}
+        data-session-count={target.sessionCount}
+      >
+        <button type="button" aria-label="Close row menu" onClick={onClose} />
+      </div>
     )
   },
 }))
@@ -250,6 +257,7 @@ vi.mock('../hooks/useRefreshableTab', async () => {
 vi.stubEnv('EXPO_OS', 'web')
 const { createMobilePool } = await import('../client/mobile-pool')
 const { WorkScreen } = await import('./WorkScreen')
+const { NewIssueScreen } = await import('./NewIssueScreen')
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -306,7 +314,26 @@ function kernelFixture(corpus: ReturnType<typeof buildCorpus>) {
 }
 
 function Capture() {
-  return <WorkScreen />
+  const [compose, setCompose] = useState(false)
+  const [work] = useState(() => <WorkScreen />)
+  // Native navigation retains Work beneath the compose route. Keep the real
+  // sheet here so both opening and closing still count its pool work.
+  useEffect(() => {
+    router.push.mockImplementation((href) => {
+      if (href?.pathname === '/new-issue') setCompose(true)
+    })
+    router.back.mockImplementation(() => setCompose(false))
+    return () => {
+      router.push.mockReset()
+      router.back.mockReset()
+    }
+  }, [])
+  return (
+    <>
+      {work}
+      {compose ? <NewIssueScreen /> : null}
+    </>
+  )
 }
 // Provider unmount supports a StrictMode restart via dispose(). A finished
 // fixture has no successor mount, so end the permanent runtime lifetime too.
@@ -361,20 +388,34 @@ async function mount(scale: 1 | 4, corpus = buildCorpus(scale)) {
 function clickCorpus(scale: 1 | 4) {
   const base = buildCorpus(1)
   const larger = scale === 1 ? base : buildCorpus(scale)
-  const baseIssues = new Set(base.issueProjections.map(row => row.id))
-  const baseSessions = new Set(base.sessions.map(row => row.sessionId))
+  const baseIssues = new Set(base.issueProjections.map((row) => row.id))
+  const baseSessions = new Set(base.sessions.map((row) => row.sessionId))
   // Folding Pinned reveals project rows in the calm list. Keep those rows and
   // their descendant graphs identical too; grow unrelated archived history.
   // A different random live project at 4x is a different addressed workload.
-  const corpus = scale === 1 ? base : {
-    ...base,
-    issueProjections: [...base.issueProjections, ...larger.issueProjections
-      .filter(row => !baseIssues.has(row.id))
-      .map(row => ({ ...row, archived: true, parentId: undefined }))],
-    sessions: [...base.sessions, ...larger.sessions
-      .filter(row => !baseSessions.has(row.sessionId))
-      .map(row => ({ ...row, archived: true, issueId: undefined, refIssueId: undefined }))],
-  }
+  const corpus =
+    scale === 1
+      ? base
+      : {
+          ...base,
+          issueProjections: [
+            ...base.issueProjections,
+            ...larger.issueProjections
+              .filter((row) => !baseIssues.has(row.id))
+              .map((row) => ({ ...row, archived: true, parentId: undefined })),
+          ],
+          sessions: [
+            ...base.sessions,
+            ...larger.sessions
+              .filter((row) => !baseSessions.has(row.sessionId))
+              .map((row) => ({
+                ...row,
+                archived: true,
+                issueId: undefined,
+                refIssueId: undefined,
+              })),
+          ],
+        }
   const id = asIssueId('phone-click-target'),
     origin = asIssueId('phone-click-origin')
   const firstKey = corpus.issueProjections
@@ -532,9 +573,7 @@ describe('mobile WorkScreen pool consumer', () => {
       const originalRow = pool.row
       const row = originalRow.bind(pool)
       // A counter needs no spy history or global spy-registry reference to this pool.
-      pool.row = ((
-        ...args: Parameters<typeof pool.row>
-      ) => {
+      pool.row = ((...args: Parameters<typeof pool.row>) => {
         rowReads++
         if (args[0] === 'session' && args[1].startsWith('phone-menu-archived-')) archivedReads++
         return row(...args)
@@ -666,12 +705,19 @@ describe('mobile WorkScreen pool consumer', () => {
         await click(
           'open launch choices',
           () => fireEvent.click(screen.getByLabelText('New work')),
-          () => waitFor(() => expect(screen.getAllByLabelText(/^Start in /)).toHaveLength(1)),
+          () =>
+            waitFor(() =>
+              expect(router.push).toHaveBeenCalledExactlyOnceWith({
+                pathname: '/new-issue',
+                params: { backTo: '/work' },
+              }),
+            ),
         )
+        expect(screen.getByLabelText(/^Project, /)).toBeTruthy()
         await click(
           'close launch choices',
-          () => fireEvent.click(screen.getByLabelText('Close sheet')),
-          () => waitFor(() => expect(screen.queryByLabelText('Close sheet')).toBeNull()),
+          () => fireEvent.click(screen.getByLabelText('Cancel')),
+          () => waitFor(() => expect(screen.queryByTestId('compose-body')).toBeNull()),
         )
       } finally {
         pool.row = originalRow
@@ -696,7 +742,11 @@ describe('mobile WorkScreen pool consumer', () => {
     it(`calm rows and unique membership at ${scale}x with no legacy reader`, async () => {
       const pool = await mount(scale)
       await drainNativeLoads()
-      expect(output(pool.view.container).labels.some(label => /^Needs you|^Answer |^Review /.test(label ?? ''))).toBe(false)
+      expect(
+        output(pool.view.container).labels.some((label) =>
+          /^Needs you|^Answer |^Review /.test(label ?? ''),
+        ),
+      ).toBe(false)
       expect(pool.view.container.querySelector('[role=progressbar]')).toBeNull()
       expect(state.sliceReads).toBe(0)
       expect(state.rowDerivations).toBe(0)
@@ -711,9 +761,10 @@ describe('mobile WorkScreen pool consumer', () => {
       const { view, corpus, feed } = await mount(scale)
       const initial = output(view.container)
       // Meter an issue drawn once; a title edit commits every visible band copy.
-      const labels = [...view.container.querySelectorAll('[data-label^="POD-"]')]
-        .map(row => row.getAttribute('data-label')!)
-      const label = labels.find(label => labels.indexOf(label) === labels.lastIndexOf(label))!
+      const labels = [...view.container.querySelectorAll('[data-label^="POD-"]')].map(
+        (row) => row.getAttribute('data-label')!,
+      )
+      const label = labels.find((label) => labels.indexOf(label) === labels.lastIndexOf(label))!
       expect(label).toBeDefined()
       const seq = Number(label.match(/POD-(\d+)/)![1])
       const target = corpus.issueProjections.find((row) => row.seq === seq)!
@@ -759,9 +810,7 @@ describe('mobile WorkScreen pool consumer', () => {
       const singleBand = (id: string) =>
         state.sections.filter((band) => band.data.some((item) => item.id === id)).length === 1
       const section = state.sections.find(
-        (band) =>
-          band.kind === 'project' &&
-          band.data.some((item) => singleBand(item.id)),
+        (band) => band.kind === 'project' && band.data.some((item) => singleBand(item.id)),
       )!
       expect(section).toBeDefined()
       const ref = section.data.find((item) => singleBand(item.id))!
@@ -846,7 +895,11 @@ describe('mobile WorkScreen pool consumer', () => {
   it('launch choices come from the existing pool without worklistSlice', async () => {
     await mount(1)
     fireEvent.click(screen.getByLabelText('New work'))
-    await waitFor(() => expect(screen.getAllByLabelText(/^Start in /).length).toBe(1))
+    await waitFor(() => expect(screen.getAllByLabelText(/^Project, /).length).toBe(1))
+    expect(router.push).toHaveBeenCalledExactlyOnceWith({
+      pathname: '/new-issue',
+      params: { backTo: '/work' },
+    })
     expect(state.sliceReads).toBe(0)
   }, 120_000)
 })

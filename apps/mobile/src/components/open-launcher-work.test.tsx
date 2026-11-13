@@ -2,7 +2,7 @@ import type { MobxPool } from '@podium/client-graph/pool'
 import type { GitRepositoryWire, MachineWire, SessionMeta } from '@podium/model'
 import { asMachineId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, screen } from '@testing-library/react'
-import { useState, type ReactNode } from 'react'
+import { type ReactNode, useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
 import { useMobilePool } from '../client/mobile-pool'
@@ -12,43 +12,126 @@ vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
   useSafeAreaFrame: () => ({ x: 0, y: 0, width: 430, height: 900 }),
 }))
-vi.mock('expo-router', () => ({ usePathname: () => '/work', useRouter: () => ({ back() {}, push() {}, replace() {} }) }))
+vi.mock('expo-router', () => ({
+  useLocalSearchParams: () => ({}),
+  usePathname: () => '/work',
+  useRouter: () => ({ back() {}, push() {}, replace() {} }),
+}))
 vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => true }))
 vi.mock('../hooks/useContentBottomInset', () => ({ useContentBottomInset: () => 0 }))
 vi.mock('./Screen', () => ({
   Screen: ({ children }: { children: ReactNode }) => <>{children}</>,
-  HeaderButton: ({ label, onPress }: { label: string; onPress: () => void }) => <button onClick={onPress} aria-label={label} />,
+  HeaderButton: ({ label, onPress }: { label: string; onPress: () => void }) => (
+    <button type="button" onClick={onPress} aria-label={label} />
+  ),
 }))
-vi.mock('./BottomSheet', () => ({ BottomSheet: ({ onClose, children, head }: { onClose: () => void; children: ReactNode; head: ReactNode }) => <div><button aria-label="Dismiss launcher" onClick={onClose} />{head}{children}</div> }))
-vi.mock('./ActionSheet', () => ({ ActionSheet: ({ actions, onClose }: { actions: { label: string; onPress: () => void; disabled?: boolean }[]; onClose: () => void }) => <div>{actions.map(action => <button key={action.label} aria-label={action.label} disabled={action.disabled} onClick={() => { action.onPress(); onClose() }} />)}</div> }))
+vi.mock('./BottomSheet', () => ({
+  BottomSheet: ({
+    onClose,
+    children,
+    head,
+  }: {
+    onClose: () => void
+    children: ReactNode
+    head: ReactNode
+  }) => (
+    <div>
+      <button type="button" aria-label="Dismiss launcher" onClick={onClose} />
+      {head}
+      {children}
+    </div>
+  ),
+}))
+vi.mock('./ActionSheet', () => ({
+  ActionSheet: ({
+    visible,
+    actions,
+    onClose,
+  }: {
+    visible: boolean
+    actions: { label: string; onPress: () => void; disabled?: boolean; selected?: boolean }[]
+    onClose: () => void
+  }) =>
+    visible ? (
+      <div>
+        {actions.map((action) => (
+          <button
+            type="button"
+            key={action.label}
+            aria-label={action.label}
+            aria-pressed={action.selected}
+            disabled={action.disabled}
+            onClick={() => {
+              action.onPress()
+              onClose()
+            }}
+          />
+        ))}
+      </div>
+    ) : null,
+}))
 const { NewWorkButton } = await import('./NewWorkButton')
 const { NewIssueScreen } = await import('../screens/NewIssueScreen')
 
-afterEach(() => { cleanup(); vi.restoreAllMocks() })
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
 
 function fixture(scale: number) {
-  const machines = ['mine', 'remote'].map(id => ({ id: asMachineId(id), name: id, hostname: id, online: true,
+  const machines = ['mine', 'remote'].map((id) => ({
+    id: asMachineId(id),
+    name: id,
+    hostname: id,
+    online: true,
     lastSeenAt: new Date().toISOString(),
     serviceAssignment: { server: false, agentExecution: true },
     availability: { epoch: 'one', daemon: true, server: false, supervisor: true },
-    inventory: { os: 'linux', arch: 'x64', tools: [], agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }] },
+    inventory: {
+      os: 'linux',
+      arch: 'x64',
+      tools: [],
+      agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
+    },
   })) as MachineWire[]
-  const repos = Array.from({ length: 32 * scale }, (_, at) => ({ kind: 'repository',
-    path: `/project/p${String(at).padStart(3, '0')}`, originUrl: `https://example.invalid/p${String(at).padStart(3, '0')}`,
-    machineId: at % 2 ? 'remote' : 'mine', branch: 'main',
-    worktrees: Array.from({ length: 8 }, (_, tree) => ({ path: `/project/p${String(at).padStart(3, '0')}/wt-${tree}`, branch: 'topic' })),
+  const repos = Array.from({ length: 32 * scale }, (_, at) => ({
+    kind: 'repository',
+    path: `/project/p${String(at).padStart(3, '0')}`,
+    originUrl: `https://example.invalid/p${String(at).padStart(3, '0')}`,
+    machineId: at % 2 ? 'remote' : 'mine',
+    branch: 'main',
+    worktrees: Array.from({ length: 8 }, (_, tree) => ({
+      path: `/project/p${String(at).padStart(3, '0')}/wt-${tree}`,
+      branch: 'topic',
+    })),
   })) as GitRepositoryWire[]
-  const sessions = Array.from({ length: 128 * scale }, (_, at) => ({ sessionId: `s${at}`, agentKind: 'codex', status: 'live', archived: false,
-    cwd: repos[at % repos.length]!.path, machineId: repos[at % repos.length]!.machineId,
-    createdAt: '2026-10-01T00:00:00Z', lastActiveAt: '2026-10-01T00:00:00Z',
+  const sessions = Array.from({ length: 128 * scale }, (_, at) => ({
+    sessionId: `s${at}`,
+    agentKind: 'codex',
+    status: 'live',
+    archived: false,
+    cwd: repos[at % repos.length]!.path,
+    machineId: repos[at % repos.length]!.machineId,
+    createdAt: '2026-10-01T00:00:00Z',
+    lastActiveAt: '2026-10-01T00:00:00Z',
   })) as SessionMeta[]
   return { machines, repos, sessions }
 }
 
-it.each(['NewWorkButton', 'NewIssueScreen'] as const)('meters actual open %s at 1x/4x', async surface => {
+it.each([
+  'NewWorkButton',
+  'NewIssueScreen',
+] as const)('meters actual open %s at 1x/4x', async (surface) => {
   const samples = []
   for (const scale of [1, 4]) {
     const data = fixture(scale)
+    if (surface === 'NewIssueScreen') {
+      // Both hosts have this project, so the machine-choice step switches to
+      // a different host instead of selecting the automatic choice again.
+      const shared = data.repos[1]
+      if (!shared) throw new Error('Missing shared project')
+      data.repos.push({ ...shared, machineId: asMachineId('mine') })
+    }
     let pool: MobxPool | null = null
     let show!: (open: boolean) => void
     function Host() {
@@ -63,61 +146,196 @@ it.each(['NewWorkButton', 'NewIssueScreen'] as const)('meters actual open %s at 
     const usageQuery = vi.spyOn(attached.queries, 'activity')
     async function measured(action: string, fn: () => unknown) {
       usageQuery.mockClear()
-      const result = await measureWork(async () => insideReader(`mobile.${surface}.${action}`, async () => {
-        await act(async () => { await fn() })
-        for (let at = 0; at < 20; at++) {
-          let loaded = 0
-          await act(async () => { loaded = attached!.hydrate() })
-          if (!loaded) break
-        }
-      }), { pool: attached! })
-      if (['catalog', 'usage', 'heartbeat', 'picker-heartbeat', 'closed-heartbeat'].includes(action))
+      const result = await measureWork(
+        async () =>
+          insideReader(`mobile.${surface}.${action}`, async () => {
+            await act(async () => {
+              await fn()
+            })
+            for (let at = 0; at < 20; at++) {
+              let loaded = 0
+              await act(async () => {
+                loaded = attached!.hydrate()
+              })
+              if (!loaded) break
+            }
+          }),
+        { pool: attached! },
+      )
+      // The compose sheet intentionally refreshes recency between menu openings.
+      // Each live delta may query its one path, regardless of catalog size.
+      if (surface === 'NewIssueScreen' && ['usage', 'heartbeat'].includes(action))
+        expect(
+          usageQuery.mock.calls.length,
+          `${surface} ${action} usage reads at ${scale}x`,
+        ).toBeLessThanOrEqual(1)
+      else if (
+        ['catalog', 'usage', 'heartbeat', 'picker-heartbeat', 'closed-heartbeat'].includes(action)
+      )
         expect(usageQuery, `${surface} ${action} usage reads at ${scale}x`).not.toHaveBeenCalled()
       return { action, ...result.work }
     }
     const cells = []
-    cells.push(await measured('open', () => surface === 'NewWorkButton' ? fireEvent.click(screen.getByLabelText('New work')) : show(true)))
+    cells.push(
+      await measured('open', () =>
+        surface === 'NewWorkButton'
+          ? fireEvent.click(screen.getByLabelText('New work'))
+          : show(true),
+      ),
+    )
     if (surface === 'NewWorkButton') {
       expect(screen.getByLabelText('Start in p000')).toBeTruthy()
-      cells.push(await measured('repository-picker', () => fireEvent.click(screen.getByLabelText('Project, p000'))))
-      cells.push(await measured('repository-choice', () => fireEvent.click(screen.getByLabelText('p002'))))
+      cells.push(
+        await measured('repository-picker', () =>
+          fireEvent.click(screen.getByLabelText('Project, p000')),
+        ),
+      )
+      cells.push(
+        await measured('repository-choice', () => fireEvent.click(screen.getByLabelText('p002'))),
+      )
       expect(screen.getByLabelText('Start in p002')).toBeTruthy()
-      cells.push(await measured('machine-picker', () => fireEvent.click(screen.getByLabelText('Machine, mine'))))
-      cells.push(await measured('machine-choice', () => fireEvent.click(screen.getByLabelText('remote'))))
+      cells.push(
+        await measured('machine-picker', () =>
+          fireEvent.click(screen.getByLabelText('Machine, mine')),
+        ),
+      )
+      cells.push(
+        await measured('machine-choice', () => fireEvent.click(screen.getByLabelText('remote'))),
+      )
       expect(screen.getByLabelText('Machine, remote')).toBeTruthy()
     } else {
-      expect(screen.getByRole('radio', { name: 'Repository p000' })).toBeTruthy()
-      cells.push(await measured('repository-choice', () => fireEvent.click(screen.getByRole('radio', { name: 'Repository p001' }))))
-      expect(screen.getByRole('radio', { name: 'Repository p001' }).getAttribute('aria-checked')).toBe('true')
-      cells.push(await measured('machine-picker', () => fireEvent.click(screen.getByLabelText('Machine, Auto'))))
-      cells.push(await measured('machine-choice', () => fireEvent.click(screen.getByLabelText('remote'))))
+      expect(screen.getByLabelText('Project, p000')).toBeTruthy()
+      cells.push(
+        await measured('repository-picker', () =>
+          fireEvent.click(screen.getByLabelText('Project, p000')),
+        ),
+      )
+      expect(screen.getByLabelText('p000').getAttribute('aria-pressed')).toBe('true')
+      cells.push(
+        await measured('repository-choice', () => fireEvent.click(screen.getByLabelText('p001'))),
+      )
+      expect(screen.getByLabelText('Project, p001')).toBeTruthy()
+      cells.push(
+        await measured('machine-picker', () =>
+          fireEvent.click(screen.getByLabelText('Machine, mine')),
+        ),
+      )
+      expect(screen.getByLabelText('remote').getAttribute('aria-pressed')).toBe('false')
+      cells.push(
+        await measured('machine-choice', () => fireEvent.click(screen.getByLabelText('remote'))),
+      )
       expect(screen.getByLabelText('Machine, remote')).toBeTruthy()
     }
-    cells.push(await measured('catalog', () => {
-      data.repos = data.repos.map((repo, at) => at === 0 ? { ...repo, branch: 'updated' } : repo)
-      return app.runtime.access.refreshRepos()
-    }))
-    expect(attached.row('repository', JSON.stringify(['mine', data.repos[0]!.path]))).toMatchObject({ branch: 'updated' })
-    cells.push(await measured('usage', () => app.replica.applyChanges('sessions', [{ ...data.sessions[0]!, createdAt: '2026-10-03T00:00:00Z', lastActiveAt: '2026-10-03T00:00:00Z' }], [])))
-    cells.push(await measured('heartbeat', () => app.replica.applyChanges('sessions', [{ ...data.sessions[0]!, createdAt: '2026-10-03T00:00:00Z', lastActiveAt: '2026-10-04T00:00:00Z' }], [])))
+    cells.push(
+      await measured('catalog', () => {
+        data.repos = data.repos.map((repo, at) =>
+          at === 0 ? { ...repo, branch: 'updated' } : repo,
+        )
+        return app.runtime.access.refreshRepos()
+      }),
+    )
+    expect(attached.row('repository', JSON.stringify(['mine', data.repos[0]!.path]))).toMatchObject(
+      { branch: 'updated' },
+    )
+    cells.push(
+      await measured('usage', () =>
+        app.replica.applyChanges(
+          'sessions',
+          [
+            {
+              ...data.sessions[0]!,
+              createdAt: '2026-10-03T00:00:00Z',
+              lastActiveAt: '2026-10-03T00:00:00Z',
+            },
+          ],
+          [],
+        ),
+      ),
+    )
+    cells.push(
+      await measured('heartbeat', () =>
+        app.replica.applyChanges(
+          'sessions',
+          [
+            {
+              ...data.sessions[0]!,
+              createdAt: '2026-10-03T00:00:00Z',
+              lastActiveAt: '2026-10-04T00:00:00Z',
+            },
+          ],
+          [],
+        ),
+      ),
+    )
     if (surface === 'NewWorkButton') {
-      await act(async () => { fireEvent.click(screen.getByLabelText(/^Project, /)) })
-      cells.push(await measured('picker-heartbeat', () => app.replica.applyChanges('sessions', [{ ...data.sessions[1]!, lastActiveAt: '2026-10-06T00:00:00Z' }], [])))
+      await act(async () => {
+        fireEvent.click(screen.getByLabelText(/^Project, /))
+      })
+      cells.push(
+        await measured('picker-heartbeat', () =>
+          app.replica.applyChanges(
+            'sessions',
+            [{ ...data.sessions[1]!, lastActiveAt: '2026-10-06T00:00:00Z' }],
+            [],
+          ),
+        ),
+      )
     }
-    await act(async () => { surface === 'NewWorkButton' ? fireEvent.click(screen.getByLabelText('Dismiss launcher')) : show(false) })
-    cells.push(await measured('closed-heartbeat', () => app.replica.applyChanges('sessions', [{ ...data.sessions[0]!, createdAt: '2026-10-03T00:00:00Z', lastActiveAt: '2026-10-05T00:00:00Z' }], [])))
+    await act(async () => {
+      surface === 'NewWorkButton'
+        ? fireEvent.click(screen.getByLabelText('Dismiss launcher'))
+        : show(false)
+    })
+    cells.push(
+      await measured('closed-heartbeat', () =>
+        app.replica.applyChanges(
+          'sessions',
+          [
+            {
+              ...data.sessions[0]!,
+              createdAt: '2026-10-03T00:00:00Z',
+              lastActiveAt: '2026-10-05T00:00:00Z',
+            },
+          ],
+          [],
+        ),
+      ),
+    )
     usageQuery.mockClear()
-    await act(async () => { surface === 'NewWorkButton' ? fireEvent.click(screen.getByLabelText('New work')) : show(true) })
+    await act(async () => {
+      surface === 'NewWorkButton' ? fireEvent.click(screen.getByLabelText('New work')) : show(true)
+    })
     expect(usageQuery).toHaveBeenCalled()
     usageQuery.mockRestore()
     samples.push({ scale, repositories: data.repos.length, sessions: data.sessions.length, cells })
-    app.unmount(); cleanup()
+    app.unmount()
+    cleanup()
   }
-  console.info(`[supported launcher ${surface}]`, JSON.stringify(samples.map(sample => ({ ...sample, cells: sample.cells.map(({ action, rows, derivations, elements, elementsBy }) => ({ action, rows, derivations, elements, elementsBy })) }))))
+  console.info(
+    `[supported launcher ${surface}]`,
+    JSON.stringify(
+      samples.map((sample) => ({
+        ...sample,
+        cells: sample.cells.map(({ action, rows, derivations, elements, elementsBy }) => ({
+          action,
+          rows,
+          derivations,
+          elements,
+          elementsBy,
+        })),
+      })),
+    ),
+  )
   expect(samples).toHaveLength(2)
-  for (const action of ['catalog', 'usage', 'heartbeat', 'closed-heartbeat', ...(surface === 'NewWorkButton' ? ['picker-heartbeat'] : [])]) {
-    const one = samples[0]!.cells.find(cell => cell.action === action)!.rows ?? 0
-    const four = samples[1]!.cells.find(cell => cell.action === action)!.rows ?? 0
+  for (const action of [
+    'catalog',
+    'usage',
+    'heartbeat',
+    'closed-heartbeat',
+    ...(surface === 'NewWorkButton' ? ['picker-heartbeat'] : []),
+  ]) {
+    const one = samples[0]!.cells.find((cell) => cell.action === action)!.rows ?? 0
+    const four = samples[1]!.cells.find((cell) => cell.action === action)!.rows ?? 0
     expect(four, `${surface} ${action} rows`).toBe(one)
     expect(four, `${surface} ${action} row ceiling`).toBeLessThanOrEqual(12)
   }

@@ -47,7 +47,7 @@ import {
 import { LOADING } from '@podium/client-graph/loading'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { useOpeningView } from '@podium/client-graph/react'
-import { createSettingsViews, readSettingsCatalog } from '@podium/client-graph/settings-views'
+import { createSettingsViews } from '@podium/client-graph/settings-views'
 import {
   asIssueId,
   asMachineId,
@@ -97,7 +97,8 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
   const { spawnDraftAgent } = useStoreActions()
   const pool = useMobilePool()
   const view = useOpeningView(pool, createSettingsViews)
-  const { repos, machines } = useMobilePoolProjection(readSettingsCatalog, EMPTY_CATALOG)
+  const readCatalog = useCallback(() => view?.catalog() ?? EMPTY_CATALOG, [view])
+  const { repos, machines } = useMobilePoolProjection(readCatalog, EMPTY_CATALOG)
   const readSetup = useCallback(() => view?.setupCatalog() ?? EMPTY_SETUP, [view])
   const setup = useMobilePoolProjection(readSetup, EMPTY_SETUP)
   // Keep the inputs live between menu openings. UIKit snapshots SwiftUI Menu's
