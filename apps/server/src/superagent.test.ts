@@ -922,7 +922,7 @@ describe('session-steering tool belt (issue #62)', () => {
     // projection's overlay cache, which is the same rule `IssueService.rows` has
     // always had. Driving the real entry point is also what makes this a test of
     // the shipped path rather than of the repository.
-    h.registry.modules.sessions.setSnooze(h.registry.modules.sessions.serverWriter, {
+    await h.registry.modules.sessions.setSnooze(h.registry.modules.sessions.serverWriter, {
       userId: firstAdminMemberId(),
       sessionId,
       until: '2020-01-01T00:00:00.000Z',
@@ -931,7 +931,8 @@ describe('session-steering tool belt (issue #62)', () => {
     // …while an open-ended snooze (null) never lapses by time. The counterfactual
     // that keeps the assertion above from passing for the wrong reason: if the
     // projection had simply stopped carrying snoozes, this would fail too.
-    h.registry.modules.sessions.setSnooze(h.registry.modules.sessions.serverWriter, {
+    // The snooze is a change-log commit (POD-6920): the read follows it.
+    await h.registry.modules.sessions.setSnooze(h.registry.modules.sessions.serverWriter, {
       userId: firstAdminMemberId(),
       sessionId,
       until: null,

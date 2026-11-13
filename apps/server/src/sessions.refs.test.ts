@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { feedDelta } from './test-support/feed-delta'
 import { attachHostDaemon } from './test-support/host-daemon'
+import { rawSql } from './test-support/issue-corpus'
 import { openTestStore } from './test-support/open-test-store'
 import { clientSessionViews } from './test-support/session-views'
 
@@ -198,6 +199,9 @@ describe('session birth naming (#474)', () => {
       refLetter: null,
       refDraft: null,
     })
+    // The backfill runs once per database, behind its receipt; a database from
+    // before #474 has none.
+    rawSql(store, 'DELETE FROM meta WHERE key = ?', 'data_migration:session-birth-refs-v1')
     const reg2 = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     await reg2.modules.sessions.loadFromStore()
     const row = (await store.sessions.loadSessions()).find((r) => r.id === a)
