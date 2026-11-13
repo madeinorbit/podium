@@ -491,7 +491,7 @@ const NativeQuietRow = observer(function NativeQuietRow({ phone }: { phone: Phon
           modifiers={[
             font({ textStyle: 'caption2', weight: 'semibold' }),
             foregroundStyle(paper.tertiary),
-            frame({ width: MARK_WIDTH }),
+            frame({ minWidth: MARK_WIDTH }),
             accessibilityHidden(),
           ]}
         />

@@ -72,7 +72,8 @@ export function NativeGroupHeader({
             modifiers={[
               font({ textStyle: 'footnote', weight: 'semibold' }),
               foregroundStyle(paper.tertiary),
-              frame({ width: 14 }),
+              // Grows with Dynamic Type so the glyph never meets the title.
+              frame({ minWidth: 14 }),
               accessibilityHidden(),
             ]}
           />

@@ -87,6 +87,8 @@ import { workPaper as paper } from './work-paper'
 
 /** Leading edge of a row's title: 12 inset + 14 mark + 8 gap, the board's axis. */
 const ROW_AXIS = 34
+/** Dynamic Type's accessibility sizes start here (Work uses the same line). */
+const ACCESSIBILITY_SCALE = 1.6
 const CARD_INSET = 12
 /** Card rows on Work's grouped paper: the same ground, card and separator. */
 /** A card's first and last rows keep this much more room against its rounded corners. */
@@ -419,6 +421,35 @@ const TaskRow = taskObserver(function TaskRow({
   const placement = discoveredPlacement(nav)
   const actions = workMenuActionIds(nav, 'live', { placement: Boolean(placement?.originId) })
   const progress = issue.childCount > 0 ? `${taskRowFigure(issue, null)} sub-tasks done` : ''
+  const accessible = fontScale >= ACCESSIBILITY_SCALE
+  const title = (lines: number) => (
+    <Text
+      modifiers={[
+        font({ textStyle: 'body', weight: unread ? 'semibold' : 'regular' }),
+        foregroundStyle({
+          type: 'hierarchical',
+          style: finished ? 'secondary' : 'primary',
+        }),
+        lineLimit(lines),
+        frame({ maxWidth: Infinity, alignment: 'leading' }),
+      ]}
+    >
+      {issue.title}
+    </Text>
+  )
+  const refText = (
+    <Text
+      modifiers={[
+        // Expo ignores size for a system textStyle font. RN's content-size
+        // multiplier retains the 11pt base and system mono face.
+        font({ size: 11 * fontScale, design: 'monospaced' }),
+        foregroundStyle({ type: 'hierarchical', style: 'tertiary' }),
+        lineLimit(1),
+      ]}
+    >
+      {ref}
+    </Text>
+  )
 
   return (
     <SwipeActions>
@@ -452,19 +483,23 @@ const TaskRow = taskObserver(function TaskRow({
                 color={MARK_COLOR[mark]}
                 modifiers={[frame({ width: 14 }), accessibilityHidden()]}
               />
-              <Text
-                modifiers={[
-                  font({ textStyle: 'body', weight: unread ? 'semibold' : 'regular' }),
-                  foregroundStyle({
-                    type: 'hierarchical',
-                    style: finished ? 'secondary' : 'primary',
-                  }),
-                  lineLimit(1),
-                  frame({ maxWidth: Infinity, alignment: 'leading' }),
-                ]}
-              >
-                {issue.title}
-              </Text>
+              {accessible ? (
+                // Accessibility sizes (as Mail): the title takes the row's width and
+                // up to three lines; ID and figure wrap to their own line below it.
+                <VStack
+                  alignment="leading"
+                  spacing={2}
+                  modifiers={[frame({ maxWidth: Infinity, alignment: 'leading' })]}
+                >
+                  {title(3)}
+                  <HStack spacing={8}>
+                    {refText}
+                    <TaskFigure issue={issue} fontScale={fontScale} />
+                  </HStack>
+                </VStack>
+              ) : (
+                title(1)
+              )}
               {unread ? (
                 <Image
                   systemName="circle.fill"
@@ -481,18 +516,8 @@ const TaskRow = taskObserver(function TaskRow({
                   modifiers={[accessibilityHidden()]}
                 />
               ) : null}
-              <Text
-                modifiers={[
-                  // Expo ignores size for a system textStyle font. RN's content-size
-                  // multiplier retains the 11pt base and system mono face.
-                  font({ size: 11 * fontScale, design: 'monospaced' }),
-                  foregroundStyle({ type: 'hierarchical', style: 'tertiary' }),
-                  lineLimit(1),
-                ]}
-              >
-                {ref}
-              </Text>
-              <TaskFigure issue={issue} fontScale={fontScale} />
+              {accessible ? null : refText}
+              {accessible ? null : <TaskFigure issue={issue} fontScale={fontScale} />}
             </HStack>
           </Button>
         </ContextMenu.Trigger>
