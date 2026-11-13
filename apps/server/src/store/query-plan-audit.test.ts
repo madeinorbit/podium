@@ -395,6 +395,14 @@ const SMALL_TABLES: ReadonlyMap<string, string> = new Map([
  */
 const ALLOWLIST: ReadonlyMap<string, string> = new Map([
   [
+    'apps/server/src/store/issues.ts:issuesOfLabels',
+    "The change capture's mapping of renamed labels to the issues carrying them (POD-6920): found through idx_issue_labels_label_id, the distinct issue ids sorted in a temporary tree, a few per label; a label rename is rare.",
+  ],
+  [
+    'apps/server/src/store/workflows.ts:runIdsOfRevisions',
+    "The change capture's mapping of a changed workflow revision to the runs that read it (POD-6920): workflow_runs is a small table (a row per started workflow run), and a revision changes only when it is published.",
+  ],
+  [
     'apps/server/src/store/auth.ts:clientSessionsOfUserNewestFirst',
     "Sorts one person's sign-ins, found through idx_client_sessions_user: a row per signed-in device or login (POD-6172).",
   ],

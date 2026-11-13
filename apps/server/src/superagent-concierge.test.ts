@@ -649,7 +649,7 @@ describe('search_all tool', () => {
         // since POD-318 is this host's minted id, not a sentinel.
         machineId: registry.sessionStore.hostMachineId,
       },
-    ])
+    ]))
     const out = await sa.callMcpTool('search_all', { query: 'capacitor' }, asThreadId('global'))
     // One rendered line per hit: [kind] title (ref) — issues cite the display seq.
     expect(out).toContain(`[issue] replace the flux capacitor`)
@@ -758,7 +758,7 @@ describe('thread ownership after administrator removal', () => {
     ).toBe(replacement)
     sa.dispose()
   })
-}))
+})
 
 it.each([
   '/src/podium',

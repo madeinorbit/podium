@@ -688,6 +688,9 @@ export const RECORD_SOURCES: RecordSources = {
     via(users, [users.id], [users.role, users.disabledAt], (changes, reads) =>
       accessIds('all', firstKeys(changes), reads),
     ),
+    // The access rows are built from the same machine facts, which read the
+    // fleet's update context.
+    machineContext((_changes, reads) => accessIds('all', 'all', reads)),
   ],
   // A repo is a fold of its registrations: a change to one reaches the
   // logical repo it belongs to, before and after.
