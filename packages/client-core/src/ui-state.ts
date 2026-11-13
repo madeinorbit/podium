@@ -630,7 +630,7 @@ export type MainView =
 /** Public settings destinations. Old links are canonicalized before entering history. */
 export const SETTINGS_PAGE_IDS = [
   'agents',
-  'accounts',
+  'credentials',
   'notifications',
   'appearance',
   'account',
@@ -651,7 +651,8 @@ const LEGACY_SETTINGS_PAGES: Readonly<Record<string, SettingsPage>> = {
   workllm: 'agents',
   security: 'account',
   devices: 'account',
-  secrets: 'accounts',
+  secrets: 'credentials',
+  accounts: 'credentials',
   hibernation: 'machines',
   repos: 'projects',
   workflow: 'projects',

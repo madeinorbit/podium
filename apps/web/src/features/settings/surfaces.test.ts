@@ -68,7 +68,7 @@ describe('settings page classification', () => {
     for (const entry of SETTINGS_CLASSIFICATION.filter((entry) => entry.tier === 'server-secret')) {
       if (entry.path.startsWith('apiKeys.')) {
         expect(home(entry.path)).toEqual([])
-        expect(NOT_ON_THIS_SCREEN[entry.path]).toContain('personal managed accounts')
+        expect(NOT_ON_THIS_SCREEN[entry.path]).toContain('personal credentials')
       } else
         expect(home(entry.path)).toEqual([expectedHomes[entry.path as keyof typeof expectedHomes]])
     }
@@ -98,7 +98,7 @@ describe('page visibility comes from the admin viewer', () => {
     )
   it('offers all pages to an admin', () => {
     expect(rail(['people', 'access', 'machines', 'instance', 'audit'])).toEqual({
-      personal: ['agents', 'accounts', 'notifications', 'appearance', 'account'],
+      personal: ['agents', 'credentials', 'notifications', 'appearance', 'account'],
       workspace: [
         'machines',
         'projects',
@@ -113,7 +113,7 @@ describe('page visibility comes from the admin viewer', () => {
   })
   it('keeps the four shared workspace pages for members', () => {
     expect(rail([])).toEqual({
-      personal: ['agents', 'accounts', 'notifications', 'appearance', 'account'],
+      personal: ['agents', 'credentials', 'notifications', 'appearance', 'account'],
       workspace: ['machines', 'projects', 'members', 'updates'],
     })
     expect(pages.filter((page) => adminSectionOf(page) !== undefined)).toEqual([

@@ -149,7 +149,7 @@ export async function oneShotApiKey(
     if (row.kind !== 'api-key') {
       throw new LlmConfigError(
         `the ${managedKeyName(account.accountId)} cannot serve one-shot background calls; ` +
-          'select an API key account for this role in Settings → AI accounts',
+          'select an API key account for this role in Settings → Credentials',
       )
     }
     return row.credential

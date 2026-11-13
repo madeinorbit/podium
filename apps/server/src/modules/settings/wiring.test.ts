@@ -141,7 +141,7 @@ describe('the derived settings router CALLS the gate', () => {
     await expect(call.settings.setSecret({ key, value: SECRET })).rejects.toMatchObject({
       code: 'BAD_REQUEST',
       message:
-        'Provider keys are personal managed accounts. Add or replace yours in Settings → AI accounts.',
+        'Provider keys are personal managed accounts. Add or replace yours in Settings → Credentials.',
     })
     expect(await store.secrets.get(key)).toBeUndefined()
     expect((await audit()).at(-1)?.outcome).toBe('refused')
@@ -349,7 +349,7 @@ describe('the derived settings router WRITES the trail', () => {
   it('refuses workspace provider keys even for an administrator', async () => {
     const { call, store } = await harness('admin')
     await expect(call.settings.setSecret({ key: 'apiKeys.openai', value: SECRET })).rejects.toThrow(
-      'Settings → AI accounts',
+      'Settings → Credentials',
     )
     expect(await store.secrets.getOrEmpty('apiKeys.openai')).toBe('')
   })

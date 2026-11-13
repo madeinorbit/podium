@@ -696,7 +696,7 @@ describe('native superagent on a machine someone else looks after (two members)'
     )
     expect(notice?.content).toMatch(/someone else's machine/)
     expect(notice?.content).toMatch(
-      /connect your own account in Settings → AI accounts and select it for the superagent role/i,
+      /connect your own account in Settings → Credentials and select it for the superagent role/i,
     )
     expect(h.turnReqs).toHaveLength(0)
 

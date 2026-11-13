@@ -69,7 +69,7 @@ export function agentOptions(
         label,
         hint: shared ? `${owner}’s ${credential}` : `your ${credential}`,
         help: shared
-          ? `Runs ${label} with the ${credential} ${owner} shared. Used because you have no ${credential} of your own. Add your own under AI accounts to stop using theirs. ${account.kind === 'oauth' ? 'Usage counts against their subscription.' : 'Billed per token to their key.'}`
+          ? `Runs ${label} with the ${credential} ${owner} shared. Used because you have no ${credential} of your own. Add your own under Credentials to stop using theirs. ${account.kind === 'oauth' ? 'Usage counts against their subscription.' : 'Billed per token to their key.'}`
           : `Runs ${label} with your ${credential}. ${account.kind === 'oauth' ? 'Usage counts against your subscription.' : 'Billed per token.'}`,
       }
     })

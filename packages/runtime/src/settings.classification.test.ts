@@ -41,9 +41,11 @@ const classifiedPaths = () => SETTINGS_CLASSIFICATION.map((c) => c.path)
 describe('the blob walk, probed before it is believed', () => {
   it('finds a non-trivial number of leaves, nested ones included', () => {
     // The classification's 53 leaves before daemonLink.trustedNetworks, + that one,
-    // + credentialDefaults (credential management §9).
+    // + credentialDefaults (credential management §9), + RoleBackend.credentialId
+    // on each of the four roles.
     // Pinned to the classification count on purpose: the two walks must agree.
-    expect(blobLeaves().length).toBe(55)
+    expect(blobLeaves().length).toBe(59)
+    expect(blobLeaves()).toContain('roles.background.credentialId')
     expect(blobLeaves()).toContain('roles.coding.model')
     expect(blobLeaves()).toContain('roles.background.accountId')
     expect(blobLeaves()).toContain('roles.shipwright.accountId')

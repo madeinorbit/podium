@@ -332,7 +332,7 @@ describe('setSecret / clearSecret own integration tokens', () => {
     await secrets.set(key, 'old-upgrade-key', '2026-07-30T00:00:00.000Z')
     const changed = vi.fn()
     bus.on('settings.changed', changed)
-    await expect(service.setSecret(key, 'new-refused-key')).rejects.toThrow('AI accounts')
+    await expect(service.setSecret(key, 'new-refused-key')).rejects.toThrow('Settings → Credentials')
     expect(await secrets.get(key)).toBe('old-upgrade-key')
     expect(changed).not.toHaveBeenCalled()
     expect(JSON.stringify(await service.getSettingsFor(USER))).not.toContain('new-refused-key')

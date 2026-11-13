@@ -5,14 +5,22 @@
  * that could hold one.
  *
  * Six reads whatever the number of credentials: the caller's own, the grants to
- * the caller or to all members, those credentials, all their grants, the granters'
- * standing, and the allowed machines.
+ * the caller or to all members, those credentials, the grants of every listed
+ * credential (own ones too, for `sharedWith`), the granters' standing, and the
+ * allowed machines.
  */
 
 import type { TransportTag } from '@podium/commands'
-import { ALL_MEMBERS_GRANTEE, type CredentialId, CredentialView, type UserId } from '@podium/model'
+import {
+  ALL_MEMBERS_GRANTEE,
+  type CredentialId,
+  type CredentialShare,
+  CredentialView,
+  type UserId,
+} from '@podium/model'
 import { z } from 'zod'
 import type { CredentialRecord } from '../../store/credentials'
+import type { GrantRow } from '../../store/grants'
 import type { CredentialsState, CredentialsStore } from './commands'
 import { accessFrom, CREDENTIAL_RESOURCE_KIND, type CredentialAccessLevel } from './may-use'
 
@@ -29,10 +37,20 @@ const query = <I extends z.ZodTypeAny, Out>(
   run: (state: CredentialsState, input: z.infer<I>) => Out,
 ): CredentialQuery<I, Out> => ({ input, exposure: SERVED_ON, run })
 
+/** Its grants as the owner and a manager read them; a use holder gets none. */
+function sharesOf(edges: readonly GrantRow[]): CredentialShare[] {
+  return edges.flatMap((edge): CredentialShare[] => {
+    if (edge.verb !== 'use' && edge.verb !== 'manage') return []
+    const grantee = edge.grantee === ALL_MEMBERS_GRANTEE ? 'all-members' : { userId: edge.grantee }
+    return [{ grantee, verb: edge.verb } as CredentialShare]
+  })
+}
+
 function viewOf(
   record: CredentialRecord,
   access: CredentialAccessLevel,
   allowedMachines: readonly string[],
+  edges: readonly GrantRow[],
 ): CredentialView {
   return CredentialView.parse({
     id: record.id,
@@ -50,6 +68,7 @@ function viewOf(
     // Sessions name their credential from epic Task 3 on; counted there.
     sessionCount: 0,
     access,
+    ...(access === 'use' ? {} : { sharedWith: sharesOf(edges) }),
   })
 }
 
@@ -67,10 +86,12 @@ export async function listCredentials(
     (id) => !ownIds.has(id),
   ) as CredentialId[]
   const granted = await store.credentials.getMany(grantedIds)
-  const grantsOf = await store.grants.loadForResources(
-    CREDENTIAL_RESOURCE_KIND,
-    granted.map((record) => record.id),
-  )
+  // One read for both: a granted credential's grants decide access, an own
+  // one's are whom the owner shared it with.
+  const grantsOf = await store.grants.loadForResources(CREDENTIAL_RESOURCE_KIND, [
+    ...own.map((record) => record.id),
+    ...granted.map((record) => record.id),
+  ])
   // Together, so the granters' standing is one read.
   const access = await Promise.all(
     granted.map((record) => accessFrom(store, userId, record, grantsOf.get(record.id) ?? [])),
@@ -89,7 +110,9 @@ export async function listCredentials(
         a.record.createdAt.localeCompare(b.record.createdAt) ||
         a.record.id.localeCompare(b.record.id),
     )
-    .map(({ record, access }) => viewOf(record, access, allowed.get(record.id) ?? []))
+    .map(({ record, access }) =>
+      viewOf(record, access, allowed.get(record.id) ?? [], grantsOf.get(record.id) ?? []),
+    )
 }
 
 export const CREDENTIAL_QUERIES = {

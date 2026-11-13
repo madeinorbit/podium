@@ -1,6 +1,5 @@
-// Harness config for Settings → Administration (POD-6299). Same shape as
-// vite.accounts-settings-harness.config.ts: the real sections and stylesheet,
-// the pool aliased to a fixture; the entry stubs fetch as the server.
+// Harness config for Settings → Administration (POD-6299): the real sections and
+// stylesheet, the pool aliased to a fixture; the entry stubs fetch as the server.
 import { fileURLToPath } from 'node:url'
 import { defineConfig, type PluginOption } from 'vite'
 import base from './vite.config'

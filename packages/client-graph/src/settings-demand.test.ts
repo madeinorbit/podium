@@ -209,7 +209,7 @@ it('loads only the settings window from first demand and does no work while clos
       stop()
       expect(f.locals.size).toBe(0)
       const closed = await f.measure('settings tab closed', () => {
-        f.tab('accounts')
+        f.tab('credentials')
         f.emit('repos', 'r0')
       })
       expect(closed).toMatchObject({ ids: 0, rows: 0, locals: 0 })

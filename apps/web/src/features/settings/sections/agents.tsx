@@ -17,6 +17,7 @@ import { ChevronDown } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
 import type { ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
+import { RoleCredentialRow } from '@/features/credentials/role-credential'
 import { issueAgentDescriptors } from '@/lib/issue-agents'
 import { PropertyMenu } from '@/lib/PropertyMenu'
 import { useHarnessDescriptors } from '@/lib/use-harness-descriptors'
@@ -193,7 +194,7 @@ export const AgentRoleFields = observer(function AgentRoleFields({
           selected?.help ??
           (machineLogin
             ? 'Uses the login already on each target machine. Usage counts against that subscription or account.'
-            : 'This agent is not connected. Sign in or add a key under AI accounts. Your saved choice is kept.')
+            : 'This agent is not connected. Sign in or add a key under Credentials. Your saved choice is kept.')
         }
         value={value}
         options={
@@ -441,7 +442,7 @@ const BackgroundModelSection = observer(function BackgroundModelSection({
             ? `Uses the key ${selected.sharedBy || 'another member'} shared because you have no ${providerNames[provider] ?? provider} key of your own. Billed per token to their key.`
             : native
               ? 'Uses the ChatGPT login on your machines. Usage counts against that subscription.'
-              : 'Billed per token to your key. Manage your keys under AI accounts.'
+              : 'Billed per token to your key. Manage your keys under Credentials.'
         }
         onChange={(id) => {
           const account = available.find((account) => account.id === id)
@@ -459,6 +460,11 @@ const BackgroundModelSection = observer(function BackgroundModelSection({
                 : backgroundDefaultModel(account.provider),
           })
         }}
+      />
+      <RoleCredentialRow
+        roleName="background"
+        backend={backend}
+        onChange={(background) => patch({ roles: { ...settings.roles, background } })}
       />
       {native ? (
         <HarnessModelRow

@@ -153,8 +153,9 @@ registerModels(
         allowedMachines: 'object',
         sessionCount: 'number',
         access: 'enum',
+        sharedWith: 'object',
       },
-      ['statusReason', 'limitReachedUntil', 'expiresAt', 'verifiedAt'],
+      ['statusReason', 'limitReachedUntil', 'expiresAt', 'verifiedAt', 'sharedWith'],
     ),
     member: record(
       'MemberView',

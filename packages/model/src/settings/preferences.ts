@@ -86,6 +86,9 @@ export const RoleBackend = z.object({
    *  DOCUMENTED value here meaning "the role's default", so a validating schema
    *  would reject settings blobs that parse today (POD-362). */
   accountId: AccountIdField.default(asAccountId('')),
+  /** The credential this role's direct model calls run on (credential management
+   *  §9). When set it wins over `accountId`; absent: `accountId` decides. */
+  credentialId: CredentialIdField.optional(),
   model: z.string().default('auto'),
   effort: z.string().default('auto'),
   harness: HarnessAgent.optional(),

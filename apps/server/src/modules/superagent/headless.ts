@@ -436,7 +436,7 @@ export class HeadlessService {
     return (
       "This is someone else's machine: its logins belong to the person who looks after it, " +
       "and Podium never runs your superagent on another person's login. Connect your own " +
-      'account in Settings → AI accounts and select it for the superagent role.'
+      'account in Settings → Credentials and select it for the superagent role.'
     )
   }
 

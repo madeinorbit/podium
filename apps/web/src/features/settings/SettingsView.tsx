@@ -6,12 +6,8 @@ import {
 import { instancePreferences } from '@podium/client-graph/instance-preferences'
 import { here } from '@podium/client-graph/lookup'
 import { myPreferences } from '@podium/client-graph/per-user-records'
-import {
-  INSTANCE_PREFERENCES_ROW_ID,
-  SETTINGS_PATH_TIERS,
-  type ServerSecretKey,
-} from '@podium/model/browser'
-import { DEFAULT_SETTINGS, type PodiumSettings } from '@podium/runtime'
+import { INSTANCE_PREFERENCES_ROW_ID, type ServerSecretKey } from '@podium/model/browser'
+import type { PodiumSettings } from '@podium/runtime'
 import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
@@ -23,6 +19,7 @@ import { WaitingForServer } from '@/components/WaitingForServer'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { useDeadlineNow } from '@/lib/clock-hooks'
 import { AdminViewerContext, useAdminSections } from './admin-viewer'
+import { composedSettings } from './composed-settings'
 import { SETTINGS_GROUPS } from './page-definitions'
 import { useSettingsTab } from './readers'
 import { accountKey, useSettingsRecords } from './record-readers'
@@ -58,10 +55,10 @@ import { adminSectionOf, visibleSettingsGroups } from './surfaces'
 export { SETTINGS_GROUPS, SETTINGS_TABS } from './page-definitions'
 export type SettingsTab = SettingsPage
 
-// Account connection and login controls are only needed on the AI accounts page.
-const AccountsSection = lazy(() =>
-  throughRestarts(() => import('./sections/accounts')).then((module) => ({
-    default: module.AccountsSection,
+// The credential list, its dialogs and the login controls are only needed on Credentials.
+const CredentialsSection = lazy(() =>
+  throughRestarts(() => import('@/features/credentials/CredentialsSection')).then((module) => ({
+    default: module.CredentialsSection,
   })),
 )
 // The repository table, its prefix editor and the grouping model behind it are
@@ -139,9 +136,9 @@ const SECTION_VIEWS: Record<SettingsPage, (ctx: SectionContext) => JSX.Element> 
       <AppearanceSection settings={settings} patch={patch} />
     </SettingsPageSection>
   ),
-  accounts: () => (
-    <SettingsPageSection id="accounts">
-      <AccountsSection />
+  credentials: ({ settings, patch }) => (
+    <SettingsPageSection id="credentials">
+      <CredentialsSection settings={settings} patch={patch} />
     </SettingsPageSection>
   ),
   notifications: (ctx) => (
@@ -637,38 +634,3 @@ const SettingsViewBody = observer(function SettingsViewBody({
     </TelegramSetupContext.Provider>
   )
 })
-
-/** The personal groups: my `userPreferences` record (POD-6673). */
-const PERSONAL_GROUPS = new Set(['roles', 'sidebar', 'autoContinue', 'notifications'])
-
-/** The instance groups: the `instancePreferences` record (POD-6677). */
-const INSTANCE_GROUPS = new Set(
-  SETTINGS_PATH_TIERS.filter((field) => field.tier === 'instance-preference').map(
-    (field) => field.path.split('.')[0]!,
-  ),
-)
-
-/** The settings the screen edits: every group read live from its home, the
- *  personal ones from my synced record and the instance ones from the
- *  instance's. A secret-only group (`apiKeys`, `integrations`) is never on
- *  either record: it reads as the blank default, and the secret surface shows
- *  only whether a secret is set. */
-function composedSettings(
-  instance: () => Readonly<Record<string, unknown>> | undefined,
-  mine: () => Readonly<Record<string, unknown>> | undefined,
-): PodiumSettings {
-  const out: Record<string, unknown> = {}
-  const blank = DEFAULT_SETTINGS as unknown as Record<string, unknown>
-  for (const key of new Set(SETTINGS_PATH_TIERS.map((field) => field.path.split('.')[0]!))) {
-    Object.defineProperty(out, key, {
-      enumerable: true,
-      get: () =>
-        PERSONAL_GROUPS.has(key)
-          ? mine()?.[key]
-          : INSTANCE_GROUPS.has(key)
-            ? instance()?.[key]
-            : blank[key],
-    })
-  }
-  return out as PodiumSettings
-}

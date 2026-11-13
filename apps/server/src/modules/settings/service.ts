@@ -622,7 +622,7 @@ export class SettingsService {
       throw new TRPCError({
         code: 'BAD_REQUEST',
         message:
-          'Provider keys are personal managed accounts. Add or replace yours in Settings → AI accounts.',
+          'Provider keys are personal managed accounts. Add or replace yours in Settings → Credentials.',
       })
     }
     // POD-419: the material lands in the keyed store, never in the blob. The

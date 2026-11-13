@@ -171,8 +171,10 @@ const INFERENCE_ROUTES: Readonly<Partial<Record<CredentialTypeId, InferenceRoute
 // packages/model/src/entities/credential.ts — CredentialView (what a client sees)
 //   id, ownerUserId, label, type, identity{fingerprint?,email?,plan?,organisation?,masked?},
 //   status 'ok'|'attention'|'revoked', statusReason?, limitReachedUntil?, expiresAt?,
-//   verifiedAt?, homes[{machineId,homeId,state 'in'|'out'|'unknown'}], allowedMachines[],
-//   sessionCount, access 'owner'|'manage'|'use'; timestamps are ISO strings; type is an open string
+//   verifiedAt?, homes[{machineId,homeId,state 'in'|'out'|'unknown'|'removal-pending'}],
+//   allowedMachines[], sessionCount, access 'owner'|'manage'|'use',
+//   sharedWith?: CredentialShare[] { grantee: 'all-members' | { userId }, verb: 'use'|'manage' }
+//   (owner and manage only; absent for use); timestamps are ISO strings; type is an open string
 
 // packages/harness — HarnessInventory.accepts: readonly AcceptedCredential[]
 //   harnessAccepts(kind), harnessHideFromCommands(kind) from '@podium/harness/metadata'
@@ -322,6 +324,8 @@ attachAccess(plan: SessionAccess, to: { machineId: MachineId; sessionId: Session
 // session record: credentialId, effectiveAuth { method: 'api-key' | 'subscription' | 'token'
 //   | 'unknown'; fingerprint? }, credentialMismatch?
 // personal setting credentialDefaults: Partial<Record<HarnessAgent, CredentialId>>
+// role setting RoleBackend.credentialId?: CredentialId — written by the role pickers (Task 17),
+//   read by the server from Task 12; when both are set, credentialId wins over accountId
 // CLI: --credential <label | id | none> on `podium agent spawn`, `podium issue start`,
 //   `podium issue add-session`
 

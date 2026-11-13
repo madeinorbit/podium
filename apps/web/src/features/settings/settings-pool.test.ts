@@ -47,7 +47,7 @@ function fixture(sessions: SliceSession[] = []) {
   let state = {
     machines: [{ id: 'host', name: 'Host' }],
     repos: [{ path: '/project', kind: 'repository', worktrees: [] }],
-    settingsTab: 'accounts',
+    settingsTab: 'credentials',
     sessions: dedupeSessionsByResume(sessions as unknown as SessionView[]),
   }
   const read = vi.fn(() => state as object)
@@ -170,14 +170,14 @@ describe('declared settings readers', () => {
     const initial = initialView.getSnapshot()
     expect(initial.catalog).toBe(LOADING)
     expect(initial.window).toBe(owner.ui)
-    expect(initial.window).toMatchObject({ settingsTab: 'accounts' })
+    expect(initial.window).toMatchObject({ settingsTab: 'credentials' })
     expect(initial.machine).toBe(LOADING)
     expect(read).not.toHaveBeenCalled()
     await Promise.resolve()
     // One batch; it reads the catalog and window by key (POD-5433).
     expect(read).toHaveBeenCalled()
     expect(omitGone(pool.row('settingsWindow', 'window'))).toBe(owner.ui)
-    expect(owner.ui.settingsTab).toBe('accounts')
+    expect(owner.ui.settingsTab).toBe('credentials')
     expect(omitGone(pool.row('settingsMachine', 'missing'))).toBeUndefined()
     const view = createPoolProjection(pool, (current) =>
       omitGone(current.row('settingsMachine', 'host')),

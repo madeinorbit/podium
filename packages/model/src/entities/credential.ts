@@ -28,13 +28,24 @@ export const CredentialIdentity = z.object({
 })
 export type CredentialIdentity = z.infer<typeof CredentialIdentity>
 
-/** One harness home on one machine that holds this login, with its reported login state. */
+/**
+ * One harness home on one machine that holds this login, with its reported
+ * login state. `removal-pending`: Podium was told to remove it and the machine
+ * has not confirmed yet (spec §8 "cleanup").
+ */
 export const CredentialHome = z.object({
   machineId: MachineIdField,
   homeId: z.string(),
-  state: z.enum(['in', 'out', 'unknown']),
+  state: z.enum(['in', 'out', 'unknown', 'removal-pending']),
 })
 export type CredentialHome = z.infer<typeof CredentialHome>
+
+/** Who else may use or manage it: one person, or every member (spec §12). */
+export const CredentialShare = z.object({
+  grantee: z.union([z.literal('all-members'), z.object({ userId: UserIdField })]),
+  verb: z.enum(['use', 'manage']),
+})
+export type CredentialShare = z.infer<typeof CredentialShare>
 
 export const CredentialView = z.object({
   id: CredentialIdField,
@@ -55,5 +66,7 @@ export const CredentialView = z.object({
   allowedMachines: z.array(MachineIdField),
   sessionCount: z.number().int().nonnegative(),
   access: CredentialAccess,
+  /** Its grants, for the owner and a holder of `manage` only; absent for `use`. */
+  sharedWith: z.array(CredentialShare).optional(),
 })
 export type CredentialView = z.infer<typeof CredentialView>

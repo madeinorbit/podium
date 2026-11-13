@@ -192,6 +192,7 @@ declare const PodiumSettings: z.ZodObject<{
     roles: z.ZodDefault<z.ZodObject<{
         coding: z.ZodDefault<z.ZodObject<{
             accountId: z.ZodDefault<z.ZodBranded<z.ZodString, "AccountId">>;
+            credentialId: z.ZodOptional<z.ZodBranded<z.ZodString, "CredentialId">>;
             model: z.ZodDefault<z.ZodString>;
             effort: z.ZodDefault<z.ZodString>;
             harness: z.ZodOptional<z.ZodEnum<["claude-code", "codex", "grok", "opencode", "cursor", "pi"]>>;
@@ -206,11 +207,13 @@ declare const PodiumSettings: z.ZodObject<{
             subagentModel: string;
             startScreen: "auto" | "native" | "chat";
             seedCliTheme: boolean;
+            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }, {
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            credentialId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             subagentModel?: string | undefined;
             startScreen?: "auto" | "native" | "chat" | undefined;
@@ -218,6 +221,7 @@ declare const PodiumSettings: z.ZodObject<{
         }>>;
         superagent: z.ZodDefault<z.ZodObject<{
             accountId: z.ZodDefault<z.ZodBranded<z.ZodString, "AccountId">>;
+            credentialId: z.ZodOptional<z.ZodBranded<z.ZodString, "CredentialId">>;
             model: z.ZodDefault<z.ZodString>;
             effort: z.ZodDefault<z.ZodString>;
             harness: z.ZodOptional<z.ZodEnum<["claude-code", "codex", "grok", "opencode", "cursor", "pi"]>>;
@@ -225,15 +229,18 @@ declare const PodiumSettings: z.ZodObject<{
             model: string;
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
+            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }, {
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            credentialId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }>>;
         background: z.ZodDefault<z.ZodObject<{
             accountId: z.ZodDefault<z.ZodBranded<z.ZodString, "AccountId">>;
+            credentialId: z.ZodOptional<z.ZodBranded<z.ZodString, "CredentialId">>;
             model: z.ZodDefault<z.ZodString>;
             effort: z.ZodDefault<z.ZodString>;
             harness: z.ZodOptional<z.ZodEnum<["claude-code", "codex", "grok", "opencode", "cursor", "pi"]>>;
@@ -241,15 +248,18 @@ declare const PodiumSettings: z.ZodObject<{
             model: string;
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
+            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }, {
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            credentialId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }>>;
         shipwright: z.ZodDefault<z.ZodObject<{
             accountId: z.ZodDefault<z.ZodBranded<z.ZodString, "AccountId">>;
+            credentialId: z.ZodOptional<z.ZodBranded<z.ZodString, "CredentialId">>;
             model: z.ZodDefault<z.ZodString>;
             effort: z.ZodDefault<z.ZodString>;
             harness: z.ZodOptional<z.ZodEnum<["claude-code", "codex", "grok", "opencode", "cursor", "pi"]>>;
@@ -257,11 +267,13 @@ declare const PodiumSettings: z.ZodObject<{
             model: string;
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
+            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }, {
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            credentialId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }>>;
     }, "strip", z.ZodTypeAny, {
@@ -269,6 +281,7 @@ declare const PodiumSettings: z.ZodObject<{
             model: string;
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
+            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         };
         coding: {
@@ -278,18 +291,21 @@ declare const PodiumSettings: z.ZodObject<{
             subagentModel: string;
             startScreen: "auto" | "native" | "chat";
             seedCliTheme: boolean;
+            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         };
         background: {
             model: string;
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
+            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         };
         shipwright: {
             model: string;
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
+            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         };
     }, {
@@ -297,12 +313,14 @@ declare const PodiumSettings: z.ZodObject<{
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            credentialId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
         coding?: {
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            credentialId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             subagentModel?: string | undefined;
             startScreen?: "auto" | "native" | "chat" | undefined;
@@ -312,12 +330,14 @@ declare const PodiumSettings: z.ZodObject<{
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            credentialId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
         shipwright?: {
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            credentialId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
     }>>;
@@ -511,6 +531,7 @@ declare const PodiumSettings: z.ZodObject<{
             model: string;
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
+            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         };
         coding: {
@@ -520,18 +541,21 @@ declare const PodiumSettings: z.ZodObject<{
             subagentModel: string;
             startScreen: "auto" | "native" | "chat";
             seedCliTheme: boolean;
+            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         };
         background: {
             model: string;
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
+            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         };
         shipwright: {
             model: string;
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
+            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         };
     };
@@ -603,12 +627,14 @@ declare const PodiumSettings: z.ZodObject<{
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            credentialId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
         coding?: {
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            credentialId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             subagentModel?: string | undefined;
             startScreen?: "auto" | "native" | "chat" | undefined;
@@ -618,12 +644,14 @@ declare const PodiumSettings: z.ZodObject<{
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            credentialId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
         shipwright?: {
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            credentialId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
     } | undefined;

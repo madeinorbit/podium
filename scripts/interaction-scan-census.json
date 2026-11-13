@@ -39703,26 +39703,6 @@
       "guard": "Exact fingerprint and multiplicity only. This move is not a scan repair; the whole-data scan sweep remains responsible for proving or replacing this path."
     },
     {
-      "file": "apps/web/src/features/settings/sections/accounts.tsx",
-      "holder": "NativeAccountRow/NativeAccountRow",
-      "rule": "reader-summary",
-      "tokens": "f9dcf407cc692160de2a93cb226f7c6795fc077220a21d9409e4252475fd7dad",
-      "gate": [],
-      "origin": [
-        "0d87ba9538f272cae87540a92d643621c3788a910b28a3a42ff59392720a7519",
-        "0db0c383eae3a50331c37fbb3828050b89ce7080d95ca1da167c95fe36179c75",
-        "99f5b4139a6534aa3dd3a2dce73dc4f04abd04fd3466137e687cb054b81374fd"
-      ],
-      "fingerprint": "d17293ea3129e55d1b50f7ca8cdd0f0ba059184b7eb046a27478ff66099a0788",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-6707",
-      "trigger": "Invocation of NativeAccountRow/NativeAccountRow",
-      "bound": "No cardinality bound is newly claimed for this transitive collection path.",
-      "reason": "POD-6682 exposes this existing command/helper path through explicit command modules and root readers. The command bodies and collection operations are unchanged; this entry preserves the existing scan debt rather than claiming a bounded replacement. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: be6038cdf985739fe0c0f2904f5294005a0d848b8ac6c692ddb9e2971aa79e06.",
-      "guard": "Exact fingerprint and multiplicity only. This move is not a scan repair; the whole-data scan sweep remains responsible for proving or replacing this path."
-    },
-    {
       "file": "apps/web/src/features/terminal/SessionLifecyclePanes.tsx",
       "holder": "LifecycleTransitionBar/callback",
       "rule": "reader-summary",

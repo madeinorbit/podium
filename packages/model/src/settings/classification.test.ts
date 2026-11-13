@@ -100,12 +100,13 @@ describe('settingsLeafPaths — the instrument, probed first', () => {
 
 describe('the classification is TOTAL over the split shapes', () => {
   it('classifies every leaf of every tier, and the count is non-trivial', () => {
-    // A cardinality a broken walk cannot reach: 26 personal + 23 instance + 5 secret.
+    // A cardinality a broken walk cannot reach: 31 personal + 23 instance + 5 secret.
     // The redesign removed sidebar.groupByRepo and gitWorkflow.mergeStyle;
     // daemonLink.trustedNetworks (credential management §8) added one instance leaf,
-    // credentialDefaults (§9) one personal leaf.
-    expect(SETTINGS_CLASSIFICATION.length).toBe(55)
-    expect(settingsPathsInTier('personal-preference').length).toBe(27)
+    // credentialDefaults (§9) one personal leaf, and RoleBackend.credentialId one per
+    // role (coding, superagent, background, shipwright).
+    expect(SETTINGS_CLASSIFICATION.length).toBe(59)
+    expect(settingsPathsInTier('personal-preference').length).toBe(31)
     expect(settingsPathsInTier('instance-preference').length).toBe(23)
     expect(settingsPathsInTier('server-secret').length).toBe(5)
     expect(classifySettingsPath('sidebar.groupByRepo')).toBeUndefined()

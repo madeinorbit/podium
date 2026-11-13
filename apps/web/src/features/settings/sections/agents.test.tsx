@@ -26,6 +26,8 @@ vi.mock('@/lib/use-model-catalog', () => ({
       : { catalog: fixture.catalog, status: 'ready' },
 }))
 vi.mock('@/lib/use-harness-descriptors', () => ({ useHarnessDescriptors: () => ({ served: [] }) }))
+// The background role's credential row reads `credentials.list`; its own test covers it.
+vi.mock('@/features/credentials/role-credential', () => ({ RoleCredentialRow: () => null }))
 
 const accounts: AccountView[] = [
   {

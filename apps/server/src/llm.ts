@@ -102,7 +102,7 @@ export function llmClient(
   const key = apiKey
   if (!key) {
     throw new LlmConfigError(
-      `no API key configured for ${backend.provider} — connect one in Settings → AI accounts`,
+      `no API key configured for ${backend.provider} — add one in Settings → Credentials`,
     )
   }
   const label = `${backend.provider} · ${backend.model}`

@@ -296,6 +296,9 @@ export default defineConfig(({ command, mode }) => {
         '@podium/commands/records': fileURLToPath(
           new URL('../../packages/commands/src/records/index.ts', import.meta.url),
         ),
+        '@podium/commands/credentials': fileURLToPath(
+          new URL('../../packages/commands/src/credentials/contracts.ts', import.meta.url),
+        ),
         '@podium/commands': fileURLToPath(
           new URL('../../packages/commands/src/index.ts', import.meta.url),
         ),

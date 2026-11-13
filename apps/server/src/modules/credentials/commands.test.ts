@@ -242,6 +242,33 @@ describe('acceptance 1: who may run which command', () => {
     expect(await seen('admin, not owner')).toEqual([])
   })
 
+  it('credentials.list tells the owner and a manager whom it is shared with, never a use holder', async () => {
+    const { as, credentialId } = await harness()
+    await as(member(OWNER)).credentials.share({
+      credentialId,
+      grantee: 'all-members',
+      verb: 'use',
+      acknowledgeDisclosure: true,
+    })
+    const sharedWith = async (who: Who) =>
+      (await as(CAPABILITY[who]).credentials.list()).find((view) => view.id === credentialId)
+        ?.sharedWith
+    const expected = expect.arrayContaining([
+      { grantee: { userId: MANAGER }, verb: 'manage' },
+      { grantee: { userId: USER }, verb: 'use' },
+      { grantee: 'all-members', verb: 'use' },
+    ])
+    expect(await sharedWith('owner')).toEqual(expected)
+    expect(await sharedWith('owner')).toHaveLength(3)
+    expect(await sharedWith('manage')).toEqual(expected)
+    // The use holder sees the row (canary) and no sharing on it.
+    const seenByUse = (await as(CAPABILITY.use).credentials.list()).find(
+      (view) => view.id === credentialId,
+    )
+    expect(seenByUse?.access).toBe('use')
+    expect(seenByUse).not.toHaveProperty('sharedWith')
+  })
+
   it('the owner can do everything in turn, and the credential ends removed', async () => {
     const { store, as, credentialId } = await harness()
     const owner = as(member(OWNER))

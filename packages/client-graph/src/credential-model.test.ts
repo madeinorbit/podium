@@ -38,4 +38,11 @@ describe('CredentialModel', () => {
     expect(model?.label).toBe('Renamed')
     expect(model?.canManage).toBe(false)
   })
+
+  it('carries whom the owner shared it with (epic Task 17)', () => {
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+    const sharedWith = [{ grantee: 'all-members', verb: 'use' }] as CredentialView['sharedWith']
+    const [id] = ingestRequested(pool, 'credential', [view({ sharedWith })], (row) => row.id)
+    expect(here(pool.model('credential', id as string))?.sharedWith).toEqual(sharedWith)
+  })
 })

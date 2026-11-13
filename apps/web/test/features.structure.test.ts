@@ -40,6 +40,14 @@ const EXCEPTIONS: Record<string, Record<string, string>> = {
     setup: 'settings reuses the SetupView form',
     terminal: 'appearance section edits the terminal appearance store (dc7e248)',
     updates: 'settings renders update audit copy from the updater operation view model',
+    credentials:
+      'settings mounts the Credentials page and the background role’s credential row (epic Task 17)',
+  },
+  // The Credentials page (credential management epic Task 17) is its own folder
+  // so later tasks add their "add" entries beside it, but it is a settings page:
+  credentials: {
+    settings: 'the page wears the settings rows, takeover frame and record readers',
+    setup: 'the page reads member names through the member directory request',
   },
   setup: { chat: 'the first-task composer reuses chat attachment state and rendering' },
   // The cost seams (POD-1859). `cost` is a shared SURFACE rather than a screen
