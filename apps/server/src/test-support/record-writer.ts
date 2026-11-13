@@ -85,7 +85,13 @@ export function recordTestWriter(
   // The writer drains the store's change capture, so the change log attaches
   // to a real store now (POD-6920); the first commit waits for it.
   const attached = (store as Partial<Pick<SessionStore, 'attachChangeLog'>>).attachChangeLog?.()
-  const transact = opts.transact ?? ((fn) => fn())
+  // A real store's commit is one store transaction, as in production.
+  const storeTransact = (store as Partial<Pick<SessionStore, 'transact'>>).transact
+  const transact: <T>(fn: () => Promise<T>) => Promise<T> =
+    opts.transact ??
+    (storeTransact === undefined
+      ? (fn) => fn()
+      : async (fn) => await storeTransact.call(store, fn))
   const authority = new Authority({
     store: memoryChangeLog(),
     now: opts.now ?? (() => 1_000),

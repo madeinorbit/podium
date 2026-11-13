@@ -40,9 +40,9 @@ async function world(opts: { online?: boolean } = {}) {
     assignment: { server: false, agentExecution: true },
   })
   await store.repos.addRepo(ROOT, M, 'git@github.com:acme/podium.git')
-  // The service's writer: an Authority that builds each named checkout before
-  // and after the write (compare at save); `captured` holds what it appended.
-  const records = recordTestWriter({ checkouts: store.checkouts }, { kinds: ['checkout'] })
+  // The service's writer: an Authority over the store's change capture that
+  // appends the checkouts a write changed (POD-6920); `captured` holds them.
+  const records = recordTestWriter(store, { kinds: ['checkout'] })
   const captured = records.appended
   const published: number[] = []
   let answer: { repositories: GitRepositoryWire[]; diagnostics: [] } = {

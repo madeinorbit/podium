@@ -55,7 +55,12 @@ export function issueTestPlumbing(
   // The Ledger reads the store's change capture, so the change log attaches
   // to the store now (POD-6920); the first commit waits for it.
   const attached = opts.store?.attachChangeLog()
-  const transact = opts.transact ?? (async (fn) => await fn())
+  // With a store, a commit is one store transaction, as in production: the
+  // write, its capture and the drain commit together.
+  const store = opts.store
+  const transact: LedgerDeps['transact'] =
+    opts.transact ??
+    (store === undefined ? async (fn) => await fn() : async (fn) => await store.transact(fn))
   const ledger = new Ledger({
     repo: memoryChangeLogStore(),
     now: Date.now,

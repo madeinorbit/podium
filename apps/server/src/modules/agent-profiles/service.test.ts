@@ -8,7 +8,11 @@ import { asSessionId, asUserId, type MachineId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { AgentProfilesRepository } from '../../store/agent-profiles'
+import { SyncRepository } from '@podium/sync'
+import { syncServerTables } from '../../migrations/sync-server-tables'
 import { createBunStoreExecutor } from '../../store/executor'
+import { installChangeCapture } from '../../sync/capture-triggers'
+import { RECORD_SOURCES, type RecordSources } from '../../sync/record-sources'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
 import { recordTestWriter } from '../../test-support/record-writer'
 import { type AgentProfileCaller, AgentProfileService, type AgentProfileWriter } from './service'
@@ -24,10 +28,25 @@ let probes: string[]
 let service: AgentProfileService
 let profiles: AgentProfilesRepository
 
-beforeEach(() => {
+let capture: { sync: SyncRepository; transact: <T>(fn: () => Promise<T>) => Promise<T> }
+
+beforeEach(async () => {
   db = openMigratedTestDatabase()
-  const queries = createBunStoreExecutor({ database: db }).queries
+  const executor = createBunStoreExecutor({ database: db })
+  const queries = executor.queries
   if (!queries) throw new Error('no synchronous query capability')
+  // The profile table's change capture, as a server installs it (POD-6920):
+  // a record write drains it into the test's Authority.
+  await executor.exclusive(
+    async (session) =>
+      await installChangeCapture(session, {
+        agentProfile: RECORD_SOURCES.agentProfile,
+      } as unknown as RecordSources),
+  )
+  capture = {
+    sync: new SyncRepository(queries, syncServerTables),
+    transact: async (fn) => await queries.createOrJoinTransaction(fn),
+  }
   runnable = new Set(['claude-code', 'codex'])
   probes = []
   profiles = new AgentProfilesRepository(queries)
@@ -68,7 +87,10 @@ describe('agent profiles', () => {
   let writer: AgentProfileWriter
   let changes: unknown[]
   beforeEach(() => {
-    const records = recordTestWriter({ agentProfiles: profiles }, { kinds: ['agentProfile'] })
+    const records = recordTestWriter(
+      { agentProfiles: profiles, sync: capture.sync },
+      { kinds: ['agentProfile'], transact: capture.transact },
+    )
     writer = records.writer
     changes = records.appended
   })
