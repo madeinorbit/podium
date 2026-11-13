@@ -1041,11 +1041,14 @@ export const RECORD_SOURCES: RecordSources = {
         return out
       },
     ),
-    // The issue and reference joins.
+    // The issue and reference joins: of its issue the record carries only
+    // the reference (`wireProjected`: the issue's repo id, or its path's,
+    // and its number) and whether the issue is there. Any other issue write
+    // leaves every session of the issue as it was.
     via(
       issues,
       [issues.id],
-      'all',
+      [issues.repoId, issues.repoPath, issues.seq, issues.deletedAt],
       async (changes, reads) => await sessionsOfIssues(firstKeys(changes), reads),
     ),
     // The reference's repo, resolved by path.
