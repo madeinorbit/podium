@@ -1,11 +1,15 @@
-import { omitGone } from './lookup'
-import { attachPreferenceSource } from '@podium/client-graph/preference-source'
-import { preferenceSource } from '@podium/client-graph/preference-source'
 import { createSideCache, memoryStorage } from '@podium/client-core/replica'
-import { createRoutedUiState, FIRST_TASK_ACTIVATION_DRAFT_KEY, type ReplicatedUiStatePort } from '@podium/client-core/ui-state'
+import {
+  createRoutedUiState,
+  FIRST_TASK_ACTIVATION_DRAFT_KEY,
+  ISSUES_DISPLAY_KEY,
+  type ReplicatedUiStatePort,
+} from '@podium/client-core/ui-state'
+import { attachPreferenceSource, preferenceSource } from '@podium/client-graph/preference-source'
 import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { checkPreferences } from '../../../tests/worklist/diagnostics/preference-check'
+import { omitGone } from './lookup'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
 
@@ -41,6 +45,31 @@ function fixture() {
   attachPreferenceSource(pool, ui)
   return { ui, get, pool, replicated }
 }
+
+it('returns the installed display on first demand without notifying or migrating during the read', async () => {
+  const f = fixture()
+  f.replicated.set('issues.display', { ordering: 'updated' })
+  const notified = vi.fn()
+  const off = f.ui.subscribe(notified)
+  const frames: unknown[] = []
+  const stop = autorun(() => {
+    const row = omitGone(f.pool.row('preference', ISSUES_DISPLAY_KEY))
+    frames.push(row && row !== LOADING ? row.value : row)
+  })
+  try {
+    expect(frames).toEqual(['{"ordering":"updated"}'])
+    expect(f.get).not.toHaveBeenCalled()
+    expect(notified).not.toHaveBeenCalled()
+    await flush()
+    expect(f.get).toHaveBeenCalledExactlyOnceWith(ISSUES_DISPLAY_KEY)
+    expect(frames).toEqual(['{"ordering":"updated"}'])
+    expect(notified).not.toHaveBeenCalled()
+  } finally {
+    stop()
+    off()
+    f.pool.dispose()
+  }
+})
 
 it('re-reads only the changed key in the owner batch, routes both homes, and drops unobserved keys', async () => {
   const f = fixture()
@@ -86,7 +115,7 @@ it('re-reads only the changed key in the owner batch, routes both homes, and dro
     expect(seen[keys[0]!]).toBe('final')
     expect(f.get.mock.calls).toEqual([[keys[0]]])
     stops[1]!()
-    expect((preferenceSource(f.pool)?.keys() ?? [])).not.toContain(keys[1])
+    expect(preferenceSource(f.pool)?.keys() ?? []).not.toContain(keys[1])
     f.get.mockClear()
     f.ui.set(keys[1]!, '2')
     await flush()

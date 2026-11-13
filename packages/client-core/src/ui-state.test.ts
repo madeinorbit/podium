@@ -238,6 +238,32 @@ describe('workspace ui-state routing', () => {
     expect(replicated.set).toHaveBeenCalledOnce()
   })
 
+  it('peeks at installed values without migrating or clearing legacy state', () => {
+    const key = UI_STATE_KEYS.issuesDisplay
+    const legacy = '{"ordering":"priority"}'
+    const local = memoryUi({ [key]: legacy, [SHELL_DENSITY_KEY]: 'compact' })
+    const writeLocal = vi.spyOn(local, 'set')
+    const replicated = replicatedUi({ 'issues.display': { ordering: 'updated' } })
+    const ui = createRoutedUiState({ local, replicated })
+
+    expect(ui.peek?.(key)).toBe('{"ordering":"updated"}')
+    expect(ui.peek?.(SHELL_DENSITY_KEY)).toBe('compact')
+    expect(writeLocal).not.toHaveBeenCalled()
+    expect(replicated.set).not.toHaveBeenCalled()
+    expect(ui.get(key)).toBe('{"ordering":"updated"}')
+    expect(writeLocal).toHaveBeenCalledExactlyOnceWith(key, null)
+
+    writeLocal.mockClear()
+    local.data.set(key, legacy)
+    replicated.data.clear()
+    expect(ui.peek?.(key)).toBeNull()
+    expect(writeLocal).not.toHaveBeenCalled()
+    expect(replicated.set).not.toHaveBeenCalled()
+    expect(ui.get(key)).toBe(legacy)
+    expect(replicated.set).toHaveBeenCalledExactlyOnceWith('issues.display', legacy)
+    expect(writeLocal).toHaveBeenCalledExactlyOnceWith(key, null)
+  })
+
   it('cannot let a second principal re-consume the first principal migration', () => {
     const actingPrincipalLocal = memoryUi({ [UI_STATE_KEYS.panelMode]: '{"s1":"chat"}' })
     const alice = replicatedUi()

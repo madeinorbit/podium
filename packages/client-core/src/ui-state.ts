@@ -665,6 +665,8 @@ export interface ReplicatedUiStatePort {
 
 export interface RoutedUiState {
   get(key: string): string | null
+  /** Read an installed value without migrating or clearing legacy state. */
+  peek?(key: string): string | null
   set(key: string, value: string | null): void
   subscribe(cb: (keys: ReadonlySet<string>) => void): () => void
 }
@@ -710,16 +712,17 @@ export function createRoutedUiState(init: {
         'follows the user (POD-1380)',
     )
   }
-  const read = (key: string): string | null => {
+  const read = (key: string, migrate = true): string | null => {
     const route = uiStateRoute(key)
     refuseCommandHome(key, route)
     if (route.home !== 'per-user-replicated') return local.get(key)
     const layoutKey = requireReplicatedLayoutKey(key)
     const current = replicatedString(replicated, layoutKey)
     if (current !== null) {
-      if (local.get(key) !== null) local.set(key, null)
+      if (migrate && local.get(key) !== null) local.set(key, null)
       return current
     }
+    if (!migrate) return null
     const legacy = local.get(key)
     if (legacy === null) return null
     replicated.set(layoutKey, legacy)
@@ -728,6 +731,7 @@ export function createRoutedUiState(init: {
   }
   return {
     get: read,
+    peek: (key) => read(key, false),
     set: (key, value) => {
       const route = uiStateRoute(key)
       refuseCommandHome(key, route)

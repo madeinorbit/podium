@@ -1,13 +1,15 @@
-import type { MobxPool } from './pool'
-import { defineSource } from './source-registry'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { createDemandAtoms } from '@podium/mobx-helpers'
-import { runInAction } from 'mobx'
+import { runInAction, untracked } from 'mobx'
+import type { MobxPool } from './pool'
 import { declarePreference, type PreferenceRow } from './preference-schema'
+import { defineSource } from './source-registry'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 declare module './source-registry' {
-  interface PoolSourceRows { preference: PreferenceRow }
+  interface PoolSourceRows {
+    preference: PreferenceRow
+  }
 }
 
 /** Read-only pool storage. Only MobxPool.row calls read; the runtime's routed UI
@@ -29,7 +31,9 @@ export class PreferenceSource {
     refresh: this.refresh.bind(this),
     release: this.release.bind(this),
   })
-  private get disposed(): boolean { return this.source.disposed }
+  private get disposed(): boolean {
+    return this.source.disposed
+  }
   private readonly unsubscribe: () => void
   readonly counts = { batches: 0, loaded: 0, notifications: 0 }
 
@@ -53,13 +57,25 @@ export class PreferenceSource {
 
   private readById(key: string): Loaded<PreferenceRow> {
     // Validate the routing home before either observing or reading the owner.
-    if (!this.homes.has(key)) this.homes.set(key, declarePreference(key))
+    let home = this.homes.get(key)
+    if (home === undefined) {
+      home = declarePreference(key)
+      this.homes.set(key, home)
+    }
     this.atoms.observe(key)
     const row = this.rows.get(key)
     if (row !== undefined) return row
+    // The owner already has persisted layout on boot. Seed this same row on
+    // first demand so a screen never paints its default over an installed value.
+    // peek is pure: get can migrate legacy state, so it stays in the existing
+    // deferred refresh. Seeding a plain map needs no action or notification.
+    // untracked-read: preference-boot-seed
+    const value = untracked(() => this.ui.peek?.(key))
+    const seed = value == null ? undefined : { key, home, value }
+    if (seed) this.rows.set(key, seed)
     this.pending.add(key)
     this.schedule()
-    return LOADING
+    return seed ?? LOADING
   }
 
   keys(): readonly string[] {
