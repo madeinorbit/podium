@@ -30,16 +30,26 @@ async function harness() {
   const callback = intervals.mock.calls[0]?.[0] as () => Promise<void>
   const interval = intervals.mock.results[0]?.value
   intervals.mockRestore()
+  let closed = false
   return {
     registry,
     store,
     sa,
     interval,
     tick: () => Promise.resolve(callback()),
-    async close() {
-      await sa.dispose()
+    /** The server's shutdown order: the registry (whose disposal still
+     *  publishes through the store, POD-6764), then the store. */
+    async closeStore() {
       await registry.dispose()
       await store.close()
+      closed = true
+    },
+    async close() {
+      await sa.dispose()
+      if (!closed) {
+        await registry.dispose()
+        await store.close()
+      }
       vi.restoreAllMocks()
       vi.useRealTimers()
     },
@@ -141,7 +151,7 @@ describe('turn reaper shutdown', () => {
       await h.sa.dispose()
       await h.sa.dispose()
       expect(clear).toHaveBeenCalledWith(h.interval)
-      await h.store.close()
+      await h.closeStore()
       await vi.advanceTimersByTimeAsync(3_000)
       await expect(h.tick()).resolves.toBeUndefined()
       expect(reads).toHaveBeenCalledTimes(1)

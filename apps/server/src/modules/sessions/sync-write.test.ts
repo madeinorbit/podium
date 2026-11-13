@@ -30,6 +30,7 @@ const CASES: ReadonlyArray<{
   command: string
   input: (sessionId: SessionId) => Record<string, unknown>
   writes: boolean
+  before?: (o: Oracle, sessionId: SessionId) => Promise<void>
 }> = [
   {
     command: 'sessions.rename',
@@ -47,7 +48,21 @@ const CASES: ReadonlyArray<{
     writes: true,
   },
   { command: 'sessions.markRead', input: (sessionId) => ({ sessionId }), writes: true },
-  { command: 'sessions.markUnread', input: (sessionId) => ({ sessionId }), writes: true },
+  {
+    // A marker the member never set is already absent: deleting it changes
+    // nothing and logs nothing (POD-6920). The member reads the session first.
+    command: 'sessions.markUnread',
+    input: (sessionId) => ({ sessionId }),
+    writes: true,
+    before: async (o, sessionId) => {
+      appliedReply(
+        await submit(
+          o,
+          envelope('sessions.markRead', { sessionId }, 'msg_00000000-0000-4000-8000-0000000000bb'),
+        ),
+      )
+    },
+  },
   {
     command: 'snoozes.set',
     input: (sessionId) => ({ sessionId, until: '2099-01-01T00:00:00.000Z' }),
@@ -76,6 +91,7 @@ describe('the session family on sync.submit', () => {
     it(`${c.command}: provenance, the receipt at the head, a replay runs nothing`, async () => {
       const o = await makeOracle()
       const sessionId = await shellSession(o)
+      await c.before?.(o, sessionId)
       const mutationId = `msg_00000000-0000-4000-8000-${String(CASES.indexOf(c)).padStart(12, '0')}`
 
       await expectAppliedOnPath(o, envelope(c.command, c.input(sessionId), mutationId), {
