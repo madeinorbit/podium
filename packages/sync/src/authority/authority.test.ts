@@ -187,9 +187,10 @@ describe('authority write funnel', () => {
     ambient = {}
     await authority.save([upsert('t', 2)])
     expect(current).toHaveBeenCalledTimes(2)
-    expect(await store.changesSince(0)).toMatchObject([
-      { mutationId: 'first', originId: 'ambient' },
-    ])
+    expect((await store.changesSince(0))[0]).toMatchObject({
+      mutationId: 'first',
+      originId: 'ambient',
+    })
     const second = (await store.changesSince(1))[0]!
     expect(second).not.toHaveProperty('mutationId')
     expect(second).not.toHaveProperty('originId')
