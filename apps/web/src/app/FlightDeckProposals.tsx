@@ -1,99 +1,22 @@
-import { discoveredPlacement } from '@podium/client-core/values'
 import type { FullDeck, FullDeckTask } from '@podium/client-graph/mission-full-deck'
-import { requireLoaded, settled } from '@podium/client-graph/mission-view'
+import {
+  type ProposalAction,
+  type ProposalProvenance,
+  pendingLabel,
+  type Submission,
+  submissionsFor,
+  successLabel,
+} from '@podium/client-graph/mission-proposals'
+import { settled } from '@podium/client-graph/mission-view'
 import { observer } from '@podium/client-graph/react'
-import { companion, lazy } from '@podium/mobx-helpers'
-import { asIssueId, asMutationId } from '@podium/model'
 import { Check, X } from 'lucide-react'
-import { action, compareShallow, observable, runInAction } from 'mobx'
 import { type JSX, type MouseEvent, useState } from 'react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTipAnchorVisible, useTipMoment, useTipUnseen } from '@/features/tips'
 import { openMiniview } from '@/lib/ref-activation'
 import { useRuntimeSelector } from './store'
-import type { Trpc } from './trpc'
 
-type ProposalAction = 'backlog' | 'start' | 'dismiss'
-type Submission = {
-  action: ProposalAction
-  mutationId: ReturnType<typeof asMutationId>
-  phase: 'pending' | 'success' | 'error'
-  error?: string
-}
-const pendingLabel = { backlog: 'Adding to backlog…', start: 'Starting…', dismiss: 'Dismissing…' }
-const successLabel = { backlog: 'In backlog', start: 'Started', dismiss: 'Dismissed' }
-
-class ProposalProvenance {
-  constructor(readonly task: FullDeckTask) {}
-  @lazy get tooltip(): string {
-    const issue = requireLoaded(this.task.deck.screen.reader.catalogIssue(this.task.id))
-    // The shared stage-independent placement reader keeps provenance on a receipt
-    // after the proposal has joined the accepted tree or left for its own issue.
-    const placement = issue ? discoveredPlacement(issue)?.placement : null
-    return `Proposed by ${this.task.proposalAuthor ?? 'an agent'} · ${placement === 'own' ? 'Own issue' : placement === 'mission' ? 'Here in this mission' : 'Placement not specified'}`
-  }
-}
-
-/** UI state for this mission opening only. The pool remains the sole record store.
- * Receipts keep only the command outcome and its ID, including across publication. */
-class ProposalSubmissions {
-  constructor(readonly full: FullDeck) {}
-  readonly provenance = companion((task: FullDeckTask) => new ProposalProvenance(task))
-  readonly byId = observable.map<string, Submission>([], { deep: false })
-
-  @lazy({ equals: compareShallow }) get ids(): readonly string[] {
-    return this.listed(settled(() => this.full.proposalIds))
-  }
-  /** Proposals the mission's root filed as their own issues (POD-2043): the
-   * moved-conversation pane offers them in the same rows. */
-  @lazy({ equals: compareShallow }) get spinOffIds(): readonly string[] {
-    return this.listed(settled(() => this.full.screen.spinOffProposalIds))
-  }
-  /** Still proposed, or acted on in this opening and not dismissed: a receipt
-   * outlives the stage change it caused. */
-  private listed(proposed: readonly string[] | symbol): string[] {
-    return [
-      ...new Set([...(typeof proposed === 'symbol' ? [] : proposed), ...this.byId.keys()]),
-    ].filter((id) => {
-      const status = this.byId.get(id)
-      return (
-        !(status?.action === 'dismiss' && status.phase === 'success') &&
-        settled(() => this.full.task(id).abandoned) !== true
-      )
-    })
-  }
-
-  @action async submit(id: string, verb: ProposalAction, trpc: Trpc): Promise<void> {
-    const previous = this.byId.get(id)
-    // Synchronous guard: even two clicks in the same React turn issue one command.
-    if (previous?.phase === 'pending' || previous?.phase === 'success') return
-    const mutationId =
-      previous?.action === verb ? previous.mutationId : asMutationId(crypto.randomUUID())
-    this.byId.set(id, { action: verb, mutationId, phase: 'pending' })
-    try {
-      const input = { id: asIssueId(id), mutationId }
-      // The operator-authenticated client uses the existing commands. In particular,
-      // start owns promotion, placement and proposal → parent → mission profiles.
-      if (verb === 'backlog') await trpc.issues.promote.mutate(input)
-      else if (verb === 'start') await trpc.issues.start.mutate(input)
-      else await trpc.issues.close.mutate({ ...input, reason: 'declined' })
-      runInAction(() => this.byId.set(id, { action: verb, mutationId, phase: 'success' }))
-    } catch (error) {
-      runInAction(() =>
-        this.byId.set(id, {
-          action: verb,
-          mutationId,
-          phase: 'error',
-          error: error instanceof Error ? error.message : String(error),
-        }),
-      )
-    }
-  }
-}
-
-// The opening's Full view model owns this companion's lifetime. A temporary
-// loading screen or mode switch must not discard an in-flight command/receipt.
-const submissionsFor = companion((full: FullDeck) => new ProposalSubmissions(full))
+export { ProposalSubmissions, submissionsFor } from '@podium/client-graph/mission-proposals'
 
 const FIRST_PROPOSAL_ANCHOR = 'first-proposal'
 const firstProposalCards = [
