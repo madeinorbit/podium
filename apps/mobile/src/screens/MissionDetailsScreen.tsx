@@ -59,7 +59,7 @@ export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
       subtitle="Flight deck"
       underHeader
       onBack={() => (router.canGoBack() ? router.back() : router.replace('/work'))}
-      backLabel="Work"
+      backLabel={Platform.OS === 'web' ? 'Back' : 'Work'}
     >
       {!resolved ? (
         <DetailSkeleton />

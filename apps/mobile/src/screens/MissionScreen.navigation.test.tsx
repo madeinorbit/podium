@@ -261,6 +261,7 @@ it('web keeps an explicit chat-to-deck URL push and returns to the selected conv
   await act(async () => fireEvent.click(screen.getByTestId('mission-bar')))
   expect(navigation.push).toHaveBeenCalledWith('/mission/root/details?sessionId=child-lead')
   await waitFor(() => expect(screen.getByTestId('deck-seat')).toBeTruthy())
+  expect(screen.getByRole('button', { name: 'Back' })).toBeTruthy()
   expect(navigation.state?.routes.map((route) => route.name)).toEqual([
     '(tabs)',
     MISSION_CHAT,
