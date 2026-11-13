@@ -568,6 +568,14 @@ export {
   superagentUserFocus,
 } from './superagent/contracts'
 export {
+  VAULT_CONTRACT_NAMES,
+  VAULT_CONTRACTS,
+  type VaultContractName,
+  type VaultResetInput,
+  vaultResetContract,
+  vaultResetInput,
+} from './vault/contracts'
+export {
   WORKFLOW_ADVANCE_NAMES,
   WORKFLOW_CONTRACTS,
   type WorkflowCommandContract,

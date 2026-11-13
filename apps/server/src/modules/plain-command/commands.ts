@@ -34,6 +34,7 @@ import { SESSION_PLAIN_REGISTRATIONS } from '../sessions/plain-family'
 import { SETTINGS_PLAIN_REGISTRATIONS } from '../settings/trpc'
 import { SPEC_PLAIN_FAMILY } from '../specs/plain-family'
 import { UPDATE_PLAIN_REGISTRATIONS } from '../updates/trpc'
+import { VAULT_PLAIN_FAMILY } from '../vault/plain-family'
 import { plainFamilyRegistrations } from './declare'
 import { PlainCommandRegistry, type PlainRegistration } from './registry'
 
@@ -54,6 +55,7 @@ const registrations = (): readonly PlainRegistration[] => [
   ...SETTINGS_PLAIN_REGISTRATIONS,
   ...plainFamilyRegistrations(SPEC_PLAIN_FAMILY),
   ...plainFamilyRegistrations(TELEMETRY_PLAIN_FAMILY),
+  ...plainFamilyRegistrations(VAULT_PLAIN_FAMILY),
   ...UPDATE_PLAIN_REGISTRATIONS,
 ]
 

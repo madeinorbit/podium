@@ -371,6 +371,18 @@ const LOW_SELECTIVITY: ReadonlySet<string> = new Set([
  */
 const SMALL_TABLES: ReadonlyMap<string, string> = new Map([
   ['accounts', 'Provider accounts the operator configures by hand.'],
+  [
+    'credentials',
+    'Credentials people add by hand or sign in to, a few per person and provider. Only a vault reset updates them all.',
+  ],
+  [
+    'account_machine_sends',
+    'Machines an owner sent a key to by hand, a few per key. Read whole only by the one-time move into the vault.',
+  ],
+  [
+    'credential_secrets',
+    'One sealed secret per credential (older versions are deleted on write); people add credentials by hand. Only a vault reset reads it whole.',
+  ],
   ['automations', 'Schedules people define by hand; a handful per person.'],
   ['machines', 'The fleet: one row per enrolled machine.'],
   ['repos', 'One row per repository checkout per machine.'],

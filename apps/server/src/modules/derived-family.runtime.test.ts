@@ -46,6 +46,7 @@ import { INTERACTION_COMMANDS_TRPC } from './interactions/registry'
 import { LOGS_COMMANDS_TRPC } from './logs/registry'
 import { MODEL_COMMANDS_TRPC } from './models/registry'
 import { PERF_COMMANDS_TRPC } from './perf/commands'
+import { VAULT_COMMANDS_TRPC } from './vault/registry'
 
 /** A tRPC v11 procedure record carries its verb on `_def.type`. Read
  *  structurally so this test does not depend on a tRPC helper's shape. */
@@ -73,6 +74,7 @@ const FAMILIES = [
   // Client log ingestion (chunk 3 of the logging strategy) — derived on the
   // same builder, so it is pinned by the same non-vacuity floor below.
   { router: 'logs', table: LOGS_COMMANDS_TRPC },
+  { router: 'vault', table: VAULT_COMMANDS_TRPC },
 ] as const
 
 const routerRecord = (name: string): Record<string, unknown> =>
@@ -113,11 +115,14 @@ describe('the derived families, against the RUNNING appRouter', () => {
    * (The base this was measured on already served 35, not the 36 pinned here.)
    * 33 -> 32: `accounts.keys` is a query (POD-6705), retaining its admin gate.
    * 32 -> 33: `auth.setDisplayName` (POD-6658) lets a member edit their own name.
+   * 34 -> 35, eleven -> twelve families: `vault.reset` (POD-6889), an admin's way
+   * out when the credential vault's key file is lost for good. (The base served 34
+   * against a pin of 33 already.)
    */
-  it('governs eleven families and thirty-three derived writes', () => {
-    expect(FAMILIES).toHaveLength(11)
+  it('governs twelve families and thirty-five derived writes', () => {
+    expect(FAMILIES).toHaveLength(12)
     const total = FAMILIES.reduce((n, f) => n + Object.keys(f.table).length, 0)
-    expect(total).toBe(33)
+    expect(total).toBe(35)
   })
 
   it.each(

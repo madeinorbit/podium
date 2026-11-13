@@ -30,13 +30,8 @@
  * a blank and a reader cannot mistake one for a configured secret.
  */
 
-import {
-  INSTALLATION_META_KEY,
-  INSTALLATION_PRIVATE_KEY,
-  parseInstallationIdentity,
-  type InstallationIdentity,
-} from '@podium/runtime/installation-identity'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
+import { createLogger } from '@podium/logger'
 import {
   SERVER_SECRET_KEYS,
   type SecretPresenceWire,
@@ -45,10 +40,17 @@ import {
 } from '@podium/model'
 import type { PortableCredentialBundle as PortableCredentialBundleValue } from '@podium/protocol'
 import { PortableCredentialBundle } from '@podium/protocol'
+import {
+  INSTALLATION_META_KEY,
+  INSTALLATION_PRIVATE_KEY,
+  type InstallationIdentity,
+  parseInstallationIdentity,
+} from '@podium/runtime/installation-identity'
 import { eq, sql } from 'drizzle-orm'
 import { FINGERPRINT_SECRET_KEY } from '../fingerprint-key-import'
 import { meta, serverSecrets } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { SealedSecret, SecretBinding, Vault } from '../modules/credentials/vault'
+import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import { param, prepared } from './executor/sync-drizzle'
 
 /** Internal key of the sign-in signing secret; not a settings secret. */
@@ -57,6 +59,46 @@ export const IDENTITY_SIGNING_SECRET_KEY = 'identity.signingSecret'
 function nativeLoginTransferKey(principalUserId: UserId, transferId: string): string {
   const principal = createHash('sha256').update(principalUserId).digest('hex')
   return 'native-login-transfer:' + principal + ':' + transferId
+}
+
+const log = createLogger('server:secrets')
+
+/**
+ * The server secrets the credential vault seals (design §7: "the same primitive
+ * covers two other server secrets"). Their rows hold an envelope, never the
+ * plaintext; {@link ServerSecretsRepository.get} opens it for the callers that
+ * always had the plaintext.
+ */
+export const VAULT_SEALED_SECRET_KEYS = [
+  'integrations.linearApiKey',
+  'notifications.telegramBotToken',
+] as const satisfies readonly ServerSecretKey[]
+
+const isVaultSealedKey = (key: string): boolean =>
+  (VAULT_SEALED_SECRET_KEYS as readonly string[]).includes(key)
+
+const ENVELOPE_PREFIX = 'vault:v1:'
+
+/** The binding for a sealed server secret: the key name, so two rows cannot swap. */
+const bindingFor = (key: string): SecretBinding => ({
+  credentialId: `server-secret:${key}`,
+  type: 'server-secret',
+  version: 1,
+})
+
+function envelopeOf(sealed: SealedSecret): string {
+  return `${ENVELOPE_PREFIX}${sealed.keyId}:${sealed.nonce.toString('base64')}:${sealed.ciphertext.toString('base64')}`
+}
+
+function parseEnvelope(value: string): SealedSecret | undefined {
+  if (!value.startsWith(ENVELOPE_PREFIX)) return undefined
+  const [keyId, nonce, ciphertext] = value.slice(ENVELOPE_PREFIX.length).split(':')
+  if (!keyId || !nonce || !ciphertext) return undefined
+  return {
+    keyId,
+    nonce: Buffer.from(nonce, 'base64'),
+    ciphertext: Buffer.from(ciphertext, 'base64'),
+  }
 }
 
 // Every query this repository runs, prepared once per store [POD-6147].
@@ -119,6 +161,8 @@ const secretPresence = prepared((db: StoreDrizzle) =>
 export class ServerSecretsRepository {
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
+  private vault: Vault | undefined
+  private readonly unopenedReported = new Set<string>()
 
   constructor(queries: StoreQueries) {
     this.rootDb = queries.rootDb
@@ -234,14 +278,88 @@ export class ServerSecretsRepository {
 
   async get(key: ServerSecretKey): Promise<string | undefined> {
     const row = await secretValue(this.db).get({ key })
-    return row?.value
+    if (!row) return undefined
+    return isVaultSealedKey(key) ? this.openSealed(key, row.value) : row.value
+  }
+
+  /** The vault that seals {@link VAULT_SEALED_SECRET_KEYS}; set by the store at boot. */
+  useVault(vault: Vault): void {
+    this.vault = vault
+  }
+
+  /**
+   * A sealed key's plaintext. A row from before the vault (plain text) is
+   * returned as it is until the boot seals it. A sealed row the vault cannot open
+   * (locked, or reset) reads as absent, which every caller already treats as "not
+   * configured"; it is reported once, without the value.
+   */
+  private openSealed(key: string, value: string): string | undefined {
+    const sealed = parseEnvelope(value)
+    if (!sealed) return value.startsWith(ENVELOPE_PREFIX) ? undefined : value
+    try {
+      if (!this.vault) throw new Error('the vault is not open yet')
+      return this.vault.open(bindingFor(key), sealed).toString('utf8')
+    } catch (error) {
+      if (!this.unopenedReported.has(key)) {
+        this.unopenedReported.add(key)
+        log.warn('a sealed server secret cannot be opened', {
+          key,
+          reason: error instanceof Error ? error.message : String(error),
+        })
+      }
+      return undefined
+    }
+  }
+
+  /** The stored form of a value: sealed for the vault's keys, refused when it cannot seal. */
+  private async storedForm(key: ServerSecretKey, value: string): Promise<string> {
+    if (!isVaultSealedKey(key)) return value
+    if (!this.vault) throw new Error('The vault is not open, so this secret cannot be stored.')
+    const plaintext = Buffer.from(value, 'utf8')
+    try {
+      return envelopeOf(await this.vault.seal(bindingFor(key), plaintext))
+    } finally {
+      plaintext.fill(0)
+    }
+  }
+
+  /**
+   * Seal, in place, any of the vault's keys still stored as plain text (rows
+   * written before the vault existed). Keeps each row's `updated_at`. Returns how
+   * many rows it sealed. Each is read back through the vault before it counts.
+   */
+  async sealInPlace(): Promise<number> {
+    let sealed = 0
+    for (const key of VAULT_SEALED_SECRET_KEYS) {
+      const row = await secretValue(this.db).get({ key })
+      if (!row || row.value.startsWith(ENVELOPE_PREFIX)) continue
+      const updatedAt = (await secretUpdatedAt(this.db).get({ key }))?.updatedAt ?? ''
+      await upsertSecret(this.db).run({
+        key,
+        value: await this.storedForm(key, row.value),
+        updatedAt: updatedAt || new Date().toISOString(),
+      })
+      if ((await this.get(key)) !== row.value) {
+        throw new Error(`sealing ${key} did not read back`)
+      }
+      sealed += 1
+    }
+    return sealed
+  }
+
+  /** Vault reset: delete the vault's keys that are stored sealed (they can no longer open). */
+  async clearSealed(): Promise<void> {
+    for (const key of VAULT_SEALED_SECRET_KEYS) {
+      const row = await secretValue(this.db).get({ key })
+      if (row?.value.startsWith(ENVELOPE_PREFIX)) await deleteSecret(this.db).run({ key })
+    }
   }
 
   /** {@link get}, with the empty string for absent — for the several consumers
    *  whose downstream shape is a `string` and whose "not configured" test is
    *  already `!value`. Named so the substitution is visible at the call site. */
   async getOrEmpty(key: ServerSecretKey): Promise<string> {
-    return await this.get(key) ?? ''
+    return (await this.get(key)) ?? ''
   }
 
   /**
@@ -257,7 +375,7 @@ export class ServerSecretsRepository {
       await this.clear(key)
       return
     }
-    await upsertSecret(this.db).run({ key, value, updatedAt })
+    await upsertSecret(this.db).run({ key, value: await this.storedForm(key, value), updatedAt })
   }
 
   /**

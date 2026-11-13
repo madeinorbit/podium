@@ -45,8 +45,10 @@ import type { IdentityDatabase, SqliteDb } from '@podium/identity'
 import { createLogger } from '@podium/logger'
 import { asMachineId, type MachineId } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
+import { resolveInstanceId } from '@podium/runtime/instance'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { importUpdateSigningKey } from '@podium/runtime/update-signing-key'
+import { fileKeyProvider, resolveVaultKeyPath } from '@podium/runtime/vault-key'
 import { SyncRepository } from '@podium/sync'
 import { importEnrollmentLedger } from './enrollment-ledger-import'
 import { isFeatureEnabled } from './features'
@@ -67,6 +69,8 @@ import {
   withFileTempStore,
 } from './migrations/store-lifecycle'
 import { syncServerTables } from './migrations/sync-server-tables'
+import { importLegacyCredentials } from './modules/credentials/legacy-import'
+import { Vault } from './modules/credentials/vault'
 import { OperationStore } from './modules/operations/store'
 import { UpdateRecoveryStore } from './modules/updates/recovery-store'
 import { importConfigSettings } from './settings-config-import'
@@ -75,6 +79,7 @@ import { AgentProfilesRepository } from './store/agent-profiles'
 import { AutomationsRepository } from './store/automations'
 import { CheckoutsRepository } from './store/checkouts'
 import { ConversationsRepository } from './store/conversations'
+import { CredentialsRepository, type VaultKeyCheck } from './store/credentials'
 import { EffectsRepository } from './store/effects'
 import { EventsRepository } from './store/events'
 import {
@@ -194,6 +199,16 @@ export class SessionStore {
   /** Managed LLM credentials [spec:SP-6454] — server-held, injected at spawn.
    *  Deliberately NOT in the settings blob, which round-trips to the browser. */
   readonly accounts: AccountsRepository
+  /** Credentials and their sealed secrets (credential management design §4). */
+  readonly credentials: CredentialsRepository
+  /** The vault as the credentials repository sees it; set once the store opens it. */
+  private vaultKeyCheck: VaultKeyCheck | undefined
+  private openedVault: Vault | undefined
+  /** The credential vault (credential management design §7), opened at boot. */
+  get vault(): Vault {
+    if (!this.openedVault) throw new Error('the vault is opened by SessionStore.open')
+    return this.openedVault
+  }
   readonly machines: MachinesRepository
   /** The `(entityRef, granteeUserId, verb)` grant edges (POD-1079, ADR 9 D2) —
    *  read live at every access decision, never cached into a rights snapshot. */
@@ -276,6 +291,8 @@ export class SessionStore {
     hostMachineId: MachineId = asMachineId(randomUUID()),
     options: SnapshotVerifierDeps & {
       queryOnly?: boolean
+      /** The vault's outside key file. Default: `resolveVaultKeyPath` for this instance. */
+      vaultKeyFile?: string
       /**
        * `whenLogAttaches` is a test store's (`openTestStore`): no change is
        * captured until a change log attaches to the store
@@ -363,6 +380,12 @@ export class SessionStore {
       const backfillStarted = performance.now()
       await store.initialize()
       bootStage('backfill', backfillStarted)
+      const vaultStarted = performance.now()
+      await store.openVault(
+        options.vaultKeyFile ?? resolveVaultKeyPath(process.env, resolveInstanceId(process.env)),
+        options.queryOnly === true,
+      )
+      bootStage('vault', vaultStarted)
       // DERIVED CHANGE CAPTURE (POD-6920): from here every write of a row a
       // synced record reads is captured, and a transaction that does not drain
       // its capture into the log cannot commit.
@@ -459,6 +482,7 @@ export class SessionStore {
     this.secrets = new ServerSecretsRepository(this.queries)
     this.settingsAudit = new SettingsAuditRepository(this.queries)
     this.accounts = new AccountsRepository(this.queries)
+    this.credentials = new CredentialsRepository(this.queries, () => this.vaultKeyCheck)
     this.grants = new GrantsRepository(this.queries)
     this.machines = new MachinesRepository(
       this.queries,
@@ -488,6 +512,59 @@ export class SessionStore {
     this.operations = new OperationStore(this.queries)
     this.messagingTopics = new MessagingTopicsRepository(this.queries)
     this.messagingSessionAttachments = new MessagingSessionAttachmentsRepository(this.queries)
+  }
+
+  /**
+   * Open the vault, then seal the server secrets it protects and move the keys
+   * stored before it. A missing or unusable key never fails the boot: the vault
+   * reports why (`podium vault status`) and the credentials it holds read
+   * "needs attention". A read-only (recovery) boot writes nothing.
+   */
+  private async openVault(keyPath: string, readOnly: boolean): Promise<void> {
+    const vault = await Vault.open({
+      keyPath,
+      provider: () => fileKeyProvider(keyPath),
+      store: {
+        readVaultKey: () => this.credentials.readVaultKey(),
+        insertVaultKeyIfAbsent: (keyId, wrapped) =>
+          this.credentials.insertVaultKeyIfAbsent(keyId, wrapped),
+        deleteVaultKeyAndSecrets: (reason) =>
+          this.queries.createOrJoinTransaction(async () => {
+            const affected = await this.credentials.deleteVaultKeyAndSecrets(reason)
+            await this.secrets.clearSealed()
+            return affected
+          }),
+      },
+    })
+    this.openedVault = vault
+    this.vaultKeyCheck = vault
+    this.secrets.useVault(vault)
+    const status = vault.status()
+    if (status.problem) {
+      log.warn('the credential vault cannot use its key', {
+        state: status.state,
+        keyPath,
+        problem: status.problem,
+      })
+    }
+    if (readOnly) return
+    try {
+      await this.secrets.sealInPlace()
+    } catch (error) {
+      log.error('sealing the server secrets failed', { err: error })
+    }
+    // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
+    try {
+      await importLegacyCredentials({
+        secrets: this.secrets,
+        users: this.users,
+        credentials: this.credentials,
+        vault,
+        transaction: (run) => this.queries.createOrJoinTransaction(run),
+      })
+    } catch (error) {
+      log.error('moving the old keys into the vault failed', { err: error })
+    }
   }
 
   private async initialize(): Promise<void> {

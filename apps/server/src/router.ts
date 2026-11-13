@@ -88,6 +88,7 @@ import { specFamilyProcedures } from './modules/specs/trpc'
 import { superagentFamilyProcedures } from './modules/superagent/trpc'
 import { syncWriteProcedures } from './modules/sync-write/trpc'
 import { updateProcedures } from './modules/updates/trpc'
+import { vaultFamilyProcedures } from './modules/vault/trpc'
 import type { RegistryModules } from './relay'
 import { canonicalizeRepoOrigin } from './repo-id'
 import { browseDirectories } from './repo-registry'
@@ -386,6 +387,7 @@ export const appRouter = t.router({
    * and never returning a credential — only its masked `identity`.
    */
   accounts: t.router(accountFamilyProcedures()),
+  vault: t.router(vaultFamilyProcedures()),
   // PER-USER STATE (POD-380): the caller's saved orders.
   // setPrefix · add · addMany · remove — DERIVED (POD-384). Store-level
   // validation (^[A-Z]{2,5}$, server-wide prefix uniqueness, absolute paths) is

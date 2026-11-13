@@ -192,24 +192,36 @@ readWrappedDataKey(db: SqlDatabase): { keyId: string; wrapped: Buffer } | null
 writeWrappedDataKey(db: SqlDatabase, provider: KeyProvider, dataKey: Buffer): Promise<void>
 vaultCheckValue(dataKey: Buffer, transferId: string): string  // HMAC-SHA256, hex
 
-// apps/server/src/modules/credentials/vault.ts
+// apps/server/src/modules/credentials/vault.ts — the store's vault is `store.vault`
 type SecretBinding = { credentialId: string; type: string; version: number }
-class Vault { seal(bound: SecretBinding, plaintext: Buffer): SealedSecret
+type SealedSecret = { ciphertext: Buffer; nonce: Buffer; keyId: string }   // keyId: the data key's id
+class Vault { seal(bound: SecretBinding, plaintext: Buffer): Promise<SealedSecret>  // async: the first seal creates the data key
               open(bound: SecretBinding, sealed: SealedSecret): Buffer
               state(): 'ready' | 'empty' | 'locked'             // locked: a data key exists and cannot be opened
+              status(): { keyPath; keyId: string | null; state; problem: string | null }
+              canOpen(dataKeyId: string): boolean
+              reset(): Promise<CredentialId[]>                  // vault.reset; returns the credentials now 'attention'
               exportDataKey(): Buffer | null }                  // Task 22 only
-withSecret<T>(credentialId: CredentialId, use: (secret: string) => Promise<T>): Promise<T>
-// admin-only: query vault.status, command vault.reset; CLI `podium vault status|reset --confirm`
+// deps: { credentials: CredentialsRepository; vault: Vault } — a SessionStore satisfies it
+withSecret<T>(deps, credentialId: CredentialId, use: (secret: string) => Promise<T>): Promise<T>
+//   rejects with SecretUnavailableError { reason: 'not-found' | 'revoked' | 'no-secret' | 'needs-attention' }
+sealCredentialSecret(deps, credential: { id; type }, plaintext: string, expectedVersion: number):
+  Promise<number | 'conflict'>                                  // seals as expectedVersion + 1, then putSecret
+// admin-only: query vault.status, command vault.reset { confirm: true }; CLI `podium vault status|reset --confirm`
 
 // apps/server/src/store/credentials.ts — CredentialsRepository
 //   insert, get, listVisibleTo(userId), rename, setStatus, findByIdentity,
 //   findByLegacyId(accountsId), findByLegacyKey(ownerUserId, key),
 //   remove(id)            // deletes the secrets, leaves the record as 'revoked', hidden from lists
-//   putSecret(id, sealed, expectedVersion) → version | 'conflict', latestSecret(id),
+//   putSecret(id, sealed, expectedVersion) → version | 'conflict'   (expectedVersion 0: no secret yet)
+//   latestSecret(id) → { version, sealed, openable } | null       (openable false: vault locked or reset)
+//   insert({ id?, ownerUserId, label, type, identity?, expiresAt?, legacyId?, legacyKey? }) → CredentialRecord
+//   findByIdentity({ ownerUserId, type, fingerprint }), listVisibleTo(userId): own, not revoked
 //   recordPlacement, listPlacements, setPlacementState,
 //   allowMachine, disallowMachine, isMachineAllowed
 // apps/server/src/modules/credentials/events.ts
-recordCredentialEvent(i: { kind: 'add' | 'rename' | 'renew' | 'remove' | 'share' | 'unshare'
+// writes `settings_audit_events` (command `credentials.<kind>`); deps: { settingsAudit } — a SessionStore
+recordCredentialEvent(deps, i: { kind: 'add' | 'rename' | 'renew' | 'remove' | 'share' | 'unshare'
   | 'deliver' | 'switch' | 'refuse' | 'attention'; credentialId: CredentialId | null
   actorUserId: UserId; sessionId?: SessionId; machineId?: MachineId; detail?: string }): Promise<void>
 

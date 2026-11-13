@@ -3626,3 +3626,129 @@ export const issuePanelStates = sqliteTable('issue_panel_states', {
   text: text().notNull(),
   updatedAt: text('updated_at').notNull(),
 })
+
+/**
+ * CREDENTIALS (credential management design §4; POD-6889).
+ *
+ * A credential is a record: whose it is, what type it is, whether it is healthy.
+ * The secret is never part of it. Types stored in the vault keep their secret in
+ * `credential_secrets`, sealed by the vault (`modules/credentials/vault.ts`); the
+ * others keep it in a harness home on a machine, which Podium only records.
+ *
+ * `identity` is JSON with no secret in it (fingerprint, email, plan,
+ * organisation). `identity_fingerprint` repeats the fingerprint so the lookup of
+ * a login found on a machine is an indexed read rather than a JSON scan.
+ *
+ * LEGACY(remove-after: 2027-05): `legacy_id` names the row a credential was moved
+ * from (an `accounts` id or an `apiKeys.*` server secret), and `legacy_key` the id
+ * sessions and settings recorded for it (`managed:anthropic`), unique per owner, so
+ * an old session's account id still resolves; removing it drops the accounts table.
+ */
+export const credentials = sqliteTable(
+  'credentials',
+  {
+    id: text().primaryKey(),
+    ownerUserId: text('owner_user_id').$type<UserId>().notNull(),
+    label: text().notNull(),
+    type: text().notNull(),
+    identity: text().default('{}').notNull(),
+    identityFingerprint: text('identity_fingerprint'),
+    status: text().default('ok').notNull(),
+    statusReason: text('status_reason'),
+    expiresAt: text('expires_at'),
+    verifiedAt: text('verified_at'),
+    legacyId: text('legacy_id'),
+    legacyKey: text('legacy_key'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => [
+    index('idx_credentials_owner').on(table.ownerUserId, table.createdAt, table.id),
+    index('idx_credentials_identity').on(table.ownerUserId, table.type, table.identityFingerprint),
+    uniqueIndex('credentials_legacy_id').on(table.legacyId),
+    uniqueIndex('credentials_owner_legacy_key').on(table.ownerUserId, table.legacyKey),
+    check('credentials_status', sql`status IN ('ok', 'attention', 'revoked')`),
+  ],
+)
+
+/**
+ * A credential's sealed secret. AES-256-GCM under the vault's data key, with the
+ * credential id, type and version bound in as authenticated data, so a row moved
+ * to another credential, type or version does not open. `key_id` names the data
+ * key that sealed it. One row per version; a write keeps only the newest.
+ */
+export const credentialSecrets = sqliteTable(
+  'credential_secrets',
+  {
+    credentialId: text('credential_id')
+      .notNull()
+      .references(() => credentials.id, { onDelete: 'cascade' }),
+    version: integer().notNull(),
+    ciphertext: text().notNull(),
+    nonce: text().notNull(),
+    keyId: text('key_id').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.credentialId, table.version], name: 'credential_secrets_pk' }),
+  ],
+)
+
+/** What Podium created on a machine for a credential, so it can be removed (rule R4). */
+export const credentialPlacements = sqliteTable(
+  'credential_placements',
+  {
+    credentialId: text('credential_id')
+      .notNull()
+      .references(() => credentials.id, { onDelete: 'cascade' }),
+    machineId: text('machine_id').$type<MachineId>().notNull(),
+    kind: text().notNull(),
+    state: text().default('present').notNull(),
+    createdAt: text('created_at').notNull(),
+    removedAt: text('removed_at'),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.credentialId, table.machineId, table.kind],
+      name: 'credential_placements_pk',
+    }),
+    check('credential_placements_kind', sql`kind IN ('home', 'propagated-file')`),
+    check('credential_placements_state', sql`state IN ('present', 'removal-pending', 'removed')`),
+  ],
+)
+
+/** Machines a credential's owner allowed beyond their own (design §8). */
+export const credentialMachines = sqliteTable(
+  'credential_machines',
+  {
+    credentialId: text('credential_id')
+      .notNull()
+      .references(() => credentials.id, { onDelete: 'cascade' }),
+    machineId: text('machine_id').$type<MachineId>().notNull(),
+    allowedBy: text('allowed_by').$type<UserId>().notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.credentialId, table.machineId],
+      name: 'credential_machines_pk',
+    }),
+  ],
+)
+
+/**
+ * The vault's one data key, wrapped by the outside key (a key file outside the
+ * state directory). `key_id` names the outside key. No row: the vault is empty and
+ * creates its data key at the first seal. A row the outside key cannot open: the
+ * vault is locked (`podium vault status`).
+ */
+export const vaultKey = sqliteTable(
+  'vault_key',
+  {
+    id: integer().primaryKey(),
+    keyId: text('key_id').notNull(),
+    wrappedDataKey: text('wrapped_data_key').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => [check('vault_key_one_row', sql`id = 1`)],
+)

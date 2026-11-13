@@ -20,11 +20,45 @@ Podium keeps all of its state in one directory: **`~/.podium`** by default, or
 | `hooks/` | Per-session hook plumbing the daemon injects into agent CLIs. |
 | `uploads/` | Files you attach/upload into sessions, grouped per session id. |
 
+Outside the state directory: the vault key file, `~/.config/podium/vault-<instance>.key`
+by default (see [The vault key](#the-vault-key)).
+
 The agent CLIs themselves (Claude Code, Codex, …) keep their own state in their own
 homes (`~/.claude`, `~/.codex`, …) — Podium observes those but does not own them.
 
 Backing up `~/.podium` (ideally with the server stopped, or at least including the
-`-wal` sidecar) captures a complete Podium installation.
+`-wal` sidecar) captures a complete Podium installation, except for the vault key
+below, which is kept outside it on purpose.
+
+### The vault key
+
+The API keys, tokens and other secrets Podium stores (provider keys, the Linear key,
+the Telegram bot token) are encrypted in `podium.db`. The key that opens them is
+**not** in the state directory. It is a file:
+
+`$PODIUM_VAULT_KEY_FILE`, else `$XDG_CONFIG_HOME/podium/vault-<instance>.key`, else
+`~/.config/podium/vault-<instance>.key` (`<instance>` is `default` unless you run a
+named instance).
+
+The server creates it the first time it stores a secret, readable only by its
+owner (mode `0600`, in a `0700` directory when it creates the directory). A copy
+of the database or of the state directory therefore opens nothing without it.
+Keys that were stored before the vault existed are moved into it automatically
+at start; their old plain copies stay in the database until a later release
+removes them.
+
+**Back the key file up separately from the state directory.** A backup that holds
+both is as sensitive as the keys themselves. When you move the server by hand,
+copy the key file too.
+
+If the server starts without its key (a database restored on another machine, a
+lost file), it still starts. `podium vault status` shows the vault as **locked**
+and names the path where it expects the file. Stored credentials read "needs
+attention", the Linear and Telegram integrations act as not configured, and
+nothing new can be stored; no new key replaces the old one by itself. Put the
+file back and restart. If it is lost for good, `podium vault reset --confirm` (an
+admin only) deletes the stored secrets so that they can be added again; nothing
+else is lost.
 
 ## What `podium update` does
 

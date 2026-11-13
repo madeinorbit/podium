@@ -56,6 +56,7 @@ import { LOGS_COMMANDS_TRPC } from '../logs/registry'
 import { MODEL_COMMANDS_TRPC } from '../models/registry'
 import { PERF_COMMANDS_TRPC } from '../perf/commands'
 import { SETTINGS_COMMANDS_TRPC } from '../settings/registry'
+import { VAULT_COMMANDS_TRPC } from '../vault/registry'
 import type { PlainTargetCheck } from './entry'
 
 const CONTRACTS = new Map<string, AnyCommandContract>(
@@ -68,12 +69,13 @@ const CONTRACTS = new Map<string, AnyCommandContract>(
     ...Object.values(MODEL_COMMANDS_TRPC),
     ...Object.values(PERF_COMMANDS_TRPC),
     ...Object.values(SETTINGS_COMMANDS_TRPC),
+    ...Object.values(VAULT_COMMANDS_TRPC),
   ].map((c) => [c.contract.name, c.contract as AnyCommandContract]),
 )
 
 /** The commands whose table entry declares a target check (`entry.ts`, step 4). */
 const TARGET_CHECKS = new Map<string, PlainTargetCheck>(
-  Object.values(ACCOUNT_COMMANDS_TRPC).flatMap((c) =>
+  [...Object.values(ACCOUNT_COMMANDS_TRPC), ...Object.values(VAULT_COMMANDS_TRPC)].flatMap((c) =>
     'targetPermitted' in c && c.targetPermitted
       ? [[c.contract.name, c.targetPermitted] as const]
       : [],
@@ -221,6 +223,7 @@ const CALLERS: readonly {
   },
   { command: 'telemetry.set', who: 'member', caller: 'Settings → Privacy', expect: 'lost' },
   { command: 'telemetry.resetId', who: 'member', caller: 'Settings → Privacy', expect: 'lost' },
+  { command: 'vault.reset', who: 'member', caller: 'podium vault reset', expect: 'floor' },
   {
     command: 'logs.setLevel',
     who: 'member',
@@ -230,8 +233,18 @@ const CALLERS: readonly {
   { command: 'setup.setChannel', who: 'member', caller: 'Settings → Updates', expect: 'lost' },
   // Already refused for members, by the service or the settings gate:
   { command: 'setup.activate', who: 'member', caller: 'setup activation', expect: 'floor' },
-  { command: 'settings.setSecret', who: 'member', caller: 'Settings → AI accounts → API keys', expect: 'floor' },
-  { command: 'settings.clearSecret', who: 'member', caller: 'Settings → AI accounts → API keys', expect: 'floor' },
+  {
+    command: 'settings.setSecret',
+    who: 'member',
+    caller: 'Settings → AI accounts → API keys',
+    expect: 'floor',
+  },
+  {
+    command: 'settings.clearSecret',
+    who: 'member',
+    caller: 'Settings → AI accounts → API keys',
+    expect: 'floor',
+  },
   {
     command: 'settings.secretPresence',
     who: 'member',
@@ -282,6 +295,8 @@ const CALLERS: readonly {
   { command: 'perf.report', who: 'agent', caller: 'none today', expect: 'ok' },
   { command: 'telemetry.set', who: 'agent', caller: 'none today', expect: 'floor' },
   { command: 'telemetry.resetId', who: 'agent', caller: 'none today', expect: 'floor' },
+  // Deleting every stored secret is an admin person's decision, never an agent's.
+  { command: 'vault.reset', who: 'agent', caller: 'none today', expect: 'floor' },
   // An agent may not sign its human in, store, remove, share or take back a key as them:
   // refused by the target check.
   { command: 'accounts.login', who: 'agent', caller: 'none today', expect: 'floor' },
@@ -303,9 +318,10 @@ const CALLERS: readonly {
   },
 ]
 
-describe('every current caller of the 31 non-sync commands', () => {
-  it('covers the 31 commands, and only them', () => {
-    expect(CONTRACTS.size).toBe(31) // includes accounts.unsend; accounts.keys is a query
+describe('every current caller of the 33 non-sync commands', () => {
+  it('covers the 33 commands, and only them', () => {
+    // 32 on the base, which pinned 31; + vault.reset (POD-6889).
+    expect(CONTRACTS.size).toBe(33) // includes accounts.unsend; accounts.keys is a query
     // None is queued any more. The two that were moved onto synced record
     // edits on purpose:
     //  - settings.updatePersonal: records.userPreferences.edit (POD-6673);
@@ -313,7 +329,7 @@ describe('every current caller of the 31 non-sync commands', () => {
     const queued = [...CONTRACTS.values()].filter((c) => c.delivery.class === 'offline-eligible')
     expect(queued.map((c) => c.name)).toEqual([])
     const plain = [...CONTRACTS.values()].filter((c) => c.delivery.class !== 'offline-eligible')
-    expect(plain).toHaveLength(31)
+    expect(plain).toHaveLength(33)
     for (const row of CALLERS) expect(CONTRACTS.has(row.command), row.command).toBe(true)
   })
 

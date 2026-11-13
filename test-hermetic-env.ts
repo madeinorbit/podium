@@ -141,6 +141,9 @@ interface HermeticTmpState {
   hostTmpdir: string
   /** The last PODIUM_STATE_DIR this module assigned — how it tells its own from a caller's. */
   assignedStateDir?: string
+  /** The last PODIUM_VAULT_KEY_FILE this module assigned. A test must never create or read
+   *  the vault key under the host's real ~/.config (credential vault, POD-6889). */
+  assignedVaultKeyFile?: string
   /** Active per-file container currently published as TMPDIR. */
   activeContainer?: string
   /** Last bun-test file key (Bun.main) this process minted for — detects file boundaries. */
@@ -168,6 +171,8 @@ if (!withState[HERMETIC_TMP_STATE]) {
     containers: [],
     hostTmpdir: tmpdir(),
     assignedStateDir: process.env.PODIUM_STATE_DIR,
+    // Same DECISION as the state dir: an inherited key path is ambient, so it is replaced.
+    assignedVaultKeyFile: process.env.PODIUM_VAULT_KEY_FILE,
     guardians: new Map(),
   }
   // Lane-start self-healing has two deliberately separate proofs. A still-present run root
@@ -292,6 +297,12 @@ export function mintHermeticFileScope(): void {
     tmpState.assignedStateDir = mkdtempSync(join(containerDir, 'podium-test-'))
     process.env.PODIUM_STATE_DIR = tmpState.assignedStateDir
   }
+  // The vault's outside key: a path in this file's container, created only by a first seal.
+  const inheritedVaultKeyFile = process.env.PODIUM_VAULT_KEY_FILE
+  if (!inheritedVaultKeyFile || inheritedVaultKeyFile === tmpState.assignedVaultKeyFile) {
+    tmpState.assignedVaultKeyFile = join(containerDir, 'podium-vault.key')
+    process.env.PODIUM_VAULT_KEY_FILE = tmpState.assignedVaultKeyFile
+  }
 
   assertHermeticStateDir()
 }
@@ -344,6 +355,12 @@ export function releaseHermeticTmpContainer(): void {
       delete process.env.PODIUM_STATE_DIR
     }
     tmpState.assignedStateDir = undefined
+  }
+  if (tmpState.assignedVaultKeyFile?.startsWith(containerDir + sep)) {
+    if (process.env.PODIUM_VAULT_KEY_FILE === tmpState.assignedVaultKeyFile) {
+      delete process.env.PODIUM_VAULT_KEY_FILE
+    }
+    tmpState.assignedVaultKeyFile = undefined
   }
   tmpState.activeContainer = undefined
   releaseGuardian(containerDir)

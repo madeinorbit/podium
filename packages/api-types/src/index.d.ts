@@ -6,6 +6,40 @@ import * as Protocol from '@podium/protocol';
 import { ModelChoiceWire, ConvergenceState, MobileWebIdentity } from '@podium/protocol';
 import * as TRPC from '@trpc/server';
 
+/**
+ * THE VAULT (credential management design §7, "Encryption").
+ *
+ * Every secret Podium holds is sealed here with AES-256-GCM under one random data
+ * key, with a fresh 12-byte nonce per seal and the binding (credential id, type,
+ * version) as authenticated data: a ciphertext moved to another row, passed off as
+ * another type or replayed as another version does not open.
+ *
+ * The data key is stored in the database wrapped by the outside key
+ * (`@podium/runtime/vault-key`), created at the first seal. Three states:
+ *
+ *  - `empty`: no data key yet. The first seal creates one.
+ *  - `ready`: the data key is open.
+ *  - `locked`: a data key is stored and the outside key is missing or does not
+ *    open it (a restored database, a lost file). Nothing is sealed or opened,
+ *    and no new key is created: replacing the key silently would orphan every
+ *    stored secret. The way out is `podium vault reset --confirm`, or putting
+ *    the key file back and restarting.
+ *
+ * A plaintext is opened only inside `withSecret`, handed to its callback and
+ * wiped afterwards. The server keeps no plaintext.
+ */
+
+type VaultState = 'ready' | 'empty' | 'locked';
+interface VaultStatus {
+    /** Where the outside key is expected. */
+    keyPath: string;
+    /** The outside key that wrapped the stored data key; null when the vault is empty. */
+    keyId: string | null;
+    state: VaultState;
+    /** Why the outside key cannot be used, naming the file; null when it can. */
+    problem: string | null;
+}
+
 declare const MachineFailureReason: z.ZodObject<{
     code: z.ZodOptional<z.ZodString>;
     message: z.ZodString;
@@ -8765,6 +8799,25 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 [k: string]: unknown;
             } & {});
             output: UsageSummary;
+            meta: unknown;
+        }>;
+    };
+    "vault": {
+        "reset": TRPC.TRPCMutationProcedure<{
+            input: {
+                confirm: true;
+            };
+            output: {
+                needsAttention: number;
+                state: VaultState;
+            };
+            meta: unknown;
+        }>;
+        "status": TRPC.TRPCQueryProcedure<{
+            input: (undefined) | ({
+                [k: string]: unknown;
+            } & {});
+            output: VaultStatus;
             meta: unknown;
         }>;
     };
