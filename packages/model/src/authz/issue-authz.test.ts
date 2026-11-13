@@ -434,7 +434,6 @@ describe('agent reads intersect the delegating member’s rights', () => {
   })
 })
 
-
 describe('unscoped write overrides intersect the member’s rights (POD-6924)', () => {
   const alice = asUserId('alice')
   const bob = asUserId('bob')
@@ -445,7 +444,10 @@ describe('unscoped write overrides intersect the member’s rights (POD-6924)', 
     onBehalfOf: alice,
   }
 
-  it.each(['write', 'manage'] as const)('%s to another member’s data is never overridable', (action) => {
+  it.each([
+    'write',
+    'manage',
+  ] as const)('%s to another member’s data is never overridable', (action) => {
     const caller: Capability = { ...agent, role: action === 'manage' ? 'admin' : 'worker' }
     for (const target of [
       { kind: 'owned', id: 'bobs-data', owner: bob },
@@ -464,17 +466,28 @@ describe('unscoped write overrides intersect the member’s rights (POD-6924)', 
     ] as const) {
       expect(authorize(agent, 'write', target)).toBe('confirm-required')
       expect(authorize(agent, 'write', target, { override: true })).toBe('allow')
-      expect(authorize({ ...agent, role: 'viewer' }, 'write', target, { override: true })).toBe('forbidden')
+      expect(authorize({ ...agent, role: 'viewer' }, 'write', target, { override: true })).toBe(
+        'forbidden',
+      )
     }
   })
 
   it('refuses an absent member or an unowned entity even with an override', () => {
-    expect(authorize(agent, 'write', { kind: 'owned', id: 'unowned', owner: null, grants: [alice] }, { override: true })).toBe('forbidden')
+    expect(
+      authorize(
+        agent,
+        'write',
+        { kind: 'owned', id: 'unowned', owner: null, grants: [alice] },
+        { override: true },
+      ),
+    ).toBe('forbidden')
     for (const target of [
       { kind: 'owned', id: 'hers', owner: alice },
       { kind: 'per-user-row', userId: alice },
     ] as const) {
-      expect(authorize({ ...agent, onBehalfOf: undefined }, 'write', target, { override: true })).toBe('forbidden')
+      expect(
+        authorize({ ...agent, onBehalfOf: undefined }, 'write', target, { override: true }),
+      ).toBe('forbidden')
     }
   })
 })

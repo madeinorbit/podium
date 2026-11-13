@@ -386,6 +386,14 @@ export function authorize(
       return memberDecision(cap.onBehalfOf, issue)
     case 'none':
       if (action === 'read') return memberDecision(cap.onBehalfOf, issue)
+      // A scope override never widens the member's owned or per-user rights.
+      // Their own or granted writes still require the existing confirmation.
+      if (
+        (issue?.kind === 'owned' || issue?.kind === 'per-user-row') &&
+        memberDecision(cap.onBehalfOf, issue) !== 'allow'
+      ) {
+        return 'forbidden'
+      }
       // Additive (no existing target) is a role question, not a scope one.
       return issue ? outOfScope(opts) : 'allow'
     case 'subtree': {
