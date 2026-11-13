@@ -9,6 +9,8 @@ import { renderWithMobileStore } from '../client/test-support'
 const layout = vi.hoisted(() => ({
   report: undefined as undefined | ((height: number) => void),
   insets: [] as number[],
+  topInsets: [] as number[],
+  placeholderInsets: [] as { topInset?: number; bottomInset?: number }[],
   keyboardLift: 0,
   callbacks: new Map<string, ComponentProps<typeof View>['onLayout']>(),
 }))
@@ -30,6 +32,8 @@ afterEach(() => {
   Platform.OS = originalOS
   layout.report = undefined
   layout.insets = []
+  layout.topInsets = []
+  layout.placeholderInsets = []
   layout.keyboardLift = 0
   layout.callbacks.clear()
 })
@@ -45,14 +49,39 @@ vi.mock('./Composer', () => ({
   },
 }))
 vi.mock('./TranscriptList', () => ({
-  TranscriptList: ({ bottomInset, footer }: { bottomInset: number; footer: ReactNode }) => {
+  TranscriptList: ({
+    bottomInset,
+    topInset,
+    footer,
+  }: {
+    bottomInset: number
+    topInset: number
+    footer: ReactNode
+  }) => {
     layout.insets.push(bottomInset)
+    layout.topInsets.push(topInset)
     return <div data-testid="transcript-list">{footer}</div>
   },
 }))
 vi.mock('./LaunchPlaceholders', () => ({
-  BootstrapCrossfade: ({ children }: { children: ReactNode }) => <>{children}</>,
-  TranscriptSkeleton: () => null,
+  BootstrapCrossfade: ({
+    children,
+    placeholder,
+    resolved,
+  }: {
+    children: ReactNode
+    placeholder: ReactNode
+    resolved: boolean
+  }) => (
+    <>
+      {resolved ? null : placeholder}
+      {children}
+    </>
+  ),
+  TranscriptSkeleton: (props: { topInset?: number; bottomInset?: number }) => {
+    layout.placeholderInsets.push(props)
+    return <div data-testid="transcript-skeleton" />
+  },
 }))
 vi.mock('./PullToRefreshBoundary', () => ({
   PullToRefreshBoundary: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -134,7 +163,7 @@ describe('native lifecycle footer first layout', () => {
   }) => {
     Platform.OS = 'ios'
     const view = await renderWithMobileStore(
-      <SessionConversation session={session} issue={undefined} />,
+      <SessionConversation session={session} issue={undefined} topInset={147} />,
       {
         sessions: [session],
         api: { sessions: { transcriptRead: { query: async () => ({ items, hasMore: false }) } } },
@@ -143,10 +172,12 @@ describe('native lifecycle footer first layout', () => {
     expect(screen.getByTestId('measuring-composer')).toBeTruthy()
     expect(screen.queryByTestId('transcript-list')).toBeNull()
     expect(layout.insets).toEqual([])
+    expect(layout.placeholderInsets.at(-1)?.topInset).toBe(147)
 
     act(() => layout.report?.(148))
     await waitFor(() => expect(screen.getByTestId('hibernated-notice')).toBeTruthy())
     expect(layout.insets[0]).toBe(148)
+    expect(layout.topInsets[0]).toBe(147)
     expect(layout.insets.every((inset) => inset >= 148)).toBe(true)
 
     const list = screen.getByTestId('transcript-list')

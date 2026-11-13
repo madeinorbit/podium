@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
-import { Animated, Easing, StyleSheet, View } from 'react-native'
+import { Animated, Easing, ScrollView, StyleSheet, View } from 'react-native'
 import { useReduceMotion } from '../hooks/useReduceMotion'
+import { useHeaderInset } from '../navigation/header-inset'
 import { color, radius, space } from '../theme/theme'
 
 /**
@@ -105,74 +106,124 @@ function Row({ compact = false }: { compact?: boolean }) {
   )
 }
 
+/**
+ * Page placeholders owe the same native scroll insets as the page they cover.
+ * A plain View starts behind a transparent header. Let UIKit adjust this scroll
+ * container, including large titles and safe areas, without padding the screen
+ * itself. Transcripts instead supply the inset of their inverted list, which
+ * includes any pinned deck strip; automatic adjustment would charge it twice.
+ */
+function SkeletonViewport({
+  children,
+  topInset,
+  bottomInset = 0,
+}: {
+  children: ReactNode
+  topInset?: number
+  bottomInset?: number
+}) {
+  return (
+    <ScrollView
+      style={styles.fill}
+      contentContainerStyle={[
+        styles.placeholderContent,
+        { paddingTop: topInset ?? 0, paddingBottom: bottomInset },
+      ]}
+      contentInsetAdjustmentBehavior={topInset === undefined ? 'automatic' : 'never'}
+      automaticallyAdjustContentInsets={false}
+      scrollEnabled={false}
+      scrollsToTop={false}
+      showsVerticalScrollIndicator={false}
+    >
+      {children}
+    </ScrollView>
+  )
+}
+
 export function WorkSkeleton() {
   return (
-    <View style={styles.page} accessibilityLabel="Loading work">
-      <SectionRule width="20%" />
-      <Row compact />
-      <Row compact />
-      <SectionRule width="34%" />
-      <Row compact />
-      <Row compact />
-    </View>
+    <SkeletonViewport>
+      <View style={styles.page} accessibilityLabel="Loading work">
+        <SectionRule width="20%" />
+        <Row compact />
+        <Row compact />
+        <SectionRule width="34%" />
+        <Row compact />
+        <Row compact />
+      </View>
+    </SkeletonViewport>
   )
 }
 
 export function TasksSkeleton() {
   return (
-    <View style={styles.page} accessibilityLabel="Loading tasks">
-      <SectionRule width="27%" />
-      <Row />
-      <Row />
-      <SectionRule width="18%" />
-      <Row />
-    </View>
+    <SkeletonViewport>
+      <View style={styles.page} accessibilityLabel="Loading tasks">
+        <SectionRule width="27%" />
+        <Row />
+        <Row />
+        <SectionRule width="18%" />
+        <Row />
+      </View>
+    </SkeletonViewport>
   )
 }
 
 export function DetailSkeleton() {
   return (
-    <View style={styles.detailPage} accessibilityLabel="Loading task detail">
-      <View style={styles.pills}>
-        <View style={styles.pill} />
-        <View style={styles.pillShort} />
-        <View style={styles.pillShort} />
+    <SkeletonViewport>
+      <View style={styles.detailPage} accessibilityLabel="Loading task detail">
+        <View style={styles.pills}>
+          <View style={styles.pill} />
+          <View style={styles.pillShort} />
+          <View style={styles.pillShort} />
+        </View>
+        <View style={styles.prose}>
+          <Bar width="91%" />
+          <Bar width="84%" />
+          <Bar width="58%" />
+        </View>
+        <SectionRule width="30%" />
+        <Row />
+        <Row />
+        <SectionRule width="25%" />
       </View>
-      <View style={styles.prose}>
-        <Bar width="91%" />
-        <Bar width="84%" />
-        <Bar width="58%" />
-      </View>
-      <SectionRule width="30%" />
-      <Row />
-      <Row />
-      <SectionRule width="25%" />
-    </View>
+    </SkeletonViewport>
   )
 }
 
-export function TranscriptSkeleton() {
+export function TranscriptSkeleton({
+  topInset,
+  bottomInset,
+}: {
+  topInset?: number
+  bottomInset?: number
+}) {
+  const headerInset = useHeaderInset()
   return (
-    <View style={styles.transcriptPage} accessibilityLabel="Loading transcript">
-      <View style={[styles.bubble, styles.bubbleAssistant]}>
-        <Bar width="88%" />
-        <Bar width="73%" />
-        <Bar width="46%" />
+    <SkeletonViewport topInset={topInset ?? headerInset} bottomInset={bottomInset}>
+      <View style={styles.transcriptPage} accessibilityLabel="Loading transcript">
+        <View style={[styles.bubble, styles.bubbleAssistant]}>
+          <Bar width="88%" />
+          <Bar width="73%" />
+          <Bar width="46%" />
+        </View>
+        <View style={[styles.bubble, styles.bubbleUser]}>
+          <Bar width="78%" />
+          <Bar width="44%" />
+        </View>
+        <View style={[styles.bubble, styles.bubbleAssistant, styles.bubbleDim]}>
+          <Bar width="69%" />
+          <Bar width="51%" />
+        </View>
       </View>
-      <View style={[styles.bubble, styles.bubbleUser]}>
-        <Bar width="78%" />
-        <Bar width="44%" />
-      </View>
-      <View style={[styles.bubble, styles.bubbleAssistant, styles.bubbleDim]}>
-        <Bar width="69%" />
-        <Bar width="51%" />
-      </View>
-    </View>
+    </SkeletonViewport>
   )
 }
 
 const styles = StyleSheet.create({
   fill: { flex: 1, minHeight: 0 },
+  placeholderContent: { flexGrow: 1 },
   placeholderLayer: { backgroundColor: color.bg },
   page: { flex: 1, paddingTop: space.sm },
   bar: { borderRadius: radius.xs, backgroundColor: color.elevated },
@@ -204,7 +255,14 @@ const styles = StyleSheet.create({
   pill: { width: 88, height: 24, borderRadius: radius.full, backgroundColor: color.elevated },
   pillShort: { width: 54, height: 24, borderRadius: radius.full, backgroundColor: color.elevated },
   prose: { gap: 10, paddingHorizontal: space.lg, paddingTop: space.xl, paddingBottom: space.sm },
-  transcriptPage: { flex: 1, padding: space.lg, gap: space.lg, backgroundColor: color.engraved },
+  transcriptPage: {
+    flex: 1,
+    paddingHorizontal: space.lg,
+    paddingTop: space.xl,
+    paddingBottom: space.md,
+    gap: space.lg,
+    backgroundColor: color.engraved,
+  },
   bubble: { gap: 10, padding: space.md, borderRadius: radius.lg },
   bubbleAssistant: { width: '84%', backgroundColor: color.surface },
   bubbleUser: { width: '69%', alignSelf: 'flex-end', backgroundColor: color.userBubble },

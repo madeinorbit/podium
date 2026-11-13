@@ -31,6 +31,7 @@ import { useTabBarInset } from '../hooks/useTabBarInset'
 import type { MobileChatViewModel } from '../lib/chat-view-model'
 import { humanizeSendFailure } from '../lib/send-failure'
 import { resolveSuperagentBackend, superagentTurnChoice } from '../lib/superagent-backend'
+import { useHeaderInset } from '../navigation/header-inset'
 import { color, font, sans, space } from '../theme/theme'
 
 /**
@@ -380,7 +381,8 @@ const ThreadTranscript = observer(function ThreadTranscript({
   chat,
   ...props
 }: React.ComponentProps<typeof TranscriptList> & { chat?: MobileChatViewModel }) {
-  return <TranscriptList {...props} liveItem={chat?.liveItem} />
+  const topInset = useHeaderInset()
+  return <TranscriptList topInset={topInset} {...props} liveItem={chat?.liveItem} />
 })
 
 const ThreadComposer = observer(function ThreadComposer({

@@ -144,22 +144,21 @@ const IssueScreenBody = observer(function IssueScreenBody({
   const certainAbsence = issue === undefined && !booting && connected
   const resolved = issue !== undefined || certainAbsence
 
-  return (
-    <BootstrapCrossfade resolved={resolved} placeholder={<DetailSkeleton />}>
-      {issue ? (
-        <IssueContent issue={issue} onBack={goBack} dismiss={dismiss} />
-      ) : (
-        <Screen
-          grouped
-          title="Task"
-          onBack={goBack}
-          backAs={dismiss ? 'text' : 'chevron'}
-          backLabel={dismiss ? 'Done' : undefined}
-        >
-          {certainAbsence ? <EmptyState title="Task not found." fill /> : <DetailSkeleton />}
-        </Screen>
-      )}
-    </BootstrapCrossfade>
+  return issue ? (
+    <IssueContent issue={issue} onBack={goBack} dismiss={dismiss} />
+  ) : (
+    <Screen
+      grouped
+      underHeader
+      title="Task"
+      onBack={goBack}
+      backAs={dismiss ? 'text' : 'chevron'}
+      backLabel={dismiss ? 'Done' : undefined}
+    >
+      <BootstrapCrossfade resolved={resolved} placeholder={<DetailSkeleton />}>
+        {certainAbsence ? <EmptyState title="Task not found." fill /> : null}
+      </BootstrapCrossfade>
+    </Screen>
   )
 })
 
@@ -500,9 +499,9 @@ const IssueContent = observer(function IssueContent({
         onClose={closeIf('type')}
       />
 
-      {targetPickerOpen && targets === null ? <DetailSkeleton /> : null}
       <IssueTargetSheet
-        visible={sheet?.kind === 'parent' && targets !== null}
+        visible={sheet?.kind === 'parent'}
+        loading={targets === null}
         title="Parent"
         subtitle={
           targets?.length === 0 && !targetQuery
@@ -528,7 +527,8 @@ const IssueContent = observer(function IssueContent({
       />
 
       <IssueTargetSheet
-        visible={sheet?.kind === 'relation-target' && targets !== null}
+        visible={sheet?.kind === 'relation-target'}
+        loading={targets === null}
         title={sheet?.kind === 'relation-target' ? sheet.type : ''}
         ids={mates}
         query={targetQuery}
@@ -541,7 +541,8 @@ const IssueContent = observer(function IssueContent({
       />
 
       <IssueTargetSheet
-        visible={sheet?.kind === 'supersede' && targets !== null}
+        visible={sheet?.kind === 'supersede'}
+        loading={targets === null}
         title="Supersede with"
         subtitle="This task is closed as replaced by the one you pick."
         ids={mates}

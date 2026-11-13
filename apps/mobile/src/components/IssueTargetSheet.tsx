@@ -1,11 +1,11 @@
-import { omitGone } from '@podium/client-graph/lookup'
 import type { IssueViewModel } from '@podium/client-core/replica'
+import { omitGone } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asIssueId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useCallback } from 'react'
-import { FlatList, StyleSheet, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, FlatList, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useMobilePoolProjection } from '../client/mobile-pool'
 import { useKeyboardHeight } from '../hooks/useKeyboardHeight'
@@ -20,6 +20,7 @@ type IssueTarget = Pick<IssueViewModel, 'id' | 'seq' | 'title' | 'stage' | 'disp
 /** Search-first issue chooser for relationship and hierarchy edits. */
 export function IssueTargetSheet({
   visible,
+  loading = false,
   title,
   subtitle,
   ids,
@@ -30,6 +31,7 @@ export function IssueTargetSheet({
   onClose,
 }: {
   visible: boolean
+  loading?: boolean
   title: string
   subtitle?: string
   ids: readonly string[]
@@ -84,7 +86,7 @@ export function IssueTargetSheet({
           data={ids}
           keyExtractor={(id) => id}
           {...listWindow}
-          onEndReached={onEndReached}
+          onEndReached={loading ? undefined : onEndReached}
           onEndReachedThreshold={0.2}
           scrollEnabled={scrollEnabled}
           keyboardShouldPersistTaps="handled"
@@ -93,7 +95,15 @@ export function IssueTargetSheet({
           renderItem={({ item: id }) => (
             <IssueTargetRow id={id} onPick={onPick} onClose={onClose} />
           )}
-          ListEmptyComponent={<Text style={styles.empty}>No matching tasks.</Text>}
+          ListEmptyComponent={
+            loading ? (
+              <View style={styles.row} accessibilityLabel="Loading tasks">
+                <ActivityIndicator color={color.textFaint} />
+              </View>
+            ) : (
+              <Text style={styles.empty}>No matching tasks.</Text>
+            )
+          }
         />
       )}
     />
@@ -119,7 +129,10 @@ function IssueTargetRow({
         | undefined
       if (!row || row === LOADING) return row
       const repo = row.repoId
-        ? (omitGone(pool.row('repo', row.repoId)) as { prefix?: string } | typeof LOADING | undefined)
+        ? (omitGone(pool.row('repo', row.repoId)) as
+            | { prefix?: string }
+            | typeof LOADING
+            | undefined)
         : undefined
       if (repo === LOADING) return LOADING
       return {

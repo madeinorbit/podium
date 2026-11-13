@@ -103,10 +103,6 @@ vi.mock('../components/BottomSheet', () => ({
   BottomSheet: ({ visible, children }: { visible: boolean; children: ReactNode }) =>
     visible ? children : null,
 }))
-vi.mock('../components/LaunchPlaceholders', () => ({
-  BootstrapCrossfade: ({ children }: { children: ReactNode }) => <>{children}</>,
-  DetailSkeleton: () => null,
-}))
 // Findable if anything still docks a composer on this page.
 vi.mock('../components/Composer', async () => {
   const { View } = await import('react-native')
@@ -137,6 +133,15 @@ const issue = (partial: Partial<IssueViewModel> = {}): IssueViewModel =>
   }) as IssueViewModel
 
 describe('task page keyboard avoidance', () => {
+  it('keeps the task header and back button outside the loading overlay', async () => {
+    await renderWithMobileStore(<IssueScreen />, { issues: [] })
+
+    const placeholder = await screen.findByTestId('bootstrap-placeholder')
+    expect(screen.getByLabelText('Loading task detail')).toBeTruthy()
+    expect(placeholder.contains(screen.getByRole('button', { name: 'Back' }))).toBe(false)
+    expect(placeholder.contains(screen.getByText('Task'))).toBe(false)
+  })
+
   it('keeps the page inside the keyboard-avoiding view, with no docked composer', async () => {
     await renderWithMobileStore(<IssueScreen />, { issues: [issue()] })
 

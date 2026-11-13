@@ -1,14 +1,13 @@
-import { InboxSessionRow } from '../components/InboxSessionRow'
-import { listWindow } from '../components/list-window'
-
 import { useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { useMemo } from 'react'
 import { SectionList, StyleSheet, Text, View } from 'react-native'
 import { useInboxData } from '../client/use-inbox-data'
 import { Icon } from '../components/Icon'
+import { InboxSessionRow } from '../components/InboxSessionRow'
 import { Inbox as InboxIcon, Settings } from '../components/icons'
 import { BootstrapCrossfade, WorkSkeleton } from '../components/LaunchPlaceholders'
+import { listWindow } from '../components/list-window'
 import { NewWorkButton } from '../components/NewWorkButton'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { RefreshOffer } from '../components/RefreshOffer'
@@ -70,6 +69,7 @@ export const InboxScreen = observer(function InboxScreen() {
         <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
           <SectionList
             {...listWindow}
+            contentInsetAdjustmentBehavior="automatic"
             sections={sections}
             keyExtractor={(id) => id}
             stickySectionHeadersEnabled={false}

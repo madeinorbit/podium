@@ -222,7 +222,7 @@ export function SessionConversation(
       model={view}
     />
   ) : (
-    <TranscriptSkeleton />
+    <TranscriptSkeleton topInset={props.topInset ?? 0} />
   )
 }
 
@@ -853,7 +853,12 @@ const SessionConversationBody = observer(function SessionConversationBody({
       {readOnly && !hasTranscript ? null : (
         <BootstrapCrossfade
           resolved={transcriptLayoutReady && (loaded || itemCount > 0)}
-          placeholder={<TranscriptSkeleton />}
+          placeholder={
+            <TranscriptSkeleton
+              topInset={topInset}
+              bottomInset={composerHidden ? 0 : (composerHeight ?? 0) + askHeight + keyboardLift}
+            />
+          }
         >
           {transcriptLayoutReady ? (
             <PullToRefreshBoundary

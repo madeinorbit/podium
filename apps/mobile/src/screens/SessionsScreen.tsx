@@ -1,18 +1,18 @@
 import { useRouter } from 'expo-router'
+import { observer } from 'mobx-react-lite'
 import { useMemo, useState } from 'react'
 import { SectionList, StyleSheet, Text, View } from 'react-native'
-import { listWindow } from '../components/list-window'
-import { observer } from 'mobx-react-lite'
+import { useMobilePool } from '../client/mobile-pool'
 import { useInboxData } from '../client/use-inbox-data'
 import { useIssueModel } from '../client/use-issue-model'
 import { InboxSessionRow } from '../components/InboxSessionRow'
 import { BootstrapCrossfade, WorkSkeleton } from '../components/LaunchPlaceholders'
+import { listWindow } from '../components/list-window'
 import { NewWorkButton } from '../components/NewWorkButton'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { Screen } from '../components/Screen'
 import { CountPill } from '../components/StatusGlyphs'
 import { TaskSheet } from '../components/TaskSheet'
-import { useMobilePool } from '../client/mobile-pool'
 import { EmptyState } from '../components/ui'
 import { useContentBottomInset } from '../hooks/useContentBottomInset'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
@@ -60,6 +60,7 @@ export const SessionsScreen = observer(function SessionsScreen() {
         <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
           <SectionList
             {...listWindow}
+            contentInsetAdjustmentBehavior="automatic"
             sections={sections}
             keyExtractor={(id) => id}
             stickySectionHeadersEnabled={false}
