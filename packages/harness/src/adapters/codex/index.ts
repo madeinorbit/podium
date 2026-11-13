@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { basename, dirname, join, relative } from 'node:path'
 import { createLogger } from '@podium/logger'
+import type { AcceptedCredential } from '@podium/model'
 import { promptEchoCorrelation, submitHookCorrelation } from '../../accept-correlation.js'
 import { withStateChannel } from '../../agent-state/types.js'
 import { hostTools } from '../../host-tools.js'
@@ -83,6 +84,31 @@ function maskedAccountId(accountId: string): string {
 const CODEX_AUTH_HEADERS = new Set(['x-podium-mcp-token', 'authorization'])
 
 const codexCredentialAbsenceGrace = new CodexCredentialAbsenceGrace()
+
+/** The credential types Codex accepts and how each is delivered (credential management §5). */
+const CODEX_ACCEPTS: readonly AcceptedCredential[] = [
+  { type: 'openai.api-key', deliver: { kind: 'env', variable: 'OPENAI_API_KEY' } },
+  { type: 'openai.chatgpt-login', deliver: { kind: 'home' } },
+  // A ChatGPT plan signed in to Podium reaches Codex as the token of a
+  // model provider the server driver is started with (plan Task 15); the
+  // terminal driver has no such start, so the line is limited to it.
+  {
+    type: 'openai.chatgpt-plan',
+    deliver: { kind: 'env', variable: 'ACCESS_TOKEN' },
+    drivers: ['codex-app-server'],
+  },
+]
+
+/**
+ * The environment variables these lines deliver: exactly what Codex's
+ * `shell_environment_policy.exclude` must keep out of the commands the agent
+ * runs, and nothing else. Read off the lines so the names are stated once.
+ * (Its `ignore_default_excludes=false` would also strip every other *KEY*,
+ * *SECRET* and *TOKEN* variable, such as GH_TOKEN, which agents rely on.)
+ */
+function deliveredEnvVariables(lines: readonly AcceptedCredential[]): string[] {
+  return lines.flatMap((line) => (line.deliver.kind === 'env' ? [line.deliver.variable] : []))
+}
 
 /** Deterministic per-server env var carrying the bearer token to codex. */
 function bearerEnvVar(serverName: string): string {
@@ -278,22 +304,13 @@ export const codexManifest: AgentManifest = {
       'OPENAI_ORG_ID',
       'OPENAI_BASE_URL',
     ],
-    accepts: [
-      { type: 'openai.api-key', deliver: { kind: 'env', variable: 'OPENAI_API_KEY' } },
-      { type: 'openai.chatgpt-login', deliver: { kind: 'home' } },
-      // A ChatGPT plan signed in to Podium reaches Codex as the token of a
-      // model provider the server driver is started with (plan Task 15); the
-      // terminal driver has no such start, so the line is limited to it.
-      {
-        type: 'openai.chatgpt-plan',
-        deliver: { kind: 'env', variable: 'ACCESS_TOKEN' },
-        drivers: ['codex-app-server'],
-      },
-    ],
-    // Codex's documented `shell_environment_policy.ignore_default_excludes`
-    // (default true): false removes every variable whose name contains KEY,
-    // SECRET or TOKEN from the commands the agent runs.
-    hideFromCommands: { args: ['-c', 'shell_environment_policy.ignore_default_excludes=false'] },
+    accepts: CODEX_ACCEPTS,
+    hideFromCommands: {
+      args: [
+        '-c',
+        `shell_environment_policy.exclude=${JSON.stringify(deliveredEnvVariables(CODEX_ACCEPTS))}`,
+      ],
+    },
     detectLogin(homeDir, env: HarnessEnvironment) {
       const path = codexAuthPath(homeDir, env)
       let contents: string

@@ -169,10 +169,19 @@ describe('hideFromCommands', () => {
     })
   })
 
-  it("Codex turns on its shell environment policy's KEY/SECRET/TOKEN exclusion", () => {
+  it('Codex excludes exactly the variables its env lines deliver, and nothing else', () => {
     expect(harnessHideFromCommands('codex')).toEqual({
-      args: ['-c', 'shell_environment_policy.ignore_default_excludes=false'],
+      args: ['-c', 'shell_environment_policy.exclude=["OPENAI_API_KEY","ACCESS_TOKEN"]'],
     })
+    // Derived, not restated: the excluded names are the env deliveries of its accepts.
+    const [flag, setting] = harnessHideFromCommands('codex')?.args ?? []
+    expect(flag).toBe('-c')
+    const excluded = JSON.parse(setting?.replace('shell_environment_policy.exclude=', '') ?? '[]')
+    const delivered = harnessAccepts('codex').flatMap((line) =>
+      line.deliver.kind === 'env' ? [line.deliver.variable] : [],
+    )
+    expect(excluded).toEqual(delivered)
+    expect(excluded).not.toContain('GH_TOKEN')
   })
 })
 
