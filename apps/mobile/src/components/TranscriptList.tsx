@@ -126,6 +126,8 @@ interface PendingRow {
 
 type Row = MobileTranscriptRow | PendingRow
 
+type MessageMenuHandler = (text: string, action?: MessageAction, timeLabel?: string) => void
+
 /** A turn the operator just sent, painted before the server echoes it back —
  *  the phone twin of the desktop chat's optimistic bubble (POD-338). Without it
  *  a send into a parked session looks like nothing happened at all. */
@@ -431,6 +433,34 @@ function SystemMurmur({
   )
 }
 
+/** Each note menu owns the same body the reader sees, with its delivery time. */
+function NoteMessage({
+  body,
+  ts,
+  onHold,
+  canQuote,
+  children,
+}: {
+  body: string
+  ts?: string
+  onHold?: MessageMenuHandler
+  canQuote: boolean
+  children: ReactNode
+}) {
+  if (!onHold) return <>{children}</>
+  const timeLabel = messageTimeLabel(ts)
+  return (
+    <MessageMenu
+      text={body}
+      timeLabel={timeLabel}
+      canQuote={canQuote}
+      onAction={(text, action) => onHold(text, action, timeLabel)}
+    >
+      {children}
+    </MessageMenu>
+  )
+}
+
 /**
  * A NOTE FROM ANOTHER AGENT, as a murmur (board Chat / ChatReply): who sent it
  * and its first line, opened into the full note. A question addressed to the
@@ -443,8 +473,10 @@ const EnvelopeRow = observer(function EnvelopeRow({
   onRefPress,
   mailReply,
   onQuote,
+  onHold,
 }: {
   envelope: ParsedEnvelope
+  onHold?: MessageMenuHandler
   ts?: string | undefined
   onRefPress?: (ref: string) => void
   mailReply?: MailReply | undefined
@@ -463,7 +495,7 @@ const EnvelopeRow = observer(function EnvelopeRow({
       ? 'asked you a question · answered'
       : 'asked you a question'
     : envelopeLine(envelope)
-  return (
+  const content = (
     <MurmurLine
       glyph={ask ? disclosureGlyph(open) : <Icon as={Mail} size={14} color={color.textMicro} />}
       label={
@@ -480,12 +512,21 @@ const EnvelopeRow = observer(function EnvelopeRow({
       {open ? (
         <OpenedEnvelope
           envelope={envelope}
+          ts={ts}
+          onHold={onHold}
           onRefPress={onRefPress}
           mailReply={mailReply}
           onQuote={onQuote}
         />
       ) : null}
     </MurmurLine>
+  )
+  return envelope.pointer ? (
+    content
+  ) : (
+    <NoteMessage body={envelope.body} ts={ts} onHold={onHold} canQuote={onQuote !== undefined}>
+      {content}
+    </NoteMessage>
   )
 })
 
@@ -494,6 +535,8 @@ function PointerEnvelope({
   ...props
 }: {
   envelope: ParsedEnvelope
+  ts?: string
+  onHold?: MessageMenuHandler
   onRefPress?: (ref: string) => void
   mailReply?: MailReply
   onQuote?: (text: string) => void
@@ -526,6 +569,8 @@ function PointerEnvelope({
 
 function OpenedEnvelope(props: {
   envelope: ParsedEnvelope
+  ts?: string
+  onHold?: MessageMenuHandler
   onRefPress?: (ref: string) => void
   mailReply?: MailReply
   onQuote?: (text: string) => void
@@ -543,9 +588,13 @@ const EnvelopeContents = observer(function EnvelopeContents({
   onRefPress,
   mailReply,
   onQuote,
+  ts,
+  onHold,
 }: {
   envelope: ParsedEnvelope
   body: string
+  ts?: string
+  onHold?: MessageMenuHandler
   onRefPress?: (ref: string) => void
   mailReply?: MailReply
   onQuote?: (text: string) => void
@@ -554,9 +603,23 @@ const EnvelopeContents = observer(function EnvelopeContents({
   const ask = isOperatorQuestion(envelope)
   const answered = ask && mailReply?.message(envelope.id)?.answered === true
   const replying = mailReply?.active === true && mailReply.target?.id === envelope.id
+  const prose = (
+    <RichMarkdown
+      text={body}
+      textStyle={styles.wellProse}
+      onRefPress={onRefPress}
+      selectable={Platform.OS !== 'ios'}
+    />
+  )
   return (
     <>
-      <RichMarkdown text={body} textStyle={styles.wellProse} onRefPress={onRefPress} />
+      {envelope.pointer === 'by-id' ? (
+        <NoteMessage body={body} ts={ts} onHold={onHold} canQuote={onQuote !== undefined}>
+          {prose}
+        </NoteMessage>
+      ) : (
+        prose
+      )}
       {envelope.to ? (
         <Text style={styles.wellMeta} numberOfLines={1}>
           <EnvelopePrincipalLabel label={envelope.from} onRefPress={onRefPress} />
@@ -601,9 +664,11 @@ function EnvelopeGroup({
   onRefPress,
   mailReply,
   onQuote,
+  onHold,
   forceOpen = false,
 }: {
   envelopes: readonly ParsedEnvelope[]
+  onHold?: MessageMenuHandler
   ts?: string
   onRefPress?: (ref: string) => void
   mailReply?: MailReply
@@ -621,6 +686,7 @@ function EnvelopeGroup({
       onRefPress={onRefPress}
       mailReply={mailReply}
       onQuote={onQuote}
+      onHold={onHold}
     />
   )
   return (
@@ -691,6 +757,9 @@ const ToolsRun = observer(function ToolsRun({
   forceOpen = false,
   live = false,
   onRefPress,
+  mailReply,
+  onQuote,
+  onHold,
 }: {
   blocks?: ChatBlock[]
   run?: TranscriptActivityRun
@@ -698,6 +767,9 @@ const ToolsRun = observer(function ToolsRun({
   /** The trailing run of a turn that is still working. */
   live?: boolean
   onRefPress?: (ref: string) => void
+  mailReply?: MailReply
+  onQuote?: (text: string) => void
+  onHold?: MessageMenuHandler
 }) {
   const { open: expanded, toggle } = useActivityDisclosure({ forceOpen })
   const failures = run?.failures ?? toolRunFailures(blocks)
@@ -741,6 +813,9 @@ const ToolsRun = observer(function ToolsRun({
                     envelopes={display.batch.envelopes}
                     ts={item.ts}
                     onRefPress={onRefPress}
+                    mailReply={mailReply}
+                    onQuote={onQuote}
+                    onHold={onHold}
                   />
                 </View>
               )
@@ -951,7 +1026,7 @@ interface TranscriptFeedRowProps {
   onSendAgainPending?: (turn: PendingTurn) => void
   onRetractPending?: (id: string) => void
   /** Long-press menu result; no action opens the host's message sheet. */
-  onHold: (text: string, action?: MessageAction, timeLabel?: string) => void
+  onHold: MessageMenuHandler
 }
 
 function sameAssetContext(
@@ -1160,6 +1235,9 @@ const TranscriptFeedRow = memo(
             forceOpen={highlighted}
             live={liveRun}
             onRefPress={onRefPress}
+            mailReply={mailReply}
+            onQuote={onQuoteText}
+            onHold={onHold}
           />
         )
         break
@@ -1175,18 +1253,17 @@ const TranscriptFeedRow = memo(
             mailReply={mailReply}
             onQuote={onQuoteText}
             forceOpen={highlighted}
+            onHold={onHold}
           />
         ) : row.envelope ? (
-          message(
-            envelopeText(row.envelope),
-            <EnvelopeRow
-              envelope={row.envelope}
-              ts={row.item.ts}
-              onRefPress={onRefPress}
-              mailReply={mailReply}
-              onQuote={onQuoteText}
-            />,
-          )
+          <EnvelopeRow
+            envelope={row.envelope}
+            ts={row.item.ts}
+            onRefPress={onRefPress}
+            mailReply={mailReply}
+            onQuote={onQuoteText}
+            onHold={onHold}
+          />
         ) : null
         break
       case 'context':

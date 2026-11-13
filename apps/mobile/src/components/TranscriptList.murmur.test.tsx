@@ -55,6 +55,10 @@ vi.mock('./ActionSheet', () => ({
   ActionSheet: ({ visible, subtitle }: { visible: boolean; subtitle?: string }) =>
     visible ? <div data-testid="message-actions">{subtitle}</div> : null,
 }))
+vi.mock('./SelectTextSheet', () => ({
+  SelectTextSheet: ({ text }: { text: string | null }) =>
+    text === null ? null : <div data-testid="selected-message">{text}</div>,
+}))
 vi.mock('./BottomSheet', () => ({
   BottomSheet: ({ children, head }: { children: React.ReactNode; head: React.ReactNode }) => (
     <div role="dialog">
@@ -424,4 +428,95 @@ it('passes the exact time to the native menu and JS sheet while preserving the a
   const clipboard = await import('expo-clipboard')
   act(() => menu.onAction('Timed message', 'copy'))
   expect(clipboard.setStringAsync).toHaveBeenLastCalledWith('Timed message')
+})
+
+it('copies, quotes and selects the resolved pointer body with the original timestamp', async () => {
+  const body = 'Resolved pointer body\nSecond line from the ledger.'
+  mailBody.mockReturnValue({ status: 'ready', body })
+  const onQuote = vi.fn()
+  const text = renderMailPointer(1, [{ from: 'issue:POD-1906', ids: ['msg_actions'] }])
+  render(
+    <TranscriptList
+      items={[{ id: 'pointer-actions', role: 'user', text, ts: '2026-11-12T13:32:05Z' }]}
+      live={false}
+      transcriptQuestion={null}
+      onAnswer={async () => {}}
+      onQuote={onQuote}
+    />,
+  )
+  expect(messageMenus.size).toBe(0)
+  fireEvent.click(screen.getByLabelText(/^Open note from POD-1906/))
+  const menu = messageMenus.get(body)
+  if (!menu) throw new Error('Resolved pointer body has no menu')
+  expect([...messageMenus.keys()]).toEqual([body])
+  expect(menu.timeLabel).toContain('2026')
+  expect(menu.timeLabel).toContain(':32:05')
+  const clipboard = await import('expo-clipboard')
+  act(() => menu.onAction(body, 'copy'))
+  expect(clipboard.setStringAsync).toHaveBeenLastCalledWith(body)
+  act(() => menu.onAction(body, 'quote'))
+  expect(onQuote).toHaveBeenLastCalledWith(
+    '> Resolved pointer body\n> Second line from the ledger.\n\n',
+  )
+  act(() => menu.onAction(body, 'select'))
+  expect(screen.getByTestId('selected-message').textContent).toBe(body)
+})
+
+it('keeps each grouped note menu bound to that note and its delivery time', async () => {
+  const onQuote = vi.fn()
+  render(
+    <TranscriptList
+      items={[
+        {
+          id: 'group-actions',
+          role: 'user',
+          ts: '2026-11-12T13:32:05Z',
+          text: [note('msg_a', 'First grouped body'), note('msg_b', 'Second grouped body')].join(
+            '\n',
+          ),
+        },
+      ]}
+      live={false}
+      transcriptQuestion={null}
+      onAnswer={async () => {}}
+      onQuote={onQuote}
+    />,
+  )
+  expect(messageMenus.size).toBe(0)
+  fireEvent.click(screen.getByLabelText('Expand 2 notes'))
+  const first = messageMenus.get('First grouped body')
+  const second = messageMenus.get('Second grouped body')
+  if (!first || !second) throw new Error('A grouped note is missing its menu')
+  expect(first.timeLabel).toContain(':32:05')
+  expect(second.timeLabel).toBe(first.timeLabel)
+  const clipboard = await import('expo-clipboard')
+  act(() => first.onAction('First grouped body', 'copy'))
+  expect(clipboard.setStringAsync).toHaveBeenLastCalledWith('First grouped body')
+  act(() => second.onAction('Second grouped body', 'quote'))
+  expect(onQuote).toHaveBeenLastCalledWith('> Second grouped body\n\n')
+  act(() => second.onAction('Second grouped body', 'select'))
+  expect(screen.getByTestId('selected-message').textContent).toBe('Second grouped body')
+})
+
+it('keeps individual note actions inside an opened mixed tool stretch', () => {
+  render(
+    transcript([
+      {
+        id: 'cmd',
+        role: 'tool',
+        text: '',
+        toolName: 'Bash',
+        toolInput: 'git status',
+        toolResult: 'clean',
+      },
+      {
+        id: 'note',
+        role: 'user',
+        ts: '2026-11-12T13:32:05Z',
+        text: note('msg_nested', 'Nested note body'),
+      },
+    ]),
+  )
+  fireEvent.click(screen.getByLabelText(/^Expand work run:/))
+  expect(messageMenus.get('Nested note body')?.timeLabel).toContain(':32:05')
 })
