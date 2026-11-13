@@ -166,6 +166,9 @@ export class MobileChatViewModel {
   submit(input: ConversationSendInput) {
     return this.service.sends.submit(input)
   }
+  replyToAsyncQuestion(reply: Parameters<MobileConversation['replyToAsyncQuestion']>[0]) {
+    return this.service.replyToAsyncQuestion(reply)
+  }
   retry(id: string) {
     return this.service.sends.retry(id)
   }

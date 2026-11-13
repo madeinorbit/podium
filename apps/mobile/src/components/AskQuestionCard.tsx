@@ -1,6 +1,9 @@
 import {
   type AskAnswerChoice,
+  askQuestionOutcome,
+  codexAsyncQuestionReply,
   isChosenOption,
+  isCodexAsyncQuestion,
   isPreviewLayout,
   parseAskQuestions,
 } from '@podium/client-core/values'
@@ -19,10 +22,12 @@ import { PressableScale } from './PressableScale'
  * Other entry, or skip. Who answered is never on the payload; the authority
  * stamps it.
  */
-export type AskQuestionAnswer = ({ skip: true } | { choices: AskAnswerChoice[] }) & {
-  interactionId?: string
-  question?: string
-}
+export type AskQuestionAnswer =
+  | (({ skip: true } | { choices: AskAnswerChoice[] }) & {
+      interactionId?: string
+      question?: string
+    })
+  | { reply: { itemId: string; question: string; text: string } }
 
 /**
  * The agent asking the human — options rendered as big tap targets. Live cards
@@ -52,6 +57,12 @@ export function AskQuestionCard({
   compact?: boolean
 }) {
   const questions = parseAskQuestions(item.toolInputJson)
+  const codex = isCodexAsyncQuestion(item)
+  const outcome = askQuestionOutcome({ item })
+  const resultDetail =
+    outcome === 'failed' || outcome === 'unknown'
+      ? item.toolResult?.trim() || 'No answer was recorded.'
+      : undefined
   const { height: screenHeight } = useWindowDimensions()
   // `picks[qi]` is the set of chosen 0-based option indices; `custom[qi]` is the
   // typed answer. The two are mutually exclusive per question — the native menu
@@ -65,7 +76,8 @@ export function AskQuestionCard({
     if (!compact) setExpanded(false)
   }, [compact])
   const band = presentation === 'band'
-  const locked = !live || state === 'sending' || state === 'sent'
+  const answerSent = state === 'sent' && !resultDetail
+  const locked = !live || state === 'sending' || answerSent
 
   const typed = (source: Record<number, string>, qi: number) => source[qi]?.trim() ?? ''
 
@@ -109,10 +121,20 @@ export function AskQuestionCard({
     if (!choices) return
     setState('sending')
     try {
-      await onAnswer({
-        choices,
-        ...(interactionId ? { interactionId, question: item.toolInputJson } : {}),
-      })
+      await onAnswer(
+        codex
+          ? {
+              reply: {
+                itemId: item.id,
+                question: item.toolInputJson ?? '',
+                text: codexAsyncQuestionReply(item, choices),
+              },
+            }
+          : {
+              choices,
+              ...(interactionId ? { interactionId, question: item.toolInputJson } : {}),
+            },
+      )
       setState('sent')
     } catch {
       setState('failed')
@@ -120,7 +142,7 @@ export function AskQuestionCard({
   }
 
   const skip = async () => {
-    if (!onAnswer || locked) return
+    if (!onAnswer || locked || codex) return
     setState('sending')
     try {
       await onAnswer({
@@ -165,8 +187,8 @@ export function AskQuestionCard({
 
   const anyTyped = questions.some((_, qi) => typed(custom, qi) !== '')
   const commitsOnTap = questions.every((q) => !q.multiSelect) && !anyTyped
-  const needsConfirm = live && state !== 'sent' && !commitsOnTap
-  const showActions = live && state !== 'sent' && questions.length > 0
+  const needsConfirm = live && !answerSent && !commitsOnTap
+  const showActions = live && !answerSent && questions.length > 0
   const allAnswered =
     questions.length > 0 &&
     questions.every((_, qi) => (picks[qi]?.size ?? 0) > 0 || typed(custom, qi) !== '')
@@ -188,7 +210,7 @@ export function AskQuestionCard({
         style={[styles.card, band && styles.band, styles.compact]}
       >
         <Text style={[styles.question, styles.compactTitle]} numberOfLines={1}>
-          {questions[0]?.question}
+          {resultDetail ?? questions[0]?.question}
         </Text>
         <PressableScale
           accessibilityRole="button"
@@ -210,7 +232,12 @@ export function AskQuestionCard({
         style={{ maxHeight: Math.min(420, screenHeight * 0.4) - space.md * 2 }}
         contentContainerStyle={styles.scrollContent}
       >
-        {state !== 'idle' ? (
+        {resultDetail ? (
+          <Text style={styles.metaError} accessibilityLiveRegion="polite">
+            {resultDetail}
+          </Text>
+        ) : null}
+        {state !== 'idle' && !(state === 'sent' && resultDetail) ? (
           <Text
             style={state === 'failed' ? styles.metaError : styles.meta}
             accessibilityLiveRegion="polite"
@@ -229,7 +256,7 @@ export function AskQuestionCard({
               {q.options.map((opt, oi) => {
                 const picked = picks[qi]?.has(oi) ?? false
                 const chosen = !live && isChosenOption(item.toolResult ?? '', opt.label)
-                const highlighted = picked || chosen || (state === 'sent' && picked)
+                const highlighted = picked || chosen || (answerSent && picked)
                 return (
                   <PressableScale
                     key={opt.label}
@@ -256,7 +283,7 @@ export function AskQuestionCard({
                   </PressableScale>
                 )
               })}
-              {band && live && state !== 'sent' ? (
+              {band && live && !answerSent ? (
                 <PressableScale
                   accessibilityRole="button"
                   accessibilityLabel="Write a different answer"
@@ -274,11 +301,12 @@ export function AskQuestionCard({
             </View>
             {/* The free-text escape rides the native Other entry. Live only —
               a read-only card is a record, not a control. */}
-            {live && state !== 'sent' && (!band || editing[qi]) ? (
+            {live && !answerSent && (!band || editing[qi]) ? (
               <TextInput
                 testID={`ask-free-text-${qi}`}
                 accessibilityLabel="Type your own answer"
                 value={custom[qi] ?? ''}
+                onFocus={() => setExpanded(true)}
                 onChangeText={(text) => onCustomChange(qi, text)}
                 onSubmitEditing={() => {
                   if (!locked && allAnswered) void submit(picks)
@@ -305,7 +333,7 @@ export function AskQuestionCard({
                 <Text style={styles.confirmText}>Send answer</Text>
               </PressableScale>
             ) : null}
-            {!band ? (
+            {!band && !codex ? (
               <PressableScale
                 testID="ask-skip"
                 accessibilityRole="button"

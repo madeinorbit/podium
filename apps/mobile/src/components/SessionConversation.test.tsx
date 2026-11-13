@@ -89,6 +89,115 @@ const OFFER_AT = '2026-08-18T12:00:00.000Z'
 it.each([
   'option',
   'custom',
+])('answers a Codex async %s question through the shared chat route', async (kind) => {
+  const asking = {
+    sessionId: `codex-${kind}`,
+    cwd: '/repo',
+    status: 'live',
+    agentKind: 'codex',
+    agentState: { phase: 'idle' },
+  } as unknown as SessionView
+  const sendText = vi.fn(async (_input: unknown) => ({ ok: true }))
+  const nativeAnswer = vi.fn(async () => ({ ok: false, reason: 'unknown-interaction' }))
+  await renderWithMobileStore(<SessionConversation session={asking} issue={undefined} />, {
+    sessions: [asking],
+    api: {
+      sessions: {
+        transcriptRead: {
+          query: async () => ({
+            items: [
+              {
+                id: 'async',
+                role: 'tool',
+                text: '',
+                toolName: 'request_user_input_async',
+                toolUseId: 'call_async',
+                toolInputJson: JSON.stringify({
+                  questions: [{ question: 'Where?', options: [{ label: 'main' }] }],
+                }),
+              },
+              {
+                id: 'registered',
+                role: 'tool',
+                text: '',
+                toolUseId: 'call_async',
+                toolResult: '{"accepted":true}',
+              },
+            ],
+            hasMore: false,
+          }),
+        },
+        answerAskUserQuestion: { mutate: nativeAnswer },
+        sendText: { mutate: sendText },
+        resumeAndSend: { mutate: sendText },
+      },
+    },
+  })
+  await screen.findByTestId('ask-question-tile')
+  if (kind === 'option') fireEvent.click(screen.getByLabelText('main'))
+  else {
+    fireEvent.click(screen.getByLabelText('Write a different answer'))
+    fireEvent.change(screen.getByLabelText('Type your own answer'), {
+      target: { value: 'an isolated branch' },
+    })
+    fireEvent.click(screen.getByLabelText('Send answer'))
+  }
+  await waitFor(() => expect(sendText).toHaveBeenCalledTimes(1))
+  expect(nativeAnswer).not.toHaveBeenCalled()
+  const payload = sendText.mock.calls[0]?.[0] as unknown as { text: string }
+  expect(payload.text).toContain('<send_user_message_question_reply>')
+  const replies = JSON.parse(payload.text.split('\n')[1] ?? '')
+  expect(replies[0]).toMatchObject({
+    answer: kind === 'option' ? 'main' : 'an isolated branch',
+    questionItemId: '["request_user_input_async","call_async",0]',
+  })
+})
+
+it.each([
+  '',
+  'Error: answer could not be delivered',
+  "[Tool call interrupted: the session ended before this call's result was recorded, so its outcome is unknown.]",
+])('keeps an unresolved question pinned with its %j detail', async (result) => {
+  const asking = {
+    sessionId: `unresolved-${result.length}`,
+    cwd: '/repo',
+    status: 'live',
+    agentKind: 'claude-code',
+    agentState: { phase: 'idle' },
+  } as unknown as SessionView
+  await renderWithMobileStore(<SessionConversation session={asking} issue={undefined} />, {
+    sessions: [asking],
+    api: {
+      sessions: {
+        transcriptRead: {
+          query: async () => ({
+            items: [
+              {
+                id: 'ask',
+                role: 'tool',
+                text: '',
+                toolName: 'AskUserQuestion',
+                toolUseId: 'use',
+                toolInputJson: JSON.stringify({
+                  questions: [{ question: 'Where?', options: [{ label: 'main' }] }],
+                }),
+              },
+              { id: 'result', role: 'tool', text: '', toolUseId: 'use', toolResult: result },
+              { id: 'later', role: 'assistant', text: 'A later turn.' },
+            ],
+            hasMore: false,
+          }),
+        },
+      },
+    },
+  })
+  await screen.findByTestId('ask-question-tile')
+  expect(screen.getByText(result || 'No answer was recorded.')).toBeTruthy()
+})
+
+it.each([
+  'option',
+  'custom',
 ])('unpins a delivered %s answer even after its acknowledgement reported failure', async (kind) => {
   const sessionId = `answered-${kind}`
   const asking = {

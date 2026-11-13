@@ -1,15 +1,16 @@
 import type { TranscriptActivityRun } from '@podium/client-core/conversation'
 import {
   activityRowSingletonDisplay,
+  askQuestionOutcome,
   askQuestionResult,
   type ChatBlock,
   type ChatRow,
   computeTranscript,
   envelopePrincipal,
   formatChurn,
-  isAskUserQuestion,
   isChosenOption,
   isInteractiveTool,
+  isInterviewQuestion,
   isOperatorQuestion,
   MACHINE_CONTEXT_RE,
   machineContextLabel,
@@ -120,12 +121,14 @@ export function shapeMobileChatRow(
   }
 
   const { item } = chatRow.block
-  if (isAskUserQuestion(item)) {
+  if (isInterviewQuestion(item)) {
     const result = askQuestionResult(chatRow.block)
-    if (result === undefined && item.id === options.hiddenQuestionId) return rows
+    const outcome = askQuestionOutcome(chatRow.block)
+    const settled = outcome === 'answered' || outcome === 'skipped'
+    if (!settled && item.id === options.hiddenQuestionId) return rows
     append({
       key: transcriptItemKey(item),
-      kind: result !== undefined ? 'receipt' : 'question',
+      kind: settled ? 'receipt' : 'question',
       item: result !== undefined ? { ...item, toolResult: result } : item,
       blockIndices,
       turn: 'beat',

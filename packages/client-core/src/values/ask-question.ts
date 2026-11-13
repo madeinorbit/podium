@@ -2,6 +2,7 @@ import { CODEX_ASYNC_QUESTION_TOOL } from '@podium/harness/browser'
 import type { AgentInterview, TranscriptItem } from '@podium/model'
 import type { PendingInteractionWire, QuestionAsk } from '@podium/protocol'
 import type { SessionView } from '../session-values'
+import { toolVerdict } from './chat'
 
 /** One option of an AskUserQuestion question. */
 export interface AskOption {
@@ -89,9 +90,7 @@ export function isAskUserQuestion(item: TranscriptItem): boolean {
 
 /** Includes async interviews without adding them to native-menu-only readers. */
 export function isInterviewQuestion(item: TranscriptItem): boolean {
-  return (
-    isAskUserQuestion(item) || (isCodexAsyncQuestion(item) && Boolean(item.toolInputJson))
-  )
+  return isAskUserQuestion(item) || (isCodexAsyncQuestion(item) && Boolean(item.toolInputJson))
 }
 
 export function isCodexAsyncQuestion(item: TranscriptItem): boolean {
@@ -115,13 +114,48 @@ export function askQuestionResult(block: {
 }
 
 export function isPendingAskQuestion(block: { item: TranscriptItem; result?: string }): boolean {
-  return isInterviewQuestion(block.item) && askQuestionResult(block) === undefined
+  if (!isInterviewQuestion(block.item)) return false
+  const outcome = askQuestionOutcome(block)
+  return outcome !== 'answered' && outcome !== 'skipped'
+}
+
+/** A tool finishing is not evidence that the human answered it. */
+export function askQuestionOutcome(block: {
+  item: TranscriptItem
+  result?: string
+}): 'pending' | 'answered' | 'skipped' | 'failed' | 'unknown' {
+  const result = askQuestionResult(block)
+  if (result === undefined) return 'pending'
+  if (toolVerdict(result, block.item.toolEffects) === 'err') return 'failed'
+  const text = result.trim()
+  if (!text || /^\[(?:Tool call interrupted|Request interrupted)/i.test(text)) return 'unknown'
+  if (/^User (?:has )?(?:declined|skipped)\b/i.test(text)) return 'skipped'
+  if (
+    /"[^"\n]+"\s*=\s*"[^"\n]+"/.test(text) ||
+    /^(?:You (?:selected|answered|picked)|User selected)\s+\S/i.test(text)
+  )
+    return 'answered'
+  if (isCodexAsyncQuestion(block.item)) {
+    try {
+      const answers: unknown = JSON.parse(text)
+      if (
+        Array.isArray(answers) &&
+        answers.length > 0 &&
+        answers.every((answer) => typeof answer?.answer === 'string' && answer.answer.trim() !== '')
+      )
+        return 'answered'
+    } catch {
+      /* Unrecognized results remain unresolved. */
+    }
+  }
+  return 'unknown'
 }
 
 /** Answers ride the existing text-message route, never Claude's menu keystrokes. */
 export function codexAsyncQuestionReply(item: TranscriptItem, choices: AskAnswerChoice[]): string {
   const questions = parseAskQuestions(item.toolInputJson)
-  if (!isCodexAsyncQuestion(item) ||
+  if (
+    !isCodexAsyncQuestion(item) ||
     !item.toolUseId ||
     questions.length === 0 ||
     choices.length !== questions.length
@@ -152,7 +186,7 @@ export function latestPendingQuestion(items: TranscriptItem[]): TranscriptItem |
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i]
     if (!item || !isAskUserQuestion(item)) continue
-    return item.toolResult ? null : item
+    return isPendingAskQuestion({ item }) ? item : null
   }
   return null
 }
@@ -222,16 +256,27 @@ export function matchesQuestionInteraction(row: PendingInteractionWire, raw: str
   if (row.kind !== 'question' || row.status !== 'asked') return false
   const shown = parseAskQuestions(raw)
   const current = (row.payload as QuestionAsk).questions
-  return shown.length > 0 && shown.length === current.length && shown.every((question, index) => {
-    const expected = current[index]
-    return expected !== undefined && question.question === expected.question &&
-      Boolean(question.multiSelect) === expected.multiSelect &&
-      isPreviewLayout(question) === expected.previewLayout &&
-      question.options.length === expected.options.length && question.options.every((option, optionIndex) => {
-        const target = expected.options[optionIndex]
-        return target !== undefined && option.label === target.label &&
-          (option.description ?? '') === (target.description ?? '') &&
-          (option.preview ?? '') === (target.preview ?? '')
-      })
-  })
+  return (
+    shown.length > 0 &&
+    shown.length === current.length &&
+    shown.every((question, index) => {
+      const expected = current[index]
+      return (
+        expected !== undefined &&
+        question.question === expected.question &&
+        Boolean(question.multiSelect) === expected.multiSelect &&
+        isPreviewLayout(question) === expected.previewLayout &&
+        question.options.length === expected.options.length &&
+        question.options.every((option, optionIndex) => {
+          const target = expected.options[optionIndex]
+          return (
+            target !== undefined &&
+            option.label === target.label &&
+            (option.description ?? '') === (target.description ?? '') &&
+            (option.preview ?? '') === (target.preview ?? '')
+          )
+        })
+      )
+    })
+  )
 }

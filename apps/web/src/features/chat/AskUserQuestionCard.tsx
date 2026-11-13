@@ -1,6 +1,7 @@
 import {
   type AskAnswerChoice,
   type AskQuestion,
+  askQuestionOutcome,
   askQuestionResult,
   codexAsyncQuestionReply,
   isChosenOption,
@@ -139,6 +140,7 @@ export function AskUserQuestionCard({
   const questions: AskQuestion[] = parseAskQuestions(item.toolInputJson)
   // The answer arrives as: …"<question>"="<chosen label>"… — match per option.
   const answer = askQuestionResult(block) ?? ''
+  const outcome = askQuestionOutcome(block)
   const codex = isCodexAsyncQuestion(item)
   const replies = codex ? parseCodexQuestionReplies(answer) : null
   const replyAt = (qi: number) => replies?.find((reply) => reply.questionIndex === qi)?.answer
@@ -386,7 +388,7 @@ export function AskUserQuestionCard({
   // (question + chosen option) so past decisions stay auditable without spending
   // attention. Nothing is asked of the operator any more, so nothing here may
   // carry the signal colour.
-  if (!livePending && answer.trim() !== '' && questions.length > 0) {
+  if (!livePending && (outcome === 'answered' || outcome === 'skipped') && questions.length > 0) {
     return (
       <div className={cn(cls)} data-block={index} data-testid="ask-receipt">
         <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
@@ -397,6 +399,7 @@ export function AskUserQuestionCard({
               .map((o) => splitRecommendation(o.label).text)
             return (
               <div
+                // biome-ignore lint/suspicious/noArrayIndexKey: native question positions are immutable within this card's identity
                 key={`${q.header ?? q.question}-${qi}`}
                 className="flex min-w-0 items-baseline gap-2 text-xs text-muted-foreground"
               >
@@ -437,6 +440,11 @@ export function AskUserQuestionCard({
               'border-primary/40 bg-primary/[0.05]',
         )}
       >
+        {outcome === 'failed' || outcome === 'unknown' ? (
+          <div className="mb-2 text-sm text-destructive" role="status">
+            {answer.trim() || 'No answer was recorded.'}
+          </div>
+        ) : null}
         <div className="flex min-h-[15px] items-center gap-2.5">
           <span
             className={cn(
@@ -481,6 +489,7 @@ export function AskUserQuestionCard({
           <div className="mt-1.5 flex flex-wrap gap-[3px]">
             {questions.map((q, qi) => (
               <button
+                // biome-ignore lint/suspicious/noArrayIndexKey: the native interview addresses questions by their fixed position
                 key={`${tabName(q, qi)}-${qi}`}
                 type="button"
                 data-pressable
@@ -558,6 +567,7 @@ export function AskUserQuestionCard({
                   )}
                 >
                   <div className={cn('min-w-0', pvText && '@min-[600px]:flex-1')}>
+                    {/* biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useAriaPropsSupportedByRole: both dynamic roles are labelled option groups with keyboard routing */}
                     <div
                       ref={readOnly ? undefined : optionsRef}
                       role={q.multiSelect ? 'group' : 'radiogroup'}
@@ -634,14 +644,17 @@ export function AskUserQuestionCard({
                           'grid grid-cols-[16px_1fr] gap-x-2.5 rounded-[7px] text-left'
                         return readOnly ? (
                           <div
+                            // biome-ignore lint/suspicious/noArrayIndexKey: duplicate native option labels are distinguished by their fixed position
                             key={`${o.label}-${oi}`}
                             className={cn(baseCls, 'px-2 py-1.5', chosen && 'bg-foreground/[0.04]')}
                           >
                             {body}
                           </div>
                         ) : (
+                          // biome-ignore lint/a11y/useAriaPropsSupportedByRole: both dynamic roles, checkbox and radio, support aria-checked
                           <button
                             data-pressable
+                            // biome-ignore lint/suspicious/noArrayIndexKey: the native menu addresses these immutable options by position
                             key={`${o.label}-${oi}`}
                             type="button"
                             role={q.multiSelect ? 'checkbox' : 'radio'}

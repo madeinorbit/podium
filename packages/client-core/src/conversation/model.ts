@@ -1,3 +1,4 @@
+import { codexQuestionReplyText, parseCodexQuestionReplies } from '@podium/harness/browser'
 import { lazy } from '@podium/mobx-helpers'
 import type { SessionId, SessionOffer, TranscriptItem } from '@podium/model'
 import type { HeadlessActivityEvent, TurnPreviewItem, TurnPreviewMessage } from '@podium/protocol'
@@ -5,6 +6,11 @@ import { action, observable, observableRef, reaction, runInAction } from 'mobx'
 import type { SuperagentTurnFailure } from '../api'
 import type { SocketHub } from '../socket-transport/socket-hub'
 import { type TranscriptConnection, transcriptActivitySignal } from '../transcript/contracts'
+import {
+  askQuestionResult,
+  isCodexAsyncQuestion,
+  isPendingAskQuestion,
+} from '../values/ask-question'
 import { type ConversationContext, nativeSessionCanInterrupt } from './contracts'
 import type { DraftStore } from './draft-store'
 import {
@@ -132,7 +138,40 @@ export class ConversationService {
   /** Paired results settle questions for every transcript reader. */
   @lazy get pendingQuestion(): TranscriptItem | null {
     const id = this.graph.pendingQuestionId
-    return id === undefined ? null : (this.graph.block(id)?.item ?? null)
+    const block = id === undefined ? undefined : this.graph.block(id)
+    if (!block) return null
+    const result = askQuestionResult(block)
+    return result === undefined ? block.item : { ...block.item, toolResult: result }
+  }
+
+  /** Both clients answer async interviews through the ordinary send lifecycle. */
+  async replyToAsyncQuestion(reply: {
+    itemId: string
+    question: string
+    text: string
+  }): Promise<void> {
+    const block = this.graph.block(reply.itemId)
+    if (
+      !block ||
+      !isCodexAsyncQuestion(block.item) ||
+      !isPendingAskQuestion(block) ||
+      this.graph.pendingQuestionId !== reply.itemId ||
+      block.item.toolInputJson !== reply.question
+    ) {
+      throw new Error('The question changed; wait for the current question.')
+    }
+    if (
+      this.sends.pending.some((turn) =>
+        parseCodexQuestionReplies(turn.wire)?.some(
+          (answer) => answer.callId === block.item.toolUseId,
+        ),
+      )
+    )
+      return
+    await this.sends.submit({
+      text: codexQuestionReplyText(reply.text) ?? reply.text,
+      wire: reply.text,
+    })
   }
 
   @lazy get agentSince(): string | undefined {

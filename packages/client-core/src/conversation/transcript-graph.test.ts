@@ -132,6 +132,24 @@ it('preserves native-menu pending rules when a later human prompt appears', () =
   f.graph.dispose()
 })
 
+it.each([
+  '',
+  'Error: answer could not be delivered',
+  "[Tool call interrupted: the session ended before this call's result was recorded, so its outcome is unknown.]",
+])('keeps a question unresolved after %j until real answer evidence arrives', (text) => {
+  const question = {
+    ...call('native', 'native', 'AskUserQuestion'),
+    toolInputJson: JSON.stringify({
+      questions: [{ question: 'Where?', options: [{ label: 'main' }] }],
+    }),
+  }
+  const f = fixture([question, result('result', 'native', text), prose('reply')])
+  expect(f.graph.pendingQuestionId).toBe('native')
+  f.apply({ changed: [result('result', 'native', 'You selected "main"')] })
+  expect(f.graph.pendingQuestionId).toBeUndefined()
+  f.graph.dispose()
+})
+
 it('folds image/file markers through paired results and repairs the older-page seam', () => {
   const f = fixture([media('image'), media('file', 'file'), prose('after')])
   f.prepend(user('prompt'))

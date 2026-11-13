@@ -2,6 +2,7 @@ import type { TranscriptItem } from '@podium/model'
 import { PendingInteractionWire } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
+  askQuestionOutcome,
   codexAsyncQuestionReply,
   isPendingAskQuestion,
   isPreviewLayout,
@@ -153,13 +154,12 @@ describe('ask question view model', () => {
   })
 })
 
-
 it('keeps an acknowledged async interview pending and builds a correlated chat reply', () => {
   const item = ask('call_async', { toolName: 'request_user_input_async', toolUseId: 'call_async' })
   // The phone's native-menu reader must not offer to answer this via keystrokes.
   expect(latestPendingQuestion([item])).toBeNull()
   expect(isPendingAskQuestion({ item, result: '{"accepted":true}' })).toBe(true)
-  expect(isPendingAskQuestion({ item: ask('claude'), result: '{"accepted":true}' })).toBe(false)
+  expect(isPendingAskQuestion({ item: ask('claude'), result: '{"accepted":true}' })).toBe(true)
   const text = codexAsyncQuestionReply(item, [
     { freeText: 'main, using an isolated branch', otherIndex: 3 },
   ])
@@ -174,18 +174,51 @@ it('keeps an acknowledged async interview pending and builds a correlated chat r
   expect(() => codexAsyncQuestionReply(item, [])).toThrow('unavailable')
 })
 
+it.each([
+  ['', 'unknown'],
+  ['Error: answer could not be delivered', 'failed'],
+  [
+    "[Tool call interrupted: the session ended before this call's result was recorded, so its outcome is unknown.]",
+    'unknown',
+  ],
+  ['{"accepted":true}', 'unknown'],
+  ['Unrecognized output', 'unknown'],
+  ['User has answered your questions: "Which way?"="Left".', 'answered'],
+  ['You answered use another branch', 'answered'],
+  ['User declined to answer the questions', 'skipped'],
+] as const)('classifies question result %s as %s without inventing an answer', (result, outcome) => {
+  const block = { item: ask('question'), result }
+  expect(askQuestionOutcome(block)).toBe(outcome)
+  expect(isPendingAskQuestion(block)).toBe(outcome !== 'answered' && outcome !== 'skipped')
+})
+
 it('refuses a rendered question whose text, options, or layout differs from its interaction', () => {
-  const row = PendingInteractionWire.parse({ id: 'ask:new', sessionId: 'session', askedAt: '2026-09-18T00:00:00.000Z',
-    source: 'screen-classifier', answerable: 'keystroke-emulated', fingerprint: 'runtime:ask:new', kind: 'question', status: 'asked', payload: { v: 1,
-    questions: [{ question: 'Pick', multiSelect: false, previewLayout: false,
-      options: [{ label: 'One' }, { label: 'Two' }],
+  const row = PendingInteractionWire.parse({
+    id: 'ask:new',
+    sessionId: 'session',
+    askedAt: '2026-09-18T00:00:00.000Z',
+    source: 'screen-classifier',
+    answerable: 'keystroke-emulated',
+    fingerprint: 'runtime:ask:new',
+    kind: 'question',
+    status: 'asked',
+    payload: {
+      v: 1,
+      questions: [
+        {
+          question: 'Pick',
+          multiSelect: false,
+          previewLayout: false,
+          options: [{ label: 'One' }, { label: 'Two' }],
         },
       ],
     },
   })
-  const raw = (question = 'Pick', options = [{ label: 'One' }, { label: 'Two' }], multiSelect = false,
-  ) =>
-    JSON.stringify({ questions: [{ question, options, multiSelect }] })
+  const raw = (
+    question = 'Pick',
+    options = [{ label: 'One' }, { label: 'Two' }],
+    multiSelect = false,
+  ) => JSON.stringify({ questions: [{ question, options, multiSelect }] })
   expect(matchesQuestionInteraction(row, raw())).toBe(true)
   expect(matchesQuestionInteraction(row, raw('Old question'))).toBe(false)
   expect(matchesQuestionInteraction(row, raw('Pick', [{ label: 'Old choice' }]))).toBe(false)

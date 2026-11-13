@@ -66,6 +66,26 @@ afterEach(() => {
   container.remove()
 })
 
+it.each([
+  '',
+  'Error: answer could not be delivered',
+  "[Tool call interrupted: the session ended before this call's result was recorded, so its outcome is unknown.]",
+])('keeps unresolved result %j visible instead of an answered receipt', (result) => {
+  act(() =>
+    root.render(
+      <AskUserQuestionCard
+        block={ask(THREE, result)}
+        cls=""
+        index={0}
+        livePending={false}
+        onAnswer={async () => {}}
+      />,
+    ),
+  )
+  expect(container.querySelector('[data-testid="ask-receipt"]')).toBeNull()
+  expect(container.textContent).toContain(result || 'No answer was recorded.')
+})
+
 describe('AskUserQuestionCard', () => {
   it('commits on click for a lone single-select question', async () => {
     const onAnswer = vi.fn(async () => {})
@@ -390,13 +410,7 @@ describe('AskUserQuestionCard', () => {
     const onAnswer = vi.fn(async () => {})
     act(() =>
       root.render(
-        <AskUserQuestionCard
-          block={ask(DRAWN)}
-          cls=""
-          index={0}
-          livePending
-          onAnswer={onAnswer}
-        />,
+        <AskUserQuestionCard block={ask(DRAWN)} cls="" index={0} livePending onAnswer={onAnswer} />,
       ),
     )
     await act(async () => options()[1]?.click())
@@ -465,12 +479,27 @@ describe('AskUserQuestionCard', () => {
   })
 })
 
-
 it('submits the identity and question captured by the rendered card', async () => {
   const block = ask([{ question: 'Pick', options: [{ label: 'One' }, { label: 'Two' }] }])
   const onAnswer = vi.fn(async () => {})
-  act(() => root.render(<AskUserQuestionCard block={block} cls="" index={0} livePending interactionId="ask:rendered" onAnswer={onAnswer} />))
-  await act(async () => { options()[1]?.click() })
-  expect(onAnswer).toHaveBeenCalledWith({ interactionId: 'ask:rendered', question: block.item.toolInputJson,
-    choices: [{ optionIndices: [2] }] })
+  act(() =>
+    root.render(
+      <AskUserQuestionCard
+        block={block}
+        cls=""
+        index={0}
+        livePending
+        interactionId="ask:rendered"
+        onAnswer={onAnswer}
+      />,
+    ),
+  )
+  await act(async () => {
+    options()[1]?.click()
+  })
+  expect(onAnswer).toHaveBeenCalledWith({
+    interactionId: 'ask:rendered',
+    question: block.item.toolInputJson,
+    choices: [{ optionIndices: [2] }],
+  })
 })

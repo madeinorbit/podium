@@ -710,6 +710,12 @@ const SessionConversationBody = observer(function SessionConversationBody({
 
   const answerAsk = useCallback(
     async (answer: AskQuestionAnswer) => {
+      if ('reply' in answer) {
+        if (!composer.sendable || !composer.deliverable)
+          throw new Error('The question is not available to answer.')
+        await conversation.replyToAsyncQuestion(answer.reply)
+        return
+      }
       if (
         currentQuestion &&
         (answer.interactionId !== currentQuestion.id ||
@@ -725,7 +731,14 @@ const SessionConversationBody = observer(function SessionConversationBody({
       })
       if (sent?.ok === false) throw new Error(sent.reason ?? 'answer not delivered')
     },
-    [sessionId, currentQuestion, trpc.sessions.answerAskUserQuestion],
+    [
+      sessionId,
+      currentQuestion,
+      trpc.sessions.answerAskUserQuestion,
+      conversation,
+      composer.sendable,
+      composer.deliverable,
+    ],
   )
 
   /**

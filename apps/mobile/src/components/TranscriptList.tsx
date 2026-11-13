@@ -3,6 +3,7 @@ import { useActivityDisclosure, useMailBody } from '@podium/client-core/react'
 import { dayKey, dayMarksByPosition } from '@podium/client-core/transcript-time'
 import {
   activitySingletonDisplay,
+  askQuestionOutcome,
   type ChatBlock,
   formatClock,
   isOperatorQuestion,
@@ -846,6 +847,7 @@ const ToolsRun = observer(function ToolsRun({
 /** An answered AskUserQuestion, collapsed to "? question — picked" so past
  *  decisions stay auditable without spending attention. */
 function AskReceipt({ item }: { item: TranscriptItem }) {
+  const skipped = askQuestionOutcome({ item }) === 'skipped'
   const questions = parseAskQuestions(item.toolInputJson)
   const first = questions[0]
   const picked = first?.options
@@ -856,14 +858,14 @@ function AskReceipt({ item }: { item: TranscriptItem }) {
     <View
       style={styles.receipt}
       accessible
-      accessibilityLabel={`Answered question: ${first?.question ?? 'Question'}${picked ? ` · ${picked}` : ''}`}
+      accessibilityLabel={`${skipped ? 'Skipped' : 'Answered'} question: ${first?.question ?? 'Question'} · ${picked || item.toolResult || ''}`}
     >
       <Text style={styles.receiptGlyph}>?</Text>
       <Text style={styles.receiptQ} numberOfLines={2}>
         {first?.question ?? item.toolInput ?? 'Question'}
       </Text>
       <Text style={styles.receiptPick} numberOfLines={1}>
-        {picked || 'answered'}
+        {picked || (skipped ? 'skipped' : item.toolResult) || 'answered'}
       </Text>
     </View>
   )

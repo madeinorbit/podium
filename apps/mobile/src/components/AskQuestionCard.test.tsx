@@ -1,5 +1,5 @@
 import type { TranscriptItem } from '@podium/model'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // This lane does not run testing-library's auto-cleanup, so an earlier render
@@ -29,6 +29,35 @@ const single = ask([
 ])
 
 describe('AskQuestionCard', () => {
+  it('lets a recorded answer failure override an earlier successful request acknowledgement', async () => {
+    const onAnswer = vi.fn(async () => {})
+    const view = render(<AskQuestionCard item={single} live onAnswer={onAnswer} />)
+    fireEvent.click(screen.getByLabelText('SQLite'))
+    await screen.findByText('Answer sent')
+    view.rerender(
+      <AskQuestionCard
+        item={{ ...single, toolResult: 'Error: answer could not be delivered' }}
+        live
+        onAnswer={onAnswer}
+      />,
+    )
+    expect(screen.getByText('Error: answer could not be delivered')).toBeTruthy()
+    expect(screen.queryByText('Answer sent')).toBeNull()
+    fireEvent.click(screen.getByLabelText('Postgres'))
+    await waitFor(() => expect(onAnswer).toHaveBeenCalledTimes(2))
+  })
+  it('retains its focused custom-answer field when opening the keyboard compacts the band', () => {
+    const view = render(<AskQuestionCard item={single} live presentation="band" />)
+    fireEvent.click(screen.getByLabelText('Write a different answer'))
+    const input = screen.getByLabelText('Type your own answer')
+    act(() => input.focus())
+    fireEvent.change(input, { target: { value: 'DuckDB' } })
+    view.rerender(<AskQuestionCard item={single} live presentation="band" compact />)
+    expect(screen.getByLabelText('Type your own answer')).toBe(input)
+    expect(document.activeElement).toBe(input)
+    expect((input as HTMLInputElement).value).toBe('DuckDB')
+    expect(screen.queryByTestId('ask-question-compact')).toBeNull()
+  })
   it('keeps a tall question scrollable and long options free to wrap', () => {
     const label = 'A much longer option label that needs several lines at Accessibility Medium.'
     render(

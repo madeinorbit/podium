@@ -91,6 +91,28 @@ beforeEach(() => {
   mailBody.mockReturnValue({ status: 'ready', body: 'The complete pointer body.' })
 })
 
+it.each([
+  '',
+  'Error: answer could not be delivered',
+  "[Tool call interrupted: the session ended before this call's result was recorded, so its outcome is unknown.]",
+])('preserves an unresolved question and its result detail for %j', (result) => {
+  const item: TranscriptItem = {
+    id: 'question',
+    role: 'tool',
+    text: '',
+    toolName: 'AskUserQuestion',
+    toolInputJson: JSON.stringify({
+      questions: [{ question: 'Where?', options: [{ label: 'main' }] }],
+    }),
+  }
+  const rows = shapeMobileChatRow({ kind: 'block', block: { item, result }, blockIndex: 0 })
+  expect(rows[0]?.kind).toBe('question')
+  expect(rows[0]?.item.toolResult).toBe(result)
+  render(transcript([{ ...item, toolResult: result }]))
+  expect(screen.getByText(result || 'No answer was recorded.')).toBeTruthy()
+  expect(screen.queryByLabelText(/Answered question/)).toBeNull()
+})
+
 it('formats the murmur clock with the shared m:ss motion clock', () => {
   expect(murmurClock(12_000)).toBe('0:12')
   expect(murmurClock(195_000)).toBe('3:15')
@@ -290,7 +312,7 @@ it('marks a delivered custom answer as answered even without a listed option mat
       },
     ]),
   )
-  expect(screen.getByText('answered')).toBeTruthy()
+  expect(screen.getByText('You answered Purple')).toBeTruthy()
   expect(screen.queryByTestId('ask-question-tile')).toBeNull()
 })
 const note = (id: string, body: string, ask = false) =>
