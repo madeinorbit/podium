@@ -45,14 +45,19 @@ export const MissionProposalRow = observer(function MissionProposalRow({
         ? pendingLabel[status.action]
         : status?.error
   return (
-    <SwipeActions modifiers={[accessibilityIdentifier('deck-proposal')]}>
-      <ContextMenu>
+    <SwipeActions
+      modifiers={[
+        frame({ minWidth: 0, maxWidth: Infinity, alignment: 'leading' }),
+        accessibilityIdentifier('deck-proposal'),
+      ]}
+    >
+      <ContextMenu modifiers={[frame({ minWidth: 0, maxWidth: Infinity, alignment: 'leading' })]}>
         <ContextMenu.Trigger>
           <Button
             onPress={onPress}
             modifiers={[
               buttonStyle('plain'),
-              frame({ maxWidth: Infinity, alignment: 'leading' }),
+              frame({ minWidth: 0, maxWidth: Infinity, alignment: 'leading' }),
               accessibilityElement('ignore'),
               accessibilityLabel(
                 `Proposal ${facts.ref} ${facts.title}${receipt ? `, ${receipt}` : ''}`,
@@ -68,7 +73,7 @@ export const MissionProposalRow = observer(function MissionProposalRow({
               alignment="top"
               spacing={8}
               modifiers={[
-                frame({ minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
+                frame({ minWidth: 0, minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
                 padding({ vertical: 12 }),
                 contentShape(shapes.rectangle()),
               ]}
@@ -76,12 +81,21 @@ export const MissionProposalRow = observer(function MissionProposalRow({
               <Image
                 systemName="circle"
                 color={deckColor.proposal}
-                modifiers={[font({ textStyle: 'caption' }), padding({ top: 4 })]}
+                modifiers={[
+                  font({ textStyle: 'caption' }),
+                  fixedSize({ horizontal: true, vertical: true }),
+                  padding({ top: 4 }),
+                ]}
               />
               <VStack
                 alignment="leading"
                 spacing={4}
-                modifiers={[layoutPriority(1), frame({ maxWidth: Infinity, alignment: 'leading' })]}
+                // The ring keeps its intrinsic size; text accepts all remaining
+                // width through the swipe/menu wrappers, including Dynamic Type.
+                modifiers={[
+                  layoutPriority(1),
+                  frame({ minWidth: 0, maxWidth: Infinity, alignment: 'leading' }),
+                ]}
               >
                 <Text
                   modifiers={[
