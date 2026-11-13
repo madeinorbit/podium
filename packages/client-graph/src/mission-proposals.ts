@@ -4,6 +4,7 @@ import { asIssueId, asMutationId } from '@podium/model'
 import { action, compareShallow, observable, runInAction } from 'mobx'
 import type { FullDeck, FullDeckTask } from './mission-full-deck'
 import { requireLoaded, settled } from './mission-view'
+import { RowWindow } from './row-window'
 
 type ProposalInput = {
   id: ReturnType<typeof asIssueId>
@@ -53,6 +54,10 @@ export class ProposalSubmissions {
   readonly provenance = companion((task: FullDeckTask) => new ProposalProvenance(task))
   readonly byId = observable.map<string, Submission>([], { deep: false })
   private readonly expired = observable.set<string>()
+  readonly window = new RowWindow(
+    () => this.ids,
+    (id) => id,
+  )
 
   /** A single UI timer owns the next receipt deadline for this opening. */
   @lazy get receiptDeadline(): number | null {
@@ -86,7 +91,8 @@ export class ProposalSubmissions {
       ...new Set([...(typeof proposed === 'symbol' ? [] : proposed), ...this.byId.keys()]),
     ].filter((id) => {
       const status = this.byId.get(id)
-      if (this.receipts === 'brief' && status) return !this.expired.has(id)
+      if (this.receipts === 'brief' && status && status.phase !== 'error')
+        return !this.expired.has(id)
       return (
         !(status?.action === 'dismiss' && status.phase === 'success') &&
         settled(() => this.full.task(id).abandoned) !== true

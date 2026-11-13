@@ -16,6 +16,7 @@ import { ProposalSubmissions } from '@podium/client-graph/mission-proposals'
 import type { MissionScreen } from '@podium/client-graph/mission-screen'
 import { settled } from '@podium/client-graph/mission-view'
 import type { SessionModel } from '@podium/client-graph/models'
+import { ROW_WINDOW_SIZE } from '@podium/client-graph/row-window'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import {
   SESSION_WORD_LABEL,
@@ -34,6 +35,8 @@ import { Check, ChevronDown, ChevronRight } from './icons'
 import { DeckGauge, DeckVitalsLine, deckVitals } from './MissionBar'
 import { DeckContent, DeckProposals, MissionDeckList } from './MissionDeckList'
 import { MissionProposalRow } from './MissionProposalRow'
+import { MissionProposalSlot } from './MissionProposalSlot'
+import type { MissionProposalRowProps } from './mission-proposal-row.types'
 import { PressableScale } from './PressableScale'
 import { EmptyState } from './ui'
 import { WorkingMark } from './WorkingMark'
@@ -190,17 +193,24 @@ export const MissionDeck = observer(function MissionDeck({
           {proposalsOpen ? (
             <DeckProposals>
               {proposalIds.map((id, index) => (
-                <MissionProposalRow
+                <MissionProposalSlot
                   key={id}
-                  task={full.task(id)}
-                  first={index === 0}
-                  submissions={submissions}
-                  onSubmit={(action) => void submissions.submit(id, action, trpc)}
-                  onPress={() => {
-                    const issue = issueOf(id)
-                    if (issue) onOpenTask(issue)
-                  }}
-                />
+                  id={id}
+                  window={submissions.window}
+                  prime={index < ROW_WINDOW_SIZE}
+                >
+                  <ProposalContent
+                    full={full}
+                    id={id}
+                    first={index === 0}
+                    submissions={submissions}
+                    onSubmit={(action) => void submissions.submit(id, action, trpc)}
+                    onPress={() => {
+                      const issue = issueOf(id)
+                      if (issue) onOpenTask(issue)
+                    }}
+                  />
+                </MissionProposalSlot>
               ))}
             </DeckProposals>
           ) : null}
@@ -208,6 +218,15 @@ export const MissionDeck = observer(function MissionDeck({
       ) : null}
     </MissionDeckList>
   )
+})
+
+/** Resolve each task only inside the native slot's active window. */
+const ProposalContent = observer(function ProposalContent({
+  full,
+  id,
+  ...props
+}: Omit<MissionProposalRowProps, 'task'> & { full: FullDeck; id: string }) {
+  return <MissionProposalRow {...props} task={full.task(id)} />
 })
 
 const Filters = observer(function Filters({ full }: { full: FullDeck }) {

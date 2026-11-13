@@ -94,3 +94,30 @@ it('uses the existing direct Start command, guards repeated submission and retri
   expect(f.commands.issues.start.mutate).toHaveBeenLastCalledWith(mutationId)
   expect(f.commands.issues.promote.mutate).not.toHaveBeenCalled()
 })
+
+it.each([
+  'desktop',
+  'brief',
+] as const)('%s drops a declined proposal when publication beats a command refusal', async (policy) => {
+  const f = fixture(policy)
+  const stop = autorun(() => f.submissions.ids)
+  let refuse = (_error: Error) => {}
+  f.commands.issues.start.mutate.mockImplementationOnce(
+    () =>
+      new Promise<void>((_resolve, reject) => {
+        refuse = reject
+      }),
+  )
+  const command = f.submissions.submit('proposal', 'start', f.commands)
+  runInAction(() => {
+    f.state.ids = []
+    f.state.abandoned = true
+  })
+  expect(f.submissions.ids).toEqual(policy === 'brief' ? ['proposal'] : [])
+  refuse(new Error('Proposal already declined'))
+  await command
+  expect(f.submissions.byId.get('proposal')?.phase).toBe('error')
+  expect(f.submissions.ids).toEqual([])
+  expect(f.submissions.receiptDeadline).toBeNull()
+  stop()
+})

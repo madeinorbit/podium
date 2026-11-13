@@ -1,11 +1,13 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
+import { ROW_WINDOW_SIZE } from '@podium/client-graph/row-window'
 import { asIssueId } from '@podium/model'
-import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { observer } from 'mobx-react-lite'
 import type { ReactNode } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { useMissionOpening } from '../client/hooks'
 import { renderWithMobileStore } from '../client/test-support'
+import { ROW_PRIME_MS } from '../lib/use-row-prime'
 
 vi.mock('@expo/ui/swift-ui/modifiers', () =>
   Object.fromEntries(
@@ -25,6 +27,9 @@ vi.mock('@expo/ui/swift-ui/modifiers', () =>
       'listRowInsets',
       'listRowSeparatorTint',
       'tint',
+      'onAppear',
+      'onDisappear',
+      'onGeometryChange',
     ]
       .map((name) => [name, (value: unknown) => ({ name, value })])
       .concat([['shapes', { rectangle: () => ({}) }] as never]),
@@ -36,7 +41,23 @@ vi.mock('@expo/ui/swift-ui', () => {
   const Box = ({ children }: Props) => <div>{children}</div>
   return {
     HStack: Box,
-    VStack: Box,
+    VStack: ({ children, modifiers }: Props) => {
+      const id = modifiers?.find((m) => m.name === 'accessibilityIdentifier')?.value as
+        | string
+        | undefined
+      const appear = modifiers?.find((m) => m.name === 'onAppear')?.value as
+        | (() => void)
+        | undefined
+      const disappear = modifiers?.find((m) => m.name === 'onDisappear')?.value as
+        | (() => void)
+        | undefined
+      return (
+        // biome-ignore lint/a11y/noStaticElementInteractions: native cell appearance events are driven at this test boundary.
+        <div data-testid={id} onMouseEnter={appear} onMouseLeave={disappear}>
+          {children}
+        </div>
+      )
+    },
     Spacer: () => null,
     Image: () => null,
     Text: Box,
@@ -77,6 +98,7 @@ vi.mock('@expo/ui/swift-ui', () => {
 vi.mock('expo-haptics', () => ({ ImpactFeedbackStyle: { Light: 'light' } }))
 vi.mock('./WorkingMark', () => ({ WorkingMark: () => null }))
 vi.mock('./MissionProposalRow', () => import('./MissionProposalRow.ios'))
+vi.mock('./MissionProposalSlot', () => import('./MissionProposalSlot.ios'))
 const { MissionDeck } = await import('./MissionDeck')
 const Opened = observer(function Opened({ onPress }: { onPress: () => void }) {
   const { screen } = useMissionOpening('root')
@@ -93,7 +115,7 @@ const Opened = observer(function Opened({ onPress }: { onPress: () => void }) {
 })
 afterEach(cleanup)
 
-async function mount() {
+async function mount(count = 1) {
   const root = {
     id: asIssueId('root'),
     seq: 1,
@@ -127,7 +149,19 @@ async function mount() {
   }
   const onPress = vi.fn()
   await renderWithMobileStore(<Opened onPress={onPress} />, {
-    issues: [root, proposal],
+    issues: [
+      root,
+      ...Array.from({ length: count }, (_, index) =>
+        count === 1
+          ? proposal
+          : {
+              ...proposal,
+              id: asIssueId(`proposal-${index}`),
+              title: `Proposal ${index}`,
+              seq: 1931 + index,
+            },
+      ),
+    ],
     api: commands,
   })
   return { commands, onPress }
@@ -188,4 +222,19 @@ it('opens details from the context menu', async () => {
   )
   expect(f.onPress).toHaveBeenCalledOnce()
   expect(f.commands.issues.start.mutate).not.toHaveBeenCalled()
+})
+
+it('keeps native proposal action trees inside the shared 40-row window', async () => {
+  await mount(700)
+  expect(screen.getAllByTestId('long-press-menu')).toHaveLength(ROW_WINDOW_SIZE)
+  expect(screen.getByText('Proposal 0')).toBeTruthy()
+  expect(screen.queryByText('Proposal 500')).toBeNull()
+  await act(() => new Promise<void>((resolve) => setTimeout(resolve, ROW_PRIME_MS + 20)))
+  await act(async () => fireEvent.mouseEnter(screen.getByTestId('deck-proposal-slot-proposal-500')))
+  expect(screen.getAllByTestId('long-press-menu')).toHaveLength(ROW_WINDOW_SIZE)
+  expect(screen.getByText('Proposal 500')).toBeTruthy()
+  expect(screen.queryByText('Proposal 0')).toBeNull()
+  const group = within(screen.getByTestId('deck-proposal-slot-proposal-500'))
+  fireEvent.click(within(group.getByTestId('swipe-leading')).getByRole('button', { name: 'Start' }))
+  expect(await group.findByText('Started')).toBeTruthy()
 })

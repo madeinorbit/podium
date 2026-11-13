@@ -20,9 +20,6 @@ import {
   foregroundStyle,
   frame,
   lineLimit,
-  listRowBackground,
-  listRowInsets,
-  listRowSeparatorTint,
   shapes,
   tint,
 } from '@expo/ui/swift-ui/modifiers'
@@ -56,14 +53,7 @@ export const MissionProposalRow = observer(function MissionProposalRow({
         ? pendingLabel[status.action]
         : status?.error
   return (
-    <SwipeActions
-      modifiers={[
-        listRowBackground(deckColor.proposalFill),
-        listRowSeparatorTint(deckColor.proposalRing),
-        listRowInsets({ leading: 12, trailing: 12, top: 0, bottom: 0 }),
-        accessibilityIdentifier('deck-proposal'),
-      ]}
-    >
+    <SwipeActions modifiers={[accessibilityIdentifier('deck-proposal')]}>
       <ContextMenu>
         <ContextMenu.Trigger>
           <Button
