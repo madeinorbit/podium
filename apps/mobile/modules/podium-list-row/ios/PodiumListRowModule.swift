@@ -27,26 +27,26 @@ public final class PodiumListRowModule: Module {
 
 /// Movement past this many points makes the touch a drag, never a tap.
 private let dragSlop: CGFloat = 8
-/// A release this soon after drag movement belongs to that drag.
+/// A tap ending this soon after drag movement belongs to that drag.
 private let dragWindow: TimeInterval = 0.5
 
 /// Wraps a row's label in the List's own Button, so the system draws the cell's
-/// touch-down highlight (with no custom listRowBackground on the row) and
-/// VoiceOver, Return and Space activate it once.
+/// touch-down highlight (with no custom listRowBackground on the row), and opens
+/// the row once from a recognized tap, VoiceOver/Switch Control activation, or
+/// Return/Space.
 ///
-/// A List Button fires on any release inside the row, and a TapGesture tolerates
-/// tens of points of movement; a short rightward drag (no leading swipe actions
-/// claim it) therefore opened rows. A simultaneous drag latch rejects any release
-/// that follows movement past the slop.
+/// The Button's own action stays empty: SwiftUI's context-menu bridge runs it as
+/// the menu's preview action, and after a row has opened, a stale preview commit
+/// fired it again on the next touch anywhere in the list (reopening that row).
+/// A TapGesture tolerates tens of points of movement, so a short rightward drag
+/// (no leading swipe actions claim it) used to open rows; the simultaneous drag
+/// latch rejects any tap that follows movement past the slop.
 private struct ListRowPressModifier: ViewModifier {
   let dispatcher: EventDispatcher
   @State private var draggedAt = Date.distantPast
 
   func body(content: Content) -> some View {
-    let button = Button {
-      if Date().timeIntervalSince(draggedAt) < dragWindow { return }
-      activate()
-    } label: {
+    let button = Button {} label: {
       // A List Button tints its label; hierarchical styles inside derive from
       // this, so rows keep the system label colours instead of the accent.
       content.foregroundStyle(Color.primary)
@@ -57,6 +57,12 @@ private struct ListRowPressModifier: ViewModifier {
         .onChanged { _ in draggedAt = Date() }
         .onEnded { _ in draggedAt = Date() }
     )
+    .simultaneousGesture(
+      TapGesture().onEnded {
+        if Date().timeIntervalSince(draggedAt) >= dragWindow { activate() }
+      }
+    )
+    .accessibilityAction { activate() }
 
     if #available(iOS 17.0, *) {
       button.onKeyPress(keys: [.return, .space], phases: .up) { _ in
@@ -75,10 +81,12 @@ private struct ListRowPressModifier: ViewModifier {
 
 /// UIKit shows a stacked `hidesSearchBarWhenScrolling` search field when its list
 /// first appears at rest. Lists should open with the field tucked under the large
-/// title, revealed only by a deliberate pull. Once per mounted list, this scrolls
-/// the tracked list by the field's height. Only an animated scroll goes through
-/// UIKit's search-hiding path; a programmatic jump collapses the large title too.
-/// On a cold launch it runs beneath the splash overlay.
+/// title, revealed only by a deliberate pull. Once per mounted list this names the
+/// List's collection view as the screen's top content scroll view (UIKit's implicit
+/// discovery follows drags but ignores programmatic scrolls) and scrolls it by the
+/// field's height. Only an animated scroll goes through UIKit's search-hiding path;
+/// a programmatic jump collapses the large title too. On a cold launch this runs
+/// beneath the splash overlay.
 private struct SearchStartsHiddenModifier: ViewModifier {
   func body(content: Content) -> some View {
     content.background(SearchStartsHiddenProbe().frame(width: 0, height: 0))
@@ -100,7 +108,8 @@ final class SearchStartsHiddenView: UIView {
 
   private func tuck(attempt: Int) {
     guard !settled, window != nil else { return }
-    guard let list = trackedList(), let search = searchController(), list.contentSize.height > 0
+    guard let list = trackedList(), let screen = searchScreen(),
+      let search = screen.navigationItem.searchController, list.contentSize.height > 0
     else {
       // The list and the header's search controller attach over a few frames.
       if attempt < 40 {
@@ -109,6 +118,7 @@ final class SearchStartsHiddenView: UIView {
       return
     }
     settled = true
+    screen.setContentScrollView(list, for: .top)
     let bar = search.searchBar
     let height = bar.bounds.height
     let rest = -list.adjustedContentInset.top
@@ -135,12 +145,13 @@ final class SearchStartsHiddenView: UIView {
     return nil
   }
 
-  private func searchController() -> UISearchController? {
+  /// The screen controller whose navigation item carries the search field.
+  private func searchScreen() -> UIViewController? {
     var responder: UIResponder? = self
     while let current = responder {
       var controller = current as? UIViewController
       while let vc = controller {
-        if let search = vc.navigationItem.searchController { return search }
+        if vc.navigationItem.searchController != nil { return vc }
         controller = vc.parent
       }
       responder = current.next

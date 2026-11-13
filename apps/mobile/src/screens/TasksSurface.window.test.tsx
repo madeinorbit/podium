@@ -724,6 +724,12 @@ it.each([
   // the label, so press feedback, drags and assistive activation stay native.
   const openTarget = screen.getByRole('button', { name: /^Search parent\./ })
   expect(openTarget.getAttribute('data-native-row')).toBe('true')
+  // VoiceOver reads the List Button from its label: accessibility goes inside.
+  const rowModifiers = JSON.parse(openTarget.getAttribute('data-modifiers') ?? '[]').map(
+    (m: { name: string }) => m.name,
+  )
+  expect(rowModifiers.at(-1)).toBe('podiumListRowPress')
+  expect(rowModifiers).toContain('accessibilityLabel')
   fireEvent.click(openTarget)
   expect(onOpen).toHaveBeenCalledOnce()
   expect(screen.getByText('Other task')).toBeTruthy()

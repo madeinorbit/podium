@@ -619,13 +619,14 @@ const NativeWorkRow = observer(function NativeWorkRow(props: RowProps) {
             modifiers={[
               frame({ minHeight: 36, maxWidth: Infinity, alignment: 'leading' }),
               contentShape(shapes.rectangle()),
-              // The native row Button: List highlight, taps only, never drags.
-              listRowPress(open),
               accessibilityElement('ignore'),
               accessibilityLabel(
                 `${row.title}. ${word}. ${ref}${unread ? '. Unread' : ''}${notSaved ? '. Not saved' : ''}`,
               ),
               accessibilityHint('Opens task. Swipe or long press for actions.'),
+              // Last: the native row Button (List highlight, label colours, taps only).
+              // VoiceOver reads the Button from its label, so accessibility goes inside.
+              listRowPress(open),
             ]}
           >
             {tone === 'working' ? (

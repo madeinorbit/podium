@@ -491,13 +491,14 @@ const TaskRow = taskObserver(function TaskRow({
             spacing={0}
             modifiers={[
               contentShape(shapes.rectangle()),
-              // The native row Button: List highlight, label colours, taps only.
-              listRowPress(() => props.onOpen(issue.id)),
               accessibilityElement('ignore'),
               accessibilityLabel(
                 `${issue.title}. ${ref}. ${progress}${match ? `. Matching sub-task ${match.displayRef}. ${match.title}` : ''}${unread ? '. Unread' : ''}${notSaved ? '. Not saved' : ''}`,
               ),
               accessibilityHint('Opens the task. Swipe or long press for actions.'),
+              // Last: the native row Button (List highlight, label colours, taps only).
+              // VoiceOver reads the Button from its label, so accessibility goes inside.
+              listRowPress(() => props.onOpen(issue.id)),
             ]}
           >
             <HStack
