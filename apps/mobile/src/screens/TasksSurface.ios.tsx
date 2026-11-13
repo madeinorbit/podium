@@ -79,7 +79,7 @@ import { StorageNoticeAlert } from '../components/StorageNoticeAlert'
 import { ANY, useProjectFacet } from '../components/task-filter-facets'
 import { useAgeNow } from '../lib/clock-hooks'
 import { listOrderRevision } from '../lib/list-order-revision'
-import { useSettledOrder } from '../lib/use-settled-order'
+import { sectionAnimationValue, useSettledOrder } from '../lib/use-settled-order'
 import { workMenuActionIds } from '../lib/work-menu'
 import { color } from '../theme/theme'
 import { type TasksSurfaceProps, taskRowFigure, tasksSubtitle } from './TasksSurface.types'
@@ -149,7 +149,7 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
   const groups = board?.groups ?? LOADING
   const pending = props.booting || groups === LOADING
   const ordered = groups === LOADING ? [] : groups
-  const orderRevision = useSettledOrder(
+  const animate = useSettledOrder(
     listOrderRevision(
       ordered.map((section) => {
         const savedFold = folds[section.stage][0]
@@ -234,8 +234,6 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
               listSectionSpacing(0),
               scrollContentBackground('hidden'),
               background(paper.ground),
-              // One pool update (resume catch-up, live re-sort) moves rows natively.
-              animation(Animation.default, orderRevision),
               refreshable(props.refresh.onRefresh),
               accessibilityIdentifier('tasks-list'),
             ]}
@@ -311,20 +309,36 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
                       }
                     />
                   </Section>
-                  {folded || !board || section.rows.length === 0 ? null : (
-                    <Section modifiers={[listSectionMargins({ edges: 'vertical', length: 0 })]}>
-                      {section.rows.map((row, index) => (
-                        <TaskSlot
-                          key={row.id}
-                          id={row.id}
-                          depth={row.depth}
-                          lane={lane}
-                          first={index === 0}
-                          last={index === section.rows.length - 1}
-                        >
-                          <TaskRow row={row} board={board} props={props} />
-                        </TaskSlot>
-                      ))}
+                  {/* Rows animate per section, never the List itself: an animated
+                    List frame drags the large-title header along (sim pass 2).
+                    The section stays mounted when folded so the fold animates. */}
+                  {!board || section.rows.length === 0 ? null : (
+                    <Section
+                      modifiers={[
+                        listSectionMargins({ edges: 'vertical', length: 0 }),
+                        animation(
+                          Animation.default,
+                          sectionAnimationValue(
+                            animate,
+                            listOrderRevision([{ key: section.stage, folded, ids: section.rows }]),
+                          ),
+                        ),
+                      ]}
+                    >
+                      {folded
+                        ? null
+                        : section.rows.map((row, index) => (
+                            <TaskSlot
+                              key={row.id}
+                              id={row.id}
+                              depth={row.depth}
+                              lane={lane}
+                              first={index === 0}
+                              last={index === section.rows.length - 1}
+                            >
+                              <TaskRow row={row} board={board} props={props} />
+                            </TaskSlot>
+                          ))}
                     </Section>
                   )}
                 </Fragment>

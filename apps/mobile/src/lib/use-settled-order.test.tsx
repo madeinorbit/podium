@@ -23,17 +23,16 @@ it('holds still through the first population and settle, then follows order chan
   const { result, rerender } = renderHook(({ rev, ready }) => useSettledOrder(rev, ready), {
     initialProps: { rev: 1, ready: false },
   })
-  expect(result.current).toBe(0)
+  expect(result.current).toBe(false)
   rerender({ rev: 2, ready: true }) // first population
   act(() => vi.advanceTimersByTime(LIST_SETTLE_MS - 400))
   rerender({ rev: 3, ready: true }) // the first settle re-sorts: restarts the wait
   act(() => vi.advanceTimersByTime(LIST_SETTLE_MS - 1))
-  expect(result.current).toBe(0)
+  expect(result.current).toBe(false)
   act(() => vi.advanceTimersByTime(1))
-  // Arming adopts the current order without changing what is shown.
-  expect(result.current).toBe(3)
-  rerender({ rev: 4, ready: true }) // a genuine change animates at once
-  expect(result.current).toBe(4)
+  expect(result.current).toBe(true)
+  rerender({ rev: 4, ready: true }) // a genuine change stays armed and animates
+  expect(result.current).toBe(true)
 })
 
 it('disarms when the tab is hidden so the next open settles quietly again', () => {
@@ -41,13 +40,13 @@ it('disarms when the tab is hidden so the next open settles quietly again', () =
     initialProps: { rev: 1 },
   })
   act(() => vi.advanceTimersByTime(LIST_SETTLE_MS))
-  expect(result.current).toBe(1)
+  expect(result.current).toBe(true)
   act(() => {
     for (const blur of focus.blur) blur()
   })
-  expect(result.current).toBe(0)
+  expect(result.current).toBe(false)
   rerender({ rev: 2 })
-  expect(result.current).toBe(0)
+  expect(result.current).toBe(false)
   act(() => vi.advanceTimersByTime(LIST_SETTLE_MS))
-  expect(result.current).toBe(2)
+  expect(result.current).toBe(true)
 })

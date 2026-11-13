@@ -83,7 +83,7 @@ import { WorkingMark } from '../components/WorkingMark'
 import { useAgeNow } from '../lib/clock-hooks'
 import { listOrderRevision } from '../lib/list-order-revision'
 import { startupTiming } from '../lib/startup-timing'
-import { useSettledOrder } from '../lib/use-settled-order'
+import { sectionAnimationValue, useSettledOrder } from '../lib/use-settled-order'
 import { workMenuActionIds } from '../lib/work-menu'
 import { quietProjectsLabel, workLaneTitle, workMenuItem, workSubtitle } from '../lib/work-row-copy'
 import { mobileRowStamp } from '../lib/work-sections'
@@ -146,7 +146,7 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
   const sections = (
     phone.quietExpanded && quiet.length ? [...phone.activeSections, ...quiet] : phone.activeSections
   ).map((section) => ({ section, folded: !phone.needle && props.collapsed.has(section.key) }))
-  const orderRevision = useSettledOrder(
+  const animate = useSettledOrder(
     listOrderRevision(
       sections.map(({ section, folded }) => ({ key: section.key, folded, ids: section.ids })),
     ),
@@ -242,8 +242,6 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
               listSectionSpacing(0),
               scrollContentBackground('hidden'),
               background(paper.ground),
-              // One pool update (resume catch-up, live re-sort) moves rows natively.
-              animation(Animation.default, orderRevision),
               refreshable(props.refresh.onRefresh),
               accessibilityIdentifier('work-list'),
               onAppear(() => startupTiming.mark('work.native-list-appear')),
@@ -275,42 +273,56 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
                     onNew={props.mode === 'tab' ? onNewInProject : undefined}
                   />
                 </Section>
-                {folded ? null : (
-                  <Section modifiers={COMPACT_SECTION}>
-                    {section.ids.map((id, index) => (
-                      <NativeWorkSlot
-                        key={id}
-                        id={id}
-                        section={section}
-                        first={index === 0}
-                        last={index === section.ids.length - 1}
-                      >
-                        <NativeWorkRow
+                {/* Rows animate per section, never the List itself: an animated
+                    List frame drags the large-title header along (sim pass 2).
+                    The section stays mounted when folded so the fold animates. */}
+                <Section
+                  modifiers={[
+                    ...COMPACT_SECTION,
+                    animation(
+                      Animation.default,
+                      sectionAnimationValue(
+                        animate,
+                        listOrderRevision([{ key: section.key, folded, ids: section.ids }]),
+                      ),
+                    ),
+                  ]}
+                >
+                  {folded
+                    ? null
+                    : section.ids.map((id, index) => (
+                        <NativeWorkSlot
+                          key={id}
                           id={id}
-                          lane={phone.lane}
-                          pending={props.pendingNav === id}
-                          onOpenIssue={props.onOpenIssue}
-                          onOpenSession={props.onOpenSession}
-                          onAction={props.onAction}
-                          onStatus={props.onStatus}
-                          onSwipe={onSwipe}
-                          phone={phone}
-                        />
-                      </NativeWorkSlot>
-                    ))}
-                    {section.ids.length ? null : (
-                      <Text
-                        modifiers={[
-                          ...loneCardRow,
-                          font({ textStyle: 'subheadline' }),
-                          foregroundStyle(paper.tertiary),
-                        ]}
-                      >
-                        No open tasks
-                      </Text>
-                    )}
-                  </Section>
-                )}
+                          section={section}
+                          first={index === 0}
+                          last={index === section.ids.length - 1}
+                        >
+                          <NativeWorkRow
+                            id={id}
+                            lane={phone.lane}
+                            pending={props.pendingNav === id}
+                            onOpenIssue={props.onOpenIssue}
+                            onOpenSession={props.onOpenSession}
+                            onAction={props.onAction}
+                            onStatus={props.onStatus}
+                            onSwipe={onSwipe}
+                            phone={phone}
+                          />
+                        </NativeWorkSlot>
+                      ))}
+                  {folded || section.ids.length ? null : (
+                    <Text
+                      modifiers={[
+                        ...loneCardRow,
+                        font({ textStyle: 'subheadline' }),
+                        foregroundStyle(paper.tertiary),
+                      ]}
+                    >
+                      No open tasks
+                    </Text>
+                  )}
+                </Section>
               </Fragment>
             ))}
             {quiet.length ? (
