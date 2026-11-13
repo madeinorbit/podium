@@ -27,7 +27,7 @@ import {
 import type { WriteScope } from '@podium/sync'
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm'
 import { effects } from '../migrations/schema'
-import { type ChangeLogCommit, throughChangeLog } from './change-log-commit'
+import { type ChangeLogCommit, inChangeLogTransaction } from './change-log-commit'
 import { afterCommit } from './executor/executor'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import {
@@ -626,8 +626,8 @@ export class EffectsRepository {
    * capture installed here appends the rows' feed changes in that same unit.
    */
   private async write(query: () => Promise<EffectSelect[]>): Promise<EffectRow[]> {
-    return await this.transact(async () => {
-      const written = (await throughChangeLog(this.feedCapture, query)).map(rowToEffect)
+    return await inChangeLogTransaction(this.feedCapture, this.transact, async () => {
+      const written = (await query()).map(rowToEffect)
       if (written.length === 0) return written
       afterCommit(() => {
         for (const listener of this.listeners) listener(written)

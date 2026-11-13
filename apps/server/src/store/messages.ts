@@ -1405,9 +1405,11 @@ export class MessagesRepository {
     query: () => Promise<MessageSelect[]>,
     operation: 'upsert' | 'delete',
   ): Promise<{ changes: number }> {
-    return await this.committed.write(
-      async () => await throughChangeLog(this.feedCapture, query),
-      operation,
+    // The change-log commit, when installed, is the write's transaction; the
+    // committed-rows publication joins it (POD-6920).
+    return await throughChangeLog(
+      this.feedCapture,
+      async () => await this.committed.write(query, operation),
     )
   }
 

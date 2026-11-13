@@ -36,7 +36,7 @@ import {
   subscriptionDeliveries,
   subscriptions,
 } from '../migrations/schema'
-import { type ChangeLogCommit, throughChangeLog } from './change-log-commit'
+import { type ChangeLogCommit, inChangeLogTransaction } from './change-log-commit'
 import { runAtRoot } from './executor/context'
 import { afterCommit, spanOpen } from './executor/executor'
 import { withOwnOperation } from './executor/operation-scope'
@@ -1051,21 +1051,22 @@ export class EventsRepository {
     },
     options: { announce?: boolean } = {},
   ): Promise<number> {
-    return await this.createOrJoinTransaction(async () => {
-      const insert = async () =>
-        await insertEvent(this.db).run({
-          ts: e.ts,
-          kind: e.kind,
-          subject: e.subject,
-          repoPath: e.repoPath ?? null,
-          payload: JSON.stringify(e.payload ?? {}),
-        })
-      // A feed-kind event moves the issue-event window, and a runtime event
-      // may change its session's transcript flag: both are captured, and the
-      // insert runs as a change-log commit that appends them (POD-6920).
-      const logged =
-        (e.subject !== '' && isFeedEventKind(e.kind)) || e.kind === RUNTIME_EVENT_LOG_KIND
-      const r = logged ? await throughChangeLog(this.logCommit, insert) : await insert()
+    // A feed-kind event moves the issue-event window, and a runtime event may
+    // change its session's transcript flag: both are captured, and the append
+    // runs as a change-log commit that appends them (POD-6920).
+    const logged =
+      (e.subject !== '' && isFeedEventKind(e.kind)) || e.kind === RUNTIME_EVENT_LOG_KIND
+    return await inChangeLogTransaction(
+      logged ? this.logCommit : undefined,
+      this.createOrJoinTransaction,
+      async () => {
+      const r = await insertEvent(this.db).run({
+        ts: e.ts,
+        kind: e.kind,
+        subject: e.subject,
+        repoPath: e.repoPath ?? null,
+        payload: JSON.stringify(e.payload ?? {}),
+      })
       const id = Number(r.lastInsertRowid)
       // AFTER the insert, never before: the feed must not carry a row the log does
       // not have. The listener is documented as non-throwing, and this call is not
@@ -1094,7 +1095,8 @@ export class EventsRepository {
         afterCommit(() => this.appendListener?.(id, announced), `podium-event:${e.kind}`)
       }
       return id
-    })
+      },
+    )
   }
 
   /**
@@ -1401,19 +1403,17 @@ export class EventsRepository {
     if (!Number.isInteger(batchSize) || batchSize <= 0) {
       throw new RangeError('batchSize must be a positive integer')
     }
-    return await this.createOrJoinTransaction(async () => {
-      // The projector's head fences runtime rows (see deletePruneBatch).
-      const params = { cutoff: plan.cutoff, capThroughId: plan.capThroughId, batchSize }
-      // Retention can take events of the feed window and a session's
-      // transcript evidence: the batch runs as a change-log commit, so what
-      // moved is appended while this transaction still owns the window
-      // (POD-6920).
-      const deleted = await throughChangeLog(
-        this.logCommit,
-        async () => await deletePruneBatch(this.db).all(params),
-      )
-      return deleted.length
-    })
+    // The projector's head fences runtime rows (see deletePruneBatch).
+    const params = { cutoff: plan.cutoff, capThroughId: plan.capThroughId, batchSize }
+    // Retention can take events of the feed window and a session's transcript
+    // evidence: the batch runs as a change-log commit, so what moved is
+    // appended in the batch's own transaction (POD-6920).
+    const deleted = await inChangeLogTransaction(
+      this.logCommit,
+      this.createOrJoinTransaction,
+      async () => await deletePruneBatch(this.db).all(params),
+    )
+    return deleted.length
   }
 
   // ---- steward state ----

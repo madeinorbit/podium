@@ -20,7 +20,7 @@ import {
   superagentThreads,
   users,
 } from '../migrations/schema'
-import { type ChangeLogCommit, throughChangeLog } from './change-log-commit'
+import { type ChangeLogCommit, inChangeLogTransaction } from './change-log-commit'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import {
   inListOf,
@@ -411,11 +411,12 @@ export class SuperagentRepository {
    * the change log commit or roll back together.
    */
   private async writeThreads(query: () => Promise<ThreadSelect[]>): Promise<SuperagentThreadRow[]> {
-    return await this.createOrJoinTransaction(async () => {
-      return (await throughChangeLog(this.threadFeedCapture, query)).map((row) =>
-        this.mapSuperagentThread(row),
-      )
-    })
+    const rows = await inChangeLogTransaction(
+      this.threadFeedCapture,
+      this.createOrJoinTransaction,
+      query,
+    )
+    return rows.map((row) => this.mapSuperagentThread(row))
   }
 
   /** Per-boot heal: idempotent seed of the always-there 'global' thread.

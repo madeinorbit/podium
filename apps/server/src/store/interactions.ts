@@ -37,7 +37,7 @@ import {
 } from '@podium/protocol'
 import { and, asc, desc, eq, inArray, lt, sql } from 'drizzle-orm'
 import { pendingInteractions } from '../migrations/schema'
-import { type ChangeLogCommit, throughChangeLog } from './change-log-commit'
+import { type ChangeLogCommit, inChangeLogTransaction } from './change-log-commit'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import {
   inListOf,
@@ -354,9 +354,9 @@ export class InteractionsRepository {
   }
 
   private async write(query: () => Promise<InteractionSelect[]>): Promise<InteractionRow[]> {
-    return await this.createOrJoinTransaction(async () => {
-      return (await throughChangeLog(this.feedCapture, query)).map(toRow)
-    })
+    return (await inChangeLogTransaction(this.feedCapture, this.createOrJoinTransaction, query)).map(
+      toRow,
+    )
   }
 
   /**

@@ -31,3 +31,16 @@ export async function throughChangeLog<T>(
 ): Promise<T> {
   return hook === undefined ? await write() : await hook(write)
 }
+
+/**
+ * Run a repository write in one transaction: the hook's commit when one is
+ * installed (its span is the transaction, so the commit starts before any
+ * row is written and needs no capture mark), else the repository's own.
+ */
+export async function inChangeLogTransaction<T>(
+  hook: ChangeLogCommit | undefined,
+  transaction: <R>(fn: () => Promise<R>) => Promise<R>,
+  write: () => Promise<T>,
+): Promise<T> {
+  return hook === undefined ? await transaction(write) : await hook(write)
+}
