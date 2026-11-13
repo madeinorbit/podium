@@ -27,7 +27,12 @@ import { sessionHref } from '../lib/session-route'
 import { startupTiming } from '../lib/startup-timing'
 import type { WorkMenuActionId } from '../lib/work-menu'
 import { WorkSurface } from './WorkSurface'
-import { readWorkNavigation, type WorkRouteParams, workFilterParams } from './work-navigation'
+import {
+  readWorkNavigation,
+  type WorkRouteParams,
+  workFilterParams,
+  workTaskHref,
+} from './work-navigation'
 import { saveWorkNavigation } from './work-restoration'
 
 const EMPTY_LAYOUT: SidebarState = Object.freeze({
@@ -121,11 +126,11 @@ const PoolWorkScreen = observer(function PoolWorkScreen() {
             workFocus: issue.id,
           }),
         () => {
-          router.push(`/mission/${encodeURIComponent(issue.id)}`)
+          router.push(workTaskHref(pool, issue.id))
         },
       )
     },
-    [filters, model, router],
+    [filters, model, pool, router],
   )
   const openSession = useCallback(
     (sessionId: SessionId, rowKey: string) => {

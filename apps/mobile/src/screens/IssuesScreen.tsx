@@ -6,7 +6,6 @@ import {
   writeSharedIssuesDisplay as writeMobileTaskDisplay,
 } from '@podium/client-core/values'
 import { MobileTasksBoard } from '@podium/client-graph/mobile-tasks'
-import { allowImperativeRead } from '@podium/mobx-helpers'
 import { useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { useCallback, useMemo, useState } from 'react'
@@ -24,6 +23,7 @@ import { useIssueRowActions } from '../lib/issue-row-actions'
 import { type PoolWorkMenuData, resolvePoolWorkMenu } from '../lib/pool-work-menu'
 import { color, font, radius, sans, space } from '../theme/theme'
 import { TasksSurface } from './TasksSurface'
+import { workTaskHref } from './work-navigation'
 
 const NO_CHIPS: ReturnType<typeof filterChips> = []
 const NO_FILTER: BoardFilter = {}
@@ -95,10 +95,7 @@ export const IssuesScreen = observer(function IssuesScreen() {
         minimizeOnScroll={minimizeOnScroll}
         bottomInset={bottomInset}
         onOpen={(id) => {
-          // A task with a conversation opens it, on the seat the desktop would
-          // pick (POD-2432); one with no session yet opens its details.
-          const seated = board ? allowImperativeRead(() => board.task(id).seated) : false
-          router.push(`/${seated ? 'mission' : 'issue'}/${encodeURIComponent(id)}`)
+          router.push(workTaskHref(pool, id))
         }}
         onScreenProposals={() =>
           router.push({

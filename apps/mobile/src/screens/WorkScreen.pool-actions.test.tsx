@@ -419,13 +419,22 @@ afterAll(() => {
 })
 
 describe('mobile pool work-list actions', () => {
-  it('opens the mission and waits for its screen to take focus before marking read', async () => {
+  it.each([
+    '',
+    'Synthetic task 3',
+  ])('opens chat directly from Work query "%s" and waits for focus before marking read', async (query) => {
     await mount((f) => f.patchIssue(TARGET, { readAt: null }))
+    if (query)
+      fireEvent.change(screen.getByRole('textbox', { name: 'Search work' }), {
+        target: { value: query },
+      })
     expect(value().emphasizeUnread).toBe(true)
     const navigation = vi.fn(() => expect(requests).toEqual([]))
     router.push.mockImplementationOnce(navigation)
     fireEvent.click(button())
-    await waitFor(() => expect(router.push).toHaveBeenCalledWith(`/mission/${TARGET}`))
+    await waitFor(() =>
+      expect(router.push).toHaveBeenCalledWith(`/mission/${TARGET}?sessionId=synthetic-session-3`),
+    )
     expect(navigation).toHaveBeenCalledOnce()
     await settled()
     expect(requests).toEqual([])
