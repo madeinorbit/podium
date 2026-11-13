@@ -5,10 +5,12 @@ import {
   type SessionMetaInput,
   type TranscriptItem,
 } from '@podium/model'
+import { PendingInteractionWire } from '@podium/protocol'
 import { fireEvent } from '@testing-library/react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { claudeRecordToItems } from '../../../../../packages/harness/src/adapters/claude-code/transcript'
 import './test-support/client-core-mock'
 import { outboxChatSendActions } from './test-support/outbox-chat-send'
 
@@ -51,7 +53,13 @@ const fakeTrpc = {
         })
       },
     },
-    sendText: { mutate: vi.fn(async (_input: unknown): Promise<{ ok: boolean; disposition?: string; position?: number }> => ({ ok: true })) },
+    sendText: {
+      mutate: vi.fn(
+        async (
+          _input: unknown,
+        ): Promise<{ ok: boolean; disposition?: string; position?: number }> => ({ ok: true }),
+      ),
+    },
     answerAskUserQuestion: { mutate: answerMutate },
     uploadImage: { mutate: vi.fn(async () => ({ path: '/x' })) },
   },
@@ -69,6 +77,7 @@ const fakeReplica = {
 }
 
 let storeSessions: SessionMeta[] = []
+let storeInteractions: import('@podium/protocol').PendingInteractionWire[] = []
 
 // Every chat send runs the REAL outbox, draining into `fakeTrpc` (POD-4762).
 const chatSend = outboxChatSendActions(() => fakeTrpc)
@@ -79,6 +88,7 @@ vi.mock('@/app/store', () => {
     trpc: fakeTrpc,
     replica: fakeReplica,
     sessions: storeSessions,
+    pendingInteractions: storeInteractions,
     drafts: {},
     setSessionDraft: vi.fn(),
     sendChat: chatSend.sendChat,
@@ -100,6 +110,12 @@ vi.mock('@/app/store', () => {
 
 vi.mock('@/lib/voice', () => ({
   useVoiceInput: () => ({ supported: false, listening: false, toggle: vi.fn() }),
+}))
+// Aggregate notice cards have separate coverage; this leaf exercises the inline
+// question and the same authoritative interaction used by its shape guard.
+vi.mock('./use-pool-notices', async (original) => ({
+  ...(await original<object>()),
+  usePoolInteractionCards: () => [],
 }))
 vi.mock('@/lib/markdown', () => ({ renderMarkdown: (t: string) => `<p>${t}</p>` }))
 
@@ -170,6 +186,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  storeInteractions = []
   chatSend.reset()
   act(() => root.unmount())
   container.remove()
@@ -204,6 +221,70 @@ const occurrences = (needle: string): number =>
   (container.textContent ?? '').split(needle).length - 1
 
 describe('a pending question the transcript does not carry', () => {
+  it.each([
+    '',
+    'Error: answer could not be delivered',
+    '[Tool call interrupted: its outcome is unknown.]',
+  ])('shows and answers the new native need after %j history', async (result) => {
+    storeInteractions = [
+      PendingInteractionWire.parse({
+        id: 'new-interaction',
+        sessionId: 's1',
+        askedAt: '2026-11-13T12:00:00Z',
+        source: 'hook',
+        answerable: 'keystroke-emulated',
+        fingerprint: 'new',
+        kind: 'question',
+        status: 'asked',
+        payload: {
+          v: 1,
+          questions: INTERVIEW.questions.map((question) => ({
+            ...question,
+            multiSelect: false,
+            previewLayout: false,
+          })),
+        },
+      }),
+    ]
+    const items = [
+      ...claudeRecordToItems({
+        type: 'assistant',
+        uuid: 'old-call',
+        message: {
+          content: [
+            {
+              type: 'tool_use',
+              id: 'old-use',
+              name: 'AskUserQuestion',
+              input: {
+                questions: [{ question: 'Old question?', options: [{ label: 'Old choice' }] }],
+              },
+            },
+          ],
+        },
+      }),
+      ...claudeRecordToItems({
+        type: 'user',
+        uuid: 'old-result',
+        message: { content: [{ type: 'tool_result', tool_use_id: 'old-use', content: result }] },
+      }),
+    ]
+    await show(waiting(), items)
+    expect(container.textContent).toContain(INTERVIEW.questions[0]?.question)
+    expect(container.textContent).toContain(result || 'No answer was recorded.')
+    expect(optionButtons().map((button) => button.textContent)).toEqual([
+      '1The issue row',
+      '2The card header',
+    ])
+    await act(async () => optionButtons()[0]?.click())
+    await flush()
+    expect(answerMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        interactionId: 'new-interaction',
+        choices: [{ optionIndices: [1] }],
+      }),
+    )
+  })
   it('draws the card from agent state when the feed has nothing', async () => {
     await show(waiting(), [])
     expect(container.textContent).toContain('Where should the clickable status icon land?')

@@ -1,9 +1,13 @@
 import type { TranscriptItem } from '@podium/model'
 import { PendingInteractionWire } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
+import { claudeRecordToItems } from '../../../harness/src/adapters/claude-code/transcript'
+import { TranscriptGraph } from '../conversation/transcript-graph'
 import {
   askQuestionOutcome,
   codexAsyncQuestionReply,
+  currentAskQuestion,
+  isChosenOption,
   isPendingAskQuestion,
   isPreviewLayout,
   latestPendingQuestion,
@@ -12,6 +16,45 @@ import {
   parseAskQuestions,
   pendingAskFromState,
 } from './ask-question'
+
+it.each([
+  ['Choose a plan?\nKeep the cache or reset?', 'Keep', false],
+  ['Choose a plan?', 'Keep\nthe cache', false],
+  ['Choose a "safe" plan?\nKeep C:\\cache?', 'Keep "warm"\nC:\\cache', true],
+] as const)('settles native multiline and escaped answer %j / %j', (question, answer, escaped) => {
+  const quoted = (value: string) => (escaped ? JSON.stringify(value) : `"${value}"`)
+  const result = `User has answered your questions: ${quoted(question)} = ${quoted(answer)}. You can now continue with the user's answers in mind.`
+  const items = [
+    ...claudeRecordToItems({
+      type: 'assistant',
+      uuid: 'call',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            id: 'use',
+            name: 'AskUserQuestion',
+            input: { questions: [{ question, options: [{ label: answer }] }] },
+          },
+        ],
+      },
+    }),
+    ...claudeRecordToItems({
+      type: 'user',
+      uuid: 'result',
+      message: { content: [{ type: 'tool_result', tool_use_id: 'use', content: result }] },
+    }),
+  ]
+  const graph = new TranscriptGraph(items)
+  const block = graph.block(items[0]!.id)!
+  expect(askQuestionOutcome(block)).toBe('answered')
+  expect(graph.pendingQuestionId).toBeUndefined()
+  expect(isChosenOption(result, answer)).toBe(true)
+  expect(
+    askQuestionOutcome({ ...block, result: `Error: answer could not be delivered\n${result}` }),
+  ).toBe('failed')
+  graph.dispose()
+})
 
 function ask(id: string, overrides: Partial<TranscriptItem> = {}): TranscriptItem {
   return {
@@ -25,6 +68,38 @@ function ask(id: string, overrides: Partial<TranscriptItem> = {}): TranscriptIte
     ...overrides,
   }
 }
+
+it('keeps a matching unresolved transcript item and ignores non-native authority', () => {
+  const item = ask('transcript-question')
+  const questions = parseAskQuestions(item.toolInputJson)
+  const need = { kind: 'question' as const, interview: { questions } }
+  expect(currentAskQuestion(item, need, 'live', 'needs_user')).toBe(item)
+  const row = PendingInteractionWire.parse({
+    id: 'current',
+    sessionId: 'session',
+    askedAt: '2026-11-13T12:00:00Z',
+    source: 'hook',
+    answerable: 'keystroke-emulated',
+    fingerprint: 'current',
+    kind: 'question',
+    status: 'asked',
+    payload: {
+      v: 1,
+      questions: questions.map((question) => ({
+        ...question,
+        multiSelect: false,
+        previewLayout: false,
+      })),
+    },
+  })
+  expect(currentAskQuestion(item, undefined, 'live', 'idle', row)).toBe(item)
+  expect(
+    currentAskQuestion(null, undefined, 'live', 'idle', { ...row, answerable: 'structured' }),
+  ).toBeNull()
+  expect(
+    currentAskQuestion(null, undefined, 'live', 'idle', { ...row, source: 'screen-classifier' }),
+  ).toBeNull()
+})
 
 describe('ask question view model', () => {
   it('parses questions with options from toolInputJson', () => {

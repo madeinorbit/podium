@@ -1,4 +1,6 @@
 import type { SessionView } from '@podium/client-core/session-values'
+import { PendingInteractionWire } from '@podium/protocol'
+import { claudeRecordToItems } from '../../../../packages/harness/src/adapters/claude-code/transcript'
 /**
  * ACCEPTING AN OFFER IS A SEND, AND MUST LOOK LIKE ONE [POD-1354].
  *
@@ -85,6 +87,87 @@ vi.mock('./TranscriptList', () => ({
 const { SessionConversation } = await import('./SessionConversation')
 
 const OFFER_AT = '2026-08-18T12:00:00.000Z'
+
+it.each([
+  '',
+  'Error: answer could not be delivered',
+  '[Tool call interrupted: its outcome is unknown.]',
+])('shows the current native question after resumed history with %j', async (result) => {
+  const current = {
+    questions: [{ question: 'New native question?', options: [{ label: 'New choice' }] }],
+  }
+  const asking = {
+    sessionId: 'resumed',
+    cwd: '/repo',
+    status: 'live',
+    agentKind: 'claude-code',
+    agentState: { phase: 'needs_user', need: { kind: 'question', interview: current } },
+  } as unknown as SessionView
+  const items = [
+    ...claudeRecordToItems({
+      type: 'assistant',
+      uuid: 'old-call',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            id: 'old-use',
+            name: 'AskUserQuestion',
+            input: {
+              questions: [{ question: 'Old question?', options: [{ label: 'Old choice' }] }],
+            },
+          },
+        ],
+      },
+    }),
+    ...claudeRecordToItems({
+      type: 'user',
+      uuid: 'old-result',
+      message: { content: [{ type: 'tool_result', tool_use_id: 'old-use', content: result }] },
+    }),
+  ]
+  const answer = vi.fn(async (_input: unknown) => ({ ok: true }))
+  const view = await renderWithMobileStore(
+    <SessionConversation session={asking} issue={undefined} />,
+    {
+      sessions: [asking],
+      api: {
+        sessions: {
+          transcriptRead: { query: async () => ({ items, hasMore: false }) },
+          answerAskUserQuestion: { mutate: answer },
+        },
+      },
+    },
+  )
+  act(() =>
+    view.replica.applySnapshot('pendingInteractions', [
+      PendingInteractionWire.parse({
+        id: 'new-interaction',
+        sessionId: 'resumed',
+        askedAt: '2026-11-13T12:00:00Z',
+        source: 'hook',
+        answerable: 'keystroke-emulated',
+        fingerprint: 'new',
+        kind: 'question',
+        status: 'asked',
+        payload: {
+          v: 1,
+          questions: [{ ...current.questions[0], multiSelect: false, previewLayout: false }],
+        },
+      }),
+    ]),
+  )
+  await screen.findByText('New native question?')
+  fireEvent.click(screen.getByLabelText('New choice'))
+  await waitFor(() =>
+    expect(answer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        interactionId: 'new-interaction',
+        choices: [{ optionIndices: [1] }],
+      }),
+    ),
+  )
+})
 
 it.each([
   'option',

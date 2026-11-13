@@ -1,6 +1,6 @@
 import { CODEX_ASYNC_QUESTION_TOOL } from '@podium/harness/browser'
 import type { AgentInterview, TranscriptItem } from '@podium/model'
-import type { PendingInteractionWire, QuestionAsk } from '@podium/protocol'
+import { hasTranscriptCard, type PendingInteractionWire, type QuestionAsk } from '@podium/protocol'
 import type { SessionView } from '../session-values'
 import { toolVerdict } from './chat'
 
@@ -135,7 +135,7 @@ export function askQuestionOutcome(block: {
   if (!text || /^\[(?:Tool call interrupted|Request interrupted)/i.test(text)) return 'unknown'
   if (/^User (?:has )?(?:declined|skipped)\b/i.test(text)) return 'skipped'
   if (
-    /"[^"\n]+"\s*=\s*"[^"\n]+"/.test(text) ||
+    /"(?:\\[\s\S]|[^"\\])+"\s*=\s*"(?:\\[\s\S]|[^"\\])+"/.test(text) ||
     /^(?:You (?:selected|answered|picked)|User selected)\s+\S/i.test(text)
   )
     return 'answered'
@@ -258,18 +258,52 @@ export function pendingAskFromState(
   if (phase !== 'needs_user' || need?.kind !== 'question') return null
   const questions = need.interview?.questions ?? []
   if (questions.length === 0) return null
+  return { item: pendingAskItem(questions) }
+}
+
+function pendingAskItem(questions: readonly AskQuestion[]): TranscriptItem {
   return {
-    item: {
-      // Stable across re-renders (and across restatements of the same wait) so
-      // the card keeps its React identity and the operator's half-made
-      // selection survives the next state tick.
-      id: PENDING_ASK_ITEM_ID,
-      role: 'tool',
-      text: '',
-      toolName: 'AskUserQuestion',
-      toolInputJson: JSON.stringify({ questions }),
-    },
+    // Stable across re-renders (and across restatements of the same wait) so
+    // the card keeps its React identity and the operator's half-made
+    // selection survives the next state tick.
+    id: PENDING_ASK_ITEM_ID,
+    role: 'tool',
+    text: '',
+    toolName: 'AskUserQuestion',
+    toolInputJson: JSON.stringify({ questions }),
   }
+}
+
+/** Unresolved history stays in the feed; the live authority owns answerability. */
+export function currentAskQuestion(
+  transcript: TranscriptItem | null,
+  need: { kind: 'question' | 'permission'; interview?: AgentInterview } | undefined,
+  status: string | undefined,
+  phase: string | undefined,
+  interaction?: PendingInteractionWire,
+): TranscriptItem | null {
+  if (status !== 'live' && status !== 'starting') return transcript
+  const current =
+    interaction?.kind === 'question' &&
+    interaction.status === 'asked' &&
+    hasTranscriptCard(interaction)
+      ? (interaction.payload as QuestionAsk).questions
+      : undefined
+  const announced = current?.length
+    ? pendingAskItem(current)
+    : pendingAskFromState(need, status, phase, false)?.item
+  if (!announced) return transcript
+  if (
+    transcript &&
+    isAskUserQuestion(transcript) &&
+    askQuestionOutcome({ item: transcript }) === 'pending' &&
+    matchesAskQuestions(
+      transcript.toolInputJson ?? '',
+      current?.length ? current : parseAskQuestions(announced.toolInputJson),
+    )
+  )
+    return transcript
+  return announced
 }
 
 /** The synthetic item's id — also how a feed tells the state-drawn card apart
@@ -280,15 +314,21 @@ export const PENDING_ASK_ITEM_ID = 'pending-ask-from-state'
  *  `"<label>"`. `answer` is the tool result text (callers resolve it — a paired
  *  ChatBlock.result, or a bare TranscriptItem.toolResult). */
 export function isChosenOption(answer: string, label: string): boolean {
-  return answer.includes(`"${label}"`)
+  return answer.includes(`"${label}"`) || answer.includes(JSON.stringify(label))
 }
 
 /** A transcript card may lag the aggregate. Never attach a replacement ID to
  * choices rendered from a different question or layout. */
 export function matchesQuestionInteraction(row: PendingInteractionWire, raw: string): boolean {
   if (row.kind !== 'question' || row.status !== 'asked') return false
+  return matchesAskQuestions(raw, (row.payload as QuestionAsk).questions)
+}
+
+function matchesAskQuestions(
+  raw: string,
+  current: readonly (AskQuestion & { previewLayout?: boolean })[],
+): boolean {
   const shown = parseAskQuestions(raw)
-  const current = (row.payload as QuestionAsk).questions
   return (
     shown.length > 0 &&
     shown.length === current.length &&
@@ -297,8 +337,8 @@ export function matchesQuestionInteraction(row: PendingInteractionWire, raw: str
       return (
         expected !== undefined &&
         question.question === expected.question &&
-        Boolean(question.multiSelect) === expected.multiSelect &&
-        isPreviewLayout(question) === expected.previewLayout &&
+        Boolean(question.multiSelect) === Boolean(expected.multiSelect) &&
+        isPreviewLayout(question) === (expected.previewLayout ?? isPreviewLayout(expected)) &&
         question.options.length === expected.options.length &&
         question.options.every((option, optionIndex) => {
           const target = expected.options[optionIndex]

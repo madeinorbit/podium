@@ -1206,19 +1206,19 @@
       "file": "apps/mobile/src/screens/SuperagentScreen.tsx",
       "holder": "SuperagentScreen/SuperagentScreen",
       "rule": "reader-summary",
-      "tokens": "54d344139a65ad9f7afcdecc087dc28d7c1a3d5d3818005401d08dc080692f82",
+      "tokens": "c9404be300c7a9f1f6aca2f1a4297c9c4a47986862e274a8a6b3e33defd1708d",
       "gate": [],
       "origin": [
         "68e3937b5ddc0e3225b88b6d2c8452c91e69bf5f15e60db36fd51bd6fccaaa54",
         "d7d1283b420779e4456f3da32f99f6ffa2bd5ae35362572cca620bd871c3821d"
       ],
-      "fingerprint": "7bf1b836f04afac8025cce546ab8017e31e35d323d4a7894c84a62c984388288",
+      "fingerprint": "c383701a17ff89c5917a9f9bf8fe790c4a288d11a0d15c915ef601662681224a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Superagent screen reads its existing pool superagent slice.",
       "bound": "The existing superagentState reader still enumerates its thread catalogue; no new bound is claimed.",
-      "reason": "Moving backend and history reader options off the runtime binding changes this fingerprint; the existing superagent thread catalogue demand remains unproven. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 33e3b0dec3ad1af3b2763a3faa27d4fd262bc35b65e4e3f197fbab0feb1a0ad9.",
+      "reason": "Moving backend and history reader options off the runtime binding changes this fingerprint; the existing superagent thread catalogue demand remains unproven. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 33e3b0dec3ad1af3b2763a3faa27d4fd262bc35b65e4e3f197fbab0feb1a0ad9. POD-2450 P2 correction: current native question selection reuses addressed interaction membership and one question payload; classifications, multiplicities, owners and inherited collection debt are retained.",
       "guard": "Exact fingerprint and multiplicity only. This entry preserves existing catalogue debt and does not establish bounded work."
     },
     {
@@ -3791,16 +3791,16 @@
       "tokens": "fff4ccbd884e5acd76b608d8d527e5be95587c29cdf89be5029d2a7527ea7605",
       "gate": [],
       "origin": [
-        "1d0c2bf6eb5238d59ecee8e760a15543fc72d0c75f7fb2212df3a652e029ec17",
+        "2380560411246256d05be9a0f473b341e62de9bca8f1baaa93fa6464c311f0d4",
         "38fbaac9da16906de217d6806926a7bbec5c49548b92e3e9c328e6f573c27b23"
       ],
-      "fingerprint": "57e69a6af069d79e10675d2acbf030e449d96187d2bfe024d60fb69802bdf76b",
+      "fingerprint": "257b59873b23a3f84fde863d385e638098f4f3294265ee2196ad2edb26345754",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Mount one chat reader and its DOM layout.",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "Display facts are read by leaf observers, but inherited conversation/context initialization taint remains; this entry claims no new collection bound. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 004229d48a542972d7a2e936455fb7c6a64b21c0c8731b8dc31ba8b0d9638680. POD-2047: Async interview submission reads its captured transcript block by ID; reader multiplicity and inherited collection demand are unchanged. Predecessor: aef63c7ad31df7b5a7f7d762b326cd7669dfa56308ed9ef69fc883990f001545. POD-2047 review fixes: replies now use the conversation outbox, removing the direct-send collection origin; current-question validation stays addressed and duplicate checks inspect this conversation pending replies. Classification and owner retain the inherited reader debt. Predecessor: 73fb89f4c9705c80f9d63ec115c88d898ea535eca1cf8daf6bca23e9fa33afbb. Predecessor: 8cbdd215fec11b8585f58062e26d540be96fce8532384306a175d395fe425bb1. POD-2219: the removed tl;dr rail button no longer reads the last answer text; reader multiplicity and inherited collection demand are unchanged. Predecessor: ef264dbe228e117f58409d18bfb00f32c34ae33856db693b93bffd048b10d0c1. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: e44abe82524bfc15e9af2523e4e47ea6731942d7fc60bfa6a3b9a110810cc521. POD-2450 review correction: async reply validation and deduplication moved into the existing shared ConversationService; the same pending queue and send lifecycle are used. Reader multiplicity, classification and inherited collection debt are unchanged.",
+      "reason": "Display facts are read by leaf observers, but inherited conversation/context initialization taint remains; this entry claims no new collection bound. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 004229d48a542972d7a2e936455fb7c6a64b21c0c8731b8dc31ba8b0d9638680. POD-2047: Async interview submission reads its captured transcript block by ID; reader multiplicity and inherited collection demand are unchanged. Predecessor: aef63c7ad31df7b5a7f7d762b326cd7669dfa56308ed9ef69fc883990f001545. POD-2047 review fixes: replies now use the conversation outbox, removing the direct-send collection origin; current-question validation stays addressed and duplicate checks inspect this conversation pending replies. Classification and owner retain the inherited reader debt. Predecessor: 73fb89f4c9705c80f9d63ec115c88d898ea535eca1cf8daf6bca23e9fa33afbb. Predecessor: 8cbdd215fec11b8585f58062e26d540be96fce8532384306a175d395fe425bb1. POD-2219: the removed tl;dr rail button no longer reads the last answer text; reader multiplicity and inherited collection demand are unchanged. Predecessor: ef264dbe228e117f58409d18bfb00f32c34ae33856db693b93bffd048b10d0c1. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: e44abe82524bfc15e9af2523e4e47ea6731942d7fc60bfa6a3b9a110810cc521. POD-2450 review correction: async reply validation and deduplication moved into the existing shared ConversationService; the same pending queue and send lifecycle are used. Reader multiplicity, classification and inherited collection debt are unchanged. POD-2450 P2 correction: current native question selection reuses addressed interaction membership and one question payload; classifications, multiplicities, owners and inherited collection debt are retained.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -4013,40 +4013,40 @@
       "gate": [
         "exit:then:eb95bf59088a0aacae48b47f694da8acc66addfb6b485c18369f3695b5bbc40b",
         "exit:then:2a9160b19112a59c7b44e568540986db57a63545f1718707ed26b3ea3dbe9c22",
-        "exit:then:f34081857d69cbdda74871bc219a1e46722e7899ae446b0c2aedd13564f56640",
-        "exit:then:3169b2aef25f9863e46aaa9f29428133af4f20ee9111138a01df2a33ce1fb768",
+        "exit:then:8743d76a8069a2a24467b8c78cf5074c98abc0ab6d1c626520d6ab4ea66684c7",
+        "exit:then:c9dd66116eb622fd27d268b1a8657e924f58092a02955bcd00778d8106c8b40e",
         "exit:then:1f514a0dff4fa91030eabaff13a4dd5cf7302b10a2151aac0ef27d498360df90"
       ],
       "origin": [
-        "8574ade6c197e64635753b34ef8042cb1d240e2f0cbf15ed0580867b953c8c64"
+        "18e35396b8e4387e68ff298d8ac1936c9a0b21f7a087424a05921487f8ace8d0"
       ],
-      "fingerprint": "cc28d0c9ffdb063b9d01b8d166b76ad8bee2f7b3f4422a8eb0bc79c634691597",
+      "fingerprint": "db1eba0aac114d0a55eda605af12ca9a813dc0d2c6336a4b2a7acbc6ae3f42b6",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Send a turn to the selected superagent thread.",
       "bound": "Backend choice has three optional fields; generic conversation/context taint reaching the send options retains its unproven bound.",
-      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: a79c9a6543b8f94f8c9185f3383ccff6ef42a16b061b5a66e67abce6f2591809. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 629970c5bdff875e120eca4ca6fe534f9d38435e56c4bfecb23dfd19e26c3dae. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 0358bb2c653bae189b14799ea975a388995302f28484aa3bccef87a041d30c6b.",
+      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: a79c9a6543b8f94f8c9185f3383ccff6ef42a16b061b5a66e67abce6f2591809. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 629970c5bdff875e120eca4ca6fe534f9d38435e56c4bfecb23dfd19e26c3dae. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 0358bb2c653bae189b14799ea975a388995302f28484aa3bccef87a041d30c6b. POD-2450 P2 correction: current native question selection reuses addressed interaction membership and one question payload; classifications, multiplicities, owners and inherited collection debt are retained.",
       "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
     },
     {
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "createWebConversation/sends/deliver/callback/composer",
       "rule": "helper-consumer",
-      "tokens": "d679357681d9979bd50cbd9afca24e40219f76ae7e8a4f9582c20b00a4692e11",
+      "tokens": "c8c228d59666003d798aa795d671bfa0539516c98331f756149ed58a80d8b529",
       "gate": [
-        "exit:then:3169b2aef25f9863e46aaa9f29428133af4f20ee9111138a01df2a33ce1fb768"
+        "exit:then:c9dd66116eb622fd27d268b1a8657e924f58092a02955bcd00778d8106c8b40e"
       ],
       "origin": [
         "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c"
       ],
-      "fingerprint": "6f2d2d156e06950b24f23ec9f7577551c8c241a0aa09060df2ac4d3236d6d67c",
+      "fingerprint": "628140d27cb87092e456d7f38d0b9136ad995d82e849723d95e2b8a90afea1fe",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Compute composer state immediately before one addressed delivery.",
       "bound": "Composer state is scalar, but the helper inherits the session/context taint previously held in the React send hook.",
-      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 8cb8c08cce444f4545e166ce4bbb082edbe8026c494a5d7d9a8f6e083b0e15e2. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 54ee6cc52ad003b794c32c0a781ced6c08f06ea5f2be7bfa30da9a392ef2c585. POD-2109: composer placeholders are rewritten as sentences without em dashes; collection demand is unchanged. Predecessor: 4081e5af4b05943809b6caf1efc125e48f41d1046d331a9e21df08c0dc472c0e. POD-2151 changed only scalar helpers on this path (landing copy, composer placeholder); no collection read was added. Predecessor: 02ce3305fd8bde13cb4c4a3a75877ee50f8f6b7f0621b57569bc365d18937b78. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: baa2b8a8f92aaf0ab4bf9a276313fd000ad7e87b43d6224251a868f00afca022.",
+      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 8cb8c08cce444f4545e166ce4bbb082edbe8026c494a5d7d9a8f6e083b0e15e2. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 54ee6cc52ad003b794c32c0a781ced6c08f06ea5f2be7bfa30da9a392ef2c585. POD-2109: composer placeholders are rewritten as sentences without em dashes; collection demand is unchanged. Predecessor: 4081e5af4b05943809b6caf1efc125e48f41d1046d331a9e21df08c0dc472c0e. POD-2151 changed only scalar helpers on this path (landing copy, composer placeholder); no collection read was added. Predecessor: 02ce3305fd8bde13cb4c4a3a75877ee50f8f6b7f0621b57569bc365d18937b78. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: baa2b8a8f92aaf0ab4bf9a276313fd000ad7e87b43d6224251a868f00afca022. POD-2450 P2 correction: current native question selection reuses addressed interaction membership and one question payload; classifications, multiplicities, owners and inherited collection debt are retained.",
       "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
     },
     {
@@ -4076,56 +4076,56 @@
       "tokens": "73ef294c6129cac466f29d0b83fe0f8f577a66cc1f1ed432e11b5df65511ac7f",
       "gate": [
         "else:b324373e6dc9a92f7b216cd4c94e835a9b0a35fb5d91fe38a7e84bd9c31844c2",
-        "??:58e1f988182ac13b267c03f3ebac8546c70430da24ea2c70a760c54a70575f18"
+        "??:6264b073f34060dd5629420abbe3cb9e12c81e3ac75285540f70eaf6b4b2c7fc"
       ],
       "origin": [
         "571d643e56951ba67e1dccf71daf6c377a3fd78430a5ab217513636e377b9891"
       ],
-      "fingerprint": "49d2cc3aa158194d0844119f9c3deaf2a12a95b37a5e606f54bacbbd932f992b",
+      "fingerprint": "c81bf3574d12ef1e16a9957e16c4c1495848428b4433501d10fa28b20f5435d8",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5872",
       "trigger": "Initialize or refresh one open conversation\u2019s existing message-record port.",
       "bound": "The addressed noticeSession membership only; no new numeric cap on held notices or records is asserted.",
-      "reason": "The existing snapshot and row-version subscription moved from a manual computed to a lazy service field. Collection ownership and work are preserved; transcript refresh and subscription redesign belongs to POD-5800. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 5a80f4115b2dbeb6ff8b12905e2a116be7defbfb9ca7b491a74d8368f6488b55. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 52b1428c198e0a4d9caae68a8dbe399b9648052a248cbadea6bee09fcbcb24ba.",
+      "reason": "The existing snapshot and row-version subscription moved from a manual computed to a lazy service field. Collection ownership and work are preserved; transcript refresh and subscription redesign belongs to POD-5800. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 5a80f4115b2dbeb6ff8b12905e2a116be7defbfb9ca7b491a74d8368f6488b55. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 52b1428c198e0a4d9caae68a8dbe399b9648052a248cbadea6bee09fcbcb24ba. POD-2450 P2 correction: current native question selection reuses addressed interaction membership and one question payload; classifications, multiplicities, owners and inherited collection debt are retained.",
       "guard": "ChatView.test.tsx and conversation-service.parity.test.ts preserve delivery and record answers; exact fingerprint and multiplicity remain enforced. This entry does not claim a repaired collection bound."
     },
     {
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "createWebConversation/sends/records/subscribe/callback/reaction:callback",
       "rule": "consume:map",
-      "tokens": "e0655b4fe49ee3bfc07aec95b880fa676d019a7dce5b776645dae039d1f64c68",
+      "tokens": "b60d5ce7d2710359932ef10d86ccb327e7a4a6aaebefad9fcd64f0e0a7546cac",
       "gate": [
         "else:b324373e6dc9a92f7b216cd4c94e835a9b0a35fb5d91fe38a7e84bd9c31844c2"
       ],
       "origin": [
         "237716a431f264a10102d3c70e82cd783ef11ce2f82526bcb0e1e9d521a0972f"
       ],
-      "fingerprint": "64f36fb1c70946bf326a85986d85559cc948d79ae6412f624999b59fc8a6e077",
+      "fingerprint": "d507a23235a8252456e210084c3de292e82ff536de2f60bdc0d41d92c1e056c5",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5872",
       "trigger": "Initialize or refresh one open conversation\u2019s existing message-record port.",
       "bound": "The addressed noticeSession membership only; no new numeric cap on held notices or records is asserted.",
-      "reason": "The existing snapshot and row-version subscription moved from a manual computed to a lazy service field. Collection ownership and work are preserved; transcript refresh and subscription redesign belongs to POD-5800. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 51c998ca196a9a6c243e1bbe5d981eabc11baa7e3cef40d3f3e29834b5c00df1. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: f7ccab7429b608e010b0a2ef8b453da51946e2cd458267fbbefbe008d438ad14.",
+      "reason": "The existing snapshot and row-version subscription moved from a manual computed to a lazy service field. Collection ownership and work are preserved; transcript refresh and subscription redesign belongs to POD-5800. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 51c998ca196a9a6c243e1bbe5d981eabc11baa7e3cef40d3f3e29834b5c00df1. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: f7ccab7429b608e010b0a2ef8b453da51946e2cd458267fbbefbe008d438ad14. POD-2450 P2 correction: current native question selection reuses addressed interaction membership and one question payload; classifications, multiplicities, owners and inherited collection debt are retained.",
       "guard": "ChatView.test.tsx and conversation-service.parity.test.ts preserve delivery and record answers; exact fingerprint and multiplicity remain enforced. This entry does not claim a repaired collection bound."
     },
     {
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "useConversation/conversation/useOwnedConversation:callback",
       "rule": "reader-summary",
-      "tokens": "dde0caf414ab3342f1e96b85780f35a73daa762cc9c03477b6737bd19d8eea28",
+      "tokens": "6a8f1b21d95ed5b334a8ad8949eb0f94682367206f470e148523a4091b551a2c",
       "gate": [],
       "origin": [
         "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c"
       ],
-      "fingerprint": "c3a1782fed8024a994b04bd279e3949551e21658cd906a4c34d4f367322b4e2b",
+      "fingerprint": "e4bbc5126233e6a83141e445d3d84395e6686d1c19bd075d0393b46e17b04a7c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Acquire a web conversation through the shared React lifecycle hook.",
       "bound": "One session identity is acquired; initialization may restore all held sends for that session and has no new collection cap.",
-      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: cec908acc386d397ab1e0e27148d4eef65403317848ae5fba7c5a9f407312c52. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: a711a0ea1c6fc8be0a850e43345510cc896125b94d7642d558ebdc94c911b25b. POD-2257: Native first prompts adopt their existing server record; factory ownership and collection origins, gates and multiplicity are unchanged. Predecessor: 6bf0589d085f9a2ae626946d642e2188f1b14ffb9b705c712a8f7d5964f0bba9. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 86b228537a5884c5559cd0d342fd4b8097a36d03dc20f05c90c5cf97fefb4884.",
+      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: cec908acc386d397ab1e0e27148d4eef65403317848ae5fba7c5a9f407312c52. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: a711a0ea1c6fc8be0a850e43345510cc896125b94d7642d558ebdc94c911b25b. POD-2257: Native first prompts adopt their existing server record; factory ownership and collection origins, gates and multiplicity are unchanged. Predecessor: 6bf0589d085f9a2ae626946d642e2188f1b14ffb9b705c712a8f7d5964f0bba9. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 86b228537a5884c5559cd0d342fd4b8097a36d03dc20f05c90c5cf97fefb4884. POD-2450 P2 correction: current native question selection reuses addressed interaction membership and one question payload; classifications, multiplicities, owners and inherited collection debt are retained.",
       "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
     },
     {
@@ -36325,7 +36325,7 @@
       "file": "apps/mobile/src/components/SessionConversation.tsx",
       "holder": "SessionConversation/view",
       "rule": "reader-summary",
-      "tokens": "ee13fecccf5f0dfe0181b5bb681a6a3774cda25629532df8495d389f69f96ea5",
+      "tokens": "3268faecde2e88b75476473901d2aece0467c849507cb76a5c6f962ebb779b10",
       "gate": [],
       "origin": [
         "01bc046016bbf377e496d465d36912b2c2924960776bceb066e614ab61d89d66",
@@ -36338,20 +36338,20 @@
         "e95955e38834124e6401feb84ccbbadfae80771f02627e2eb945f67de95929ff",
         "ed12f77b2bd997a8fc37fd84c7562ba3069714822fb44c10a46789c71fb83816"
       ],
-      "fingerprint": "309eec84f89b7f4657d01c52b58eb9f195135a1324f68f5885a64bcb512f370c",
+      "fingerprint": "7c586dd8f8e129b23c52a1d2941e20eebb4af1bd084ee5ae176c5c4c00e54900",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2392",
       "trigger": "Opening the addressed session chat or its task offer summary.",
       "bound": "One owner-cached conversation and one local view per mounted reader, keyed by the explicit session ID; no catalogue enumeration in either wrapper.",
-      "reason": "Both callers borrow the extracted existing conversation factory. The send/interrupt and record-ingestion paths remain individually tracked; this wrapper does not repair their separate debt.",
+      "reason": "Both callers borrow the extracted existing conversation factory. The send/interrupt and record-ingestion paths remain individually tracked; this wrapper does not repair their separate debt. POD-2450 P2 correction: current native question selection reuses addressed interaction membership and one question payload; classifications, multiplicities, owners and inherited collection debt are retained.",
       "guard": "SessionConversation draft-isolation and stop tests preserve addressed rendering at 1x/4x; TaskSummary.offer tests cover captured session/offer identity and the real shared Sends dismissal/failure flow."
     },
     {
       "file": "apps/mobile/src/components/task-detail/TaskOfferSummary.tsx",
       "holder": "SessionSummary/SessionSummary/conversation",
       "rule": "reader-summary",
-      "tokens": "c5a8a37be8e5e4419466a22261acb7ff6bdb8334d1bcd00b2c540858cc625555",
+      "tokens": "c2e5e911f2b6845a3b051216317fe312ae1d4cd65bb3c4416a2bd4e0b1b1e5af",
       "gate": [],
       "origin": [
         "01bc046016bbf377e496d465d36912b2c2924960776bceb066e614ab61d89d66",
@@ -36364,13 +36364,13 @@
         "e95955e38834124e6401feb84ccbbadfae80771f02627e2eb945f67de95929ff",
         "ed12f77b2bd997a8fc37fd84c7562ba3069714822fb44c10a46789c71fb83816"
       ],
-      "fingerprint": "fa2cdf4fa2156d5b322f2bc90fca15c8490517506d9bf42d0171b003900f1a3c",
+      "fingerprint": "ac6178923808460d7a66e563275510b2e3f607763e921ceb97844c947598f4c3",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2392",
       "trigger": "Opening the addressed session chat or its task offer summary.",
       "bound": "One owner-cached conversation and one local view per mounted reader, keyed by the explicit session ID; no catalogue enumeration in either wrapper.",
-      "reason": "Both callers borrow the extracted existing conversation factory. The send/interrupt and record-ingestion paths remain individually tracked; this wrapper does not repair their separate debt.",
+      "reason": "Both callers borrow the extracted existing conversation factory. The send/interrupt and record-ingestion paths remain individually tracked; this wrapper does not repair their separate debt. POD-2450 P2 correction: current native question selection reuses addressed interaction membership and one question payload; classifications, multiplicities, owners and inherited collection debt are retained.",
       "guard": "SessionConversation draft-isolation and stop tests preserve addressed rendering at 1x/4x; TaskSummary.offer tests cover captured session/offer identity and the real shared Sends dismissal/failure flow."
     },
     {
@@ -36713,25 +36713,25 @@
       "file": "packages/client-core/src/values/ask-question.ts",
       "holder": "questionRemainsPending/outcome",
       "rule": "helper-consumer",
-      "tokens": "48c1324c825a63f8552c257b64a811c381409bedece3c57fd691ed3e65801f06",
+      "tokens": "31484c59b66da06f175130ceb3bac1d2dca6d16665ecc4dc655e71425528b35c",
       "gate": [],
       "origin": [
         "7afe8f2ee52a677a9ea139c03afcbb0f8f2c17662a21a6da7759bc4f1a149cc6"
       ],
-      "fingerprint": "c8647b67fd61840b91f1223f934e6cc0d42c7d4de7632288c2456c2af7fe35f7",
+      "fingerprint": "5a4356922353595e51c7178d3e9600faf6369e450c398ca510d66669ba8a35a6",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2450",
       "trigger": "An addressed interview block is classified during ingestion or rendered as a question. Non-interview blocks return before classification.",
       "bound": "The one question tool result and its own parsed answer payload; no session, issue or database row collection is acquired.",
-      "reason": "Empty, rejected and interrupted results must stay unresolved. Positive answer evidence or an explicit skip settles the question. This consumes one document, not a history snapshot. POD-2450: the guarded caller now shares a private pending predicate so the legacy native reader does not repeat role reads. Both callers validate the interview shape first; classifications and collection bounds are unchanged.",
+      "reason": "Empty, rejected and interrupted results must stay unresolved. Positive answer evidence or an explicit skip settles the question. This consumes one document, not a history snapshot. POD-2450: the guarded caller now shares a private pending predicate so the legacy native reader does not repeat role reads. Both callers validate the interview shape first; classifications and collection bounds are unchanged. POD-2450 P2 correction: current native question selection reuses addressed interaction membership and one question payload; classifications, multiplicities, owners and inherited collection debt are retained.",
       "guard": "values/ask-question.test.ts covers actual answer, error, interruption, empty and registration outcomes; transcript-graph.test.ts covers paired result updates; desktop and mobile tests preserve error details and pending pins."
     },
     {
       "file": "packages/client-core/src/values/ask-question.ts",
       "holder": "latestPendingQuestion",
       "rule": "helper-consumer",
-      "tokens": "20fb58520fdcb27fc1d56d5a55d242da2c663db3b13886e783c0637afe0ea2f0",
+      "tokens": "8197846294fe23db6784ffdff994aba74e8152f176b4e35741b453fae4f482bb",
       "gate": [
         "loop:0116553880cd273cff14407be8a201815b6fca7190084aafb293f8d5bd6d5bb5",
         "then:ca8b0b6dd195606ec2e8352fe1526a030dc33ca73c5185940658650431f1a037"
@@ -36739,13 +36739,13 @@
       "origin": [
         "7afe8f2ee52a677a9ea139c03afcbb0f8f2c17662a21a6da7759bc4f1a149cc6"
       ],
-      "fingerprint": "82dd1102ba9994a9d9cf3c31fc2e41669222dfaeb55de7197011ff175c7f12f3",
+      "fingerprint": "7f895e2409b6f23cd9f2030df2768093b22496dbd5b3abe74db7151458c7abf0",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "The legacy latestPendingQuestion reader invokes shared outcome classification while walking its supplied transcript.",
       "bound": "No new cardinality cap is established for that existing full-input reader.",
-      "reason": "Outcome classification is shared with the addressed graph and checks one question result at this loop position. The enclosing legacy scan still carries its previous collection-bound debt. POD-2450: the guarded caller now shares a private pending predicate so the legacy native reader does not repeat role reads. Both callers validate the interview shape first; classifications and collection bounds are unchanged.",
+      "reason": "Outcome classification is shared with the addressed graph and checks one question result at this loop position. The enclosing legacy scan still carries its previous collection-bound debt. POD-2450: the guarded caller now shares a private pending predicate so the legacy native reader does not repeat role reads. Both callers validate the interview shape first; classifications and collection bounds are unchanged. POD-2450 P2 correction: current native question selection reuses addressed interaction membership and one question payload; classifications, multiplicities, owners and inherited collection debt are retained.",
       "guard": "values/ask-question.test.ts verifies pending and settled behavior; this classification makes no bounded-history claim."
     }
   ]

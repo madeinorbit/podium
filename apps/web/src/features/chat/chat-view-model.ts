@@ -4,7 +4,7 @@ import {
   chatSessionReference,
   composerState,
   isOperatorPromptRow,
-  pendingAskFromState,
+  PENDING_ASK_ITEM_ID,
   type SuperThreadRef,
   transcriptActivityFacts,
   transcriptAttributionTable,
@@ -163,17 +163,16 @@ export class ChatViewModel {
     return this.presentation.renderRows(this.stickyEnabled, this.headless)
   }
   @lazy get livePendingAskIndex(): number {
-    return this.session?.status === 'live' || this.session?.status === 'starting'
+    const item = this.conversation.pendingQuestion
+    return (this.session?.status === 'live' || this.session?.status === 'starting') &&
+      item &&
+      item.id !== PENDING_ASK_ITEM_ID
       ? this.presentation.pendingAskIndex
       : -1
   }
   @lazy({ equals: compareStructural }) get pendingAskBlock() {
-    return pendingAskFromState(
-      this.session?.agentNeed,
-      this.session?.status,
-      this.session?.agentPhase,
-      this.livePendingAskIndex >= 0,
-    )
+    const item = this.conversation.pendingQuestion
+    return item?.id === PENDING_ASK_ITEM_ID ? { item } : null
   }
   @lazy({ equals: compareStructural }) get attribution() {
     return transcriptAttributionTable(this.session)

@@ -1,17 +1,18 @@
-import { MobileConversation } from '../lib/mobile-conversation'
-import { here } from '@podium/client-graph/lookup'
-import { MobileChatViewModel } from '../lib/chat-view-model'
 import { hubConnection, PHONE_WARM_CONVERSATIONS } from '@podium/client-core/conversation'
 import { randomUUID } from '@podium/client-core/id'
-import { REPLICA_TRANSCRIPT_ITEM_CAP } from '@podium/client-core/replica'
 import { useConversation, useStoreHandle } from '@podium/client-core/react'
+import { REPLICA_TRANSCRIPT_ITEM_CAP } from '@podium/client-core/replica'
+import { chatInteractions } from '@podium/client-graph/chat-context'
+import { here } from '@podium/client-graph/lookup'
 import { superagentState } from '@podium/client-graph/superagent'
 import { asSessionId, asThreadId, type SessionId } from '@podium/model'
 import { action, observable, reaction } from 'mobx'
 import { useEffect, useMemo } from 'react'
 import { AppState } from 'react-native'
+import { MobileChatViewModel } from '../lib/chat-view-model'
+import { MobileConversation } from '../lib/mobile-conversation'
 import { humanizeSendFailure } from '../lib/send-failure'
-import { superagentTurnChoice, resolveSuperagentBackend } from '../lib/superagent-backend'
+import { resolveSuperagentBackend, superagentTurnChoice } from '../lib/superagent-backend'
 import { useMobilePool } from './mobile-pool'
 import type { MobileTrpc } from './trpc'
 
@@ -29,7 +30,10 @@ export function useThreadConversation() {
   const owner = useStoreHandle<MobileTrpc>()
   const pool = useMobilePool()
   let binding = bindings.get(owner)
-  if (!binding) { binding = new ThreadBinding(); bindings.set(owner, binding) }
+  if (!binding) {
+    binding = new ThreadBinding()
+    bindings.set(owner, binding)
+  }
   const thread = binding
   const readSid = () => {
     const published = pool ? superagentState(pool).activeSessionId : undefined
@@ -37,117 +41,139 @@ export function useThreadConversation() {
   }
   const conversation = useConversation(
     CONVERSATION_ID,
-    (drafts) => new MobileConversation({
-      sessionId: CONVERSATION_ID,
-      drafts: { get: id => pool!.sessionObject(id).messageDraft, set: (id, text) => pool!.sessionObject(id).setMessageDraft(text) },
-      headless: true,
-      streamSessionId: readSid,
-      readSession: () => (pool && readSid() ? here(pool.model('session', readSid()!)) : undefined),
-      readTurnRunning: () => (pool ? superagentState(pool).active?.turnRunning : undefined),
-      initialTurnRunning: pool ? superagentState(pool).active?.turnRunning : false,
-      hub: owner.hub,
-      connection: hubConnection(owner.hub),
-      latestTurnFailure: () =>
-        readSid()
-          ? owner.access.trpc.superagent.latestTurnFailure.query({ threadId: THREAD_ID })
-          : Promise.resolve(null),
-      scheduler: {
-        visible: () =>
-          AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
-        onVisibilityChange: (listener) => {
-          const subscription = AppState.addEventListener('change', listener)
-          return () => subscription.remove()
-        },
-      },
-      transcript: {
-        initialLimit: 80,
-        pageLimit: 80,
-        source: {
-          read: (request) => {
-            const sid = readSid()
-            return sid
-              ? owner.access.trpc.sessions.transcriptRead.query({ ...request, sessionId: sid })
-              : Promise.resolve({ items: [], hasMore: false })
+    (drafts) =>
+      new MobileConversation(
+        {
+          sessionId: CONVERSATION_ID,
+          drafts: {
+            get: (id) => pool!.sessionObject(id).messageDraft,
+            set: (id, text) => pool!.sessionObject(id).setMessageDraft(text),
           },
-          subscribe: (_id, since, listener) => {
-            let off = () => {},
-              generation = 0,
-              first = true
-            const stop = reaction(
-              readSid,
-              (sid) => {
-                off()
-                const current = ++generation
-                if (!sid) {
-                  listener([], { reset: true })
-                  first = false
-                  return
-                }
-                const transcript = owner.hub.subscribeTranscript(
-                  sid,
-                  first ? since : undefined,
-                  listener,
-                )
-                off = transcript
-                if (!first)
-                  void owner.access.trpc.sessions.transcriptRead
-                    .query({ sessionId: sid, direction: 'before', limit: 80 })
-                    .then((page) => {
-                      if (generation === current) listener(page.items, { reset: true })
-                    })
-                    .catch(() => {})
-                first = false
+          headless: true,
+          streamSessionId: readSid,
+          readSession: () =>
+            pool && readSid() ? here(pool.model('session', readSid()!)) : undefined,
+          readQuestion: () => {
+            const sid = readSid()
+            return pool && sid ? chatInteractions(pool, sid).question : undefined
+          },
+          readTurnRunning: () => (pool ? superagentState(pool).active?.turnRunning : undefined),
+          initialTurnRunning: pool ? superagentState(pool).active?.turnRunning : false,
+          hub: owner.hub,
+          connection: hubConnection(owner.hub),
+          latestTurnFailure: () =>
+            readSid()
+              ? owner.access.trpc.superagent.latestTurnFailure.query({ threadId: THREAD_ID })
+              : Promise.resolve(null),
+          scheduler: {
+            visible: () =>
+              AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
+            onVisibilityChange: (listener) => {
+              const subscription = AppState.addEventListener('change', listener)
+              return () => subscription.remove()
+            },
+          },
+          transcript: {
+            initialLimit: 80,
+            pageLimit: 80,
+            source: {
+              read: (request) => {
+                const sid = readSid()
+                return sid
+                  ? owner.access.trpc.sessions.transcriptRead.query({ ...request, sessionId: sid })
+                  : Promise.resolve({ items: [], hasMore: false })
               },
-              { fireImmediately: true },
-            )
-            return () => {
-              generation++
-              stop()
-              off()
-            }
+              subscribe: (_id, since, listener) => {
+                let off = () => {},
+                  generation = 0,
+                  first = true
+                const stop = reaction(
+                  readSid,
+                  (sid) => {
+                    off()
+                    const current = ++generation
+                    if (!sid) {
+                      listener([], { reset: true })
+                      first = false
+                      return
+                    }
+                    const transcript = owner.hub.subscribeTranscript(
+                      sid,
+                      first ? since : undefined,
+                      listener,
+                    )
+                    off = transcript
+                    if (!first)
+                      void owner.access.trpc.sessions.transcriptRead
+                        .query({ sessionId: sid, direction: 'before', limit: 80 })
+                        .then((page) => {
+                          if (generation === current) listener(page.items, { reset: true })
+                        })
+                        .catch(() => {})
+                    first = false
+                  },
+                  { fireImmediately: true },
+                )
+                return () => {
+                  generation++
+                  stop()
+                  off()
+                }
+              },
+            },
+            cache: {
+              maxItems: REPLICA_TRANSCRIPT_ITEM_CAP,
+              read: () => {
+                const sid = readSid()
+                return sid ? owner.replica.transcriptWindow(sid) : undefined
+              },
+              write: (_id, items) => {
+                const sid = readSid()
+                if (sid) owner.replica.putTranscriptWindow(sid, [...items])
+              },
+            },
+          },
+          sends: {
+            reconcile: 'next-user-item',
+            createDeliveryId: () => `msg_${randomUUID()}`,
+            deliver: async (turn) => {
+              try {
+                const ack = await owner.access.trpc.superagent.sendTurn.mutate({
+                  threadId: THREAD_ID,
+                  text: turn.wire,
+                  ...superagentTurnChoice(
+                    resolveSuperagentBackend(
+                      pool ? superagentState(pool).active : undefined,
+                      turn.backend ?? {},
+                    ),
+                  ),
+                })
+                if (ack?.podiumSessionId)
+                  action(() => {
+                    thread.acked = ack.podiumSessionId
+                  })()
+                void owner.access.refreshSuperThreads().catch(() => {})
+              } catch (error) {
+                throw new Error(humanizeSendFailure(error))
+              }
+            },
+            interrupt: () =>
+              owner.access.trpc.superagent.interruptTurn
+                .mutate({ threadId: THREAD_ID })
+                .then(() => {}),
           },
         },
-        cache: {
-          maxItems: REPLICA_TRANSCRIPT_ITEM_CAP,
-          read: () => {
-            const sid = readSid()
-            return sid ? owner.replica.transcriptWindow(sid) : undefined
-          },
-          write: (_id, items) => {
-            const sid = readSid()
-            if (sid) owner.replica.putTranscriptWindow(sid, [...items])
-          },
-        },
-      },
-      sends: {
-        reconcile: 'next-user-item',
-        createDeliveryId: () => `msg_${randomUUID()}`,
-        deliver: async (turn) => {
-          try {
-            const ack = await owner.access.trpc.superagent.sendTurn.mutate({
-              threadId: THREAD_ID,
-              text: turn.wire,
-              ...superagentTurnChoice(resolveSuperagentBackend(pool ? superagentState(pool).active : undefined, turn.backend ?? {})),
-            })
-            if (ack?.podiumSessionId)
-              action(() => {
-                thread.acked = ack.podiumSessionId
-              })()
-            void owner.access.refreshSuperThreads().catch(() => {})
-          } catch (error) {
-            throw new Error(humanizeSendFailure(error))
-          }
-        },
-        interrupt: () =>
-          owner.access.trpc.superagent.interruptTurn.mutate({ threadId: THREAD_ID }).then(() => {}),
-      },
-    }, { collapseContext: true }),
+        { collapseContext: true },
+      ),
     {
       warmLimit: PHONE_WARM_CONVERSATIONS,
       enabled: pool !== null && !superagentState(pool).loading,
     },
   )
-  const view = useMemo(() => conversation && pool ? new MobileChatViewModel(conversation, pool) : undefined, [conversation, pool])
+  const view = useMemo(
+    () => (conversation && pool ? new MobileChatViewModel(conversation, pool) : undefined),
+    [conversation, pool],
+  )
   useEffect(() => view?.open(), [view])
   const podiumSid = readSid()
   return { conversation: view, podiumSid, binding: thread }

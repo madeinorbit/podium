@@ -18,7 +18,7 @@ import {
   stagedAttachmentId,
 } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
-import { chatItemMessage } from '@podium/client-graph/chat-context'
+import { chatInteractions, chatItemMessage } from '@podium/client-graph/chat-context'
 import { here, omitGone } from '@podium/client-graph/lookup'
 import { currentMessageRecord, ingestMessageRecords } from '@podium/client-graph/message-models'
 import type { SessionModel } from '@podium/client-graph/models'
@@ -188,6 +188,7 @@ export function createWebConversation(
       headless,
       initialTurnRunning: mount.initialTurnRunning,
       readSession,
+      readQuestion: () => chatInteractions(pool, sessionId).question,
       ...(mount.superThread ? { readTurnRunning: () => conversation.thread?.turnRunning } : {}),
       ...(typeof hub.connectionHealth === 'function' && typeof hub.on === 'function'
         ? { connection: hubConnection(hub) }

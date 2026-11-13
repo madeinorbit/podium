@@ -12,9 +12,9 @@ import {
   defaultChatCapable,
   matchesQuestionInteraction,
   OPTIMISTIC_SEND_CEILING_MS,
-  pendingAskFromState,
   principalShortName,
 } from '@podium/client-core/values'
+import { chatInteractions } from '@podium/client-graph/chat-context'
 import { here } from '@podium/client-graph/lookup'
 import { currentMessageRecord, ingestMessageRecords } from '@podium/client-graph/message-models'
 import type { SessionModel } from '@podium/client-graph/models'
@@ -260,6 +260,7 @@ export function useSessionConversation(props: {
             set: (id, text) => pool!.sessionObject(id).setMessageDraft(text),
           },
           readSession: () => (pool ? here(pool.model('session', sessionId)) : undefined),
+          readQuestion: () => (pool ? chatInteractions(pool, sessionId).question : undefined),
           hub: owner.hub,
           connection: hubConnection(owner.hub),
           scheduler: {
@@ -685,24 +686,11 @@ const SessionConversationBody = observer(function SessionConversationBody({
   const composerCaption = conversation.interruptError
     ? `Not stopped: ${conversation.interruptError}`
     : transcriptStatus
-  // A question Claude Code has not written into its transcript yet: the hook
-  // channel carries it from the moment the dialog opens, the transcript only
-  // once the call resolves (POD-1273). The transcript stays the better source
-  // the instant it has one, so this is consulted only while it has none.
-  const need = conversation.session?.agentNeed
-  const phase = conversation.session?.agentPhase
-  const transcriptQuestion = transcript.pendingQuestion
-  const pendingAsk = useMemo(
-    () =>
-      pendingAskFromState(need, session.status, phase, transcriptQuestion !== null)?.item ?? null,
-    [transcriptQuestion, need, phase, session.status],
-  )
-  const pendingQuestion = transcriptQuestion ?? pendingAsk
+  // The shared conversation chooses the current native question. Unresolved
+  // history stays in the feed when a new authoritative need supersedes it.
+  const pendingQuestion = transcript.pendingQuestion
   const askAnswerable =
-    pendingAsk !== null ||
-    session.status === 'live' ||
-    session.status === 'starting' ||
-    session.status === 'reconnecting'
+    session.status === 'live' || session.status === 'starting' || session.status === 'reconnecting'
   const pendingAskedAt = pendingQuestion?.ts ?? conversation.session?.agentSince
   useEffect(() => {
     if (!pendingQuestion) setAskHeight(0)
@@ -854,7 +842,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
             <TranscriptList
               transcript={transcript}
               presentation={model.presentation}
-              transcriptQuestion={transcriptQuestion}
+              transcriptQuestion={pendingQuestion}
               live={session.status === 'live'}
               assetContext={assetContext}
               pendingTurns={pendingTurns}
