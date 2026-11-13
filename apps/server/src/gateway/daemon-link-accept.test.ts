@@ -12,6 +12,7 @@ import { createHash } from 'node:crypto'
 import { asMachineId, firstAdminMemberId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../relay'
+import { resolveTrustedProxyHops } from '../server'
 import { openTestStore } from '../test-support/open-test-store'
 import { daemonLinkFactsOf } from './daemon-link-kind'
 import { attachWebSockets } from './ws-server'
@@ -29,7 +30,7 @@ afterEach(async () => {
   for (const reg of registries.splice(0)) await reg.dispose()
 })
 
-async function setup() {
+async function setup(link: { peer: string; hops: number } = { peer: PEER, hops: 0 }) {
   const store = await openTestStore(':memory:')
   await store.machines.upsertMachine({
     id: MACHINE,
@@ -43,7 +44,10 @@ async function setup() {
   const handle = attachWebSockets(
     reg,
     {},
-    { timers: SILENT_TIMERS, daemonLink: (request) => daemonLinkFactsOf(request, PEER, 0) },
+    {
+      timers: SILENT_TIMERS,
+      daemonLink: (request) => daemonLinkFactsOf(request, link.peer, link.hops),
+    },
   )
   return { reg, handle }
 }
@@ -139,6 +143,27 @@ describe('the link a daemon is judged on', () => {
       MACHINE,
       expect.objectContaining({ linkKind: 'plain' }),
     )
+  })
+
+  /**
+   * THE SAME-COMPUTER DAEMON OF AN ALL-IN-ONE INSTALL (found driving POD-6897).
+   * A server bound to loopback trusts one proxy hop by default, so the client
+   * is read from `x-forwarded-for`; its own daemon dials loopback directly and
+   * sends none. It was judged plain, and every vault credential was refused.
+   */
+  it('a daemon dialing a loopback-bound server directly reads local', async () => {
+    const hops = resolveTrustedProxyHops(undefined, {}, '127.0.0.1')
+    expect(hops).toBe(1)
+    const { reg, handle } = await setup({ peer: '127.0.0.1', hops })
+    await connect(handle)
+    expect(reg.daemonLinks.daemonLinkKind(MACHINE)).toBe('local')
+  })
+
+  it('a remote daemon a same-computer proxy forwards over http stays plain', async () => {
+    const hops = resolveTrustedProxyHops(undefined, {}, '127.0.0.1')
+    const { reg, handle } = await setup({ peer: '127.0.0.1', hops })
+    await connect(handle, { headers: { 'x-forwarded-for': '203.0.113.9' } })
+    expect(reg.daemonLinks.daemonLinkKind(MACHINE)).toBe('plain')
   })
 
   it("a stale socket's close leaves the newer connection's link", async () => {

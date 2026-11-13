@@ -71,6 +71,31 @@ describe('classifyDaemonLink', () => {
       'plain',
     ],
     [
+      'a direct loopback peer behind a loopback bind (one trusted hop), no proxy header',
+      { clientAddress: undefined, peerAddress: '127.0.0.1', trustedProxyHops: 1 },
+      'local',
+    ],
+    [
+      'a direct IPv6 loopback peer behind a loopback bind, no proxy header',
+      { clientAddress: undefined, peerAddress: '::1', trustedProxyHops: 1 },
+      'local',
+    ],
+    [
+      'a remote client a same-computer proxy spoke for over http',
+      {
+        clientAddress: '203.0.113.9',
+        peerAddress: '127.0.0.1',
+        hasProxyHeaders: true,
+        trustedProxyHops: 1,
+      },
+      'plain',
+    ],
+    [
+      'a direct peer from another computer behind a loopback bind',
+      { clientAddress: undefined, peerAddress: '192.168.1.20', trustedProxyHops: 1 },
+      'plain',
+    ],
+    [
       'no client address at all',
       { clientAddress: undefined, trustedNetworks: ['0.0.0.0/0'] },
       'plain',
@@ -90,6 +115,7 @@ describe('daemonLinkFactsOf', () => {
       url: 'http://podium.example:18787/daemon',
       hasProxyHeaders: true,
       clientAddress: '127.0.0.1',
+      peerAddress: '127.0.0.1',
       trustedProxyHops: 0,
     })
   })
@@ -103,6 +129,18 @@ describe('daemonLinkFactsOf', () => {
       forwardedProto: 'https',
       hasProxyHeaders: true,
       clientAddress: '198.51.100.7',
+      peerAddress: '127.0.0.1',
+      trustedProxyHops: 1,
+    })
+  })
+
+  it('keeps the direct peer when the trusted hop sent no header', () => {
+    const request = new Request('http://127.0.0.1:18787/daemon')
+    expect(daemonLinkFactsOf(request, '127.0.0.1', 1)).toEqual({
+      url: 'http://127.0.0.1:18787/daemon',
+      hasProxyHeaders: false,
+      clientAddress: undefined,
+      peerAddress: '127.0.0.1',
       trustedProxyHops: 1,
     })
   })

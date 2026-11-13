@@ -35,6 +35,14 @@ export interface DaemonLinkFacts {
   readonly hasProxyHeaders: boolean
   /** Resolved with `clientAddressForRequest`; undefined when it cannot be. */
   readonly clientAddress: string | undefined
+  /**
+   * The socket's own peer, as the native server reports it, before any proxy
+   * header is read. A server bound to loopback trusts one proxy hop by
+   * default, so `clientAddress` is read from `x-forwarded-for`; a daemon on the
+   * same computer dials it directly and sends none, and only this says where
+   * it came from.
+   */
+  readonly peerAddress?: string
   readonly trustedProxyHops: number
 }
 
@@ -45,7 +53,15 @@ export function classifyDaemonLink(
   i: DaemonLinkFacts & { readonly trustedNetworks: readonly string[] },
 ): DaemonLinkKind {
   if (isSecureRequest(i.url, i.forwardedProto, i.trustedProxyHops)) return 'encrypted'
-  if (!i.hasProxyHeaders && isLoopbackAddress(i.clientAddress)) return 'local'
+  // Never left the computer: a loopback peer that no proxy spoke for. With a
+  // trusted proxy hop the client is read from its header, so a direct
+  // same-computer daemon (no header) is known only by its socket's peer.
+  if (
+    !i.hasProxyHeaders &&
+    (isLoopbackAddress(i.clientAddress) || isLoopbackAddress(i.peerAddress))
+  ) {
+    return 'local'
+  }
   const address = i.clientAddress
   if (address !== undefined && i.trustedNetworks.some((range) => cidrContains(range, address))) {
     return 'trusted'
@@ -65,6 +81,7 @@ export function daemonLinkFactsOf(
     ...(forwardedProto !== undefined ? { forwardedProto } : {}),
     hasProxyHeaders: PROXY_HEADERS.some((name) => request.headers.has(name)),
     clientAddress: clientAddressForRequest(request, peerAddress, trustedProxyHops),
+    ...(peerAddress !== undefined && peerAddress.length <= 128 ? { peerAddress } : {}),
     trustedProxyHops,
   }
 }
