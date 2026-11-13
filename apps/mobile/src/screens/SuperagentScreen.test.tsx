@@ -31,6 +31,7 @@ const transcriptProps = vi.hoisted(
       liveItem?: { text: string }
       pendingTurns?: { text: string; failed?: string }[]
       transcriptQuestion: TranscriptItem | null
+      onAnswer: (answer: import('../components/AskQuestionCard').AskQuestionAnswer) => Promise<void>
     }[],
 )
 const composerProps = vi.hoisted(
@@ -94,6 +95,7 @@ vi.mock('../components/TranscriptList', async () => {
         tail,
         pendingTurns = [],
         transcriptQuestion,
+        onAnswer,
       }: {
         transcript?: import('@podium/client-core/conversation').TranscriptLog
         items?: { text: string }[]
@@ -101,6 +103,9 @@ vi.mock('../components/TranscriptList', async () => {
         tail?: { label: string; tone: string }
         pendingTurns?: { text: string; failed?: string }[]
         transcriptQuestion: TranscriptItem | null
+        onAnswer: (
+          answer: import('../components/AskQuestionCard').AskQuestionAnswer,
+        ) => Promise<void>
       }) => {
         if (transcript) {
           // Track order only; production message versions belong to row observers.
@@ -113,6 +118,7 @@ vi.mock('../components/TranscriptList', async () => {
           ...(liveItem ? { liveItem } : {}),
           pendingTurns,
           transcriptQuestion,
+          onAnswer,
         })
         return (
           <div>
@@ -208,6 +214,42 @@ function failureFixture(
 }
 
 describe('SuperagentScreen chrome', () => {
+  it('keeps async interviews out of the headless native-menu answer route', async () => {
+    const base = failureFixture(
+      async () => null,
+      () => [
+        {
+          id: 'async',
+          role: 'tool',
+          text: '',
+          toolName: 'request_user_input_async',
+          toolUseId: 'async',
+          toolInputJson: '{"questions":[{"question":"Where?","options":[{"label":"main"}]}]}',
+        },
+      ],
+    )
+    const nativeAnswer = vi.fn(async () => ({ ok: true }))
+    await renderWithMobileStore(<SuperagentScreen />, {
+      ...base,
+      api: {
+        ...base.api,
+        sessions: { ...base.api?.sessions, answerAskUserQuestion: { mutate: nativeAnswer } },
+      },
+    })
+    await waitFor(() => expect(transcriptProps.at(-1)?.onAnswer).toBeTypeOf('function'))
+    await waitFor(() =>
+      expect(transcriptProps.at(-1)?.items).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: 'async' })]),
+      ),
+    )
+    expect(transcriptProps.at(-1)?.transcriptQuestion).toBeNull()
+    await expect(
+      transcriptProps
+        .at(-1)
+        ?.onAnswer({ reply: { itemId: 'async', question: '{}', text: 'reply' } }),
+    ).rejects.toThrow('session chat')
+    expect(nativeAnswer).not.toHaveBeenCalled()
+  })
   it('uses raw facts for failure restoration and optimistic sends without rereading history at 1x/4x', async () => {
     const samples = []
     for (const scale of [1, 4] as const) {
@@ -320,7 +362,7 @@ describe('SuperagentScreen chrome', () => {
       view.emit(
         'transcriptDelta',
         'session:superagent',
-        [{ ...question, toolResult: 'Answered' }],
+        [{ ...question, toolResult: 'You answered main' }],
         { reset: false },
       ),
     )
@@ -460,6 +502,9 @@ describe('SuperagentScreen chrome', () => {
   })
 
   it('sends the picked model and effort with the turn', async () => {
+    vi.spyOn(await import('@podium/client-core/react'), 'useModelCatalog').mockReturnValue({
+      'claude-code': [{ value: 'opus', label: 'Opus', efforts: ['low', 'high'] }],
+    })
     const sendTurn = vi.fn(async () => ({ threadId: 'global' }))
     await renderWithMobileStore(<SuperagentScreen />, {
       api: {

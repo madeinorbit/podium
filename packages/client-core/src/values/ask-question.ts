@@ -103,7 +103,7 @@ export function askQuestionResult(block: {
   result?: string
 }): string | undefined {
   const result = block.result ?? block.item.toolResult
-  if (isCodexAsyncQuestion(block.item) && result) {
+  if (result && isCodexAsyncQuestion(block.item)) {
     try {
       if (JSON.parse(result)?.accepted === true) return undefined
     } catch {
@@ -115,6 +115,10 @@ export function askQuestionResult(block: {
 
 export function isPendingAskQuestion(block: { item: TranscriptItem; result?: string }): boolean {
   if (!isInterviewQuestion(block.item)) return false
+  return questionRemainsPending(block)
+}
+
+function questionRemainsPending(block: { item: TranscriptItem; result?: string }): boolean {
   const outcome = askQuestionOutcome(block)
   return outcome !== 'answered' && outcome !== 'skipped'
 }
@@ -135,18 +139,47 @@ export function askQuestionOutcome(block: {
     /^(?:You (?:selected|answered|picked)|User selected)\s+\S/i.test(text)
   )
     return 'answered'
-  if (isCodexAsyncQuestion(block.item)) {
-    try {
-      const answers: unknown = JSON.parse(text)
+  if (
+    parseAskQuestions(block.item.toolInputJson).some((question) =>
+      question.options.some((option) => option.label === text),
+    )
+  )
+    return 'answered'
+  try {
+    const answers: unknown = JSON.parse(text)
+    if (isCodexAsyncQuestion(block.item)) {
       if (
         Array.isArray(answers) &&
         answers.length > 0 &&
         answers.every((answer) => typeof answer?.answer === 'string' && answer.answer.trim() !== '')
       )
         return 'answered'
-    } catch {
-      /* Unrecognized results remain unresolved. */
     }
+    if (answers && typeof answers === 'object' && !Array.isArray(answers)) {
+      const payload = answers as Record<string, unknown>
+      if (payload.error) return 'failed'
+      if (payload.answers && typeof payload.answers === 'object') {
+        const values = Object.values(payload.answers)
+        if (
+          values.length > 0 &&
+          values.every((value) => {
+            if (typeof value === 'string') return value.trim() !== ''
+            const choices =
+              value && typeof value === 'object'
+                ? (value as { answers?: unknown }).answers
+                : undefined
+            return (
+              Array.isArray(choices) &&
+              choices.length > 0 &&
+              choices.every((choice) => typeof choice === 'string' && choice.trim() !== '')
+            )
+          })
+        )
+          return 'answered'
+      }
+    }
+  } catch {
+    /* Unrecognized results remain unresolved. */
   }
   return 'unknown'
 }
@@ -186,7 +219,7 @@ export function latestPendingQuestion(items: TranscriptItem[]): TranscriptItem |
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i]
     if (!item || !isAskUserQuestion(item)) continue
-    return isPendingAskQuestion({ item }) ? item : null
+    return questionRemainsPending({ item }) ? item : null
   }
   return null
 }

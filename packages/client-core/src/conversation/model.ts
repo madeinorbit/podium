@@ -139,7 +139,7 @@ export class ConversationService {
   @lazy get pendingQuestion(): TranscriptItem | null {
     const id = this.graph.pendingQuestionId
     const block = id === undefined ? undefined : this.graph.block(id)
-    if (!block) return null
+    if (!block || (this.options.headless && isCodexAsyncQuestion(block.item))) return null
     const result = askQuestionResult(block)
     return result === undefined ? block.item : { ...block.item, toolResult: result }
   }
@@ -153,6 +153,7 @@ export class ConversationService {
     const block = this.graph.block(reply.itemId)
     if (
       !block ||
+      this.options.headless ||
       !isCodexAsyncQuestion(block.item) ||
       !isPendingAskQuestion(block) ||
       this.graph.pendingQuestionId !== reply.itemId ||

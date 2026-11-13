@@ -185,6 +185,12 @@ it.each([
   ['Unrecognized output', 'unknown'],
   ['User has answered your questions: "Which way?"="Left".', 'answered'],
   ['You answered use another branch', 'answered'],
+  ['Left', 'answered'],
+  ['{"answers":{"question":"Left"}}', 'answered'],
+  ['{"answers":{"question":{"answers":["Left"]}}}', 'answered'],
+  ['{"answers":{}}', 'unknown'],
+  ['{"answers":{"question":{"answers":[]}}}', 'unknown'],
+  ['{"error":"answer could not be delivered","answers":{"question":"Left"}}', 'failed'],
   ['User declined to answer the questions', 'skipped'],
 ] as const)('classifies question result %s as %s without inventing an answer', (result, outcome) => {
   const block = { item: ask('question'), result }
