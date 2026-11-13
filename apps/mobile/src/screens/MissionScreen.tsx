@@ -68,10 +68,6 @@ export const MissionScreen = observer(function MissionScreen() {
   const requestedSessionId = Array.isArray(params.sessionId)
     ? params.sessionId[0]
     : params.sessionId
-  // The opening task/session is already in the pool when a row is tapped.
-  // Naming a chat must not wait for every member of its flight deck to load.
-  const requestedSession = useSessionContextSession(requestedSessionId as SessionId | undefined)
-  const openingIssue = useSessionContextChromeIssue(requestedSession?.issueId ?? selectedId)
   const [pinnedSessionId, setPinnedSessionId] = useState<SessionId | null>(
     requestedSessionId ? (requestedSessionId as SessionId) : null,
   )
@@ -90,11 +86,18 @@ export const MissionScreen = observer(function MissionScreen() {
   // while they read.
   const seatMemory = useTaskSeatMemory()
   const rootId = root?.id
+  const openingRootId = screen?.rootId
   // Read once per mission: the seat written below must not feed back into it.
   const remembered = useMemo(
-    () => (rootId ? seatMemory.recall(rootId) : null),
-    [rootId, seatMemory],
+    () => (openingRootId ? seatMemory.recall(openingRootId) : null),
+    [openingRootId, seatMemory],
   )
+  // Name the requested or remembered chat from the existing pool before the
+  // full deck settles. A remembered helper can belong to another task here.
+  const openingSession = useSessionContextSession(
+    (requestedSessionId ?? remembered ?? undefined) as SessionId | undefined,
+  )
+  const openingIssue = useSessionContextChromeIssue(openingSession?.issueId ?? selectedId)
   const selectedValue = ready ? screen.reader.issue(selectedId) : undefined
   const selected = selectedValue && selectedValue !== LOADING ? selectedValue : undefined
   const pinned = missionSessions.find((s) => s.sessionId === pinnedSessionId)
@@ -196,7 +199,7 @@ export const MissionScreen = observer(function MissionScreen() {
 
   return (
     <Screen
-      title={headerIssue?.title ?? (requestedSession ? sessionTitle(requestedSession) : '')}
+      title={headerIssue?.title ?? (openingSession ? sessionTitle(openingSession) : '')}
       onBack={() => (router.canGoBack() ? router.back() : router.replace('/work'))}
       backLabel={Platform.OS === 'web' ? 'Back' : 'Flight deck'}
       bareBack

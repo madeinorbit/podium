@@ -23,6 +23,7 @@ const navigation = vi.hoisted(() => ({
   replace: vi.fn(),
   dismissTo: vi.fn(),
   holdOpening: false,
+  remembered: null as string | null,
 }))
 vi.mock('react-native', async (original) => {
   const real = await original<typeof import('react-native')>()
@@ -55,6 +56,10 @@ vi.mock('../client/hooks', async (original) => {
     useMissionOpening: (id: string) => {
       const opening = real.useMissionOpening(id)
       return navigation.holdOpening ? { ...opening, resolved: false } : opening
+    },
+    useTaskSeatMemory: () => {
+      const memory = real.useTaskSeatMemory()
+      return navigation.remembered ? { ...memory, recall: () => navigation.remembered } : memory
     },
   }
 })
@@ -99,6 +104,7 @@ afterEach(() => {
   vi.clearAllMocks()
   navigation.platform = 'ios'
   navigation.holdOpening = false
+  navigation.remembered = null
 })
 
 const options = {
@@ -241,8 +247,8 @@ it('names the opening chat from the pool and shows a transcript skeleton while t
       .flatMap((sheet) => Array.from(sheet.cssRules, (rule) => rule.cssText))
       .join('\n')
     const fonts = [
-      ['Geist_400Regular', 'geist/400Regular/Geist_400Regular.ttf'],
-      ['Geist_600SemiBold', 'geist/600SemiBold/Geist_600SemiBold.ttf'],
+      ['Geist-Regular', 'geist/400Regular/Geist_400Regular.ttf'],
+      ['Geist-SemiBold', 'geist/600SemiBold/Geist_600SemiBold.ttf'],
     ]
       .map(
         ([name, path]) =>
@@ -269,6 +275,22 @@ it('uses the requested session task title before mission membership resolves', a
   expect(screen.getByText('Pricing page draft')).toBeTruthy()
   expect(screen.getByLabelText('Loading transcript')).toBeTruthy()
   expect(screen.queryByText('Mission')).toBeNull()
+})
+
+it('names a remembered helper task before the mission deck resolves', async () => {
+  navigation.holdOpening = true
+  navigation.remembered = 'child-helper'
+  navigation.params = { missionId: 'root' }
+  await renderWithMobileStore(<MissionScreen />, {
+    issues: [
+      issue('root', { title: 'Cloud factory strategy' }),
+      issue('child', { parentId: asIssueId('root'), title: 'Pricing page draft' }),
+    ],
+    sessions: [agent('child-helper', 'child')],
+  })
+  expect(screen.getByText('Pricing page draft')).toBeTruthy()
+  expect(screen.queryByText('Cloud factory strategy')).toBeNull()
+  expect(screen.getByLabelText('Loading transcript')).toBeTruthy()
 })
 
 it('opens the task coordinator chat, opens its highlighted deck from the menu, and pushes another seat', async () => {
