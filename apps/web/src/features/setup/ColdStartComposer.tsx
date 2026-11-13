@@ -179,7 +179,6 @@ export function ColdStartComposer({
     FIRST_TASK_ACTIVATION_DRAFT_KEY,
     readFirstTaskDraft,
     serializeFirstTaskDraft,
-    withoutCreateReservation,
   )
   const [lastLaunchPicks] = usePersistedUiState(
     LAST_LAUNCH_PICK_KEY,

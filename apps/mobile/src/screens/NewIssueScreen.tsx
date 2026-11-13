@@ -28,6 +28,7 @@ import {
   firstTaskLaunchNote,
   firstTaskMachineDenied,
   firstTaskMachines,
+  nativeAccountId,
   promptTitle,
   selectedFirstTaskMachine,
   selectedFirstTaskRepository,
@@ -57,7 +58,6 @@ import {
   type MachineWire,
   machinePathBasename,
 } from '@podium/model'
-import { nativeAccountId } from '@podium/runtime'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -234,10 +234,11 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
     prompt: draft.title,
     attachmentCount: attachments.attachments.length,
     uploading: attachments.uploading,
+    shell,
   })
   const note = catalogLoading
     ? undefined
-    : firstTaskLaunchNote({
+    : (firstTaskLaunchNote({
         machineDenied,
         signInFirst,
         ready,
@@ -246,7 +247,10 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
         agentLabel: issueAgentLabel(agent, served),
         projectLabel: selectedRepo?.name ?? 'This project',
         machineLabel: machine?.name ?? 'this machine',
-      })
+      }) ??
+      (shell && attachments.attachments.length
+        ? 'This agent cannot accept file attachments.'
+        : undefined))
 
   const persistFailure = (reserved: FirstTaskDraft, message: string) => {
     const current = readFirstTaskDraft(uiState.get(FIRST_TASK_ACTIVATION_DRAFT_KEY))

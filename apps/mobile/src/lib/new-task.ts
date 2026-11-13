@@ -13,6 +13,7 @@ export function newTaskSubmitState(args: {
   prompt: string
   attachmentCount: number
   uploading: boolean
+  shell?: boolean
   driverUnavailable?: boolean
 }) {
   const hasPrompt = args.prompt.trim().length > 0
@@ -26,6 +27,7 @@ export function newTaskSubmitState(args: {
       !args.machineDenied &&
       args.ready &&
       !args.driverUnavailable &&
+      !(args.shell && args.attachmentCount > 0) &&
       (hasPrompt || args.attachmentCount === 0),
     canSave: idle && args.hasProject && hasPrompt && args.attachmentCount === 0,
     ...(args.attachmentCount ? { saveReason: 'Attachments go with Start' } : {}),

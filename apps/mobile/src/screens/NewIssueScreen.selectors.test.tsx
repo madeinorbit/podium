@@ -1,7 +1,7 @@
 import { EMPTY_FIRST_TASK_DRAFT, readFirstTaskDraft } from '@podium/client-core/first-task-draft'
 import { COORDINATOR_PROMPT } from '@podium/client-core/new-task'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY, LAST_LAUNCH_PICK_KEY } from '@podium/client-core/ui-state'
-import type { GitRepositoryWire, MachineWire } from '@podium/model'
+import { asMachineId, asRepoId, type GitRepositoryWire, type MachineWire } from '@podium/model'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { type ReactElement, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -133,8 +133,8 @@ const repository = (path = '/repo/podium', machineId = 'host'): GitRepositoryWir
     path,
     kind: 'repository',
     branch: 'main',
-    repoId: path,
-    machineId,
+    repoId: asRepoId(path),
+    machineId: asMachineId(machineId),
     worktrees: [],
   }) as GitRepositoryWire
 function machine(patch: Partial<MachineWire> = {}): MachineWire {
@@ -260,6 +260,45 @@ describe('native New Task sheet logic', () => {
     expect(seams.replace.mock.calls[0]?.[0]).toMatchObject({
       pathname: '/session/[sessionId]/terminal',
     })
+  })
+
+  it('keeps attached files removable and blocks a Shell launch that cannot consume them', async () => {
+    await mount({
+      api: {
+        sessions: {
+          uploadImage: {
+            mutate: async () => ({
+              path: '',
+              attachment: {
+                id: 'held',
+                filename: 'shot.png',
+                mediaType: 'image/png',
+                kind: 'image',
+              },
+            }),
+          },
+        },
+      },
+    })
+    await ready()
+    fireEvent.change(prompt(), { target: { value: 'Keep the attached file' } })
+    act(() =>
+      seams.attachments?.accept([
+        { name: 'shot.png', mimeType: 'image/png', dataBase64: 'aGVsbG8=', previewUri: '' },
+      ]),
+    )
+    await waitFor(() => expect(seams.attachments?.attachments[0]?.state).toBe('ready'))
+    fireEvent.click(screen.getByRole('button', { name: /Agent, Claude Code/ }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Shell' }))
+    await waitFor(() =>
+      expect(screen.getByText('This agent cannot accept file attachments.')).toBeTruthy(),
+    )
+    expect((screen.getByRole('button', { name: 'Start Task' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Remove shot.png' }))
+    await ready()
+    expect(prompt().value).toBe('Keep the attached file')
   })
 
   it('seeds a project entry point and resolves that project’s usable checkout on its machine', async () => {

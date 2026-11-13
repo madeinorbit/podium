@@ -47,6 +47,10 @@ describe('New Task submit controls', () => {
       saveReason: 'Attachments go with Start',
     })
     expect(newTaskSubmitState({ ...ready, attachmentCount: 1 }).canStart).toBe(false)
+    expect(
+      newTaskSubmitState({ ...ready, prompt: 'Keep my file', shell: true, attachmentCount: 1 })
+        .canStart,
+    ).toBe(false)
   })
 })
 

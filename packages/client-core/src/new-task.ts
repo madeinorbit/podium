@@ -10,6 +10,9 @@ import { reposToViews } from './values/compose/machines/facts'
 import { indexedRepoUsageAt } from './values/repository-usage'
 import type { RepoView } from './values/types'
 
+// Keep the coding-role account spelling on the shared dependency boundary.
+export { nativeAccountId } from '@podium/runtime'
+
 /**
  * WHICH CHECKOUT ON DISK A PICKER ENTRY MEANS (POD-1582).
  *
