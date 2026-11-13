@@ -1093,13 +1093,7 @@ describe('panel commands (todo / artifact / deferred)', () => {
     expect(art.calls).toContainEqual({
       path: 'panelApply',
       kind: 'mutate',
-      input: {
-        id: '1',
-        op: 'artifact-add',
-        path: 's.png',
-        title: 'shot',
-        itemId: expect.any(String),
-      },
+      input: { id: '1', op: 'artifact-add', path: 's.png', title: 'shot' },
     })
     expect(out.text).toBe('1. shot — s.png')
     const def = mockClient({
