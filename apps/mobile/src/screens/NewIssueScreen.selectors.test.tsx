@@ -263,8 +263,7 @@ describe('native New Task sheet logic', () => {
     )
     await ready()
     const open = () => fireEvent.click(screen.getByRole('button', { name: /^Agent, / }))
-    const pick = (name: string) =>
-      fireEvent.click(screen.getByRole('menuitemradio', { name, exact: true }))
+    const pick = (name: string) => fireEvent.click(screen.getByRole('menuitemradio', { name }))
     open()
     pick('Codex')
     expect(screen.getByRole('button', { name: /^Agent, Codex/ })).toBeTruthy()
@@ -325,11 +324,9 @@ describe('native New Task sheet logic', () => {
         [
           {
             id: added.repoId,
-            path: added.path,
-            machineId: added.machineId,
-            originUrl: null,
-            prefix: null,
-            createdAt: '2026-01-01T00:00:00Z',
+            repoPath: added.path,
+            name: 'new-local-project',
+            prefix: 'LOCAL',
           },
         ],
         [],
