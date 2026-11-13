@@ -61,6 +61,17 @@ afterEach(() => {
 })
 
 describe('native launch routes', () => {
+  it('presents the flight deck as a full-screen card and leaves the iOS content pop gesture unrestricted', () => {
+    render(<RootLayout />)
+    expect(native.screens['mission/[missionId]/details']).toMatchObject({
+      presentation: 'card',
+      title: 'Flight deck',
+    })
+    expect(native.screens['mission/[missionId]/details']).not.toHaveProperty('sheetAllowedDetents')
+    expect(native.options).not.toHaveProperty('gestureResponseDistance')
+    expect(native.options).not.toHaveProperty('customAnimationOnGesture')
+    expect(native.options).not.toHaveProperty('fullScreenGestureEnabled')
+  })
   it.each([
     false,
     true,

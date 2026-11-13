@@ -29,6 +29,7 @@ import { SessionConversation } from '../components/SessionConversation'
 import { TaskSheet } from '../components/TaskSheet'
 import { EmptyState } from '../components/ui'
 import { useHeaderInset } from '../navigation/header-inset'
+import { useMissionDeckReturn } from '../navigation/use-mission-deck-return'
 import { color } from '../theme/theme'
 
 /**
@@ -42,9 +43,8 @@ import { color } from '../theme/theme'
  * ends in the transcript, and every one of them was paying two navigations for
  * it.
  *
- * The conversation stays first. The mission bar keeps its vital signs visible,
- * while the full deck now opens in a native form sheet with system detents,
- * dismissal, focus containment, and keyboard behavior.
+ * The conversation opens first. The full deck sits beneath it in the native
+ * stack, so the system back button and iOS 26 content swipe reveal the deck.
  */
 
 const NO_SESSIONS: readonly SessionView[] = []
@@ -120,6 +120,7 @@ export const MissionScreen = observer(function MissionScreen() {
   }, [requestedSessionId])
   // Whatever the screen shows is what reopening this task lands on next time.
   const currentId = current?.sessionId
+  useMissionDeckReturn(rootId, currentId)
   useEffect(() => {
     if (rootId && currentId) seatMemory.remember(rootId, currentId as SessionId)
   }, [rootId, currentId, seatMemory])
@@ -209,6 +210,7 @@ export const MissionScreen = observer(function MissionScreen() {
     <Screen
       title={headerIssue ? headerIssue.title : 'Mission'}
       onBack={() => (router.canGoBack() ? router.back() : router.replace('/work'))}
+      backLabel="Flight deck"
       bareBack
       underHeader
       subtitle={seat ?? (root ? 'No agent on this mission' : undefined)}
@@ -227,11 +229,7 @@ export const MissionScreen = observer(function MissionScreen() {
             currentIssue={currentIssue}
             full={screen.full}
             findRequest={findRequest}
-            onOpenDetails={() =>
-              router.push(
-                `/mission/${encodeURIComponent(root.id)}/details${current ? `?sessionId=${encodeURIComponent(current.sessionId)}` : ''}`,
-              )
-            }
+            onOpenDetails={() => router.back()}
           />
         ) : (
           <EmptyState title="Mission not found." />
@@ -314,7 +312,7 @@ function MissionBody({
           <EmptyState
             fill
             title="No agent on this task yet"
-            body="Open mission details to review the deck, or launch an agent to get it moving."
+            body="Open the flight deck to review the tasks, or launch an agent to get it moving."
           />
         )}
       </View>

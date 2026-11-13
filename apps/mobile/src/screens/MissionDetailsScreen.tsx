@@ -4,22 +4,19 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asIssueId } from '@podium/model'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
-import { useCallback, useState } from 'react'
-import { Platform, StyleSheet, View } from 'react-native'
+import { useCallback, useEffect, useState } from 'react'
 import { useMissionOpening } from '../client/hooks'
 import { useMobilePoolProjection } from '../client/mobile-pool'
 import { useScreenReadFocus } from '../client/screen-read-focus'
 import { DetailSkeleton } from '../components/LaunchPlaceholders'
 import { MissionDeck } from '../components/MissionDeck'
+import { Screen } from '../components/Screen'
 import { EmptyState } from '../components/ui'
 import { WorkIssueMenu } from '../components/WorkIssueMenu'
 
 /**
- * The flight deck, presented as the route's native form sheet (detents and
- * grabber come from the root layout). The sheet draws its own header — the
- * mission title, gauge and counts — instead of a navigation bar: a nav bar in
- * a form sheet floated over the deck's first rows ("deck sheet header
- * collides with toolbar", POD-2347 shots 09/10).
+ * The flight deck beneath chat. Each seat pushes its conversation; the system
+ * back gesture returns to this opening with that seat selected.
  */
 export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
   const params = useLocalSearchParams<{
@@ -42,26 +39,48 @@ export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
     [menuIssueId],
   )
   const sessionCount = useMobilePoolProjection(readSessionCount, 0)
+  useEffect(() => {
+    if (!ready || !screen || !rawSession) return
+    let id: string | null =
+      screen.crew.find((session) => session.sessionId === rawSession)?.issueId ?? null
+    // Reveal the selected seat using the deck's existing fold actions. A user
+    // can fold it again without selection continually reopening it.
+    while (id && screen.members.has(id)) {
+      const task = screen.full.task(id)
+      if (task.foldable && !task.open) screen.full.toggleFold(id)
+      id = task.parentId
+    }
+  }, [ready, screen, rawSession])
 
   return (
-    <View style={styles.root}>
+    <Screen
+      title={root?.title ?? 'Flight deck'}
+      subtitle="Flight deck"
+      underHeader
+      onBack={() => (router.canGoBack() ? router.back() : router.replace('/work'))}
+      backLabel="Work"
+    >
       {!resolved ? (
         <DetailSkeleton />
       ) : root && screen ? (
         <MissionDeck
           screen={screen}
+          showTitle={false}
           currentSessionId={
             screen.crew.find((session) => session.sessionId === rawSession)?.sessionId
           }
           onOpenSession={(session) =>
-            router.dismissTo(
+            router.push(
               `/mission/${encodeURIComponent(root.id)}?sessionId=${encodeURIComponent(session.sessionId)}`,
             )
           }
-          onOpenTask={(issue) => router.replace(`/inspect/${encodeURIComponent(issue.id)}`)}
+          onOpenTask={(issue) =>
+            router.push(
+              `/${issue.stage === 'proposed' ? 'inspect' : 'mission'}/${encodeURIComponent(issue.id)}`,
+            )
+          }
           onOpenTaskMenu={setMenuIssue}
-          onScreenProposals={() => router.replace('/screen-proposed')}
-          {...(Platform.OS === 'web' ? { onDone: () => router.back() } : {})}
+          onScreenProposals={() => router.push('/screen-proposed')}
         />
       ) : (
         <EmptyState fill title="Mission not found." />
@@ -72,10 +91,6 @@ export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
           onClose={() => setMenuIssue(null)}
         />
       ) : null}
-    </View>
+    </Screen>
   )
-})
-
-const styles = StyleSheet.create({
-  root: { flex: 1, minHeight: 0 },
 })

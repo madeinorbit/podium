@@ -107,7 +107,7 @@ async function mount(
   return { ...view, props }
 }
 
-describe('MissionDeck sheet', () => {
+describe('MissionDeck', () => {
   it('draws the mission title and every task with its state word', async () => {
     await mount()
     expect(screen.getByRole('heading').textContent).toBe('The mission')
@@ -176,6 +176,8 @@ describe('MissionDeck sheet', () => {
     const { props } = await mount([withLead, quiet], [lead], 's-lead')
     const seat = screen.getByTestId('deck-seat')
     expect(seat.getAttribute('aria-label')).toBe('Coordinator, Working, open')
+    expect(getComputedStyle(seat).backgroundColor).toBe('rgba(111, 157, 255, 0.13)')
+    expect(getComputedStyle(seat).borderWidth).toBe('1px')
     fireEvent.click(seat)
     expect(props.onOpenSession).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: 's-lead' }),

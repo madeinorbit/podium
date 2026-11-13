@@ -12,6 +12,7 @@ import {
   type FullDeckFilter,
   type FullDeckTask,
 } from '@podium/client-graph/mission-full-deck'
+import { ProposalSubmissions } from '@podium/client-graph/mission-proposals'
 import type { MissionScreen } from '@podium/client-graph/mission-screen'
 import { settled } from '@podium/client-graph/mission-view'
 import type { SessionModel } from '@podium/client-graph/models'
@@ -23,27 +24,21 @@ import {
   type TaskWord,
 } from '@podium/model/browser'
 import { observer } from 'mobx-react-lite'
-import { Fragment, type ReactNode, useState } from 'react'
-import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Fragment, type ReactNode, useEffect, useMemo, useState } from 'react'
+import { AppState, StyleSheet, Text, View } from 'react-native'
+import { useTrpc } from '../client/hooks'
 import { color, font, leading, mono, sans, space } from '../theme/theme'
+import { deckColor } from './deck-colors'
 import { Icon } from './Icon'
 import { Check, ChevronDown, ChevronRight } from './icons'
 import { DeckGauge, DeckVitalsLine, deckVitals } from './MissionBar'
+import { DeckContent, DeckProposals, MissionDeckList } from './MissionDeckList'
+import { MissionProposalRow } from './MissionProposalRow'
 import { PressableScale } from './PressableScale'
 import { EmptyState } from './ui'
 import { WorkingMark } from './WorkingMark'
 
-/**
- * THE FLIGHT DECK SHEET (boards DeckSheet, DeckLarge).
- *
- * The phone's projection of the shared Full deck (`FullDeck`): the mission's
- * title, gauge and counts, the root's seats, the filters (All / Needs you /
- * Active / Up next, Done as a toggle), phases with their "2/4" counter, tasks
- * with their state words and the agents seated on them, and the Proposals
- * tail. Every number and word comes from `FullDeck`; this file only places
- * them. The sheet itself (detents, grabber, dismissal) is the native form
- * sheet the route is presented in.
- */
+/** The shared FullDeck projection in a full-screen native list beneath chat. */
 
 const FILTER_LABEL: Readonly<Record<FullDeckFilter, string>> = {
   all: 'All',
@@ -59,7 +54,7 @@ export const MissionDeck = observer(function MissionDeck({
   onOpenTask,
   onOpenTaskMenu,
   onScreenProposals,
-  onDone,
+  showTitle = true,
 }: {
   screen: MissionScreen
   currentSessionId: string | undefined
@@ -67,14 +62,30 @@ export const MissionDeck = observer(function MissionDeck({
   onOpenTask: (issue: IssueNavigationModel) => void
   onOpenTaskMenu: (issue: IssueNavigationModel) => void
   onScreenProposals: () => void
-  /** A visible close control, for hosts without a native sheet grabber (web). */
-  onDone?: () => void
+  showTitle?: boolean
 }) {
   const full = screen.full
+  const trpc = useTrpc()
+  const submissions = useMemo(() => new ProposalSubmissions(full, 'brief'), [full])
+  const receiptDeadline = submissions.receiptDeadline
+  useEffect(() => {
+    if (receiptDeadline === null) return
+    const timer = setTimeout(
+      () => submissions.expireReceipts(),
+      Math.max(0, receiptDeadline - Date.now()),
+    )
+    const listener = AppState.addEventListener('change', (state) => {
+      if (state === 'active') submissions.expireReceipts()
+    })
+    return () => {
+      clearTimeout(timer)
+      listener.remove()
+    }
+  }, [submissions, receiptDeadline])
   const vitals = deckVitals(full)
   const [proposalsOpen, setProposalsOpen] = useState(true)
   const rowIds = full.ready ? full.rowIds : []
-  const proposalIds = full.ready ? full.proposalIds : []
+  const proposalIds = full.ready ? submissions.ids : []
   const seatIds = full.ready ? settled(() => full.root.sessionIds) : []
   const rootSeats = seatIds === LOADING ? [] : seatIds
   const title = settled(() => screen.rootTitle)
@@ -86,127 +97,116 @@ export const MissionDeck = observer(function MissionDeck({
     onOpenSession(screen.pool.sessionObject(id) as unknown as SessionView)
 
   return (
-    <ScrollView
-      style={styles.scroll}
-      contentContainerStyle={styles.content}
-      contentInsetAdjustmentBehavior="never"
-      testID="mission-deck"
-    >
-      <View style={styles.head}>
-        <View style={styles.titleRow}>
-          <Text style={styles.title} numberOfLines={2} accessibilityRole="header">
-            {title === LOADING ? '' : title}
-          </Text>
-          {onDone ? (
-            <PressableScale
-              accessibilityRole="button"
-              accessibilityLabel="Done"
-              haptic={false}
-              onPress={onDone}
-              style={styles.done}
-            >
-              <Text style={styles.doneLabel}>Done</Text>
-            </PressableScale>
+    <MissionDeckList>
+      <DeckContent>
+        <View style={styles.head}>
+          {showTitle ? (
+            <Text style={styles.title} numberOfLines={2} accessibilityRole="header">
+              {title === LOADING ? '' : title}
+            </Text>
           ) : null}
+          {vitals ? (
+            <>
+              <DeckGauge vitals={vitals} height={4} />
+              <DeckVitalsLine vitals={vitals} />
+            </>
+          ) : (
+            <Text style={styles.sub}>Loading tasks…</Text>
+          )}
         </View>
-        {vitals ? (
-          <>
-            <DeckGauge vitals={vitals} height={4} />
-            <DeckVitalsLine vitals={vitals} />
-          </>
-        ) : (
-          <Text style={styles.sub}>Loading tasks…</Text>
-        )}
-      </View>
 
-      {rootSeats.length > 0 ? (
-        <View style={styles.group} testID="deck-crew">
-          {rootSeats.map((id, index) => (
-            <SeatRow
-              key={id}
-              task={full.root}
-              sessionId={id}
-              first={index === 0}
-              current={id === currentSessionId}
-              onPress={() => openSession(id)}
-            />
-          ))}
-        </View>
-      ) : null}
+        {rootSeats.length > 0 ? (
+          <View style={styles.group} testID="deck-crew">
+            {rootSeats.map((id, index) => (
+              <SeatRow
+                key={id}
+                task={full.root}
+                sessionId={id}
+                first={index === 0}
+                current={id === currentSessionId}
+                onPress={() => openSession(id)}
+              />
+            ))}
+          </View>
+        ) : null}
 
-      {full.ready && full.filterable ? <Filters full={full} /> : null}
+        {full.ready && full.filterable ? <Filters full={full} /> : null}
 
-      <DeckRows
-        full={full}
-        rowIds={rowIds}
-        currentSessionId={currentSessionId}
-        onOpenSession={openSession}
-        onOpenTask={(id) => {
-          const issue = issueOf(id)
-          if (issue) onOpenTask(issue)
-        }}
-        onOpenTaskMenu={(id) => {
-          const issue = issueOf(id)
-          if (issue) onOpenTaskMenu(issue)
-        }}
-      />
+        <DeckRows
+          full={full}
+          rowIds={rowIds}
+          currentSessionId={currentSessionId}
+          onOpenSession={openSession}
+          onOpenTask={(id) => {
+            const issue = issueOf(id)
+            if (issue) onOpenTask(issue)
+          }}
+          onOpenTaskMenu={(id) => {
+            const issue = issueOf(id)
+            if (issue) onOpenTaskMenu(issue)
+          }}
+        />
 
-      {full.ready && rowIds.length === 0 && full.filterable && full.filter !== 'all' ? (
-        <Text style={styles.empty}>
-          Nothing {FILTER_LABEL[full.filter].toLowerCase()} right now.
-        </Text>
-      ) : null}
-      {full.ready && !full.filterable && rootSeats.length === 0 && proposalIds.length === 0 ? (
-        <EmptyState title="No tasks or agents on this mission yet." />
-      ) : null}
-
+        {full.ready && rowIds.length === 0 && full.filterable && full.filter !== 'all' ? (
+          <Text style={styles.empty}>
+            Nothing {FILTER_LABEL[full.filter].toLowerCase()} right now.
+          </Text>
+        ) : null}
+        {full.ready && !full.filterable && rootSeats.length === 0 && proposalIds.length === 0 ? (
+          <EmptyState title="No tasks or agents on this mission yet." />
+        ) : null}
+      </DeckContent>
       {proposalIds.length > 0 ? (
         <>
-          <View style={styles.section}>
-            <PressableScale
-              accessibilityRole="button"
-              accessibilityLabel={`Proposals, ${proposalIds.length}`}
-              accessibilityState={{ expanded: proposalsOpen }}
-              haptic={false}
-              onPress={() => setProposalsOpen((open) => !open)}
-              style={styles.sectionToggle}
-            >
-              <Icon
-                as={proposalsOpen ? ChevronDown : ChevronRight}
-                size={12}
-                color={color.textFaint}
-              />
-              <Text style={styles.sectionTitle}>Proposals</Text>
-              <Text style={styles.sectionCount}>{proposalIds.length}</Text>
-            </PressableScale>
-            <PressableScale
-              accessibilityRole="button"
-              accessibilityLabel="Screen proposals"
-              haptic={false}
-              onPress={onScreenProposals}
-              style={styles.sectionAction}
-            >
-              <Text style={styles.sectionActionLabel}>Screen</Text>
-            </PressableScale>
-          </View>
+          <DeckContent>
+            <View style={styles.section}>
+              <PressableScale
+                accessibilityRole="button"
+                accessibilityLabel={`Proposals, ${proposalIds.length}`}
+                accessibilityState={{ expanded: proposalsOpen }}
+                haptic={false}
+                onPress={() => setProposalsOpen((open) => !open)}
+                style={styles.sectionToggle}
+              >
+                <Icon
+                  as={proposalsOpen ? ChevronDown : ChevronRight}
+                  size={12}
+                  color={deckColor.proposalText}
+                />
+                <Text style={[styles.sectionTitle, styles.proposalText]}>Proposed</Text>
+                <Text style={styles.sectionCount}>{proposalIds.length}</Text>
+              </PressableScale>
+              <PressableScale
+                accessibilityRole="button"
+                accessibilityLabel="Screen proposals"
+                haptic={false}
+                onPress={onScreenProposals}
+                style={styles.sectionAction}
+              >
+                <Text style={styles.sectionActionLabel}>Screen</Text>
+              </PressableScale>
+            </View>
+          </DeckContent>
           {proposalsOpen ? (
-            <View style={styles.group} testID="deck-proposals">
+            <DeckProposals>
               {proposalIds.map((id, index) => (
-                <ProposalLine
+                <MissionProposalRow
                   key={id}
                   task={full.task(id)}
                   first={index === 0}
+                  submissions={submissions}
+                  onSubmit={(action) => void submissions.submit(id, action, trpc)}
                   onPress={() => {
                     const issue = issueOf(id)
                     if (issue) onOpenTask(issue)
                   }}
                 />
               ))}
-            </View>
+            </DeckProposals>
           ) : null}
         </>
       ) : null}
-    </ScrollView>
+    </MissionDeckList>
   )
 })
 
@@ -493,7 +493,12 @@ const AgentLine = observer(function AgentLine({
       haptic={false}
       scaleTo={1}
       onPress={onPress}
-      style={({ pressed }) => [styles.agent, pressed && styles.pressed]}
+      style={({ pressed }) => [
+        styles.agent,
+        styles.selectionFrame,
+        pressed && styles.pressed,
+        current && styles.selected,
+      ]}
       testID="deck-agent"
     >
       <View style={[styles.gutter, { marginLeft: space.lg + indent * space.md }]}>
@@ -502,9 +507,7 @@ const AgentLine = observer(function AgentLine({
       <Text style={styles.agentName} numberOfLines={1}>
         {name}
       </Text>
-      {current ? (
-        <Icon as={Check} size={14} color={color.accentTint} />
-      ) : model ? (
+      {model ? (
         <Text style={styles.agentModel} numberOfLines={1}>
           {model}
         </Text>
@@ -539,7 +542,12 @@ const SeatRow = observer(function SeatRow({
       haptic={false}
       scaleTo={1}
       onPress={onPress}
-      style={({ pressed }) => [styles.seat, (pressed || current) && styles.seatOn]}
+      style={({ pressed }) => [
+        styles.seat,
+        styles.selectionFrame,
+        pressed && styles.pressed,
+        current && styles.selected,
+      ]}
       testID="deck-seat"
     >
       <View style={styles.gutter}>
@@ -555,52 +563,6 @@ const SeatRow = observer(function SeatRow({
             {model ? ` · ${model}` : ''}
           </Text>
         </View>
-        {current ? <Icon as={Check} size={16} color={color.accentTint} /> : null}
-      </View>
-    </PressableScale>
-  )
-})
-
-const ProposalLine = observer(function ProposalLine({
-  task,
-  first,
-  onPress,
-}: {
-  task: FullDeckTask
-  first: boolean
-  onPress: () => void
-}) {
-  const facts = settled(() => ({
-    author: task.proposalAuthor,
-    title: task.row.title,
-    ref: task.row.displayRef,
-  }))
-  if (facts === LOADING) {
-    return <View style={styles.line} accessibilityLabel="Loading proposal" />
-  }
-  const { author, title, ref } = facts
-  return (
-    <PressableScale
-      accessibilityRole="button"
-      accessibilityLabel={`Proposal ${ref} ${title}`}
-      haptic={false}
-      scaleTo={1}
-      onPress={onPress}
-      style={({ pressed }) => [styles.line, pressed && styles.pressed]}
-      testID="deck-proposal"
-    >
-      <View style={styles.gutter}>
-        <View style={styles.ring} />
-      </View>
-      <View style={[styles.lineBody, !first && styles.separated]}>
-        <Text style={styles.lineTitle} numberOfLines={1}>
-          {title}
-        </Text>
-        {author ? (
-          <Text style={styles.word} numberOfLines={1}>
-            {`by ${author}`}
-          </Text>
-        ) : null}
       </View>
     </PressableScale>
   )
@@ -651,15 +613,7 @@ const ROW_H = 44
 const CHIP_SLOP = { top: 6, bottom: 6 }
 
 const styles = StyleSheet.create({
-  scroll: { flex: 1 },
-  content: {
-    paddingHorizontal: space.lg,
-    paddingTop: Platform.OS === 'ios' ? space.xl : space.lg,
-    paddingBottom: space.xxl,
-    gap: space.sm,
-  },
   head: { gap: 6, paddingBottom: space.xs },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   title: {
     ...sans(600),
     flex: 1,
@@ -667,8 +621,6 @@ const styles = StyleSheet.create({
     fontSize: font.body,
     lineHeight: 24,
   },
-  done: { minHeight: 44, minWidth: 44, alignItems: 'flex-end', justifyContent: 'center' },
-  doneLabel: { ...sans(600), color: color.accentTint, fontSize: font.body },
   sub: { ...sans(400), color: color.textDim, fontSize: font.tiny, lineHeight: leading(font.tiny) },
   group: {
     backgroundColor: color.quaternaryFill,
@@ -682,7 +634,13 @@ const styles = StyleSheet.create({
     minHeight: 56,
     paddingLeft: INSET,
   },
-  seatOn: { backgroundColor: color.tertiaryFill },
+  selectionFrame: {
+    borderWidth: 1,
+    borderColor: 'transparent',
+    borderRadius: 6,
+    marginHorizontal: 4,
+  },
+  selected: { borderColor: deckColor.liveRing, backgroundColor: deckColor.liveFill },
   seatBody: {
     flex: 1,
     minWidth: 0,
@@ -738,7 +696,8 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   sectionAction: { minHeight: 28, justifyContent: 'center' },
-  sectionActionLabel: { ...sans(500), color: color.needsYouText, fontSize: font.tiny },
+  sectionActionLabel: { ...sans(500), color: deckColor.proposalText, fontSize: font.tiny },
+  proposalText: { color: deckColor.proposalText },
   line: {
     flexDirection: 'row',
     alignItems: 'center',

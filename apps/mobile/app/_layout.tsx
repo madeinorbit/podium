@@ -42,7 +42,6 @@ function NativeNavigation({ reduceMotion }: RootNavigationProps) {
         animation: reduceMotion ? 'fade' : 'default',
         gestureEnabled: true,
         contentStyle: { flex: 1, minHeight: 0, backgroundColor: color.bg },
-        gestureResponseDistance: { start: 80 },
       }}
     >
       {/* `/` still matches index before its Redirect runs. Configure both ends
@@ -50,7 +49,10 @@ function NativeNavigation({ reduceMotion }: RootNavigationProps) {
       <Stack.Screen name="index" options={{ headerShown: false, animation: 'none' }} />
       <Stack.Screen name="signed-in" options={{ headerShown: false, animation: 'none' }} />
       <Stack.Screen name="search" options={{ headerShown: false, animation: 'none' }} />
-      <Stack.Screen name="(tabs)" options={{ headerShown: false, animation: 'none' }} />
+      <Stack.Screen
+        name="(tabs)"
+        options={{ title: 'Work', headerShown: false, animation: 'none' }}
+      />
       <Stack.Screen name="new-issue" options={{ presentation: 'modal' }} />
       <Stack.Screen
         name="inspect/[issueId]"
@@ -64,14 +66,8 @@ function NativeNavigation({ reduceMotion }: RootNavigationProps) {
       <Stack.Screen
         name="mission/[missionId]/details"
         options={{
-          presentation: 'formSheet',
-          // Medium and large (board DeckLarge: near full height).
-          sheetAllowedDetents: [0.5, 1],
-          sheetGrabberVisible: true,
-          // The deck draws its own heading; a native title collided with it,
-          // and setting this from inside the sheet came too late on iOS.
-          headerShown: false,
-          title: 'Mission details',
+          presentation: 'card',
+          title: 'Flight deck',
         }}
       />
     </Stack>

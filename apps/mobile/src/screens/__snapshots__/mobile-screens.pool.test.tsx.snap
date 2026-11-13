@@ -1,54 +1,54 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > clear search details 1`] = `"b50e57f9573f33cd747fd3736f19d333ed3eb30f164ef4fe628deff716a7e06d"`;
+exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > clear search details 1`] = `"60b7feb47dd72aafccc04c624c742905d3a1af6a4776725afe89c8bed6c2d7ec"`;
 
 exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > clear search mission 1`] = `"a83a24fc8d5ae3dbd6f8e56b939c2fb14a99b0c8f48c2ccb7657a0173be164e0"`;
 
 exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > clear search tasks 1`] = `"2a7def0ae9a711e472fcd601231383034f4c1592ebab154fdea317e4b997e326"`;
 
-exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > deck fold details 1`] = `"7356e2d0f324d06673c0d89938cf24562ae3fc399418b5c39d49a2a42e71a81b"`;
+exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > deck fold details 1`] = `"ec83e7c274e023ada84a6fb73288b09a30f74ab1e1a629447e7ca5405f01a643"`;
 
 exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > deck fold mission 1`] = `"324029ab320f43177f1df3172b39b1147c5049754d135f0e4f442cbae3c93874"`;
 
 exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > deck fold tasks 1`] = `"283153edb235695f29c92db71180c5512e85858ea489bd79dc6c0aac45ba9aa4"`;
 
-exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > deck mode details 1`] = `"68fbdace8e84bc8b6a8e69012f5a1d5995e77016c0d742e39a4fe3b22f0f529c"`;
+exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > deck mode details 1`] = `"090008c155bfa0e1df67af3eeb68e04a15f30c74b847e63617fa11e6d3a19e8c"`;
 
 exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > deck mode mission 1`] = `"324029ab320f43177f1df3172b39b1147c5049754d135f0e4f442cbae3c93874"`;
 
 exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > deck mode tasks 1`] = `"283153edb235695f29c92db71180c5512e85858ea489bd79dc6c0aac45ba9aa4"`;
 
-exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > issue feed details 1`] = `"59236b109a0695516672fca32ccb4c8dd5f49fb895073615616d1dcd0caf5e19"`;
+exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > issue feed details 1`] = `"a0b79a723f295cf2f23911e72c33b5fbe2cf8436b528ab9fc02f1dc6274c5d7a"`;
 
 exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > issue feed mission 1`] = `"f909f08312fe0d924984dc4a9bd68982b362c427f041c2bbed41fe4334fc620e"`;
 
 exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > issue feed tasks 1`] = `"c5e7af8367fa4649fbcfbded49a1cdc153ad3dcb7c412efb34fdc332cf147855"`;
 
-exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > optimistic action details 1`] = `"b50e57f9573f33cd747fd3736f19d333ed3eb30f164ef4fe628deff716a7e06d"`;
+exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > optimistic action details 1`] = `"60b7feb47dd72aafccc04c624c742905d3a1af6a4776725afe89c8bed6c2d7ec"`;
 
 exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > optimistic action mission 1`] = `"a83a24fc8d5ae3dbd6f8e56b939c2fb14a99b0c8f48c2ccb7657a0173be164e0"`;
 
 exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > optimistic action tasks 1`] = `"094d567179920b814b03e7d688f3e920ff88b927ca9a922b500d728ed1177f56"`;
 
-exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > search and done details 1`] = `"e699c5b644b1b40099329b2a6f558b5e31574b5bda22dc0213d0cf8f6a6284aa"`;
+exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > search and done details 1`] = `"114c43dec1fa7866f3ceebf0e7f154c53444f22ae98b6bac801f040c5e19fb47"`;
 
 exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > search and done mission 1`] = `"324029ab320f43177f1df3172b39b1147c5049754d135f0e4f442cbae3c93874"`;
 
 exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > search and done tasks 1`] = `"efbf7dbb0388d7a96f1b44835a86b78e719ecf03f51f305f30e9227fc9bbdeb5"`;
 
-exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > server echo details 1`] = `"b50e57f9573f33cd747fd3736f19d333ed3eb30f164ef4fe628deff716a7e06d"`;
+exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > server echo details 1`] = `"60b7feb47dd72aafccc04c624c742905d3a1af6a4776725afe89c8bed6c2d7ec"`;
 
 exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > server echo mission 1`] = `"a83a24fc8d5ae3dbd6f8e56b939c2fb14a99b0c8f48c2ccb7657a0173be164e0"`;
 
 exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > server echo tasks 1`] = `"094d567179920b814b03e7d688f3e920ff88b927ca9a922b500d728ed1177f56"`;
 
-exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > session feed details 1`] = `"7356e2d0f324d06673c0d89938cf24562ae3fc399418b5c39d49a2a42e71a81b"`;
+exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > session feed details 1`] = `"ec83e7c274e023ada84a6fb73288b09a30f74ab1e1a629447e7ca5405f01a643"`;
 
 exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > session feed mission 1`] = `"324029ab320f43177f1df3172b39b1147c5049754d135f0e4f442cbae3c93874"`;
 
 exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > session feed tasks 1`] = `"283153edb235695f29c92db71180c5512e85858ea489bd79dc6c0aac45ba9aa4"`;
 
-exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > startup details 1`] = `"e699c5b644b1b40099329b2a6f558b5e31574b5bda22dc0213d0cf8f6a6284aa"`;
+exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > startup details 1`] = `"114c43dec1fa7866f3ceebf0e7f154c53444f22ae98b6bac801f040c5e19fb47"`;
 
 exports[`three mounted phone screens keep cumulative legacy derivations at zero (ON=true) > startup mission 1`] = `"324029ab320f43177f1df3172b39b1147c5049754d135f0e4f442cbae3c93874"`;
 
