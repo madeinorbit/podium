@@ -100,13 +100,10 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
   const { repos, machines } = useMobilePoolProjection(readSettingsCatalog, EMPTY_CATALOG)
   const readSetup = useCallback(() => view?.setupCatalog() ?? EMPTY_SETUP, [view])
   const setup = useMobilePoolProjection(readSetup, EMPTY_SETUP)
-  const { repoChoices, onOpenChange } = useFirstTaskRepositoryPicker(repos, setup.usage)
-  const frozenOrder = useRef(false)
-  useEffect(() => {
-    if (frozenOrder.current || !repoChoices.length) return
-    frozenOrder.current = true
-    onOpenChange(true)
-  }, [repoChoices, onOpenChange])
+  // Keep the inputs live between menu openings. UIKit snapshots SwiftUI Menu's
+  // UIMenu at presentation; the ActionSheet fallback snapshots in its open().
+  // Freezing this hook for the sheet's lifetime would hide new project discovery.
+  const { repoChoices } = useFirstTaskRepositoryPicker(repos, setup.usage)
   const catalogLoading = useMobilePoolProjection(readCatalogLoading, true)
   const draftLoading = useMobilePoolProjection(readDraftLoading, true)
   const [draft, setDraft] = usePersistedUiState(

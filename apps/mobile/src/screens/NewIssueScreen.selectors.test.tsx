@@ -1,8 +1,14 @@
 import { EMPTY_FIRST_TASK_DRAFT, readFirstTaskDraft } from '@podium/client-core/first-task-draft'
 import { COORDINATOR_PROMPT } from '@podium/client-core/new-task'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY, LAST_LAUNCH_PICK_KEY } from '@podium/client-core/ui-state'
-import { asMachineId, asRepoId, type GitRepositoryWire, type MachineWire } from '@podium/model'
-import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import {
+  asMachineId,
+  asRepoId,
+  type GitRepositoryWire,
+  type MachineWire,
+  type SessionMeta,
+} from '@podium/model'
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { type ReactElement, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderWithMobileStore } from '../client/test-support'
@@ -58,7 +64,8 @@ vi.mock('../components/compose/ComposeMenu', () => ({
     items: readonly ComposeMenuItem[]
     children: (open: () => void) => ReactElement
   }) => {
-    const [open, setOpen] = useState(false)
+    // Match the native UIMenu and ActionSheet: capture items per presentation.
+    const [presented, setPresented] = useState<readonly ComposeMenuItem[] | null>(null)
     const choices = (entries: readonly ComposeMenuItem[]): ReactElement[] =>
       entries.flatMap((item) =>
         item.items
@@ -72,7 +79,7 @@ vi.mock('../components/compose/ComposeMenu', () => ({
                 disabled={item.disabled}
                 onClick={() => {
                   item.onPress?.()
-                  setOpen(false)
+                  setPresented(null)
                 }}
               >
                 {item.label}
@@ -82,10 +89,10 @@ vi.mock('../components/compose/ComposeMenu', () => ({
       )
     return (
       <>
-        {children(() => setOpen(!open))}
-        {open ? (
+        {children(() => setPresented(presented ? null : items))}
+        {presented ? (
           <div role="menu" aria-label={label}>
-            {choices(items)}
+            {choices(presented)}
           </div>
         ) : null}
       </>
@@ -318,6 +325,80 @@ describe('native New Task sheet logic', () => {
     await waitFor(() =>
       expect(create.mock.calls[0]?.[0]).toMatchObject({ cwd: '/repo/second', machineId: 'remote' }),
     )
+  })
+
+  it('shows a newly discovered project on the next menu opening without reopening the sheet', async () => {
+    let repos = [repository('/repo/alpha'), repository('/repo/beta')]
+    const create = vi.fn(async (input: { sessionId: string }) => ({ sessionId: input.sessionId }))
+    const app = await mount({
+      repos,
+      api: {
+        discovery: {
+          refreshRepos: {
+            mutate: async () => ({ repositories: repos, machines: [machine()], diagnostics: [] }),
+          },
+        },
+        sessions: { create: { mutate: create } },
+      },
+    })
+    await ready()
+    const projectButton = () => screen.getByRole('button', { name: /^Project, / })
+    const names = () =>
+      within(screen.getByRole('menu', { name: 'Project' }))
+        .getAllByRole('menuitemradio')
+        .map((item) => item.textContent)
+    fireEvent.click(projectButton())
+    expect(names()).toEqual(['alpha', 'beta'])
+    repos = [...repos, repository('/repo/gamma')]
+    await act(async () => {
+      await app.runtime.access.refreshRepos()
+    })
+    expect(names()).toEqual(['alpha', 'beta'])
+    fireEvent.click(projectButton())
+    fireEvent.click(projectButton())
+    expect(names()).toEqual(['alpha', 'beta', 'gamma'])
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'gamma' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Project, gamma' })).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'Start Task' }))
+    await waitFor(() => expect(create.mock.calls[0]?.[0]).toMatchObject({ cwd: '/repo/gamma' }))
+  })
+
+  it('refreshes project recency on each menu opening while keeping the presented order steady', async () => {
+    const session = (id: string, project: string, at: string) =>
+      ({
+        sessionId: id,
+        cwd: `/repo/${project}`,
+        machineId: 'host',
+        agentKind: 'claude-code',
+        status: 'live',
+        createdAt: at,
+        lastActiveAt: at,
+      }) as SessionMeta
+    const alpha = session('alpha-session', 'alpha', '2026-01-02T00:00:00Z')
+    const beta = session('beta-session', 'beta', '2026-01-01T00:00:00Z')
+    const app = await mount({
+      repos: [repository('/repo/alpha'), repository('/repo/beta')],
+      sessions: [alpha, beta],
+    })
+    await ready()
+    const projectButton = () => screen.getByRole('button', { name: /^Project, / })
+    const names = () =>
+      within(screen.getByRole('menu', { name: 'Project' }))
+        .getAllByRole('menuitemradio')
+        .map((item) => item.textContent)
+    fireEvent.click(projectButton())
+    expect(names()).toEqual(['alpha', 'beta'])
+    await act(async () => {
+      app.replica.applyChanges(
+        'sessions',
+        [{ ...beta, createdAt: '2026-01-03T00:00:00Z', lastActiveAt: '2026-01-03T00:00:00Z' }],
+        [],
+      )
+    })
+    expect(names()).toEqual(['alpha', 'beta'])
+    fireEvent.click(projectButton())
+    fireEvent.click(projectButton())
+    expect(names()).toEqual(['beta', 'alpha'])
   })
 
   it('keeps prompt and picks on cancel and restores them from the same UI-state key on reopen', async () => {
