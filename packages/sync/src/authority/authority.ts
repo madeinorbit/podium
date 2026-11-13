@@ -432,6 +432,16 @@ export class Authority implements AuthorityPort {
   }
 
   /** The principals currently subscribed, by stable id. Telemetry and tests. */
+  /**
+   * Resolves once every delivery pass queued so far has run. Deliveries trail
+   * the commits that queued them (post-commit, append order), so a test that
+   * counts a later operation's statements waits here first, or the passes of
+   * its setup's writes land in the count.
+   */
+  async settled(): Promise<void> {
+    await this.broadcastTail
+  }
+
   subscribedPrincipals(): readonly string[] {
     return [...this.subscribers].map((s) => principalRoutingId(s.principal))
   }

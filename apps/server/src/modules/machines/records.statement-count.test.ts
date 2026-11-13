@@ -87,6 +87,8 @@ async function fixture(size: number): Promise<Fixture> {
   }))
   // The records and checkouts as they stand before the counted run.
   await o.reg.modules.checkouts.rescan(machine)
+  // The setup's own deliveries run before the count, not inside it.
+  await o.reg.changeLedger.authority.settled()
   return { o, machine, scan }
 }
 

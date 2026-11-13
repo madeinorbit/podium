@@ -187,6 +187,8 @@ describe('read-only update space RPC', () => {
         volumes: [],
       })
       await quietShipping(registry)
+      // The machine writes' deliveries run before the count, not inside it.
+      await registry.changeLedger.authority.settled()
       const counted = await countStatements(store, () =>
         caller.updates.checkSpace({ scope: 'all' }),
       )
