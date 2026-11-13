@@ -799,10 +799,12 @@ export const RECORD_SOURCES: RecordSources = {
     via(shipHolds, [shipHolds.orderId], 'all', lanesOfUpperOrders),
     via(deliveryReceipts, [deliveryReceipts.orderId], 'all', lanesOfUpperOrders),
   ],
-  automation: [byId(automations, automations.id, { rows: notTombstoned(automations.deletedAt) })],
+  // A run before its automation: a fire's commit finalizes the run, then
+  // re-arms the automation, and one commit's rows come out in this order.
   automationRun: [
     byId(automationRuns, automationRuns.id, { rows: notTombstoned(automationRuns.deletedAt) }),
   ],
+  automation: [byId(automations, automations.id, { rows: notTombstoned(automations.deletedAt) })],
   userLayout: [
     own(
       userLayout,

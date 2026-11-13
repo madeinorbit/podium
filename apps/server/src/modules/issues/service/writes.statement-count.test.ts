@@ -102,7 +102,9 @@ describe('issue writes that read other issues: pinned statement counts at 5 and 
       // write; after it, the drain (one statement), the mapping of the new
       // issue row to the sessions that reference it, and the builds of the
       // records it reached: 21 -> 23, constant in the number of issues.
-      23,
+      // An issue created with no brief or description reaches neither of
+      // those records, so one build fewer: 23 -> 22.
+      22,
     )
   })
 
