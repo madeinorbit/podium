@@ -16,7 +16,6 @@ import { IDBFactory } from 'fake-indexeddb'
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { installMobxWarnTrap } from '../../../../tests/worklist/harness/src/mobx-trap'
-import { omitGone } from '../../../client-graph/src/lookup'
 import type {} from '../../../client-graph/src/mobile-inbox-schema'
 import { attachMobileScreens } from '../../../client-graph/src/mobile-screens'
 import { MOBILE_SCREEN_SUMMARIES } from '../../../client-graph/src/mobile-screens-schema'
@@ -141,28 +140,10 @@ it.each([
     })
     await attachMobileScreens(handle.pool, runtime)
     const pool = handle.pool
-    let board: MobileTasksBoard | undefined
-    let display = readSharedIssuesDisplay(null)
     const frames: { ordering: string; ids: string[] }[] = []
-    stops.push(
-      autorun(() => {
-        const row = omitGone(pool.row('preference', ISSUES_DISPLAY_KEY))
-        display = readSharedIssuesDisplay(
-          typeof row === 'object' && row !== null ? row.value : null,
-        )
-        board?.showDisplay(display)
-      }),
+    const tasks = runInAction(
+      () => new MobileTasksBoard(pool, { showDone: false, expanded: [], filter: {} }),
     )
-    board = runInAction(
-      () =>
-        new MobileTasksBoard(pool, {
-          showDone: false,
-          expanded: [],
-          filter: {},
-          ...display,
-        }),
-    )
-    const tasks = board
     stops.push(
       autorun(() => {
         const sections = tasks.sections

@@ -10,8 +10,9 @@ export interface MobileTasksOptions {
   showDone: boolean
   expanded: readonly string[]
   filter: BoardFilter
-  ordering: IssuesOrdering
-  showAgentTasks: boolean
+  /** Omit display options to follow the shared issues.display preference. */
+  ordering?: IssuesOrdering
+  showAgentTasks?: boolean
 }
 export interface MobileScreenRows {
   mobileScreenReader: ReturnType<typeof import('./mobile-screens').createMobileScreenReader>

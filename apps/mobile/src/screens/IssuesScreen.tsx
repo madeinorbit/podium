@@ -9,7 +9,7 @@ import { MobileTasksBoard } from '@podium/client-graph/mobile-tasks'
 import { allowImperativeRead } from '@podium/mobx-helpers'
 import { useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useBooting, useStoreActions } from '../client/hooks'
 import { useMobilePool } from '../client/mobile-pool'
@@ -60,9 +60,8 @@ export const IssuesScreen = observer(function IssuesScreen() {
   const pool = useMobilePool()
   const booting = useBooting() || !pool
   // The board holds the view's options (show done, open parents, filter and
-  // search) and its lists; it is built once per pool. The display preference
-  // seeds it here and reaches it afterwards through `showDisplay` below.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: built once per pool, by design
+  // search) and its lists; it is built once per pool and reads the shared
+  // display preference directly, including while this tab is still hidden.
   const board = useMemo(
     () =>
       pool
@@ -70,18 +69,10 @@ export const IssuesScreen = observer(function IssuesScreen() {
             showDone: false,
             expanded: [],
             filter: {},
-            ordering: display.ordering,
-            showAgentTasks: display.showAgentTasks,
           })
         : null,
     [pool],
   )
-  // The display preference stays saved in ui-state until the UiStore (POD-5797)
-  // holds it; the board follows it from here.
-  useEffect(() => {
-    board?.showDisplay(display)
-  }, [board, display])
-
   const openMenu = useCallback(
     (id: string, initialSheet?: WorkMenuSheet) => {
       if (!pool) return

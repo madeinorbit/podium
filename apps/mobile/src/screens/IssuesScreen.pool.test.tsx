@@ -2,6 +2,7 @@
 
 import { attachMobileScreens } from '@podium/client-graph/mobile-screens'
 import { MobxPool } from '@podium/client-graph/pool'
+import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { Profiler, type ReactNode, useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -128,12 +129,24 @@ vi.mock('../components/PullToRefreshBoundary', () => ({
 }))
 vi.mock('../components/StorageNoticeAlert', () => ({ StorageNoticeAlert: () => null }))
 vi.mock('../components/RefreshOffer', () => ({ RefreshOffer: () => null }))
+vi.mock('../components/WorkspaceContinuityNotice', () => ({
+  WorkspaceContinuityNotice: () => null,
+}))
 vi.mock('../components/NotSavedMark', () => ({ NotSavedMark: () => null }))
 vi.mock('../components/TaskFiltersSheet', () => ({ TaskFiltersSheet: () => null }))
 vi.mock('../components/WorkIssueMenu', () => ({ WorkIssueMenu: () => null }))
 vi.stubEnv('EXPO_OS', 'web')
 const { IssuesScreen } = await import('./IssuesScreen')
 const now = Date.parse('2026-10-03T12:00:00Z')
+async function attachTasks(pool: MobxPool) {
+  attachPreferenceSource(pool, {
+    get: () => '{"ordering":"priority"}',
+    peek: () => '{"ordering":"priority"}',
+    set: () => {},
+    subscribe: () => () => {},
+  })
+  await attachMobileScreens(pool)
+}
 const issue = (id: string, seq: number, patch: object = {}) => ({
   id,
   seq,
@@ -171,7 +184,7 @@ it('redraws only the changed task row and keeps the folded proposals and expansi
       issue('proposal', 4, { parentId: 'root', stage: 'proposed' }),
     ].map((value) => ({ kind: 'issue' as const, id: value.id, value })),
   })
-  await attachMobileScreens(pool)
+  await attachTasks(pool)
   render(<IssuesScreen />)
   expect(screen.getByRole('button', { name: /Task 1: root/ })).toBeTruthy()
   expect(screen.getByRole('button', { name: /Task 2: peer/ })).toBeTruthy()
@@ -212,7 +225,7 @@ it('opens the counted search selection and leaves saved folds untouched on searc
       issue('unrelated proposal', 2348, { stage: 'proposed' }),
     ].map((value) => ({ kind: 'issue' as const, id: value.id, value })),
   })
-  await attachMobileScreens(pool)
+  await attachTasks(pool)
   render(<IssuesScreen />)
   expect(screen.getByRole('button', { name: 'Proposed, 2 tasks' })).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Search tasks' }))

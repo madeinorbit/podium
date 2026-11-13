@@ -1,7 +1,14 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
+import { ISSUES_DISPLAY_KEY } from '@podium/client-core/ui-state'
 import type { BoardFilter, IssueNavigationModel, IssuesOrdering } from '@podium/client-core/values'
-import { clearChip, filterChips, issueNeedsHuman, orderIssues } from '@podium/client-core/values'
+import {
+  clearChip,
+  filterChips,
+  issueNeedsHuman,
+  orderIssues,
+  readSharedIssuesDisplay,
+} from '@podium/client-core/values'
 import { companion, lazy } from '@podium/mobx-helpers'
 import { asIssueId, ISSUE_STATUS_LABELS, isFinished } from '@podium/model/browser'
 import { action, compareShallow, compareStructural, observable, observableRef } from 'mobx'
@@ -305,10 +312,10 @@ export class MobileTasksBoard {
   @observableRef accessor filter: BoardFilter
   /** The search field's text. */
   @observable accessor query = ''
-  // The shared display preference. It stays saved where it is until the
-  // UiStore (POD-5797) holds it; the screen passes it in with showDisplay().
-  @observable accessor ordering: IssuesOrdering
-  @observable accessor showAgentTasks: boolean
+  // Explicit options configure standalone boards. The app board omits these
+  // so its display follows the existing pooled preference, even before focus.
+  @observable private accessor orderingOverride: IssuesOrdering | undefined
+  @observable private accessor showAgentTasksOverride: boolean | undefined
 
   constructor(
     readonly pool: MobxPool,
@@ -317,8 +324,8 @@ export class MobileTasksBoard {
     this.showDone = options.showDone
     this.expanded = options.expanded
     this.filter = options.filter
-    this.ordering = options.ordering
-    this.showAgentTasks = options.showAgentTasks
+    this.orderingOverride = options.ordering
+    this.showAgentTasksOverride = options.showAgentTasks
   }
 
   @action configure(options: MobileTasksOptions) {
@@ -326,8 +333,8 @@ export class MobileTasksBoard {
     this.expanded = options.expanded
     this.filter = options.filter
     this.query = ''
-    this.ordering = options.ordering
-    this.showAgentTasks = options.showAgentTasks
+    this.orderingOverride = options.ordering
+    this.showAgentTasksOverride = options.showAgentTasks
   }
 
   @action toggleShowDone() {
@@ -352,9 +359,17 @@ export class MobileTasksBoard {
     this.filter = clearChip(this.filter, key)
   }
 
-  @action showDisplay(display: { ordering: IssuesOrdering; showAgentTasks: boolean }) {
-    this.ordering = display.ordering
-    this.showAgentTasks = display.showAgentTasks
+  @lazy private get display() {
+    const row = requireRow(omitGone(this.pool.row('preference', ISSUES_DISPLAY_KEY)))
+    return readSharedIssuesDisplay(row?.value ?? null)
+  }
+
+  @lazy get ordering(): IssuesOrdering {
+    return this.orderingOverride ?? this.display.ordering
+  }
+
+  @lazy get showAgentTasks(): boolean {
+    return this.showAgentTasksOverride ?? this.display.showAgentTasks
   }
 
   /** The filter the lists use: the sheet's choices plus the search text. */
