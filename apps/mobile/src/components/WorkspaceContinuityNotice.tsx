@@ -45,7 +45,7 @@ function ContinuityNoticeBody({
   if (lines.length === 0) return null
 
   return (
-    <NoticeLayout>
+    <NoticeLayout horizontalInset={space.md}>
       <View style={styles.container}>
         <PressableScale
           accessibilityRole="button"
@@ -70,8 +70,7 @@ function ContinuityNoticeBody({
 }
 
 const styles = StyleSheet.create({
-  // The hosted root fills the native row; its padding keeps the card inside it.
-  container: { paddingHorizontal: space.md, paddingBottom: space.sm },
+  container: { paddingBottom: space.sm },
   notice: {
     minHeight: 52,
     flexDirection: 'row',

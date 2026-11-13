@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { type ReactNode, useLayoutEffect } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { NoticeLayout } from '../components/notice-layout'
 import type { WorkSurfaceProps } from './WorkSurface.types'
@@ -71,7 +71,19 @@ vi.mock('@expo/ui/swift-ui', () => {
     Spacer: () => null,
     SwipeActions: Object.assign(Box, { Actions: () => null }),
     Text: Box,
-    VStack: Box,
+    VStack: ({
+      children,
+      modifiers,
+    }: {
+      children?: ReactNode
+      modifiers?: { name: string; value: unknown }[]
+    }) => {
+      const measure = modifiers?.find((modifier) => modifier.name === 'onGeometryChange')?.value as
+        | ((frame: { width: number }) => void)
+        | undefined
+      useLayoutEffect(() => measure?.({ width: 358 }), [measure])
+      return <Box>{children}</Box>
+    },
   }
 })
 const { WorkSurface } = await import('./WorkSurface.ios')
