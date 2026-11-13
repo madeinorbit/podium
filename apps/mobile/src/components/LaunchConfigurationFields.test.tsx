@@ -19,6 +19,9 @@ vi.mock('expo-router', () => ({
   useRouter: () => ({ back() {}, replace() {} }),
   useLocalSearchParams: () => ({}),
 }))
+vi.mock('expo-router/react-navigation', async () => ({
+  HeaderHeightContext: (await import('react')).createContext(0),
+}))
 vi.mock('../hooks/useContentBottomInset', () => ({ useContentBottomInset: () => 0 }))
 vi.mock('./Screen', () => ({
   Screen: ({ children }: { children: import('react').ReactNode }) => <>{children}</>,

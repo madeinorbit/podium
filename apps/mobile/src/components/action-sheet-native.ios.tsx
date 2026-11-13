@@ -1,7 +1,9 @@
 import { Host } from '@expo/ui'
 import { Menu, Picker, RNHostView, Text } from '@expo/ui/swift-ui'
 import { disabled, pickerStyle, tag } from '@expo/ui/swift-ui/modifiers'
-import type { NativePickerProps } from './action-sheet-native'
+import type { NativePickerProps } from './action-sheet-spec'
+
+export type { NativePickerOption, NativePickerProps } from './action-sheet-spec'
 
 /**
  * A compact SwiftUI picker hosted inside a real UIMenu. SwiftUI owns the
@@ -17,7 +19,7 @@ export function NativePicker({
   children,
 }: NativePickerProps) {
   return (
-    <Host matchContents style={style}>
+    <Host matchContents ignoreSafeArea="all" style={style}>
       <Menu label={<RNHostView matchContents>{children(undefined)}</RNHostView>}>
         <Picker
           label={label}

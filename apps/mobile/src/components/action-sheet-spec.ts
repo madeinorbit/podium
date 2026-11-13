@@ -79,12 +79,6 @@ export interface NativePickerProps {
   children: (onPress: (() => void) | undefined) => ReactElement
 }
 
-/** Android and web retain the existing BottomSheet picker. iOS resolves the
- * sibling file and supplies a trigger backed by a SwiftUI Menu. */
-export function NativePicker({ children, onOpenFallback }: NativePickerProps) {
-  return children(onOpenFallback)
-}
-
 /**
  * A PICKER is a menu of VALUES with one current choice — the model and effort
  * switchers. UIKit rows carry no checkmark or section slots, so the mapping

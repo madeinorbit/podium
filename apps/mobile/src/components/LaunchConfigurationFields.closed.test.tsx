@@ -1,13 +1,15 @@
+import { AUTO } from '@podium/client-core/agent-models'
 import { reposToViews } from '@podium/client-core/values'
 import type { GitRepositoryWire, MachineWire } from '@podium/model'
 import { asMachineId } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { AUTO } from '@podium/client-core/agent-models'
 import type { LaunchConfiguration } from '../lib/launch-configuration'
 import * as sheets from './ActionSheet'
+import * as pickers from './action-sheet-native'
 import { LaunchConfigurationFields } from './LaunchConfigurationFields'
+import * as pressables from './PressableScale'
 
 const state = vi.hoisted(() => ({
   repos: [] as GitRepositoryWire[],
@@ -19,7 +21,10 @@ vi.mock('../client/use-launch-inputs', () => ({
 }))
 vi.mock('@podium/client-core/react', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@podium/client-core/react')>()),
-  useModelCatalogState: () => ({ catalog: state.catalog, status: Object.keys(state.catalog).length ? 'ready' : 'unavailable' }),
+  useModelCatalogState: () => ({
+    catalog: state.catalog,
+    status: Object.keys(state.catalog).length ? 'ready' : 'unavailable',
+  }),
   useHarnessDescriptors: () => ({ served: undefined }),
 }))
 vi.mock('react-native-safe-area-context', () => ({
@@ -121,22 +126,60 @@ it('requests no fallback menu while closed at 1x/4x and builds only the opened p
   }
 })
 
-
 it('offers only Auto and live models, with no Use option in the task launch picker', () => {
   state.catalog = { codex: [{ value: 'gpt-current', label: 'Current', efforts: ['high'] }] }
   const sheet = vi.spyOn(sheets, 'ActionSheet').mockImplementation(() => <></>)
-  render(<LaunchConfigurationFields repoPath="/synthetic" value={{ agentKind: 'codex', modelPick: AUTO, effort: AUTO, machineId: '' }} onChange={vi.fn()} />)
+  render(
+    <LaunchConfigurationFields
+      repoPath="/synthetic"
+      value={{ agentKind: 'codex', modelPick: AUTO, effort: AUTO, machineId: '' }}
+      onChange={vi.fn()}
+    />,
+  )
   fireEvent.click(screen.getByRole('button', { name: 'Model, Auto' }))
-  expect(sheet.mock.lastCall?.[0].actions.map((action) => action.label)).toEqual(['Auto', 'Current'])
-  expect(sheet.mock.lastCall?.[0].actions.some((action) => action.label.startsWith('Use '))).toBe(false)
+  expect(sheet.mock.lastCall?.[0].actions.map((action) => action.label)).toEqual([
+    'Auto',
+    'Current',
+  ])
+  expect(sheet.mock.lastCall?.[0].actions.some((action) => action.label.startsWith('Use '))).toBe(
+    false,
+  )
   expect(screen.queryByRole('textbox')).toBeNull()
 })
 
 it('shows stored effort inert while the concrete model list is unavailable', () => {
   const sheet = vi.spyOn(sheets, 'ActionSheet').mockImplementation(() => <></>)
-  render(<LaunchConfigurationFields repoPath="/synthetic" value={{ agentKind: 'codex', modelPick: 'codex:stored', effort: 'high', machineId: '' }} onChange={vi.fn()} />)
+  render(
+    <LaunchConfigurationFields
+      repoPath="/synthetic"
+      value={{ agentKind: 'codex', modelPick: 'codex:stored', effort: 'high', machineId: '' }}
+      onChange={vi.fn()}
+    />,
+  )
   const pill = screen.getByLabelText('Effort, High')
   expect(pill.getAttribute('role')).not.toBe('button')
   fireEvent.click(pill)
   expect(sheet).not.toHaveBeenCalled()
+})
+
+it('leaves native Agent, Model, Effort and Machine labels to the SwiftUI menu responder', () => {
+  state.catalog = { codex: [{ value: 'current', label: 'Current', efforts: ['high'] }] }
+  const sheet = vi.spyOn(sheets, 'ActionSheet').mockImplementation(() => <></>)
+  vi.spyOn(pickers, 'NativePicker').mockImplementation(({ children }) => children(undefined))
+  const pressable = vi.spyOn(pressables, 'PressableScale')
+  const changed = vi.fn()
+  render(
+    <LaunchConfigurationFields
+      repoPath="/synthetic"
+      value={{ agentKind: 'codex', modelPick: 'codex:current', effort: 'high', machineId: '' }}
+      onChange={changed}
+    />,
+  )
+  for (const name of ['Agent, Codex', 'Model, Codex · Current', 'Effort, High', 'Machine, Auto']) {
+    const label = screen.getByRole('button', { name })
+    fireEvent.click(label)
+  }
+  expect(sheet).not.toHaveBeenCalled()
+  expect(pressable).not.toHaveBeenCalled()
+  expect(changed).not.toHaveBeenCalled()
 })

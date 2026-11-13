@@ -7,7 +7,7 @@ import * as ReactNative from 'react-native'
 import { Platform, StyleSheet, Text, View } from 'react-native'
 import { alpha } from '../theme/mix'
 import { color, font, leading, mono, radius, sans, space } from '../theme/theme'
-import { nativeSheetEligible, nativeSheetSpec } from './action-sheet-native'
+import { nativeSheetEligible, nativeSheetSpec } from './action-sheet-spec'
 import { BottomSheet } from './BottomSheet'
 import { PressableScale } from './PressableScale'
 

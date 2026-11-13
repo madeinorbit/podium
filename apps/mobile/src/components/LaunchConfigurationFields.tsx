@@ -1,4 +1,15 @@
-import { observer } from 'mobx-react-lite'
+import {
+  AUTO,
+  agentDescriptors,
+  modelOptions as agentModelOptions,
+  allConnectorModelLabel,
+  decodeModelPick,
+  effortLabel,
+  effortOptionsForModel,
+  encodeModelPick,
+  issueAgentKind,
+  issueAgentLabel,
+} from '@podium/client-core/agent-models'
 import { useHarnessDescriptors, useModelCatalogState } from '@podium/client-core/react'
 import {
   agentCapabilityRejection,
@@ -6,22 +17,11 @@ import {
   type MachineId,
   machinesForRepoOrClone,
 } from '@podium/model'
+import { observer } from 'mobx-react-lite'
 import { useLayoutEffect, useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import type { MobileTrpc } from '../client/trpc'
 import { useLaunchInputs } from '../client/use-launch-inputs'
-import {
-  AUTO,
-  allConnectorModelLabel,
-  modelOptions as agentModelOptions,
-  encodeModelPick,
-  decodeModelPick,
-  effortOptionsForModel,
-  agentDescriptors,
-  effortLabel,
-  issueAgentKind,
-  issueAgentLabel,
-} from '@podium/client-core/agent-models'
 import {
   autoLaunchMachineOption,
   hasAuthoritativeLaunchCatalog,
@@ -58,8 +58,7 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
   const store = useLaunchInputs(repoPath)
   const [fallback, setFallback] = useState<Picker>(null)
   const repo = store.repo
-  const machines = (
-    () => (repo ? machinesForRepoOrClone(repo, store.machines) : []))()
+  const machines = (() => (repo ? machinesForRepoOrClone(repo, store.machines) : []))()
   // An unpinned launch is validated by the server's own authority/default
   // catalog. Never substitute the first eligible repo machine: it may expose a
   // different harness or model set than the host that validates the spawn.
@@ -97,7 +96,12 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
   // Read live machine facts on every render: pool models keep their identity
   // when availability or permission changes. Only the resulting scalar plan
   // is memoized, so publishing it cannot feed back into another parent render.
-  const { configuration, refusal } = normalizeLaunchConfiguration(value, catalog, machineOptions, catalogStatus)
+  const { configuration, refusal } = normalizeLaunchConfiguration(
+    value,
+    catalog,
+    machineOptions,
+    catalogStatus,
+  )
   const { inheritAgent, agentKind, modelPick, effort, machineId } = configuration
   const plan = useMemo<LaunchPlan>(
     () => ({
@@ -131,18 +135,22 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
       : machineOptions
   const agentOptions: NativePickerOption[] = [
     ...(allowInheritedAgent ? [{ value: '', label: 'Auto' }] : []),
-    ...agentDescriptors(served).filter((descriptor) => descriptor.kind !== 'shell').map((descriptor) => ({
-      value: descriptor.kind,
-      label: descriptor.label,
-    })),
+    ...agentDescriptors(served)
+      .filter((descriptor) => descriptor.kind !== 'shell')
+      .map((descriptor) => ({
+        value: descriptor.kind,
+        label: descriptor.label,
+      })),
   ]
   const liveModels = catalog[effective.agentKind]
   const modelOptions = useMemo<NativePickerOption[]>(() => {
     if (!hasLiveAgentCatalog) return [{ value: AUTO, label: 'Auto' }]
-    return agentModelOptions(effective.agentKind, liveModels, served)
-      .map(({ value: optionValue, label }) => ({
-        value: optionValue === AUTO ? AUTO : encodeModelPick(effective.agentKind, optionValue), label,
-      }))
+    return agentModelOptions(effective.agentKind, liveModels, served).map(
+      ({ value: optionValue, label }) => ({
+        value: optionValue === AUTO ? AUTO : encodeModelPick(effective.agentKind, optionValue),
+        label,
+      }),
+    )
   }, [liveModels, effective.agentKind, hasLiveAgentCatalog, served])
   const decoded = decodeModelPick(effective.modelPick)
   const effortOptions = hasLiveAgentCatalog
@@ -207,37 +215,62 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
   return (
     <>
       <View style={styles.group}>
-        {rows.map((row) => (
+        {rows.map((row) =>
           row.options.length === 0 ? (
-            <View key={row.key} accessibilityLabel={`${row.label}, ${row.valueLabel}`} style={styles.row}>
+            <View
+              key={row.key}
+              accessibilityLabel={`${row.label}, ${row.valueLabel}`}
+              style={styles.row}
+            >
               <Text style={styles.label}>{row.label}</Text>
               <Text style={styles.value}>{row.valueLabel}</Text>
             </View>
-          ) : <NativePicker
-            key={row.key}
-            label={row.label}
-            options={row.options}
-            selected={row.selected}
-            onSelect={row.select}
-            onOpenFallback={() => setFallback(row.key)}
-          >
-            {(onPress) => (
-              <PressableScale
-                accessibilityRole="button"
-                accessibilityLabel={`${row.label}, ${row.valueLabel}`}
-                accessibilityHint="Opens a picker"
-                onPress={onPress}
-                style={({ pressed }) => [styles.row, pressed && styles.pressed]}
-              >
-                <Text style={styles.label}>{row.label}</Text>
-                <Text style={styles.value} numberOfLines={1}>
-                  {row.valueLabel}
-                </Text>
-                <Text style={styles.chevron}>›</Text>
-              </PressableScale>
-            )}
-          </NativePicker>
-        ))}
+          ) : (
+            <NativePicker
+              key={row.key}
+              label={row.label}
+              options={row.options}
+              selected={row.selected}
+              onSelect={row.select}
+              onOpenFallback={() => setFallback(row.key)}
+            >
+              {(onPress) => {
+                const content = (
+                  <>
+                    <Text style={styles.label}>{row.label}</Text>
+                    <Text style={styles.value} numberOfLines={1}>
+                      {row.valueLabel}
+                    </Text>
+                    <Text style={styles.chevron}>›</Text>
+                  </>
+                )
+                // The SwiftUI Menu owns iOS touches. An RN Pressable inside its
+                // label would compete for the responder, as in ComposeFieldRow.
+                return onPress ? (
+                  <PressableScale
+                    accessibilityRole="button"
+                    accessibilityLabel={`${row.label}, ${row.valueLabel}`}
+                    accessibilityHint="Opens a picker"
+                    onPress={onPress}
+                    style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+                  >
+                    {content}
+                  </PressableScale>
+                ) : (
+                  <View
+                    accessible
+                    accessibilityRole="button"
+                    accessibilityLabel={`${row.label}, ${row.valueLabel}`}
+                    accessibilityHint="Opens a picker"
+                    style={styles.row}
+                  >
+                    {content}
+                  </View>
+                )
+              }}
+            </NativePicker>
+          ),
+        )}
       </View>
       {plan.refusal ? (
         <Text accessibilityLiveRegion="polite" style={styles.refusal}>
