@@ -53,9 +53,15 @@ export const MissionBar = observer(function MissionBar({
     >
       <View style={styles.counts}>
         {vitals ? (
-          <DeckVitalsLine vitals={vitals} />
+          // One line, capped like bar text: the chat is laid out under a bar
+          // of one line, so a second line at accessibility sizes covered the
+          // transcript. The deck page shows the whole line; VoiceOver reads it
+          // from the label above.
+          <DeckVitalsLine vitals={vitals} numberOfLines={1} maxFontSizeMultiplier={BAR_MAX_SCALE} />
         ) : (
-          <Text style={styles.loading}>Loading tasks…</Text>
+          <Text style={styles.loading} numberOfLines={1} maxFontSizeMultiplier={BAR_MAX_SCALE}>
+            Loading tasks…
+          </Text>
         )}
       </View>
       <Icon as={OpensFromRight} size={16} color={color.textDim} />
@@ -67,6 +73,8 @@ export const MissionBar = observer(function MissionBar({
     </PressableScale>
   )
 })
+
+const BAR_MAX_SCALE = 1.35
 
 const styles = StyleSheet.create({
   // Transparent over Glass: the chat scrolls under the bar and the nav bar's

@@ -28,10 +28,23 @@ export function deckVitals(full: FullDeck): DeckVitals | null {
   }
 }
 
-/** The full deck's counts line, coloured per part. */
-export function DeckVitalsLine({ vitals }: { vitals: DeckVitals }) {
+/** The full deck's counts line, coloured per part. Chrome that cannot grow
+ * (the chat's pinned bar) passes one line and a text-size cap. */
+export function DeckVitalsLine({
+  vitals,
+  numberOfLines,
+  maxFontSizeMultiplier,
+}: {
+  vitals: DeckVitals
+  numberOfLines?: number
+  maxFontSizeMultiplier?: number
+}) {
   return (
-    <Text style={styles.line}>
+    <Text
+      style={styles.line}
+      numberOfLines={numberOfLines}
+      maxFontSizeMultiplier={maxFontSizeMultiplier}
+    >
       <Text style={styles.fraction}>{`${vitals.done}/${vitals.total}`}</Text>
       {vitals.needsYou > 0 ? (
         <Text style={styles.needs}>{`  ·  ${vitals.needsYou} needs you`}</Text>
