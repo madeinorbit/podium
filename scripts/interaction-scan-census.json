@@ -10980,7 +10980,7 @@
       "file": "apps/web/src/test-support/pool-fixture.ts",
       "holder": "syncPoolFixture/normalized",
       "rule": "helper-consumer",
-      "tokens": "dd3a63023376e9dcb5e9284ec67073940c061b549c5d582c158ca82ef93ae321",
+      "tokens": "123b7ef8a1b6e025a5901a2688d712dba10c5ee337da95854b3bcad9ff2a0e7f",
       "gate": [
         "then:06220bc81cd248fb56e99efd8bf9eecb82cdddeb1827556cfab84507c375e49f",
         "else:813029b2e930b44170b63b83754e31ffa517f9f0dfb2d7676274d046d169a721"
@@ -10989,7 +10989,7 @@
         "b15d7d6a5a8c5c281729b9a7f2aafcaec02ae402caeb370148edd87fad1e5ea3",
         "b8acefbfd479a9d30488941c28b0bfbee2b5c12262c758d33711f20f844df269"
       ],
-      "fingerprint": "d2dff990afa8161e4b58290cb7ed2d9fdccec985eaff976ea44269fc9dae37b7",
+      "fingerprint": "0bcc2b7b1bdc583e8d65baaaaeb142b101f82ffd6e1d26fea4a11b606aec5376",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -11268,12 +11268,12 @@
       "file": "apps/web/src/test-support/pool-issue-fixture.ts",
       "holder": "make",
       "rule": "loop:for-of",
-      "tokens": "79560a563d2728c9d91a562b5a14734d74359146f8857c8281309af60d8acd63",
+      "tokens": "05d42c28a09d4306c8546d86a52f90862c85d5742e95d99890c21d348adedc3a",
       "gate": [],
       "origin": [
         "b3041fd4238060151316e749cb0ec25d26071007582d835e22f00e99e1f609c7"
       ],
-      "fingerprint": "a435817fe37ac14c50b533e562615bce0db44578fb8cc5cc3f88f161bccc9c6e",
+      "fingerprint": "537a104c7184516b221c3e876cbdebf3084a0aaf92946cfd4d692dd1b3affa22",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -11361,12 +11361,12 @@
       "file": "apps/web/src/test-support/pool-issue-fixture.ts",
       "holder": "poolFixtureIssues/normalized",
       "rule": "helper-consumer",
-      "tokens": "257cf9e274f5a88fc9f51adead95579cf2ec632eaa0cb5323a476104c90de404",
+      "tokens": "a356ffdd685ea1c0ec39f9ff1df0976f2c5a90e7ac4085d997c63b52579096f9",
       "gate": [],
       "origin": [
         "1d09c4e312b01870a1b6936daa28873fd30599517a0b3e0c4bcfffba6c027b36"
       ],
-      "fingerprint": "1c3f3a2de769c8dfbc3a8c64d5b2f5d19b5748161d30a37eb3334c40c9ce6374",
+      "fingerprint": "c306880d82f10919fa2dc90300b7baf2deeebfa9c71a1a0ebc3274dbf549579a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -11415,27 +11415,7 @@
       "file": "apps/web/src/test-support/pool-issue-fixture.ts",
       "holder": "poolFixtureStore/value",
       "rule": "helper-consumer",
-      "tokens": "17f4bf7d766b23c5266f987c21e913c12adba95afd3e941bceecd9af4f19e59e",
-      "gate": [
-        "then:10d225f4be52f696518ca2295d74dc3375dff08347c80c5ec8fe266bfc2de941"
-      ],
-      "origin": [
-        "afe47e73101cd5bc564a5d991958fbfba47d8cdbcf9ff8bf1dc9ad80ab036efb"
-      ],
-      "fingerprint": "3049cb80fc0df32b74e9d8f45e71c7ae1d3e99a3737bfeb2a0d5ae499b445a7d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of normalizedFixtureStore/value",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/test-support/pool-issue-fixture.ts",
-      "holder": "poolFixtureStore/value",
-      "rule": "helper-consumer",
-      "tokens": "17f4bf7d766b23c5266f987c21e913c12adba95afd3e941bceecd9af4f19e59e",
+      "tokens": "1dc2d5273f83852ddb15af29909ffe76d1c06b96dd685d454119ead5d9635eea",
       "gate": [
         "then:10d225f4be52f696518ca2295d74dc3375dff08347c80c5ec8fe266bfc2de941"
       ],
@@ -11443,7 +11423,7 @@
         "b15d7d6a5a8c5c281729b9a7f2aafcaec02ae402caeb370148edd87fad1e5ea3",
         "b8acefbfd479a9d30488941c28b0bfbee2b5c12262c758d33711f20f844df269"
       ],
-      "fingerprint": "ca68f4570e9a2f407631273987b10f3c5b0b3fd76db0330eaa3e9da98bcbb23f",
+      "fingerprint": "887fa48afd0612f11090f5cc8d15ed1c84b65c5d963065676974f98052ecfa0e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -11456,14 +11436,34 @@
       "file": "apps/web/src/test-support/pool-issue-fixture.ts",
       "holder": "poolFixtureStore/value",
       "rule": "helper-consumer",
-      "tokens": "17f4bf7d766b23c5266f987c21e913c12adba95afd3e941bceecd9af4f19e59e",
+      "tokens": "1dc2d5273f83852ddb15af29909ffe76d1c06b96dd685d454119ead5d9635eea",
       "gate": [
         "then:10d225f4be52f696518ca2295d74dc3375dff08347c80c5ec8fe266bfc2de941"
       ],
       "origin": [
         "1d09c4e312b01870a1b6936daa28873fd30599517a0b3e0c4bcfffba6c027b36"
       ],
-      "fingerprint": "d41c53ac9862eefae445ba65aa39e5879e270e97ee8074c3b838487424a11ad5",
+      "fingerprint": "8c9c0435647c197f997e0996289e05624e646158760d56f18e9842441bc7ecba",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of normalizedFixtureStore/value",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/test-support/pool-issue-fixture.ts",
+      "holder": "poolFixtureStore/value",
+      "rule": "helper-consumer",
+      "tokens": "1dc2d5273f83852ddb15af29909ffe76d1c06b96dd685d454119ead5d9635eea",
+      "gate": [
+        "then:10d225f4be52f696518ca2295d74dc3375dff08347c80c5ec8fe266bfc2de941"
+      ],
+      "origin": [
+        "afe47e73101cd5bc564a5d991958fbfba47d8cdbcf9ff8bf1dc9ad80ab036efb"
+      ],
+      "fingerprint": "b054631f0a84e80fe9cf31e3df017a5bc84efbc3ed12251b69b2d3d9fb359907",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -33704,14 +33704,14 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useLayoutEffect:callback",
       "rule": "helper-consumer",
-      "tokens": "7506fd9bd37998dbbbd7c212cffdf001fa28c91752da84c3d870701ab1e364b9",
+      "tokens": "44a5f1f0e857eacbfe74784208cd729c6c75c338027d09121d2f9aa3303d9db4",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "585a5a224ae008b6741e332e3d76b8d4d96ddd3f71a703678b55f9dce04e23cb",
+      "fingerprint": "6bd5c14fd2f87f981feb7359d664e450abc21b0c0c20b0aa7a962724479a2f8e",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5872",
@@ -33724,14 +33724,14 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/records/callback",
       "rule": "helper-consumer",
-      "tokens": "ac69174be8238658a3817d5ffd6b15f98e3199bf1c2809d286eafdb410a74085",
+      "tokens": "77cfcdaa890a53d2f2d91714de8dd9e5a210ae87f987895670fa3671931393e6",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "da819298e0bbe47389c2573adfb4b11e606e2ce0c6c0aec9c6b61d56e0265d13",
+      "fingerprint": "c686f4cf07983921ab39329dc4eb4ff491d489ccd0cefb2445a6aba747fa0ad8",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5888",
