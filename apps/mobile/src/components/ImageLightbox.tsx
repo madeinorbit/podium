@@ -1,11 +1,14 @@
-import { Image, type ImageSourcePropType, Modal, StyleSheet, View } from 'react-native'
+import { type ImageSourcePropType, Modal, StyleSheet, View } from 'react-native'
+import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { color, radius, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { X } from './icons'
 import { PressableScale } from './PressableScale'
+import { ZoomableImage } from './ZoomableImage'
 
 /** One full-screen image over a dimmed ground, closed by its X. Shared by chat
- *  attachments and inline markdown images so both open the same way. */
+ *  attachments and inline markdown images so both open the same way, and
+ *  zoomable like the artifact viewer's images (pinch, double tap, pan). */
 export function ImageLightbox({
   visible,
   source,
@@ -21,7 +24,7 @@ export function ImageLightbox({
 }) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.lightbox}>
+      <GestureHandlerRootView style={styles.lightbox}>
         <PressableScale
           accessibilityRole="button"
           accessibilityLabel="Close image"
@@ -31,14 +34,10 @@ export function ImageLightbox({
         >
           <Icon as={X} size={22} color={color.text} />
         </PressableScale>
-        <Image
-          source={source}
-          accessibilityLabel={label}
-          resizeMode="contain"
-          style={styles.image}
-          onError={onError}
-        />
-      </View>
+        <View style={styles.image}>
+          <ZoomableImage source={source} label={label} {...(onError ? { onError } : {})} />
+        </View>
+      </GestureHandlerRootView>
     </Modal>
   )
 }
@@ -49,7 +48,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.92)',
-    padding: space.lg,
   },
   close: {
     position: 'absolute',
@@ -63,5 +61,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
     backgroundColor: color.surfaceHigh,
   },
-  image: { width: '100%', height: '82%' },
+  /** Edge to edge: zoomed, the image pans under the close button. */
+  image: { width: '100%', height: '100%' },
 })

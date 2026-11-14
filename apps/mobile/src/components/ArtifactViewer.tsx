@@ -3,7 +3,6 @@ import type { IssuePanelArtifact } from '@podium/model'
 import { observer } from 'mobx-react-lite'
 import { type ComponentType, createElement, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Image,
   Modal,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -43,6 +42,7 @@ import {
   endAtTagBoundary,
   htmlDataUri,
   htmlWithBase,
+  htmlWithViewport,
   type IssueArtifactPreview,
   issueArtifactLabel,
   issueArtifactPreview,
@@ -54,8 +54,11 @@ import { Icon } from './Icon'
 import { type AppIcon, X } from './icons'
 import { PressableScale } from './PressableScale'
 import { RichMarkdown } from './RichMarkdown'
+import { ZoomableImage } from './ZoomableImage'
 
 const HTML_CAP = 2 * 1024 * 1024
+/** PDFs are handed to PDFKit whole; past this the phone is the wrong place. */
+const PDF_CAP = 40 * 1024 * 1024
 /** How far a released drag must travel, or how fast, to close the viewer. */
 const CLOSE_DISTANCE = 120
 const CLOSE_VELOCITY = 800
@@ -76,6 +79,9 @@ type DomWebViewComponent = ComponentType<{
   containerStyle?: StyleProp<ViewStyle>
   /** WebKit killed the render process — on a phone, almost always memory. */
   onContentProcessDidTerminate?: () => void
+  /** Runs at document end as a WebKit user script, outside the page's markup. */
+  injectedJavaScript?: string
+  onMessage?: (event: { nativeEvent: { data: string } }) => void
 }>
 let domWebViewCache: DomWebViewComponent | null | undefined
 function resolveDomWebView(): DomWebViewComponent | null {
@@ -87,6 +93,62 @@ function resolveDomWebView(): DomWebViewComponent | null {
     }
   }
   return domWebViewCache
+}
+
+/**
+ * The PDFKit page view (modules/podium-pdf), iOS only and resolved lazily like
+ * the web view, so the web bundle and tests never touch a native view manager.
+ */
+type PdfViewComponent = ComponentType<{
+  uri: string
+  style?: StyleProp<ViewStyle>
+  onZoomChange?: (event: { nativeEvent: { zoomed: boolean } }) => void
+  onLoadError?: (event: { nativeEvent: { message: string } }) => void
+}>
+let pdfViewCache: PdfViewComponent | null | undefined
+function resolvePdfView(): PdfViewComponent | null {
+  if (pdfViewCache === undefined) {
+    pdfViewCache = null
+    if (Platform.OS === 'ios') {
+      try {
+        pdfViewCache = (
+          require('expo') as { requireNativeView: (name: string) => PdfViewComponent }
+        ).requireNativeView('PodiumPdf')
+      } catch {
+        pdfViewCache = null
+      }
+    }
+  }
+  return pdfViewCache
+}
+
+/**
+ * Reports whether the reader has pinch-zoomed the page past where it opened,
+ * so the viewer can hold its pager and pull-to-dismiss still while a pan should
+ * move the page. Measured against the opening scale (the page's own fit), not
+ * 1, since a page may open zoomed out. Read-only: it never touches the page's
+ * zoom limits.
+ */
+export const HTML_ZOOM_REPORTER = `(function () {
+  var v = window.visualViewport, bridge = window.ReactNativeWebView;
+  if (!v || !bridge) return;
+  var fit = v.scale, zoomed = false;
+  v.addEventListener('resize', function () {
+    if (v.scale < fit) fit = v.scale;
+    var now = v.scale > fit * 1.01;
+    if (now === zoomed) return;
+    zoomed = now;
+    bridge.postMessage(now ? 'podium-zoom:1' : 'podium-zoom:0');
+  });
+})();
+true;`
+
+/** The zoom state an artifact page's message reports, or null for any other
+ *  message (the page itself can post to the same bridge). */
+export function zoomFromMessage(data: unknown): boolean | null {
+  if (data === 'podium-zoom:1') return true
+  if (data === 'podium-zoom:0') return false
+  return null
 }
 
 /** One artifact the viewer can page to. */
@@ -152,6 +214,9 @@ function ViewerPages({
   const insets = useSafeAreaInsets()
   const { width, height } = useWindowDimensions()
   const [page, setPage] = useState(start)
+  // The open page is zoomed past fit: a drag pans it, so neither the pager nor
+  // pull-to-dismiss may take one until it is back at fit.
+  const [zoomed, setZoomed] = useState(false)
   const pager = useRef<ScrollView>(null)
   const drag = useSharedValue(0)
   const current = items[page] ?? items[0]!
@@ -165,8 +230,11 @@ function ViewerPages({
 
   const close = () => onClose()
   const pan = usePanGesture({
+    enabled: !zoomed,
     activeOffsetY: 12,
     failOffsetX: [-16, 16],
+    // A second finger is a pinch, never a dismiss.
+    maxPointers: 1,
     onUpdate: (event) => {
       'worklet'
       drag.set(Math.max(0, event.translationY))
@@ -201,7 +269,10 @@ function ViewerPages({
 
   const onPage = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const next = Math.round(event.nativeEvent.contentOffset.x / Math.max(1, width))
-    if (next !== page && next >= 0 && next < items.length) setPage(next)
+    if (next !== page && next >= 0 && next < items.length) {
+      setPage(next)
+      setZoomed(false)
+    }
   }
 
   const share = () => {
@@ -234,7 +305,8 @@ function ViewerPages({
             ref={pager}
             horizontal
             pagingEnabled
-            scrollEnabled={many}
+            scrollEnabled={many && !zoomed}
+            testID="artifact-pager"
             showsHorizontalScrollIndicator={false}
             onMomentumScrollEnd={onPage}
             onScroll={Platform.OS === 'web' ? onPage : undefined}
@@ -249,6 +321,7 @@ function ViewerPages({
                     url={item.url}
                     label={issueArtifactLabel(item.artifact)}
                     onPullClose={onClose}
+                    onZoomChange={setZoomed}
                   />
                 ) : null}
               </View>
@@ -298,11 +371,14 @@ function ArtifactBody({
   url,
   label,
   onPullClose,
+  onZoomChange,
 }: {
   preview: IssueArtifactPreview
   url: string | null
   label: string
   onPullClose: () => void
+  /** The page left fit (true) or came back to it (false). */
+  onZoomChange: (zoomed: boolean) => void
 }) {
   const { bearer } = useServerProfile()
   if (!url) {
@@ -310,19 +386,19 @@ function ArtifactBody({
   }
   if (preview === 'image') {
     return (
-      <Image
+      <ZoomableImage
         source={authenticatedImageSource(url, bearer)}
-        style={styles.media}
-        resizeMode="contain"
-        accessibilityLabel={label}
+        label={label}
+        onZoomChange={onZoomChange}
       />
     )
   }
   if (preview === 'video') {
     return <ArtifactVideo url={url} bearer={bearer} label={label} />
   }
-  if (preview === 'html') {
+  if (preview === 'html' || preview === 'pdf') {
     if (Platform.OS === 'web') {
+      // The browser's own page and PDF viewers zoom themselves.
       return createElement('iframe', {
         src: url,
         title: label,
@@ -334,7 +410,8 @@ function ArtifactBody({
         },
       })
     }
-    return <HtmlWebView url={url} bearer={bearer} />
+    if (preview === 'pdf') return <PdfPages url={url} bearer={bearer} onZoomChange={onZoomChange} />
+    return <HtmlWebView url={url} bearer={bearer} onZoomChange={onZoomChange} />
   }
   if (preview === 'markdown')
     return <FetchedText url={url} asMarkdown bearer={bearer} onPullClose={onPullClose} />
@@ -356,9 +433,11 @@ function ArtifactBody({
 const HtmlWebView = observer(function HtmlWebView({
   url,
   bearer,
+  onZoomChange,
 }: {
   url: string
   bearer: string | null
+  onZoomChange: (zoomed: boolean) => void
 }) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: selection and credentials own this request lifetime.
   const request = useMemo(
@@ -377,7 +456,7 @@ const HtmlWebView = observer(function HtmlWebView({
       const clipped = buf.byteLength > HTML_CAP
       const decoded = new TextDecoder().decode(clipped ? buf.slice(0, HTML_CAP) : buf)
       const html = clipped ? endAtTagBoundary(decoded) : decoded
-      return { uri: htmlDataUri(htmlWithBase(html, url)), clipped }
+      return { uri: htmlDataUri(htmlWithViewport(htmlWithBase(html, url))), clipped }
     })
     return () => request.close()
   }, [request, bearer, url, WebView])
@@ -415,8 +494,96 @@ const HtmlWebView = observer(function HtmlWebView({
         // the WebContent process on a heavy page (far sooner on a phone than in
         // the simulator), and the view is left showing nothing at all; say so.
         onContentProcessDidTerminate={() => setTerminated(true)}
+        // WebKit's own pinch zoom, within whatever limits the page declares.
+        injectedJavaScript={HTML_ZOOM_REPORTER}
+        onMessage={(event) => {
+          const zoomed = zoomFromMessage(event.nativeEvent.data)
+          if (zoomed !== null) onZoomChange(zoomed)
+        }}
       />
     </View>
+  )
+})
+
+/** The slice of expo-file-system the PDF hand-off uses. */
+interface CacheFile {
+  readonly uri: string
+  readonly exists: boolean
+  create(options?: { overwrite?: boolean }): void
+  write(content: Uint8Array): void
+  delete(): void
+}
+interface CacheFiles {
+  File: new (directory: unknown, name: string) => CacheFile
+  Paths: { cache: unknown }
+}
+
+/**
+ * A PDF on PDFKit (modules/podium-pdf): multipage, fitted to the width, and
+ * zoomable from fit to 5×, with the double tap PDF readers use. The bytes come
+ * down the authenticated fetch path into a cache file PDFKit opens, and the
+ * file goes again when the page closes. A binary without the module says so
+ * rather than showing the PDF's bytes as text.
+ */
+const PdfPages = observer(function PdfPages({
+  url,
+  bearer,
+  onZoomChange,
+}: {
+  url: string
+  bearer: string | null
+  onZoomChange: (zoomed: boolean) => void
+}) {
+  // biome-ignore lint/correctness/useExhaustiveDependencies: selection and credentials own this request lifetime.
+  const request = useMemo(() => new RequestAnswer<string>(), [url, bearer])
+  const [failed, setFailed] = useState<string | null>(null)
+  const PdfView = resolvePdfView()
+  useEffect(() => {
+    setFailed(null)
+    if (!PdfView) return
+    let closed = false
+    let written: CacheFile | null = null
+    const discard = () => {
+      try {
+        if (written?.exists) written.delete()
+      } catch {}
+    }
+    void request.load(async () => {
+      const res = await fetchAuthenticatedAsset(url, bearer)
+      if (!res.ok) throw new Error(`Could not load (${res.status})`)
+      const bytes = new Uint8Array(await res.arrayBuffer())
+      if (bytes.byteLength > PDF_CAP) {
+        throw new Error(
+          `This PDF is over ${Math.round(PDF_CAP / (1024 * 1024))} MB — open it on a desktop.`,
+        )
+      }
+      // Lazily, like the views: the web bundle and the tests never load it.
+      const { File, Paths } = require('expo-file-system') as CacheFiles
+      const file = new File(Paths.cache, `artifact-${Date.now().toString(36)}.pdf`)
+      file.create({ overwrite: true })
+      file.write(bytes)
+      written = file
+      // Closed while the bytes were still coming: nothing will show this file.
+      if (closed) discard()
+      return file.uri
+    })
+    return () => {
+      closed = true
+      request.close()
+      discard()
+    }
+  }, [request, bearer, url, PdfView])
+  if (!PdfView) return <Text style={styles.note}>This build cannot show PDFs.</Text>
+  const error = failed ?? request.error
+  if (error) return <Text style={styles.note}>{error}</Text>
+  if (request.answer === undefined) return <Text style={styles.note}>Loading…</Text>
+  return (
+    <PdfView
+      uri={request.answer}
+      style={styles.fill}
+      onZoomChange={(event) => onZoomChange(event.nativeEvent.zoomed)}
+      onLoadError={(event) => setFailed(event.nativeEvent.message)}
+    />
   )
 })
 
@@ -525,10 +692,6 @@ const styles = StyleSheet.create({
   },
   dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: color.textFaint },
   dotOn: { backgroundColor: color.text },
-  media: {
-    width: '100%',
-    height: '100%',
-  },
   /** Same page the web iframe draws: white, full bleed under the bar. */
   webFrame: {
     flex: 1,

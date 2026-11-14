@@ -28,14 +28,29 @@ vi.mock('../client/authenticated-assets', async (original) => ({
   ...(await original<typeof import('../client/authenticated-assets')>()),
   fetchAuthenticatedAsset: media.fetch,
 }))
+// The dismiss pan's latest config, so tests can see when it is switched off.
+const gestures = vi.hoisted(() => ({ pan: {} as { enabled?: boolean; maxPointers?: number } }))
 vi.mock('react-native-gesture-handler', async () => {
   const { View } = await import('react-native')
   return {
     GestureHandlerRootView: View,
     GestureDetector: ({ children }: { children: unknown }) => children,
-    usePanGesture: () => ({}),
+    usePanGesture: (config: typeof gestures.pan) => {
+      gestures.pan = config
+      return {}
+    },
+    useTapGesture: () => ({}),
   }
 })
+// The zoom itself is UIKit's; the viewer only hears when an image leaves fit.
+vi.mock('./ZoomableImage', () => ({
+  ZoomableImage: ({ label, onZoomChange }: { label: string; onZoomChange(z: boolean): void }) => (
+    <>
+      <button type="button" onClick={() => onZoomChange(true)}>{`zoom ${label}`}</button>
+      <button type="button" onClick={() => onZoomChange(false)}>{`fit ${label}`}</button>
+    </>
+  ),
+}))
 vi.mock('react-native-reanimated', async () => {
   const { View } = await import('react-native')
   return {
@@ -50,7 +65,9 @@ vi.mock('react-native-reanimated', async () => {
 })
 vi.mock('react-native-worklets', () => ({ scheduleOnRN: (fn: () => void) => fn() }))
 
-const { ArtifactViewer } = await import('./ArtifactViewer')
+const { ArtifactViewer, HTML_ZOOM_REPORTER, zoomFromMessage } = await import('./ArtifactViewer')
+const { fitSize, isZoomed, maxZoomFor, zoomRectAt } =
+  await vi.importActual<typeof import('./ZoomableImage')>('./ZoomableImage')
 
 const art = (path: string): IssuePanelArtifact => ({ path, addedAt: '2026-11-01T00:00:00.000Z' })
 const items = ['a.png', 'pricing.png', 'c.png'].map((path) => ({
@@ -136,4 +153,88 @@ it('ignores a document response after selection changes and accepts the current 
   })
   expect(screen.queryByText('Stale document')).toBeNull()
   expect(screen.getByText('Current document')).toBeTruthy()
+})
+
+const pagerLocked = () =>
+  getComputedStyle(screen.getByTestId('artifact-pager')).overflowX === 'hidden'
+
+it('holds the pager and pull-to-dismiss still while the image is zoomed, never for a pinch', async () => {
+  render(<ArtifactViewer items={items} index={1} onClose={() => {}} />)
+  expect(gestures.pan.maxPointers).toBe(1)
+  expect(gestures.pan.enabled).toBe(true)
+  expect(pagerLocked()).toBe(false)
+
+  await act(async () => fireEvent.click(screen.getByText('zoom pricing.png')))
+  expect(gestures.pan.enabled).toBe(false)
+  expect(pagerLocked()).toBe(true)
+
+  await act(async () => fireEvent.click(screen.getByText('fit pricing.png')))
+  expect(gestures.pan.enabled).toBe(true)
+  expect(pagerLocked()).toBe(false)
+})
+
+it('pages at fit, dropping the old page and its zoom; the next page starts at fit', async () => {
+  render(<ArtifactViewer items={items} index={0} onClose={() => {}} />)
+  await act(async () => fireEvent.click(screen.getByText('zoom a.png')))
+  await act(async () => fireEvent.click(screen.getByText('fit a.png')))
+  const pager = screen.getByTestId('artifact-pager')
+  const { Dimensions } = await import('react-native')
+  // One page over (the test DOM reports a zero-wide window; the viewer pages by max(1, width)).
+  const page = Math.max(1, Dimensions.get('window').width)
+  Object.defineProperty(pager, 'scrollLeft', { configurable: true, value: page })
+  await act(async () => fireEvent.scroll(pager))
+  expect(screen.getByTestId('artifact-position').textContent).toBe('2 of 3')
+  // Only the open page mounts its image, so a zoom never survives a page turn.
+  expect(screen.queryByText('zoom a.png')).toBeNull()
+  expect(gestures.pan.enabled).toBe(true)
+  expect(pagerLocked()).toBe(false)
+  await act(async () => fireEvent.click(screen.getByText('zoom pricing.png')))
+  expect(pagerLocked()).toBe(true)
+})
+
+it('shows a PDF in the page instead of its bytes as text', () => {
+  render(
+    <ArtifactViewer
+      artifact={art('spec.pdf')}
+      url="https://podium.local/files/spec.pdf"
+      onClose={() => {}}
+    />,
+  )
+  expect(document.querySelector('iframe')?.getAttribute('src')).toBe(
+    'https://podium.local/files/spec.pdf',
+  )
+  expect(media.fetch).not.toHaveBeenCalled()
+})
+
+it("reads only its own zoom messages from an artifact page and never limits the page's zoom", () => {
+  expect(zoomFromMessage('podium-zoom:1')).toBe(true)
+  expect(zoomFromMessage('podium-zoom:0')).toBe(false)
+  expect(zoomFromMessage('hello from the page')).toBeNull()
+  expect(zoomFromMessage(1)).toBeNull()
+  expect(HTML_ZOOM_REPORTER).not.toMatch(/viewport|maximum-scale|user-scalable|preventDefault/)
+})
+
+it('fits, bounds and aims image zoom like Photos', () => {
+  const box = { width: 400, height: 800 }
+  // Wide image: fills the width, centred vertically by the scroll view.
+  expect(fitSize({ width: 2000, height: 1000 }, box)).toEqual({ width: 400, height: 200 })
+  // Small image: scaled up to fit too.
+  expect(fitSize({ width: 100, height: 100 }, box)).toEqual({ width: 400, height: 400 })
+  expect(fitSize(null, box)).toBe(box)
+  expect(isZoomed(1)).toBe(false)
+  expect(isZoomed(1.005)).toBe(false)
+  expect(isZoomed(undefined)).toBe(false)
+  expect(isZoomed(1.5)).toBe(true)
+  // At least 4x; a high-resolution image may go to 2x its pixels, capped at 8x.
+  expect(maxZoomFor(null, box, 3)).toBe(4)
+  expect(maxZoomFor({ width: 1200, height: 600 }, { width: 400, height: 200 }, 3)).toBe(4)
+  expect(maxZoomFor({ width: 4800, height: 2400 }, { width: 400, height: 200 }, 3)).toBe(8)
+  expect(maxZoomFor({ width: 3600, height: 1800 }, { width: 400, height: 200 }, 3)).toBe(6)
+  // Double tap: a 2.5x window centred on the tap.
+  expect(zoomRectAt({ x: 200, y: 100 }, box, 2.5)).toEqual({
+    x: 120,
+    y: -60,
+    width: 160,
+    height: 320,
+  })
 })
