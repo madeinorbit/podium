@@ -184,6 +184,9 @@ describe('MachineUpdateControls update rows', () => {
     expect(await screen.findByText('Nothing published on Stable yet.')).toBeTruthy()
     // The server's own sentence stays available on hover, and nowhere else.
     expect(screen.queryByText('No update target is configured.')).toBeNull()
+    expect(screen.getByText('Nothing published on Stable yet.').getAttribute('title')).toBe(
+      'No update target is configured.',
+    )
   })
 })
 

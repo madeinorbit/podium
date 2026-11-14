@@ -436,7 +436,8 @@ export const MachineUpdateMessages = observer(function MachineUpdateMessages({
     <div className="flex min-w-0 basis-full flex-col gap-0.5">
       {unavailableReason && (
         <span className="settings-micro">
-          <span className="text-warning">
+          {/* The server's own sentence stays available on hover. */}
+          <span className="text-warning" title={unavailableReason}>
             {sourceUnavailableProse(
               UPDATE_CHANNEL_LABELS[
                 machine.updateChannelOverride ?? machine.updateChannel ?? 'stable'
