@@ -103,6 +103,12 @@ export interface ServerIdentity {
   readonly local: boolean
 }
 
+/**
+ * Open the server's identity. It writes member rows (the hosted catch-up, the
+ * seam's own membership operations, the self-hosted upgrade), and a member
+ * write is a change-log commit (POD-6920). On a store that captures changes,
+ * call it only once the registry has wired that commit (POD-6939).
+ */
 export async function openServerIdentity(
   store: SessionStore,
   opts: {

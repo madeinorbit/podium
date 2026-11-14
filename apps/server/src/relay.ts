@@ -379,8 +379,12 @@ interface SessionRegistryOptions {
    * identity core (most tests): every password write refuses.
    */
   memberCredentials?: MemberCredentials
-  /** Device claims are included in the last portable snapshot of a server move. */
-  clientRelocationCodes?: OneTimeCodeOperations
+  /**
+   * Device claims are included in the last portable snapshot of a server move.
+   * Read when a move uses them: the server opens its identity after the
+   * registry (POD-6939).
+   */
+  clientRelocationCodes?: () => OneTimeCodeOperations
   /** Reaction contracts to publish on the module seam. Defaults to the registry;
    *  injected only so the runtime refusal of an invalid principal is observable
    *  (POD-1470). Whatever is passed goes through the same totality check the

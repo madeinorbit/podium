@@ -7,15 +7,16 @@ import type { UserId } from '@podium/model'
  * where to go. A restarted source cannot recover a plaintext claim.
  */
 export function clientRelocations(deps: {
-  codes?: OneTimeCodeOperations
+  /** Read when a move uses it: the server opens its identity after the registry. */
+  codes?: () => OneTimeCodeOperations
   clients: () => Iterable<{ id: string; principal: { user: UserId } }>
   accountFor: (memberId: UserId) => Promise<string | null | undefined>
 }) {
   const operations = new Map<string, Map<string, { id: string; code: string }>>()
-  const { codes } = deps
   return {
     async prepare(operationId: string) {
-      if (!codes) return
+      if (!deps.codes) return
+      const codes = deps.codes()
       const claims = operations.get(operationId) ?? new Map<string, { id: string; code: string }>()
       operations.set(operationId, claims)
       for (const client of deps.clients()) {
@@ -32,7 +33,8 @@ export function clientRelocations(deps: {
     },
     async cancel(operationId: string) {
       const claims = operations.get(operationId)
-      if (!claims || !codes) return
+      if (!claims || !deps.codes) return
+      const codes = deps.codes()
       for (const { id } of claims.values()) await codes.discardTransferClaim(id)
       operations.delete(operationId)
     },

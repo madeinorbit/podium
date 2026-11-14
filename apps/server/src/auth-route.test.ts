@@ -616,7 +616,7 @@ describe('the server-transfer claim', () => {
       expect(sourceMember).toMatchObject({ kind: 'member', memberId: bob })
       if (sourceMember.kind !== 'member') throw new Error('source sign-in did not resolve')
       const relocations = clientRelocations({
-        codes: sourceIdentity.workspace.core.codes,
+        codes: () => sourceIdentity.workspace.core.codes,
         clients: () => [{ id: 'desktop-socket', principal: { user: bob } }],
         accountFor: async (memberId) => (await source.users.get(memberId))?.accountId,
       })

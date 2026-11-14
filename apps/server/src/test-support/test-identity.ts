@@ -66,7 +66,7 @@ export async function openTestIdentity(
   } = {},
 ): Promise<TestIdentity> {
   const { workspace } = await openServerIdentity(store, { newMemberId: opts.newMemberId })
-  const credentials = memberCredentials(store.users, workspace.core.accounts)
+  const credentials = memberCredentials(store.users, () => workspace.core.accounts)
   return {
     workspace,
     credentials,

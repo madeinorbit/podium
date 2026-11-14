@@ -45,7 +45,11 @@ export function memberCredentials(
       | undefined
       | Promise<{ accountId?: string | null } | undefined>
   },
-  accounts: AccountOperations,
+  /**
+   * Read per call: the server opens its identity after the registry that holds
+   * these credentials (POD-6939).
+   */
+  accounts: () => AccountOperations,
 ): MemberCredentials {
   const accountOf = async (memberId: UserId): Promise<string | undefined> =>
     (await users.get(memberId))?.accountId ?? undefined
@@ -57,20 +61,20 @@ export function memberCredentials(
   return {
     async hasPassword(memberId) {
       const accountId = await accountOf(memberId)
-      return accountId ? await accounts.hasPassword(accountId) : false
+      return accountId ? await accounts().hasPassword(accountId) : false
     },
     async verifyPassword(memberId, password) {
       const accountId = await accountOf(memberId)
-      return accountId ? await accounts.verifyPassword(accountId, password) : false
+      return accountId ? await accounts().verifyPassword(accountId, password) : false
     },
     async setPassword(memberId, password) {
-      await accounts.setPassword(await requireAccount(memberId), password)
+      await accounts().setPassword(await requireAccount(memberId), password)
     },
     async setPasswordHash(memberId, passwordHash) {
-      await accounts.setPasswordHash(await requireAccount(memberId), passwordHash)
+      await accounts().setPasswordHash(await requireAccount(memberId), passwordHash)
     },
     async setEmail(memberId, email) {
-      await accounts.setEmail(await requireAccount(memberId), email)
+      await accounts().setEmail(await requireAccount(memberId), email)
     },
   }
 }

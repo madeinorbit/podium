@@ -118,7 +118,11 @@ import {
   type MembershipCatchUpScheduler,
   startMembershipCatchUp,
 } from './identity/membership-catch-up'
-import { type IdentitySeam, openServerIdentity } from './identity/server-identity'
+import {
+  type IdentitySeam,
+  openServerIdentity,
+  type ServerIdentity,
+} from './identity/server-identity'
 import { IssueToolProvider } from './issue-mcp'
 import { registerLocateProofRoute } from './locate-proof-route'
 import { registerMcpRoute } from './mcp-route'
@@ -726,56 +730,16 @@ export async function startServer(
     (row) => row.kind === 'server-move',
   )?.operation
   reconcileSafeServerTransferBoot(stateDir(), activeServerMove)
-  // THE IDENTITY OF THIS SERVER (POD-6746): one workspace-bound core, built on
-  // this store or handed in through the seam. Everything below that signs
-  // someone in or asks who a request is goes through it.
-  const identity = await openServerIdentity(store, {
-    seam: opts.identity,
-    readOnly: recoveryOnly,
-    newMemberId: opts.newMemberIdForTests,
-  })
-  const credentials = memberCredentials(store.users, identity.workspace.core.accounts)
-  const membershipCatchUp =
-    !identity.local && !recoveryOnly && !rehearsal
-      ? startMembershipCatchUp(identity.workspace, opts.membershipCatchUpSchedulerForTests)
-      : undefined
-  // Expired invitations and one-time codes are deleted hourly (section 2.3).
-  // Not on a store that cannot be written, and not in a boot rehearsal.
-  // LEGACY(remove-after: 2027-06): bootstrap and sweep pre-upgrade device sign-ins.
-  // The sign-in carry-over (POD-6751) is built below, once the request
-  // resolver exists; the same hourly timer sweeps its leftovers.
-  let signInCarryOver: SignInCarryOver | undefined
-  let stopIdentitySweep = (): void => {}
-  if (!recoveryOnly && !rehearsal) {
-    const sweep = setInterval(() => {
-      void identity.workspace.core
-        .sweep()
-        .catch((err) => log.warn('identity sweep failed; the next hour retries', { err }))
-      void signInCarryOver
-        ?.sweep()
-        .catch((err) => log.warn('sign-in carry-over sweep failed; the next hour retries', { err }))
-    }, IDENTITY_SWEEP_INTERVAL_MS)
-    sweep.unref?.()
-    stopIdentitySweep = () => clearInterval(sweep)
+  // THE IDENTITY OF THIS SERVER (POD-6746) opens once the registry exists,
+  // below. The registry holds two of its handles, a member's account
+  // credentials and the relocation codes, and reads them only when a request
+  // or a server move uses them, after the boot.
+  let openedIdentity: ServerIdentity | undefined
+  const serverIdentity = (): ServerIdentity => {
+    if (!openedIdentity) throw new Error('the server identity is read before it is open')
+    return openedIdentity
   }
-  // IS SIGN-IN REQUIRED: one answer, the package's (section 5.5), read by the
-  // status route, pairing, the tRPC `auth.*` procedures and the exposure
-  // warning. It is not a gate: a request is admitted by `memberOfRequest` alone.
-  const credentialsRequired = (): Promise<boolean> => identity.workspace.signInRequired()
-  // WHY sign-in is mandatory, for Access to explain. Reporting only: the answer
-  // is the package's. A hosted workspace always requires it; a second active
-  // member ends open mode whatever `authOpenMode` says (POD-6285).
-  const loginPolicy = async (): Promise<
-    import('./modules/instance/service').InstanceLoginPolicy
-  > => {
-    const loginRequired = await credentialsRequired()
-    const loginRequiredReason = !identity.local
-      ? 'hosted'
-      : loginRequired && (await store.users.hasSeveralActiveMembers())
-        ? 'several-members'
-        : null
-    return { loginRequired, loginRequiredReason }
-  }
+  const credentials = memberCredentials(store.users, () => serverIdentity().workspace.core.accounts)
   // Readiness gate [spec:SP-c29e]: a bloated change log is fully pruned in
   // bounded, yielding units before the server starts serving catch-up reads.
   // The server does not listen meanwhile.
@@ -844,7 +808,7 @@ export async function startServer(
     serverPlacement,
     instanceId,
     memberCredentials: credentials,
-    clientRelocationCodes: identity.workspace.core.codes,
+    clientRelocationCodes: () => serverIdentity().workspace.core.codes,
     devChannelFeed: () => devChannelFeed?.(),
     recoveryOnly,
     rehearseBoot: rehearsal,
@@ -900,6 +864,63 @@ export async function startServer(
     // which is also the auth the agents on that machine actually run under.
     modelProbe: async (machineId) => await registry.modules.rpc.modelProbe(machineId),
   })
+  // THE IDENTITY OF THIS SERVER (POD-6746): one workspace-bound core, built on
+  // this store or handed in through the seam. Everything below that signs
+  // someone in or asks who a request is goes through it.
+  //
+  // OPENED AFTER THE REGISTRY, BEFORE THE SERVER SERVES (POD-6939). Opening it
+  // writes member rows: the hosted boot catch-up applies the memberships that
+  // changed while the server was down, the seam's own membership operations
+  // apply theirs, and a self-hosted upgrade adopts its member. A member write is
+  // a change-log commit, and the registry is what wires it (POD-6920); before
+  // it, the store captures the write with nothing to drain it and refuses it.
+  const identity = await openServerIdentity(store, {
+    seam: opts.identity,
+    readOnly: recoveryOnly,
+    newMemberId: opts.newMemberIdForTests,
+  })
+  openedIdentity = identity
+  const membershipCatchUp =
+    !identity.local && !recoveryOnly && !rehearsal
+      ? startMembershipCatchUp(identity.workspace, opts.membershipCatchUpSchedulerForTests)
+      : undefined
+  // Expired invitations and one-time codes are deleted hourly (section 2.3).
+  // Not on a store that cannot be written, and not in a boot rehearsal.
+  // LEGACY(remove-after: 2027-06): bootstrap and sweep pre-upgrade device sign-ins.
+  // The sign-in carry-over (POD-6751) is built below, once the request
+  // resolver exists; the same hourly timer sweeps its leftovers.
+  let signInCarryOver: SignInCarryOver | undefined
+  let stopIdentitySweep = (): void => {}
+  if (!recoveryOnly && !rehearsal) {
+    const sweep = setInterval(() => {
+      void identity.workspace.core
+        .sweep()
+        .catch((err) => log.warn('identity sweep failed; the next hour retries', { err }))
+      void signInCarryOver
+        ?.sweep()
+        .catch((err) => log.warn('sign-in carry-over sweep failed; the next hour retries', { err }))
+    }, IDENTITY_SWEEP_INTERVAL_MS)
+    sweep.unref?.()
+    stopIdentitySweep = () => clearInterval(sweep)
+  }
+  // IS SIGN-IN REQUIRED: one answer, the package's (section 5.5), read by the
+  // status route, pairing, the tRPC `auth.*` procedures and the exposure
+  // warning. It is not a gate: a request is admitted by `memberOfRequest` alone.
+  const credentialsRequired = (): Promise<boolean> => identity.workspace.signInRequired()
+  // WHY sign-in is mandatory, for Access to explain. Reporting only: the answer
+  // is the package's. A hosted workspace always requires it; a second active
+  // member ends open mode whatever `authOpenMode` says (POD-6285).
+  const loginPolicy = async (): Promise<
+    import('./modules/instance/service').InstanceLoginPolicy
+  > => {
+    const loginRequired = await credentialsRequired()
+    const loginRequiredReason = !identity.local
+      ? 'hosted'
+      : loginRequired && (await store.users.hasSeveralActiveMembers())
+        ? 'several-members'
+        : null
+    return { loginRequired, loginRequiredReason }
+  }
   const adoptionStarted = performance.now()
   const bootTargetPromotion = readNewestTargetPromotionMetadata(stateDir())
   // Maintenance is a separate server-owned channel; this secret is never a machine credential.
