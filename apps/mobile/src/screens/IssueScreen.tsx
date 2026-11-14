@@ -30,7 +30,6 @@ import {
 } from '../client/use-issue-model'
 import { useSessionContextBooting as useBooting } from '../client/use-session-context'
 import { ActionSheet } from '../components/ActionSheet'
-import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
 import { IssueCloseSheet } from '../components/IssueCloseSheet'
 import { IssueQuestionCard } from '../components/IssueQuestionCard'
 import { IssueTargetSheet } from '../components/IssueTargetSheet'
@@ -77,7 +76,7 @@ import { useCollapsed } from '../hooks/useCollapsed'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { TASK_DETAILS_FOLD_KEY } from '../lib/fold-keys'
 import { issueCommands, type RunMutation } from '../lib/issue-detail'
-import { sessionHref } from '../lib/session-route'
+import { launchAgentHref, sessionHref } from '../lib/session-route'
 import { DELETE_TASK_TITLE, deleteTaskSubtitle } from '../lib/task-delete'
 import { color, space } from '../theme/theme'
 
@@ -193,7 +192,6 @@ type OpenSheet =
   | { kind: 'child-status'; child: IssueViewModel }
   | { kind: 'confirm-child-close'; child: IssueViewModel; reason: IssueCloseReason }
   | { kind: 'flag' }
-  | { kind: 'launch' }
 
 /** The relation kinds the phone offers. `supersedes` and `duplicates` are
  *  deliberately absent: parentage has its own row and supersede/duplicate are
@@ -307,8 +305,12 @@ const IssueContent = observer(function IssueContent({
   // The ••• menu, built once per change of the facts that gate its entries.
   // Its actions reach the current commands through a ref, so an unrelated
   // render neither rebuilds the list nor re-sends the native bar items.
-  const menuRun = useRef({ commands, onBack })
-  menuRun.current = { commands, onBack }
+  // From the inspector sheet, launch replaces it: a sheet stacked on a sheet
+  // leaves the chat two screens down, where the stack freezes it blank.
+  const launch = () =>
+    dismiss ? router.replace(launchAgentHref(issue.id)) : router.push(launchAgentHref(issue.id))
+  const menuRun = useRef({ commands, onBack, launch })
+  menuRun.current = { commands, onBack, launch }
   const menuKey = JSON.stringify({
     live: !issue.deletedAt,
     noAgents: agents.length === 0,
@@ -665,11 +667,6 @@ const IssueContent = observer(function IssueContent({
         onConfirm={(q) => commands.flagForHuman(q || undefined)}
         onClose={closeIf('flag')}
       />
-
-      <ConfiguredIssueLaunchSheet
-        issue={sheet?.kind === 'launch' ? issue : null}
-        onClose={closeIf('launch')}
-      />
     </Screen>
   )
 
@@ -706,7 +703,13 @@ interface IssueMenuFacts {
  */
 function issueMenuEntries(
   facts: IssueMenuFacts,
-  run: { readonly current: { commands: ReturnType<typeof issueCommands>; onBack: () => void } },
+  run: {
+    readonly current: {
+      commands: ReturnType<typeof issueCommands>
+      onBack: () => void
+      launch: () => void
+    }
+  },
   setSheet: (sheet: OpenSheet) => void,
 ): ScreenMenuEntry[] {
   const commands = () => run.current.commands
@@ -730,7 +733,7 @@ function issueMenuEntries(
                 label: 'Start an Agent…',
                 hint: 'Choose agent, model, effort and machine',
                 icon: UserPlus,
-                onPress: () => setSheet({ kind: 'launch' }),
+                onPress: () => run.current.launch(),
               },
             ]
           : []),

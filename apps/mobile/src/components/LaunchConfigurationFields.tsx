@@ -34,26 +34,35 @@ import {
   selectLaunchMachine,
   selectLaunchModel,
 } from '../lib/launch-configuration'
-import { color, font, mono, radius, sans, space } from '../theme/theme'
+import { color } from '../theme/theme'
+import { AgentMark } from './AgentMark'
 import type { NativePickerOption } from './action-sheet-spec'
 import { ComposeMenu } from './compose/ComposeMenu'
+import { Icon } from './Icon'
+import { InsetGroup, insetRow } from './InsetGroup'
 import { PressableScale } from './PressableScale'
 
 type Picker = 'agent' | 'model' | 'effort' | 'machine'
+/** A picker value with the caption its native menu row shows beneath it. */
+type CaptionedOption = NativePickerOption & { caption?: string }
 
-/** Native Where/How controls shared by task creation and deferred task launch. */
+/** The Agent, Model, Effort and Machine rows of a deferred task launch, as one
+ * inset-grouped section of native pull-down menus. */
 export const LaunchConfigurationFields = observer(function LaunchConfigurationFields({
   repoPath,
   value,
   onChange,
   onPlan,
   allowInheritedAgent = false,
+  header,
 }: {
   repoPath: string
   value: LaunchConfiguration
   onChange: (value: LaunchConfiguration) => void
   onPlan?: (plan: LaunchPlan) => void
   allowInheritedAgent?: boolean
+  /** Section header above the rows: the task being launched. */
+  header?: string
 }) {
   const store = useLaunchInputs(repoPath)
   const repo = store.repo
@@ -125,13 +134,19 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
     catalogStatus,
     effective.agentKind,
   )
-  const displayedMachineOptions: NativePickerOption[] =
+  // Each machine carries its own caption in the menu: why it cannot take this
+  // launch, or that it can. Auto names what it will do.
+  const captionedMachineOptions: CaptionedOption[] = machineOptions.map((option) => ({
+    ...option,
+    caption: option.reason ?? (option.value === '' ? 'Any available machine' : 'Available'),
+  }))
+  const displayedMachineOptions: CaptionedOption[] =
     value.machineId && !machineOptions.some((option) => option.value === value.machineId)
       ? [
-          ...machineOptions,
+          ...captionedMachineOptions,
           { value: value.machineId, label: 'Unavailable machine', disabled: true },
         ]
-      : machineOptions
+      : captionedMachineOptions
   const agentOptions: NativePickerOption[] = [
     ...(allowInheritedAgent ? [{ value: '', label: 'Auto' }] : []),
     ...agentDescriptors(served)
@@ -165,8 +180,9 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
     key: Picker
     label: string
     selected: string
-    options: readonly NativePickerOption[]
+    options: readonly CaptionedOption[]
     valueLabel: string
+    agent?: string
     select: (selected: string) => void
   }> = [
     {
@@ -175,6 +191,7 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
       selected: effective.inheritAgent ? '' : effective.agentKind,
       options: agentOptions,
       valueLabel: effective.inheritAgent ? 'Auto' : issueAgentLabel(effective.agentKind, served),
+      ...(effective.inheritAgent ? {} : { agent: effective.agentKind }),
       select: (selected) => {
         if (!selected && allowInheritedAgent) {
           onChange(selectInheritedLaunchAgent(value))
@@ -212,124 +229,91 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
   ]
 
   return (
-    <>
-      <View style={styles.group}>
-        {rows.map((row, index) => (
-          <View key={row.key}>
-            {row.options.length === 0 ? (
-              <View accessibilityLabel={`${row.label}, ${row.valueLabel}`} style={styles.row}>
-                <Text style={styles.label}>{row.label}</Text>
-                <Text style={styles.value}>{row.valueLabel}</Text>
-              </View>
-            ) : (
-              <ComposeMenu
-                label={row.label}
-                items={row.options.map((option) => ({
-                  id: option.value,
-                  label: option.group ? `${option.group} · ${option.label}` : option.label,
-                  selected: option.value === row.selected,
-                  disabled: option.disabled,
-                  onPress: () => row.select(option.value),
-                }))}
-              >
-                {(onPress) => {
-                  const content = (
-                    <>
-                      <Text style={styles.label}>{row.label}</Text>
-                      <Text style={styles.value} numberOfLines={1}>
-                        {row.valueLabel}
-                      </Text>
-                      <Text style={styles.chevron}>›</Text>
-                    </>
-                  )
-                  // The SwiftUI Menu owns iOS touches. An RN Pressable inside its
-                  // label would compete for the responder, as in ComposeFieldRow.
-                  return onPress ? (
-                    <PressableScale
-                      accessibilityRole="button"
-                      accessibilityLabel={`${row.label}, ${row.valueLabel}`}
-                      accessibilityHint="Opens a picker"
-                      onPress={onPress}
-                      style={({ pressed }) => [styles.row, pressed && styles.pressed]}
-                    >
-                      {content}
-                    </PressableScale>
-                  ) : (
-                    <View
-                      accessible
-                      accessibilityRole="button"
-                      accessibilityLabel={`${row.label}, ${row.valueLabel}`}
-                      accessibilityHint="Opens a picker"
-                      style={styles.row}
-                    >
-                      {content}
-                    </View>
-                  )
-                }}
-              </ComposeMenu>
-            )}
-            {index < rows.length - 1 ? (
-              <View pointerEvents="none" style={styles.separator} />
-            ) : null}
+    <InsetGroup
+      header={header}
+      footer={
+        plan.refusal ? (
+          <Text accessibilityLiveRegion="polite" style={insetRow.footerError}>
+            {plan.refusal}
+          </Text>
+        ) : undefined
+      }
+    >
+      {rows.map((row) =>
+        row.options.length === 0 ? (
+          <View
+            key={row.key}
+            accessible
+            accessibilityLabel={`${row.label}, ${row.valueLabel}`}
+            style={insetRow.row}
+          >
+            <Text style={insetRow.label}>{row.label}</Text>
+            <View style={insetRow.trail}>
+              <Text style={insetRow.value} numberOfLines={2}>
+                {row.valueLabel}
+              </Text>
+            </View>
           </View>
-        ))}
-      </View>
-      {plan.refusal ? (
-        <Text accessibilityLiveRegion="polite" style={styles.refusal}>
-          {plan.refusal}
-        </Text>
-      ) : null}
-    </>
+        ) : (
+          <ComposeMenu
+            key={row.key}
+            label={row.label}
+            style={styles.menu}
+            items={row.options.map((option) => ({
+              id: option.value,
+              label: option.group ? `${option.group} · ${option.label}` : option.label,
+              ...(option.caption ? { subtitle: option.caption } : {}),
+              selected: option.value === row.selected,
+              disabled: option.disabled,
+              onPress: () => row.select(option.value),
+            }))}
+          >
+            {(onPress) => {
+              const content = (
+                <>
+                  <Text style={insetRow.label}>{row.label}</Text>
+                  <View style={insetRow.trail}>
+                    {row.agent ? (
+                      <AgentMark kind={row.agent} size={16} ink={color.textDim} />
+                    ) : null}
+                    <Text style={insetRow.value} numberOfLines={2}>
+                      {row.valueLabel}
+                    </Text>
+                    <Icon as="chevron.up.chevron.down" size={11} color={color.textFaint} />
+                  </View>
+                </>
+              )
+              // The SwiftUI Menu owns iOS touches. An RN Pressable inside its
+              // label would compete for the responder, as in ComposeFieldRow.
+              return onPress ? (
+                <PressableScale
+                  accessibilityRole="button"
+                  accessibilityLabel={`${row.label}, ${row.valueLabel}`}
+                  accessibilityHint="Opens a menu"
+                  onPress={onPress}
+                  style={({ pressed }) => [insetRow.row, pressed && insetRow.pressed]}
+                >
+                  {content}
+                </PressableScale>
+              ) : (
+                <View
+                  accessible
+                  accessibilityRole="button"
+                  accessibilityLabel={`${row.label}, ${row.valueLabel}`}
+                  accessibilityHint="Opens a menu"
+                  style={insetRow.row}
+                >
+                  {content}
+                </View>
+              )
+            }}
+          </ComposeMenu>
+        ),
+      )}
+    </InsetGroup>
   )
 })
 
 const styles = StyleSheet.create({
-  group: {
-    borderRadius: radius.card,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
-    backgroundColor: color.surface,
-    overflow: 'hidden',
-  },
-  row: {
-    width: '100%',
-    minHeight: 48,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.md,
-    paddingHorizontal: space.md,
-  },
-  separator: {
-    position: 'absolute',
-    left: space.md,
-    right: 0,
-    bottom: 0,
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: color.hairline,
-  },
-  label: {
-    ...sans(500),
-    width: 68,
-    color: color.textFaint,
-    fontSize: font.tiny,
-  },
-  value: {
-    ...sans(500),
-    flex: 1,
-    color: color.body,
-    fontSize: font.small,
-    textAlign: 'left',
-  },
-  chevron: {
-    ...mono(400),
-    color: color.textMicro,
-    fontSize: font.body,
-  },
-  pressed: { opacity: 0.68 },
-  refusal: {
-    ...sans(400),
-    color: color.dangerText,
-    fontSize: font.tiny,
-    paddingTop: space.sm,
-  },
+  menu: { alignSelf: 'stretch', minHeight: 44 },
 })

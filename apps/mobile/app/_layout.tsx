@@ -78,6 +78,24 @@ function NativeNavigation({ reduceMotion }: RootNavigationProps) {
           contentStyle: { flex: 1, minHeight: 0, backgroundColor: color.groupedCard },
         }}
       />
+      {/* Start an agent on an existing task. A form sheet keeps the chat or
+          task page it was opened from visible under UIKit's own dimming. */}
+      <Stack.Screen
+        name="launch/[issueId]"
+        options={{
+          presentation: 'formSheet',
+          sheetAllowedDetents: 'fitToContents',
+          sheetGrabberVisible: false,
+          title: 'Start Agent',
+          headerShown: true,
+          headerLargeTitleEnabled: false,
+          headerBackVisible: false,
+          headerTransparent: true,
+          headerShadowVisible: false,
+          headerTitleStyle: { color: color.text },
+          contentStyle: { backgroundColor: color.groupedBg },
+        }}
+      />
       <Stack.Screen
         name="inspect/[issueId]"
         options={{

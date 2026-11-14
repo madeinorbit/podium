@@ -466,6 +466,18 @@ it('pages from the chat to its deck and swaps the chat to a seat or task picked 
     ),
   )
   expect(onDeckPage()).toBe(false)
+
+  // Launching an agent opens the native form sheet route over this chat, so
+  // UIKit keeps the transcript in place under its dimming.
+  await act(async () => fireEvent.click(screen.getByLabelText('Mission actions')))
+  await act(async () =>
+    fireEvent.click(
+      within(screen.getByTestId('mission-actions-sheet')).getByRole('button', {
+        name: 'Launch an agent…',
+      }),
+    ),
+  )
+  expect(navigation.push).toHaveBeenLastCalledWith('/launch/root')
 })
 
 it('web keeps an explicit chat-to-deck URL push and returns to the selected conversation', async () => {

@@ -3,16 +3,21 @@ import { spawnIssueAgent } from '@podium/client-core/values'
 import { issueDisplayRef } from '@podium/protocol'
 import { observer } from 'mobx-react-lite'
 import { useMemo, useState } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useTrpc } from '../client/hooks'
 import { useSettingsRecord } from '../client/use-settings-record'
 import { IssueLaunchForm } from '../lib/issue-launch-draft'
 import { type LaunchPlan, launchPlanCanSubmit } from '../lib/launch-configuration'
-import { color, font, radius, sans, space } from '../theme/theme'
-import { BottomSheet } from './BottomSheet'
+import { color } from '../theme/theme'
+import { FormSheetHeader } from './compose/FormSheetHeader'
+import { insetRow } from './InsetGroup'
 import { LaunchConfigurationFields } from './LaunchConfigurationFields'
-import { PressableScale } from './PressableScale'
 
+/**
+ * Start an agent on an existing task: the contents of the `launch/[issueId]`
+ * form sheet. UIKit presents it over the chat or task page, so what it was
+ * opened from stays visible under the sheet's own dimming.
+ */
 export function ConfiguredIssueLaunchSheet(
   props: Parameters<typeof ConfiguredIssueLaunchSheetBody>[0],
 ) {
@@ -23,10 +28,15 @@ const ConfiguredIssueLaunchSheetBody = observer(function ConfiguredIssueLaunchSh
   issue,
   onStarted,
   onClose,
+  topInset = 0,
 }: {
   issue: IssueViewModel | null
   onStarted?: () => void
   onClose: () => void
+  /** The transparent native bar's height. Fit-to-contents measures this view,
+   * so the inset must be part of it, not a scroll view's adjusted inset:
+   * rows pushed below the measured height draw but take no touches. */
+  topInset?: number
 }) {
   const trpc = useTrpc()
   const settingsRequest = useSettingsRecord()
@@ -62,47 +72,26 @@ const ConfiguredIssueLaunchSheetBody = observer(function ConfiguredIssueLaunchSh
   }
 
   return (
-    <BottomSheet
-      visible={issue !== null}
-      mode="fit"
-      scrollable
-      onClose={onClose}
-      head={
-        <View style={styles.head}>
-          <Text style={styles.title} numberOfLines={2}>
-            {issue ? `${issueDisplayRef(issue)} · ${issue.title}` : 'Start task'}
-          </Text>
-          <Text style={styles.subtitle}>Choose how and where this task starts.</Text>
-        </View>
-      }
-      footerRule={false}
-      footer={
-        <View style={styles.footer}>
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel="Cancel"
-            disabled={busy}
-            onPress={onClose}
-            style={({ pressed }) => [styles.secondary, pressed && styles.pressed]}
-          >
-            <Text style={styles.secondaryText}>Cancel</Text>
-          </PressableScale>
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel="Start agent"
-            accessibilityState={{ disabled: busy || !launchPlanCanSubmit(plan) }}
-            disabled={busy || !launchPlanCanSubmit(plan)}
-            onPress={() => void start()}
-            style={({ pressed }) => [styles.primary, (busy || pressed) && styles.pressed]}
-          >
-            <Text style={styles.primaryText}>{busy ? 'Starting…' : 'Start agent'}</Text>
-          </PressableScale>
-        </View>
-      }
-    >
-      <View style={styles.body}>
+    <View collapsable={false} style={styles.sheet}>
+      <FormSheetHeader
+        title="Start Agent"
+        confirmLabel="Start"
+        confirmAccessibilityLabel="Start agent"
+        busyLabel="Starting…"
+        canConfirm={launchPlanCanSubmit(plan)}
+        busy={busy}
+        onCancel={onClose}
+        onConfirm={() => void start()}
+      />
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[styles.body, { paddingTop: topInset + 8 }]}
+        contentInsetAdjustmentBehavior="never"
+        alwaysBounceVertical={false}
+      >
         {issue && form ? (
           <LaunchConfigurationFields
+            header={`${issueDisplayRef(issue)} · ${issue.title}`}
             repoPath={issue.repoPath}
             value={form.configuration}
             onChange={(next) => {
@@ -112,46 +101,17 @@ const ConfiguredIssueLaunchSheetBody = observer(function ConfiguredIssueLaunchSh
           />
         ) : null}
         {error ? (
-          <Text accessibilityLiveRegion="assertive" style={styles.error}>
+          <Text accessibilityLiveRegion="assertive" style={insetRow.footerError}>
             {error}
           </Text>
         ) : null}
-      </View>
-    </BottomSheet>
+      </ScrollView>
+    </View>
   )
 })
 
 const styles = StyleSheet.create({
-  head: { gap: space.xs, paddingHorizontal: space.lg, paddingBottom: space.md },
-  title: { ...sans(600), color: color.body, fontSize: font.small, textAlign: 'center' },
-  subtitle: { ...sans(400), color: color.textFaint, fontSize: font.tiny, textAlign: 'center' },
-  body: { paddingHorizontal: space.lg, paddingBottom: space.md },
-  error: { ...sans(400), color: color.dangerText, fontSize: font.tiny, paddingTop: space.sm },
-  footer: {
-    flexDirection: 'row',
-    gap: space.sm,
-    paddingHorizontal: space.md,
-    paddingTop: space.sm,
-  },
-  secondary: {
-    minHeight: 48,
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.control,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
-    backgroundColor: color.surface,
-  },
-  primary: {
-    minHeight: 48,
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.control,
-    backgroundColor: color.accent,
-  },
-  secondaryText: { ...sans(600), color: color.textDim, fontSize: font.small },
-  primaryText: { ...sans(600), color: color.onAccent, fontSize: font.small },
-  pressed: { opacity: 0.62 },
+  sheet: { backgroundColor: color.groupedBg },
+  scroll: { flexGrow: 0 },
+  body: { paddingHorizontal: 16, paddingBottom: 8 },
 })

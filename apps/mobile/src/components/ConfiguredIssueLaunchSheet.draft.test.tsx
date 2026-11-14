@@ -12,8 +12,6 @@ const api = vi.hoisted(() => ({ issues: {
 const settings = vi.hoisted(() => ({ model: { codingHarness: 'codex' } }))
 vi.mock('../client/use-settings-record', () => ({ useSettingsRecord: () => settings }))
 vi.mock('../client/hooks', () => ({ useTrpc: () => api }))
-vi.mock('./BottomSheet', () => ({ BottomSheet: ({ children, footer, visible }: { children: ReactNode; footer: ReactNode; visible: boolean }) =>
-  visible ? createElement('div', null, children, footer) : null }))
 vi.mock('./PressableScale', () => ({ PressableScale: ({ children, onPress, disabled, accessibilityLabel }: {
   children: ReactNode; onPress: () => void; disabled: boolean; accessibilityLabel: string
 }) => createElement('button', { onClick: onPress, disabled, 'aria-label': accessibilityLabel }, children) }))

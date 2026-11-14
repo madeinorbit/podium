@@ -20,7 +20,6 @@ import {
   useSessionContextSession,
 } from '../client/use-session-context'
 import { ChatDeckPager } from '../components/ChatDeckPager'
-import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
 import type { ChatDeckPagerHandle, PagerPage } from '../components/chat-deck-pager.types'
 import { HeaderBand, HeaderExtension } from '../components/HeaderExtension'
 import {
@@ -42,6 +41,7 @@ import { SessionConversation } from '../components/SessionConversation'
 import { TaskSheet } from '../components/TaskSheet'
 import { EmptyState } from '../components/ui'
 import { WorkIssueMenu, type WorkMenuSheet } from '../components/WorkIssueMenu'
+import { launchAgentHref } from '../lib/session-route'
 import { deckBackReturnsToChat } from '../navigation/back-targets'
 import { useHeaderInset } from '../navigation/header-inset'
 import { type DeckOpen, deckTaskOpen } from '../navigation/mission-deck-targets'
@@ -91,7 +91,6 @@ export const MissionScreen = observer(function MissionScreen() {
     requestedSessionId ? (requestedSessionId as SessionId) : null,
   )
   const [peek, setPeek] = useState<IssueViewModel | null>(null)
-  const [launchOpen, setLaunchOpen] = useState(false)
   const [findRequest, setFindRequest] = useState(0)
 
   // An explicit pick from the deck outranks the automatic one, but only while it
@@ -282,7 +281,11 @@ export const MissionScreen = observer(function MissionScreen() {
               void store.updateIssue(headerIssue.id, { pinned: !headerIssue.pinned })
             },
           },
-          { label: 'Launch an Agent…', icon: UserPlus, onPress: () => setLaunchOpen(true) },
+          {
+            label: 'Launch an Agent…',
+            icon: UserPlus,
+            onPress: () => router.push(launchAgentHref(root.id)),
+          },
         ],
       },
       ...(current && !onDeck
@@ -410,10 +413,6 @@ export const MissionScreen = observer(function MissionScreen() {
           openSession(session)
         }}
         onOpenIssue={(target) => setPeek(target)}
-      />
-      <ConfiguredIssueLaunchSheet
-        issue={launchOpen ? (root ?? null) : null}
-        onClose={() => setLaunchOpen(false)}
       />
       {menuIssue ? (
         <WorkIssueMenu
