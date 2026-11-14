@@ -1,4 +1,4 @@
-import { modelLabel } from '@podium/client-core/agent-models'
+import { modelName } from '@podium/client-core/agent-models'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { artifactKind, motionPhase, readoutModel, sessionTitle } from '@podium/client-core/values'
@@ -428,7 +428,7 @@ const TaskSessionRow = observer(function TaskSessionRow({
   if (!view) return null
   const phase = isFinished(issue) ? 'done' : motionPhase(view, issue)
   const name = sessionTitle(view)
-  const meta = `${modelLabel(view.agentKind, readoutModel(view))} · ${SESSION_WORD_LABEL[session.word]}`
+  const meta = `${modelName(view.agentKind, readoutModel(view))} · ${SESSION_WORD_LABEL[session.word]}`
   return (
     <PressableScale
       accessibilityRole="button"

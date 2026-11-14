@@ -9,7 +9,7 @@ import {
   issueAgentKind,
   issueAgentLabel,
   type LaunchPickContext,
-  modelLabel,
+  modelName,
   modelOptions,
   readLastLaunchPicks,
   rememberLaunchPick,
@@ -383,7 +383,7 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
 
   const models = modelOptions(agent, reported, served)
   const efforts = effortOptionsForModel(agent, draft.model, reported, served)
-  const modelText = shell ? 'Shell' : modelLabel(agent, draft.model, reported, served)
+  const modelText = shell ? 'Shell' : modelName(agent, draft.model, reported, served)
   const agentChoices: ComposeMenuItem[] = agentDescriptors(served).flatMap((row) => {
     const kind = issueAgentKind(row.kind)
     if (!kind) return []

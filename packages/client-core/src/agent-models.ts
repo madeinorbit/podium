@@ -9,15 +9,16 @@ import {
   parseServedDescriptors,
   resolveDescriptors,
 } from '@podium/harness/browser'
-import type { HarnessDescriptorWire, ModelChoiceWire } from '@podium/protocol'
 import { type AgentKind, DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
+import type { HarnessDescriptorWire, ModelChoiceWire } from '@podium/protocol'
+import { compactModelId } from './values/session-model'
 
 export {
   draftForLaunchContext,
+  type LaunchPickContext,
   lastLaunchPick,
   readLastLaunchPicks,
   rememberLaunchPick,
-  type LaunchPickContext,
 } from './launch-pick'
 
 /**
@@ -175,6 +176,28 @@ export function modelLabel(
   }
   return modelLabelForDescriptor(descriptor, value, live as readonly ModelChoiceWire[] | undefined)
 }
+
+/**
+ * A model as a person reads it: the catalog's label when the machine lists the
+ * value, otherwise the raw id as a title-cased name ("claude-opus-5-5" →
+ * "Opus 5.5"), never the id itself. Phone readouts (deck seats, task seats,
+ * session header, composer chip) share it.
+ */
+export function modelName(
+  kind: IssueAgentKind | string,
+  value: string | null | undefined,
+  live?: readonly ModelChoice[],
+  descriptors?: readonly HarnessDescriptorWire[],
+): string {
+  const listed = modelLabel(kind, value, live, descriptors)
+  if (!value || listed !== value) return listed
+  return compactModelId(value)
+    .split(' ')
+    .map((word) => MODEL_ACRONYMS[word] ?? word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+}
+
+const MODEL_ACRONYMS: Readonly<Record<string, string>> = { gpt: 'GPT', glm: 'GLM' }
 
 /**
  * Would this harness accept this effort? The per-KIND ladder is the fallback,

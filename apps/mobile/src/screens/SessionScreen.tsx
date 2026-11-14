@@ -1,4 +1,4 @@
-import { issueAgentKind, issueAgentLabel, modelLabel } from '@podium/client-core/agent-models'
+import { issueAgentKind, issueAgentLabel, modelName } from '@podium/client-core/agent-models'
 import { useHarnessDescriptors } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -318,7 +318,7 @@ const SessionChrome = observer(function SessionChrome({
   const selectedModel = readoutModel(session)
   // Served descriptors for the session's machine (POD-4475): the harness
   // name and model render from the report, bundled copy offline.
-  const provenance = `${issueAgentLabel(session.agentKind, served)}${kind && selectedModel ? ` · ${modelLabel(kind, selectedModel, undefined, served)}` : ''}`
+  const provenance = `${issueAgentLabel(session.agentKind, served)}${kind && selectedModel ? ` · ${modelName(kind, selectedModel, undefined, served)}` : ''}`
 
   return (
     <Screen

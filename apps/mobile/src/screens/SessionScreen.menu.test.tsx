@@ -506,11 +506,12 @@ describe('session menu snooze from the acting user home', () => {
 })
 
 it.each([
-  { requestedModel: 'claude-opus-4-6', observedModel: undefined, expected: 'claude-opus-4-6' },
+  // Readable names from the shared modelName formatter, never the raw id.
+  { requestedModel: 'claude-opus-4-6', observedModel: undefined, expected: 'Opus 4\\.6' },
   {
     requestedModel: 'claude-opus-4-6',
     observedModel: 'claude-sonnet-4-6',
-    expected: 'claude-sonnet-4-6',
+    expected: 'Sonnet 4\\.6',
   },
 ])('uses shared model precedence in the session header: $expected', async ({
   requestedModel,
@@ -522,5 +523,6 @@ it.each([
     issues: [vessel()],
   })
   expect(await screen.findByText(new RegExp(expected, 'i'))).toBeTruthy()
-  expect(screen.queryByText(/claude-haiku-4-5/i)).toBeNull()
+  expect(screen.queryByText(/haiku/i)).toBeNull()
+  expect(screen.queryByText(/claude-/i)).toBeNull()
 })

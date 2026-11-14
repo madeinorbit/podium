@@ -2,14 +2,13 @@ import {
   effortLabel,
   effortOptionsForModel,
   issueAgentKind,
-  modelLabel,
+  modelName,
   modelOptions,
 } from '@podium/client-core/agent-models'
 import { useHarnessDescriptors, useModelCatalog, useStoreHandle } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
   canConfigureModel,
-  compactModelId,
   configureResultNotice,
   menuEffort,
   menuModel,
@@ -91,10 +90,7 @@ export const ComposerModelChip = observer(function ComposerModelChip({
       session.configureFields?.includes('effort') === true
         ? effortOptionsForModel(agentKind, model, live, served)
         : []
-    const text = chipText(
-      modelLabel(agentKind, model, live, served),
-      effortLabel(agentKind, effort),
-    )
+    const text = chipText(modelName(agentKind, model, live, served), effortLabel(agentKind, effort))
     const menu: Omit<ComposerModelMenuProps, 'children'> = {
       models: modelOptions(agentKind, live, served),
       model,
@@ -150,9 +146,8 @@ export const ComposerModelChip = observer(function ComposerModelChip({
   const raw = readoutModel(session)
   const rawEffort = readoutEffort(session)
   if (!raw && !rawEffort) return null
-  const listed = raw ? modelLabel(agentKind, raw, live, served) : undefined
   // Not in the machine's catalog: still a name, not an id.
-  const model = raw && listed === raw ? compactModelId(raw) : listed
+  const model = raw ? modelName(agentKind, raw, live, served) : undefined
   const text = chipText(model, rawEffort ? effortLabel(agentKind, rawEffort) : undefined)
   const reason = modelReadoutReason(session, verdict)
   // The same chip shape as the live menu (board ChatReply: name · effort and a
