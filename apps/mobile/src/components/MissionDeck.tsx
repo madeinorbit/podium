@@ -13,12 +13,12 @@ import { ROW_WINDOW_SIZE } from '@podium/client-graph/row-window'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { observer } from 'mobx-react-lite'
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import { AppState, Pressable, StyleSheet, Text, View } from 'react-native'
+import { AppState, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import { useTrpc } from '../client/hooks'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
 import { deckColor } from './deck-colors'
 import { Icon } from './Icon'
-import { ChevronDown, ChevronRight } from './icons'
+import { Check, ChevronDown, ChevronRight } from './icons'
 import { DeckContent, DeckGroup, DeckProposals, DeckRow, MissionDeckList } from './MissionDeckList'
 import { DeckAgentRow, DeckPhaseHeading, DeckSeatRow, DeckTaskRow } from './MissionDeckRows'
 import { DeckGauge, DeckVitalsLine, deckVitals } from './MissionGauge'
@@ -197,7 +197,6 @@ export const MissionDeck = observer(function MissionDeck({
                 accessibilityRole="button"
                 accessibilityLabel={`Proposals, ${proposalIds.length}`}
                 accessibilityState={{ expanded: proposalsOpen }}
-                hitSlop={SECTION_SLOP}
                 onPress={() => setProposalsOpen((open) => !open)}
                 style={styles.sectionToggle}
               >
@@ -211,7 +210,6 @@ export const MissionDeck = observer(function MissionDeck({
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Screen proposals"
-                hitSlop={SECTION_SLOP}
                 onPress={onScreenProposals}
                 style={styles.sectionAction}
               >
@@ -219,7 +217,6 @@ export const MissionDeck = observer(function MissionDeck({
               </Pressable>
               <Pressable
                 accessible={false}
-                hitSlop={SECTION_SLOP}
                 onPress={() => setProposalsOpen((open) => !open)}
                 style={styles.sectionTrail}
               >
@@ -241,6 +238,7 @@ export const MissionDeck = observer(function MissionDeck({
                 id={id}
                 window={submissions.window}
                 prime={index < ROW_WINDOW_SIZE}
+                first={index === 0}
               >
                 <ProposalContent
                   full={full}
@@ -273,12 +271,55 @@ const ProposalContent = observer(function ProposalContent({
 /**
  * One segmented control over the shared filters: exactly one selected segment
  * (iOS UISegmentedControl, widths by content). Done is not a filter; it is the
- * separate Show/Hide toggle beside the counts.
+ * separate Show/Hide toggle beside the counts. Each segment's 44pt hit area is
+ * reserved in layout around the 32pt track. At accessibility text sizes the
+ * segments stop fitting, so the same choices stack as full-width checkmark rows
+ * at the person's own size (Settings' single-choice lists), never shrunk.
  */
 const Filters = observer(function Filters({ full }: { full: FullDeck }) {
   const counts = full.counts
+  const { fontScale } = useWindowDimensions()
+  if (fontScale > SEGMENT_MAX_SCALE) {
+    return (
+      <View style={styles.choices} accessibilityRole="tablist">
+        {FULL_DECK_FILTERS.map((filter, index) => {
+          const on = full.filter === filter
+          const count = counts[filter]
+          return (
+            <Pressable
+              key={filter}
+              accessibilityRole="tab"
+              aria-selected={on}
+              accessibilityLabel={`${FILTER_LABEL[filter]}, ${count}`}
+              testID={`deck-filter-${filter}`}
+              onPress={() => full.setFilter(filter)}
+              style={({ pressed }) => [
+                styles.choice,
+                index > 0 && styles.choiceRule,
+                pressed && styles.choicePressed,
+              ]}
+            >
+              <Text style={styles.choiceLabel}>
+                {FILTER_LABEL[filter]}{' '}
+                <Text
+                  style={[
+                    styles.segmentCount,
+                    filter === 'needs-you' && count > 0 && styles.needsText,
+                  ]}
+                >
+                  {count}
+                </Text>
+              </Text>
+              {on ? <Icon as={Check} size={17} color={deckColor.live} /> : null}
+            </Pressable>
+          )
+        })}
+      </View>
+    )
+  }
   return (
-    <View style={styles.segments} accessibilityRole="tablist">
+    <View style={styles.segmentsBox} accessibilityRole="tablist">
+      <View style={styles.segmentsTrack} />
       {FULL_DECK_FILTERS.map((filter) => {
         const on = full.filter === filter
         const count = counts[filter]
@@ -289,28 +330,30 @@ const Filters = observer(function Filters({ full }: { full: FullDeck }) {
             aria-selected={on}
             accessibilityLabel={`${FILTER_LABEL[filter]}, ${count}`}
             testID={`deck-filter-${filter}`}
-            hitSlop={CHIP_SLOP}
             onPress={() => full.setFilter(filter)}
-            style={[styles.segment, on && styles.segmentOn]}
+            style={styles.segmentHit}
           >
-            <Text
-              numberOfLines={1}
-              // UISegmentedControl shrinks a label that does not fit its segment.
-              adjustsFontSizeToFit
-              minimumFontScale={0.7}
-              maxFontSizeMultiplier={SEGMENT_MAX_SCALE}
-              style={[styles.segmentLabel, on && styles.segmentLabelOn]}
-            >
-              {FILTER_LABEL[filter]}{' '}
+            <View style={[styles.segment, on && styles.segmentOn]}>
               <Text
-                style={[
-                  styles.segmentCount,
-                  filter === 'needs-you' && count > 0 && styles.needsText,
-                ]}
+                numberOfLines={1}
+                // UISegmentedControl shrinks a label that does not fit its
+                // segment; at accessibility sizes the rows above take over.
+                adjustsFontSizeToFit
+                minimumFontScale={0.85}
+                maxFontSizeMultiplier={SEGMENT_MAX_SCALE}
+                style={[styles.segmentLabel, on && styles.segmentLabelOn]}
               >
-                {count}
+                {FILTER_LABEL[filter]}{' '}
+                <Text
+                  style={[
+                    styles.segmentCount,
+                    filter === 'needs-you' && count > 0 && styles.needsText,
+                  ]}
+                >
+                  {count}
+                </Text>
               </Text>
-            </Text>
+            </View>
           </Pressable>
         )
       })}
@@ -456,9 +499,11 @@ const _ROW_H = 44
 /** UISegmentedControl stops growing its labels a little past the default size. */
 const SEGMENT_MAX_SCALE = 1.35
 
-const CHIP_SLOP = { top: 6, bottom: 6 }
+/** Hit area reserved above the 32pt segment track: 44pt rows. */
+const SEGMENT_HIT_PAD = 12
+/** How far a 44pt header control reaches past a 22pt title line, each side. */
+const SECTION_HIT_PAD = 11
 const TOGGLE_SLOP = { top: 12, bottom: 12, left: 8, right: 8 }
-const SECTION_SLOP = { top: 6, bottom: 6 }
 const _DISCLOSURE_SLOP = { top: 4, bottom: 4, left: 8, right: 4 }
 const styles = StyleSheet.create({
   head: { gap: space.sm, paddingHorizontal: INSET, paddingTop: space.sm },
@@ -477,19 +522,46 @@ const styles = StyleSheet.create({
   dimmed: { opacity: 0.5 },
   // SwiftUI keeps ~20pt between any header and its first row: that is the gap.
   groupGap: { height: 0 },
-  segments: {
-    flexDirection: 'row',
-    minHeight: 32,
-    padding: 2,
-    gap: 2,
+  /** The 44pt hit row; the 32pt track sits at its foot, so the reserved band
+   * lies in the gap above it and the card below keeps List's spacing. */
+  segmentsBox: { flexDirection: 'row', paddingHorizontal: 2, gap: 2 },
+  segmentsTrack: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: SEGMENT_HIT_PAD,
+    bottom: 0,
     borderRadius: radius.card,
     backgroundColor: color.tertiaryFill,
   },
-  filterBar: { paddingHorizontal: INSET, paddingTop: space.xl },
-  segment: {
+  segmentHit: {
     flexGrow: 1,
     flexShrink: 1,
     flexBasis: 'auto',
+    minHeight: 44,
+    paddingTop: SEGMENT_HIT_PAD + 2,
+    paddingBottom: 2,
+  },
+  // The reserved hit band above the track keeps the visible 24pt gap.
+  filterBar: { paddingHorizontal: INSET, paddingTop: space.xl - SEGMENT_HIT_PAD },
+  choices: {
+    borderRadius: radius.card,
+    backgroundColor: color.groupedCard,
+    overflow: 'hidden',
+  },
+  choice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    minHeight: 44,
+    paddingHorizontal: INSET,
+    paddingVertical: space.md,
+  },
+  choiceRule: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: color.hairline },
+  choicePressed: { backgroundColor: color.tertiaryFill },
+  choiceLabel: { ...sans(400), flex: 1, color: color.text, fontSize: font.body },
+  segment: {
+    flexGrow: 1,
     minHeight: 28,
     paddingHorizontal: space.sm,
     borderRadius: radius.control,
@@ -506,18 +578,22 @@ const styles = StyleSheet.create({
   segmentLabel: { ...sans(500), color: color.text, fontSize: font.tiny },
   segmentLabelOn: { ...sans(600) },
   segmentCount: { ...sans(400), color: color.textDim, fontVariant: ['tabular-nums'] },
+  // Its controls are 44pt rows in layout; the padding around them puts the
+  // title 24 below the previous card and 12 above its own, as the native
+  // phase headings (DeckPhaseHeading).
   section: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.md,
+    gap: space.sm,
     paddingLeft: INSET,
-    paddingRight: INSET,
-    paddingTop: space.xl,
-    paddingBottom: space.sm,
+    paddingRight: INSET - space.sm,
+    paddingTop: space.xl - SECTION_HIT_PAD,
+    paddingBottom: space.md - SECTION_HIT_PAD,
   },
   sectionToggle: {
     flex: 1,
     minWidth: 0,
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.md,
@@ -531,14 +607,26 @@ const styles = StyleSheet.create({
     lineHeight: leading(font.body),
   },
   /** Count and chevron share one trailing column on every heading. */
-  sectionTrail: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  sectionTrail: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    minHeight: 44,
+    paddingHorizontal: space.sm,
+  },
   sectionCount: {
     ...sans(400),
     color: color.textDim,
     fontSize: font.small,
     fontVariant: ['tabular-nums'],
   },
-  sectionAction: { justifyContent: 'center' },
+  sectionAction: {
+    minHeight: 44,
+    minWidth: 44,
+    paddingHorizontal: space.xs,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   sectionActionLabel: { ...sans(400), color: deckColor.proposalText, fontSize: font.small },
   gutter: { width: GUTTER, alignItems: 'center', justifyContent: 'center' },
   // Row glyphs sit on the title's first line (Reminders, Mail), whatever the

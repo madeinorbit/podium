@@ -12,6 +12,11 @@ import { renderWithMobileStore } from '../client/test-support'
 
 afterEach(cleanup)
 
+const dimensions = vi.hoisted(() => ({ fontScale: 1 }))
+vi.mock('react-native', async (original) => ({
+  ...(await original<object>()),
+  useWindowDimensions: () => ({ width: 402, height: 874, scale: 1, ...dimensions }),
+}))
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
   NotificationFeedbackType: { Error: 'error' },
@@ -149,11 +154,36 @@ describe('MissionDeck', () => {
     await act(async () => fireEvent.click(done))
     expect(done.getAttribute('aria-checked')).toBe('false')
     expect(done.textContent).toBe('Show Done')
-    expect(getComputedStyle(done).backgroundColor).not.toBe(
-      getComputedStyle(screen.getByTestId('deck-filter-all')).backgroundColor,
-    )
+    // The selected segment's thumb is drawn inside its 44pt hit area.
+    const thumb = screen.getByTestId('deck-filter-all').firstElementChild
+    if (!(thumb instanceof HTMLElement)) throw new Error('Missing segment thumb')
+    expect(getComputedStyle(thumb).backgroundColor).not.toBe('rgba(0, 0, 0, 0.00)')
+    expect(getComputedStyle(done).backgroundColor).not.toBe(getComputedStyle(thumb).backgroundColor)
     await act(async () => fireEvent.click(screen.getByTestId('deck-filter-active')))
     expect(selected().map((tab) => tab.dataset.testid)).toEqual(['deck-filter-active'])
+  })
+
+  it('stacks the filters as full-size choice rows at accessibility text sizes', async () => {
+    dimensions.fontScale = 1.8
+    try {
+      await mount()
+      const tabs = screen.getAllByRole('tab')
+      expect(tabs.map((tab) => tab.dataset.testid)).toEqual([
+        'deck-filter-all',
+        'deck-filter-needs-you',
+        'deck-filter-active',
+        'deck-filter-up-next',
+      ])
+      await act(async () => fireEvent.click(screen.getByTestId('deck-filter-active')))
+      expect(
+        screen
+          .getAllByRole('tab')
+          .filter((tab) => tab.getAttribute('aria-selected') === 'true')
+          .map((tab) => tab.dataset.testid),
+      ).toEqual(['deck-filter-active'])
+    } finally {
+      dimensions.fontScale = 1
+    }
   })
 
   it('opens a task on tap and its menu on long press', async () => {
