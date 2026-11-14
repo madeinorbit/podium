@@ -1,5 +1,3 @@
-import { seedIssueFixtures } from '../client/issue-fixtures'
-import { asUserId } from '@podium/model'
 // @vitest-environment happy-dom
 /**
  * The mobile pane's two contracts that are not xterm's: WHEN it attaches, and
@@ -37,14 +35,14 @@ import { asUserId } from '@podium/model'
  */
 import { useRuntimeSelector } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { asIssueId, asSessionId, type SessionId, type SessionMeta } from '@podium/model'
+import { asIssueId, asSessionId, asUserId, type SessionId, type SessionMeta } from '@podium/model'
 import type { MountSessionOptions } from '@podium/terminal-client/session-mount'
 import { cleanup } from '@testing-library/react'
 import { act, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { seedIssueFixtures } from '../client/issue-fixtures'
 import { renderWithMobileStore } from '../client/test-support'
-import type { MobileTrpc } from '../client/trpc'
-import type { TerminalControlState } from './terminal-control'
+import { type TerminalControlState, terminalControlCopy } from './terminal-control'
 
 /**
  * The mount's callbacks, kept from the last `mountSession` call so a test can
@@ -144,7 +142,7 @@ let control: {
 } | null = null
 
 function CreateThenAttach() {
-  const store = useRuntimeSelector(s => s)
+  const store = useRuntimeSelector((s) => s)
   const [sessionId, setSessionId] = useState<SessionId | null>(null)
   control = {
     spawn: () => store.spawnDraftAgent({ target: TARGET, agentKind: 'claude-code' }).sessionId,
@@ -362,27 +360,30 @@ describe('TerminalPane take control (POD-724)', () => {
     expect(pane.latest()?.role).toBe('controller')
   })
 
-  it('the caption says only what the server said: spectating on its grid, then in control on the new one', async () => {
+  it('publishes the confirmed state and grid for the header without a separate control caption', async () => {
     // POD-3190 rev 3 deleted the "fitting" state between the two. It read a
     // pending ask the phone kept for itself, and an ask the host refuses is
     // never answered — the caption stayed on "fitting" forever.
     const sessionId = asSessionId('sess-caption')
     const pane = await mountPane(sessionId)
-    const SPECTATING = 'Following the shared 103×28 terminal — take control to fit this phone.'
-    const CONTROLLING = 'In control — phone grid 62×36.'
+    const subtitle = () => {
+      const state = pane.latest()
+      if (!state) throw new Error('The pane did not publish its control state')
+      return terminalControlCopy(state).status
+    }
 
     await report('spectator')
-    expect(pane.view.queryByText(SPECTATING)).not.toBeNull()
+    expect(subtitle()).toBe('Spectating · 103×28')
+    expect(pane.view.queryByText(/Following the shared/)).toBeNull()
 
     act(() => pane.latest()?.takeControl())
-    expect(
-      pane.view.queryByText(SPECTATING),
-      'a claim changes nothing until the server answers',
-    ).not.toBeNull()
+    expect(subtitle(), 'a claim changes nothing until the server answers').toBe(
+      'Spectating · 103×28',
+    )
 
     await report('controller')
-    expect(pane.view.queryByText(SPECTATING)).toBeNull()
-    expect(pane.view.queryByText(CONTROLLING)).not.toBeNull()
+    expect(subtitle()).toBe('In control · 62×36')
+    expect(pane.view.queryByText(/phone grid/)).toBeNull()
   })
 })
 
@@ -431,7 +432,11 @@ describe('TerminalPane ref underlines (POD-724)', () => {
     // moving to review must re-arm the overlay, or it keeps yesterday's colour.
     setRefLinksMock.mockClear()
     await act(async () => {
-      seedIssueFixtures(replica, [issueRow({ id: 'iss-7', seq: 7, stage: 'review' })], asUserId('user:test'))
+      seedIssueFixtures(
+        replica,
+        [issueRow({ id: 'iss-7', seq: 7, stage: 'review' })],
+        asUserId('user:test'),
+      )
       await Promise.resolve()
     })
     expect(setRefLinksMock).toHaveBeenCalled()
@@ -439,7 +444,11 @@ describe('TerminalPane ref underlines (POD-724)', () => {
     for (const closedReason of ['done', 'cancelled', 'duplicate', 'superseded']) {
       setRefLinksMock.mockClear()
       await act(async () => {
-        seedIssueFixtures(replica, [issueRow({ id: 'iss-7', seq: 7, stage: 'done', closedReason })], asUserId('user:test'))
+        seedIssueFixtures(
+          replica,
+          [issueRow({ id: 'iss-7', seq: 7, stage: 'done', closedReason })],
+          asUserId('user:test'),
+        )
         await Promise.resolve()
       })
       expect(setRefLinksMock).toHaveBeenCalled()

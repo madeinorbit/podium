@@ -12,8 +12,8 @@ import type { ConnectionState } from '@podium/client-core/socket-transport'
  *
  * So the takeover becomes an action, and an action with a consequence someone
  * else can see needs to say so before it is tapped. Copy lives here rather than
- * in the button because two surfaces speak it — the header action's accessible
- * label and the pane's caption — and they must never drift apart.
+ * in the button because the native menu and fallback header button share the
+ * action, while the navigation subtitle names the state and grid.
  */
 
 export type TerminalRole = ConnectionState['role']
@@ -22,8 +22,7 @@ export type TerminalRole = ConnectionState['role']
 export interface TerminalControlState {
   role: TerminalRole
   /** The grid the SERVER holds, or `undefined` before this connection has been
-   *  told one (POD-3239 B8). The caption says so rather than naming a number
-   *  nobody has stated. */
+   *  told one (POD-3239 B8). The subtitle omits an unknown grid. */
   cols: number | undefined
   rows: number | undefined
   /** The mount is attached: a takeover request has somewhere to land. */
@@ -40,7 +39,7 @@ export type TerminalControlView = Pick<TerminalControlState, 'role' | 'cols' | '
  * who drives, and the grid it holds. There is no in-between "fitting" state
  * (POD-3190 rev 3): the phone keeps no record of what it asked for, because an
  * ask the host refuses is never answered and such a state would never end. The
- * caption names the new grid when the server reports it.
+ * subtitle names the new grid when the server reports it.
  */
 export function terminalControlView(
   state: Pick<ConnectionState, 'role' | 'cols' | 'rows'>,
@@ -52,37 +51,24 @@ export interface TerminalControlCopy {
   /** Accessible label for the header action. HeaderButton has no hint slot, so
    *  the consequence is carried here — the label IS the warning. */
   label: string
-  /** Header subtitle fragment: the state, at a glance, beside the control. */
+  /** Native subtitle fragment, including only the server-confirmed grid. */
   status: string
-  /**
-   * The line under the header, in the pane. ALWAYS a string, never dropped in
-   * one state: the pane is a flex column, so a caption that vanished on takeover
-   * would change the terminal's height at the exact moment the takeover is
-   * resizing the PTY — a second SIGWINCH chasing the first. Colour alone is also
-   * not a state signal, so the sighted reading of "who is driving" lives here.
-   */
-  caption: string
 }
 
 export function terminalControlCopy(control: TerminalControlState): TerminalControlCopy {
+  const grid =
+    control.cols === undefined || control.rows === undefined
+      ? ''
+      : ` · ${control.cols}×${control.rows}`
   if (control.role === 'controller') {
     return {
-      label: 'In control — the terminal is sized to this phone. Tap to re-claim it.',
-      status: 'In control',
-      caption:
-        control.cols === undefined || control.rows === undefined
-          ? 'In control.'
-          : `In control — phone grid ${control.cols}×${control.rows}.`,
+      label: 'Refit shared terminal to this phone',
+      status: `In control${grid}`,
     }
   }
   return {
-    label: 'Take control — resizes the shared terminal to fit this phone',
-    status: 'Spectating',
-    // Names the crop AND the price of fixing it. Whoever is at the desk sees
-    // the new geometry, so that must not be a surprise discovered afterwards.
-    caption:
-      control.cols === undefined || control.rows === undefined
-        ? 'Following the shared terminal — take control to fit this phone.'
-        : `Following the shared ${control.cols}×${control.rows} terminal — take control to fit this phone.`,
+    // Taking control changes the shared terminal's geometry for the desk too.
+    label: 'Take control and resize shared terminal to fit this phone',
+    status: `Spectating${grid}`,
   }
 }

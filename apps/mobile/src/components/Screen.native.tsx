@@ -31,6 +31,7 @@ export function Screen({
   onBack,
   backLabel,
   backTitle,
+  backButtonDisplayMode = 'minimal',
   backAs = 'chevron',
   leading,
   right,
@@ -57,6 +58,8 @@ export function Screen({
    * to its chat first. Unset, iOS names the previous screen.
    */
   backTitle?: string
+  /** Let UIKit show the previous screen's name when the bar has room. */
+  backButtonDisplayMode?: 'default' | 'generic' | 'minimal'
   backAs?: 'chevron' | 'text'
   leading?: ReactNode
   /** Custom trailing header content. Prefer `actions`, which draws native bar items. */
@@ -127,7 +130,7 @@ export function Screen({
           headerLargeTitleShadowVisible: false,
           headerShadowVisible: false,
           headerTransparent: transparentBar,
-          headerBackButtonDisplayMode: 'minimal',
+          headerBackButtonDisplayMode: backButtonDisplayMode,
           // Always set: stack options merge, so an omitted key would keep a
           // title set while the screen showed another page.
           headerBackTitle: backTitle,
