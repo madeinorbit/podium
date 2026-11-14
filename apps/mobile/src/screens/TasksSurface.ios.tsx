@@ -76,6 +76,7 @@ import { listRowPress, listSearchStartsHidden } from '../components/list-row-pre
 import { ListSearchBar } from '../components/list-search-bar.ios'
 import { NativeGroupHeader } from '../components/NativeGroupHeader.ios'
 import { RefreshOffer } from '../components/RefreshOffer'
+import { RevealSwipeActions } from '../components/RevealSwipeActions.ios'
 import { Screen } from '../components/Screen'
 import { StorageNoticeAlert } from '../components/StorageNoticeAlert'
 import { ANY, useProjectFacet } from '../components/task-filter-facets'
@@ -621,7 +622,7 @@ const TaskRow = taskObserver(function TaskRow({
           })}
         </ContextMenu.Items>
       </ContextMenu>
-      <SwipeActions.Actions edge="trailing" allowsFullSwipe={false}>
+      <RevealSwipeActions edge="trailing">
         {finished ? null : (
           <Button
             label="Close"
@@ -636,7 +637,7 @@ const TaskRow = taskObserver(function TaskRow({
           onPress={() => props.onAction(issue.id, 'status')}
           modifiers={[tint('#636366')]}
         />
-      </SwipeActions.Actions>
+      </RevealSwipeActions>
     </SwipeActions>
   )
 })

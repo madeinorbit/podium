@@ -258,12 +258,12 @@ async function mount(count = 1, reduceMotion = false, accepted = 0) {
 }
 
 it.each([
-  ['leading', 'Start', 'start', 'Started'],
-  ['leading', 'Backlog', 'promote', 'In backlog'],
-  ['trailing', 'Dismiss', 'close', 'Dismissed'],
-] as const)('native %s swipe %s calls the desktop action and shows its receipt', async (edge, label, command, receipt) => {
+  ['Start', 'start', 'Started'],
+  ['Backlog', 'promote', 'In backlog'],
+  ['Dismiss', 'close', 'Dismissed'],
+] as const)('a tap on the revealed swipe button %s calls the desktop action and shows its receipt', async (label, command, receipt) => {
   const f = await mount()
-  const group = screen.getByTestId(`swipe-${edge}`)
+  const group = screen.getByTestId('swipe-trailing')
   fireEvent.click(within(group).getByRole('button', { name: label }))
   await waitFor(() => expect(f.commands.issues[command].mutate).toHaveBeenCalledOnce())
   expect(f.commands.issues[command].mutate).toHaveBeenCalledWith(
@@ -277,17 +277,18 @@ it.each([
   if (command === 'start') expect(f.commands.issues.promote.mutate).not.toHaveBeenCalled()
 })
 
-it('makes Start the leading full-swipe action and keeps Dismiss red without native optimistic deletion', async () => {
+it('only reveals proposal actions on the trailing edge and never commits a full swipe', async () => {
   await mount()
-  const leading = screen.getByTestId('swipe-leading')
-  expect(leading.dataset.fullSwipe).toBe('true')
-  expect(
-    within(leading)
-      .getAllByRole('button')
-      .map((button) => button.textContent),
-  ).toEqual(['Start', 'Backlog'])
+  // A left-to-right flick on the deck page pages back to the chat; nothing may
+  // sit under it, least of all Start [POD-2527].
+  expect(screen.queryByTestId('swipe-leading')).toBeNull()
   const trailing = screen.getByTestId('swipe-trailing')
   expect(trailing.dataset.fullSwipe).toBe('false')
+  expect(
+    within(trailing)
+      .getAllByRole('button')
+      .map((button) => button.textContent),
+  ).toEqual(['Start', 'Backlog', 'Dismiss'])
   const dismiss = within(trailing).getByRole('button', { name: 'Dismiss' })
   expect(dismiss.dataset.nativeRole).toBeUndefined()
   expect(dismiss.dataset.tint).toBe('#e5303f')
@@ -406,10 +407,10 @@ it('keeps the POD-2403 completed leaf and hibernated seat readable through catch
 })
 
 it.each([
-  ['leading', 'Start', 'start', 'Starting…', 'Started', 'in_progress'],
-  ['leading', 'Backlog', 'promote', 'Adding to backlog…', 'In backlog', 'backlog'],
-  ['trailing', 'Dismiss', 'close', 'Dismissing…', 'Dismissed', 'done'],
-] as const)('%s %s removes controls and retains the same cell through stage publication', async (edge, label, command, pending, receipt, stage) => {
+  ['Start', 'start', 'Starting…', 'Started', 'in_progress'],
+  ['Backlog', 'promote', 'Adding to backlog…', 'In backlog', 'backlog'],
+  ['Dismiss', 'close', 'Dismissing…', 'Dismissed', 'done'],
+] as const)('swipe %s removes controls and retains the same cell through stage publication', async (label, command, pending, receipt, stage) => {
   const f = await mount(3)
   vi.useFakeTimers()
   const slot = screen.getByTestId('deck-proposal-slot-proposal-1')
@@ -426,7 +427,7 @@ it.each([
       }),
   )
   fireEvent.click(
-    within(within(slot).getByTestId(`swipe-${edge}`)).getByRole('button', { name: label }),
+    within(within(slot).getByTestId('swipe-trailing')).getByRole('button', { name: label }),
   )
   expect(within(slot).getByText(pending)).toBeTruthy()
   expect(within(slot).queryByTestId('swipe-leading')).toBeNull()
@@ -480,7 +481,7 @@ it('keeps the last positive content height when a receipt cell leaves and re-ent
   const slot = screen.getByTestId('deck-proposal-slot-proposal-50')
   fireEvent.mouseEnter(slot)
   fireEvent.click(
-    within(within(slot).getByTestId('swipe-leading')).getByRole('button', { name: 'Backlog' }),
+    within(within(slot).getByTestId('swipe-trailing')).getByRole('button', { name: 'Backlog' }),
   )
   await act(async () => {})
   expect(within(slot).getByText('In backlog')).toBeTruthy()
@@ -539,7 +540,9 @@ it('keeps native proposal action trees inside the shared 40-row window', async (
   expect(screen.getByText('Proposal 500')).toBeTruthy()
   expect(screen.queryByText('Proposal 0')).toBeNull()
   const group = within(screen.getByTestId('deck-proposal-slot-proposal-500'))
-  fireEvent.click(within(group.getByTestId('swipe-leading')).getByRole('button', { name: 'Start' }))
+  fireEvent.click(
+    within(group.getByTestId('swipe-trailing')).getByRole('button', { name: 'Start' }),
+  )
   expect(await group.findByText('Started')).toBeTruthy()
 })
 

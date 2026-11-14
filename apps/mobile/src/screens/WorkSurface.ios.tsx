@@ -82,6 +82,7 @@ import { listRowPress, listSearchStartsHidden } from '../components/list-row-pre
 import { ListSearchBar } from '../components/list-search-bar.ios'
 import { NativeGroupHeader } from '../components/NativeGroupHeader.ios'
 import { NewWorkButton } from '../components/NewWorkButton'
+import { RevealSwipeActions } from '../components/RevealSwipeActions.ios'
 import { WorkingMark } from '../components/WorkingMark'
 import { useAgeNow } from '../lib/clock-hooks'
 import { listOrderRevision } from '../lib/list-order-revision'
@@ -718,7 +719,7 @@ const NativeWorkRow = observer(function NativeWorkRow(props: RowProps) {
   )
 })
 
-/** Trailing swipe: Close (full swipe) and Status on open rows; the fold's inverse elsewhere. */
+/** Trailing swipe reveals Close and Status on open rows (the fold's inverse elsewhere); only a tap acts. */
 function NativeSwipeActions({
   id,
   lane,
@@ -730,28 +731,28 @@ function NativeSwipeActions({
 }) {
   if (lane === 'snoozed')
     return (
-      <SwipeActions.Actions edge="trailing">
+      <RevealSwipeActions edge="trailing">
         <Button
           label="Unsnooze"
           systemImage="sun.max"
           onPress={() => onSwipe(id, 'undefer')}
           modifiers={[tint(color.workingText)]}
         />
-      </SwipeActions.Actions>
+      </RevealSwipeActions>
     )
   if (lane === 'closed')
     return (
-      <SwipeActions.Actions edge="trailing">
+      <RevealSwipeActions edge="trailing">
         <Button
           label="Bring Back"
           systemImage="arrow.uturn.backward"
           onPress={() => onSwipe(id, 'bringBack')}
           modifiers={[tint(color.workingText)]}
         />
-      </SwipeActions.Actions>
+      </RevealSwipeActions>
     )
   return (
-    <SwipeActions.Actions edge="trailing">
+    <RevealSwipeActions edge="trailing">
       <Button
         label="Close"
         systemImage="checkmark.circle"
@@ -764,7 +765,7 @@ function NativeSwipeActions({
         onPress={() => onSwipe(id, 'status')}
         modifiers={[tint(color.workingText)]}
       />
-    </SwipeActions.Actions>
+    </RevealSwipeActions>
   )
 }
 

@@ -31,9 +31,10 @@ const refOf = (issue: IssueViewModel) => issue.displayRef ?? `#${issue.seq}`
  * "Screen proposed" [POD-277] — one agent proposal at a time, decided in a
  * couple of seconds from the couch.
  *
- * Right (or the Start button) promotes the proposal and starts its agent; left
- * (or Decline) closes it as `cancelled`; Skip advances without touching the issue,
- * so it stays proposed for the next pass. Decisions apply optimistically — the
+ * Start promotes the proposal and starts its agent; Decline closes it as
+ * `cancelled`. Both are buttons only, so no swipe changes a task [POD-2527].
+ * Skip (the button, or swiping the card either way) advances without touching
+ * the issue, so it stays proposed for the next pass. Decisions apply optimistically — the
  * next card is immediately live — and a mutation that fails surfaces as a
  * retryable banner rather than a silently lost decision.
  *
@@ -239,12 +240,12 @@ export const ProposalScreeningScreen = observer(function ProposalScreeningScreen
               issue={current}
               repoName={repoName(current)}
               parent={current.parentId ? issueById(current.parentId) : undefined}
-              onDecide={(gesture) => decide(current, gesture)}
+              onSkip={() => decide(current, 'skipped')}
               onOpen={() => router.push(`/issue/${encodeURIComponent(current.id)}`)}
             />
           </View>
         </View>
-        <Text style={styles.hint}>Swipe right to start · left to decline</Text>
+        <Text style={styles.hint}>Swipe to skip · tap Start or Decline to decide</Text>
       </View>
     )
   })()
@@ -303,7 +304,7 @@ export const ProposalScreeningScreen = observer(function ProposalScreeningScreen
           <View style={[styles.actions, { paddingBottom: Math.max(insets.bottom, space.md) }]}>
             <ActionButton
               label="Decline"
-              hint={`Close ${refOf(current)} as won't fix — same as swiping left`}
+              hint={`Close ${refOf(current)} as won't fix`}
               icon={X}
               tint={color.dangerText}
               onPress={() => decide(current, 'declined')}
@@ -317,7 +318,7 @@ export const ProposalScreeningScreen = observer(function ProposalScreeningScreen
             />
             <ActionButton
               label="Start"
-              hint={`Accept ${refOf(current)} and start its agent — same as swiping right`}
+              hint={`Accept ${refOf(current)} and start its agent`}
               icon={Play}
               tint={color.accent}
               primary

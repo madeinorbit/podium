@@ -22,6 +22,7 @@ import { observer } from 'mobx-react-lite'
 import { color } from '../theme/theme'
 import { deckColor } from './deck-colors'
 import type { MissionProposalRowProps } from './mission-proposal-row.types'
+import { RevealSwipeActions } from './RevealSwipeActions.ios'
 
 /** SwiftUI List owns the swipe and context menu; every action uses desktop's shared command. */
 export const MissionProposalRow = observer(function MissionProposalRow({
@@ -148,32 +149,31 @@ export const MissionProposalRow = observer(function MissionProposalRow({
         )}
       </ContextMenu>
       {busy ? null : (
-        <>
-          <SwipeActions.Actions edge="leading" allowsFullSwipe>
-            <Button
-              label="Start"
-              systemImage="play"
-              onPress={() => onSubmit('start')}
-              modifiers={[tint(deckColor.proposal)]}
-            />
-            <Button
-              label="Backlog"
-              systemImage="tray"
-              onPress={() => onSubmit('backlog')}
-              modifiers={[tint('#636366')]}
-            />
-          </SwipeActions.Actions>
-          <SwipeActions.Actions edge="trailing" allowsFullSwipe={false}>
-            {/* A destructive swipe role lets SwiftUI remove the cell before the
-            command finishes. Keep its red tint while our receipt owns removal. */}
-            <Button
-              label="Dismiss"
-              systemImage="xmark"
-              onPress={() => onSubmit('dismiss')}
-              modifiers={[tint(color.danger)]}
-            />
-          </SwipeActions.Actions>
-        </>
+        // Trailing only: on the flight deck page a left-to-right drag always
+        // pages back to the chat, so no proposal action sits under it. The
+        // swipe reveals the buttons; only a tap acts [POD-2527].
+        <RevealSwipeActions edge="trailing">
+          <Button
+            label="Start"
+            systemImage="play"
+            onPress={() => onSubmit('start')}
+            modifiers={[tint(deckColor.proposal)]}
+          />
+          <Button
+            label="Backlog"
+            systemImage="tray"
+            onPress={() => onSubmit('backlog')}
+            modifiers={[tint('#636366')]}
+          />
+          {/* A destructive swipe role lets SwiftUI remove the cell before the
+          command finishes. Keep its red tint while our receipt owns removal. */}
+          <Button
+            label="Dismiss"
+            systemImage="xmark"
+            onPress={() => onSubmit('dismiss')}
+            modifiers={[tint(color.danger)]}
+          />
+        </RevealSwipeActions>
       )}
     </SwipeActions>
   )

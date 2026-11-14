@@ -109,7 +109,7 @@ it('shows and follows the Settings harness for an auto proposal', () => {
     <ScreeningCard
       issue={{ ...issue, defaultAgent: 'auto' }}
       repoName="podium"
-      onDecide={vi.fn()}
+      onSkip={vi.fn()}
       onOpen={vi.fn()}
     />,
   )
@@ -162,9 +162,9 @@ describe('ScreeningCard motion', () => {
   })
 
   it('uses the live preference for snap-back policy and preserves the fade callback', () => {
-    const onDecide = vi.fn()
+    const onSkip = vi.fn()
     const card = () => (
-      <ScreeningCard issue={issue} repoName="podium" onDecide={onDecide} onOpen={vi.fn()} />
+      <ScreeningCard issue={issue} repoName="podium" onSkip={onSkip} onOpen={vi.fn()} />
     )
     const view = render(card())
 
@@ -190,7 +190,7 @@ describe('ScreeningCard motion', () => {
       { target: 0, suppressed: true },
     ])
     expect(motion.springs.mock.calls.map(([, config]) => config.velocity)).toEqual([20, 1])
-    expect(onDecide).not.toHaveBeenCalled()
+    expect(onSkip).not.toHaveBeenCalled()
 
     motion.springs.mockClear()
     motion.springExecutions.length = 0
@@ -207,20 +207,19 @@ describe('ScreeningCard motion', () => {
       reduceMotion: 'never',
     })
     expect(motion.timingExecutions).toEqual([{ target: 0, suppressed: false }])
-    expect(onDecide).toHaveBeenCalledOnce()
-    expect(onDecide).toHaveBeenCalledWith('accepted')
+    expect(onSkip).toHaveBeenCalledOnce()
+    expect(onSkip).toHaveBeenCalledWith()
   })
 
   it.each([
-    { distance: 120, releaseVelocity: -1_200, verdict: 'accepted' },
-    { distance: -120, releaseVelocity: 1_200, verdict: 'declined' },
-  ] as const)('clamps opposing exit velocity for a $verdict distance commit', ({
+    { distance: 120, releaseVelocity: -1_200, side: 'right' },
+    { distance: -120, releaseVelocity: 1_200, side: 'left' },
+  ] as const)('clamps opposing exit velocity and only skips for a $side distance swipe', ({
     distance,
     releaseVelocity,
-    verdict,
   }) => {
-    const onDecide = vi.fn()
-    render(<ScreeningCard issue={issue} repoName="podium" onDecide={onDecide} onOpen={vi.fn()} />)
+    const onSkip = vi.fn()
+    render(<ScreeningCard issue={issue} repoName="podium" onSkip={onSkip} onOpen={vi.fn()} />)
 
     act(() => {
       motion.gesture?.onActivate()
@@ -235,6 +234,8 @@ describe('ScreeningCard motion', () => {
     expect(motion.springs).toHaveBeenCalledTimes(2)
     const [, config] = motion.springs.mock.calls[1] ?? []
     expect(config).toMatchObject({ velocity: 0 })
-    expect(onDecide).toHaveBeenCalledWith(verdict)
+    // A swipe never starts or declines a proposal: it only moves on [POD-2527].
+    expect(onSkip).toHaveBeenCalledOnce()
+    expect(onSkip).toHaveBeenCalledWith()
   })
 })

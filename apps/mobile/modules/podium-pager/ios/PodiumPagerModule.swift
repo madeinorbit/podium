@@ -18,10 +18,14 @@ import UIKit
 ///   second page (from the edge too) pages back, however busy JS is.
 /// - Inner horizontal scrollers (code blocks, tables) that can still move in the
 ///   drag's direction scroll first; at their edge the next drag pages.
-/// - Row swipe actions must fail before the pager begins (and if UIKit's swipe
-///   recognizer cannot be identified, drags that start on a list row are left to
-///   the row), and an active text
-///   selection, context menu or other gesture under the finger keeps it still.
+/// - Row swipe actions wait for the pager. A rightward drag away from the first
+///   page always pages back, even across a row, so a page-back flick can never
+///   be read as a row swipe [POD-2527]. A leftward drag that starts on a list row
+///   belongs to the row's trailing actions, and while a row shows its actions a
+///   drag on that list closes them instead of paging. Row actions only reveal
+///   (RevealSwipeActions); none commits on a full swipe.
+/// - An active text selection, context menu or other gesture under the finger
+///   keeps the pager still.
 ///   Drags that start on the composer or a text input never page.
 public final class PodiumPagerModule: Module {
   public func definition() -> ModuleDefinition {
@@ -305,24 +309,28 @@ final class PagerScrollView: UIScrollView {
     return !somethingUnderFingerClaims(start, dx: dx)
   }
 
-  /// Every scroller inside a page waits for the pager's axis decision.
+  /// Every scroller and row swipe inside a page waits for the pager's decision.
   @objc(gestureRecognizer:shouldBeRequiredToFailByGestureRecognizer:)
   func pagerShouldBeRequiredToFail(
     _ gestureRecognizer: UIGestureRecognizer,
     by other: UIGestureRecognizer
   ) -> Bool {
-    if gestureRecognizer === panGestureRecognizer, isInnerScrollPan(other) { return true }
+    if gestureRecognizer === panGestureRecognizer,
+      isInnerScrollPan(other) || isInnerRowSwipe(other)
+    {
+      return true
+    }
     return forwardRelation(
       #selector(pagerShouldBeRequiredToFail(_:by:)), gestureRecognizer, other)
   }
 
-  /// Row swipe actions (Start, Backlog, Dismiss) decide before the pager does.
+  /// The pager waits for nothing inside its pages: row swipes wait for it
+  /// instead (above), so the direction decides who gets the drag.
   @objc(gestureRecognizer:shouldRequireFailureOfGestureRecognizer:)
   func pagerShouldRequireFailure(
     _ gestureRecognizer: UIGestureRecognizer,
     of other: UIGestureRecognizer
   ) -> Bool {
-    if gestureRecognizer === panGestureRecognizer, isInnerRowSwipe(other) { return true }
     return forwardRelation(
       #selector(pagerShouldRequireFailure(_:of:)), gestureRecognizer, other)
   }
@@ -353,13 +361,12 @@ final class PagerScrollView: UIScrollView {
       if let textView = current as? UITextView, textView.isEditable { return true }
       if current is UITextField { return true }
       if let scrollView = current as? UIScrollView, canScroll(scrollView, dx: dx) { return true }
-      if current is UICollectionViewListCell, point.x - contentOffset.x > edgeBand,
-        let list = current.superview as? UICollectionView ?? enclosingCollectionView(of: current),
-        !hasRowSwipeRecognizer(list)
-      {
-        // Fallback for a UIKit whose swipe-actions recognizer no longer matches
-        // the names below: the row may have swipe actions, so leave it the drag.
-        return true
+      if isListRow(current) {
+        // Leftward drags on a row reveal its trailing actions. A rightward drag
+        // pages back (row swipes wait for the pager), unless a row in this list
+        // shows its actions: then the drag closes them.
+        if dx < 0 { return true }
+        if let list = enclosingList(of: current), showsSwipeActions(list) { return true }
       }
       for recognizer in current.gestureRecognizers ?? []
       where (recognizer.state == .began || recognizer.state == .changed) && holdsTouch(recognizer) {
@@ -370,8 +377,26 @@ final class PagerScrollView: UIScrollView {
     return false
   }
 
-  /// A drag starting this close to the leading screen edge is always a page-back.
-  private let edgeBand: CGFloat = 24
+  /// A list row that may carry swipe actions: a list or table cell, or any cell
+  /// of a collection view that has UIKit's row swipe recognizer.
+  private func isListRow(_ view: UIView) -> Bool {
+    if view is UICollectionViewListCell || view is UITableViewCell { return true }
+    guard view is UICollectionViewCell, let list = enclosingCollectionView(of: view) else {
+      return false
+    }
+    return (list.gestureRecognizers ?? []).contains {
+      isRowSwipeName(NSStringFromClass(type(of: $0)))
+    }
+  }
+
+  private func enclosingList(of view: UIView) -> UIScrollView? {
+    var next = view.superview
+    while let current = next, current !== self {
+      if current is UICollectionView || current is UITableView { return current as? UIScrollView }
+      next = current.superview
+    }
+    return nil
+  }
 
   private func enclosingCollectionView(of view: UIView) -> UICollectionView? {
     var next = view.superview
@@ -382,8 +407,20 @@ final class PagerScrollView: UIScrollView {
     return nil
   }
 
-  private func hasRowSwipeRecognizer(_ list: UICollectionView) -> Bool {
-    (list.gestureRecognizers ?? []).contains { isRowSwipeName(NSStringFromClass(type(of: $0))) }
+  /// Whether a row of `list` currently shows its swipe buttons (UIKit's pull
+  /// view sits in the row while the actions are revealed).
+  private func showsSwipeActions(_ list: UIView, depth: Int = 0) -> Bool {
+    guard depth < 5 else { return false }
+    for child in list.subviews where !child.isHidden && child.alpha > 0.01 {
+      let name = NSStringFromClass(type(of: child))
+      if name.contains("SwipeActionPullView") || name.contains("SwipeActionStandardButton"),
+        child.bounds.width > 1
+      {
+        return true
+      }
+      if showsSwipeActions(child, depth: depth + 1) { return true }
+    }
+    return false
   }
 
   private func isRowSwipeName(_ name: String) -> Bool {
