@@ -18,7 +18,7 @@ import type { ReactNode } from 'react'
 import { StyleSheet, View } from 'react-native'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import { listOrderRevision } from '../lib/list-order-revision'
-import { color, space } from '../theme/theme'
+import { color } from '../theme/theme'
 
 /** One native list owns scrolling and proposal swipe gestures. The deck reads FullDeck unchanged. */
 export function MissionDeckList({ children }: { children: ReactNode }) {
@@ -48,15 +48,23 @@ export function DeckContent({ children }: { children: ReactNode }) {
   )
 }
 
+/** Header content takes no SwiftUI header insets: the deck sets its own 4pt rhythm. */
 function Content({ children }: { children: ReactNode }) {
   return (
-    <RNHostView matchContents={{ vertical: true }}>
-      <View collapsable={false} style={styles.content}>
-        {children}
-      </View>
-    </RNHostView>
+    <VStack modifiers={headerInsets}>
+      <RNHostView matchContents={{ vertical: true }}>
+        <View collapsable={false} style={styles.content}>
+          {children}
+        </View>
+      </RNHostView>
+    </VStack>
   )
 }
+
+const headerInsets = [
+  frame({ maxWidth: Infinity, alignment: 'leading' }),
+  listRowInsets({ leading: 0, trailing: 0, top: 0, bottom: 0 }),
+]
 
 export function DeckGroup({
   children,
@@ -131,5 +139,6 @@ export function DeckProposals({
 const styles = StyleSheet.create({
   host: { flex: 1 },
   row: { width: '100%' },
-  content: { gap: space.md, paddingVertical: space.sm },
+  // Each header's own content sets its spacing (the deck's 4pt rhythm).
+  content: { width: '100%' },
 })

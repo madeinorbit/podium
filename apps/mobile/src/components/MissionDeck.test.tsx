@@ -136,20 +136,24 @@ describe('MissionDeck', () => {
     )
   })
 
-  it('styles Done like the other chips in both selected and unselected states', async () => {
+  it('selects exactly one filter, and Done is a toggle that never looks selected', async () => {
     await mount()
+    const selected = () =>
+      screen.getAllByRole('tab').filter((tab) => tab.getAttribute('aria-selected') === 'true')
+    expect(selected().map((tab) => tab.dataset.testid)).toEqual(['deck-filter-all'])
     const done = screen.getByTestId('deck-filter-done')
-    expect(getComputedStyle(done).backgroundColor).toBe(
+    expect(done.getAttribute('role')).toBe('switch')
+    // Shown by default (desktop): the label names what a tap does.
+    expect(done.getAttribute('aria-checked')).toBe('true')
+    expect(done.textContent).toBe('Hide Done')
+    await act(async () => fireEvent.click(done))
+    expect(done.getAttribute('aria-checked')).toBe('false')
+    expect(done.textContent).toBe('Show Done')
+    expect(getComputedStyle(done).backgroundColor).not.toBe(
       getComputedStyle(screen.getByTestId('deck-filter-all')).backgroundColor,
     )
     await act(async () => fireEvent.click(screen.getByTestId('deck-filter-active')))
-    expect(getComputedStyle(done).backgroundColor).toBe(
-      getComputedStyle(screen.getByTestId('deck-filter-all')).backgroundColor,
-    )
-    await act(async () => fireEvent.click(done))
-    expect(getComputedStyle(done).backgroundColor).toBe(
-      getComputedStyle(screen.getByTestId('deck-filter-all')).backgroundColor,
-    )
+    expect(selected().map((tab) => tab.dataset.testid)).toEqual(['deck-filter-active'])
   })
 
   it('opens a task on tap and its menu on long press', async () => {
@@ -190,13 +194,20 @@ describe('MissionDeck', () => {
   })
 
   it('names the root lead Coordinator and marks the open seat', async () => {
-    const lead = agent('s-lead', 'root', 'Mission lead', 'working')
+    const lead = {
+      ...agent('s-lead', 'root', 'Mission lead', 'working'),
+      observedModel: 'claude-opus-5-5',
+    } as SessionView
     const withLead = { ...root, coordinatorSessionId: asSessionId('s-lead') } as IssueViewModel
     const { props } = await mount([withLead, quiet], [lead], 's-lead')
     const seat = screen.getByTestId('deck-seat')
     expect(seat.getAttribute('aria-label')).toBe('Coordinator, Working, open')
+    // A full-bleed tint the card clips; no inner border or radius of its own.
     expect(getComputedStyle(seat).backgroundColor).toBe('rgba(111, 157, 255, 0.13)')
-    expect(getComputedStyle(seat).borderWidth).toBe('1px')
+    expect(['', '0px']).toContain(getComputedStyle(seat).borderWidth)
+    expect(['', '0px']).toContain(getComputedStyle(seat).borderRadius)
+    expect(seat.textContent).toContain('Working · Opus 5.5')
+    expect(seat.textContent).not.toContain('claude-opus')
     fireEvent.click(seat)
     expect(props.onOpenSession).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: 's-lead' }),

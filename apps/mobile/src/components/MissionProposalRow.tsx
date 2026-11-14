@@ -87,7 +87,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.md,
     paddingVertical: space.md,
   },
-  separated: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: deckColor.proposalRing },
+  separated: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: color.hairline },
   ring: {
     width: 12,
     height: 12,

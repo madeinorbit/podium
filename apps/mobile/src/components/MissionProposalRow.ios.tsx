@@ -72,10 +72,10 @@ export const MissionProposalRow = observer(function MissionProposalRow({
           >
             <HStack
               alignment="top"
-              spacing={8}
+              spacing={12}
               modifiers={[
                 frame({ minWidth: 0, minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
-                padding({ vertical: 12 }),
+                padding({ vertical: 8 }),
                 contentShape(shapes.rectangle()),
               ]}
             >
@@ -83,9 +83,10 @@ export const MissionProposalRow = observer(function MissionProposalRow({
                 systemName="circle"
                 color={deckColor.proposal}
                 modifiers={[
-                  font({ textStyle: 'caption' }),
-                  fixedSize({ horizontal: true, vertical: true }),
-                  padding({ top: 4 }),
+                  font({ textStyle: 'footnote' }),
+                  // The task rows' 20pt glyph column.
+                  frame({ width: 20, alignment: 'center' }),
+                  padding({ top: 2 }),
                 ]}
               />
               <VStack
@@ -110,7 +111,7 @@ export const MissionProposalRow = observer(function MissionProposalRow({
                 </Text>
                 <Text
                   modifiers={[
-                    font({ textStyle: 'caption' }),
+                    font({ textStyle: 'footnote' }),
                     foregroundStyle(color.textDim),
                     fixedSize({ horizontal: false, vertical: true }),
                     frame({ maxWidth: Infinity, alignment: 'leading' }),
@@ -119,7 +120,7 @@ export const MissionProposalRow = observer(function MissionProposalRow({
                 {receipt ? (
                   <Text
                     modifiers={[
-                      font({ textStyle: 'caption' }),
+                      font({ textStyle: 'footnote' }),
                       foregroundStyle(status?.phase === 'error' ? color.dangerText : color.textDim),
                       accessibilityIdentifier('deck-proposal-receipt'),
                       fixedSize({ horizontal: false, vertical: true }),

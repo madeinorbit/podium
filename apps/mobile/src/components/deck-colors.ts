@@ -33,6 +33,8 @@ export const deckColor = {
     'rgba(162,28,175,0.5)',
     'rgba(217,70,239,0.5)',
   ),
+  /** UISegmentedControl's selected thumb on its tertiary-fill track. */
+  segmentThumb: adaptiveColor('#ffffff', '#636366', '#ffffff', '#7c7c80'),
   // Desktop's disjoint execution buckets. Attention counts never change these segments.
   gaugeDone: adaptiveColor('#1d4ed8', '#2a62f0', '#173ead', '#99b9ff'),
   gaugeWorking: adaptiveColor(

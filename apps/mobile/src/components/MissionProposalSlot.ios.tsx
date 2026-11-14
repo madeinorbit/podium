@@ -1,10 +1,10 @@
-import { Spacer, VStack } from '@expo/ui/swift-ui'
+import { HStack, Image, Spacer, VStack } from '@expo/ui/swift-ui'
 import {
   accessibilityIdentifier,
+  font,
   frame,
   listRowBackground,
   listRowInsets,
-  listRowSeparatorTint,
   onAppear,
   onDisappear,
   onGeometryChange,
@@ -12,7 +12,7 @@ import {
 import { observer } from 'mobx-react-lite'
 import { useEffect, useState } from 'react'
 import { useRowPrime } from '../lib/use-row-prime'
-import { deckColor } from './deck-colors'
+import { color } from '../theme/theme'
 import type { MissionProposalSlotProps } from './mission-proposal-slot.types'
 
 /** The shared native row window bounds rich swipe/menu trees while cells keep their measured heights. */
@@ -41,13 +41,28 @@ export const MissionProposalSlot = observer(function MissionProposalSlot({
         onGeometryChange((geometry) => {
           if (shown && geometry.height > 0) setHeight(geometry.height)
         }),
-        listRowBackground(deckColor.proposalFill),
-        listRowSeparatorTint(deckColor.proposalRing),
-        listRowInsets({ leading: 12, trailing: 12, top: 0, bottom: 0 }),
+        // The deck's card and the system separator, inset to the title as
+        // List draws it; the leading column matches task rows (16 + 20 + 12).
+        listRowBackground(color.groupedCard),
+        listRowInsets({ leading: 16, trailing: 16, top: 0, bottom: 0 }),
         accessibilityIdentifier(`deck-proposal-slot-${id}`),
       ]}
     >
-      {shown ? children : <Spacer modifiers={[frame({ height })]} />}
+      {shown ? (
+        children
+      ) : (
+        // The same leading ring column as the drawn row: List insets a row's
+        // separator past a leading Image once, so a cell first drawn as this
+        // placeholder keeps its separator at the title like its neighbours.
+        <HStack spacing={12} modifiers={[frame({ maxWidth: Infinity, alignment: 'leading' })]}>
+          <Image
+            systemName="circle"
+            color="transparent"
+            modifiers={[font({ textStyle: 'footnote' }), frame({ width: 20 })]}
+          />
+          <Spacer modifiers={[frame({ height })]} />
+        </HStack>
+      )}
     </VStack>
   )
 })

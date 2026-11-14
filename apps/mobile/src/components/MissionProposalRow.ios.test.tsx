@@ -326,7 +326,7 @@ it('gives proposal text the available width and sizes the ring with Dynamic Type
   expect(title.parentElement?.dataset.layoutPriority).toBe('1')
   const ring = title.parentElement?.parentElement?.querySelector('[data-native-symbol="circle"]')
   expect(ring?.getAttribute('data-size')).toBeNull()
-  expect(JSON.parse(ring?.getAttribute('data-font') ?? 'null')).toEqual({ textStyle: 'caption' })
+  expect(JSON.parse(ring?.getAttribute('data-font') ?? 'null')).toEqual({ textStyle: 'footnote' })
 })
 
 it('keeps the POD-2403 completed leaf and hibernated seat readable through catch-up and folds', async () => {

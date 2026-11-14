@@ -1,6 +1,6 @@
 import type { FullDeck } from '@podium/client-graph/mission-full-deck'
 import { StyleSheet, Text, View } from 'react-native'
-import { color, font, leading, mono, sans } from '../theme/theme'
+import { color, font, leading, sans } from '../theme/theme'
 import { deckColor } from './deck-colors'
 
 export interface DeckVitals {
@@ -84,7 +84,7 @@ const styles = StyleSheet.create({
     fontSize: font.tiny,
     lineHeight: leading(font.tiny),
   },
-  fraction: { ...mono(500), color: color.text, fontVariant: ['tabular-nums'] },
+  fraction: { ...sans(600), color: color.text, fontVariant: ['tabular-nums'] },
   needs: { color: deckColor.needsYou },
   working: { color: deckColor.working },
   gauge: {

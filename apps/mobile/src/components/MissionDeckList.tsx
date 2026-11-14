@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react'
 import { ScrollView, StyleSheet, View } from 'react-native'
 import { color, space } from '../theme/theme'
-import { deckColor } from './deck-colors'
 
 export function MissionDeckList({ children }: { children: ReactNode }) {
   return (
@@ -73,9 +72,7 @@ const styles = StyleSheet.create({
   },
   proposals: {
     borderRadius: 8,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: deckColor.proposalRing,
-    backgroundColor: deckColor.proposalFill,
+    backgroundColor: color.groupedCard,
     overflow: 'hidden',
   },
 })

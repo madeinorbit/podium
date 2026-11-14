@@ -1,4 +1,4 @@
-import { issueAgentKind, modelLabel } from '@podium/client-core/agent-models'
+import { issueAgentKind, modelName } from '@podium/client-core/agent-models'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
   type IssueNavigationModel,
@@ -29,7 +29,7 @@ import { observer } from 'mobx-react-lite'
 import { Fragment, type ReactNode, useEffect, useMemo, useState } from 'react'
 import { AppState, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useTrpc } from '../client/hooks'
-import { color, font, leading, mono, sans, space } from '../theme/theme'
+import { color, font, leading, radius, sans, space } from '../theme/theme'
 import { deckColor, deckWordColor } from './deck-colors'
 import { Icon } from './Icon'
 import { Check, ChevronDown, ChevronRight } from './icons'
@@ -38,7 +38,6 @@ import { DeckGauge, DeckVitalsLine, deckVitals } from './MissionGauge'
 import { MissionProposalRow } from './MissionProposalRow'
 import { MissionProposalSlot } from './MissionProposalSlot'
 import type { MissionProposalRowProps } from './mission-proposal-row.types'
-import { PressableScale } from './PressableScale'
 import { StageGlyph } from './StageGlyph'
 import { EmptyState } from './ui'
 import { WorkingMark } from './WorkingMark'
@@ -132,7 +131,12 @@ export const MissionDeck = observer(function MissionDeck({
           {vitals ? (
             <>
               <DeckGauge vitals={vitals} />
-              <DeckVitalsLine vitals={vitals} />
+              <View style={styles.vitalsRow}>
+                <View style={styles.vitalsText}>
+                  <DeckVitalsLine vitals={vitals} />
+                </View>
+                {acceptedTree?.filterable ? <DoneToggle full={full} /> : null}
+              </View>
             </>
           ) : (
             <Text style={styles.sub}>Loading tasks…</Text>
@@ -140,7 +144,7 @@ export const MissionDeck = observer(function MissionDeck({
         </View>
       </DeckContent>
       {rootSeats.length > 0 ? (
-        <DeckGroup testID="deck-crew">
+        <DeckGroup testID="deck-crew" header={<GroupGap />}>
           {rootSeats.map((id, index) => (
             <DeckRow key={id}>
               <SeatRow
@@ -157,7 +161,9 @@ export const MissionDeck = observer(function MissionDeck({
 
       {acceptedTree?.filterable ? (
         <DeckContent>
-          <Filters full={full} />
+          <View style={styles.filterBar}>
+            <Filters full={full} />
+          </View>
         </DeckContent>
       ) : null}
 
@@ -196,31 +202,43 @@ export const MissionDeck = observer(function MissionDeck({
         header={
           proposalIds.length > 0 ? (
             <View style={styles.section}>
-              <PressableScale
+              <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={`Proposals, ${proposalIds.length}`}
                 accessibilityState={{ expanded: proposalsOpen }}
-                haptic={false}
+                hitSlop={SECTION_SLOP}
                 onPress={() => setProposalsOpen((open) => !open)}
                 style={styles.sectionToggle}
               >
-                <Icon
-                  as={proposalsOpen ? ChevronDown : ChevronRight}
-                  size={12}
-                  color={deckColor.proposalText}
-                />
-                <Text style={[styles.sectionTitle, styles.proposalText]}>Proposed</Text>
-                <Text style={styles.sectionCount}>{proposalIds.length}</Text>
-              </PressableScale>
-              <PressableScale
+                <View style={styles.gutter}>
+                  <StageGlyph stage="proposed" tint={deckColor.proposal} ground={color.groupedBg} />
+                </View>
+                <Text style={styles.sectionTitle} numberOfLines={2}>
+                  Proposed
+                </Text>
+              </Pressable>
+              <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Screen proposals"
-                haptic={false}
+                hitSlop={SECTION_SLOP}
                 onPress={onScreenProposals}
                 style={styles.sectionAction}
               >
                 <Text style={styles.sectionActionLabel}>Screen</Text>
-              </PressableScale>
+              </Pressable>
+              <Pressable
+                accessible={false}
+                hitSlop={SECTION_SLOP}
+                onPress={() => setProposalsOpen((open) => !open)}
+                style={styles.sectionTrail}
+              >
+                <Text style={styles.sectionCount}>{proposalIds.length}</Text>
+                <Icon
+                  as={proposalsOpen ? ChevronDown : ChevronRight}
+                  size={13}
+                  color={color.textFaint}
+                />
+              </Pressable>
             </View>
           ) : undefined
         }
@@ -261,55 +279,78 @@ const ProposalContent = observer(function ProposalContent({
   return <MissionProposalRow {...props} task={full.task(id)} />
 })
 
+/**
+ * One segmented control over the shared filters: exactly one selected segment
+ * (iOS UISegmentedControl, widths by content). Done is not a filter; it is the
+ * separate Show/Hide toggle beside the counts.
+ */
 const Filters = observer(function Filters({ full }: { full: FullDeck }) {
   const counts = full.counts
   return (
-    <View style={styles.filters} accessibilityRole="tablist">
+    <View style={styles.segments} accessibilityRole="tablist">
       {FULL_DECK_FILTERS.map((filter) => {
         const on = full.filter === filter
         const count = counts[filter]
         return (
-          <PressableScale
+          <Pressable
             key={filter}
             accessibilityRole="tab"
-            accessibilityState={{ selected: on }}
+            aria-selected={on}
             accessibilityLabel={`${FILTER_LABEL[filter]}, ${count}`}
             testID={`deck-filter-${filter}`}
-            haptic={false}
             hitSlop={CHIP_SLOP}
             onPress={() => full.setFilter(filter)}
-            style={[styles.filter, on && styles.filterOn]}
+            style={[styles.segment, on && styles.segmentOn]}
           >
             <Text
               numberOfLines={1}
-              style={[
-                styles.filterLabel,
-                filter === 'needs-you' && count > 0 && styles.needsText,
-                on && styles.filterLabelOn,
-              ]}
+              // UISegmentedControl shrinks a label that does not fit its segment.
+              adjustsFontSizeToFit
+              minimumFontScale={0.7}
+              maxFontSizeMultiplier={SEGMENT_MAX_SCALE}
+              style={[styles.segmentLabel, on && styles.segmentLabelOn]}
             >
-              {FILTER_LABEL[filter]} <Text style={styles.filterCount}>{count}</Text>
+              {FILTER_LABEL[filter]}{' '}
+              <Text
+                style={[
+                  styles.segmentCount,
+                  filter === 'needs-you' && count > 0 && styles.needsText,
+                ]}
+              >
+                {count}
+              </Text>
             </Text>
-          </PressableScale>
+          </Pressable>
         )
       })}
-      <PressableScale
-        accessibilityRole="switch"
-        accessibilityState={{ checked: full.showDone }}
-        accessibilityLabel={`Show done, ${counts.done}`}
-        testID="deck-filter-done"
-        haptic={false}
-        hitSlop={CHIP_SLOP}
-        onPress={() => full.toggleShowDone()}
-        style={[styles.filter, full.showDone && styles.filterOn]}
-      >
-        <Text numberOfLines={1} style={[styles.filterLabel, full.showDone && styles.filterLabelOn]}>
-          Done
-        </Text>
-      </PressableScale>
     </View>
   )
 })
+
+/** Show or hide done tasks: a toggle that says what a tap does, never a selected chip. */
+const DoneToggle = observer(function DoneToggle({ full }: { full: FullDeck }) {
+  const shown = full.showDone
+  return (
+    <Pressable
+      accessibilityRole="switch"
+      aria-checked={shown}
+      accessibilityLabel={`Show done, ${full.counts.done}`}
+      testID="deck-filter-done"
+      hitSlop={TOGGLE_SLOP}
+      onPress={() => full.toggleShowDone()}
+      style={({ pressed }) => [styles.doneToggle, pressed && styles.dimmed]}
+    >
+      <Text style={styles.doneToggleLabel} numberOfLines={1}>
+        {shown ? 'Hide Done' : 'Show Done'}
+      </Text>
+    </Pressable>
+  )
+})
+
+/** The header of a card with no heading, so List keeps its gap above it. */
+function GroupGap() {
+  return <View style={styles.groupGap} />
+}
 
 /**
  * Phases become section headings; the tasks under one heading share one
@@ -359,7 +400,7 @@ const DeckRows = observer(function DeckRows({
           <Fragment key={`${groupKey}-${occurrence}`}>
             <DeckGroup
               testID={`deck-group-${phase?.id ?? 'loose'}`}
-              header={phase ? <PhaseHeading phase={phase} /> : undefined}
+              header={phase ? <PhaseHeading phase={phase} /> : <GroupGap />}
             >
               {phase &&
                 leadingSeats.map((id) => (
@@ -430,27 +471,31 @@ const PhaseHeading = observer(function PhaseHeading({ phase }: { phase: FullDeck
     open,
   } = facts
   return (
-    <PressableScale
+    <Pressable
       accessibilityRole="button"
       accessibilityLabel={`${title}, ${TASK_WORD_LABEL[facts.word]}, ${done} of ${total} done`}
       accessibilityState={{ expanded: open }}
-      haptic={false}
+      hitSlop={SECTION_SLOP}
       onPress={() => phase.deck.toggleFold(phase.id)}
-      style={styles.section}
+      style={({ pressed }) => [styles.section, pressed && styles.dimmed]}
       testID="deck-phase"
     >
-      <StageGlyph
-        stage={facts.complete ? 'done' : issueStatusOf(facts.status)}
-        ground={color.groupedBg}
-      />
-      <Text style={[styles.sectionTitle, { color: deckWordColor(facts.word) }]} numberOfLines={2}>
+      <View style={styles.gutter}>
+        <StageGlyph
+          stage={facts.complete ? 'done' : issueStatusOf(facts.status)}
+          ground={color.groupedBg}
+        />
+      </View>
+      <Text style={styles.sectionTitle} numberOfLines={2}>
         {title}
       </Text>
-      <Text
-        style={[styles.sectionCount, { color: deckWordColor(facts.word) }]}
-      >{`${done}/${total}`}</Text>
-      <Icon as={open ? ChevronDown : ChevronRight} size={12} color={color.textFaint} />
-    </PressableScale>
+      <View style={styles.sectionTrail}>
+        <Text style={[styles.sectionCount, { color: deckWordColor(facts.word) }]}>
+          {`${done}/${total}`}
+        </Text>
+        <Icon as={open ? ChevronDown : ChevronRight} size={13} color={color.textFaint} />
+      </View>
+    </Pressable>
   )
 })
 
@@ -486,7 +531,9 @@ const TaskLine = observer(function TaskLine({
   if (facts === LOADING) {
     return (
       <View style={styles.line} accessibilityLabel="Loading task" testID="deck-task-loading">
-        <View style={styles.gutter}>
+        <View
+          style={[styles.gutter, styles.taskGlyph, { marginLeft: Math.min(indent, 3) * INDENT }]}
+        >
           <View style={styles.ring} />
         </View>
         <View style={[styles.lineBody, !first && styles.separated]} />
@@ -498,21 +545,7 @@ const TaskLine = observer(function TaskLine({
   const label = taskWordText(word, blockers === LOADING ? 0 : blockers)
   return (
     <View collapsable={false} style={styles.line}>
-      <View style={[styles.taskMarks, { marginLeft: Math.min(indent, 3) * space.sm }]}>
-        {foldable ? (
-          <View style={styles.disclosure}>
-            <PressableScale
-              accessibilityRole="button"
-              accessibilityLabel={`${open ? 'Collapse' : 'Expand'} ${title}`}
-              accessibilityState={{ expanded: open }}
-              hitSlop={8}
-              style={styles.foldToggle}
-              onPress={() => task.deck.toggleFold(task.id)}
-            >
-              <Icon as={open ? ChevronDown : ChevronRight} size={12} color={color.textDim} />
-            </PressableScale>
-          </View>
-        ) : null}
+      <View style={[styles.gutter, styles.taskGlyph, { marginLeft: Math.min(indent, 3) * INDENT }]}>
         <StageGlyph stage={issueStatusOf(facts.status)} ground={color.groupedCard} />
       </View>
       <Pressable
@@ -523,6 +556,7 @@ const TaskLine = observer(function TaskLine({
         onLongPress={onLongPress}
         style={({ pressed }) => [
           styles.lineBody,
+          foldable && styles.lineBodyFoldable,
           !first && styles.separated,
           pressed && styles.pressed,
         ]}
@@ -532,13 +566,25 @@ const TaskLine = observer(function TaskLine({
           <Text style={[styles.lineTitle, word === 'done' && styles.doneTitle]} numberOfLines={2}>
             {title}
           </Text>
-          <View style={styles.taskMeta}>
-            <Text style={styles.taskRef}>{ref}</Text>
-            <Text style={[styles.word, wordTone(word)]} numberOfLines={1}>
-              {label}
-            </Text>
-          </View>
+          <Text style={styles.meta} numberOfLines={1}>
+            {`${ref} · `}
+            <Text style={wordTone(word)}>{label}</Text>
+          </Text>
         </View>
+        {foldable ? (
+          // A disclosure on the trailing edge (SwiftUI DisclosureGroup) keeps
+          // every row's ring, title and ID on the same leading columns.
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${open ? 'Collapse' : 'Expand'} ${title}`}
+            accessibilityState={{ expanded: open }}
+            hitSlop={DISCLOSURE_SLOP}
+            style={styles.foldToggle}
+            onPress={() => task.deck.toggleFold(task.id)}
+          >
+            <Icon as={open ? ChevronDown : ChevronRight} size={13} color={color.textFaint} />
+          </Pressable>
+        ) : null}
       </Pressable>
     </View>
   )
@@ -568,22 +614,24 @@ const AgentLine = observer(function AgentLine({
       accessibilityState={{ selected: current }}
       pressRetentionOffset={12}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.agent,
-        styles.selectionFrame,
-        pressed && styles.pressed,
-        current && styles.selected,
-      ]}
+      style={({ pressed }) => [styles.agent, current && styles.selected, pressed && styles.pressed]}
       testID="deck-agent"
     >
-      <View style={[styles.gutter, { marginLeft: space.lg + Math.min(indent, 3) * space.sm }]}>
+      {/* The seat sits in its task's title column. */}
+      <View
+        style={[
+          styles.gutter,
+          styles.agentGlyph,
+          { marginLeft: GUTTER + space.md + Math.min(indent, 3) * INDENT },
+        ]}
+      >
         <SessionGlyph word={session.word} />
       </View>
       <View style={styles.seatText}>
         <Text style={styles.agentName} numberOfLines={2}>
           {name}
         </Text>
-        <Text style={styles.agentModel} numberOfLines={2}>
+        <Text style={styles.meta} numberOfLines={2}>
           <Text style={wordTone(session.word)}>{SESSION_WORD_LABEL[session.word]}</Text>
           {model ? ` · ${model}` : ''}
         </Text>
@@ -617,15 +665,12 @@ const SeatRow = observer(function SeatRow({
       accessibilityState={{ selected: current }}
       pressRetentionOffset={12}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.seat,
-        styles.selectionFrame,
-        pressed && styles.pressed,
-        current && styles.selected,
-      ]}
+      // The open seat is a full-bleed row tint the card clips to its own shape;
+      // its state colour stays on the dot and word.
+      style={({ pressed }) => [styles.seat, current && styles.selected, pressed && styles.pressed]}
       testID="deck-seat"
     >
-      <View style={styles.gutter}>
+      <View style={[styles.gutter, styles.seatGlyph]}>
         <SessionGlyph word={session.word} />
       </View>
       <View style={[styles.seatBody, !first && styles.separated]}>
@@ -633,7 +678,7 @@ const SeatRow = observer(function SeatRow({
           <Text style={styles.seatName} numberOfLines={2}>
             {name}
           </Text>
-          <Text style={styles.seatSub} numberOfLines={2}>
+          <Text style={styles.meta} numberOfLines={2}>
             <Text style={wordTone(session.word)}>{word}</Text>
             {model ? ` · ${model}` : ''}
           </Text>
@@ -654,7 +699,7 @@ function sessionModelLabel(session: SessionModel): string | null {
   if (!view) return null
   const kind = issueAgentKind(view.agentKind)
   const model = readoutModel(view)
-  return kind && model ? modelLabel(kind, model) : null
+  return kind && model ? modelName(kind, model) : null
 }
 
 function wordTone(word: TaskWord | SessionWord) {
@@ -669,15 +714,22 @@ function SessionGlyph({ word }: { word: SessionWord }): ReactNode {
   return <View style={styles.ring} />
 }
 
-/** Keep the disclosure separate from the stage glyph, including on collapsed tasks. */
-const GUTTER = 16
+/** Every row's glyph column, then its text column, on the 4pt grid. */
+const GUTTER = 20
 const INSET = space.lg
+/** A child's glyph sits in its parent's title column, like its seats. */
+const INDENT = GUTTER + space.md
 const ROW_H = 44
+/** UISegmentedControl stops growing its labels a little past the default size. */
+const SEGMENT_MAX_SCALE = 1.35
 
 const CHIP_SLOP = { top: 6, bottom: 6 }
+const TOGGLE_SLOP = { top: 12, bottom: 12, left: 8, right: 8 }
+const SECTION_SLOP = { top: 6, bottom: 6 }
+const DISCLOSURE_SLOP = { top: 4, bottom: 4, left: 8, right: 4 }
 
 const styles = StyleSheet.create({
-  head: { gap: space.sm },
+  head: { gap: space.sm, paddingHorizontal: INSET, paddingTop: space.sm },
   title: {
     ...sans(600),
     color: color.text,
@@ -685,20 +737,21 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
   sub: { ...sans(400), color: color.textDim, fontSize: font.tiny, lineHeight: leading(font.tiny) },
+  vitalsRow: { flexDirection: 'row', alignItems: 'center', gap: space.md },
+  vitalsText: { flex: 1, minWidth: 0 },
+  doneToggle: { flexShrink: 0, minHeight: 20, justifyContent: 'center' },
+  doneToggleLabel: { ...sans(400), color: deckColor.live, fontSize: font.tiny },
+  dimmed: { opacity: 0.5 },
+  // SwiftUI keeps ~20pt between any header and its first row: that is the gap.
+  groupGap: { height: 0 },
   seat: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.sm,
-    minHeight: 56,
+    gap: space.md,
+    minHeight: ROW_H,
     paddingLeft: INSET,
   },
-  selectionFrame: {
-    borderWidth: 1,
-    borderColor: 'transparent',
-    borderRadius: 6,
-    marginHorizontal: 4,
-  },
-  selected: { borderColor: deckColor.liveRing, backgroundColor: deckColor.liveFill },
+  selected: { backgroundColor: deckColor.liveFill },
   seatBody: {
     flex: 1,
     minWidth: 0,
@@ -709,81 +762,111 @@ const styles = StyleSheet.create({
     paddingRight: INSET,
     paddingVertical: space.sm,
   },
-  seatText: { flex: 1, minWidth: 0 },
-  seatName: { ...sans(600), color: color.text, fontSize: font.small, lineHeight: 20 },
-  seatSub: { ...sans(400), color: color.textDim, fontSize: font.tiny, lineHeight: 17 },
-  filters: { flexWrap: 'wrap', flexDirection: 'row', gap: space.xs },
-  filter: {
+  seatText: { flex: 1, minWidth: 0, gap: space.xs },
+  seatName: {
+    ...sans(600),
+    color: color.text,
+    fontSize: font.small,
+    lineHeight: leading(font.small),
+  },
+  segments: {
+    flexDirection: 'row',
+    minHeight: 32,
+    padding: 2,
+    gap: 2,
+    borderRadius: radius.card,
+    backgroundColor: color.tertiaryFill,
+  },
+  filterBar: { paddingHorizontal: INSET, paddingTop: space.xl },
+  segment: {
     flexGrow: 1,
     flexShrink: 1,
-    // PressableScale's 44pt touch minimum would stretch the chip (board: 32);
-    // CHIP_SLOP gives the touch target back.
-    height: 32,
-    minHeight: 32,
-    paddingHorizontal: 6,
-    borderRadius: 6,
+    flexBasis: 'auto',
+    minHeight: 28,
+    paddingHorizontal: space.sm,
+    borderRadius: radius.control,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: color.quaternaryFill,
   },
-  filterOn: { backgroundColor: color.text },
-  filterLabel: { ...sans(500), color: color.textDim, fontSize: 12 },
-  filterLabelOn: { color: color.bg },
-  filterCount: { ...mono(400), fontVariant: ['tabular-nums'] },
+  segmentOn: {
+    backgroundColor: deckColor.segmentThumb,
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+  },
+  segmentLabel: { ...sans(500), color: color.text, fontSize: font.tiny },
+  segmentLabelOn: { ...sans(600) },
+  segmentCount: { ...sans(400), color: color.textDim, fontVariant: ['tabular-nums'] },
   section: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.sm,
-    minHeight: 44,
-    paddingHorizontal: INSET,
-    marginTop: space.sm,
+    gap: space.md,
+    paddingLeft: INSET,
+    paddingRight: INSET,
+    paddingTop: space.xl,
+    paddingBottom: space.sm,
   },
   sectionToggle: {
     flex: 1,
+    minWidth: 0,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.sm,
-    minHeight: 44,
+    gap: space.md,
   },
   sectionTitle: {
     ...sans(600),
+    flex: 1,
+    minWidth: 0,
+    color: color.text,
+    fontSize: font.body,
+    lineHeight: leading(font.body),
+  },
+  /** Count and chevron share one trailing column on every heading. */
+  sectionTrail: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  sectionCount: {
+    ...sans(400),
     color: color.textDim,
     fontSize: font.small,
-    lineHeight: leading(font.small),
-    flex: 1,
-  },
-  sectionCount: {
-    ...mono(400),
-    color: color.textFaint,
-    fontSize: 12,
     fontVariant: ['tabular-nums'],
   },
-  sectionAction: { minHeight: 28, justifyContent: 'center' },
-  sectionActionLabel: { ...sans(500), color: deckColor.proposalText, fontSize: font.tiny },
-  proposalText: { color: deckColor.proposalText },
+  sectionAction: { justifyContent: 'center' },
+  sectionActionLabel: { ...sans(400), color: deckColor.proposalText, fontSize: font.small },
   line: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.sm,
+    gap: space.md,
     minHeight: ROW_H,
     paddingLeft: INSET,
   },
   pressed: { backgroundColor: color.tertiaryFill },
   gutter: { width: GUTTER, alignItems: 'center', justifyContent: 'center' },
-  taskMarks: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
-  disclosure: { width: 16, alignItems: 'center' },
+  // Row glyphs sit on the title's first line (Reminders, Mail), whatever the
+  // row's height: a box one title line tall, below the text's top padding.
+  taskGlyph: { alignSelf: 'flex-start', height: leading(font.small), marginTop: space.sm },
+  seatGlyph: { alignSelf: 'flex-start', height: leading(font.small), marginTop: space.sm },
+  agentGlyph: { alignSelf: 'flex-start', height: leading(font.tiny) },
+  // Absolute, so the text column keeps the plain block layout RNHostView
+  // measures (a row-direction body overflowed the card with long titles).
   foldToggle: {
-    width: 20,
-    minWidth: 20,
-    height: 44,
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    right: space.sm,
+    width: 32,
     alignItems: 'center',
     justifyContent: 'center',
   },
   // RNHostView measures without a height proposal. Let the text supply its
   // intrinsic height, including when width or content arrives after mount.
   taskText: { minWidth: 0, paddingVertical: space.sm, gap: space.xs },
-  taskMeta: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, alignItems: 'center' },
-  taskRef: { ...mono(400), color: color.textFaint, fontSize: font.micro },
+  meta: {
+    ...sans(400),
+    color: color.textDim,
+    fontSize: font.tiny,
+    lineHeight: leading(font.tiny),
+    fontVariant: ['tabular-nums'],
+  },
   lineBody: {
     flex: 1,
     minWidth: 0,
@@ -792,6 +875,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingRight: INSET,
   },
+  lineBodyFoldable: { paddingRight: INSET + space.xl },
   separated: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: color.hairline,
@@ -804,18 +888,22 @@ const styles = StyleSheet.create({
     lineHeight: leading(font.small),
   },
   doneTitle: { color: color.textDim },
-  word: { ...sans(400), color: color.textFaint, fontSize: 12, flexShrink: 0, textAlign: 'right' },
   agent: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    minHeight: 44,
+    alignItems: 'flex-start',
+    gap: space.md,
+    minHeight: ROW_H,
     paddingVertical: space.sm,
     paddingLeft: INSET,
     paddingRight: INSET,
   },
-  agentName: { ...sans(400), minWidth: 0, color: color.textDim, fontSize: font.tiny },
-  agentModel: { ...mono(400), color: color.textFaint, fontSize: font.micro },
+  agentName: {
+    ...sans(400),
+    minWidth: 0,
+    color: color.text,
+    fontSize: font.tiny,
+    lineHeight: leading(font.tiny),
+  },
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: color.needsYou },
   errorDot: { backgroundColor: color.danger },
   ring: { width: 8, height: 8, borderRadius: 4, borderWidth: 1.5, borderColor: color.textFaint },
