@@ -8,8 +8,11 @@ import UIKit
 /// file only states how the pager relates to the gestures around it:
 ///
 /// - Drags under 45° from horizontal page; steeper ones belong to the page's
-///   vertical scroller. Every scroller inside a page waits for the pager to fail,
-///   so one gesture never moves both axes.
+///   vertical scroller. The pager and a page's vertical list each track their
+///   own axis and the first past its slop takes the drag, so vertical scrolling
+///   starts on the first frame of a vertical drag, as in Mail. Inner scrollers
+///   that can move sideways wait for the pager to fail, so one gesture never
+///   moves both of them.
 /// - The navigation stack's edge back swipe is required to fail first (react-
 ///   native-screens declares that for every scroll view). On the first page a
 ///   rightward drag never begins here, so the iOS 26 content back swipe gets it.
@@ -420,7 +423,7 @@ final class PagerScrollView: UIScrollView {
     return !somethingUnderFingerClaims(start, dx: dx)
   }
 
-  /// Every scroller and row swipe inside a page waits for the pager's decision.
+  /// Sideways inner scrollers and row swipes inside a page wait for the pager.
   @objc(gestureRecognizer:shouldBeRequiredToFailByGestureRecognizer:)
   func pagerShouldBeRequiredToFail(
     _ gestureRecognizer: UIGestureRecognizer,
@@ -451,11 +454,25 @@ final class PagerScrollView: UIScrollView {
     return view.isDescendant(of: self)
   }
 
+  /// Only an inner scroller that can move sideways (a code block, a table)
+  /// waits for the pager. A vertical-only list must not: this pager's pan
+  /// counts horizontal movement only, so on a straight vertical drag it never
+  /// fails, and a list waiting on it would not scroll until the finger drifted
+  /// sideways [POD-2529]. A vertical list and the pager each track their own
+  /// axis, the stock UIKit nesting; the first past its slop takes the drag.
   private func isInnerScrollPan(_ recognizer: UIGestureRecognizer) -> Bool {
-    guard isInside(recognizer), let scrollView = recognizer.view as? UIScrollView else {
+    guard isInside(recognizer), let scrollView = recognizer.view as? UIScrollView,
+      scrollView.panGestureRecognizer === recognizer
+    else {
       return false
     }
-    return scrollView.panGestureRecognizer === recognizer
+    return scrollsHorizontally(scrollView)
+  }
+
+  private func scrollsHorizontally(_ scrollView: UIScrollView) -> Bool {
+    if scrollView.alwaysBounceHorizontal { return true }
+    let inset = scrollView.adjustedContentInset
+    return scrollView.contentSize.width + inset.left + inset.right > scrollView.bounds.width + 1
   }
 
   private func isInnerRowSwipe(_ recognizer: UIGestureRecognizer) -> Bool {
