@@ -9,6 +9,7 @@ import {
   type RepoProjection,
 } from '@podium/model'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import { observer } from 'mobx-react-lite'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { issueRowToProjection } from '../../../server/src/modules/issues/projection'
@@ -230,12 +231,25 @@ const profile: ServerProfileContextValue = {
 }
 let latest: IssueViewModel | undefined
 let actions: StoreActions
-function Probe() {
+const Probe = observer(function Probe() {
   latest = useIssue('root')
   actions = useStoreActions()
   const issues = useIssues()
   const booting = useBooting()
-  return <div data-testid="model">{JSON.stringify({ list: issues, detail: latest, booting })}</div>
+  // Hook results are live graph models with pool references, not wire records.
+  return (
+    <div data-testid="model">
+      {JSON.stringify({
+        list: issues.map((issue) => ({ id: issue.id })),
+        detail: latest && { id: latest.id, title: latest.title, repoPath: latest.repoPath },
+        booting,
+      })}
+    </div>
+  )
+})
+
+function renderedModel() {
+  return JSON.parse(screen.getByTestId('model').textContent ?? '{}')
 }
 
 describe('mobile normalized issue reads with no legacy issue rows', () => {
@@ -311,9 +325,14 @@ describe('mobile normalized issue reads with no legacy issue rows', () => {
     expect(latest).not.toHaveProperty('draft')
     expect(latest).not.toHaveProperty('origin')
     expect(latest).not.toHaveProperty('humanQuestion')
-    const rendered = JSON.parse(screen.getByTestId('model').textContent ?? '{}')
+    const rendered = renderedModel()
     expect(rendered.list).toHaveLength(1)
     expect(rendered.list[0].id).toBe(projection.id)
+    expect(rendered.detail).toEqual({
+      id: projection.id,
+      title: projection.title,
+      repoPath: '/normalized/podium',
+    })
     expect(rendered.booting).toBe(false)
   })
 
@@ -327,10 +346,13 @@ describe('mobile normalized issue reads with no legacy issue rows', () => {
     })
     await act(async () => replica.applyChanges('repos', [repo], []))
     expect(latest?.repoPath).toBe('/normalized/podium')
+    expect(renderedModel().detail.repoPath).toBe('/normalized/podium')
     await act(async () => replica.applyChanges('issueProjections', [], [projection.id]))
     expect(latest).toBeUndefined()
+    expect(renderedModel().detail).toBeUndefined()
     await act(async () => replica.applyChanges('issueProjections', [projection], []))
     expect(latest?.title).toBe(projection.title)
+    expect(renderedModel().detail.title).toBe(projection.title)
   })
 
   it('paints normalized edits and rolls them back after a refused update', async () => {
@@ -350,6 +372,7 @@ describe('mobile normalized issue reads with no legacy issue rows', () => {
         .catch(() => {})
     })
     expect(latest?.title).toBe('Optimistic normalized title')
+    expect(renderedModel().detail.title).toBe('Optimistic normalized title')
     await waitFor(() => expect(update).toHaveBeenCalled())
     await act(async () => {
       refuse(
@@ -358,5 +381,6 @@ describe('mobile normalized issue reads with no legacy issue rows', () => {
       await completion
     })
     await waitFor(() => expect(latest?.title).toBe(projection.title))
+    expect(renderedModel().detail.title).toBe(projection.title)
   })
 })
