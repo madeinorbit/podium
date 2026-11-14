@@ -64,6 +64,8 @@ const CLOSE_DISTANCE = 120
 const CLOSE_VELOCITY = 800
 /** Pulling a document this far past its top and letting go closes it too. */
 const PULL_CLOSE = 72
+/** The bar's title and counter scale with Dynamic Type up to this much. */
+const BAR_TEXT_MAX_SCALE = 1.6
 const ShareIcon: AppIcon = { ios: 'square.and.arrow.up', android: 'share', web: 'share' }
 
 /**
@@ -104,6 +106,7 @@ type PdfViewComponent = ComponentType<{
   style?: StyleProp<ViewStyle>
   onZoomChange?: (event: { nativeEvent: { zoomed: boolean } }) => void
   onLoadError?: (event: { nativeEvent: { message: string } }) => void
+  onPullClose?: () => void
 }>
 let pdfViewCache: PdfViewComponent | null | undefined
 function resolvePdfView(): PdfViewComponent | null {
@@ -126,8 +129,10 @@ function resolvePdfView(): PdfViewComponent | null {
  * Reports whether the reader has pinch-zoomed the page past where it opened,
  * so the viewer can hold its pager and pull-to-dismiss still while a pan should
  * move the page. Measured against the opening scale (the page's own fit), not
- * 1, since a page may open zoomed out. Read-only: it never touches the page's
- * zoom limits.
+ * 1, since a page may open zoomed out. A page scrolls, so the viewer's drag
+ * cannot own it: as with text documents, releasing the unzoomed page pulled
+ * past its top asks the viewer to close. Read-only: it never touches the
+ * page's zoom limits.
  */
 export const HTML_ZOOM_REPORTER = `(function () {
   var v = window.visualViewport, bridge = window.ReactNativeWebView;
@@ -140,14 +145,18 @@ export const HTML_ZOOM_REPORTER = `(function () {
     zoomed = now;
     bridge.postMessage(now ? 'podium-zoom:1' : 'podium-zoom:0');
   });
+  window.addEventListener('touchend', function () {
+    if (!zoomed && window.scrollY < -${PULL_CLOSE}) bridge.postMessage('podium-pull-close');
+  }, { passive: true });
 })();
 true;`
 
-/** The zoom state an artifact page's message reports, or null for any other
+/** What an artifact page's message asks of the viewer, or null for any other
  *  message (the page itself can post to the same bridge). */
-export function zoomFromMessage(data: unknown): boolean | null {
-  if (data === 'podium-zoom:1') return true
-  if (data === 'podium-zoom:0') return false
+export function readPageMessage(data: unknown): { zoomed: boolean } | { pullClose: true } | null {
+  if (data === 'podium-zoom:1') return { zoomed: true }
+  if (data === 'podium-zoom:0') return { zoomed: false }
+  if (data === 'podium-pull-close') return { pullClose: true }
   return null
 }
 
@@ -288,11 +297,22 @@ function ViewerPages({
           <Animated.View style={[styles.bar, { paddingTop: insets.top + space.sm }, chromeStyle]}>
             <BarCap label="Close artifact" icon={X} onPress={onClose} />
             <View style={styles.heading}>
-              <Text style={styles.title} numberOfLines={1} accessibilityRole="header">
+              <Text
+                style={styles.title}
+                numberOfLines={1}
+                accessibilityRole="header"
+                // Grows with Dynamic Type but stops where system bar titles do,
+                // so the largest sizes cannot push the bar over the artifact.
+                maxFontSizeMultiplier={BAR_TEXT_MAX_SCALE}
+              >
                 {label}
               </Text>
               {many ? (
-                <Text style={styles.position} testID="artifact-position">
+                <Text
+                  style={styles.position}
+                  testID="artifact-position"
+                  maxFontSizeMultiplier={BAR_TEXT_MAX_SCALE}
+                >
                   {`${page + 1} of ${items.length}`}
                 </Text>
               ) : null}
@@ -410,8 +430,8 @@ function ArtifactBody({
         },
       })
     }
-    if (preview === 'pdf') return <PdfPages url={url} bearer={bearer} onZoomChange={onZoomChange} />
-    return <HtmlWebView url={url} bearer={bearer} onZoomChange={onZoomChange} />
+    const Pages = preview === 'pdf' ? PdfPages : HtmlWebView
+    return <Pages url={url} bearer={bearer} onZoomChange={onZoomChange} onPullClose={onPullClose} />
   }
   if (preview === 'markdown')
     return <FetchedText url={url} asMarkdown bearer={bearer} onPullClose={onPullClose} />
@@ -434,10 +454,12 @@ const HtmlWebView = observer(function HtmlWebView({
   url,
   bearer,
   onZoomChange,
+  onPullClose,
 }: {
   url: string
   bearer: string | null
   onZoomChange: (zoomed: boolean) => void
+  onPullClose: () => void
 }) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: selection and credentials own this request lifetime.
   const request = useMemo(
@@ -463,6 +485,10 @@ const HtmlWebView = observer(function HtmlWebView({
   const error = terminated
     ? 'The phone stopped this preview — the page is too heavy to render here.'
     : request.error
+  // A page that dies zoomed must not leave the pager and dismiss held.
+  useEffect(() => {
+    if (error) onZoomChange(false)
+  }, [error, onZoomChange])
   const doc = request.answer
   // No webview in this binary: the source is still worth reading, but say why
   // it is markup rather than a page — an unexplained wall of HTML is the same
@@ -497,8 +523,9 @@ const HtmlWebView = observer(function HtmlWebView({
         // WebKit's own pinch zoom, within whatever limits the page declares.
         injectedJavaScript={HTML_ZOOM_REPORTER}
         onMessage={(event) => {
-          const zoomed = zoomFromMessage(event.nativeEvent.data)
-          if (zoomed !== null) onZoomChange(zoomed)
+          const message = readPageMessage(event.nativeEvent.data)
+          if (message && 'zoomed' in message) onZoomChange(message.zoomed)
+          else if (message) onPullClose()
         }}
       />
     </View>
@@ -529,10 +556,12 @@ const PdfPages = observer(function PdfPages({
   url,
   bearer,
   onZoomChange,
+  onPullClose,
 }: {
   url: string
   bearer: string | null
   onZoomChange: (zoomed: boolean) => void
+  onPullClose: () => void
 }) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: selection and credentials own this request lifetime.
   const request = useMemo(() => new RequestAnswer<string>(), [url, bearer])
@@ -583,6 +612,7 @@ const PdfPages = observer(function PdfPages({
       style={styles.fill}
       onZoomChange={(event) => onZoomChange(event.nativeEvent.zoomed)}
       onLoadError={(event) => setFailed(event.nativeEvent.message)}
+      onPullClose={onPullClose}
     />
   )
 })

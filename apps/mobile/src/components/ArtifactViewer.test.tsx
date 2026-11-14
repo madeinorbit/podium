@@ -65,8 +65,8 @@ vi.mock('react-native-reanimated', async () => {
 })
 vi.mock('react-native-worklets', () => ({ scheduleOnRN: (fn: () => void) => fn() }))
 
-const { ArtifactViewer, HTML_ZOOM_REPORTER, zoomFromMessage } = await import('./ArtifactViewer')
-const { fitSize, isZoomed, maxZoomFor, zoomRectAt } =
+const { ArtifactViewer, HTML_ZOOM_REPORTER, readPageMessage } = await import('./ArtifactViewer')
+const { fitInsets, fitSize, isZoomed, maxZoomFor, zoomRectAt } =
   await vi.importActual<typeof import('./ZoomableImage')>('./ZoomableImage')
 
 const art = (path: string): IssuePanelArtifact => ({ path, addedAt: '2026-11-01T00:00:00.000Z' })
@@ -206,12 +206,15 @@ it('shows a PDF in the page instead of its bytes as text', () => {
   expect(media.fetch).not.toHaveBeenCalled()
 })
 
-it("reads only its own zoom messages from an artifact page and never limits the page's zoom", () => {
-  expect(zoomFromMessage('podium-zoom:1')).toBe(true)
-  expect(zoomFromMessage('podium-zoom:0')).toBe(false)
-  expect(zoomFromMessage('hello from the page')).toBeNull()
-  expect(zoomFromMessage(1)).toBeNull()
+it("reads only its own messages from an artifact page and never limits the page's zoom", () => {
+  expect(readPageMessage('podium-zoom:1')).toEqual({ zoomed: true })
+  expect(readPageMessage('podium-zoom:0')).toEqual({ zoomed: false })
+  expect(readPageMessage('podium-pull-close')).toEqual({ pullClose: true })
+  expect(readPageMessage('hello from the page')).toBeNull()
+  expect(readPageMessage(1)).toBeNull()
   expect(HTML_ZOOM_REPORTER).not.toMatch(/viewport|maximum-scale|user-scalable|preventDefault/)
+  // Pull-to-close only from an unzoomed page, past the same 72pt as documents.
+  expect(HTML_ZOOM_REPORTER).toContain('!zoomed && window.scrollY < -72')
 })
 
 it('fits, bounds and aims image zoom like Photos', () => {
@@ -221,6 +224,13 @@ it('fits, bounds and aims image zoom like Photos', () => {
   // Small image: scaled up to fit too.
   expect(fitSize({ width: 100, height: 100 }, box)).toEqual({ width: 400, height: 400 })
   expect(fitSize(null, box)).toBe(box)
+  // Centred at fit: the leftover space split on both sides.
+  expect(fitInsets({ width: 400, height: 200 }, box)).toEqual({
+    top: 300,
+    bottom: 300,
+    left: 0,
+    right: 0,
+  })
   expect(isZoomed(1)).toBe(false)
   expect(isZoomed(1.005)).toBe(false)
   expect(isZoomed(undefined)).toBe(false)

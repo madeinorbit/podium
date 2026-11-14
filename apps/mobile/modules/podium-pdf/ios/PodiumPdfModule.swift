@@ -7,13 +7,14 @@ import UIKit
 /// pins the minimum zoom to the fitted page width, adds the double-tap toggle
 /// (zoom in at the tap, back to fit) and reports whether the pages are zoomed
 /// past fit, so the viewer can keep its pager and pull-to-dismiss still while
-/// a pan should move the page instead.
+/// a pan should move the page instead. Like the app's text documents, pulling
+/// the unzoomed pages past their top and letting go asks the viewer to close.
 public final class PodiumPdfModule: Module {
   public func definition() -> ModuleDefinition {
     Name("PodiumPdf")
 
     View(PodiumPdfView.self) {
-      Events("onZoomChange", "onLoadError")
+      Events("onZoomChange", "onLoadError", "onPullClose")
 
       /// A local file:// URL; the app fetches the bytes over its authenticated path.
       Prop("uri") { (view: PodiumPdfView, uri: String?) in
@@ -27,14 +28,18 @@ public final class PodiumPdfModule: Module {
 private let doubleTapZoom: CGFloat = 2.5
 /// The deepest zoom, as a multiple of the fitted scale.
 private let maxZoom: CGFloat = 5
+/// How far past the top a released pull must be to close (the viewer's PULL_CLOSE).
+private let pullClose: CGFloat = 72
 
 final class PodiumPdfView: ExpoView {
   let onZoomChange = EventDispatcher()
   let onLoadError = EventDispatcher()
+  let onPullClose = EventDispatcher()
 
   private let pdfView = PDFView()
   private var loadedUri: String?
   private var zoomed = false
+  private weak var watchedScroller: UIScrollView?
 
   required init(appContext: AppContext? = nil) {
     super.init(appContext: appContext)
@@ -67,6 +72,7 @@ final class PodiumPdfView: ExpoView {
     let wasFit = !zoomed
     pdfView.frame = bounds
     updateScaleLimits()
+    watchPulls()
     // A new size (first layout, rotation) keeps an unzoomed document fitted.
     if wasFit, pdfView.document != nil {
       pdfView.scaleFactor = pdfView.scaleFactorForSizeToFit
@@ -84,7 +90,23 @@ final class PodiumPdfView: ExpoView {
     pdfView.document = document
     updateScaleLimits()
     pdfView.scaleFactor = pdfView.scaleFactorForSizeToFit
+    watchPulls()
     report()
+  }
+
+  /// Listens to PDFKit's own pan (alongside it, never instead of it) for a
+  /// release past the top.
+  private func watchPulls() {
+    guard watchedScroller == nil, let scroller = pageScroller(in: pdfView) else { return }
+    watchedScroller = scroller
+    scroller.panGestureRecognizer.addTarget(self, action: #selector(panned(_:)))
+  }
+
+  @objc private func panned(_ pan: UIPanGestureRecognizer) {
+    guard pan.state == .ended, !zoomed, let scroller = watchedScroller else { return }
+    if scroller.contentOffset.y + scroller.adjustedContentInset.top < -pullClose {
+      onPullClose([:])
+    }
   }
 
   private func updateScaleLimits() {
