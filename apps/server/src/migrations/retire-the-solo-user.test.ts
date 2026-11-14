@@ -656,11 +656,7 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
         },
       },
       DEVICE_GRADE_PRINCIPAL,
-      userClientPrincipal(
-        'reconnected',
-        UserId.parse(mintIdsIn('{{mint:mem_}}')),
-        'admin',
-      ),
+      userClientPrincipal('reconnected', UserId.parse(mintIdsIn('{{mint:mem_}}')), 'admin'),
       held,
     )
     await serving.admissionSettled()

@@ -1151,7 +1151,11 @@ describe('issue spawn provenance', () => {
       await registry.issueCommands.dispatch({ capability: OPERATOR }, 'issues', 'addShell', {
         id: issue.id,
       })
-      expect(shell).toHaveBeenCalledWith(issue.id, { spawnedBy: 'user', ...minted, onBehalfOf: firstAdminMemberId() })
+      expect(shell).toHaveBeenCalledWith(issue.id, {
+        spawnedBy: 'user',
+        ...minted,
+        onBehalfOf: firstAdminMemberId(),
+      })
     } finally {
       await registry.dispose()
     }

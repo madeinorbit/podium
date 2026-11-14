@@ -198,9 +198,7 @@ function make(store: FixtureStore) {
 }
 
 /** The store's retained issue rows stay empty, including in published slices. */
-export function poolFixtureStore<T extends FixtureStore>(
-  store: T,
-): T & ReturnType<typeof make> {
+export function poolFixtureStore<T extends FixtureStore>(store: T): T & ReturnType<typeof make> {
   const key = store.issues ?? store
   let hit = cache.get(key)
   if (!hit || hit.sessions !== store.sessions) {
@@ -212,5 +210,9 @@ export function poolFixtureStore<T extends FixtureStore>(
 
 export function poolFixtureIssues(store: FixtureStore) {
   const normalized = poolFixtureStore(store)
-  return allIssueViewModels(normalized.replica, normalized.issueProjections, normalized.issueUserStates)
+  return allIssueViewModels(
+    normalized.replica,
+    normalized.issueProjections,
+    normalized.issueUserStates,
+  )
 }

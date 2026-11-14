@@ -44,9 +44,7 @@ beforeEach(async () => {
 
 describe('SuperagentRepository.archiveSuperagentThread', () => {
   it('takes the thread out of the owner list', async () => {
-    expect(await listed()).toEqual(
-      expect.arrayContaining(['thread-1', 'thread-2']),
-    )
+    expect(await listed()).toEqual(expect.arrayContaining(['thread-1', 'thread-2']))
 
     await superagent.archiveSuperagentThread('thread-1')
 
@@ -95,9 +93,7 @@ describe('SuperagentRepository.archiveSuperagentThread', () => {
 
     await superagent.upsertSuperagentThread({ id: 'thread-1', ownerUserId: OWNER, kind: 'btw' })
 
-    expect(await listed()).toEqual(
-      expect.arrayContaining(['thread-1', 'thread-2']),
-    )
+    expect(await listed()).toEqual(expect.arrayContaining(['thread-1', 'thread-2']))
   })
 })
 

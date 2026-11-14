@@ -201,5 +201,4 @@ describe('the old session routes are adapters onto sync.submit', () => {
     expect((await o.meta(sessionId)).name).toBe('via route')
     expect((await rowsOf(o, 'm-rename')).length).toBeGreaterThan(0)
   })
-
 })

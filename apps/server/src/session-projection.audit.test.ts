@@ -66,7 +66,8 @@ const walk = (dir: string): string[] =>
  */
 // `view.listInPages` is the same full projection read a page at a time (the
 // boot baseline since POD-6160).
-const FULL_LIST_CALL = /(?<![A-Za-z])(?:listSessions|view\.list|view\.listInPages|listSessionsForBootBaseline)\s*\(/
+const FULL_LIST_CALL =
+  /(?<![A-Za-z])(?:listSessions|view\.list|view\.listInPages|listSessionsForBootBaseline)\s*\(/
 
 /**
  * WHO MAY BUILD IT, and why each one genuinely needs a reader-scoped wire
@@ -81,10 +82,8 @@ const FULL_LIST_CALL = /(?<![A-Za-z])(?:listSessions|view\.list|view\.listInPage
  * definition site standing permission to grow a caller.
  */
 const ALLOWED: Record<string, string> = {
-  'modules/sessions/lifecycle.ts':
-    'the service facade that forwards to it, labelled by its caller',
-  'modules/sessions/queries.ts':
-    'the sessions.list RPC — a client reading its own session list',
+  'modules/sessions/lifecycle.ts': 'the service facade that forwards to it, labelled by its caller',
+  'modules/sessions/queries.ts': 'the sessions.list RPC — a client reading its own session list',
   'modules/superagent/tools.ts':
     'the list_sessions agent tool — reports snooze state, which lives in the per-user overlay',
 }
