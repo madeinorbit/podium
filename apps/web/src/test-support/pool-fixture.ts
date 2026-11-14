@@ -193,6 +193,23 @@ export function syncPoolFixture(
       })),
       ...repoWorktrees,
       ...issues.map((value) => ({ kind: 'issue' as const, id: value.id, value })),
+      // The bodies and the panel are records of their own (POD-6764, POD-6767).
+      ...(
+        [
+          ['issueBriefs', 'issueBrief'],
+          ['issueDescriptions', 'issueDescription'],
+          ['issuePanelTodos', 'issuePanelTodo'],
+          ['issuePanelArtifacts', 'issuePanelArtifact'],
+          ['issuePanelDeferreds', 'issuePanelDeferred'],
+          ['issuePanelStates', 'issuePanelState'],
+        ] as const
+      ).flatMap(([slice, kind]) =>
+        (normalized.replica.rows(slice) as { id: string }[]).map((value) => ({
+          kind,
+          id: value.id,
+          value: value as never,
+        })),
+      ),
       ...(state.sessions ?? []).map((value) => ({
         kind: 'session' as const,
         id: value.sessionId,

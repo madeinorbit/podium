@@ -65,6 +65,13 @@ vi.mock('@/lib/hooks/use-session-guard', () => ({
   useSessionGuard: () => ({ guardedDelete: vi.fn(), guardedEnd: vi.fn(), guardedArchive: vi.fn() }),
 }))
 
+// The pane's first live size reading (the session.terminalState topic,
+// POD-6764), which the terminal mount waits for before building its buffer.
+vi.mock('./use-session-pane-inputs', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./use-session-pane-inputs')>()),
+  usePaneGeometry: () => ({ cols: 80, rows: 24 }),
+}))
+
 vi.mock('@/lib/voice', () => ({
   useVoiceInput: () => ({ supported: false, listening: false, toggle: vi.fn() }),
 }))

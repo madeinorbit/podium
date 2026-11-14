@@ -163,7 +163,18 @@ describe('TaskSheet artifacts', () => {
   it('closes the sheet first, then opens the viewer outside it', async () => {
     const onClose = vi.fn()
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
-    pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: issue.id, value: issue }] })
+    // The panel's artifacts are records of their own (POD-6778).
+    pool.apply({
+      type: 'replace',
+      rows: [
+        { kind: 'issue', id: issue.id, value: issue },
+        {
+          kind: 'issuePanelArtifact',
+          id: 'iss_1-artifact-0',
+          value: { ...artifact, id: 'iss_1-artifact-0', issueId: issue.id, position: 0 },
+        },
+      ] as never,
+    })
     render(<TaskSheet issue={issue} pool={pool} onClose={onClose} onOpenSession={vi.fn()} />)
 
     fireEvent.click(screen.getByLabelText('Open report.html'))
