@@ -8,7 +8,12 @@ import {
   sessionTitle,
 } from '@podium/client-core/values'
 import type { PageIssue } from '@podium/client-graph/issue-page'
-import type { SessionId } from '@podium/model'
+import {
+  IssueType,
+  issueStatusMenuEntries,
+  issueStatusValueOf,
+  type SessionId,
+} from '@podium/model'
 import { isClosed } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { type ReactNode, useState } from 'react'
@@ -17,6 +22,7 @@ import { issueObserver as observer } from '../../client/issue-observer'
 import type { IssueCommands } from '../../lib/issue-detail'
 import { alpha } from '../../theme/mix'
 import { color, font, mono, radius, sans, space } from '../../theme/theme'
+import { NativePicker, type NativePickerOption } from '../action-sheet-native'
 import { Icon } from '../Icon'
 import { ChevronRight, ExternalLink, Plus, X } from '../icons'
 import { PressableScale } from '../PressableScale'
@@ -255,6 +261,7 @@ export const PropertyBar = observer(function PropertyBar({
   onStage,
   onPriority,
   onType,
+  onSelect,
   project,
   trailing,
 }: {
@@ -262,6 +269,16 @@ export const PropertyBar = observer(function PropertyBar({
   onStage: () => void
   onPriority: () => void
   onType: () => void
+  /**
+   * iOS opens each chip's choices as a native menu anchored to the chip and
+   * reports the pick here; elsewhere (and without these) a tap raises the
+   * screen's sheet through `onStage`, `onPriority` and `onType`.
+   */
+  onSelect?: {
+    status: (value: string) => void
+    priority: (priority: number) => void
+    type: (type: IssueType) => void
+  }
   /** The repository name, as a plain pill. */
   project?: string
   /** Quiet text after the pills — the task's age. */
@@ -274,12 +291,35 @@ export const PropertyBar = observer(function PropertyBar({
         accessibilityLabel={`Stage ${ISSUE_STAGE_LABELS[issue.stage]} — change`}
         onPress={onStage}
         glyph={<StageGlyph stage={issue.stage} size={13} ground={color.surface} />}
+        {...(onSelect
+          ? {
+              picker: {
+                label: 'Status',
+                options: issueStatusMenuEntries().map((entry) => ({
+                  value: entry.value,
+                  label: entry.label,
+                })),
+                selected: issueStatusValueOf(issue),
+                onSelect: onSelect.status,
+              },
+            }
+          : {})}
       />
       <Chip
         label={`P${issue.priority}`}
         accessibilityLabel={`Priority P${issue.priority} — change`}
         onPress={onPriority}
         glyph={<PriorityGlyph priority={issue.priority} size={13} />}
+        {...(onSelect
+          ? {
+              picker: {
+                label: 'Priority',
+                options: PRIORITIES.map((p) => ({ value: String(p), label: `P${p}` })),
+                selected: String(issue.priority),
+                onSelect: (value: string) => onSelect.priority(Number(value)),
+              },
+            }
+          : {})}
       />
       {project ? (
         <View style={styles.chip}>
@@ -293,6 +333,19 @@ export const PropertyBar = observer(function PropertyBar({
           label={issue.type}
           accessibilityLabel={`Type ${issue.type} — change`}
           onPress={onType}
+          {...(onSelect
+            ? {
+                picker: {
+                  label: 'Type',
+                  options: IssueType.options.map((t) => ({ value: t, label: t })),
+                  selected: issue.type,
+                  onSelect: (value: string) => {
+                    const parsed = IssueType.safeParse(value)
+                    if (parsed.success) onSelect.type(parsed.data)
+                  },
+                },
+              }
+            : {})}
         />
       ) : null}
       {issue.needsHuman ? (
@@ -314,23 +367,33 @@ export const PropertyBar = observer(function PropertyBar({
   )
 })
 
+const PRIORITIES = [0, 1, 2, 3, 4] as const
+
 const Chip = observer(function Chip({
   label,
   accessibilityLabel,
   onPress,
   glyph,
+  picker,
 }: {
   label: string
   accessibilityLabel: string
   onPress: () => void
   glyph?: ReactNode
+  /** The choices a native menu offers on iOS; `onPress` stays the fallback. */
+  picker?: {
+    label: string
+    options: readonly NativePickerOption[]
+    selected: string
+    onSelect: (value: string) => void
+  }
 }) {
-  return (
+  const chip = (press: (() => void) | undefined) => (
     <PressableScale
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       accessibilityHint="Opens a picker"
-      onPress={onPress}
+      onPress={press}
       hitSlop={8}
       style={({ pressed }) => [styles.chip, pressed && styles.chipPressed]}
     >
@@ -339,6 +402,18 @@ const Chip = observer(function Chip({
         {label}
       </Text>
     </PressableScale>
+  )
+  if (!picker) return chip(onPress)
+  return (
+    <NativePicker
+      label={picker.label}
+      options={picker.options}
+      selected={picker.selected}
+      onSelect={picker.onSelect}
+      onOpenFallback={onPress}
+    >
+      {chip}
+    </NativePicker>
   )
 })
 

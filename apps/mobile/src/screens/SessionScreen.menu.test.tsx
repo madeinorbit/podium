@@ -197,20 +197,18 @@ describe('the draft chat menu', () => {
   it('is exactly destructive Delete plus Cancel', async () => {
     await openMenu(vessel())
 
-    expect(screen.getByLabelText('Delete')).toBeTruthy()
+    expect(screen.getByLabelText('Delete…')).toBeTruthy()
     expect(screen.getByLabelText('Cancel')).toBeTruthy()
     for (const gone of [
-      'Find in transcript',
+      'Find in Transcript',
       'Pin',
       'Unpin',
-      'Next session',
+      'Next Session',
       'Archive',
       'Unarchive',
-      'Set work state…',
-      'Snooze until next message',
-      'Snooze for 1 hour',
-      'Snooze until tomorrow',
-      'Kill session',
+      'Work State…',
+      'Snooze…',
+      'Kill Session',
     ]) {
       expect(screen.queryByLabelText(gone)).toBeNull()
     }
@@ -219,7 +217,7 @@ describe('the draft chat menu', () => {
   it('Delete asks first with the task cascade, and deletes nothing on the first tap', async () => {
     const { seen } = await openDraftMenuWithSessions()
 
-    fireEvent.click(screen.getByLabelText('Delete'))
+    fireEvent.click(screen.getByLabelText('Delete…'))
     await screen.findByText('Delete this task?')
     expect(
       screen.getByText(
@@ -233,7 +231,7 @@ describe('the draft chat menu', () => {
   it('Cancel keeps everything: no navigation, no tombstone', async () => {
     const { seen } = await openDraftMenuWithSessions()
 
-    fireEvent.click(screen.getByLabelText('Delete'))
+    fireEvent.click(screen.getByLabelText('Delete…'))
     await screen.findByText('Delete this task?')
     fireEvent.click(screen.getByLabelText('Cancel'))
     await waitFor(() => expect(screen.queryByText('Delete this task?')).toBeNull())
@@ -246,7 +244,7 @@ describe('the draft chat menu', () => {
   it('Confirm deletes the whole task (task scope) and leaves the dead draft behind', async () => {
     const { seen } = await openDraftMenuWithSessions()
 
-    fireEvent.click(screen.getByLabelText('Delete'))
+    fireEvent.click(screen.getByLabelText('Delete…'))
     await screen.findByText('Delete this task?')
     // The menu handed off to the confirm sheet, so the only Delete on screen
     // is the confirm's own — tapping it is the task-scope `deleteIssue`.
@@ -260,12 +258,12 @@ describe('the active-session chat menu', () => {
   it('keeps transcript search and the session verbs', async () => {
     await openMenu(vessel({ isDraftVessel: false, worktreePath: '/tmp/wt/vessel' }))
 
-    expect(screen.getByLabelText('Find in transcript')).toBeTruthy()
-    expect(screen.queryByLabelText('Delete')).toBeNull()
-    expect(screen.getByLabelText('Next session')).toBeTruthy()
+    expect(screen.getByLabelText('Find in Transcript')).toBeTruthy()
+    expect(screen.queryByLabelText('Delete…')).toBeNull()
+    expect(screen.getByLabelText('Next Session')).toBeTruthy()
     expect(screen.getByLabelText('Archive')).toBeTruthy()
-    expect(screen.getByLabelText('Set work state…')).toBeTruthy()
-    expect(screen.getByLabelText('Kill session')).toBeTruthy()
+    expect(screen.getByLabelText('Work State…')).toBeTruthy()
+    expect(screen.getByLabelText('Kill Session')).toBeTruthy()
   })
 })
 
@@ -321,10 +319,10 @@ describe('addressed phone menu demand', () => {
     })
     expect(next).not.toHaveBeenCalled()
     fireEvent.click(screen.getByLabelText('Session actions'))
-    await screen.findByLabelText('Next session')
+    await screen.findByLabelText('Next Session')
     expect(next).not.toHaveBeenCalled()
     rows.mockClear()
-    fireEvent.click(screen.getByLabelText('Next session'))
+    fireEvent.click(screen.getByLabelText('Next Session'))
     await waitFor(() =>
       expect(routerReplace).toHaveBeenCalledWith({
         pathname: '/session/[sessionId]',
@@ -375,10 +373,10 @@ describe('addressed phone menu demand', () => {
     const roster = vi.spyOn(attached.graph, 'many')
     expect(count).not.toHaveBeenCalled()
     fireEvent.click(screen.getByLabelText('Session actions'))
-    await screen.findByLabelText('Delete')
+    await screen.findByLabelText('Delete…')
     expect(count).not.toHaveBeenCalled()
     rows.mockClear()
-    fireEvent.click(screen.getByLabelText('Delete'))
+    fireEvent.click(screen.getByLabelText('Delete…'))
     await screen.findByText(
       'This affects 1 task and 3 agents. Tasks and sessions can be restored; running agents will be stopped.',
     )
@@ -463,19 +461,21 @@ describe('session menu snooze from the acting user home', () => {
     })
     const stored = replica.rows('sessions')[0]
     fireEvent.click(await screen.findByLabelText('Session actions'))
-    expect(await screen.findByLabelText('Clear snooze')).toBeTruthy()
+    fireEvent.click(await screen.findByLabelText('Snooze…'))
+    expect(await screen.findByLabelText('Clear Snooze')).toBeTruthy()
     await act(async () => {
       replica.applyChanges('sessionUserStates', [personal()], [])
     })
-    expect(screen.queryByLabelText('Clear snooze')).toBeNull()
+    expect(screen.queryByLabelText('Clear Snooze')).toBeNull()
     await act(async () => {
       replica.applyChanges('sessionUserStates', [personal(null)], [])
     })
-    fireEvent.click(await screen.findByLabelText('Clear snooze'))
+    fireEvent.click(await screen.findByLabelText('Clear Snooze'))
     await waitFor(() => expect(clear).toHaveBeenCalled())
     fireEvent.click(await screen.findByLabelText('Session actions'))
-    expect(await screen.findByLabelText('Cancel')).toBeTruthy()
-    expect(screen.queryByLabelText('Clear snooze')).toBeNull()
+    fireEvent.click(await screen.findByLabelText('Snooze…'))
+    expect(await screen.findByLabelText('Until Next Message')).toBeTruthy()
+    expect(screen.queryByLabelText('Clear Snooze')).toBeNull()
     expect(replica.rows('sessions')[0]).toBe(stored)
   })
 
@@ -486,8 +486,9 @@ describe('session menu snooze from the acting user home', () => {
       sessionUserStates: [personal(), { ...personal(null), userId: asUserId('user:other') }],
     })
     fireEvent.click(await screen.findByLabelText('Session actions'))
-    expect(await screen.findByLabelText('Snooze until next message')).toBeTruthy()
-    expect(screen.queryByLabelText('Clear snooze')).toBeNull()
+    fireEvent.click(await screen.findByLabelText('Snooze…'))
+    expect(await screen.findByLabelText('Until Next Message')).toBeTruthy()
+    expect(screen.queryByLabelText('Clear Snooze')).toBeNull()
   })
 
   it('ignores a stale snooze until the acting user home arrives', async () => {
@@ -496,12 +497,13 @@ describe('session menu snooze from the acting user home', () => {
       issues: [active],
     })
     fireEvent.click(await screen.findByLabelText('Session actions'))
-    expect(await screen.findByLabelText('Snooze until next message')).toBeTruthy()
-    expect(screen.queryByLabelText('Clear snooze')).toBeNull()
+    fireEvent.click(await screen.findByLabelText('Snooze…'))
+    expect(await screen.findByLabelText('Until Next Message')).toBeTruthy()
+    expect(screen.queryByLabelText('Clear Snooze')).toBeNull()
     await act(async () => {
       replica.applyChanges('sessionUserStates', [personal(null)], [])
     })
-    expect(await screen.findByLabelText('Clear snooze')).toBeTruthy()
+    expect(await screen.findByLabelText('Clear Snooze')).toBeTruthy()
   })
 })
 

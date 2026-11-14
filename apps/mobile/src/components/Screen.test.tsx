@@ -1,4 +1,5 @@
 import { act, cleanup, render } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import { Text } from 'react-native'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -11,6 +12,27 @@ vi.mock('expo-haptics', () => ({
 }))
 
 vi.mock('./Icon', () => ({ Icon: () => null }))
+// The real sheet drags with gesture-handler and reanimated, which have no host here.
+vi.mock('./BottomSheet', () => ({
+  BottomSheet: ({
+    visible,
+    children,
+    head,
+    footer,
+  }: {
+    visible: boolean
+    children?: ReactNode
+    head?: ReactNode
+    footer?: ReactNode
+  }) =>
+    visible ? (
+      <>
+        {head}
+        {children}
+        {footer}
+      </>
+    ) : null,
+}))
 
 const { Screen } = await import('./Screen')
 const { MobileSyncProgressStore } = await import('../client/mobile-sync-progress')
@@ -34,9 +56,11 @@ describe('Screen safe areas', () => {
 })
 
 describe('Screen actions', () => {
-  it('draws plain trailing actions and leaves pull-down menus to native', () => {
+  it('draws trailing actions, and a menu action opens its entries as a sheet', async () => {
     const onPress = vi.fn()
-    const { getByLabelText, queryByLabelText } = render(
+    const open = vi.fn()
+    const state = vi.fn()
+    const { getByLabelText, findByLabelText, queryByLabelText } = render(
       <Screen
         title="Work"
         large
@@ -45,7 +69,15 @@ describe('Screen actions', () => {
           {
             label: 'Show',
             icon: { ios: 'line.3.horizontal' } as never,
-            items: [{ label: 'Open', onPress }],
+            menuTitle: 'Show',
+            items: [
+              { items: [{ label: 'Open', onPress: open }] },
+              {
+                title: 'State',
+                submenu: true,
+                items: [{ label: 'Planning', selected: true, onPress: state }],
+              },
+            ],
           },
         ]}
       >
@@ -54,7 +86,12 @@ describe('Screen actions', () => {
     )
     getByLabelText('New work').click()
     expect(onPress).toHaveBeenCalledTimes(1)
-    expect(queryByLabelText('Show')).toBeNull()
+    // Inline sections flatten into the sheet; a submenu is one row.
+    expect(queryByLabelText('Open')).toBeNull()
+    act(() => getByLabelText('Show').click())
+    expect(await findByLabelText('Open')).toBeTruthy()
+    expect(getByLabelText('State…')).toBeTruthy()
+    expect(queryByLabelText('Planning')).toBeNull()
   })
 })
 

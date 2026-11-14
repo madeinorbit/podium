@@ -27,7 +27,6 @@ import {
   background,
   buttonStyle,
   contentShape,
-  disabled,
   font,
   foregroundStyle,
   frame,
@@ -51,7 +50,7 @@ import {
   tint,
 } from '@expo/ui/swift-ui/modifiers'
 import { relativeTime } from '@podium/client-core/focus'
-import { discoveredPlacement, type IssueNavigationModel } from '@podium/client-core/values'
+import type { IssueNavigationModel } from '@podium/client-core/values'
 import { headerView } from '@podium/client-graph/header-views'
 import { omitGone } from '@podium/client-graph/lookup'
 import { MOBILE_TASK_WINDOW_SIZE } from '@podium/client-graph/mobile-tasks'
@@ -64,12 +63,7 @@ import type {
   PhoneWorklist,
   PhoneWorkSection,
 } from '@podium/client-graph/worklist/phone'
-import {
-  issueStatusMenuEntries,
-  issueStatusValue,
-  issueStatusValueOf,
-  type SessionId,
-} from '@podium/model'
+import { issueStatusValue, type SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import * as Haptics from 'expo-haptics'
 import { Stack } from 'expo-router'
@@ -77,6 +71,7 @@ import { type ComponentProps, Fragment, useCallback, useEffect, useRef, useState
 import { StyleSheet, useWindowDimensions, View } from 'react-native'
 import { useMobilePoolProjection } from '../client/mobile-pool'
 import { useWorkspaceRefreshSubtitle } from '../client/workspace-refresh'
+import { IssueRowMenuItems } from '../components/IssueRowMenuItems.ios'
 import { ListNotices } from '../components/list-notices.ios'
 import { listRowPress, listSearchStartsHidden } from '../components/list-row-press.ios'
 import { ListSearchBar } from '../components/list-search-bar.ios'
@@ -89,8 +84,7 @@ import { listOrderRevision } from '../lib/list-order-revision'
 import { startupTiming } from '../lib/startup-timing'
 import { useRowPrime } from '../lib/use-row-prime'
 import { sectionAnimationValue, useSettledOrder } from '../lib/use-settled-order'
-import { workMenuActionIds } from '../lib/work-menu'
-import { quietProjectsLabel, workLaneTitle, workMenuItem, workSubtitle } from '../lib/work-row-copy'
+import { quietProjectsLabel, workLaneTitle, workSubtitle } from '../lib/work-row-copy'
 import { mobileRowStamp } from '../lib/work-sections'
 import { headerSubtitleOptions, nativeSubtitleAvailable } from '../navigation/native-stack'
 import { color } from '../theme/theme'
@@ -827,47 +821,14 @@ const NativeRowActions = observer(function NativeRowActions({
   onAction,
   onStatus,
 }: Pick<RowProps, 'lane' | 'onAction' | 'onStatus'> & { row: WorklistIssue }) {
-  const issue = row.issue as unknown as IssueNavigationModel
-  const placement = discoveredPlacement(issue)
-  const actions = workMenuActionIds(issue, lane === 'open' ? 'live' : lane, {
-    placement: Boolean(placement?.originId),
-  })
   return (
-    <>
-      {actions.map((action) => {
-        if (action === 'status')
-          return (
-            <Picker
-              key={action}
-              label="Status"
-              systemImage="circle.dashed"
-              selection={issueStatusValueOf(issue)}
-              onSelectionChange={(value) => onStatus(row.id, value)}
-              modifiers={[pickerStyle('menu')]}
-            >
-              {issueStatusMenuEntries().map((entry) => (
-                <Text key={entry.value} modifiers={[tag(entry.value)]}>
-                  {entry.label}
-                </Text>
-              ))}
-            </Picker>
-          )
-        const { label, symbol } = workMenuItem(action, {
-          unread: Boolean(issue.unread),
-          inMission: placement?.placement === 'mission',
-        })
-        return (
-          <Button
-            key={action}
-            label={label}
-            systemImage={symbol}
-            role={action === 'delete' ? 'destructive' : 'default'}
-            onPress={() => onAction(row.id, action)}
-            modifiers={action === 'bringBack' ? [disabled(!row.canBringBack)] : []}
-          />
-        )
-      })}
-    </>
+    <IssueRowMenuItems
+      issue={row.issue as unknown as IssueNavigationModel}
+      lane={lane === 'open' ? 'live' : lane}
+      canBringBack={row.canBringBack}
+      onAction={(action) => onAction(row.id, action)}
+      onStatus={(value) => onStatus(row.id, value)}
+    />
   )
 })
 

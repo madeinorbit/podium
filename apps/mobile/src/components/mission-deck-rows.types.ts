@@ -1,10 +1,15 @@
 import { issueAgentKind, modelName } from '@podium/client-core/agent-models'
 import type { SessionView } from '@podium/client-core/session-values'
-import { readoutModel, sessionDisplayName } from '@podium/client-core/values'
+import {
+  type IssueNavigationModel,
+  readoutModel,
+  sessionDisplayName,
+} from '@podium/client-core/values'
 import { here } from '@podium/client-graph/lookup'
 import type { FullDeckTask } from '@podium/client-graph/mission-full-deck'
 import type { SessionModel } from '@podium/client-graph/models'
 import { TASK_WORD_LABEL, type TaskWord } from '@podium/model/browser'
+import type { WorkMenuActionId } from '../lib/work-menu'
 
 /** One accepted task on the deck (board DeckLarge). */
 export type DeckTaskRowProps = {
@@ -13,6 +18,12 @@ export type DeckTaskRowProps = {
   first: boolean
   onPress: () => void
   onLongPress: () => void
+  /** iOS: the row's long-press acts as a native context menu (else `onLongPress`). */
+  menu?: {
+    issue: IssueNavigationModel
+    onAction: (action: WorkMenuActionId) => void
+    onStatus: (value: string) => void
+  }
 }
 
 /** An agent seated on a task, inset under it (board DeckLarge). */

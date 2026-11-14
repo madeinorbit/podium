@@ -91,9 +91,11 @@ function NativeActionSheet({ visible, title, subtitle, actions, onClose }: Actio
     presented.current = true
     const spec = nativeSheetSpec(latest.current)
     ReactNative.ActionSheetIOS.showActionSheetWithOptions(
-      // Dark-only app, and the bisque accent writes the option labels the way
-      // it writes every other accent `color:` in the app.
-      { ...spec, tintColor: color.accent, userInterfaceStyle: 'dark' },
+      // No `tintColor` and no forced `userInterfaceStyle`: UIKit draws its own
+      // label, red destructive and Cancel colours in the person's appearance.
+      // The accent used to write every row gold on a forced-dark sheet, which
+      // read as low contrast and not native over the light app.
+      spec,
       (buttonIndex) => {
         presented.current = false
         const current = latest.current

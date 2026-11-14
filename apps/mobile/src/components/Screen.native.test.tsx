@@ -10,14 +10,49 @@ type HeaderOptions = {
   headerTitle?: () => React.ReactNode
 }
 const options = vi.hoisted(() => ({ current: {} as HeaderOptions }))
-vi.mock('expo-router/stack', () => ({
-  Stack: {
-    Screen: ({ options: value }: { options: HeaderOptions }) => {
-      options.current = value
-      return null
+type ToolbarProps = Record<string, unknown> & { children?: React.ReactNode }
+vi.mock('expo-router/stack', () => {
+  // The bar's items as plain markup, so a test reads the UIMenu tree it builds.
+  const Toolbar = Object.assign(
+    ({ children }: ToolbarProps) => <div data-testid="toolbar">{children}</div>,
+    {
+      Menu: ({ children, inline, title, icon, accessibilityLabel }: ToolbarProps) => (
+        <div
+          data-testid="menu"
+          data-inline={String(inline ?? false)}
+          data-title={String(title ?? accessibilityLabel ?? '')}
+          data-icon={String(icon ?? '')}
+        >
+          {children}
+        </div>
+      ),
+      MenuAction: ({ children, icon, destructive, isOn, subtitle }: ToolbarProps) => (
+        <div
+          data-testid="menu-action"
+          data-icon={String(icon ?? '')}
+          data-destructive={String(destructive ?? false)}
+          data-on={String(isOn ?? false)}
+          data-subtitle={String(subtitle ?? '')}
+        >
+          {children}
+        </div>
+      ),
+      Button: ({ accessibilityLabel }: ToolbarProps) => (
+        <div data-testid="bar-button">{String(accessibilityLabel)}</div>
+      ),
+      Label: ({ children }: ToolbarProps) => <span>{children}</span>,
     },
-  },
-}))
+  )
+  return {
+    Stack: {
+      Screen: ({ options: value }: { options: HeaderOptions }) => {
+        options.current = value
+        return null
+      },
+      Toolbar,
+    },
+  }
+})
 vi.mock('expo-router/react-navigation', () => ({ HeaderHeightContext: createContext(0) }))
 vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 47, bottom: 34, left: 0, right: 0 }),
@@ -101,5 +136,72 @@ describe('tappable navigation title', () => {
       </Screen>,
     )
     expect(options.current.headerTitle).toBeUndefined()
+  })
+})
+
+describe('header pull-down menu', () => {
+  it('builds the UIMenu from sections, submenus, symbols and the destructive attribute', () => {
+    const icon = (name: string) => ({ ios: name, android: name, web: name }) as never
+    render(
+      <Screen
+        title="Chat"
+        onBack={() => {}}
+        actions={[
+          { label: 'Open terminal', icon: icon('terminal'), onPress: () => {} },
+          {
+            label: 'Session actions',
+            icon: icon('ellipsis'),
+            items: [
+              {
+                items: [
+                  {
+                    label: 'Next Session',
+                    hint: 'The next one waiting on you',
+                    icon: icon('forward.end'),
+                    onPress: () => {},
+                  },
+                ],
+              },
+              {
+                title: 'Work State',
+                submenu: true,
+                icon: icon('square.stack.3d.up'),
+                items: [{ label: 'Planning', selected: true, onPress: () => {} }],
+              },
+              {
+                items: [
+                  {
+                    label: 'Kill Session',
+                    icon: icon('xmark.octagon'),
+                    destructive: true,
+                    onPress: () => {},
+                  },
+                ],
+              },
+            ],
+          },
+        ]}
+      >
+        <Text>Content</Text>
+      </Screen>,
+    )
+    expect(screen.getByTestId('bar-button').textContent).toBe('Open terminal')
+    const [root, section, submenu, last] = screen.getAllByTestId('menu')
+    expect(root?.dataset.icon).toBe('ellipsis')
+    expect(section?.dataset.inline).toBe('true')
+    expect(submenu?.dataset).toMatchObject({
+      inline: 'false',
+      title: 'Work State',
+      icon: 'square.stack.3d.up',
+    })
+    expect(last?.dataset.inline).toBe('true')
+    const rows = screen.getAllByTestId('menu-action')
+    expect(rows.map((row) => row.textContent)).toEqual(['Next Session', 'Planning', 'Kill Session'])
+    expect(rows[0]?.dataset).toMatchObject({
+      icon: 'forward.end',
+      subtitle: 'The next one waiting on you',
+    })
+    expect(rows[1]?.dataset.on).toBe('true')
+    expect(rows[2]?.dataset.destructive).toBe('true')
   })
 })

@@ -14,7 +14,7 @@ import {
 import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ScrollView, StyleSheet, View } from 'react-native'
 import { useConnected, useStoreActions, useTrpc } from '../client/hooks'
 import { issueObserver as observer } from '../client/issue-observer'
@@ -29,15 +29,26 @@ import {
   useIssueTargets,
 } from '../client/use-issue-model'
 import { useSessionContextBooting as useBooting } from '../client/use-session-context'
-import { ActionSheet, type SheetAction } from '../components/ActionSheet'
+import { ActionSheet } from '../components/ActionSheet'
 import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
-import { Icon } from '../components/Icon'
 import { IssueCloseSheet } from '../components/IssueCloseSheet'
 import { IssueQuestionCard } from '../components/IssueQuestionCard'
 import { IssueTargetSheet } from '../components/IssueTargetSheet'
-import { MoreHorizontal } from '../components/icons'
+import {
+  Archive,
+  ArchiveRestore,
+  Flag,
+  MoreHorizontal,
+  Pin,
+  PinOff,
+  Replace,
+  RotateCcw,
+  SquareTerminal,
+  Trash2,
+  UserPlus,
+} from '../components/icons'
 import { BootstrapCrossfade, DetailSkeleton } from '../components/LaunchPlaceholders'
-import { HeaderButton, Screen } from '../components/Screen'
+import { Screen, type ScreenAction, type ScreenMenuEntry } from '../components/Screen'
 import { PriorityGlyph, StageGlyph } from '../components/StageGlyph'
 import { ErrorNote } from '../components/task-detail/chrome'
 import { GitReviewSection } from '../components/task-detail/GitReviewSection'
@@ -174,7 +185,6 @@ type OpenSheet =
   | { kind: 'relation-type' }
   | { kind: 'relation-target'; type: (typeof RELATION_TYPES)[number] }
   | { kind: 'supersede' }
-  | { kind: 'menu' }
   | { kind: 'confirm-delete' }
   | { kind: 'confirm-archive' }
   /** Carries the ending being recorded — the guard is raised BY a close, so it
@@ -237,7 +247,8 @@ const IssueContent = observer(function IssueContent({
   const moreTargets = () => {
     if (targets && targets.length > targetLimit) setTargetLimit((limit) => limit + 14)
   }
-  const hasMates = useHasIssueMates(issue, sheet?.kind === 'menu')
+  // The menu is built before it opens (iOS hands it to UIKit up front).
+  const hasMates = useHasIssueMates(issue, true)
   const [detailsOpen, detailsCollapsed] = useDetailsFold()
   const keyboardLift = useKeyboardLift()
 
@@ -293,6 +304,30 @@ const IssueContent = observer(function IssueContent({
         : members.filter((session) => session.agentKind !== 'shell')
   const lead = seats[0]
 
+  // The ••• menu, built once per change of the facts that gate its entries.
+  // Its actions reach the current commands through a ref, so an unrelated
+  // render neither rebuilds the list nor re-sends the native bar items.
+  const menuRun = useRef({ commands, onBack })
+  menuRun.current = { commands, onBack }
+  const menuKey = JSON.stringify({
+    live: !issue.deletedAt,
+    noAgents: agents.length === 0,
+    pinned: issue.pinned === true,
+    archived: issue.archived === true,
+    finished: isFinished(issue),
+    hasMates,
+  })
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `menuKey` carries the facts by value.
+  const menuEntries = useMemo(
+    () => issueMenuEntries(JSON.parse(menuKey) as IssueMenuFacts, menuRun, setSheet),
+    [menuKey],
+  )
+  const menuTitle = issueDisplayRef(issue)
+  const menuBarActions = useMemo<readonly ScreenAction[]>(
+    () => [{ label: 'More actions', icon: MoreHorizontal, items: menuEntries, menuTitle }],
+    [menuEntries, menuTitle],
+  )
+
   /**
    * Dismiss THIS sheet, and only if it is still the one showing.
    *
@@ -327,11 +362,7 @@ const IssueContent = observer(function IssueContent({
       onBack={onBack}
       backAs={dismiss ? 'text' : 'chevron'}
       backLabel={dismiss ? 'Done' : undefined}
-      right={
-        <HeaderButton label="More actions" onPress={() => setSheet({ kind: 'menu' })}>
-          <Icon as={MoreHorizontal} size={17} color={color.text} />
-        </HeaderButton>
-      }
+      actions={menuBarActions}
     >
       {/* The keyboard contract the chat screens carry: inline editors (title,
           description, sub-task) stay above the keyboard. The lift is the
@@ -381,6 +412,11 @@ const IssueContent = observer(function IssueContent({
             onStage={() => setSheet({ kind: 'stage' })}
             onPriority={() => setSheet({ kind: 'priority' })}
             onType={() => setSheet({ kind: 'type' })}
+            onSelect={{
+              status: commands.selectStatus,
+              priority: (priority) => commands.update({ priority }),
+              type: (type) => commands.update({ type }),
+            }}
           />
           <StatusStrip issue={issue} exceptionsOnly />
 
@@ -571,13 +607,6 @@ const IssueContent = observer(function IssueContent({
       />
 
       <ActionSheet
-        visible={sheet?.kind === 'menu'}
-        title={issueDisplayRef(issue)}
-        actions={menuActions()}
-        onClose={closeIf('menu')}
-      />
-
-      <ActionSheet
         visible={sheet?.kind === 'confirm-delete'}
         title={DELETE_TASK_TITLE}
         subtitle={deleteTaskSubtitle(sessions.length)}
@@ -644,63 +673,6 @@ const IssueContent = observer(function IssueContent({
     </Screen>
   )
 
-  /**
-   * The overflow menu. Every entry is gated on DATA PRESENCE or on the task's own
-   * lifecycle, exactly as the desktop's declarative menu config gates them; the
-   * two acts that cannot be undone by a second tap raise a confirm sheet first.
-   * This is UX gating only — the Authority re-authorizes at apply, and a denied
-   * write surfaces through the same error note every command uses.
-   */
-  function menuActions(): SheetAction[] {
-    const live = !issue.deletedAt
-    const actions: SheetAction[] = []
-    if (agents.length === 0 && live) {
-      actions.push({
-        label: 'Start an agent',
-        hint: 'Choose agent, model, effort, and machine before starting.',
-        onPress: () => setSheet({ kind: 'launch' }),
-      })
-    }
-    // No "Add an agent" once one is running (2026-08-27 device review): a
-    // second agent launches from the mission's deck or its 3-dots menu.
-    if (live) actions.push({ label: 'Add a shell', onPress: commands.addShell })
-    if (live) {
-      actions.push({
-        label: issue.pinned ? 'Unpin' : 'Pin',
-        onPress: commands.togglePinned,
-      })
-      actions.push({
-        label: issue.archived ? 'Unarchive task' : 'Archive task',
-        onPress: () => {
-          // Archiving something still OPEN is the case that surprises people.
-          if (!issue.archived && !isFinished(issue)) {
-            setSheet({ kind: 'confirm-archive' })
-            return
-          }
-          commands.toggleArchived()
-        },
-      })
-      actions.push({ label: 'Flag for human…', onPress: () => setSheet({ kind: 'flag' }) })
-    }
-    if (live && hasMates) {
-      actions.push({
-        label: 'Supersede with…',
-        onPress: () => setSheet({ kind: 'supersede' }),
-        hint: 'Pick the task that replaces this one.',
-      })
-    }
-    if (issue.deletedAt) {
-      actions.push({ label: 'Restore task', onPress: () => commands.restoreIssue(onBack) })
-    } else {
-      actions.push({
-        label: 'Delete',
-        destructive: true,
-        onPress: () => setSheet({ kind: 'confirm-delete' }),
-      })
-    }
-    return actions
-  }
-
   function selectChildStatus(child: IssueViewModel, value: string): void {
     const intent = parseIssueStatusValue(value)
     if (!intent) return
@@ -715,6 +687,100 @@ const IssueContent = observer(function IssueContent({
     void run(() => actions.closeIssue(child.id, intent.reason))
   }
 })
+
+interface IssueMenuFacts {
+  live: boolean
+  noAgents: boolean
+  pinned: boolean
+  archived: boolean
+  finished: boolean
+  hasMates: boolean
+}
+
+/**
+ * The overflow menu. Every entry is gated on DATA PRESENCE or on the task's own
+ * lifecycle, exactly as the desktop's declarative menu config gates them; the
+ * two acts that cannot be undone by a second tap raise a confirm sheet first.
+ * This is UX gating only — the Authority re-authorizes at apply, and a denied
+ * write surfaces through the same error note every command uses.
+ */
+function issueMenuEntries(
+  facts: IssueMenuFacts,
+  run: { readonly current: { commands: ReturnType<typeof issueCommands>; onBack: () => void } },
+  setSheet: (sheet: OpenSheet) => void,
+): ScreenMenuEntry[] {
+  const commands = () => run.current.commands
+  if (!facts.live) {
+    return [
+      {
+        label: 'Restore Task',
+        icon: RotateCcw,
+        onPress: () => commands().restoreIssue(run.current.onBack),
+      },
+    ]
+  }
+  return [
+    {
+      items: [
+        // No "Add an agent" once one is running (2026-08-27 device review): a
+        // second agent launches from the mission's deck or its 3-dots menu.
+        ...(facts.noAgents
+          ? [
+              {
+                label: 'Start an Agent…',
+                hint: 'Choose agent, model, effort and machine',
+                icon: UserPlus,
+                onPress: () => setSheet({ kind: 'launch' }),
+              },
+            ]
+          : []),
+        { label: 'Add a Shell', icon: SquareTerminal, onPress: () => commands().addShell() },
+      ],
+    },
+    {
+      items: [
+        {
+          label: facts.pinned ? 'Unpin' : 'Pin',
+          icon: facts.pinned ? PinOff : Pin,
+          onPress: () => commands().togglePinned(),
+        },
+        {
+          label: facts.archived ? 'Unarchive Task' : 'Archive Task',
+          icon: facts.archived ? ArchiveRestore : Archive,
+          onPress: () => {
+            // Archiving something still OPEN is the case that surprises people.
+            if (!facts.archived && !facts.finished) {
+              setSheet({ kind: 'confirm-archive' })
+              return
+            }
+            commands().toggleArchived()
+          },
+        },
+        { label: 'Flag for Human…', icon: Flag, onPress: () => setSheet({ kind: 'flag' }) },
+        ...(facts.hasMates
+          ? [
+              {
+                label: 'Supersede With…',
+                hint: 'Pick the task that replaces this one',
+                icon: Replace,
+                onPress: () => setSheet({ kind: 'supersede' }),
+              },
+            ]
+          : []),
+      ],
+    },
+    {
+      items: [
+        {
+          label: 'Delete…',
+          icon: Trash2,
+          destructive: true,
+          onPress: () => setSheet({ kind: 'confirm-delete' }),
+        },
+      ],
+    },
+  ]
+}
 
 /** The Details fold, remembered per principal in the replica's ui-state — the
  *  same store and key namespace the sidebar's folds use, so the phone and the

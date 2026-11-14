@@ -1,14 +1,20 @@
-import type { ReactNode } from 'react'
+import { type ReactNode, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useWorkspaceRefreshSubtitle } from '../client/workspace-refresh'
 import { color, font, mono, radius, sans, space, tracking } from '../theme/theme'
 import { Icon } from './Icon'
 import { ChevronLeft } from './icons'
+import { MenuSheet } from './MenuSheet'
 import { PressableScale } from './PressableScale'
 import type { ScreenAction } from './screen-actions'
 
-export type { ScreenAction, ScreenMenuItem } from './screen-actions'
+export type {
+  ScreenAction,
+  ScreenMenuEntry,
+  ScreenMenuItem,
+  ScreenMenuSection,
+} from './screen-actions'
 
 /**
  * Screen scaffold on the flat Dark Ink canvas (`color.bg`, #16171a).
@@ -95,13 +101,15 @@ export function Screen({
   const right =
     customRight ??
     (actions?.length
-      ? actions
-          .flatMap((action) => (action.onPress && !action.items ? [action] : []))
-          .map((action) => (
-            <HeaderButton key={action.label} label={action.label} onPress={action.onPress!}>
+      ? actions.map((action) =>
+          action.items ? (
+            <HeaderMenuButton key={action.label} action={action} />
+          ) : action.onPress ? (
+            <HeaderButton key={action.label} label={action.label} onPress={action.onPress}>
               <Icon as={action.icon} size={17} color={color.textDim} />
             </HeaderButton>
-          ))
+          ) : null,
+        )
       : null)
   return (
     <View style={[styles.root, grouped && styles.grouped]}>
@@ -177,6 +185,25 @@ export function Screen({
 }
 
 /** Square chip icon button for header action rows (28px `color.surface`). */
+/** A menu action off iOS: its button, and its entries as the action sheet. */
+export function HeaderMenuButton({ action }: { action: ScreenAction }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <HeaderButton label={action.label} onPress={() => setOpen(true)}>
+        <Icon as={action.icon} size={17} color={color.textDim} />
+      </HeaderButton>
+      <MenuSheet
+        visible={open}
+        {...(action.menuTitle ? { title: action.menuTitle } : {})}
+        {...(action.testID ? { testID: action.testID } : {})}
+        entries={action.items ?? []}
+        onClose={() => setOpen(false)}
+      />
+    </>
+  )
+}
+
 export function HeaderButton({
   label,
   onPress,

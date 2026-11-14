@@ -7,7 +7,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { type ReactNode, useEffect, useImperativeHandle } from 'react'
 import type { SearchBarCommands, SearchBarProps } from 'react-native-screens'
 import { afterEach, expect, it, vi } from 'vitest'
-import type { ScreenAction } from '../components/screen-actions'
+import type { ScreenAction, ScreenMenuItem } from '../components/screen-actions'
 import { ROW_PRIME_MS } from '../lib/use-row-prime'
 import type { TasksSurfaceProps } from './TasksSurface.types'
 import type { WorkSurfaceProps } from './WorkSurface.types'
@@ -442,7 +442,9 @@ it('Tasks aligns nested separators, pads scalable content and keeps cell traits 
   expect(monoSizes()).toEqual([22, 24])
   expect(state.actions).toHaveLength(1)
   expect(state.actions[0]?.label).toBe('Task actions')
-  const newTask = state.actions[0]?.items?.find((item) => item.label === 'New task')
+  const newTask = state.actions[0]?.items?.find(
+    (item): item is ScreenMenuItem => 'label' in item && item.label === 'New task',
+  )
   expect(newTask).toBeDefined()
   newTask?.onPress()
   expect(onNewTask).toHaveBeenCalledOnce()

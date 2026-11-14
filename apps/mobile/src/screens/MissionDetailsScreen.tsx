@@ -13,7 +13,7 @@ import { DetailSkeleton } from '../components/LaunchPlaceholders'
 import { MissionDeck, useRevealSeat } from '../components/MissionDeck'
 import { Screen } from '../components/Screen'
 import { EmptyState } from '../components/ui'
-import { WorkIssueMenu } from '../components/WorkIssueMenu'
+import { WorkIssueMenu, type WorkMenuSheet } from '../components/WorkIssueMenu'
 import { deckTaskOpen } from '../navigation/mission-deck-targets'
 
 /**
@@ -35,7 +35,11 @@ export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
   useScreenReadFocus(root?.id)
   const router = useRouter()
   const seatMemory = useTaskSeatMemory()
-  const [menuIssue, setMenuIssue] = useState<IssueNavigationModel | null>(null)
+  const [menu, setMenu] = useState<{
+    issue: IssueNavigationModel
+    sheet?: WorkMenuSheet
+  } | null>(null)
+  const menuIssue = menu?.issue ?? null
   const menuIssueId = menuIssue?.id
   const readSessionCount = useCallback(
     (pool: MobxPool) => (menuIssueId ? pool.graph.size('issue', menuIssueId, 'pageSessions') : 0),
@@ -87,7 +91,7 @@ export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
                 : open.href,
             )
           }}
-          onOpenTaskMenu={setMenuIssue}
+          onOpenTaskMenu={(issue, sheet) => setMenu({ issue, ...(sheet ? { sheet } : {}) })}
           onScreenProposals={() =>
             Platform.OS === 'web'
               ? router.replace('/screen-proposed')
@@ -99,8 +103,10 @@ export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
       )}
       {menuIssue ? (
         <WorkIssueMenu
+          key={`${menuIssue.id}:${menu?.sheet?.kind ?? 'menu'}`}
           target={{ issue: menuIssue, lane: 'live', sessionCount }}
-          onClose={() => setMenuIssue(null)}
+          {...(menu?.sheet ? { initialSheet: menu.sheet } : {})}
+          onClose={() => setMenu(null)}
         />
       ) : null}
     </Screen>

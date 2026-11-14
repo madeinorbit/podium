@@ -15,6 +15,7 @@ import { observer } from 'mobx-react-lite'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { AppState, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import { useTrpc } from '../client/hooks'
+import { useIssueRowActions } from '../lib/issue-row-actions'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
 import { deckColor } from './deck-colors'
 import { Icon } from './Icon'
@@ -24,9 +25,11 @@ import { DeckAgentRow, DeckPhaseHeading, DeckSeatRow, DeckTaskRow } from './Miss
 import { DeckGauge, DeckVitalsLine, deckVitals } from './MissionGauge'
 import { MissionProposalRow } from './MissionProposalRow'
 import { MissionProposalSlot } from './MissionProposalSlot'
+import type { DeckTaskRowProps } from './mission-deck-rows.types'
 import type { MissionProposalRowProps } from './mission-proposal-row.types'
 import { StageGlyph } from './StageGlyph'
 import { EmptyState } from './ui'
+import type { WorkMenuSheet } from './WorkIssueMenu'
 
 /** The shared FullDeck projection in a full-screen native list: the page right of the chat. */
 
@@ -55,6 +58,9 @@ const FILTER_LABEL: Readonly<Record<FullDeckFilter, string>> = {
   'up-next': 'Up next',
 }
 
+/** As WorkIssueMenu's own acts: a refused row write leaves the row as it was. */
+const ignoreRowError = () => {}
+
 export const MissionDeck = observer(function MissionDeck({
   screen,
   currentSessionId,
@@ -68,7 +74,8 @@ export const MissionDeck = observer(function MissionDeck({
   currentSessionId: string | undefined
   onOpenSession: (session: SessionView) => void
   onOpenTask: (issue: IssueNavigationModel) => void
-  onOpenTaskMenu: (issue: IssueNavigationModel) => void
+  /** A task row's menu, or (with `sheet`) the one sheet a native menu row asked for. */
+  onOpenTaskMenu: (issue: IssueNavigationModel, sheet?: WorkMenuSheet) => void
   onScreenProposals: () => void
   showTitle?: boolean
 }) {
@@ -107,6 +114,16 @@ export const MissionDeck = observer(function MissionDeck({
   }
   const openSession = (id: string) =>
     onOpenSession(screen.pool.sessionObject(id) as unknown as SessionView)
+  // iOS task rows carry Work's row acts as a native context menu: direct acts
+  // write through the store, and rename, delete or a guarded close hand back
+  // to the host's WorkIssueMenu with the sheet to open.
+  const rowActions = useIssueRowActions({
+    openMenu: (id, sheet) => {
+      const issue = issueOf(id)
+      if (issue) onOpenTaskMenu(issue, sheet)
+    },
+    onError: ignoreRowError,
+  })
 
   // The gauge heads the coordinator card when there is one: a header-only
   // section of its own would add List's empty-section padding beneath it.
@@ -173,6 +190,16 @@ export const MissionDeck = observer(function MissionDeck({
         onOpenTaskMenu={(id) => {
           const issue = issueOf(id)
           if (issue) onOpenTaskMenu(issue)
+        }}
+        taskMenu={(id) => {
+          const issue = issueOf(id)
+          return issue
+            ? {
+                issue,
+                onAction: (action) => rowActions.onAction(id, action),
+                onStatus: (value) => rowActions.onStatus(id, value),
+              }
+            : undefined
         }}
       />
 
@@ -396,6 +423,7 @@ const DeckRows = observer(function DeckRows({
   onOpenSession,
   onOpenTask,
   onOpenTaskMenu,
+  taskMenu,
 }: {
   full: FullDeck
   rowIds: readonly string[]
@@ -403,6 +431,7 @@ const DeckRows = observer(function DeckRows({
   onOpenSession: (id: string) => void
   onOpenTask: (id: string) => void
   onOpenTaskMenu: (id: string) => void
+  taskMenu: (id: string) => DeckTaskRowProps['menu']
 }) {
   const blocks: { phase: FullDeckTask | null; tasks: FullDeckTask[]; phaseStart: boolean }[] = []
   for (const id of rowIds) {
@@ -465,6 +494,7 @@ const DeckRows = observer(function DeckRows({
                         first={row === 0 && leadingSeats.length === 0}
                         onPress={() => onOpenTask(task.id)}
                         onLongPress={() => onOpenTaskMenu(task.id)}
+                        menu={taskMenu(task.id)}
                       />
                     </DeckRow>
                     {seats.map((id) => (

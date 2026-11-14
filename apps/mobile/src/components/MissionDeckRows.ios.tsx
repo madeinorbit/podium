@@ -1,4 +1,13 @@
-import { Button, HStack, Image, RNHostView, Spacer, Text, VStack } from '@expo/ui/swift-ui'
+import {
+  Button,
+  ContextMenu,
+  HStack,
+  Image,
+  RNHostView,
+  Spacer,
+  Text,
+  VStack,
+} from '@expo/ui/swift-ui'
 import {
   accessibilityAddTraits,
   accessibilityElement,
@@ -31,6 +40,7 @@ import { observer } from 'mobx-react-lite'
 import { useWindowDimensions } from 'react-native'
 import { color } from '../theme/theme'
 import { deckColor, deckWordColor } from './deck-colors'
+import { IssueRowMenuItems } from './IssueRowMenuItems.ios'
 import { listRowPress } from './list-row-press.ios'
 import {
   type DeckAgentRowProps,
@@ -90,6 +100,7 @@ export const DeckTaskRow = observer(function DeckTaskRow({
   indent,
   onPress,
   onLongPress,
+  menu,
 }: DeckTaskRowProps) {
   // A cold row's facts are still loading: draw its place, not a throw.
   const facts = settled(() => ({
@@ -127,6 +138,50 @@ export const DeckTaskRow = observer(function DeckTaskRow({
   const { word, title, ref, foldable, open } = facts
   const blockers = word === 'blocked' ? settled(() => task.unmetBlockedByIds.length) : 0
   const label = taskWordText(word, blockers === LOADING ? 0 : blockers)
+  const body = (
+    <HStack
+      alignment="top"
+      spacing={GAP}
+      modifiers={[
+        padding({ top: 8, bottom: 8 }),
+        frame({ minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
+        contentShape(shapes.rectangle()),
+        accessibilityElement('ignore'),
+        accessibilityLabel(`${ref} ${title}, ${label}`),
+        accessibilityHint('Opens the task. Long press for actions.'),
+        // With a menu, UIKit's context menu owns the long press (and lifts
+        // the row as its preview); without one the host opens its sheet.
+        ...(menu ? [] : [onLongPressGesture(onLongPress)]),
+        // The List's own row Button (highlight, label colours, taps only);
+        // VoiceOver reads it from the label above, the id names the Button.
+        listRowPress(onPress),
+        accessibilityIdentifier('deck-task'),
+      ]}
+    >
+      <Indent step={step} />
+      <StageMark stage={issueStatusOf(facts.status)} ground={color.groupedCard} line={type.title} />
+      <VStack
+        alignment="leading"
+        spacing={4}
+        modifiers={[frame({ maxWidth: Infinity, alignment: 'leading' })]}
+      >
+        <Text
+          modifiers={[
+            font({ textStyle: 'subheadline' }),
+            foregroundStyle(word === 'done' ? color.textDim : color.text),
+            lineLimit(type.lines),
+            frame({ maxWidth: Infinity, alignment: 'leading' }),
+          ]}
+        >
+          {title}
+        </Text>
+        <HStack spacing={0} modifiers={[monospacedDigit()]}>
+          <Text modifiers={metaText(color.textDim)}>{`${ref} · `}</Text>
+          <Text modifiers={metaText(deckWordColor(word))}>{label}</Text>
+        </HStack>
+      </VStack>
+    </HStack>
+  )
   return (
     <HStack
       spacing={0}
@@ -138,50 +193,21 @@ export const DeckTaskRow = observer(function DeckTaskRow({
         separatorAt(step),
       ]}
     >
-      <HStack
-        alignment="top"
-        spacing={GAP}
-        modifiers={[
-          padding({ top: 8, bottom: 8 }),
-          frame({ minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
-          contentShape(shapes.rectangle()),
-          accessibilityElement('ignore'),
-          accessibilityLabel(`${ref} ${title}, ${label}`),
-          accessibilityHint('Opens the task. Long press for actions.'),
-          onLongPressGesture(onLongPress),
-          // The List's own row Button (highlight, label colours, taps only);
-          // VoiceOver reads it from the label above, the id names the Button.
-          listRowPress(onPress),
-          accessibilityIdentifier('deck-task'),
-        ]}
-      >
-        <Indent step={step} />
-        <StageMark
-          stage={issueStatusOf(facts.status)}
-          ground={color.groupedCard}
-          line={type.title}
-        />
-        <VStack
-          alignment="leading"
-          spacing={4}
-          modifiers={[frame({ maxWidth: Infinity, alignment: 'leading' })]}
-        >
-          <Text
-            modifiers={[
-              font({ textStyle: 'subheadline' }),
-              foregroundStyle(word === 'done' ? color.textDim : color.text),
-              lineLimit(type.lines),
-              frame({ maxWidth: Infinity, alignment: 'leading' }),
-            ]}
-          >
-            {title}
-          </Text>
-          <HStack spacing={0} modifiers={[monospacedDigit()]}>
-            <Text modifiers={metaText(color.textDim)}>{`${ref} · `}</Text>
-            <Text modifiers={metaText(deckWordColor(word))}>{label}</Text>
-          </HStack>
-        </VStack>
-      </HStack>
+      {menu ? (
+        <ContextMenu modifiers={[frame({ maxWidth: Infinity, alignment: 'leading' })]}>
+          <ContextMenu.Trigger>{body}</ContextMenu.Trigger>
+          <ContextMenu.Items>
+            <IssueRowMenuItems
+              issue={menu.issue}
+              lane="live"
+              onAction={menu.onAction}
+              onStatus={menu.onStatus}
+            />
+          </ContextMenu.Items>
+        </ContextMenu>
+      ) : (
+        body
+      )}
       {foldable ? (
         // A disclosure on the trailing edge (DisclosureGroup), its own
         // borderless button: a tap folds and never opens the task, and every

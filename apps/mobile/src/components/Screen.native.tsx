@@ -1,8 +1,8 @@
 import { HeaderHeightContext } from 'expo-router/react-navigation'
 import { Stack } from 'expo-router/stack'
 import type { SFSymbol } from 'expo-symbols'
-import { type ReactNode, use, useState } from 'react'
-import { type LayoutChangeEvent, StyleSheet, Text, View } from 'react-native'
+import { memo, type ReactNode, use, useState } from 'react'
+import { type LayoutChangeEvent, Platform, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useWorkspaceRefreshSubtitle } from '../client/workspace-refresh'
 import { HeaderInsetContext } from '../navigation/header-inset'
@@ -14,10 +14,16 @@ import {
 import { color, font, mono, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { type AppIcon, ChevronRight } from './icons'
+import { MenuSheet } from './MenuSheet'
 import { PressableScale } from './PressableScale'
-import type { ScreenAction } from './screen-actions'
+import { isMenuSection, type ScreenAction, type ScreenMenuEntry } from './screen-actions'
 
-export type { ScreenAction, ScreenMenuItem } from './screen-actions'
+export type {
+  ScreenAction,
+  ScreenMenuEntry,
+  ScreenMenuItem,
+  ScreenMenuSection,
+} from './screen-actions'
 
 const noop = () => {}
 
@@ -95,6 +101,8 @@ export function Screen({
   // Root tabs already float a transparent bar (the large title path); pushed
   // screens get the same on iOS so no opaque band sits over the content.
   const transparentBar = !noHeader && transparentDetailHeader
+  // SF Symbols do not reach Android's toolbar, so it draws the actions itself.
+  const androidActions = Platform.OS === 'android' && actions?.length ? actions : undefined
   const headerHeight = use(HeaderHeightContext) ?? 0
   const barInset = transparentBar ? headerHeight : 0
 
@@ -148,7 +156,11 @@ export function Screen({
                 ),
               }
             : {}),
-          ...(right ? { headerRight: () => <View style={styles.actions}>{right}</View> } : {}),
+          ...(right
+            ? { headerRight: () => <View style={styles.actions}>{right}</View> }
+            : androidActions
+              ? { headerRight: () => <AndroidHeaderActions actions={androidActions} /> }
+              : {}),
           ...(onBack && backAs === 'text'
             ? {
                 headerLeft: () => (
@@ -169,7 +181,9 @@ export function Screen({
       {leadingActions?.length && !(onBack && backAs === 'text') ? (
         <ToolbarItems placement="left" actions={leadingActions} />
       ) : null}
-      {actions?.length && !right ? <ToolbarItems placement="right" actions={actions} /> : null}
+      {actions?.length && !right && !androidActions ? (
+        <ToolbarItems placement="right" actions={actions} />
+      ) : null}
       <View
         style={[
           styles.body,
@@ -205,8 +219,12 @@ export function Screen({
  * Native bar items: a button, or with `items` a pull-down menu. A `title`
  * draws as text with the icon trailing (a scope or range picker); otherwise
  * the item is the icon alone.
+ *
+ * Memoized on `actions`: Stack.Toolbar re-sends the bar's items whenever its
+ * children change identity, so a caller that memoizes its actions keeps an
+ * unrelated screen render off the native bar.
  */
-function ToolbarItems({
+const ToolbarItems = memo(function ToolbarItems({
   placement,
   actions,
 }: {
@@ -223,17 +241,7 @@ function ToolbarItems({
             accessibilityLabel={action.label}
           >
             {action.title ? <Stack.Toolbar.Label>{action.title}</Stack.Toolbar.Label> : null}
-            {action.items.map((item) => (
-              <Stack.Toolbar.MenuAction
-                key={item.label}
-                icon={item.icon ? sfName(item.icon) : undefined}
-                isOn={item.selected}
-                destructive={item.destructive}
-                onPress={item.onPress}
-              >
-                {item.label}
-              </Stack.Toolbar.MenuAction>
-            ))}
+            {menuEntries(action.items)}
           </Stack.Toolbar.Menu>
         ) : (
           <Stack.Toolbar.Button
@@ -247,6 +255,79 @@ function ToolbarItems({
         ),
       )}
     </Stack.Toolbar>
+  )
+})
+
+/**
+ * The menu's rows as Stack.Toolbar elements. Plain function calls, not
+ * components: expo-router reads the element tree's props directly when it
+ * builds the UIMenu, so every level must be a Menu or MenuAction element.
+ * A section is an inline submenu (UIMenu's displayInline: a divided group);
+ * a `submenu` section is a titled row that opens its entries.
+ */
+function menuEntries(entries: readonly ScreenMenuEntry[], path = ''): ReactNode[] {
+  return entries.map((entry, index) => {
+    const key = `${path}${index}:${isMenuSection(entry) ? (entry.title ?? 'section') : entry.label}`
+    if (isMenuSection(entry)) {
+      return (
+        <Stack.Toolbar.Menu
+          key={key}
+          inline={!entry.submenu}
+          title={entry.title ?? ''}
+          icon={entry.icon ? sfName(entry.icon) : undefined}
+        >
+          {menuEntries(entry.items, `${key}/`)}
+        </Stack.Toolbar.Menu>
+      )
+    }
+    return (
+      <Stack.Toolbar.MenuAction
+        key={key}
+        icon={entry.icon ? sfName(entry.icon) : undefined}
+        isOn={entry.selected}
+        destructive={entry.destructive}
+        disabled={entry.disabled}
+        subtitle={entry.hint}
+        onPress={entry.onPress}
+      >
+        {entry.label}
+      </Stack.Toolbar.MenuAction>
+    )
+  })
+}
+
+/** Android: header buttons, and a menu action's entries as the action sheet. */
+function AndroidHeaderActions({ actions }: { actions: readonly ScreenAction[] }) {
+  return (
+    <View style={styles.actions}>
+      {actions.map((action) =>
+        action.items ? (
+          <AndroidMenuButton key={action.label} action={action} />
+        ) : (
+          <HeaderButton key={action.label} label={action.label} onPress={action.onPress ?? noop}>
+            <Icon as={action.icon} size={17} color={color.textDim} />
+          </HeaderButton>
+        ),
+      )}
+    </View>
+  )
+}
+
+function AndroidMenuButton({ action }: { action: ScreenAction }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <HeaderButton label={action.label} onPress={() => setOpen(true)}>
+        <Icon as={action.icon} size={17} color={color.textDim} />
+      </HeaderButton>
+      <MenuSheet
+        visible={open}
+        {...(action.menuTitle ? { title: action.menuTitle } : {})}
+        {...(action.testID ? { testID: action.testID } : {})}
+        entries={action.items ?? []}
+        onClose={() => setOpen(false)}
+      />
+    </>
   )
 }
 

@@ -19,20 +19,29 @@ import {
   useSessionContextChromeIssue,
   useSessionContextSession,
 } from '../client/use-session-context'
-import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { ChatDeckPager } from '../components/ChatDeckPager'
 import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
 import type { ChatDeckPagerHandle, PagerPage } from '../components/chat-deck-pager.types'
 import { HeaderBand, HeaderExtension } from '../components/HeaderExtension'
-import { Icon } from '../components/Icon'
-import { MoreVertical } from '../components/icons'
+import {
+  Info,
+  ListChecks,
+  MessageSquare,
+  MoreVertical,
+  PanelRight,
+  Pin,
+  PinOff,
+  Search,
+  SquareTerminal,
+  UserPlus,
+} from '../components/icons'
 import { MissionBar } from '../components/MissionBar'
 import { MissionDeck, useRevealSeat } from '../components/MissionDeck'
-import { HeaderButton, Screen } from '../components/Screen'
+import { Screen, type ScreenAction, type ScreenMenuEntry } from '../components/Screen'
 import { SessionConversation } from '../components/SessionConversation'
 import { TaskSheet } from '../components/TaskSheet'
 import { EmptyState } from '../components/ui'
-import { WorkIssueMenu } from '../components/WorkIssueMenu'
+import { WorkIssueMenu, type WorkMenuSheet } from '../components/WorkIssueMenu'
 import { deckBackReturnsToChat } from '../navigation/back-targets'
 import { useHeaderInset } from '../navigation/header-inset'
 import { type DeckOpen, deckTaskOpen } from '../navigation/mission-deck-targets'
@@ -82,7 +91,6 @@ export const MissionScreen = observer(function MissionScreen() {
     requestedSessionId ? (requestedSessionId as SessionId) : null,
   )
   const [peek, setPeek] = useState<IssueViewModel | null>(null)
-  const [menuOpen, setMenuOpen] = useState(false)
   const [launchOpen, setLaunchOpen] = useState(false)
   const [findRequest, setFindRequest] = useState(0)
 
@@ -225,7 +233,11 @@ export const MissionScreen = observer(function MissionScreen() {
     [follow, rootId, screen, seatMemory],
   )
   const screenProposals = useCallback(() => router.push('/screen-proposed'), [router])
-  const [menuIssue, setMenuIssue] = useState<IssueNavigationModel | null>(null)
+  const [menu, setMenu] = useState<{
+    issue: IssueNavigationModel
+    sheet?: WorkMenuSheet
+  } | null>(null)
+  const menuIssue = menu?.issue ?? null
   const menuIssueId = menuIssue?.id
   const readSessionCount = useCallback(
     (source: MobxPool) =>
@@ -235,45 +247,81 @@ export const MissionScreen = observer(function MissionScreen() {
   const sessionCount = useMobilePoolProjection(readSessionCount, 0)
   useRevealSeat(paged ? screen : null, currentId)
 
-  const menuActions = useMemo<SheetAction[]>(() => {
+  // One list for every platform: iOS draws it as the bar button's native
+  // pull-down (label colours, SF Symbols, divided groups); Android and web
+  // draw it as the action sheet (Screen does both).
+  const menuEntries = useMemo<ScreenMenuEntry[]>(() => {
     if (!root) return []
+    const pinned = headerIssue?.pinned === true
     return [
-      onDeck
-        ? { label: 'Chat', onPress: () => pager.current?.setPage(0) }
-        : { label: 'Flight deck', onPress: openDeck },
       {
-        label: 'Task details',
-        hint: 'The full task page',
-        onPress: () => router.push(`/issue/${encodeURIComponent(root.id)}`),
+        items: [
+          onDeck
+            ? { label: 'Chat', icon: MessageSquare, onPress: () => pager.current?.setPage(0) }
+            : { label: 'Flight Deck', icon: ListChecks, onPress: openDeck },
+          {
+            label: 'Task Details',
+            icon: Info,
+            onPress: () => router.push(`/issue/${encodeURIComponent(root.id)}`),
+          },
+          {
+            label: 'Inspect Task',
+            hint: 'Without leaving the chat',
+            icon: PanelRight,
+            onPress: () => setPeek(root),
+          },
+        ],
       },
       {
-        label: 'Inspect task',
-        hint: 'The inspector sheet, without leaving the chat',
-        onPress: () => setPeek(root),
+        items: [
+          {
+            label: pinned ? 'Unpin' : 'Pin',
+            icon: pinned ? PinOff : Pin,
+            onPress: () => {
+              if (!headerIssue) return
+              void store.updateIssue(headerIssue.id, { pinned: !headerIssue.pinned })
+            },
+          },
+          { label: 'Launch an Agent…', icon: UserPlus, onPress: () => setLaunchOpen(true) },
+        ],
       },
-      {
-        label: headerIssue?.pinned ? 'Unpin' : 'Pin',
-        onPress: () => {
-          if (!headerIssue) return
-          void store.updateIssue(headerIssue.id, { pinned: !headerIssue.pinned })
-        },
-      },
-      { label: 'Launch an agent…', onPress: () => setLaunchOpen(true) },
       ...(current && !onDeck
         ? [
             {
-              label: 'Find in transcript',
-              onPress: () => setFindRequest((request) => request + 1),
-            },
-            {
-              label: 'Open native CLI',
-              onPress: () =>
-                router.push(`/session/${encodeURIComponent(current.sessionId)}/terminal`),
+              items: [
+                {
+                  label: 'Find in Transcript',
+                  icon: Search,
+                  onPress: () => setFindRequest((request) => request + 1),
+                },
+                {
+                  label: 'Open Native CLI',
+                  icon: SquareTerminal,
+                  onPress: () =>
+                    router.push(`/session/${encodeURIComponent(current.sessionId)}/terminal`),
+                },
+              ],
             },
           ]
         : []),
     ]
   }, [current, headerIssue, onDeck, openDeck, root, router, store])
+  const menuTitle = root ? `${issueDisplayRef(root)} ${root.title}` : ''
+  const menuBarActions = useMemo<readonly ScreenAction[] | undefined>(
+    () =>
+      menuEntries.length > 0
+        ? [
+            {
+              label: 'Mission actions',
+              icon: MoreVertical,
+              items: menuEntries,
+              menuTitle,
+              testID: 'mission-actions-sheet',
+            },
+          ]
+        : undefined,
+    [menuEntries, menuTitle],
+  )
 
   // The nav bar names the task and, beneath it, whose conversation this is:
   // "Coordinator" for the mission's own lead, else the agent and its task.
@@ -310,7 +358,7 @@ export const MissionScreen = observer(function MissionScreen() {
             currentSessionId={currentId}
             onOpenSession={openDeckSession}
             onOpenTask={openDeckTask}
-            onOpenTaskMenu={setMenuIssue}
+            onOpenTaskMenu={(issue, sheet) => setMenu({ issue, ...(sheet ? { sheet } : {}) })}
             onScreenProposals={screenProposals}
           />
         </DeckPage>
@@ -333,11 +381,7 @@ export const MissionScreen = observer(function MissionScreen() {
           ? () => router.push(`/issue/${encodeURIComponent(root?.id ?? selectedId)}`)
           : undefined
       }
-      right={
-        <HeaderButton label="Mission actions" onPress={() => setMenuOpen(true)} size={32} bare>
-          <Icon as={MoreVertical} size={17} color={color.textDim} />
-        </HeaderButton>
-      }
+      {...(menuBarActions ? { actions: menuBarActions } : {})}
     >
       {/* The conversation owns transcript readiness. Deck metadata can still be
           loading while that conversation already has history in the pool. */}
@@ -367,21 +411,16 @@ export const MissionScreen = observer(function MissionScreen() {
         }}
         onOpenIssue={(target) => setPeek(target)}
       />
-      <ActionSheet
-        visible={menuOpen}
-        testID="mission-actions-sheet"
-        title={root ? `${issueDisplayRef(root)} ${root.title}` : ''}
-        actions={menuActions}
-        onClose={() => setMenuOpen(false)}
-      />
       <ConfiguredIssueLaunchSheet
         issue={launchOpen ? (root ?? null) : null}
         onClose={() => setLaunchOpen(false)}
       />
       {menuIssue ? (
         <WorkIssueMenu
+          key={`${menuIssue.id}:${menu?.sheet?.kind ?? 'menu'}`}
           target={{ issue: menuIssue, lane: 'live', sessionCount }}
-          onClose={() => setMenuIssue(null)}
+          {...(menu?.sheet ? { initialSheet: menu.sheet } : {})}
+          onClose={() => setMenu(null)}
         />
       ) : null}
     </Screen>
