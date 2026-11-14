@@ -27,8 +27,13 @@ public final class PodiumListRowModule: Module {
 
 /// Movement past this many points makes the touch a drag, never a tap.
 private let dragSlop: CGFloat = 8
-/// A tap ending this soon after drag movement belongs to that drag.
-private let dragWindow: TimeInterval = 0.5
+
+/// Whether the current touch sequence moved past the slop. A reference, so the
+/// tracker can write it mid-touch without re-rendering the row; each new
+/// sequence starts clean, so a tap right after a drag still opens the row.
+private final class TouchSequence {
+  var moved = false
+}
 
 /// Wraps a row's label in the List's own Button, so the system draws the cell's
 /// touch-down highlight (with no custom listRowBackground on the row), and opens
@@ -43,7 +48,7 @@ private let dragWindow: TimeInterval = 0.5
 /// gesture it stops the List scrolling when a drag starts on a row.
 private struct ListRowPressModifier: ViewModifier {
   let dispatcher: EventDispatcher
-  @State private var movedAt = Date.distantPast
+  @State private var touch = TouchSequence()
 
   func body(content: Content) -> some View {
     let button = Button {} label: {
@@ -52,10 +57,10 @@ private struct ListRowPressModifier: ViewModifier {
       content.foregroundStyle(Color.primary)
     }
     .buttonStyle(.automatic)
-    .modifier(TouchMovement { movedAt = Date() })
+    .modifier(TouchMovement(touch: touch))
     .simultaneousGesture(
       TapGesture().onEnded {
-        if Date().timeIntervalSince(movedAt) >= dragWindow { activate() }
+        if !touch.moved { activate() }
       }
     )
     .accessibilityAction { activate() }
@@ -78,11 +83,11 @@ private struct ListRowPressModifier: ViewModifier {
 /// Reports touch movement past the slop without ever taking part in gesture
 /// resolution: the recognizer never leaves `.possible` until it fails at touch-up.
 private struct TouchMovement: ViewModifier {
-  let onMove: () -> Void
+  let touch: TouchSequence
 
   func body(content: Content) -> some View {
     if #available(iOS 18.0, *) {
-      content.gesture(TouchMovementGesture(onMove: onMove))
+      content.gesture(TouchMovementGesture(touch: touch))
     } else {
       content
     }
@@ -91,7 +96,7 @@ private struct TouchMovement: ViewModifier {
 
 @available(iOS 18.0, *)
 private struct TouchMovementGesture: UIGestureRecognizerRepresentable {
-  let onMove: () -> Void
+  let touch: TouchSequence
 
   func makeUIGestureRecognizer(context: Context) -> TouchMovementRecognizer {
     let recognizer = TouchMovementRecognizer()
@@ -100,7 +105,7 @@ private struct TouchMovementGesture: UIGestureRecognizerRepresentable {
   }
 
   func updateUIGestureRecognizer(_ recognizer: TouchMovementRecognizer, context: Context) {
-    recognizer.onMove = onMove
+    recognizer.touch = touch
   }
 
   func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
@@ -114,7 +119,7 @@ private struct TouchMovementGesture: UIGestureRecognizerRepresentable {
 }
 
 final class TouchMovementRecognizer: UIGestureRecognizer {
-  var onMove: (() -> Void)?
+  fileprivate var touch: TouchSequence?
   private var start: CGPoint?
 
   override init(target: Any?, action: Selector?) {
@@ -127,12 +132,15 @@ final class TouchMovementRecognizer: UIGestureRecognizer {
   convenience init() { self.init(target: nil, action: nil) }
 
   override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+    // A new sequence (not a second finger joining this one) starts unmoved.
+    guard start == nil else { return }
     start = touches.first?.location(in: nil)
+    touch?.moved = false
   }
 
   override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
     guard let start, let point = touches.first?.location(in: nil) else { return }
-    if hypot(point.x - start.x, point.y - start.y) > dragSlop { onMove?() }
+    if hypot(point.x - start.x, point.y - start.y) > dragSlop { touch?.moved = true }
   }
 
   override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
