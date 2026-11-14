@@ -4,7 +4,6 @@ import {
   accessibilityHint,
   accessibilityIdentifier,
   accessibilityLabel,
-  buttonStyle,
   contentShape,
   fixedSize,
   font,
@@ -21,6 +20,7 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { observer } from 'mobx-react-lite'
 import { color } from '../theme/theme'
 import { deckColor } from './deck-colors'
+import { listRowPress } from './list-row-press.ios'
 import type { MissionProposalRowProps } from './mission-proposal-row.types'
 import { RevealSwipeActions } from './RevealSwipeActions.ios'
 
@@ -54,11 +54,15 @@ export const MissionProposalRow = observer(function MissionProposalRow({
     >
       <ContextMenu modifiers={[frame({ minWidth: 0, maxWidth: Infinity, alignment: 'leading' })]}>
         <ContextMenu.Trigger>
-          <Button
-            onPress={onPress}
+          <HStack
+            alignment="top"
+            spacing={12}
             modifiers={[
-              buttonStyle('plain'),
-              frame({ minWidth: 0, maxWidth: Infinity, alignment: 'leading' }),
+              // Pad first, then the 44pt floor (as task rows): the other
+              // order made every two-line proposal 60pt against 54.
+              padding({ vertical: 8 }),
+              frame({ minWidth: 0, minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
+              contentShape(shapes.rectangle()),
               accessibilityElement('ignore'),
               accessibilityLabel(
                 `Proposal ${facts.ref} ${facts.title}${receipt ? `, ${receipt}` : ''}`,
@@ -68,73 +72,66 @@ export const MissionProposalRow = observer(function MissionProposalRow({
                   ? 'Opens details.'
                   : 'Opens details. Swipe or long press for proposal actions.',
               ),
+              // Last: the List's own row Button, as the deck's task rows. While
+              // another row shows its swipe actions, UIKit spends a tap here on
+              // closing them; a plain SwiftUI Button opened this row instead and
+              // left the actions open behind its sheet.
+              listRowPress(onPress),
             ]}
           >
-            <HStack
-              alignment="top"
-              spacing={12}
+            <Image
+              systemName="circle"
+              color={deckColor.proposal}
               modifiers={[
-                // Pad first, then the 44pt floor (as task rows): the other
-                // order made every two-line proposal 60pt against 54.
-                padding({ vertical: 8 }),
-                frame({ minWidth: 0, minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
-                contentShape(shapes.rectangle()),
+                font({ textStyle: 'footnote' }),
+                // The task rows' 20pt glyph column.
+                frame({ width: 20, alignment: 'center' }),
+                padding({ top: 2 }),
+              ]}
+            />
+            <VStack
+              alignment="leading"
+              spacing={4}
+              // The ring keeps its intrinsic size; text accepts all remaining
+              // width through the swipe/menu wrappers, including Dynamic Type.
+              modifiers={[
+                layoutPriority(1),
+                frame({ minWidth: 0, maxWidth: Infinity, alignment: 'leading' }),
               ]}
             >
-              <Image
-                systemName="circle"
-                color={deckColor.proposal}
+              <Text
                 modifiers={[
-                  font({ textStyle: 'footnote' }),
-                  // The task rows' 20pt glyph column.
-                  frame({ width: 20, alignment: 'center' }),
-                  padding({ top: 2 }),
-                ]}
-              />
-              <VStack
-                alignment="leading"
-                spacing={4}
-                // The ring keeps its intrinsic size; text accepts all remaining
-                // width through the swipe/menu wrappers, including Dynamic Type.
-                modifiers={[
-                  layoutPriority(1),
-                  frame({ minWidth: 0, maxWidth: Infinity, alignment: 'leading' }),
+                  font({ textStyle: 'subheadline' }),
+                  foregroundStyle(color.text),
+                  fixedSize({ horizontal: false, vertical: true }),
+                  frame({ maxWidth: Infinity, alignment: 'leading' }),
                 ]}
               >
+                {facts.title}
+              </Text>
+              <Text
+                modifiers={[
+                  font({ textStyle: 'footnote' }),
+                  foregroundStyle(color.textDim),
+                  fixedSize({ horizontal: false, vertical: true }),
+                  frame({ maxWidth: Infinity, alignment: 'leading' }),
+                ]}
+              >{`${facts.ref}${facts.author ? ` · by ${facts.author}` : ''}`}</Text>
+              {receipt ? (
                 <Text
                   modifiers={[
-                    font({ textStyle: 'subheadline' }),
-                    foregroundStyle(color.text),
+                    font({ textStyle: 'footnote' }),
+                    foregroundStyle(status?.phase === 'error' ? color.dangerText : color.textDim),
+                    accessibilityIdentifier('deck-proposal-receipt'),
                     fixedSize({ horizontal: false, vertical: true }),
                     frame({ maxWidth: Infinity, alignment: 'leading' }),
                   ]}
                 >
-                  {facts.title}
+                  {receipt}
                 </Text>
-                <Text
-                  modifiers={[
-                    font({ textStyle: 'footnote' }),
-                    foregroundStyle(color.textDim),
-                    fixedSize({ horizontal: false, vertical: true }),
-                    frame({ maxWidth: Infinity, alignment: 'leading' }),
-                  ]}
-                >{`${facts.ref}${facts.author ? ` · by ${facts.author}` : ''}`}</Text>
-                {receipt ? (
-                  <Text
-                    modifiers={[
-                      font({ textStyle: 'footnote' }),
-                      foregroundStyle(status?.phase === 'error' ? color.dangerText : color.textDim),
-                      accessibilityIdentifier('deck-proposal-receipt'),
-                      fixedSize({ horizontal: false, vertical: true }),
-                      frame({ maxWidth: Infinity, alignment: 'leading' }),
-                    ]}
-                  >
-                    {receipt}
-                  </Text>
-                ) : null}
-              </VStack>
-            </HStack>
-          </Button>
+              ) : null}
+            </VStack>
+          </HStack>
         </ContextMenu.Trigger>
         {busy ? null : (
           <ContextMenu.Items>

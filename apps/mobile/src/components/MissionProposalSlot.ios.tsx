@@ -2,7 +2,6 @@ import { Divider, Spacer, VStack } from '@expo/ui/swift-ui'
 import {
   accessibilityIdentifier,
   frame,
-  listRowBackground,
   listRowInsets,
   listRowSeparator,
   onAppear,
@@ -13,7 +12,6 @@ import {
 import { observer } from 'mobx-react-lite'
 import { useEffect, useState } from 'react'
 import { useRowPrime } from '../lib/use-row-prime'
-import { color } from '../theme/theme'
 import type { MissionProposalSlotProps } from './mission-proposal-slot.types'
 
 /** The shared native row window bounds rich swipe/menu trees while cells keep their measured heights. */
@@ -43,8 +41,8 @@ export const MissionProposalSlot = observer(function MissionProposalSlot({
         onGeometryChange((geometry) => {
           if (shown && geometry.height > 0) setHeight(geometry.height)
         }),
-        // The deck's card and inset; the row draws its own separator.
-        listRowBackground(color.groupedCard),
+        // The system card (no listRowBackground, so the row Button's touch-down
+        // highlight shows) and inset; the row draws its own separator.
         listRowInsets({ leading: 16, trailing: 16, top: 0, bottom: 0 }),
         listRowSeparator('hidden'),
         accessibilityIdentifier(`deck-proposal-slot-${id}`),
