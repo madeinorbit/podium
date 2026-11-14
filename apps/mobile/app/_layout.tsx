@@ -1,10 +1,12 @@
 // FIRST, before any module that might touch `crypto` at import time.
 import '../src/lib/crypto-polyfill'
 import '../src/lib/startup-timing'
+import { getFocusedRouteNameFromRoute } from 'expo-router/react-navigation'
 import { Stack } from 'expo-router/stack'
 import { LogBox } from 'react-native'
 import { enableFreeze } from 'react-native-screens'
 import { RootLayoutShell, type RootNavigationProps } from '../src/client/root-layout-shell'
+import { tabsBackTitle } from '../src/navigation/back-targets'
 import { noticeScreenLayout } from '../src/navigation/notice-screen-layout'
 import { color } from '../src/theme/theme'
 
@@ -49,9 +51,15 @@ function NativeNavigation({ reduceMotion }: RootNavigationProps) {
       <Stack.Screen name="index" options={{ headerShown: false, animation: 'none' }} />
       <Stack.Screen name="signed-in" options={{ headerShown: false, animation: 'none' }} />
       <Stack.Screen name="search" options={{ headerShown: false, animation: 'none' }} />
+      {/* The title names the tab the user is on: iOS uses it for the back
+          button of every screen pushed over the tabs. */}
       <Stack.Screen
         name="(tabs)"
-        options={{ title: 'Work', headerShown: false, animation: 'none' }}
+        options={({ route }) => ({
+          title: tabsBackTitle(getFocusedRouteNameFromRoute(route)),
+          headerShown: false,
+          animation: 'none',
+        })}
       />
       <Stack.Screen
         name="new-issue"

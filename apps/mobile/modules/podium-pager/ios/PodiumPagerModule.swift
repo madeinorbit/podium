@@ -61,6 +61,11 @@ final class PodiumPagerView: ExpoView, UIScrollViewDelegate {
   private let mutedScrollers = NSHashTable<UIScrollView>.weakObjects()
   /// The stack whose back swipes this pager switched off while away from page 0.
   private weak var blockedStack: UINavigationController?
+  /// The visible page's vertical list: the screen's content scroll view, so the
+  /// nav bar's scroll edge lands on it rather than on this horizontal pager.
+  private weak var edgeList: UIScrollView?
+  /// Re-finds `edgeList` after React remounts a page's list (a session switch).
+  private var edgeCheck: Timer?
 
   required init(appContext: AppContext? = nil) {
     super.init(appContext: appContext)
@@ -68,6 +73,8 @@ final class PodiumPagerView: ExpoView, UIScrollViewDelegate {
     scroller.delegate = self
     addSubview(scroller)
   }
+
+
 
   override func layoutSubviews() {
     super.layoutSubviews()
@@ -153,6 +160,15 @@ final class PodiumPagerView: ExpoView, UIScrollViewDelegate {
     // A screen pushed over this one (or this one popping) must get its back
     // swipe: only a pager on screen, away from page 0, holds it off.
     updateBackSwipe()
+    edgeCheck?.invalidate()
+    edgeCheck = nil
+    guard window != nil else { return }
+    updateScrollEdge()
+    // Cheap while nothing changed: only a list that left the window triggers a
+    // fresh search.
+    edgeCheck = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+      self?.revalidateScrollEdge()
+    }
   }
 
   // MARK: Private
@@ -211,7 +227,102 @@ final class PodiumPagerView: ExpoView, UIScrollViewDelegate {
       onPageChange(["page": page])
     }
     updatePageVisibility()
+    updateScrollEdge()
     onPageSettle(["page": page])
+  }
+
+  // MARK: Scroll edge
+
+  /// iOS 26 draws the nav bar's scroll edge on the screen's content scroll
+  /// view, and UIKit's heuristic picks this horizontal pager, so the transcript
+  /// ran crisp under the bar [POD-2527]. The screen is pointed at the visible
+  /// page's list instead, and views marked `header-extension` (the mission
+  /// status bar) are edge containers for their page's list, with the hard edge
+  /// a pinned strip calls for, so bar and strip sit on one backing. The deck's
+  /// SwiftUI list takes no UIKit edge effect from in here; its page draws a
+  /// bar-material band itself (HeaderBand).
+  private func updateScrollEdge() {
+    guard window != nil, pages.indices.contains(resting) else { return }
+    let visible = pages[resting]
+    let list = primaryList(in: visible)
+    edgeList = list
+    if let controller = owningController(), controller.contentScrollView(for: .top) !== list {
+      controller.setContentScrollView(list, for: .top)
+    }
+    if #available(iOS 26.0, *) {
+      scroller.topEdgeEffect.isHidden = true
+      for page in pages {
+        let pageList = page === visible ? list : primaryList(in: page)
+        for view in headerExtensions(in: page) {
+          let interaction = edgeInteraction(on: view)
+          if interaction.scrollView !== pageList { interaction.scrollView = pageList }
+          // A pinned, tappable strip under the bar takes the hard edge (HIG), so
+          // the whole strip sits on the bar material, not on a fading blur.
+          if let pageList, pageList.topEdgeEffect.style != .hard { pageList.topEdgeEffect.style = .hard }
+        }
+      }
+    }
+  }
+
+  @available(iOS 26.0, *)
+  private func edgeInteraction(on view: UIView) -> UIScrollEdgeElementContainerInteraction {
+    if let existing = view.interactions.lazy
+      .compactMap({ $0 as? UIScrollEdgeElementContainerInteraction }).first
+    {
+      return existing
+    }
+    let added = UIScrollEdgeElementContainerInteraction()
+    added.edge = .top
+    view.addInteraction(added)
+    return added
+  }
+
+  private func revalidateScrollEdge() {
+    guard window != nil, pages.indices.contains(resting) else { return }
+    if let list = edgeList, list.window != nil, list.isDescendant(of: pages[resting]) { return }
+    updateScrollEdge()
+  }
+
+  /// The page's outermost full-width scroll view: the transcript or the deck
+  /// list, never a code block or chip row inside it.
+  private func primaryList(in page: UIView) -> UIScrollView? {
+    var queue: [UIView] = page.subviews
+    while !queue.isEmpty {
+      let view = queue.removeFirst()
+      if let list = view as? UIScrollView, list.isScrollEnabled,
+        list.bounds.width >= page.bounds.width * 0.9
+      {
+        return list
+      }
+      queue.append(contentsOf: view.subviews)
+    }
+    return nil
+  }
+
+  private func headerExtensions(in page: UIView) -> [UIView] {
+    var found: [UIView] = []
+    var queue: [(UIView, Int)] = page.subviews.map { ($0, 0) }
+    while !queue.isEmpty {
+      let (view, depth) = queue.removeFirst()
+      if view.accessibilityIdentifier == "header-extension" {
+        found.append(view)
+        continue
+      }
+      // The bar sits near the top of the page tree; lists are never searched.
+      if depth < 8, !(view is UIScrollView) {
+        queue.append(contentsOf: view.subviews.map { ($0, depth + 1) })
+      }
+    }
+    return found
+  }
+
+  private func owningController() -> UIViewController? {
+    var responder: UIResponder? = self
+    while let current = responder {
+      if let controller = current as? UIViewController { return controller }
+      responder = current.next
+    }
+    return nil
   }
 
   /// Only the resting page is reachable by VoiceOver and the status bar tap.

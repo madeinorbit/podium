@@ -25,6 +25,13 @@ const navigation = vi.hoisted(() => ({
   remembered: null as string | null,
   /** Hand the mounted route new params, as a link to the focused route does. */
   reopen: (_params: Record<string, string | undefined>) => {},
+  /** The stack navigator the screen sees through `useNavigation`. */
+  owner: null as unknown,
+  /** The screen's latest `usePreventRemove` registration. */
+  preventRemove: null as null | {
+    prevented: boolean
+    onPrevent: (event: { data: { action: { type: string } } }) => void
+  },
 }))
 
 const MISSION_CHAT = 'mission/[missionId]'
@@ -43,8 +50,21 @@ vi.mock('react-native', async (original) => {
 })
 vi.mock('expo-router', () => ({
   useLocalSearchParams: () => navigation.params,
+  useNavigation: () => navigation.owner,
   useRouter: () => ({ ...navigation, canGoBack: () => true }),
 }))
+vi.mock('expo-router/react-navigation', async () => {
+  const { createContext } = await import('react')
+  return {
+    HeaderHeightContext: createContext<number | undefined>(undefined),
+    usePreventRemove: (
+      prevented: boolean,
+      onPrevent: NonNullable<typeof navigation.preventRemove>['onPrevent'],
+    ) => {
+      navigation.preventRemove = { prevented, onPrevent }
+    },
+  }
+})
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
   selectionAsync: async () => {},
@@ -174,6 +194,7 @@ function Navigator() {
       return () => transitionListeners.current.delete(listener)
     },
   } as unknown as NonNullable<React.ContextType<typeof NavigationContext>>
+  navigation.owner = owner
   return (
     <NavigationContext value={owner}>
       <NavigationRouteContext value={route}>
@@ -584,4 +605,36 @@ it('a link with the seat already shown still brings the chat page back', async (
   await navigation.reopen({ missionId: 'child', sessionId: 'child-lead' })
   await waitFor(() => expect(onDeckPage()).toBe(false))
   expect(screen.getByTestId('chat').textContent).toBe('child-lead')
+})
+
+it('Back on the deck page returns to the chat, like the edge swipe there [POD-2527]', async () => {
+  await renderWithMobileStore(<Navigator />, { issues: crewIssues, sessions: crewSessions })
+  await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('child-lead'))
+  // On the chat page the system back leaves the screen as usual.
+  expect(navigation.preventRemove?.prevented).toBe(false)
+  await act(async () => fireEvent.click(screen.getByTestId('mission-bar')))
+  expect(onDeckPage()).toBe(true)
+  expect(navigation.preventRemove?.prevented).toBe(true)
+  // The native back button (a pop) pages to the chat and keeps the screen.
+  await act(async () =>
+    navigation.preventRemove?.onPrevent({ data: { action: StackActions.pop(1) } }),
+  )
+  expect(onDeckPage()).toBe(false)
+  expect(navigation.state?.routes.map((route) => route.name)).toEqual(['(tabs)', MISSION_CHAT])
+  expect(navigation.preventRemove?.prevented).toBe(false)
+})
+
+it('any other removal from the deck page still goes through', async () => {
+  await renderWithMobileStore(<Navigator />, { issues: crewIssues, sessions: crewSessions })
+  await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('child-lead'))
+  await act(async () => fireEvent.click(screen.getByTestId('mission-bar')))
+  expect(navigation.preventRemove?.prevented).toBe(true)
+  await act(async () =>
+    navigation.preventRemove?.onPrevent({
+      data: { action: StackActions.replace(MISSION_DECK, { missionId: 'child' }) },
+    }),
+  )
+  await waitFor(() =>
+    expect(navigation.state?.routes.map((route) => route.name)).toEqual(['(tabs)', MISSION_DECK]),
+  )
 })

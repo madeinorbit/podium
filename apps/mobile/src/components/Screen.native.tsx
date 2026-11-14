@@ -30,6 +30,7 @@ export function Screen({
   subtitle: normalSubtitle,
   onBack,
   backLabel,
+  backTitle,
   backAs = 'chevron',
   leading,
   right,
@@ -50,6 +51,12 @@ export function Screen({
   subtitle?: ReactNode
   onBack?: () => void
   backLabel?: string
+  /**
+   * What the system back button names when it does not return to the previous
+   * screen (VoiceOver, the long-press menu): the mission's deck page goes back
+   * to its chat first. Unset, iOS names the previous screen.
+   */
+  backTitle?: string
   backAs?: 'chevron' | 'text'
   leading?: ReactNode
   /** Custom trailing header content. Prefer `actions`, which draws native bar items. */
@@ -121,6 +128,9 @@ export function Screen({
           headerShadowVisible: false,
           headerTransparent: transparentBar,
           headerBackButtonDisplayMode: 'minimal',
+          // Always set: stack options merge, so an omitted key would keep a
+          // title set while the screen showed another page.
+          headerBackTitle: backTitle,
           headerTitleStyle: { color: color.text },
           headerLargeTitleStyle: { color: color.text },
           ...headerSubtitleOptions(subtitleInBar ? subtitleText : undefined, { large }),

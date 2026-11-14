@@ -6,8 +6,9 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asIssueId, type SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import * as Haptics from 'expo-haptics'
-import { useLocalSearchParams, useRouter } from 'expo-router'
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router'
 import { NavigationRouteContext } from 'expo-router/build/react-navigation/core/NavigationProvider'
+import { usePreventRemove } from 'expo-router/react-navigation'
 import { observer } from 'mobx-react-lite'
 import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Keyboard, type LayoutChangeEvent, Platform, StyleSheet, View } from 'react-native'
@@ -22,7 +23,7 @@ import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { ChatDeckPager } from '../components/ChatDeckPager'
 import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
 import type { ChatDeckPagerHandle, PagerPage } from '../components/chat-deck-pager.types'
-import { Glass } from '../components/Glass'
+import { HeaderBand, HeaderExtension } from '../components/HeaderExtension'
 import { Icon } from '../components/Icon'
 import { MoreVertical } from '../components/icons'
 import { MissionBar } from '../components/MissionBar'
@@ -32,6 +33,7 @@ import { SessionConversation } from '../components/SessionConversation'
 import { TaskSheet } from '../components/TaskSheet'
 import { EmptyState } from '../components/ui'
 import { WorkIssueMenu } from '../components/WorkIssueMenu'
+import { deckBackReturnsToChat } from '../navigation/back-targets'
 import { useHeaderInset } from '../navigation/header-inset'
 import { type DeckOpen, deckTaskOpen } from '../navigation/mission-deck-targets'
 import { color } from '../theme/theme'
@@ -162,6 +164,21 @@ export const MissionScreen = observer(function MissionScreen() {
       `/mission/${encodeURIComponent(rootId)}/details${currentId ? `?sessionId=${encodeURIComponent(currentId)}` : ''}`,
     )
   }, [currentId, paged, rootId, router])
+  // On the deck page Back returns to the chat, as the edge swipe there does
+  // (the pager switches the stack's back swipes off away from page 0). A back
+  // or pop is turned into a page change; any other removal, such as a link
+  // replacing this screen, is let through on the next render.
+  const navigation = useNavigation()
+  const [leaving, setLeaving] = useState<Parameters<typeof navigation.dispatch>[0] | null>(null)
+  usePreventRemove(onDeck && leaving == null, ({ data }) => {
+    if (deckBackReturnsToChat(data.action)) pager.current?.setPage(0)
+    else setLeaving(data.action)
+  })
+  useEffect(() => {
+    if (!leaving) return
+    navigation.dispatch(leaving)
+    setLeaving(null)
+  }, [leaving, navigation])
   const showSession = useCallback((sessionId: SessionId) => {
     setPinnedSessionId(sessionId)
     pager.current?.setPage(0)
@@ -286,7 +303,7 @@ export const MissionScreen = observer(function MissionScreen() {
   const deckPage = useMemo(
     () =>
       paged && root && screen?.ready ? (
-        <View style={styles.deck} collapsable={false}>
+        <DeckPage>
           <MissionDeck
             screen={screen}
             showTitle={false}
@@ -296,7 +313,7 @@ export const MissionScreen = observer(function MissionScreen() {
             onOpenTaskMenu={setMenuIssue}
             onScreenProposals={screenProposals}
           />
-        </View>
+        </DeckPage>
       ) : null,
     [currentId, openDeckSession, openDeckTask, paged, root, screen, screenProposals],
   )
@@ -306,6 +323,7 @@ export const MissionScreen = observer(function MissionScreen() {
       title={onDeck ? (root?.title ?? 'Flight deck') : chatTitle}
       onBack={() => (router.canGoBack() ? router.back() : router.replace('/work'))}
       backLabel={Platform.OS === 'web' ? 'Back' : 'Work'}
+      backTitle={onDeck ? 'Chat' : undefined}
       bareBack
       underHeader
       subtitle={onDeck ? 'Flight deck' : (seat ?? (root ? 'No agent on this mission' : undefined))}
@@ -393,9 +411,9 @@ function MissionChat({
   }
   return (
     <View style={styles.body} collapsable={false}>
-      <Glass style={[styles.bar, { top: headerInset }]}>
+      <HeaderExtension style={[styles.bar, { top: headerInset }]}>
         <View onLayout={onBarLayout}>{bar}</View>
-      </Glass>
+      </HeaderExtension>
       <View style={styles.stage} collapsable={false}>
         {current ? (
           <SessionConversation
@@ -413,6 +431,17 @@ function MissionChat({
           />
         )}
       </View>
+    </View>
+  )
+}
+
+/** The deck page: its list scrolls under the nav bar, which gets the bar material. */
+function DeckPage({ children }: { children: React.ReactNode }) {
+  const headerInset = useHeaderInset()
+  return (
+    <View style={styles.deck} collapsable={false}>
+      {children}
+      <HeaderBand height={headerInset} />
     </View>
   )
 }

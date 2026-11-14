@@ -41,6 +41,8 @@ export function Screen({
   subtitle?: ReactNode
   onBack?: () => void
   backLabel?: string
+  /** Native only: the system back button's title when it does not go to the previous screen. */
+  backTitle?: string
   /**
    * How the leading dismiss control reads [POD-366]. A pushed destination gets
    * the chevron; a sheet you can abandon (the create forms, settings) gets the
