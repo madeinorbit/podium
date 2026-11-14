@@ -361,12 +361,13 @@ final class PagerScrollView: UIScrollView {
       if let textView = current as? UITextView, textView.isEditable { return true }
       if current is UITextField { return true }
       if let scrollView = current as? UIScrollView, canScroll(scrollView, dx: dx) { return true }
-      if isListRow(current) {
-        // Leftward drags on a row reveal its trailing actions. A rightward drag
-        // pages back (row swipes wait for the pager), unless a row in this list
-        // shows its actions: then the drag closes them.
-        if dx < 0 { return true }
-        if let list = enclosingList(of: current), showsSwipeActions(list) { return true }
+      // Leftward drags on a row reveal its trailing actions; a rightward drag
+      // pages back (row swipes wait for the pager).
+      if isListRow(current), dx < 0 { return true }
+      // While a row shows its actions, any drag in that list closes them first
+      // (UIKit lays the actions view over the row, outside the cell).
+      if current is UICollectionView || current is UITableView, showsSwipeActions(current) {
+        return true
       }
       for recognizer in current.gestureRecognizers ?? []
       where (recognizer.state == .began || recognizer.state == .changed) && holdsTouch(recognizer) {
@@ -389,15 +390,6 @@ final class PagerScrollView: UIScrollView {
     }
   }
 
-  private func enclosingList(of view: UIView) -> UIScrollView? {
-    var next = view.superview
-    while let current = next, current !== self {
-      if current is UICollectionView || current is UITableView { return current as? UIScrollView }
-      next = current.superview
-    }
-    return nil
-  }
-
   private func enclosingCollectionView(of view: UIView) -> UICollectionView? {
     var next = view.superview
     while let current = next, current !== self {
@@ -407,16 +399,19 @@ final class PagerScrollView: UIScrollView {
     return nil
   }
 
-  /// Whether a row of `list` currently shows its swipe buttons (UIKit's pull
-  /// view sits in the row while the actions are revealed).
+  /// Whether a row of `list` currently shows its swipe buttons. UIKit keeps its
+  /// actions view (`_UICollectionViewListSwipeActionsView`, or a table's pull
+  /// view) in the list after the actions close, but empty: the buttons inside
+  /// it exist only while they are revealed.
   private func showsSwipeActions(_ list: UIView, depth: Int = 0) -> Bool {
-    guard depth < 5 else { return false }
+    guard depth < 3 else { return false }
     for child in list.subviews where !child.isHidden && child.alpha > 0.01 {
       let name = NSStringFromClass(type(of: child))
-      if name.contains("SwipeActionPullView") || name.contains("SwipeActionStandardButton"),
-        child.bounds.width > 1
-      {
-        return true
+      if name.contains("SwipeActionsView") || name.contains("SwipeActionPullView") {
+        if child.subviews.contains(where: { !$0.isHidden && $0.alpha > 0.01 && $0.bounds.width > 1 }) {
+          return true
+        }
+        continue
       }
       if showsSwipeActions(child, depth: depth + 1) { return true }
     }
