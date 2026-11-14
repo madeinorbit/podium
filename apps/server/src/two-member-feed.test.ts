@@ -19,7 +19,7 @@ import { fixtureWriteScope } from '@podium/sync/testing'
  *   former custodian's connected clients, and deletes nothing.
  */
 
-import { asIssueId, type IssueId, pinRowId } from '@podium/model'
+import { asIssueId, asIssuePanelItemId, type IssueId, pinRowId } from '@podium/model'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   changedIds,
@@ -253,7 +253,7 @@ describe('MU-13: artifact entries and the rest of the event log, per member', ()
         for (const [position, artifact] of legacy.entries())
           await f.handle.registry.sessionStore.issues.panel.save(scope, 'issuePanelArtifact', {
             ...artifact,
-            id: randomUUID(),
+            id: asIssuePanelItemId(randomUUID()),
             issueId: id,
             position,
           })
@@ -277,7 +277,7 @@ describe('MU-13: artifact entries and the rest of the event log, per member', ()
       ).toEqual(['docs/shot.png', 'plan.md'])
       await bobFeed.until(() => changedIds(bobFeed.deltas(), 'issuePanelArtifact').length >= 2)
       for (const change of bobFeed.deltas()) {
-        if (change.entity === 'issuePanelArtifact') {
+        if ((change.entity as string) === 'issuePanelArtifact') {
           expect(JSON.stringify((change as { value?: unknown }).value)).not.toMatch(
             /\/wt\/|\/home\//,
           )
