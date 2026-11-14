@@ -121,7 +121,7 @@ export const DeckTaskRow = observer(function DeckTaskRow({
         alignment="top"
         spacing={GAP}
         modifiers={[
-          padding({ leading: step, top: 8, bottom: 8 }),
+          padding({ top: 8, bottom: 8 }),
           frame({ minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
           contentShape(shapes.rectangle()),
           accessibilityElement('ignore'),
@@ -134,6 +134,7 @@ export const DeckTaskRow = observer(function DeckTaskRow({
           accessibilityIdentifier('deck-task'),
         ]}
       >
+        <Indent step={step} />
         <StageMark stage={issueStatusOf(facts.status)} ground={color.groupedCard} />
         <VStack
           alignment="leading"
@@ -198,7 +199,7 @@ export const DeckAgentRow = observer(function DeckAgentRow({
       alignment="top"
       spacing={GAP}
       modifiers={[
-        padding({ leading: step, top: 8, bottom: 8 }),
+        padding({ top: 8, bottom: 8 }),
         frame({ minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
         contentShape(shapes.rectangle()),
         accessibilityElement('ignore'),
@@ -209,6 +210,7 @@ export const DeckAgentRow = observer(function DeckAgentRow({
         ...seatRowTraits(current),
       ]}
     >
+      <Indent step={step} />
       <SessionMark word={word} line={NAME_LINE} />
       <VStack
         alignment="leading"
@@ -386,6 +388,13 @@ const metaText = (tint: string) => [
   foregroundStyle(tint),
   lineLimit(1),
 ]
+
+/** A nesting step as a leading spacer (the row's gap follows it). A leading
+ * padding instead hides the title from the List, whose separator then starts
+ * at the card edge rather than the text column. */
+function Indent({ step }: { step: number }) {
+  return step > 0 ? <Spacer modifiers={[frame({ width: step - GAP })]} /> : null
+}
 
 /** The desktop stage glyph, a fixed 14pt drawing centred in the glyph column. */
 function StageMark({ stage, ground }: { stage: IssueStatus; ground: string }) {
