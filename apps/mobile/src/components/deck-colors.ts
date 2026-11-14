@@ -18,7 +18,9 @@ export const deckColor = {
   error: color.dangerText,
   done: color.successText,
   idle: color.textDim,
-  notStarted: color.textFaint,
+  // An essential state word, not disabled content: secondary, as Idle. The
+  // not-started stage glyph keeps its own faint dashed ring.
+  notStarted: color.textDim,
   proposal: adaptiveColor('#a21caf', '#d946ef', '#86198f', '#f0b9f8'),
   proposalText: adaptiveColor('#a21caf', '#eaa3f5', '#86198f', '#f0b9f8'),
   proposalFill: adaptiveColor(

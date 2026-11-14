@@ -278,6 +278,8 @@ const ProposalContent = observer(function ProposalContent({
  */
 const Filters = observer(function Filters({ full }: { full: FullDeck }) {
   const counts = full.counts
+  // The shared tone: red when anything Needs you lists has errored, else amber.
+  const needsTone = full.needsYouTone === 'error' ? styles.errorText : styles.needsText
   const { fontScale } = useWindowDimensions()
   if (fontScale > SEGMENT_MAX_SCALE) {
     return (
@@ -302,10 +304,7 @@ const Filters = observer(function Filters({ full }: { full: FullDeck }) {
               <Text style={styles.choiceLabel}>
                 {FILTER_LABEL[filter]}{' '}
                 <Text
-                  style={[
-                    styles.segmentCount,
-                    filter === 'needs-you' && count > 0 && styles.needsText,
-                  ]}
+                  style={[styles.segmentCount, filter === 'needs-you' && count > 0 && needsTone]}
                 >
                   {count}
                 </Text>
@@ -345,10 +344,7 @@ const Filters = observer(function Filters({ full }: { full: FullDeck }) {
               >
                 {FILTER_LABEL[filter]}{' '}
                 <Text
-                  style={[
-                    styles.segmentCount,
-                    filter === 'needs-you' && count > 0 && styles.needsText,
-                  ]}
+                  style={[styles.segmentCount, filter === 'needs-you' && count > 0 && needsTone]}
                 >
                   {count}
                 </Text>
@@ -632,6 +628,7 @@ const styles = StyleSheet.create({
   // Row glyphs sit on the title's first line (Reminders, Mail), whatever the
   // row's height: a box one title line tall, below the text's top padding.
   needsText: { color: deckColor.needsYou },
+  errorText: { color: deckColor.error },
   empty: {
     ...sans(400),
     color: color.textDim,
