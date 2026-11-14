@@ -119,32 +119,35 @@ export const MissionDeck = observer(function MissionDeck({
   const openSession = (id: string) =>
     onOpenSession(screen.pool.sessionObject(id) as unknown as SessionView)
 
+  // The gauge heads the coordinator card when there is one: a header-only
+  // section of its own would add List's empty-section padding beneath it.
+  const head = (
+    <View style={styles.head}>
+      {showTitle ? (
+        <Text style={styles.title} numberOfLines={2} accessibilityRole="header">
+          {title === LOADING ? '' : title}
+        </Text>
+      ) : null}
+      {vitals ? (
+        <>
+          <DeckGauge vitals={vitals} />
+          <View style={styles.vitalsRow}>
+            <View style={styles.vitalsText}>
+              <DeckVitalsLine vitals={vitals} />
+            </View>
+            {acceptedTree?.filterable ? <DoneToggle full={full} /> : null}
+          </View>
+        </>
+      ) : (
+        <Text style={styles.sub}>Loading tasks…</Text>
+      )}
+    </View>
+  )
+
   return (
     <MissionDeckList>
-      <DeckContent>
-        <View style={styles.head}>
-          {showTitle ? (
-            <Text style={styles.title} numberOfLines={2} accessibilityRole="header">
-              {title === LOADING ? '' : title}
-            </Text>
-          ) : null}
-          {vitals ? (
-            <>
-              <DeckGauge vitals={vitals} />
-              <View style={styles.vitalsRow}>
-                <View style={styles.vitalsText}>
-                  <DeckVitalsLine vitals={vitals} />
-                </View>
-                {acceptedTree?.filterable ? <DoneToggle full={full} /> : null}
-              </View>
-            </>
-          ) : (
-            <Text style={styles.sub}>Loading tasks…</Text>
-          )}
-        </View>
-      </DeckContent>
       {rootSeats.length > 0 ? (
-        <DeckGroup testID="deck-crew" header={<GroupGap />}>
+        <DeckGroup testID="deck-crew" header={<View style={styles.headAbove}>{head}</View>}>
           {rootSeats.map((id, index) => (
             <DeckRow key={id}>
               <SeatRow
@@ -157,7 +160,9 @@ export const MissionDeck = observer(function MissionDeck({
             </DeckRow>
           ))}
         </DeckGroup>
-      ) : null}
+      ) : (
+        <DeckContent>{head}</DeckContent>
+      )}
 
       {acceptedTree?.filterable ? (
         <DeckContent>
@@ -730,6 +735,7 @@ const DISCLOSURE_SLOP = { top: 4, bottom: 4, left: 8, right: 4 }
 
 const styles = StyleSheet.create({
   head: { gap: space.sm, paddingHorizontal: INSET, paddingTop: space.sm },
+  headAbove: { paddingBottom: space.lg },
   title: {
     ...sans(600),
     color: color.text,
