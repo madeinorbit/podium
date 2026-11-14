@@ -7,7 +7,9 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { MemberWrite, WorkspaceIdentity } from '@podium/identity'
-import { newMemberId, parseMachineAccessRowId } from '@podium/model'
+import { asMachineId, newMemberId, parseMachineAccessRowId } from '@podium/model'
+import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
+import { readOrCreateUpdateSigningKey } from '@podium/runtime/update-signing-key'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { IdentitySeamDeps } from './identity/server-identity'
 import { noJanitorWorkerForTests } from './janitor-host'
@@ -91,6 +93,7 @@ describe('startServer identity seam: memberships pending at boot', () => {
   const stays = newMemberId()
   const leaves = newMemberId()
   const joins = newMemberId()
+  const machine = 'm-seeded'
   const member = (change: Partial<MemberWrite> & { memberId: string; version: number }) =>
     ({
       state: 'active',
@@ -101,8 +104,10 @@ describe('startServer identity seam: memberships pending at boot', () => {
       ...change,
     }) as MemberWrite
   // What the organisation changed while the server was down, above the cursor.
+  // Admins see the seeded machine, plain members do not (it has no custodian):
+  // each change moves its member's access record on it.
   const pending: MemberWrite[] = [
-    member({ memberId: joins, version: 3 }),
+    member({ memberId: joins, version: 3, role: 'admin' }),
     member({ memberId: stays, version: 4, role: 'admin' }),
     member({ memberId: leaves, version: 5, state: 'removed', accountId: null, profile: null }),
   ]
@@ -110,14 +115,26 @@ describe('startServer identity seam: memberships pending at boot', () => {
   beforeAll(async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-identity-seam-pending-'))
     process.env.PODIUM_STATE_DIR = stateDir
-    // The workspace as the last run left it: two members applied, cursor at 2.
-    const seeded = await SessionStore.open(join(stateDir, 'podium.db'), undefined, {
-      changeCapture: 'whenLogAttaches',
-    })
+    // The workspace as the last run left it: two members applied, cursor at 2,
+    // and one machine whose access records the members' changes move.
+    const seeded = await SessionStore.open(
+      join(stateDir, 'podium.db'),
+      asMachineId(readOrCreateLocalMachineId(stateDir)),
+      { changeCapture: 'whenLogAttaches' },
+    )
     await seeded.users.memberRows.write(member({ memberId: stays, version: 1 }))
     await seeded.users.memberRows.write(member({ memberId: leaves, version: 2 }))
     await seeded.settings.recordAppliedMembershipVersion(2)
+    await seeded.machines.upsertMachine({
+      id: machine,
+      name: machine,
+      hostname: machine,
+      tokenHash: 'seeded',
+      ownerUserId: null,
+    })
     await seeded.close()
+    // An installation with an enrolled machine already has its update key.
+    readOrCreateUpdateSigningKey(stateDir)
 
     handle = await startServer({
       janitorWorkerForTests: noJanitorWorkerForTests,
@@ -160,23 +177,21 @@ describe('startServer identity seam: memberships pending at boot', () => {
     const rows = new Map(
       (await store.users.listIncludingDisabled()).map((row) => [row.id as string, row]),
     )
-    expect(rows.get(joins)).toMatchObject({ role: 'member', disabledAt: null })
+    expect(rows.get(joins)).toMatchObject({ role: 'admin', disabledAt: null })
     expect(rows.get(stays)).toMatchObject({ role: 'admin', disabledAt: null })
     expect(rows.get(leaves)?.disabledAt).not.toBeNull()
   })
 
   it('puts each change in the log as the access records it moved, in version order', async () => {
     const store = handle.registry.sessionStore
-    const [host] = await store.machines.listMachines()
-    expect(host).toBeDefined()
-    // Each member's last access change on the host machine. The host row's
-    // creation may already have appended rows for the seeded members; only the
-    // catch-up appends after the join, so the order proves where they came from.
+    // Each member's last access change on the seeded machine. The boot may
+    // append rows for the seeded members before the catch-up (the host's row);
+    // only the catch-up appends after the join, so the order proves the source.
     const last = new Map<string, { op: string; seq: number }>()
     for (const change of await store.sync.changesSince(0)) {
       if (change.entity !== 'machineAccess') continue
       const { userId, machineId } = parseMachineAccessRowId(change.entityId)
-      if (machineId === host!.id) last.set(userId, { op: change.op, seq: change.seq })
+      if (machineId === machine) last.set(userId, { op: change.op, seq: change.seq })
     }
     expect(last.get(joins)?.op).toBe('upsert')
     expect(last.get(stays)?.op).toBe('upsert')
