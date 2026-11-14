@@ -91,6 +91,9 @@ export const MissionDeck = observer(function MissionDeck({
     }
   }, [submissions, receiptDeadline])
   const vitals = deckVitals(full)
+  // Past the filters' breakpoint the Done toggle takes its own line: beside
+  // the vitals at accessibility sizes it ran off the screen edge as "Hide".
+  const stackedVitals = useWindowDimensions().fontScale > SEGMENT_MAX_SCALE
   const [proposalsOpen, setProposalsOpen] = useState(true)
   const acceptedTree = full.ready ? submissions.acceptedTree : null
   const rowIds = acceptedTree?.rowIds ?? []
@@ -117,7 +120,7 @@ export const MissionDeck = observer(function MissionDeck({
       {vitals ? (
         <>
           <DeckGauge vitals={vitals} />
-          <View style={styles.vitalsRow}>
+          <View style={stackedVitals ? styles.vitalsStacked : styles.vitalsRow}>
             <View style={styles.vitalsText}>
               <DeckVitalsLine vitals={vitals} />
             </View>
@@ -512,6 +515,7 @@ const styles = StyleSheet.create({
   },
   sub: { ...sans(400), color: color.textDim, fontSize: font.tiny, lineHeight: leading(font.tiny) },
   vitalsRow: { flexDirection: 'row', alignItems: 'center', gap: space.md },
+  vitalsStacked: { alignItems: 'flex-start', gap: space.xs },
   vitalsText: { flex: 1, minWidth: 0 },
   doneToggle: { flexShrink: 0, minHeight: 20, justifyContent: 'center' },
   doneToggleLabel: { ...sans(400), color: deckColor.live, fontSize: font.tiny },

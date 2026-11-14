@@ -250,6 +250,10 @@ function ToolbarItems({
   )
 }
 
+// The system inline title barely grows with Dynamic Type; at accessibility
+// sizes an unbounded title left the 44pt bar and covered the content below.
+const TITLE_MAX_SCALE = 1.2
+
 /** The bar's title as one target: name, a small forward chevron, and the
  *  subtitle beneath, in the system title and footnote styles. */
 function HeaderTitleButton({
@@ -271,13 +275,17 @@ function HeaderTitleButton({
       style={styles.titleButton}
     >
       <View style={styles.titleRow}>
-        <Text style={styles.titleText} numberOfLines={1}>
+        <Text style={styles.titleText} numberOfLines={1} maxFontSizeMultiplier={TITLE_MAX_SCALE}>
           {title}
         </Text>
         <Icon as={ChevronRight} size={11} color={color.textFaint} />
       </View>
       {subtitle ? (
-        <Text style={styles.titleSubtitle} numberOfLines={1}>
+        <Text
+          style={styles.titleSubtitle}
+          numberOfLines={1}
+          maxFontSizeMultiplier={TITLE_MAX_SCALE}
+        >
           {subtitle}
         </Text>
       ) : null}
