@@ -115,7 +115,8 @@ export function DeckProposals({
       header={header ? <Content>{header}</Content> : undefined}
       modifiers={[
         listSectionMargins({ edges: 'vertical', length: 0 }),
-        accessibilityIdentifier('deck-proposals'),
+        // No Section identifier (as DeckGroup): SwiftUI would stamp it over
+        // every proposal row's own (deck-proposal, deck-proposal-slot-<id>).
         // Keep this section mounted, even when its last receipt expires. Only
         // its row changes animate; animating the List would move the nav bar.
         ...(reduceMotion ? [] : [animation(Animation.default, revision)]),

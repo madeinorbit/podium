@@ -74,8 +74,10 @@ export const MissionProposalRow = observer(function MissionProposalRow({
               alignment="top"
               spacing={12}
               modifiers={[
-                frame({ minWidth: 0, minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
+                // Pad first, then the 44pt floor (as task rows): the other
+                // order made every two-line proposal 60pt against 54.
                 padding({ vertical: 8 }),
+                frame({ minWidth: 0, minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
                 contentShape(shapes.rectangle()),
               ]}
             >

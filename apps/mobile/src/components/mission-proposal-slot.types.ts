@@ -5,5 +5,7 @@ export interface MissionProposalSlotProps {
   id: string
   window: RowWindow<string>
   prime: boolean
+  /** The card's first row draws no separator above itself. */
+  first?: boolean
   children: ReactNode
 }

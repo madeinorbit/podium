@@ -7,6 +7,7 @@ import {
   accessibilityIdentifier,
   accessibilityLabel,
   accessibilityValue,
+  alignmentGuide,
   buttonStyle,
   contentShape,
   font,
@@ -27,6 +28,7 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { type IssueStatus, issueStatusOf } from '@podium/model'
 import { SESSION_WORD_LABEL, type SessionWord, TASK_WORD_LABEL } from '@podium/model/browser'
 import { observer } from 'mobx-react-lite'
+import { useWindowDimensions } from 'react-native'
 import { color } from '../theme/theme'
 import { deckColor, deckWordColor } from './deck-colors'
 import { listRowPress } from './list-row-press.ios'
@@ -64,6 +66,22 @@ const MAX_INDENT = 3
 const TITLE_LINE = 20
 const NAME_LINE = 18
 
+/** Past the largest standard text size, titles get more lines before they
+ * truncate (Reminders, Mail). */
+const AX_SCALE = 1.35
+
+/** The first line's height and the title's line budget at the person's text
+ * size, so glyphs stay centred on the first line as it grows. */
+function useRowType() {
+  const { fontScale } = useWindowDimensions()
+  const scale = Math.max(1, fontScale)
+  return {
+    title: Math.round(TITLE_LINE * scale),
+    name: Math.round(NAME_LINE * scale),
+    lines: fontScale > AX_SCALE ? 4 : 2,
+  }
+}
+
 const rowInsets = (trailing = INSET) =>
   listRowInsets({ leading: INSET, trailing, top: 0, bottom: 0 })
 
@@ -83,6 +101,7 @@ export const DeckTaskRow = observer(function DeckTaskRow({
     open: task.open,
   }))
   const step = Math.min(indent, MAX_INDENT) * INDENT
+  const type = useRowType()
   if (facts === LOADING) {
     return (
       <HStack
@@ -113,8 +132,10 @@ export const DeckTaskRow = observer(function DeckTaskRow({
       spacing={0}
       modifiers={[
         frame({ maxWidth: Infinity, alignment: 'leading' }),
-        // The disclosure's 32pt column ends 8pt from the card edge.
-        rowInsets(foldable ? 8 : INSET),
+        // The disclosure's 44pt target ends 2pt from the card edge, so its
+        // chevron lines up with the phase headings' (24pt in).
+        rowInsets(foldable ? 2 : INSET),
+        separatorAt(step),
       ]}
     >
       <HStack
@@ -135,7 +156,11 @@ export const DeckTaskRow = observer(function DeckTaskRow({
         ]}
       >
         <Indent step={step} />
-        <StageMark stage={issueStatusOf(facts.status)} ground={color.groupedCard} />
+        <StageMark
+          stage={issueStatusOf(facts.status)}
+          ground={color.groupedCard}
+          line={type.title}
+        />
         <VStack
           alignment="leading"
           spacing={4}
@@ -145,7 +170,7 @@ export const DeckTaskRow = observer(function DeckTaskRow({
             modifiers={[
               font({ textStyle: 'subheadline' }),
               foregroundStyle(word === 'done' ? color.textDim : color.text),
-              lineLimit(2),
+              lineLimit(type.lines),
               frame({ maxWidth: Infinity, alignment: 'leading' }),
             ]}
           >
@@ -173,7 +198,7 @@ export const DeckTaskRow = observer(function DeckTaskRow({
             systemName={open ? 'chevron.down' : 'chevron.right'}
             size={13}
             color={color.textFaint}
-            modifiers={[frame({ width: 32, height: 44 }), contentShape(shapes.rectangle())]}
+            modifiers={[frame({ width: 44, height: 44 }), contentShape(shapes.rectangle())]}
           />
         </Button>
       ) : null}
@@ -194,6 +219,7 @@ export const DeckAgentRow = observer(function DeckAgentRow({
   const model = sessionModelLabel(session)
   const word = session.word
   const step = (Math.min(indent, MAX_INDENT) + 1) * INDENT
+  const type = useRowType()
   return (
     <HStack
       alignment="top"
@@ -208,10 +234,11 @@ export const DeckAgentRow = observer(function DeckAgentRow({
         listRowPress(onPress),
         accessibilityIdentifier('deck-agent'),
         ...seatRowTraits(current),
+        separatorAt(step),
       ]}
     >
       <Indent step={step} />
-      <SessionMark word={word} line={NAME_LINE} />
+      <SessionMark word={word} line={type.name} />
       <VStack
         alignment="leading"
         spacing={4}
@@ -221,7 +248,7 @@ export const DeckAgentRow = observer(function DeckAgentRow({
           modifiers={[
             font({ textStyle: 'footnote' }),
             foregroundStyle(color.text),
-            lineLimit(2),
+            lineLimit(type.lines),
             frame({ maxWidth: Infinity, alignment: 'leading' }),
           ]}
         >
@@ -244,6 +271,7 @@ export const DeckSeatRow = observer(function DeckSeatRow({
   const name = seatName(task, sessionId, session)
   const word = session.word
   const model = sessionModelLabel(session)
+  const type = useRowType()
   return (
     <HStack
       alignment="top"
@@ -258,9 +286,10 @@ export const DeckSeatRow = observer(function DeckSeatRow({
         listRowPress(onPress),
         accessibilityIdentifier('deck-seat'),
         ...seatRowTraits(current),
+        separatorAt(0),
       ]}
     >
-      <SessionMark word={word} line={TITLE_LINE} />
+      <SessionMark word={word} line={type.title} />
       <VStack
         alignment="leading"
         spacing={4}
@@ -270,7 +299,7 @@ export const DeckSeatRow = observer(function DeckSeatRow({
           modifiers={[
             font({ textStyle: 'subheadline', weight: 'semibold' }),
             foregroundStyle(color.text),
-            lineLimit(2),
+            lineLimit(type.lines),
             frame({ maxWidth: Infinity, alignment: 'leading' }),
           ]}
         >
@@ -300,7 +329,7 @@ export const DeckPhaseHeading = observer(function DeckPhaseHeading({
       <HStack
         modifiers={[
           ...headingTraits,
-          padding({ horizontal: INSET, top: 24, bottom: 8 }),
+          padding({ horizontal: INSET, top: 24, bottom: 12 }),
           frame({ minHeight: 44, maxWidth: Infinity }),
           accessibilityLabel('Loading phase'),
         ]}
@@ -329,7 +358,7 @@ export const DeckPhaseHeading = observer(function DeckPhaseHeading({
       <HStack
         spacing={GAP}
         modifiers={[
-          padding({ horizontal: INSET, top: 24, bottom: 8 }),
+          padding({ horizontal: INSET, top: 24, bottom: 12 }),
           frame({ maxWidth: Infinity, alignment: 'leading' }),
           contentShape(shapes.rectangle()),
         ]}
@@ -381,6 +410,10 @@ function seatRowTraits(current: boolean) {
   return [rowInsets(), ...(current ? [listRowBackground(deckColor.liveFill)] : [])]
 }
 
+/** The separator starts at the row's text column, set outright: inferred
+ * from content, a recycled cell can draw it from the row inset instead. */
+const separatorAt = (step: number) => alignmentGuide('listRowSeparatorLeading', step + INDENT)
+
 /** The meta line's type; each piece names its own colour (the first
  * foregroundStyle on a Text wins). */
 const metaText = (tint: string) => [
@@ -397,9 +430,17 @@ function Indent({ step }: { step: number }) {
 }
 
 /** The desktop stage glyph, a fixed 14pt drawing centred in the glyph column. */
-function StageMark({ stage, ground }: { stage: IssueStatus; ground: string }) {
+function StageMark({
+  stage,
+  ground,
+  line = TITLE_LINE,
+}: {
+  stage: IssueStatus
+  ground: string
+  line?: number
+}) {
   return (
-    <HStack modifiers={[frame({ width: GLYPH, height: TITLE_LINE }), accessibilityHidden()]}>
+    <HStack modifiers={[frame({ width: GLYPH, height: line }), accessibilityHidden()]}>
       <RNHostView matchContents>
         <StageGlyph stage={stage} ground={ground} />
       </RNHostView>

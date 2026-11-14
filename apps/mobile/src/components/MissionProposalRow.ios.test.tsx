@@ -27,6 +27,7 @@ vi.mock('@expo/ui/swift-ui/modifiers', () => ({
       'accessibilityHint',
       'accessibilityIdentifier',
       'accessibilityLabel',
+      'alignmentGuide',
       'background',
       'buttonStyle',
       'contentShape',
@@ -77,6 +78,7 @@ vi.mock('@expo/ui/swift-ui', () => {
     ),
     Section: ({ children, header, modifiers }: Props) => (
       <div
+        data-native-section
         data-testid={modifiers?.find((m) => m.name === 'accessibilityIdentifier')?.value as string}
         data-animation-value={modifiers?.find((m) => m.name === 'animation')?.value as number}
       >
@@ -132,6 +134,7 @@ vi.mock('@expo/ui/swift-ui', () => {
         </div>
       )
     },
+    Divider: () => <hr data-testid="row-separator" />,
     Spacer: ({ modifiers }: Props) => {
       const value = modifiers?.find((m) => m.name === 'frame')?.value as
         | { height?: number }
@@ -233,6 +236,14 @@ afterEach(() => {
   vi.useRealTimers()
   native.measure.clear()
 })
+
+/** The proposals Section, the deck's last: it carries no identifier, which
+ * SwiftUI would stamp over every proposal row's own. */
+function proposalsSection(): HTMLElement {
+  const section = [...document.querySelectorAll<HTMLElement>('[data-native-section]')].at(-1)
+  if (!section) throw new Error('Missing proposals section')
+  return section
+}
 
 async function mount(count = 1, reduceMotion = false, accepted = 0) {
   const root = {
@@ -461,7 +472,7 @@ it.each([
   const f = await mount(3)
   vi.useFakeTimers()
   const slot = screen.getByTestId('deck-proposal-slot-proposal-1')
-  const section = screen.getByTestId('deck-proposals')
+  const section = proposalsSection()
   const originalOrder = [...section.children].filter(
     (child) => child.getAttribute('data-testid') !== 'native-section-header',
   )
@@ -497,7 +508,7 @@ it.each([
   })
   expect(screen.getByTestId('deck-proposal-slot-proposal-1')).toBe(slot)
   expect(
-    [...screen.getByTestId('deck-proposals').children].filter(
+    [...proposalsSection().children].filter(
       (child) => child.getAttribute('data-testid') !== 'native-section-header',
     ),
   ).toEqual(originalOrder)
@@ -510,15 +521,24 @@ it.each([
   await act(async () => vi.advanceTimersByTime(1799))
   expect(slot.isConnected).toBe(true)
   expect(
-    [...screen.getByTestId('deck-proposals').children].filter(
+    [...proposalsSection().children].filter(
       (child) => child.getAttribute('data-testid') !== 'native-section-header',
     ),
   ).toEqual(originalOrder)
   await act(async () => vi.advanceTimersByTime(1))
   expect(screen.queryByTestId('deck-proposal-slot-proposal-1')).toBeNull()
-  expect(screen.getByTestId('deck-proposals')).toBe(section)
+  expect(proposalsSection()).toBe(section)
   expect(section.dataset.animationValue).not.toBe(revision)
   expect(screen.queryAllByText('Proposal 1')).toHaveLength(command === 'close' ? 0 : 1)
+})
+
+it('draws the separator at the title column on every proposal but the first', async () => {
+  await mount(3)
+  const separators = (id: string) =>
+    within(screen.getByTestId(`deck-proposal-slot-${id}`)).queryAllByTestId('row-separator')
+  expect(separators('proposal-0')).toHaveLength(0)
+  expect(separators('proposal-1')).toHaveLength(1)
+  expect(separators('proposal-2')).toHaveLength(1)
 })
 
 it('keeps the last positive content height when a receipt cell leaves and re-enters the row window', async () => {
@@ -553,7 +573,9 @@ it.each([
 ])('collapses the final receipt in the same section with reduced motion %s', async (reduceMotion) => {
   const f = await mount(1, reduceMotion)
   vi.useFakeTimers()
-  const section = screen.getByTestId('deck-proposals')
+  const section = proposalsSection()
+  // SwiftUI stamps a Section's identifier over its rows' own: it has none.
+  expect(section.dataset.testid).toBeUndefined()
   const revision = section.dataset.animationValue
   expect(revision === undefined).toBe(reduceMotion)
   fireEvent.click(
