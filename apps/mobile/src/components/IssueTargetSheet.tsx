@@ -11,6 +11,8 @@ import { useMobilePoolProjection } from '../client/mobile-pool'
 import { useKeyboardHeight } from '../hooks/useKeyboardHeight'
 import { color, font, mono, radius, sans, space } from '../theme/theme'
 import { BottomSheet } from './BottomSheet'
+import { FormSheetBar } from './compose/FormSheetBar'
+import { Icon } from './Icon'
 import { listWindow } from './list-window'
 import { PressableScale } from './PressableScale'
 import { StageGlyph } from './StageGlyph'
@@ -49,35 +51,28 @@ export function IssueTargetSheet({
     <BottomSheet
       visible={visible}
       mode="detented"
+      openAt="large"
+      grouped
       scrollable={false}
       onClose={onClose}
       head={
         <View style={styles.head}>
-          <Text style={styles.heading}>{title}</Text>
+          <FormSheetBar title={title} onCancel={onClose} />
           {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
-          <TextInput
-            autoFocus
-            accessibilityLabel={`Search ${title.toLocaleLowerCase()}`}
-            value={query}
-            onChangeText={onQueryChange}
-            placeholder="Search by title or ID…"
-            placeholderTextColor={color.textMicro}
-            returnKeyType="search"
-            style={styles.search}
-          />
-        </View>
-      }
-      footerRule={false}
-      footer={
-        <View style={[styles.footer, { paddingBottom: footerPadding }]}>
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel="Cancel"
-            onPress={onClose}
-            style={({ pressed }) => [styles.cancel, pressed && styles.pressed]}
-          >
-            <Text style={styles.cancelText}>Cancel</Text>
-          </PressableScale>
+          <View style={styles.searchField}>
+            <Icon as="magnifyingglass" size={15} color={color.textFaint} />
+            <TextInput
+              autoFocus
+              accessibilityLabel={`Search ${title.toLocaleLowerCase()}`}
+              value={query}
+              onChangeText={onQueryChange}
+              placeholder="Search by title or ID…"
+              placeholderTextColor={color.textMicro}
+              returnKeyType="search"
+              clearButtonMode="while-editing"
+              style={styles.search}
+            />
+          </View>
         </View>
       }
       virtualizedContent={(scrollEnabled) => (
@@ -91,9 +86,15 @@ export function IssueTargetSheet({
           scrollEnabled={scrollEnabled}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
-          contentContainerStyle={styles.list}
-          renderItem={({ item: id }) => (
-            <IssueTargetRow id={id} onPick={onPick} onClose={onClose} />
+          contentContainerStyle={[styles.list, { paddingBottom: footerPadding }]}
+          renderItem={({ item: id, index }) => (
+            <IssueTargetRow
+              id={id}
+              first={index === 0}
+              last={index === ids.length - 1}
+              onPick={onPick}
+              onClose={onClose}
+            />
           )}
           ListEmptyComponent={
             loading ? (
@@ -114,13 +115,20 @@ export function IssueTargetSheet({
  * the one reader batches their demand; the catalog never caches payloads. */
 function IssueTargetRow({
   id,
+  first,
+  last,
   onPick,
   onClose,
 }: {
   id: string
+  first: boolean
+  last: boolean
   onPick: (issue: IssueTarget) => void
   onClose: () => void
 }) {
+  // One inset-grouped card drawn row by row: a virtualized list cannot clip
+  // its window to a rounded container.
+  const shape = [styles.card, first && styles.cardFirst, last && styles.cardLast]
   const read = useCallback(
     (pool: MobxPool): IssueTarget | typeof LOADING | undefined => {
       const row = omitGone(pool.row('issue', id, 'summary-fields')) as
@@ -149,7 +157,7 @@ function IssueTargetRow({
   if (issue === undefined) return null
   if (issue === LOADING)
     return (
-      <View style={styles.row}>
+      <View style={[styles.row, shape]}>
         <Text style={styles.title}>Loading…</Text>
       </View>
     )
@@ -161,9 +169,9 @@ function IssueTargetRow({
         onClose()
         onPick(issue)
       }}
-      style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+      style={({ pressed }) => [styles.row, shape, pressed && styles.pressed]}
     >
-      <StageGlyph stage={issue.stage} size={14} ground={color.surface} />
+      <StageGlyph stage={issue.stage} size={14} ground={color.groupedCard} />
       <Text style={styles.ref}>{issueDisplayRef(issue)}</Text>
       <Text style={styles.title} numberOfLines={2}>
         {issue.title}
@@ -180,45 +188,54 @@ export function issueTargetFooterPadding(safeBottom: number, keyboardHeight: num
 const styles = StyleSheet.create({
   head: {
     gap: space.sm,
-    paddingHorizontal: space.lg,
     paddingBottom: space.md,
-  },
-  heading: {
-    ...sans(600),
-    color: color.body,
-    fontSize: font.body,
-    textAlign: 'center',
   },
   subtitle: {
     ...sans(400),
-    color: color.textFaint,
+    color: color.textDim,
     fontSize: font.tiny,
     textAlign: 'center',
+    paddingHorizontal: space.lg,
+  },
+  // The iOS search field: a filled capsule with the magnifying glass inside.
+  searchField: {
+    minHeight: 36,
+    marginHorizontal: space.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingLeft: 10,
+    borderRadius: 10,
+    backgroundColor: color.quaternaryFill,
   },
   search: {
     ...sans(400),
-    minHeight: 42,
+    flex: 1,
+    minHeight: 36,
     color: color.text,
-    fontSize: font.small,
-    paddingHorizontal: space.md,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
-    backgroundColor: color.bgSunken,
+    fontSize: font.body,
+    paddingRight: 8,
   },
   list: {
-    paddingHorizontal: space.md,
-    paddingBottom: space.md,
+    paddingHorizontal: space.lg,
+  },
+  card: { backgroundColor: color.groupedCard },
+  cardFirst: { borderTopLeftRadius: radius.card, borderTopRightRadius: radius.card },
+  cardLast: {
+    borderBottomLeftRadius: radius.card,
+    borderBottomRightRadius: radius.card,
+    borderBottomWidth: 0,
   },
   listFrame: { flex: 1 },
   row: {
-    minHeight: 52,
+    minHeight: 48,
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
     paddingHorizontal: space.md,
+    paddingVertical: space.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: color.hairline,
+    borderBottomColor: color.border,
   },
   ref: {
     ...mono(400),
@@ -239,23 +256,5 @@ const styles = StyleSheet.create({
     padding: space.xl,
     textAlign: 'center',
   },
-  pressed: { opacity: 0.68 },
-  footer: {
-    paddingTop: space.sm,
-  },
-  cancel: {
-    minHeight: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginHorizontal: space.md,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
-    backgroundColor: color.surface,
-  },
-  cancelText: {
-    ...sans(600),
-    color: color.textDim,
-    fontSize: font.body,
-  },
+  pressed: { backgroundColor: color.surfacePressed },
 })

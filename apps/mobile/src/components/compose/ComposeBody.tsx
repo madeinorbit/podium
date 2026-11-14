@@ -401,7 +401,15 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
     backgroundColor: color.border,
   },
-  fieldLabel: { fontWeight: '400', fontSize: 15, width: 68, color: color.textDim },
+  // A minimum, not a width: at accessibility sizes a fixed 68pt column broke
+  // "Project" and "Machine" mid-word. The value side shrinks instead.
+  fieldLabel: {
+    fontWeight: '400',
+    fontSize: 15,
+    minWidth: 68,
+    flexShrink: 0,
+    color: color.textDim,
+  },
   fieldValue: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8 },
   value: { fontWeight: '400', fontSize: 15, color: color.text, flexShrink: 1 },
   detail: { fontWeight: '400', fontSize: 15, color: color.textDim, flexShrink: 2 },

@@ -1,10 +1,18 @@
-import type { ReactNode } from 'react'
 import { cleanup, fireEvent, render } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
+
 vi.mock('../BottomSheet', () => ({
-  BottomSheet: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  BottomSheet: ({ head, children }: { head: ReactNode; children: ReactNode }) => (
+    <div>
+      {head}
+      {children}
+    </div>
+  ),
 }))
+
 import { PromptSheet } from './PromptSheet'
+
 afterEach(cleanup)
 it('follows live rename text until edited, then keeps the explicit draft through updates', () => {
   const confirm = vi.fn()

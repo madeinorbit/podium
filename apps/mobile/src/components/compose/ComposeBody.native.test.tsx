@@ -236,7 +236,8 @@ it('keeps full-width rows, a small corner badge with a full hit area, and a keyb
   )
   const row = screen.getByRole('button', { name: 'Project, podium' })
   expect(getComputedStyle(row).width).toBe('100%')
-  expect(getComputedStyle(screen.getByText('Project')).width).toBe('68px')
+  // A minimum column, so accessibility sizes never break a label mid-word.
+  expect(getComputedStyle(screen.getByText('Project')).minWidth).toBe('68px')
   const remove = screen.getByRole('button', { name: 'Remove photo.jpg' })
   const badge = screen.getByTestId('xmark.circle.fill')
   expect(getComputedStyle(remove).width).toBe('44px')
