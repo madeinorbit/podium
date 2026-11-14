@@ -431,7 +431,6 @@ export class Authority implements AuthorityPort {
     }
   }
 
-  /** The principals currently subscribed, by stable id. Telemetry and tests. */
   /**
    * Resolves once every delivery pass queued so far has run. Deliveries trail
    * the commits that queued them (post-commit, append order), so a test that
@@ -442,6 +441,7 @@ export class Authority implements AuthorityPort {
     await this.broadcastTail
   }
 
+  /** The principals currently subscribed, by stable id. Telemetry and tests. */
   subscribedPrincipals(): readonly string[] {
     return [...this.subscribers].map((s) => principalRoutingId(s.principal))
   }
