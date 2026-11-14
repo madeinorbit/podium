@@ -21,15 +21,18 @@ export function DeckContent({ children }: { children: ReactNode }) {
 export function DeckGroup({
   children,
   header,
+  heading,
   testID,
 }: {
   children: ReactNode
   header?: ReactNode
+  /** A heading row above the card (the phase); on iOS a native List row. */
+  heading?: ReactNode
   testID: string
 }) {
   return (
     <View style={styles.main}>
-      {header}
+      {heading ?? header}
       <View testID={testID} style={styles.group}>
         {children}
       </View>

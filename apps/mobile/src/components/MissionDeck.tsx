@@ -391,7 +391,8 @@ const DeckRows = observer(function DeckRows({
           <Fragment key={`${groupKey}-${occurrence}`}>
             <DeckGroup
               testID={`deck-group-${phase?.id ?? 'loose'}`}
-              header={phase ? <DeckPhaseHeading phase={phase} /> : <GroupGap />}
+              heading={phase ? <DeckPhaseHeading phase={phase} /> : undefined}
+              header={phase ? undefined : <GroupGap />}
             >
               {phase &&
                 leadingSeats.map((id) => (

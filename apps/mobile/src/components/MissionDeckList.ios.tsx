@@ -6,9 +6,7 @@ import {
   animation,
   background,
   frame,
-  listRowBackground,
   listRowInsets,
-  listRowSeparator,
   listSectionMargins,
   listSectionSpacing,
   listStyle,
@@ -69,42 +67,34 @@ const headerInsets = [
 export function DeckGroup({
   children,
   header,
-  testID,
+  heading,
 }: {
   children: ReactNode
+  /** React content above the card (the deck head, a gap), hosted as the header. */
   header?: ReactNode
+  /** A native heading row (DeckPhaseHeading): its own quiet row above the card. */
+  heading?: ReactNode
+  /** Names the group on web; native rows carry their own identifiers. */
   testID: string
 }) {
   return (
-    <Section
-      header={header ? <Content>{header}</Content> : undefined}
-      modifiers={[...sectionMargins, accessibilityIdentifier(testID)]}
-    >
-      {children}
-    </Section>
+    <>
+      {heading ? <Section modifiers={sectionMargins}>{heading}</Section> : null}
+      {/* No Section identifier: SwiftUI stamps it on every row in the Section,
+          over each row's own (deck-task, deck-agent, deck-seat). */}
+      <Section header={header ? <Content>{header}</Content> : undefined} modifiers={sectionMargins}>
+        {children}
+      </Section>
+    </>
   )
 }
 
-/** Each accepted task/seat has its own non-collapsable Yoga measurement root.
- * A mission-sized RNHostView cell is recycled/clipped as one UIKit list item.
- * Keeping rows separate also lets SwiftUI measure catch-up inserts independently. */
+/** Rows are native List rows (MissionDeckRows.ios) that set their own row
+ * traits. SwiftUI sizes them from their own text, so heights follow the cell's
+ * width, Dynamic Type and live updates, and recycling never strands a hosted
+ * React view in another cell [POD-2529]. */
 export function DeckRow({ children }: { children: ReactNode }) {
-  return (
-    <VStack
-      modifiers={[
-        frame({ maxWidth: Infinity, alignment: 'leading' }),
-        listRowInsets({ leading: 0, trailing: 0, top: 0, bottom: 0 }),
-        listRowSeparator('hidden'),
-        listRowBackground(color.groupedCard),
-      ]}
-    >
-      <RNHostView matchContents={{ vertical: true }}>
-        <View collapsable={false} style={styles.row}>
-          {children}
-        </View>
-      </RNHostView>
-    </VStack>
-  )
+  return children
 }
 
 const sectionMargins = [listSectionMargins({ edges: 'vertical', length: 0 })]
@@ -138,7 +128,6 @@ export function DeckProposals({
 
 const styles = StyleSheet.create({
   host: { flex: 1 },
-  row: { width: '100%' },
   // Each header's own content sets its spacing (the deck's 4pt rhythm).
   content: { width: '100%' },
 })

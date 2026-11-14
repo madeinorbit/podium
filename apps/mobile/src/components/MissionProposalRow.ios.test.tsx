@@ -18,7 +18,12 @@ const native = vi.hoisted(() => ({
 vi.mock('@expo/ui/swift-ui/modifiers', () => ({
   ...Object.fromEntries(
     [
+      'accessibilityAddTraits',
       'accessibilityElement',
+      'accessibilityHidden',
+      'accessibilityValue',
+      'monospacedDigit',
+      'onLongPressGesture',
       'accessibilityHint',
       'accessibilityIdentifier',
       'accessibilityLabel',
@@ -47,7 +52,7 @@ vi.mock('@expo/ui/swift-ui/modifiers', () => ({
       'onGeometryChange',
     ].map((name) => [name, (value: unknown) => ({ name, value })]),
   ),
-  shapes: { rectangle: () => ({}) },
+  shapes: { rectangle: () => ({}), roundedRectangle: () => ({}) },
   Animation: { default: 'default' },
   animation: (_preset: unknown, value: unknown) => ({ name: 'animation', value }),
 }))
@@ -79,7 +84,26 @@ vi.mock('@expo/ui/swift-ui', () => {
         {children}
       </div>
     ),
-    HStack: Box,
+    // A native deck row: the List's row Button (listRowPress) opens it and
+    // its long press opens the task menu.
+    HStack: ({ children, modifiers }: Props) => {
+      const find = (name: string) => modifiers?.find((m) => m.name === name)?.value
+      const press = find('podiumListRowPress') as (() => void) | undefined
+      const longPress = find('onLongPressGesture') as (() => void) | undefined
+      return (
+        // biome-ignore lint/a11y/noStaticElementInteractions: the native row Button is driven at this test boundary.
+        // biome-ignore lint/a11y/useKeyWithClickEvents: as above.
+        <div
+          data-testid={find('accessibilityIdentifier') as string | undefined}
+          data-label={find('accessibilityLabel') as string | undefined}
+          data-row-press={press ? 'true' : undefined}
+          onClick={press}
+          onContextMenu={longPress}
+        >
+          {children}
+        </div>
+      )
+    },
     VStack: ({ children, modifiers }: Props) => {
       const id = modifiers?.find((m) => m.name === 'accessibilityIdentifier')?.value as
         | string
@@ -125,6 +149,7 @@ vi.mock('@expo/ui/swift-ui', () => {
     ),
     Text: ({ children, modifiers }: Props) => (
       <div
+        data-line-limit={modifiers?.find((m) => m.name === 'lineLimit')?.value as number}
         data-fills-width={
           (modifiers?.find((m) => m.name === 'frame')?.value as { maxWidth?: number })?.maxWidth ===
           Infinity
@@ -142,6 +167,12 @@ vi.mock('@expo/ui/swift-ui', () => {
     }: Props & { label?: string; onPress: () => void; role?: string }) => (
       <button
         type="button"
+        data-testid={modifiers?.find((m) => m.name === 'accessibilityIdentifier')?.value as string}
+        aria-label={
+          label
+            ? undefined
+            : (modifiers?.find((m) => m.name === 'accessibilityLabel')?.value as string)
+        }
         data-native-role={role}
         data-tint={modifiers?.find((m) => m.name === 'tint')?.value as string}
         disabled={modifiers?.some((m) => m.name === 'disabled' && m.value === true)}
@@ -173,8 +204,18 @@ vi.mock('./WorkingMark', () => ({ WorkingMark: () => null }))
 vi.mock('./MissionProposalRow', () => import('./MissionProposalRow.ios'))
 vi.mock('./MissionProposalSlot', () => import('./MissionProposalSlot.ios'))
 vi.mock('./MissionDeckList', () => import('./MissionDeckList.ios'))
+vi.mock('./MissionDeckRows', () => import('./MissionDeckRows.ios'))
+vi.mock('./list-row-press.ios', () => ({
+  listRowPress: (onOpen: () => void) => ({ name: 'podiumListRowPress', value: onOpen }),
+}))
 const { MissionDeck } = await import('./MissionDeck')
-const Opened = observer(function Opened({ onPress }: { onPress: () => void }) {
+const Opened = observer(function Opened({
+  onPress,
+  onMenu = () => {},
+}: {
+  onPress: () => void
+  onMenu?: () => void
+}) {
   const { screen } = useMissionOpening('root')
   return screen?.ready ? (
     <MissionDeck
@@ -182,7 +223,7 @@ const Opened = observer(function Opened({ onPress }: { onPress: () => void }) {
       currentSessionId={undefined}
       onOpenSession={() => {}}
       onOpenTask={onPress}
-      onOpenTaskMenu={() => {}}
+      onOpenTaskMenu={onMenu}
       onScreenProposals={() => {}}
     />
   ) : null
@@ -360,7 +401,9 @@ it('keeps the POD-2403 completed leaf and hibernated seat readable through catch
     createdAt: '2026-11-11T00:00:00Z',
     agentState: { phase: 'idle', idle: { kind: 'done' } },
   } as unknown as SessionView
-  const f = await renderWithMobileStore(<Opened onPress={vi.fn()} />, {
+  const open = vi.fn()
+  const menu = vi.fn()
+  const f = await renderWithMobileStore(<Opened onPress={open} onMenu={menu} />, {
     issues: [
       root,
       ...Array.from({ length: 60 }, (_, index) => ({
@@ -375,19 +418,18 @@ it('keeps the POD-2403 completed leaf and hibernated seat readable through catch
   })
   const body = screen.getByText(completed.title).closest('[data-testid="deck-task"]')
   if (!(body instanceof HTMLElement)) throw new Error('Missing completed task body')
-  const host = body.closest('[data-native-rn-host]')
-  expect(host?.getAttribute('data-sizing')).toBe('{"vertical":true}')
-  const measurementRoot = host?.firstElementChild
-  const textRoot = screen.getByText(completed.title).parentElement
-  if (!measurementRoot || !textRoot) throw new Error('Missing row measurement roots')
-  expect(getComputedStyle(measurementRoot).width).toBe('100%')
-  // Text must contribute intrinsic height while RNHostView has no height
-  // proposal, rather than depending on a zero-basis flex measurement.
-  expect(getComputedStyle(textRoot).flexGrow || '0').toBe('0')
+  // A native row: SwiftUI sizes the title from the cell's width, two lines at
+  // most; no React view is measured for it [POD-2529].
+  const title = screen.getByText(completed.title)
+  expect(title.closest('[data-native-rn-host]')).toBeNull()
+  expect(title.dataset.lineLimit).toBe('2')
+  expect(title.dataset.fillsWidth).toBe('true')
   expect(within(body).getByText('Done')).toBeTruthy()
   expect(within(body).getByText(/2403/)).toBeTruthy()
   await act(async () => fireEvent.click(screen.getByLabelText(`Expand ${completed.title}`)))
   expect(screen.getByText('Tasks and video polish')).toBeTruthy()
+  // The chevron is its own button: it folds and never opens the task.
+  expect(open).not.toHaveBeenCalled()
   const rows = f.replica.rows('issueProjections')
   await act(async () =>
     f.replica.applySnapshot(
@@ -396,7 +438,6 @@ it('keeps the POD-2403 completed leaf and hibernated seat readable through catch
     ),
   )
   expect(screen.getByText(completed.title).closest('[data-testid="deck-task"]')).toBe(body)
-  expect(body.closest('[data-native-rn-host]')).toBe(host)
   expect(within(body).getByText('Done')).toBeTruthy()
   await act(async () => fireEvent.click(screen.getByLabelText(`Collapse ${completed.title}`)))
   expect(screen.queryByTestId('deck-agent')).toBeNull()
@@ -404,6 +445,12 @@ it('keeps the POD-2403 completed leaf and hibernated seat readable through catch
   await act(async () => fireEvent.click(screen.getByTestId('deck-filter-all')))
   expect(screen.getByText(completed.title)).toBeTruthy()
   expect(screen.getAllByTestId('deck-task')).toHaveLength(61)
+  const row = screen.getByText(completed.title).closest('[data-testid="deck-task"]')
+  if (!(row instanceof HTMLElement)) throw new Error('Missing completed task row')
+  fireEvent.click(row)
+  expect(open).toHaveBeenCalledOnce()
+  fireEvent.contextMenu(row)
+  expect(menu).toHaveBeenCalledOnce()
 })
 
 it.each([
@@ -546,14 +593,18 @@ it('keeps native proposal action trees inside the shared 40-row window', async (
   expect(await group.findByText('Started')).toBeTruthy()
 })
 
-it('gives each accepted task a separate native measurement root and keeps the gauge outside rounded cells', async () => {
+it('draws each accepted task as its own native row and keeps the gauge outside rounded cells', async () => {
   const f = await mount(48, false, 60)
   const tasks = screen.getAllByTestId('deck-task')
   expect(tasks).toHaveLength(60)
-  const hosts = tasks.map((task) => task.closest('[data-native-rn-host]'))
-  expect(new Set(hosts).size).toBe(60)
-  for (const host of hosts)
-    expect(host?.querySelectorAll('[data-testid="deck-task"]')).toHaveLength(1)
+  // Only the fixed-size stage glyph is a React view; every title, ref and word
+  // is SwiftUI text that the List measures and recycles itself [POD-2529].
+  for (const task of tasks) {
+    expect(task.dataset.rowPress).toBe('true')
+    for (const host of task.querySelectorAll('[data-native-rn-host]'))
+      expect(host.textContent).toBe('')
+  }
+  expect(screen.getByText('Accepted task 7').closest('[data-native-rn-host]')).toBeNull()
   expect(
     screen.getByTestId('deck-gauge').closest('[data-testid="native-section-header"]'),
   ).toBeTruthy()
@@ -578,7 +629,7 @@ it('gives each accepted task a separate native measurement root and keeps the ga
   )
   expect(screen.getAllByTestId('deck-task')).toHaveLength(60)
   const updated = screen.getByText('Caught-up accepted task').closest('[data-testid="deck-task"]')
-  expect(updated?.closest('[data-native-rn-host]')).toBe(hosts[50])
+  expect(updated).toBe(tasks[50])
   fireEvent.click(screen.getByTestId('deck-filter-active'))
   fireEvent.click(screen.getByTestId('deck-filter-all'))
   expect(screen.getAllByTestId('deck-task')).toHaveLength(60)
